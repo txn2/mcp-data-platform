@@ -11,6 +11,13 @@ import (
 )
 
 // connectionEntry describes a single toolkit connection.
+//
+// CatalogID and OperationCount are populated only for kinds where they
+// have meaning (today: api). They make the runtime view of a
+// connection visible to MCP clients so a stale in-memory binding
+// (DB updated, toolkit not reloaded) is observable from list_connections
+// rather than only via a downstream tool failing with "no catalog
+// configured".
 type connectionEntry struct {
 	Kind              string `json:"kind"`
 	Name              string `json:"name"`
@@ -18,6 +25,8 @@ type connectionEntry struct {
 	Description       string `json:"description,omitempty"`
 	IsDefault         bool   `json:"is_default,omitempty"`
 	DataHubSourceName string `json:"datahub_source_name,omitempty"`
+	CatalogID         string `json:"catalog_id,omitempty"`
+	OperationCount    int    `json:"operation_count,omitempty"`
 }
 
 // listConnectionsOutput is the JSON response for the list_connections tool.
@@ -80,11 +89,13 @@ func (p *Platform) handleListConnections(_ context.Context, _ *mcp.CallToolReque
 func (p *Platform) entriesFromLister(entries []connectionEntry, tk registry.Toolkit, lister toolkit.ConnectionLister) []connectionEntry {
 	for _, conn := range lister.ListConnections() {
 		entry := connectionEntry{
-			Kind:        tk.Kind(),
-			Name:        conn.Name,
-			Connection:  conn.Name,
-			Description: conn.Description,
-			IsDefault:   conn.IsDefault,
+			Kind:           tk.Kind(),
+			Name:           conn.Name,
+			Connection:     conn.Name,
+			Description:    conn.Description,
+			IsDefault:      conn.IsDefault,
+			CatalogID:      conn.CatalogID,
+			OperationCount: conn.OperationCount,
 		}
 		if src := p.connectionSources.ForConnection(tk.Kind(), conn.Name); src != nil {
 			entry.DataHubSourceName = src.DataHubSourceName

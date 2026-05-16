@@ -5,10 +5,20 @@
 package toolkit
 
 // ConnectionDetail provides information about a single connection within a toolkit.
+//
+// CatalogID and OperationCount are optional and only populated by toolkits
+// where they have meaning (today: apigateway). They exist on this shared
+// struct so list_connections can surface what's actually bound at runtime
+// rather than only what's stored in the DB. The two disagreed in the
+// past when a config update reached the store but never reached the
+// in-memory toolkit, and the missing fields here made the divergence
+// invisible from the MCP surface.
 type ConnectionDetail struct {
-	Name        string
-	Description string
-	IsDefault   bool
+	Name           string
+	Description    string
+	IsDefault      bool
+	CatalogID      string
+	OperationCount int
 }
 
 // ConnectionLister is an optional interface for toolkits that manage multiple
