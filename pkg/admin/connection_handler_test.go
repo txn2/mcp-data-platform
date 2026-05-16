@@ -27,6 +27,11 @@ type mockConnectionStore struct {
 	deleteErr error
 	listErr   error
 	getErr    error
+	// setCalls records each ConnectionInstance passed to Set so tests
+	// can assert the persisted config is what the handler sent. Used
+	// to prove fields like static_headers reach the store, not just
+	// that the HTTP request returned 200.
+	setCalls []platform.ConnectionInstance
 }
 
 func (m *mockConnectionStore) List(_ context.Context) ([]platform.ConnectionInstance, error) {
@@ -43,7 +48,8 @@ func (m *mockConnectionStore) Get(_ context.Context, _, _ string) (*platform.Con
 	return m.getResult, nil
 }
 
-func (m *mockConnectionStore) Set(_ context.Context, _ platform.ConnectionInstance) error {
+func (m *mockConnectionStore) Set(_ context.Context, inst platform.ConnectionInstance) error {
+	m.setCalls = append(m.setCalls, inst)
 	return m.setErr
 }
 

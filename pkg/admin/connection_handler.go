@@ -590,12 +590,25 @@ func (h *Handler) findConnectionManager(kind string) toolkit.ConnectionManager {
 	return nil
 }
 
-// hotAddConnection attempts to add the connection to a live toolkit that
-// implements toolkit.ConnectionManager.
+// hotAddConnection makes the given config the live config for the
+// named connection. On CREATE it adds; on UPDATE it removes the
+// existing in-memory connection first and re-adds with the new
+// config so changes (notably config.catalog_id) take effect without
+// a process restart. Without the remove-then-add, the in-memory
+// connection retains its registration-time config while the DB row
+// has the new one, and list_connections and api_list_endpoints
+// disagree with the admin UI until restart.
 func (h *Handler) hotAddConnection(kind, name string, config map[string]any) {
 	cm := h.findConnectionManager(kind)
-	if cm == nil || cm.HasConnection(name) {
+	if cm == nil {
 		return
+	}
+	if cm.HasConnection(name) {
+		if err := cm.RemoveConnection(name); err != nil { // #nosec G706 -- structured slog call, not a format string
+			slog.Warn("failed to hot-remove connection before re-add",
+				logKeyKind, kind, logKeyName, name, logKeyError, err)
+			return
+		}
 	}
 	if err := cm.AddConnection(name, config); err != nil { // #nosec G706 -- structured slog call, not a format string
 		slog.Warn("failed to hot-add connection",

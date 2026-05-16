@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   useAPICatalogs,
   useEffectiveConnections,
@@ -622,6 +622,18 @@ function ConnectionEditor({ connection, onSave, onCancel, onDirtyChange }: Edito
   const [configObj, setConfigObj] = useState<Record<string, any>>(
     connection?.config ? { ...connection.config } : {},
   );
+  // configObjRef mirrors configObj synchronously so handleSave can
+  // read the latest value even when the Save click follows a child
+  // editor's onChange in the same task. React schedules setConfigObj
+  // asynchronously; the closure-captured configObj is one render
+  // behind. The ref bridges the gap so a keystroke that landed in
+  // the keystroke-eager SensitiveKeyValueEditor immediately before
+  // the Save click is included in the PUT body.
+  const configObjRef = useRef(configObj);
+  const updateConfig = useCallback((next: Record<string, any>) => {
+    configObjRef.current = next;
+    setConfigObj(next);
+  }, []);
   const configJson = JSON.stringify(configObj); // for dirty tracking
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -641,12 +653,20 @@ function ConnectionEditor({ connection, onSave, onCancel, onDirtyChange }: Edito
 
   // Reset config when kind changes in create mode
   useEffect(() => {
-    if (isCreate) setConfigObj({});
+    if (isCreate) {
+      configObjRef.current = {};
+      setConfigObj({});
+    }
   }, [kind, isCreate]);
 
   const handleSave = useCallback(() => {
     setSaveError(null);
-    const config = configObj;
+    // Read from ref, not state, so a keystroke that just propagated
+    // through a child editor's onChange is included even when the
+    // Save button is the next click in the same task. The closure-
+    // captured configObj is one render behind; configObjRef is
+    // updated synchronously by updateConfig before React rerenders.
+    const config = configObjRef.current;
 
     setMutation.mutate(
       {
@@ -666,7 +686,7 @@ function ConnectionEditor({ connection, onSave, onCancel, onDirtyChange }: Edito
         },
       },
     );
-  }, [kind, name, description, configObj, setMutation, onSave]);
+  }, [kind, name, description, setMutation, onSave]);
 
   const isPending = setMutation.isPending;
 
@@ -777,18 +797,18 @@ function ConnectionEditor({ connection, onSave, onCancel, onDirtyChange }: Edito
           </div>
           <div className="px-4 py-4 space-y-4">
             {kind === "trino" && (
-              <TrinoConfigForm config={configObj} onChange={setConfigObj} />
+              <TrinoConfigForm config={configObj} onChange={updateConfig} />
             )}
             {kind === "s3" && (
-              <S3ConfigForm config={configObj} onChange={setConfigObj} />
+              <S3ConfigForm config={configObj} onChange={updateConfig} />
             )}
             {kind === "mcp" && (
-              <GatewayConfigForm config={configObj} onChange={setConfigObj} />
+              <GatewayConfigForm config={configObj} onChange={updateConfig} />
             )}
             {kind === "api" && (
               <ApiGatewayConfigForm
                 config={configObj}
-                onChange={setConfigObj}
+                onChange={updateConfig}
                 connectionName={name}
                 isCreate={isCreate}
               />
@@ -1166,11 +1186,20 @@ function asStringMap(raw: unknown): Record<string, string> {
   return out;
 }
 
-// SensitiveKeyValueEditor is KeyValueEditor's secret-aware sibling.
-// Existing entries display the name + a masked placeholder ("•••••"
-// or the literal "[REDACTED]" so operators recognize the round-trip);
-// values can only be replaced by deleting and re-adding. New entries
-// type the value once and are stored verbatim until the next save.
+// SensitiveKeyValueEditor renders one inline-editable row per entry
+// plus an "Add header" button that appends a fresh empty row. Every
+// keystroke commits to the parent's entries map (a row contributes
+// only when BOTH name and value are non-empty), so there is no
+// "pending uncommitted" state to lose at save time. Stable row IDs
+// keep React's reconciliation correct as the user renames keys or
+// removes rows out of order. Without IDs, deleting row 1 of 3 would
+// look like row 1 had its values changed and row 3 disappeared.
+//
+// Existing rows come back from the server with value === "[REDACTED]"
+// (the redaction mask). The password input renders that as dots; the
+// operator selects-all and types to replace the value, and the
+// backend's redaction-merge layer reinstates the stored value if the
+// row is saved without a change.
 function SensitiveKeyValueEditor({
   entries,
   onChange,
@@ -1182,78 +1211,109 @@ function SensitiveKeyValueEditor({
   keyPlaceholder?: string;
   valuePlaceholder?: string;
 }) {
-  const [newKey, setNewKey] = useState("");
-  const [newValue, setNewValue] = useState("");
-  const items = Object.entries(entries);
+  type Row = { id: number; name: string; value: string };
+  const idSeq = useRef(0);
+  const nextID = useCallback(() => ++idSeq.current, []);
 
-  const add = () => {
-    const k = newKey.trim();
-    const v = newValue.trim();
-    if (k && v) {
-      onChange({ ...entries, [k]: v });
-      setNewKey("");
-      setNewValue("");
+  // Local rows are the source of truth for editing. Initial value is
+  // derived from the entries prop on mount; later sync happens only
+  // when the prop's KEY SET changes (a real refresh from the server),
+  // not on every value change (which would clobber the user's
+  // mid-edit local state after every save round-trip turning real
+  // values into "[REDACTED]" masks).
+  const [rows, setRows] = useState<Row[]>(() =>
+    Object.entries(entries).map(([k, v]) => ({ id: nextID(), name: k, value: v })),
+  );
+  const lastKeySet = useRef(
+    Object.keys(entries).slice().sort().join(""),
+  );
+  useEffect(() => {
+    const k = Object.keys(entries).slice().sort().join("");
+    if (k !== lastKeySet.current) {
+      lastKeySet.current = k;
+      setRows(
+        Object.entries(entries).map(([key, val]) => ({
+          id: nextID(),
+          name: key,
+          value: val,
+        })),
+      );
     }
-  };
+  }, [entries, nextID]);
+
+  const commit = useCallback(
+    (updated: Row[]) => {
+      setRows(updated);
+      const out: Record<string, string> = {};
+      for (const r of updated) {
+        const n = r.name.trim();
+        if (n && r.value.length > 0) {
+          out[n] = r.value;
+        }
+      }
+      // Update lastKeySet to match what we're about to emit so the
+      // useEffect above doesn't fire a redundant re-sync after our
+      // own commit propagates back through the entries prop.
+      lastKeySet.current = Object.keys(out).slice().sort().join("");
+      onChange(out);
+    },
+    [onChange],
+  );
+
+  const updateRow = useCallback(
+    (id: number, patch: Partial<Row>) => {
+      commit(rows.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    },
+    [rows, commit],
+  );
+
+  const deleteRow = useCallback(
+    (id: number) => {
+      commit(rows.filter((r) => r.id !== id));
+    },
+    [rows, commit],
+  );
+
+  const addRow = useCallback(() => {
+    setRows((prev) => [...prev, { id: nextID(), name: "", value: "" }]);
+  }, [nextID]);
 
   return (
-    <div>
-      {items.length > 0 && (
-        <div className="rounded-md border overflow-hidden mb-2">
-          <table className="w-full text-xs">
-            <tbody>
-              {items.map(([k, v]) => (
-                <tr key={k} className="border-b last:border-0">
-                  <td className="px-3 py-1.5 font-mono">{k}</td>
-                  <td className="px-2 text-muted-foreground">→</td>
-                  <td className="px-3 py-1.5 font-mono text-muted-foreground">
-                    {v === "[REDACTED]" ? "[REDACTED]" : "•••••"}
-                  </td>
-                  <td className="px-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const next = { ...entries };
-                        delete next[k];
-                        onChange(next);
-                      }}
-                      className="text-muted-foreground hover:text-destructive"
-                      aria-label={`Remove ${k}`}
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+    <div className="space-y-2">
+      {rows.map((row) => (
+        <div key={row.id} className="flex gap-2">
+          <input
+            type="text"
+            value={row.name}
+            onChange={(e) => updateRow(row.id, { name: e.target.value })}
+            placeholder={keyPlaceholder ?? "header"}
+            className="w-56 rounded-md border bg-background px-3 py-1.5 text-xs font-mono outline-none ring-ring focus:ring-2"
+          />
+          <input
+            type="password"
+            value={row.value}
+            onChange={(e) => updateRow(row.id, { value: e.target.value })}
+            placeholder={valuePlaceholder ?? "value"}
+            className="flex-1 rounded-md border bg-background px-3 py-1.5 text-xs font-mono outline-none ring-ring focus:ring-2"
+          />
+          <button
+            type="button"
+            onClick={() => deleteRow(row.id)}
+            className="rounded-md border px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-destructive"
+            aria-label={`Remove ${row.name || "header"}`}
+          >
+            <X className="h-3 w-3" />
+          </button>
         </div>
-      )}
-      <div className="flex gap-2">
-        <input
-          type="text"
-          value={newKey}
-          onChange={(e) => setNewKey(e.target.value)}
-          placeholder={keyPlaceholder ?? "header"}
-          className="w-56 rounded-md border bg-background px-3 py-1.5 text-xs font-mono outline-none ring-ring focus:ring-2"
-        />
-        <input
-          type="password"
-          value={newValue}
-          onChange={(e) => setNewValue(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
-          placeholder={valuePlaceholder ?? "value"}
-          className="flex-1 rounded-md border bg-background px-3 py-1.5 text-xs font-mono outline-none ring-ring focus:ring-2"
-        />
-        <button
-          type="button"
-          onClick={add}
-          disabled={!newKey.trim() || !newValue.trim()}
-          className="rounded-md border px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"
-        >
-          <Plus className="h-3 w-3" />
-        </button>
-      </div>
+      ))}
+      <button
+        type="button"
+        onClick={addRow}
+        className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+      >
+        <Plus className="h-3 w-3" />
+        Add header
+      </button>
     </div>
   );
 }
