@@ -148,6 +148,11 @@ func (s *MemoryStore) UpsertSpec(_ context.Context, catalogID string, spec SpecE
 	if err := ValidateSourceKind(spec.SourceKind); err != nil {
 		return err
 	}
+	normalizedBasePath, err := NormalizeBasePath(spec.BasePath)
+	if err != nil {
+		return err
+	}
+	spec.BasePath = normalizedBasePath
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.catalogs[catalogID]; !ok {

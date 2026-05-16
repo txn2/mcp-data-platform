@@ -239,13 +239,13 @@ type conn struct {
 // effectiveBasePath is the per-spec prefix applied to every
 // operation's spec-relative path so api_list_endpoints output, the
 // synthesized operationID in api_get_endpoint_schema, and the
-// stored OperationSummary.Path all agree on a single full path
-// the model passes to api_invoke_endpoint. The value is derived
-// once at registration time from servers[0].url and the connection's
-// base_url so callers downstream do not have to recompute or worry
-// about base_url-vs-spec-base-path overlap (when the operator's
-// connection.base_url already includes the spec's prefix, the
-// effective base path is empty and no doubling occurs).
+// stored OperationSummary.Path all agree on a single full path the
+// model passes to api_invoke_endpoint. Resolution order at
+// registration time: SpecEntry.BasePath (operator override) wins,
+// falling back to servers[0].url-derived value, with both sources
+// run through computeEffectiveBasePath so a connection.base_url
+// that already contains the prefix as a suffix gets the prefix
+// dropped and no doubling occurs at invoke time.
 type specState struct {
 	doc               *openapi3.T
 	sourceKind        string
@@ -707,7 +707,19 @@ func (t *Toolkit) buildConnSpecs(connName, catalogID, connBaseURL string) (
 				"spec_name", e.SpecName, logKeyError, perr)
 			continue
 		}
-		effectiveBasePath := computeEffectiveBasePath(connBaseURL, specBasePath(doc))
+		// Effective base path resolution: operator override on the
+		// spec entry wins over the servers[0]-derived value. Both
+		// sources route through computeEffectiveBasePath so the
+		// connection.base_url overlap dedupe applies uniformly. The
+		// override exists for specs that ship without a servers[]
+		// entry and for operators targeting a host whose path
+		// differs from what the spec author wrote (sandbox, proxy,
+		// version pin).
+		basePathSource := e.BasePath
+		if basePathSource == "" {
+			basePathSource = specBasePath(doc)
+		}
+		effectiveBasePath := computeEffectiveBasePath(connBaseURL, basePathSource)
 		specs[e.SpecName] = &specState{
 			doc:               doc,
 			sourceKind:        e.SourceKind,

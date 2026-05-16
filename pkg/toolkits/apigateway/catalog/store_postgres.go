@@ -209,16 +209,21 @@ func (s *PostgresStore) UpsertSpec(ctx context.Context, catalogID string, spec S
 	if err := ValidateSourceKind(spec.SourceKind); err != nil {
 		return err
 	}
+	normalizedBasePath, err := NormalizeBasePath(spec.BasePath)
+	if err != nil {
+		return err
+	}
 	const q = `
 		INSERT INTO api_catalog_specs
 		    (catalog_id, spec_name, content, source_kind,
-		     source_url, etag, last_fetched_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		     source_url, etag, base_path, last_fetched_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (catalog_id, spec_name) DO UPDATE
 		SET content         = EXCLUDED.content,
 		    source_kind     = EXCLUDED.source_kind,
 		    source_url      = EXCLUDED.source_url,
 		    etag            = EXCLUDED.etag,
+		    base_path       = EXCLUDED.base_path,
 		    last_fetched_at = EXCLUDED.last_fetched_at,
 		    updated_at      = NOW()
 	`
@@ -226,9 +231,9 @@ func (s *PostgresStore) UpsertSpec(ctx context.Context, catalogID string, spec S
 	if !spec.LastFetchedAt.IsZero() {
 		lastFetched = spec.LastFetchedAt
 	}
-	_, err := s.db.ExecContext(ctx, q,
+	_, err = s.db.ExecContext(ctx, q,
 		catalogID, spec.SpecName, spec.Content, spec.SourceKind,
-		spec.SourceURL, spec.ETag, lastFetched)
+		spec.SourceURL, spec.ETag, normalizedBasePath, lastFetched)
 	if isPGCode(err, pgForeignKeyViolation) {
 		return ErrNotFound
 	}
@@ -242,7 +247,7 @@ func (s *PostgresStore) UpsertSpec(ctx context.Context, catalogID string, spec S
 func (s *PostgresStore) GetSpec(ctx context.Context, catalogID, specName string) (*SpecEntry, error) {
 	const q = `
 		SELECT spec_name, content, source_kind, source_url, etag,
-		       last_fetched_at, created_at, updated_at
+		       base_path, last_fetched_at, created_at, updated_at
 		  FROM api_catalog_specs
 		 WHERE catalog_id = $1 AND spec_name = $2
 	`
@@ -252,7 +257,7 @@ func (s *PostgresStore) GetSpec(ctx context.Context, catalogID, specName string)
 	)
 	err := s.db.QueryRowContext(ctx, q, catalogID, specName).Scan(
 		&spec.SpecName, &spec.Content, &spec.SourceKind, &spec.SourceURL,
-		&spec.ETag, &fetchedAt, &spec.CreatedAt, &spec.UpdatedAt)
+		&spec.ETag, &spec.BasePath, &fetchedAt, &spec.CreatedAt, &spec.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -271,7 +276,7 @@ func (s *PostgresStore) GetSpec(ctx context.Context, catalogID, specName string)
 func (s *PostgresStore) ListSpecs(ctx context.Context, catalogID string) ([]SpecEntry, error) {
 	const q = `
 		SELECT spec_name, content, source_kind, source_url, etag,
-		       last_fetched_at, created_at, updated_at
+		       base_path, last_fetched_at, created_at, updated_at
 		  FROM api_catalog_specs
 		 WHERE catalog_id = $1
 		 ORDER BY spec_name ASC
@@ -288,7 +293,7 @@ func (s *PostgresStore) ListSpecs(ctx context.Context, catalogID string) ([]Spec
 			fetchedAt sql.NullTime
 		)
 		if err := rows.Scan(&spec.SpecName, &spec.Content, &spec.SourceKind,
-			&spec.SourceURL, &spec.ETag, &fetchedAt,
+			&spec.SourceURL, &spec.ETag, &spec.BasePath, &fetchedAt,
 			&spec.CreatedAt, &spec.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("catalog: list specs scan: %w", err)
 		}

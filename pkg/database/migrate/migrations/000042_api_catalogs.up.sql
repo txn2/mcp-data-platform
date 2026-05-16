@@ -1,14 +1,14 @@
 -- 000042: api_catalogs + api_catalog_specs
 --
--- OpenAPI documentation is a property of the API itself (Blackbaud
--- RE NXT, Salesforce REST, Stripe, ...), not of any individual
--- connection that authenticates against it. An organization with N
--- Blackbaud nonprofit tenants has N connections sharing one set of
--- specs; per-connection inline specs duplicated the same content N
--- times and drifted independently.
+-- OpenAPI documentation is a property of the API itself (Salesforce
+-- REST, Stripe, GitHub, ...), not of any individual connection that
+-- authenticates against it. An organization with N tenants of the
+-- same vendor has N connections sharing one set of specs; per-
+-- connection inline specs duplicated the same content N times and
+-- drifted independently.
 --
 -- An API catalog is a versioned, named bundle of component OpenAPI
--- specs. Each (name, version) pair is its own row — cloning to a
+-- specs. Each (name, version) pair is its own row, so cloning to a
 -- new version creates a new row, leaving existing connections on
 -- the old one until the operator migrates them deliberately.
 --

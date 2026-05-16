@@ -90,3 +90,35 @@ func TestValidateSourceKind(t *testing.T) {
 		t.Fatal("empty accepted")
 	}
 }
+
+func TestNormalizeBasePath(t *testing.T) {
+	cases := []struct {
+		name    string
+		in      string
+		want    string
+		wantErr bool
+	}{
+		{"empty stays empty", "", "", false},
+		{"valid leading slash", "/v1", "/v1", false},
+		{"nested valid", "/api/v2", "/api/v2", false},
+		{"trailing slash stripped", "/v1/", "/v1", false},
+		{"root preserved", "/", "/", false},
+		{"missing leading slash", "v1", "", true},
+		{"CR injected", "/v1\r/admin", "", true},
+		{"LF injected", "/v1\n/admin", "", true},
+		{"NUL injected", "/v1\x00/admin", "", true},
+		{"query string component", "/v1?x=1", "", true},
+		{"fragment component", "/v1#anchor", "", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := NormalizeBasePath(c.in)
+			if (err != nil) != c.wantErr {
+				t.Fatalf("err=%v wantErr=%v", err, c.wantErr)
+			}
+			if !c.wantErr && got != c.want {
+				t.Errorf("got %q want %q", got, c.want)
+			}
+		})
+	}
+}

@@ -324,6 +324,7 @@ func (h *Handler) copyCatalogSpecs(w http.ResponseWriter, r *http.Request, srcID
 			SourceKind:    s.SourceKind,
 			SourceURL:     s.SourceURL,
 			ETag:          s.ETag,
+			BasePath:      s.BasePath,
 			LastFetchedAt: s.LastFetchedAt,
 		}
 		if upErr := h.deps.APICatalogStore.UpsertSpec(r.Context(), dstID, clone); upErr != nil {
@@ -338,12 +339,20 @@ func (h *Handler) copyCatalogSpecs(w http.ResponseWriter, r *http.Request, srcID
 // specResponse is the JSON wire shape returned by spec routes.
 // Carries the operator-visible metadata; content is included only
 // on the explicit GET /specs/{spec} detail endpoint.
+//
+// BasePath is the operator-set override prefix applied to every
+// operation in this spec at api_list_endpoints and
+// api_invoke_endpoint time. Empty means "no override"; the toolkit
+// falls back to deriving the prefix from the spec's servers[0].url.
+// See catalog.NormalizeBasePath for the leading-slash / trailing-
+// slash / control-character rules enforced on write.
 type specResponse struct {
 	SpecName      string `json:"spec_name"`
 	Content       string `json:"content,omitempty"`
 	SourceKind    string `json:"source_kind"`
 	SourceURL     string `json:"source_url,omitempty"`
 	ETag          string `json:"etag,omitempty"`
+	BasePath      string `json:"base_path,omitempty"`
 	LastFetchedAt string `json:"last_fetched_at,omitempty"`
 	CreatedAt     string `json:"created_at,omitempty"`
 	UpdatedAt     string `json:"updated_at,omitempty"`
@@ -386,10 +395,17 @@ func (h *Handler) getCatalogSpec(w http.ResponseWriter, r *http.Request) {
 }
 
 // upsertCatalogSpecRequest is the body for the inline / URL save path.
+//
+// BasePath sets the operator-supplied per-spec URL prefix. Optional;
+// empty leaves it unset (the toolkit derives the prefix from the
+// spec's servers[0].url at registration time). Normalized via
+// catalog.NormalizeBasePath at write time: must start with "/",
+// must not contain CR/LF/NUL/?/#, trailing slash is stripped.
 type upsertCatalogSpecRequest struct {
 	SourceKind string `json:"source_kind"`
 	Content    string `json:"content,omitempty"`
 	SourceURL  string `json:"source_url,omitempty"`
+	BasePath   string `json:"base_path,omitempty"`
 }
 
 func (h *Handler) upsertCatalogSpec(w http.ResponseWriter, r *http.Request) {
@@ -447,6 +463,7 @@ func (*Handler) materializeSpec(ctx context.Context, specName string, req upsert
 			SpecName:   specName,
 			Content:    req.Content,
 			SourceKind: apicatalog.SourceInline,
+			BasePath:   req.BasePath,
 		}, nil
 	case apicatalog.SourceURL:
 		if req.SourceURL == "" {
@@ -462,6 +479,7 @@ func (*Handler) materializeSpec(ctx context.Context, specName string, req upsert
 			SourceKind:    apicatalog.SourceURL,
 			SourceURL:     req.SourceURL,
 			ETag:          res.ETag,
+			BasePath:      req.BasePath,
 			LastFetchedAt: res.FetchedAt,
 		}, nil
 	case apicatalog.SourceUpload:
@@ -489,6 +507,8 @@ func (*Handler) specErrorStatus(err error) int {
 	case errors.Is(err, apicatalog.ErrNotFound):
 		return http.StatusNotFound
 	case errors.Is(err, apicatalog.ErrInvalidSpecName):
+		return http.StatusBadRequest
+	case errors.Is(err, apicatalog.ErrInvalidBasePath):
 		return http.StatusBadRequest
 	case errors.Is(err, apicatalog.ErrSSRFBlocked):
 		return http.StatusBadRequest
@@ -552,6 +572,25 @@ func (h *Handler) uploadCatalogSpec(w http.ResponseWriter, r *http.Request) {
 		Content:    string(body),
 		SourceKind: apicatalog.SourceUpload,
 	}
+	// Base path precedence on upload:
+	//   1. Explicit ?base_path=... on the upload URL (operator sets
+	//      it during a new upload or changes it mid-stream)
+	//   2. The previously-stored value on an existing spec row (so
+	//      a routine re-upload of refreshed content does not blow
+	//      away the operator's override)
+	//   3. Empty (the migration default)
+	if explicit := r.URL.Query().Get("base_path"); explicit != "" {
+		entry.BasePath = explicit
+	} else if existing, err := h.deps.APICatalogStore.GetSpec(r.Context(), id, specName); err == nil && existing != nil {
+		entry.BasePath = existing.BasePath
+	} else if err != nil && !errors.Is(err, apicatalog.ErrNotFound) {
+		// Log the swallowed lookup error so an operator chasing a
+		// vanished BasePath has a breadcrumb. The upload still
+		// proceeds with BasePath="" so a transient lookup failure
+		// does not block the operator from saving the new content.
+		slog.Warn("apigateway: catalog spec base_path preserve lookup failed",
+			"catalog_id", id, "spec_name", specName, logKeyError, err)
+	}
 	if err := apicatalog.ValidateContent(entry.Content); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -596,6 +635,7 @@ func (h *Handler) refreshCatalogSpec(w http.ResponseWriter, r *http.Request) {
 		SourceKind:    apicatalog.SourceURL,
 		SourceURL:     existing.SourceURL,
 		ETag:          res.ETag,
+		BasePath:      existing.BasePath,
 		LastFetchedAt: res.FetchedAt,
 	}
 	if err := h.deps.APICatalogStore.UpsertSpec(r.Context(), id, entry); err != nil {
@@ -654,6 +694,7 @@ func specToResponse(s apicatalog.SpecEntry, includeContent bool) specResponse {
 		SourceKind:    s.SourceKind,
 		SourceURL:     s.SourceURL,
 		ETag:          s.ETag,
+		BasePath:      s.BasePath,
 		LastFetchedAt: formatTime(s.LastFetchedAt),
 		CreatedAt:     formatTime(s.CreatedAt),
 		UpdatedAt:     formatTime(s.UpdatedAt),

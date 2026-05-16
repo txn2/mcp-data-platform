@@ -238,3 +238,22 @@ func TestMemoryStore_CascadeOnCatalogDelete(t *testing.T) {
 		t.Fatalf("expected specs gone after catalog delete: err=%v", err)
 	}
 }
+
+// TestMemoryStore_UpsertSpec_RejectsInvalidBasePath proves the
+// MemoryStore enforces NormalizeBasePath at write time, matching
+// the PostgresStore behavior so both backends reject identical
+// operator-input mistakes.
+func TestMemoryStore_UpsertSpec_RejectsInvalidBasePath(t *testing.T) {
+	s := NewMemoryStore()
+	_ = s.CreateCatalog(context.Background(), Catalog{ID: "p", Name: "p", DisplayName: "P"})
+	err := s.UpsertSpec(context.Background(), "p", SpecEntry{
+		SpecName: "default", Content: "x", SourceKind: SourceInline,
+		BasePath: "no-leading-slash",
+	})
+	if err == nil {
+		t.Fatal("expected ErrInvalidBasePath for missing leading slash")
+	}
+	if !errors.Is(err, ErrInvalidBasePath) {
+		t.Errorf("err=%v want errors.Is ErrInvalidBasePath", err)
+	}
+}
