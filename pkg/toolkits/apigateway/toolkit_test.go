@@ -788,3 +788,157 @@ func TestToolkit_SetConnOAuthStore_RethreadsAuthorizationCodeAuth(t *testing.T) 
 		t.Error("re-thread did not deliver the new store to the existing Authenticator")
 	}
 }
+
+// TestHandleListEndpoints_SpecFilter covers finding #4: the spec
+// input restricts results to one component spec of a multi-spec
+// catalog, applied before ranking so the rank limit acts within
+// the spec rather than against the unfiltered catalog.
+func TestHandleListEndpoints_SpecFilter(t *testing.T) {
+	tk := New("test")
+	store := setupCatalogWithSpec(t, tk, "vendor", "users",
+		minimalSpecWith(`/users:
+    `+pathOpYAML("get", "listUsers", "List users")))
+	if err := store.UpsertSpec(context.Background(), "vendor",
+		newSpecEntry("orders", minimalSpecWith(`/orders:
+    `+pathOpYAML("get", "listOrders", "List orders")))); err != nil {
+		t.Fatalf("UpsertSpec: %v", err)
+	}
+	if err := tk.AddConnection("c", map[string]any{
+		"base_url":   "https://x",
+		"catalog_id": "vendor",
+	}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	res, out, err := tk.handleListEndpoints(context.Background(), nil, ListEndpointsInput{
+		Connection: "c",
+		Spec:       "users",
+	})
+	if err != nil {
+		t.Fatalf("handleListEndpoints: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("expected success, got error: %s", textContent(res))
+	}
+	o, _ := out.(ListEndpointsOutput)
+	if len(o.Operations) != 1 {
+		t.Fatalf("expected 1 op from users spec, got %d (%+v)", len(o.Operations), o.Operations)
+	}
+	if o.Operations[0].Spec != "users" {
+		t.Errorf("expected spec=users, got %q", o.Operations[0].Spec)
+	}
+}
+
+// TestHandleListEndpoints_FallbackNoteIncludesReason covers
+// finding #3: when semantic ranking falls back to lexical, the
+// fallback note must carry the real reason (e.g. embedder error
+// or "embedding provider not configured") so the operator can
+// fix the root cause without reading pod logs.
+func TestHandleListEndpoints_FallbackNoteIncludesReason(t *testing.T) {
+	tk := New("test")
+	// No embedding provider wired.
+	setupCatalogWithSpec(t, tk, "petstore", "default", validMinimalSpec)
+	if err := tk.AddConnection("c", map[string]any{
+		"base_url":   "https://x",
+		"catalog_id": "petstore",
+	}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	res, out, err := tk.handleListEndpoints(context.Background(), nil, ListEndpointsInput{
+		Connection: "c",
+		Query:      "users",
+		Ranking:    "semantic",
+	})
+	if err != nil {
+		t.Fatalf("handleListEndpoints: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("expected success with fallback, got error: %s", textContent(res))
+	}
+	o, _ := out.(ListEndpointsOutput)
+	if o.Note == "" {
+		t.Fatal("expected non-empty Note describing the fallback reason")
+	}
+	// Note must name the actual cause; the generic v1 wording
+	// "embedding pipeline unavailable" was the regression.
+	if !strings.Contains(o.Note, "embedding provider not configured") {
+		t.Errorf("Note should name the real cause; got: %q", o.Note)
+	}
+}
+
+// TestHandleListEndpoints_PanicRecovery covers finding #3: a
+// runtime panic in the ranking pipeline must surface as an
+// operator-readable error result, not as the MCP SDK's generic
+// "Error occurred during tool execution". The follow-up assertion
+// proves the embed cache is marked failed so a misbehaving
+// embedder cannot be re-hit on every subsequent call.
+func TestHandleListEndpoints_PanicRecovery(t *testing.T) {
+	tk := New("test")
+	tk.SetEmbeddingProvider(panicEmbedder{})
+	setupCatalogWithSpec(t, tk, "petstore", "default", validMinimalSpec)
+	if err := tk.AddConnection("c", map[string]any{
+		"base_url":   "https://x",
+		"catalog_id": "petstore",
+	}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	res, _, err := tk.handleListEndpoints(context.Background(), nil, ListEndpointsInput{
+		Connection: "c",
+		Query:      "users",
+		Ranking:    "semantic",
+	})
+	if err != nil {
+		t.Fatalf("handleListEndpoints returned go error: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("expected IsError result after panic")
+	}
+	msg := textContent(res)
+	if !strings.Contains(msg, "internal error") || !strings.Contains(msg, "connection=c") {
+		t.Errorf("error message should name internal error and connection name: %q", msg)
+	}
+	if strings.Contains(msg, "Error occurred during tool execution") {
+		t.Errorf("must NOT surface the MCP SDK generic panic message: %q", msg)
+	}
+
+	// After the panic, c.embedFailed must be set so the next
+	// semantic-mode call falls back to lexical instead of panicking
+	// again. Verify the flag, then prove the follow-up call returns
+	// a clean fallback result with a Note (no panic, no IsError).
+	tk.mu.RLock()
+	c := tk.connections["c"]
+	tk.mu.RUnlock()
+	c.embedMu.Lock()
+	failed := c.embedFailed
+	c.embedMu.Unlock()
+	if !failed {
+		t.Fatal("c.embedFailed should be set after a ranking panic")
+	}
+	res2, out2, err := tk.handleListEndpoints(context.Background(), nil, ListEndpointsInput{
+		Connection: "c",
+		Query:      "users",
+		Ranking:    "semantic",
+	})
+	if err != nil {
+		t.Fatalf("follow-up handleListEndpoints: %v", err)
+	}
+	if res2.IsError {
+		t.Errorf("follow-up call should fall back to lexical, not error: %s", textContent(res2))
+	}
+	o, _ := out2.(ListEndpointsOutput)
+	if o.Note == "" {
+		t.Error("follow-up call should carry a fallback Note")
+	}
+}
+
+// panicEmbedder panics on every call. Used to drive the
+// handleListEndpoints panic-recovery contract.
+type panicEmbedder struct{}
+
+func (panicEmbedder) Dimension() int { return 8 }
+func (panicEmbedder) Embed(_ context.Context, _ string) ([]float32, error) {
+	panic("simulated embedder panic")
+}
+
+func (panicEmbedder) EmbedBatch(_ context.Context, _ []string) ([][]float32, error) {
+	panic("simulated embedder batch panic")
+}

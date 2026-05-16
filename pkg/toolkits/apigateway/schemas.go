@@ -15,7 +15,7 @@ var listEndpointsSchema = json.RawMessage(`{
     },
     "query": {
       "type": "string",
-      "description": "Optional case-insensitive substring search across operation_id, path, summary, and tags. Empty returns the full list (capped by limit)."
+      "description": "Optional case-insensitive search across operation_id, path, summary, spec name, and tags. Multiple whitespace-separated tokens combine with AND, so \"gift list\" matches operations containing both \"gift\" and \"list\" in any of those fields. Empty returns the full list (capped by limit)."
     },
     "limit": {
       "type": "integer",
@@ -23,10 +23,14 @@ var listEndpointsSchema = json.RawMessage(`{
       "maximum": 500,
       "description": "Optional cap on the number of operations returned. Defaults to 50. Pass a higher value when exploring large APIs."
     },
+    "spec": {
+      "type": "string",
+      "description": "Optional component-spec filter for multi-spec catalogs. Restricts results to operations whose spec field matches this value exactly. Pair with query to narrow to a section of a large catalog (e.g. spec=\"orders\" + query=\"refund\"). Values come from the spec field on operations in a prior api_list_endpoints response."
+    },
     "ranking": {
       "type": "string",
       "enum": ["lexical", "semantic", "hybrid"],
-      "description": "Optional ranking algorithm. \"lexical\" (default) is case-insensitive substring match — fast and deterministic but misses when your phrasing differs from the spec author's. \"semantic\" ranks by embedding cosine similarity, which finds endpoints by intent (\"create order\" → POST /v1/orders) even when no words overlap. \"hybrid\" blends both — best for free-form intent queries that may also share path/tag vocabulary. semantic and hybrid require an embedding provider; if unavailable they fall back to lexical and a note explains why."
+      "description": "Optional ranking algorithm. \"lexical\" (default) is per-token case-insensitive substring match: fast, deterministic, but misses when your phrasing differs from the spec author's. \"semantic\" ranks by embedding cosine similarity, which finds endpoints by intent (\"create order\" finds POST /v1/orders) even when no words overlap. \"hybrid\" blends both: best for free-form intent queries that may also share path/tag vocabulary. semantic and hybrid require an embedding provider; if unavailable they fall back to lexical and a note explains the reason."
     }
   }
 }`)

@@ -2,6 +2,7 @@ package apigateway
 
 import (
 	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 
@@ -9,6 +10,11 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 )
+
+// pathSep is the URL path separator. Named so revive's add-constant
+// rule does not flag the repeated literal across the base-path
+// derivation and dedupe helpers.
+const pathSep = "/"
 
 // OperationSummary is the slim per-operation view returned by
 // api_list_endpoints. Designed to be cheap on context: the model gets
@@ -18,7 +24,7 @@ import (
 // api_get_endpoint_schema.
 //
 // Spec names the component spec inside the connection's catalog
-// (e.g. "constituent", "gift"). Omitted from JSON when empty so
+// (e.g. "users", "orders"). Omitted from JSON when empty so
 // connections with no catalog or a single anonymous spec stay slim
 // on context.
 type OperationSummary struct {
@@ -63,12 +69,12 @@ func parseOpenAPISpec(raw string) (*openapi3.T, error) {
 // Kept off OperationSummary so the JSON response shape stays slim
 // and the description (often paragraphs long) doesn't bloat the
 // model's context. nil when doc has no operations.
-func buildOperationIndex(doc *openapi3.T, specName string) (ops []OperationSummary, embedTexts []string) {
+func buildOperationIndex(doc *openapi3.T, specName, basePath string) (ops []OperationSummary, embedTexts []string) {
 	if doc == nil || doc.Paths == nil {
 		return nil, nil
 	}
 	for path, item := range doc.Paths.Map() {
-		ops, embedTexts = appendItemOperations(ops, embedTexts, path, item, specName)
+		ops, embedTexts = appendItemOperations(ops, embedTexts, basePath+path, item, specName)
 	}
 	indices := make([]int, len(ops))
 	for i := range indices {
@@ -165,41 +171,151 @@ func buildEmbedText(op OperationSummary, description string) string {
 	return strings.Join(parts, " ")
 }
 
-// rankOperations returns the subset of ops whose operation_id,
-// path, summary, or any tag contains the query (case-insensitive
-// substring match). When the query is empty the full slice is
-// returned in its existing order. The result is capped at limit
-// (or len(ops) if limit ≤ 0).
+// specBasePath returns the path component of the first declared
+// servers[].url, with any trailing slash stripped. Vendors that ship
+// each component spec under a distinct version segment (for example
+// a connection whose connection.base_url is the host and whose specs
+// each declare "https://host/foo/v1", "https://host/bar/v2") rely on
+// this so api_list_endpoints reports the full path the model should
+// pass to api_invoke_endpoint, not the spec-relative path that 404s
+// when the segment is missing from the connection's base_url.
 //
-// v1 ranking is deliberately lexical — semantic / embedding-based
-// ranking is deferred to issue #371 to keep this PR scoped.
-// Callers documenting the tool should set expectations accordingly:
-// the model should write queries in the API's own vocabulary
-// (paths, tags, summaries) rather than free-form intent.
+// Returns "" when doc has no servers entry, when the first entry's
+// URL fails to parse, or when the parsed path is empty or just "/".
+// In that case operations carry their spec-relative paths and the
+// connection's base_url is the only prefix the toolkit joins.
+//
+// Only the path component is extracted; the scheme and host on
+// servers[0].url are ignored because the connection's base_url is
+// the operator's authoritative choice of host (one spec author's
+// preferred host should not override an operator who pointed the
+// connection at a sandbox or proxied endpoint).
+func specBasePath(doc *openapi3.T) string {
+	if doc == nil || len(doc.Servers) == 0 {
+		return ""
+	}
+	raw := doc.Servers[0].URL
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	p := strings.TrimSuffix(u.Path, pathSep)
+	if p == "" {
+		return ""
+	}
+	// OpenAPI 3.0 explicitly allows relative server URLs whose path
+	// has no leading slash (e.g. servers: [{url: "v1"}]). The
+	// downstream invoke validator rejects paths that do not start
+	// with "/", so any synthesized OperationSummary.Path built from
+	// such a base would 400 at invoke time. Prepend the slash so
+	// the synthesized full path is a valid request path.
+	if !strings.HasPrefix(p, pathSep) {
+		return pathSep + p
+	}
+	return p
+}
+
+// computeEffectiveBasePath returns the prefix to apply to every
+// operation's spec-relative path so the toolkit's invoke-time URL
+// join produces the upstream URL without doubling segments. The
+// rule: drop the spec's servers[0] path component when the
+// connection's base_url path already contains it as a suffix
+// (which is exactly the case where an operator configured the
+// connection to point at the spec's documented base, then attached
+// the same spec to the connection). In every other case the
+// spec's base path is preserved.
+//
+// Examples:
+//
+//	conn=https://api.example.com         spec=/v1   -> "/v1"
+//	conn=https://api.example.com/v1      spec=/v1   -> ""
+//	conn=https://api.example.com/api/v2  spec=/api/v2 -> ""
+//	conn=https://api.example.com/legacy  spec=/v1   -> "/v1"
+//
+// Empty inputs short-circuit: an empty spec base means there is
+// nothing to prefix, an unparseable connection URL falls back to
+// the spec base verbatim (preserves the pre-existing behavior of
+// every connection that ships before this dedupe landed).
+func computeEffectiveBasePath(connBaseURL, specBase string) string {
+	if specBase == "" {
+		return ""
+	}
+	u, err := url.Parse(connBaseURL)
+	if err != nil {
+		return specBase
+	}
+	connPath := strings.TrimSuffix(u.Path, pathSep)
+	if connPath == "" {
+		return specBase
+	}
+	if strings.HasSuffix(connPath, specBase) {
+		return ""
+	}
+	return specBase
+}
+
+// rankOperations returns the subset of ops whose searchable fields
+// contain EVERY whitespace-separated token in query (case-insensitive
+// substring match per token; the tokens combine with AND). Searchable
+// fields are operation_id, path, summary, spec name, and tags. When
+// the query is empty the full slice is returned in its existing
+// order. The result is capped at limit (or len(ops) when limit ≤ 0).
+//
+// Always returns a non-nil slice so a zero-match query produces
+// "operations": [] in the JSON response rather than "operations":
+// null. Clients that switch on truthiness or array-length without
+// the null guard would otherwise have to handle two empty shapes.
+//
+// Per-token AND matches what operators expect when typing "gift
+// list" or "create user": each word should narrow the result, not be
+// treated as a single phrase that fails when the spec author wrote
+// the fields in a different order.
 func rankOperations(ops []OperationSummary, query string, limit int) []OperationSummary {
 	q := strings.ToLower(strings.TrimSpace(query))
 	if q == "" {
 		return capSlice(ops, limit)
 	}
-	var matched []OperationSummary
+	tokens := strings.Fields(q)
+	matched := make([]OperationSummary, 0, len(ops))
 	for _, op := range ops {
-		if operationMatches(op, q) {
+		if operationMatchesAllTokens(op, tokens) {
 			matched = append(matched, op)
 		}
 	}
 	return capSlice(matched, limit)
 }
 
-// operationMatches reports whether any of the searchable fields on
-// the operation contain the lowercased query string.
-func operationMatches(op OperationSummary, q string) bool {
-	if strings.Contains(strings.ToLower(op.OperationID), q) ||
-		strings.Contains(strings.ToLower(op.Path), q) ||
-		strings.Contains(strings.ToLower(op.Summary), q) {
+// operationMatchesAllTokens reports whether every token appears as
+// a substring of at least one of the operation's searchable fields.
+// Tokens are pre-lowercased by the caller; fields are lowercased
+// per check (cheap relative to alternatives like caching a struct
+// of lowercased fields per op).
+func operationMatchesAllTokens(op OperationSummary, tokens []string) bool {
+	for _, tok := range tokens {
+		if !operationFieldsContain(op, tok) {
+			return false
+		}
+	}
+	return true
+}
+
+// operationFieldsContain reports whether tok appears as a substring
+// of any one of the operation's searchable fields. Spec name is
+// included so operators can navigate a multi-spec catalog by
+// vendor-supplied section (e.g. "constituent", "gift") that does
+// not otherwise appear in the operation's id, path, or tags.
+func operationFieldsContain(op OperationSummary, tok string) bool {
+	if strings.Contains(strings.ToLower(op.OperationID), tok) ||
+		strings.Contains(strings.ToLower(op.Path), tok) ||
+		strings.Contains(strings.ToLower(op.Summary), tok) ||
+		strings.Contains(strings.ToLower(op.Spec), tok) {
 		return true
 	}
 	for _, tag := range op.Tags {
-		if strings.Contains(strings.ToLower(tag), q) {
+		if strings.Contains(strings.ToLower(tag), tok) {
 			return true
 		}
 	}

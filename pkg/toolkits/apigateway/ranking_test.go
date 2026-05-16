@@ -205,7 +205,7 @@ func TestRankWithMode_LexicalEmptyQueryReturnsAll(t *testing.T) {
 		{OperationID: "b", Method: "GET", Path: "/b"},
 	}}
 	got, fb := rankWithMode(context.Background(), rankRequest{tk: tk, conn: c, ops: c.operations, query: "", limit: 10, mode: RankingLexical})
-	if fb {
+	if fb != "" {
 		t.Error("lexical with empty query should not report fallback")
 	}
 	if len(got) != 2 {
@@ -228,7 +228,7 @@ func TestRankWithMode_SemanticFallsBackWithoutEmbedder(t *testing.T) {
 	// returning the lexical results, the model would see an empty
 	// list and assume the API has nothing relevant.
 	got, fb := rankWithMode(context.Background(), rankRequest{tk: tk, conn: c, ops: c.operations, query: "users", limit: 10, mode: RankingSemantic})
-	if !fb {
+	if fb == "" {
 		t.Error("semantic without embedder should fallback to lexical")
 	}
 	if len(got) == 0 {
@@ -254,7 +254,7 @@ func TestRankWithMode_SemanticRanksByEmbedding(t *testing.T) {
 	// would handle "place new order" or "submit order" too; that's
 	// captured in the corpus benchmark below.
 	got, fb := rankWithMode(context.Background(), rankRequest{tk: tk, conn: c, ops: c.operations, query: "place a new order", limit: 5, mode: RankingSemantic})
-	if fb {
+	if fb != "" {
 		t.Fatal("semantic with embedder should not fallback")
 	}
 	if len(got) == 0 || got[0].OperationID != "create-order" {
@@ -273,7 +273,7 @@ func TestRankWithMode_HybridBlendsSignals(t *testing.T) {
 	// Query has direct lexical match on /orders path. Hybrid should
 	// still surface order-related ops first.
 	got, fb := rankWithMode(context.Background(), rankRequest{tk: tk, conn: c, ops: c.operations, query: "orders", limit: 5, mode: RankingHybrid})
-	if fb {
+	if fb != "" {
 		t.Fatal("hybrid with embedder should not fallback")
 	}
 	if len(got) < 2 {
@@ -301,7 +301,7 @@ func TestRankWithMode_SemanticEmbedFailureFallsBack(t *testing.T) {
 		{id: "b", method: "GET", path: "/b", summary: "beta"},
 	})
 	_, fb := rankWithMode(context.Background(), rankRequest{tk: tk, conn: c, ops: c.operations, query: "alpha", limit: 5, mode: RankingSemantic})
-	if !fb {
+	if fb == "" {
 		t.Error("batch-embed failure should report fallback")
 	}
 	if !c.embedFailed {
@@ -310,7 +310,7 @@ func TestRankWithMode_SemanticEmbedFailureFallsBack(t *testing.T) {
 	// Second call should also fall back without re-attempting embed.
 	emb.failBatch.Store(false) // would now succeed
 	_, fb2 := rankWithMode(context.Background(), rankRequest{tk: tk, conn: c, ops: c.operations, query: "alpha", limit: 5, mode: RankingSemantic})
-	if !fb2 {
+	if fb2 == "" {
 		t.Error("subsequent call should still fallback (sticky)")
 	}
 }
@@ -332,17 +332,17 @@ func TestEnsureEmbeddings_CtxCancelDoesNotPoisonCache(t *testing.T) {
 
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel() // pre-cancel so EmbedBatch returns ctx.Err() immediately
-	if got := (*Toolkit)(nil).ensureEmbeddings(canceled, c, emb); got {
-		t.Error("ensureEmbeddings should return false when ctx is canceled")
+	if err := (*Toolkit)(nil).ensureEmbeddings(canceled, c, emb); err == nil {
+		t.Error("ensureEmbeddings should return an error when ctx is canceled")
 	}
 	if c.embedFailed {
 		t.Error("ctx cancellation must NOT set c.embedFailed (would permanently disable semantic ranking)")
 	}
 
-	// Subsequent call with a fresh ctx must retry — the conn was
+	// Subsequent call with a fresh ctx must retry. The conn was
 	// not poisoned. Provider now returns success.
-	if got := (*Toolkit)(nil).ensureEmbeddings(context.Background(), c, emb); !got {
-		t.Errorf("retry after ctx cancel should succeed; emb.batchCalls=%d", emb.batchCalls)
+	if err := (*Toolkit)(nil).ensureEmbeddings(context.Background(), c, emb); err != nil {
+		t.Errorf("retry after ctx cancel should succeed: %v (emb.batchCalls=%d)", err, emb.batchCalls)
 	}
 	if len(c.embeddings) != len(c.embedTexts) {
 		t.Errorf("embeddings not populated after retry: %d vs %d", len(c.embeddings), len(c.embedTexts))
@@ -390,7 +390,7 @@ func TestRankWithMode_QueryEmbedFailureFallsBack(t *testing.T) {
 	c := buildTestConn(t, []testOp{{id: "a", method: "GET", path: "/a", summary: "alpha"}})
 	emb.failEmbed.Store(true) // single Embed errors; EmbedBatch still works
 	_, fb := rankWithMode(context.Background(), rankRequest{tk: tk, conn: c, ops: c.operations, query: "alpha", limit: 5, mode: RankingSemantic})
-	if !fb {
+	if fb == "" {
 		t.Error("query-embed failure should report fallback")
 	}
 }
@@ -405,7 +405,7 @@ func TestRankWithMode_ZeroQueryVectorFallsBack(t *testing.T) {
 	tk.SetEmbeddingProvider(zeroEmbedder{})
 	c := buildTestConn(t, []testOp{{id: "a", method: "GET", path: "/a", summary: "alpha"}})
 	_, fb := rankWithMode(context.Background(), rankRequest{tk: tk, conn: c, ops: c.operations, query: "alpha", limit: 5, mode: RankingSemantic})
-	if !fb {
+	if fb == "" {
 		t.Error("zero-vector embedder should force fallback")
 	}
 }
@@ -662,5 +662,109 @@ func TestSemanticRanking_BenchmarkCorpus(t *testing.T) {
 	if hyb.at3 < lex.at3 {
 		t.Errorf("hybrid recall@3 (%d) < lexical recall@3 (%d) — blend regressed substring precision",
 			hyb.at3, lex.at3)
+	}
+}
+
+// TestEmbedInBatches_ChunksAtBatchSize proves the chunking
+// boundary: a 100-text input must produce 4 calls (chunks of 32,
+// 32, 32, 4) rather than one giant batch. Drives finding from the
+// adversarial review that the chunking claim was previously
+// unverified by tests using only small fixtures.
+func TestEmbedInBatches_ChunksAtBatchSize(t *testing.T) {
+	emb := &batchCounter{vectorDim: 4}
+	texts := make([]string, 100)
+	for i := range texts {
+		texts[i] = fmt.Sprintf("text-%d", i)
+	}
+
+	vectors, err := embedInBatches(context.Background(), emb, texts, 32)
+	if err != nil {
+		t.Fatalf("embedInBatches: %v", err)
+	}
+	if len(vectors) != 100 {
+		t.Fatalf("got %d vectors, want 100", len(vectors))
+	}
+	if emb.batchCalls != 4 {
+		t.Errorf("expected 4 EmbedBatch calls (32+32+32+4), got %d", emb.batchCalls)
+	}
+	wantSizes := []int{32, 32, 32, 4}
+	if len(emb.batchSizes) != len(wantSizes) {
+		t.Fatalf("got %d batches, want %d", len(emb.batchSizes), len(wantSizes))
+	}
+	for i, n := range wantSizes {
+		if emb.batchSizes[i] != n {
+			t.Errorf("batch %d: got %d, want %d", i, emb.batchSizes[i], n)
+		}
+	}
+}
+
+// TestEmbedInBatches_PropagatesError proves a batch error short-
+// circuits the remaining chunks. Caller must not see partial
+// results disguised as success.
+func TestEmbedInBatches_PropagatesError(t *testing.T) {
+	emb := &batchCounter{vectorDim: 4, failOnBatch: 2}
+	texts := make([]string, 100)
+	for i := range texts {
+		texts[i] = fmt.Sprintf("text-%d", i)
+	}
+	_, err := embedInBatches(context.Background(), emb, texts, 32)
+	if err == nil {
+		t.Fatal("expected error from failing batch")
+	}
+	if emb.batchCalls != 2 {
+		t.Errorf("expected 2 calls (first ok, second fail), got %d", emb.batchCalls)
+	}
+}
+
+type batchCounter struct {
+	vectorDim   int
+	batchCalls  int
+	batchSizes  []int
+	failOnBatch int // 1-indexed; 0 = never fail
+}
+
+func (b *batchCounter) Dimension() int { return b.vectorDim }
+
+func (b *batchCounter) Embed(_ context.Context, _ string) ([]float32, error) {
+	out := make([]float32, b.vectorDim)
+	out[0] = 1
+	return out, nil
+}
+
+func (b *batchCounter) EmbedBatch(_ context.Context, texts []string) ([][]float32, error) {
+	b.batchCalls++
+	b.batchSizes = append(b.batchSizes, len(texts))
+	if b.failOnBatch != 0 && b.batchCalls == b.failOnBatch {
+		return nil, fmt.Errorf("simulated batch %d failure", b.batchCalls)
+	}
+	out := make([][]float32, len(texts))
+	for i := range out {
+		out[i] = make([]float32, b.vectorDim)
+		out[i][0] = float32(i + 1)
+	}
+	return out, nil
+}
+
+// TestLexicalScore_MultiTokenAndForHybridSignal proves the hybrid
+// scorer's lexical signal honors per-token AND, matching the
+// rankOperations behavior. Previously hybrid mode treated the
+// query as a phrase and assigned lexicalMatchAbsent to multi-token
+// intent queries that rankOperations would have matched, defeating
+// the hybrid blend for exactly the queries it should help with.
+func TestLexicalScore_MultiTokenAndForHybridSignal(t *testing.T) {
+	op := OperationSummary{
+		OperationID: "listGifts",
+		Method:      "GET",
+		Path:        "/gifts",
+		Summary:     "List all gifts",
+	}
+	if got := lexicalScore(op, "gift list"); got != lexicalMatchPresent {
+		t.Errorf("multi-token AND match should return present (1.0); got %v", got)
+	}
+	if got := lexicalScore(op, "gift purchase"); got != lexicalMatchAbsent {
+		t.Errorf("token missing from any field should return absent (0.0); got %v", got)
+	}
+	if got := lexicalScore(op, ""); got != lexicalMatchAbsent {
+		t.Errorf("empty query should return absent; got %v", got)
 	}
 }
