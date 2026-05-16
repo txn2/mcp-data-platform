@@ -2,6 +2,7 @@ package apigateway
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -266,7 +267,11 @@ func (s *failingEmbeddingsStore) ListOperationEmbeddings(ctx context.Context, ca
 	if s.listErr != nil {
 		return nil, s.listErr
 	}
-	return s.MemoryStore.ListOperationEmbeddings(ctx, catalogID, specName)
+	rows, err := s.MemoryStore.ListOperationEmbeddings(ctx, catalogID, specName)
+	if err != nil {
+		return nil, fmt.Errorf("failingEmbeddingsStore: %w", err)
+	}
+	return rows, nil
 }
 
 var _ catalog.Store = (*failingEmbeddingsStore)(nil)
@@ -309,15 +314,11 @@ func TestAddParsedConnection_EmbeddingListErrorLogsAndContinues(t *testing.T) {
 	}
 }
 
-var errLOEFailure = errSentinelForListOperationEmbeddings()
+var errLOEFailure error = &simpleError{msg: "forced list-embeddings failure"}
 
-func errSentinelForListOperationEmbeddings() error {
-	return &simpleErr{msg: "forced list-embeddings failure"}
-}
+type simpleError struct{ msg string }
 
-type simpleErr struct{ msg string }
-
-func (e *simpleErr) Error() string { return e.msg }
+func (e *simpleError) Error() string { return e.msg }
 
 // noOperationIDSpec exercises the buildOperationIndex path that
 // synthesizes operationIds from method+path. Required to cover the

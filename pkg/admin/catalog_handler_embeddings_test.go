@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"sync/atomic"
 	"testing"
@@ -367,10 +368,10 @@ func TestCatalogReembedEndpoint_DeleteFailureReturnsServerError(t *testing.T) {
 		MemoryStore: apicatalog.NewMemoryStore(),
 		delErr:      errors.New("delete failed"),
 	}
-	_ = store.MemoryStore.CreateCatalog(context.Background(), apicatalog.Catalog{
+	_ = store.CreateCatalog(context.Background(), apicatalog.Catalog{
 		ID: "p", Name: "p", DisplayName: "P",
 	})
-	_ = store.MemoryStore.UpsertSpec(context.Background(), "p", apicatalog.SpecEntry{
+	_ = store.UpsertSpec(context.Background(), "p", apicatalog.SpecEntry{
 		SpecName: "default", Content: catalogEmbeddingSpec, SourceKind: apicatalog.SourceInline,
 	})
 	h := NewHandler(Deps{
@@ -393,10 +394,10 @@ func TestCatalogReembedEndpoint_UpsertFailureReturnsServerError(t *testing.T) {
 		MemoryStore: apicatalog.NewMemoryStore(),
 		upsertErr:   errors.New("upsert failed"),
 	}
-	_ = store.MemoryStore.CreateCatalog(context.Background(), apicatalog.Catalog{
+	_ = store.CreateCatalog(context.Background(), apicatalog.Catalog{
 		ID: "p", Name: "p", DisplayName: "P",
 	})
-	_ = store.MemoryStore.UpsertSpec(context.Background(), "p", apicatalog.SpecEntry{
+	_ = store.UpsertSpec(context.Background(), "p", apicatalog.SpecEntry{
 		SpecName: "default", Content: catalogEmbeddingSpec, SourceKind: apicatalog.SourceInline,
 	})
 	h := NewHandler(Deps{
@@ -444,7 +445,7 @@ func TestCatalogReembedEndpoint_GetSpecStoreErrorReturns500(t *testing.T) {
 		MemoryStore: apicatalog.NewMemoryStore(),
 		getErr:      errors.New("db boom"),
 	}
-	_ = store.MemoryStore.CreateCatalog(context.Background(), apicatalog.Catalog{
+	_ = store.CreateCatalog(context.Background(), apicatalog.Catalog{
 		ID: "p", Name: "p", DisplayName: "P",
 	})
 	h := NewHandler(Deps{
@@ -533,21 +534,31 @@ func (s *reembedErrorStore) GetSpec(ctx context.Context, catalogID, specName str
 	if s.getErr != nil {
 		return nil, s.getErr
 	}
-	return s.MemoryStore.GetSpec(ctx, catalogID, specName)
+	spec, err := s.MemoryStore.GetSpec(ctx, catalogID, specName)
+	if err != nil {
+		return nil, fmt.Errorf("reembedErrorStore: %w", err)
+	}
+	return spec, nil
 }
 
 func (s *reembedErrorStore) DeleteOperationEmbeddings(ctx context.Context, catalogID, specName string) error {
 	if s.delErr != nil {
 		return s.delErr
 	}
-	return s.MemoryStore.DeleteOperationEmbeddings(ctx, catalogID, specName)
+	if err := s.MemoryStore.DeleteOperationEmbeddings(ctx, catalogID, specName); err != nil {
+		return fmt.Errorf("reembedErrorStore: %w", err)
+	}
+	return nil
 }
 
 func (s *reembedErrorStore) UpsertOperationEmbeddings(ctx context.Context, catalogID, specName string, rows []apicatalog.OperationEmbedding) error {
 	if s.upsertErr != nil {
 		return s.upsertErr
 	}
-	return s.MemoryStore.UpsertOperationEmbeddings(ctx, catalogID, specName, rows)
+	if err := s.MemoryStore.UpsertOperationEmbeddings(ctx, catalogID, specName, rows); err != nil {
+		return fmt.Errorf("reembedErrorStore: %w", err)
+	}
+	return nil
 }
 
 var _ APICatalogStore = (*reembedErrorStore)(nil)

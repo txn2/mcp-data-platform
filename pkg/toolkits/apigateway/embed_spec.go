@@ -41,9 +41,23 @@ func ComputeOperationEmbeddings(ctx context.Context, embedder embedding.Provider
 	}
 	model := providerModel(embedder)
 	dim := embedder.Dimension()
-	rows := make([]catalog.OperationEmbedding, len(ops))
-	var toEmbedIdx []int
-	var toEmbedTexts []string
+	rows, toEmbedIdx, toEmbedTexts := planEmbeddingRows(ops, texts, existing, model, dim)
+	if err := fillFreshEmbeddings(ctx, embedder, rows, toEmbedIdx, toEmbedTexts); err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// planEmbeddingRows builds one OperationEmbedding per operation,
+// reusing existing[opID].Embedding when text hash, dimension, AND
+// model identity all match. The reuse predicate keeps a model
+// swap (e.g., nomic-embed-text → bge-base-en) from leaving old
+// vectors stamped with the new model name, which would defeat
+// the model column's row-level-breadcrumb role. Returns rows
+// (some with Embedding set from existing, the rest empty) plus
+// the indices and texts that still need a fresh embed call.
+func planEmbeddingRows(ops []OperationSummary, texts []string, existing map[string]catalog.OperationEmbedding, model string, dim int) (rows []catalog.OperationEmbedding, toEmbedIdx []int, toEmbedTexts []string) {
+	rows = make([]catalog.OperationEmbedding, len(ops))
 	for i, op := range ops {
 		sum := sha256.Sum256([]byte(texts[i]))
 		row := catalog.OperationEmbedding{
@@ -52,13 +66,6 @@ func ComputeOperationEmbeddings(ctx context.Context, embedder embedding.Provider
 			Model:       model,
 			Dim:         dim,
 		}
-		// Reuse the existing vector only when text hash, dimension,
-		// AND model identity all match. A model swap to a different
-		// 768-dim provider (e.g., nomic-embed-text → bge-base-en)
-		// would otherwise keep the old vector while stamping the
-		// new model name, defeating the model-column's role as a
-		// row-level breadcrumb that the cached vectors match the
-		// current provider's output.
 		if prev, ok := existing[op.OperationID]; ok &&
 			bytes.Equal(prev.TextHash, row.TextHash) &&
 			len(prev.Embedding) == dim &&
@@ -70,20 +77,28 @@ func ComputeOperationEmbeddings(ctx context.Context, embedder embedding.Provider
 		}
 		rows[i] = row
 	}
-	if len(toEmbedTexts) > 0 {
-		vectors, err := embedInBatches(ctx, embedder, toEmbedTexts, embedBatchSize)
-		if err != nil {
-			return nil, fmt.Errorf("embed operation batch: %w", err)
-		}
-		if len(vectors) != len(toEmbedTexts) {
-			return nil, fmt.Errorf("embed operation batch: provider returned %d vectors for %d texts",
-				len(vectors), len(toEmbedTexts))
-		}
-		for j, idx := range toEmbedIdx {
-			rows[idx].Embedding = vectors[j]
-		}
+	return rows, toEmbedIdx, toEmbedTexts
+}
+
+// fillFreshEmbeddings calls embedder for the deltas only and
+// writes each vector back into its row. No-op when toEmbedTexts
+// is empty (every operation's vector was reused from existing).
+func fillFreshEmbeddings(ctx context.Context, embedder embedding.Provider, rows []catalog.OperationEmbedding, toEmbedIdx []int, toEmbedTexts []string) error {
+	if len(toEmbedTexts) == 0 {
+		return nil
 	}
-	return rows, nil
+	vectors, err := embedInBatches(ctx, embedder, toEmbedTexts, embedBatchSize)
+	if err != nil {
+		return fmt.Errorf("embed operation batch: %w", err)
+	}
+	if len(vectors) != len(toEmbedTexts) {
+		return fmt.Errorf("embed operation batch: provider returned %d vectors for %d texts",
+			len(vectors), len(toEmbedTexts))
+	}
+	for j, idx := range toEmbedIdx {
+		rows[idx].Embedding = vectors[j]
+	}
+	return nil
 }
 
 // providerModel returns the embedding provider's underlying model

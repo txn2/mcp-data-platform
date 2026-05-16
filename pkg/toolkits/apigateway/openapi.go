@@ -74,7 +74,9 @@ func buildOperationIndex(doc *openapi3.T, specName, basePath string) (ops []Oper
 		return nil, nil
 	}
 	for rawPath, item := range doc.Paths.Map() {
-		ops, embedTexts = appendItemOperations(ops, embedTexts, basePath, rawPath, item, specName)
+		ops, embedTexts = appendItemOperations(ops, embedTexts, item, itemOpsCtx{
+			basePath: basePath, rawPath: rawPath, specName: specName,
+		})
 	}
 	indices := make([]int, len(ops))
 	for i := range indices {
@@ -113,6 +115,15 @@ var pathItemMethods = []struct {
 	{"HEAD", func(p *openapi3.PathItem) *openapi3.Operation { return p.Head }},
 }
 
+// itemOpsCtx bundles the per-path-item context appendItemOperations
+// needs. Kept as a struct so the function stays under revive's
+// argument-limit ceiling.
+type itemOpsCtx struct {
+	basePath string // basePath prefix applied to the runtime path
+	rawPath  string // spec-relative path (used for synthesized operationIds)
+	specName string // component spec name on each emitted OperationSummary
+}
+
 // appendItemOperations adds every operation defined on a PathItem
 // to the running summary slice. Operations without operationId get
 // a synthesized "METHOD rawPath" id — note the spec-relative
@@ -127,11 +138,11 @@ var pathItemMethods = []struct {
 // embedTexts slice carries the per-operation text used by semantic
 // ranking — kept off OperationSummary so descriptions (often
 // paragraphs) don't bloat the JSON response.
-func appendItemOperations(ops []OperationSummary, embedTexts []string, basePath, rawPath string, item *openapi3.PathItem, specName string) (outOps []OperationSummary, outTexts []string) {
+func appendItemOperations(ops []OperationSummary, embedTexts []string, item *openapi3.PathItem, c itemOpsCtx) (outOps []OperationSummary, outTexts []string) {
 	if item == nil {
 		return ops, embedTexts
 	}
-	fullPath := basePath + rawPath
+	fullPath := c.basePath + c.rawPath
 	for _, m := range pathItemMethods {
 		op := m.get(item)
 		if op == nil {
@@ -139,7 +150,7 @@ func appendItemOperations(ops []OperationSummary, embedTexts []string, basePath,
 		}
 		id := op.OperationID
 		if id == "" {
-			id = m.method + " " + rawPath
+			id = m.method + " " + c.rawPath
 		}
 		summary := OperationSummary{
 			OperationID: id,
@@ -147,7 +158,7 @@ func appendItemOperations(ops []OperationSummary, embedTexts []string, basePath,
 			Path:        fullPath,
 			Summary:     op.Summary,
 			Tags:        op.Tags,
-			Spec:        specName,
+			Spec:        c.specName,
 		}
 		ops = append(ops, summary)
 		embedTexts = append(embedTexts, buildEmbedText(summary, op.Description))
