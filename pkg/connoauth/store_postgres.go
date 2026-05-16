@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"hash/fnv"
+	"sync"
 	"time"
 )
 
@@ -200,6 +202,63 @@ func (s *PostgresStore) List(ctx context.Context) ([]PersistedToken, error) {
 		return nil, fmt.Errorf("connoauth: list iterate: %w", err)
 	}
 	return out, nil
+}
+
+// Lock acquires a Postgres session-scoped advisory lock for key.
+// Held across processes: two replicas calling Lock for the same key
+// serialize at the database level. The lock is auto-released if the
+// holding session disconnects, so a crashed holder cannot deadlock
+// the row. The returned release function MUST be deferred; it sends
+// an explicit pg_advisory_unlock and returns the dedicated
+// connection to the pool. It is idempotent and safe to call after
+// the request context has been canceled (the unlock uses a
+// background context so cancellation does not strand the lock).
+//
+// Lock ID derivation: a 64-bit FNV-1a hash of "connoauth:" + kind +
+// "/" + name. The "connoauth:" namespace prefix prevents collision
+// with any other code that might also use pg_advisory_lock in the
+// same database. Hash collisions across distinct (kind, name) pairs
+// are mathematically possible but vanishingly rare for any realistic
+// connection count; a collision would only cause unnecessary
+// serialization between two unrelated connections, never incorrect
+// behavior.
+func (s *PostgresStore) Lock(ctx context.Context, key Key) (func(), error) {
+	if !key.IsValid() {
+		return nil, errInvalidKey
+	}
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("connoauth: acquire conn for advisory lock: %w", err)
+	}
+	lockID := advisoryLockID(key)
+	if _, err := conn.ExecContext(ctx, "SELECT pg_advisory_lock($1)", lockID); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("connoauth: pg_advisory_lock(%s/%s): %w", key.Kind, key.Name, err)
+	}
+	var once sync.Once
+	release := func() {
+		once.Do(func() {
+			// Background context: unlock must run even if the request
+			// context was canceled. pg_advisory_unlock against a
+			// session-scoped lock is local and fast.
+			_, _ = conn.ExecContext(context.Background(),
+				"SELECT pg_advisory_unlock($1)", lockID)
+			_ = conn.Close()
+		})
+	}
+	return release, nil
+}
+
+// advisoryLockID computes the 64-bit pg_advisory_lock key for a
+// connection. Pure function so the lock IDs are deterministic across
+// process restarts; a token row's lock identity does not change as
+// long as its (kind, name) does not change.
+func advisoryLockID(key Key) int64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte("connoauth:" + key.Kind + "/" + key.Name))
+	// Convert uint64 to int64 via two's complement. pg_advisory_lock
+	// accepts any int64 value; we don't care about the sign.
+	return int64(h.Sum64()) // #nosec G115 -- intentional bit reinterpretation: pg_advisory_lock accepts any int64; the negative/positive distinction is meaningless for a hash-derived lock identifier.
 }
 
 // Delete removes the row for key. Idempotent — missing rows do not

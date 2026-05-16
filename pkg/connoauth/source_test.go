@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -517,6 +519,10 @@ func (failingStore) List(_ context.Context) ([]PersistedToken, error) {
 	return nil, errors.New("store: connection refused")
 }
 
+func (failingStore) Lock(_ context.Context, _ Key) (func(), error) {
+	return nil, errors.New("store: connection refused")
+}
+
 // TestSource_Token_StoreError — when the store returns a transient
 // error (not ErrTokenNotFound), Token() must surface it as a wrapped
 // error rather than misclassifying it as NeedsReauth.
@@ -669,5 +675,177 @@ func TestAccessTokenStillValid(t *testing.T) {
 	future := &PersistedToken{AccessToken: "x", ExpiresAt: time.Now().Add(time.Hour)}
 	if !accessTokenStillValid(future) {
 		t.Fatal("future ExpiresAt should be valid")
+	}
+}
+
+// TestSource_ConcurrentRefreshSerializes is the regression test for
+// the rotation-race bug. Without serialization at the store layer,
+// two callers arriving at the refresh path together each POST the
+// same refresh_token. A rotation-enforcing IdP returns 200 + new
+// tokens to one and 400 invalid_grant to the other. The "loser"
+// classifies invalid_grant as a revoked refresh token and deletes
+// the row, taking the connection out of service. With Store.Lock,
+// the second caller waits, re-reads the row, finds the access token
+// already rotated, and returns it without a second IdP call.
+//
+// This test makes the IdP increment-rotate on every call (so a
+// second call with the previously-issued refresh token would fail
+// invalid_grant). It then fires N concurrent Token() calls against
+// the same store and key. Assertions: every caller succeeds, every
+// caller returns the same access token, and the IdP is hit exactly
+// once. The same serialization guarantee carries to multi-replica
+// deployments via PostgresStore's pg_advisory_lock; MemoryStore here
+// proves the contract, the Postgres-backed test in
+// store_postgres_test.go proves the cross-process guarantee.
+func TestSource_ConcurrentRefreshSerializes(t *testing.T) {
+	t.Parallel()
+	var (
+		rotation atomic.Int32
+		valid    atomic.Value
+	)
+	valid.Store("rt-0")
+	idp := newFakeIDP(t, func(w http.ResponseWriter, r *http.Request) {
+		form := readForm(r)
+		incoming := form.Get("refresh_token")
+		current, _ := valid.Load().(string)
+		if incoming != current {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"invalid_grant","error_description":"Token is not active"}`))
+			return
+		}
+		n := rotation.Add(1)
+		next := fmt.Sprintf("rt-%d", n)
+		valid.Store(next)
+		writeTokenJSON(w, map[string]any{
+			"access_token":  fmt.Sprintf("at-%d", n),
+			"refresh_token": next,
+			"expires_in":    3600,
+		})
+	})
+
+	store := NewMemoryStore()
+	key := Key{Kind: KindAPI, Name: "rotation-race"}
+	_ = store.Set(context.Background(), PersistedToken{
+		Key:          key,
+		AccessToken:  "at-expired",
+		RefreshToken: "rt-0",
+		ExpiresAt:    time.Now().Add(-time.Hour),
+	})
+	cfg := Config{TokenURL: idp.tokenURL(), ClientID: "c", ClientSecret: "s"}
+
+	const callers = 20
+	var (
+		wg      sync.WaitGroup
+		tokens  = make([]string, callers)
+		errs    = make([]error, callers)
+		barrier = make(chan struct{})
+	)
+	for i := range callers {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			src := NewSource(store, key, cfg)
+			<-barrier
+			tokens[idx], errs[idx] = src.Token(context.Background())
+		}(i)
+	}
+	close(barrier)
+	wg.Wait()
+
+	for i, e := range errs {
+		if e != nil {
+			t.Fatalf("caller %d: %v (would be invalid_grant without the per-key lock)", i, e)
+		}
+	}
+	first := tokens[0]
+	if first == "" {
+		t.Fatal("expected a non-empty access token from every caller")
+	}
+	for i, tok := range tokens {
+		if tok != first {
+			t.Fatalf("caller %d returned %q, expected the shared %q", i, tok, first)
+		}
+	}
+	if got := idp.calls.Load(); got != 1 {
+		t.Fatalf("idp should be hit exactly once (winning refresh); got %d calls", got)
+	}
+	persisted, gerr := store.Get(context.Background(), key)
+	if gerr != nil {
+		t.Fatalf("row should still exist after coordinated refresh: %v", gerr)
+	}
+	if persisted.RefreshToken != "rt-1" {
+		t.Fatalf("persisted refresh_token should reflect the one rotation: %q", persisted.RefreshToken)
+	}
+}
+
+// TestRetrieveErrorMessage_PreservesOAuthErrorFields ensures the
+// IdP's RFC 6749 `error` and `error_description` survive the
+// sanitization pass. Operators previously saw only "status=400"
+// from a refresh failure and had to read pod logs to learn whether
+// the cause was invalid_grant, invalid_client, invalid_scope, or
+// something else.
+func TestRetrieveErrorMessage_PreservesOAuthErrorFields(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		re   *oauth2.RetrieveError
+		want string
+	}{
+		{
+			name: "status + error + description",
+			re: &oauth2.RetrieveError{
+				Response:         &http.Response{StatusCode: 400},
+				ErrorCode:        "invalid_grant",
+				ErrorDescription: "Token is not active",
+			},
+			want: "connoauth: token fetch failed: status=400 error=invalid_grant error_description=Token is not active",
+		},
+		{
+			name: "status + error only",
+			re: &oauth2.RetrieveError{
+				Response:  &http.Response{StatusCode: 401},
+				ErrorCode: "invalid_client",
+			},
+			want: "connoauth: token fetch failed: status=401 error=invalid_client",
+		},
+		{
+			name: "no fields",
+			re:   &oauth2.RetrieveError{},
+			want: "connoauth: token fetch failed",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := retrieveErrorMessage(tc.re).Error(); got != tc.want {
+				t.Errorf("retrieveErrorMessage:\n got: %s\nwant: %s", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestSanitizeOAuthErrorField scrubs the operator-readable error_description
+// of CR/LF/control characters and URL-shaped content, and bounds its
+// length so a chatty IdP cannot inject log noise or leak embedded
+// credentials.
+func TestSanitizeOAuthErrorField(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		in, want string
+	}{
+		{"invalid_grant", "invalid_grant"},
+		{"Token is not active", "Token is not active"},
+		{"Bad\r\nthing", "Bad  thing"},
+		{"see https://attacker.example/log?leak=secret for more", "(redacted: URL-shaped content)"},
+		{strings.Repeat("x", 250), strings.Repeat("x", 200) + "..."},
+	}
+	for _, tc := range cases {
+		t.Run(tc.in, func(t *testing.T) {
+			t.Parallel()
+			if got := sanitizeOAuthErrorField(tc.in); got != tc.want {
+				t.Errorf("sanitizeOAuthErrorField(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
 	}
 }

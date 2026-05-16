@@ -135,3 +135,96 @@ func TestNoopEncryptor(t *testing.T) {
 		t.Fatalf("Decrypt: got (%q, %v)", dec, err)
 	}
 }
+
+func TestMemoryStore_Lock_Serializes(t *testing.T) {
+	t.Parallel()
+	store := NewMemoryStore()
+	key := Key{Kind: KindAPI, Name: "race"}
+
+	// First Lock acquires immediately.
+	release1, err := store.Lock(context.Background(), key)
+	if err != nil {
+		t.Fatalf("first Lock: %v", err)
+	}
+
+	// Second Lock for the same key must block until release1 fires.
+	type lockResult struct {
+		release func()
+		err     error
+	}
+	ch := make(chan lockResult, 1)
+	go func() {
+		r, err := store.Lock(context.Background(), key)
+		ch <- lockResult{r, err}
+	}()
+
+	select {
+	case <-ch:
+		t.Fatal("second Lock should block while first holds the key")
+	case <-time.After(50 * time.Millisecond):
+		// expected: blocked
+	}
+
+	release1()
+
+	select {
+	case res := <-ch:
+		if res.err != nil {
+			t.Fatalf("second Lock: %v", res.err)
+		}
+		res.release()
+	case <-time.After(time.Second):
+		t.Fatal("second Lock did not acquire after first release")
+	}
+}
+
+func TestMemoryStore_Lock_DifferentKeysDoNotBlock(t *testing.T) {
+	t.Parallel()
+	store := NewMemoryStore()
+
+	releaseA, err := store.Lock(context.Background(), Key{Kind: KindAPI, Name: "a"})
+	if err != nil {
+		t.Fatalf("Lock A: %v", err)
+	}
+	defer releaseA()
+
+	// A different key must NOT block on A's lock.
+	done := make(chan error, 1)
+	go func() {
+		r, err := store.Lock(context.Background(), Key{Kind: KindAPI, Name: "b"})
+		if r != nil {
+			r()
+		}
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Lock B: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Lock B should not block on Lock A (different key)")
+	}
+}
+
+func TestMemoryStore_Lock_ReleaseIsIdempotent(t *testing.T) {
+	t.Parallel()
+	store := NewMemoryStore()
+	key := Key{Kind: KindAPI, Name: "x"}
+	release, err := store.Lock(context.Background(), key)
+	if err != nil {
+		t.Fatalf("Lock: %v", err)
+	}
+	// Calling release twice MUST NOT panic from a double-unlock of
+	// the underlying sync.Mutex.
+	release()
+	release()
+}
+
+func TestMemoryStore_Lock_RejectsInvalidKey(t *testing.T) {
+	t.Parallel()
+	store := NewMemoryStore()
+	if _, err := store.Lock(context.Background(), Key{}); !errors.Is(err, errInvalidKey) {
+		t.Fatalf("Lock with empty key should return errInvalidKey, got %v", err)
+	}
+}
