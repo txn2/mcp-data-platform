@@ -19,10 +19,12 @@ vi.mock("@/api/admin/hooks", () => ({
   })),
 }));
 
+import { ApiError } from "@/api/admin/client";
 import { useConnectionOAuthStatus } from "@/api/admin/hooks";
 import {
   ConnectionOAuthStatusCard,
   describeVerdictCode,
+  formatActionError,
   renderDetailHint,
   revocationHeadline,
 } from "./ConnectionOAuthStatusCard";
@@ -114,6 +116,56 @@ function makeEvent(overrides: Partial<ConnectionAuthEvent>): ConnectionAuthEvent
     ...overrides,
   };
 }
+
+describe("formatActionError", () => {
+  // The empty-red-box bug: clicking "Refresh now" produced a red
+  // banner with no text. Root cause was the catch block rendering
+  // err.message directly. Some failure paths surface an ApiError with
+  // an empty detail (HTTP/2 fetches return empty statusText, and
+  // server paths can write a problem+json body with detail: "")
+  // which left the banner visually empty. formatActionError must
+  // ALWAYS return a non-empty string the operator can act on.
+  it("returns ApiError detail when non-empty", () => {
+    const err = new ApiError(502, "refresh failed: connoauth: token fetch failed: status=500");
+    expect(formatActionError(err, "Refresh failed")).toBe(
+      "refresh failed: connoauth: token fetch failed: status=500",
+    );
+  });
+
+  it("falls back to '<label> (HTTP <status>)' when ApiError detail is empty", () => {
+    expect(formatActionError(new ApiError(502, ""), "Refresh failed")).toBe(
+      "Refresh failed (HTTP 502)",
+    );
+    expect(formatActionError(new ApiError(409, "   "), "Refresh failed")).toBe(
+      "Refresh failed (HTTP 409)",
+    );
+  });
+
+  it("returns Error.message when non-empty for non-ApiError throws", () => {
+    expect(formatActionError(new Error("network down"), "Refresh failed")).toBe(
+      "network down",
+    );
+  });
+
+  it("falls back to the label for an Error with an empty message", () => {
+    expect(formatActionError(new Error(""), "Refresh failed")).toBe(
+      "Refresh failed",
+    );
+    expect(formatActionError(new Error("  "), "Refresh failed")).toBe(
+      "Refresh failed",
+    );
+  });
+
+  it("falls back to the label for a non-Error throw", () => {
+    expect(formatActionError("a string", "Refresh failed")).toBe(
+      "Refresh failed",
+    );
+    expect(formatActionError(undefined, "Refresh failed")).toBe(
+      "Refresh failed",
+    );
+    expect(formatActionError(null, "Refresh failed")).toBe("Refresh failed");
+  });
+});
 
 describe("renderDetailHint", () => {
   it("translates idp_error_code=refresh_expired so the row doesn't blame the IdP", () => {

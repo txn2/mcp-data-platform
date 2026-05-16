@@ -11,6 +11,7 @@ import {
   useReacquireConnectionOAuth,
   useStartConnectionOAuth,
 } from "@/api/admin/hooks";
+import { ApiError } from "@/api/admin/client";
 import type { ConnectionAuthEvent, ConnectionOAuthStatus } from "@/api/admin/types";
 import { cn } from "@/lib/utils";
 import {
@@ -80,10 +81,7 @@ function Inner({ kind, name }: { kind: string; name: string }) {
       }
       window.location.href = res.authorization_url;
     } catch (err) {
-      setActionMsg({
-        ok: false,
-        text: err instanceof Error ? err.message : "Connect failed",
-      });
+      setActionMsg({ ok: false, text: formatActionError(err, "Connect failed") });
     }
   };
 
@@ -93,10 +91,7 @@ function Inner({ kind, name }: { kind: string; name: string }) {
       await reacquire.mutateAsync({ kind, name });
       setActionMsg({ ok: true, text: "Token refreshed" });
     } catch (err) {
-      setActionMsg({
-        ok: false,
-        text: err instanceof Error ? err.message : "Reacquire failed",
-      });
+      setActionMsg({ ok: false, text: formatActionError(err, "Refresh failed") });
     }
   };
 
@@ -151,7 +146,7 @@ function Inner({ kind, name }: { kind: string; name: string }) {
       {error && (
         <div className="rounded border border-destructive/30 bg-destructive/10 px-2 py-1 text-xs text-destructive">
           <span className="font-medium">Status unavailable:</span>{" "}
-          {error instanceof Error ? error.message : "fetch failed"}
+          {formatActionError(error, "fetch failed")}
         </div>
       )}
 
@@ -168,13 +163,13 @@ function Inner({ kind, name }: { kind: string; name: string }) {
         </div>
       )}
 
-      {status?.last_error && (
+      {status?.last_error && status.last_error.trim() !== "" && (
         <div className="rounded border border-destructive/30 bg-destructive/10 px-2 py-1 text-xs text-destructive">
           <span className="font-medium">Last error:</span> {status.last_error}
         </div>
       )}
 
-      {actionMsg && (
+      {actionMsg && actionMsg.text.trim() !== "" && (
         <div
           className={cn(
             "rounded border px-2 py-1 text-xs",
@@ -508,6 +503,28 @@ function StatusGrid({ status }: { status: ConnectionOAuthStatus }) {
       ))}
     </div>
   );
+}
+
+// formatActionError turns any thrown value into a non-empty,
+// operator-meaningful string. The previous render used
+// `err.message` directly, which produced an empty red box when an
+// ApiError carried an empty detail (some upstream paths return 502
+// with no body, and HTTP/2 fetches return empty statusText). An
+// empty error box is the worst of both worlds: the operator sees
+// something went wrong but learns nothing about what. Always fall
+// back to the caller's label, and append the HTTP status when
+// available so "Refresh failed (HTTP 502)" beats a blank box.
+export function formatActionError(err: unknown, fallback: string): string {
+  if (err instanceof ApiError) {
+    const detail = err.detail?.trim();
+    if (detail) return detail;
+    return err.status > 0 ? `${fallback} (HTTP ${err.status})` : fallback;
+  }
+  if (err instanceof Error) {
+    const msg = err.message?.trim();
+    if (msg) return msg;
+  }
+  return fallback;
 }
 
 // formatRelative renders an ISO-8601 timestamp as a coarse "in N
