@@ -19,6 +19,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/configstore"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
+	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -161,6 +162,13 @@ type Deps struct {
 	// with the apigateway toolkit's SetCatalogStore so admin writes
 	// and toolkit reads share one store.
 	APICatalogStore APICatalogStore
+	// Embedder is the embedding provider used by the api-catalog
+	// admin path to compute per-operation vectors at spec-upsert
+	// time. Nil disables the compute-and-store step: spec writes
+	// still succeed, but the api-gateway toolkit's semantic and
+	// hybrid ranking modes fall back to lexical until the operator
+	// wires an embedder and re-saves (or re-embeds) the spec.
+	Embedder embedding.Provider
 }
 
 // APICatalogStore is the subset of apigateway/catalog.Store that the
@@ -179,6 +187,9 @@ type APICatalogStore interface {
 	ListSpecs(ctx context.Context, catalogID string) ([]apicatalog.SpecEntry, error)
 	DeleteSpec(ctx context.Context, catalogID, specName string) error
 	ReferencingConnections(ctx context.Context, catalogID string) ([]apicatalog.ConnectionRef, error)
+	UpsertOperationEmbeddings(ctx context.Context, catalogID, specName string, rows []apicatalog.OperationEmbedding) error
+	ListOperationEmbeddings(ctx context.Context, catalogID, specName string) ([]apicatalog.OperationEmbedding, error)
+	DeleteOperationEmbeddings(ctx context.Context, catalogID, specName string) error
 }
 
 // EnrichmentEngine is the admin-facing surface of an enrichment.Engine.

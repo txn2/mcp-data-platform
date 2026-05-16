@@ -53,6 +53,18 @@ func (failingCatalogStore) ReferencingConnections(context.Context, string) ([]ca
 	return nil, errors.New("boom")
 }
 
+func (failingCatalogStore) UpsertOperationEmbeddings(context.Context, string, string, []catalog.OperationEmbedding) error {
+	return errors.New("boom")
+}
+
+func (failingCatalogStore) ListOperationEmbeddings(context.Context, string, string) ([]catalog.OperationEmbedding, error) {
+	return nil, errors.New("boom")
+}
+
+func (failingCatalogStore) DeleteOperationEmbeddings(context.Context, string, string) error {
+	return errors.New("boom")
+}
+
 func TestCatalogStore_Getter(t *testing.T) {
 	tk := New("api")
 	if tk.CatalogStore() != nil {

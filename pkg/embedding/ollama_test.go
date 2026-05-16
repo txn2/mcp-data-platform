@@ -233,3 +233,14 @@ func TestToFloat32(t *testing.T) {
 		})
 	}
 }
+
+// TestOllamaProvider_Model returns the configured model name so
+// downstream code (api-catalog embedding storage) can stamp the
+// model into the row metadata for debugging.
+func TestOllamaProvider_Model(t *testing.T) {
+	t.Parallel()
+	prov := NewOllamaProvider(OllamaConfig{Model: "my-model"})
+	p, ok := prov.(*ollamaProvider)
+	require.True(t, ok)
+	assert.Equal(t, "my-model", p.Model())
+}

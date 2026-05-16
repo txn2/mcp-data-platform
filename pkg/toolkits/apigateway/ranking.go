@@ -8,19 +8,20 @@ import (
 	"math"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 )
 
 // embedBatchSize is the maximum number of texts fed to the
 // embedding provider's EmbedBatch in a single call. Bounded so a
-// connection with hundreds of operations does not POST one giant
+// catalog with hundreds of operations does not POST one giant
 // batch that risks timing out the request context, exceeding an
 // upstream model's context window, or hitting an HTTP body cap.
 // 32 is small enough that a single timed-out batch only loses
 // progress for that chunk and large enough to amortize per-call
-// overhead.
+// overhead. Consumed at spec-write time by the admin handler's
+// compute-and-store path; the toolkit no longer batches at
+// request time because vectors are already in the store.
 const embedBatchSize = 32
 
 // errEmbedderNotWired is the sentinel returned by queryVectorFor
@@ -30,28 +31,23 @@ const embedBatchSize = 32
 // not an upstream failure.
 var errEmbedderNotWired = errors.New("embedding provider not configured on this connection")
 
-// Embedding-state sentinels returned by checkEmbeddingsReady. Each
-// one carries enough context for the operator to act:
+// Embedding-state sentinels returned by checkEmbeddingsReady.
+// Persisting operation embeddings collapsed the multi-state
+// in-process warmer to "the row exists or it does not", so the
+// surviving set is:
 //
 //   - errEmbeddingsNoOps: nothing to embed (the connection has no
 //     operations; semantic ranking is meaningless).
-//   - errEmbeddingsFailed: a prior warmer attempt failed with a
-//     definitive error (not a transient cancel); reload the
-//     connection or restart the platform to retry.
-//   - errEmbeddingsWarming: the background warmer is in flight;
-//     fall back to lexical for this call and retry shortly.
-//   - errEmbeddingsNotStarted: no warmer ever ran (typically
-//     because the embedding provider was wired AFTER the
-//     connection registered and the toolkit was never told to
-//     start one); operator should reload the connection.
+//   - errEmbeddingsNotIndexed: the connection's catalog has no
+//     persisted vectors. The spec was written without an embedder
+//     configured, the embedding compute step failed, or the
+//     operator has not yet run the re-embed admin endpoint.
 //   - errEmbeddingsZeroVector: the provider returned a zero vector
 //     for the query, which produces meaningless cosine similarity;
 //     points at a misconfigured embedding model.
 var (
 	errEmbeddingsNoOps      = errors.New("connection has no operations to embed")
-	errEmbeddingsFailed     = errors.New("operation-embedding warm-up failed; reload the connection to retry")
-	errEmbeddingsWarming    = errors.New("operation embeddings still warming; falling back to lexical until ready")
-	errEmbeddingsNotStarted = errors.New("operation-embedding warm-up has not started; reload the connection")
+	errEmbeddingsNotIndexed = errors.New("operation embeddings not indexed for this catalog; re-save or re-embed the spec to populate them")
 	errEmbeddingsZeroVector = errors.New("query embedding is the zero vector (misconfigured embedding model)")
 )
 
@@ -162,20 +158,14 @@ func rankWithMode(ctx context.Context, r rankRequest) (ranked []OperationSummary
 // call. Error returns drive the lexical fallback in rankWithMode
 // AND populate the operator-facing Note on the response so the
 // model and the operator reading the log know whether the cause
-// is operator configuration (errEmbedderNotWired), an upstream
-// embedding failure (provider Embed errors), a previously-cached
-// per-connection failure (c.embedFailed), an in-flight cold-start
-// warmer that has not yet populated this connection's operation
-// embeddings (errEmbeddingsWarming), or a zero-vector reply from
-// the provider (errEmbeddingsZeroVector).
+// is operator configuration (errEmbedderNotWired), an absence of
+// persisted vectors (errEmbeddingsNotIndexed), an upstream
+// embedding failure (wrapped provider Embed error), or a
+// zero-vector reply (errEmbeddingsZeroVector).
 //
-// The operation-embedding population happens in a background
-// warmer kicked off at AddConnection / SetEmbeddingProvider time.
-// queryVectorFor never does that work inline. A request that
-// arrives before the warmer finishes returns
-// errEmbeddingsWarming so the caller falls back to lexical inside
-// the request budget instead of synchronously triggering a
-// multi-minute per-operation pass.
+// Operation vectors are pre-computed by the admin handler at
+// spec-upsert time and loaded into c.embedVectors at connection
+// registration. queryVectorFor never embeds operations inline.
 //
 // Snapshots t.embedder under the read lock so a concurrent
 // SetEmbeddingProvider cannot race with the nil check below.
@@ -199,93 +189,20 @@ func (t *Toolkit) queryVectorFor(ctx context.Context, c *conn, query string) ([]
 	return vec, nil
 }
 
-// checkEmbeddingsReady reports whether the per-connection
-// operation embeddings are populated and usable. Returns a
-// distinct sentinel for every reason a non-lexical rank cannot
-// proceed so the operator-facing fallback Note names the actual
-// cause: warmer still in flight, prior warmer failed definitively,
-// or the connection has no operations to embed in the first place.
+// checkEmbeddingsReady reports whether persisted operation
+// embeddings are populated and usable for ranking. Reduces to a
+// row-existence check on c.embedVectors because vectors are
+// written at spec-upsert time and reloaded into memory at
+// connection registration — there's no in-flight or warming
+// state to surface.
 func checkEmbeddingsReady(c *conn) error {
-	c.embedMu.Lock()
-	defer c.embedMu.Unlock()
-	if len(c.embedTexts) == 0 {
+	if len(c.operations) == 0 {
 		return errEmbeddingsNoOps
 	}
-	if len(c.embeddings) == len(c.embedTexts) {
-		return nil
+	if len(c.embedVectors) == 0 {
+		return errEmbeddingsNotIndexed
 	}
-	if c.embedFailed {
-		return errEmbeddingsFailed
-	}
-	if c.embedInFlight {
-		return errEmbeddingsWarming
-	}
-	return errEmbeddingsNotStarted
-}
-
-// ensureEmbeddings is the synchronous worker that populates the
-// per-connection operation embeddings. Called by warmEmbeddings
-// (in a goroutine at AddConnection / SetEmbeddingProvider time)
-// and exposed at package scope so unit tests can drive the worker
-// with controlled contexts (e.g., a pre-canceled ctx to verify
-// the carve-out that keeps a transient cancellation from poisoning
-// the cache).
-//
-// Concurrent callers serialize through the embedInFlight guard:
-// the loser returns errEmbeddingsWarming so a second worker does
-// not double-hit the embedder for the same connection. Failures
-// fall into two buckets: transient (ctx.Canceled / DeadlineExceeded)
-// do not poison the cache so a later attempt can succeed; every
-// other provider error sets c.embedFailed so a misbehaving
-// embedder is not re-hammered on every subsequent call.
-func (*Toolkit) ensureEmbeddings(ctx context.Context, c *conn, embedder embedding.Provider) error {
-	c.embedMu.Lock()
-	if len(c.embedTexts) == 0 {
-		c.embedMu.Unlock()
-		return errEmbeddingsNoOps
-	}
-	if len(c.embeddings) == len(c.embedTexts) {
-		c.embedMu.Unlock()
-		return nil
-	}
-	if c.embedFailed {
-		c.embedMu.Unlock()
-		return errEmbeddingsFailed
-	}
-	if c.embedInFlight {
-		c.embedMu.Unlock()
-		return errEmbeddingsWarming
-	}
-	c.embedInFlight = true
-	textCount := len(c.embedTexts)
-	c.embedMu.Unlock()
-
-	start := time.Now()
-	slog.Info("apigateway: warming connection embeddings",
-		logKeyConnection, c.cfg.ConnectionName, "count", textCount)
-	vectors, err := embedInBatches(ctx, embedder, c.embedTexts, embedBatchSize)
-	c.embedMu.Lock()
-	c.embedInFlight = false
-	switch {
-	case err != nil:
-		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-			c.embedFailed = true
-		}
-		c.embedMu.Unlock()
-		return fmt.Errorf("embed operation batch: %w", err)
-	case len(vectors) != len(c.embedTexts):
-		c.embedFailed = true
-		c.embedMu.Unlock()
-		return fmt.Errorf("embed operation batch: provider returned %d vectors for %d texts",
-			len(vectors), len(c.embedTexts))
-	default:
-		c.embeddings = vectors
-		c.embedMu.Unlock()
-		slog.Info("apigateway: embeddings warm-up complete",
-			logKeyConnection, c.cfg.ConnectionName,
-			"count", textCount, "duration", time.Since(start))
-		return nil
-	}
+	return nil
 }
 
 // scoreOperations builds the per-op score slice. Operations whose
@@ -295,12 +212,12 @@ func (*Toolkit) ensureEmbeddings(ctx context.Context, c *conn, embedder embeddin
 func scoreOperations(c *conn, ops []OperationSummary, query string, queryVec []float32, mode RankingMode) []scoredOp {
 	scored := make([]scoredOp, 0, len(ops))
 	for _, op := range ops {
-		idx := indexOf(c.operations, op)
-		if idx < 0 || idx >= len(c.embeddings) {
+		vec, ok := c.embedVectors[embedKey{Spec: op.Spec, OperationID: op.OperationID}]
+		if !ok {
 			scored = append(scored, scoredOp{op: op, score: 0})
 			continue
 		}
-		score := scoreFor(mode, query, op, queryVec, c.embeddings[idx])
+		score := scoreFor(mode, query, op, queryVec, vec)
 		scored = append(scored, scoredOp{op: op, score: score})
 	}
 	return scored

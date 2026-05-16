@@ -23,6 +23,7 @@ import {
   useCreateAPICatalog,
   useDeleteAPICatalog,
   useDeleteAPICatalogSpec,
+  useReembedAPICatalogSpec,
   useRefreshAPICatalogSpec,
   useUpdateAPICatalog,
   useUploadAPICatalogSpec,
@@ -660,6 +661,7 @@ function SpecsManager({ catalogID, isReadOnly }: { catalogID: string; isReadOnly
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const refresh = useRefreshAPICatalogSpec();
+  const reembed = useReembedAPICatalogSpec();
   const del = useDeleteAPICatalogSpec();
 
   useEffect(() => {
@@ -707,6 +709,7 @@ function SpecsManager({ catalogID, isReadOnly }: { catalogID: string; isReadOnly
             <li key={s.spec_name} className="flex items-center gap-3 px-3 py-2 text-sm">
               <span className="flex-1 truncate font-mono">{s.spec_name}</span>
               <SourceBadge kind={s.source_kind} url={s.source_url} />
+              <EmbeddingBadge count={s.embedding_count ?? 0} />
               {s.last_fetched_at && (
                 <span className="text-xs text-muted-foreground">
                   fetched {new Date(s.last_fetched_at).toLocaleString()}
@@ -714,6 +717,21 @@ function SpecsManager({ catalogID, isReadOnly }: { catalogID: string; isReadOnly
               )}
               {!isReadOnly && (
                 <div className="flex gap-1">
+                  {(s.embedding_count ?? 0) === 0 && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        reembed.mutate(
+                          { catalogID, specName: s.spec_name },
+                          { onSuccess: () => setRefreshCounter((n) => n + 1) },
+                        )
+                      }
+                      title="Compute operation embeddings for this spec"
+                      className="rounded px-2 py-1 text-xs hover:bg-muted"
+                    >
+                      Re-embed
+                    </button>
+                  )}
                   {s.source_kind === "url" && (
                     <button
                       type="button"
@@ -802,6 +820,32 @@ function SpecsManager({ catalogID, isReadOnly }: { catalogID: string; isReadOnly
         }}
       />
     </div>
+  );
+}
+
+// EmbeddingBadge surfaces the count of persisted operation
+// embedding rows for a spec. Zero rows means semantic and hybrid
+// ranking on api_list_endpoints will fall back to lexical — the
+// "Re-embed" action next to this badge fixes that without an
+// edit-and-save round trip.
+function EmbeddingBadge({ count }: { count: number }) {
+  if (count > 0) {
+    return (
+      <span
+        title={`${count} operation embeddings indexed; semantic ranking active`}
+        className="inline-flex items-center gap-1 rounded bg-emerald-100 px-1.5 py-0.5 text-xs text-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"
+      >
+        embeddings: {count}
+      </span>
+    );
+  }
+  return (
+    <span
+      title="No operation embeddings indexed; semantic ranking falls back to lexical"
+      className="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
+    >
+      not indexed
+    </span>
   );
 }
 

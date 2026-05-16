@@ -73,8 +73,10 @@ func buildOperationIndex(doc *openapi3.T, specName, basePath string) (ops []Oper
 	if doc == nil || doc.Paths == nil {
 		return nil, nil
 	}
-	for path, item := range doc.Paths.Map() {
-		ops, embedTexts = appendItemOperations(ops, embedTexts, basePath+path, item, specName)
+	for rawPath, item := range doc.Paths.Map() {
+		ops, embedTexts = appendItemOperations(ops, embedTexts, item, itemOpsCtx{
+			basePath: basePath, rawPath: rawPath, specName: specName,
+		})
 	}
 	indices := make([]int, len(ops))
 	for i := range indices {
@@ -113,16 +115,34 @@ var pathItemMethods = []struct {
 	{"HEAD", func(p *openapi3.PathItem) *openapi3.Operation { return p.Head }},
 }
 
+// itemOpsCtx bundles the per-path-item context appendItemOperations
+// needs. Kept as a struct so the function stays under revive's
+// argument-limit ceiling.
+type itemOpsCtx struct {
+	basePath string // basePath prefix applied to the runtime path
+	rawPath  string // spec-relative path (used for synthesized operationIds)
+	specName string // component spec name on each emitted OperationSummary
+}
+
 // appendItemOperations adds every operation defined on a PathItem
 // to the running summary slice. Operations without operationId get
-// a synthesized "METHOD path" id so they remain addressable. The
-// parallel embedTexts slice carries the per-operation text used by
-// semantic ranking — kept off OperationSummary so descriptions
-// (often paragraphs) don't bloat the JSON response.
-func appendItemOperations(ops []OperationSummary, embedTexts []string, path string, item *openapi3.PathItem, specName string) (outOps []OperationSummary, outTexts []string) {
+// a synthesized "METHOD rawPath" id — note the spec-relative
+// rawPath, NOT the basePath-prefixed runtime path: the synthesized
+// id must be a property of the spec content alone so the
+// (catalog_id, spec_name, operation_id) embedding key produced at
+// spec-write time matches the lookup key built at connection
+// registration regardless of which basePath the registering
+// connection resolves. The Path field still carries the
+// basePath-prefixed runtime path so api_list_endpoints reports the
+// full URL the model passes to api_invoke_endpoint. The parallel
+// embedTexts slice carries the per-operation text used by semantic
+// ranking — kept off OperationSummary so descriptions (often
+// paragraphs) don't bloat the JSON response.
+func appendItemOperations(ops []OperationSummary, embedTexts []string, item *openapi3.PathItem, c itemOpsCtx) (outOps []OperationSummary, outTexts []string) {
 	if item == nil {
 		return ops, embedTexts
 	}
+	fullPath := c.basePath + c.rawPath
 	for _, m := range pathItemMethods {
 		op := m.get(item)
 		if op == nil {
@@ -130,15 +150,15 @@ func appendItemOperations(ops []OperationSummary, embedTexts []string, path stri
 		}
 		id := op.OperationID
 		if id == "" {
-			id = m.method + " " + path
+			id = m.method + " " + c.rawPath
 		}
 		summary := OperationSummary{
 			OperationID: id,
 			Method:      m.method,
-			Path:        path,
+			Path:        fullPath,
 			Summary:     op.Summary,
 			Tags:        op.Tags,
-			Spec:        specName,
+			Spec:        c.specName,
 		}
 		ops = append(ops, summary)
 		embedTexts = append(embedTexts, buildEmbedText(summary, op.Description))

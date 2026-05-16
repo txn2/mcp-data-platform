@@ -210,35 +210,42 @@ type RoutePolicy interface {
 // references a catalog) the merged operation index plus retained
 // parsed OpenAPI documents that api_get_endpoint_schema reads.
 //
-// embedTexts is the parallel-indexed text fed to the embedding
-// provider for semantic ranking. embeddings are populated by a
-// background warmer goroutine kicked off from addParsedConnection
-// (when an embedder is already wired) and from SetEmbeddingProvider
-// (when the provider is wired after the connection is registered).
-// Populating off the request path keeps the first ranking call
-// from synchronously blocking on a slow embedder and timing out
-// the MCP request budget. embedInFlight is the warmer presence
-// guard so concurrent triggers de-duplicate. embedFailed sticks
-// on definitive provider failures so a misbehaving embedder is
-// not re-hammered on every ranking call. Invalidation is by full
-// conn rebuild: ReloadConnection drops the conn and re-registers
-// it, which spawns a fresh warmer.
+// embedVectors maps (spec_name, operation_id) to the pre-computed
+// embedding vector loaded from the catalog store at registration
+// time. The toolkit no longer computes vectors itself — the admin
+// handler writes them at spec-upsert time and persists them in
+// api_catalog_operation_embeddings, keyed on the spec content
+// rather than on this connection. Two connections that mount the
+// same catalog read the same rows and never trigger a duplicate
+// embedding pass; a process restart still finds vectors ready
+// because they live in Postgres. An empty map means the spec was
+// written without an embedder configured (or the operator has not
+// yet run the re-embed admin endpoint) — semantic ranking falls
+// back to lexical with the errEmbeddingsNotIndexed note.
 type conn struct {
-	cfg        Config
-	auth       Authenticator
-	client     *http.Client
-	specs      map[string]*specState
-	operations []OperationSummary
-	embedTexts []string
-	// embedMu guards every field below this line. Read paths
-	// (per-request) take the lock briefly to copy a snapshot and
-	// release; the write path (background warmer) holds it only
-	// while it swaps the populated slice in, never while the
-	// embedder is being called.
-	embedMu       sync.Mutex
-	embeddings    [][]float32
-	embedFailed   bool
-	embedInFlight bool
+	cfg          Config
+	auth         Authenticator
+	client       *http.Client
+	specs        map[string]*specState
+	operations   []OperationSummary
+	embedVectors map[embedKey][]float32
+	// testDescs is a unit-test-only aid: lets ranking_test.go's
+	// buildTestConn / populateTestEmbeddings round-trip an
+	// operation's description through buildEmbedText without making
+	// OperationSummary carry the description in production. Never
+	// populated outside tests.
+	testDescs map[string]string
+}
+
+// embedKey identifies an embedding row within a connection.
+// Spec is part of the key because two component specs in the
+// same catalog can legitimately carry the same operation_id
+// (a vendor that ships a "search" op in every component spec it
+// publishes). Without the spec discriminator a multi-spec catalog
+// would silently collapse colliding ops onto one vector.
+type embedKey struct {
+	Spec        string
+	OperationID string
 }
 
 // specState retains the parsed OpenAPI document for a component
@@ -410,29 +417,7 @@ type ListEndpointsOutput struct {
 // model can request more by passing limit explicitly.
 const defaultListEndpointsLimit = 50
 
-func (t *Toolkit) handleListEndpoints(ctx context.Context, _ *mcp.CallToolRequest, in ListEndpointsInput) (result *mcp.CallToolResult, _ any, _ error) {
-	// Panic recovery turns any unexpected runtime failure (a
-	// provider-impl bug, a nil-pointer, an out-of-range index) into
-	// an operator-readable error result instead of bubbling up as
-	// the MCP SDK's generic "Error occurred during tool execution"
-	// string that surfaced when the ranking path panicked against
-	// a multi-spec catalog. Logged at error level with the
-	// connection so the source is traceable from the pod log.
-	//
-	// When a panic interrupts a semantic or hybrid ranking call we
-	// also mark the connection's embed cache as failed so the next
-	// call short-circuits to lexical instead of re-triggering the
-	// same panic. Same definitive-failure semantics as the normal
-	// embedder-error path uses; without this guard a misbehaving
-	// embedding provider would panic on every subsequent call.
-	defer func() {
-		if rec := recover(); rec != nil {
-			slog.Error("apigateway: panic in handleListEndpoints",
-				logKeyConnection, in.Connection, "panic", rec)
-			t.markEmbedFailedOnPanic(in.Connection, in.Ranking)
-			result = errorResult(fmt.Sprintf("internal error in list_endpoints (connection=%s): %v", in.Connection, rec))
-		}
-	}()
+func (t *Toolkit) handleListEndpoints(ctx context.Context, _ *mcp.CallToolRequest, in ListEndpointsInput) (*mcp.CallToolResult, any, error) {
 	if in.Connection == "" {
 		return errorResult("connection is required"), nil, nil
 	}
@@ -479,32 +464,6 @@ func (t *Toolkit) handleListEndpoints(ctx context.Context, _ *mcp.CallToolReques
 		out.Note = fmt.Sprintf("ranking %q fell back to lexical: %s", mode, fallbackReason)
 	}
 	return jsonResult(out), out, nil
-}
-
-// markEmbedFailedOnPanic sets c.embedFailed on the connection
-// when a semantic-or-hybrid ranking call panicked, so the next call
-// falls back to lexical instead of repeatedly triggering the same
-// panic. No-op for lexical-mode panics (which would not have
-// touched the embedder) and for unknown connection names. The
-// connection name and ranking mode are taken from the original
-// request input so the deferred recover does not depend on any
-// state we lose on panic.
-func (t *Toolkit) markEmbedFailedOnPanic(connName, ranking string) {
-	mode, err := parseRankingMode(ranking)
-	if err != nil || mode == RankingLexical {
-		return
-	}
-	t.mu.RLock()
-	c, ok := t.connections[connName]
-	t.mu.RUnlock()
-	if !ok {
-		return
-	}
-	c.embedMu.Lock()
-	c.embedFailed = true
-	c.embedMu.Unlock()
-	slog.Warn("apigateway: marked embed cache failed after ranking panic",
-		logKeyConnection, connName, "mode", string(mode))
 }
 
 // filterBySpec returns the subset of ops whose Spec exactly matches
@@ -573,28 +532,32 @@ func (t *Toolkit) SetSemanticProvider(provider semantic.Provider) {
 	t.semanticProvider = provider
 }
 
-// SetEmbeddingProvider wires the embedding model used by the
-// "semantic" and "hybrid" ranking modes of api_list_endpoints. nil
-// (the default) disables non-lexical ranking; calls that request
-// it fall back to lexical with a note. When a non-nil provider is
-// wired, the toolkit kicks off a background warmer for every
-// already-registered connection so the first ranking call does
-// not pay the cold-start cost of embedding every operation
-// synchronously inside the request budget.
+// SetEmbeddingProvider wires the embedding model used at ranking
+// time to embed the agent's query. nil (the default) disables
+// non-lexical ranking; calls that request it fall back to lexical
+// with a note. The toolkit no longer warms per-operation vectors
+// from this hook — those are computed at spec-upsert time by the
+// admin handler and persisted in api_catalog_operation_embeddings,
+// which makes them survive restarts and shared across every
+// connection that mounts the same catalog. To recompute vectors
+// for a catalog that was written before the provider was wired,
+// the operator runs the re-embed admin endpoint or re-saves the
+// spec; the toolkit then picks up the new vectors on the next
+// ReloadConnection.
 func (t *Toolkit) SetEmbeddingProvider(p embedding.Provider) {
 	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.embedder = p
-	conns := make([]*conn, 0, len(t.connections))
-	for _, c := range t.connections {
-		conns = append(conns, c)
-	}
-	t.mu.Unlock()
-	if p == nil {
-		return
-	}
-	for _, c := range conns {
-		go t.warmEmbeddings(c, p)
-	}
+}
+
+// EmbeddingProvider returns the embedding provider configured on
+// the toolkit, or nil. Exposed so the admin handler can fall back
+// to the toolkit-wired provider when no platform-level embedder
+// was injected via Deps.Embedder.
+func (t *Toolkit) EmbeddingProvider() embedding.Provider {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.embedder
 }
 
 // SetQueryProvider stores the query provider. Reserved for future
@@ -645,27 +608,31 @@ func (t *Toolkit) AddConnection(name string, config map[string]any) error {
 // builds the Authenticator and HTTP client and inserts the
 // connection under lock. When cfg.CatalogID is set AND a catalog
 // store is wired, specs are loaded from the catalog and merged into
-// the operation index. Catalog-loading failures are non-fatal: the
-// connection still registers (with zero ops) so portal operators
-// can see it and fix the catalog reference, rather than the
-// connection vanishing from the UI.
+// the operation index. Per-spec embedding vectors are also loaded
+// from the catalog store at the same time — no goroutine, no
+// warmer; vectors that were computed at spec-upsert time live in
+// api_catalog_operation_embeddings and a process restart picks
+// them back up unchanged. Catalog-loading failures are non-fatal:
+// the connection still registers (with zero ops) so portal
+// operators can see it and fix the catalog reference, rather than
+// the connection vanishing from the UI.
 func (t *Toolkit) addParsedConnection(name string, cfg Config) error {
 	auth, err := NewAuthenticator(cfg)
 	if err != nil {
 		return fmt.Errorf("apigateway: %s: %w", name, err)
 	}
-	specs, ops, texts := t.buildConnSpecs(name, cfg.CatalogID, cfg.BaseURL)
+	specs, ops, vectors := t.buildConnSpecs(name, cfg.CatalogID, cfg.BaseURL)
 	c := &conn{
-		cfg:        cfg,
-		auth:       auth,
-		client:     newHTTPClient(cfg),
-		specs:      specs,
-		operations: ops,
-		embedTexts: texts,
+		cfg:          cfg,
+		auth:         auth,
+		client:       newHTTPClient(cfg),
+		specs:        specs,
+		operations:   ops,
+		embedVectors: vectors,
 	}
 	t.mu.Lock()
+	defer t.mu.Unlock()
 	if _, exists := t.connections[name]; exists {
-		t.mu.Unlock()
 		return fmt.Errorf("apigateway: %s: %w", name, ErrConnectionExists)
 	}
 	// Wire the unified token store into authorization_code
@@ -682,89 +649,23 @@ func (t *Toolkit) addParsedConnection(name string, cfg Config) error {
 		}
 	}
 	t.connections[name] = c
-	embedder := t.embedder
-	t.mu.Unlock()
-	// Kick off the background embedding warmer when an embedder is
-	// already wired. SetEmbeddingProvider triggers it for the
-	// other-ordering case (provider wired after the connection
-	// registers). Either way the first ranking call finds the
-	// embeddings already populated and returns in milliseconds
-	// instead of timing out on a cold per-operation embedding pass.
-	if embedder != nil && len(c.embedTexts) > 0 {
-		go t.warmEmbeddings(c, embedder)
-	}
 	return nil
 }
 
-// warmEmbeddings populates c.embeddings in the background using the
-// supplied embedder. Runs once per connection lifecycle: subsequent
-// invocations short-circuit when embeddings are already populated,
-// when a prior warm-up failed definitively, or when another warmer
-// is already in flight. The result is that the FIRST
-// ranking=semantic|hybrid call against a connection finds
-// embeddings ready and returns inside the request budget rather
-// than triggering a multi-minute per-operation embedding pass
-// inside the MCP request and timing out.
-//
-// embedder is passed in rather than re-read from t.embedder so a
-// concurrent SetEmbeddingProvider(nil) does not race the loop.
-// The work itself runs on a 10-minute background context so a
-// genuinely unreachable embedder cannot leak a hung goroutine.
-func (t *Toolkit) warmEmbeddings(c *conn, embedder embedding.Provider) {
-	if c == nil || embedder == nil || len(c.embedTexts) == 0 {
-		return
-	}
-	// Panic recovery is mandatory in this entry point because the
-	// warmer is also called from a goroutine spawned by
-	// addParsedConnection and SetEmbeddingProvider. A misbehaving
-	// embedding provider that panics cannot crash the platform
-	// process. The recovered panic marks the warmer as definitively
-	// failed so subsequent ranking calls fall back to lexical with
-	// a clear reason instead of spawning another warmer that will
-	// panic the same way.
-	defer func() {
-		if rec := recover(); rec != nil {
-			c.embedMu.Lock()
-			c.embedInFlight = false
-			c.embedFailed = true
-			c.embedMu.Unlock()
-			slog.Error("apigateway: embeddings warm-up panicked",
-				logKeyConnection, c.cfg.ConnectionName, "panic", rec)
-		}
-	}()
-	ctx, cancel := context.WithTimeout(context.Background(), warmEmbeddingsTimeout)
-	defer cancel()
-	if err := t.ensureEmbeddings(ctx, c, embedder); err != nil {
-		slog.Warn("apigateway: embeddings warm-up failed",
-			logKeyConnection, c.cfg.ConnectionName, logKeyError, err)
-	}
-}
-
-// warmEmbeddingsTimeout caps how long the background embedding
-// warmer can run for a single connection. Generous enough for a
-// 1000-operation catalog against a slow embedder; bounded so a
-// genuinely unreachable embedder cannot leak a hung goroutine
-// across a long-lived platform process.
-const warmEmbeddingsTimeout = 10 * time.Minute
-
 // buildConnSpecs loads the connection's catalog (when configured),
-// parses each component spec, and returns the merged operation
-// index alongside the per-spec retained state. A nil catalog
-// store, an empty catalog_id, or a load failure all return zero
-// values; the caller proceeds with no spec surface and logs the
-// reason.
+// parses each component spec, builds the merged operation index,
+// and pre-loads the embedding vectors persisted at spec-upsert
+// time. A nil catalog store, an empty catalog_id, or a load
+// failure all return zero values; the caller proceeds with no
+// spec surface and logs the reason.
 //
 // connBaseURL is the connection's configured base URL. Its path
 // component is consulted when deriving each spec's effective base
 // path: if the connection's base_url already contains the spec's
 // servers[0] path segment, the spec base path is dropped so the
-// invoke-time URL join does not double the segment. The dedupe
-// makes both single-spec connections (where the operator typically
-// hard-codes the full vendor base) and multi-spec connections
-// (where the operator points at the bare host and each spec
-// declares its own versioned path) work without per-shape config.
+// invoke-time URL join does not double the segment.
 func (t *Toolkit) buildConnSpecs(connName, catalogID, connBaseURL string) (
-	specs map[string]*specState, operations []OperationSummary, texts []string,
+	specs map[string]*specState, operations []OperationSummary, vectors map[embedKey][]float32,
 ) {
 	if catalogID == "" {
 		return nil, nil, nil
@@ -784,6 +685,7 @@ func (t *Toolkit) buildConnSpecs(connName, catalogID, connBaseURL string) (
 		return nil, nil, nil
 	}
 	specs = make(map[string]*specState, len(entries))
+	vectors = make(map[embedKey][]float32)
 	for _, e := range entries {
 		doc, perr := parseOpenAPISpec(e.Content)
 		if perr != nil {
@@ -792,14 +694,6 @@ func (t *Toolkit) buildConnSpecs(connName, catalogID, connBaseURL string) (
 				"spec_name", e.SpecName, logKeyError, perr)
 			continue
 		}
-		// Effective base path resolution: operator override on the
-		// spec entry wins over the servers[0]-derived value. Both
-		// sources route through computeEffectiveBasePath so the
-		// connection.base_url overlap dedupe applies uniformly. The
-		// override exists for specs that ship without a servers[]
-		// entry and for operators targeting a host whose path
-		// differs from what the spec author wrote (sandbox, proxy,
-		// version pin).
 		basePathSource := e.BasePath
 		if basePathSource == "" {
 			basePathSource = specBasePath(doc)
@@ -813,11 +707,27 @@ func (t *Toolkit) buildConnSpecs(connName, catalogID, connBaseURL string) (
 			lastFetchedAt:     e.LastFetchedAt,
 			effectiveBasePath: effectiveBasePath,
 		}
-		specOps, specTexts := buildOperationIndex(doc, e.SpecName, effectiveBasePath)
+		specOps, _ := buildOperationIndex(doc, e.SpecName, effectiveBasePath)
 		operations = append(operations, specOps...)
-		texts = append(texts, specTexts...)
+		// Pre-loading vectors from the store: every embedding row
+		// is keyed on (catalog_id, spec_name, operation_id) and
+		// was written at spec-upsert time. Missing rows mean the
+		// spec was written without an embedder configured, or the
+		// embedding compute step failed; in either case
+		// embedVectors stays empty for that spec and ranking falls
+		// back to lexical with the errEmbeddingsNotIndexed note.
+		rows, listErr := store.ListOperationEmbeddings(context.Background(), catalogID, e.SpecName)
+		if listErr != nil {
+			slog.Warn("apigateway: failed to load operation embeddings",
+				logKeyConnection, connName, logKeyCatalogID, catalogID,
+				"spec_name", e.SpecName, logKeyError, listErr)
+			continue
+		}
+		for _, r := range rows {
+			vectors[embedKey{Spec: e.SpecName, OperationID: r.OperationID}] = r.Embedding
+		}
 	}
-	return specs, operations, texts
+	return specs, operations, vectors
 }
 
 // RemoveConnection drops a registered connection. Used by the admin
