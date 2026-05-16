@@ -374,7 +374,8 @@ func TestListCatalogEmbeddingJobs_StoreError(t *testing.T) {
 
 // TestManualRetryEmbedding_Enqueues202 covers the operator
 // escape hatch. The endpoint returns 202 Accepted with the
-// queue's created flag so the portal can show "queued."
+// queue's created flag so the portal can render the queued
+// state immediately.
 func TestManualRetryEmbedding_Enqueues202(t *testing.T) {
 	t.Parallel()
 	h, store, jobs := newCatalogTestHandlerWithJobs(t)

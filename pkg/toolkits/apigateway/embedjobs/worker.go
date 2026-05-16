@@ -1,3 +1,4 @@
+//nolint:revive // max-public-structs: same cohesive-queue rationale as types.go.
 package embedjobs
 
 import (
@@ -11,6 +12,27 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+)
+
+// Worker-side constants and structured-log keys.
+const (
+	// claimTimeoutGrace is the slack between a worker's claim
+	// context deadline and the lease itself. The worker context
+	// must outlive the lease so a long-running embed does not
+	// race the deadline; 30s slack covers the post-embed
+	// Complete/Retry/Fail call against the DB.
+	claimTimeoutGrace = 30 * time.Second
+
+	// defaultPollEvery is the fallback poll interval when
+	// WorkerConfig.PollEvery is unset. LISTEN/NOTIFY is the
+	// primary wake signal; this exists so a missed notification
+	// does not stall a worker indefinitely.
+	defaultPollEvery = 30 * time.Second
+
+	logKeyJobID     = "job_id"
+	logKeyCatalogID = "catalog_id"
+	logKeySpecName  = "spec_name"
+	logKeyError     = "error"
 )
 
 // SpecResolver looks up the content of a spec by (catalog_id,
@@ -115,7 +137,7 @@ func NewWorker(cfg WorkerConfig) *Worker {
 		cfg.WorkerID = generateWorkerID()
 	}
 	if cfg.PollEvery <= 0 {
-		cfg.PollEvery = 30 * time.Second
+		cfg.PollEvery = defaultPollEvery
 	}
 	return &Worker{
 		cfg:    cfg,
@@ -143,7 +165,7 @@ func (w *Worker) Start(_ context.Context) {
 		return
 	}
 	w.wg.Add(1)
-	go w.run() //#nosec G118 -- background goroutine intentionally uses its own context per iteration
+	go w.run() // #nosec G118 -- background goroutine intentionally uses its own context per iteration
 }
 
 // Stop signals shutdown and waits for the goroutine to exit.
@@ -174,7 +196,7 @@ func (w *Worker) run() {
 }
 
 // drainQueue claims and processes jobs until the queue is empty
-// or shutdown is signalled. Each iteration is bounded so a flood
+// or shutdown is signaled. Each iteration is bounded so a flood
 // of jobs cannot starve the shutdown signal.
 func (w *Worker) drainQueue() {
 	for {
@@ -183,7 +205,7 @@ func (w *Worker) drainQueue() {
 			return
 		default:
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), LeaseDuration+30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), LeaseDuration+claimTimeoutGrace)
 		job, err := w.cfg.Store.Claim(ctx, w.cfg.WorkerID)
 		if errors.Is(err, ErrNoJob) {
 			cancel()
@@ -191,7 +213,7 @@ func (w *Worker) drainQueue() {
 		}
 		if err != nil {
 			slog.Warn("embedjobs: claim failed",
-				"worker_id", w.cfg.WorkerID, "error", err)
+				"worker_id", w.cfg.WorkerID, logKeyError, err)
 			cancel()
 			return
 		}
@@ -207,8 +229,8 @@ func (w *Worker) drainQueue() {
 // failed because retrying won't help.
 func (w *Worker) process(ctx context.Context, job *Job) {
 	slog.Info("embedjobs: starting job",
-		"job_id", job.ID, "catalog_id", job.CatalogID,
-		"spec_name", job.SpecName, "kind", string(job.Kind),
+		logKeyJobID, job.ID, logKeyCatalogID, job.CatalogID,
+		logKeySpecName, job.SpecName, "kind", string(job.Kind),
 		"attempts", job.Attempts)
 
 	content, err := w.cfg.Resolver.GetSpecContent(ctx, job.CatalogID, job.SpecName)
@@ -260,18 +282,18 @@ func (w *Worker) process(ctx context.Context, job *Job) {
 	// if this update was lost.
 	if err := w.cfg.Persister.StampOperationCount(ctx, job.CatalogID, job.SpecName, len(rows)); err != nil {
 		slog.Warn("embedjobs: stamp operation_count failed",
-			"job_id", job.ID, "catalog_id", job.CatalogID,
-			"spec_name", job.SpecName, "rows", len(rows), "error", err)
+			logKeyJobID, job.ID, logKeyCatalogID, job.CatalogID,
+			logKeySpecName, job.SpecName, "rows", len(rows), logKeyError, err)
 	}
 
 	if err := w.cfg.Store.Complete(ctx, job.ID, w.cfg.WorkerID); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			slog.Warn("embedjobs: complete after lease rotation",
-				"job_id", job.ID, "worker_id", w.cfg.WorkerID)
+				logKeyJobID, job.ID, "worker_id", w.cfg.WorkerID)
 			return
 		}
 		slog.Error("embedjobs: complete failed",
-			"job_id", job.ID, "error", err)
+			logKeyJobID, job.ID, logKeyError, err)
 		return
 	}
 
@@ -280,8 +302,8 @@ func (w *Worker) process(ctx context.Context, job *Job) {
 	}
 
 	slog.Info("embedjobs: job complete",
-		"job_id", job.ID, "catalog_id", job.CatalogID,
-		"spec_name", job.SpecName, "rows", len(rows))
+		logKeyJobID, job.ID, logKeyCatalogID, job.CatalogID,
+		logKeySpecName, job.SpecName, "rows", len(rows))
 }
 
 // retryOrFail consults the attempts counter and routes the job
@@ -290,28 +312,28 @@ func (w *Worker) process(ctx context.Context, job *Job) {
 // against MaxAttempts directly.
 func (w *Worker) retryOrFail(ctx context.Context, job *Job, errMsg string) {
 	slog.Warn("embedjobs: job error",
-		"job_id", job.ID, "catalog_id", job.CatalogID,
-		"spec_name", job.SpecName, "attempts", job.Attempts,
-		"error", errMsg)
+		logKeyJobID, job.ID, logKeyCatalogID, job.CatalogID,
+		logKeySpecName, job.SpecName, "attempts", job.Attempts,
+		logKeyError, errMsg)
 	if job.Attempts >= MaxAttempts {
 		w.terminate(ctx, job, errMsg)
 		return
 	}
 	if err := w.cfg.Store.Retry(ctx, job.ID, w.cfg.WorkerID, errMsg); err != nil {
 		slog.Error("embedjobs: retry release failed",
-			"job_id", job.ID, "error", err)
+			logKeyJobID, job.ID, logKeyError, err)
 	}
 }
 
 // terminate marks a job permanently failed.
 func (w *Worker) terminate(ctx context.Context, job *Job, errMsg string) {
 	slog.Warn("embedjobs: job failed terminally",
-		"job_id", job.ID, "catalog_id", job.CatalogID,
-		"spec_name", job.SpecName, "attempts", job.Attempts,
-		"error", errMsg)
+		logKeyJobID, job.ID, logKeyCatalogID, job.CatalogID,
+		logKeySpecName, job.SpecName, "attempts", job.Attempts,
+		logKeyError, errMsg)
 	if err := w.cfg.Store.Fail(ctx, job.ID, w.cfg.WorkerID, errMsg); err != nil {
 		slog.Error("embedjobs: fail-state write failed",
-			"job_id", job.ID, "error", err)
+			logKeyJobID, job.ID, logKeyError, err)
 	}
 }
 

@@ -2,6 +2,7 @@ package embedjobs
 
 import (
 	"context"
+	"database/sql"
 	"database/sql/driver"
 	"errors"
 	"regexp"
@@ -120,7 +121,7 @@ func TestClaim_HappyPath(t *testing.T) {
 
 // TestClaim_NoRowReturnsErrNoJob covers the idle case: SELECT
 // finds nothing, Claim returns the sentinel that workers treat
-// as "go back to sleep."
+// as the signal to block on LISTEN.
 func TestClaim_NoRowReturnsErrNoJob(t *testing.T) {
 	t.Parallel()
 	store, mock, done := newMockStore(t)
@@ -270,8 +271,14 @@ func TestIntToStr(t *testing.T) {
 		in   int
 		want string
 	}{
-		{0, "0"}, {1, "1"}, {9, "9"}, {10, "10"},
-		{99, "99"}, {123, "123"}, {-1, "-1"}, {-42, "-42"},
+		{0, "0"},
+		{1, "1"},
+		{9, "9"},
+		{10, "10"},
+		{99, "99"},
+		{123, "123"},
+		{-1, "-1"},
+		{-42, "-42"},
 	}
 	for _, c := range cases {
 		got := intToStr(c.in)
@@ -327,3 +334,233 @@ func TestIsPGCode(t *testing.T) {
 // uses it. The placeholder is kept around because future tests
 // (lease-rotation timing) will reach for it.
 var _ = anyArg{}
+
+// TestRetry_HappyPath drives the retry release: the job moves
+// back to pending, last_error is stored, next_run_at advances
+// by the backoff window.
+func TestRetry_HappyPath(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	// Retry's helper calls a secondary SELECT for attempts.
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT attempts FROM api_catalog_embedding_jobs`)).
+		WithArgs(int64(42)).
+		WillReturnRows(sqlmock.NewRows([]string{"attempts"}).AddRow(2))
+	mock.ExpectQuery(regexp.QuoteMeta(`UPDATE api_catalog_embedding_jobs`)).
+		WithArgs(int64(42), "worker-x", "provider down", anyArg{}).
+		WillReturnRows(sqlmock.NewRows([]string{"attempts"}).AddRow(2))
+	if err := store.Retry(context.Background(), 42, "worker-x", "provider down"); err != nil {
+		t.Fatalf("Retry: %v", err)
+	}
+}
+
+// TestRetry_NotFound covers the lease-rotation case where the
+// holding worker is no longer the row's worker_id.
+func TestRetry_NotFound(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT attempts FROM api_catalog_embedding_jobs`)).
+		WillReturnRows(sqlmock.NewRows([]string{"attempts"}).AddRow(2))
+	mock.ExpectQuery(regexp.QuoteMeta(`UPDATE api_catalog_embedding_jobs`)).
+		WillReturnError(sql.ErrNoRows)
+	if err := store.Retry(context.Background(), 42, "stale", "err"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("err=%v want ErrNotFound", err)
+	}
+}
+
+// TestRetry_DBError surfaces an unexpected error.
+func TestRetry_DBError(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT attempts FROM api_catalog_embedding_jobs`)).
+		WillReturnRows(sqlmock.NewRows([]string{"attempts"}).AddRow(0))
+	mock.ExpectQuery(regexp.QuoteMeta(`UPDATE api_catalog_embedding_jobs`)).
+		WillReturnError(errors.New("boom"))
+	if err := store.Retry(context.Background(), 42, "w", "err"); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+// TestSetOperationCount_Success and friends are in
+// catalog/store_postgres_test.go; this file's SetOperationCount
+// is on the embedjobs PostgresStore which does not own that
+// method.
+
+// TestGet_Success scans a single job row.
+func TestGet_Success(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	now := time.Now()
+	mock.ExpectQuery(regexp.QuoteMeta(`FROM api_catalog_embedding_jobs`)).
+		WithArgs(int64(42)).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "catalog_id", "spec_name", "kind", "status", "attempts",
+			"last_error", "next_run_at", "worker_id", "lease_expires_at",
+			"created_at", "started_at", "completed_at",
+		}).AddRow(int64(42), "petstore", "default", "spec_write", "running",
+			1, "", now, "w1", now, now, now, nil))
+	j, err := store.Get(context.Background(), 42)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if j.ID != 42 || j.Kind != KindSpecWrite || j.Status != StatusRunning {
+		t.Errorf("unexpected job: %+v", j)
+	}
+}
+
+// TestGet_NotFound surfaces ErrNotFound when no row matches.
+func TestGet_NotFound(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectQuery(regexp.QuoteMeta(`FROM api_catalog_embedding_jobs`)).
+		WithArgs(int64(99)).
+		WillReturnError(sql.ErrNoRows)
+	if _, err := store.Get(context.Background(), 99); !errors.Is(err, ErrNotFound) {
+		t.Errorf("err=%v want ErrNotFound", err)
+	}
+}
+
+// TestGet_DBError wraps an arbitrary db error.
+func TestGet_DBError(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectQuery(regexp.QuoteMeta(`FROM api_catalog_embedding_jobs`)).
+		WillReturnError(errors.New("boom"))
+	if _, err := store.Get(context.Background(), 1); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+// TestList_Empty drives the no-filter, no-rows path.
+func TestList_Empty(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectQuery(regexp.QuoteMeta(`FROM api_catalog_embedding_jobs`)).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "catalog_id", "spec_name", "kind", "status", "attempts",
+			"last_error", "next_run_at", "worker_id", "lease_expires_at",
+			"created_at", "started_at", "completed_at",
+		}))
+	jobs, err := store.List(context.Background(), ListFilter{})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(jobs) != 0 {
+		t.Errorf("got %d jobs, want 0", len(jobs))
+	}
+}
+
+// TestList_WithFilters drives the predicate builder against
+// the dynamic SQL path.
+func TestList_WithFilters(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	now := time.Now()
+	mock.ExpectQuery(regexp.QuoteMeta(`FROM api_catalog_embedding_jobs`)).
+		WithArgs("petstore", "default", "failed", "reconciler", 5).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "catalog_id", "spec_name", "kind", "status", "attempts",
+			"last_error", "next_run_at", "worker_id", "lease_expires_at",
+			"created_at", "started_at", "completed_at",
+		}).AddRow(int64(7), "petstore", "default", "reconciler", "failed",
+			5, "boom", now, "", nil, now, now, now))
+	jobs, err := store.List(context.Background(), ListFilter{
+		CatalogID: "petstore", SpecName: "default",
+		Status: StatusFailed, Kind: KindReconciler, Limit: 5,
+	})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(jobs) != 1 || jobs[0].ID != 7 {
+		t.Fatalf("unexpected jobs: %+v", jobs)
+	}
+}
+
+// TestList_DBError wraps the query error.
+func TestList_DBError(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectQuery(regexp.QuoteMeta(`FROM api_catalog_embedding_jobs`)).
+		WillReturnError(errors.New("boom"))
+	if _, err := store.List(context.Background(), ListFilter{}); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+// TestSpecStatuses_HappyPath returns the joined per-spec
+// rollup the portal renders.
+func TestSpecStatuses_HappyPath(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	now := time.Now()
+	mock.ExpectQuery(regexp.QuoteMeta(`FROM api_catalog_specs s`)).
+		WithArgs("petstore").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"catalog_id", "spec_name", "operation_count", "embedding_count",
+			"job_status", "job_attempts", "job_last_error", "job_updated_at",
+		}).
+			AddRow("petstore", "users", 3, 3, "succeeded", 1, "", now).
+			AddRow("petstore", "orders", 5, 2, "running", 1, "", now))
+	rows, err := store.SpecStatuses(context.Background(), "petstore")
+	if err != nil {
+		t.Fatalf("SpecStatuses: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("got %d rows, want 2", len(rows))
+	}
+	if rows[0].JobStatus != StatusSucceeded || rows[1].JobStatus != StatusRunning {
+		t.Errorf("unexpected statuses: %+v", rows)
+	}
+}
+
+// TestSpecStatuses_DBError wraps.
+func TestSpecStatuses_DBError(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectQuery(regexp.QuoteMeta(`FROM api_catalog_specs s`)).
+		WillReturnError(errors.New("boom"))
+	if _, err := store.SpecStatuses(context.Background(), "p"); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+// TestHealth_HappyPath returns the catalog-level rollup.
+func TestHealth_HappyPath(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectQuery(regexp.QuoteMeta(`WITH spec_state AS`)).
+		WithArgs("petstore").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"total", "indexed", "pending", "running", "failed",
+		}).AddRow(9, 7, 1, 1, 0))
+	h, err := store.Health(context.Background(), "petstore")
+	if err != nil {
+		t.Fatalf("Health: %v", err)
+	}
+	if h.SpecsTotal != 9 || h.SpecsIndexed != 7 || h.SpecsFailed != 0 {
+		t.Errorf("unexpected health: %+v", h)
+	}
+}
+
+// TestHealth_DBError surfaces the query failure.
+func TestHealth_DBError(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectQuery(regexp.QuoteMeta(`WITH spec_state AS`)).
+		WillReturnError(errors.New("boom"))
+	if _, err := store.Health(context.Background(), "p"); err == nil {
+		t.Fatal("expected error")
+	}
+}

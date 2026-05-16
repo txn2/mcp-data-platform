@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/lib/pq"
@@ -234,14 +236,17 @@ func (s *PostgresStore) lastAttempts(ctx context.Context, id int64) int {
 	return n
 }
 
+// maxBackoffShift caps the exponent in the backoff formula at
+// `retryBackoffBase << maxBackoffShift`. attempts > maxBackoffShift
+// is impossible in practice (MaxAttempts is 5) but the cap keeps
+// a corrupted attempts column from producing a multi-day backoff.
+const maxBackoffShift = 30
+
 // computeBackoffSeconds applies the exponential formula. Pure
 // function so unit tests don't need a DB.
 func computeBackoffSeconds(attempts int) int {
-	// Guard against overflow on a malicious value. attempts > 30
-	// is impossible in practice (MaxAttempts is 5) but the cap
-	// keeps a corrupted row from producing a multi-day backoff.
-	if attempts > 30 {
-		attempts = 30
+	if attempts > maxBackoffShift {
+		attempts = maxBackoffShift
 	}
 	if attempts < 0 {
 		attempts = 0
@@ -453,7 +458,7 @@ func (s *PostgresStore) SpecStatuses(ctx context.Context, catalogID string) ([]S
 	if err != nil {
 		return nil, fmt.Errorf("embedjobs: spec statuses: %w", err)
 	}
-	defer rows.Close() //nolint:errcheck
+	defer rows.Close() //nolint:errcheck // close error on read-only iteration is not actionable
 	var out []SpecStatusRow
 	for rows.Next() {
 		var r SpecStatusRow
@@ -540,7 +545,7 @@ func scanJob(r rowScanner) (*Job, error) {
 	if err := r.Scan(&j.ID, &j.CatalogID, &j.SpecName, &kind, &status,
 		&j.Attempts, &j.LastError, &j.NextRunAt, &j.WorkerID,
 		&leaseExpiresAt, &j.CreatedAt, &startedAt, &completedAt); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("embedjobs: scan job row: %w", err)
 	}
 	j.Kind = Kind(kind)
 	j.Status = Status(status)
@@ -580,31 +585,15 @@ func buildListPredicates(f ListFilter) (where string, args []any) {
 	if len(conds) == 0 {
 		return "", args
 	}
-	out := " WHERE "
-	for i, c := range conds {
-		if i > 0 {
-			out += " AND "
-		}
-		out += c
-	}
-	return out, args
+	return " WHERE " + strings.Join(conds, " AND "), args
 }
 
-// intToStr is strconv.Itoa, inlined to avoid an import in this
-// file whose only use of strconv would be a single call.
+// intToStr formats n as decimal. Thin wrapper around
+// strconv.Itoa kept under a local name so callers in this file
+// read consistently with the rest of the dynamic-predicate
+// builder.
 func intToStr(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	if n < 0 {
-		return "-" + intToStr(-n)
-	}
-	digits := []byte{}
-	for n > 0 {
-		digits = append([]byte{byte('0' + n%10)}, digits...)
-		n /= 10
-	}
-	return string(digits)
+	return strconv.Itoa(n)
 }
 
 // isPGCode reports whether err is a *pq.Error with the given
@@ -623,5 +612,7 @@ func isPGCode(err error, code string) bool {
 // Ensure pgUniqueViolation and isPGCode are reachable from this
 // file even though they are only used by tests or future code
 // paths. Keeps the symbols from being marked dead by the linter.
-var _ = pgUniqueViolation
-var _ = isPGCode
+var (
+	_ = pgUniqueViolation
+	_ = isPGCode
+)

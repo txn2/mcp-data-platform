@@ -47,6 +47,8 @@
 // implementation because the contract those features encode does
 // not collapse to a single-process map. Tests that need a job
 // store use a Postgres instance via sqlmock or dockertest.
+//
+//nolint:revive // max-public-structs: this package's exported surface is one cohesive queue (Job + filter + status/health rollups + worker/reaper/reconciler/listener types), not a heap of unrelated types.
 package embedjobs
 
 import (
@@ -112,8 +114,10 @@ const (
 	KindReconciler Kind = "reconciler"
 
 	// KindManualRetry jobs are enqueued by the force-retry admin
-	// endpoint, the escape hatch for "model swapped externally,
-	// vectors are stale even though the text hash is unchanged."
+	// endpoint, the escape hatch for when the model was swapped
+	// externally and vectors are stale even though the text hash
+	// is unchanged. The worker treats this kind specially: it
+	// skips the dedup pass so every operation is re-embedded.
 	KindManualRetry Kind = "manual_retry"
 )
 
@@ -135,8 +139,8 @@ const MaxAttempts = 5
 const LeaseDuration = 10 * time.Minute
 
 // ReaperInterval is how often the reaper sweeps for expired
-// leases. Mid-point between "fast resumption after a crash" and
-// "not hammering the DB."
+// leases. Mid-point between fast resumption after a crash and
+// not hammering the DB on every tick.
 const ReaperInterval = 30 * time.Second
 
 // ReconcilerInterval is the gap-detector tick. The reconciler

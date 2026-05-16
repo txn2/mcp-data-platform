@@ -42,7 +42,7 @@ func (r *Reaper) Start(_ context.Context) {
 		return
 	}
 	r.wg.Add(1)
-	go r.run() //#nosec G118
+	go r.run() // #nosec G118 -- background goroutine; ctx is created per-iteration inside the loop
 }
 
 // Stop signals shutdown and waits for the goroutine.

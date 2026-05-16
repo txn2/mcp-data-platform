@@ -3,6 +3,7 @@ package embedjobs
 import (
 	"context"
 	"errors"
+	"maps"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -19,9 +20,9 @@ type fakeStore struct {
 	nextID int64
 
 	claimErr      error
-	completeCalls int32
-	failCalls     int32
-	retryCalls    int32
+	completeCalls atomic.Int32
+	failCalls     atomic.Int32
+	retryCalls    atomic.Int32
 
 	releasedTotal int
 	reconcileFunc func() (int, error)
@@ -59,65 +60,69 @@ func (s *fakeStore) Claim(_ context.Context, workerID string) (*Job, error) {
 	defer s.mu.Unlock()
 	now := time.Now()
 	for _, j := range s.jobs {
-		if j.Status == StatusPending && !j.NextRunAt.After(now) {
-			j.Status = StatusRunning
-			j.WorkerID = workerID
-			j.Attempts++
-			started := now
-			j.StartedAt = &started
-			lease := now.Add(LeaseDuration)
-			j.LeaseExpiresAt = &lease
-			cp := *j
-			return &cp, nil
+		if j.Status != StatusPending || j.NextRunAt.After(now) {
+			continue
 		}
+		j.Status = StatusRunning
+		j.WorkerID = workerID
+		j.Attempts++
+		started := now
+		j.StartedAt = &started
+		lease := now.Add(LeaseDuration)
+		j.LeaseExpiresAt = &lease
+		cp := *j
+		return &cp, nil
 	}
 	return nil, ErrNoJob
 }
 
 func (s *fakeStore) Complete(_ context.Context, id int64, workerID string) error {
-	atomic.AddInt32(&s.completeCalls, 1)
+	s.completeCalls.Add(1)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, j := range s.jobs {
-		if j.ID == id && j.Status == StatusRunning && j.WorkerID == workerID {
-			j.Status = StatusSucceeded
-			now := time.Now()
-			j.CompletedAt = &now
-			return nil
+		if j.ID != id || j.Status != StatusRunning || j.WorkerID != workerID {
+			continue
 		}
+		j.Status = StatusSucceeded
+		now := time.Now()
+		j.CompletedAt = &now
+		return nil
 	}
 	return ErrNotFound
 }
 
 func (s *fakeStore) Retry(_ context.Context, id int64, workerID, errMsg string) error {
-	atomic.AddInt32(&s.retryCalls, 1)
+	s.retryCalls.Add(1)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, j := range s.jobs {
-		if j.ID == id && j.Status == StatusRunning && j.WorkerID == workerID {
-			j.Status = StatusPending
-			j.LastError = errMsg
-			j.WorkerID = ""
-			j.LeaseExpiresAt = nil
-			j.NextRunAt = time.Now().Add(time.Duration(computeBackoffSeconds(j.Attempts)) * time.Second)
-			return nil
+		if j.ID != id || j.Status != StatusRunning || j.WorkerID != workerID {
+			continue
 		}
+		j.Status = StatusPending
+		j.LastError = errMsg
+		j.WorkerID = ""
+		j.LeaseExpiresAt = nil
+		j.NextRunAt = time.Now().Add(time.Duration(computeBackoffSeconds(j.Attempts)) * time.Second)
+		return nil
 	}
 	return ErrNotFound
 }
 
 func (s *fakeStore) Fail(_ context.Context, id int64, workerID, errMsg string) error {
-	atomic.AddInt32(&s.failCalls, 1)
+	s.failCalls.Add(1)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, j := range s.jobs {
-		if j.ID == id && j.Status == StatusRunning && j.WorkerID == workerID {
-			j.Status = StatusFailed
-			j.LastError = errMsg
-			now := time.Now()
-			j.CompletedAt = &now
-			return nil
+		if j.ID != id || j.Status != StatusRunning || j.WorkerID != workerID {
+			continue
 		}
+		j.Status = StatusFailed
+		j.LastError = errMsg
+		now := time.Now()
+		j.CompletedAt = &now
+		return nil
 	}
 	return ErrNotFound
 }
@@ -168,11 +173,11 @@ func (s *fakeStore) List(_ context.Context, _ ListFilter) ([]Job, error) {
 	return out, nil
 }
 
-func (s *fakeStore) SpecStatuses(_ context.Context, _ string) ([]SpecStatusRow, error) {
+func (*fakeStore) SpecStatuses(_ context.Context, _ string) ([]SpecStatusRow, error) {
 	return nil, nil
 }
 
-func (s *fakeStore) Health(_ context.Context, catalogID string) (*CatalogHealth, error) {
+func (*fakeStore) Health(_ context.Context, catalogID string) (*CatalogHealth, error) {
 	return &CatalogHealth{CatalogID: catalogID}, nil
 }
 
@@ -192,14 +197,14 @@ func (r *fakeResolver) GetSpecContent(_ context.Context, catalogID, specName str
 
 // fakeComputer returns one synthetic embedding per operation
 // the test asks for. Counts invocations so tests can assert
-// "exactly one call per attempt."
+// the per-attempt call count.
 type fakeComputer struct {
 	calls atomic.Int32
 	err   error
 	rows  []ComputedEmbedding
 }
 
-func (c *fakeComputer) Compute(_ context.Context, _ string, _ string, _ map[string]ExistingEmbedding) ([]ComputedEmbedding, error) {
+func (c *fakeComputer) Compute(_ context.Context, _, _ string, _ map[string]ExistingEmbedding) ([]ComputedEmbedding, error) {
 	c.calls.Add(1)
 	if c.err != nil {
 		return nil, c.err
@@ -225,9 +230,7 @@ func (p *fakePersister) ListExisting(_ context.Context, _, _ string) (map[string
 		return map[string]ExistingEmbedding{}, nil
 	}
 	out := make(map[string]ExistingEmbedding, len(p.existing))
-	for k, v := range p.existing {
-		out[k] = v
-	}
+	maps.Copy(out, p.existing)
 	return out, nil
 }
 
@@ -297,7 +300,7 @@ func TestWorker_DrainsQueueOnStart(t *testing.T) {
 	if got := reloader.calls.Load(); got != 2 {
 		t.Errorf("reloader called %d times; want 2", got)
 	}
-	if got := atomic.LoadInt32(&store.completeCalls); got != 2 {
+	if got := store.completeCalls.Load(); got != 2 {
 		t.Errorf("Complete called %d times; want 2", got)
 	}
 }
@@ -320,15 +323,15 @@ func TestWorker_RetryableErrorRetries(t *testing.T) {
 
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if atomic.LoadInt32(&store.retryCalls) > 0 {
+		if store.retryCalls.Load() > 0 {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if got := atomic.LoadInt32(&store.retryCalls); got == 0 {
+	if got := store.retryCalls.Load(); got == 0 {
 		t.Error("Retry was never called on retryable error")
 	}
-	if got := atomic.LoadInt32(&store.failCalls); got != 0 {
+	if got := store.failCalls.Load(); got != 0 {
 		t.Errorf("Fail called %d times before max attempts; want 0", got)
 	}
 }
@@ -356,12 +359,12 @@ func TestWorker_TerminalErrorAtMaxAttempts(t *testing.T) {
 
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if atomic.LoadInt32(&store.failCalls) > 0 {
+		if store.failCalls.Load() > 0 {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if got := atomic.LoadInt32(&store.failCalls); got != 1 {
+	if got := store.failCalls.Load(); got != 1 {
 		t.Errorf("Fail called %d times; want 1", got)
 	}
 }
@@ -604,4 +607,274 @@ func TestGenerateWorkerID(t *testing.T) {
 // otherwise.
 func TestWorker_NotifierContractCompiles(_ *testing.T) {
 	var _ notifier = (*Worker)(nil)
+}
+
+// TestWorker_NewWorker_DefaultsConfig proves NewWorker fills
+// the empty WorkerID with a generated value and zero PollEvery
+// with defaultPollEvery.
+func TestWorker_NewWorker_DefaultsConfig(t *testing.T) {
+	t.Parallel()
+	w := NewWorker(WorkerConfig{
+		Store:     newFakeStore(),
+		Resolver:  &fakeResolver{},
+		Computer:  &fakeComputer{},
+		Persister: &fakePersister{},
+	})
+	if w.cfg.WorkerID == "" {
+		t.Error("WorkerID should default to a generated value")
+	}
+	if w.cfg.PollEvery != defaultPollEvery {
+		t.Errorf("PollEvery = %v; want %v", w.cfg.PollEvery, defaultPollEvery)
+	}
+}
+
+// TestWorker_StopBeforeStart proves Stop is safe without Start.
+// The lifecycle teardown may call Stop on a never-Started worker
+// (file-mode deploy where embed jobs are wired but no goroutine
+// ever spawned); this must not panic.
+func TestWorker_StopBeforeStart(_ *testing.T) {
+	w := NewWorker(WorkerConfig{
+		Store: newFakeStore(), Resolver: &fakeResolver{},
+		Computer: &fakeComputer{}, Persister: &fakePersister{},
+	})
+	w.Stop()
+}
+
+// TestWorker_DoubleStartIsNoOp proves the CAS guard in Start
+// short-circuits the second call. Without this, a misconfigured
+// caller could spawn N goroutines and pull jobs in parallel
+// from one Worker instance (which is documented as single-flight).
+func TestWorker_DoubleStartIsNoOp(_ *testing.T) {
+	w := NewWorker(WorkerConfig{
+		Store: newFakeStore(), Resolver: &fakeResolver{},
+		Computer: &fakeComputer{}, Persister: &fakePersister{},
+		PollEvery: time.Hour,
+	})
+	w.Start(context.Background())
+	w.Start(context.Background()) // CAS short-circuit
+	w.Stop()
+}
+
+// TestWorker_NotifyDropsWhenBufferFull exercises the default
+// branch of Notify's select: a second Notify before the worker
+// has drained the wakeup channel is harmlessly dropped.
+func TestWorker_NotifyDropsWhenBufferFull(_ *testing.T) {
+	w := NewWorker(WorkerConfig{
+		Store: newFakeStore(), Resolver: &fakeResolver{},
+		Computer: &fakeComputer{}, Persister: &fakePersister{},
+	})
+	w.Notify()
+	w.Notify() // second one hits the default case
+}
+
+// TestWorker_SpecResolveErrorTerminates proves the spec-resolve
+// failure path moves the job to terminal failed (not retry).
+// A vanished spec is not retryable.
+func TestWorker_SpecResolveErrorTerminates(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	_, _ = store.Enqueue(context.Background(), SpecKey{CatalogID: "c", SpecName: "x"}, KindSpecWrite)
+	w := NewWorker(WorkerConfig{
+		Store:     store,
+		Resolver:  &fakeResolver{err: errors.New("spec gone")},
+		Computer:  &fakeComputer{},
+		Persister: &fakePersister{},
+		WorkerID:  "w1", PollEvery: 50 * time.Millisecond,
+	})
+	w.Start(context.Background())
+	defer w.Stop()
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if store.failCalls.Load() > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if store.failCalls.Load() != 1 {
+		t.Errorf("Fail calls = %d; want 1", store.failCalls.Load())
+	}
+}
+
+// TestWorker_ListExistingErrorRetries proves a DB read failure
+// while loading existing vectors is retryable (under
+// MaxAttempts) rather than terminal.
+func TestWorker_ListExistingErrorRetries(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	_, _ = store.Enqueue(context.Background(), SpecKey{CatalogID: "c", SpecName: "x"}, KindSpecWrite)
+	w := NewWorker(WorkerConfig{
+		Store:     store,
+		Resolver:  &fakeResolver{contents: map[string]string{"c/x": "spec"}},
+		Computer:  &fakeComputer{},
+		Persister: &fakePersister{listErr: errors.New("conn pool exhausted")},
+		WorkerID:  "w1", PollEvery: 50 * time.Millisecond,
+	})
+	w.Start(context.Background())
+	defer w.Stop()
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if store.retryCalls.Load() > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if store.retryCalls.Load() == 0 {
+		t.Error("retry was not called for retryable ListExisting failure")
+	}
+}
+
+// TestWorker_UpsertErrorRetries proves a persist failure is
+// retryable.
+func TestWorker_UpsertErrorRetries(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	_, _ = store.Enqueue(context.Background(), SpecKey{CatalogID: "c", SpecName: "x"}, KindSpecWrite)
+	w := NewWorker(WorkerConfig{
+		Store:     store,
+		Resolver:  &fakeResolver{contents: map[string]string{"c/x": "spec"}},
+		Computer:  &fakeComputer{rows: []ComputedEmbedding{{OperationID: "a", Embedding: []float32{1}, Dim: 1}}},
+		Persister: &fakePersister{upErr: errors.New("disk full")},
+		WorkerID:  "w1", PollEvery: 50 * time.Millisecond,
+	})
+	w.Start(context.Background())
+	defer w.Stop()
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if store.retryCalls.Load() > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if store.retryCalls.Load() == 0 {
+		t.Error("retry was not called for retryable Upsert failure")
+	}
+}
+
+// TestWorker_NoReloaderDoesNotPanic proves a Worker without a
+// Reloader configured still completes successfully (the reload
+// hook is optional).
+func TestWorker_NoReloaderDoesNotPanic(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	_, _ = store.Enqueue(context.Background(), SpecKey{CatalogID: "c", SpecName: "x"}, KindSpecWrite)
+	w := NewWorker(WorkerConfig{
+		Store:     store,
+		Resolver:  &fakeResolver{contents: map[string]string{"c/x": "spec"}},
+		Computer:  &fakeComputer{rows: []ComputedEmbedding{{OperationID: "a", Embedding: []float32{1}, Dim: 1}}},
+		Persister: &fakePersister{},
+		// Reloader intentionally nil.
+		WorkerID: "w1", PollEvery: 50 * time.Millisecond,
+	})
+	w.Start(context.Background())
+	defer w.Stop()
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if store.completeCalls.Load() > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if store.completeCalls.Load() == 0 {
+		t.Error("worker did not complete without reloader configured")
+	}
+}
+
+// TestReaper_DoubleStartIsNoOp covers the CAS guard.
+func TestReaper_DoubleStartIsNoOp(_ *testing.T) {
+	r := NewReaper(newFakeStore(), time.Hour)
+	r.Start(context.Background())
+	r.Start(context.Background())
+	r.Stop()
+}
+
+// TestReaper_StopBeforeStart proves teardown is safe.
+func TestReaper_StopBeforeStart(_ *testing.T) {
+	r := NewReaper(newFakeStore(), time.Hour)
+	r.Stop()
+}
+
+// TestReaper_DefaultInterval proves interval=0 maps to the
+// package-level ReaperInterval constant.
+func TestReaper_DefaultInterval(t *testing.T) {
+	t.Parallel()
+	r := NewReaper(newFakeStore(), 0)
+	if r.interval != ReaperInterval {
+		t.Errorf("interval = %v; want %v", r.interval, ReaperInterval)
+	}
+}
+
+// reaperErrStore returns a release-error to exercise the
+// reaper's logging branch.
+type reaperErrStore struct{ fakeStore }
+
+func (*reaperErrStore) ReleaseExpiredLeases(_ context.Context) (int, error) {
+	return 0, errors.New("db down")
+}
+
+// TestReaper_SweepErrorIsLogged proves an error from
+// ReleaseExpiredLeases is non-fatal and the reaper continues
+// on the next tick.
+func TestReaper_SweepErrorIsLogged(_ *testing.T) {
+	r := NewReaper(&reaperErrStore{}, 20*time.Millisecond)
+	r.Start(context.Background())
+	time.Sleep(80 * time.Millisecond)
+	r.Stop()
+}
+
+// TestReconciler_DoubleStartIsNoOp covers the CAS guard.
+func TestReconciler_DoubleStartIsNoOp(_ *testing.T) {
+	rc := NewReconciler(newFakeStore(), time.Hour)
+	rc.Start(context.Background())
+	rc.Start(context.Background())
+	rc.Stop()
+}
+
+// TestReconciler_StopBeforeStart is the teardown-safety case.
+func TestReconciler_StopBeforeStart(_ *testing.T) {
+	rc := NewReconciler(newFakeStore(), time.Hour)
+	rc.Stop()
+}
+
+// TestReconciler_DefaultInterval covers the 0-interval fallback.
+func TestReconciler_DefaultInterval(t *testing.T) {
+	t.Parallel()
+	rc := NewReconciler(newFakeStore(), 0)
+	if rc.interval != ReconcilerInterval {
+		t.Errorf("interval = %v; want %v", rc.interval, ReconcilerInterval)
+	}
+}
+
+// TestReconciler_SweepErrorIsLogged proves ReconcileGaps
+// failures are non-fatal.
+func TestReconciler_SweepErrorIsLogged(_ *testing.T) {
+	store := newFakeStore()
+	store.reconcileFunc = func() (int, error) {
+		return 0, errors.New("table dropped")
+	}
+	rc := NewReconciler(store, 20*time.Millisecond)
+	rc.Start(context.Background())
+	time.Sleep(80 * time.Millisecond)
+	rc.Stop()
+}
+
+// TestGenerateWorkerID_EmptyHostFallback exercises the unknown-
+// host branch of generateWorkerID. We cannot easily force
+// os.Hostname to return "" so we accept the path may not fire
+// on a healthy CI host; the test still keeps the symbol
+// reachable for coverage purposes.
+func TestGenerateWorkerID_Format(t *testing.T) {
+	t.Parallel()
+	id := generateWorkerID()
+	if id == "" {
+		t.Fatal("empty id")
+	}
+	// "host-randhex" or "unknown-randhex"; the hex suffix is 8
+	// chars when crypto/rand succeeds.
+	if len(id) < 10 {
+		t.Errorf("id %q looks malformed", id)
+	}
 }

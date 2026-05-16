@@ -118,6 +118,9 @@ type catalogSpecResolver struct {
 	store apigatewaycatalog.Store
 }
 
+// GetSpecContent returns the content column on the spec row.
+// Returns ("", err) on any store error (treated as a retryable
+// failure by the worker).
 func (r *catalogSpecResolver) GetSpecContent(ctx context.Context, catalogID, specName string) (string, error) {
 	spec, err := r.store.GetSpec(ctx, catalogID, specName)
 	if err != nil {
@@ -146,6 +149,11 @@ type embeddingProvider interface {
 	Dimension() int
 }
 
+// Compute translates the embedjobs-side dedup map into a
+// catalog.OperationEmbedding-keyed map, invokes the apigateway
+// kit's ComputeOperationEmbeddings, and translates the result
+// back. The two intermediate types exist so embedjobs does not
+// import pgvector through every transitive consumer.
 func (c *apigatewayEmbeddingComputer) Compute(ctx context.Context, content, specName string, existing map[string]embedjobs.ExistingEmbedding) ([]embedjobs.ComputedEmbedding, error) {
 	catalogExisting := make(map[string]apigatewaycatalog.OperationEmbedding, len(existing))
 	for k, v := range existing {
@@ -181,6 +189,9 @@ type catalogEmbeddingPersister struct {
 	store apigatewaycatalog.Store
 }
 
+// ListExisting reads the current set of persisted embedding
+// rows for (catalogID, specName) and translates them into the
+// embedjobs-side ExistingEmbedding type for dedup.
 func (p *catalogEmbeddingPersister) ListExisting(ctx context.Context, catalogID, specName string) (map[string]embedjobs.ExistingEmbedding, error) {
 	rows, err := p.store.ListOperationEmbeddings(ctx, catalogID, specName)
 	if err != nil {
@@ -199,6 +210,9 @@ func (p *catalogEmbeddingPersister) ListExisting(ctx context.Context, catalogID,
 	return out, nil
 }
 
+// Upsert atomically replaces the persisted embedding rows for
+// (catalogID, specName) with the supplied set via the catalog
+// store's transactional delete+insert.
 func (p *catalogEmbeddingPersister) Upsert(ctx context.Context, catalogID, specName string, rows []embedjobs.ComputedEmbedding) error {
 	catalogRows := make([]apigatewaycatalog.OperationEmbedding, len(rows))
 	for i, r := range rows {
@@ -216,6 +230,9 @@ func (p *catalogEmbeddingPersister) Upsert(ctx context.Context, catalogID, specN
 	return nil
 }
 
+// StampOperationCount writes the supplied count to the spec
+// row's operation_count column so the reconciler's gap
+// predicate sees a fully-indexed spec.
 func (p *catalogEmbeddingPersister) StampOperationCount(ctx context.Context, catalogID, specName string, count int) error {
 	if err := p.store.SetOperationCount(ctx, catalogID, specName, count); err != nil {
 		return fmt.Errorf("catalogEmbeddingPersister: %w", err)
@@ -232,6 +249,10 @@ type apigatewayConnectionReloader struct {
 	registry *registry.Registry
 }
 
+// ReloadConnectionsByCatalog asks every registered api-gateway
+// toolkit to rebuild connections that mount the given catalog
+// so their in-memory vector map picks up the new embedding
+// rows the worker just wrote.
 func (r *apigatewayConnectionReloader) ReloadConnectionsByCatalog(catalogID string) {
 	if r.registry == nil {
 		return

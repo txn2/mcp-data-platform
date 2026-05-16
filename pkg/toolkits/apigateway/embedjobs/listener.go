@@ -18,13 +18,13 @@ type notifier interface {
 	Notify()
 }
 
-// listenerBackoffMin / Max bound pq.NewListener's exponential
+// listenerBackoffFloor / Max bound pq.NewListener's exponential
 // reconnect schedule. Same constants the session broadcaster
 // uses for the same reasons (fast first reconnect after a
 // transient drop; cap the worst-case sleep on a long outage).
 const (
-	listenerBackoffMin = 10 * time.Second
-	listenerBackoffMax = time.Minute
+	listenerBackoffFloor   = 10 * time.Second
+	listenerBackoffCeiling = time.Minute
 )
 
 // Listener is the LISTEN-side of the LISTEN/NOTIFY adapter.
@@ -64,14 +64,15 @@ func NewListener(dsn, channel string, notifiers ...notifier) *Listener {
 }
 
 // Start opens the LISTEN connection and spawns the receive
-// goroutine. Returns nil on success. Errors here block startup
-// because a missing notification path silently regresses
-// embedding latency from "immediate" to "up to PollEvery."
+// goroutine. Returns nil on success. Errors here are returned
+// to the caller because a missing notification path silently
+// regresses embedding latency from immediate to the worker's
+// poll interval.
 func (l *Listener) Start(_ context.Context) error {
 	if !l.started.CompareAndSwap(false, true) {
 		return nil
 	}
-	pl := pq.NewListener(l.dsn, listenerBackoffMin, listenerBackoffMax, l.onEvent)
+	pl := pq.NewListener(l.dsn, listenerBackoffFloor, listenerBackoffCeiling, l.onEvent)
 	if err := pl.Listen(l.channel); err != nil {
 		_ = pl.Close()
 		l.started.Store(false)
@@ -79,7 +80,7 @@ func (l *Listener) Start(_ context.Context) error {
 	}
 	l.listener = pl
 	l.wg.Add(1)
-	go l.run() //#nosec G118
+	go l.run() // #nosec G118 -- background goroutine; ctx is created per-iteration inside the loop
 	return nil
 }
 
@@ -123,8 +124,8 @@ func (l *Listener) broadcast() {
 
 // onEvent logs pq.Listener lifecycle changes. Non-fatal: the
 // listener reconnects on its own; we just want operator
-// visibility into "the LISTEN connection bounced 12 times this
-// hour."
+// visibility into how often the LISTEN connection bounced
+// during a postgres restart or network blip.
 func (*Listener) onEvent(ev pq.ListenerEventType, err error) {
 	switch ev {
 	case pq.ListenerEventConnected:
