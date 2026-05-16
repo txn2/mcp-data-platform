@@ -142,6 +142,10 @@ func (*errorCatalogStore) ListOperationEmbeddings(_ context.Context, _, _ string
 	return nil, nil
 }
 
+func (*errorCatalogStore) SetOperationCount(_ context.Context, _, _ string, _ int) error {
+	return nil
+}
+
 func (*errorCatalogStore) DeleteOperationEmbeddings(_ context.Context, _, _ string) error {
 	return nil
 }

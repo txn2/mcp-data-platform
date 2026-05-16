@@ -22,13 +22,16 @@ import {
   useCloneAPICatalog,
   useCreateAPICatalog,
   useDeleteAPICatalog,
+  useAPICatalogEmbeddingHealth,
+  useAPICatalogEmbeddingStatuses,
   useDeleteAPICatalogSpec,
-  useReembedAPICatalogSpec,
+  useManualRetryEmbedding,
   useRefreshAPICatalogSpec,
   useUpdateAPICatalog,
   useUploadAPICatalogSpec,
   useUpsertAPICatalogSpec,
   useSystemInfo,
+  type APICatalogEmbeddingSpecStatus,
 } from "@/api/admin/hooks";
 import { apiFetch } from "@/api/admin/client";
 import { cn } from "@/lib/utils";
@@ -646,12 +649,6 @@ function CatalogEditor({
 // ---------------------------------------------------------------------------
 
 function SpecsManager({ catalogID, isReadOnly }: { catalogID: string; isReadOnly: boolean }) {
-  // We can read the per-catalog spec list off the catalog's API by listing
-  // catalog detail + querying each spec. To keep this panel snappy we
-  // fetch the catalog list response (which carries spec_count) and rely
-  // on a separate endpoint for the spec list. The admin handler exposes
-  // /api-catalogs/{id} with spec_count only — to display rows we fetch
-  // each named spec lazily via the per-spec endpoint when expanded.
   const [specs, setSpecs] = useState<APICatalogSpec[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshCounter, setRefreshCounter] = useState(0);
@@ -661,8 +658,21 @@ function SpecsManager({ catalogID, isReadOnly }: { catalogID: string; isReadOnly
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const refresh = useRefreshAPICatalogSpec();
-  const reembed = useReembedAPICatalogSpec();
+  const manualRetry = useManualRetryEmbedding();
   const del = useDeleteAPICatalogSpec();
+  // The job-queue-backed embedding state polls every 5s while
+  // the panel is mounted. The badge updates as the worker
+  // progresses; the catalog header summary reflects pending /
+  // failed counts. Operators do not need to take any action.
+  const { data: health } = useAPICatalogEmbeddingHealth(catalogID);
+  const { data: statusList } = useAPICatalogEmbeddingStatuses(catalogID);
+  const statusByName = useMemo(() => {
+    const map: Record<string, APICatalogEmbeddingSpecStatus> = {};
+    for (const s of statusList?.specs ?? []) {
+      map[s.spec_name] = s;
+    }
+    return map;
+  }, [statusList]);
 
   useEffect(() => {
     let cancelled = false;
@@ -697,6 +707,8 @@ function SpecsManager({ catalogID, isReadOnly }: { catalogID: string; isReadOnly
         )}
       </div>
 
+      {health && <CatalogEmbeddingHealthBanner health={health} />}
+
       {loading ? (
         <div className="text-sm text-muted-foreground">Loading…</div>
       ) : specs.length === 0 ? (
@@ -705,66 +717,70 @@ function SpecsManager({ catalogID, isReadOnly }: { catalogID: string; isReadOnly
         </div>
       ) : (
         <ul className="divide-y rounded-md border">
-          {specs.map((s) => (
-            <li key={s.spec_name} className="flex items-center gap-3 px-3 py-2 text-sm">
-              <span className="flex-1 truncate font-mono">{s.spec_name}</span>
-              <SourceBadge kind={s.source_kind} url={s.source_url} />
-              <EmbeddingBadge count={s.embedding_count ?? 0} />
-              {s.last_fetched_at && (
-                <span className="text-xs text-muted-foreground">
-                  fetched {new Date(s.last_fetched_at).toLocaleString()}
-                </span>
-              )}
-              {!isReadOnly && (
-                <div className="flex gap-1">
-                  {(s.embedding_count ?? 0) === 0 && (
+          {specs.map((s) => {
+            const status = statusByName[s.spec_name];
+            const failed = status?.job_status === "failed";
+            return (
+              <li key={s.spec_name} className="flex items-center gap-3 px-3 py-2 text-sm">
+                <span className="flex-1 truncate font-mono">{s.spec_name}</span>
+                <SourceBadge kind={s.source_kind} url={s.source_url} />
+                <EmbeddingStatusBadge status={status} />
+                {s.last_fetched_at && (
+                  <span className="text-xs text-muted-foreground">
+                    fetched {new Date(s.last_fetched_at).toLocaleString()}
+                  </span>
+                )}
+                {!isReadOnly && (
+                  <div className="flex gap-1">
+                    {failed && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          manualRetry.mutate(
+                            { catalogID, specName: s.spec_name },
+                            { onSuccess: () => setRefreshCounter((n) => n + 1) },
+                          )
+                        }
+                        title={`Retry embedding (last error: ${status?.job_last_error ?? "unknown"})`}
+                        className="rounded px-2 py-1 text-xs text-destructive hover:bg-destructive/10"
+                      >
+                        Retry
+                      </button>
+                    )}
+                    {s.source_kind === "url" && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          refresh.mutate(
+                            { catalogID, specName: s.spec_name },
+                            { onSuccess: () => setRefreshCounter((n) => n + 1) },
+                          )
+                        }
+                        title="Refresh from URL"
+                        className="rounded p-1 hover:bg-muted"
+                      >
+                        <RefreshCw className="h-4 w-4" />
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={() =>
-                        reembed.mutate(
-                          { catalogID, specName: s.spec_name },
-                          { onSuccess: () => setRefreshCounter((n) => n + 1) },
-                        )
-                      }
-                      title="Compute operation embeddings for this spec"
-                      className="rounded px-2 py-1 text-xs hover:bg-muted"
-                    >
-                      Re-embed
-                    </button>
-                  )}
-                  {s.source_kind === "url" && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        refresh.mutate(
-                          { catalogID, specName: s.spec_name },
-                          { onSuccess: () => setRefreshCounter((n) => n + 1) },
-                        )
-                      }
-                      title="Refresh from URL"
+                      onClick={() => setEditing(s.spec_name)}
                       className="rounded p-1 hover:bg-muted"
                     >
-                      <RefreshCw className="h-4 w-4" />
+                      Edit
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setEditing(s.spec_name)}
-                    className="rounded p-1 hover:bg-muted"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPendingDelete(s.spec_name)}
-                    className="rounded p-1 text-destructive hover:bg-destructive/10"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              )}
-            </li>
-          ))}
+                    <button
+                      type="button"
+                      onClick={() => setPendingDelete(s.spec_name)}
+                      className="rounded p-1 text-destructive hover:bg-destructive/10"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
 
@@ -823,29 +839,140 @@ function SpecsManager({ catalogID, isReadOnly }: { catalogID: string; isReadOnly
   );
 }
 
-// EmbeddingBadge surfaces the count of persisted operation
-// embedding rows for a spec. Zero rows means semantic and hybrid
-// ranking on api_list_endpoints will fall back to lexical — the
-// "Re-embed" action next to this badge fixes that without an
-// edit-and-save round trip.
-function EmbeddingBadge({ count }: { count: number }) {
-  if (count > 0) {
+// EmbeddingStatusBadge surfaces the per-spec embedding state
+// computed by the job queue. The badge color and label
+// communicate one of five states the operator can react to:
+//
+//   green:  "N/M indexed"     — spec is fully indexed; semantic
+//                                ranking is active.
+//   blue:   "indexing N/M"    — a worker is currently embedding
+//                                this spec; counts move as the
+//                                worker progresses.
+//   amber:  "queued"          — the job is in the queue waiting
+//                                for a worker to pick it up.
+//   red:    "failed (last_error)" — the job exhausted retries.
+//                                The operator can click Retry
+//                                next to the badge to force a
+//                                fresh attempt.
+//   gray:   "not indexed"     — the spec has no operations or
+//                                no job has run for it (legacy
+//                                state cleared by the next
+//                                reconciler tick).
+function EmbeddingStatusBadge({ status }: { status?: APICatalogEmbeddingSpecStatus }) {
+  if (!status) {
     return (
       <span
-        title={`${count} operation embeddings indexed; semantic ranking active`}
+        title="Embedding status not yet loaded"
+        className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
+      >
+        loading…
+      </span>
+    );
+  }
+  const fully =
+    status.operation_count > 0 && status.embedding_count === status.operation_count;
+  const jobStatus = status.job_status ?? "";
+  if (fully && (jobStatus === "succeeded" || jobStatus === "")) {
+    return (
+      <span
+        title={`${status.embedding_count}/${status.operation_count} operations indexed; semantic ranking active`}
         className="inline-flex items-center gap-1 rounded bg-emerald-100 px-1.5 py-0.5 text-xs text-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"
       >
-        embeddings: {count}
+        {status.embedding_count}/{status.operation_count} indexed
+      </span>
+    );
+  }
+  if (jobStatus === "running") {
+    return (
+      <span
+        title={`Worker is embedding this spec (attempt ${status.job_attempts ?? 1})`}
+        className="inline-flex items-center gap-1 rounded bg-sky-100 px-1.5 py-0.5 text-xs text-sky-900 dark:bg-sky-950/30 dark:text-sky-200"
+      >
+        indexing {status.embedding_count}/{status.operation_count}
+      </span>
+    );
+  }
+  if (jobStatus === "pending") {
+    return (
+      <span
+        title="Queued for embedding"
+        className="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
+      >
+        queued
+      </span>
+    );
+  }
+  if (jobStatus === "failed") {
+    return (
+      <span
+        title={status.job_last_error || "embedding failed"}
+        className="inline-flex items-center gap-1 rounded bg-destructive/15 px-1.5 py-0.5 text-xs text-destructive"
+      >
+        failed
+      </span>
+    );
+  }
+  if (status.operation_count === 0) {
+    return (
+      <span
+        title="Spec has zero operations; nothing to embed"
+        className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground"
+      >
+        empty
       </span>
     );
   }
   return (
     <span
-      title="No operation embeddings indexed; semantic ranking falls back to lexical"
+      title="No embedding job has run for this spec yet; reconciler will pick it up"
       className="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
     >
       not indexed
     </span>
+  );
+}
+
+// CatalogEmbeddingHealthBanner is the one-line summary at the
+// top of the spec list. Operators check it before considering
+// the catalog production-ready ("All specs indexed" is the
+// green-light signal; a non-zero pending/failed count means
+// the worker is still catching up or attention is needed).
+function CatalogEmbeddingHealthBanner({
+  health,
+}: {
+  health: { specs_total: number; specs_indexed: number; specs_pending: number; specs_running: number; specs_failed: number };
+}) {
+  if (health.specs_total === 0) {
+    return null;
+  }
+  const allIndexed =
+    health.specs_indexed === health.specs_total &&
+    health.specs_pending === 0 &&
+    health.specs_running === 0 &&
+    health.specs_failed === 0;
+  if (allIndexed) {
+    return (
+      <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-100">
+        All {health.specs_total} specs indexed. Semantic ranking is active across this catalog.
+      </div>
+    );
+  }
+  const parts: string[] = [];
+  if (health.specs_running > 0) parts.push(`${health.specs_running} running`);
+  if (health.specs_pending > 0) parts.push(`${health.specs_pending} queued`);
+  if (health.specs_failed > 0) parts.push(`${health.specs_failed} failed`);
+  return (
+    <div
+      className={cn(
+        "rounded-md border px-3 py-2 text-xs",
+        health.specs_failed > 0
+          ? "border-destructive/40 bg-destructive/10 text-destructive"
+          : "border-amber-500/30 bg-amber-500/10 text-amber-100",
+      )}
+    >
+      {health.specs_indexed}/{health.specs_total} specs indexed
+      {parts.length > 0 ? ` (${parts.join(", ")})` : ""}
+    </div>
   );
 }
 

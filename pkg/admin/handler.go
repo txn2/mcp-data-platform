@@ -26,6 +26,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	apicatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/embedjobs"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 )
 
@@ -169,6 +170,26 @@ type Deps struct {
 	// hybrid ranking modes fall back to lexical until the operator
 	// wires an embedder and re-saves (or re-embeds) the spec.
 	Embedder embedding.Provider
+
+	// EmbedJobs is the Postgres-backed job queue for api-catalog
+	// embedding work. The admin handler enqueues jobs on every
+	// spec write and lets the worker / reconciler / reaper run
+	// the actual embedding pass off the request path. nil when
+	// the platform was built without a database; spec writes
+	// still succeed in that mode but no embeddings are persisted.
+	EmbedJobs EmbedJobsStore
+}
+
+// EmbedJobsStore is the subset of embedjobs.Store the admin
+// handler uses (enqueue + read-side queries for the UI). Declared
+// here so admin does not import embedjobs transitively for tests
+// that mock the queue.
+type EmbedJobsStore interface {
+	Enqueue(ctx context.Context, key embedjobs.SpecKey, kind embedjobs.Kind) (bool, error)
+	List(ctx context.Context, filter embedjobs.ListFilter) ([]embedjobs.Job, error)
+	Get(ctx context.Context, id int64) (*embedjobs.Job, error)
+	SpecStatuses(ctx context.Context, catalogID string) ([]embedjobs.SpecStatusRow, error)
+	Health(ctx context.Context, catalogID string) (*embedjobs.CatalogHealth, error)
 }
 
 // APICatalogStore is the subset of apigateway/catalog.Store that the
@@ -190,6 +211,7 @@ type APICatalogStore interface {
 	UpsertOperationEmbeddings(ctx context.Context, catalogID, specName string, rows []apicatalog.OperationEmbedding) error
 	ListOperationEmbeddings(ctx context.Context, catalogID, specName string) ([]apicatalog.OperationEmbedding, error)
 	DeleteOperationEmbeddings(ctx context.Context, catalogID, specName string) error
+	SetOperationCount(ctx context.Context, catalogID, specName string, count int) error
 }
 
 // EnrichmentEngine is the admin-facing surface of an enrichment.Engine.

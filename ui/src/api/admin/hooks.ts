@@ -714,12 +714,55 @@ export interface APICatalogSpec {
   last_fetched_at?: string;
   created_at?: string;
   updated_at?: string;
-  // Count of persisted operation embedding rows for this spec.
-  // 0 means the spec was written without an embedder configured
-  // (or the embedding compute step failed); semantic and hybrid
-  // ranking fall back to lexical until the operator runs the
-  // re-embed admin action.
+  // Number of operations the spec content parses to (one of the
+  // GET/POST/PUT/DELETE/PATCH/HEAD pairs in every path item).
+  operation_count?: number;
+  // Number of persisted embedding rows. Equal to operation_count
+  // when fully indexed; less while a job is in flight or has
+  // failed.
   embedding_count?: number;
+  // Most recent embedding job's state (pending|running|
+  // succeeded|failed). Empty when no job has run yet for this
+  // spec.
+  embedding_status?: string;
+  // Attempt counter from the most recent job, surfaced as
+  // "running (attempt N)" in the badge.
+  embedding_attempts?: number;
+  // Most recent job's last_error column. Non-empty only when
+  // the job is on a retry or has failed terminally.
+  embedding_last_error?: string;
+}
+
+// EmbeddingHealth is the catalog-level roll-up rendered at the
+// top of the catalog editor. Operators check this before
+// considering a catalog production-ready ("all specs indexed"
+// or "3 pending, 1 failed").
+export interface APICatalogEmbeddingHealth {
+  catalog_id: string;
+  specs_total: number;
+  specs_indexed: number;
+  specs_pending: number;
+  specs_running: number;
+  specs_failed: number;
+}
+
+// EmbeddingJob is one row from api_catalog_embedding_jobs.
+// Exposed by the admin embedding-jobs endpoint so the portal
+// can show per-spec history.
+export interface APICatalogEmbeddingJob {
+  id: number;
+  catalog_id: string;
+  spec_name: string;
+  kind: string;
+  status: string;
+  attempts: number;
+  last_error?: string;
+  worker_id?: string;
+  next_run_at?: string;
+  lease_expires_at?: string;
+  created_at?: string;
+  started_at?: string;
+  completed_at?: string;
 }
 
 export function useAPICatalogs() {
@@ -911,15 +954,21 @@ export function useRefreshAPICatalogSpec() {
   });
 }
 
-// useReembedAPICatalogSpec triggers a wipe-and-recompute of the
-// named spec's operation embeddings. Use when an embedder was
-// wired AFTER the spec was first saved, or after a transient
-// embedding-provider outage left the spec without vectors.
-export function useReembedAPICatalogSpec() {
+// useManualRetryEmbedding enqueues a manual_retry embedding job
+// for the named spec. The button is an escape hatch (used only
+// when an operator knows the dedup predicate's "same text,
+// same model" check is wrong: model swapped externally, etc.).
+// The automatic path (spec write enqueues a job; reconciler
+// fills gaps) covers the common case without operator action.
+//
+// Returns 202 Accepted; the actual embedding happens off the
+// request path. Caller polls the embedding health endpoint to
+// see completion.
+export function useManualRetryEmbedding() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ catalogID, specName }: { catalogID: string; specName: string }) =>
-      apiFetch<{ status: string; embedded_count: number }>(
+      apiFetch<{ status: string; created: boolean }>(
         `/api-catalogs/${catalogID}/specs/${specName}/reembed`,
         { method: "POST" },
       ),
@@ -928,8 +977,58 @@ export function useReembedAPICatalogSpec() {
       void qc.invalidateQueries({
         queryKey: ["api-catalogs", vars.catalogID, "specs", vars.specName],
       });
+      void qc.invalidateQueries({
+        queryKey: ["api-catalogs", vars.catalogID, "embedding-health"],
+      });
     },
   });
+}
+
+// useAPICatalogEmbeddingHealth polls the catalog-level
+// embedding roll-up so the portal renders "all indexed" or
+// "N pending, M failed" at the top of the catalog editor.
+// Refetches every 5 seconds while the panel is mounted, since
+// the worker runs off the request path and the operator needs
+// the badge to reflect work as it completes.
+export function useAPICatalogEmbeddingHealth(catalogID: string, enabled = true) {
+  return useQuery({
+    queryKey: ["api-catalogs", catalogID, "embedding-health"],
+    queryFn: () =>
+      apiFetch<APICatalogEmbeddingHealth>(
+        `/api-catalogs/${catalogID}/embedding-health`,
+      ),
+    enabled: enabled && !!catalogID,
+    refetchInterval: 5000,
+  });
+}
+
+// useAPICatalogEmbeddingStatuses returns one row per spec. The
+// portal renders these as per-spec badges in the CatalogsPanel.
+// Refetched on the same 5s cadence as the health roll-up so the
+// two views stay coherent.
+export function useAPICatalogEmbeddingStatuses(catalogID: string, enabled = true) {
+  return useQuery({
+    queryKey: ["api-catalogs", catalogID, "embedding-statuses"],
+    queryFn: () =>
+      apiFetch<{ specs: APICatalogEmbeddingSpecStatus[] }>(
+        `/api-catalogs/${catalogID}/embedding-status`,
+      ),
+    enabled: enabled && !!catalogID,
+    refetchInterval: 5000,
+  });
+}
+
+// APICatalogEmbeddingSpecStatus mirrors the server-side
+// embeddingStatusResponse: one row per spec with operation /
+// embedding counts plus the most recent job's state.
+export interface APICatalogEmbeddingSpecStatus {
+  spec_name: string;
+  operation_count: number;
+  embedding_count: number;
+  job_status?: string;
+  job_attempts?: number;
+  job_last_error?: string;
+  job_updated_at?: string;
 }
 
 export function useDeleteAPICatalogSpec() {

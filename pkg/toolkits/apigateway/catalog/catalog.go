@@ -95,6 +95,16 @@ type SpecEntry struct {
 	LastFetchedAt time.Time
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
+	// OperationCount is the number of operations the spec
+	// content parses to. The admin handler sets this on every
+	// write so the embedding-job reconciler can compare it
+	// against the row count in api_catalog_operation_embeddings
+	// to detect gaps in pure SQL. A value of 0 means either an
+	// empty spec or a spec that has not been re-saved since
+	// migration 000045 added the column; the reconciler treats
+	// both the same way (no work to enqueue when the embedding
+	// row count is also 0).
+	OperationCount int
 }
 
 // Update carries the partial-edit shape used by Store.UpdateCatalog.

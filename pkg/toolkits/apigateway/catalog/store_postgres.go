@@ -217,8 +217,9 @@ func (s *PostgresStore) UpsertSpec(ctx context.Context, catalogID string, spec S
 	const q = `
 		INSERT INTO api_catalog_specs
 		    (catalog_id, spec_name, content, source_kind,
-		     source_url, etag, base_path, last_fetched_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		     source_url, etag, base_path, last_fetched_at,
+		     operation_count)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (catalog_id, spec_name) DO UPDATE
 		SET content         = EXCLUDED.content,
 		    source_kind     = EXCLUDED.source_kind,
@@ -226,6 +227,7 @@ func (s *PostgresStore) UpsertSpec(ctx context.Context, catalogID string, spec S
 		    etag            = EXCLUDED.etag,
 		    base_path       = EXCLUDED.base_path,
 		    last_fetched_at = EXCLUDED.last_fetched_at,
+		    operation_count = EXCLUDED.operation_count,
 		    updated_at      = NOW()
 	`
 	var lastFetched any
@@ -234,7 +236,8 @@ func (s *PostgresStore) UpsertSpec(ctx context.Context, catalogID string, spec S
 	}
 	_, err = s.db.ExecContext(ctx, q,
 		catalogID, spec.SpecName, spec.Content, spec.SourceKind,
-		spec.SourceURL, spec.ETag, normalizedBasePath, lastFetched)
+		spec.SourceURL, spec.ETag, normalizedBasePath, lastFetched,
+		spec.OperationCount)
 	if isPGCode(err, pgForeignKeyViolation) {
 		return ErrNotFound
 	}
@@ -248,7 +251,8 @@ func (s *PostgresStore) UpsertSpec(ctx context.Context, catalogID string, spec S
 func (s *PostgresStore) GetSpec(ctx context.Context, catalogID, specName string) (*SpecEntry, error) {
 	const q = `
 		SELECT spec_name, content, source_kind, source_url, etag,
-		       base_path, last_fetched_at, created_at, updated_at
+		       base_path, last_fetched_at, created_at, updated_at,
+		       operation_count
 		  FROM api_catalog_specs
 		 WHERE catalog_id = $1 AND spec_name = $2
 	`
@@ -258,7 +262,8 @@ func (s *PostgresStore) GetSpec(ctx context.Context, catalogID, specName string)
 	)
 	err := s.db.QueryRowContext(ctx, q, catalogID, specName).Scan(
 		&spec.SpecName, &spec.Content, &spec.SourceKind, &spec.SourceURL,
-		&spec.ETag, &spec.BasePath, &fetchedAt, &spec.CreatedAt, &spec.UpdatedAt)
+		&spec.ETag, &spec.BasePath, &fetchedAt, &spec.CreatedAt, &spec.UpdatedAt,
+		&spec.OperationCount)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -277,7 +282,8 @@ func (s *PostgresStore) GetSpec(ctx context.Context, catalogID, specName string)
 func (s *PostgresStore) ListSpecs(ctx context.Context, catalogID string) ([]SpecEntry, error) {
 	const q = `
 		SELECT spec_name, content, source_kind, source_url, etag,
-		       base_path, last_fetched_at, created_at, updated_at
+		       base_path, last_fetched_at, created_at, updated_at,
+		       operation_count
 		  FROM api_catalog_specs
 		 WHERE catalog_id = $1
 		 ORDER BY spec_name ASC
@@ -295,7 +301,7 @@ func (s *PostgresStore) ListSpecs(ctx context.Context, catalogID string) ([]Spec
 		)
 		if err := rows.Scan(&spec.SpecName, &spec.Content, &spec.SourceKind,
 			&spec.SourceURL, &spec.ETag, &spec.BasePath, &fetchedAt,
-			&spec.CreatedAt, &spec.UpdatedAt); err != nil {
+			&spec.CreatedAt, &spec.UpdatedAt, &spec.OperationCount); err != nil {
 			return nil, fmt.Errorf("catalog: list specs scan: %w", err)
 		}
 		if fetchedAt.Valid {
@@ -430,6 +436,34 @@ func (s *PostgresStore) ListOperationEmbeddings(ctx context.Context, catalogID, 
 		return nil, fmt.Errorf("catalog: list embeddings rows: %w", err)
 	}
 	return out, nil
+}
+
+// SetOperationCount updates the operation_count column on one
+// spec row. Called by the embedding worker after a successful
+// Upsert so the reconciler's "operation_count <> embedded"
+// predicate sees a fully-indexed spec.
+//
+// Returns ErrNotFound when no row matches. The worker treats
+// that as a best-effort failure (the spec may have been deleted
+// between claim and completion); other errors are wrapped.
+func (s *PostgresStore) SetOperationCount(ctx context.Context, catalogID, specName string, count int) error {
+	const q = `
+		UPDATE api_catalog_specs
+		   SET operation_count = $3
+		 WHERE catalog_id = $1 AND spec_name = $2
+	`
+	res, err := s.db.ExecContext(ctx, q, catalogID, specName, count)
+	if err != nil {
+		return fmt.Errorf("catalog: set operation_count: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("catalog: set operation_count rows-affected: %w", err)
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // DeleteOperationEmbeddings removes every embedding row for the

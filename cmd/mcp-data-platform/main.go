@@ -285,6 +285,9 @@ func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Pla
 		p.WireAPIGatewayTokenStore()
 		p.WireAPIGatewayEmbeddingProvider()
 		p.WireAPIGatewayCatalogStoreFromDB()
+		// Embed-job queue depends on the catalog store + embedding
+		// provider being wired first; call last.
+		p.WireAPIGatewayEmbedJobsFromDB()
 		// Start the background OAuth refresher once toolkits and
 		// connection store are wired. Single-call here (not in the
 		// platform constructor) so the resolver can read the live
@@ -811,6 +814,9 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 		deps.APICatalogStore = catStore
 	}
 	deps.Embedder = p.EmbeddingProvider()
+	if jobs := p.APIGatewayEmbedJobsStore(); jobs != nil {
+		deps.EmbedJobs = jobs
+	}
 
 	if p.KnowledgeInsightStore() != nil {
 		deps.Knowledge = admin.NewKnowledgeHandler(

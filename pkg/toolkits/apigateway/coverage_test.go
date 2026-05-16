@@ -61,6 +61,10 @@ func (failingCatalogStore) ListOperationEmbeddings(context.Context, string, stri
 	return nil, errors.New("boom")
 }
 
+func (failingCatalogStore) SetOperationCount(context.Context, string, string, int) error {
+	return errors.New("boom")
+}
+
 func (failingCatalogStore) DeleteOperationEmbeddings(context.Context, string, string) error {
 	return errors.New("boom")
 }

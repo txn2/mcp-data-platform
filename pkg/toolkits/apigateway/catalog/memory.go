@@ -291,6 +291,26 @@ func (s *MemoryStore) ListOperationEmbeddings(_ context.Context, catalogID, spec
 	return out, nil
 }
 
+// SetOperationCount updates the operation_count on one spec row.
+// Returns ErrNotFound when (catalogID, specName) does not exist.
+// Mirrors the Postgres backend's behavior so the embedjobs
+// worker tests can run against either store.
+func (s *MemoryStore) SetOperationCount(_ context.Context, catalogID, specName string, count int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	bucket, ok := s.specs[catalogID]
+	if !ok {
+		return ErrNotFound
+	}
+	spec, ok := bucket[specName]
+	if !ok {
+		return ErrNotFound
+	}
+	spec.OperationCount = count
+	bucket[specName] = spec
+	return nil
+}
+
 // DeleteOperationEmbeddings removes every embedding row for the
 // (catalogID, specName) pair. No-op when no rows exist.
 func (s *MemoryStore) DeleteOperationEmbeddings(_ context.Context, catalogID, specName string) error {

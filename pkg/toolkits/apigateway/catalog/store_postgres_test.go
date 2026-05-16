@@ -318,7 +318,7 @@ func TestUpsertSpec_Insert(t *testing.T) {
 	store, mock, done := newMockStore(t)
 	defer done()
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO api_catalog_specs`)).
-		WithArgs("petstore", "default", "openapi: 3.0", SourceInline, "", "", "", nil).
+		WithArgs("petstore", "default", "openapi: 3.0", SourceInline, "", "", "", nil, 0).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	err := store.UpsertSpec(context.Background(), "petstore", SpecEntry{
 		SpecName:   "default",
@@ -337,15 +337,16 @@ func TestUpsertSpec_WithFetchedAt(t *testing.T) {
 	fetched := time.Now()
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO api_catalog_specs`)).
 		WithArgs("petstore", "default", "openapi: 3.0", SourceURL,
-			"https://petstore3.swagger.io/api/v3/openapi.json", "etag-xyz", "", fetched).
+			"https://petstore3.swagger.io/api/v3/openapi.json", "etag-xyz", "", fetched, 7).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	err := store.UpsertSpec(context.Background(), "petstore", SpecEntry{
-		SpecName:      "default",
-		Content:       "openapi: 3.0",
-		SourceKind:    SourceURL,
-		SourceURL:     "https://petstore3.swagger.io/api/v3/openapi.json",
-		ETag:          "etag-xyz",
-		LastFetchedAt: fetched,
+		SpecName:       "default",
+		Content:        "openapi: 3.0",
+		SourceKind:     SourceURL,
+		SourceURL:      "https://petstore3.swagger.io/api/v3/openapi.json",
+		ETag:           "etag-xyz",
+		LastFetchedAt:  fetched,
+		OperationCount: 7,
 	})
 	if err != nil {
 		t.Fatalf("UpsertSpec: %v", err)
@@ -360,7 +361,7 @@ func TestUpsertSpec_WithBasePath(t *testing.T) {
 	store, mock, done := newMockStore(t)
 	defer done()
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO api_catalog_specs`)).
-		WithArgs("petstore", "default", "openapi: 3.0", SourceInline, "", "", "/v1", nil).
+		WithArgs("petstore", "default", "openapi: 3.0", SourceInline, "", "", "/v1", nil, 0).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	err := store.UpsertSpec(context.Background(), "petstore", SpecEntry{
 		SpecName:   "default",
@@ -458,8 +459,9 @@ func TestGetSpec_Success(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{
 			"spec_name", "content", "source_kind", "source_url",
 			"etag", "base_path", "last_fetched_at", "created_at", "updated_at",
+			"operation_count",
 		}).AddRow("default", "openapi: 3.0", "url",
-			"https://x", "etag-1", "", now, now, now))
+			"https://x", "etag-1", "", now, now, now, 0))
 	s, err := store.GetSpec(context.Background(), "petstore", "default")
 	if err != nil {
 		t.Fatalf("GetSpec: %v", err)
@@ -479,8 +481,9 @@ func TestGetSpec_NullFetchedAt(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{
 			"spec_name", "content", "source_kind", "source_url",
 			"etag", "base_path", "last_fetched_at", "created_at", "updated_at",
+			"operation_count",
 		}).AddRow("default", "openapi: 3.0", "inline",
-			"", "", "", nil, now, now))
+			"", "", "", nil, now, now, 0))
 	s, err := store.GetSpec(context.Background(), "petstore", "default")
 	if err != nil {
 		t.Fatalf("GetSpec: %v", err)
@@ -499,6 +502,7 @@ func TestGetSpec_NotFound(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{
 			"spec_name", "content", "source_kind", "source_url",
 			"etag", "base_path", "last_fetched_at", "created_at", "updated_at",
+			"operation_count",
 		}))
 	_, err := store.GetSpec(context.Background(), "petstore", "missing")
 	if !errors.Is(err, ErrNotFound) {
@@ -528,9 +532,10 @@ func TestListSpecs(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{
 			"spec_name", "content", "source_kind", "source_url",
 			"etag", "base_path", "last_fetched_at", "created_at", "updated_at",
+			"operation_count",
 		}).
-			AddRow("users", "openapi: 3.0", "inline", "", "", "", nil, now, now).
-			AddRow("orders", "openapi: 3.0", "url", "https://x", "etag", "/v1", now, now, now))
+			AddRow("users", "openapi: 3.0", "inline", "", "", "", nil, now, now, 0).
+			AddRow("orders", "openapi: 3.0", "url", "https://x", "etag", "/v1", now, now, now, 5))
 	specs, err := store.ListSpecs(context.Background(), "petstore")
 	if err != nil {
 		t.Fatalf("ListSpecs: %v", err)
@@ -795,6 +800,48 @@ func TestDeleteOperationEmbeddings_DBError(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM api_catalog_operation_embeddings`)).
 		WillReturnError(errors.New("boom"))
 	err := store.DeleteOperationEmbeddings(context.Background(), "p", "d")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+// TestSetOperationCount_Success exercises the worker's
+// "stamp operation_count after Upsert" path against sqlmock.
+func TestSetOperationCount_Success(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE api_catalog_specs`)).
+		WithArgs("p", "v1", 5).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := store.SetOperationCount(context.Background(), "p", "v1", 5); err != nil {
+		t.Fatalf("SetOperationCount: %v", err)
+	}
+}
+
+// TestSetOperationCount_NotFound surfaces ErrNotFound for the
+// post-delete race case (spec was dropped between worker
+// claim and the post-upsert stamp).
+func TestSetOperationCount_NotFound(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE api_catalog_specs`)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	err := store.SetOperationCount(context.Background(), "p", "v1", 5)
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("err=%v want ErrNotFound", err)
+	}
+}
+
+// TestSetOperationCount_DBError wraps the underlying error.
+func TestSetOperationCount_DBError(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE api_catalog_specs`)).
+		WillReturnError(errors.New("boom"))
+	err := store.SetOperationCount(context.Background(), "p", "v1", 5)
 	if err == nil {
 		t.Fatal("expected error")
 	}

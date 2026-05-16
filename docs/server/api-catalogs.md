@@ -81,14 +81,40 @@ The admin REST API matches the portal one-to-one. All routes require admin auth.
 
 ## Persisted operation embeddings
 
-Semantic and hybrid ranking on `api_list_endpoints` need a vector per operation. The toolkit stores these in PostgreSQL (`api_catalog_operation_embeddings`, migration 000044) keyed on `(catalog_id, spec_name, operation_id)` with a 768-dimensional `pgvector` column. Two consequences:
+Semantic and hybrid ranking on `api_list_endpoints` need a vector per operation. The toolkit stores these in PostgreSQL (`api_catalog_operation_embeddings`, migration 000044) keyed on `(catalog_id, spec_name, operation_id)` with a 768-dimensional `pgvector` column. Embeddings persist across pod restarts and are shared by every connection that mounts the same catalog.
 
-1. **Computed once per spec write, not per connection.** The admin spec-upsert path runs the configured embedding provider, hashes the source text, and writes one row per operation. The toolkit reads those rows when a connection registers and stays out of the embedding-provider's way at request time.
-2. **Survives restart.** A redeployed pod re-reads the same rows; `api_list_endpoints(ranking=semantic)` returns ranked results on the first call without a warm-up window.
+### Embedding job queue
 
-Each row records the SHA-256 of the source text, so a spec refresh that reuses operation text skips the embed call for unchanged rows. Spec deletion drops vector rows via `ON DELETE CASCADE`.
+Embedding work runs through a Postgres-backed job queue (`api_catalog_embedding_jobs`, migration 000045). Spec writes enqueue a job atomically with the spec row; worker goroutines across every running pod race for the next job via `SELECT ... FOR UPDATE SKIP LOCKED`, take a time-bounded lease, compute embeddings off the request path, and write vectors. The model is the standard pattern Postgres has supported since 9.5: idempotent producers, multi-replica safe workers, exponential backoff on retry.
 
-When the embedding provider is not configured at spec-upsert time, the row count stays at 0 and the toolkit falls back to lexical ranking with `errEmbeddingsNotIndexed` in the response Note. The portal's catalog editor surfaces this state ("embeddings: N indexed" vs "not indexed") with a Re-embed button that calls the admin endpoint above.
+Four components run alongside the admin server:
+
+- **Producer** — every spec write (`upsert`, `upload`, `refresh`, `clone`) and the manual-retry admin action insert a row into `api_catalog_embedding_jobs`. A partial unique index on `(catalog_id, spec_name) WHERE status IN ('pending','running')` makes duplicate enqueues a no-op, so a spec edited twice in quick succession does not stack redundant work.
+- **Worker** — pulls one job at a time from the queue, fetches the current spec content, runs the embedding provider, persists vectors, marks the job succeeded. Lease default is 10 minutes; a pod that crashes mid-embed leaves its row in status=running and the reaper recovers it.
+- **Reaper** — sweeps every 30 seconds: any row in status=running with `lease_expires_at <= NOW()` flips back to pending. Multiple pods, fast lease recovery.
+- **Reconciler** — periodic gap detector. Compares `api_catalog_specs.operation_count` (set at write time) against the actual count of rows in `api_catalog_operation_embeddings` and enqueues jobs for any spec where they disagree. Runs once on pod boot and every 5 minutes thereafter. This is the convergence backstop: a spec written before an embedder was configured, vectors lost to a partial restore, or any other gap is filled in without operator action.
+
+Failure handling: retryable provider errors back off exponentially (5s, 10s, 20s, 40s, 80s) up to 5 attempts. After that the job moves to `failed` with the last error message on the row; the catalog editor surfaces this with a red "failed" badge and an explicit Retry button that enqueues a fresh job. Notification of newly enqueued work flows over `LISTEN/NOTIFY` on the `api_catalog_embedding_jobs` channel; workers also poll at 30s intervals as a backstop for missed notifications.
+
+### Operator view
+
+The catalog editor renders the job queue's state directly:
+
+- **Per-spec badge** — `47/47 indexed` (green) when fully embedded, `indexing 12/47` (blue) while a worker is processing, `queued` (amber) while waiting for a worker, `failed` (red, tooltip carries the last error) after retries are exhausted.
+- **Catalog header summary** — one-line roll-up: `All N specs indexed` (green) or `K indexed / M total (2 running, 1 failed)` (amber/red).
+- **Retry button** — visible only on failed rows; enqueues a `manual_retry` job. The reconciler's automatic path is the default; this is the escape hatch for "model changed externally."
+
+The `/api/v1/admin/api-catalogs/{id}/embedding-health` and `/api/v1/admin/api-catalogs/{id}/embedding-status` endpoints expose the same data for programmatic consumers. Polling them every 5 seconds is sufficient; the worker is the source of truth.
+
+### What the queue replaces
+
+Earlier revisions of this toolkit ran the embedding pass synchronously inside the admin spec-write HTTP handler. That design had three production-grade problems the queue fixes:
+
+1. A slow embedding provider (Ollama at ~200ms/op, a 300-op spec is 60 seconds) timed out at ingress before the embed completed; the operator saw a failed request but the server-side work may have committed or rolled back, with no way to tell.
+2. A pod restart mid-embed lost progress because there was no checkpoint. The operator had to click "Re-embed" again, which then raced N other operators doing the same on other specs.
+3. Multiple operators or multiple replicas racing to embed the same catalog blocked each other on the embedding provider's per-host concurrency, multiplying the latency for every involved operator.
+
+The queue model collapses all three to a single design: enqueue is fast and synchronous, work is async and observable, retries are automatic, multi-replica is free.
 
 ## Model-facing surface
 
