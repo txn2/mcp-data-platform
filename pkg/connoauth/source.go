@@ -40,6 +40,13 @@ const (
 	logKeyError = "error"
 )
 
+// scopeSep is the OAuth 2.0 scope-list separator (a single space per
+// RFC 6749 §3.3) and also the separator used when joining the
+// status / error / error_description parts of a sanitized
+// RetrieveError message. Named so revive's add-constant lint stops
+// flagging the literal as it accumulates call sites.
+const scopeSep = " "
+
 // newTokenExchangeClient builds the http.Client used for any
 // credential-bearing POST to an OAuth token endpoint. CheckRedirect
 // refuses 3xx so a misconfigured or compromised IdP cannot redirect
@@ -132,6 +139,27 @@ func (s *Source) Token(ctx context.Context) (string, error) {
 			return "", ErrNeedsReauth
 		}
 		return "", fmt.Errorf("connoauth: load token: %w", err)
+	}
+	if accessTokenStillValid(persisted) {
+		return persisted.AccessToken, nil
+	}
+	// Refresh under the store's distributed lock so two callers
+	// (background refresher + tool call, or two replicas) cannot
+	// POST the same refresh_token to a rotation-enforcing IdP and
+	// race each other. After acquiring the lock we re-read the row:
+	// another caller may have rotated under us, in which case the
+	// cached access token is now valid and no IdP round-trip runs.
+	unlock, err := s.store.Lock(ctx, s.key)
+	if err != nil {
+		return "", fmt.Errorf("connoauth: acquire refresh lock: %w", err)
+	}
+	defer unlock()
+	persisted, err = s.store.Get(ctx, s.key)
+	if err != nil {
+		if errors.Is(err, ErrTokenNotFound) {
+			return "", ErrNeedsReauth
+		}
+		return "", fmt.Errorf("connoauth: reload token after lock: %w", err)
 	}
 	if accessTokenStillValid(persisted) {
 		return persisted.AccessToken, nil
@@ -256,7 +284,7 @@ func (s *Source) Status(ctx context.Context) OAuthStatus {
 				Configured:  true,
 				NeedsReauth: true,
 				TokenURL:    s.cfg.TokenURL,
-				Scope:       strings.Join(s.cfg.Scopes, " "),
+				Scope:       strings.Join(s.cfg.Scopes, scopeSep),
 				Grant:       s.cfg.Grant,
 			}
 		}
@@ -264,7 +292,7 @@ func (s *Source) Status(ctx context.Context) OAuthStatus {
 			Configured: true,
 			LastError:  "load token: " + err.Error(),
 			TokenURL:   s.cfg.TokenURL,
-			Scope:      strings.Join(s.cfg.Scopes, " "),
+			Scope:      strings.Join(s.cfg.Scopes, scopeSep),
 			Grant:      s.cfg.Grant,
 		}
 	}
@@ -277,7 +305,7 @@ func (s *Source) Status(ctx context.Context) OAuthStatus {
 func statusFromPersisted(p *PersistedToken, cfg Config) OAuthStatus {
 	scope := p.Scope
 	if scope == "" {
-		scope = strings.Join(cfg.Scopes, " ")
+		scope = strings.Join(cfg.Scopes, scopeSep)
 	}
 	st := OAuthStatus{
 		Configured:       true,
@@ -307,9 +335,18 @@ func statusFromPersisted(p *PersistedToken, cfg Config) OAuthStatus {
 // Reacquire forces a refresh-token exchange even when the cached
 // token is still valid. Used by the admin "Reacquire" button to test
 // the refresh path on demand. authorization_code grants cannot
-// re-run the full browser flow without operator interaction — that
+// re-run the full browser flow without operator interaction. That
 // path is the regular Connect button instead.
+//
+// Holds the same distributed refresh lock as Token so a manual
+// reacquire cannot race the background refresher (or another replica)
+// into a rotation conflict.
 func (s *Source) Reacquire(ctx context.Context) error {
+	unlock, err := s.store.Lock(ctx, s.key)
+	if err != nil {
+		return fmt.Errorf("connoauth: acquire refresh lock: %w", err)
+	}
+	defer unlock()
 	persisted, err := s.store.Get(ctx, s.key)
 	if err != nil {
 		if errors.Is(err, ErrTokenNotFound) {
@@ -507,14 +544,18 @@ func isRevokedRefresh(err error) bool {
 // The library's *oauth2.RetrieveError includes the IdP response body
 // (which can carry sensitive material) and the request URL (which
 // can carry credentials in the userinfo). Rebuild the message
-// keeping only non-sensitive pieces.
+// keeping the structured RFC 6749 error fields (error, error_description)
+// which the oauth2 library already parsed out of the response body
+// and stored on the RetrieveError. These two fields are operator-
+// facing diagnostic surface by spec; preserving them is the
+// difference between "status=400" (useless) and
+// "status=400 error=invalid_grant error_description=Token is not active"
+// (immediately actionable). The full raw Response.Body is still
+// dropped.
 func tokenFetchError(err error) error {
 	var re *oauth2.RetrieveError
 	if errors.As(err, &re) {
-		if re.Response != nil {
-			return fmt.Errorf("connoauth: token fetch failed: status=%d", re.Response.StatusCode)
-		}
-		return errors.New("connoauth: token fetch failed")
+		return retrieveErrorMessage(re)
 	}
 	var ue *url.Error
 	if errors.As(err, &ue) {
@@ -533,4 +574,51 @@ func tokenFetchError(err error) error {
 		return errors.New("connoauth: token fetch failed (details redacted)")
 	}
 	return fmt.Errorf("connoauth: token fetch failed: %s", msg)
+}
+
+// retrieveErrorMessage assembles the sanitized message for an
+// oauth2.RetrieveError. Includes the HTTP status, the RFC 6749
+// `error` code, and a length-bounded `error_description`. Drops
+// any other body content. Returns "connoauth: token fetch failed"
+// when no fields are populated so the caller never sees an empty
+// message.
+func retrieveErrorMessage(re *oauth2.RetrieveError) error {
+	parts := make([]string, 0, 3)
+	if re.Response != nil {
+		parts = append(parts, fmt.Sprintf("status=%d", re.Response.StatusCode))
+	}
+	if re.ErrorCode != "" {
+		parts = append(parts, fmt.Sprintf("error=%s", sanitizeOAuthErrorField(re.ErrorCode)))
+	}
+	if re.ErrorDescription != "" {
+		parts = append(parts, fmt.Sprintf("error_description=%s",
+			sanitizeOAuthErrorField(re.ErrorDescription)))
+	}
+	if len(parts) == 0 {
+		return errors.New("connoauth: token fetch failed")
+	}
+	return fmt.Errorf("connoauth: token fetch failed: %s", strings.Join(parts, scopeSep))
+}
+
+// sanitizeOAuthErrorField bounds the length of an RFC 6749 error
+// field and replaces any URL-looking substrings, CR/LF, and other
+// control characters so a hostile or chatty IdP cannot inject log
+// noise or leak embedded credentials through the diagnostic string.
+// Length cap matches typical operator-readable description ceilings.
+func sanitizeOAuthErrorField(s string) string {
+	const maxLen = 200
+	if strings.Contains(s, "://") {
+		return "(redacted: URL-shaped content)"
+	}
+	cleaned := strings.Map(func(r rune) rune {
+		if r < 32 || r == 127 {
+			return ' '
+		}
+		return r
+	}, s)
+	cleaned = strings.TrimSpace(cleaned)
+	if len(cleaned) > maxLen {
+		cleaned = cleaned[:maxLen] + "..."
+	}
+	return cleaned
 }

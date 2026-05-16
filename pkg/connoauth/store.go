@@ -24,10 +24,30 @@ type Store interface {
 	// List returns metadata for every persisted row. Used by the
 	// background refresher to decide which connections need
 	// proactive refresh. AccessToken and RefreshToken are NOT
-	// populated in the returned slice — the refresher only needs
+	// populated in the returned slice. The refresher only needs
 	// deadlines, kind, and name to pick targets; the per-row Get
 	// loads the secret material when it actually refreshes.
 	List(ctx context.Context) ([]PersistedToken, error)
+	// Lock acquires an exclusive lock for the key. The lock is held
+	// across processes (Postgres advisory lock for the SQL store, a
+	// per-key mutex for the in-memory store) so two refresh attempts
+	// for the same key serialize regardless of which replica or
+	// goroutine started them. The caller MUST defer the returned
+	// release function. The returned function is idempotent and
+	// safe to call after the request context has been canceled.
+	//
+	// Lock is the coordination primitive that prevents the rotation
+	// race: against any IdP that enforces one-time-use refresh-token
+	// rotation (RFC 6749 §6), two concurrent refreshes posting the
+	// same refresh_token cause the loser to receive invalid_grant
+	// for a token the winner already consumed. Without serialization
+	// across replicas, that loser's response is classified as a
+	// revoked credential and the persisted row is deleted, taking
+	// the connection out of service. The acquired lock is released
+	// either by the returned function or by the backing connection
+	// closing (Postgres advisory locks are session-scoped, so a
+	// crashed holder cannot deadlock the row).
+	Lock(ctx context.Context, key Key) (func(), error)
 }
 
 // FieldEncryptor abstracts the platform's at-rest field encryption so
@@ -65,12 +85,39 @@ var errInvalidKey = errors.New("connoauth: invalid key (kind and name required)"
 type MemoryStore struct {
 	mu     sync.Mutex
 	tokens map[Key]PersistedToken
+	// locks holds a per-Key mutex for Lock. Lazily populated via
+	// LoadOrStore so the cost of the lock registry is bounded by the
+	// number of distinct keys ever locked, not by every key ever
+	// stored. The mutex registry is intentionally never trimmed; the
+	// memory cost of a *sync.Mutex per connection is trivial and
+	// reclaiming entries would require coordinating with in-flight
+	// Lock holders, which adds complexity without benefit.
+	locks sync.Map
 }
 
 // NewMemoryStore returns an in-process Store. Production deployments
 // use NewPostgresStore.
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{tokens: map[Key]PersistedToken{}}
+}
+
+// Lock acquires an exclusive per-key mutex. The returned release
+// function is idempotent and safe to defer. The context is accepted
+// for interface symmetry with PostgresStore (which observes ctx
+// during the wait); the in-process mutex acquisition itself does
+// not block on I/O so ctx is never consulted here.
+func (s *MemoryStore) Lock(_ context.Context, key Key) (func(), error) {
+	if !key.IsValid() {
+		return nil, errInvalidKey
+	}
+	v, _ := s.locks.LoadOrStore(key, &sync.Mutex{})
+	mu, ok := v.(*sync.Mutex)
+	if !ok {
+		return nil, errors.New("connoauth: memory store lock registry corrupted")
+	}
+	mu.Lock()
+	var once sync.Once
+	return func() { once.Do(mu.Unlock) }, nil
 }
 
 // Get returns the in-memory token or ErrTokenNotFound.

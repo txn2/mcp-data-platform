@@ -186,3 +186,81 @@ func TestEncryptOptional(t *testing.T) {
 		t.Fatalf("non-empty plaintext should encrypt: ns=%+v err=%v", ns, err)
 	}
 }
+
+func TestPostgresStore_Lock_AcquireAndRelease(t *testing.T) {
+	t.Parallel()
+	store, mock := newMockPostgresStore(t)
+	key := Key{Kind: KindAPI, Name: "alpha"}
+
+	// db.Conn pulls a connection from the pool. sqlmock returns one
+	// from its pool automatically when ExecContext runs.
+	mock.ExpectExec("SELECT pg_advisory_lock($1)").
+		WithArgs(advisoryLockID(key)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("SELECT pg_advisory_unlock($1)").
+		WithArgs(advisoryLockID(key)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	release, err := store.Lock(context.Background(), key)
+	if err != nil {
+		t.Fatalf("Lock: %v", err)
+	}
+	release()
+	// Calling release twice must NOT issue a second unlock query.
+	// sqlmock would fail on an unexpected ExecContext.
+	release()
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestPostgresStore_Lock_RejectsInvalidKey(t *testing.T) {
+	t.Parallel()
+	store, _ := newMockPostgresStore(t)
+	if _, err := store.Lock(context.Background(), Key{}); !errors.Is(err, errInvalidKey) {
+		t.Fatalf("Lock with empty key should return errInvalidKey, got %v", err)
+	}
+}
+
+func TestPostgresStore_Lock_ConnAcquireFails(t *testing.T) {
+	t.Parallel()
+	store, mock := newMockPostgresStore(t)
+	key := Key{Kind: KindAPI, Name: "alpha"}
+	// pg_advisory_lock query errors are surfaced through Lock's
+	// error return. The release function MUST NOT be returned in
+	// that case (a caller deferring it would attempt to unlock a
+	// lock it never acquired). sqlmock makes the first ExecContext
+	// fail; we assert release is nil and an error is returned.
+	mock.ExpectExec("SELECT pg_advisory_lock($1)").
+		WithArgs(advisoryLockID(key)).
+		WillReturnError(errors.New("simulated pg error"))
+
+	release, err := store.Lock(context.Background(), key)
+	if err == nil {
+		t.Fatal("Lock should surface pg_advisory_lock errors")
+	}
+	if release != nil {
+		t.Fatal("Lock must not return a release function on acquire failure")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestAdvisoryLockID(t *testing.T) {
+	t.Parallel()
+	a1 := advisoryLockID(Key{Kind: KindAPI, Name: "alpha"})
+	a2 := advisoryLockID(Key{Kind: KindAPI, Name: "alpha"})
+	if a1 != a2 {
+		t.Fatalf("advisoryLockID must be deterministic: %d vs %d", a1, a2)
+	}
+	b := advisoryLockID(Key{Kind: KindAPI, Name: "beta"})
+	if a1 == b {
+		t.Fatalf("distinct (kind, name) must produce distinct lock IDs (collision: %d)", a1)
+	}
+	c := advisoryLockID(Key{Kind: KindMCP, Name: "alpha"})
+	if a1 == c {
+		t.Fatalf("distinct kinds for same name must produce distinct lock IDs (collision: %d)", a1)
+	}
+}
