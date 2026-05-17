@@ -241,9 +241,19 @@ func (s *Source) emitRevokedLeadEvent(ctx context.Context, persisted *PersistedT
 // the short, machine-readable strings recorded in event details. The
 // strings are stable across releases — the History panel and any SIEM
 // dashboards consume them.
+//
+// For errRefreshTokenRevoked we look through the wrap chain for an
+// *oauth2.RetrieveError and surface the RFC 6749 `error` field
+// directly (e.g. "invalid_client", "invalid_grant", "unauthorized_client").
+// That way the History row distinguishes "refresh_token revoked"
+// from "client_secret no longer valid": operationally different
+// remediations.
 func classifyRevokedReason(err error) string {
 	switch {
 	case errors.Is(err, errRefreshTokenRevoked):
+		if code := idpErrorCodeOf(err); code != "" {
+			return code
+		}
 		return "invalid_grant"
 	case errors.Is(err, errNoRefreshToken):
 		return "no_refresh_token"
@@ -412,12 +422,20 @@ func (s *Source) refresh(ctx context.Context, persisted *PersistedToken) (*oauth
 		if !isRevokedRefresh(classified) {
 			// Transient: record it but do not delete the row. The
 			// revoked branch is handled by handleRevoked() in the
-			// caller, which also emits its own event.
+			// caller, which also emits its own event. IDPErrorCode
+			// surfaces the RFC 6749 `error` field (e.g.
+			// "server_error", "temporarily_unavailable") when the IdP
+			// did respond, so the History row shows what the IdP
+			// said instead of an empty detail box.
 			s.events.RefreshFailedTransient(ctx, s.key.Kind, s.key.Name, s.actor, s.cfg.TokenURL,
 				authevents.RefreshDetail{
 					BeforeExpiresAt:        persisted.ExpiresAt,
 					BeforeRefreshExpiresAt: persisted.RefreshExpiresAt,
 					DurationMS:             durationMS,
+					// sanitizeOAuthErrorField bounds length and
+					// strips URLs / control characters: same
+					// rationale as the terminal-classify path.
+					IDPErrorCode: sanitizeOAuthErrorField(idpErrorCodeOf(err)),
 				})
 		}
 		return nil, classified
@@ -511,23 +529,102 @@ func refreshDeadlineFromToken(tok *oauth2.Token, now time.Time) time.Time {
 	return now.Add(time.Duration(secs) * time.Second)
 }
 
-// classifyRefreshError distinguishes a definitively-revoked refresh
-// token (RFC 6749 §5.2 invalid_grant at HTTP 400) from transient
-// failures (network drops, 5xx, request cancellation). Wraps the
-// revoked case with errRefreshTokenRevoked so callers can detect it
-// via errors.Is; scrubs other errors via tokenFetchError so IdP
-// response bodies and embedded URL credentials cannot leak into
-// model output or logs.
+// terminalRefreshError is the wrapped sentinel returned by
+// classifyRefreshError for terminal IdP rejections. Carries the
+// sanitized operator-facing message AND the RFC 6749 error code
+// the IdP returned, so downstream callers (classifyRevokedReason,
+// idpErrorCodeOf, History event details) can show the specific
+// code instead of a generic "invalid_grant" stand-in.
+//
+// `code` is always run through sanitizeOAuthErrorField at
+// construction time (see classifyRefreshError) so a chatty or
+// hostile IdP cannot inject a 100KB blob, URL-shaped content, or
+// control characters into the auth_events JSONB column or the UI
+// tooltip surface.
+type terminalRefreshError struct {
+	msg  string
+	code string
+}
+
+func (e *terminalRefreshError) Error() string { return e.msg }
+
+// Unwrap reports errRefreshTokenRevoked so errors.Is on that
+// sentinel still works.
+func (*terminalRefreshError) Unwrap() error { return errRefreshTokenRevoked }
+
+// classifyRefreshError distinguishes definitively-terminal IdP
+// rejections from transient failures (network drops, 5xx, request
+// cancellation). The terminal set (see errors.go errRefreshTokenRevoked
+// docs) wraps with that sentinel so callers can detect it via
+// errors.Is and trigger handleRevoked. Everything else passes through
+// tokenFetchError so IdP response bodies and embedded URL credentials
+// cannot leak into model output or logs.
 func classifyRefreshError(err error) error {
 	var retrieve *oauth2.RetrieveError
-	if errors.As(err, &retrieve) &&
-		retrieve.Response != nil &&
-		retrieve.Response.StatusCode == http.StatusBadRequest &&
-		retrieve.ErrorCode == "invalid_grant" {
-		return fmt.Errorf("connoauth: refresh rejected by IdP: %s (%w)",
-			tokenFetchError(err).Error(), errRefreshTokenRevoked)
+	if errors.As(err, &retrieve) && isTerminalIDPRejection(retrieve) {
+		return &terminalRefreshError{
+			msg: fmt.Sprintf("connoauth: refresh rejected by IdP: %s (%s)",
+				tokenFetchError(err).Error(), errRefreshTokenRevoked.Error()),
+			// Sanitize at the boundary: this code lands in the
+			// auth_events.detail JSON blob, the bulk-health API
+			// response, and the UI badge tooltip. A hostile or
+			// chatty IdP could otherwise return a multi-KB blob
+			// with embedded URLs or control characters that would
+			// inflate storage and pollute logs.
+			code: sanitizeOAuthErrorField(retrieve.ErrorCode),
+		}
 	}
 	return tokenFetchError(err)
+}
+
+// terminalRefreshErrorCodes is the set of RFC 6749 §5.2 error codes
+// at HTTP 400 that an automated retry cannot recover. The classifier
+// treats them all as revoked so the connection moves to
+// needs_reauth instead of silent-retry-forever. HTTP 401 is treated
+// as terminal regardless of error code: by spec, 401 means client
+// authentication failed (same operator action as invalid_client).
+var terminalRefreshErrorCodes = map[string]struct{}{
+	"invalid_grant":          {},
+	"invalid_client":         {},
+	"unauthorized_client":    {},
+	"unsupported_grant_type": {},
+}
+
+// isTerminalIDPRejection reports whether an *oauth2.RetrieveError
+// represents a state the operator must intervene to clear. Extracted
+// so the predicate is testable in isolation and so the set of
+// terminal codes is maintained in one place.
+func isTerminalIDPRejection(re *oauth2.RetrieveError) bool {
+	if re.Response == nil {
+		return false
+	}
+	if re.Response.StatusCode == http.StatusUnauthorized {
+		return true
+	}
+	if re.Response.StatusCode != http.StatusBadRequest {
+		return false
+	}
+	_, ok := terminalRefreshErrorCodes[re.ErrorCode]
+	return ok
+}
+
+// idpErrorCodeOf extracts the RFC 6749 `error` field from an OAuth
+// library error, if present. Empty when the error is not a
+// RetrieveError (network drop, ctx cancel, etc.) so the caller can
+// distinguish "IdP said something" from "never reached the IdP."
+//
+// Looks through terminalRefreshError first (the post-classify path)
+// then through *oauth2.RetrieveError (the pre-classify path).
+func idpErrorCodeOf(err error) string {
+	var term *terminalRefreshError
+	if errors.As(err, &term) {
+		return term.code
+	}
+	var re *oauth2.RetrieveError
+	if errors.As(err, &re) {
+		return re.ErrorCode
+	}
+	return ""
 }
 
 // isRevokedRefresh reports whether the error is one of the

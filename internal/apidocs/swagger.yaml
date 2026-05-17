@@ -243,6 +243,28 @@ definitions:
         example: 5
         type: integer
     type: object
+  admin.connectionOAuthHealthSummary:
+    properties:
+      has_oauth:
+        type: boolean
+      idp_error_code:
+        type: string
+      kind:
+        type: string
+      name:
+        type: string
+      needs_reauth:
+        type: boolean
+      token_acquired:
+        type: boolean
+    type: object
+  admin.connectionsOAuthHealthResponse:
+    properties:
+      connections:
+        items:
+          $ref: '#/definitions/admin.connectionOAuthHealthSummary'
+        type: array
+    type: object
   admin.dryRunEnrichmentRequest:
     properties:
       args:
@@ -3262,6 +3284,24 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Force a refresh-token exchange for a connection
+      tags:
+      - Connections
+  /admin/connections/oauth-health:
+    get:
+      description: Single-shot per-connection OAuth health used by the connection-list
+        view to render a per-row health badge. Returns has_oauth=false for non-OAuth
+        connections so the UI doesn't have to filter client-side.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.connectionsOAuthHealthResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Bulk OAuth health for all connections
       tags:
       - Connections
   /admin/gateway/connections/{name}/enrichment-rules:

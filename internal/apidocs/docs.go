@@ -1166,6 +1166,34 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/connections/oauth-health": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Single-shot per-connection OAuth health used by the connection-list view to render a per-row health badge. Returns has_oauth=false for non-OAuth connections so the UI doesn't have to filter client-side.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Connections"
+                ],
+                "summary": "Bulk OAuth health for all connections",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/admin.connectionsOAuthHealthResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/connections/{kind}/{name}/auth-events": {
             "get": {
                 "security": [
@@ -7015,6 +7043,40 @@ const docTemplate = `{
                 "total": {
                     "type": "integer",
                     "example": 5
+                }
+            }
+        },
+        "admin.connectionOAuthHealthSummary": {
+            "type": "object",
+            "properties": {
+                "has_oauth": {
+                    "type": "boolean"
+                },
+                "idp_error_code": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "needs_reauth": {
+                    "type": "boolean"
+                },
+                "token_acquired": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "admin.connectionsOAuthHealthResponse": {
+            "type": "object",
+            "properties": {
+                "connections": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/admin.connectionOAuthHealthSummary"
+                    }
                 }
             }
         },
