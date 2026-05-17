@@ -244,3 +244,67 @@ func TestLifecycle_StopWithError(t *testing.T) {
 		t.Error("Stop() expected error when callback fails")
 	}
 }
+
+// TestLifecycle_OnStartAfterStarted_FiresImmediately is the
+// regression test for v1.62.0's "embed jobs never run" bug.
+// Before the fix, OnStart called after Start silently dropped
+// the callback. The fix invokes the callback immediately.
+//
+// Production trigger: internal/server/server.go calls
+// platform.Start() inside platform.New's caller, then
+// cmd/mcp-data-platform/main.go's startHTTPServer wires the
+// embed-job worker via WireAPIGatewayEmbedJobsFromDB which
+// registers OnStart. That callback must fire even though the
+// lifecycle is already started.
+func TestLifecycle_OnStartAfterStarted_FiresImmediately(t *testing.T) {
+	t.Parallel()
+	lc := NewLifecycle()
+	if err := lc.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	called := false
+	lc.OnStart(func(_ context.Context) error {
+		called = true
+		return nil
+	})
+	if !called {
+		t.Fatal("late-registered OnStart callback was not invoked")
+	}
+}
+
+// TestLifecycle_OnStartBeforeStarted_DeferredUntilStart proves
+// the pre-Start path still defers (does not eagerly invoke).
+func TestLifecycle_OnStartBeforeStarted_DeferredUntilStart(t *testing.T) {
+	t.Parallel()
+	lc := NewLifecycle()
+
+	called := false
+	lc.OnStart(func(_ context.Context) error {
+		called = true
+		return nil
+	})
+	if called {
+		t.Fatal("pre-Start callback should not have fired yet")
+	}
+	if err := lc.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if !called {
+		t.Fatal("pre-Start callback never fired after Start")
+	}
+}
+
+// TestLifecycle_OnStartAfterStarted_ErrorIsLogged confirms a
+// failing late-registered callback does not panic or deadlock
+// (it logs at warn level and returns to the caller).
+func TestLifecycle_OnStartAfterStarted_ErrorIsLogged(t *testing.T) {
+	t.Parallel()
+	lc := NewLifecycle()
+	if err := lc.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	lc.OnStart(func(_ context.Context) error {
+		return errors.New("boom")
+	})
+}
