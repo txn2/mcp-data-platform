@@ -78,11 +78,7 @@ type Source struct {
 	store Store
 	key   Key
 	cfg   Config
-	// client is the http.Client used for refresh exchanges. Per-Source
-	// rather than package-global so tests can inject a fake transport
-	// without mutating shared state.
-	client *http.Client
-	// events writes the lifecycle audit trail. nil-safe — the helper
+	// events writes the lifecycle audit trail. nil-safe: the helper
 	// methods on *authevents.Writer short-circuit when the receiver
 	// is nil. Set via WithEvents.
 	events *authevents.Writer
@@ -95,15 +91,16 @@ type Source struct {
 
 // NewSource builds a Source for the (key, cfg) pair. The store is
 // the persistence backend (Postgres in production, Memory in tests).
-// Callers reuse a single Source per connection — construction is
-// cheap, but pooling avoids re-creating the http.Client per request.
+// Callers reuse a single Source per connection. Construction is
+// cheap; the http.Client used by Refresh and Exchange is built per
+// call by newTokenExchangeClient (configured with hard timeout and
+// redirect refusal).
 func NewSource(store Store, key Key, cfg Config) *Source {
 	return &Source{
-		store:  store,
-		key:    key,
-		cfg:    cfg,
-		client: newTokenExchangeClient(),
-		actor:  authevents.SystemToolCall,
+		store: store,
+		key:   key,
+		cfg:   cfg,
+		actor: authevents.SystemToolCall,
 	}
 }
 
@@ -382,14 +379,17 @@ func (s *Source) Reacquire(ctx context.Context) error {
 // refresh_token or omits the field, the prior refresh_token is
 // preserved unchanged (RFC 6749 §6 "still valid" semantics).
 //
-// This is the bug-#3 fix: the prior MCP custom state machine left a
-// surface where a rotated refresh_token could land in the in-memory
-// state but never reach the store. By delegating to
-// golang.org/x/oauth2 and explicitly persisting the result on every
-// refresh, the rotation is durable across process restarts.
-func (s *Source) refresh(ctx context.Context, persisted *PersistedToken) (*oauth2.Token, error) {
+// Delegates the wire to connoauth.Refresh (this package's own
+// implementation) rather than golang.org/x/oauth2.Config.TokenSource.
+// The library URL-encodes client_id and client_secret before Basic
+// auth (RFC 6749 §2.3.1 letter); many production IdPs including
+// Salesforce reject that encoding and return invalid_client when
+// the secret contains characters URL-encoding rewrites (`+`, `/`,
+// `=` mid-string, space). See refresh.go Refresh() godoc for the
+// full rationale.
+func (s *Source) refresh(ctx context.Context, persisted *PersistedToken) (*RefreshResult, error) {
 	if persisted.RefreshToken == "" {
-		// No event emission here — the caller's handleRevoked path
+		// No event emission here: the caller's handleRevoked path
 		// emits the TypeRefreshSkippedNoToken lead and the
 		// TypeTokenDeletedRevoked trail for this sentinel. Emitting
 		// from refresh() too would produce three rows for a single
@@ -397,25 +397,15 @@ func (s *Source) refresh(ctx context.Context, persisted *PersistedToken) (*oauth
 		return nil, errNoRefreshToken
 	}
 	if !persisted.RefreshExpiresAt.IsZero() && time.Now().After(persisted.RefreshExpiresAt) {
-		// Same rationale — handleRevoked emits TypeRefreshSkippedExpired
+		// Same rationale: handleRevoked emits TypeRefreshSkippedExpired
 		// + TypeTokenDeletedRevoked. No additional event here.
 		return nil, errRefreshExpired
 	}
-	refreshCtx := context.WithValue(ctx, oauth2.HTTPClient, s.client)
-	cfg := s.cfg.oauth2Config()
-	// Force the library to refresh: pass a token with Expiry in the
-	// past so oauth2.Config.TokenSource always hits the IdP rather
-	// than returning the cached value. This makes the call uniform
-	// whether the caller is Token() (which only enters refresh()
-	// after detecting expiry) or Reacquire() (which forces refresh
-	// even on a still-valid token).
 	start := time.Now()
-	src := cfg.TokenSource(refreshCtx, &oauth2.Token{
-		AccessToken:  persisted.AccessToken,
+	res, err := Refresh(ctx, RefreshInput{
+		Config:       s.cfg,
 		RefreshToken: persisted.RefreshToken,
-		Expiry:       time.Now().Add(-time.Hour),
 	})
-	fresh, err := src.Token()
 	durationMS := time.Since(start).Milliseconds()
 	if err != nil {
 		classified := classifyRefreshError(err)
@@ -423,33 +413,27 @@ func (s *Source) refresh(ctx context.Context, persisted *PersistedToken) (*oauth
 			// Transient: record it but do not delete the row. The
 			// revoked branch is handled by handleRevoked() in the
 			// caller, which also emits its own event. IDPErrorCode
-			// surfaces the RFC 6749 `error` field (e.g.
-			// "server_error", "temporarily_unavailable") when the IdP
-			// did respond, so the History row shows what the IdP
-			// said instead of an empty detail box.
+			// surfaces the RFC 6749 `error` field when the IdP did
+			// respond, so the History row shows what the IdP said
+			// instead of an empty detail box.
 			s.events.RefreshFailedTransient(ctx, s.key.Kind, s.key.Name, s.actor, s.cfg.TokenURL,
 				authevents.RefreshDetail{
 					BeforeExpiresAt:        persisted.ExpiresAt,
 					BeforeRefreshExpiresAt: persisted.RefreshExpiresAt,
 					DurationMS:             durationMS,
-					// sanitizeOAuthErrorField bounds length and
-					// strips URLs / control characters: same
-					// rationale as the terminal-classify path.
-					IDPErrorCode: sanitizeOAuthErrorField(idpErrorCodeOf(err)),
+					IDPErrorCode:           sanitizeOAuthErrorField(idpErrorCodeOf(err)),
 				})
 		}
 		return nil, classified
 	}
-	rotated := fresh.RefreshToken != "" && fresh.RefreshToken != persisted.RefreshToken
-	if persistErr := s.persistRefreshed(ctx, persisted, fresh); persistErr != nil {
+	rotated := res.RefreshToken != "" && res.RefreshToken != persisted.RefreshToken
+	if persistErr := s.persistRefreshed(ctx, persisted, res); persistErr != nil {
 		if rotated {
 			// Rotation-persistence-failure is permanent credential
-			// loss for one-time-use-rotation IdPs (Microsoft Entra
-			// with rotation enforced, rotation-enabled Keycloak,
-			// etc.). Emit at ERROR so operators see the page; emit
-			// the authevent so the History panel shows the spot
-			// where the connection died.
-			slog.Error("connoauth: rotated refresh token issued but persist failed — connection may be unrecoverable",
+			// loss for one-time-use-rotation IdPs. Emit at ERROR so
+			// operators see the page; emit the authevent so the
+			// History panel shows the spot where the connection died.
+			slog.Error("connoauth: rotated refresh token issued but persist failed (connection may be unrecoverable)",
 				logKeyKind, s.key.Kind, logKeyName, s.key.Name, logKeyError, persistErr)
 			s.events.RotationPersistenceFailed(ctx, s.key.Kind, s.key.Name, s.actor, s.cfg.TokenURL,
 				persistErr.Error())
@@ -465,13 +449,13 @@ func (s *Source) refresh(ctx context.Context, persisted *PersistedToken) (*oauth
 			authevents.RefreshDetail{
 				BeforeExpiresAt:        persisted.ExpiresAt,
 				BeforeRefreshExpiresAt: persisted.RefreshExpiresAt,
-				AfterExpiresAt:         fresh.Expiry,
-				AfterRefreshExpiresAt:  refreshDeadlineFromToken(fresh, time.Now()),
+				AfterExpiresAt:         res.ExpiresAt,
+				AfterRefreshExpiresAt:  res.RefreshExpiresAt,
 				RotatedRefresh:         rotated,
 				DurationMS:             durationMS,
 			})
 	}
-	return fresh, nil
+	return res, nil
 }
 
 // persistRefreshed writes the rotated token set back to the store,
@@ -479,54 +463,24 @@ func (s *Source) refresh(ctx context.Context, persisted *PersistedToken) (*oauth
 // recomputing RefreshExpiresAt from the IdP's response (or clearing
 // it on rotation-without-deadline). Extracted from refresh() so the
 // RFC 6749 §6 semantics are testable in isolation.
-func (s *Source) persistRefreshed(ctx context.Context, prior *PersistedToken, fresh *oauth2.Token) error {
+func (s *Source) persistRefreshed(ctx context.Context, prior *PersistedToken, fresh *RefreshResult) error {
 	updated := *prior
 	updated.AccessToken = fresh.AccessToken
-	// IdP omitted refresh_token → RFC 6749 §6: prior one is still
-	// valid; preserve it AND its deadline (no signal to revise either).
-	// Rotated refresh token → persist the new value and recompute the
-	// deadline from the IdP's hint (the prior deadline belonged to
-	// the prior refresh_token's lifecycle).
+	// IdP omitted refresh_token: RFC 6749 §6 says the prior one is
+	// still valid; preserve it AND its deadline (no signal to revise
+	// either). Rotated refresh_token: persist the new value and
+	// recompute the deadline from the IdP's hint (the prior deadline
+	// belonged to the prior refresh_token's lifecycle).
 	if fresh.RefreshToken != "" {
 		updated.RefreshToken = fresh.RefreshToken
-		updated.RefreshExpiresAt = refreshDeadlineFromToken(fresh, time.Now())
+		updated.RefreshExpiresAt = fresh.RefreshExpiresAt
 	}
-	updated.ExpiresAt = fresh.Expiry
+	updated.ExpiresAt = fresh.ExpiresAt
 	updated.UpdatedAt = time.Now().UTC()
 	if err := s.store.Set(ctx, updated); err != nil {
 		return fmt.Errorf("connoauth: persist refreshed token: %w", err)
 	}
 	return nil
-}
-
-// refreshDeadlineFromToken reads refresh_expires_in from the
-// oauth2.Token's Extra fields and returns the absolute deadline.
-// Zero when the IdP did not disclose one — callers must not
-// interpret zero as "never expires" (it means "unknown").
-//
-// golang.org/x/oauth2 stores extension fields in tok.Extra and
-// JSON-decoded numerics arrive as float64; the cast handles both
-// shapes defensively.
-func refreshDeadlineFromToken(tok *oauth2.Token, now time.Time) time.Time {
-	v := tok.Extra("refresh_expires_in")
-	if v == nil {
-		return time.Time{}
-	}
-	var secs int64
-	switch n := v.(type) {
-	case float64:
-		secs = int64(n)
-	case int64:
-		secs = n
-	case int:
-		secs = int64(n)
-	default:
-		return time.Time{}
-	}
-	if secs <= 0 {
-		return time.Time{}
-	}
-	return now.Add(time.Duration(secs) * time.Second)
 }
 
 // terminalRefreshError is the wrapped sentinel returned by
