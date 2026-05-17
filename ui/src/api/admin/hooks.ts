@@ -1139,6 +1139,23 @@ export function useStartAPIGatewayOAuth() {
   return useStartConnectionOAuth("api");
 }
 
+// useConnectionsOAuthHealth polls the bulk OAuth-health endpoint on
+// a 10-second cadence. Returns one row per connection with the bits
+// the connection-list view needs to render a per-row badge without
+// fanning out N per-row /oauth-status calls. Polling interval
+// matches useConnectionOAuthStatus so a long-stale failure surface
+// is bounded the same way the per-connection card is.
+export function useConnectionsOAuthHealth() {
+  return useQuery({
+    queryKey: ["connections-oauth-health"],
+    queryFn: () =>
+      apiFetch<import("./types").ConnectionsOAuthHealthResponse>(
+        `/connections/oauth-health`,
+      ),
+    refetchInterval: 10000,
+  });
+}
+
 // useConnectionOAuthStatus returns the unified OAuth status snapshot
 // for ANY connection kind. Renders the status card in both the MCP
 // gateway and HTTP API gateway connection views.

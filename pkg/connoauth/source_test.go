@@ -849,3 +849,153 @@ func TestSanitizeOAuthErrorField(t *testing.T) {
 		})
 	}
 }
+
+// TestClassifyRefreshError_TerminalIdPCodes proves the classifier
+// treats the full RFC 6749 §5.2 terminal set as revoked, not just
+// invalid_grant. Pre-fix, a 400 invalid_client response was
+// classified transient: the refresher then retried every 5 minutes
+// forever while the connection silently dead-ended on every API
+// call. Regression for a real production 400 invalid_client hang.
+func TestClassifyRefreshError_TerminalIdPCodes(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name      string
+		status    int
+		errorCode string
+		wantRevkd bool
+	}{
+		{"400 invalid_grant", 400, "invalid_grant", true},
+		{"400 invalid_client", 400, "invalid_client", true},
+		{"400 unauthorized_client", 400, "unauthorized_client", true},
+		{"400 unsupported_grant_type", 400, "unsupported_grant_type", true},
+		{"401 with code", 401, "invalid_client", true},
+		{"401 without code", 401, "", true},
+		{"400 server_error", 400, "server_error", false},
+		{"500 (transient)", 500, "", false},
+		{"400 invalid_request", 400, "invalid_request", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			re := &oauth2.RetrieveError{
+				Response:  &http.Response{StatusCode: tc.status},
+				ErrorCode: tc.errorCode,
+			}
+			got := classifyRefreshError(re)
+			if isRevokedRefresh(got) != tc.wantRevkd {
+				t.Errorf("isRevokedRefresh=%v; want %v (status=%d error=%s)",
+					isRevokedRefresh(got), tc.wantRevkd, tc.status, tc.errorCode)
+			}
+		})
+	}
+}
+
+// TestClassifyRevokedReason_PreservesIdPCode proves the History
+// event detail carries the actual RFC 6749 error code that drove
+// the revocation, not a generic "invalid_grant". This is the bit
+// the operator reads when triaging "why is this connection
+// broken" without an IdP UI to cross-check.
+func TestClassifyRevokedReason_PreservesIdPCode(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name      string
+		errorCode string
+		want      string
+	}{
+		{"invalid_client surfaces as invalid_client", "invalid_client", "invalid_client"},
+		{"unauthorized_client surfaces directly", "unauthorized_client", "unauthorized_client"},
+		{"invalid_grant surfaces as invalid_grant", "invalid_grant", "invalid_grant"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			re := &oauth2.RetrieveError{
+				Response:  &http.Response{StatusCode: 400},
+				ErrorCode: tc.errorCode,
+			}
+			classified := classifyRefreshError(re)
+			if got := classifyRevokedReason(classified); got != tc.want {
+				t.Errorf("classifyRevokedReason=%q; want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestIdpErrorCodeOf returns the code when the error wraps an
+// oauth2.RetrieveError; empty otherwise. Both the raw library error
+// (pre-classify) and the terminal-classified wrap are supported so
+// callers don't need to remember which input is right.
+func TestIdpErrorCodeOf(t *testing.T) {
+	t.Parallel()
+	if got := idpErrorCodeOf(&oauth2.RetrieveError{ErrorCode: "server_error"}); got != "server_error" {
+		t.Errorf("idpErrorCodeOf(raw)=%q; want %q", got, "server_error")
+	}
+	if got := idpErrorCodeOf(errors.New("network down")); got != "" {
+		t.Errorf("idpErrorCodeOf(plain)=%q; want empty", got)
+	}
+	// Terminal-classified path: the typed terminalRefreshError
+	// preserves the code through sanitization so downstream emitters
+	// (RefreshFailedRevoked, classifyRevokedReason) see it.
+	terminal := &oauth2.RetrieveError{
+		Response:  &http.Response{StatusCode: 400},
+		ErrorCode: "invalid_client",
+	}
+	if got := idpErrorCodeOf(classifyRefreshError(terminal)); got != "invalid_client" {
+		t.Errorf("idpErrorCodeOf(terminal-classified)=%q; want %q", got, "invalid_client")
+	}
+}
+
+// TestTerminalRefreshError_ErrorMessage covers the Error() path so
+// the wrapped sentinel's operator-visible message survives the
+// fmt.Errorf chain.
+func TestTerminalRefreshError_ErrorMessage(t *testing.T) {
+	t.Parallel()
+	e := &terminalRefreshError{msg: "hello", code: "invalid_client"}
+	if e.Error() != "hello" {
+		t.Errorf("Error()=%q; want %q", e.Error(), "hello")
+	}
+	if !errors.Is(e, errRefreshTokenRevoked) {
+		t.Error("terminalRefreshError must unwrap to errRefreshTokenRevoked")
+	}
+}
+
+// TestIsTerminalIDPRejection_NilResponse covers the nil-response
+// guard. A library error with no Response (rare but possible on
+// transport-level failures) must not panic and must not be
+// classified as terminal: those are transient.
+func TestIsTerminalIDPRejection_NilResponse(t *testing.T) {
+	t.Parallel()
+	re := &oauth2.RetrieveError{ErrorCode: "invalid_client"}
+	if isTerminalIDPRejection(re) {
+		t.Error("nil Response must not classify as terminal")
+	}
+}
+
+// TestClassifyRefreshError_SanitizesHostileCode proves a hostile or
+// chatty IdP cannot inject a multi-KB blob or URL-shaped content
+// into terminalRefreshError.code. The same sanitization is applied
+// at the RefreshFailedRevoked / RefreshFailedTransient call sites,
+// so the value lands sanitized in auth_events.detail and the bulk
+// health API response.
+func TestClassifyRefreshError_SanitizesHostileCode(t *testing.T) {
+	t.Parallel()
+	huge := strings.Repeat("x", 5000)
+	re := &oauth2.RetrieveError{
+		Response:  &http.Response{StatusCode: 400},
+		ErrorCode: "invalid_grant " + huge,
+	}
+	got := classifyRefreshError(re)
+	code := idpErrorCodeOf(got)
+	if len(code) > 250 {
+		t.Errorf("code length = %d; sanitization should have bounded it", len(code))
+	}
+
+	urlBearing := &oauth2.RetrieveError{
+		Response:  &http.Response{StatusCode: 400},
+		ErrorCode: "see https://attacker.example/leak",
+	}
+	got = classifyRefreshError(urlBearing)
+	if c := idpErrorCodeOf(got); strings.Contains(c, "https://") {
+		t.Errorf("sanitized code still contains URL: %q", c)
+	}
+}

@@ -6,7 +6,9 @@ import {
   useDeleteConnectionInstance,
   useStartAPIGatewayOAuth,
   useSystemInfo,
+  useConnectionsOAuthHealth,
 } from "@/api/admin/hooks";
+import type { ConnectionOAuthHealthSummary } from "@/api/admin/types";
 import type { EffectiveConnection } from "@/api/admin/types";
 import { cn } from "@/lib/utils";
 import {
@@ -21,6 +23,58 @@ import {
 } from "lucide-react";
 import { GatewayActionBar, GatewayRulesDrawer } from "./GatewayActions";
 import { ConnectionOAuthStatusCard } from "./ConnectionOAuthStatusCard";
+
+// ConnectionOAuthHealthBadge renders the per-row health indicator
+// on the connection list. Visible only when the bulk health hook
+// has data AND the connection has OAuth configured. Three states:
+//
+//   - needs_reauth=true       → red dot, "needs reauth" tooltip
+//   - last refresh failed but not yet terminal → amber dot, code in tooltip
+//   - token_acquired && no recent failure → no badge (default)
+//
+// The operator sees the red dot from the connection list without
+// clicking in, addressing the "API calls are silently failing"
+// blind spot in the UI.
+function ConnectionOAuthHealthBadge({
+  health,
+}: {
+  health: ConnectionOAuthHealthSummary | undefined;
+}) {
+  if (!health || !health.has_oauth) return null;
+  if (health.needs_reauth) {
+    const code = health.idp_error_code;
+    const tooltip = code
+      ? `Reauth required (${code}). Click in to view details.`
+      : "Reauth required. Click in to view details.";
+    return (
+      <span
+        className="shrink-0 inline-flex items-center gap-1 rounded px-1 py-0 text-xs font-medium bg-destructive/10 text-destructive"
+        title={tooltip}
+        aria-label={tooltip}
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
+        reauth
+      </span>
+    );
+  }
+  if (health.idp_error_code) {
+    // Token still considered valid but the most recent refresh
+    // failed transiently. Surface so the operator notices before
+    // the access token actually expires.
+    const tooltip = `Last refresh failed (${health.idp_error_code}). Retrying.`;
+    return (
+      <span
+        className="shrink-0 inline-flex items-center gap-1 rounded px-1 py-0 text-xs font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400"
+        title={tooltip}
+        aria-label={tooltip}
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+        refresh failing
+      </span>
+    );
+  }
+  return null;
+}
 
 // APICatalogPicker renders the dropdown that points an api-kind
 // connection at one of the globally-owned API catalogs. The model
@@ -141,6 +195,18 @@ export function ConnectionsPanel() {
   const isReadOnly = systemInfo?.config_mode === "file";
   const { data: instances, isLoading } = useEffectiveConnections();
   const connections = instances ?? [];
+  // Bulk per-row OAuth health drives the connection-list health
+  // badge. Polls every 10s in the hook so background-refresh
+  // failures (refresher runs every 5min) become visible within
+  // one tick. Keyed by `kind/name` for O(1) lookup in the row map.
+  const { data: oauthHealth } = useConnectionsOAuthHealth();
+  const oauthHealthByKey = useMemo(() => {
+    const m = new Map<string, ConnectionOAuthHealthSummary>();
+    for (const c of oauthHealth?.connections ?? []) {
+      m.set(`${c.kind}/${c.name}`, c);
+    }
+    return m;
+  }, [oauthHealth]);
 
   // Read initial selection from URL (?kind=...&name=...) so the OAuth
   // callback's returnURL can restore the connection the operator was
@@ -294,6 +360,9 @@ export function ConnectionsPanel() {
                         )}>
                           {c.source === "file" ? "file" : "database"}
                         </span>
+                        <ConnectionOAuthHealthBadge
+                          health={oauthHealthByKey.get(`${c.kind}/${c.name}`)}
+                        />
                       </div>
                       {c.description && (
                         <span className="mt-0.5 text-xs text-muted-foreground truncate">

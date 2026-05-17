@@ -538,6 +538,31 @@ export interface GatewayOAuthStartResponse {
 // endpoint for any connection kind. Distinct from GatewayOAuthStatus
 // only because the backend type lives in a different package; the
 // fields are intentionally a superset for portal compatibility.
+// ConnectionOAuthHealthSummary is one row of the bulk
+// /connections/oauth-health endpoint. Powers the connection-list
+// health badge.
+//
+// has_oauth=false means the connection is not OAuth-configured at
+// all (bearer / api_key / none); the UI hides the badge for those.
+//
+// idp_error_code is the RFC 6749 `error` field from the latest
+// refresh_failed_* event, empty when the last refresh succeeded or
+// no events exist. Drives the tooltip text so the operator sees
+// "invalid_client" or "invalid_grant" without navigating away from
+// the connection list.
+export interface ConnectionOAuthHealthSummary {
+  kind: string;
+  name: string;
+  has_oauth: boolean;
+  needs_reauth: boolean;
+  token_acquired: boolean;
+  idp_error_code?: string;
+}
+
+export interface ConnectionsOAuthHealthResponse {
+  connections: ConnectionOAuthHealthSummary[];
+}
+
 export interface ConnectionOAuthStatus {
   configured: boolean;
   token_acquired: boolean;

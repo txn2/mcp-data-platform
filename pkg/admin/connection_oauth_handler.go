@@ -42,6 +42,7 @@ func (h *Handler) registerConnectionOAuthRoutes() {
 	h.mux.HandleFunc("GET /api/v1/admin/connections/{kind}/{name}/oauth-status", h.connectionOAuthStatus)
 	h.mux.HandleFunc("GET /api/v1/admin/connections/{kind}/{name}/auth-events", h.connectionAuthEvents)
 	h.mux.HandleFunc("POST /api/v1/admin/connections/{kind}/{name}/reacquire-oauth", h.reacquireConnectionOAuth)
+	h.mux.HandleFunc("GET /api/v1/admin/connections/oauth-health", h.connectionsOAuthHealth)
 	h.publicMux.HandleFunc("GET /api/v1/admin/oauth/callback", h.connectionOAuthCallback)
 	// Legacy API-gateway callback URL. Existing deployments may have
 	// this URL registered in customer IdP client configurations; keep
@@ -187,6 +188,131 @@ func (h *Handler) connectionOAuthStatus(w http.ResponseWriter, r *http.Request) 
 	status := src.Status(r.Context())
 	status.LastRevocation = h.lastRevocationFor(r.Context(), kind, name)
 	writeJSON(w, http.StatusOK, status)
+}
+
+// connectionOAuthHealthSummary is the per-connection shape returned
+// by the bulk oauth-health endpoint. Sized to power the connection-
+// list badge: needs_reauth drives the red dot, idp_error_code feeds
+// the hover tooltip so the operator sees "invalid_client" without
+// clicking into the connection.
+type connectionOAuthHealthSummary struct {
+	Kind          string `json:"kind"`
+	Name          string `json:"name"`
+	HasOAuth      bool   `json:"has_oauth"`
+	NeedsReauth   bool   `json:"needs_reauth"`
+	TokenAcquired bool   `json:"token_acquired"`
+	IDPErrorCode  string `json:"idp_error_code,omitempty"`
+}
+
+type connectionsOAuthHealthResponse struct {
+	Connections []connectionOAuthHealthSummary `json:"connections"`
+}
+
+// connectionsOAuthHealth handles GET /api/v1/admin/connections/oauth-health.
+// Returns one summary per registered connection, including non-OAuth
+// connections (with has_oauth=false) so the UI can render the list in
+// one pass without a second "is this OAuth?" round-trip.
+//
+// @Summary      Bulk OAuth health for all connections
+// @Description  Single-shot per-connection OAuth health used by the connection-list view to render a per-row health badge. Returns has_oauth=false for non-OAuth connections so the UI doesn't have to filter client-side.
+// @Tags         Connections
+// @Produce      json
+// @Success      200  {object}  connectionsOAuthHealthResponse
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/connections/oauth-health [get]
+func (h *Handler) connectionsOAuthHealth(w http.ResponseWriter, r *http.Request) {
+	if h.deps.ConnectionStore == nil {
+		writeJSON(w, http.StatusOK, connectionsOAuthHealthResponse{Connections: []connectionOAuthHealthSummary{}})
+		return
+	}
+	insts, err := h.deps.ConnectionStore.List(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list connections")
+		return
+	}
+	out := make([]connectionOAuthHealthSummary, 0, len(insts))
+	for _, inst := range insts {
+		out = append(out, h.connectionOAuthHealth(r.Context(), inst))
+	}
+	writeJSON(w, http.StatusOK, connectionsOAuthHealthResponse{Connections: out})
+}
+
+// connectionOAuthHealth derives one summary row. Connections without
+// an OAuth handler registered for their kind, or whose config does
+// not parse into an OAuth config (auth_mode != oauth2_*), get
+// has_oauth=false. The UI hides the badge for those.
+//
+// For OAuth connections, we read the latest refresh-failed event to
+// surface the IdP error code on the row tooltip. This is more
+// useful than scraping connoauth.Source.Status() alone because the
+// "needs_reauth=true, no clue why" case is exactly what the operator
+// is triaging.
+func (h *Handler) connectionOAuthHealth(ctx context.Context, inst platform.ConnectionInstance) connectionOAuthHealthSummary {
+	row := connectionOAuthHealthSummary{Kind: inst.Kind, Name: inst.Name}
+	if h.deps.OAuthKinds == nil {
+		return row
+	}
+	handler, ok := h.deps.OAuthKinds[inst.Kind]
+	if !ok {
+		return row
+	}
+	cfg, err := handler.ParseOAuthConfig(inst.Config)
+	if err != nil {
+		// Connection exists but is not configured for OAuth (e.g.,
+		// auth_mode=bearer on an api connection). has_oauth stays false.
+		return row
+	}
+	row.HasOAuth = true
+	if h.deps.ConnOAuthStore == nil {
+		return row
+	}
+	src := connoauth.NewSource(h.deps.ConnOAuthStore, connoauth.Key{Kind: inst.Kind, Name: inst.Name}, cfg)
+	status := src.Status(ctx)
+	row.NeedsReauth = status.NeedsReauth
+	row.TokenAcquired = status.TokenAcquired
+	row.IDPErrorCode = h.latestRefreshErrorCode(ctx, inst.Kind, inst.Name)
+	return row
+}
+
+// latestRefreshErrorCode reads the connection's most recent event
+// and, if it is a refresh-failed type, returns its idp_error_code.
+// Returns empty in every other case: events store unavailable, no
+// events at all, OR the most recent event is anything other than a
+// refresh-failed type (operator just reconnected, token was deleted
+// by admin, fresh connect_started, etc.).
+//
+// The "look at the single newest event" rule is load-bearing: an
+// older refresh failure followed by a newer success-shaped event
+// (connect_completed, refresh_succeeded, token_deleted_admin) is
+// NOT a current error and must not surface on the badge.
+func (h *Handler) latestRefreshErrorCode(ctx context.Context, kind, name string) string {
+	if h.deps.AuthEventStore == nil {
+		return ""
+	}
+	events, err := h.deps.AuthEventStore.List(ctx, authevents.Filter{Kind: kind, Name: name, Limit: 1})
+	if err != nil || len(events) == 0 {
+		return ""
+	}
+	switch events[0].Type {
+	case authevents.TypeRefreshFailedRevoked, authevents.TypeRefreshFailedTransient:
+		return refreshErrorCodeFromDetail(events[0].Detail)
+	}
+	return ""
+}
+
+// refreshErrorCodeFromDetail extracts idp_error_code from an
+// auth-event Detail blob. Returns empty on any parse failure so
+// callers can ignore the row safely.
+func refreshErrorCodeFromDetail(detail json.RawMessage) string {
+	if len(detail) == 0 {
+		return ""
+	}
+	var d authevents.RefreshDetail
+	if err := json.Unmarshal(detail, &d); err != nil {
+		return ""
+	}
+	return d.IDPErrorCode
 }
 
 // lastRevocationFor reads the most recent revocation event for the

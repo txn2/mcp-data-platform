@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
 
+	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
@@ -27,14 +28,24 @@ type fakeOAuthKindHandler struct {
 	parseCfg connoauth.Config
 	parseErr error
 	afterErr error
+	// parseErrForAuthMode refuses to parse connections whose
+	// auth_mode matches this string. Lets the bulk-health test
+	// simulate a non-OAuth (bearer / api_key) connection in a list
+	// alongside OAuth ones, without standing up a second fake.
+	parseErrForAuthMode string
 	// captured args from AfterConnect for assertions:
 	afterCalled bool
 	afterName   string
 }
 
-func (f *fakeOAuthKindHandler) ParseOAuthConfig(_ map[string]any) (connoauth.Config, error) {
+func (f *fakeOAuthKindHandler) ParseOAuthConfig(raw map[string]any) (connoauth.Config, error) {
 	if f.parseErr != nil {
 		return connoauth.Config{}, f.parseErr
+	}
+	if f.parseErrForAuthMode != "" {
+		if mode, _ := raw["auth_mode"].(string); mode == f.parseErrForAuthMode {
+			return connoauth.Config{}, errors.New("connection is not configured for authorization_code OAuth")
+		}
 	}
 	return f.parseCfg, nil
 }
@@ -424,4 +435,326 @@ func TestURLHostForLog(t *testing.T) {
 	t.Parallel()
 	assert.Equal(t, "idp.example.com", urlHostForLog("https://idp.example.com/realms/x/token"))
 	assert.Equal(t, "not-a-url", urlHostForLog("not-a-url"))
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// connectionsOAuthHealth (bulk)
+// ────────────────────────────────────────────────────────────────────────
+
+// TestConnectionsOAuthHealth_EmptyStore confirms the endpoint returns
+// {connections: []} when no connections exist (not 500).
+func TestConnectionsOAuthHealth_EmptyStore(t *testing.T) {
+	t.Parallel()
+	srv := fakeIDPServer(t, func(http.ResponseWriter, *http.Request) {})
+	fx := setupOAuthFixture(t, srv)
+	fx.connStore.instances = []platform.ConnectionInstance{}
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/admin/connections/oauth-health", http.NoBody)
+	w := httptest.NewRecorder()
+	fx.handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var resp connectionsOAuthHealthResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	assert.NotNil(t, resp.Connections)
+	assert.Empty(t, resp.Connections)
+}
+
+// TestConnectionsOAuthHealth_MixedKinds proves the endpoint returns
+// one row per connection regardless of OAuth eligibility, and sets
+// HasOAuth correctly. This is the contract the UI relies on to
+// render the badge only for OAuth connections without a second
+// round-trip per row.
+func TestConnectionsOAuthHealth_MixedKinds(t *testing.T) {
+	t.Parallel()
+	srv := fakeIDPServer(t, func(http.ResponseWriter, *http.Request) {})
+	fx := setupOAuthFixture(t, srv)
+	fx.connStore.instances = []platform.ConnectionInstance{
+		{
+			Kind: connoauth.KindMCP,
+			Name: "alpha",
+			Config: map[string]any{
+				"endpoint":                "http://upstream/mcp",
+				"auth_mode":               "oauth",
+				"oauth_grant":             "authorization_code",
+				"oauth_authorization_url": "https://idp.example/authorize",
+				"oauth_token_url":         srv.URL + "/token",
+				"oauth_client_id":         "test-client",
+				"oauth_client_secret":     "test-secret",
+			},
+		},
+		// Force the fake handler to refuse parsing this connection so
+		// it surfaces as has_oauth=false (the "bearer / api_key /
+		// none" case from a real connection).
+		{Kind: connoauth.KindMCP, Name: "beta", Config: map[string]any{"auth_mode": "bearer"}},
+	}
+	// fakeOAuthKindHandler ignores config and always returns the
+	// fixture's parseCfg, so without an override it would mark both
+	// rows as has_oauth=true. Flip that for "beta" by giving the fake
+	// a config-driven gate.
+	fx.kind.parseErrForAuthMode = "bearer"
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/admin/connections/oauth-health", http.NoBody)
+	w := httptest.NewRecorder()
+	fx.handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
+
+	var resp connectionsOAuthHealthResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	require.Len(t, resp.Connections, 2)
+
+	byName := map[string]connectionOAuthHealthSummary{}
+	for _, c := range resp.Connections {
+		byName[c.Name] = c
+	}
+	assert.True(t, byName["alpha"].HasOAuth, "alpha should be has_oauth")
+	assert.True(t, byName["alpha"].NeedsReauth, "alpha has no token row so needs_reauth=true")
+	assert.False(t, byName["beta"].HasOAuth, "beta is bearer-auth, should be has_oauth=false")
+	assert.False(t, byName["beta"].NeedsReauth, "non-OAuth row should not set needs_reauth")
+}
+
+// TestConnectionsOAuthHealth_StoreError surfaces a 500 when the
+// connection store fails so the UI can show a degraded-state
+// banner rather than rendering all-green falsely.
+func TestConnectionsOAuthHealth_StoreError(t *testing.T) {
+	t.Parallel()
+	srv := fakeIDPServer(t, func(http.ResponseWriter, *http.Request) {})
+	fx := setupOAuthFixture(t, srv)
+	fx.connStore.listErr = errors.New("db down")
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/admin/connections/oauth-health", http.NoBody)
+	w := httptest.NewRecorder()
+	fx.handler.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+// TestConnectionsOAuthHealth_PopulatesIDPErrorCode proves the latest
+// refresh-failed event's idp_error_code flows into the bulk health
+// response. Without this, the connection-list badge could only show
+// "needs reauth" without the operator-actionable detail (which
+// distinguishes "fix the client_secret" from "click reconnect").
+func TestConnectionsOAuthHealth_PopulatesIDPErrorCode(t *testing.T) {
+	t.Parallel()
+	srv := fakeIDPServer(t, func(http.ResponseWriter, *http.Request) {})
+	connStore := &mockConnectionStore{
+		instances: []platform.ConnectionInstance{
+			{
+				Kind: connoauth.KindMCP,
+				Name: "alpha",
+				Config: map[string]any{
+					"auth_mode":               "oauth",
+					"oauth_grant":             "authorization_code",
+					"oauth_authorization_url": "https://idp.example/authorize",
+					"oauth_token_url":         srv.URL + "/token",
+					"oauth_client_id":         "test-client",
+					"oauth_client_secret":     "test-secret",
+				},
+			},
+		},
+	}
+	tokenStore := connoauth.NewMemoryStore()
+	eventStore := authevents.NewMemoryStore()
+	writer := authevents.NewWriter(eventStore, nil)
+	// Pre-seed a refresh_failed_revoked with a specific RFC 6749 code
+	// so the bulk endpoint must extract it through json.Unmarshal.
+	writer.RefreshFailedRevoked(context.Background(), connoauth.KindMCP, "alpha", "tester", srv.URL+"/token",
+		authevents.RefreshDetail{IDPErrorCode: "invalid_client"})
+
+	fakeKind := &fakeOAuthKindHandler{
+		parseCfg: connoauth.Config{
+			AuthorizationURL:  "https://idp.example/authorize",
+			TokenURL:          srv.URL + "/token",
+			ClientID:          "test-client",
+			ClientSecret:      "test-secret",
+			Scopes:            []string{"openid", "offline_access"},
+			EndpointAuthStyle: oauth2.AuthStyleInHeader,
+		},
+	}
+	h := NewHandler(Deps{
+		Config:          testConfig(),
+		ConnectionStore: connStore,
+		ConfigStore:     &mockConfigStore{mode: "database"},
+		PKCEStore:       NewMemoryPKCEStore(),
+		ConnOAuthStore:  tokenStore,
+		AuthEvents:      writer,
+		AuthEventStore:  eventStore,
+		OAuthKinds:      OAuthKindHandlers{connoauth.KindMCP: fakeKind},
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/admin/connections/oauth-health", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
+
+	var resp connectionsOAuthHealthResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	require.Len(t, resp.Connections, 1)
+	assert.Equal(t, "invalid_client", resp.Connections[0].IDPErrorCode)
+	assert.True(t, resp.Connections[0].HasOAuth)
+}
+
+// TestConnectionsOAuthHealth_RecentSuccessClearsErrorCode proves a
+// subsequent refresh_succeeded event clears the badge: the bulk
+// endpoint stops at the most-recent event, so a single successful
+// refresh removes the alert.
+func TestConnectionsOAuthHealth_RecentSuccessClearsErrorCode(t *testing.T) {
+	t.Parallel()
+	srv := fakeIDPServer(t, func(http.ResponseWriter, *http.Request) {})
+	connStore := &mockConnectionStore{
+		instances: []platform.ConnectionInstance{
+			{
+				Kind: connoauth.KindMCP,
+				Name: "alpha",
+				Config: map[string]any{
+					"auth_mode":               "oauth",
+					"oauth_grant":             "authorization_code",
+					"oauth_authorization_url": "https://idp.example/authorize",
+					"oauth_token_url":         srv.URL + "/token",
+					"oauth_client_id":         "test-client",
+					"oauth_client_secret":     "test-secret",
+				},
+			},
+		},
+	}
+	tokenStore := connoauth.NewMemoryStore()
+	eventStore := authevents.NewMemoryStore()
+	writer := authevents.NewWriter(eventStore, nil)
+	// Older failure, then newer success. The bulk endpoint should
+	// see "success is most recent" and return empty idp_error_code.
+	writer.RefreshFailedTransient(context.Background(), connoauth.KindMCP, "alpha", "tester", srv.URL+"/token",
+		authevents.RefreshDetail{IDPErrorCode: "server_error"})
+	writer.RefreshSucceeded(context.Background(), connoauth.KindMCP, "alpha", "tester", srv.URL+"/token",
+		authevents.RefreshDetail{})
+
+	fakeKind := &fakeOAuthKindHandler{
+		parseCfg: connoauth.Config{
+			AuthorizationURL:  "https://idp.example/authorize",
+			TokenURL:          srv.URL + "/token",
+			ClientID:          "test-client",
+			ClientSecret:      "test-secret",
+			Scopes:            []string{"openid", "offline_access"},
+			EndpointAuthStyle: oauth2.AuthStyleInHeader,
+		},
+	}
+	h := NewHandler(Deps{
+		Config:          testConfig(),
+		ConnectionStore: connStore,
+		ConfigStore:     &mockConfigStore{mode: "database"},
+		PKCEStore:       NewMemoryPKCEStore(),
+		ConnOAuthStore:  tokenStore,
+		AuthEvents:      writer,
+		AuthEventStore:  eventStore,
+		OAuthKinds:      OAuthKindHandlers{connoauth.KindMCP: fakeKind},
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/admin/connections/oauth-health", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp connectionsOAuthHealthResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	require.Len(t, resp.Connections, 1)
+	assert.Empty(t, resp.Connections[0].IDPErrorCode)
+}
+
+// TestRefreshErrorCodeFromDetail covers the parse-failure branch
+// (empty / malformed Detail JSON should not panic; returns empty).
+func TestRefreshErrorCodeFromDetail(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name   string
+		detail string
+		want   string
+	}{
+		{"empty", "", ""},
+		{"malformed", "not-json", ""},
+		{"no field", `{}`, ""},
+		{"with code", `{"idp_error_code":"invalid_grant"}`, "invalid_grant"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := refreshErrorCodeFromDetail([]byte(tc.detail))
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestConnectionsOAuthHealth_ReconnectClearsErrorCode is the
+// regression test for the "stale invalid_client survives reconnect"
+// finding. Before the fix, latestRefreshErrorCode walked past any
+// non-success event type (connect_completed, token_deleted_admin)
+// looking for an older refresh_succeeded. A connection that the
+// operator had just reconnected would still surface the old
+// invalid_client/invalid_grant code on the badge.
+//
+// The fix bails on whichever event type sits at events[0]. If the
+// newest event is anything other than a refresh_failed_*, the code
+// is empty regardless of what older events say.
+func TestConnectionsOAuthHealth_ReconnectClearsErrorCode(t *testing.T) {
+	t.Parallel()
+	srv := fakeIDPServer(t, func(http.ResponseWriter, *http.Request) {})
+	connStore := &mockConnectionStore{
+		instances: []platform.ConnectionInstance{
+			{
+				Kind: connoauth.KindMCP,
+				Name: "alpha",
+				Config: map[string]any{
+					"auth_mode":               "oauth",
+					"oauth_grant":             "authorization_code",
+					"oauth_authorization_url": "https://idp.example/authorize",
+					"oauth_token_url":         srv.URL + "/token",
+					"oauth_client_id":         "test-client",
+					"oauth_client_secret":     "test-secret",
+				},
+			},
+		},
+	}
+	tokenStore := connoauth.NewMemoryStore()
+	eventStore := authevents.NewMemoryStore()
+	writer := authevents.NewWriter(eventStore, nil)
+	// Older terminal failure, then a fresh operator-driven reconnect
+	// success. The badge must clear: the newest event is
+	// connect_completed, NOT a refresh failure.
+	writer.RefreshFailedRevoked(context.Background(), connoauth.KindMCP, "alpha", "tester", srv.URL+"/token",
+		authevents.RefreshDetail{IDPErrorCode: "invalid_client"})
+	writer.ConnectCompleted(context.Background(), connoauth.KindMCP, "alpha", "tester", srv.URL+"/token",
+		authevents.ConnectCompletedDetail{})
+
+	fakeKind := &fakeOAuthKindHandler{
+		parseCfg: connoauth.Config{
+			AuthorizationURL:  "https://idp.example/authorize",
+			TokenURL:          srv.URL + "/token",
+			ClientID:          "test-client",
+			ClientSecret:      "test-secret",
+			Scopes:            []string{"openid", "offline_access"},
+			EndpointAuthStyle: oauth2.AuthStyleInHeader,
+		},
+	}
+	h := NewHandler(Deps{
+		Config:          testConfig(),
+		ConnectionStore: connStore,
+		ConfigStore:     &mockConfigStore{mode: "database"},
+		PKCEStore:       NewMemoryPKCEStore(),
+		ConnOAuthStore:  tokenStore,
+		AuthEvents:      writer,
+		AuthEventStore:  eventStore,
+		OAuthKinds:      OAuthKindHandlers{connoauth.KindMCP: fakeKind},
+	}, nil)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/admin/connections/oauth-health", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp connectionsOAuthHealthResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	require.Len(t, resp.Connections, 1)
+	assert.Empty(t, resp.Connections[0].IDPErrorCode,
+		"reconnect should clear the badge even when an older refresh failure exists")
 }
