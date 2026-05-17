@@ -27,10 +27,23 @@ func NewLifecycle() *Lifecycle {
 }
 
 // OnStart registers a callback to run on startup.
+//
+// If the lifecycle has already been started, the callback is
+// invoked immediately with context.Background() and any error is
+// logged. This handles late-wiring paths (toolkit setup that
+// happens inside startHTTPServer, after platform.Start has
+// already run) which otherwise silently never fire.
 func (l *Lifecycle) OnStart(callback func(context.Context) error) {
 	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.startCallbacks = append(l.startCallbacks, callback)
+	if !l.started {
+		l.startCallbacks = append(l.startCallbacks, callback)
+		l.mu.Unlock()
+		return
+	}
+	l.mu.Unlock()
+	if err := callback(context.Background()); err != nil {
+		slog.Warn("lifecycle: late-registered OnStart callback failed", "error", err)
+	}
 }
 
 // OnStop registers a callback to run on shutdown.
