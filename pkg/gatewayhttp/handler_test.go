@@ -144,7 +144,7 @@ func TestDecodeInvokeRequest(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			r := httptest.NewRequest(http.MethodPost, "/x", strings.NewReader(tc.body))
+			r := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/x", strings.NewReader(tc.body))
 			got, err := decodeInvokeRequest(r)
 			if tc.wantErr != "" {
 				require.Error(t, err)
@@ -163,7 +163,7 @@ func TestDecodeInvokeRequest_BodySizeLimit(t *testing.T) {
 	// parse as valid JSON, so the error path through json.Unmarshal
 	// is what guards the boundary in practice.
 	big := bytes.Repeat([]byte("a"), RequestBodyLimit+1)
-	r := httptest.NewRequest(http.MethodPost, "/x", bytes.NewReader(big))
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/x", bytes.NewReader(big))
 	_, err := decodeInvokeRequest(r)
 	require.Error(t, err)
 }
@@ -244,7 +244,7 @@ func TestReadRequestToken(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			r := httptest.NewRequest(http.MethodPost, "/x", nil)
+			r := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/x", http.NoBody)
 			r.Header = tc.header
 			got := readRequestToken(r)
 			assert.Equal(t, tc.want, got)
@@ -327,6 +327,23 @@ func TestWriteToolResult(t *testing.T) {
 	}
 }
 
+// postJSON POSTs a JSON body to the gateway and returns the status
+// code and the response body bytes. The response body is read and
+// closed inside the helper so each call site stays a single line and
+// the linter's body-close check is satisfied centrally.
+func postJSON(t *testing.T, url, body string) (status int, respBody []byte) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, strings.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+	bodyBytes, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	return resp.StatusCode, bodyBytes
+}
+
 // TestIntegration_HappyPath wires a real MCP server with the
 // apigateway toolkit, a fake upstream HTTP server, and the gateway
 // handler. It POSTs through the gateway and asserts the upstream was
@@ -350,15 +367,13 @@ func TestIntegration_HappyPath(t *testing.T) {
 	defer gateway.Close()
 
 	body := `{"method":"GET","path":"/v1/items"}`
-	resp, err := http.Post(gateway.URL+"/api/v1/gateway/acme/invoke", "application/json", strings.NewReader(body))
-	require.NoError(t, err)
-	defer resp.Body.Close()
+	status, respBody := postJSON(t, gateway.URL+"/api/v1/gateway/acme/invoke", body)
 
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, http.StatusOK, status)
 	assert.Equal(t, 1, upstreamHits, "upstream should be hit exactly once")
 
 	var out apigatewaykit.InvokeOutput
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.Unmarshal(respBody, &out))
 	assert.Equal(t, 200, out.Status)
 	bodyMap, ok := out.Body.(map[string]any)
 	require.True(t, ok, "body must be a JSON object, got %T", out.Body)
@@ -383,15 +398,13 @@ func TestIntegration_UpstreamErrorIsBodyNotHTTP(t *testing.T) {
 	gateway := newGatewayHTTPServer(t, upstream.URL, "acme")
 	defer gateway.Close()
 
-	resp, err := http.Post(gateway.URL+"/api/v1/gateway/acme/invoke",
-		"application/json", strings.NewReader(`{"method":"GET","path":"/v1/x"}`))
-	require.NoError(t, err)
-	defer resp.Body.Close()
+	status, respBody := postJSON(t, gateway.URL+"/api/v1/gateway/acme/invoke",
+		`{"method":"GET","path":"/v1/x"}`)
 
-	require.Equal(t, http.StatusOK, resp.StatusCode,
-		"platform call succeeded — upstream failure must not surface as a gateway 5xx")
+	require.Equal(t, http.StatusOK, status,
+		"platform call succeeded; upstream failure must not surface as a gateway 5xx")
 	var out apigatewaykit.InvokeOutput
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	require.NoError(t, json.Unmarshal(respBody, &out))
 	assert.Equal(t, 500, out.Status,
 		"upstream HTTP status must be returned in InvokeOutput.Status")
 }
@@ -404,14 +417,12 @@ func TestIntegration_ConnectionNotFound(t *testing.T) {
 	gateway := newGatewayHTTPServer(t, "", "registered-connection")
 	defer gateway.Close()
 
-	resp, err := http.Post(gateway.URL+"/api/v1/gateway/missing/invoke",
-		"application/json", strings.NewReader(`{"method":"GET","path":"/x"}`))
-	require.NoError(t, err)
-	defer resp.Body.Close()
+	status, respBody := postJSON(t, gateway.URL+"/api/v1/gateway/missing/invoke",
+		`{"method":"GET","path":"/x"}`)
 
-	require.Equal(t, http.StatusNotFound, resp.StatusCode)
+	require.Equal(t, http.StatusNotFound, status)
 	var env errorEnvelope
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&env))
+	require.NoError(t, json.Unmarshal(respBody, &env))
 	assert.Contains(t, env.Error, "not found")
 }
 
@@ -435,13 +446,10 @@ func TestIntegration_ValidationErrors(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, err := http.Post(gateway.URL+"/api/v1/gateway/any/invoke",
-				"application/json", strings.NewReader(tc.body))
-			require.NoError(t, err)
-			defer resp.Body.Close()
-			assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+			status, respBody := postJSON(t, gateway.URL+"/api/v1/gateway/any/invoke", tc.body)
+			assert.Equal(t, http.StatusBadRequest, status)
 			var env errorEnvelope
-			require.NoError(t, json.NewDecoder(resp.Body).Decode(&env))
+			require.NoError(t, json.Unmarshal(respBody, &env))
 			assert.Contains(t, env.Error, tc.want)
 		})
 	}
@@ -461,11 +469,9 @@ func TestIntegration_ToolNotRegistered(t *testing.T) {
 	srv := httptest.NewServer(handler)
 	defer srv.Close()
 
-	resp, err := http.Post(srv.URL+"/api/v1/gateway/acme/invoke",
-		"application/json", strings.NewReader(`{"method":"GET","path":"/x"}`))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+	status, _ := postJSON(t, srv.URL+"/api/v1/gateway/acme/invoke",
+		`{"method":"GET","path":"/x"}`)
+	assert.Equal(t, http.StatusInternalServerError, status)
 }
 
 // TestIntegration_MissingConnectionSegment exercises a routing edge
@@ -479,11 +485,9 @@ func TestIntegration_MissingConnectionSegment(t *testing.T) {
 
 	// /api/v1/gateway/invoke is missing the {connection} segment; the
 	// mux has no matching pattern and returns 404 Not Found.
-	resp, err := http.Post(gateway.URL+"/api/v1/gateway//invoke",
-		"application/json", strings.NewReader(`{"method":"GET","path":"/x"}`))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	assert.NotEqual(t, http.StatusOK, resp.StatusCode)
+	status, _ := postJSON(t, gateway.URL+"/api/v1/gateway//invoke",
+		`{"method":"GET","path":"/x"}`)
+	assert.NotEqual(t, http.StatusOK, status)
 }
 
 // TestIntegration_AuthHeaderForwardedToContext verifies the X-API-Key
@@ -504,13 +508,15 @@ func TestIntegration_AuthHeaderForwardedToContext(t *testing.T) {
 	gateway := newGatewayHTTPServer(t, upstream.URL, "acme")
 	defer gateway.Close()
 
-	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost,
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost,
 		gateway.URL+"/api/v1/gateway/acme/invoke",
 		strings.NewReader(`{"method":"GET","path":"/x"}`))
+	require.NoError(t, err)
 	req.Header.Set("X-API-Key", "test-key")
+	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	t.Cleanup(func() { _ = resp.Body.Close() })
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
@@ -540,11 +546,8 @@ func TestIntegration_HeadersAndQueryForwarded(t *testing.T) {
 		"headers": {"X-Trace": "abc"},
 		"body": {"name": "thing"}
 	}`
-	resp, err := http.Post(gateway.URL+"/api/v1/gateway/acme/invoke",
-		"application/json", strings.NewReader(body))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	status, _ := postJSON(t, gateway.URL+"/api/v1/gateway/acme/invoke", body)
+	require.Equal(t, http.StatusOK, status)
 }
 
 // newGatewayHTTPServer builds an MCP server with the apigateway

@@ -248,7 +248,7 @@ func firstTextContent(content []mcp.Content) (string, bool) {
 // and "connection %q not found". Anything else is returned as 400 so
 // that a request the platform refused does not surface as a 5xx
 // (which would imply a platform fault).
-func classifyToolError(payload string) (int, string) {
+func classifyToolError(payload string) (status int, message string) {
 	var env errorEnvelope
 	if err := json.Unmarshal([]byte(payload), &env); err != nil {
 		return http.StatusInternalServerError, payload
