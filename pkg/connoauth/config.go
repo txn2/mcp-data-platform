@@ -51,20 +51,3 @@ type Config struct {
 	// the authorize request with invalid_request.
 	Prompt string
 }
-
-// oauth2Config builds the golang.org/x/oauth2 Config the Source uses
-// for refresh-token exchanges. Centralized here so every refresh
-// uses the same client-secret / scope / auth-style settings the
-// initial code exchange used.
-func (c Config) oauth2Config() *oauth2.Config {
-	return &oauth2.Config{
-		ClientID:     c.ClientID,
-		ClientSecret: c.ClientSecret,
-		Scopes:       c.Scopes,
-		Endpoint: oauth2.Endpoint{
-			AuthURL:   c.AuthorizationURL,
-			TokenURL:  c.TokenURL,
-			AuthStyle: c.EndpointAuthStyle,
-		},
-	}
-}

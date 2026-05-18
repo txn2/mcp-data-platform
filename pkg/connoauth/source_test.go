@@ -589,41 +589,6 @@ func TestStatusFromPersisted_NoRefreshNoAccess(t *testing.T) {
 	}
 }
 
-func TestRefreshDeadlineFromToken(t *testing.T) {
-	t.Parallel()
-	now := time.Now()
-	cases := []struct {
-		name  string
-		extra map[string]any
-		want  bool // non-zero?
-	}{
-		{"absent", nil, false},
-		{"zero", map[string]any{"refresh_expires_in": 0}, false},
-		{"negative", map[string]any{"refresh_expires_in": -10}, false},
-		{"float", map[string]any{"refresh_expires_in": float64(3600)}, true},
-		{"int", map[string]any{"refresh_expires_in": int(3600)}, true},
-		{"int64", map[string]any{"refresh_expires_in": int64(3600)}, true},
-		{"wrong type", map[string]any{"refresh_expires_in": "3600"}, false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			tok := &oauth2.Token{}
-			if tc.extra != nil {
-				// oauth2.Token.Extra requires the token to be built from
-				// a TokenSource — we use a synthetic raw map by marshaling.
-				b, _ := json.Marshal(tc.extra)
-				_ = json.Unmarshal(b, tok)
-				tok = tok.WithExtra(tc.extra)
-			}
-			got := refreshDeadlineFromToken(tok, now)
-			if (tc.want && got.IsZero()) || (!tc.want && !got.IsZero()) {
-				t.Fatalf("refreshDeadlineFromToken: want non-zero=%v got %v", tc.want, got)
-			}
-		})
-	}
-}
-
 func TestIsRevokedRefresh(t *testing.T) {
 	t.Parallel()
 	if !isRevokedRefresh(errNoRefreshToken) {
