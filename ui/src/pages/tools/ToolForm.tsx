@@ -1,5 +1,9 @@
 import { useState } from "react";
-import type { ToolSchema, ToolParameterSchema } from "@/api/admin/types";
+import type {
+  EffectiveConnection,
+  ToolSchema,
+  ToolParameterSchema,
+} from "@/api/admin/types";
 
 interface ToolFormProps {
   schema: ToolSchema;
@@ -7,6 +11,15 @@ interface ToolFormProps {
   initialValues?: Record<string, unknown>;
   isSubmitting: boolean;
   onSubmit: (params: Record<string, unknown>) => void;
+  /**
+   * Connections available to fill an unbound `connection` parameter
+   * dropdown. Only consulted when selectedConnection is empty (i.e.
+   * the tool is platform-level and the operator must pick a target
+   * at call time, e.g. api_list_endpoints). Already filtered by the
+   * caller to the tool's kind so the dropdown lists only valid
+   * targets.
+   */
+  availableConnections?: EffectiveConnection[];
   /**
    * Bumping this remounts the form, useful when replaying audit events with
    * different initial values for the same tool.
@@ -20,6 +33,7 @@ export function ToolForm({
   initialValues,
   isSubmitting,
   onSubmit,
+  availableConnections,
   formVersion = 0,
 }: ToolFormProps) {
   const properties = schema.parameters.properties ?? {};
@@ -55,19 +69,60 @@ export function ToolForm({
       {Object.entries(properties).map(([key, prop]) => {
         const isRequired = required.includes(key);
         if (key === "connection") {
+          // Two cases: (1) the tool is bound to a connection already
+          // (toolkit registered it under that connection's name), in
+          // which case selectedConnection is non-empty and we show
+          // a locked select so the operator can see what's targeted.
+          // (2) the tool is platform-level (e.g. api_list_endpoints)
+          // and takes connection as a parameter at call time, in
+          // which case we render an enabled picker over the
+          // connections the caller filtered by kind.
+          if (selectedConnection) {
+            return (
+              <div key={key}>
+                <label className="mb-1 block text-xs font-medium">{key}</label>
+                <p className="mb-1 text-[11px] text-muted-foreground">
+                  {prop.description}
+                </p>
+                <select
+                  disabled
+                  value={selectedConnection}
+                  className="rounded-md border bg-muted px-3 py-1.5 text-sm text-muted-foreground outline-none"
+                >
+                  <option value={selectedConnection}>{selectedConnection}</option>
+                </select>
+              </div>
+            );
+          }
           return (
             <div key={key}>
-              <label className="mb-1 block text-xs font-medium">{key}</label>
+              <label className="mb-1 block text-xs font-medium">
+                {key}
+                {isRequired && <span className="ml-0.5 text-red-500">*</span>}
+              </label>
               <p className="mb-1 text-[11px] text-muted-foreground">
                 {prop.description}
               </p>
               <select
-                disabled
-                value={selectedConnection}
-                className="rounded-md border bg-muted px-3 py-1.5 text-sm text-muted-foreground outline-none"
+                name="connection"
+                required={isRequired}
+                defaultValue=""
+                disabled={!availableConnections || availableConnections.length === 0}
+                className="rounded-md border bg-background px-3 py-1.5 text-sm outline-none ring-ring focus:ring-2 disabled:opacity-50"
               >
-                <option value={selectedConnection}>{selectedConnection}</option>
+                <option value="">-- select --</option>
+                {(availableConnections ?? []).map((c) => (
+                  <option key={`${c.kind}/${c.name}`} value={c.name}>
+                    {c.name}
+                  </option>
+                ))}
               </select>
+              {(!availableConnections || availableConnections.length === 0) && (
+                <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
+                  No {schema.kind} connections registered. Add one in Settings to
+                  invoke this tool.
+                </p>
+              )}
             </div>
           );
         }

@@ -1,4 +1,9 @@
-import { useCallTool, useToolSchemas } from "@/api/admin/hooks";
+import { useMemo } from "react";
+import {
+  useCallTool,
+  useEffectiveConnections,
+  useToolSchemas,
+} from "@/api/admin/hooks";
 import { StatusBadge } from "@/components/cards/StatusBadge";
 import { formatDuration } from "@/lib/formatDuration";
 import { ToolForm } from "../ToolForm";
@@ -38,6 +43,18 @@ export function TryItTab({
   const schema = schemasData?.schemas[detail.name] ?? null;
   const connection = detail.connection ?? "";
 
+  // Platform-level tools (no bound connection) need an operator-
+  // selectable picker filtered to the tool's kind. The hook returns
+  // every connection regardless of source (file or database) so the
+  // picker matches the connection-list shown in Settings.
+  const { data: allConnections } = useEffectiveConnections();
+  const availableConnections = useMemo(() => {
+    if (!schema || connection) return undefined;
+    const targetKind = schema.kind;
+    if (!targetKind) return undefined;
+    return (allConnections ?? []).filter((c) => c.kind === targetKind);
+  }, [allConnections, schema, connection]);
+
   function handleSubmit(params: Record<string, unknown>) {
     if (!schema) return;
     const entryId = `call-${Date.now()}`;
@@ -52,13 +69,31 @@ export function TryItTab({
     setLatestResult(null);
 
     const properties = schema.parameters.properties ?? {};
-    const sendConnection = "connection" in properties ? connection : "";
+    // Routing connection: bound at toolkit registration (locked
+    // select) takes precedence; otherwise the operator's pick from
+    // the enabled dropdown (which arrives in params.connection
+    // because the new picker uses name="connection"). Build a
+    // separate outParams via destructuring so the history entry's
+    // captured params (referenced from the History panel and the
+    // Replay action) keeps the connection field for audit/replay.
+    let sendConnection = "";
+    let outParams: Record<string, unknown> = params;
+    if ("connection" in properties) {
+      if (connection) {
+        sendConnection = connection;
+      } else if (typeof params.connection === "string") {
+        sendConnection = params.connection;
+      }
+      const { connection: _routing, ...rest } = params;
+      void _routing;
+      outParams = rest;
+    }
 
     callTool.mutate(
       {
         tool_name: detail.name,
         connection: sendConnection,
-        parameters: params,
+        parameters: outParams,
       },
       {
         onSuccess: (data) => {
@@ -116,6 +151,7 @@ export function TryItTab({
       <ToolForm
         schema={schema}
         selectedConnection={connection}
+        availableConnections={availableConnections}
         initialValues={replayParams ?? undefined}
         isSubmitting={callTool.isPending}
         onSubmit={handleSubmit}
