@@ -125,3 +125,53 @@ Add `refresh_token` to `oauth2_scopes` so Salesforce issues a refresh token — 
 ## Admin portal
 
 The admin portal's **Connections** page surfaces `static_headers` as a key/value editor under each `kind: api` connection. Existing values are masked (the portal never sees the cleartext secret after the first save); add or delete to change the set. Names remain visible so an operator can confirm which headers are configured without revealing the values.
+
+## REST gateway for non-MCP clients
+
+`api_invoke_endpoint` is also reachable over plain HTTP for clients that do not speak MCP (e.g. Apache NiFi, Airflow's HttpOperator, a shell script with `curl`). The route is connection-scoped:
+
+```
+POST /api/v1/gateway/{connection}/invoke
+```
+
+Auth is the same as every other REST surface on the platform: `Authorization: Bearer <token>` or `X-API-Key: <key>`. The credential resolves to a user identity, persona, and audit subject through the same MCP middleware chain the MCP transport uses, so persona allowlists for `api_invoke_endpoint` and route-policy rules apply identically.
+
+Request body (the `connection` is taken from the URL and overrides any value in the body):
+
+```json
+{
+  "method":          "GET",
+  "path":            "/v1/things",
+  "query_params":    { "limit": 50 },
+  "headers":         { "X-Trace": "abc" },
+  "body":            null,
+  "timeout_seconds": 30
+}
+```
+
+Response: HTTP 200 with the toolkit's [`InvokeOutput`](https://github.com/txn2/mcp-data-platform/blob/main/pkg/toolkits/apigateway/invoke.go) shape. The upstream HTTP status is returned in `status`, not in the platform's response code:
+
+```json
+{
+  "status":      200,
+  "headers":     { "Content-Type": ["application/json"] },
+  "body":        { "items": [ ... ] },
+  "duration_ms": 245
+}
+```
+
+Platform-level outcomes use HTTP status codes: `400` for a malformed request body, `401` for missing/invalid credentials, `403` for persona or route-policy denial, `404` for an unregistered connection, `500` for an internal failure. The split keeps "the platform refused" distinguishable from "the upstream returned 4xx/5xx" — a NiFi pipeline can route on the platform status and still inspect `status` inside the body for the upstream outcome.
+
+The route is only mounted when at least one `kind: api` toolkit instance is loaded. When `auth.allow_anonymous` is `false`, requests without a credential are rejected at the HTTP layer before the in-memory MCP session is created.
+
+### Apache NiFi example
+
+Wire an `InvokeHTTP` processor to the gateway:
+
+| Property | Value |
+|---|---|
+| HTTP Method | `POST` |
+| URL | `https://platform.example.com/api/v1/gateway/vendor/invoke` |
+| Content-Type | `application/json` |
+
+Set an `X-API-Key` (or `Authorization`) attribute on the FlowFile and reference it from an `InvokeHTTP` dynamic property mapped to the header name. The FlowFile content is the JSON body above; downstream processors can use `EvaluateJsonPath` to lift `$.status` and `$.body` into attributes for the response-code routing relationships.

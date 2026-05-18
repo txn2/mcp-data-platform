@@ -797,6 +797,109 @@ func TestMountAdminAPI(t *testing.T) {
 // SPA served at /portal/. Admin sections are role-gated in the SPA itself and
 // the admin API routes at /api/v1/admin/ enforce server-side authorization.
 
+// TestMountGatewayAPI covers the four branches in mountGatewayAPI:
+// (1) nil platform → skip, (2) no apigateway toolkit → skip,
+// (3) toolkit present + auth required → 401 on unauthenticated POST,
+// (4) toolkit present + auth disabled → request reaches the handler.
+// Each branch is exercised through the real ServeMux so a regression
+// in the registration path is caught here, not at runtime.
+func TestMountGatewayAPI(t *testing.T) {
+	t.Run("skips when platform is nil", func(_ *testing.T) {
+		mux := http.NewServeMux()
+		server := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "v1"}, nil)
+		mountGatewayAPI(mux, server, nil, false)
+	})
+
+	t.Run("skips when no apigateway toolkit is loaded", func(t *testing.T) {
+		p := newTestPlatform(t, &platform.Config{
+			Server:   platform.ServerConfig{Name: "test"},
+			Semantic: platform.SemanticConfig{Provider: "noop"},
+			Query:    platform.QueryConfig{Provider: "noop"},
+			Storage:  platform.StorageConfig{Provider: "noop"},
+		})
+		defer func() { _ = p.Close() }()
+
+		mux := http.NewServeMux()
+		server := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "v1"}, nil)
+		mountGatewayAPI(mux, server, p, false)
+
+		// No /api/v1/gateway/ route should have been registered.
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+			"/api/v1/gateway/acme/invoke", strings.NewReader(`{}`))
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != http.StatusNotFound {
+			t.Errorf("expected 404 (no route), got %d", w.Code)
+		}
+	})
+
+	t.Run("mounts with auth wrapper when requireAuth is true", func(t *testing.T) {
+		p := newGatewayTestPlatform(t)
+		defer func() { _ = p.Close() }()
+
+		mux := http.NewServeMux()
+		server := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "v1"}, nil)
+		mountGatewayAPI(mux, server, p, true)
+
+		// Unauthenticated request must be rejected before reaching the
+		// handler. The auth wrapper returns 401 with a missing-token
+		// message — that's what proves requireAuth=true wired through.
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+			"/api/v1/gateway/acme/invoke", strings.NewReader(`{"method":"GET","path":"/x"}`))
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("expected 401 from auth wrapper, got %d", w.Code)
+		}
+	})
+
+	t.Run("mounts without auth wrapper when requireAuth is false", func(t *testing.T) {
+		p := newGatewayTestPlatform(t)
+		defer func() { _ = p.Close() }()
+
+		mux := http.NewServeMux()
+		server := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "v1"}, nil)
+		mountGatewayAPI(mux, server, p, false)
+
+		// Anonymous request reaches the handler; without the
+		// api_invoke_endpoint tool registered on this bare MCP server,
+		// the in-memory CallTool returns an error → 500.
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+			"/api/v1/gateway/acme/invoke", strings.NewReader(`{"method":"GET","path":"/x"}`))
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code == http.StatusUnauthorized {
+			t.Errorf("expected handler to be reached without auth wrapper, but got 401")
+		}
+	})
+}
+
+// newGatewayTestPlatform builds a minimal platform with an apigateway
+// toolkit loaded. The toolkit needs at least one configured kind in
+// `toolkits.api` for the registry GetByKind(api) lookup to return a
+// non-empty slice, which is what mountGatewayAPI checks before
+// registering the REST route.
+func newGatewayTestPlatform(t *testing.T) *platform.Platform {
+	t.Helper()
+	return newTestPlatform(t, &platform.Config{
+		Server:   platform.ServerConfig{Name: "test"},
+		Semantic: platform.SemanticConfig{Provider: "noop"},
+		Query:    platform.QueryConfig{Provider: "noop"},
+		Storage:  platform.StorageConfig{Provider: "noop"},
+		Toolkits: map[string]any{
+			"api": map[string]any{
+				"enabled": true,
+				"instances": map[string]any{
+					"acme": map[string]any{
+						"base_url":  "https://api.example.com",
+						"auth_mode": "none",
+					},
+				},
+			},
+		},
+	})
+}
+
 func TestBuildAdminHandler(t *testing.T) {
 	cfg := &platform.Config{
 		Server: platform.ServerConfig{

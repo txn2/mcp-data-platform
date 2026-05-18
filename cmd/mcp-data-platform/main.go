@@ -27,6 +27,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/ui"
 	"github.com/txn2/mcp-data-platform/pkg/admin"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
+	"github.com/txn2/mcp-data-platform/pkg/gatewayhttp"
 	"github.com/txn2/mcp-data-platform/pkg/health"
 	httpauth "github.com/txn2/mcp-data-platform/pkg/http"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
@@ -348,6 +349,12 @@ func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Pla
 	// Mount managed resources API if enabled
 	mountResourcesAPI(mux, p)
 
+	// Mount the REST gateway shim if an apigateway toolkit is loaded.
+	// Exposes api_invoke_endpoint over plain HTTP for non-MCP clients
+	// (e.g. Apache NiFi). Auth + persona + audit all flow through the
+	// MCP middleware chain via an in-memory session.
+	mountGatewayAPI(mux, mcpServer, p, hcfg.requireAuth)
+
 	// Mount unified portal UI (includes both portal and admin sections)
 	mountPortalUI(mux, p, ui.Available())
 
@@ -637,6 +644,40 @@ func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform) {
 	mux.Handle("/api/v1/resources/", handler)
 	mux.Handle("/api/v1/resources", handler)
 	log.Println("Managed resources API enabled on /api/v1/resources")
+}
+
+// mountGatewayAPI registers the REST shim for the apigateway toolkit
+// on the mux. The shim is only mounted when at least one apigateway
+// toolkit instance is loaded; otherwise the route would always return
+// "connection not found" and add noise to the route table.
+//
+// Auth wrapping mirrors the MCP root handler: when requireAuth is on,
+// the handler is wrapped with httpauth.RequireAuth so that requests
+// without a credential are rejected at the HTTP layer before reaching
+// the in-memory MCP session. When auth is off, the wrapper is a no-op
+// and the request flows through anonymously (matching the rest of the
+// platform's behavior in that mode).
+func mountGatewayAPI(mux *http.ServeMux, mcpServer *mcp.Server, p *platform.Platform, requireAuth bool) {
+	if mcpServer == nil || p == nil {
+		return
+	}
+	apiToolkits := p.ToolkitRegistry().GetByKind(apigatewaykit.Kind)
+	if len(apiToolkits) == 0 {
+		return
+	}
+
+	handler, err := gatewayhttp.NewHandler(gatewayhttp.Deps{MCPServer: mcpServer})
+	if err != nil {
+		log.Printf("REST gateway disabled: %v", err)
+		return
+	}
+
+	wrapped := handler
+	if requireAuth {
+		wrapped = httpauth.RequireAuth()(handler)
+	}
+	mux.Handle("/api/v1/gateway/", wrapped)
+	log.Println("REST gateway enabled on /api/v1/gateway/{connection}/invoke")
 }
 
 // buildResourceClaims creates resource Claims from an authenticated user,

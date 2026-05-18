@@ -2479,6 +2479,24 @@ The model is additionally blocked at request time from supplying any header name
 
 Salesforce needs `refresh_token` in `oauth2_scopes` to issue a refresh token; without it the connection cannot survive access-token expiry.
 
+## REST gateway for non-MCP clients
+
+`api_invoke_endpoint` is also reachable over plain HTTP for clients that cannot speak MCP/JSON-RPC (Apache NiFi, Airflow `HttpOperator`, `curl`):
+
+```
+POST /api/v1/gateway/{connection}/invoke
+```
+
+Auth uses the same headers as every other REST surface on the platform (`Authorization: Bearer ...` or `X-API-Key: ...`). The request goes through an in-memory MCP session against the assembled server, so the authenticator, persona authorization, route-policy, and audit middleware all apply identically to MCP and REST callers — no auth or audit logic is forked. Persona allowlists for `api_invoke_endpoint` govern access; tool-error envelopes from the toolkit map to HTTP status codes (`401` for auth failure, `403` for not authorized, `404` for unknown connection, `400` for validation).
+
+Request body mirrors `InvokeInput` (the connection is taken from the URL):
+
+```json
+{ "method": "GET", "path": "/v1/things", "query_params": {"limit": 50}, "headers": {"X-Trace": "abc"}, "body": null, "timeout_seconds": 30 }
+```
+
+Response is `InvokeOutput` JSON: `status` is the upstream HTTP status, `body` is the parsed upstream response, `duration_ms` is the per-call timing. Platform HTTP `200` means the upstream call ran (outcome in `body.status`), not that the upstream succeeded — keeping platform-side and upstream-side failures distinguishable for NiFi's response-code routing. The route is only mounted when at least one `kind: api` toolkit instance is loaded.
+
 ---
 
 # API Catalogs
