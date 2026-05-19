@@ -6,6 +6,9 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
+	"github.com/txn2/mcp-data-platform/pkg/registry"
+	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
+	apigatewaycatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 )
 
 // TestWireAPIGatewayEmbedJobsFromDB_NoopEmbedderSkips proves the
@@ -60,5 +63,54 @@ func TestWireAPIGatewayEmbedJobsFromDB_NilEmbedderSkips(t *testing.T) {
 	p.WireAPIGatewayEmbedJobsFromDB()
 	if p.apiGatewayEmbedJobsStore != nil {
 		t.Errorf("nil embedder must not wire the job store")
+	}
+}
+
+// TestWireAPIGatewayEmbedJobsFromDB_WiresWorkerWithConfiguredConcurrency
+// proves the production-path branch (real DB + real embedder + real
+// catalog store): the store, worker, reaper, and reconciler all get
+// wired. The Concurrency value flows from APIGateway.EmbedJobs.Workers
+// into the WorkerConfig (#430). lifecycle.OnStart hooks are registered
+// but not invoked here so the goroutines never spawn.
+func TestWireAPIGatewayEmbedJobsFromDB_WiresWorkerWithConfiguredConcurrency(t *testing.T) {
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	cfg := &Config{}
+	cfg.APIGateway.EmbedJobs.Workers = 3
+
+	reg := registry.NewRegistry()
+	// APIGatewayCatalogStore() reads through the registered
+	// apigateway toolkit, so register one before wiring the store.
+	if err := reg.Register(apigatewaykit.New("test")); err != nil {
+		t.Fatalf("register apigateway toolkit: %v", err)
+	}
+	p := &Platform{
+		db:              db,
+		embeddingProv:   embedding.NewOllamaProvider(embedding.OllamaConfig{}),
+		config:          cfg,
+		toolkitRegistry: reg,
+		lifecycle:       &Lifecycle{},
+	}
+	p.WireAPIGatewayCatalogStore(apigatewaycatalog.NewMemoryStore())
+	p.WireAPIGatewayEmbedJobsFromDB()
+
+	if p.apiGatewayEmbedJobsStore == nil {
+		t.Fatal("real embedder + DB + catalog store must wire the job store")
+	}
+	if p.apiGatewayEmbedJobsWorker == nil {
+		t.Fatal("worker must be constructed")
+	}
+	if got := p.apiGatewayEmbedJobsWorker.Concurrency(); got != 3 {
+		t.Errorf("Concurrency = %d; want 3 (the value flowed from apigateway.embed_jobs.workers)", got)
+	}
+	if p.apiGatewayEmbedJobsReaper == nil {
+		t.Fatal("reaper must be constructed")
+	}
+	if p.apiGatewayEmbedJobsReconciler == nil {
+		t.Fatal("reconciler must be constructed")
 	}
 }

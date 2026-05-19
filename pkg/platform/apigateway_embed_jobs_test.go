@@ -107,7 +107,7 @@ info:
 paths: {}
 `
 	c := &apigatewayEmbeddingComputer{embedder: &fakeEmbedder{dim: 8}}
-	rows, err := c.Compute(context.Background(), spec, "spec1", nil)
+	rows, err := c.Compute(context.Background(), spec, "spec1", nil, nil)
 	if err != nil {
 		t.Fatalf("Compute: %v", err)
 	}
@@ -145,7 +145,7 @@ paths:
 			Dim:         4,
 		},
 	}
-	rows, err := c.Compute(context.Background(), spec, "spec1", existing)
+	rows, err := c.Compute(context.Background(), spec, "spec1", existing, nil)
 	if err != nil {
 		t.Fatalf("Compute: %v", err)
 	}
@@ -163,7 +163,7 @@ paths:
 func TestApigatewayEmbeddingComputer_ParseError(t *testing.T) {
 	t.Parallel()
 	c := &apigatewayEmbeddingComputer{embedder: &fakeEmbedder{dim: 4}}
-	_, err := c.Compute(context.Background(), "this is not yaml at all: [", "spec1", nil)
+	_, err := c.Compute(context.Background(), "this is not yaml at all: [", "spec1", nil, nil)
 	if err == nil {
 		t.Fatal("expected parse error")
 	}

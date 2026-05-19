@@ -106,9 +106,9 @@ func TestClaim_HappyPath(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "catalog_id", "spec_name", "kind", "status", "attempts",
 			"last_error", "next_run_at", "worker_id", "lease_expires_at",
-			"created_at", "started_at", "completed_at",
+			"created_at", "started_at", "completed_at", "embedded_so_far",
 		}).AddRow(int64(42), "petstore", "default", "spec_write", "running", 1,
-			"", now, "worker-x", lease, now, now, nil))
+			"", now, "worker-x", lease, now, now, nil, 0))
 	mock.ExpectCommit()
 	job, err := store.Claim(context.Background(), "worker-x")
 	if err != nil {
@@ -163,6 +163,53 @@ func TestComplete_LeaseRotated(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	if err := store.Complete(context.Background(), 42, "stale-worker"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err=%v want ErrNotFound", err)
+	}
+}
+
+// TestUpdateProgress_HappyPath verifies the worker's chunk-progress
+// publish writes embedded_so_far on the matching (id, worker_id,
+// status='running') row. The catalog status endpoint reads this
+// column to render incremental progress before the final commit
+// (#430).
+func TestUpdateProgress_HappyPath(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE api_catalog_embedding_jobs`)).
+		WithArgs(int64(42), "worker-x", 17).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := store.UpdateProgress(context.Background(), 42, "worker-x", 17); err != nil {
+		t.Fatalf("UpdateProgress: %v", err)
+	}
+}
+
+// TestUpdateProgress_LeaseRotatedIsNoop proves a stale worker
+// whose lease has been recovered by the reaper writes nothing AND
+// returns no error, so a write race between an old and new holder
+// cannot fail the entire embed pass.
+func TestUpdateProgress_LeaseRotatedIsNoop(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE api_catalog_embedding_jobs`)).
+		WithArgs(int64(42), "stale-worker", 9).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	if err := store.UpdateProgress(context.Background(), 42, "stale-worker", 9); err != nil {
+		t.Errorf("UpdateProgress on rotated lease must not error; got %v", err)
+	}
+}
+
+// TestUpdateProgress_DBError surfaces a transport-layer failure so
+// the worker can log it; the worker itself does not abort the job
+// on a progress write error (see process()).
+func TestUpdateProgress_DBError(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectExec(regexp.QuoteMeta(`UPDATE api_catalog_embedding_jobs`)).
+		WillReturnError(errors.New("conn pool exhausted"))
+	if err := store.UpdateProgress(context.Background(), 1, "w", 1); err == nil {
+		t.Fatal("expected wrapped DB error")
 	}
 }
 
@@ -399,9 +446,9 @@ func TestGet_Success(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "catalog_id", "spec_name", "kind", "status", "attempts",
 			"last_error", "next_run_at", "worker_id", "lease_expires_at",
-			"created_at", "started_at", "completed_at",
+			"created_at", "started_at", "completed_at", "embedded_so_far",
 		}).AddRow(int64(42), "petstore", "default", "spec_write", "running",
-			1, "", now, "w1", now, now, now, nil))
+			1, "", now, "w1", now, now, now, nil, 0))
 	j, err := store.Get(context.Background(), 42)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
@@ -445,7 +492,7 @@ func TestList_Empty(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "catalog_id", "spec_name", "kind", "status", "attempts",
 			"last_error", "next_run_at", "worker_id", "lease_expires_at",
-			"created_at", "started_at", "completed_at",
+			"created_at", "started_at", "completed_at", "embedded_so_far",
 		}))
 	jobs, err := store.List(context.Background(), ListFilter{})
 	if err != nil {
@@ -468,9 +515,9 @@ func TestList_WithFilters(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "catalog_id", "spec_name", "kind", "status", "attempts",
 			"last_error", "next_run_at", "worker_id", "lease_expires_at",
-			"created_at", "started_at", "completed_at",
+			"created_at", "started_at", "completed_at", "embedded_so_far",
 		}).AddRow(int64(7), "petstore", "default", "reconciler", "failed",
-			5, "boom", now, "", nil, now, now, now))
+			5, "boom", now, "", nil, now, now, now, 0))
 	jobs, err := store.List(context.Background(), ListFilter{
 		CatalogID: "petstore", SpecName: "default",
 		Status: StatusFailed, Kind: KindReconciler, Limit: 5,
@@ -507,9 +554,10 @@ func TestSpecStatuses_HappyPath(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{
 			"catalog_id", "spec_name", "operation_count", "embedding_count",
 			"job_status", "job_attempts", "job_last_error", "job_updated_at",
+			"embedded_so_far",
 		}).
-			AddRow("petstore", "users", 3, 3, "succeeded", 1, "", now).
-			AddRow("petstore", "orders", 5, 2, "running", 1, "", now))
+			AddRow("petstore", "users", 3, 3, "succeeded", 1, "", now, 3).
+			AddRow("petstore", "orders", 5, 2, "running", 1, "", now, 4))
 	rows, err := store.SpecStatuses(context.Background(), "petstore")
 	if err != nil {
 		t.Fatalf("SpecStatuses: %v", err)

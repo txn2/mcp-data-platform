@@ -13,7 +13,7 @@ import (
 // unconditionally without guarding on the embedder.
 func TestComputeOperationEmbeddings_NilEmbedderReturnsNil(t *testing.T) {
 	t.Parallel()
-	rows, err := ComputeOperationEmbeddings(context.Background(), nil, persistedEmbedTestSpec, "default", nil)
+	rows, err := ComputeOperationEmbeddings(context.Background(), nil, persistedEmbedTestSpec, "default", nil, nil)
 	if err != nil {
 		t.Fatalf("nil embedder should not error; got %v", err)
 	}
@@ -27,7 +27,7 @@ func TestComputeOperationEmbeddings_NilEmbedderReturnsNil(t *testing.T) {
 // "parse spec" error so the admin handler logs the right cause.
 func TestComputeOperationEmbeddings_UnparseableSpecErrors(t *testing.T) {
 	t.Parallel()
-	_, err := ComputeOperationEmbeddings(context.Background(), newFakeEmbedder(8), "::not yaml::", "default", nil)
+	_, err := ComputeOperationEmbeddings(context.Background(), newFakeEmbedder(8), "::not yaml::", "default", nil, nil)
 	if err == nil {
 		t.Fatal("expected error on malformed spec")
 	}
@@ -44,7 +44,7 @@ func TestComputeOperationEmbeddings_ZeroOperationsReturnsNil(t *testing.T) {
 	emptySpec := `openapi: 3.0.0
 info: {title: t, version: "1"}
 paths: {}`
-	rows, err := ComputeOperationEmbeddings(context.Background(), newFakeEmbedder(8), emptySpec, "default", nil)
+	rows, err := ComputeOperationEmbeddings(context.Background(), newFakeEmbedder(8), emptySpec, "default", nil, nil)
 	if err != nil {
 		t.Fatalf("zero-op spec should not error; got %v", err)
 	}
@@ -61,7 +61,7 @@ func TestComputeOperationEmbeddings_BatchErrorPropagates(t *testing.T) {
 	t.Parallel()
 	emb := newFakeEmbedder(8)
 	emb.failBatch.Store(true)
-	_, err := ComputeOperationEmbeddings(context.Background(), emb, persistedEmbedTestSpec, "default", nil)
+	_, err := ComputeOperationEmbeddings(context.Background(), emb, persistedEmbedTestSpec, "default", nil, nil)
 	if err == nil {
 		t.Fatal("expected error from failing batch")
 	}
@@ -79,7 +79,7 @@ func TestComputeOperationEmbeddings_BatchErrorPropagates(t *testing.T) {
 // refactor bypassing embedInBatches.
 func TestComputeOperationEmbeddings_CountMismatchPropagates(t *testing.T) {
 	t.Parallel()
-	_, err := ComputeOperationEmbeddings(context.Background(), countMismatchEmbedder{returnCount: 1}, persistedEmbedTestSpec, "default", nil)
+	_, err := ComputeOperationEmbeddings(context.Background(), countMismatchEmbedder{returnCount: 1}, persistedEmbedTestSpec, "default", nil, nil)
 	if err == nil {
 		t.Fatal("expected error from vector count mismatch")
 	}
@@ -106,6 +106,35 @@ func (e countMismatchEmbedder) EmbedBatch(_ context.Context, _ []string) ([][]fl
 	return out, nil
 }
 
+// TestComputeOperationEmbeddings_ProgressCallback proves the
+// progress callback is invoked with the initial reused count up
+// front (so a fully-cached spec ticks straight to operation_count)
+// AND at every chunk boundary during the fresh-embed pass. The
+// callback is the path the embed-jobs worker uses to publish
+// embedded_so_far on the job row (#430).
+func TestComputeOperationEmbeddings_ProgressCallback(t *testing.T) {
+	t.Parallel()
+	emb := newFakeEmbedder(8)
+	var calls []int
+	progress := func(n int) { calls = append(calls, n) }
+	rows, err := ComputeOperationEmbeddings(context.Background(), emb, persistedEmbedTestSpec, "default", nil, progress)
+	if err != nil {
+		t.Fatalf("ComputeOperationEmbeddings: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("rows = %d; want 2", len(rows))
+	}
+	// At minimum: one initial publish (reused=0) and one chunk-done
+	// publish (fresh=2). The final cumulative count must equal the
+	// number of operations.
+	if len(calls) < 2 {
+		t.Fatalf("progress called %d times; want >= 2 (initial + chunk-done): %v", len(calls), calls)
+	}
+	if calls[len(calls)-1] != 2 {
+		t.Errorf("final progress = %d; want 2 (all operations ready)", calls[len(calls)-1])
+	}
+}
+
 // TestComputeOperationEmbeddings_AllReusedSkipsFreshEmbed covers
 // fillFreshEmbeddings's early-return: when every operation's text
 // hash + dim + model already match the existing set, the embedder
@@ -115,7 +144,7 @@ func TestComputeOperationEmbeddings_AllReusedSkipsFreshEmbed(t *testing.T) {
 	t.Parallel()
 	emb := newTrackingEmbedder()
 	// First pass writes the existing set.
-	rows, err := ComputeOperationEmbeddings(context.Background(), emb, persistedEmbedTestSpec, "default", nil)
+	rows, err := ComputeOperationEmbeddings(context.Background(), emb, persistedEmbedTestSpec, "default", nil, nil)
 	if err != nil {
 		t.Fatalf("first compute: %v", err)
 	}
@@ -130,7 +159,7 @@ func TestComputeOperationEmbeddings_AllReusedSkipsFreshEmbed(t *testing.T) {
 	// Second pass with identical content + identical model. Nothing
 	// to re-embed, so fillFreshEmbeddings returns without calling
 	// the provider.
-	if _, err := ComputeOperationEmbeddings(context.Background(), emb, persistedEmbedTestSpec, "default", existing); err != nil {
+	if _, err := ComputeOperationEmbeddings(context.Background(), emb, persistedEmbedTestSpec, "default", existing, nil); err != nil {
 		t.Fatalf("second compute: %v", err)
 	}
 	if got := emb.batchCalls.Load(); got != firstBatch {

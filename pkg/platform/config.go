@@ -116,6 +116,7 @@ type Config struct {
 	Elicitation   ElicitationConfig   `yaml:"elicitation"`
 	Workflow      WorkflowConfig      `yaml:"workflow"`
 	SessionGate   SessionGateConfig   `yaml:"session_gate"`
+	APIGateway    APIGatewayConfig    `yaml:"apigateway"`
 
 	// runtimeMu guards fields that can be mutated at runtime via the admin
 	// API (Tools.DescriptionOverrides, Tools.Deny). Other fields are
@@ -789,6 +790,30 @@ type SessionGateConfig struct {
 
 	// ExemptTools lists tool names that bypass the gate (e.g., "list_connections").
 	ExemptTools []string `yaml:"exempt_tools"`
+}
+
+// APIGatewayConfig holds platform-level tuning for the api-kind toolkit.
+// Connection-level configuration (base_url, auth_mode, credentials, etc.)
+// lives in the connection store; this struct is for cluster-wide knobs that
+// affect every api connection, primarily the embedding-job queue's
+// concurrency.
+type APIGatewayConfig struct {
+	// EmbedJobs tunes the api-gateway embedding job queue.
+	EmbedJobs APIGatewayEmbedJobsConfig `yaml:"embed_jobs"`
+}
+
+// APIGatewayEmbedJobsConfig tunes the per-pod embedding worker.
+type APIGatewayEmbedJobsConfig struct {
+	// Workers is the number of goroutines per pod that claim and
+	// process jobs in parallel. Multiple goroutines share the queue;
+	// the lease + SKIP LOCKED predicate in Claim prevents two
+	// goroutines (in the same pod or across pods) from picking the
+	// same job. Zero or negative falls back to 1, which preserves
+	// the pre-#430 single-goroutine behavior. Production deployments
+	// with many specs and a fast embedder benefit from 2-4; CPU-only
+	// embedders typically saturate at 1 because the bottleneck is
+	// the embedding model, not the gateway. See #430.
+	Workers int `yaml:"workers"`
 }
 
 // isExplicitlyDisabled returns true only when the pointer is non-nil and false.

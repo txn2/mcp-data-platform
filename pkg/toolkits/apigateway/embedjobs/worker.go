@@ -48,8 +48,17 @@ type SpecResolver interface {
 // EmbeddingComputer is the worker's bridge to the embedding
 // provider. The implementation calls
 // apigateway.ComputeOperationEmbeddings (or a test stub).
+//
+// progress is called by the implementation at chunk boundaries
+// inside a long embed pass with the cumulative number of operations
+// whose vectors are ready (reused-from-existing plus freshly
+// computed). The worker publishes the value to api_catalog_embedding_jobs
+// .embedded_so_far so the catalog status endpoint can render
+// incremental progress while the final atomic upsert is still
+// pending (#430). nil progress is acceptable; the implementation
+// skips the callback in that case.
 type EmbeddingComputer interface {
-	Compute(ctx context.Context, content, specName string, existing map[string]ExistingEmbedding) ([]ComputedEmbedding, error)
+	Compute(ctx context.Context, content, specName string, existing map[string]ExistingEmbedding, progress func(int)) ([]ComputedEmbedding, error)
 }
 
 // ExistingEmbedding is the subset of catalog.OperationEmbedding
@@ -115,6 +124,15 @@ type WorkerConfig struct {
 	Reloader  ConnectionReloader // optional
 	WorkerID  string             // empty -> auto-generated
 	PollEvery time.Duration      // fallback poll interval; default 30s
+
+	// Concurrency is the number of goroutines that share the queue.
+	// Each goroutine independently calls Claim, so a flood of new
+	// specs can be embedded in parallel up to this cap. The lease +
+	// SKIP LOCKED machinery in Claim already prevents two goroutines
+	// (in the same pod or across pods) from picking the same job.
+	// Zero or negative falls back to 1, preserving the pre-#430
+	// single-goroutine behavior.
+	Concurrency int
 }
 
 // Worker drains the job queue. One Worker instance per pod is
@@ -139,6 +157,9 @@ func NewWorker(cfg WorkerConfig) *Worker {
 	if cfg.PollEvery <= 0 {
 		cfg.PollEvery = defaultPollEvery
 	}
+	if cfg.Concurrency <= 0 {
+		cfg.Concurrency = 1
+	}
 	return &Worker{
 		cfg:    cfg,
 		wakeup: make(chan struct{}, 1),
@@ -158,14 +179,32 @@ func (w *Worker) Notify() {
 	}
 }
 
+// Concurrency reports the number of goroutines this worker will
+// spawn (or has spawned) on Start. Exposed so platform wiring tests
+// can assert the configured value flowed from
+// apigateway.embed_jobs.workers through WorkerConfig into the
+// Worker without exporting the cfg field itself.
+func (w *Worker) Concurrency() int { return w.cfg.Concurrency }
+
 // Start begins the worker loop. Safe to call multiple times;
-// only the first call spawns the goroutine.
+// only the first call spawns goroutines.
+//
+// One run() goroutine per WorkerConfig.Concurrency unit; each
+// shares the wakeup channel + stopCh and races for jobs through
+// Claim's SKIP LOCKED predicate. The lease guarantee at the DB
+// level keeps two goroutines from racing on the same (catalog,
+// spec) pair, so the only coordination needed inside the pod is
+// the wakeup-channel buffering (one slot; a flurry of NOTIFYs
+// coalesces into a single wake, which is fine because every
+// goroutine drains the queue independently after waking).
 func (w *Worker) Start(_ context.Context) {
 	if !w.started.CompareAndSwap(false, true) {
 		return
 	}
-	w.wg.Add(1)
-	go w.run() // #nosec G118 -- background goroutine intentionally uses its own context per iteration
+	for i := 0; i < w.cfg.Concurrency; i++ {
+		w.wg.Add(1)
+		go w.run() // #nosec G118 -- background goroutine intentionally uses its own context per iteration
+	}
 }
 
 // Stop signals shutdown and waits for the goroutine to exit.
@@ -217,6 +256,13 @@ func (w *Worker) drainQueue() {
 			cancel()
 			return
 		}
+		// Fan out to sibling goroutines: a successful claim implies
+		// the queue had at least one runnable job, so another idle
+		// goroutine may have more to do. Notify is buffered to size
+		// 1 so this coalesces with an already-pending wake. Placed
+		// after the error check so a DB outage that storms Claim
+		// errors does not also storm sibling-warn logs.
+		w.Notify()
 		w.process(ctx, job)
 		cancel()
 	}
@@ -263,7 +309,19 @@ func (w *Worker) process(ctx context.Context, job *Job) {
 		}
 	}
 
-	rows, err := w.cfg.Computer.Compute(ctx, content, job.SpecName, existing)
+	progress := func(completed int) {
+		// Best-effort progress publish. Errors are logged at debug
+		// level only; a missed update just delays the UI tick by
+		// one chunk and the next call (or the final Complete which
+		// sets embedding_count) corrects it. UpdateProgress already
+		// no-ops when the lease has rotated, so a stale write can
+		// not clobber a new holder's count.
+		if perr := w.cfg.Store.UpdateProgress(ctx, job.ID, w.cfg.WorkerID, completed); perr != nil {
+			slog.Debug("embedjobs: update_progress failed",
+				logKeyJobID, job.ID, "embedded_so_far", completed, logKeyError, perr)
+		}
+	}
+	rows, err := w.cfg.Computer.Compute(ctx, content, job.SpecName, existing, progress)
 	if err != nil {
 		w.retryOrFail(ctx, job, fmt.Sprintf("compute failed: %v", err))
 		return

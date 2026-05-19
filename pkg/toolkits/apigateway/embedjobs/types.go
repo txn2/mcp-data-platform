@@ -172,6 +172,18 @@ type Job struct {
 	CreatedAt      time.Time
 	StartedAt      *time.Time
 	CompletedAt    *time.Time
+	// EmbeddedSoFar is the worker's in-flight progress counter,
+	// bumped at every chunk boundary inside a long embed pass so
+	// the catalog status endpoint can render "running, N/M" while
+	// the final UPSERT transaction is still pending. Reset to 0
+	// only by Claim on the next pickup, which means a pending row
+	// recovered by Retry / ReleaseExpiredLeases, a terminal
+	// succeeded / failed row, or any other non-running state may
+	// still carry a non-zero value from a prior attempt. Callers
+	// gate the display on Status == running rather than on this
+	// counter; the value is meaningful only while a worker holds
+	// the lease. See #430.
+	EmbeddedSoFar int
 }
 
 // SpecKey is the composite (catalog_id, spec_name) reference
@@ -209,6 +221,13 @@ type SpecStatusRow struct {
 	JobAttempts    int
 	JobLastError   string
 	JobUpdatedAt   *time.Time
+	// EmbeddedSoFar mirrors Job.EmbeddedSoFar on the most recent
+	// job row. Reset to 0 only by Claim; a terminal succeeded /
+	// failed row or a pending row recovered from a lease expiry
+	// may still carry a prior attempt's value. The portal gates
+	// its "running, N/M" rendering on JobStatus == running so the
+	// stale value never reaches the UI. See #430.
+	EmbeddedSoFar int
 }
 
 // CatalogHealth is the per-catalog roll-up the catalog header
@@ -259,6 +278,16 @@ type Store interface {
 	// Complete on a job whose lease has rotated is a no-op
 	// (returns ErrNotFound).
 	Complete(ctx context.Context, id int64, workerID string) error
+
+	// UpdateProgress sets embedded_so_far on a running job's row.
+	// Called by the worker at chunk boundaries inside a long embed
+	// pass so the status endpoint can render incremental progress
+	// before the final UPSERT transaction commits. Best-effort:
+	// a write that misses (because the lease rotated and a foreign
+	// worker now holds the job) is silently dropped; the new
+	// holder will re-publish its own count. Returns nil on success
+	// even when zero rows match the (id, worker_id) filter.
+	UpdateProgress(ctx context.Context, id int64, workerID string, embeddedSoFar int) error
 
 	// Retry releases the lease and reschedules the job with an
 	// exponential backoff (5 * 2^attempts seconds). Used for

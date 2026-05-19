@@ -957,10 +957,20 @@ type embeddingStatusResponse struct {
 	SpecName       string `json:"spec_name"`
 	OperationCount int    `json:"operation_count"`
 	EmbeddingCount int    `json:"embedding_count"`
-	JobStatus      string `json:"job_status,omitempty"`
-	JobAttempts    int    `json:"job_attempts,omitempty"`
-	JobLastError   string `json:"job_last_error,omitempty"`
-	JobUpdatedAt   string `json:"job_updated_at,omitempty"`
+	// EmbeddedSoFar is the worker's in-flight chunk-progress counter.
+	// While JobStatus == "running" the portal renders this against
+	// OperationCount so a long embed pass shows incremental progress
+	// instead of staying at 0/N until the final atomic upsert commits
+	// EmbeddingCount in one tick (#430). Reset to 0 only when Claim
+	// picks the job up; terminal succeeded / failed rows and pending
+	// rows recovered from a lease expiry may still carry a prior
+	// attempt's value, which is why the portal gates its rendering
+	// on JobStatus == running.
+	EmbeddedSoFar int    `json:"embedded_so_far,omitempty"`
+	JobStatus     string `json:"job_status,omitempty"`
+	JobAttempts   int    `json:"job_attempts,omitempty"`
+	JobLastError  string `json:"job_last_error,omitempty"`
+	JobUpdatedAt  string `json:"job_updated_at,omitempty"`
 }
 
 func embeddingStatusResponseFromRow(row embedjobs.SpecStatusRow) embeddingStatusResponse {
@@ -968,6 +978,7 @@ func embeddingStatusResponseFromRow(row embedjobs.SpecStatusRow) embeddingStatus
 		SpecName:       row.SpecName,
 		OperationCount: row.OperationCount,
 		EmbeddingCount: row.EmbeddingCount,
+		EmbeddedSoFar:  row.EmbeddedSoFar,
 		JobStatus:      string(row.JobStatus),
 		JobAttempts:    row.JobAttempts,
 		JobLastError:   row.JobLastError,

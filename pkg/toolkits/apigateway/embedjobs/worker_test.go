@@ -3,6 +3,7 @@ package embedjobs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"sync"
 	"sync/atomic"
@@ -26,6 +27,9 @@ type fakeStore struct {
 
 	releasedTotal int
 	reconcileFunc func() (int, error)
+
+	progressByID       map[int64]int
+	lastProgressWorker string
 }
 
 func newFakeStore() *fakeStore { return &fakeStore{} }
@@ -181,6 +185,19 @@ func (*fakeStore) Health(_ context.Context, catalogID string) (*CatalogHealth, e
 	return &CatalogHealth{CatalogID: catalogID}, nil
 }
 
+func (s *fakeStore) UpdateProgress(_ context.Context, id int64, workerID string, embeddedSoFar int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.progressByID == nil {
+		s.progressByID = make(map[int64]int)
+	}
+	if s.progressByID[id] < embeddedSoFar {
+		s.progressByID[id] = embeddedSoFar
+	}
+	s.lastProgressWorker = workerID
+	return nil
+}
+
 // fakeResolver is the test SpecResolver: returns a fixed
 // content for the (catalog, spec) keys the test enqueues.
 type fakeResolver struct {
@@ -204,8 +221,13 @@ type fakeComputer struct {
 	rows  []ComputedEmbedding
 }
 
-func (c *fakeComputer) Compute(_ context.Context, _, _ string, _ map[string]ExistingEmbedding) ([]ComputedEmbedding, error) {
+func (c *fakeComputer) Compute(_ context.Context, _, _ string, _ map[string]ExistingEmbedding, progress func(int)) ([]ComputedEmbedding, error) {
 	c.calls.Add(1)
+	// Honor the progress callback so the worker's update path is
+	// exercised even in tests with no real chunking.
+	if progress != nil {
+		progress(len(c.rows))
+	}
 	if c.err != nil {
 		return nil, c.err
 	}
@@ -488,6 +510,159 @@ func TestWorker_NotifyWakesIdleWorker(t *testing.T) {
 	if computer.calls.Load() == 0 {
 		t.Error("Notify did not wake the worker (computer never called)")
 	}
+}
+
+// TestWorker_PublishesChunkProgress proves the worker's progress
+// callback path: the Computer invokes the supplied progress function
+// during its work, and the worker translates each call into a
+// Store.UpdateProgress write keyed by (job.ID, workerID, count).
+// The catalog status endpoint reads embedded_so_far from that
+// column so a long embed pass renders incremental progress before
+// the final atomic upsert (#430).
+func TestWorker_PublishesChunkProgress(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	_, _ = store.Enqueue(context.Background(), SpecKey{CatalogID: "c", SpecName: "x"}, KindSpecWrite)
+	resolver := &fakeResolver{contents: map[string]string{"c/x": "spec"}}
+	// fakeComputer.Compute calls progress(len(rows)) before returning.
+	// With three synthetic rows the worker should publish 3.
+	computer := &fakeComputer{rows: []ComputedEmbedding{
+		{OperationID: "a", Dim: 4, Embedding: []float32{1, 0, 0, 0}},
+		{OperationID: "b", Dim: 4, Embedding: []float32{0, 1, 0, 0}},
+		{OperationID: "c", Dim: 4, Embedding: []float32{0, 0, 1, 0}},
+	}}
+	w := NewWorker(WorkerConfig{
+		Store: store, Resolver: resolver, Computer: computer, Persister: &fakePersister{},
+		WorkerID: "wp", PollEvery: 50 * time.Millisecond,
+	})
+	w.Start(context.Background())
+	defer w.Stop()
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		store.mu.Lock()
+		done := store.completeCalls.Load() >= 1
+		store.mu.Unlock()
+		if done {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if got := store.progressByID[1]; got != 3 {
+		t.Errorf("UpdateProgress observed %d for job 1; want 3", got)
+	}
+	if store.lastProgressWorker != "wp" {
+		t.Errorf("UpdateProgress workerID=%q; want %q", store.lastProgressWorker, "wp")
+	}
+}
+
+// TestWorker_ConcurrencyProcessesJobsInParallel proves multiple
+// goroutines share the queue: with Concurrency=4 and four pending
+// jobs against a Computer that sleeps 50ms, total wall time is
+// well under the serial 200ms baseline (#430).
+func TestWorker_ConcurrencyProcessesJobsInParallel(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	for _, spec := range []string{"a", "b", "c", "d"} {
+		_, _ = store.Enqueue(context.Background(), SpecKey{CatalogID: "c", SpecName: spec}, KindSpecWrite)
+	}
+	resolver := &fakeResolver{contents: map[string]string{
+		"c/a": "spec", "c/b": "spec", "c/c": "spec", "c/d": "spec",
+	}}
+	const perJob = 50 * time.Millisecond
+	computer := &slowComputer{delay: perJob, rows: []ComputedEmbedding{
+		{OperationID: "op", Dim: 4, Embedding: []float32{1, 0, 0, 0}},
+	}}
+	w := NewWorker(WorkerConfig{
+		Store: store, Resolver: resolver, Computer: computer, Persister: &fakePersister{},
+		WorkerID: "wc", PollEvery: 200 * time.Millisecond, Concurrency: 4,
+	})
+	start := time.Now()
+	w.Start(context.Background())
+	defer w.Stop()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if store.completeCalls.Load() >= 4 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	elapsed := time.Since(start)
+	if store.completeCalls.Load() != 4 {
+		t.Fatalf("completed %d jobs; want 4", store.completeCalls.Load())
+	}
+	// Serial baseline is 4 * 50ms = 200ms; with 4 workers the
+	// pessimistic wall clock should be well under 150ms even with
+	// scheduler jitter. Use 175ms as the gate so the test is
+	// stable on CI runners without burning headroom.
+	if elapsed >= 175*time.Millisecond {
+		t.Errorf("4 jobs * %v with 4 workers took %v; expected parallel execution under 175ms", perJob, elapsed)
+	}
+}
+
+// TestWorker_ProgressWriteFailureIsLogged proves the worker keeps
+// running when Store.UpdateProgress errors mid-pass: the chunk
+// callback's log-debug-and-continue path exists specifically so a
+// transient DB hiccup on the progress column does not abort the
+// embed (the column is best-effort; the final Complete is the
+// authoritative signal).
+func TestWorker_ProgressWriteFailureIsLogged(t *testing.T) {
+	t.Parallel()
+	store := &progressFailStore{fakeStore: newFakeStore()}
+	_, _ = store.Enqueue(context.Background(), SpecKey{CatalogID: "c", SpecName: "x"}, KindSpecWrite)
+	resolver := &fakeResolver{contents: map[string]string{"c/x": "spec"}}
+	computer := &fakeComputer{rows: []ComputedEmbedding{{OperationID: "op", Dim: 4, Embedding: []float32{1, 0, 0, 0}}}}
+	w := NewWorker(WorkerConfig{
+		Store: store, Resolver: resolver, Computer: computer, Persister: &fakePersister{},
+		WorkerID: "wpf", PollEvery: 50 * time.Millisecond,
+	})
+	w.Start(context.Background())
+	defer w.Stop()
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if store.completeCalls.Load() >= 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if store.completeCalls.Load() != 1 {
+		t.Errorf("Complete called %d times; want 1 (job must finish despite progress write error)", store.completeCalls.Load())
+	}
+	if store.updateProgressErrors.Load() == 0 {
+		t.Error("UpdateProgress was never called; cannot prove the error path was exercised")
+	}
+}
+
+// progressFailStore wraps fakeStore so UpdateProgress always
+// returns an error, exercising the worker's debug-log branch.
+type progressFailStore struct {
+	*fakeStore
+	updateProgressErrors atomic.Int32
+}
+
+func (s *progressFailStore) UpdateProgress(_ context.Context, _ int64, _ string, _ int) error {
+	s.updateProgressErrors.Add(1)
+	return errors.New("simulated progress write failure")
+}
+
+// slowComputer adds a configurable delay so concurrency tests can
+// measure parallel speedup without depending on a real embedder.
+type slowComputer struct {
+	delay time.Duration
+	rows  []ComputedEmbedding
+}
+
+func (c *slowComputer) Compute(ctx context.Context, _, _ string, _ map[string]ExistingEmbedding, _ func(int)) ([]ComputedEmbedding, error) {
+	select {
+	case <-time.After(c.delay):
+	case <-ctx.Done():
+		return nil, fmt.Errorf("slowComputer: %w", ctx.Err())
+	}
+	return c.rows, nil
 }
 
 // TestReaper_ReleasesExpiredLease proves a job whose

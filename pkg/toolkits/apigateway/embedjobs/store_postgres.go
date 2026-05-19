@@ -142,11 +142,12 @@ func (s *PostgresStore) Claim(ctx context.Context, workerID string) (*Job, error
 		       worker_id = $2,
 		       attempts = attempts + 1,
 		       started_at = NOW(),
-		       lease_expires_at = NOW() + ($3 || ' seconds')::INTERVAL
+		       lease_expires_at = NOW() + ($3 || ' seconds')::INTERVAL,
+		       embedded_so_far = 0
 		 WHERE id = $1
 		 RETURNING id, catalog_id, spec_name, kind, status, attempts,
 		           last_error, next_run_at, worker_id, lease_expires_at,
-		           created_at, started_at, completed_at
+		           created_at, started_at, completed_at, embedded_so_far
 	`
 	leaseSeconds := int(LeaseDuration / time.Second)
 	row := tx.QueryRowContext(ctx, upd, id, workerID, leaseSeconds)
@@ -186,6 +187,32 @@ func (s *PostgresStore) Complete(ctx context.Context, id int64, workerID string)
 	}
 	if n == 0 {
 		return ErrNotFound
+	}
+	return nil
+}
+
+// UpdateProgress publishes the worker's chunk-boundary progress
+// counter to the row. The (id, worker_id, status='running')
+// predicate enforces lease ownership: if the lease has rotated to
+// another worker, the UPDATE matches zero rows and returns nil so
+// the calling worker carries on toward its next chunk without
+// caring whose count the row will surface (the new lease holder
+// will publish its own count on its next chunk).
+//
+// Best-effort: an error from the DB itself (network, pool
+// exhaustion) is returned for the worker to log, but the worker
+// does NOT retry or fail the job on a progress write error. The
+// final Complete is the authoritative success signal.
+func (s *PostgresStore) UpdateProgress(ctx context.Context, id int64, workerID string, embeddedSoFar int) error {
+	const q = `
+		UPDATE api_catalog_embedding_jobs
+		   SET embedded_so_far = $3
+		 WHERE id = $1
+		   AND status = 'running'
+		   AND worker_id = $2
+	`
+	if _, err := s.db.ExecContext(ctx, q, id, workerID, embeddedSoFar); err != nil {
+		return fmt.Errorf("embedjobs: update_progress: %w", err)
 	}
 	return nil
 }
@@ -365,7 +392,7 @@ func (s *PostgresStore) Get(ctx context.Context, id int64) (*Job, error) {
 	const q = `
 		SELECT id, catalog_id, spec_name, kind, status, attempts,
 		       last_error, next_run_at, worker_id, lease_expires_at,
-		       created_at, started_at, completed_at
+		       created_at, started_at, completed_at, embedded_so_far
 		  FROM api_catalog_embedding_jobs
 		 WHERE id = $1
 	`
@@ -396,7 +423,7 @@ func (s *PostgresStore) List(ctx context.Context, filter ListFilter) ([]Job, err
 	args = append(args, limit)
 	q := `SELECT id, catalog_id, spec_name, kind, status, attempts,
 	             last_error, next_run_at, worker_id, lease_expires_at,
-	             created_at, started_at, completed_at
+	             created_at, started_at, completed_at, embedded_so_far
 	        FROM api_catalog_embedding_jobs` + predicates +
 		` ORDER BY id DESC LIMIT $` + intToStr(len(args)) // #nosec G202 -- predicates are closed-set literal fragments; only $N placeholders are dynamic
 	rows, err := s.db.QueryContext(ctx, q, args...)
@@ -435,7 +462,8 @@ func (s *PostgresStore) SpecStatuses(ctx context.Context, catalogID string) ([]S
 		       COALESCE(j.status, '')             AS job_status,
 		       COALESCE(j.attempts, 0)            AS job_attempts,
 		       COALESCE(j.last_error, '')         AS job_last_error,
-		       GREATEST(j.completed_at, j.started_at, j.created_at) AS job_updated_at
+		       GREATEST(j.completed_at, j.started_at, j.created_at) AS job_updated_at,
+		       COALESCE(j.embedded_so_far, 0)     AS embedded_so_far
 		  FROM api_catalog_specs s
 		  LEFT JOIN (
 		    SELECT catalog_id, spec_name, COUNT(*) AS embedded
@@ -444,7 +472,7 @@ func (s *PostgresStore) SpecStatuses(ctx context.Context, catalogID string) ([]S
 		  ) e USING (catalog_id, spec_name)
 		  LEFT JOIN LATERAL (
 		    SELECT status, attempts, last_error,
-		           created_at, started_at, completed_at
+		           created_at, started_at, completed_at, embedded_so_far
 		      FROM api_catalog_embedding_jobs
 		     WHERE catalog_id = s.catalog_id
 		       AND spec_name = s.spec_name
@@ -465,7 +493,8 @@ func (s *PostgresStore) SpecStatuses(ctx context.Context, catalogID string) ([]S
 		var status string
 		var updatedAt sql.NullTime
 		if err := rows.Scan(&r.CatalogID, &r.SpecName, &r.OperationCount,
-			&r.EmbeddingCount, &status, &r.JobAttempts, &r.JobLastError, &updatedAt); err != nil {
+			&r.EmbeddingCount, &status, &r.JobAttempts, &r.JobLastError, &updatedAt,
+			&r.EmbeddedSoFar); err != nil {
 			return nil, fmt.Errorf("embedjobs: spec statuses scan: %w", err)
 		}
 		r.JobStatus = Status(status)
@@ -544,7 +573,8 @@ func scanJob(r rowScanner) (*Job, error) {
 	)
 	if err := r.Scan(&j.ID, &j.CatalogID, &j.SpecName, &kind, &status,
 		&j.Attempts, &j.LastError, &j.NextRunAt, &j.WorkerID,
-		&leaseExpiresAt, &j.CreatedAt, &startedAt, &completedAt); err != nil {
+		&leaseExpiresAt, &j.CreatedAt, &startedAt, &completedAt,
+		&j.EmbeddedSoFar); err != nil {
 		return nil, fmt.Errorf("embedjobs: scan job row: %w", err)
 	}
 	j.Kind = Kind(kind)

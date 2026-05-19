@@ -707,7 +707,7 @@ func TestEmbedInBatches_ChunksAtBatchSize(t *testing.T) {
 		texts[i] = fmt.Sprintf("text-%d", i)
 	}
 
-	vectors, err := embedInBatches(context.Background(), emb, texts, 32)
+	vectors, err := embedInBatches(context.Background(), emb, texts, 32, nil)
 	if err != nil {
 		t.Fatalf("embedInBatches: %v", err)
 	}
@@ -737,7 +737,7 @@ func TestEmbedInBatches_PropagatesError(t *testing.T) {
 	for i := range texts {
 		texts[i] = fmt.Sprintf("text-%d", i)
 	}
-	_, err := embedInBatches(context.Background(), emb, texts, 32)
+	_, err := embedInBatches(context.Background(), emb, texts, 32, nil)
 	if err == nil {
 		t.Fatal("expected error from failing batch")
 	}

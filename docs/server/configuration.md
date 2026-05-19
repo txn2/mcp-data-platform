@@ -696,6 +696,20 @@ memory:
 !!! note "Ollama batch endpoint"
     Batch embedding calls (API gateway spec indexing) issue a single `POST /api/embed` request per batch against modern Ollama servers. Servers that lack the batch endpoint (response: HTTP 404) are detected on the first call; the platform logs a WARN and transparently falls back to one `POST /api/embeddings` request per text. Upgrading the Ollama server is recommended for substantially faster batch indexing on multi-spec catalogs. Memory writes embed one record at a time and always use `/api/embeddings`.
 
+## API Gateway Configuration
+
+Cluster-wide tuning for the API gateway toolkit's background work. Connection-level configuration (`base_url`, `auth_mode`, credentials) lives in the connection store; this section is for knobs that apply to every API connection.
+
+```yaml
+apigateway:
+  embed_jobs:
+    workers: 1
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `embed_jobs.workers` | int | `1` | Number of embedding-worker goroutines per pod. Each goroutine independently claims and processes jobs; the lease + `SKIP LOCKED` predicate in the queue's claim path prevents two goroutines (in the same pod or across pods) from picking the same job. Increase to 2-4 for deployments with many specs and a fast embedder; CPU-only embedders typically saturate at 1 because the bottleneck is the embedding model. |
+
 ## MCP Apps Configuration
 
 MCP Apps provide interactive UI components that enhance tool results. The platform provides the infrastructure; you provide the HTML/JS/CSS apps.
