@@ -12,6 +12,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
 
 // Test constants for MCP audit tests.
@@ -553,6 +555,160 @@ func TestBuildMCPAuditEvent_WithProtocolError(t *testing.T) {
 	assert.Empty(t, event.ErrorCategory)
 	assert.Equal(t, 0, event.ResponseChars, "no response for protocol error")
 	assert.Equal(t, 0, event.ContentBlocks, "no content blocks for protocol error")
+}
+
+// TestBuildMCPAuditEvent_AuditOutcomeMetaOverride verifies the audit
+// middleware honors the _meta.audit_outcome / audit_outcome_message
+// hint that upstream-proxying toolkits (apigateway) populate on
+// every result. See issue #432: success cannot be derived from
+// IsError for the apigateway because upstream 4xx/5xx are NOT
+// gateway failures (gateway succeeded at proxying). They are
+// successful proxies of unsuccessful upstream calls, and the audit
+// row should reflect the latter.
+func TestBuildMCPAuditEvent_AuditOutcomeMetaOverride(t *testing.T) {
+	tests := []struct {
+		name             string
+		isError          bool
+		outcome          string
+		outcomeMessage   string
+		existingErrText  string
+		wantSuccess      bool
+		wantCategory     string
+		wantErrorMessage string
+	}{
+		{
+			name:             "outcome=ok leaves success true, no category",
+			isError:          false,
+			outcome:          observability.OutcomeOK,
+			wantSuccess:      true,
+			wantCategory:     "",
+			wantErrorMessage: "",
+		},
+		{
+			name:             "upstream_4xx with IsError false → success false, category set, message lifted",
+			isError:          false,
+			outcome:          observability.OutcomeUpstream4xx,
+			outcomeMessage:   "Not Found",
+			wantSuccess:      false,
+			wantCategory:     observability.OutcomeUpstream4xx,
+			wantErrorMessage: "Not Found",
+		},
+		{
+			name:             "upstream_5xx with IsError false → success false, category set",
+			isError:          false,
+			outcome:          observability.OutcomeUpstream5xx,
+			outcomeMessage:   "Service Unavailable",
+			wantSuccess:      false,
+			wantCategory:     observability.OutcomeUpstream5xx,
+			wantErrorMessage: "Service Unavailable",
+		},
+		{
+			name:             "transport_err with IsError true → success false, category overrides empty",
+			isError:          true,
+			existingErrText:  "Get \"https://x/\": dial tcp: connection refused",
+			outcome:          observability.OutcomeTransportErr,
+			outcomeMessage:   "Get \"https://x/\": dial tcp: connection refused",
+			wantSuccess:      false,
+			wantCategory:     observability.OutcomeTransportErr,
+			wantErrorMessage: "Get \"https://x/\": dial tcp: connection refused",
+		},
+		{
+			name:             "upstream_timeout with IsError true → category overrides",
+			isError:          true,
+			existingErrText:  "Get \"https://x/\": context deadline exceeded",
+			outcome:          observability.OutcomeUpstreamTimeout,
+			outcomeMessage:   "Get \"https://x/\": context deadline exceeded",
+			wantSuccess:      false,
+			wantCategory:     observability.OutcomeUpstreamTimeout,
+			wantErrorMessage: "Get \"https://x/\": context deadline exceeded",
+		},
+		{
+			name:             "no _meta hint → behavior unchanged (success result)",
+			isError:          false,
+			outcome:          "",
+			wantSuccess:      true,
+			wantCategory:     "",
+			wantErrorMessage: "",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pc := NewPlatformContext("req-outcome")
+			pc.ToolName = testAuditToolName
+
+			// Build Content to mirror what the apigateway's
+			// buildInvokeResult actually emits: a JSON-marshaled
+			// envelope when IsError is set. Without this, the
+			// IsError branch in buildMCPAuditEvent would receive
+			// the plain scrubbed error string and the test would
+			// give a false positive for the meta-message override
+			// logic (the override is supposed to REPLACE the
+			// JSON-blob extraction, not just fill an empty slot).
+			contentText := "{}"
+			if tc.isError && tc.existingErrText != "" {
+				body, err := json.Marshal(map[string]any{
+					"status":      0,
+					"duration_ms": 0,
+					"error":       tc.existingErrText,
+				})
+				require.NoError(t, err)
+				contentText = string(body)
+			}
+			result := &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: contentText}},
+				IsError: tc.isError,
+			}
+			if tc.outcome != "" {
+				result.Meta = mcp.Meta{
+					observability.MetaAuditOutcome: tc.outcome,
+				}
+				if tc.outcomeMessage != "" {
+					result.Meta[observability.MetaAuditOutcomeMessage] = tc.outcomeMessage
+				}
+			}
+
+			event := buildMCPAuditEvent(pc, auditCallInfo{
+				Request:   createAuditTestRequest(t, testAuditToolName, nil),
+				Result:    result,
+				StartTime: time.Now(),
+				Duration:  time.Millisecond,
+			})
+
+			assert.Equal(t, tc.wantSuccess, event.Success, "Success")
+			assert.Equal(t, tc.wantCategory, event.ErrorCategory, "ErrorCategory")
+			assert.Equal(t, tc.wantErrorMessage, event.ErrorMessage, "ErrorMessage")
+		})
+	}
+}
+
+// TestReadAuditOutcomeMeta covers the nil-safety and type-assertion
+// corners of the meta-reader so the audit middleware doesn't panic
+// on a malformed result.
+func TestReadAuditOutcomeMeta(t *testing.T) {
+	t.Run("nil result", func(t *testing.T) {
+		o, m := readAuditOutcomeMeta(nil)
+		assert.Empty(t, o)
+		assert.Empty(t, m)
+	})
+	t.Run("nil meta", func(t *testing.T) {
+		o, m := readAuditOutcomeMeta(&mcp.CallToolResult{})
+		assert.Empty(t, o)
+		assert.Empty(t, m)
+	})
+	t.Run("non-string outcome ignored", func(t *testing.T) {
+		r := &mcp.CallToolResult{Meta: mcp.Meta{observability.MetaAuditOutcome: 42}}
+		o, _ := readAuditOutcomeMeta(r)
+		assert.Empty(t, o)
+	})
+	t.Run("string values returned", func(t *testing.T) {
+		r := &mcp.CallToolResult{Meta: mcp.Meta{
+			observability.MetaAuditOutcome:        observability.OutcomeUpstream5xx,
+			observability.MetaAuditOutcomeMessage: "Service Unavailable",
+		}}
+		o, m := readAuditOutcomeMeta(r)
+		assert.Equal(t, observability.OutcomeUpstream5xx, o)
+		assert.Equal(t, "Service Unavailable", m)
+	})
 }
 
 // Helper to create ServerRequest for audit testing.

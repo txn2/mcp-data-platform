@@ -54,14 +54,20 @@ type Deps struct {
 // the HTTP status of the platform's own response only signals
 // platform-level outcomes:
 //
-//	200 — the platform performed the upstream call (outcome in body)
-//	400 — the request failed validation (method, path, body)
-//	401 — no credential, or the credential was rejected
-//	403 — persona or route policy denied the call
-//	404 — the named connection is not registered
+//	200 - the platform performed the upstream call (outcome in body)
+//	400 - the request failed validation (method, path, body)
+//	401 - no credential, or the credential was rejected
+//	403 - persona or route policy denied the call
+//	404 - the named connection is not registered
+//	502 - the gateway could not reach the upstream (DNS, TCP, TLS, reset)
+//	504 - the upstream call exceeded its deadline before responding
 //
-// Surfacing the upstream status in the body keeps platform-side and
-// upstream-side failures distinguishable for NiFi's response routing.
+// 502 and 504 represent gateway-level failures (issue #432): the
+// gateway tried to proxy and did not succeed. Upstream-level failures
+// (the upstream responded with 4xx or 5xx) still flow as wire HTTP
+// 200 with the upstream code embedded in InvokeOutput.Status, so HTTP
+// clients can distinguish "the gateway is broken" from "the upstream
+// is unhappy" using their built-in status-code routing.
 func NewHandler(deps Deps) (http.Handler, error) {
 	if deps.MCPServer == nil {
 		return nil, errors.New("gatewayhttp: MCPServer is required")
@@ -244,10 +250,22 @@ func firstTextContent(content []mcp.Content) (string, bool) {
 // classifyToolError inspects an MCP tool error envelope and picks an
 // HTTP status that best represents the failure. The matched patterns
 // are stable strings emitted by the apigateway toolkit and the MCP
-// auth/authz middleware: "authentication failed:", "not authorized:",
-// and "connection %q not found". Anything else is returned as 400 so
-// that a request the platform refused does not surface as a 5xx
-// (which would imply a platform fault).
+// auth/authz middleware. Categories, in order of evaluation:
+//
+//   - "authentication failed" → 401 (caller's token bad)
+//   - "not authorized"        → 403 (caller's persona denies)
+//   - timeout signatures      → 504 (gateway gave up waiting on upstream)
+//   - transport signatures    → 502 (gateway could not reach upstream)
+//   - "not found"             → 404 (connection name unknown to the toolkit)
+//   - anything else           → 400 (request the platform refused, NOT a
+//     platform fault; clients see 4xx so they don't trigger retry loops
+//     on what is essentially a malformed input).
+//
+// Order matters: timeout/transport patterns are evaluated AFTER auth
+// because auth errors are independent of the upstream and should
+// surface as auth failures, but BEFORE the "not found" pattern
+// because a transport error reading "no such host" must not be
+// mistaken for a connection-name lookup miss.
 func classifyToolError(payload string) (status int, message string) {
 	var env errorEnvelope
 	if err := json.Unmarshal([]byte(payload), &env); err != nil {
@@ -260,11 +278,42 @@ func classifyToolError(payload string) (status int, message string) {
 		return http.StatusUnauthorized, msg
 	case strings.Contains(lower, "not authorized"):
 		return http.StatusForbidden, msg
+	case isTimeoutSignature(lower):
+		return http.StatusGatewayTimeout, msg
+	case isTransportSignature(lower):
+		return http.StatusBadGateway, msg
 	case strings.Contains(lower, "not found"):
 		return http.StatusNotFound, msg
 	default:
 		return http.StatusBadRequest, msg
 	}
+}
+
+// isTimeoutSignature reports whether the lowercased error message
+// carries one of Go's stable timeout phrases. Mirrors the same set
+// used by pkg/toolkits/apigateway.isTimeoutErrorMessage so the
+// REST shim and the toolkit agree on what counts as a timeout.
+func isTimeoutSignature(lower string) bool {
+	return strings.Contains(lower, "context deadline exceeded") ||
+		strings.Contains(lower, "client.timeout exceeded") ||
+		strings.Contains(lower, "i/o timeout")
+}
+
+// isTransportSignature reports whether the lowercased error message
+// carries one of Go's stable non-timeout transport-error phrases:
+// DNS resolution, TCP refused, TLS handshake, broken stream, peer
+// reset. Each of these means the gateway could not successfully
+// proxy the call to the upstream, so the REST shim returns 502
+// Bad Gateway to its caller (NiFi / curl / etc.), which lets
+// those clients use their built-in retry semantics for 5xx instead
+// of having to inspect the JSON body.
+func isTransportSignature(lower string) bool {
+	return strings.Contains(lower, "connection refused") ||
+		strings.Contains(lower, "no such host") ||
+		strings.Contains(lower, "tls:") ||
+		strings.Contains(lower, "tls handshake") ||
+		strings.Contains(lower, "eof") ||
+		strings.Contains(lower, "connection reset")
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

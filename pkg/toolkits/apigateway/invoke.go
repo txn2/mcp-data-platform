@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
 
 // supportedMethods is the closed set of HTTP methods api_invoke_endpoint
@@ -67,11 +69,26 @@ type InvokeInput struct {
 	TimeoutSeconds int               `json:"timeout_seconds,omitempty"`
 }
 
-// InvokeOutput is the structured result returned to the model. Errors
-// reaching the upstream (DNS, connection refused, TLS failure,
-// timeout) are surfaced via Error rather than as MCP tool errors so
-// the model can branch on them without losing the rest of the
-// response envelope.
+// InvokeOutput is the structured result returned to the model and to
+// the REST gateway shim. Outcomes are distinguished at the MCP-result
+// layer (see buildInvokeResult and issue #432):
+//
+//   - Upstream responded with anything (2xx-5xx): the gateway
+//     succeeded at proxying. Status carries the upstream HTTP code,
+//     Error is normally empty, and the wrapping CallToolResult has
+//     IsError=false. Wire-level HTTP status from the REST shim stays
+//     200; HTTP clients read the upstream code from Status and
+//     branch on it.
+//   - Upstream responded with a status but the body could not be
+//     read in full (mid-stream drop, body exceeded the buffer
+//     allocator): Status carries the upstream code, Error carries
+//     the read-failure text, IsError stays false. The partial body
+//     is still returned in Body so callers can inspect what arrived.
+//   - Gateway could not reach upstream OR the upstream call timed
+//     out: gateway-level failure. Status is 0, Error carries the
+//     scrubbed transport-error text, the wrapping CallToolResult
+//     has IsError=true, and the REST shim maps this to wire 502
+//     (transport) or 504 (timeout).
 type InvokeOutput struct {
 	Status        int                 `json:"status"`
 	Headers       map[string][]string `json:"headers,omitempty"`
@@ -385,6 +402,70 @@ func buildRequest(ctx context.Context, spec requestSpec) (*http.Request, error) 
 		req.Header.Set("Accept", "application/json, */*;q=0.5")
 	}
 	return req, nil
+}
+
+// httpStatus4xxLo / httpStatus5xxLo / httpStatus6xxLo bound the
+// upstream status ranges used by ClassifyInvokeOutcome. They mirror
+// the constants in pkg/observability/status.go but live here so this
+// file's switch reads as plain numbers without an import alias gymnastics.
+const (
+	httpStatus4xxLo = 400
+	httpStatus5xxLo = 500
+	httpStatus6xxLo = 600
+)
+
+// ClassifyInvokeOutcome maps an InvokeOutput to one of the bounded
+// outcome categories defined in pkg/observability. The audit middleware
+// reads this category off the CallToolResult's _meta to populate
+// audit_logs.error_category and to derive success without relying on
+// the MCP IsError flag, which is reserved for gateway-level failures
+// (transport / timeout) per the corrected gateway semantics described
+// in issue #432.
+//
+// Mapping:
+//   - Status 0 with a timeout-like error message → upstream_timeout
+//   - Status 0 with any other transport error    → transport_err
+//   - 4xx upstream response                      → upstream_4xx
+//   - 5xx upstream response                      → upstream_5xx
+//   - 2xx / 3xx upstream response                → ok
+//
+// Pattern matching on the scrubbed error string is acceptable here
+// because scrubTransportError above normalizes the upstream error
+// shape; the substrings checked below are the stable phrases Go's
+// net/http and net/url error types produce.
+func ClassifyInvokeOutcome(out InvokeOutput) string {
+	if out.Status == 0 {
+		if isTimeoutErrorMessage(out.Error) {
+			return observability.OutcomeUpstreamTimeout
+		}
+		return observability.OutcomeTransportErr
+	}
+	if out.Status >= httpStatus5xxLo && out.Status < httpStatus6xxLo {
+		return observability.OutcomeUpstream5xx
+	}
+	if out.Status >= httpStatus4xxLo && out.Status < httpStatus5xxLo {
+		return observability.OutcomeUpstream4xx
+	}
+	return observability.OutcomeOK
+}
+
+// isTimeoutErrorMessage reports whether the scrubbed transport-error
+// string carries a timeout signature. Strings checked are the stable
+// phrases Go's net/http, context, and net/url error types emit:
+//   - "context deadline exceeded" for context.DeadlineExceeded
+//   - "Client.Timeout exceeded" for http.Client when its own Timeout fires
+//   - "i/o timeout" for net.OpError on read/write timeouts
+//
+// All three are case-insensitive so the message can come from any
+// wrapper layer. A plain "timeout" substring is intentionally NOT
+// matched because that word can appear in legitimate body content
+// surfaced via scrubTransportError; the more specific phrases above
+// are unambiguous.
+func isTimeoutErrorMessage(msg string) bool {
+	lower := strings.ToLower(msg)
+	return strings.Contains(lower, "context deadline exceeded") ||
+		strings.Contains(lower, "client.timeout exceeded") ||
+		strings.Contains(lower, "i/o timeout")
 }
 
 // scrubTransportError rewrites a transport-level error so its message
