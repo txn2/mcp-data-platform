@@ -287,7 +287,7 @@ func indexOf(ops []OperationSummary, target OperationSummary) int {
 // model's context window, or hitting an HTTP body cap. The caller's
 // ctx is honored across all batches; the first batch error short-
 // circuits the rest.
-func embedInBatches(ctx context.Context, embedder embedding.Provider, texts []string, batchSize int) ([][]float32, error) {
+func embedInBatches(ctx context.Context, embedder embedding.Provider, texts []string, batchSize int, chunkDone func(completed int)) ([][]float32, error) {
 	if batchSize <= 0 {
 		batchSize = len(texts)
 	}
@@ -304,6 +304,9 @@ func embedInBatches(ctx context.Context, embedder embedding.Provider, texts []st
 				start, end, len(vectors), len(chunk))
 		}
 		out = append(out, vectors...)
+		if chunkDone != nil {
+			chunkDone(len(out))
+		}
 	}
 	return out, nil
 }

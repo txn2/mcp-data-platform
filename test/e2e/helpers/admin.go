@@ -718,14 +718,16 @@ func baseAdminConfig() *platform.Config {
 			PathPrefix: "/api/v1/admin",
 		},
 		Audit: platform.AuditConfig{
-			Enabled:      true,
+			Enabled:      boolPtr(true),
 			LogToolCalls: true,
 		},
 		Knowledge: platform.KnowledgeConfig{
-			Enabled: true,
+			Enabled: boolPtr(true),
 		},
 	}
 }
+
+func boolPtr(v bool) *bool { return &v }
 
 // StandaloneAdminConfig returns a config for standalone mode (no database).
 func StandaloneAdminConfig() *platform.Config {

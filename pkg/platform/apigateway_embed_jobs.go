@@ -63,11 +63,12 @@ func (p *Platform) WireAPIGatewayEmbedJobsFromDB() {
 	persister := &catalogEmbeddingPersister{store: catalogStore}
 
 	worker := embedjobs.NewWorker(embedjobs.WorkerConfig{
-		Store:     store,
-		Resolver:  resolver,
-		Computer:  computer,
-		Persister: persister,
-		Reloader:  &apigatewayConnectionReloader{registry: p.toolkitRegistry},
+		Store:       store,
+		Resolver:    resolver,
+		Computer:    computer,
+		Persister:   persister,
+		Reloader:    &apigatewayConnectionReloader{registry: p.toolkitRegistry},
+		Concurrency: p.config.APIGateway.EmbedJobs.Workers,
 	})
 	p.apiGatewayEmbedJobsWorker = worker
 
@@ -164,7 +165,7 @@ type embeddingProvider interface {
 // kit's ComputeOperationEmbeddings, and translates the result
 // back. The two intermediate types exist so embedjobs does not
 // import pgvector through every transitive consumer.
-func (c *apigatewayEmbeddingComputer) Compute(ctx context.Context, content, specName string, existing map[string]embedjobs.ExistingEmbedding) ([]embedjobs.ComputedEmbedding, error) {
+func (c *apigatewayEmbeddingComputer) Compute(ctx context.Context, content, specName string, existing map[string]embedjobs.ExistingEmbedding, progress func(int)) ([]embedjobs.ComputedEmbedding, error) {
 	catalogExisting := make(map[string]apigatewaycatalog.OperationEmbedding, len(existing))
 	for k, v := range existing {
 		catalogExisting[k] = apigatewaycatalog.OperationEmbedding{
@@ -175,7 +176,7 @@ func (c *apigatewayEmbeddingComputer) Compute(ctx context.Context, content, spec
 			Dim:         v.Dim,
 		}
 	}
-	rows, err := apigatewaykit.ComputeOperationEmbeddings(ctx, c.embedder, content, specName, catalogExisting)
+	rows, err := apigatewaykit.ComputeOperationEmbeddings(ctx, c.embedder, content, specName, catalogExisting, progress)
 	if err != nil {
 		return nil, fmt.Errorf("apigatewayEmbeddingComputer: %w", err)
 	}

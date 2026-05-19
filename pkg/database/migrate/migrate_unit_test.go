@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	migrateTestFileCount    = 90
+	migrateTestFileCount    = 92
 	migrateTestSuccess      = "success"
 	migrateTestFactoryError = "factory error"
 )
@@ -98,6 +98,8 @@ func TestMigrationsEmbedded(t *testing.T) {
 		"000032_resources.down.sql",
 		"000041_drop_legacy_per_kind_oauth_token_tables.up.sql",
 		"000041_drop_legacy_per_kind_oauth_token_tables.down.sql",
+		"000046_api_catalog_embedding_jobs_progress.up.sql",
+		"000046_api_catalog_embedding_jobs_progress.down.sql",
 	}
 
 	fileNames := make(map[string]bool)

@@ -902,12 +902,17 @@ function EmbeddingStatusBadge({ status }: { status?: APICatalogEmbeddingSpecStat
     );
   }
   if (jobStatus === "running") {
+    // While the spec's UPSERT transaction is still pending, embedding_count
+    // sits at 0 (or the previous run's value). The worker publishes
+    // embedded_so_far at every chunk boundary so the badge ticks up
+    // before the final commit. See #430.
+    const progress = status.embedded_so_far ?? status.embedding_count;
     return (
       <span
         title={`Worker is embedding this spec (attempt ${status.job_attempts ?? 1})`}
         className="inline-flex items-center gap-1 rounded bg-sky-100 px-1.5 py-0.5 text-xs text-sky-900 dark:bg-sky-950/30 dark:text-sky-200"
       >
-        indexing {status.embedding_count}/{status.operation_count}
+        indexing {progress}/{status.operation_count}
       </span>
     );
   }

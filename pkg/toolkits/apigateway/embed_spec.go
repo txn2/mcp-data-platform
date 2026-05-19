@@ -14,20 +14,32 @@ import (
 // walks its operations, and returns one catalog.OperationEmbedding
 // per operation. For an operation whose text hashes to a value
 // already present in existing, the existing row's Embedding is
-// reused — skipping the provider call for unchanged operations on
-// a spec refresh. Returns nil when embedder is nil (embedding-less
-// deployment) or when the spec parses to zero operations.
+// reused (no provider call) on a spec refresh. Returns nil when
+// embedder is nil (embedding-less deployment) or when the spec
+// parses to zero operations.
 //
 // The embed text is built with an empty base path so a base_path
 // change does not invalidate every vector. Operators tweaking the
 // per-spec prefix shouldn't trigger a full re-embed pass.
+//
+// progress is invoked at chunk boundaries during the fresh-embed
+// pass with the cumulative number of operations whose vectors are
+// ready (reused rows are counted up front; freshly-embedded rows
+// are added per chunk). The embed-jobs worker uses this to publish
+// embedded_so_far to the job row so the catalog status endpoint
+// can render incremental progress while the final atomic upsert is
+// still pending (#430). nil progress disables the callback for
+// non-worker call sites (admin handler invocations that never see
+// the long-running path).
 //
 // Called by the admin handler after every spec upsert / upload /
 // refresh / clone. Failures are non-fatal at the call site: the
 // spec write has already succeeded; an embedding compute failure
 // just means semantic ranking falls back to lexical until the
 // operator runs the re-embed admin endpoint.
-func ComputeOperationEmbeddings(ctx context.Context, embedder embedding.Provider, content, specName string, existing map[string]catalog.OperationEmbedding) ([]catalog.OperationEmbedding, error) {
+//
+//nolint:revive // argument-limit: orchestration entry point; each arg is atomic (ctx, embedder, two distinct strings, dedup map, progress callback) and bundling would only push the same surface into a struct.
+func ComputeOperationEmbeddings(ctx context.Context, embedder embedding.Provider, content, specName string, existing map[string]catalog.OperationEmbedding, progress func(completed int)) ([]catalog.OperationEmbedding, error) {
 	if embedder == nil {
 		return nil, nil
 	}
@@ -42,7 +54,14 @@ func ComputeOperationEmbeddings(ctx context.Context, embedder embedding.Provider
 	model := providerModel(embedder)
 	dim := embedder.Dimension()
 	rows, toEmbedIdx, toEmbedTexts := planEmbeddingRows(ops, texts, existing, model, dim)
-	if err := fillFreshEmbeddings(ctx, embedder, rows, toEmbedIdx, toEmbedTexts); err != nil {
+	reused := len(rows) - len(toEmbedIdx)
+	// Publish the initial reused-count so a refresh on a fully
+	// cached spec ticks straight to operation_count without waiting
+	// for the embedding pass (which has nothing to do).
+	if progress != nil {
+		progress(reused)
+	}
+	if err := fillFreshEmbeddings(ctx, embedder, rows, toEmbedIdx, toEmbedTexts, reused, progress); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -83,11 +102,24 @@ func planEmbeddingRows(ops []OperationSummary, texts []string, existing map[stri
 // fillFreshEmbeddings calls embedder for the deltas only and
 // writes each vector back into its row. No-op when toEmbedTexts
 // is empty (every operation's vector was reused from existing).
-func fillFreshEmbeddings(ctx context.Context, embedder embedding.Provider, rows []catalog.OperationEmbedding, toEmbedIdx []int, toEmbedTexts []string) error {
+//
+// reusedBase is the count of operations whose vectors were reused
+// from the existing map (and therefore already published via the
+// initial progress callback). The per-chunk progress publish adds
+// the count of freshly-embedded operations to this base so the
+// caller sees a cumulative "operations ready" counter across the
+// whole spec, not just the fresh-embed portion.
+//
+//nolint:revive // argument-limit: internal helper called from one site; splitting would either duplicate the (rows, toEmbedIdx, toEmbedTexts) trio that ComputeOperationEmbeddings already produces together, or move the worker-progress wiring further from its consumer. Each arg is distinct.
+func fillFreshEmbeddings(ctx context.Context, embedder embedding.Provider, rows []catalog.OperationEmbedding, toEmbedIdx []int, toEmbedTexts []string, reusedBase int, progress func(completed int)) error {
 	if len(toEmbedTexts) == 0 {
 		return nil
 	}
-	vectors, err := embedInBatches(ctx, embedder, toEmbedTexts, embedBatchSize)
+	vectors, err := embedInBatches(ctx, embedder, toEmbedTexts, embedBatchSize, func(freshDone int) {
+		if progress != nil {
+			progress(reusedBase + freshDone)
+		}
+	})
 	if err != nil {
 		return fmt.Errorf("embed operation batch: %w", err)
 	}

@@ -1048,6 +1048,12 @@ export interface APICatalogEmbeddingSpecStatus {
   spec_name: string;
   operation_count: number;
   embedding_count: number;
+  // embedded_so_far is the worker's in-flight chunk-progress counter.
+  // While job_status is "running" the badge renders this against
+  // operation_count so a long embed pass shows incremental progress
+  // instead of staying at 0/N until the final atomic upsert commits
+  // embedding_count in one tick. See #430.
+  embedded_so_far?: number;
   job_status?: string;
   job_attempts?: number;
   job_last_error?: string;

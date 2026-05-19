@@ -90,7 +90,7 @@ Embedding work runs through a Postgres-backed job queue (`api_catalog_embedding_
 Four components run alongside the admin server:
 
 - **Producer** — every spec write (`upsert`, `upload`, `refresh`, `clone`) and the manual-retry admin action insert a row into `api_catalog_embedding_jobs`. A partial unique index on `(catalog_id, spec_name) WHERE status IN ('pending','running')` makes duplicate enqueues a no-op, so a spec edited twice in quick succession does not stack redundant work.
-- **Worker** — pulls one job at a time from the queue, fetches the current spec content, runs the embedding provider, persists vectors, marks the job succeeded. Lease default is 10 minutes; a pod that crashes mid-embed leaves its row in status=running and the reaper recovers it.
+- **Worker** claims one job per iteration, fetches the current spec content, runs the embedding provider, persists vectors, marks the job succeeded. Lease default is 10 minutes; a pod that crashes mid-embed leaves its row in status=running and the reaper recovers it. Each pod runs `apigateway.embed_jobs.workers` goroutines (default 1) that share the queue; the SKIP LOCKED predicate plus the lease guarantee mean two goroutines (in the same pod or across pods) never pick the same job. During a long embed the worker publishes `embedded_so_far` at every chunk boundary so the catalog status endpoint can render incremental progress before the final atomic upsert commits `embedding_count`.
 - **Reaper** — sweeps every 30 seconds: any row in status=running with `lease_expires_at <= NOW()` flips back to pending. Multiple pods, fast lease recovery.
 - **Reconciler** — periodic gap detector. Compares `api_catalog_specs.operation_count` (set at write time) against the actual count of rows in `api_catalog_operation_embeddings` and enqueues jobs for any spec where they disagree. Runs once on pod boot and every 5 minutes thereafter. This is the convergence backstop: a spec written before an embedder was configured, vectors lost to a partial restore, or any other gap is filled in without operator action.
 
@@ -100,7 +100,7 @@ Failure handling: retryable provider errors back off exponentially (5s, 10s, 20s
 
 The catalog editor renders the job queue's state directly:
 
-- **Per-spec badge** — `47/47 indexed` (green) when fully embedded, `indexing 12/47` (blue) while a worker is processing, `queued` (amber) while waiting for a worker, `failed` (red, tooltip carries the last error) after retries are exhausted.
+- **Per-spec badge.** `47/47 indexed` (green) when fully embedded, `indexing N/47` (blue) while a worker is processing where N is the chunk-progress counter that ticks up during the run, `queued` (amber) while waiting for a worker, `failed` (red, tooltip carries the last error) after retries are exhausted.
 - **Catalog header summary** — one-line roll-up: `All N specs indexed` (green) or `K indexed / M total (2 running, 1 failed)` (amber/red).
 - **Retry button** — visible only on failed rows; enqueues a `manual_retry` job. The reconciler's automatic path is the default; this is the escape hatch for "model changed externally."
 
