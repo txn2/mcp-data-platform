@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/txn2/mcp-datahub/pkg/types"
 
+	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
 
@@ -586,6 +587,29 @@ func TestHandleCaptureInsight_AllFieldsPopulated(t *testing.T) {
 	assert.Len(t, insight.RelatedColumns, 1)
 	assert.Len(t, insight.SuggestedActions, 1)
 	assert.Equal(t, testStatusVal, insight.Status)
+}
+
+// TestHandleCaptureInsight_NoopEmbedderSkipsMemoryUpdate proves the
+// write-path guard on the knowledge capture path: when the embedder
+// is the noop placeholder, capture_insight MUST NOT call memoryStore.
+// Update with a zero vector (#429).
+func TestHandleCaptureInsight_NoopEmbedderSkipsMemoryUpdate(t *testing.T) {
+	spy := &fullSpyStore{}
+	tk, err := New(testName, spy)
+	require.NoError(t, err)
+	memStore := &mockMemoryStore{}
+	tk.SetMemoryStore(memStore, embedding.NewNoopProvider(768))
+
+	ctx := ctxWithUser("user-1", "sess-1", "admin")
+	result, _, callErr := tk.handleCaptureInsight(ctx, nil, captureInsightInput{
+		Category:    "business_context",
+		InsightText: "MRR excludes trial accounts",
+		Confidence:  "high",
+	})
+	require.Nil(t, callErr)
+	require.False(t, result.IsError)
+	assert.False(t, memStore.updateCalled,
+		"noop embedder must skip the embedding-update call entirely")
 }
 
 // ---------------------------------------------------------------------------

@@ -122,6 +122,7 @@ type fakeEmbedder struct {
 func newFakeEmbedder(dim int) *fakeEmbedder { return &fakeEmbedder{dim: dim} }
 
 func (f *fakeEmbedder) Dimension() int { return f.dim }
+func (*fakeEmbedder) Kind() string     { return "fake" }
 
 func (f *fakeEmbedder) Embed(_ context.Context, text string) ([]float32, error) {
 	if f.failEmbed.Load() {
@@ -351,6 +352,8 @@ func TestRankWithMode_ZeroQueryVectorFallsBack(t *testing.T) {
 }
 
 type zeroEmbedder struct{}
+
+func (zeroEmbedder) Kind() string { return "fake" }
 
 func (zeroEmbedder) Embed(_ context.Context, _ string) ([]float32, error) {
 	return make([]float32, 8), nil
@@ -751,6 +754,7 @@ type batchCounter struct {
 }
 
 func (b *batchCounter) Dimension() int { return b.vectorDim }
+func (*batchCounter) Kind() string     { return "fake" }
 
 func (b *batchCounter) Embed(_ context.Context, _ string) ([]float32, error) {
 	out := make([]float32, b.vectorDim)

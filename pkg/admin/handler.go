@@ -381,6 +381,7 @@ func (h *Handler) registerSystemRoutes() {
 		h.mux.HandleFunc("PUT /api/v1/admin/tools/{name}/visibility", h.setToolVisibility)
 	}
 	h.mux.HandleFunc("GET /api/v1/admin/connections", h.listConnections)
+	h.mux.HandleFunc("GET /api/v1/admin/embedding/status", h.getEmbeddingStatus)
 	h.publicMux.HandleFunc("GET /api/v1/admin/public/branding", h.getPublicBranding)
 	h.publicMux.Handle(docsPrefix, httpswagger.Handler(
 		httpswagger.URL(docsPrefix+"doc.json"),

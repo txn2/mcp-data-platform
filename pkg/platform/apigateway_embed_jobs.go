@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	apigatewaycatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
@@ -36,8 +37,16 @@ func (p *Platform) WireAPIGatewayEmbedJobsFromDB() {
 		slog.Info("apigateway embed jobs: skipped (no database)")
 		return
 	}
-	if p.embeddingProv == nil {
-		slog.Info("apigateway embed jobs: skipped (no embedding provider)")
+	if !embedding.IsConfigured(p.embeddingProv) {
+		// Either no provider wired at all, or the noop placeholder that
+		// returns zero vectors. Standing up the queue against the noop
+		// would fill api_catalog_operation_embeddings with [0,...,0]
+		// rows that the catalog health endpoint reports as "indexed"
+		// while semantic ranking quietly degrades to nonsense (#429).
+		// Lexical ranking via errEmbeddingsNotIndexed handles invokes
+		// in this state, and the UI surfaces the unconfigured signal
+		// via /api/v1/admin/embedding/status.
+		slog.Info("apigateway embed jobs: skipped (embedding provider not configured)")
 		return
 	}
 	catalogStore := p.APIGatewayCatalogStore()
@@ -147,6 +156,7 @@ type embeddingProvider interface {
 	Embed(ctx context.Context, text string) ([]float32, error)
 	EmbedBatch(ctx context.Context, texts []string) ([][]float32, error)
 	Dimension() int
+	Kind() string
 }
 
 // Compute translates the embedjobs-side dedup map into a

@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	memstore "github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
@@ -84,12 +85,18 @@ func (t *Toolkit) handleRemember(ctx context.Context, input manageInput) (*mcp.C
 		return errorResult("failed to generate ID"), nil, nil //nolint:nilerr // MCP protocol
 	}
 
-	// Generate embedding (graceful failure if Ollama unavailable).
+	// Generate embedding when a real provider is configured. Skip the
+	// call against the noop placeholder so we persist Embedding: nil
+	// instead of a zero vector, symmetric with the recall-side guard
+	// at recall.go:127 that refuses to query against zero vectors
+	// (#429).
 	var emb []float32
-	emb, err = t.embedder.Embed(ctx, input.Content)
-	if err != nil {
-		slog.Warn("embedding generation failed, storing without embedding", "error", err)
-		emb = nil
+	if embedding.IsConfigured(t.embedder) {
+		emb, err = t.embedder.Embed(ctx, input.Content)
+		if err != nil {
+			slog.Warn("embedding generation failed, storing without embedding", "error", err)
+			emb = nil
+		}
 	}
 
 	record := memstore.Record{
@@ -155,8 +162,11 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageInput) (*mcp.Cal
 		Metadata:   input.Metadata,
 	}
 
-	// Re-embed if content changed.
-	if input.Content != "" {
+	// Re-embed if content changed. Symmetric with the handleRemember
+	// guard: skip the noop placeholder so an update on an unconfigured
+	// deployment does not overwrite a previously-real vector with a
+	// zero vector (#429).
+	if input.Content != "" && embedding.IsConfigured(t.embedder) {
 		emb, err := t.embedder.Embed(ctx, input.Content)
 		if err != nil {
 			slog.Warn("embedding generation failed on update", "error", err)

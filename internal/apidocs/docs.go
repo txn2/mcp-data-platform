@@ -1432,6 +1432,34 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/embedding/status": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the configured embedding provider's kind, model, dimension, and a status enum (ok / unconfigured). Used by the portal to surface a banner when semantic features are disabled.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "System"
+                ],
+                "summary": "Get embedding provider status",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/admin.embeddingProviderStatusResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/gateway/connections/{name}/enrichment-rules": {
             "get": {
                 "security": [
@@ -7119,6 +7147,31 @@ const docTemplate = `{
                 },
                 "id": {
                     "type": "string"
+                }
+            }
+        },
+        "admin.embeddingProviderStatusResponse": {
+            "type": "object",
+            "properties": {
+                "dimension": {
+                    "description": "Dimension is the embedding vector length.",
+                    "type": "integer",
+                    "example": 768
+                },
+                "kind": {
+                    "description": "Kind is the provider implementation identifier: \"ollama\", \"noop\",\nor a future kind. Empty string when no provider was wired.",
+                    "type": "string",
+                    "example": "ollama"
+                },
+                "model": {
+                    "description": "Model identifies the underlying embedding model when the provider\nexposes it (e.g., \"nomic-embed-text\" for Ollama). Empty for\nproviders whose backend has no model concept (noop).",
+                    "type": "string",
+                    "example": "nomic-embed-text"
+                },
+                "status": {
+                    "description": "Status is the operator-visible health enum:\n  - \"ok\": a real provider is configured; semantic features active.\n  - \"unconfigured\": no provider configured (or noop placeholder).\n    Semantic ranking falls back to lexical; memory writes persist\n    with Embedding: nil.",
+                    "type": "string",
+                    "example": "ok"
                 }
             }
         },

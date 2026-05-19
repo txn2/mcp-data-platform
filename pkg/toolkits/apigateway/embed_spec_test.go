@@ -93,6 +93,7 @@ func TestComputeOperationEmbeddings_CountMismatchPropagates(t *testing.T) {
 type countMismatchEmbedder struct{ returnCount int }
 
 func (countMismatchEmbedder) Dimension() int { return 8 }
+func (countMismatchEmbedder) Kind() string   { return "fake" }
 func (countMismatchEmbedder) Embed(_ context.Context, _ string) ([]float32, error) {
 	return []float32{1, 0, 0, 0, 0, 0, 0, 0}, nil
 }

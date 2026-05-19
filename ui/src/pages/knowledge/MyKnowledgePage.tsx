@@ -5,6 +5,7 @@ import {
   useMyMemories,
   useMyMemoryStats,
 } from "@/api/portal/hooks";
+import { useEmbeddingProviderStatus } from "@/api/admin/hooks";
 import { StatCard } from "@/components/cards/StatCard";
 import { Lightbulb, ChevronLeft, ChevronRight } from "lucide-react";
 import type { Insight, MemoryRecord } from "@/api/portal/types";
@@ -345,6 +346,8 @@ function MyMemorySection() {
     limit: PAGE_SIZE,
     offset,
   });
+  const { data: embedStatus } = useEmbeddingProviderStatus();
+  const embedderUnconfigured = embedStatus?.status === "unconfigured";
 
   const s = stats.data;
   const totalItems = memories.data?.total ?? 0;
@@ -370,6 +373,22 @@ function MyMemorySection() {
 
   return (
     <>
+      {embedderUnconfigured && (
+        <div
+          role="status"
+          className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
+        >
+          <strong>Embedding provider not configured.</strong> New memories are
+          persisted without vectors and semantic recall is unavailable; keyword
+          and entity-URN lookup still work. Set{" "}
+          <code className="rounded bg-amber-100 px-1 py-0.5 font-mono text-xs dark:bg-amber-900/40">
+            memory.embedding.provider
+          </code>{" "}
+          (e.g., to <code className="font-mono">ollama</code>) and restart to
+          enable semantic features.
+        </div>
+      )}
+
       {/* Summary Cards */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <StatCard label="Total Memories" value={s?.total ?? 0} />

@@ -147,6 +147,8 @@ func (m *mockEmbedder) Dimension() int {
 	return m.dim
 }
 
+func (*mockEmbedder) Kind() string { return "fake" }
+
 var _ embedding.Provider = (*mockEmbedder)(nil)
 
 // ---------------------------------------------------------------------------
@@ -298,6 +300,37 @@ func TestHandleRemember_Valid(t *testing.T) {
 	assert.Equal(t, "user", rec.Source)
 	assert.Equal(t, []float32{0.1, 0.2}, rec.Embedding)
 	assert.Equal(t, "sess-123", rec.Metadata["session_id"])
+}
+
+// TestHandleRemember_NoopEmbedderSkipsEmbed proves the write-path
+// guard for #429: when the embedder is the noop placeholder, the
+// stored record's Embedding MUST be nil and the embedder's Embed
+// method MUST NOT be called (otherwise we'd persist a zero vector
+// that the recall-side check at recall.go:127 would later refuse
+// to query).
+func TestHandleRemember_NoopEmbedderSkipsEmbed(t *testing.T) {
+	t.Parallel()
+
+	store := &mockStore{}
+	// Use the real noop provider so the kind/IsConfigured check
+	// exercises the production code path, not a test fake.
+	tk := newTestToolkit(store, embedding.NewNoopProvider(768))
+	ctx := ctxWithPC("user@example.com", "analyst")
+
+	result, _, err := tk.handleManage(ctx, nil, manageInput{
+		Command:    "remember",
+		Content:    "Valid content that is long enough for tests",
+		Dimension:  "knowledge",
+		Category:   "correction",
+		Confidence: "high",
+		Source:     "user",
+	})
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	require.Len(t, store.insertedRecords, 1)
+	rec := store.insertedRecords[0]
+	assert.Nil(t, rec.Embedding, "noop embedder must not produce a stored vector")
 }
 
 func TestHandleRemember_MissingContent(t *testing.T) {
@@ -469,6 +502,37 @@ func TestHandleUpdate_Valid(t *testing.T) {
 	assert.Equal(t, "abc123", store.updatedID)
 	assert.Equal(t, "Updated content that is long enough for tests", store.updatedFields.Content)
 	assert.Equal(t, []float32{0.5, 0.6}, store.updatedFields.Embedding)
+}
+
+// TestHandleUpdate_NoopEmbedderSkipsEmbed is the symmetric guard test
+// for the update path: under the noop placeholder, re-embedding on
+// content change MUST NOT overwrite the stored vector with a zero
+// vector (#429).
+func TestHandleUpdate_NoopEmbedderSkipsEmbed(t *testing.T) {
+	t.Parallel()
+
+	store := &mockStore{
+		getResult: &memstore.Record{
+			ID:        "abc123",
+			CreatedBy: "user@example.com",
+		},
+	}
+	tk := newTestToolkit(store, embedding.NewNoopProvider(768))
+	ctx := ctxWithPC("user@example.com", "analyst")
+
+	result, _, err := tk.handleManage(ctx, nil, manageInput{
+		Command: "update",
+		ID:      "abc123",
+		Content: "Updated content that is long enough for tests",
+	})
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	// Embedding must remain nil; the postgres store's update path
+	// writes the embedding column only when len(Embedding) > 0, so a
+	// zero-length nil here keeps the column untouched.
+	assert.Nil(t, store.updatedFields.Embedding,
+		"noop embedder must not produce a stored vector on update")
 }
 
 func TestHandleUpdate_MissingID(t *testing.T) {

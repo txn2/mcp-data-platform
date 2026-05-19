@@ -25,6 +25,7 @@ import {
   useAPICatalogEmbeddingHealth,
   useAPICatalogEmbeddingStatuses,
   useDeleteAPICatalogSpec,
+  useEmbeddingProviderStatus,
   useManualRetryEmbedding,
   useRefreshAPICatalogSpec,
   useUpdateAPICatalog,
@@ -51,6 +52,8 @@ export function CatalogsPanel() {
   const { data: systemInfo } = useSystemInfo();
   const isReadOnly = systemInfo?.config_mode === "file";
   const { data: catalogs, isLoading } = useAPICatalogs();
+  const { data: embedStatus } = useEmbeddingProviderStatus();
+  const embedderUnconfigured = embedStatus?.status === "unconfigured";
 
   const initialSelection = useMemo(() => {
     if (typeof window === "undefined") return null;
@@ -120,6 +123,22 @@ export function CatalogsPanel() {
       {isReadOnly && (
         <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
           The platform is running in file config mode. Catalog edits are disabled.
+        </div>
+      )}
+
+      {embedderUnconfigured && (
+        <div
+          role="status"
+          className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
+        >
+          <strong>Embedding provider not configured.</strong> Semantic ranking is
+          disabled; spec saves will not produce per-operation embeddings and
+          api_list_endpoints falls back to lexical scoring. Set{" "}
+          <code className="rounded bg-amber-100 px-1 py-0.5 font-mono text-xs dark:bg-amber-900/40">
+            memory.embedding.provider
+          </code>{" "}
+          (e.g., to <code className="font-mono">ollama</code>) and restart to
+          enable.
         </div>
       )}
 

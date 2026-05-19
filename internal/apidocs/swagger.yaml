@@ -293,6 +293,35 @@ definitions:
       id:
         type: string
     type: object
+  admin.embeddingProviderStatusResponse:
+    properties:
+      dimension:
+        description: Dimension is the embedding vector length.
+        example: 768
+        type: integer
+      kind:
+        description: |-
+          Kind is the provider implementation identifier: "ollama", "noop",
+          or a future kind. Empty string when no provider was wired.
+        example: ollama
+        type: string
+      model:
+        description: |-
+          Model identifies the underlying embedding model when the provider
+          exposes it (e.g., "nomic-embed-text" for Ollama). Empty for
+          providers whose backend has no model concept (noop).
+        example: nomic-embed-text
+        type: string
+      status:
+        description: |-
+          Status is the operator-visible health enum:
+            - "ok": a real provider is configured; semantic features active.
+            - "unconfigured": no provider configured (or noop placeholder).
+              Semantic ranking falls back to lexical; memory writes persist
+              with Embedding: nil.
+        example: ok
+        type: string
+    type: object
   admin.enrichmentRuleBody:
     properties:
       description:
@@ -3304,6 +3333,24 @@ paths:
       summary: Bulk OAuth health for all connections
       tags:
       - Connections
+  /admin/embedding/status:
+    get:
+      description: Returns the configured embedding provider's kind, model, dimension,
+        and a status enum (ok / unconfigured). Used by the portal to surface a banner
+        when semantic features are disabled.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.embeddingProviderStatusResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get embedding provider status
+      tags:
+      - System
   /admin/gateway/connections/{name}/enrichment-rules:
     get:
       parameters:

@@ -39,6 +39,7 @@ func (e *trackingEmbedder) EmbedBatch(_ context.Context, texts []string) ([][]fl
 }
 
 func (e *trackingEmbedder) Dimension() int { return e.dim }
+func (*trackingEmbedder) Kind() string     { return "fake" }
 
 // persistedEmbedTestSpec is a two-operation spec used by the
 // acceptance tests. Exact ops don't matter; the tests assert on
