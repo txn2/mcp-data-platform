@@ -693,6 +693,9 @@ memory:
 !!! note "Prerequisites"
     Memory requires `database.dsn` to be configured and the pgvector PostgreSQL extension installed. Memory tools are opt-in per persona (`memory_*` in `tools.allow`).
 
+!!! note "Ollama batch endpoint"
+    Batch embedding calls (API gateway spec indexing) issue a single `POST /api/embed` request per batch against modern Ollama servers. Servers that lack the batch endpoint (response: HTTP 404) are detected on the first call; the platform logs a WARN and transparently falls back to one `POST /api/embeddings` request per text. Upgrading the Ollama server is recommended for substantially faster batch indexing on multi-spec catalogs. Memory writes embed one record at a time and always use `/api/embeddings`.
+
 ## MCP Apps Configuration
 
 MCP Apps provide interactive UI components that enhance tool results. The platform provides the infrastructure; you provide the HTML/JS/CSS apps.
