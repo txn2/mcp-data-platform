@@ -827,6 +827,55 @@ A background goroutine runs every 24 hours and deletes rows older than `retentio
 
 ---
 
+# Observability (Prometheus Metrics)
+
+Audit answers "who did what." Metrics answer "how is the system performing." Phase 1 of the OpenTelemetry instrumentation in mcp-data-platform exposes Prometheus-format metrics on a dedicated `/metrics` HTTP listener, separate from the main MCP/HTTP listener so scrape traffic and tool traffic do not share an auth path.
+
+## Enabling
+
+Configuration is environment-only for Phase 1 to keep the surface small. The full surface lands in subsequent phases:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `OTEL_METRICS_ENABLED` | `false` | Master switch. When false no MeterProvider is built and no listener starts. |
+| `OTEL_METRICS_ADDR` | `:9090` | Bind address for the `/metrics` listener. |
+
+## Exposed metrics
+
+| Name | Type | Labels |
+|---|---|---|
+| `mcp_tool_calls_total` | counter | `tool`, `toolkit_kind`, `persona`, `status_category` |
+| `mcp_tool_call_duration_seconds` | histogram | `tool`, `toolkit_kind`, `persona`, `status_category` |
+| `mcp_inflight_tool_calls` | gauge | (none) |
+| `apigateway_outbound_total` | counter | `connection`, `http_status_class`, `status_category` |
+| `apigateway_outbound_duration_seconds` | histogram | `connection`, `http_status_class`, `status_category` |
+
+Plus the free Go runtime + process metrics (`go_*`, `process_*`).
+
+## Chokepoints
+
+Phase 1 instruments two points that cover every tool call through the platform:
+
+1. **`MCPToolCallMiddleware`** — every tool call (MCP transport, SSE, Streamable HTTP, REST gateway shim, admin tools/call) passes through here. One histogram + one counter + one gauge here covers every toolkit at once.
+2. **apigateway transport** — every outbound HTTP call from `api_invoke_endpoint`, `api_export`, and the REST gateway shim is recorded at the `http.RoundTripper` level, so adding a new apigateway code path picks up metrics automatically.
+
+Phase 2 adds OTLP tracing on the same chokepoints. Phase 3 extends to toolkit adapters (Trino, DataHub, S3, OAuth refresh, audit, enrichment).
+
+## Cardinality budget
+
+`status_category` is a closed set: `ok`, `auth_err`, `authz_err`, `validation_err`, `upstream_err`, `internal_err`. `http_status_class` is `2xx` / `3xx` / `4xx` / `5xx` / `other`. High-cardinality fields (user id, email, request id, session id, raw upstream URLs, raw error messages, free-text tool arguments) are NOT recorded as Prometheus labels — they belong on trace spans (Phase 2) and on audit log rows.
+
+Worst-case counter cardinality for `mcp_tool_calls_total` with ~40 tools × 8 toolkit_kinds × 5 personas × 6 status_categories = 9,600 series; for `apigateway_outbound_total` with ~10 connections × 5 status_classes × 6 status_categories = 300 series. Both well within typical Prometheus and managed-observability backend per-metric series budgets.
+
+## What metrics do NOT replace
+
+- **Audit logs** remain the source of truth for "who called what entity, with what result" — compliance and user-level analytics.
+- **Application logs** (stderr / structured slog) remain the source of truth for free-text diagnostic detail and stack traces.
+
+Metrics answer "how is the system performing" — they complement, they do not replace.
+
+---
+
 # Cross-Enrichment
 
 When you query a Trino table, you get DataHub context in the response. When you search DataHub, you see which datasets are queryable. No extra calls.

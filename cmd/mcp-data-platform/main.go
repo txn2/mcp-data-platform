@@ -180,6 +180,20 @@ func applyConfigOverrides(p *platform.Platform, opts *serverOptions) {
 }
 
 func startServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, opts serverOptions) error {
+	// Start the /metrics listener for BOTH transports so operators get
+	// the same observability surface whether the platform is running
+	// in stdio (one-off CLI / Claude Desktop) or HTTP mode. The wire
+	// step also instruments any apigateway toolkit registered before
+	// the listener came up so existing connections start recording on
+	// the same call boundary the new ones do. Both calls are nil-safe
+	// and no-op when metrics are disabled.
+	if p != nil {
+		if err := p.StartMetricsListener(ctx); err != nil {
+			return fmt.Errorf("starting metrics listener: %w", err)
+		}
+		p.WireAPIGatewayMetrics()
+	}
+
 	switch opts.transport {
 	case "stdio":
 		if err := mcpServer.Run(ctx, &mcp.StdioTransport{}); err != nil {

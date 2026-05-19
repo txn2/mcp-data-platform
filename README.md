@@ -130,6 +130,9 @@ Define who can use which tools. Analysts get read access to queries and searches
 ### Comprehensive Audit Logging
 Every tool call is logged with user identity, persona, request details, and timing. PostgreSQL-backed for querying and compliance. Know who queried what, when, and why.
 
+### Prometheus Metrics (optional)
+Opt-in OpenTelemetry instrumentation exposes `/metrics` on a dedicated `:9090` listener. Phase 1 instruments two chokepoints: every MCP tool call (`mcp_tool_calls_total`, `mcp_tool_call_duration_seconds`, `mcp_inflight_tool_calls`) and every apigateway outbound HTTP call (`apigateway_outbound_total`, `apigateway_outbound_duration_seconds`), each with a small, bounded label set (`tool`, `toolkit_kind`, `persona`, `status_category`, `connection`, `http_status_class`). High-cardinality fields like user id and raw URLs are deliberately kept off labels and reserved for traces (Phase 2). Disabled by default; enable with `OTEL_METRICS_ENABLED=true`. See the [Observability documentation](https://mcp-data-platform.txn2.com/server/observability/) for details.
+
 ### Persistent Memory
 Agents accumulate knowledge across sessions: preferences, corrections, domain context, and institutional facts. Backed by PostgreSQL with pgvector for semantic search. The `memory_manage` tool provides CRUD operations, `memory_recall` offers multi-strategy retrieval (entity lookup, vector similarity, DataHub lineage traversal). Memories are automatically injected into toolkit responses via the cross-enrichment middleware. A staleness watcher flags memories when referenced DataHub entities change. Scoped by user and persona with full audit logging. See the [Memory Layer documentation](https://mcp-data-platform.txn2.com/memory/overview/) for details.
 

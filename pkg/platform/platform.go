@@ -41,6 +41,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/oauth"
 	oauthpostgres "github.com/txn2/mcp-data-platform/pkg/oauth/postgres"
+	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
@@ -225,6 +226,12 @@ type Platform struct {
 
 	// MCP Apps
 	mcpAppsRegistry *mcpapps.Registry
+
+	// Observability (Prometheus metrics). Both fields are nil when
+	// the metrics subsystem is disabled (default); every consumer is
+	// nil-safe so no enabled checks are needed at call sites.
+	metrics         *observability.Metrics
+	metricsListener *observability.Listener
 }
 
 // New creates a new platform instance.
@@ -253,6 +260,11 @@ func New(opts ...Option) (*Platform, error) {
 
 // initializeComponents initializes all platform components.
 func (p *Platform) initializeComponents(opts *Options) error {
+	// Observability has no deps; build it first so any later init
+	// step can record startup metrics or store a recorder reference.
+	if err := p.initObservability(); err != nil {
+		return err
+	}
 	// Initialize data infrastructure first (database + config store)
 	if err := p.initDataInfra(opts); err != nil {
 		return err
@@ -2320,6 +2332,20 @@ func (p *Platform) finalizeSetup() {
 		)
 	}
 
+	// 4.5. Metrics - records tool_calls_total / tool_call_duration_seconds
+	// and the in-flight gauge. Reads PlatformContext (tool, toolkit_kind,
+	// persona) populated by MCPToolCallMiddleware, so it must be INNER
+	// to that middleware. Position next to Audit because both observe
+	// the same call boundary (outcome + duration) and both are
+	// strictly observational — neither mutates the request or result.
+	// Safe to register unconditionally: the middleware short-circuits
+	// on a nil-or-disabled recorder.
+	if p.metrics.Enabled() {
+		p.mcpServer.AddReceivingMiddleware(
+			middleware.MCPMetricsMiddleware(p.metrics),
+		)
+	}
+
 	// 5. Session gate - blocks non-exempt tools until platform_info is called.
 	// Inner to Auth/Authz so PlatformContext is available; outer to Audit so
 	// gated calls don't produce audit events.
@@ -3565,12 +3591,29 @@ func (p *Platform) Close() error {
 	p.closeAuthEventStore(&errs)
 	p.closeAuditLayer(&errs)
 	p.closeProvidersAndRegistry(&errs)
+	p.closeMetricsLayer(&errs)
 	p.closeDatabase(&errs)
 	if len(errs) > 0 {
 		return fmt.Errorf("errors closing platform: %v", errs)
 	}
 	slog.Debug("shutdown: platform closed")
 	return nil
+}
+
+// closeMetricsLayer stops the /metrics listener and flushes the OTel
+// MeterProvider. The listener stop is bounded by a short timeout so a
+// stuck scraper cannot delay platform shutdown; the meter provider
+// flush is best-effort. Both calls are nil-safe.
+func (p *Platform) closeMetricsLayer(errs *[]error) {
+	if p.metricsListener == nil && p.metrics == nil {
+		return
+	}
+	slog.Debug("shutdown: stopping metrics layer")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := p.ShutdownMetricsListener(ctx); err != nil {
+		*errs = append(*errs, err)
+	}
 }
 
 // stopConnOAuthRefresherDuringShutdown waits up to 10s for any
