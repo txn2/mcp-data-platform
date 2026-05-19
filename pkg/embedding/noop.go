@@ -35,5 +35,9 @@ func (n *noopProvider) Dimension() int {
 	return n.dim
 }
 
+// Kind returns the noop kind identifier so callers can recognize this
+// provider as the placeholder and refuse to persist its zero vectors.
+func (*noopProvider) Kind() string { return KindNoop }
+
 // Verify interface compliance.
 var _ Provider = (*noopProvider)(nil)

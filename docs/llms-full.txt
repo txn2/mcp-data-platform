@@ -2621,6 +2621,7 @@ The legacy `connection_instances.config.openapi_spec` JSONB key is no longer rea
 | `GET`  | `/api/v1/admin/api-catalogs/{id}/embedding-health` | Catalog-level roll-up (total / indexed / pending / running / failed) |
 | `GET`  | `/api/v1/admin/api-catalogs/{id}/embedding-status` | Per-spec embedding state (operation_count, embedding_count, last job state) |
 | `GET`  | `/api/v1/admin/api-catalogs/{id}/embedding-jobs` | Recent embedding job history (filterable by status / spec_name) |
+| `GET`  | `/api/v1/admin/embedding/status` | Platform-wide embedding provider status: `{kind, model, dimension, status}`. `status="unconfigured"` indicates the noop placeholder is in use (memory.embedding.provider unset); the portal renders an amber banner in this state and the apigateway embed-job queue refuses to start. |
 | `DELETE` | `/api/v1/admin/api-catalogs/{id}/specs/{spec}` | Delete one spec |
 
 ### Persisted operation embeddings + job queue

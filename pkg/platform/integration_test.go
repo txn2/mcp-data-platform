@@ -5,8 +5,6 @@ package platform_test
 import (
 	"context"
 	"database/sql"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -18,6 +16,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	auditpostgres "github.com/txn2/mcp-data-platform/pkg/audit/postgres"
+	"github.com/txn2/mcp-data-platform/pkg/database/migrate"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -34,7 +33,7 @@ func TestAuditLogging_EndToEnd(t *testing.T) {
 
 	// Start PostgreSQL container
 	pgContainer, err := postgres.Run(ctx,
-		"postgres:16-alpine",
+		"pgvector/pgvector:pg16",
 		postgres.WithDatabase("testdb"),
 		postgres.WithUsername("test"),
 		postgres.WithPassword("test"),
@@ -55,8 +54,11 @@ func TestAuditLogging_EndToEnd(t *testing.T) {
 	require.NoError(t, err, "failed to open database")
 	defer db.Close()
 
-	// Run migrations
-	err = runMigrations(db)
+	// Run migrations via the platform's embedded migration set. The
+	// older runMigrations helper that scanned a sibling directory has
+	// been retired: its fallback schema diverged from the canonical
+	// migrations once new columns (session_id, partitioning) landed.
+	err = migrate.Run(db)
 	require.NoError(t, err, "failed to run migrations")
 
 	// Create audit store
@@ -106,7 +108,7 @@ func TestAuditAdapter_Integration(t *testing.T) {
 
 	// Start PostgreSQL container
 	pgContainer, err := postgres.Run(ctx,
-		"postgres:16-alpine",
+		"pgvector/pgvector:pg16",
 		postgres.WithDatabase("testdb"),
 		postgres.WithUsername("test"),
 		postgres.WithPassword("test"),
@@ -127,8 +129,11 @@ func TestAuditAdapter_Integration(t *testing.T) {
 	require.NoError(t, err, "failed to open database")
 	defer db.Close()
 
-	// Run migrations
-	err = runMigrations(db)
+	// Run migrations via the platform's embedded migration set. The
+	// older runMigrations helper that scanned a sibling directory has
+	// been retired: its fallback schema diverged from the canonical
+	// migrations once new columns (session_id, partitioning) landed.
+	err = migrate.Run(db)
 	require.NoError(t, err, "failed to run migrations")
 
 	// Create audit store and adapter
@@ -245,7 +250,7 @@ func TestPlatform_WithDatabase(t *testing.T) {
 
 	// Start PostgreSQL container
 	pgContainer, err := postgres.Run(ctx,
-		"postgres:16-alpine",
+		"pgvector/pgvector:pg16",
 		postgres.WithDatabase("testdb"),
 		postgres.WithUsername("test"),
 		postgres.WithPassword("test"),
@@ -261,12 +266,13 @@ func TestPlatform_WithDatabase(t *testing.T) {
 	dsn, err := pgContainer.ConnectionString(ctx, "sslmode=disable")
 	require.NoError(t, err, "failed to get connection string")
 
-	// Connect to run migrations
-	db, err := sql.Open("postgres", dsn)
-	require.NoError(t, err)
-	err = runMigrations(db)
-	require.NoError(t, err, "failed to run migrations")
-	db.Close()
+	// The platform's initDatabase calls pkg/database/migrate.Run on the
+	// supplied DSN, so the migrations are applied as part of New. The
+	// older runMigrations helper that read .sql files from a sibling
+	// directory has been retired here: when findMigrationsDir cannot
+	// locate the dir (its hard-coded relative paths drift with test
+	// layouts), it fell through to a hand-written minimal schema that
+	// conflicted with migration 000001's partitioned audit_logs.
 
 	// Create platform with database config
 	cfg := &platform.Config{
@@ -279,7 +285,7 @@ func TestPlatform_WithDatabase(t *testing.T) {
 			MaxOpenConns: 5,
 		},
 		Audit: platform.AuditConfig{
-			Enabled:       true,
+			Enabled:       boolPtr(true),
 			LogToolCalls:  true,
 			RetentionDays: 30,
 		},
@@ -295,77 +301,7 @@ func TestPlatform_WithDatabase(t *testing.T) {
 	assert.NotNil(t, p.RuleEngine())
 }
 
-// runMigrations executes all SQL migrations in the migrations directory.
-func runMigrations(db *sql.DB) error {
-	// Find migrations directory
-	migrationsDir := findMigrationsDir()
-	if migrationsDir == "" {
-		// Create minimal migration for testing
-		_, err := db.Exec(`
-			CREATE TABLE IF NOT EXISTS audit_logs (
-				id              VARCHAR(32) NOT NULL,
-				timestamp       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-				duration_ms     INTEGER,
-				request_id      VARCHAR(255),
-				user_id         VARCHAR(255),
-				user_email      VARCHAR(255),
-				persona         VARCHAR(100),
-				tool_name       VARCHAR(255) NOT NULL,
-				toolkit_kind    VARCHAR(100),
-				toolkit_name    VARCHAR(100),
-				connection      VARCHAR(100),
-				parameters      JSONB,
-				success         BOOLEAN NOT NULL,
-				error_message   TEXT,
-				created_date    DATE NOT NULL DEFAULT CURRENT_DATE,
-				PRIMARY KEY (id, created_date)
-			)
-		`)
-		return err
-	}
-
-	// Read and execute migration files
-	files, err := os.ReadDir(migrationsDir)
-	if err != nil {
-		return err
-	}
-
-	for _, file := range files {
-		if filepath.Ext(file.Name()) != ".sql" {
-			continue
-		}
-
-		content, err := os.ReadFile(filepath.Join(migrationsDir, file.Name()))
-		if err != nil {
-			return err
-		}
-
-		_, err = db.Exec(string(content))
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// findMigrationsDir locates the migrations directory.
-func findMigrationsDir() string {
-	// Try common paths
-	paths := []string{
-		"../../migrations",
-		"migrations",
-		"../../../migrations",
-	}
-
-	for _, p := range paths {
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
-	}
-
-	return ""
-}
+func boolPtr(v bool) *bool { return &v }
 
 // floatPtr returns a pointer to a float64 value.
 func floatPtr(v float64) *float64 {

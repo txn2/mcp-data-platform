@@ -355,6 +355,16 @@ func (p *Platform) initMemory() error {
 			Timeout: p.config.Memory.Embedding.Ollama.Timeout,
 		})
 	default:
+		// No embedder configured. The platform still boots so Trino,
+		// S3, DataHub, OAuth, audit, and every other non-embedding
+		// feature remains available; semantic ranking degrades to the
+		// lexical fallback and memory writes persist Embedding: nil
+		// (the toolkit guards see Kind() == KindNoop). One WARN here
+		// is the operator's only signal that semantic features are
+		// off, so make it specific enough to act on (#429).
+		slog.Warn("memory.embedding.provider not configured; semantic ranking disabled (set memory.embedding.provider to 'ollama' to enable)",
+			"config_key", "memory.embedding.provider",
+			"current_value", p.config.Memory.Embedding.Provider)
 		p.embeddingProv = embedding.NewNoopProvider(embedding.DefaultDimension)
 	}
 

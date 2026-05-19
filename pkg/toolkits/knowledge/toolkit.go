@@ -257,8 +257,11 @@ func (t *Toolkit) handleCaptureInsight(ctx context.Context, _ *mcp.CallToolReque
 		return errorResult("failed to save insight: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol: tool errors are returned in CallToolResult.IsError
 	}
 
-	// Generate embedding for the memory record if embedder is available.
-	if t.embedder != nil && t.memoryStore != nil {
+	// Generate embedding for the memory record only when a real
+	// provider is configured. Persisting a zero vector from the noop
+	// placeholder would falsely claim the row is semantically indexed
+	// and the recall side would later refuse to query it (#429).
+	if embedding.IsConfigured(t.embedder) && t.memoryStore != nil {
 		emb, err := t.embedder.Embed(ctx, insight.InsightText)
 		if err != nil {
 			slog.Warn("embedding generation failed for insight", "id", id, "error", err)

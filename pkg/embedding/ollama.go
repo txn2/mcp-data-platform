@@ -227,6 +227,10 @@ func (o *ollamaProvider) Model() string {
 	return o.model
 }
 
+// Kind returns the Ollama kind identifier so callers can distinguish
+// this real, network-backed provider from the noop placeholder.
+func (*ollamaProvider) Kind() string { return KindOllama }
+
 // toFloat32 converts a float64 slice to float32.
 func toFloat32(f64 []float64) []float32 {
 	f32 := make([]float32, len(f64))

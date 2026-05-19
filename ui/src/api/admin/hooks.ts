@@ -1002,6 +1002,29 @@ export function useAPICatalogEmbeddingHealth(catalogID: string, enabled = true) 
   });
 }
 
+// EmbeddingProviderStatus mirrors the server-side embeddingProviderStatusResponse:
+// the platform-wide embedding provider's kind, model, dimension, and a
+// health enum. status="unconfigured" indicates the noop placeholder is
+// in use and semantic features are disabled (the portal renders a
+// banner on the Catalogs and Memory panels in this state). See #429.
+export interface EmbeddingProviderStatus {
+  kind: string;
+  model: string;
+  dimension: number;
+  status: "ok" | "unconfigured";
+}
+
+// useEmbeddingProviderStatus polls the platform-wide embedding-provider
+// status. Used by the Catalogs panel and the Memory settings panel to
+// surface a banner when the provider is unconfigured.
+export function useEmbeddingProviderStatus() {
+  return useQuery({
+    queryKey: ["admin", "embedding", "status"],
+    queryFn: () => apiFetch<EmbeddingProviderStatus>("/embedding/status"),
+    refetchInterval: 30000,
+  });
+}
+
 // useAPICatalogEmbeddingStatuses returns one row per spec. The
 // portal renders these as per-spec badges in the CatalogsPanel.
 // Refetched on the same 5s cadence as the health roll-up so the

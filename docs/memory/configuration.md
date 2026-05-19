@@ -24,7 +24,7 @@ memory:
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `enabled` | bool | `true` (when database available) | Enable the memory layer. Set `false` to explicitly disable. |
-| `embedding.provider` | string | `noop` | Embedding provider: `ollama` for real embeddings, `noop` for zero vectors |
+| `embedding.provider` | string | `noop` | Embedding provider: `ollama` for real embeddings. Anything else (including unset) selects the noop placeholder; memory writes persist with `Embedding: nil` and the apigateway embed-job queue refuses to start. Semantic features stay off until a real provider is wired. |
 | `embedding.ollama.url` | string | `http://localhost:11434` | Ollama API base URL |
 | `embedding.ollama.model` | string | `nomic-embed-text` | Ollama model name (768-dim) |
 | `embedding.ollama.timeout` | duration | `30s` | HTTP timeout for embedding API calls |
@@ -55,6 +55,18 @@ personas:
 The memory layer generates 768-dimensional embeddings for semantic search using [Ollama](https://ollama.ai/) with the `nomic-embed-text` model.
 
 When Ollama is unavailable, memory records are stored without embeddings and a warning is logged. Semantic recall (`memory_recall` with `semantic` or `auto` strategy) requires embeddings to function. Entity and graph recall strategies work without embeddings.
+
+### Unconfigured State
+
+When `memory.embedding.provider` is unset or unrecognized, the platform substitutes a noop placeholder that returns zero vectors. This is the documented degraded state, not an error: the platform still boots so Trino, S3, DataHub, audit, OAuth, and every other non-embedding feature remains available.
+
+In this state:
+
+- Startup logs one `WARN` line naming `memory.embedding.provider` as the key to set.
+- `GET /api/v1/admin/embedding/status` returns `{ "kind": "noop", "status": "unconfigured", ... }`.
+- The portal renders an amber banner on the API Catalogs and Memory pages.
+- Memory writes persist `Embedding: nil` (symmetric with the recall-side guard that refuses to vector-search zero vectors).
+- The apigateway embed-job queue does not start, so spec saves do not produce zero-vector rows in `api_catalog_operation_embeddings`. Per-spec badges render "not indexed" honestly; `api_list_endpoints` falls back to lexical scoring.
 
 To set up Ollama:
 

@@ -41,6 +41,7 @@ func (f *fakeEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]floa
 }
 
 func (f *fakeEmbedder) Dimension() int { return f.dim }
+func (*fakeEmbedder) Kind() string     { return "fake" }
 
 // seedCatalogStore inserts a catalog and a single spec used by
 // the resolver and persister tests below.
