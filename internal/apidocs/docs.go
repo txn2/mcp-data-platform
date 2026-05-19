@@ -6430,7 +6430,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/resource.Resource"
+                            "$ref": "#/definitions/github_com_txn2_mcp-data-platform_pkg_resource.Resource"
                         }
                     },
                     "400": {
@@ -6497,7 +6497,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/resource.Resource"
+                            "$ref": "#/definitions/github_com_txn2_mcp-data-platform_pkg_resource.Resource"
                         }
                     },
                     "401": {
@@ -6609,7 +6609,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/resource.Resource"
+                            "$ref": "#/definitions/github_com_txn2_mcp-data-platform_pkg_resource.Resource"
                         }
                     },
                     "400": {
@@ -8561,6 +8561,80 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_txn2_mcp-data-platform_pkg_resource.Resource": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string",
+                    "example": "runbooks"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string",
+                    "example": "Step-by-step procedures for ETL pipeline operations"
+                },
+                "display_name": {
+                    "type": "string",
+                    "example": "ETL Runbook"
+                },
+                "filename": {
+                    "type": "string",
+                    "example": "etl-runbook.md"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "res_01HK7R9F"
+                },
+                "mime_type": {
+                    "type": "string",
+                    "example": "text/markdown"
+                },
+                "s3_key": {
+                    "type": "string",
+                    "example": "resources/res_01HK7R9F/etl-runbook.md"
+                },
+                "scope": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/resource.Scope"
+                        }
+                    ],
+                    "example": "persona"
+                },
+                "scope_id": {
+                    "description": "persona name or user sub; empty for global",
+                    "type": "string",
+                    "example": "data-engineer"
+                },
+                "size_bytes": {
+                    "type": "integer",
+                    "example": 34000
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "uploader_email": {
+                    "type": "string",
+                    "example": "marcus.johnson@example.com"
+                },
+                "uploader_sub": {
+                    "type": "string",
+                    "example": "550e8400-e29b-41d4-a716-446655440000"
+                },
+                "uri": {
+                    "type": "string",
+                    "example": "mcp://persona/data-engineer/runbooks/etl-runbook.md"
+                }
+            }
+        },
         "knowledge.Changeset": {
             "type": "object",
             "properties": {
@@ -9901,80 +9975,6 @@ const docTemplate = `{
                 }
             }
         },
-        "resource.Resource": {
-            "type": "object",
-            "properties": {
-                "category": {
-                    "type": "string",
-                    "example": "runbooks"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "description": {
-                    "type": "string",
-                    "example": "Step-by-step procedures for ETL pipeline operations"
-                },
-                "display_name": {
-                    "type": "string",
-                    "example": "ETL Runbook"
-                },
-                "filename": {
-                    "type": "string",
-                    "example": "etl-runbook.md"
-                },
-                "id": {
-                    "type": "string",
-                    "example": "res_01HK7R9F"
-                },
-                "mime_type": {
-                    "type": "string",
-                    "example": "text/markdown"
-                },
-                "s3_key": {
-                    "type": "string",
-                    "example": "resources/res_01HK7R9F/etl-runbook.md"
-                },
-                "scope": {
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/resource.Scope"
-                        }
-                    ],
-                    "example": "persona"
-                },
-                "scope_id": {
-                    "description": "persona name or user sub; empty for global",
-                    "type": "string",
-                    "example": "data-engineer"
-                },
-                "size_bytes": {
-                    "type": "integer",
-                    "example": 34000
-                },
-                "tags": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "updated_at": {
-                    "type": "string"
-                },
-                "uploader_email": {
-                    "type": "string",
-                    "example": "marcus.johnson@example.com"
-                },
-                "uploader_sub": {
-                    "type": "string",
-                    "example": "550e8400-e29b-41d4-a716-446655440000"
-                },
-                "uri": {
-                    "type": "string",
-                    "example": "mcp://persona/data-engineer/runbooks/etl-runbook.md"
-                }
-            }
-        },
         "resource.Scope": {
             "type": "string",
             "enum": [
@@ -10023,7 +10023,7 @@ const docTemplate = `{
                 "resources": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/resource.Resource"
+                        "$ref": "#/definitions/github_com_txn2_mcp-data-platform_pkg_resource.Resource"
                     }
                 },
                 "total": {

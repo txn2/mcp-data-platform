@@ -1378,6 +1378,58 @@ definitions:
         example: Key Findings
         type: string
     type: object
+  github_com_txn2_mcp-data-platform_pkg_resource.Resource:
+    properties:
+      category:
+        example: runbooks
+        type: string
+      created_at:
+        type: string
+      description:
+        example: Step-by-step procedures for ETL pipeline operations
+        type: string
+      display_name:
+        example: ETL Runbook
+        type: string
+      filename:
+        example: etl-runbook.md
+        type: string
+      id:
+        example: res_01HK7R9F
+        type: string
+      mime_type:
+        example: text/markdown
+        type: string
+      s3_key:
+        example: resources/res_01HK7R9F/etl-runbook.md
+        type: string
+      scope:
+        allOf:
+        - $ref: '#/definitions/resource.Scope'
+        example: persona
+      scope_id:
+        description: persona name or user sub; empty for global
+        example: data-engineer
+        type: string
+      size_bytes:
+        example: 34000
+        type: integer
+      tags:
+        items:
+          type: string
+        type: array
+      updated_at:
+        type: string
+      uploader_email:
+        example: marcus.johnson@example.com
+        type: string
+      uploader_sub:
+        example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+      uri:
+        example: mcp://persona/data-engineer/runbooks/etl-runbook.md
+        type: string
+    type: object
   knowledge.Changeset:
     properties:
       applied_by:
@@ -2315,58 +2367,6 @@ definitions:
         example: "2026-01-15T14:30:00Z"
         type: string
     type: object
-  resource.Resource:
-    properties:
-      category:
-        example: runbooks
-        type: string
-      created_at:
-        type: string
-      description:
-        example: Step-by-step procedures for ETL pipeline operations
-        type: string
-      display_name:
-        example: ETL Runbook
-        type: string
-      filename:
-        example: etl-runbook.md
-        type: string
-      id:
-        example: res_01HK7R9F
-        type: string
-      mime_type:
-        example: text/markdown
-        type: string
-      s3_key:
-        example: resources/res_01HK7R9F/etl-runbook.md
-        type: string
-      scope:
-        allOf:
-        - $ref: '#/definitions/resource.Scope'
-        example: persona
-      scope_id:
-        description: persona name or user sub; empty for global
-        example: data-engineer
-        type: string
-      size_bytes:
-        example: 34000
-        type: integer
-      tags:
-        items:
-          type: string
-        type: array
-      updated_at:
-        type: string
-      uploader_email:
-        example: marcus.johnson@example.com
-        type: string
-      uploader_sub:
-        example: 550e8400-e29b-41d4-a716-446655440000
-        type: string
-      uri:
-        example: mcp://persona/data-engineer/runbooks/etl-runbook.md
-        type: string
-    type: object
   resource.Scope:
     enum:
     - global
@@ -2400,7 +2400,7 @@ definitions:
     properties:
       resources:
         items:
-          $ref: '#/definitions/resource.Resource'
+          $ref: '#/definitions/github_com_txn2_mcp-data-platform_pkg_resource.Resource'
         type: array
       total:
         example: 42
@@ -6490,7 +6490,7 @@ paths:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/resource.Resource'
+            $ref: '#/definitions/github_com_txn2_mcp-data-platform_pkg_resource.Resource'
         "400":
           description: Bad Request
           schema:
@@ -6566,7 +6566,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/resource.Resource'
+            $ref: '#/definitions/github_com_txn2_mcp-data-platform_pkg_resource.Resource'
         "401":
           description: Unauthorized
           schema:
@@ -6603,7 +6603,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/resource.Resource'
+            $ref: '#/definitions/github_com_txn2_mcp-data-platform_pkg_resource.Resource'
         "400":
           description: Bad Request
           schema:

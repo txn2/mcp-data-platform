@@ -18,6 +18,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
+	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
@@ -77,6 +78,11 @@ type Toolkit struct {
 	// exportDeps holds platform-side dependencies for api_export
 	// (nil = export disabled, tool not registered).
 	exportDeps *ExportDeps
+
+	// metrics is the observability recorder wired by the platform.
+	// nil = metrics subsystem disabled; the instrumented transport
+	// short-circuits to the bare base transport in that case.
+	metrics *observability.Metrics
 }
 
 // ConnOAuthStore returns the unified OAuth token store wired into
@@ -170,6 +176,35 @@ func (t *Toolkit) SetConnOAuthStore(s connoauth.Store) {
 		if ac, ok := c.auth.(*oauth2AuthorizationCodeAuth); ok {
 			ac.SetConnOAuthStore(s)
 		}
+	}
+}
+
+// SetMetrics wires the observability recorder into the toolkit and
+// retroactively instruments every already-registered connection's
+// HTTP client so connections added before metrics were enabled still
+// emit outbound observations. Passing nil is supported and clears
+// the recorder, but does not unwrap already-wrapped transports —
+// rebuilding a connection (ReloadConnection / RemoveConnection +
+// AddConnection) is the supported path to drop the wrapping.
+//
+// Call this at startup, before traffic begins. The retro-wrap path
+// mutates each connection's http.Client.Transport in place; http.Client
+// does not document Transport as safe for concurrent reassignment with
+// in-flight Do() calls. The platform's WireAPIGatewayMetrics is invoked
+// once in cmd/main.go before any MCP listener starts accepting requests,
+// so the in-place mutation is race-free in practice. instrumentClient
+// is idempotent against the same (connection, metrics) pair so a second
+// SetMetrics call with the same recorder is a no-op rather than a
+// double-wrap.
+func (t *Toolkit) SetMetrics(m *observability.Metrics) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.metrics = m
+	if !m.Enabled() {
+		return
+	}
+	for name, c := range t.connections {
+		instrumentClient(c.client, name, m)
 	}
 }
 
@@ -622,10 +657,11 @@ func (t *Toolkit) addParsedConnection(name string, cfg Config) error {
 		return fmt.Errorf("apigateway: %s: %w", name, err)
 	}
 	specs, ops, vectors := t.buildConnSpecs(name, cfg.CatalogID, cfg.BaseURL)
+	client := newHTTPClient(cfg)
 	c := &conn{
 		cfg:          cfg,
 		auth:         auth,
-		client:       newHTTPClient(cfg),
+		client:       client,
 		specs:        specs,
 		operations:   ops,
 		embedVectors: vectors,
@@ -635,6 +671,10 @@ func (t *Toolkit) addParsedConnection(name string, cfg Config) error {
 	if _, exists := t.connections[name]; exists {
 		return fmt.Errorf("apigateway: %s: %w", name, ErrConnectionExists)
 	}
+	// Read t.metrics under the lock — SetMetrics writes it under
+	// the same lock, so reading it outside (as we did previously)
+	// raced against runtime hot-add via AddConnection.
+	instrumentClient(client, name, t.metrics)
 	// Wire the unified token store into authorization_code
 	// authenticators inline so a connection added BEFORE
 	// SetConnOAuthStore still becomes functional once that wire step
@@ -901,6 +941,11 @@ func errorResult(msg string) *mcp.CallToolResult {
 // redirects manually by reading the upstream Location header from
 // the response and issuing a new api_invoke_endpoint call with the
 // redirected URL.
+//
+// Metrics wrapping is applied by the caller (see
+// instrumentClient) rather than here so test helpers can construct
+// a bare client without threading a metrics handle through every
+// call site.
 func newHTTPClient(cfg Config) *http.Client {
 	return &http.Client{
 		Timeout:   cfg.CallTimeout,
@@ -909,6 +954,27 @@ func newHTTPClient(cfg Config) *http.Client {
 			return http.ErrUseLastResponse
 		},
 	}
+}
+
+// instrumentClient wraps client.Transport with the metrics-recording
+// transport when metrics is enabled. No-op otherwise so test helpers
+// that build a bare client continue to compile without changes.
+//
+// Idempotent: if client.Transport is already a *instrumentedTransport
+// with the same connection name, the call is a no-op. This prevents
+// double-wrapping (and therefore double-recording) when SetMetrics
+// runs against connections that were already instrumented at
+// construction time.
+func instrumentClient(client *http.Client, connection string, metrics *observability.Metrics) {
+	if client == nil {
+		return
+	}
+	if existing, ok := client.Transport.(*instrumentedTransport); ok {
+		if existing.connection == connection && existing.metrics == metrics {
+			return
+		}
+	}
+	client.Transport = newInstrumentedTransport(client.Transport, connection, metrics)
 }
 
 // idleConnectionTimeout caps how long an idle keep-alive connection

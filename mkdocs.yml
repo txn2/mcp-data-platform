@@ -78,6 +78,7 @@ nav:
       - Admin API: server/admin-api.md
     - Operations:
       - Audit Logging: server/audit.md
+      - Observability: server/observability.md
       - Operating Modes: server/operating-modes.md
       - Session Externalization: server/session-externalization.md
       - Gateway Toolkit: server/gateway.md
