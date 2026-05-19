@@ -814,6 +814,18 @@ type APIGatewayEmbedJobsConfig struct {
 	// embedders typically saturate at 1 because the bottleneck is
 	// the embedding model, not the gateway. See #430.
 	Workers int `yaml:"workers"`
+
+	// EmbedTimeout caps an individual batched embedding HTTP call the
+	// worker issues to Ollama's /api/embed endpoint. The shared
+	// embedding.DefaultTimeout (30s) is tuned for the singular
+	// /api/embeddings path used by request-path callers (memory recall,
+	// capture_insight, etc.) where Ollama returns in 1-3s. The batched
+	// path can take 60+ seconds for a 32-text chunk on CPU-only Ollama;
+	// using the 30s default makes the worker timeout-storm on every
+	// spec write (#445). Zero or negative falls back to 5 minutes,
+	// which covers a 32-text batch on CPU Ollama with margin. Operators
+	// on GPU embedders can lower this to keep the failure floor tight.
+	EmbedTimeout time.Duration `yaml:"embed_timeout"`
 }
 
 // isExplicitlyDisabled returns true only when the pointer is non-nil and false.

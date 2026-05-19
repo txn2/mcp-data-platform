@@ -6,7 +6,22 @@ import "context"
 // DefaultDimension is the default embedding dimensionality (nomic-embed-text).
 const DefaultDimension = 768
 
-// DefaultTimeout is the default HTTP timeout in seconds for embedding API calls.
+// DefaultTimeout is the default HTTP timeout in seconds for embedding
+// API calls. Tuned for the singular /api/embeddings path (one text per
+// call), where a CPU-only Ollama with nomic-embed-text typically returns
+// in 1-3 seconds; 30s is a generous ceiling for transient slowness on
+// the request path. Synchronous request-path callers (memory_recall,
+// memory_manage, knowledge capture_insight, apigateway query-vector)
+// share this default so a wedged Ollama fails the tool call at 30s
+// instead of holding an MCP request handler open for minutes.
+//
+// The batched /api/embed path used by the api-gateway embed-jobs worker
+// needs a much higher ceiling (CPU-only Ollama on a 32-text batch can
+// take 60+ seconds). The worker constructs its own Provider with a
+// longer timeout from apigateway.embed_jobs.embed_timeout — see
+// pkg/platform/apigateway_embed_jobs.go. The default here intentionally
+// does NOT cover the batch case so request-path consumers are not
+// caught up in the worker's longer budget (#445).
 const DefaultTimeout = 30
 
 // Kind values for Provider.Kind. Used by callers (platform wiring,
