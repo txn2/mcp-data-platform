@@ -136,7 +136,16 @@ func (a *OIDCAuthenticator) Authenticate(ctx context.Context) (*middleware.UserI
 }
 
 // parseAndValidateToken parses and validates a JWT with signature verification.
+//
+// Returns ErrNotAJWT (unwrapped) when the credential clearly isn't a
+// JWT, so ChainedAuthenticator can silently fall through to the next
+// authenticator without logging a misleading "rejected" line for what
+// is actually a normal API-key-handed-to-JWT-authenticator path.
 func (a *OIDCAuthenticator) parseAndValidateToken(tokenString string) (map[string]any, error) {
+	if !LooksLikeJWT(tokenString) {
+		return nil, ErrNotAJWT
+	}
+
 	// If signature verification is disabled (testing only), use legacy parsing
 	if a.cfg.SkipSignatureVerification {
 		return a.parseTokenWithoutSignatureVerification(tokenString)
