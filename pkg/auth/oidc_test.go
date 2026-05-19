@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 	"net/http"
@@ -112,6 +113,35 @@ func TestOIDCAuthenticator_Authenticate(t *testing.T) {
 		if err == nil {
 			t.Error("expected error for invalid JWT format")
 		}
+	})
+
+	t.Run("api-key-shaped credential returns ErrNotAJWT sentinel", func(t *testing.T) {
+		// Same chain-fallthrough contract as the OAuth JWT
+		// authenticator: a zero-dot credential (API key) must surface
+		// as the sentinel so ChainedAuthenticator can advance silently.
+		// Verified in skip-signature mode AND in verifying mode so the
+		// shape-check short-circuit runs before either branch.
+		t.Run("skip signature mode", func(t *testing.T) {
+			auth, _ := NewOIDCAuthenticator(OIDCConfig{
+				Issuer:                    "https://issuer.example.com",
+				SkipSignatureVerification: true,
+			})
+			ctx := WithToken(context.Background(), "nifi-etl")
+			_, err := auth.Authenticate(ctx)
+			if !errors.Is(err, ErrNotAJWT) {
+				t.Errorf("err = %v, want ErrNotAJWT", err)
+			}
+		})
+		t.Run("verifying mode", func(t *testing.T) {
+			auth, _ := NewOIDCAuthenticator(OIDCConfig{
+				Issuer: "https://issuer.example.com",
+			})
+			ctx := WithToken(context.Background(), "nifi-etl")
+			_, err := auth.Authenticate(ctx)
+			if !errors.Is(err, ErrNotAJWT) {
+				t.Errorf("err = %v, want ErrNotAJWT", err)
+			}
+		})
 	})
 
 	t.Run("invalid issuer", func(t *testing.T) {

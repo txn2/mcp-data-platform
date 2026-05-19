@@ -104,7 +104,15 @@ func (a *OAuthJWTAuthenticator) Authenticate(ctx context.Context) (*middleware.U
 }
 
 // parseAndValidateToken parses and validates the JWT.
+//
+// Returns ErrNotAJWT (unwrapped) when the credential clearly isn't a
+// JWT, so ChainedAuthenticator can silently fall through to the next
+// authenticator without logging a misleading "rejected" line for what
+// is actually a normal API-key-handed-to-JWT-authenticator path.
 func (a *OAuthJWTAuthenticator) parseAndValidateToken(tokenString string) (map[string]any, error) {
+	if !LooksLikeJWT(tokenString) {
+		return nil, ErrNotAJWT
+	}
 	// Parse and verify the JWT signature
 	token, err := jwt.Parse(tokenString, func(t *jwt.Token) (any, error) {
 		// Validate the algorithm is HMAC

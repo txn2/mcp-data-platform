@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -154,6 +155,19 @@ func TestOAuthJWTAuthenticator_Authenticate_EdgeCases(t *testing.T) {
 		_, err := authenticator.Authenticate(ctx)
 		if err == nil {
 			t.Error("expected error for invalid token format")
+		}
+	})
+
+	t.Run("api-key-shaped credential returns ErrNotAJWT sentinel", func(t *testing.T) {
+		// The chain hands every credential to every authenticator. An
+		// API key has zero dots and must surface as the sentinel so
+		// ChainedAuthenticator can fall through silently instead of
+		// logging "rejected" for what is a normal credential-type
+		// mismatch.
+		ctx := WithToken(context.Background(), "nifi-etl")
+		_, err := authenticator.Authenticate(ctx)
+		if !errors.Is(err, ErrNotAJWT) {
+			t.Errorf("err = %v, want ErrNotAJWT", err)
 		}
 	})
 

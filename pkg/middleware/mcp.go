@@ -171,21 +171,23 @@ func populateToolkitMetadata(pc *PlatformContext, lookup ToolkitLookup, toolName
 // Streamable HTTP provides headers in RequestExtra on every POST.
 // MCPAuthGateway also bridges tokens at the HTTP level so they propagate via
 // the connection context; this function acts as a fallback.
+//
+// Intentionally silent on the no-op paths (token already present, no
+// extra headers, no token in headers). Those fire on every request and
+// produced uncorrelated noise that drowned out the audit trail; the
+// downstream authenticator emits "no token found in context" when the
+// outcome actually matters.
 func bridgeAuthToken(ctx context.Context, req mcp.Request) context.Context {
 	if GetToken(ctx) != "" {
-		slog.Debug("bridgeAuthToken: token already in context")
 		return ctx
 	}
 	extra := req.GetExtra()
 	if extra == nil || extra.Header == nil {
-		slog.Debug("bridgeAuthToken: no extra headers in request")
 		return ctx
 	}
 	if token := extractBearerOrAPIKey(extra.Header); token != "" {
-		slog.Debug("bridgeAuthToken: extracted token from request headers")
 		return WithToken(ctx, token)
 	}
-	slog.Debug("bridgeAuthToken: no token in request headers")
 	return ctx
 }
 
