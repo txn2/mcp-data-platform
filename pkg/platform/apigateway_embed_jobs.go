@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
@@ -11,6 +12,37 @@ import (
 	apigatewaycatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/embedjobs"
 )
+
+// defaultEmbedJobsTimeout is the fall-back timeout the worker uses for
+// its batched /api/embed POSTs when apigateway.embed_jobs.embed_timeout
+// is unset. 5 minutes covers a 32-text batch on CPU-only Ollama with
+// margin; GPU deployments can tighten this via config. See #445.
+const defaultEmbedJobsTimeout = 5 * time.Minute
+
+// workerEmbedder returns the embedding.Provider the api-gateway embed-
+// jobs worker should use. When the platform's embedder is Ollama, the
+// worker gets a dedicated Provider with a longer HTTP timeout
+// (apigateway.embed_jobs.embed_timeout, default 5m) so a batched call
+// on CPU-only Ollama does not exhaust the 30s default that
+// request-path callers (memory_recall, capture_insight, etc.) share.
+// For any other provider, the shared platform Provider is returned
+// unchanged.
+func (p *Platform) workerEmbedder() embedding.Provider {
+	// Only the ollama provider needs the longer timeout today; other
+	// providers (noop, future kinds) reuse the shared instance.
+	if p.config.Memory.Embedding.Provider != "ollama" {
+		return p.embeddingProv
+	}
+	timeout := p.config.APIGateway.EmbedJobs.EmbedTimeout
+	if timeout <= 0 {
+		timeout = defaultEmbedJobsTimeout
+	}
+	return embedding.NewOllamaProvider(embedding.OllamaConfig{
+		URL:     p.config.Memory.Embedding.Ollama.URL,
+		Model:   p.config.Memory.Embedding.Ollama.Model,
+		Timeout: timeout,
+	})
+}
 
 // WireAPIGatewayEmbedJobsFromDB initializes the api-gateway
 // embedding job queue: the Postgres store, the Worker, the
@@ -59,7 +91,7 @@ func (p *Platform) WireAPIGatewayEmbedJobsFromDB() {
 	p.apiGatewayEmbedJobsStore = store
 
 	resolver := &catalogSpecResolver{store: catalogStore}
-	computer := &apigatewayEmbeddingComputer{embedder: p.embeddingProv}
+	computer := &apigatewayEmbeddingComputer{embedder: p.workerEmbedder()}
 	persister := &catalogEmbeddingPersister{store: catalogStore}
 
 	worker := embedjobs.NewWorker(embedjobs.WorkerConfig{

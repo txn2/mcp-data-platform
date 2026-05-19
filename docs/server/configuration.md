@@ -704,11 +704,13 @@ Cluster-wide tuning for the API gateway toolkit's background work. Connection-le
 apigateway:
   embed_jobs:
     workers: 1
+    embed_timeout: 5m
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `embed_jobs.workers` | int | `1` | Number of embedding-worker goroutines per pod. Each goroutine independently claims and processes jobs; the lease + `SKIP LOCKED` predicate in the queue's claim path prevents two goroutines (in the same pod or across pods) from picking the same job. Increase to 2-4 for deployments with many specs and a fast embedder; CPU-only embedders typically saturate at 1 because the bottleneck is the embedding model. |
+| `embed_jobs.embed_timeout` | duration | `5m` | HTTP timeout the worker applies to its batched `/api/embed` POSTs against Ollama. Scoped to the worker only so the shared 30s `memory.embedding.ollama.timeout` continues to govern request-path callers (memory recall, capture_insight, etc.); a wedged Ollama therefore fails MCP tool calls in 30s while the worker tolerates the longer batched-inference floor. Lower this on GPU embedders to tighten the failure floor. |
 
 ## MCP Apps Configuration
 
