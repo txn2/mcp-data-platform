@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
 
 // MCPAuditMiddleware creates MCP protocol-level middleware that logs tool calls
@@ -83,14 +85,39 @@ func buildMCPAuditEvent(pc *PlatformContext, info auditCallInfo) AuditEvent {
 	success := info.Err == nil
 	errorMsg := ""
 	errorCategory := ""
+	callResult, _ := info.Result.(*mcp.CallToolResult)
 	if info.Err != nil {
 		errorMsg = info.Err.Error()
 		errorCategory = ErrorCategory(info.Err)
-	} else if callResult, ok := info.Result.(*mcp.CallToolResult); ok && callResult != nil && callResult.IsError {
+	} else if callResult != nil && callResult.IsError {
 		success = false
 		errorMsg = extractMCPErrorMessage(callResult)
 		if getErr := callResult.GetError(); getErr != nil {
 			errorCategory = ErrorCategory(getErr)
+		}
+	}
+
+	// Audit-outcome _meta override. Toolkits that proxy external
+	// services (apigateway) set this on every result so the audit row
+	// reflects the real upstream outcome rather than just "the MCP
+	// tool returned." When present and not 'ok', it overrides the
+	// IsError-derived success/category. Upstream 4xx/5xx come through
+	// here even though IsError stays false (correct gateway wire
+	// semantics: the gateway succeeded at proxying; the upstream
+	// returned what it returned). See issue #432.
+	//
+	// The meta message takes precedence over the IsError-branch's
+	// errorMsg because the IsError branch reads the full JSON-encoded
+	// tool result text, which for the apigateway is a multi-field
+	// JSON envelope ({"status":0,"duration_ms":...,"error":"..."}).
+	// The meta message is the concise scrubbed error string the
+	// toolkit explicitly stamped for audit consumption, preferable
+	// for grep/dashboards.
+	if outcome, message := readAuditOutcomeMeta(callResult); outcome != "" && outcome != observability.OutcomeOK {
+		success = false
+		errorCategory = outcome
+		if message != "" {
+			errorMsg = message
 		}
 	}
 
@@ -188,6 +215,20 @@ func calculateRequestSize(req mcp.Request) int {
 		return 0
 	}
 	return len(callParams.Arguments)
+}
+
+// readAuditOutcomeMeta extracts the audit outcome and (optional)
+// human-readable message from a CallToolResult's _meta map. Returns
+// empty strings when the result is nil, the Meta is nil, the keys
+// are absent, or the values are not strings, so the caller's check
+// for outcome == "" cleanly skips the override path.
+func readAuditOutcomeMeta(result *mcp.CallToolResult) (outcome, message string) {
+	if result == nil || result.Meta == nil {
+		return "", ""
+	}
+	outcome, _ = result.Meta[observability.MetaAuditOutcome].(string)
+	message, _ = result.Meta[observability.MetaAuditOutcomeMessage].(string)
+	return outcome, message
 }
 
 // extractMCPErrorMessage extracts the error message from an MCP CallToolResult.

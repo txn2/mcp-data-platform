@@ -14,6 +14,46 @@ const (
 	StatusInternalErr   = "internal_err"
 )
 
+// Audit outcome categories for upstream-proxying toolkits (e.g. the
+// apigateway). These are bounded labels that distinguish gateway-level
+// failure (the gateway could not reach the upstream) from
+// upstream-level failure (the upstream responded with an error
+// status). The two are fundamentally different operational concerns
+// and should not share a status code or a success boolean:
+//   - The gateway returning 502 means the gateway broke.
+//   - The upstream returning 502 (proxied through the gateway as wire
+//     200 with the upstream code in the body) means the upstream
+//     broke. The gateway did its job.
+//
+// audit_logs.error_category and the Phase 1 status_category label
+// adopt these constants so dashboards can alert on each independently.
+const (
+	OutcomeOK              = "ok"
+	OutcomeUpstream4xx     = "upstream_4xx"
+	OutcomeUpstream5xx     = "upstream_5xx"
+	OutcomeTransportErr    = "transport_err"
+	OutcomeUpstreamTimeout = "upstream_timeout"
+)
+
+// Well-known CallToolResult Meta keys read by the audit middleware to
+// override its success / error_category derivation. Toolkits that
+// proxy external services populate these so the audit row reflects
+// the real upstream outcome instead of just "the MCP tool ran." Keys
+// are namespaced under "audit_" to keep them out of the way of other
+// _meta consumers.
+const (
+	// MetaAuditOutcome carries one of the Outcome* string constants
+	// above. When present and not OutcomeOK, the audit middleware
+	// sets success=false and uses the value as error_category.
+	MetaAuditOutcome = "audit_outcome"
+
+	// MetaAuditOutcomeMessage carries an optional human-readable
+	// summary of the outcome (typically the upstream status text or
+	// the scrubbed transport error). Used to populate
+	// audit_logs.error_message when no other source is available.
+	MetaAuditOutcomeMessage = "audit_outcome_message"
+)
+
 // HTTP status class labels for outbound calls. The "other" bucket
 // covers transport-level failures (status code 0) and the rarely-seen
 // 1xx informational range. Recording the raw status code as a label

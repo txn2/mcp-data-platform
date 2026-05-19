@@ -875,7 +875,57 @@ func (t *Toolkit) handleInvoke(ctx context.Context, _ *mcp.CallToolRequest, in I
 	if !hasExport {
 		out.Hint = ""
 	}
-	return jsonResult(out), out, nil
+	return buildInvokeResult(out), out, nil
+}
+
+// buildInvokeResult wraps an InvokeOutput in a CallToolResult,
+// classifies the outcome, and stamps the result for the audit
+// middleware and the REST shim:
+//
+//   - _meta.audit_outcome is set on EVERY call (including success)
+//     so the audit middleware can populate audit_logs.error_category
+//     for every row without parsing the JSON body.
+//   - _meta.audit_outcome_message carries a concise human-readable
+//     summary: the scrubbed transport-error text for gateway-level
+//     failures, or the canonical HTTP status reason phrase (via
+//     http.StatusText) for upstream 4xx/5xx. Empty on the success
+//     path.
+//   - IsError is set ONLY for gateway-level failures (transport
+//     error, upstream timeout, i.e. Status == 0). Upstream 4xx and
+//     5xx responses leave IsError = false because the gateway
+//     successfully proxied; the upstream returned what it returned.
+//     The REST shim's classifyToolError relies on this distinction
+//     to map gateway-level failures to 502 / 504 while letting
+//     successful proxies of upstream errors flow through as wire
+//     HTTP 200 with the upstream code embedded in the body.
+func buildInvokeResult(out InvokeOutput) *mcp.CallToolResult {
+	result := jsonResult(out)
+	outcome := ClassifyInvokeOutcome(out)
+	result.Meta = mcp.Meta{observability.MetaAuditOutcome: outcome}
+	if msg := auditOutcomeMessage(out); msg != "" {
+		result.Meta[observability.MetaAuditOutcomeMessage] = msg
+	}
+	if outcome == observability.OutcomeTransportErr || outcome == observability.OutcomeUpstreamTimeout {
+		result.IsError = true
+	}
+	return result
+}
+
+// auditOutcomeMessage returns the human-readable summary string the
+// audit middleware should record alongside the outcome category. For
+// gateway-level failures the scrubbed transport error is the most
+// specific signal; for upstream 4xx/5xx the canonical reason phrase
+// keeps the audit row grep-friendly without dragging the upstream's
+// arbitrary error body into the column. Empty string when the call
+// succeeded or no useful summary is available.
+func auditOutcomeMessage(out InvokeOutput) string {
+	if out.Error != "" {
+		return out.Error
+	}
+	if out.Status >= httpStatus4xxLo && out.Status < httpStatus6xxLo {
+		return http.StatusText(out.Status)
+	}
+	return ""
 }
 
 // checkRoutePolicy runs the optional per-(connection, method, path)

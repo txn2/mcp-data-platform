@@ -198,6 +198,51 @@ func TestClassifyToolError(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
+			name:       "context deadline → 504 Gateway Timeout",
+			payload:    `{"error":"Get \"https://api.example.com/x\": context deadline exceeded"}`,
+			wantStatus: http.StatusGatewayTimeout,
+		},
+		{
+			name:       "Client.Timeout exceeded → 504 Gateway Timeout",
+			payload:    `{"error":"Get \"https://api.example.com/x\": net/http: request canceled (Client.Timeout exceeded while awaiting headers)"}`,
+			wantStatus: http.StatusGatewayTimeout,
+		},
+		{
+			name:       "i/o timeout → 504 Gateway Timeout",
+			payload:    `{"error":"read tcp 10.0.0.1:443: i/o timeout"}`,
+			wantStatus: http.StatusGatewayTimeout,
+		},
+		{
+			name:       "DNS resolution failure → 502 Bad Gateway",
+			payload:    `{"error":"Get \"https://nope.invalid/x\": dial tcp: lookup nope.invalid: no such host"}`,
+			wantStatus: http.StatusBadGateway,
+		},
+		{
+			name:       "TCP connection refused → 502 Bad Gateway",
+			payload:    `{"error":"Get \"https://api.example.com/x\": dial tcp 10.0.0.1:443: connect: connection refused"}`,
+			wantStatus: http.StatusBadGateway,
+		},
+		{
+			name:       "TLS handshake failure → 502 Bad Gateway",
+			payload:    `{"error":"Get \"https://api.example.com/x\": tls: handshake failure"}`,
+			wantStatus: http.StatusBadGateway,
+		},
+		{
+			name:       "EOF mid-stream → 502 Bad Gateway",
+			payload:    `{"error":"Get \"https://api.example.com/x\": EOF"}`,
+			wantStatus: http.StatusBadGateway,
+		},
+		{
+			name:       "connection reset → 502 Bad Gateway",
+			payload:    `{"error":"read tcp 10.0.0.1:443: connection reset by peer"}`,
+			wantStatus: http.StatusBadGateway,
+		},
+		{
+			name:       "transport phrase 'no such host' does NOT mismatch as 404 not found",
+			payload:    `{"error":"dial tcp: lookup api.example.com: no such host"}`,
+			wantStatus: http.StatusBadGateway,
+		},
+		{
 			name:       "non-JSON payload → 500 with raw text",
 			payload:    `garbage`,
 			wantStatus: http.StatusInternalServerError,
@@ -407,6 +452,91 @@ func TestIntegration_UpstreamErrorIsBodyNotHTTP(t *testing.T) {
 	require.NoError(t, json.Unmarshal(respBody, &out))
 	assert.Equal(t, 500, out.Status,
 		"upstream HTTP status must be returned in InvokeOutput.Status")
+}
+
+// TestIntegration_UpstreamTimeoutIsGatewayTimeout proves that when
+// the apigateway's outbound call to the upstream exceeds its
+// CallTimeout, the REST shim returns HTTP 504 Gateway Timeout, NOT
+// 200 with a status=0 body, and NOT 500. This is the corrected gateway
+// semantics from issue #432: the gateway failed to proxy, so it
+// surfaces the failure at the wire layer so HTTP clients (NiFi,
+// Airflow, curl) can use their built-in retry / failure routing
+// instead of having to parse a JSON body to detect the failure.
+func TestIntegration_UpstreamTimeoutIsGatewayTimeout(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		// Sleep longer than the call_timeout configured in
+		// newGatewayHTTPServer's connection definition. The
+		// apigateway will cancel the request and produce a
+		// context-deadline-exceeded error which buildInvokeResult
+		// classifies as upstream_timeout.
+		time.Sleep(2 * time.Second)
+	}))
+	defer upstream.Close()
+
+	gateway := newGatewayHTTPServerWithTimeout(t, upstream.URL, "acme", "200ms")
+	defer gateway.Close()
+
+	status, respBody := postJSON(t, gateway.URL+"/api/v1/gateway/acme/invoke",
+		`{"method":"GET","path":"/v1/slow"}`)
+
+	require.Equal(t, http.StatusGatewayTimeout, status,
+		"upstream timeout must surface as 504 Gateway Timeout at the wire layer")
+	var env errorEnvelope
+	require.NoError(t, json.Unmarshal(respBody, &env))
+	assert.NotEmpty(t, env.Error, "504 response must include the scrubbed transport error message")
+}
+
+// TestIntegration_TransportErrorIsBadGateway proves that when the
+// upstream is unreachable (connection refused / TLS / DNS), the REST
+// shim returns HTTP 502 Bad Gateway. Confirms the gateway-side
+// failure path lands as a real 5xx that HTTP clients can route on.
+func TestIntegration_TransportErrorIsBadGateway(t *testing.T) {
+	// Stand up an httptest server then close it immediately so the
+	// URL is well-formed but the TCP connect attempt fails. This
+	// produces a "connect: connection refused" error from net/http
+	// which the apigateway scrubber preserves and the classifier
+	// maps to 502.
+	upstream := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}))
+	closedURL := upstream.URL
+	upstream.Close()
+
+	gateway := newGatewayHTTPServerWithTimeout(t, closedURL, "acme", "5s")
+	defer gateway.Close()
+
+	status, respBody := postJSON(t, gateway.URL+"/api/v1/gateway/acme/invoke",
+		`{"method":"GET","path":"/v1/anything"}`)
+
+	require.Equal(t, http.StatusBadGateway, status,
+		"unreachable upstream must surface as 502 Bad Gateway at the wire layer")
+	var env errorEnvelope
+	require.NoError(t, json.Unmarshal(respBody, &env))
+	assert.NotEmpty(t, env.Error, "502 response must include the scrubbed transport error message")
+}
+
+// newGatewayHTTPServerWithTimeout is a variant of newGatewayHTTPServer
+// that takes an explicit call_timeout string, used by the timeout
+// integration test to force a deterministic cancel without waiting
+// the default 5 seconds.
+func newGatewayHTTPServerWithTimeout(t *testing.T, upstreamURL, connName, callTimeout string) *httptest.Server {
+	t.Helper()
+	tk := apigatewaykit.New("apigateway")
+	if upstreamURL != "" {
+		require.NoError(t, tk.AddConnection(connName, map[string]any{
+			"base_url":        upstreamURL,
+			"auth_mode":       apigatewaykit.AuthModeNone,
+			"call_timeout":    callTimeout,
+			"connect_timeout": "2s",
+		}))
+	}
+	mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "v1"}, nil)
+	tk.RegisterTools(mcpServer)
+	handler, err := NewHandler(Deps{MCPServer: mcpServer})
+	require.NoError(t, err)
+	srv := httptest.NewServer(handler)
+	t.Cleanup(func() {
+		time.Sleep(10 * time.Millisecond)
+	})
+	return srv
 }
 
 // TestIntegration_ConnectionNotFound exercises the 404 path: the
