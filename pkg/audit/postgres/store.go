@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
 	"time"
 
@@ -13,6 +14,19 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 )
+
+// auditMaintenanceLockKey is the PostgreSQL advisory-lock key that
+// serializes the audit maintenance tick across replicas. Multi-pod
+// deployments race to acquire this lock at the start of each tick;
+// exactly one wins and runs the partition rotation + retention DELETE,
+// the rest skip until next tick. The value is FNV-1a of a stable
+// namespace string so it does not collide with other advisory-lock
+// users in the same database.
+var auditMaintenanceLockKey = func() int64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte("mcp-data-platform:audit_logs:maintenance"))
+	return int64(h.Sum64()) //nolint:gosec // G115: postgres advisory lock keys are bigint; bit pattern preserved
+}()
 
 const (
 	defaultRetentionDays = 90
@@ -403,6 +417,11 @@ const slogKeyError = "error"
 // is logged and skipped, never aborts the retention DELETE that runs on the
 // same tick. This keeps audit_logs bounded even on a database where the
 // partition operations have transient errors.
+//
+// In multi-replica deployments, only one pod per tick acquires the audit
+// maintenance advisory lock and runs the steps; the rest skip silently
+// until the next tick. The initial pre-tick ensure also runs under the
+// lock so simultaneous pod restarts do not stampede on CREATE TABLE.
 func (s *Store) StartCleanupRoutine(interval time.Duration) {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
@@ -411,9 +430,11 @@ func (s *Store) StartCleanupRoutine(interval time.Duration) {
 	// Best-effort: ensure upcoming partitions exist before the first tick so
 	// rows written between startup and the first tick land in named
 	// partitions when their month is covered.
-	if err := s.EnsureMonthlyPartitions(ctx, partitionsAheadDefault); err != nil {
-		slog.Warn("audit cleanup: initial ensure partitions", slogKeyError, err)
-	}
+	s.runUnderMaintenanceLock(ctx, func(ctx context.Context) {
+		if err := s.EnsureMonthlyPartitions(ctx, partitionsAheadDefault); err != nil {
+			slog.Warn("audit cleanup: initial ensure partitions", slogKeyError, err)
+		}
+	})
 
 	go func() {
 		defer close(s.done)
@@ -433,19 +454,74 @@ func (s *Store) StartCleanupRoutine(interval time.Duration) {
 }
 
 // runMaintenanceTick performs one round of partition rotation and retention
-// cleanup. Each step's error is logged and isolated so a failure in one does
+// cleanup, guarded by a PostgreSQL advisory lock so only one replica runs it
+// per tick. Each step's error is logged and isolated so a failure in one does
 // not skip the others; the retention DELETE is the critical step and must
 // always run if reachable.
 func (s *Store) runMaintenanceTick(ctx context.Context) {
-	if err := s.EnsureMonthlyPartitions(ctx, partitionsAheadDefault); err != nil {
-		slog.Warn("audit cleanup: ensure partitions", slogKeyError, err)
+	s.runUnderMaintenanceLock(ctx, func(ctx context.Context) {
+		if err := s.EnsureMonthlyPartitions(ctx, partitionsAheadDefault); err != nil {
+			slog.Warn("audit cleanup: ensure partitions", slogKeyError, err)
+		}
+		if err := s.Cleanup(ctx); err != nil {
+			slog.Warn("audit cleanup: expired logs", slogKeyError, err)
+		}
+		if err := s.DropExpiredPartitions(ctx, s.retentionDays); err != nil {
+			slog.Warn("audit cleanup: drop expired partitions", slogKeyError, err)
+		}
+	})
+}
+
+// unlockTimeout caps the time the deferred advisory_unlock call may take.
+// The unlock runs on a detached context so it still fires when the parent
+// context has been canceled by Close, but it must not block shutdown
+// indefinitely if the database itself is unreachable.
+const unlockTimeout = 5 * time.Second
+
+// runUnderMaintenanceLock attempts to acquire the audit maintenance advisory
+// lock and, if successful, invokes fn. If another replica already holds the
+// lock or the database is unreachable, fn is not invoked and the call returns
+// silently. The next tick will retry.
+//
+// The lock is taken on a dedicated connection so the acquire and release
+// happen on the same PostgreSQL session (advisory locks are session-scoped).
+// fn itself uses s.db, which may draw other connections from the pool; those
+// queries are not blocked by the lock. The lock only prevents OTHER replicas
+// from running maintenance concurrently.
+//
+// The unlock uses a detached context with a short timeout so a canceled
+// parent context (e.g. Close called during fn) cannot leave the advisory
+// lock held on the pooled connection.
+func (s *Store) runUnderMaintenanceLock(ctx context.Context, fn func(context.Context)) {
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		slog.Warn("audit cleanup: acquire connection for lock", slogKeyError, err)
+		return
 	}
-	if err := s.Cleanup(ctx); err != nil {
-		slog.Warn("audit cleanup: expired logs", slogKeyError, err)
+	defer func() { _ = conn.Close() }()
+
+	var got bool
+	if err := conn.QueryRowContext(ctx,
+		"SELECT pg_try_advisory_lock($1)", auditMaintenanceLockKey,
+	).Scan(&got); err != nil {
+		slog.Warn("audit cleanup: try advisory lock", slogKeyError, err)
+		return
 	}
-	if err := s.DropExpiredPartitions(ctx, s.retentionDays); err != nil {
-		slog.Warn("audit cleanup: drop expired partitions", slogKeyError, err)
+	if !got {
+		// Another replica holds the lock; skip this tick.
+		return
 	}
+	defer func() {
+		unlockCtx, cancel := context.WithTimeout(context.Background(), unlockTimeout)
+		defer cancel()
+		if _, err := conn.ExecContext(unlockCtx,
+			"SELECT pg_advisory_unlock($1)", auditMaintenanceLockKey,
+		); err != nil {
+			slog.Warn("audit cleanup: advisory unlock", slogKeyError, err)
+		}
+	}()
+
+	fn(ctx)
 }
 
 // Verify interface compliance.

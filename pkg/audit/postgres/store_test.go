@@ -446,13 +446,27 @@ func TestClose_NilCancel_NoPanic(t *testing.T) {
 	assert.NoError(t, store.Close())
 }
 
+// expectLockAcquireSuccess queues sqlmock expectations for one successful
+// maintenance lock cycle: pg_try_advisory_lock returns true, then the
+// caller's work runs, then pg_advisory_unlock fires.
+func expectLockAcquireSuccess(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery("SELECT pg_try_advisory_lock").
+		WillReturnRows(sqlmock.NewRows([]string{"pg_try_advisory_lock"}).AddRow(true))
+}
+
+func expectLockRelease(mock sqlmock.Sqlmock) {
+	mock.ExpectExec("SELECT pg_advisory_unlock").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+}
+
 // expectMaintenanceTick queues sqlmock expectations for one maintenance tick:
-// EnsureMonthlyPartitions creates partitionsAheadDefault months, Cleanup runs
-// one DELETE, DropExpiredPartitions lists partitions (no rows). The `ticks`
-// parameter queues that many ticks for tests that allow the goroutine to
-// fire more than once before Close.
+// advisory lock acquired, EnsureMonthlyPartitions creates partitionsAheadDefault
+// months, Cleanup runs one DELETE, DropExpiredPartitions lists partitions (no
+// rows), advisory lock released. The `ticks` parameter queues that many ticks
+// for tests that allow the goroutine to fire more than once before Close.
 func expectMaintenanceTick(mock sqlmock.Sqlmock, ticks int) {
 	for range ticks {
+		expectLockAcquireSuccess(mock)
 		for range partitionsAheadDefault {
 			mock.ExpectExec("CREATE TABLE IF NOT EXISTS audit_logs_").
 				WillReturnResult(sqlmock.NewResult(0, 0))
@@ -461,7 +475,19 @@ func expectMaintenanceTick(mock sqlmock.Sqlmock, ticks int) {
 			WillReturnResult(sqlmock.NewResult(0, 0))
 		mock.ExpectQuery("SELECT c.relname").
 			WillReturnRows(sqlmock.NewRows([]string{"relname"}))
+		expectLockRelease(mock)
 	}
+}
+
+// expectEagerStartup queues the lock+ensure+unlock pattern that
+// StartCleanupRoutine runs once before its first tick.
+func expectEagerStartup(mock sqlmock.Sqlmock) {
+	expectLockAcquireSuccess(mock)
+	for range partitionsAheadDefault {
+		mock.ExpectExec("CREATE TABLE IF NOT EXISTS audit_logs_").
+			WillReturnResult(sqlmock.NewResult(0, 0))
+	}
+	expectLockRelease(mock)
 }
 
 func TestClose_StopsCleanupRoutine(t *testing.T) {
@@ -472,13 +498,7 @@ func TestClose_StopsCleanupRoutine(t *testing.T) {
 	store := New(db, Config{RetentionDays: 7})
 
 	mock.MatchExpectationsInOrder(false)
-	// One eager ensure on StartCleanupRoutine, then up to a few maintenance
-	// ticks before Close. We queue enough ticks to absorb the goroutine's
-	// real cadence without forcing a specific count.
-	for range partitionsAheadDefault {
-		mock.ExpectExec("CREATE TABLE IF NOT EXISTS audit_logs_").
-			WillReturnResult(sqlmock.NewResult(0, 0))
-	}
+	expectEagerStartup(mock)
 	expectMaintenanceTick(mock, 4)
 
 	store.StartCleanupRoutine(10 * time.Millisecond)
@@ -495,15 +515,48 @@ func TestStartCleanupRoutine(t *testing.T) {
 	store := New(db, Config{RetentionDays: 7})
 
 	mock.MatchExpectationsInOrder(false)
-	for range partitionsAheadDefault {
-		mock.ExpectExec("CREATE TABLE IF NOT EXISTS audit_logs_").
-			WillReturnResult(sqlmock.NewResult(0, 0))
-	}
+	expectEagerStartup(mock)
 	expectMaintenanceTick(mock, 4)
 
 	store.StartCleanupRoutine(10 * time.Millisecond)
 	time.Sleep(50 * time.Millisecond)
 	assert.NoError(t, store.Close())
+}
+
+// TestRunMaintenanceTick_SkipsWhenLockContended verifies the multi-replica
+// safety invariant: if another pod already holds the advisory lock,
+// pg_try_advisory_lock returns false and the tick exits without issuing any
+// of the partition or DELETE queries. The mock would fail if any of those
+// queries were attempted because they are not queued here.
+func TestRunMaintenanceTick_SkipsWhenLockContended(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{RetentionDays: 7})
+
+	mock.ExpectQuery("SELECT pg_try_advisory_lock").
+		WillReturnRows(sqlmock.NewRows([]string{"pg_try_advisory_lock"}).AddRow(false))
+
+	store.runMaintenanceTick(context.Background())
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestRunMaintenanceTick_LockAcquireError verifies that a DB error during
+// the lock acquire query is logged and skips the tick rather than panicking
+// or running maintenance with an undefined lock state.
+func TestRunMaintenanceTick_LockAcquireError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{RetentionDays: 7})
+
+	mock.ExpectQuery("SELECT pg_try_advisory_lock").
+		WillReturnError(errors.New("connection reset"))
+
+	store.runMaintenanceTick(context.Background())
+	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestApplyAuditFilter(t *testing.T) {

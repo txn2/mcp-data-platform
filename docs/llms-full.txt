@@ -837,11 +837,13 @@ Both REST entry points open an in-memory MCP session against the assembled serve
 
 A maintenance routine runs every 24 hours and performs three ordered steps:
 
-1. **Ensure upcoming partitions** — `CREATE TABLE IF NOT EXISTS audit_logs_YYYY_MM PARTITION OF audit_logs FOR VALUES FROM (...) TO (...)` for the next two months. The current month is intentionally skipped on brownfield deployments so existing rows in `audit_logs_default` do not block the new named partition. Idempotent.
-2. **Delete expired rows** — `DELETE FROM audit_logs WHERE timestamp < NOW() - INTERVAL '<retention_days> days'`. PostgreSQL prunes to overlapping partitions.
-3. **Drop fully expired partitions** — `DROP TABLE IF EXISTS audit_logs_YYYY_MM` for any monthly partition whose entire date range ends at or before the retention cutoff. Constant-time reclamation versus row-level DELETE.
+1. **Ensure upcoming partitions**: `CREATE TABLE IF NOT EXISTS audit_logs_YYYY_MM PARTITION OF audit_logs FOR VALUES FROM (...) TO (...)` for the next two months. The current month is intentionally skipped on brownfield deployments so existing rows in `audit_logs_default` do not block the new named partition. Idempotent.
+2. **Delete expired rows**: `DELETE FROM audit_logs WHERE timestamp < NOW() - INTERVAL '<retention_days> days'`. PostgreSQL prunes to overlapping partitions.
+3. **Drop fully expired partitions**: `DROP TABLE IF EXISTS audit_logs_YYYY_MM` for any monthly partition whose entire date range ends at or before the retention cutoff. Constant-time reclamation versus row-level DELETE.
 
 Step failures are logged and isolated; a partition operation that errors does not skip the retention DELETE on the same tick. The eager pre-tick `EnsureMonthlyPartitions` also runs once at startup. This pattern keeps audit_logs bounded even at high write volume (e.g. Apache NiFi calling the gateway REST shim at order-of-magnitude-per-second).
+
+In multi-replica deployments, the entire maintenance tick (including the eager startup ensure) is guarded by `pg_try_advisory_lock` on a stable key. Every replica still ticks every 24h, but only the pod that wins the lock runs the work; the rest exit silently and retry next tick. This makes the DELETE scan, partition CREATE, and partition DROP run exactly once per tick across the cluster, regardless of replica count.
 
 ---
 

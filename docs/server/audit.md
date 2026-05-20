@@ -278,6 +278,16 @@ The maintenance routine starts automatically when the audit store is initialized
 
 Failures in any one step are logged and isolated: a transient failure to create a partition does not skip the retention DELETE on the same tick.
 
+### Multi-replica safety
+
+Every replica runs its own 24h ticker, but the maintenance work itself is guarded by a PostgreSQL advisory lock (`pg_try_advisory_lock`). Each tick:
+
+1. Each pod opens a dedicated connection and calls `pg_try_advisory_lock` on a stable lock key.
+2. Exactly one pod acquires the lock; the rest get `false` back and exit silently to wait for the next tick.
+3. The winning pod runs ensure → DELETE → drop, then `pg_advisory_unlock`s.
+
+This means the DELETE scan, partition CREATE, and partition DROP each run exactly once per tick across the cluster, regardless of replica count. The advisory lock is session-scoped to the dedicated connection so it cannot leak across pods, and `IF NOT EXISTS` / `IF EXISTS` on CREATE/DROP means even a degenerate dual-acquire (which the lock prevents) would still be idempotent.
+
 For deployments running at high volume (the canonical motivating case is Apache NiFi calling the gateway REST shim at order-of-magnitude-per-second), monthly partition rotation keeps the working DELETE bounded to recent partitions and lets old data be bulk-dropped as whole partitions rather than scanned row-by-row.
 
 ## How It Works

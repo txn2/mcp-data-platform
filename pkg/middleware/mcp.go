@@ -47,9 +47,9 @@ const (
 // Exported source constants for callers that need to tag their context with
 // a non-default audit source. Three values cover the tool-invocation paths:
 //
-//   - SourceMCP   — real MCP transport (stdio or HTTP/SSE). Agents.
-//   - SourceAdmin — admin REST API → in-memory MCP shim. Portal-driven runs.
-//   - SourceREST  — gateway REST shim → in-memory MCP shim. NiFi / cronjobs.
+//   - SourceMCP:   real MCP transport (stdio or HTTP/SSE). Agents.
+//   - SourceAdmin: admin REST API + in-memory MCP shim. Portal-driven runs.
+//   - SourceREST:  gateway REST shim + in-memory MCP shim. NiFi / cronjobs.
 //
 // Operators filter audit_logs by `source` to separate these populations
 // without having to know which user IDs belong to which class of caller.

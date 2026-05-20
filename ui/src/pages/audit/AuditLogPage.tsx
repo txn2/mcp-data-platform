@@ -518,7 +518,7 @@ function EventsTab({ onNavigate }: { onNavigate?: (path: string) => void }) {
                 </td>
                 <td className="px-3 py-2 text-xs" title={event.tool_name}>{formatToolName(event.tool_name, titleMap[event.tool_name])}</td>
                 <td className="px-3 py-2">{event.toolkit_kind}</td>
-                <td className="px-3 py-2 text-xs" title={sourceLabel(event.source)}>{event.source || "—"}</td>
+                <td className="px-3 py-2 text-xs" title={sourceLabel(event.source)}>{event.source || "-"}</td>
                 <td className="px-3 py-2 text-xs">{event.connection}</td>
                 <td className="px-3 py-2 text-right">{formatDuration(event.duration_ms)}</td>
                 <td className="px-3 py-2 text-center">
