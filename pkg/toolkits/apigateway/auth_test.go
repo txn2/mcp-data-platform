@@ -31,6 +31,11 @@ func TestNewAuthenticator_DispatchesByAuthMode(t *testing.T) {
 			APIKeyPlacement: APIKeyPlacementHeader,
 			APIKeyHeader:    "X-API-Key",
 		}},
+		{name: "basic", cfg: Config{
+			AuthMode: AuthModeBasic,
+			Username: "alice",
+			Password: "s3cret",
+		}},
 		{name: "oauth2_client_credentials", cfg: Config{
 			AuthMode: AuthModeOAuth2ClientCredentials,
 			OAuth2: OAuth2Config{
@@ -153,6 +158,72 @@ func TestOAuth2AuthCode_ApplyWithoutPersistedTokenReturnsNeedsReauth(t *testing.
 	require.NoError(t, err)
 	err = auth.Apply(req)
 	require.ErrorIs(t, err, ErrNeedsReauth)
+}
+
+// TestBasicAuth_ApplyEncodesRFC7617 pins the exact Authorization
+// header value the basic authenticator produces. The base64 of
+// "alice:s3cret" is "YWxpY2U6czNjcmV0", locked literally so a future
+// refactor that swaps the encoding library or accidentally URL-encodes
+// the userinfo will fail loudly here rather than at an integration
+// boundary.
+func TestBasicAuth_ApplyEncodesRFC7617(t *testing.T) {
+	auth, err := NewAuthenticator(Config{
+		AuthMode: AuthModeBasic,
+		Username: "alice",
+		Password: "s3cret",
+	})
+	require.NoError(t, err)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://upstream/x", http.NoBody)
+	require.NoError(t, err)
+	require.NoError(t, auth.Apply(req))
+	assert.Equal(t, "Basic YWxpY2U6czNjcmV0", req.Header.Get("Authorization"))
+}
+
+// TestBasicAuth_EmptyPasswordAllowed covers the legacy "token-in-userid"
+// pattern. Some APIs accept `Authorization: Basic base64(<token>:)`
+// where the password is intentionally empty; validation must permit it.
+// base64("token:") = "dG9rZW46".
+func TestBasicAuth_EmptyPasswordAllowed(t *testing.T) {
+	auth, err := NewAuthenticator(Config{
+		AuthMode: AuthModeBasic,
+		Username: "token",
+		Password: "",
+	})
+	require.NoError(t, err)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://upstream/x", http.NoBody)
+	require.NoError(t, err)
+	require.NoError(t, auth.Apply(req))
+	assert.Equal(t, "Basic dG9rZW46", req.Header.Get("Authorization"))
+}
+
+// TestNewBasicAuth_DefenseInDepth confirms the authenticator's own
+// guards reject malformed credentials even when called through paths
+// that bypass Config.Validate (e.g. a direct construction in a test).
+func TestNewBasicAuth_DefenseInDepth(t *testing.T) {
+	cases := []struct {
+		name     string
+		username string
+		password string
+		wantMsg  string
+	}{
+		{name: "empty username", username: "", password: "p", wantMsg: "requires a username"},
+		{name: "colon in username", username: "a:b", password: "p", wantMsg: "must not contain"},
+		{name: "CRLF in username", username: "a\r\nb", password: "p", wantMsg: "CR/LF/NUL"},
+		{name: "NUL in password", username: "a", password: "p\x00q", wantMsg: "CR/LF/NUL"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := newBasicAuth(Config{
+				AuthMode: AuthModeBasic,
+				Username: tc.username,
+				Password: tc.password,
+			})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantMsg)
+		})
+	}
 }
 
 func TestConnoauthConfigFromOAuth2_MapsAuthStyleAndScopes(t *testing.T) {

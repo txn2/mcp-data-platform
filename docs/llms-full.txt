@@ -2467,7 +2467,7 @@ Use the API gateway for REST/HTTP upstreams (Salesforce, Google APIs, GitHub, St
 
 ## Connection config
 
-Stored in the database, authored through the admin portal or the admin REST API. Required field: `base_url`. Auth modes: `none`, `bearer`, `api_key` (header or query placement), `oauth2_client_credentials`, `oauth2_authorization_code`. The authorization-code grant completes via the platform's shared `/api/v1/admin/oauth/callback` endpoint (same as MCP gateway).
+Stored in the database, authored through the admin portal or the admin REST API. Required field: `base_url`. Auth modes: `none`, `bearer`, `api_key` (header or query placement), `basic` (RFC 7617 `Authorization: Basic base64(username:password)` for legacy APIs that never moved to bearer or OAuth, like Jenkins or on-prem Jira / Confluence Server / DC; `password` may be empty for the token-in-userid pattern; `username` is rejected if it contains `:` per RFC 7617 §2 or CR/LF/NUL header-smuggling vectors), `oauth2_client_credentials`, `oauth2_authorization_code`. The authorization-code grant completes via the platform's shared `/api/v1/admin/oauth/callback` endpoint (same as MCP gateway).
 
 ## Static headers
 

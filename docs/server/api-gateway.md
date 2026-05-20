@@ -52,7 +52,8 @@ curl -X PUT \
 | `none` | No outbound auth header |
 | `bearer` | `Authorization: Bearer <credential>` |
 | `api_key` | `<api_key_header>: <credential>` (header) or `?<api_key_param>=<credential>` (query) |
-| `oauth2_client_credentials` | Token fetched at `oauth2_token_url`, applied as `Authorization: Bearer …` |
+| `basic` | `Authorization: Basic base64(username:password)` per RFC 7617. For legacy APIs (Jenkins, on-prem Jira / Confluence Server / DC, internal apps) that never moved to bearer or OAuth. `password` may be empty for the `token:` pattern some APIs use. |
+| `oauth2_client_credentials` | Token fetched at `oauth2_token_url`, applied as `Authorization: Bearer ...` |
 | `oauth2_authorization_code` | Browser sign-in once; refresh token persisted (encrypted); access tokens refreshed silently |
 
 The OAuth 2.1 authorization-code grant completes via the platform's shared `/api/v1/admin/oauth/callback` endpoint, the same path the MCP gateway uses. Register that exact callback URL with the upstream IdP.
