@@ -1560,9 +1560,9 @@ function GatewayConfigForm({ config, onChange }: ConfigFormProps) {
 // the HTTP API gateway. Field shape matches the apigateway toolkit
 // config (see pkg/toolkits/apigateway/config.go): base_url, optional
 // openapi_spec, the same auth_mode set the toolkit accepts (none,
-// bearer, api_key, oauth2_client_credentials, oauth2_authorization_code),
-// timeouts, max_response_bytes, and the OAuth Connect button when
-// authorization_code is selected.
+// bearer, api_key, basic, oauth2_client_credentials,
+// oauth2_authorization_code), timeouts, max_response_bytes, and the
+// OAuth Connect button when authorization_code is selected.
 //
 // The Connect button is wired to the admin /api-gateway/connections/
 // {name}/oauth-start endpoint shipped in #381; clicking it opens the
@@ -1620,11 +1620,12 @@ function ApiGatewayConfigForm({
             <option value="none">None</option>
             <option value="bearer">Bearer token</option>
             <option value="api_key">API key</option>
-            <option value="oauth2_client_credentials">OAuth 2.1 — client_credentials</option>
-            <option value="oauth2_authorization_code">OAuth 2.1 — authorization_code (browser sign-in)</option>
+            <option value="basic">Basic (RFC 7617)</option>
+            <option value="oauth2_client_credentials">OAuth 2.1 client_credentials</option>
+            <option value="oauth2_authorization_code">OAuth 2.1 authorization_code (browser sign-in)</option>
           </select>
           <p className="mt-1 text-xs text-muted-foreground">
-            Bearer sends Authorization; API key sends a header or query param. OAuth client_credentials is machine-to-machine; authorization_code requires a one-time browser sign-in via Connect.
+            Bearer sends Authorization; API key sends a header or query param; Basic sends base64(username:password) for legacy APIs (Jenkins, on-prem Jira, etc.). OAuth client_credentials is machine-to-machine; authorization_code requires a one-time browser sign-in via Connect.
           </p>
         </div>
         <ConfigField
@@ -1691,6 +1692,28 @@ function ApiGatewayConfigForm({
               />
             )}
           </div>
+        </div>
+      )}
+
+      {config.auth_mode === "basic" && (
+        <div className="rounded-md border bg-muted/20 px-3 py-3 space-y-3">
+          <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            HTTP Basic (RFC 7617)
+          </div>
+          <ConfigField
+            label="Username"
+            help="The userid. May contain any character except ':' (RFC 7617 §2)."
+            value={String(config.username ?? "")}
+            onChange={(v) => onChange(update(config, "username", v))}
+            mono
+          />
+          <ConfigField
+            label="Password"
+            help="Encrypted at rest. Use [REDACTED] when re-saving without changing it. May be empty for legacy 'token in userid' patterns."
+            value={String(config.password ?? "")}
+            onChange={(v) => onChange(update(config, "password", v))}
+            sensitive
+          />
         </div>
       )}
 

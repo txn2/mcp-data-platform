@@ -2,6 +2,7 @@ package apigateway
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
@@ -42,6 +43,8 @@ func NewAuthenticator(c Config) (Authenticator, error) {
 		return bearerAuth{credential: c.Credential}, nil
 	case AuthModeAPIKey:
 		return newAPIKeyAuth(c)
+	case AuthModeBasic:
+		return newBasicAuth(c)
 	case AuthModeOAuth2ClientCredentials:
 		return newOAuth2ClientCredentialsAuth(c), nil
 	case AuthModeOAuth2AuthorizationCode:
@@ -125,6 +128,44 @@ func (a apiKeyAuth) Apply(req *http.Request) error {
 	default:
 		return fmt.Errorf("apigateway: invalid api_key_placement %q", a.placement)
 	}
+	return nil
+}
+
+// basicAuth attaches HTTP Basic auth (RFC 7617) as
+// "Authorization: Basic base64(username:password)". The pre-encoded
+// header value is computed once at construction so each Apply call is
+// just a Header.Set (matching the cost profile of bearer/api_key) and
+// the plaintext password is not retained on the struct beyond
+// construction.
+type basicAuth struct {
+	header string
+}
+
+// newBasicAuth constructs the authenticator with all validation
+// re-checked against the parsed Config. Config.Validate() has already
+// rejected ":" in the userid and CR/LF/NUL in either field, but
+// authenticators construct from the (validated) Config without seeing
+// the validator path, so the guards live here too as defense in depth
+// against a future caller that bypasses Validate.
+func newBasicAuth(c Config) (basicAuth, error) {
+	if c.Username == "" {
+		return basicAuth{}, errors.New("apigateway: basic auth requires a username")
+	}
+	if strings.Contains(c.Username, ":") {
+		return basicAuth{}, errors.New("apigateway: basic auth username must not contain \":\"")
+	}
+	if strings.ContainsAny(c.Username, "\r\n\x00") || strings.ContainsAny(c.Password, "\r\n\x00") {
+		return basicAuth{}, errors.New("apigateway: basic auth credentials contain CR/LF/NUL")
+	}
+	encoded := base64.StdEncoding.EncodeToString([]byte(c.Username + ":" + c.Password))
+	return basicAuth{header: "Basic " + encoded}, nil
+}
+
+// Apply attaches the pre-encoded Basic credential as the Authorization
+// header. newBasicAuth has already validated the inputs and computed
+// the encoded value, so this hot path is just a Header.Set.
+func (b basicAuth) Apply(req *http.Request) error {
+	req.Header.Set(authorizationHeader, b.header)
 	return nil
 }
 

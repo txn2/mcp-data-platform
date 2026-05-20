@@ -168,6 +168,48 @@ func TestParseConfig_APIKeyQueryAuth(t *testing.T) {
 	}
 }
 
+// TestParseConfig_BasicAuth round-trips the new "basic" mode through
+// ParseConfig. The fields land on Config exactly as set; validation
+// passes; defaults for unrelated fields stay correct.
+func TestParseConfig_BasicAuth(t *testing.T) {
+	c, err := ParseConfig(map[string]any{
+		"base_url":  "https://api.example.com",
+		"auth_mode": AuthModeBasic,
+		"username":  "svc-account",
+		"password":  "s3cret",
+	})
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if c.AuthMode != AuthModeBasic {
+		t.Errorf("AuthMode = %q; want %q", c.AuthMode, AuthModeBasic)
+	}
+	if c.Username != "svc-account" {
+		t.Errorf("Username = %q; want %q", c.Username, "svc-account")
+	}
+	if c.Password != "s3cret" {
+		t.Errorf("Password = %q; want %q", c.Password, "s3cret")
+	}
+}
+
+// TestParseConfig_BasicAuthEmptyPasswordAllowed locks in the
+// "token-in-userid with empty password" pattern some legacy APIs use
+// (Atlassian Bitbucket app passwords, certain on-prem APIs). ParseConfig
+// must accept username-only basic.
+func TestParseConfig_BasicAuthEmptyPasswordAllowed(t *testing.T) {
+	c, err := ParseConfig(map[string]any{
+		"base_url":  "https://api.example.com",
+		"auth_mode": AuthModeBasic,
+		"username":  "ghp_xxx",
+	})
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if c.Password != "" {
+		t.Errorf("Password = %q; want empty", c.Password)
+	}
+}
+
 func TestParseConfig_ValidationErrors(t *testing.T) {
 	cases := []struct {
 		name string
@@ -291,6 +333,45 @@ func TestParseConfig_ValidationErrors(t *testing.T) {
 				"oauth2_client_secret": "s",
 			},
 			want: "oauth2.authorization_url is required",
+		},
+		{
+			name: "basic without username",
+			cfg: map[string]any{
+				"base_url":  "https://x",
+				"auth_mode": AuthModeBasic,
+				"password":  "p",
+			},
+			want: "username is required when auth_mode is \"basic\"",
+		},
+		{
+			name: "basic username contains colon",
+			cfg: map[string]any{
+				"base_url":  "https://x",
+				"auth_mode": AuthModeBasic,
+				"username":  "a:b",
+				"password":  "p",
+			},
+			want: "username must not contain",
+		},
+		{
+			name: "basic username contains CRLF",
+			cfg: map[string]any{
+				"base_url":  "https://x",
+				"auth_mode": AuthModeBasic,
+				"username":  "alice\r\nX-Injected: 1",
+				"password":  "p",
+			},
+			want: "username contains CR/LF/NUL",
+		},
+		{
+			name: "basic password contains NUL",
+			cfg: map[string]any{
+				"base_url":  "https://x",
+				"auth_mode": AuthModeBasic,
+				"username":  "alice",
+				"password":  "p\x00q",
+			},
+			want: "password contains CR/LF/NUL",
 		},
 		{
 			// authorization_code still requires the same client

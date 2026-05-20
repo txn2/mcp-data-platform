@@ -33,6 +33,15 @@ const (
 	// "api_key" query parameter, or a custom "X-Api-Token" header) can
 	// be onboarded without code changes.
 	AuthModeAPIKey = "api_key"
+	// AuthModeBasic sends "Authorization: Basic base64(username:password)"
+	// per RFC 7617. Required for the long tail of older REST APIs (Jenkins,
+	// on-prem Jira / Confluence Server / DC, internal apps) that never moved
+	// to bearer or OAuth. RFC 7617 §2 forbids ":" in the userid; password
+	// may be empty (some APIs accept "token:" as a bearer-token-in-username
+	// pattern). Password is encrypted at rest via the platform's
+	// FieldEncryptor (the "password" config key is already in the
+	// sensitive-keys list).
+	AuthModeBasic = "basic"
 
 	// AuthModeOAuth2ClientCredentials acquires a bearer token via
 	// the OAuth 2.1 client_credentials grant — server-to-server,
@@ -101,6 +110,8 @@ const (
 	cfgKeyAPIKeyHeader     = "api_key_header" // #nosec G101 -- map key, not a credential
 	cfgKeyAPIKeyParam      = "api_key_param"  // #nosec G101 -- map key, not a credential
 	cfgKeyAPIKeyPlacement  = "api_key_placement"
+	cfgKeyUsername         = "username"
+	cfgKeyPassword         = "password" // #nosec G101 -- map key, not a credential; encryption handled by platform FieldEncryptor sensitive-keys list
 	cfgKeyConnectionName   = "connection_name"
 	cfgKeyConnectTimeout   = "connect_timeout"
 	cfgKeyCallTimeout      = "call_timeout"
@@ -160,6 +171,17 @@ type Config struct {
 	// APIKeyParam is the query parameter name when APIKeyPlacement is
 	// "query". No default — required when placement is "query".
 	APIKeyParam string
+	// Username is the userid for HTTP Basic auth (RFC 7617). Required
+	// when AuthMode is "basic". Ignored otherwise. Not a secret on its
+	// own (per RFC 7617 §2 the userid is sent in clear after base64
+	// decoding regardless), so it is not encrypted at rest.
+	Username string
+	// Password is the password for HTTP Basic auth. May be empty: some
+	// legacy APIs accept a bearer token in the userid slot with an empty
+	// password (the "token:" pattern). Encrypted at rest via the
+	// platform's FieldEncryptor; the "password" cfg key is already in
+	// the sensitive-keys list.
+	Password string
 	// ConnectionName is the audit-visible connection identifier and the
 	// value passed in the tool's `connection` argument. Defaults to
 	// the toolkit instance name when unset.
@@ -287,6 +309,8 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	c.APIKeyPlacement = getStringDefault(cfg, cfgKeyAPIKeyPlacement, c.APIKeyPlacement)
 	c.APIKeyHeader = getStringDefault(cfg, cfgKeyAPIKeyHeader, c.APIKeyHeader)
 	c.APIKeyParam = getString(cfg, cfgKeyAPIKeyParam)
+	c.Username = getString(cfg, cfgKeyUsername)
+	c.Password = getString(cfg, cfgKeyPassword)
 	c.ConnectionName = getString(cfg, cfgKeyConnectionName)
 	c.ConnectTimeout = getDuration(cfg, cfgKeyConnectTimeout, c.ConnectTimeout)
 	c.CallTimeout = getDuration(cfg, cfgKeyCallTimeout, c.CallTimeout)
@@ -406,13 +430,45 @@ func (c Config) validateAuth() error {
 		return nil
 	case AuthModeAPIKey:
 		return c.validateAPIKeyAuth()
+	case AuthModeBasic:
+		return c.validateBasicAuth()
 	case AuthModeOAuth2ClientCredentials:
 		return c.validateOAuth2()
 	case AuthModeOAuth2AuthorizationCode:
 		return c.validateOAuth2AuthCode()
 	default:
-		return fmt.Errorf("apigateway: invalid auth_mode %q (want none, bearer, api_key, oauth2_client_credentials, or oauth2_authorization_code)", c.AuthMode)
+		return fmt.Errorf("apigateway: invalid auth_mode %q (want none, bearer, api_key, basic, oauth2_client_credentials, or oauth2_authorization_code)", c.AuthMode)
 	}
+}
+
+// validateBasicAuth enforces RFC 7617 + the platform's smuggling
+// defenses for the "basic" auth mode. The userid (username) must be
+// non-empty and contain no ":" (RFC 7617 §2 forbids it because the
+// decoder splits on the first colon). Both fields must be free of
+// CR/LF/NUL because neither RFC 7617 nor base64 stops an operator from
+// pasting a "username\r\nX-Smuggled: 1" string that would inject
+// extra headers after the toolkit's Authorization line. The password
+// may be empty: some legacy APIs accept a bearer token in the userid
+// slot with an empty password (the "token:" pattern), so refusing
+// empty here would block a real use case.
+func (c Config) validateBasicAuth() error {
+	if c.Username == "" {
+		return errors.New("apigateway: username is required when auth_mode is \"basic\"")
+	}
+	// Smuggling defenses run before the colon check: a payload like
+	// "alice\r\nX-Smuggled: 1" contains both CRLF and ":" and we want
+	// the security-relevant error to surface, not the RFC compliance
+	// one.
+	if strings.ContainsAny(c.Username, "\r\n\x00") {
+		return errors.New("apigateway: username contains CR/LF/NUL header smuggling vector")
+	}
+	if strings.ContainsAny(c.Password, "\r\n\x00") {
+		return errors.New("apigateway: password contains CR/LF/NUL header smuggling vector")
+	}
+	if strings.Contains(c.Username, ":") {
+		return errors.New("apigateway: username must not contain \":\" (RFC 7617 §2 forbids it in the userid)")
+	}
+	return nil
 }
 
 // validateOAuth2AuthCode adds the authorization_code-specific
