@@ -16,13 +16,14 @@ them, cover every tool call through the platform:
 Tracing (Phase 2) and per-toolkit instrumentation (Phase 3) are tracked
 on issue #428 and will land in follow-on PRs.
 
-## Enabling metrics
+## Configuration
 
-Configuration is environment-only for Phase 1.
+Metrics are **enabled by default**. Configuration is environment-only for
+Phase 1.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `OTEL_METRICS_ENABLED` | `false` | Master switch. When `false` no MeterProvider is built and no listener is started. |
+| `OTEL_METRICS_ENABLED` | `true`  | Master switch. Set to `false` (or `0`) to skip MeterProvider construction and not start the listener. |
 | `OTEL_METRICS_ADDR`    | `:9090` | Bind address for the `/metrics` HTTP listener. |
 
 The listener is intentionally separate from the platform's main MCP/HTTP
@@ -34,11 +35,10 @@ listener so:
   routes,
 - a slow or stuck scraper cannot starve the main accept loop.
 
-Example:
+To disable on a specific instance:
 
 ```bash
-export OTEL_METRICS_ENABLED=true
-export OTEL_METRICS_ADDR=:9090
+export OTEL_METRICS_ENABLED=false
 mcp-data-platform --config /etc/mcp-data-platform/platform.yaml
 ```
 
@@ -164,9 +164,8 @@ they do not replace.
 
 ## Disabling metrics
 
-Setting `OTEL_METRICS_ENABLED=false` (or leaving it unset) skips
-MeterProvider construction entirely, leaves the listener stopped,
-and reduces the request-time cost of the metrics middleware to a
-single nil-pointer compare per request. There is no "lightweight"
-in-memory metrics mode — either the full Prometheus exporter is
-running or nothing is.
+Setting `OTEL_METRICS_ENABLED=false` skips MeterProvider construction
+entirely, leaves the listener stopped, and reduces the request-time
+cost of the metrics middleware to a single nil-pointer compare per
+request. There is no "lightweight" in-memory metrics mode — either
+the full Prometheus exporter is running or nothing is.

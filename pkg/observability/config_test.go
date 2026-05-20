@@ -12,13 +12,25 @@ func TestConfigFromEnv(t *testing.T) {
 		wantAddr string
 	}{
 		{
-			name:     "defaults when env unset",
+			name:     "defaults when env unset (enabled-by-default)",
 			env:      map[string]string{},
+			wantEna:  true,
+			wantAddr: DefaultListenAddr,
+		},
+		{
+			name:     "explicit disable with false",
+			env:      map[string]string{envEnabled: "false"},
 			wantEna:  false,
 			wantAddr: DefaultListenAddr,
 		},
 		{
-			name:     "enabled true",
+			name:     "explicit disable with 0",
+			env:      map[string]string{envEnabled: "0"},
+			wantEna:  false,
+			wantAddr: DefaultListenAddr,
+		},
+		{
+			name:     "explicit enable with true",
 			env:      map[string]string{envEnabled: "true"},
 			wantEna:  true,
 			wantAddr: DefaultListenAddr,
@@ -36,15 +48,15 @@ func TestConfigFromEnv(t *testing.T) {
 			wantAddr: "127.0.0.1:9999",
 		},
 		{
-			name:     "unparsable enabled falls back to default",
+			name:     "unparsable enabled falls back to default (now true)",
 			env:      map[string]string{envEnabled: "yes-please"},
-			wantEna:  false,
+			wantEna:  true,
 			wantAddr: DefaultListenAddr,
 		},
 		{
-			name:     "empty enabled falls back to default",
+			name:     "empty enabled falls back to default (now true)",
 			env:      map[string]string{envEnabled: "  "},
-			wantEna:  false,
+			wantEna:  true,
 			wantAddr: DefaultListenAddr,
 		},
 		{

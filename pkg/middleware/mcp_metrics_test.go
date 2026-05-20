@@ -83,8 +83,8 @@ func TestMCPMetricsMiddleware_IntegrationRecordsToolCall(t *testing.T) {
 
 // TestMCPMetricsMiddleware_DisabledIsNoOp verifies that wiring the
 // middleware with a nil recorder does not panic and does not interfere
-// with normal tool execution. This is the path operators take by
-// default (OTEL_METRICS_ENABLED unset).
+// with normal tool execution. This is the path operators take when
+// OTEL_METRICS_ENABLED=false is set explicitly.
 func TestMCPMetricsMiddleware_DisabledIsNoOp(t *testing.T) {
 	server := mcp.NewServer(&mcp.Implementation{Name: "metrics-test-disabled", Version: "v0.0.0"}, nil)
 	server.AddTool(&mcp.Tool{

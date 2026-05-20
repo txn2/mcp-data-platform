@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -96,6 +97,13 @@ type Metrics struct {
 	inflightToolCalls     metric.Int64UpDownCounter
 	apigwOutboundTotal    metric.Int64Counter
 	apigwOutboundDuration metric.Float64Histogram
+
+	// shutdownFn calls into the underlying provider. Indirected so
+	// tests can simulate a provider that returns an error on Shutdown
+	// without needing the SDK to misbehave.
+	shutdownFn   func(context.Context) error
+	shutdownOnce sync.Once
+	shutdownErr  error
 }
 
 // New builds a Metrics instance from the supplied config. When
@@ -149,6 +157,7 @@ func New(cfg Config) (*Metrics, error) {
 			// suffix flag above and most Grafana queries
 			// assume classic Prometheus format.
 		}),
+		shutdownFn: provider.Shutdown,
 	}
 
 	if err := m.registerInstruments(meter); err != nil {
@@ -235,14 +244,20 @@ func (m *Metrics) Handler() http.Handler {
 
 // Shutdown flushes the meter provider and releases resources. Safe to
 // call on a nil receiver so cmd/main's shutdown path stays branch-free.
+// Idempotent: the underlying OTel meter provider rejects a second
+// Shutdown with "reader is shutdown", so subsequent calls return the
+// first-call result (typically nil) instead of re-invoking the
+// provider.
 func (m *Metrics) Shutdown(ctx context.Context) error {
-	if m == nil || m.provider == nil {
+	if m == nil || m.shutdownFn == nil {
 		return nil
 	}
-	if err := m.provider.Shutdown(ctx); err != nil {
-		return fmt.Errorf("observability: meter provider shutdown: %w", err)
-	}
-	return nil
+	m.shutdownOnce.Do(func() {
+		if err := m.shutdownFn(ctx); err != nil {
+			m.shutdownErr = fmt.Errorf("observability: meter provider shutdown: %w", err)
+		}
+	})
+	return m.shutdownErr
 }
 
 // RecordToolCall records one tool-call observation. Nil-safe.

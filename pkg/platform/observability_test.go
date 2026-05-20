@@ -12,12 +12,29 @@ import (
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 )
 
-func TestObservability_DisabledByDefault(t *testing.T) {
+func TestObservability_EnabledByDefault(t *testing.T) {
+	// Bind the listener to an ephemeral port so this test does not collide
+	// with the package's fixed :9090 default when other tests run in parallel.
+	t.Setenv("OTEL_METRICS_ADDR", "127.0.0.1:0")
+
+	p := newTestPlatform(t)
+	defer func() { _ = p.Close() }()
+
+	if p.Metrics() == nil {
+		t.Fatal("Metrics() = nil with default env; want non-nil (enabled by default)")
+	}
+	// Wire call is idempotent and safe with no apigateway toolkit registered.
+	p.WireAPIGatewayMetrics()
+}
+
+func TestObservability_ExplicitDisable(t *testing.T) {
+	t.Setenv("OTEL_METRICS_ENABLED", "false")
+
 	p := newTestPlatform(t)
 	defer func() { _ = p.Close() }()
 
 	if p.Metrics() != nil {
-		t.Errorf("Metrics() = non-nil with default env; want nil (disabled)")
+		t.Errorf("Metrics() = non-nil with OTEL_METRICS_ENABLED=false; want nil")
 	}
 	// Start/Shutdown must be safe even when disabled.
 	if err := p.StartMetricsListener(context.Background()); err != nil {

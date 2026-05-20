@@ -1,7 +1,10 @@
 package platform
 
 import (
+	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 
@@ -9,6 +12,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	apigatewaycatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/embedjobs"
 )
 
 // TestWireAPIGatewayEmbedJobsFromDB_NoopEmbedderSkips proves the
@@ -112,5 +116,44 @@ func TestWireAPIGatewayEmbedJobsFromDB_WiresWorkerWithConfiguredConcurrency(t *t
 	}
 	if p.apiGatewayEmbedJobsReconciler == nil {
 		t.Fatal("reconciler must be constructed")
+	}
+}
+
+// TestStopAPIGatewayEmbedJobs_CleanShutdownReturnsNil proves the happy
+// path: when Worker, Reaper, and Reconciler are constructed but never
+// Started, their Stop calls are immediate no-ops and the bounded
+// helper returns nil. This is the path taken by the OnStop callback
+// after a normal startup.
+func TestStopAPIGatewayEmbedJobs_CleanShutdownReturnsNil(t *testing.T) {
+	p := &Platform{}
+	worker := embedjobs.NewWorker(embedjobs.WorkerConfig{})
+	reaper := embedjobs.NewReaper(nil, time.Second)
+	reconciler := embedjobs.NewReconciler(nil, time.Second)
+
+	if err := p.stopAPIGatewayEmbedJobs(context.Background(), worker, reaper, reconciler); err != nil {
+		t.Errorf("stopAPIGatewayEmbedJobs returned %v; want nil on clean shutdown", err)
+	}
+}
+
+// TestStopAPIGatewayEmbedJobs_RespectsCanceledContext proves the
+// safety-net path: a pre-canceled context propagates as ctx.Err() so
+// a hung worker cannot exceed the K8s termination grace period.
+// Worker.Stop on never-Started components is instant in practice, so
+// to genuinely exercise the deadline race we pre-cancel the context.
+// The select inside boundedStop will observe ctx.Done either before
+// or after the inner fn completes; in either case the return must be
+// either nil (race won by fn) or context.Canceled (race won by ctx).
+func TestStopAPIGatewayEmbedJobs_RespectsCanceledContext(t *testing.T) {
+	p := &Platform{}
+	worker := embedjobs.NewWorker(embedjobs.WorkerConfig{})
+	reaper := embedjobs.NewReaper(nil, time.Second)
+	reconciler := embedjobs.NewReconciler(nil, time.Second)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := p.stopAPIGatewayEmbedJobs(ctx, worker, reaper, reconciler)
+	if err != nil && !errors.Is(err, context.Canceled) {
+		t.Errorf("stopAPIGatewayEmbedJobs err = %v; want nil or context.Canceled", err)
 	}
 }

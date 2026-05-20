@@ -2,6 +2,7 @@ package observability
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -100,6 +101,73 @@ func TestNewListenerNilWhenDisabled(t *testing.T) {
 	m, _ := New(Config{Enabled: false})
 	if l := NewListener(m); l != nil {
 		t.Errorf("NewListener(nil metrics) = %+v, want nil", l)
+	}
+}
+
+// TestShutdownIdempotent guards the shutdown path that the platform's
+// double-Close protocol relies on. The OTel meter provider returns
+// "reader is shutdown" on a second Shutdown call; without the
+// sync.Once guard, Platform.Close() would surface that error on every
+// invocation after the first, breaking the documented "Close is safe
+// to call multiple times" contract.
+func TestShutdownIdempotent(t *testing.T) {
+	m, err := New(Config{Enabled: true, ListenAddr: ":0"})
+	if err != nil {
+		t.Fatalf("New(enabled) err = %v", err)
+	}
+	if m == nil {
+		t.Fatal("New(enabled) returned nil recorder")
+	}
+	if err := m.Shutdown(context.Background()); err != nil {
+		t.Fatalf("first Shutdown err = %v", err)
+	}
+	if err := m.Shutdown(context.Background()); err != nil {
+		t.Errorf("second Shutdown err = %v, want nil (idempotent)", err)
+	}
+	if err := m.Shutdown(context.Background()); err != nil {
+		t.Errorf("third Shutdown err = %v, want nil (idempotent)", err)
+	}
+}
+
+// TestShutdownErrorIsCachedAndReturned exercises the error branch
+// inside the sync.Once closure: when the underlying provider shutdown
+// fails, the wrapped error is captured once and returned by every
+// subsequent call. Without caching, the second call would return nil
+// and mask a failed first shutdown.
+//
+// The shutdownFn field is overridden so the test does not depend on
+// the SDK being able to fail on demand.
+func TestShutdownErrorIsCachedAndReturned(t *testing.T) {
+	m, err := New(Config{Enabled: true, ListenAddr: ":0"})
+	if err != nil {
+		t.Fatalf("New(enabled) err = %v", err)
+	}
+	if m == nil {
+		t.Fatal("New(enabled) returned nil recorder")
+	}
+
+	sentinel := errors.New("provider boom")
+	callCount := 0
+	m.shutdownFn = func(_ context.Context) error {
+		callCount++
+		return sentinel
+	}
+
+	firstErr := m.Shutdown(context.Background())
+	if firstErr == nil || !errors.Is(firstErr, sentinel) {
+		t.Fatalf("first Shutdown err = %v, want wrapped %v", firstErr, sentinel)
+	}
+	if !strings.Contains(firstErr.Error(), "meter provider shutdown") {
+		t.Errorf("first Shutdown err = %v, want wrapped meter-provider error", firstErr)
+	}
+
+	secondErr := m.Shutdown(context.Background())
+	if secondErr == nil || secondErr.Error() != firstErr.Error() {
+		t.Errorf("second Shutdown err = %v, want cached first error %v", secondErr, firstErr)
+	}
+
+	if callCount != 1 {
+		t.Errorf("shutdownFn invocations = %d, want 1 (idempotent)", callCount)
 	}
 }
 

@@ -48,7 +48,12 @@ const (
 	defaultReadHeaderTimeout = 10 * time.Second
 	fallbackGracePeriod      = 25 * time.Second
 	fallbackPreShutdownDelay = 2 * time.Second
-	transportHTTP            = "http"
+	// lifecycleStopTimeout bounds how long Platform.Stop is allowed to
+	// run before Close proceeds anyway. Sized so the full shutdown
+	// budget (preDelay + httpGrace + lifecycleStop + close overhead)
+	// fits inside a 60s terminationGracePeriodSeconds with headroom.
+	lifecycleStopTimeout = 10 * time.Second
+	transportHTTP        = "http"
 )
 
 func main() {
@@ -160,6 +165,17 @@ func run() error {
 
 func closeServer(result *serverResult) {
 	if result.platform != nil {
+		// Stop runs every Lifecycle OnStop callback (background workers,
+		// reapers, listeners). Bounded by lifecycleStopTimeout so a
+		// hung worker cannot exceed the K8s termination grace period;
+		// abandoned work is safe because PostgreSQL leases expire and
+		// another replica reclaims it.
+		stopCtx, cancel := context.WithTimeout(context.Background(), lifecycleStopTimeout)
+		if err := result.platform.Stop(stopCtx); err != nil {
+			slog.Error("shutdown: platform stop error", "error", err)
+		}
+		cancel()
+
 		if err := result.platform.Close(); err != nil {
 			slog.Error("shutdown: platform close error", "error", err)
 		}
