@@ -18,8 +18,20 @@ import (
 )
 
 const (
-	// defaultSessionID is used for stdio/SSE transports that don't provide a session ID.
+	// defaultSessionID is the per-process session sentinel used by the stdio
+	// transport (one logical client per process). HTTP requests that cannot
+	// produce a real session ID get an empty SessionID instead, never the
+	// stdio sentinel. Stateless HTTP callers have no session by definition,
+	// so accumulating provenance, gate state, or dedup state across their
+	// calls would either be meaningless (one-shot calls) or pool unrelated
+	// callers into a shared bucket. Empty triggers the existing
+	// ProvenanceTracker.Record empty-skip and is documented as null in the
+	// audit schema.
 	defaultSessionID = "stdio"
+
+	// transportStdio is the cfg.Transport value that legitimately reuses
+	// defaultSessionID. Anything else (http, sse) clears the sentinel.
+	transportStdio = "stdio"
 
 	// methodToolsCall is the MCP method name for tool invocations.
 	methodToolsCall = "tools/call"
@@ -88,14 +100,7 @@ func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, t
 			// Build platform context and enrich the Go context.
 			pc := NewPlatformContext(generateRequestID())
 			pc.ToolName = toolName
-			pc.SessionID = extractSessionID(req)
-			// Fall back to AwareHandler-managed session ID when the MCP SDK
-			// doesn't propagate one (SSE returns "", stateless mode may vary).
-			if pc.SessionID == defaultSessionID {
-				if awareID := pkgsession.AwareSessionID(ctx); awareID != "" {
-					pc.SessionID = awareID
-				}
-			}
+			pc.SessionID = resolveSessionID(ctx, req, cfg.Transport)
 			pc.Transport = cfg.Transport
 			pc.Source = sourceMCP
 			ctx = buildToolCallContext(ctx, req, pc, toolkitLookup, toolName)
@@ -300,6 +305,37 @@ func extractSessionID(req mcp.Request) (id string) {
 		}
 	}
 	return id
+}
+
+// resolveSessionID picks the most accurate session identifier we can find
+// for the request, in order of preference:
+//
+//  1. The SDK's propagated session ID (Streamable HTTP Mcp-Session-Id header).
+//  2. The AwareHandler session ID stashed by the initialize hook (covers
+//     SSE and stateless HTTP that issue initialize but don't surface a
+//     session through the SDK request).
+//  3. For HTTP transport with neither of the above, the empty string.
+//     The stdio sentinel previously leaked into stateless HTTP, pooling
+//     every caller into one shared provenance bucket (and one shared
+//     session-gate, dedup, and workflow-tracker bucket).
+//     ProvenanceTracker.Record skips empty session IDs by design; the
+//     audit schema documents empty as null. Stateless HTTP callers
+//     simply do not accumulate session-scoped state, which is correct
+//     because they do not have a session.
+//  4. The stdio sentinel for the actual stdio transport (one logical
+//     client per process), the original design contract.
+func resolveSessionID(ctx context.Context, req mcp.Request, transport string) string {
+	sid := extractSessionID(req)
+	if sid != defaultSessionID {
+		return sid
+	}
+	if awareID := pkgsession.AwareSessionID(ctx); awareID != "" {
+		return awareID
+	}
+	if transport != "" && transport != transportStdio {
+		return ""
+	}
+	return sid
 }
 
 // extractToolName extracts the tool name from a tools/call request.

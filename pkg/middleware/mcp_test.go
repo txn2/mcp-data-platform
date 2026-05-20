@@ -1072,14 +1072,20 @@ func TestMCPToolCallMiddleware_AwareSessionIDFallback(t *testing.T) {
 	// The AwareHandler → middleware integration test in middleware_chain_test.go
 	// covers this path through a real Streamable HTTP transport.
 
-	t.Run("falls back to default when no AwareHandler session", func(t *testing.T) {
+	t.Run("clears SessionID for stateless http", func(t *testing.T) {
+		// HTTP transport with neither an SDK session nor an AwareHandler
+		// session: SessionID stays empty. Stateless HTTP has no session
+		// by definition; leaving the stdio sentinel would pool every
+		// caller into one shared provenance bucket, so empty is the
+		// correct value. ProvenanceTracker.Record skips empty session
+		// IDs, audit stores empty as null.
 		next := func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 			pc := GetPlatformContext(ctx)
 			if pc == nil {
 				t.Fatal(mcpTestPCExpected)
 			}
-			if pc.SessionID != defaultSessionID {
-				t.Errorf("expected SessionID %q, got %q", defaultSessionID, pc.SessionID)
+			if pc.SessionID != "" {
+				t.Errorf("expected SessionID empty for stateless http, got %q", pc.SessionID)
 			}
 			return &mcp.CallToolResult{
 				Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
@@ -1089,12 +1095,86 @@ func TestMCPToolCallMiddleware_AwareSessionIDFallback(t *testing.T) {
 		handler := mw(next)
 		req := newMCPTestRequest(mcpTestToolName)
 
-		// No AwareHandler session in context
+		// No AwareHandler session in context.
 		_, err := handler(context.Background(), mcpTestMethod, req)
 		if err != nil {
 			t.Fatalf(mcpTestErrFmt, err)
 		}
 	})
+}
+
+// TestMCPToolCallMiddleware_StdioKeepsSentinel guards against an over-eager
+// fix: the stdio transport is allowed to keep the defaultSessionID because
+// there's exactly one logical client per process. Clearing it would break
+// provenance accumulation for stdio clients.
+func TestMCPToolCallMiddleware_StdioKeepsSentinel(t *testing.T) {
+	authenticator := &mcpTestAuthenticator{
+		userInfo: &UserInfo{UserID: mcpTestUserID, Roles: []string{mcpTestPersona}},
+	}
+	authorizer := &mcpTestAuthorizer{authorized: true, personaName: mcpTestPersona}
+
+	mw := MCPToolCallMiddleware(authenticator, authorizer, nil, ToolCallConfig{Transport: mcpTestStdio, AdminPersona: "admin"})
+
+	var got string
+	next := func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		pc := GetPlatformContext(ctx)
+		if pc == nil {
+			t.Fatal(mcpTestPCExpected)
+		}
+		got = pc.SessionID
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}}, nil
+	}
+
+	if _, err := mw(next)(context.Background(), mcpTestMethod, newMCPTestRequest(mcpTestToolName)); err != nil {
+		t.Fatalf(mcpTestErrFmt, err)
+	}
+	if got != defaultSessionID {
+		t.Errorf("stdio transport: expected SessionID %q, got %q", defaultSessionID, got)
+	}
+}
+
+// TestProvenanceNoCrossUserMixing_StatelessHTTP exercises the original
+// leak hazard end-to-end: two different stateless HTTP principals each
+// make tool calls against the same process. Before the fix, both pooled
+// into one shared "stdio" bucket and either user's harvest tool would
+// return the union of both users' provenance. After the fix SessionID
+// stays empty for stateless HTTP, ProvenanceTracker.Record's empty-skip
+// guard fires, and no bucket accumulates anything. The stdio bucket
+// also stays empty because no stdio caller is involved.
+func TestProvenanceNoCrossUserMixing_StatelessHTTP(t *testing.T) {
+	authorizer := &mcpTestAuthorizer{authorized: true, personaName: mcpTestPersona}
+	tracker := NewProvenanceTracker()
+	innerCount := 0
+	inner := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		innerCount++
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}}, nil
+	}
+	chain := MCPProvenanceMiddleware(tracker)(inner)
+
+	run := func(userID string, calls int) {
+		auth := &mcpTestAuthenticator{
+			userInfo: &UserInfo{UserID: userID, Roles: []string{mcpTestPersona}},
+		}
+		handler := MCPToolCallMiddleware(auth, authorizer, nil, ToolCallConfig{Transport: "http", AdminPersona: "admin"})(chain)
+		for range calls {
+			if _, err := handler(context.Background(), mcpTestMethod, newMCPTestRequest(mcpTestToolName)); err != nil {
+				t.Fatalf("handler(%s): %v", userID, err)
+			}
+		}
+	}
+
+	run("apikey:nifi-etl", 3)
+	run("apikey:other-client", 2)
+	if innerCount != 5 {
+		t.Fatalf("expected 5 inner calls, got %d", innerCount)
+	}
+
+	if got := tracker.Harvest(defaultSessionID); len(got) != 0 {
+		t.Errorf("stdio bucket should be empty for stateless http calls, got %d", len(got))
+	}
+	if got := tracker.Harvest(""); len(got) != 0 {
+		t.Errorf("empty bucket should be unreachable (record skips empty), got %d", len(got))
+	}
 }
 
 func TestMCPToolCallMiddleware_PreAuthenticatedUser(t *testing.T) {
