@@ -20,25 +20,18 @@ import (
 const (
 	// defaultSessionID is the per-process session sentinel used by the stdio
 	// transport (one logical client per process). HTTP requests that cannot
-	// produce a real session ID get a per-principal synthetic ID once
-	// authenticated, or an empty string when the principal is anonymous or
-	// unidentified, via resolveSessionID and deriveAuthenticatedSessionID.
-	// They never inherit the stdio sentinel. Pooling stateless HTTP callers
-	// under "stdio" would let one caller's harvest tool return another
-	// caller's accumulated provenance.
+	// produce a real session ID get an empty SessionID instead, never the
+	// stdio sentinel. Stateless HTTP callers have no session by definition,
+	// so accumulating provenance, gate state, or dedup state across their
+	// calls would either be meaningless (one-shot calls) or pool unrelated
+	// callers into a shared bucket. Empty triggers the existing
+	// ProvenanceTracker.Record empty-skip and is documented as null in the
+	// audit schema.
 	defaultSessionID = "stdio"
 
 	// transportStdio is the cfg.Transport value that legitimately reuses
 	// defaultSessionID. Anything else (http, sse) clears the sentinel.
 	transportStdio = "stdio"
-
-	// synthSessionPrefix marks a session ID synthesized from an authenticated
-	// principal because the SDK didn't surface a real one. It buckets every
-	// stateless HTTP call by that principal's UserID, so provenance and
-	// session-scoped state can accumulate per-user instead of pooling
-	// across users. The "synth:" namespace keeps these IDs visually
-	// distinct from SDK-issued session IDs in logs and audit rows.
-	synthSessionPrefix = "synth:user:"
 
 	// methodToolsCall is the MCP method name for tool invocations.
 	methodToolsCall = "tools/call"
@@ -249,16 +242,6 @@ func authenticateAndAuthorize(
 		params.pc.Roles = userInfo.Roles
 	}
 
-	// Upgrade an empty SessionID to a per-principal synthetic ID. resolveSessionID
-	// leaves SessionID empty for stateless HTTP callers (no SDK session, no
-	// AwareHandler session); without this upgrade, every such caller would
-	// either be silently skipped by ProvenanceTracker.Record or, if any code
-	// path looked up state by the empty key, pool with other anonymous
-	// stateless callers. The synthetic ID buckets state per UserID so
-	// authenticated callers still get provenance accumulation and session
-	// gates while making cross-user pooling structurally impossible.
-	params.pc.SessionID = deriveAuthenticatedSessionID(params.pc.SessionID, params.pc.UserID)
-
 	authorized, personaName, reason := params.authorizer.IsAuthorized(ctx, params.pc.UserID, params.pc.Roles, params.toolName, params.pc.Connection)
 	params.pc.Authorized = authorized
 	params.pc.PersonaName = personaName
@@ -334,11 +317,11 @@ func extractSessionID(req mcp.Request) (id string) {
 //  3. For HTTP transport with neither of the above, the empty string.
 //     The stdio sentinel previously leaked into stateless HTTP, pooling
 //     every caller into one shared provenance bucket (and one shared
-//     session-gate, dedup, and workflow-tracker bucket). Empty here means
-//     "not yet known"; deriveAuthenticatedSessionID upgrades it to a
-//     per-principal synthetic ID once auth completes, so authenticated
-//     stateless callers still get per-user bucketing for provenance
-//     accumulation.
+//     session-gate, dedup, and workflow-tracker bucket).
+//     ProvenanceTracker.Record skips empty session IDs by design; the
+//     audit schema documents empty as null. Stateless HTTP callers
+//     simply do not accumulate session-scoped state, which is correct
+//     because they do not have a session.
 //  4. The stdio sentinel for the actual stdio transport (one logical
 //     client per process), the original design contract.
 func resolveSessionID(ctx context.Context, req mcp.Request, transport string) string {
@@ -353,39 +336,6 @@ func resolveSessionID(ctx context.Context, req mcp.Request, transport string) st
 		return ""
 	}
 	return sid
-}
-
-// deriveAuthenticatedSessionID returns a per-principal synthetic session ID
-// for stateless HTTP callers that completed authentication. Called from
-// authenticateAndAuthorize once pc.UserID is populated, so downstream
-// middleware (provenance tracker, audit, session gate, dedup cache,
-// workflow tracker) all see a bucket keyed on the authenticated user
-// instead of a shared value.
-//
-// Returns the existing sessionID unchanged when:
-//   - It's already non-empty (SDK session, AwareHandler session, or the
-//     stdio sentinel for the stdio transport).
-//   - No UserID is available.
-//   - The UserID is the anonymous sentinel set by ChainedAuthenticator
-//     when allowAnonymous is on (pkg/auth/middleware.go:119). Synthesizing
-//     "synth:user:anonymous" would pool every unauthenticated caller into
-//     one shared bucket, reintroducing the cross-caller mixing this
-//     function exists to prevent. Anonymous-allowed deployments accept
-//     that they have no identity to bucket on; downstream consumers see
-//     an empty SessionID and either skip (provenance) or use it as-is
-//     (audit, where empty is the documented null value).
-//
-// The synthSessionPrefix makes the synthesized IDs identifiable in logs
-// so an operator can tell at a glance whether a session ID came from a
-// real MCP session or was synthesized post-auth.
-func deriveAuthenticatedSessionID(sessionID, userID string) string {
-	if sessionID != "" {
-		return sessionID
-	}
-	if userID == "" || userID == userIDAnonymous {
-		return sessionID
-	}
-	return synthSessionPrefix + userID
 }
 
 // extractToolName extracts the tool name from a tools/call request.

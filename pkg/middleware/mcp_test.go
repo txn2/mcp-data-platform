@@ -1072,21 +1072,20 @@ func TestMCPToolCallMiddleware_AwareSessionIDFallback(t *testing.T) {
 	// The AwareHandler → middleware integration test in middleware_chain_test.go
 	// covers this path through a real Streamable HTTP transport.
 
-	t.Run("synthesizes per-principal SessionID for stateless http", func(t *testing.T) {
+	t.Run("clears SessionID for stateless http", func(t *testing.T) {
 		// HTTP transport with neither an SDK session nor an AwareHandler
-		// session: resolveSessionID returns "" before auth, and
-		// deriveAuthenticatedSessionID then upgrades to a synthetic
-		// "synth:user:<UserID>" once auth populates UserID. This is the
-		// boundary that prevents User A's harvest tool from returning
-		// User B's accumulated provenance.
+		// session: SessionID stays empty. Stateless HTTP has no session
+		// by definition; leaving the stdio sentinel would pool every
+		// caller into one shared provenance bucket, so empty is the
+		// correct value. ProvenanceTracker.Record skips empty session
+		// IDs, audit stores empty as null.
 		next := func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 			pc := GetPlatformContext(ctx)
 			if pc == nil {
 				t.Fatal(mcpTestPCExpected)
 			}
-			want := synthSessionPrefix + mcpTestUserID
-			if pc.SessionID != want {
-				t.Errorf("expected SessionID %q for stateless http after auth, got %q", want, pc.SessionID)
+			if pc.SessionID != "" {
+				t.Errorf("expected SessionID empty for stateless http, got %q", pc.SessionID)
 			}
 			return &mcp.CallToolResult{
 				Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
@@ -1102,38 +1101,6 @@ func TestMCPToolCallMiddleware_AwareSessionIDFallback(t *testing.T) {
 			t.Fatalf(mcpTestErrFmt, err)
 		}
 	})
-}
-
-// TestDeriveAuthenticatedSessionID covers the small helper directly. The
-// invariants are: (a) any non-empty incoming SessionID is preserved
-// verbatim, never silently rewritten over a real SDK session ID; (b)
-// empty + UserID -> synth:user:UserID; (c) empty + empty UserID -> empty;
-// (d) empty + the anonymous sentinel stays empty, so allowAnonymous
-// deployments don't pool every caller into synth:user:anonymous.
-func TestDeriveAuthenticatedSessionID(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		name      string
-		sessionID string
-		userID    string
-		want      string
-	}{
-		{"real SDK session preserved", "abc123", "user-1", "abc123"},
-		{"stdio sentinel preserved", defaultSessionID, "user-1", defaultSessionID},
-		{"empty + auth user -> synth", "", "apikey:nifi-etl", synthSessionPrefix + "apikey:nifi-etl"},
-		{"empty + empty user stays empty", "", "", ""},
-		{"empty + anonymous sentinel stays empty", "", userIDAnonymous, ""},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			got := deriveAuthenticatedSessionID(c.sessionID, c.userID)
-			if got != c.want {
-				t.Errorf("deriveAuthenticatedSessionID(%q, %q) = %q, want %q",
-					c.sessionID, c.userID, got, c.want)
-			}
-		})
-	}
 }
 
 // TestMCPToolCallMiddleware_StdioKeepsSentinel guards against an over-eager
@@ -1170,10 +1137,10 @@ func TestMCPToolCallMiddleware_StdioKeepsSentinel(t *testing.T) {
 // leak hazard end-to-end: two different stateless HTTP principals each
 // make tool calls against the same process. Before the fix, both pooled
 // into one shared "stdio" bucket and either user's harvest tool would
-// return the union of both users' provenance. After the fix each
-// principal lands in its own synth:user:<UserID> bucket, so HarvestA
-// returns only A's calls and HarvestB only B's. The stdio bucket
-// remains empty because no stdio caller is involved.
+// return the union of both users' provenance. After the fix SessionID
+// stays empty for stateless HTTP, ProvenanceTracker.Record's empty-skip
+// guard fires, and no bucket accumulates anything. The stdio bucket
+// also stays empty because no stdio caller is involved.
 func TestProvenanceNoCrossUserMixing_StatelessHTTP(t *testing.T) {
 	authorizer := &mcpTestAuthorizer{authorized: true, personaName: mcpTestPersona}
 	tracker := NewProvenanceTracker()
@@ -1207,15 +1174,6 @@ func TestProvenanceNoCrossUserMixing_StatelessHTTP(t *testing.T) {
 	}
 	if got := tracker.Harvest(""); len(got) != 0 {
 		t.Errorf("empty bucket should be unreachable (record skips empty), got %d", len(got))
-	}
-
-	nifiCalls := tracker.Harvest(synthSessionPrefix + "apikey:nifi-etl")
-	if len(nifiCalls) != 3 {
-		t.Errorf("nifi-etl bucket should contain its 3 calls, got %d", len(nifiCalls))
-	}
-	otherCalls := tracker.Harvest(synthSessionPrefix + "apikey:other-client")
-	if len(otherCalls) != 2 {
-		t.Errorf("other-client bucket should contain its 2 calls, got %d", len(otherCalls))
 	}
 }
 
