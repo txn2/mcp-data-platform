@@ -831,13 +831,13 @@ A background goroutine runs every 24 hours and deletes rows older than `retentio
 
 Audit answers "who did what." Metrics answer "how is the system performing." Phase 1 of the OpenTelemetry instrumentation in mcp-data-platform exposes Prometheus-format metrics on a dedicated `/metrics` HTTP listener, separate from the main MCP/HTTP listener so scrape traffic and tool traffic do not share an auth path.
 
-## Enabling
+## Configuration
 
-Configuration is environment-only for Phase 1 to keep the surface small. The full surface lands in subsequent phases:
+Metrics are enabled by default. Configuration is environment-only for Phase 1 to keep the surface small. The full surface lands in subsequent phases:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `OTEL_METRICS_ENABLED` | `false` | Master switch. When false no MeterProvider is built and no listener starts. |
+| `OTEL_METRICS_ENABLED` | `true` | Master switch. Set to `false` to skip MeterProvider construction and not start the listener. |
 | `OTEL_METRICS_ADDR` | `:9090` | Bind address for the `/metrics` listener. |
 
 ## Exposed metrics

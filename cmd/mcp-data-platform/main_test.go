@@ -615,6 +615,41 @@ func newTestPlatform(t *testing.T, cfg *platform.Config) *platform.Platform {
 	return p
 }
 
+// TestCloseServer_HandlesUnstartedPlatform asserts the shutdown path
+// is safe when the platform was constructed but never started. This
+// is the path tests and CLI sub-commands take when they only need a
+// configured platform; closeServer must not panic and must complete
+// in well under the K8s grace period budget.
+func TestCloseServer_HandlesUnstartedPlatform(t *testing.T) {
+	p := newTestPlatform(t, &platform.Config{
+		Server: platform.ServerConfig{Name: "test"},
+		Auth:   platform.AuthConfig{AllowAnonymous: true},
+	})
+	result := &serverResult{platform: p}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		closeServer(result)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(lifecycleStopTimeout + 5*time.Second):
+		t.Fatal("closeServer did not return; Stop+Close must complete inside the timeout budget")
+	}
+}
+
+// TestCloseServer_NilPlatformIsSafe asserts closeServer tolerates a
+// serverResult whose platform field is nil (the stdio-bootstrap path
+// when NewWithDefaults is used). Stop must not be invoked on a nil
+// pointer and Close must be skipped.
+func TestCloseServer_NilPlatformIsSafe(_ *testing.T) {
+	result := &serverResult{platform: nil}
+	// Must not panic.
+	closeServer(result)
+}
+
 const (
 	migrateTestFilePerms  = 0o600
 	migrateTestInput      = "server:\n  name: test\n"

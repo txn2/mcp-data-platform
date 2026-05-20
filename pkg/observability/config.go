@@ -16,9 +16,10 @@ import (
 	"strings"
 )
 
-// envEnabled toggles the metrics subsystem. When unset or false, New
-// returns a no-op Metrics value where every Record method is a fast
-// no-op and no listener is started.
+// envEnabled toggles the metrics subsystem. Defaults to true; set to
+// "false" (or "0") to disable. When disabled, New returns a no-op
+// Metrics value where every Record method is a fast no-op and no
+// listener is started.
 const envEnabled = "OTEL_METRICS_ENABLED"
 
 // envListenAddr selects the listen address for the /metrics endpoint.
@@ -50,9 +51,14 @@ type Config struct {
 // ConfigFromEnv reads the observability configuration from environment
 // variables. Unset or unparsable values fall back to the defaults so
 // the platform can boot even with a partial configuration.
+//
+// Metrics are enabled by default. The /metrics listener binds to
+// DefaultListenAddr on a separate port from the main MCP/HTTP listener
+// so operators can isolate scrape traffic with a NetworkPolicy. Set
+// OTEL_METRICS_ENABLED=false to disable.
 func ConfigFromEnv() Config {
 	return Config{
-		Enabled:    parseBoolEnv(envEnabled, false),
+		Enabled:    parseBoolEnv(envEnabled, true),
 		ListenAddr: stringEnvOrDefault(envListenAddr, DefaultListenAddr),
 	}
 }

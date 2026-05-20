@@ -131,15 +131,60 @@ func (p *Platform) WireAPIGatewayEmbedJobsFromDB() {
 		slog.Info("apigateway embed jobs: started")
 		return nil
 	})
-	p.lifecycle.OnStop(func(_ context.Context) error {
+	p.lifecycle.OnStop(func(ctx context.Context) error {
+		return p.stopAPIGatewayEmbedJobs(ctx, worker, reaper, reconciler)
+	})
+}
+
+// stopAPIGatewayEmbedJobs runs the embed-jobs shutdown sequence inside
+// the bounded shutdown helper. Extracted from the OnStop closure so
+// unit tests can exercise both the happy path and the deadline-abort
+// path without spinning up the Postgres listener.
+//
+// Each component's Stop signals its goroutines via stopCh and blocks
+// on wg.Wait. Under normal conditions every Stop completes in
+// milliseconds; under failure (hung Postgres, stuck embedding call)
+// Worker.Stop could block past the K8s termination grace period.
+// boundedStop races the sequence against ctx.Done so the shutdown
+// path always returns within its deadline. Abandoned work is safe:
+// the Postgres-backed queue uses leases that expire, and another
+// replica reclaims any uncompleted job on its next poll.
+func (p *Platform) stopAPIGatewayEmbedJobs(
+	ctx context.Context,
+	worker *embedjobs.Worker,
+	reaper *embedjobs.Reaper,
+	reconciler *embedjobs.Reconciler,
+) error {
+	return boundedStop(ctx, "apigateway embed jobs", func() {
 		if p.apiGatewayEmbedJobsListener != nil {
 			p.apiGatewayEmbedJobsListener.Stop()
 		}
 		reconciler.Stop()
 		reaper.Stop()
 		worker.Stop()
-		return nil
 	})
+}
+
+// boundedStop runs fn in a goroutine and races it against ctx.Done so
+// a hung component cannot stall lifecycle shutdown past the supplied
+// deadline. Returns nil on clean completion or ctx.Err() if the
+// deadline fires first; in the deadline case a warning is logged with
+// the component label so operators can correlate against the
+// goroutine that hung.
+func boundedStop(ctx context.Context, component string, fn func()) error {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		fn()
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		slog.Warn("shutdown: bounded stop deadline reached; abandoning in-flight work",
+			"component", component, "error", ctx.Err())
+		return ctx.Err() //nolint:wrapcheck // ctx.Err() is the expected sentinel; lifecycle aggregates it
+	}
 }
 
 // APIGatewayEmbedJobsStore returns the embedding job queue's
