@@ -62,11 +62,22 @@ type RequestBodyDetail struct {
 
 // ResponseDetail describes one response status's shape.
 type ResponseDetail struct {
-	Status       string         `json:"status"`
-	Description  string         `json:"description,omitempty"`
-	ContentTypes []string       `json:"content_types,omitempty"`
-	Schema       any            `json:"schema,omitempty"`
-	Examples     map[string]any `json:"examples,omitempty"`
+	Status       string                  `json:"status"`
+	Description  string                  `json:"description,omitempty"`
+	ContentTypes []string                `json:"content_types,omitempty"`
+	Headers      map[string]HeaderDetail `json:"headers,omitempty"`
+	Schema       any                     `json:"schema,omitempty"`
+	Examples     map[string]any          `json:"examples,omitempty"`
+}
+
+// HeaderDetail is the slim shape used to surface response headers
+// (Location on redirects, Retry-After on rate-limited responses,
+// Link/ETag on cache-aware endpoints) so callers know which headers
+// to read off the upstream response.
+type HeaderDetail struct {
+	Description string `json:"description,omitempty"`
+	Required    bool   `json:"required,omitempty"`
+	Schema      any    `json:"schema,omitempty"`
 }
 
 // schemaCandidate is the disambiguation record returned when an
@@ -344,7 +355,35 @@ func buildResponseDetail(status string, r *openapi3.Response) ResponseDetail {
 			}
 		}
 	}
+	detail.Headers = flattenResponseHeaders(r.Headers)
 	return detail
+}
+
+// flattenResponseHeaders coerces the kin-openapi Headers map (each
+// value is a HeaderRef whose Value embeds Parameter) into the slim
+// HeaderDetail shape. Returns nil when the response declares no
+// headers so the JSON omits the field entirely. Headers without a
+// resolved value are skipped rather than emitted as empty entries.
+func flattenResponseHeaders(headers openapi3.Headers) map[string]HeaderDetail {
+	if len(headers) == 0 {
+		return nil
+	}
+	out := make(map[string]HeaderDetail, len(headers))
+	for name, ref := range headers {
+		if ref == nil || ref.Value == nil {
+			continue
+		}
+		p := ref.Value.Parameter
+		out[name] = HeaderDetail{
+			Description: p.Description,
+			Required:    p.Required,
+			Schema:      schemaToValue(p.Schema, 0),
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // preferredContentType returns the content-type from sorted whose
@@ -394,9 +433,10 @@ func schemaToValue(ref *openapi3.SchemaRef, depth int) any {
 }
 
 // populateSchemaScalars copies the scalar-valued OpenAPI schema
-// fields (type, format, default, enum, required, example) into out.
-// Kept separate from compound (Properties, Items) walks so
-// schemaToValue stays under the cognitive-complexity gate.
+// fields (type, format, default, enum, const, required, example)
+// into out. Kept separate from compound (Properties, Items,
+// OneOf/AnyOf/AllOf) walks so schemaToValue stays under the
+// cognitive-complexity gate.
 func populateSchemaScalars(out map[string]any, s *openapi3.Schema) {
 	if types := s.Type.Slice(); len(types) > 0 {
 		if len(types) == 1 {
@@ -413,6 +453,9 @@ func populateSchemaScalars(out map[string]any, s *openapi3.Schema) {
 	if len(s.Enum) > 0 {
 		out["enum"] = s.Enum
 	}
+	if s.Const != nil {
+		out["const"] = s.Const
+	}
 	if len(s.Required) > 0 {
 		out["required"] = s.Required
 	}
@@ -421,8 +464,12 @@ func populateSchemaScalars(out map[string]any, s *openapi3.Schema) {
 	}
 }
 
-// populateSchemaCompounds recurses into Properties and Items at
-// depth+1 — the recursion that the maxSchemaDepth guard caps.
+// populateSchemaCompounds recurses into Properties, Items, and the
+// composition keywords (oneOf / anyOf / allOf / not) at depth+1.
+// Composition keywords are first-class in OpenAPI 3.1: the canonical
+// "nullable reference" pattern is oneOf: [$ref, {type: "null"}], and
+// polymorphic shapes lean on anyOf / allOf. Dropping them strips
+// substantial parts of the contract from the model's view.
 func populateSchemaCompounds(out map[string]any, s *openapi3.Schema, depth int) {
 	if len(s.Properties) > 0 {
 		props := make(map[string]any, len(s.Properties))
@@ -434,6 +481,33 @@ func populateSchemaCompounds(out map[string]any, s *openapi3.Schema, depth int) 
 	if s.Items != nil {
 		out["items"] = schemaToValue(s.Items, depth+1)
 	}
+	if branches := flattenSchemaRefs(s.OneOf, depth); branches != nil {
+		out["oneOf"] = branches
+	}
+	if branches := flattenSchemaRefs(s.AnyOf, depth); branches != nil {
+		out["anyOf"] = branches
+	}
+	if branches := flattenSchemaRefs(s.AllOf, depth); branches != nil {
+		out["allOf"] = branches
+	}
+	if s.Not != nil {
+		out["not"] = schemaToValue(s.Not, depth+1)
+	}
+}
+
+// flattenSchemaRefs walks a SchemaRefs slice (the underlying type
+// for OneOf/AnyOf/AllOf) and returns a []any of flattened branches.
+// Nil-or-empty input returns nil so the caller can omit the field
+// entirely from the marshaled JSON.
+func flattenSchemaRefs(refs openapi3.SchemaRefs, depth int) []any {
+	if len(refs) == 0 {
+		return nil
+	}
+	out := make([]any, 0, len(refs))
+	for _, ref := range refs {
+		out = append(out, schemaToValue(ref, depth+1))
+	}
+	return out
 }
 
 // addStringIfPresent skips zero values so the marshaled schema

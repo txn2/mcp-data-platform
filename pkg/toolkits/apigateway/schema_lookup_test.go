@@ -480,3 +480,309 @@ func TestFlattenExamples_Empty(t *testing.T) {
 		t.Errorf("nil examples should flatten to empty map, got %+v", got)
 	}
 }
+
+// oas31ResolverFixtureSpec exercises the three OpenAPI 3.1 patterns
+// the resolver historically dropped: oneOf with a $ref+null branch,
+// response headers, and const-valued discriminator fields. A single
+// fixture verifies all three because they appear together in real
+// JSON:API style specs.
+const oas31ResolverFixtureSpec = `
+openapi: 3.1.0
+info:
+  title: resolver-fixture
+  version: "1.0"
+paths:
+  /thing/:
+    get:
+      operationId: getThing
+      responses:
+        "200":
+          description: A thing.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  type:
+                    type: string
+                    const: thing
+                  version:
+                    const: "1.0"
+                  status:
+                    type: string
+                    enum: [ok]
+                  parent:
+                    oneOf:
+                      - $ref: "#/components/schemas/Lite"
+                      - type: "null"
+                    description: Embedded lite reference.
+                  variants:
+                    type: array
+                    items:
+                      anyOf:
+                        - $ref: "#/components/schemas/Lite"
+                        - type: "null"
+                  envelope:
+                    allOf:
+                      - $ref: "#/components/schemas/Lite"
+        "301":
+          description: Redirect to the canonical URL.
+          headers:
+            Location:
+              description: Absolute path to the canonical URL.
+              schema:
+                type: string
+            X-Request-Id:
+              description: Echoed request id.
+              schema:
+                type: string
+components:
+  schemas:
+    Lite:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+`
+
+func setupOAS31FixtureTk(t *testing.T) *Toolkit {
+	t.Helper()
+	tk := New("api")
+	setupCatalogWithSpec(t, tk, "fixture", "default", oas31ResolverFixtureSpec)
+	if err := tk.AddConnection("c", map[string]any{
+		"base_url":   "https://example.com",
+		"catalog_id": "fixture",
+	}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	return tk
+}
+
+func getThingResponse200Props(t *testing.T, out EndpointSchemaOutput) map[string]any {
+	t.Helper()
+	var resp *ResponseDetail
+	for i := range out.Responses {
+		if out.Responses[i].Status == "200" {
+			resp = &out.Responses[i]
+			break
+		}
+	}
+	if resp == nil {
+		t.Fatalf("no 200 response in output: %+v", out.Responses)
+	}
+	schema, ok := resp.Schema.(map[string]any)
+	if !ok {
+		t.Fatalf("200 schema not map: %T", resp.Schema)
+	}
+	props, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("200 schema has no properties map: %+v", schema)
+	}
+	return props
+}
+
+func liteFromBranch(t *testing.T, branch any) map[string]any {
+	t.Helper()
+	m, ok := branch.(map[string]any)
+	if !ok {
+		t.Fatalf("branch not map: %T (%v)", branch, branch)
+	}
+	props, ok := m["properties"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	return props
+}
+
+// Bug 1: oneOf: [$ref, {type: "null"}] previously dropped the $ref
+// entirely (and the type: "null" branch), surfacing parent as either
+// {} or an empty object with only the description preserved. The
+// resolver must now inline the referenced Lite schema and keep the
+// null-type branch so agents can see both shapes.
+func TestGetEndpointSchema_OneOfWithRefAndNullPreserved(t *testing.T) {
+	tk := setupOAS31FixtureTk(t)
+	r, _, err := tk.handleGetEndpointSchema(context.Background(), nil, GetEndpointSchemaInput{
+		Connection: "c", OperationID: "getThing",
+	})
+	if err != nil || r.IsError {
+		t.Fatalf("getThing: err=%v isError=%v body=%s", err, r.IsError, textContent(r))
+	}
+	out := parseSchemaResult(t, r)
+	props := getThingResponse200Props(t, out)
+	parent, ok := props["parent"].(map[string]any)
+	if !ok {
+		t.Fatalf("parent property missing or not map: %+v", props["parent"])
+	}
+	if parent["description"] != "Embedded lite reference." {
+		t.Errorf("parent description not preserved: %+v", parent)
+	}
+	branches, ok := parent["oneOf"].([]any)
+	if !ok {
+		t.Fatalf("parent missing oneOf array: %+v", parent)
+	}
+	if len(branches) != 2 {
+		t.Fatalf("expected 2 oneOf branches, got %d: %+v", len(branches), branches)
+	}
+	var sawLite, sawNull bool
+	for _, b := range branches {
+		bm, ok := b.(map[string]any)
+		if !ok {
+			t.Fatalf("branch not a map: %T", b)
+		}
+		if bm["type"] == "null" {
+			sawNull = true
+			continue
+		}
+		if liteProps := liteFromBranch(t, bm); liteProps != nil {
+			if _, hasID := liteProps["id"]; hasID {
+				sawLite = true
+			}
+		}
+	}
+	if !sawLite {
+		t.Errorf("expected Lite ref inlined into one oneOf branch: %+v", branches)
+	}
+	if !sawNull {
+		t.Errorf("expected null-type branch preserved: %+v", branches)
+	}
+}
+
+// Bug 1 sibling: anyOf with $ref+null nested under array items also
+// needs both branches surfaced. The variants property guards the
+// nested-recursion path.
+func TestGetEndpointSchema_AnyOfWithRefAndNullInsideArrayItems(t *testing.T) {
+	tk := setupOAS31FixtureTk(t)
+	r, _, _ := tk.handleGetEndpointSchema(context.Background(), nil, GetEndpointSchemaInput{
+		Connection: "c", OperationID: "getThing",
+	})
+	out := parseSchemaResult(t, r)
+	props := getThingResponse200Props(t, out)
+	variants, ok := props["variants"].(map[string]any)
+	if !ok {
+		t.Fatalf("variants property missing: %+v", props["variants"])
+	}
+	items, ok := variants["items"].(map[string]any)
+	if !ok {
+		t.Fatalf("variants.items not a map: %+v", variants["items"])
+	}
+	branches, ok := items["anyOf"].([]any)
+	if !ok {
+		t.Fatalf("items.anyOf missing: %+v", items)
+	}
+	if len(branches) != 2 {
+		t.Fatalf("expected 2 anyOf branches, got %d", len(branches))
+	}
+}
+
+// Bug 1 sibling: allOf composition with a single $ref should inline
+// the referenced schema's properties (callers commonly use allOf to
+// extend a base schema).
+func TestGetEndpointSchema_AllOfWithRefInlined(t *testing.T) {
+	tk := setupOAS31FixtureTk(t)
+	r, _, _ := tk.handleGetEndpointSchema(context.Background(), nil, GetEndpointSchemaInput{
+		Connection: "c", OperationID: "getThing",
+	})
+	out := parseSchemaResult(t, r)
+	props := getThingResponse200Props(t, out)
+	envelope, ok := props["envelope"].(map[string]any)
+	if !ok {
+		t.Fatalf("envelope property missing: %+v", props["envelope"])
+	}
+	branches, ok := envelope["allOf"].([]any)
+	if !ok {
+		t.Fatalf("envelope.allOf missing: %+v", envelope)
+	}
+	if len(branches) != 1 {
+		t.Fatalf("expected 1 allOf branch, got %d", len(branches))
+	}
+	bm, ok := branches[0].(map[string]any)
+	if !ok {
+		t.Fatalf("allOf branch not a map: %T", branches[0])
+	}
+	bp, ok := bm["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("allOf branch missing inlined Lite properties: %+v", bm)
+	}
+	if _, hasID := bp["id"]; !hasID {
+		t.Errorf("Lite.id not inlined into allOf branch: %+v", bp)
+	}
+}
+
+// Bug 2: Response headers declared on the operation must surface in
+// the flattened response so callers know which headers to read on
+// redirects, rate-limited responses, etc.
+func TestGetEndpointSchema_ResponseHeadersPreserved(t *testing.T) {
+	tk := setupOAS31FixtureTk(t)
+	r, _, _ := tk.handleGetEndpointSchema(context.Background(), nil, GetEndpointSchemaInput{
+		Connection: "c", OperationID: "getThing",
+	})
+	out := parseSchemaResult(t, r)
+	var redirect *ResponseDetail
+	for i := range out.Responses {
+		if out.Responses[i].Status == "301" {
+			redirect = &out.Responses[i]
+			break
+		}
+	}
+	if redirect == nil {
+		t.Fatalf("no 301 response in output: %+v", out.Responses)
+	}
+	if len(redirect.Headers) != 2 {
+		t.Fatalf("expected 2 headers on 301, got %d: %+v", len(redirect.Headers), redirect.Headers)
+	}
+	loc, ok := redirect.Headers["Location"]
+	if !ok {
+		t.Fatalf("Location header missing: %+v", redirect.Headers)
+	}
+	if loc.Description != "Absolute path to the canonical URL." {
+		t.Errorf("Location description missing: %+v", loc)
+	}
+	locSchema, ok := loc.Schema.(map[string]any)
+	if !ok {
+		t.Fatalf("Location schema not map: %T", loc.Schema)
+	}
+	if locSchema["type"] != "string" {
+		t.Errorf("Location schema type lost: %+v", locSchema)
+	}
+}
+
+// Bug 3: const values on properties must surface so agents see the
+// expected literal — common on JSON:API style discriminator fields
+// (type: "thing", version: "1.0"). enum with a single value is
+// adjacent; both should pass through unchanged.
+func TestGetEndpointSchema_ConstAndEnumPreserved(t *testing.T) {
+	tk := setupOAS31FixtureTk(t)
+	r, _, _ := tk.handleGetEndpointSchema(context.Background(), nil, GetEndpointSchemaInput{
+		Connection: "c", OperationID: "getThing",
+	})
+	out := parseSchemaResult(t, r)
+	props := getThingResponse200Props(t, out)
+
+	typeProp, ok := props["type"].(map[string]any)
+	if !ok {
+		t.Fatalf("type property missing: %+v", props["type"])
+	}
+	if typeProp["const"] != "thing" {
+		t.Errorf("type.const not preserved (got %v): %+v", typeProp["const"], typeProp)
+	}
+
+	version, ok := props["version"].(map[string]any)
+	if !ok {
+		t.Fatalf("version property missing: %+v", props["version"])
+	}
+	if version["const"] != "1.0" {
+		t.Errorf("version.const not preserved (got %v): %+v", version["const"], version)
+	}
+
+	status, ok := props["status"].(map[string]any)
+	if !ok {
+		t.Fatalf("status property missing: %+v", props["status"])
+	}
+	statusEnum, ok := status["enum"].([]any)
+	if !ok || len(statusEnum) != 1 || statusEnum[0] != "ok" {
+		t.Errorf("status.enum not preserved (got %v): %+v", status["enum"], status)
+	}
+}
