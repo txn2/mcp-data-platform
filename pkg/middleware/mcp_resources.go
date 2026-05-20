@@ -21,6 +21,11 @@ const (
 
 	// mimeTypeJSON is the MIME type for JSON content.
 	mimeTypeJSON = "application/json"
+
+	// userIDAnonymous is the stable label used in log lines when no
+	// authenticated PlatformContext is available (auth failed or wasn't
+	// attempted). Keeps log queries groupable on user_id.
+	userIDAnonymous = "anonymous"
 )
 
 // ResourceListProvider loads managed resources for a given set of scope filters.
@@ -64,10 +69,8 @@ func MCPManagedResourceMiddleware(cfg ManagedResourceConfig) mcp.Middleware {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			switch method {
 			case methodListResources:
-				slog.Debug("managed resources middleware: intercepting resources/list")
 				return handleManagedList(ctx, next, method, req, cfg)
 			case methodReadResource:
-				slog.Debug("managed resources middleware: intercepting resources/read")
 				return handleManagedRead(ctx, next, method, req, cfg)
 			default:
 				return next(ctx, method, req)
@@ -80,35 +83,58 @@ func MCPManagedResourceMiddleware(cfg ManagedResourceConfig) mcp.Middleware {
 // scopes. Managed resources are registered with the SDK via AddResource for
 // discoverability, but the SDK returns ALL resources to every client. This
 // middleware removes resources the caller shouldn't see based on their auth.
+//
+// Logging philosophy: at DEBUG we emit one line per resources/list call when
+// filtering actually happens (with the user/persona that authorized the
+// filter and the in/out counts). Per-resource enumeration and no-op early
+// returns are intentionally silent: the resource list itself is the audit
+// surface for "what was visible", not infra logs.
 func handleManagedList(ctx context.Context, next mcp.MethodHandler, method string, req mcp.Request, cfg ManagedResourceConfig) (mcp.Result, error) {
 	result, err := next(ctx, method, req)
 	if err != nil {
-		slog.Debug("managed resources list: next handler error", logKeyError, err)
 		return result, err
 	}
 
 	listResult, ok := result.(*mcp.ListResourcesResult)
 	if !ok || cfg.Store == nil {
-		slog.Debug("managed resources list: skipping", "result_type_ok", ok, "store_nil", cfg.Store == nil)
 		return result, nil
-	}
-
-	slog.Debug("managed resources list: SDK returned resources", "count", len(listResult.Resources))
-	for i, r := range listResult.Resources {
-		slog.Debug("managed resources list: SDK resource", "index", i, logKeyURI, r.URI, "name", r.Name)
 	}
 
 	prefix := managedURIPrefix(cfg)
 	if !containsManagedResources(listResult.Resources, prefix) {
-		slog.Debug("managed resources list: no managed resources in SDK list, returning as-is", "prefix", prefix)
 		return result, nil
 	}
 
-	visibleURIs := resolveVisibleManagedURIs(ctx, req, cfg)
-	slog.Debug("managed resources list: resolved visible URIs", "count", len(visibleURIs), "visible", visibleURIs)
+	pc, visibleURIs := resolveVisibleManagedURIsWithPC(ctx, req, cfg)
+	before := len(listResult.Resources)
 	listResult.Resources = filterResources(listResult.Resources, prefix, visibleURIs)
-	slog.Debug("managed resources list: filtered result", "count", len(listResult.Resources))
+	slog.Debug("managed resources list: filtered",
+		"in", before,
+		"out", len(listResult.Resources),
+		logKeyUserID, userIDForLog(pc),
+		"persona", personaForLog(pc),
+	)
 	return listResult, nil
+}
+
+// userIDForLog returns a stable user attribution for the filter log line.
+// userIDAnonymous when no PlatformContext is present (auth failed or
+// skipped); concrete UserID otherwise. Keeps the log line shape stable
+// across the authenticated and anonymous paths so log queries can group
+// on user_id.
+func userIDForLog(pc *PlatformContext) string {
+	if pc == nil || pc.UserID == "" {
+		return userIDAnonymous
+	}
+	return pc.UserID
+}
+
+// personaForLog mirrors userIDForLog for the persona attribution column.
+func personaForLog(pc *PlatformContext) string {
+	if pc == nil || pc.PersonaName == "" {
+		return ""
+	}
+	return pc.PersonaName
 }
 
 // managedURIPrefix returns the URI prefix for managed resources.
@@ -130,25 +156,30 @@ func containsManagedResources(resources []*mcp.Resource, prefix string) bool {
 	return false
 }
 
-// resolveVisibleManagedURIs returns the set of managed resource URIs visible
-// to the authenticated caller. Returns nil if auth fails (all managed removed).
-func resolveVisibleManagedURIs(ctx context.Context, req mcp.Request, cfg ManagedResourceConfig) map[string]bool {
-	pc := getOrAuthenticatePC(ctx, req, cfg)
+// resolveVisibleManagedURIsWithPC returns the set of managed resource URIs
+// visible to the authenticated caller, along with the PlatformContext that
+// authorized the filter so callers can include user/persona attribution in
+// their log lines. Returns (nil, nil) when auth fails.
+func resolveVisibleManagedURIsWithPC(ctx context.Context, req mcp.Request, cfg ManagedResourceConfig) (pc *PlatformContext, visible map[string]bool) {
+	pc = getOrAuthenticatePC(ctx, req, cfg)
 	if pc == nil {
-		slog.Debug("resolveVisibleManagedURIs: no auth, returning nil (all managed will be removed)")
-		return nil
+		return nil, nil
 	}
 	scopes := scopesFromPlatformContext(pc, cfg)
 	managed, _, err := cfg.Store.List(ctx, resource.Filter{Scopes: scopes, Limit: 1000})
 	if err != nil {
-		slog.Warn("managed resources: scope filter failed, removing all managed", logKeyError, err)
-		return nil
+		slog.Warn("managed resources: scope filter failed, removing all managed",
+			logKeyError, err,
+			logKeyUserID, pc.UserID,
+			"persona", pc.PersonaName,
+		)
+		return pc, nil
 	}
-	visible := make(map[string]bool, len(managed))
+	visible = make(map[string]bool, len(managed))
 	for i := range managed {
 		visible[managed[i].URI] = true
 	}
-	return visible
+	return pc, visible
 }
 
 // filterResources keeps static resources and only visible managed resources.

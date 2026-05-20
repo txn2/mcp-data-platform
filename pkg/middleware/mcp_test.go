@@ -1072,14 +1072,21 @@ func TestMCPToolCallMiddleware_AwareSessionIDFallback(t *testing.T) {
 	// The AwareHandler → middleware integration test in middleware_chain_test.go
 	// covers this path through a real Streamable HTTP transport.
 
-	t.Run("falls back to default when no AwareHandler session", func(t *testing.T) {
+	t.Run("synthesizes per-principal SessionID for stateless http", func(t *testing.T) {
+		// HTTP transport with neither an SDK session nor an AwareHandler
+		// session: resolveSessionID returns "" before auth, and
+		// deriveAuthenticatedSessionID then upgrades to a synthetic
+		// "synth:user:<UserID>" once auth populates UserID. This is the
+		// boundary that prevents User A's harvest tool from returning
+		// User B's accumulated provenance.
 		next := func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 			pc := GetPlatformContext(ctx)
 			if pc == nil {
 				t.Fatal(mcpTestPCExpected)
 			}
-			if pc.SessionID != defaultSessionID {
-				t.Errorf("expected SessionID %q, got %q", defaultSessionID, pc.SessionID)
+			want := synthSessionPrefix + mcpTestUserID
+			if pc.SessionID != want {
+				t.Errorf("expected SessionID %q for stateless http after auth, got %q", want, pc.SessionID)
 			}
 			return &mcp.CallToolResult{
 				Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
@@ -1089,12 +1096,127 @@ func TestMCPToolCallMiddleware_AwareSessionIDFallback(t *testing.T) {
 		handler := mw(next)
 		req := newMCPTestRequest(mcpTestToolName)
 
-		// No AwareHandler session in context
+		// No AwareHandler session in context.
 		_, err := handler(context.Background(), mcpTestMethod, req)
 		if err != nil {
 			t.Fatalf(mcpTestErrFmt, err)
 		}
 	})
+}
+
+// TestDeriveAuthenticatedSessionID covers the small helper directly. The
+// invariants are: (a) any non-empty incoming SessionID is preserved
+// verbatim, never silently rewritten over a real SDK session ID; (b)
+// empty + UserID -> synth:user:UserID; (c) empty + empty UserID -> empty;
+// (d) empty + the anonymous sentinel stays empty, so allowAnonymous
+// deployments don't pool every caller into synth:user:anonymous.
+func TestDeriveAuthenticatedSessionID(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name      string
+		sessionID string
+		userID    string
+		want      string
+	}{
+		{"real SDK session preserved", "abc123", "user-1", "abc123"},
+		{"stdio sentinel preserved", defaultSessionID, "user-1", defaultSessionID},
+		{"empty + auth user -> synth", "", "apikey:nifi-etl", synthSessionPrefix + "apikey:nifi-etl"},
+		{"empty + empty user stays empty", "", "", ""},
+		{"empty + anonymous sentinel stays empty", "", userIDAnonymous, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			got := deriveAuthenticatedSessionID(c.sessionID, c.userID)
+			if got != c.want {
+				t.Errorf("deriveAuthenticatedSessionID(%q, %q) = %q, want %q",
+					c.sessionID, c.userID, got, c.want)
+			}
+		})
+	}
+}
+
+// TestMCPToolCallMiddleware_StdioKeepsSentinel guards against an over-eager
+// fix: the stdio transport is allowed to keep the defaultSessionID because
+// there's exactly one logical client per process. Clearing it would break
+// provenance accumulation for stdio clients.
+func TestMCPToolCallMiddleware_StdioKeepsSentinel(t *testing.T) {
+	authenticator := &mcpTestAuthenticator{
+		userInfo: &UserInfo{UserID: mcpTestUserID, Roles: []string{mcpTestPersona}},
+	}
+	authorizer := &mcpTestAuthorizer{authorized: true, personaName: mcpTestPersona}
+
+	mw := MCPToolCallMiddleware(authenticator, authorizer, nil, ToolCallConfig{Transport: mcpTestStdio, AdminPersona: "admin"})
+
+	var got string
+	next := func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		pc := GetPlatformContext(ctx)
+		if pc == nil {
+			t.Fatal(mcpTestPCExpected)
+		}
+		got = pc.SessionID
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}}, nil
+	}
+
+	if _, err := mw(next)(context.Background(), mcpTestMethod, newMCPTestRequest(mcpTestToolName)); err != nil {
+		t.Fatalf(mcpTestErrFmt, err)
+	}
+	if got != defaultSessionID {
+		t.Errorf("stdio transport: expected SessionID %q, got %q", defaultSessionID, got)
+	}
+}
+
+// TestProvenanceNoCrossUserMixing_StatelessHTTP exercises the original
+// leak hazard end-to-end: two different stateless HTTP principals each
+// make tool calls against the same process. Before the fix, both pooled
+// into one shared "stdio" bucket and either user's harvest tool would
+// return the union of both users' provenance. After the fix each
+// principal lands in its own synth:user:<UserID> bucket, so HarvestA
+// returns only A's calls and HarvestB only B's. The stdio bucket
+// remains empty because no stdio caller is involved.
+func TestProvenanceNoCrossUserMixing_StatelessHTTP(t *testing.T) {
+	authorizer := &mcpTestAuthorizer{authorized: true, personaName: mcpTestPersona}
+	tracker := NewProvenanceTracker()
+	innerCount := 0
+	inner := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		innerCount++
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}}, nil
+	}
+	chain := MCPProvenanceMiddleware(tracker)(inner)
+
+	run := func(userID string, calls int) {
+		auth := &mcpTestAuthenticator{
+			userInfo: &UserInfo{UserID: userID, Roles: []string{mcpTestPersona}},
+		}
+		handler := MCPToolCallMiddleware(auth, authorizer, nil, ToolCallConfig{Transport: "http", AdminPersona: "admin"})(chain)
+		for range calls {
+			if _, err := handler(context.Background(), mcpTestMethod, newMCPTestRequest(mcpTestToolName)); err != nil {
+				t.Fatalf("handler(%s): %v", userID, err)
+			}
+		}
+	}
+
+	run("apikey:nifi-etl", 3)
+	run("apikey:other-client", 2)
+	if innerCount != 5 {
+		t.Fatalf("expected 5 inner calls, got %d", innerCount)
+	}
+
+	if got := tracker.Harvest(defaultSessionID); len(got) != 0 {
+		t.Errorf("stdio bucket should be empty for stateless http calls, got %d", len(got))
+	}
+	if got := tracker.Harvest(""); len(got) != 0 {
+		t.Errorf("empty bucket should be unreachable (record skips empty), got %d", len(got))
+	}
+
+	nifiCalls := tracker.Harvest(synthSessionPrefix + "apikey:nifi-etl")
+	if len(nifiCalls) != 3 {
+		t.Errorf("nifi-etl bucket should contain its 3 calls, got %d", len(nifiCalls))
+	}
+	otherCalls := tracker.Harvest(synthSessionPrefix + "apikey:other-client")
+	if len(otherCalls) != 2 {
+		t.Errorf("other-client bucket should contain its 2 calls, got %d", len(otherCalls))
+	}
 }
 
 func TestMCPToolCallMiddleware_PreAuthenticatedUser(t *testing.T) {

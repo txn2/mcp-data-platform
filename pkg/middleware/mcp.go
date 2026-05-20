@@ -18,8 +18,27 @@ import (
 )
 
 const (
-	// defaultSessionID is used for stdio/SSE transports that don't provide a session ID.
+	// defaultSessionID is the per-process session sentinel used by the stdio
+	// transport (one logical client per process). HTTP requests that cannot
+	// produce a real session ID get a per-principal synthetic ID once
+	// authenticated, or an empty string when the principal is anonymous or
+	// unidentified, via resolveSessionID and deriveAuthenticatedSessionID.
+	// They never inherit the stdio sentinel. Pooling stateless HTTP callers
+	// under "stdio" would let one caller's harvest tool return another
+	// caller's accumulated provenance.
 	defaultSessionID = "stdio"
+
+	// transportStdio is the cfg.Transport value that legitimately reuses
+	// defaultSessionID. Anything else (http, sse) clears the sentinel.
+	transportStdio = "stdio"
+
+	// synthSessionPrefix marks a session ID synthesized from an authenticated
+	// principal because the SDK didn't surface a real one. It buckets every
+	// stateless HTTP call by that principal's UserID, so provenance and
+	// session-scoped state can accumulate per-user instead of pooling
+	// across users. The "synth:" namespace keeps these IDs visually
+	// distinct from SDK-issued session IDs in logs and audit rows.
+	synthSessionPrefix = "synth:user:"
 
 	// methodToolsCall is the MCP method name for tool invocations.
 	methodToolsCall = "tools/call"
@@ -88,14 +107,7 @@ func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, t
 			// Build platform context and enrich the Go context.
 			pc := NewPlatformContext(generateRequestID())
 			pc.ToolName = toolName
-			pc.SessionID = extractSessionID(req)
-			// Fall back to AwareHandler-managed session ID when the MCP SDK
-			// doesn't propagate one (SSE returns "", stateless mode may vary).
-			if pc.SessionID == defaultSessionID {
-				if awareID := pkgsession.AwareSessionID(ctx); awareID != "" {
-					pc.SessionID = awareID
-				}
-			}
+			pc.SessionID = resolveSessionID(ctx, req, cfg.Transport)
 			pc.Transport = cfg.Transport
 			pc.Source = sourceMCP
 			ctx = buildToolCallContext(ctx, req, pc, toolkitLookup, toolName)
@@ -237,6 +249,16 @@ func authenticateAndAuthorize(
 		params.pc.Roles = userInfo.Roles
 	}
 
+	// Upgrade an empty SessionID to a per-principal synthetic ID. resolveSessionID
+	// leaves SessionID empty for stateless HTTP callers (no SDK session, no
+	// AwareHandler session); without this upgrade, every such caller would
+	// either be silently skipped by ProvenanceTracker.Record or, if any code
+	// path looked up state by the empty key, pool with other anonymous
+	// stateless callers. The synthetic ID buckets state per UserID so
+	// authenticated callers still get provenance accumulation and session
+	// gates while making cross-user pooling structurally impossible.
+	params.pc.SessionID = deriveAuthenticatedSessionID(params.pc.SessionID, params.pc.UserID)
+
 	authorized, personaName, reason := params.authorizer.IsAuthorized(ctx, params.pc.UserID, params.pc.Roles, params.toolName, params.pc.Connection)
 	params.pc.Authorized = authorized
 	params.pc.PersonaName = personaName
@@ -300,6 +322,70 @@ func extractSessionID(req mcp.Request) (id string) {
 		}
 	}
 	return id
+}
+
+// resolveSessionID picks the most accurate session identifier we can find
+// for the request, in order of preference:
+//
+//  1. The SDK's propagated session ID (Streamable HTTP Mcp-Session-Id header).
+//  2. The AwareHandler session ID stashed by the initialize hook (covers
+//     SSE and stateless HTTP that issue initialize but don't surface a
+//     session through the SDK request).
+//  3. For HTTP transport with neither of the above, the empty string.
+//     The stdio sentinel previously leaked into stateless HTTP, pooling
+//     every caller into one shared provenance bucket (and one shared
+//     session-gate, dedup, and workflow-tracker bucket). Empty here means
+//     "not yet known"; deriveAuthenticatedSessionID upgrades it to a
+//     per-principal synthetic ID once auth completes, so authenticated
+//     stateless callers still get per-user bucketing for provenance
+//     accumulation.
+//  4. The stdio sentinel for the actual stdio transport (one logical
+//     client per process), the original design contract.
+func resolveSessionID(ctx context.Context, req mcp.Request, transport string) string {
+	sid := extractSessionID(req)
+	if sid != defaultSessionID {
+		return sid
+	}
+	if awareID := pkgsession.AwareSessionID(ctx); awareID != "" {
+		return awareID
+	}
+	if transport != "" && transport != transportStdio {
+		return ""
+	}
+	return sid
+}
+
+// deriveAuthenticatedSessionID returns a per-principal synthetic session ID
+// for stateless HTTP callers that completed authentication. Called from
+// authenticateAndAuthorize once pc.UserID is populated, so downstream
+// middleware (provenance tracker, audit, session gate, dedup cache,
+// workflow tracker) all see a bucket keyed on the authenticated user
+// instead of a shared value.
+//
+// Returns the existing sessionID unchanged when:
+//   - It's already non-empty (SDK session, AwareHandler session, or the
+//     stdio sentinel for the stdio transport).
+//   - No UserID is available.
+//   - The UserID is the anonymous sentinel set by ChainedAuthenticator
+//     when allowAnonymous is on (pkg/auth/middleware.go:119). Synthesizing
+//     "synth:user:anonymous" would pool every unauthenticated caller into
+//     one shared bucket, reintroducing the cross-caller mixing this
+//     function exists to prevent. Anonymous-allowed deployments accept
+//     that they have no identity to bucket on; downstream consumers see
+//     an empty SessionID and either skip (provenance) or use it as-is
+//     (audit, where empty is the documented null value).
+//
+// The synthSessionPrefix makes the synthesized IDs identifiable in logs
+// so an operator can tell at a glance whether a session ID came from a
+// real MCP session or was synthesized post-auth.
+func deriveAuthenticatedSessionID(sessionID, userID string) string {
+	if sessionID != "" {
+		return sessionID
+	}
+	if userID == "" || userID == userIDAnonymous {
+		return sessionID
+	}
+	return synthSessionPrefix + userID
 }
 
 // extractToolName extracts the tool name from a tools/call request.
