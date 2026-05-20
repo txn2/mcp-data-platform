@@ -39,8 +39,24 @@ const (
 	// logKeyTool is the slog key for tool name in log messages.
 	logKeyTool = "tool"
 
-	// sourceMCP identifies the MCP protocol path for audit/source tagging.
+	// sourceMCP identifies tool calls that arrived over a real MCP transport
+	// (stdio or HTTP/SSE), i.e. agents.
 	sourceMCP = "mcp"
+)
+
+// Exported source constants for callers that need to tag their context with
+// a non-default audit source. Three values cover the tool-invocation paths:
+//
+//   - SourceMCP   — real MCP transport (stdio or HTTP/SSE). Agents.
+//   - SourceAdmin — admin REST API → in-memory MCP shim. Portal-driven runs.
+//   - SourceREST  — gateway REST shim → in-memory MCP shim. NiFi / cronjobs.
+//
+// Operators filter audit_logs by `source` to separate these populations
+// without having to know which user IDs belong to which class of caller.
+const (
+	SourceMCP   = sourceMCP
+	SourceAdmin = "admin"
+	SourceREST  = "rest"
 )
 
 // Error categories for structured error handling and audit queries.
@@ -102,7 +118,7 @@ func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, t
 			pc.ToolName = toolName
 			pc.SessionID = resolveSessionID(ctx, req, cfg.Transport)
 			pc.Transport = cfg.Transport
-			pc.Source = sourceMCP
+			pc.Source = resolveSource(ctx)
 			ctx = buildToolCallContext(ctx, req, pc, toolkitLookup, toolName)
 
 			// Authenticate and authorize
@@ -336,6 +352,17 @@ func resolveSessionID(ctx context.Context, req mcp.Request, transport string) st
 		return ""
 	}
 	return sid
+}
+
+// resolveSource returns the audit source for the current tool call. It honors
+// a WithSource override stored on the context, used by the gateway REST shim
+// to mark calls it originated as "rest" rather than "mcp". When no override
+// is set, the source defaults to "mcp" (a real MCP transport).
+func resolveSource(ctx context.Context) string {
+	if s := GetSource(ctx); s != "" {
+		return s
+	}
+	return sourceMCP
 }
 
 // extractToolName extracts the tool name from a tools/call request.

@@ -80,13 +80,35 @@ Every successful or failed tool call produces one row in `audit_logs`:
 | `content_blocks` | INTEGER | Number of content blocks in the tool response. |
 | `request_chars` | INTEGER | Character count of the tool request parameters. |
 | `transport` | VARCHAR(50) | Transport type: `stdio` or `http`. |
-| `source` | VARCHAR(50) | Request source: `mcp`, `admin`, `inspector`. |
+| `source` | VARCHAR(50) | Caller class. `mcp` = agent over a real MCP transport. `rest` = external automation through the gateway REST shim (NiFi, cronjobs, integrations). `admin` = portal-driven tool execution via the admin REST API. See [Caller class via source](#caller-class-via-source). |
 | `enrichment_applied` | BOOLEAN | Whether semantic enrichment was applied to this tool call's response. |
 | `authorized` | BOOLEAN | Whether the tool call was authorized by the persona system. |
 | `enrichment_tokens_full` | INTEGER | Estimated tokens for the full (non-dedup) enrichment content. Uses `chars / 4` approximation. |
 | `enrichment_tokens_dedup` | INTEGER | Estimated tokens for the dedup enrichment content. `0` when full enrichment was sent. |
 | `enrichment_mode` | VARCHAR(20) | Enrichment mode used: `full`, `summary`, `reference`, `none`, or empty (not enriched). |
 | `created_date` | DATE | Partition key derived from `timestamp`. Used for retention cleanup. |
+
+## Caller class via source
+
+Tools on this platform are reachable through three entry points, all of which fire the same MCP audit middleware. The `source` field on each audit row records which path was used so operators can separate the populations without having to know which user IDs belong to which class of caller.
+
+| `source` | What it means | Typical caller |
+|----------|---------------|----------------|
+| `mcp` | Real MCP transport (stdio or HTTP/SSE) | Claude, other interactive MCP agents |
+| `rest` | Gateway REST shim at `POST /api/v1/gateway/{connection}/invoke` | Apache NiFi, cronjobs, integrations, anything HTTP that wraps the platform |
+| `admin` | Admin REST API tool execution at `POST /api/v1/admin/tools/call` | Portal UI "test this tool" buttons, ops scripts |
+
+Both the gateway REST shim (`pkg/gatewayhttp/handler.go`) and the admin tool runner (`pkg/admin/tools.go`) open an in-memory MCP session against the assembled server and call the same `api_invoke_endpoint` (or other) tool that an agent would call. The handlers tag the context with `middleware.WithSource` before opening that session so the audit middleware records the originating caller class, not just "mcp".
+
+Filter by source in the admin API:
+
+```
+GET /api/v1/admin/audit/events?source=mcp     # agents only
+GET /api/v1/admin/audit/events?source=rest    # NiFi-class only
+GET /api/v1/admin/audit/events?source=admin   # portal-driven only
+```
+
+Or in the portal UI, use the **All Sources** dropdown on the Audit Log page. The dropdown lists every source value seen in the current time window.
 
 ## Parameter Sanitization
 
@@ -232,22 +254,31 @@ SELECT
 FROM session_patterns;
 ```
 
-## Retention and Cleanup
+## Retention, partition rotation, and cleanup
 
-A background goroutine runs every 24 hours and deletes rows older than `retention_days`:
+A background maintenance routine runs every 24 hours and performs three steps in order:
+
+1. **Ensure upcoming partitions.** Create named monthly partitions for the next two months (`audit_logs_YYYY_MM`). The current month is intentionally skipped on brownfield deployments so existing rows in `audit_logs_default` do not conflict with a new named partition over the same date range. This step is idempotent (`CREATE TABLE IF NOT EXISTS`).
+2. **Delete expired rows.** Remove rows where `timestamp < NOW() - INTERVAL '<retention_days> days'`. PostgreSQL prunes the DELETE to only the partitions that overlap the retention window.
+3. **Drop fully-expired partitions.** Drop any `audit_logs_YYYY_MM` whose entire date range ends at or before the retention cutoff. `DROP TABLE` on a partition is effectively constant time and reclaims storage immediately, unlike row-level DELETE.
 
 ```sql
+-- step 1 (illustrative)
+CREATE TABLE IF NOT EXISTS audit_logs_2026_06 PARTITION OF audit_logs
+    FOR VALUES FROM ('2026-06-01') TO ('2026-07-01');
+
+-- step 2
 DELETE FROM audit_logs WHERE timestamp < NOW() - INTERVAL '90 days';
+
+-- step 3 (illustrative, when audit_logs_2025_12 is fully past retention)
+DROP TABLE IF EXISTS audit_logs_2025_12;
 ```
 
-The cleanup routine starts automatically when the audit store is initialized. It runs on the application's lifecycle context and stops when the platform shuts down.
+The maintenance routine starts automatically when the audit store is initialized. The eager pre-tick partition creation also runs once at startup so rows written between startup and the first tick land in a named partition when their month is covered.
 
-The table is partitioned by `created_date`, so retention deletes operate efficiently on date ranges. For high-volume deployments, consider creating explicit date partitions instead of relying on the default partition:
+Failures in any one step are logged and isolated: a transient failure to create a partition does not skip the retention DELETE on the same tick.
 
-```sql
-CREATE TABLE audit_logs_2026_02 PARTITION OF audit_logs
-    FOR VALUES FROM ('2026-02-01') TO ('2026-03-01');
-```
+For deployments running at high volume (the canonical motivating case is Apache NiFi calling the gateway REST shim at order-of-magnitude-per-second), monthly partition rotation keeps the working DELETE bounded to recent partitions and lets old data be bulk-dropped as whole partitions rather than scanned row-by-row.
 
 ## How It Works
 

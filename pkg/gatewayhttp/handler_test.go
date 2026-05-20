@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 )
 
@@ -678,6 +680,83 @@ func TestIntegration_HeadersAndQueryForwarded(t *testing.T) {
 	}`
 	status, _ := postJSON(t, gateway.URL+"/api/v1/gateway/acme/invoke", body)
 	require.Equal(t, http.StatusOK, status)
+}
+
+// TestIntegration_SourceTaggedRest proves the central goal of issue #x:
+// requests that arrive through the REST shim land on the audit context
+// with Source="rest", letting operators separate external automation
+// traffic (NiFi, cronjobs) from real MCP agents that share the same
+// api_invoke_endpoint tool. The same MCP server, invoked directly,
+// produces Source="mcp" (the default), so this test also guards the
+// negative case.
+func TestIntegration_SourceTaggedRest(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer upstream.Close()
+
+	tk := apigatewaykit.New("apigateway")
+	require.NoError(t, tk.AddConnection("acme", map[string]any{
+		"base_url":        upstream.URL,
+		"auth_mode":       apigatewaykit.AuthModeNone,
+		"call_timeout":    "5s",
+		"connect_timeout": "2s",
+	}))
+
+	captured := &capturedAuditSource{}
+	mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "v1"}, nil)
+	tk.RegisterTools(mcpServer)
+
+	// Capture middleware reads PlatformContext.Source after the tool-call
+	// middleware has populated it. Wrapping order (LAST added runs FIRST):
+	// we add capture first so it's INNER to MCPToolCallMiddleware, ensuring
+	// the source override has been resolved by the time capture observes it.
+	mcpServer.AddReceivingMiddleware(captured.middleware())
+	mcpServer.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(
+		&middleware.NoopAuthenticator{},
+		middleware.AllowAllAuthorizer(),
+		nil,
+		middleware.ToolCallConfig{Transport: "http"},
+	))
+
+	handler, err := NewHandler(Deps{MCPServer: mcpServer})
+	require.NoError(t, err)
+	gateway := httptest.NewServer(handler)
+	defer gateway.Close()
+
+	status, _ := postJSON(t, gateway.URL+"/api/v1/gateway/acme/invoke",
+		`{"method":"GET","path":"/x"}`)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, middleware.SourceREST, captured.get(),
+		"REST shim must tag the in-memory MCP session with Source=rest")
+}
+
+// capturedAuditSource records the PlatformContext.Source value seen by a
+// receiving middleware so tests can assert on what the audit middleware
+// would have written.
+type capturedAuditSource struct {
+	mu     sync.Mutex
+	source string
+}
+
+func (c *capturedAuditSource) middleware() mcp.Middleware {
+	return func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			if pc := middleware.GetPlatformContext(ctx); pc != nil {
+				c.mu.Lock()
+				c.source = pc.Source
+				c.mu.Unlock()
+			}
+			return next(ctx, method, req)
+		}
+	}
+}
+
+func (c *capturedAuditSource) get() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.source
 }
 
 // newGatewayHTTPServer builds an MCP server with the apigateway

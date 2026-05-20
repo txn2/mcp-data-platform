@@ -16,5 +16,5 @@
 # Triaging them out of scope; track separately if any becomes a real
 # concern.
 
-go/sql-injection pkg/audit/postgres/store.go:178
+go/sql-injection pkg/audit/postgres/store.go:176
 go/log-injection cmd/dev-mcp-mock/main.go:178

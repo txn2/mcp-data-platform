@@ -87,6 +87,8 @@ interface AuditEventsParams {
   perPage?: number;
   userId?: string;
   toolName?: string;
+  toolkitKind?: string;
+  source?: string;
   search?: string;
   sortBy?: AuditSortColumn;
   sortOrder?: SortOrder;
@@ -101,6 +103,8 @@ export function useAuditEvents(params: AuditEventsParams = {}) {
   if (params.perPage) searchParams.set("per_page", String(params.perPage));
   if (params.userId) searchParams.set("user_id", params.userId);
   if (params.toolName) searchParams.set("tool_name", params.toolName);
+  if (params.toolkitKind) searchParams.set("toolkit_kind", params.toolkitKind);
+  if (params.source) searchParams.set("source", params.source);
   if (params.search) searchParams.set("search", params.search);
   if (params.sortBy) searchParams.set("sort_by", params.sortBy);
   if (params.sortOrder) searchParams.set("sort_order", params.sortOrder);

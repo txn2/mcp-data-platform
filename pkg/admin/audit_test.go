@@ -133,6 +133,30 @@ func TestListAuditEvents(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 	})
+
+	t.Run("passes toolkit_kind filter", func(t *testing.T) {
+		aq := &recordingAuditQuerier{}
+		h := NewHandler(Deps{AuditQuerier: aq}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/events?toolkit_kind=api", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, "api", aq.lastQueryFilter.ToolkitKind)
+	})
+
+	t.Run("passes source filter", func(t *testing.T) {
+		aq := &recordingAuditQuerier{}
+		h := NewHandler(Deps{AuditQuerier: aq}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/events?source=mcp", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, "mcp", aq.lastQueryFilter.Source)
+	})
 }
 
 func TestListAuditEventFilters(t *testing.T) {
@@ -177,6 +201,28 @@ func TestListAuditEventFilters(t *testing.T) {
 		h.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
+	})
+
+	t.Run("returns toolkit_kinds and sources", func(t *testing.T) {
+		aq := &recordingAuditQuerier{
+			distinctResults: map[string][]string{
+				"user_id":      {"user-1"},
+				"tool_name":    {"trino_query"},
+				"toolkit_kind": {"api", "trino"},
+				"source":       {"mcp"},
+			},
+		}
+		h := NewHandler(Deps{AuditQuerier: aq}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/events/filters", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var body auditFiltersResponse
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+		assert.Equal(t, []string{"api", "trino"}, body.ToolkitKinds)
+		assert.Equal(t, []string{"mcp"}, body.Sources)
 	})
 }
 

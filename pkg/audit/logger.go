@@ -64,6 +64,7 @@ var ValidSortColumns = map[string]bool{
 	"user_id":            true,
 	"tool_name":          true,
 	"toolkit_kind":       true,
+	"source":             true,
 	"connection":         true,
 	"duration_ms":        true,
 	"success":            true,
@@ -80,6 +81,7 @@ type QueryFilter struct {
 	SessionID   string
 	ToolName    string
 	ToolkitKind string
+	Source      string
 	Search      string
 	Success     *bool
 	SortBy      string

@@ -35,6 +35,7 @@ const (
 	colErrorMessage = "error_message"
 	colUserEmail    = "user_email"
 	colSuccess      = "success"
+	colSource       = "source"
 )
 
 // psq is the PostgreSQL statement builder with dollar placeholders.
@@ -125,26 +126,23 @@ func (s *Store) Log(ctx context.Context, event audit.Event) error {
 
 // applyAuditFilter adds filter conditions to a SELECT builder.
 func applyAuditFilter(qb sq.SelectBuilder, filter audit.QueryFilter) sq.SelectBuilder {
-	if filter.ID != "" {
-		qb = qb.Where(sq.Eq{"id": filter.ID})
+	for _, eq := range []struct{ col, val string }{
+		{"id", filter.ID},
+		{colUserID, filter.UserID},
+		{colSessionID, filter.SessionID},
+		{colToolName, filter.ToolName},
+		{colToolkitKind, filter.ToolkitKind},
+		{colSource, filter.Source},
+	} {
+		if eq.val != "" {
+			qb = qb.Where(sq.Eq{eq.col: eq.val})
+		}
 	}
 	if filter.StartTime != nil {
 		qb = qb.Where(sq.GtOrEq{colTimestamp: *filter.StartTime})
 	}
 	if filter.EndTime != nil {
 		qb = qb.Where(sq.LtOrEq{colTimestamp: *filter.EndTime})
-	}
-	if filter.UserID != "" {
-		qb = qb.Where(sq.Eq{colUserID: filter.UserID})
-	}
-	if filter.SessionID != "" {
-		qb = qb.Where(sq.Eq{colSessionID: filter.SessionID})
-	}
-	if filter.ToolName != "" {
-		qb = qb.Where(sq.Eq{colToolName: filter.ToolName})
-	}
-	if filter.ToolkitKind != "" {
-		qb = qb.Where(sq.Eq{colToolkitKind: filter.ToolkitKind})
 	}
 	if filter.Success != nil {
 		qb = qb.Where(sq.Eq{colSuccess: *filter.Success})
@@ -210,8 +208,10 @@ func (s *Store) Count(ctx context.Context, filter audit.QueryFilter) (int, error
 // Distinct returns sorted unique values for the given column, scoped by optional time range.
 func (s *Store) Distinct(ctx context.Context, column string, startTime, endTime *time.Time) ([]string, error) {
 	allowed := map[string]bool{
-		colUserID:   true,
-		colToolName: true,
+		colUserID:      true,
+		colToolName:    true,
+		colToolkitKind: true,
+		colSource:      true,
 	}
 	if !allowed[column] {
 		return nil, fmt.Errorf("distinct not supported for column %q", column)
@@ -384,12 +384,36 @@ func (s *Store) Cleanup(ctx context.Context) error {
 	return nil
 }
 
+// partitionsAheadDefault controls how far in advance the cleanup loop creates
+// monthly partitions. Two months of lookahead handles month-boundary timing
+// even on systems whose ticker last fires several hours before midnight UTC.
+const partitionsAheadDefault = 2
+
+// slogKeyError is the structured-log key for an error value. Centralized so
+// the literal does not repeat across the maintenance loop's warn-and-continue
+// branches (each step logs its own error; the next step still runs).
+const slogKeyError = "error"
+
 // StartCleanupRoutine starts a background goroutine that periodically deletes
-// old audit logs. The goroutine is stopped when Close is called.
+// old audit logs, creates upcoming monthly partitions, and drops partitions
+// whose entire date range has aged past the retention window. The goroutine
+// is stopped when Close is called.
+//
+// Partition rotation is best-effort: a failure to create or drop a partition
+// is logged and skipped, never aborts the retention DELETE that runs on the
+// same tick. This keeps audit_logs bounded even on a database where the
+// partition operations have transient errors.
 func (s *Store) StartCleanupRoutine(interval time.Duration) {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
 	s.done = make(chan struct{})
+
+	// Best-effort: ensure upcoming partitions exist before the first tick so
+	// rows written between startup and the first tick land in named
+	// partitions when their month is covered.
+	if err := s.EnsureMonthlyPartitions(ctx, partitionsAheadDefault); err != nil {
+		slog.Warn("audit cleanup: initial ensure partitions", slogKeyError, err)
+	}
 
 	go func() {
 		defer close(s.done)
@@ -402,12 +426,26 @@ func (s *Store) StartCleanupRoutine(interval time.Duration) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if err := s.Cleanup(ctx); err != nil {
-					slog.Warn("audit cleanup: expired logs", "error", err)
-				}
+				s.runMaintenanceTick(ctx)
 			}
 		}
 	}()
+}
+
+// runMaintenanceTick performs one round of partition rotation and retention
+// cleanup. Each step's error is logged and isolated so a failure in one does
+// not skip the others; the retention DELETE is the critical step and must
+// always run if reachable.
+func (s *Store) runMaintenanceTick(ctx context.Context) {
+	if err := s.EnsureMonthlyPartitions(ctx, partitionsAheadDefault); err != nil {
+		slog.Warn("audit cleanup: ensure partitions", slogKeyError, err)
+	}
+	if err := s.Cleanup(ctx); err != nil {
+		slog.Warn("audit cleanup: expired logs", slogKeyError, err)
+	}
+	if err := s.DropExpiredPartitions(ctx, s.retentionDays); err != nil {
+		slog.Warn("audit cleanup: drop expired partitions", slogKeyError, err)
+	}
 }
 
 // Verify interface compliance.

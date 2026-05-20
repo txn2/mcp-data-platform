@@ -17,9 +17,11 @@ type auditEventResponse struct {
 
 // auditFiltersResponse holds unique values for dropdown filters.
 type auditFiltersResponse struct {
-	Users      []string          `json:"users" example:"marcus.johnson@example.com,lisa.chang@example.com"`
-	Tools      []string          `json:"tools" example:"trino_query,datahub_search,s3_list_objects"`
-	UserLabels map[string]string `json:"user_labels,omitempty"`
+	Users        []string          `json:"users" example:"marcus.johnson@example.com,lisa.chang@example.com"`
+	Tools        []string          `json:"tools" example:"trino_query,datahub_search,s3_list_objects"`
+	ToolkitKinds []string          `json:"toolkit_kinds" example:"api,datahub,trino,s3,memory"`
+	Sources      []string          `json:"sources" example:"mcp,rest,admin"`
+	UserLabels   map[string]string `json:"user_labels,omitempty"`
 }
 
 // auditStatsResponse holds aggregate audit statistics.
@@ -32,6 +34,9 @@ type auditStatsResponse struct {
 const (
 	defaultAuditLimit = 50
 	colUserID         = "user_id"
+	colToolName       = "tool_name"
+	colToolkitKind    = "toolkit_kind"
+	colSource         = "source"
 )
 
 // listAuditEvents handles GET /api/v1/admin/audit/events.
@@ -40,16 +45,18 @@ const (
 // @Description  Returns paginated audit events with optional filtering.
 // @Tags         Audit
 // @Produce      json
-// @Param        user_id     query  string  false  "Filter by user ID"
-// @Param        tool_name   query  string  false  "Filter by tool name"
-// @Param        session_id  query  string  false  "Filter by MCP session ID"
-// @Param        success     query  boolean false  "Filter by success/failure"
-// @Param        start_time  query  string  false  "Events after this time (RFC 3339)"
-// @Param        end_time    query  string  false  "Events before this time (RFC 3339)"
-// @Param        sort_by     query  string  false  "Sort column (default: timestamp)"
-// @Param        sort_order  query  string  false  "Sort direction: asc, desc (default: desc)"
-// @Param        page        query  integer false  "Page number, 1-based (default: 1)"
-// @Param        per_page    query  integer false  "Results per page (default: 50)"
+// @Param        user_id       query  string  false  "Filter by user ID"
+// @Param        tool_name     query  string  false  "Filter by tool name"
+// @Param        toolkit_kind  query  string  false  "Filter by toolkit kind (e.g. api, trino, datahub, s3, memory)"
+// @Param        source        query  string  false  "Filter by event source (e.g. mcp)"
+// @Param        session_id    query  string  false  "Filter by MCP session ID"
+// @Param        success       query  boolean false  "Filter by success/failure"
+// @Param        start_time    query  string  false  "Events after this time (RFC 3339)"
+// @Param        end_time      query  string  false  "Events before this time (RFC 3339)"
+// @Param        sort_by       query  string  false  "Sort column (default: timestamp)"
+// @Param        sort_order    query  string  false  "Sort direction: asc, desc (default: desc)"
+// @Param        page          query  integer false  "Page number, 1-based (default: 1)"
+// @Param        per_page      query  integer false  "Results per page (default: 50)"
 // @Success      200  {object}  auditEventResponse
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
@@ -58,13 +65,15 @@ const (
 func (h *Handler) listAuditEvents(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	filter := audit.QueryFilter{
-		UserID:    q.Get(colUserID),
-		ToolName:  q.Get("tool_name"),
-		SessionID: q.Get("session_id"),
-		Search:    q.Get("search"),
-		SortBy:    q.Get("sort_by"),
-		StartTime: parseTimeParam(q, "start_time"),
-		EndTime:   parseTimeParam(q, "end_time"),
+		UserID:      q.Get(colUserID),
+		ToolName:    q.Get(colToolName),
+		ToolkitKind: q.Get(colToolkitKind),
+		Source:      q.Get(colSource),
+		SessionID:   q.Get("session_id"),
+		Search:      q.Get("search"),
+		SortBy:      q.Get("sort_by"),
+		StartTime:   parseTimeParam(q, "start_time"),
+		EndTime:     parseTimeParam(q, "end_time"),
 	}
 
 	if order := audit.SortOrder(q.Get("sort_order")); order == audit.SortAsc || order == audit.SortDesc {
@@ -137,9 +146,21 @@ func (h *Handler) listAuditEventFilters(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	tools, err := h.deps.AuditQuerier.Distinct(r.Context(), "tool_name", startTime, endTime)
+	tools, err := h.deps.AuditQuerier.Distinct(r.Context(), colToolName, startTime, endTime)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to query distinct tools")
+		return
+	}
+
+	toolkitKinds, err := h.deps.AuditQuerier.Distinct(r.Context(), colToolkitKind, startTime, endTime)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to query distinct toolkit kinds")
+		return
+	}
+
+	sources, err := h.deps.AuditQuerier.Distinct(r.Context(), colSource, startTime, endTime)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to query distinct sources")
 		return
 	}
 
@@ -148,6 +169,12 @@ func (h *Handler) listAuditEventFilters(w http.ResponseWriter, r *http.Request) 
 	}
 	if tools == nil {
 		tools = []string{}
+	}
+	if toolkitKinds == nil {
+		toolkitKinds = []string{}
+	}
+	if sources == nil {
+		sources = []string{}
 	}
 
 	// Fetch user_id → user_email mapping for display labels.
@@ -158,9 +185,11 @@ func (h *Handler) listAuditEventFilters(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeJSON(w, http.StatusOK, auditFiltersResponse{
-		Users:      users,
-		Tools:      tools,
-		UserLabels: userLabels,
+		Users:        users,
+		Tools:        tools,
+		ToolkitKinds: toolkitKinds,
+		Sources:      sources,
+		UserLabels:   userLabels,
 	})
 }
 
@@ -198,10 +227,12 @@ func (h *Handler) getAuditEvent(w http.ResponseWriter, r *http.Request) {
 // @Description  Returns aggregate counts for total, successful, and failed events. Supports time and filter parameters.
 // @Tags         Audit
 // @Produce      json
-// @Param        user_id     query  string  false  "Filter by user ID"
-// @Param        tool_name   query  string  false  "Filter by tool name"
-// @Param        start_time  query  string  false  "Events after this time (RFC 3339)"
-// @Param        end_time    query  string  false  "Events before this time (RFC 3339)"
+// @Param        user_id       query  string  false  "Filter by user ID"
+// @Param        tool_name     query  string  false  "Filter by tool name"
+// @Param        toolkit_kind  query  string  false  "Filter by toolkit kind"
+// @Param        source        query  string  false  "Filter by event source"
+// @Param        start_time    query  string  false  "Events after this time (RFC 3339)"
+// @Param        end_time      query  string  false  "Events before this time (RFC 3339)"
 // @Success      200  {object}  auditStatsResponse
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
@@ -210,10 +241,12 @@ func (h *Handler) getAuditEvent(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) getAuditStats(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	baseFilter := audit.QueryFilter{
-		UserID:    q.Get(colUserID),
-		ToolName:  q.Get("tool_name"),
-		StartTime: parseTimeParam(q, "start_time"),
-		EndTime:   parseTimeParam(q, "end_time"),
+		UserID:      q.Get(colUserID),
+		ToolName:    q.Get(colToolName),
+		ToolkitKind: q.Get(colToolkitKind),
+		Source:      q.Get(colSource),
+		StartTime:   parseTimeParam(q, "start_time"),
+		EndTime:     parseTimeParam(q, "end_time"),
 	}
 
 	total, err := h.deps.AuditQuerier.Count(r.Context(), baseFilter)

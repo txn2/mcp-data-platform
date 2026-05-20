@@ -602,6 +602,53 @@ func TestMCPToolCallMiddleware_SessionIDPopulated(t *testing.T) {
 	}
 }
 
+func TestMCPToolCallMiddleware_DefaultSourceIsMCP(t *testing.T) {
+	authenticator := &mcpTestAuthenticator{
+		userInfo: &UserInfo{UserID: mcpTestUserID, Roles: []string{mcpTestPersona}},
+	}
+	authorizer := &mcpTestAuthorizer{authorized: true, personaName: mcpTestPersona}
+
+	mw := MCPToolCallMiddleware(authenticator, authorizer, nil, ToolCallConfig{Transport: mcpTestStdio, AdminPersona: "admin"})
+
+	var captured string
+	next := func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		captured = GetPlatformContext(ctx).Source
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}}, nil
+	}
+
+	handler := mw(next)
+	if _, err := handler(context.Background(), mcpTestMethod, newMCPTestRequest(mcpTestToolName)); err != nil {
+		t.Fatalf(mcpTestErrFmt, err)
+	}
+	if captured != SourceMCP {
+		t.Errorf("expected default Source %q, got %q", SourceMCP, captured)
+	}
+}
+
+func TestMCPToolCallMiddleware_WithSourceOverride(t *testing.T) {
+	authenticator := &mcpTestAuthenticator{
+		userInfo: &UserInfo{UserID: mcpTestUserID, Roles: []string{mcpTestPersona}},
+	}
+	authorizer := &mcpTestAuthorizer{authorized: true, personaName: mcpTestPersona}
+
+	mw := MCPToolCallMiddleware(authenticator, authorizer, nil, ToolCallConfig{Transport: mcpTestStdio, AdminPersona: "admin"})
+
+	var captured string
+	next := func(ctx context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		captured = GetPlatformContext(ctx).Source
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}}, nil
+	}
+
+	handler := mw(next)
+	ctx := WithSource(context.Background(), SourceREST)
+	if _, err := handler(ctx, mcpTestMethod, newMCPTestRequest(mcpTestToolName)); err != nil {
+		t.Fatalf(mcpTestErrFmt, err)
+	}
+	if captured != SourceREST {
+		t.Errorf("expected Source %q from override, got %q", SourceREST, captured)
+	}
+}
+
 func TestMCPToolCallMiddleware_AuthBridgeFromRequestExtra(t *testing.T) {
 	// tokenCapturingAuthenticator captures the token from context during Authenticate.
 	type tokenCapture struct {

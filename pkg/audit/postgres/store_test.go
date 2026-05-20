@@ -260,12 +260,12 @@ func TestQuery_AllFilters(t *testing.T) {
 	)
 
 	mock.ExpectQuery("SELECT .+ FROM audit_logs").WithArgs(
-		startTime,
-		endTime,
 		"user-abc",
 		"sess-789",
 		"trino_query",
 		"trino",
+		startTime,
+		endTime,
 		true,
 	).WillReturnRows(rows)
 
@@ -446,6 +446,24 @@ func TestClose_NilCancel_NoPanic(t *testing.T) {
 	assert.NoError(t, store.Close())
 }
 
+// expectMaintenanceTick queues sqlmock expectations for one maintenance tick:
+// EnsureMonthlyPartitions creates partitionsAheadDefault months, Cleanup runs
+// one DELETE, DropExpiredPartitions lists partitions (no rows). The `ticks`
+// parameter queues that many ticks for tests that allow the goroutine to
+// fire more than once before Close.
+func expectMaintenanceTick(mock sqlmock.Sqlmock, ticks int) {
+	for range ticks {
+		for range partitionsAheadDefault {
+			mock.ExpectExec("CREATE TABLE IF NOT EXISTS audit_logs_").
+				WillReturnResult(sqlmock.NewResult(0, 0))
+		}
+		mock.ExpectExec("DELETE FROM audit_logs").
+			WillReturnResult(sqlmock.NewResult(0, 0))
+		mock.ExpectQuery("SELECT c.relname").
+			WillReturnRows(sqlmock.NewRows([]string{"relname"}))
+	}
+}
+
 func TestClose_StopsCleanupRoutine(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
@@ -454,17 +472,18 @@ func TestClose_StopsCleanupRoutine(t *testing.T) {
 	store := New(db, Config{RetentionDays: 7})
 
 	mock.MatchExpectationsInOrder(false)
-	mock.ExpectExec("DELETE FROM audit_logs").
-		WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectExec("DELETE FROM audit_logs").
-		WillReturnResult(sqlmock.NewResult(0, 0))
+	// One eager ensure on StartCleanupRoutine, then up to a few maintenance
+	// ticks before Close. We queue enough ticks to absorb the goroutine's
+	// real cadence without forcing a specific count.
+	for range partitionsAheadDefault {
+		mock.ExpectExec("CREATE TABLE IF NOT EXISTS audit_logs_").
+			WillReturnResult(sqlmock.NewResult(0, 0))
+	}
+	expectMaintenanceTick(mock, 4)
 
 	store.StartCleanupRoutine(10 * time.Millisecond)
-
-	// Let at least one cleanup tick fire.
 	time.Sleep(50 * time.Millisecond)
 
-	// Close should cancel and wait for the goroutine to exit.
 	assert.NoError(t, store.Close())
 }
 
@@ -476,13 +495,13 @@ func TestStartCleanupRoutine(t *testing.T) {
 	store := New(db, Config{RetentionDays: 7})
 
 	mock.MatchExpectationsInOrder(false)
-	mock.ExpectExec("DELETE FROM audit_logs").
-		WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectExec("DELETE FROM audit_logs").
-		WillReturnResult(sqlmock.NewResult(0, 0))
+	for range partitionsAheadDefault {
+		mock.ExpectExec("CREATE TABLE IF NOT EXISTS audit_logs_").
+			WillReturnResult(sqlmock.NewResult(0, 0))
+	}
+	expectMaintenanceTick(mock, 4)
 
 	store.StartCleanupRoutine(10 * time.Millisecond)
-
 	time.Sleep(50 * time.Millisecond)
 	assert.NoError(t, store.Close())
 }
@@ -546,6 +565,12 @@ func TestApplyAuditFilter(t *testing.T) {
 			wantContains: []string{"toolkit_kind = $1"},
 		},
 		{
+			name:         "source only",
+			filter:       audit.QueryFilter{Source: "mcp"},
+			wantArgCount: 1,
+			wantContains: []string{"source = $1"},
+		},
+		{
 			name:         "success only",
 			filter:       audit.QueryFilter{Success: &success},
 			wantArgCount: 1,
@@ -567,18 +592,24 @@ func TestApplyAuditFilter(t *testing.T) {
 				SessionID:   "sess-1",
 				ToolName:    "trino_query",
 				ToolkitKind: "trino",
+				Source:      "mcp",
 				Success:     &success,
 			},
-			wantArgCount: 8, //nolint:revive // 8 filters
+			wantArgCount: 9, //nolint:revive // 9 filters
+			// Substring assertions: ordering of WHERE clauses is not
+			// part of the contract (it does not affect SQL semantics),
+			// so this verifies that each predicate is present without
+			// pinning placeholder positions.
 			wantContains: []string{
-				"id = $1",
-				"timestamp >= $2",
-				"timestamp <= $3",
-				"user_id = $4",
-				"session_id = $5",
-				"tool_name = $6",
-				"toolkit_kind = $7",
-				"success = $8",
+				"id =",
+				"timestamp >=",
+				"timestamp <=",
+				"user_id =",
+				"session_id =",
+				"tool_name =",
+				"toolkit_kind =",
+				"source =",
+				"success =",
 			},
 		},
 	}
@@ -854,6 +885,40 @@ func TestDistinct_WithTimeRange(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestDistinct_ToolkitKindAllowed(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{RetentionDays: 90})
+
+	rows := sqlmock.NewRows([]string{"toolkit_kind"}).
+		AddRow("api").
+		AddRow("trino")
+	mock.ExpectQuery("SELECT DISTINCT toolkit_kind FROM audit_logs").WillReturnRows(rows)
+
+	values, err := store.Distinct(context.Background(), "toolkit_kind", nil, nil)
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"api", "trino"}, values)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestDistinct_SourceAllowed(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{RetentionDays: 90})
+
+	rows := sqlmock.NewRows([]string{"source"}).AddRow("mcp")
+	mock.ExpectQuery("SELECT DISTINCT source FROM audit_logs").WillReturnRows(rows)
+
+	values, err := store.Distinct(context.Background(), "source", nil, nil)
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"mcp"}, values)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestDistinct_InvalidColumn(t *testing.T) {
 	db, _, err := sqlmock.New()
 	require.NoError(t, err)
@@ -985,6 +1050,158 @@ func TestDistinctPairs_EmptyResult(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Empty(t, result)
 	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestEnsureMonthlyPartitions_CreatesUpcomingMonths(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{RetentionDays: 90})
+
+	// Two months ahead: two CREATE statements, in chronological order. The
+	// regex anchors on the prefix so partition naming drift would fail the
+	// test before it reaches a live database.
+	mock.ExpectExec(`CREATE TABLE IF NOT EXISTS audit_logs_\d{4}_\d{2} PARTITION OF audit_logs FOR VALUES FROM`).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(`CREATE TABLE IF NOT EXISTS audit_logs_\d{4}_\d{2} PARTITION OF audit_logs FOR VALUES FROM`).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	require.NoError(t, store.EnsureMonthlyPartitions(context.Background(), 2))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestEnsureMonthlyPartitions_ZeroOrNegativeNoop(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{RetentionDays: 90})
+
+	// No ExpectExec: requesting zero (or negative) months ahead must issue
+	// zero SQL statements.
+	assert.NoError(t, store.EnsureMonthlyPartitions(context.Background(), 0))
+	assert.NoError(t, store.EnsureMonthlyPartitions(context.Background(), -1))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestEnsureMonthlyPartitions_PropagatesDBError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{RetentionDays: 90})
+
+	mock.ExpectExec("CREATE TABLE IF NOT EXISTS audit_logs_").
+		WillReturnError(errors.New("permission denied"))
+
+	err = store.EnsureMonthlyPartitions(context.Background(), 1)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ensuring partition")
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestDropExpiredPartitions_DropsOnlyExpiredNamedPartitions(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{RetentionDays: 30})
+
+	// Two named partitions: one fully expired (Jan 2025), one current (use
+	// next month so end date is in the future and cannot be expired). Plus
+	// the default partition, which must never be dropped.
+	next := time.Now().UTC().AddDate(0, 1, 0)
+	currentName := partitionPrefix + next.Format(partitionDateFormat)
+
+	rows := sqlmock.NewRows([]string{"relname"}).
+		AddRow("audit_logs_default").
+		AddRow("audit_logs_2025_01").
+		AddRow(currentName)
+	mock.ExpectQuery("SELECT c.relname").WillReturnRows(rows)
+
+	// Only the 2025_01 partition is dropped. The default and the future
+	// partition must not be touched.
+	mock.ExpectExec("DROP TABLE IF EXISTS audit_logs_2025_01").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	require.NoError(t, store.DropExpiredPartitions(context.Background(), 30))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestDropExpiredPartitions_ZeroRetentionNoop(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{RetentionDays: 0})
+
+	// No SELECT, no DROP: retentionDays <= 0 must short-circuit.
+	assert.NoError(t, store.DropExpiredPartitions(context.Background(), 0))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestDropExpiredPartitions_SkipsUnknownPartitionNames(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{RetentionDays: 30})
+
+	rows := sqlmock.NewRows([]string{"relname"}).
+		AddRow("audit_logs_default").
+		AddRow("audit_logs_garbage").
+		AddRow("audit_logs_2099_99") // invalid month
+	mock.ExpectQuery("SELECT c.relname").WillReturnRows(rows)
+
+	// No DROP TABLE expected: every row should be filtered out.
+	require.NoError(t, store.DropExpiredPartitions(context.Background(), 30))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestDropExpiredPartitions_ListError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{RetentionDays: 30})
+
+	mock.ExpectQuery("SELECT c.relname").
+		WillReturnError(errors.New("pg_class unavailable"))
+
+	err = store.DropExpiredPartitions(context.Background(), 30)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "listing audit_logs partitions")
+}
+
+func TestParseMonthlyPartitionEnd(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantOK   bool
+		wantYear int
+		wantMo   time.Month
+	}{
+		{"valid mid-year", "audit_logs_2026_05", true, 2026, time.June}, // end exclusive
+		{"valid december rolls over", "audit_logs_2026_12", true, 2027, time.January},
+		{"default partition", "audit_logs_default", false, 0, 0},
+		{"missing prefix", "foo_2026_05", false, 0, 0},
+		{"non-numeric year", "audit_logs_abcd_05", false, 0, 0},
+		{"month out of range", "audit_logs_2026_13", false, 0, 0},
+		{"month zero", "audit_logs_2026_00", false, 0, 0},
+		{"too few parts", "audit_logs_2026", false, 0, 0},
+		{"too many parts", "audit_logs_2026_05_01", false, 0, 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			end, ok := parseMonthlyPartitionEnd(tc.input)
+			assert.Equal(t, tc.wantOK, ok)
+			if tc.wantOK {
+				assert.Equal(t, tc.wantYear, end.Year())
+				assert.Equal(t, tc.wantMo, end.Month())
+			}
+		})
+	}
 }
 
 func TestInterfaceCompliance(t *testing.T) {

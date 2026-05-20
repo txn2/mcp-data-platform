@@ -94,6 +94,24 @@ definitions:
     type: object
   admin.auditFiltersResponse:
     properties:
+      sources:
+        example:
+        - mcp
+        - rest
+        - admin
+        items:
+          type: string
+        type: array
+      toolkit_kinds:
+        example:
+        - api
+        - datahub
+        - trino
+        - s3
+        - memory
+        items:
+          type: string
+        type: array
       tools:
         example:
         - trino_query
@@ -2532,6 +2550,14 @@ paths:
         in: query
         name: tool_name
         type: string
+      - description: Filter by toolkit kind (e.g. api, trino, datahub, s3, memory)
+        in: query
+        name: toolkit_kind
+        type: string
+      - description: Filter by event source (e.g. mcp)
+        in: query
+        name: source
+        type: string
       - description: Filter by MCP session ID
         in: query
         name: session_id
@@ -2853,6 +2879,14 @@ paths:
       - description: Filter by tool name
         in: query
         name: tool_name
+        type: string
+      - description: Filter by toolkit kind
+        in: query
+        name: toolkit_kind
+        type: string
+      - description: Filter by event source
+        in: query
+        name: source
         type: string
       - description: Events after this time (RFC 3339)
         in: query

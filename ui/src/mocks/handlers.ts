@@ -588,7 +588,13 @@ export const handlers = [
   http.get(`${ADMIN_BASE}/audit/events/filters`, () => {
     const users = [...new Set(mockAuditEvents.map((e) => e.user_id))].sort();
     const tools = [...new Set(mockAuditEvents.map((e) => e.tool_name))].sort();
-    return HttpResponse.json({ users, tools });
+    const toolkit_kinds = [
+      ...new Set(mockAuditEvents.map((e) => e.toolkit_kind).filter(Boolean)),
+    ].sort();
+    const sources = [
+      ...new Set(mockAuditEvents.map((e) => e.source).filter(Boolean)),
+    ].sort();
+    return HttpResponse.json({ users, tools, toolkit_kinds, sources });
   }),
 
   http.get(`${ADMIN_BASE}/audit/events`, ({ request }) => {
@@ -597,6 +603,8 @@ export const handlers = [
     const perPage = parseInt(url.searchParams.get("per_page") ?? "20", 10);
     const userId = url.searchParams.get("user_id");
     const toolName = url.searchParams.get("tool_name");
+    const toolkitKind = url.searchParams.get("toolkit_kind");
+    const sourceParam = url.searchParams.get("source");
     const success = url.searchParams.get("success");
     const search = url.searchParams.get("search")?.toLowerCase();
     const sortBy = url.searchParams.get("sort_by") as AuditSortColumn | null;
@@ -605,6 +613,8 @@ export const handlers = [
     let filtered = filterByTimeRange(url, mockAuditEvents);
     if (userId) filtered = filtered.filter((e) => e.user_id === userId);
     if (toolName) filtered = filtered.filter((e) => e.tool_name === toolName);
+    if (toolkitKind) filtered = filtered.filter((e) => e.toolkit_kind === toolkitKind);
+    if (sourceParam) filtered = filtered.filter((e) => e.source === sourceParam);
     if (success !== null && success !== undefined && success !== "")
       filtered = filtered.filter((e) => String(e.success) === success);
     if (search) {

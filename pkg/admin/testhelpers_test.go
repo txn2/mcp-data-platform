@@ -228,6 +228,39 @@ func (m *mockAuditQuerier) DistinctPairs(_ context.Context, _, _ string, _, _ *t
 // Verify interface compliance.
 var _ AuditQuerier = (*mockAuditQuerier)(nil)
 
+// recordingAuditQuerier captures the most recent filter passed to Query so
+// tests can assert on the parameters the handler builds.
+type recordingAuditQuerier struct {
+	lastQueryFilter    audit.QueryFilter
+	lastDistinctColumn string
+	distinctResults    map[string][]string
+}
+
+func (r *recordingAuditQuerier) Query(_ context.Context, f audit.QueryFilter) ([]audit.Event, error) {
+	r.lastQueryFilter = f
+	return []audit.Event{}, nil
+}
+
+func (*recordingAuditQuerier) Count(_ context.Context, _ audit.QueryFilter) (int, error) {
+	return 0, nil
+}
+
+func (r *recordingAuditQuerier) Distinct(_ context.Context, column string, _, _ *time.Time) ([]string, error) {
+	r.lastDistinctColumn = column
+	if r.distinctResults != nil {
+		if v, ok := r.distinctResults[column]; ok {
+			return v, nil
+		}
+	}
+	return []string{}, nil
+}
+
+func (*recordingAuditQuerier) DistinctPairs(_ context.Context, _, _ string, _, _ *time.Time) (map[string]string, error) {
+	return map[string]string{}, nil
+}
+
+var _ AuditQuerier = (*recordingAuditQuerier)(nil)
+
 // --- Mock APIKeyManager ---
 
 type mockAPIKeyManager struct {

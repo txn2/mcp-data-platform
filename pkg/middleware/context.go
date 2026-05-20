@@ -20,6 +20,7 @@ const (
 	platformContextKey contextKey = iota
 	tokenContextKey
 	preAuthUserKey
+	sourceOverrideKey
 )
 
 // PlatformContext holds platform-specific context for a request.
@@ -122,6 +123,24 @@ func GetPreAuthenticatedUser(ctx context.Context) *UserInfo {
 		return info
 	}
 	return nil
+}
+
+// WithSource tags the context with an audit source override. The MCP tool
+// call middleware honors this value when populating PlatformContext.Source,
+// so REST shims (e.g. pkg/gatewayhttp) can mark tool calls they initiate as
+// originating from the REST API rather than from a real MCP transport.
+// When unset, the middleware defaults to "mcp".
+func WithSource(ctx context.Context, source string) context.Context {
+	return context.WithValue(ctx, sourceOverrideKey, source)
+}
+
+// GetSource returns the audit source override stored on the context, or
+// "" when no override has been set.
+func GetSource(ctx context.Context) string {
+	if s, ok := ctx.Value(sourceOverrideKey).(string); ok {
+		return s
+	}
+	return ""
 }
 
 // WithServerSession adds a ServerSession to the context.
