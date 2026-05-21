@@ -139,6 +139,8 @@ export interface AuditStatsResponse {
 export interface AuditFiltersResponse {
   users: string[];
   tools: string[];
+  toolkit_kinds: string[];
+  sources: string[];
   user_labels?: Record<string, string>;
 }
 
@@ -147,6 +149,7 @@ export type AuditSortColumn =
   | "user_id"
   | "tool_name"
   | "toolkit_kind"
+  | "source"
   | "connection"
   | "duration_ms"
   | "success"

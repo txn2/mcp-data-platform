@@ -93,6 +93,34 @@ func TestTokenContext(t *testing.T) {
 	})
 }
 
+func TestSourceContext(t *testing.T) {
+	t.Run("WithSource and GetSource round-trip", func(t *testing.T) {
+		ctx := WithSource(context.Background(), SourceREST)
+		if got := GetSource(ctx); got != SourceREST {
+			t.Errorf("GetSource() = %q, want %q", got, SourceREST)
+		}
+	})
+
+	t.Run("GetSource not set returns empty", func(t *testing.T) {
+		if got := GetSource(context.Background()); got != "" {
+			t.Errorf("GetSource() = %q, want empty", got)
+		}
+	})
+
+	t.Run("resolveSource defaults to mcp", func(t *testing.T) {
+		if got := resolveSource(context.Background()); got != SourceMCP {
+			t.Errorf("resolveSource() = %q, want %q", got, SourceMCP)
+		}
+	})
+
+	t.Run("resolveSource honors override", func(t *testing.T) {
+		ctx := WithSource(context.Background(), SourceREST)
+		if got := resolveSource(ctx); got != SourceREST {
+			t.Errorf("resolveSource() = %q, want %q", got, SourceREST)
+		}
+	})
+}
+
 func TestPreAuthenticatedUserContext(t *testing.T) {
 	t.Run("round-trip", func(t *testing.T) {
 		info := &UserInfo{

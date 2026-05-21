@@ -203,6 +203,11 @@ func decodeInvokeRequest(r *http.Request) (*invokeRequest, error) {
 func (h *handler) connectInternalSession(r *http.Request) (*mcp.ClientSession, func(), error) {
 	t1, t2 := mcp.NewInMemoryTransports()
 	ctx := r.Context()
+	// Tag this in-memory MCP session as originating from the REST shim so
+	// the audit middleware records source="rest", letting operators
+	// distinguish external automation traffic (NiFi, cronjobs, etc.) from
+	// real MCP agents that share the same api_invoke_endpoint tool.
+	ctx = middleware.WithSource(ctx, middleware.SourceREST)
 	if token := readRequestToken(r); token != "" {
 		ctx = middleware.WithToken(ctx, token)
 	}

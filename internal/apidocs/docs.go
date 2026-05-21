@@ -158,6 +158,18 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
+                        "description": "Filter by toolkit kind (e.g. api, trino, datahub, s3, memory)",
+                        "name": "toolkit_kind",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by event source (e.g. mcp)",
+                        "name": "source",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
                         "description": "Filter by MCP session ID",
                         "name": "session_id",
                         "in": "query"
@@ -672,6 +684,18 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Filter by tool name",
                         "name": "tool_name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by toolkit kind",
+                        "name": "toolkit_kind",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by event source",
+                        "name": "source",
                         "in": "query"
                     },
                     {
@@ -6860,6 +6884,30 @@ const docTemplate = `{
         "admin.auditFiltersResponse": {
             "type": "object",
             "properties": {
+                "sources": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "mcp",
+                        "rest",
+                        "admin"
+                    ]
+                },
+                "toolkit_kinds": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "api",
+                        "datahub",
+                        "trino",
+                        "s3",
+                        "memory"
+                    ]
+                },
                 "tools": {
                     "type": "array",
                     "items": {

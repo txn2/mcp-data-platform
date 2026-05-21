@@ -218,6 +218,10 @@ func (h *Handler) connectInternalSession(r *http.Request) (*mcp.ClientSession, f
 	// Inject auth credentials into the server connection context so the MCP
 	// auth middleware can authenticate the internal call.
 	ctx := r.Context()
+	// Tag this in-memory session as originating from the admin REST API so
+	// audit rows distinguish portal-driven tool runs ("admin") from real MCP
+	// agents ("mcp") and the gateway REST shim ("rest").
+	ctx = middleware.WithSource(ctx, middleware.SourceAdmin)
 	if token := extractToken(r); token != "" {
 		// API key or Bearer token from request headers.
 		ctx = middleware.WithToken(ctx, token)

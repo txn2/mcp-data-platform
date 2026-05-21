@@ -150,6 +150,11 @@ export const routes: ScreenshotRoute[] = [
     tabs: ["overview", "events"],
   },
   {
+    slug: "admin-api-catalogs",
+    path: "/portal/admin/api-catalogs",
+    category: "admin",
+  },
+  {
     slug: "admin-knowledge",
     path: "/portal/admin/knowledge",
     category: "admin",

@@ -15,6 +15,7 @@ import (
 
 	_ "github.com/txn2/mcp-data-platform/internal/apidocs" // register swagger docs
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
 
 // newTestMCPServer creates an MCP server with test tools registered.
@@ -135,6 +136,29 @@ func TestCallTool(t *testing.T) {
 		assert.Equal(t, "text", resp.Content[0].Type)
 		assert.Equal(t, "query result: 42 rows", resp.Content[0].Text)
 		assert.GreaterOrEqual(t, resp.DurationMs, int64(0))
+	})
+
+	t.Run("tags audit source as admin", func(t *testing.T) {
+		var capturedSource string
+		server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "v1"}, nil)
+		server.AddTool(&mcp.Tool{
+			Name:        "capture_source",
+			Description: "captures ctx source",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
+		}, func(ctx context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			capturedSource = middleware.GetSource(ctx)
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}}, nil
+		})
+
+		h := NewHandler(Deps{MCPServer: server}, nil)
+		body, _ := json.Marshal(toolCallRequest{ToolName: "capture_source"})
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/tools/call", bytes.NewReader(body))
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, middleware.SourceAdmin, capturedSource,
+			"admin handler must tag the in-memory MCP session with source=admin")
 	})
 
 	t.Run("merges connection into arguments", func(t *testing.T) {

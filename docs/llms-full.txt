@@ -821,9 +821,29 @@ For `tools/list` responses: Icons, DescOverrides, and Visibility modify tool met
 
 Audit events are written **asynchronously** in a goroutine to avoid blocking tool responses. If the database write fails, the error is logged via `slog.Error` but the tool call still succeeds.
 
-## Retention
+## Caller class via `source`
 
-A background goroutine runs every 24 hours and deletes rows older than `retention_days`. The table is partitioned by `created_date` for efficient cleanup.
+Tools on this platform are reachable through three entry points; the audit row's `source` field records which one was used:
+
+| `source` | Caller |
+|----------|--------|
+| `mcp` | Real MCP transport (stdio or HTTP/SSE). Agents. |
+| `rest` | Gateway REST shim at `POST /api/v1/gateway/{connection}/invoke`. Apache NiFi, cronjobs, integrations, anything HTTP that wraps the platform. |
+| `admin` | Admin REST API at `POST /api/v1/admin/tools/call`. Portal-driven tool runs. |
+
+Both REST entry points open an in-memory MCP session against the assembled server and tag the context (`middleware.WithSource`) before the call so the existing audit middleware records the originating class. Filter via `GET /api/v1/admin/audit/events?source=...` or the **All Sources** dropdown in the portal.
+
+## Retention and partition rotation
+
+A maintenance routine runs every 24 hours and performs three ordered steps:
+
+1. **Ensure upcoming partitions**: `CREATE TABLE IF NOT EXISTS audit_logs_YYYY_MM PARTITION OF audit_logs FOR VALUES FROM (...) TO (...)` for the next two months. The current month is intentionally skipped on brownfield deployments so existing rows in `audit_logs_default` do not block the new named partition. Idempotent.
+2. **Delete expired rows**: `DELETE FROM audit_logs WHERE timestamp < NOW() - INTERVAL '<retention_days> days'`. PostgreSQL prunes to overlapping partitions.
+3. **Drop fully expired partitions**: `DROP TABLE IF EXISTS audit_logs_YYYY_MM` for any monthly partition whose entire date range ends at or before the retention cutoff. Constant-time reclamation versus row-level DELETE.
+
+Step failures are logged and isolated; a partition operation that errors does not skip the retention DELETE on the same tick. The eager pre-tick `EnsureMonthlyPartitions` also runs once at startup. This pattern keeps audit_logs bounded even at high write volume (e.g. Apache NiFi calling the gateway REST shim at order-of-magnitude-per-second).
+
+In multi-replica deployments, the entire maintenance tick (including the eager startup ensure) is guarded by `pg_try_advisory_lock` on a stable key. Every replica still ticks every 24h, but only the pod that wins the lock runs the work; the rest exit silently and retry next tick. This makes the DELETE scan, partition CREATE, and partition DROP run exactly once per tick across the cluster, regardless of replica count.
 
 ---
 

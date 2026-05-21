@@ -294,7 +294,7 @@ function generateEvents(count: number): AuditEvent[] {
       request_chars: seededInt(50, 800),
       content_blocks: seededInt(1, 5),
       transport: "http",
-      source: "mcp",
+      source: pickSource(tool.kind),
       enrichment_applied: rand() > 0.22, // 78% enrichment rate
       authorized: true,
     });
@@ -303,6 +303,19 @@ function generateEvents(count: number): AuditEvent[] {
   return events.sort(
     (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
   );
+}
+
+// pickSource biases api-toolkit tool calls toward "rest" (NiFi-class), other
+// tools toward "mcp" (agents), and salts in occasional "admin" calls (portal
+// runs) so the dropdown filter in dev shows all three populations.
+function pickSource(kind: string): string {
+  if (kind === "api") {
+    const r = rand();
+    if (r < 0.7) return "rest";
+    if (r < 0.95) return "mcp";
+    return "admin";
+  }
+  return rand() < 0.05 ? "admin" : "mcp";
 }
 
 export const mockAuditEvents = generateEvents(500);
