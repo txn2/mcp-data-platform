@@ -126,6 +126,14 @@ func (e *Event) WithEnrichmentMode(mode string) *Event {
 	return e
 }
 
+// WithEnrichmentMatchKind records how enrichment matched its target:
+// "urn" for exact URN equality, "semantic" for similarity-fallback,
+// empty when no enrichment ran. See Event.EnrichmentMatchKind.
+func (e *Event) WithEnrichmentMatchKind(kind string) *Event {
+	e.EnrichmentMatchKind = kind
+	return e
+}
+
 // generateEventID generates a unique event ID.
 func generateEventID() string {
 	bytes := make([]byte, 16)

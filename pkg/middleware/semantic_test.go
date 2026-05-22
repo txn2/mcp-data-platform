@@ -873,7 +873,7 @@ func TestEnrichTrinoResult(t *testing.T) {
 			Params: &mcp.CallToolParamsRaw{},
 		}
 
-		enriched, err := testEnricher(provider, false).enrichTrinoResult(context.Background(), result, request, nil)
+		enriched, err := testEnricher(provider, false).enrichTrinoResult(context.Background(), result, request, nil, nil)
 		requireNoErr(t, err)
 		requireContentLen(t, enriched, 1)
 	})
@@ -893,7 +893,7 @@ func TestEnrichTrinoResult(t *testing.T) {
 			Params: &mcp.CallToolParamsRaw{Arguments: args},
 		}
 
-		enriched, err := testEnricher(provider, false).enrichTrinoResult(context.Background(), result, request, nil)
+		enriched, err := testEnricher(provider, false).enrichTrinoResult(context.Background(), result, request, nil, nil)
 		requireNoErr(t, err)
 		requireContentLen(t, enriched, 2)
 	})
@@ -910,7 +910,7 @@ func TestEnrichTrinoResult(t *testing.T) {
 			Params: &mcp.CallToolParamsRaw{Arguments: args},
 		}
 
-		enriched, err := testEnricher(provider, false).enrichTrinoResult(context.Background(), result, request, nil)
+		enriched, err := testEnricher(provider, false).enrichTrinoResult(context.Background(), result, request, nil, nil)
 		requireNoErr(t, err)
 		// Should return original result without error
 		requireContentLen(t, enriched, 1)
@@ -933,7 +933,7 @@ func TestEnrichTrinoResult(t *testing.T) {
 			Params: &mcp.CallToolParamsRaw{Arguments: args},
 		}
 
-		enriched, err := testEnricher(provider, false).enrichTrinoResult(context.Background(), result, request, nil)
+		enriched, err := testEnricher(provider, false).enrichTrinoResult(context.Background(), result, request, nil, nil)
 		requireNoErr(t, err)
 		// Should have original + semantic context
 		requireContentLen(t, enriched, 2)
@@ -949,7 +949,7 @@ func TestEnrichTrinoResult(t *testing.T) {
 			Params: &mcp.CallToolParamsRaw{Arguments: args},
 		}
 
-		enriched, err := testEnricher(provider, false).enrichTrinoResult(context.Background(), result, request, nil)
+		enriched, err := testEnricher(provider, false).enrichTrinoResult(context.Background(), result, request, nil, nil)
 		requireNoErr(t, err)
 		// No tables found, no enrichment
 		requireContentLen(t, enriched, 1)
@@ -970,7 +970,7 @@ func TestEnrichTrinoResult(t *testing.T) {
 			Params: &mcp.CallToolParamsRaw{Arguments: args},
 		}
 
-		enriched, err := testEnricher(provider, false).enrichTrinoResult(context.Background(), result, request, nil)
+		enriched, err := testEnricher(provider, false).enrichTrinoResult(context.Background(), result, request, nil, nil)
 		requireNoErr(t, err)
 		// Should still have enrichment even if columns fail
 		requireContentLen(t, enriched, 2)
@@ -3642,7 +3642,7 @@ func TestEnrichTrinoResult_ColumnFiltering(t *testing.T) {
 		}
 		result := NewToolResultText("query result")
 
-		enriched, err := testEnricher(provider, true).enrichTrinoResult(context.Background(), result, request, nil)
+		enriched, err := testEnricher(provider, true).enrichTrinoResult(context.Background(), result, request, nil, nil)
 		requireNoErr(t, err)
 		requireContentLen(t, enriched, 2) //nolint:mnd // original + enrichment
 
@@ -3677,7 +3677,7 @@ func TestEnrichTrinoResult_ColumnFiltering(t *testing.T) {
 		}
 		result := NewToolResultText("query result")
 
-		enriched, err := testEnricher(provider, false).enrichTrinoResult(context.Background(), result, request, nil)
+		enriched, err := testEnricher(provider, false).enrichTrinoResult(context.Background(), result, request, nil, nil)
 		requireNoErr(t, err)
 		requireContentLen(t, enriched, 2) //nolint:mnd // original + enrichment
 
@@ -3702,7 +3702,7 @@ func TestEnrichTrinoResult_ColumnFiltering(t *testing.T) {
 		}
 		result := NewToolResultText("describe result")
 
-		enriched, err := testEnricher(provider, true).enrichTrinoResult(context.Background(), result, request, nil)
+		enriched, err := testEnricher(provider, true).enrichTrinoResult(context.Background(), result, request, nil, nil)
 		requireNoErr(t, err)
 		requireContentLen(t, enriched, 2) //nolint:mnd // original + enrichment
 

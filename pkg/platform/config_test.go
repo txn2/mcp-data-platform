@@ -1489,6 +1489,77 @@ injection:
 	})
 }
 
+func TestInjectionConfig_IsSemanticFallbackEnabled(t *testing.T) {
+	t.Run("nil defaults to off", func(t *testing.T) {
+		cfg := &InjectionConfig{}
+		if cfg.IsSemanticFallbackEnabled() {
+			t.Error("default should be disabled per issue #444 acceptance criteria")
+		}
+	})
+	t.Run("explicit true", func(t *testing.T) {
+		v := true
+		cfg := &InjectionConfig{SemanticFallback: &v}
+		if !cfg.IsSemanticFallbackEnabled() {
+			t.Error("expected enabled when explicitly true")
+		}
+	})
+	t.Run("explicit false", func(t *testing.T) {
+		v := false
+		cfg := &InjectionConfig{SemanticFallback: &v}
+		if cfg.IsSemanticFallbackEnabled() {
+			t.Error("expected disabled when explicitly false")
+		}
+	})
+	t.Run("YAML loading", func(t *testing.T) {
+		cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+injection:
+  semantic_fallback: true
+`)
+		if !cfg.Injection.IsSemanticFallbackEnabled() {
+			t.Error("expected enabled from YAML")
+		}
+	})
+}
+
+func TestInjectionConfig_EffectiveSemanticFallbackTopK(t *testing.T) {
+	t.Run("nil defaults to 1", func(t *testing.T) {
+		cfg := &InjectionConfig{}
+		if cfg.EffectiveSemanticFallbackTopK() != defaultSemanticFallbackTopK {
+			t.Errorf("got %d, want %d", cfg.EffectiveSemanticFallbackTopK(), defaultSemanticFallbackTopK)
+		}
+	})
+	t.Run("explicit value", func(t *testing.T) {
+		v := 5
+		cfg := &InjectionConfig{SemanticFallbackTopK: &v}
+		if cfg.EffectiveSemanticFallbackTopK() != 5 {
+			t.Errorf("got %d, want 5", cfg.EffectiveSemanticFallbackTopK())
+		}
+	})
+	t.Run("clamps zero to 1", func(t *testing.T) {
+		v := 0
+		cfg := &InjectionConfig{SemanticFallbackTopK: &v}
+		if cfg.EffectiveSemanticFallbackTopK() != 1 {
+			t.Errorf("got %d, want 1 (clamped)", cfg.EffectiveSemanticFallbackTopK())
+		}
+	})
+	t.Run("clamps negative to 1", func(t *testing.T) {
+		v := -3
+		cfg := &InjectionConfig{SemanticFallbackTopK: &v}
+		if cfg.EffectiveSemanticFallbackTopK() != 1 {
+			t.Errorf("got %d, want 1 (clamped)", cfg.EffectiveSemanticFallbackTopK())
+		}
+	})
+	t.Run("clamps above max", func(t *testing.T) {
+		v := 999
+		cfg := &InjectionConfig{SemanticFallbackTopK: &v}
+		if cfg.EffectiveSemanticFallbackTopK() != maxSemanticFallbackTopK {
+			t.Errorf("got %d, want %d (clamped)", cfg.EffectiveSemanticFallbackTopK(), maxSemanticFallbackTopK)
+		}
+	})
+}
+
 func TestApplyDefaults_SessionGateConfig(t *testing.T) {
 	t.Run("defaults init tool to platform_info", func(t *testing.T) {
 		cfg := &Config{}

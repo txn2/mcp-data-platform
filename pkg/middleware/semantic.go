@@ -126,6 +126,20 @@ type EnrichmentConfig struct {
 	// ConnectionsForURN returns connection names that can access the dataset
 	// identified by a DataHub URN, based on the URN's platform component.
 	ConnectionsForURN func(urn string) []string
+
+	// SemanticFallbackEnabled turns on the issue #444 fallback: when
+	// a URN-equality lookup misses on the semantic provider, the
+	// enricher calls SearchTables with Mode="semantic" and surfaces
+	// the top-K hits as SUGGESTED matches (annotated with
+	// match_kind=semantic so the model knows they are similarity-
+	// inferred rather than URN-resolved). Default off; operators opt
+	// in explicitly because similarity is heuristic.
+	SemanticFallbackEnabled bool
+
+	// SemanticFallbackTopK caps how many similarity-search results
+	// the fallback returns per miss. Caller is expected to clamp to
+	// a sane range (the platform-level config helper does this).
+	SemanticFallbackTopK int
 }
 
 // schemaPreviewColumn is a minimal column entry for search result schema previews.
@@ -199,7 +213,7 @@ func (e *semanticEnricher) enrichTrinoResultWithDedup(
 	if cache == nil {
 		slog.Debug("dedup: cache is nil, full enrichment")
 		pc.EnrichmentMode = EnrichmentModeFull
-		return e.enrichTrinoResult(ctx, result, request, catalogMapping)
+		return e.enrichTrinoResult(ctx, result, request, catalogMapping, pc)
 	}
 
 	// Identify tables from the request
@@ -210,7 +224,7 @@ func (e *semanticEnricher) enrichTrinoResultWithDedup(
 			keySessionID, pc.SessionID,
 			"has_params", request.Params != nil,
 		)
-		return e.enrichTrinoResult(ctx, result, request, catalogMapping)
+		return e.enrichTrinoResult(ctx, result, request, catalogMapping, pc)
 	}
 
 	slog.Debug("dedup: checking cache",
@@ -254,7 +268,7 @@ func (e *semanticEnricher) handleFullEnrichment(
 		_, catalogMapping = e.cfg.ForConnection(pc.Connection)
 	}
 
-	enrichedResult, err := e.enrichTrinoResult(ctx, result, request, catalogMapping)
+	enrichedResult, err := e.enrichTrinoResult(ctx, result, request, catalogMapping, pc)
 	if err != nil {
 		return enrichedResult, err
 	}
@@ -475,11 +489,15 @@ func applyCatalogMapping(table semantic.TableIdentifier, mapping map[string]stri
 
 // enrichTrinoResult adds semantic context to Trino tool results.
 // catalogMapping optionally remaps connection catalog names to DataHub catalog names.
+// pc may be nil in test paths; when non-nil, EnrichmentMatchKind is set to
+// EnrichmentMatchURN on exact resolution or EnrichmentMatchSemantic when the
+// issue #444 similarity fallback fires.
 func (e *semanticEnricher) enrichTrinoResult(
 	ctx context.Context,
 	result *mcp.CallToolResult,
 	request mcp.CallToolRequest,
 	catalogMapping map[string]string,
+	pc *PlatformContext,
 ) (*mcp.CallToolResult, error) {
 	// Check for SQL query first (multi-table support)
 	if sql := extractSQLFromRequest(request); sql != "" {
@@ -517,6 +535,18 @@ func (e *semanticEnricher) enrichTrinoResult(
 			"parsed_table", table.Table,
 			keyError, err,
 		)
+		// Issue #444: when URN-equality lookup misses and the
+		// operator opted into semantic_fallback, surface the top-K
+		// similarity hits as SUGGESTED matches so the model can
+		// still get a hint about likely-related entities. The
+		// match_kind tag on both the payload and the audit row
+		// makes it visible that this is heuristic, not asserted.
+		if suggestions := e.trySemanticFallback(ctx, table); len(suggestions) > 0 {
+			if pc != nil {
+				pc.EnrichmentMatchKind = EnrichmentMatchSemantic
+			}
+			return appendSemanticFallbackSuggestions(result, table, suggestions)
+		}
 		return result, nil
 	}
 
@@ -529,7 +559,118 @@ func (e *semanticEnricher) enrichTrinoResult(
 		)
 	}
 
+	if pc != nil {
+		pc.EnrichmentMatchKind = EnrichmentMatchURN
+	}
 	return appendSemanticContextWithColumns(result, semanticCtx, columnsCtx)
+}
+
+// fallbackSearchMode is the SearchFilter.Mode value the issue #444
+// fallback requests on the semantic provider. Named so the same
+// literal does not float between the caller and any future test
+// that needs to assert on the value the provider sees.
+const fallbackSearchMode = "semantic"
+
+// trySemanticFallback runs the issue #444 similarity-search path
+// when a URN-equality lookup for table misses. Returns nil when the
+// operator did not enable the fallback, when the provider is
+// unavailable, when the constructed query is empty, or when the
+// underlying search errors. A non-nil empty slice is treated as
+// "ran but no hits" and the caller suppresses the suggested-matches
+// payload.
+func (e *semanticEnricher) trySemanticFallback(ctx context.Context, table semantic.TableIdentifier) []semantic.TableSearchResult {
+	if !e.cfg.SemanticFallbackEnabled || e.semanticProvider == nil {
+		return nil
+	}
+	searchQuery := buildSemanticFallbackQuery(table)
+	if searchQuery == "" {
+		return nil
+	}
+	topK := e.cfg.SemanticFallbackTopK
+	if topK <= 0 {
+		topK = 1
+	}
+	results, err := e.semanticProvider.SearchTables(ctx, semantic.SearchFilter{
+		Query: searchQuery,
+		Mode:  fallbackSearchMode,
+		Limit: topK,
+	})
+	if err != nil {
+		slog.Debug("semantic fallback search failed",
+			keyTable, table.String(),
+			keyError, err,
+		)
+		return nil
+	}
+	return results
+}
+
+// buildSemanticFallbackQuery turns a TableIdentifier into the query
+// text the similarity search receives. Table name carries the most
+// information so it leads; schema follows to disambiguate
+// similarly-named tables across schemas. Catalog is intentionally
+// omitted because catalog names are often deployment-internal
+// identifiers ("hive", "rdbms") that add noise without recall.
+// Returns "" when no usable component is present.
+func buildSemanticFallbackQuery(table semantic.TableIdentifier) string {
+	parts := make([]string, 0, 2)
+	if table.Table != "" {
+		parts = append(parts, table.Table)
+	}
+	if table.Schema != "" {
+		parts = append(parts, table.Schema)
+	}
+	return strings.Join(parts, " ")
+}
+
+// appendSemanticFallbackSuggestions appends the suggested-matches
+// payload produced by trySemanticFallback to the result. The
+// payload is wrapped under "semantic_fallback" with a match_kind
+// tag and a human-readable note so the model can distinguish
+// these heuristic suggestions from URN-resolved enrichment.
+// Returns the result unchanged when suggestions is empty.
+func appendSemanticFallbackSuggestions(
+	result *mcp.CallToolResult,
+	table semantic.TableIdentifier,
+	suggestions []semantic.TableSearchResult,
+) (*mcp.CallToolResult, error) {
+	if len(suggestions) == 0 {
+		return result, nil
+	}
+	items := make([]map[string]any, 0, len(suggestions))
+	for _, s := range suggestions {
+		item := map[string]any{
+			keyURN:    s.URN,
+			fieldName: s.Name,
+		}
+		if s.Platform != "" {
+			item["platform"] = s.Platform
+		}
+		if s.Description != "" {
+			item[keyDescription] = s.Description
+		}
+		if len(s.Tags) > 0 {
+			item[keyTags] = s.Tags
+		}
+		if s.Domain != "" {
+			item[fieldDomain] = s.Domain
+		}
+		items = append(items, item)
+	}
+	payload := map[string]any{
+		"semantic_fallback": map[string]any{
+			"queried_table":     table.String(),
+			"match_kind":        EnrichmentMatchSemantic,
+			fieldNote:           "Exact URN lookup for the queried table missed. The following are SUGGESTED matches from a similarity search; verify before treating as authoritative.",
+			"suggested_matches": items,
+		},
+	}
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return result, fmt.Errorf("marshal semantic fallback: %w", err)
+	}
+	result.Content = append(result.Content, &mcp.TextContent{Text: string(payloadJSON)})
+	return result, nil
 }
 
 // extractSQLFromRequest extracts SQL from request arguments.

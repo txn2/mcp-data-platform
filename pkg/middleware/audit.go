@@ -37,7 +37,12 @@ type AuditEvent struct {
 	EnrichmentTokensFull  int            `json:"enrichment_tokens_full"`
 	EnrichmentTokensDedup int            `json:"enrichment_tokens_dedup"`
 	EnrichmentMode        string         `json:"enrichment_mode,omitempty"`
-	Authorized            bool           `json:"authorized"`
+	// EnrichmentMatchKind records how the enrichment matched its
+	// target: "urn" for exact, "semantic" for similarity-fallback,
+	// empty when no enrichment ran. See pkg/audit.Event for the
+	// operator-facing description.
+	EnrichmentMatchKind string `json:"enrichment_match_kind,omitempty"`
+	Authorized          bool   `json:"authorized"`
 }
 
 // NoopAuditLogger discards all audit events.

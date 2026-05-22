@@ -8136,6 +8136,11 @@ const docTemplate = `{
                     "type": "boolean",
                     "example": true
                 },
+                "enrichment_match_kind": {
+                    "description": "EnrichmentMatchKind records how the semantic enrichment matched\nthe target table or column: \"urn\" when the URN-equality lookup\nresolved exactly, \"semantic\" when an exact lookup missed and the\nplatform fell back to similarity search (suggested match, not\nasserted), or empty when no enrichment ran. Operators use this\nto measure the false-positive rate of similarity-based\nsuggestions (issue #444).",
+                    "type": "string",
+                    "example": "urn"
+                },
                 "enrichment_mode": {
                     "type": "string",
                     "example": "summary"

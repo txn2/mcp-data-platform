@@ -42,6 +42,7 @@ func (a *auditStoreAdapter) Log(ctx context.Context, event AuditEvent) error {
 		WithEnrichment(event.EnrichmentApplied).
 		WithEnrichmentTokens(event.EnrichmentTokensFull, event.EnrichmentTokensDedup).
 		WithEnrichmentMode(event.EnrichmentMode).
+		WithEnrichmentMatchKind(event.EnrichmentMatchKind).
 		WithAuthorized(event.Authorized)
 
 	// Override timestamp from the event
