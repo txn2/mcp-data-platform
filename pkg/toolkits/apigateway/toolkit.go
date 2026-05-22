@@ -860,7 +860,7 @@ func (t *Toolkit) handleInvoke(ctx context.Context, _ *mcp.CallToolRequest, in I
 		return res, nil, nil //nolint:nilerr // tool error surfaced via result
 	}
 
-	out, err := invoke(ctx, invocation{cfg: c.cfg, auth: c.auth, client: c.client}, in)
+	out, err := invoke(ctx, invocation{cfg: c.cfg, auth: c.auth, client: c.client, specs: c.specs}, in)
 	if err != nil {
 		return errorResult(err.Error()), nil, nil //nolint:nilerr // MCP protocol — argument validation surfaced as tool error
 	}

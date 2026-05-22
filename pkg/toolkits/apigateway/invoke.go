@@ -9,9 +9,12 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/getkin/kin-openapi/openapi3"
 
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
@@ -112,10 +115,17 @@ type InvokeOutput struct {
 
 // invocation bundles a connection lookup with its supporting types so
 // the call path can be tested without standing up a full Toolkit.
+//
+// specs is the connection's parsed OpenAPI catalog keyed by component
+// spec name. It is consulted by encodeBody to drive Content-Type
+// negotiation from the operation's declared requestBody.content (see
+// issue #453); leaving it nil falls back to today's type-driven
+// heuristic and is the path test-only invocations take.
 type invocation struct {
 	cfg    Config
 	auth   Authenticator
 	client *http.Client
+	specs  map[string]*specState
 }
 
 // invoke runs a single api_invoke_endpoint call against a known
@@ -140,7 +150,8 @@ func invoke(ctx context.Context, inv invocation, in InvokeInput) (InvokeOutput, 
 		return InvokeOutput{}, err
 	}
 
-	body, contentType, err := encodeBody(method, in.Body)
+	declaredContentTypes := resolveDeclaredContentTypes(inv.specs, method, in.Path)
+	body, contentType, err := encodeBody(method, in.Body, declaredContentTypes, in.Headers)
 	if err != nil {
 		return InvokeOutput{}, err
 	}
@@ -339,18 +350,264 @@ func appendQueryValue(q url.Values, key string, val any) {
 	}
 }
 
-func encodeBody(method string, body any) (data []byte, contentType string, err error) {
+// applicationJSON is the canonical content-type literal used across
+// the spec-driven negotiation logic; named so the same string isn't
+// repeated across encodeBody's branches and the catalog matcher.
+const applicationJSON = "application/json"
+
+// textPlainUTF8 is today's fallback Content-Type for string bodies
+// without a JSON signal. Pulled out as a constant for the same reason
+// as applicationJSON.
+const textPlainUTF8 = "text/plain; charset=utf-8"
+
+// encodeBody serializes the body for an outbound HTTP request and
+// returns the Content-Type the gateway proposes to set. Selection
+// rules, in order (issue #453):
+//
+//  1. Method does not allow a body, or body is nil: nothing to send.
+//  2. The caller's headers already contain a Content-Type: emit the
+//     bytes using today's type-driven encoder; buildRequest will keep
+//     the caller's header so the catalog hint is irrelevant.
+//  3. The catalog declares application/json on the resolved operation
+//     and the caller did NOT set Content-Type:
+//     - object/array/scalar bodies marshal as JSON (unchanged from
+//     today's behavior),
+//     - string bodies that parse as JSON pass through verbatim with
+//     Content-Type: application/json (the new behavior, which closes
+//     the case where a tool-call layer pre-serialized the argument),
+//     - string bodies that do NOT parse as JSON fall back to
+//     text/plain (today's behavior preserved).
+//  4. The catalog declares a single non-JSON media type and the body
+//     is a string: send verbatim with that media type.
+//  5. Anything else (no catalog match, no caller header): today's
+//     type-driven behavior, i.e. string to text/plain, anything else
+//     to application/json via json.Marshal.
+//
+// declaredContentTypes is the sorted slice returned by
+// resolveDeclaredContentTypes; an empty/nil slice means the operation
+// could not be located in the catalog. callerHeaders is the model's
+// per-call headers map; case-insensitive lookup is required because
+// the model can send "content-type" in any casing.
+func encodeBody(method string, body any, declaredContentTypes []string, callerHeaders map[string]string) (data []byte, contentType string, err error) {
 	if body == nil || !methodsAllowingBody[method] {
 		return nil, "", nil
 	}
+	if callerSetsContentType(callerHeaders) {
+		return encodeBodyTypeDriven(body)
+	}
+	pick := preferredContentType(declaredContentTypes)
+	if pick == "" {
+		return encodeBodyTypeDriven(body)
+	}
+	if pick == applicationJSON {
+		return encodeBodyForJSONOperation(body)
+	}
 	if s, ok := body.(string); ok {
-		return []byte(s), "text/plain; charset=utf-8", nil
+		return []byte(s), pick, nil
+	}
+	return encodeBodyTypeDriven(body)
+}
+
+// encodeBodyTypeDriven implements the pre-issue-#453 behavior: string
+// bodies emit text/plain verbatim, every other type marshals as JSON.
+// Reused on the "no catalog hint" and "caller-supplied Content-Type"
+// branches so the legacy behavior is preserved character-for-character.
+func encodeBodyTypeDriven(body any) (data []byte, contentType string, err error) {
+	if s, ok := body.(string); ok {
+		return []byte(s), textPlainUTF8, nil
 	}
 	encoded, jerr := json.Marshal(body)
 	if jerr != nil {
 		return nil, "", fmt.Errorf("apigateway: encoding body as JSON: %w", jerr)
 	}
-	return encoded, "application/json", nil
+	return encoded, applicationJSON, nil
+}
+
+// encodeBodyForJSONOperation handles the "catalog declares JSON, no
+// caller header" branch. Non-string bodies marshal as JSON (today's
+// behavior). String bodies are probed with json.Unmarshal: a successful
+// parse means the caller already serialized JSON and the gateway should
+// hand the bytes through with application/json; a failed parse falls
+// back to text/plain so the existing fixture 3 case (literal text
+// payload that happens to be a string) is unchanged.
+func encodeBodyForJSONOperation(body any) (data []byte, contentType string, err error) {
+	if s, ok := body.(string); ok {
+		var probe any
+		if err := json.Unmarshal([]byte(s), &probe); err == nil {
+			return []byte(s), applicationJSON, nil
+		}
+		return []byte(s), textPlainUTF8, nil
+	}
+	encoded, jerr := json.Marshal(body)
+	if jerr != nil {
+		return nil, "", fmt.Errorf("apigateway: encoding body as JSON: %w", jerr)
+	}
+	return encoded, applicationJSON, nil
+}
+
+// callerSetsContentType reports whether the model's per-call headers
+// already pin Content-Type. Lookup is case-insensitive because the
+// model can write "content-type", "Content-Type", or any other casing
+// and Go's http header set treats them the same.
+func callerSetsContentType(h map[string]string) bool {
+	for name := range h {
+		if strings.EqualFold(name, "Content-Type") {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveDeclaredContentTypes returns the sorted requestBody content
+// types the connection's OpenAPI catalog declares for the operation
+// matching (method, path), or nil when no operation can be matched.
+// The matcher walks each component spec on the connection and
+// compares the model-supplied concrete path against the
+// effectiveBasePath-prefixed path template segment-by-segment;
+// literal segments must match exactly, bracketed placeholder segments
+// match any non-empty segment.
+//
+// When the spec contains both a literal and a templated path that
+// match the same concrete path (e.g. "/users/me" and "/users/{id}"),
+// the literal entry (the template with fewer placeholder segments)
+// wins. Without that tie-breaker the chosen template would vary
+// across calls because Go's map iteration is randomized.
+//
+// nil specs (test-only invocations) and operations without a
+// requestBody both return nil so encodeBody falls back to its
+// type-driven encoder.
+func resolveDeclaredContentTypes(specs map[string]*specState, method, path string) []string {
+	if len(specs) == 0 {
+		return nil
+	}
+	upperMethod := strings.ToUpper(method)
+	for _, st := range specs {
+		if cts := resolveDeclaredContentTypesInSpec(st, upperMethod, path); cts != nil {
+			return cts
+		}
+	}
+	return nil
+}
+
+// resolveDeclaredContentTypesInSpec is the per-spec slice of
+// resolveDeclaredContentTypes. Extracted so the outer function stays
+// under the cognitive-complexity ceiling and so unit tests can target
+// a single parsed document directly.
+func resolveDeclaredContentTypesInSpec(st *specState, method, path string) []string {
+	if st == nil || st.doc == nil || st.doc.Paths == nil {
+		return nil
+	}
+	item := findMostSpecificPathMatch(st, path)
+	if item == nil {
+		return nil
+	}
+	op := operationForMethod(item, method)
+	if op == nil || op.RequestBody == nil || op.RequestBody.Value == nil {
+		return nil
+	}
+	return sortedContentTypes(op.RequestBody.Value.Content)
+}
+
+// findMostSpecificPathMatch returns the PathItem whose template
+// matches path with the fewest placeholder segments. nil when no
+// template matches. See resolveDeclaredContentTypes for the
+// motivation.
+func findMostSpecificPathMatch(st *specState, path string) *openapi3.PathItem {
+	var (
+		bestItem  *openapi3.PathItem
+		bestHoles int
+	)
+	for rawPath, item := range st.doc.Paths.Map() {
+		if item == nil {
+			continue
+		}
+		template := st.effectiveBasePath + rawPath
+		if !pathMatchesTemplate(path, template) {
+			continue
+		}
+		holes := countTemplatePlaceholders(template)
+		if bestItem == nil || holes < bestHoles {
+			bestItem = item
+			bestHoles = holes
+		}
+	}
+	return bestItem
+}
+
+// operationForMethod returns the Operation registered on item for the
+// given HTTP method, or nil when the path item declares no operation
+// for that verb. Method comparison is exact (caller upper-cases).
+func operationForMethod(item *openapi3.PathItem, method string) *openapi3.Operation {
+	for _, m := range pathItemMethods {
+		if m.method == method {
+			return m.get(item)
+		}
+	}
+	return nil
+}
+
+// sortedContentTypes returns the keys of an openapi3.Content map as a
+// sorted slice so the caller's content-type preference picks
+// deterministically. Empty input returns nil so the caller can
+// short-circuit on "no declared media type".
+func sortedContentTypes(content openapi3.Content) []string {
+	if len(content) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(content))
+	for ct := range content {
+		out = append(out, ct)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// pathMatchesTemplate reports whether concrete (e.g. "/v1/users/42")
+// matches an OpenAPI path template (e.g. "/v1/users/{id}"). Both
+// strings are split on "/" and compared segment-by-segment; bracketed
+// placeholder segments match any non-empty segment, literal segments
+// must match exactly. Trailing slashes are normalized away so
+// "/v1/users/" and "/v1/users" both match the same template.
+func pathMatchesTemplate(concrete, template string) bool {
+	cs := strings.Split(strings.TrimSuffix(concrete, pathSep), pathSep)
+	ts := strings.Split(strings.TrimSuffix(template, pathSep), pathSep)
+	if len(cs) != len(ts) {
+		return false
+	}
+	for i, seg := range ts {
+		if isPlaceholderSegment(seg) {
+			if cs[i] == "" {
+				return false
+			}
+			continue
+		}
+		if cs[i] != seg {
+			return false
+		}
+	}
+	return true
+}
+
+// isPlaceholderSegment reports whether a path-template segment is an
+// OpenAPI parameter placeholder (e.g. "{datasetId}"). A two-character
+// minimum length guards against the degenerate "{}" segment, which
+// no spec generator emits but a hand-edited spec might contain.
+func isPlaceholderSegment(seg string) bool {
+	return len(seg) >= 2 && seg[0] == '{' && seg[len(seg)-1] == '}'
+}
+
+// countTemplatePlaceholders returns the number of placeholder segments
+// in an OpenAPI path template; used by findMostSpecificPathMatch to
+// prefer literal paths over templated ones when both match the same
+// concrete path.
+func countTemplatePlaceholders(template string) int {
+	count := 0
+	for seg := range strings.SplitSeq(template, pathSep) {
+		if isPlaceholderSegment(seg) {
+			count++
+		}
+	}
+	return count
 }
 
 func resolveTimeout(requested int, defaultTimeout time.Duration) time.Duration {
