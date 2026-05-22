@@ -253,7 +253,7 @@ func TestAppendQueryValue_AllScalarTypes(t *testing.T) {
 }
 
 func TestEncodeBody_SkipsBodyForGET(t *testing.T) {
-	body, ct, err := encodeBody("GET", map[string]any{"hello": "world"})
+	body, ct, err := encodeBody("GET", map[string]any{"hello": "world"}, nil, nil)
 	if err != nil {
 		t.Fatalf("encodeBody: %v", err)
 	}
@@ -263,7 +263,7 @@ func TestEncodeBody_SkipsBodyForGET(t *testing.T) {
 }
 
 func TestEncodeBody_StringBody(t *testing.T) {
-	body, ct, err := encodeBody("POST", "raw text")
+	body, ct, err := encodeBody("POST", "raw text", nil, nil)
 	if err != nil {
 		t.Fatalf("encodeBody: %v", err)
 	}
@@ -276,7 +276,7 @@ func TestEncodeBody_StringBody(t *testing.T) {
 }
 
 func TestEncodeBody_ObjectAsJSON(t *testing.T) {
-	body, ct, err := encodeBody("POST", map[string]any{"key": "value"})
+	body, ct, err := encodeBody("POST", map[string]any{"key": "value"}, nil, nil)
 	if err != nil {
 		t.Fatalf("encodeBody: %v", err)
 	}
@@ -289,7 +289,7 @@ func TestEncodeBody_ObjectAsJSON(t *testing.T) {
 }
 
 func TestEncodeBody_RejectsUnencodable(t *testing.T) {
-	_, _, err := encodeBody("POST", make(chan int))
+	_, _, err := encodeBody("POST", make(chan int), nil, nil)
 	if err == nil {
 		t.Error("encodeBody: want error for non-JSON-encodable body")
 	}

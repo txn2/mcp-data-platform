@@ -156,7 +156,7 @@ var invokeEndpointSchema = json.RawMessage(`{
       "additionalProperties": {"type": "string"}
     },
     "body": {
-      "description": "Optional request body. Objects/arrays are JSON-encoded with Content-Type application/json. Strings are sent verbatim with Content-Type text/plain unless an explicit Content-Type header is provided. Ignored for GET and HEAD."
+      "description": "Optional request body. When the connection's OpenAPI catalog declares application/json on the resolved operation, objects/arrays are JSON-encoded and strings that parse as JSON pass through verbatim, both with Content-Type: application/json. Strings that do not parse as JSON, and bodies on operations the catalog does not declare, fall back to: objects/arrays as application/json, strings as text/plain. An explicit Content-Type in headers always wins. Ignored for GET and HEAD."
     },
     "timeout_seconds": {
       "type": "integer",

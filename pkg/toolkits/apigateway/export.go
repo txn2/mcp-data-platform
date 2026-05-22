@@ -291,7 +291,7 @@ func (t *Toolkit) handleExport(ctx context.Context, _ *mcp.CallToolRequest, in e
 	}
 
 	out, runErr := t.runExport(ctx, runExportArgs{
-		deps: deps, cfg: c.cfg, auth: c.auth, client: c.client, uc: uc, in: in,
+		deps: deps, cfg: c.cfg, auth: c.auth, client: c.client, specs: c.specs, uc: uc, in: in,
 	})
 	if runErr != nil {
 		return errorResult(runErr.Error()), nil, nil
@@ -341,6 +341,7 @@ type runExportArgs struct {
 	cfg    Config
 	auth   Authenticator
 	client *http.Client
+	specs  map[string]*specState
 	uc     *ExportUserContext
 	in     exportInput
 }
@@ -348,12 +349,12 @@ type runExportArgs struct {
 // runExport executes the upstream call, uploads the response to
 // S3, and inserts the asset + version rows.
 func (*Toolkit) runExport(ctx context.Context, a runExportArgs) (*exportOutput, error) {
-	deps, cfg, auth, client, uc, in := a.deps, a.cfg, a.auth, a.client, a.uc, a.in
+	deps, cfg, auth, client, specs, uc, in := a.deps, a.cfg, a.auth, a.client, a.specs, a.uc, a.in
 	timeout := resolveExportTimeout(in.TimeoutSeconds, deps.Config)
 	exportCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	req, err := buildExportRequest(exportCtx, cfg, auth, in)
+	req, err := buildExportRequest(exportCtx, exportRequestParams{cfg: cfg, auth: auth, specs: specs, in: in})
 	if err != nil {
 		return nil, err
 	}
@@ -401,11 +402,23 @@ func (*Toolkit) runExport(ctx context.Context, a runExportArgs) (*exportOutput, 
 	}, nil
 }
 
+// exportRequestParams bundles the inputs buildExportRequest needs so
+// the call site stays under revive's argument-limit ceiling now that
+// the connection's OpenAPI catalog (specs) participates in the
+// Content-Type decision (issue #453).
+type exportRequestParams struct {
+	cfg   Config
+	auth  Authenticator
+	specs map[string]*specState
+	in    exportInput
+}
+
 // buildExportRequest assembles the *http.Request for the upstream
 // call using the same machinery api_invoke_endpoint uses (so SSRF
 // guards apply identically). Split out of runExport so the
 // build-and-go logic doesn't dominate one function's complexity.
-func buildExportRequest(ctx context.Context, cfg Config, auth Authenticator, in exportInput) (*http.Request, error) {
+func buildExportRequest(ctx context.Context, p exportRequestParams) (*http.Request, error) {
+	cfg, auth, specs, in := p.cfg, p.auth, p.specs, p.in
 	method, _ := validateMethod(in.Method) // already validated by caller
 	if err := validatePath(in.Path); err != nil {
 		return nil, err
@@ -414,7 +427,8 @@ func buildExportRequest(ctx context.Context, cfg Config, auth Authenticator, in 
 	if err := validateCustomHeaders(in.Headers, authHeader, cfg.StaticHeaders); err != nil {
 		return nil, err
 	}
-	bodyBytes, contentTypeFromBody, err := encodeBody(method, in.Body)
+	declaredContentTypes := resolveDeclaredContentTypes(specs, method, in.Path)
+	bodyBytes, contentTypeFromBody, err := encodeBody(method, in.Body, declaredContentTypes, in.Headers)
 	if err != nil {
 		return nil, err
 	}

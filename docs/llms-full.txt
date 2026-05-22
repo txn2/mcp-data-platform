@@ -2515,6 +2515,20 @@ Motivating cases:
 
 The model is additionally blocked at request time from supplying any header name that collides with `static_headers`, so the operator's value is authoritative even before auth runs.
 
+### Request body and Content-Type
+
+`api_invoke_endpoint` chooses an outbound `Content-Type` from the connection's OpenAPI catalog when the model's (method, path) resolves to a known operation:
+
+1. An explicit `Content-Type` in the model's `headers` argument always wins.
+2. Otherwise, when the resolved operation declares `application/json` in `requestBody.content`:
+   - Object/array/scalar bodies are JSON-encoded with `Content-Type: application/json` (unchanged).
+   - String bodies that parse as JSON pass through verbatim with `Content-Type: application/json`. This catches the common case where a tool-call layer pre-serialized the argument before delivery.
+   - String bodies that do not parse as JSON fall back to `text/plain; charset=utf-8`.
+3. When the resolved operation declares a single non-JSON media type (`application/xml`, `text/csv`, etc.), string bodies are sent verbatim with that media type.
+4. When no operation matches (no catalog, or the path is not in the catalog), the gateway uses the type-driven fallback: strings as `text/plain`, everything else as `application/json`.
+
+Path matching against the catalog accepts both literal paths and OpenAPI parameter placeholders (`/v1/users/{id}` matches `/v1/users/42`). When multiple templates match the same concrete path, the literal entry wins over the templated one.
+
 ## Google API example
 
 ```json
