@@ -2599,6 +2599,8 @@ func (p *Platform) buildEnrichmentConfig() middleware.EnrichmentConfig {
 		ColumnContextFiltering:      p.config.Injection.IsColumnContextFilteringEnabled(),
 		SearchSchemaPreview:         p.config.Injection.IsSearchSchemaPreviewEnabled(),
 		SchemaPreviewMaxColumns:     p.config.Injection.EffectiveSchemaPreviewMaxColumns(),
+		SemanticFallbackEnabled:     p.config.Injection.IsSemanticFallbackEnabled(),
+		SemanticFallbackTopK:        p.config.Injection.EffectiveSemanticFallbackTopK(),
 	}
 
 	// Wire connection source map lookups as closures to avoid import cycles.

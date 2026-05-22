@@ -28,7 +28,7 @@ const (
 	testCountFiltered = 7
 )
 
-// selectColumns lists the 25 SELECT column names in scan order.
+// selectColumns lists the 26 SELECT column names in scan order.
 var selectColumns = []string{
 	"id", "timestamp", "duration_ms", "request_id", "session_id",
 	"user_id", "user_email", "persona", "tool_name", "toolkit_kind",
@@ -36,7 +36,7 @@ var selectColumns = []string{
 	"response_chars", "request_chars", "content_blocks",
 	"transport", "source", "enrichment_applied",
 	"enrichment_tokens_full", "enrichment_tokens_dedup",
-	"enrichment_mode", "authorized",
+	"enrichment_mode", "enrichment_match_kind", "authorized",
 }
 
 const (
@@ -128,6 +128,7 @@ func TestLog_Success(t *testing.T) {
 		event.EnrichmentTokensFull,
 		event.EnrichmentTokensDedup,
 		event.EnrichmentMode,
+		event.EnrichmentMatchKind,
 		event.Authorized,
 	).WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -157,7 +158,7 @@ func TestLog_NilParameters(t *testing.T) {
 		event.ResponseChars, event.RequestChars, event.ContentBlocks,
 		event.Transport, event.Source, event.EnrichmentApplied,
 		event.EnrichmentTokensFull, event.EnrichmentTokensDedup,
-		event.EnrichmentMode, event.Authorized,
+		event.EnrichmentMode, event.EnrichmentMatchKind, event.Authorized,
 	).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	err = store.Log(context.Background(), event)
@@ -198,7 +199,7 @@ func testEventRows(mock sqlmock.Sqlmock, events ...audit.Event) {
 			event.ResponseChars, event.RequestChars, event.ContentBlocks,
 			event.Transport, event.Source, event.EnrichmentApplied,
 			event.EnrichmentTokensFull, event.EnrichmentTokensDedup,
-			event.EnrichmentMode, event.Authorized,
+			event.EnrichmentMode, event.EnrichmentMatchKind, event.Authorized,
 		)
 	}
 	mock.ExpectQuery("SELECT .+ FROM audit_logs").WillReturnRows(rows)
@@ -256,7 +257,7 @@ func TestQuery_AllFilters(t *testing.T) {
 		event.ResponseChars, event.RequestChars, event.ContentBlocks,
 		event.Transport, event.Source, event.EnrichmentApplied,
 		event.EnrichmentTokensFull, event.EnrichmentTokensDedup,
-		event.EnrichmentMode, event.Authorized,
+		event.EnrichmentMode, event.EnrichmentMatchKind, event.Authorized,
 	)
 
 	mock.ExpectQuery("SELECT .+ FROM audit_logs").WithArgs(
@@ -390,6 +391,7 @@ func TestScanEvent_AllFields(t *testing.T) {
 		event.EnrichmentTokensFull,
 		event.EnrichmentTokensDedup,
 		event.EnrichmentMode,
+		event.EnrichmentMatchKind,
 		event.Authorized,
 	)
 	mock.ExpectQuery("SELECT .+ FROM audit_logs").WillReturnRows(rows)
@@ -708,7 +710,7 @@ func TestQuery_MultipleRows(t *testing.T) {
 			ev.ResponseChars, ev.RequestChars, ev.ContentBlocks,
 			ev.Transport, ev.Source, ev.EnrichmentApplied,
 			ev.EnrichmentTokensFull, ev.EnrichmentTokensDedup,
-			ev.EnrichmentMode, ev.Authorized,
+			ev.EnrichmentMode, ev.EnrichmentMatchKind, ev.Authorized,
 		)
 	}
 	mock.ExpectQuery("SELECT .+ FROM audit_logs").WillReturnRows(rows)
@@ -741,7 +743,7 @@ func TestQuery_EmptyParameters(t *testing.T) {
 		event.ResponseChars, event.RequestChars, event.ContentBlocks,
 		event.Transport, event.Source, event.EnrichmentApplied,
 		event.EnrichmentTokensFull, event.EnrichmentTokensDedup,
-		event.EnrichmentMode, event.Authorized,
+		event.EnrichmentMode, event.EnrichmentMatchKind, event.Authorized,
 	)
 	mock.ExpectQuery("SELECT .+ FROM audit_logs").WillReturnRows(rows)
 
@@ -829,7 +831,7 @@ func TestQuery_IDFilter(t *testing.T) {
 		event.ResponseChars, event.RequestChars, event.ContentBlocks,
 		event.Transport, event.Source, event.EnrichmentApplied,
 		event.EnrichmentTokensFull, event.EnrichmentTokensDedup,
-		event.EnrichmentMode, event.Authorized,
+		event.EnrichmentMode, event.EnrichmentMatchKind, event.Authorized,
 	)
 	mock.ExpectQuery("SELECT .+ FROM audit_logs").WithArgs("evt-specific").WillReturnRows(rows)
 

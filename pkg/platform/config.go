@@ -494,6 +494,24 @@ type InjectionConfig struct {
 	// SchemaPreviewMaxColumns caps how many columns appear in each
 	// schema preview. Defaults to 15 (nil = 15).
 	SchemaPreviewMaxColumns *int `yaml:"schema_preview_max_columns"`
+
+	// SemanticFallback enables the issue #444 fallback path: when a
+	// URN-equality lookup for a Trino table misses on the semantic
+	// provider, the platform calls SearchTables with Mode=semantic
+	// and surfaces the top hit as a SUGGESTED match (annotated with
+	// match_kind=semantic so the model knows it is similarity-
+	// inferred, not URN-resolved). Audit rows record
+	// enrichment_match_kind so operators can measure false-positive
+	// rate. Default off. Requires the semantic provider to support
+	// the "semantic" search mode (DataHub does as of v1.8.1).
+	SemanticFallback *bool `yaml:"semantic_fallback"`
+
+	// SemanticFallbackTopK is how many similarity-search hits the
+	// fallback surfaces per miss. Default 1. Caps at 10 to keep
+	// suggested-match output bounded; operators wanting broader
+	// recall should adjust persona scope or query patterns, not
+	// flood the response with low-rank suggestions.
+	SemanticFallbackTopK *int `yaml:"semantic_fallback_top_k"`
 }
 
 // IsUnwrapJSONEnabled returns whether unwrap_json defaults to true,
@@ -533,6 +551,43 @@ func (c *InjectionConfig) EffectiveSchemaPreviewMaxColumns() int {
 		return defaultSchemaPreviewMaxColumns
 	}
 	return *c.SchemaPreviewMaxColumns
+}
+
+// defaultSemanticFallbackTopK is the default number of similarity-
+// search results surfaced per URN miss when the semantic fallback
+// fires.
+const defaultSemanticFallbackTopK = 1
+
+// maxSemanticFallbackTopK caps the configurable top-K so a stray
+// large value cannot dominate a response with low-rank suggestions.
+const maxSemanticFallbackTopK = 10
+
+// IsSemanticFallbackEnabled returns whether the issue #444 fallback
+// is enabled. Defaults to false; operators opt in explicitly because
+// similarity matches are heuristic and may surface false positives.
+func (c *InjectionConfig) IsSemanticFallbackEnabled() bool {
+	if c.SemanticFallback == nil {
+		return false
+	}
+	return *c.SemanticFallback
+}
+
+// EffectiveSemanticFallbackTopK returns the configured top-K for the
+// semantic fallback, clamped to [1, maxSemanticFallbackTopK]. Returns
+// defaultSemanticFallbackTopK when unset; clamps to bounds when set
+// outside the valid range.
+func (c *InjectionConfig) EffectiveSemanticFallbackTopK() int {
+	if c.SemanticFallbackTopK == nil {
+		return defaultSemanticFallbackTopK
+	}
+	k := *c.SemanticFallbackTopK
+	if k < 1 {
+		return 1
+	}
+	if k > maxSemanticFallbackTopK {
+		return maxSemanticFallbackTopK
+	}
+	return k
 }
 
 // SessionDedupConfig configures session-level metadata deduplication.

@@ -13,6 +13,22 @@ import (
 // EnrichmentModeFull is the enrichment mode value for full (non-dedup) enrichment.
 const EnrichmentModeFull = "full"
 
+// Enrichment match-kind values, recorded on PlatformContext and
+// surfaced in audit_logs.enrichment_match_kind so operators can
+// distinguish a confident URN-equality match from a similarity
+// suggestion produced by the semantic fallback path (issue #444).
+const (
+	// EnrichmentMatchURN means the platform resolved the target
+	// table or column by exact URN equality. High confidence.
+	EnrichmentMatchURN = "urn"
+
+	// EnrichmentMatchSemantic means the URN-equality lookup missed
+	// and the platform fell back to a similarity search. The
+	// enrichment payload is a SUGGESTED match, not an asserted one;
+	// operators measure false-positive rate from this value.
+	EnrichmentMatchSemantic = "semantic"
+)
+
 // contextKey is a private type for context keys.
 type contextKey int
 
@@ -57,6 +73,13 @@ type PlatformContext struct {
 	EnrichmentTokensFull  int    // estimated tokens for full enrichment
 	EnrichmentTokensDedup int    // estimated tokens for deduped enrichment (0 if full sent)
 	EnrichmentMode        string // "full", "summary", "reference", "none", or "" (not enriched)
+
+	// EnrichmentMatchKind distinguishes URN-equality matches from
+	// similarity-fallback matches. Set to EnrichmentMatchURN when
+	// the URN lookup succeeded, EnrichmentMatchSemantic when the
+	// platform fell back to a similarity search. Empty when no
+	// enrichment ran. See pkg/audit.Event.EnrichmentMatchKind.
+	EnrichmentMatchKind string
 
 	// Results (populated after handler)
 	Success      bool

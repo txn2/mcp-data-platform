@@ -44,7 +44,15 @@ type Event struct {
 	EnrichmentTokensFull  int            `json:"enrichment_tokens_full" example:"850"`
 	EnrichmentTokensDedup int            `json:"enrichment_tokens_dedup" example:"350"`
 	EnrichmentMode        string         `json:"enrichment_mode,omitempty" example:"summary"`
-	Authorized            bool           `json:"authorized" example:"true"`
+	// EnrichmentMatchKind records how the semantic enrichment matched
+	// the target table or column: "urn" when the URN-equality lookup
+	// resolved exactly, "semantic" when an exact lookup missed and the
+	// platform fell back to similarity search (suggested match, not
+	// asserted), or empty when no enrichment ran. Operators use this
+	// to measure the false-positive rate of similarity-based
+	// suggestions (issue #444).
+	EnrichmentMatchKind string `json:"enrichment_match_kind,omitempty" example:"urn"`
+	Authorized          bool   `json:"authorized" example:"true"`
 }
 
 // SortOrder defines sort direction.

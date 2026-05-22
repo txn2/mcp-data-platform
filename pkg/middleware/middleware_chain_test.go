@@ -1337,12 +1337,30 @@ func TestMiddlewareChain_EnrichmentAppliedInAudit(t *testing.T) {
 	if trinoEvent.SessionID == "" {
 		t.Error("trino_describe_table: SessionID is empty")
 	}
+	// Issue #444: the URN-equality lookup succeeded for this fixture
+	// (mockSemanticProvider returns a non-nil TableContext), so the
+	// audit row must carry match_kind="urn". This proves the
+	// PlatformContext set-site inside enrichTrinoResult is reached
+	// through the real assembled middleware chain, not just exercised
+	// in isolation by the unit tests.
+	if trinoEvent.EnrichmentMatchKind != middleware.EnrichmentMatchURN {
+		t.Errorf("trino_describe_table: EnrichmentMatchKind = %q, want %q",
+			trinoEvent.EnrichmentMatchKind, middleware.EnrichmentMatchURN)
+	}
 
 	if infoEvent == nil {
 		t.Fatal("missing audit event for platform_info")
 	}
 	if infoEvent.EnrichmentApplied {
 		t.Error("platform_info: EnrichmentApplied = true, want false")
+	}
+	// Issue #444: when no enrichment runs (platform_info is not a
+	// Trino tool), match_kind must stay empty. Operators querying
+	// `WHERE enrichment_match_kind = ''` get the count of
+	// non-enriched calls.
+	if infoEvent.EnrichmentMatchKind != "" {
+		t.Errorf("platform_info: EnrichmentMatchKind = %q, want empty",
+			infoEvent.EnrichmentMatchKind)
 	}
 }
 

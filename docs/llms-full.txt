@@ -257,6 +257,8 @@ injection:
   datahub_query_enrichment: true
   unwrap_json: true                # Auto-unwrap single-row VARCHAR-of-JSON (default: true)
   column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
+  semantic_fallback: false         # Fallback to similarity search on URN miss (default: false, issue #444)
+  semantic_fallback_top_k: 1       # Suggested matches per miss (default: 1, max: 10)
 ```
 
 ## Server Configuration
@@ -628,6 +630,12 @@ The `database` store requires `database.dsn`. Database-backed sessions survive r
 | `column_context_filtering` | bool | true | Limit column enrichment to SQL-referenced columns |
 | `search_schema_preview` | bool | true | Add bounded column-name+type preview to datahub_search query_context |
 | `schema_preview_max_columns` | int | 15 | Max columns per entity in schema preview |
+| `semantic_fallback` | bool | false | When a Trino-table URN lookup misses on the semantic provider, fall back to a similarity search and surface the top-K hits as SUGGESTED matches annotated with `match_kind: semantic`. Default off; operators opt in. Issue #444. |
+| `semantic_fallback_top_k` | int | 1 | Number of similarity-search hits surfaced per URN miss when `semantic_fallback` is on. Clamped to [1, 10]. |
+
+When `semantic_fallback` fires, the appended content carries `semantic_fallback.match_kind: semantic`, a human-readable note, the queried table identifier, and a list of suggested matches (urn, name, platform, description, tags, domain). The audit row's `enrichment_match_kind` column records `semantic` for these calls and `urn` for exact lookups, so operators can compute the false-positive rate of similarity-based suggestions with a SQL aggregate.
+
+The fallback fires only on the single-table enrichment path (e.g. `trino_describe_table`); multi-table SQL queries fall through with no suggestions until a follow-up extends the same hook to `enrichTrinoQueryResult`.
 
 ## URN Mapping Configuration
 
