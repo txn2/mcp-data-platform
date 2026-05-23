@@ -51,7 +51,7 @@ import { PromptDialog } from "@/components/PromptDialog";
 export function CatalogsPanel() {
   const { data: systemInfo } = useSystemInfo();
   const isReadOnly = systemInfo?.config_mode === "file";
-  const { data: catalogs, isLoading } = useAPICatalogs();
+  const { data: catalogs, isLoading, isFetching } = useAPICatalogs();
   const { data: embedStatus } = useEmbeddingProviderStatus();
   const embedderUnconfigured = embedStatus?.status === "unconfigured";
 
@@ -64,11 +64,16 @@ export function CatalogsPanel() {
   const [selectedID, setSelectedID] = useState<string | null>(initialSelection);
   const [mode, setMode] = useState<"view" | "create">("view");
 
+  // Wait for any in-flight refetch (after create/edit/clone) to land before
+  // deciding the selection is "stale". Otherwise setSelectedID(newID) races
+  // the cache invalidation: the effect sees the pre-mutation catalog list,
+  // can't find newID, and resets to catalogs[0].
   useEffect(() => {
     if (!catalogs || catalogs.length === 0) return;
+    if (isFetching) return;
     if (selectedID && catalogs.some((c) => c.id === selectedID)) return;
     setSelectedID(catalogs[0]?.id ?? null);
-  }, [catalogs, selectedID]);
+  }, [catalogs, selectedID, isFetching]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -154,38 +159,49 @@ export function CatalogsPanel() {
             <ul className="divide-y">
               {Object.keys(groupedByName)
                 .sort()
-                .map((name) => (
-                  <li key={name} className="px-2 py-1.5">
-                    <div className="px-1 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      {name}
-                    </div>
-                    <ul>
-                      {groupedByName[name]!.map((c) => (
-                        <li key={c.id}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedID(c.id);
-                              setMode("view");
-                            }}
-                            className={cn(
-                              "block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-muted",
-                              selectedID === c.id && mode === "view" && "bg-muted",
-                            )}
-                          >
-                            <div className="truncate">{c.display_name}</div>
-                            <div className="text-xs text-muted-foreground">
-                              {c.spec_count} spec{c.spec_count === 1 ? "" : "s"}
-                              {c.ref_count > 0 ? (
-                                <span> · {c.ref_count} connection{c.ref_count === 1 ? "" : "s"}</span>
-                              ) : null}
-                            </div>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </li>
-                ))}
+                .map((name) => {
+                  const group = groupedByName[name]!;
+                  // Single-version catalog: render the item directly. The
+                  // slug header is only useful when two or more versions
+                  // share a name and the operator needs to disambiguate.
+                  if (group.length === 1) {
+                    const c = group[0]!;
+                    return (
+                      <li key={name}>
+                        <CatalogListItem
+                          catalog={c}
+                          selected={selectedID === c.id && mode === "view"}
+                          onSelect={() => {
+                            setSelectedID(c.id);
+                            setMode("view");
+                          }}
+                        />
+                      </li>
+                    );
+                  }
+                  return (
+                    <li key={name} className="py-1.5">
+                      <div className="px-3 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        {name}
+                      </div>
+                      <ul>
+                        {group.map((c) => (
+                          <li key={c.id}>
+                            <CatalogListItem
+                              catalog={c}
+                              selected={selectedID === c.id && mode === "view"}
+                              onSelect={() => {
+                                setSelectedID(c.id);
+                                setMode("view");
+                              }}
+                              showVersion
+                            />
+                          </li>
+                        ))}
+                      </ul>
+                    </li>
+                  );
+                })}
             </ul>
           )}
         </aside>
@@ -217,6 +233,50 @@ export function CatalogsPanel() {
         </section>
       </div>
     </div>
+  );
+}
+
+// CatalogListItem is one row in the left-nav catalog list. When the
+// row belongs to a multi-version group, showVersion=true causes the
+// version label to render as an inline chip so the operator can pick
+// the right version under the shared slug header. For single-version
+// catalogs the version is omitted from the row (it stays visible in
+// the editor header) so the list stays uncluttered.
+function CatalogListItem({
+  catalog,
+  selected,
+  onSelect,
+  showVersion,
+}: {
+  catalog: APICatalogSummary;
+  selected: boolean;
+  onSelect: () => void;
+  showVersion?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        "block w-full rounded px-3 py-2 text-left text-sm hover:bg-muted",
+        selected && "bg-muted",
+      )}
+    >
+      <div className="flex items-center gap-2">
+        <span className="min-w-0 flex-1 truncate">{catalog.display_name}</span>
+        {showVersion && catalog.version && (
+          <span className="shrink-0 rounded bg-muted-foreground/10 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+            v{catalog.version}
+          </span>
+        )}
+      </div>
+      <div className="text-xs text-muted-foreground">
+        {catalog.spec_count} spec{catalog.spec_count === 1 ? "" : "s"}
+        {catalog.ref_count > 0 ? (
+          <span> · {catalog.ref_count} connection{catalog.ref_count === 1 ? "" : "s"}</span>
+        ) : null}
+      </div>
+    </button>
   );
 }
 
