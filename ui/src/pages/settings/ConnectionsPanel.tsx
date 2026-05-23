@@ -339,6 +339,11 @@ export function ConnectionsPanel() {
                 </div>
                 {items.map((c) => {
                   const key = `${c.kind}/${c.name}`;
+                  const health = oauthHealthByKey.get(key);
+                  const showHealth = Boolean(
+                    health?.has_oauth &&
+                      (health.needs_reauth || health.idp_error_code),
+                  );
                   return (
                     <button
                       key={key}
@@ -351,26 +356,21 @@ export function ConnectionsPanel() {
                           : "border-l-2 border-l-transparent hover:bg-muted/50",
                       )}
                     >
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-sm font-medium truncate">{c.name}</span>
-                        <span className={cn(
-                          "shrink-0 rounded px-1 py-0 text-xs font-medium",
-                          c.source === "file" ? "bg-muted text-muted-foreground" :
-                          "bg-primary/10 text-primary",
-                        )}>
-                          {c.source === "file" ? "file" : "database"}
-                        </span>
-                        <ConnectionOAuthHealthBadge
-                          health={oauthHealthByKey.get(`${c.kind}/${c.name}`)}
-                        />
-                      </div>
+                      <span className="block truncate font-mono text-sm font-medium">
+                        {c.name}
+                      </span>
+                      {showHealth && (
+                        <div className="mt-1">
+                          <ConnectionOAuthHealthBadge health={health} />
+                        </div>
+                      )}
                       {c.description && (
-                        <span className="mt-0.5 text-xs text-muted-foreground truncate">
+                        <span className="mt-1 block truncate text-xs text-muted-foreground">
                           {c.description}
                         </span>
                       )}
                       {c.tools && c.tools.length > 0 && (
-                        <span className="mt-0.5 text-xs text-muted-foreground">
+                        <span className="mt-0.5 block text-xs text-muted-foreground">
                           {c.tools.length} tools
                         </span>
                       )}
@@ -685,6 +685,7 @@ function ConnectionEditor({ connection, onSave, onCancel, onDirtyChange }: Edito
   const setMutation = useSetConnectionInstance();
   const [kind, setKind] = useState(connection?.kind ?? "trino");
   const [name, setName] = useState(connection?.name ?? "");
+  const nameValid = !isCreate || /^[a-z][a-z0-9_-]*$/.test(name);
   const [description, setDescription] = useState(
     connection?.description || (connection?.config?.description as string) || "",
   );
@@ -777,7 +778,7 @@ function ConnectionEditor({ connection, onSave, onCancel, onDirtyChange }: Edito
           <button
             type="button"
             onClick={handleSave}
-            disabled={isPending || (isCreate && !name.trim())}
+            disabled={isPending || (isCreate && (!name.trim() || !nameValid))}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all disabled:opacity-50",
               saveSuccess
@@ -832,18 +833,42 @@ function ConnectionEditor({ connection, onSave, onCancel, onDirtyChange }: Edito
             </p>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium">Name</label>
+            <label className="mb-1 block text-xs font-medium">
+              Identifier
+            </label>
             <input
               type="text"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                if (!isCreate) return;
+                const raw = e.target.value.toLowerCase();
+                const cleaned = raw.replace(/[^a-z0-9_-]/g, "");
+                setName(cleaned);
+              }}
               disabled={!isCreate}
-              placeholder="my-connection"
+              placeholder="prod-trino"
+              pattern="^[a-z][a-z0-9_-]*$"
+              maxLength={64}
+              autoComplete="off"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              aria-describedby="connection-name-help"
               className="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono outline-none ring-ring focus:ring-2 disabled:opacity-50 disabled:cursor-not-allowed"
             />
-            <p className="mt-1 text-xs text-muted-foreground">
-              Unique name within this kind. Cannot be changed after creation.
+            <p
+              id="connection-name-help"
+              className="mt-1 text-xs text-muted-foreground"
+            >
+              Machine identifier used in API routes and persona patterns.
+              Lowercase letters, digits, hyphens, underscores. Must start with
+              a letter. Cannot be changed after creation.
             </p>
+            {isCreate && name.length > 0 && !nameValid && (
+              <p className="mt-1 text-xs text-destructive">
+                Identifier must start with a lowercase letter.
+              </p>
+            )}
           </div>
         </div>
 
