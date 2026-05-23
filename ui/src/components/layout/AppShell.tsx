@@ -71,7 +71,7 @@ function readPath(): string {
   return route;
 }
 
-/** Routes that auto-collapse the sidebar (detail/viewer views). */
+/** Routes that auto-collapse the sidebar (detail/viewer/editor views). */
 function isAssetRoute(path: string): boolean {
   const route = path.split("#")[0] ?? "";
   return (
@@ -79,7 +79,8 @@ function isAssetRoute(path: string): boolean {
     /^\/admin\/assets\/.+$/.test(route) ||
     /^\/collections\/.+\/assets\/.+$/.test(route) ||
     /^\/shared\/assets\/.+$/.test(route) ||
-    /^\/prompts\/.+$/.test(route)
+    /^\/prompts\/.+$/.test(route) ||
+    /^\/admin\/personas$/.test(route)
   );
 }
 
