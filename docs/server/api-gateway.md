@@ -55,8 +55,102 @@ curl -X PUT \
 | `basic` | `Authorization: Basic base64(username:password)` per RFC 7617. For legacy APIs (Jenkins, on-prem Jira / Confluence Server / DC, internal apps) that never moved to bearer or OAuth. `password` may be empty for the `token:` pattern some APIs use. |
 | `oauth2_client_credentials` | Token fetched at `oauth2_token_url`, applied as `Authorization: Bearer ...` |
 | `oauth2_authorization_code` | Browser sign-in once; refresh token persisted (encrypted); access tokens refreshed silently |
+| `mtls` | No header. Authentication happens at the TLS handshake (RFC 5246 / 8446) via the configured client certificate. Used by upstreams that map the cert's subject DN to an internal user identity (service mesh peers, PKI-fronted internal APIs, healthcare integration engines, financial messaging endpoints, FedRAMP services, etc.). |
 
 The OAuth 2.1 authorization-code grant completes via the platform's shared `/api/v1/admin/oauth/callback` endpoint, the same path the MCP gateway uses. Register that exact callback URL with the upstream IdP.
+
+## Private CAs and mTLS
+
+mTLS (RFC 5246 / 8446 client certificate authentication at the TLS handshake) is the standard way HTTPS clients authenticate when a header bearer is not enough. The toolkit supports it generically; nothing here is vendor-specific. Common targets:
+
+- Service mesh peering (Istio, Linkerd, Consul Connect) where workload identity is a mesh-issued client cert.
+- PKI-fronted enterprise APIs that pre-date OAuth.
+- Healthcare integration engines (Mirth Connect, Rhapsody, InterSystems IRIS HealthShare).
+- Financial messaging endpoints: SWIFT REST surfaces, Open Banking / FAPI, bank-direct payment APIs.
+- FedRAMP / DoD-boundary services (DISA Cloud IL4/5) where a DoD-CA-issued cert is the access gate.
+- HashiCorp Vault when the configured auth method is `cert/`.
+- Kubernetes API server, etcd, and other PKI-bootstrapped infra.
+- Apache Kafka REST Proxy, Schema Registry, NiFi, and similar Apache projects when deployed with the standard security profile.
+- Any HTTPS service signed by a private CA the host does not carry by default (the CA-bundle half of this feature is useful on its own, even when no client cert is required).
+
+Two TLS concerns live on every `kind: api` connection regardless of auth mode:
+
+- **Outbound client certificate** (`mtls_client_cert_pem` + `mtls_client_key_pem`). The gateway presents this cert during the TLS handshake. With `auth_mode: mtls`, the cert IS the credential; with any other auth mode (bearer, api_key, basic, oauth2_*), the cert is layered on top.
+- **Custom server CA trust** (`tls_ca_bundle_pem`). A PEM bundle appended to the system root pool when verifying the upstream's TLS certificate. Required when the upstream is signed by a private CA (corporate root, cluster-internal CA) that the host's default cert store does not carry. Public CAs remain trusted; the bundle never substitutes for the system roots.
+
+Both are optional and orthogonal. An internal HTTPS service behind a private CA may only need the bundle; an upstream that requires mTLS but has a public TLS cert needs only the cert + key; an upstream that wants both (signed by a private CA AND requiring client auth) sets all three.
+
+There is no `insecure_skip_verify` flag. To talk to a self-signed endpoint, paste the endpoint's CA into `tls_ca_bundle_pem`.
+
+### Validation rules
+
+- `mtls_client_cert_pem` and `mtls_client_key_pem` must be set together (or both empty). The toolkit refuses a connection with only one half of the pair.
+- The cert and key must parse as PEM and the key must match the cert (`tls.X509KeyPair` runs a signature check at write time).
+- Key strength is enforced: RSA must be at least 2048 bits, ECDSA must use one of P-256 / P-384 / P-521, Ed25519 is accepted. Smaller or non-NIST keys are rejected.
+- `tls_ca_bundle_pem`, when set, must contain at least one parseable `CERTIFICATE` block. A bundle that contains only PRIVATE KEY blocks is rejected.
+- `auth_mode: mtls` requires both cert and key.
+
+### Encryption at rest
+
+The private key (`mtls_client_key_pem`) is encrypted with AES-256-GCM via the platform's `FieldEncryptor` when `ENCRYPTION_KEY` is set. The cert and CA bundle are public material and stored in plain text. Admin API responses redact the private key as `[REDACTED]`; re-submitting the value `[REDACTED]` on a PUT preserves the existing key.
+
+### Cert expiry surfacing
+
+GET responses on `/api/v1/admin/connection-instances/api/{name}` include `mtls_cert_not_after` as an RFC3339 UTC timestamp parsed from the leaf cert. The portal renders an expiry badge from this field (green at 30 or more days remaining, amber under 30 days, red when expired). The badge is informational only; the toolkit does NOT refuse to make calls with an expired cert because the upstream's TLS layer will reject the handshake on its own and the model's error feedback loop is the right place to learn this.
+
+### IdP behind a private CA
+
+When `auth_mode` is `oauth2_client_credentials` or `oauth2_authorization_code` and the IdP itself is signed by a private CA, set `tls_ca_bundle_pem` on the connection. The same bundle is honored by the token-exchange and refresh paths so token fetches succeed against private IdPs. Client mTLS material is NOT presented to the IdP; if your IdP requires a client cert at the token endpoint, that's a separate concern from upstream mTLS and is not yet supported.
+
+### Configuring an mTLS connection
+
+The shape is the same for every upstream: obtain a client cert + private key from the upstream's CA (or the CA that the upstream is configured to trust), give the gateway both PEMs plus the CA's cert, and select the right `auth_mode`. Below is a generic example using `openssl`; the curl call is identical for any upstream that wants mTLS.
+
+```bash
+# 1. Obtain (or mint, for testing) a client cert from the CA the upstream trusts.
+#    In production this comes from your PKI tooling; for a smoke test, openssl
+#    can mint a leaf signed by a CA you also control.
+
+openssl req -new -newkey rsa:2048 -nodes \
+  -keyout gw.key -out gw.csr \
+  -subj "/CN=mcp-data-platform/OU=service"
+
+openssl x509 -req -in gw.csr -CA upstream-ca.crt -CAkey upstream-ca.key \
+  -CAcreateserial -out gw.crt -days 365 -sha256
+
+# 2. Register the cert's identity with the upstream.
+#    The exact step depends on the upstream: an Apache project may map the DN
+#    in authorizations.xml; a service mesh ingress may bind the SPIFFE ID;
+#    Vault's cert auth method matches against the cert directly. Whatever the
+#    upstream's identity-mapping mechanism is, do it now.
+
+# 3. Create the gateway connection.
+
+curl -X PUT \
+  -H "X-API-Key: $ADMIN_KEY" -H "Content-Type: application/json" \
+  -d "$(jq -n \
+        --arg cert "$(cat gw.crt)" \
+        --arg key  "$(cat gw.key)" \
+        --arg ca   "$(cat upstream-ca.crt)" '{
+    config: {
+      base_url:             "https://upstream.example.org",
+      auth_mode:            "mtls",
+      mtls_client_cert_pem: $cert,
+      mtls_client_key_pem:  $key,
+      tls_ca_bundle_pem:    $ca
+    },
+    description: "Internal HTTPS upstream behind private CA"
+  }')" \
+  https://platform.example.com/api/v1/admin/connection-instances/api/upstream
+
+# 4. Verify the connection by hitting any path the upstream exposes.
+
+curl -X POST -H "X-API-Key: $ADMIN_KEY" -H "Content-Type: application/json" \
+  -d '{"method":"GET","path":"/healthz"}' \
+  https://platform.example.com/api/v1/gateway/upstream/invoke
+```
+
+For upstreams that issue their own client certs via tooling (Apache NiFi's `tls-toolkit.sh`, Vault's PKI engine, cert-manager, your corporate PKI portal), substitute that tool's output for the `openssl` step. The toolkit only sees the PEM-encoded cert, key, and CA bundle.
 
 ## Static headers
 

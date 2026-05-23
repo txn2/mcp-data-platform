@@ -73,7 +73,10 @@ func Refresh(ctx context.Context, in RefreshInput) (*RefreshResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	client := newTokenExchangeClient()
+	client, err := newTokenExchangeClient(in.Config)
+	if err != nil {
+		return nil, err
+	}
 	body, err := postRefresh(client, req, in.Config.TokenURL)
 	if err != nil {
 		return nil, err

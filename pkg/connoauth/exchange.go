@@ -78,7 +78,10 @@ func Exchange(ctx context.Context, in ExchangeInput) (*ExchangeResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	client := newTokenExchangeClient()
+	client, err := newTokenExchangeClient(in.Config)
+	if err != nil {
+		return nil, err
+	}
 	body, err := postExchange(client, req, in.Config.TokenURL)
 	if err != nil {
 		return nil, err

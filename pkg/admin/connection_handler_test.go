@@ -2,12 +2,19 @@ package admin
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -725,6 +732,127 @@ func TestRedactConnectionConfig_StaticHeaders(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, "[REDACTED]", inner["X-Subscription"])
 	})
+}
+
+// TestRedactConnectionConfig_MTLSExpirySurfaced verifies that GET
+// responses include the leaf certificate's NotAfter as
+// mtls_cert_not_after (RFC3339, UTC) so the portal can render an
+// expiry badge without re-parsing the PEM client-side. The
+// expectation: when a connection carries a valid mtls_client_cert_pem,
+// the redacted output gains the expiry field; without a cert, no
+// such field appears.
+func TestRedactConnectionConfig_MTLSExpirySurfaced(t *testing.T) {
+	certPEM := mintTestLeafForRedactionTest(t, time.Now().Add(60*24*time.Hour))
+	got := redactConnectionConfig(map[string]any{
+		"mtls_client_cert_pem": certPEM,
+		"mtls_client_key_pem":  "anything-here-because-it-gets-redacted",
+	})
+	assert.Equal(t, "[REDACTED]", got["mtls_client_key_pem"], "private key must be redacted")
+	raw, ok := got["mtls_cert_not_after"].(string)
+	require.True(t, ok, "expiry field must be added as a string")
+	parsed, err := time.Parse(time.RFC3339, raw)
+	require.NoError(t, err)
+	assert.True(t, parsed.After(time.Now()))
+	// No cert: no expiry field.
+	noCert := redactConnectionConfig(map[string]any{"base_url": "https://x"})
+	_, present := noCert["mtls_cert_not_after"]
+	assert.False(t, present, "no expiry field without a cert")
+	// Garbage cert: no expiry field (zero time is filtered).
+	garbage := redactConnectionConfig(map[string]any{"mtls_client_cert_pem": "not pem"})
+	_, present = garbage["mtls_cert_not_after"]
+	assert.False(t, present, "unparseable cert must not surface a zero-time expiry")
+}
+
+// TestRedactConnectionConfig_MTLSExpiryIsServerDerivedNotPersisted is
+// the regression guard for the PUT round-trip bug. The UI loads
+// mtls_cert_not_after from a GET response, includes it in the next
+// PUT body, and the server must NOT persist it: the field is a
+// server-derived view of the leaf cert, not operator config. The
+// two checks below capture the two failure modes the bug had:
+//
+//  1. setConnectionInstance is expected to strip the field from
+//     req.Config before persistence, but the unit-level invariant
+//     we can assert here is that redactConnectionConfig filters any
+//     stale value from the stored config on GET. A stale value
+//     (left over from a pre-fix deployment that persisted the field
+//     via PUT) plus a removed cert would otherwise let the portal
+//     falsely report the connection still had a valid cert.
+//  2. With no cert configured, no expiry field appears in the
+//     response even if the underlying config map carries a stale
+//     value.
+func TestRedactConnectionConfig_MTLSExpiryIsServerDerivedNotPersisted(t *testing.T) {
+	// (1) Stale persisted value + cert removed: response must omit
+	// the expiry field rather than echoing the stale string.
+	stale := redactConnectionConfig(map[string]any{
+		"base_url":            "https://x",
+		"mtls_cert_not_after": "2020-01-01T00:00:00Z",
+	})
+	_, present := stale["mtls_cert_not_after"]
+	assert.False(t, present, "stale persisted expiry must be filtered when no cert is present")
+
+	// (2) Stale persisted value + fresh cert: response must carry
+	// the freshly computed value, not the stale one.
+	freshCert := mintTestLeafForRedactionTest(t, time.Now().Add(120*24*time.Hour))
+	mixed := redactConnectionConfig(map[string]any{
+		"mtls_client_cert_pem": freshCert,
+		"mtls_cert_not_after":  "2020-01-01T00:00:00Z",
+	})
+	raw, ok := mixed["mtls_cert_not_after"].(string)
+	require.True(t, ok, "fresh cert must repopulate the expiry field")
+	got, err := time.Parse(time.RFC3339, raw)
+	require.NoError(t, err)
+	assert.True(t, got.After(time.Now().Add(60*24*time.Hour)),
+		"recomputed expiry must reflect the actual leaf NotAfter, not the stale stored value")
+}
+
+// TestSetConnectionInstance_StripsMTLSCertNotAfterFromIncomingBody
+// proves the second half of the fix end-to-end: a PUT that includes
+// mtls_cert_not_after (the shape the UI sends when it loads GET into
+// the editor and re-saves) does NOT round-trip the field into the
+// connection store. The check is on the persisted ConnectionInstance,
+// not the HTTP response, because the response goes through
+// redactConnectionConfig which would always strip the field; only
+// reaching into the store proves the strip happened before persist.
+func TestSetConnectionInstance_StripsMTLSCertNotAfterFromIncomingBody(t *testing.T) {
+	store := &mockConnectionStore{}
+	h := connTestHandler(store, true)
+	body := strings.NewReader(`{
+		"config": {
+			"base_url": "https://upstream.example",
+			"mtls_cert_not_after": "2020-01-01T00:00:00Z"
+		},
+		"description": "test"
+	}`)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut,
+		"/api/v1/admin/connection-instances/trino/test", body)
+	req.SetPathValue("kind", "trino")
+	req.SetPathValue("name", "test")
+	rr := httptest.NewRecorder()
+	h.setConnectionInstance(rr, req)
+	require.Equal(t, http.StatusOK, rr.Code, "unexpected: %s", rr.Body.String())
+
+	require.Len(t, store.setCalls, 1, "PUT must invoke ConnectionStore.Set exactly once")
+	_, present := store.setCalls[0].Config["mtls_cert_not_after"]
+	assert.False(t, present, "server-derived field must be stripped before persistence")
+}
+
+// mintTestLeafForRedactionTest creates a throwaway self-signed cert
+// for the redaction test. Stays inside the test file so it never
+// reaches a code path outside the admin package's test boundary.
+func mintTestLeafForRedactionTest(t *testing.T, notAfter time.Time) string {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "redaction-test"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     notAfter,
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	require.NoError(t, err)
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
 }
 
 func TestHasRedactedValues_StaticHeaders(t *testing.T) {

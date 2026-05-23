@@ -2,6 +2,7 @@ package apigateway
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -52,13 +53,31 @@ func NewAuthenticator(c Config) (Authenticator, error) {
 		// alone cannot supply one (it has no DB handle); the toolkit's
 		// addParsedConnection wires the TokenStore at materialization
 		// time. Returning the un-stored variant here keeps the call
-		// site consistent — the toolkit immediately calls
+		// site consistent: the toolkit immediately calls
 		// SetTokenStore on it.
 		return newOAuth2AuthorizationCodeAuth(c), nil
+	case AuthModeMTLS:
+		// The client certificate IS the credential. No header is
+		// added; the TLS handshake at transport setup
+		// (newHTTPTransport) attaches the cert. The no-op Apply
+		// keeps the invocation path's "always call Apply" contract
+		// without a nil check.
+		return mtlsAuth{}, nil
 	default:
 		return nil, fmt.Errorf("apigateway: no authenticator for auth_mode %q", c.AuthMode)
 	}
 }
+
+// mtlsAuth is a no-op Authenticator used when the connection presents
+// a client certificate during the TLS handshake instead of an
+// Authorization header. The cert + key are attached to the
+// http.Transport's TLSClientConfig by newHTTPTransport; this struct
+// exists only so the invocation path can call Apply unconditionally
+// across every auth mode.
+type mtlsAuth struct{}
+
+// Apply is a no-op; auth_mode=mtls authenticates at the TLS layer.
+func (mtlsAuth) Apply(_ *http.Request) error { return nil }
 
 // noneAuth applies no credential. Distinct from a nil Authenticator so
 // the toolkit's invocation path can call Apply unconditionally.
@@ -197,20 +216,44 @@ type oauth2ClientCredentialsAuth struct {
 // staying generous for IdPs with slow first-token issuance.
 const oauth2TokenFetchTimeout = 30 * time.Second
 
-// newTokenExchangeClient builds the http.Client used for any
-// credential-bearing POST to an OAuth token endpoint (initial code
-// exchange, refresh-token grant, client_credentials acquire). The
-// CheckRedirect hook refuses 3xx so a misconfigured or compromised
-// IdP cannot redirect the form body — which carries client_secret
-// and (on refresh) the long-lived refresh_token — to an attacker
-// URL. Mirrors the MCP gateway's same-purpose helper.
-func newTokenExchangeClient() *http.Client {
-	return &http.Client{
+// newTokenExchangeClient builds the http.Client used for the
+// client_credentials token acquire. The initial authorization_code
+// exchange and the refresh path use the same-named helper in
+// pkg/connoauth/source.go via the unified Source; this one is only
+// reached by newOAuth2ClientCredentialsAuth.
+//
+// The CheckRedirect hook refuses 3xx so a misconfigured or
+// compromised IdP cannot redirect the form body (which carries
+// client_secret) to an attacker URL.
+//
+// When cfg.TLSCABundlePEM is set, the bundle is appended to the
+// system root pool and the resulting tls.Config is attached to a
+// dedicated Transport. Public CAs remain trusted; the bundle never
+// substitutes for the system roots. Client mTLS material is
+// intentionally NOT plumbed here: presenting a client cert to the
+// IdP is a deliberate decision that should not piggy-back on the
+// upstream cert.
+func newTokenExchangeClient(cfg Config) *http.Client {
+	client := &http.Client{
 		Timeout: oauth2TokenFetchTimeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
 	}
+	if cfg.TLSCABundlePEM == "" {
+		return client
+	}
+	pool, err := rootPoolWithBundle(cfg.TLSCABundlePEM)
+	if err != nil {
+		return client
+	}
+	client.Transport = &http.Transport{
+		TLSClientConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			RootCAs:    pool,
+		},
+	}
+	return client
 }
 
 func newOAuth2ClientCredentialsAuth(c Config) oauth2ClientCredentialsAuth {
@@ -231,8 +274,9 @@ func newOAuth2ClientCredentialsAuth(c Config) oauth2ClientCredentialsAuth {
 	// refuses to follow 3xx so a misconfigured or compromised IdP
 	// cannot redirect this credential-bearing POST (carrying
 	// client_secret in the form body or HTTP Basic header) to an
-	// attacker URL.
-	ctx := context.WithValue(context.Background(), oauth2.HTTPClient, newTokenExchangeClient())
+	// attacker URL. When the connection carries a TLS CA bundle, the
+	// same bundle is honored here so IdPs behind a private CA work.
+	ctx := context.WithValue(context.Background(), oauth2.HTTPClient, newTokenExchangeClient(c))
 	// The token source caches in-memory and re-fetches when expired.
 	// Wrap with oauth2.ReuseTokenSource so the cache is reused
 	// across Apply calls; clientcredentials.Config.TokenSource
@@ -371,7 +415,7 @@ func (a *oauth2AuthorizationCodeAuth) Apply(req *http.Request) error {
 	src := connoauth.NewSource(store, connoauth.Key{
 		Kind: connoauth.KindAPI,
 		Name: a.cfg.ConnectionName,
-	}, connoauthConfigFromOAuth2(a.cfg.OAuth2)).
+	}, connoauthConfigFromOAuth2(a.cfg)).
 		WithEvents(events).
 		WithActor(authevents.SystemToolCall)
 	token, err := src.Token(req.Context())
@@ -386,20 +430,24 @@ func (a *oauth2AuthorizationCodeAuth) Apply(req *http.Request) error {
 }
 
 // connoauthConfigFromOAuth2 maps the toolkit's OAuth2 config slice to
-// the unified connoauth.Config the Source consumes.
-func connoauthConfigFromOAuth2(o OAuth2Config) connoauth.Config {
+// the unified connoauth.Config the Source consumes. The full Config
+// (including the CA bundle for IdPs behind a private CA) is read so
+// the token-exchange and refresh paths can verify the IdP's TLS cert
+// against the operator's bundle without falling back to system trust.
+func connoauthConfigFromOAuth2(c Config) connoauth.Config {
 	authStyle := oauth2.AuthStyleInHeader
-	if o.EndpointAuthStyle == OAuth2AuthStyleParams {
+	if c.OAuth2.EndpointAuthStyle == OAuth2AuthStyleParams {
 		authStyle = oauth2.AuthStyleInParams
 	}
 	return connoauth.Config{
 		Grant:             "authorization_code",
-		AuthorizationURL:  o.AuthorizationURL,
-		TokenURL:          o.TokenURL,
-		ClientID:          o.ClientID,
-		ClientSecret:      o.ClientSecret,
-		Scopes:            o.Scopes,
+		AuthorizationURL:  c.OAuth2.AuthorizationURL,
+		TokenURL:          c.OAuth2.TokenURL,
+		ClientID:          c.OAuth2.ClientID,
+		ClientSecret:      c.OAuth2.ClientSecret,
+		Scopes:            c.OAuth2.Scopes,
 		EndpointAuthStyle: authStyle,
-		Prompt:            o.Prompt,
+		Prompt:            c.OAuth2.Prompt,
+		CABundlePEM:       c.TLSCABundlePEM,
 	}
 }

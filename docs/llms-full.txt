@@ -2495,7 +2495,20 @@ Use the API gateway for REST/HTTP upstreams (Salesforce, Google APIs, GitHub, St
 
 ## Connection config
 
-Stored in the database, authored through the admin portal or the admin REST API. Required field: `base_url`. Auth modes: `none`, `bearer`, `api_key` (header or query placement), `basic` (RFC 7617 `Authorization: Basic base64(username:password)` for legacy APIs that never moved to bearer or OAuth, like Jenkins or on-prem Jira / Confluence Server / DC; `password` may be empty for the token-in-userid pattern; `username` is rejected if it contains `:` per RFC 7617 §2 or CR/LF/NUL header-smuggling vectors), `oauth2_client_credentials`, `oauth2_authorization_code`. The authorization-code grant completes via the platform's shared `/api/v1/admin/oauth/callback` endpoint (same as MCP gateway).
+Stored in the database, authored through the admin portal or the admin REST API. Required field: `base_url`. Auth modes: `none`, `bearer`, `api_key` (header or query placement), `basic` (RFC 7617 `Authorization: Basic base64(username:password)` for legacy APIs that never moved to bearer or OAuth, like Jenkins or on-prem Jira / Confluence Server / DC; `password` may be empty for the token-in-userid pattern; `username` is rejected if it contains `:` per RFC 7617 §2 or CR/LF/NUL header-smuggling vectors), `oauth2_client_credentials`, `oauth2_authorization_code`, `mtls` (X.509 client certificate at the TLS handshake per RFC 5246 / 8446: the cert subject DN IS the credential, used by upstreams that map a certificate identity to a user: service mesh peers, PKI-fronted internal APIs, healthcare integration engines, financial messaging endpoints, FedRAMP services, HashiCorp Vault cert auth, Kubernetes API server, and Apache projects deployed with the standard security profile). The authorization-code grant completes via the platform's shared `/api/v1/admin/oauth/callback` endpoint (same as MCP gateway).
+
+## Private CAs and mTLS
+
+Two TLS concerns live on every `kind: api` connection regardless of auth mode:
+
+- **Outbound client cert** (`mtls_client_cert_pem` + `mtls_client_key_pem`): presented during the TLS handshake. With `auth_mode: mtls`, the cert IS the credential. With any other auth mode, the cert is layered on top (bearer + mTLS, oauth2 + mTLS, etc.).
+- **Custom server CA trust** (`tls_ca_bundle_pem`): PEM bundle appended to the system root pool. Required when the upstream's TLS cert is signed by a private CA (corporate root, cluster-internal CA, mesh CA, vendor-issued CA). Public CAs remain trusted; the bundle never substitutes for system roots.
+
+Both are optional and orthogonal. Validation: cert + key are mutually required when either is set; the key must match the cert (`tls.X509KeyPair` signature check at write time); RSA must be at least 2048 bits, ECDSA must use P-256 / P-384 / P-521, Ed25519 is accepted, weaker keys are rejected; the CA bundle must contain at least one parseable `CERTIFICATE` block when set. The private key is encrypted at rest via the FieldEncryptor sensitive-keys list (alongside `client_secret`, `credential`, `password`); admin GET responses redact it as `[REDACTED]` and surface `mtls_cert_not_after` (RFC3339 UTC) computed from the leaf cert for portal expiry badges. No `insecure_skip_verify` knob: self-signed endpoints require pasting their CA into `tls_ca_bundle_pem`.
+
+For OAuth modes (`oauth2_client_credentials` and `oauth2_authorization_code`), the same `tls_ca_bundle_pem` is honored on the IdP token-exchange and refresh paths via `connoauth.Config.CABundlePEM`, so IdPs behind a private CA work end-to-end. Client mTLS material is intentionally NOT presented to the IdP (presenting a client cert to the token endpoint is a deliberate decision, not an implicit reuse of the upstream cert).
+
+Implementation: `pkg/toolkits/apigateway/tls.go::buildTLSConfig` constructs the per-connection `*tls.Config` (Certificates + RootCAs), `pkg/toolkits/apigateway/toolkit.go::newHTTPTransport` wires it into the http.Transport's `TLSClientConfig`, and `pkg/toolkits/apigateway/auth.go::mtlsAuth` is a no-op Authenticator for `auth_mode: mtls` (the cert at the handshake is the credential, no header is added).
 
 ## Static headers
 

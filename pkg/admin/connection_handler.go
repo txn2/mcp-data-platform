@@ -2,7 +2,9 @@ package admin
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"log/slog"
 	"maps"
@@ -167,6 +169,15 @@ func (h *Handler) setConnectionInstance(w http.ResponseWriter, r *http.Request) 
 
 	if req.Config == nil {
 		req.Config = map[string]any{}
+	}
+
+	// Drop server-derived fields from the incoming body so a UI that
+	// loads the GET response into its form (with mtls_cert_not_after
+	// present) and POSTs it back does NOT persist the snapshot. The
+	// expiry is recomputed from the leaf cert on every GET; storing
+	// it would let a stale value survive a cert removal.
+	for _, key := range platformInternalKeys {
+		delete(req.Config, key)
 	}
 
 	// If any sensitive field is "[REDACTED]", preserve the existing value from the store.
@@ -452,6 +463,7 @@ const (
 	sensKeySecretKey          = "secret_key"           // #nosec G101 -- field name, not a credential
 	sensKeyAccessToken        = "access_token"         // #nosec G101 -- field name, not a credential
 	sensKeyRefreshToken       = "refresh_token"        // #nosec G101 -- field name, not a credential
+	sensKeyMTLSClientKeyPEM   = "mtls_client_key_pem"  // #nosec G101 -- field name, not a credential
 )
 
 // connectionSensitiveKeys lists config keys that contain secrets and must be
@@ -461,6 +473,7 @@ var connectionSensitiveKeys = []string{
 	sensKeyToken, sensKeyAccessToken, sensKeyRefreshToken, sensKeyAPIKey,
 	sensKeyCredential,
 	sensKeyClientSecret, sensKeyOAuthClientSecret, sensKeyOAuth2ClientSecret,
+	sensKeyMTLSClientKeyPEM,
 }
 
 // nestedMapSensitiveKeys lists config keys whose value is itself a
@@ -471,14 +484,20 @@ var nestedMapSensitiveKeys = []string{
 }
 
 // platformInternalKeys lists config keys injected by the platform at runtime
-// (e.g., elicitation, progress) that should not be exposed in admin API responses.
+// (e.g., elicitation, progress) that should not be exposed in admin API
+// responses. mtls_cert_not_after is also here because it is a server-derived
+// view of the leaf certificate's NotAfter, not operator config: a PUT must
+// never store it and a GET must always recompute it.
 var platformInternalKeys = []string{
-	"elicitation", "progress_enabled",
+	"elicitation", "progress_enabled", "mtls_cert_not_after",
 }
 
 // redactConnectionConfig returns a copy of config with sensitive fields replaced
 // by "[REDACTED]" and platform-internal keys removed. Non-sensitive fields are
-// copied as-is.
+// copied as-is. Derived metadata that the portal benefits from (the
+// mTLS leaf certificate's NotAfter, surfaced as mtls_cert_not_after) is
+// computed from the public cert PEM and added to the response so the
+// portal can render an expiry badge without re-parsing the cert client-side.
 func redactConnectionConfig(config map[string]any) map[string]any {
 	if config == nil {
 		return nil
@@ -495,10 +514,45 @@ func redactConnectionConfig(config map[string]any) map[string]any {
 			result[key] = redactNestedMapValues(raw)
 		}
 	}
+	// platformInternalKeys is applied BEFORE recomputing
+	// mtls_cert_not_after so a stale persisted value (left over from
+	// a pre-fix deployment that round-tripped the field through PUT)
+	// is dropped, and only the fresh server-computed value survives
+	// to the response. Without this ordering, removing the cert from
+	// a connection would leave the stale expiry in place and the
+	// portal would falsely report the connection still had a valid
+	// cert.
 	for _, key := range platformInternalKeys {
 		delete(result, key)
 	}
+	if expiry := mtlsCertNotAfter(config); !expiry.IsZero() {
+		result["mtls_cert_not_after"] = expiry.UTC().Format(time.RFC3339)
+	}
 	return result
+}
+
+// mtlsCertNotAfter parses the apigateway connection's leaf
+// certificate (when present) and returns its NotAfter timestamp.
+// Returns the zero time when no cert is configured or the PEM is
+// unparseable; callers MUST treat a zero return as "expiry unknown"
+// rather than "expires at the Unix epoch". Kept here (not pulled
+// from pkg/toolkits/apigateway) so the admin handler does not take
+// a transitive import on the full apigateway toolkit; the parse
+// logic is five lines and the duplication is intentional.
+func mtlsCertNotAfter(config map[string]any) time.Time {
+	raw, ok := config["mtls_client_cert_pem"].(string)
+	if !ok || raw == "" {
+		return time.Time{}
+	}
+	block, _ := pem.Decode([]byte(raw))
+	if block == nil || block.Type != "CERTIFICATE" {
+		return time.Time{}
+	}
+	leaf, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return time.Time{}
+	}
+	return leaf.NotAfter
 }
 
 // redactNestedMapValues returns a copy of a map[string]any whose inner
