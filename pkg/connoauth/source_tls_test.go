@@ -202,7 +202,7 @@ func TestExchange_HonorsCABundleAgainstPrivateCA(t *testing.T) {
 // stays minimal; strings is already imported by source_test.go but
 // importing it here would be redundant given the single call site.
 func contains(s, sub string) bool {
-	if len(sub) == 0 {
+	if sub == "" {
 		return true
 	}
 	for i := 0; i+len(sub) <= len(s); i++ {
@@ -255,7 +255,7 @@ func mintCAReturningParts(t *testing.T) (string, *x509.Certificate, *rsa.Private
 // signServerCert issues a server cert signed by the given CA for the
 // given IP SAN (the loopback address httptest uses). Returns cert
 // and key PEM strings.
-func signServerCert(t *testing.T, ca *x509.Certificate, caKey *rsa.PrivateKey, ipSAN string) (string, string) {
+func signServerCert(t *testing.T, ca *x509.Certificate, caKey *rsa.PrivateKey, ipSAN string) (certPEM, keyPEM string) {
 	t.Helper()
 	leafKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -275,11 +275,11 @@ func signServerCert(t *testing.T, ca *x509.Certificate, caKey *rsa.PrivateKey, i
 	if err != nil {
 		t.Fatalf("leaf CreateCertificate: %v", err)
 	}
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	certPEM = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
 	keyDER, err := x509.MarshalPKCS8PrivateKey(leafKey)
 	if err != nil {
 		t.Fatalf("MarshalPKCS8PrivateKey: %v", err)
 	}
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
-	return string(certPEM), string(keyPEM)
+	keyPEM = string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}))
+	return certPEM, keyPEM
 }

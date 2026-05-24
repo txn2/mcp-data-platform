@@ -126,7 +126,6 @@ const (
 	cfgKeyAPIKeyPlacement  = "api_key_placement"
 	cfgKeyUsername         = "username"
 	cfgKeyPassword         = "password" // #nosec G101 -- map key, not a credential; encryption handled by platform FieldEncryptor sensitive-keys list
-	cfgKeyConnectionName   = "connection_name"
 	cfgKeyConnectTimeout   = "connect_timeout"
 	cfgKeyCallTimeout      = "call_timeout"
 	cfgKeyTrustLevel       = "trust_level"
@@ -205,9 +204,12 @@ type Config struct {
 	// platform's FieldEncryptor; the "password" cfg key is already in
 	// the sensitive-keys list.
 	Password string
-	// ConnectionName is the audit-visible connection identifier and the
-	// value passed in the tool's `connection` argument. Defaults to
-	// the toolkit instance name when unset.
+	// ConnectionName is the audit-visible connection identifier and
+	// the value passed in the tool's `connection` argument. Always
+	// populated from the toolkit instance name by ParseMultiConfig /
+	// addParsedConnection: there is no operator-facing override,
+	// because instance name and ConnectionName were always 1:1 and
+	// two names for one concept confused admins.
 	ConnectionName string
 	// ConnectTimeout caps the dial step on each invocation.
 	ConnectTimeout time.Duration
@@ -356,7 +358,6 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	c.APIKeyParam = getString(cfg, cfgKeyAPIKeyParam)
 	c.Username = getString(cfg, cfgKeyUsername)
 	c.Password = getString(cfg, cfgKeyPassword)
-	c.ConnectionName = getString(cfg, cfgKeyConnectionName)
 	c.ConnectTimeout = getDuration(cfg, cfgKeyConnectTimeout, c.ConnectTimeout)
 	c.CallTimeout = getDuration(cfg, cfgKeyCallTimeout, c.CallTimeout)
 	c.TrustLevel = getStringDefault(cfg, cfgKeyTrustLevel, c.TrustLevel)

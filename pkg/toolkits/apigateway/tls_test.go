@@ -2,6 +2,7 @@ package apigateway
 
 import (
 	"bytes"
+	"context"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
@@ -42,7 +43,7 @@ const (
 // Helper for the table-driven validation tests; the certificates are
 // not signed by any CA the test layer trusts (each test that needs a
 // trusted server constructs its own CA via newTestCA).
-func generateCertPair(t *testing.T, alg keyAlg) (string, string, *x509.Certificate) {
+func generateCertPair(t *testing.T, alg keyAlg) (certPEM, keyPEM string, leaf *x509.Certificate) {
 	t.Helper()
 	tmpl := &x509.Certificate{
 		SerialNumber: big.NewInt(1),
@@ -55,19 +56,19 @@ func generateCertPair(t *testing.T, alg keyAlg) (string, string, *x509.Certifica
 	priv, pub := genKey(t, alg)
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, pub, priv)
 	require.NoError(t, err)
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	certPEM = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
 	keyDER, err := x509.MarshalPKCS8PrivateKey(priv)
 	require.NoError(t, err)
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
-	leaf, err := x509.ParseCertificate(der)
+	keyPEM = string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}))
+	leaf, err = x509.ParseCertificate(der)
 	require.NoError(t, err)
-	return string(certPEM), string(keyPEM), leaf
+	return certPEM, keyPEM, leaf
 }
 
 // genKey returns a (private, public) pair for the named algorithm.
 // Wrapped in its own function so the table-driven tests do not have a
 // big switch on every call.
-func genKey(t *testing.T, alg keyAlg) (any, any) {
+func genKey(t *testing.T, alg keyAlg) (priv, pub any) {
 	t.Helper()
 	switch alg {
 	case keyRSA2048:
@@ -75,6 +76,7 @@ func genKey(t *testing.T, alg keyAlg) (any, any) {
 		require.NoError(t, err)
 		return k, &k.PublicKey
 	case keyRSA1024:
+		// #nosec G403 -- intentional weak key to exercise checkKeyStrength's RSA-bits rejection branch.
 		k, err := rsa.GenerateKey(rand.Reader, 1024)
 		require.NoError(t, err)
 		return k, &k.PublicKey
@@ -292,7 +294,7 @@ func TestMTLSAuth_ApplyIsNoOp(t *testing.T) {
 		MTLSClientKeyPEM:  mustGenKeyForAuthTest(t),
 	})
 	require.NoError(t, err)
-	req := httptest.NewRequest(http.MethodGet, "https://example", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "https://example", http.NoBody)
 	require.NoError(t, auth.Apply(req))
 	assert.Empty(t, req.Header.Get("Authorization"))
 }
@@ -313,7 +315,7 @@ func TestParseConfig_MTLSAuthMode_PopulatesNoOpAuthenticator(t *testing.T) {
 	assert.Equal(t, AuthModeMTLS, cfg.AuthMode)
 	auth, err := NewAuthenticator(cfg)
 	require.NoError(t, err)
-	req := httptest.NewRequest(http.MethodGet, "https://upstream.example/x", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "https://upstream.example/x", http.NoBody)
 	require.NoError(t, auth.Apply(req))
 	assert.Empty(t, req.Header.Get("Authorization"))
 }
@@ -369,7 +371,7 @@ func TestNewHTTPTransport_PresentsClientCertAndTrustsPrivateCA(t *testing.T) {
 	auth, err := NewAuthenticator(cfg)
 	require.NoError(t, err)
 
-	req, err := http.NewRequest(http.MethodGet, srv.URL+"/probe", http.NoBody)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/probe", http.NoBody)
 	require.NoError(t, err)
 	require.NoError(t, auth.Apply(req))
 	resp, err := client.Do(req)
@@ -407,7 +409,7 @@ func TestNewHTTPTransport_RejectsHandshakeWithoutClientCert(t *testing.T) {
 	require.NoError(t, err)
 	client := newHTTPClient(cfg)
 
-	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/probe", http.NoBody)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL+"/probe", http.NoBody)
 	resp, err := client.Do(req)
 	if resp != nil {
 		_ = resp.Body.Close()
@@ -466,7 +468,12 @@ func TestNewTokenExchangeClient_HonorsCABundle(t *testing.T) {
 
 	cfg := Config{TLSCABundlePEM: ca.certPEM}
 	client := newTokenExchangeClient(cfg)
-	resp, err := client.Post(srv.URL+"/token", "application/x-www-form-urlencoded", strings.NewReader(""))
+	postReq, err := http.NewRequestWithContext(context.Background(),
+		http.MethodPost, srv.URL+"/token",
+		strings.NewReader(""))
+	require.NoError(t, err)
+	postReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := client.Do(postReq)
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -544,15 +551,15 @@ func (c *testCA) issueClientCert(t *testing.T, cn string) (certPEM, keyPEM strin
 	return c.signLeaf(t, tmpl, leafKey)
 }
 
-func (c *testCA) signLeaf(t *testing.T, tmpl *x509.Certificate, key *rsa.PrivateKey) (string, string) {
+func (c *testCA) signLeaf(t *testing.T, tmpl *x509.Certificate, key *rsa.PrivateKey) (certPEM, keyPEM string) {
 	t.Helper()
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, c.cert, &key.PublicKey, c.key)
 	require.NoError(t, err)
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	certPEM = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
 	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
 	require.NoError(t, err)
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
-	return string(certPEM), string(keyPEM)
+	keyPEM = string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}))
+	return certPEM, keyPEM
 }
 
 func parseIPs(t *testing.T, ip string) []net.IP {

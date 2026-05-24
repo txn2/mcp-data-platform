@@ -23,6 +23,8 @@ import {
 } from "lucide-react";
 import { GatewayActionBar, GatewayRulesDrawer } from "./GatewayActions";
 import { ConnectionOAuthStatusCard } from "./ConnectionOAuthStatusCard";
+import { HelpDialog } from "@/components/HelpDialog";
+import { ApiGatewayAuthHelp, ApiGatewayTLSHelp } from "./ApiGatewayHelpContent";
 
 // ConnectionOAuthHealthBadge renders the per-row health indicator
 // on the connection list. Visible only when the bulk health hook
@@ -1423,36 +1425,26 @@ function GatewayConfigForm({ config, onChange }: ConfigFormProps) {
         placeholder="https://vendor.example.com/mcp"
         mono
       />
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="mb-1 block text-xs font-medium">Auth mode</label>
-          <select
-            value={String(config.auth_mode ?? "none")}
-            onChange={(e) => onChange(update(config, "auth_mode", e.target.value))}
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2"
-          >
-            <option value="none">None</option>
-            <option value="bearer">Bearer token</option>
-            <option value="api_key">API key</option>
-            <option value="oauth">OAuth 2.1</option>
-          </select>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Bearer sends Authorization header; API key sends X-API-Key; OAuth obtains a managed bearer token via client_credentials or authorization_code+PKCE.
-          </p>
-        </div>
-        <ConfigField
-          label="Connection name"
-          help="Optional override; defaults to the instance name above. Becomes the tool prefix."
-          value={String(config.connection_name ?? "")}
-          onChange={(v) => onChange(update(config, "connection_name", v))}
-          placeholder="vendor"
-          mono
-        />
+      <div>
+        <label className="mb-1 block text-xs font-medium">Auth mode</label>
+        <select
+          value={String(config.auth_mode ?? "none")}
+          onChange={(e) => onChange(update(config, "auth_mode", e.target.value))}
+          className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2"
+        >
+          <option value="none">None</option>
+          <option value="bearer">Bearer token</option>
+          <option value="api_key">API key</option>
+          <option value="oauth">OAuth 2.1</option>
+        </select>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Bearer sends Authorization header; API key sends X-API-Key; OAuth obtains a managed bearer token via client_credentials or authorization_code+PKCE.
+        </p>
       </div>
       {(config.auth_mode === "bearer" || config.auth_mode === "api_key") && (
         <ConfigField
           label="Credential"
-          help="Encrypted at rest when ENCRYPTION_KEY is set. Use [REDACTED] when re-saving without changing it."
+          help="Encrypted at rest. Use [REDACTED] when re-saving without changing it."
           value={String(config.credential ?? "")}
           onChange={(v) => onChange(update(config, "credential", v))}
           sensitive
@@ -1593,41 +1585,41 @@ function GatewayConfigForm({ config, onChange }: ConfigFormProps) {
 // [REDACTED], and we surface the leaf certificate's expiry from a
 // server-computed field so the badge does not duplicate the parse
 // logic in JavaScript.
-function TLSMaterialEditor({ config, onChange }: ConfigFormProps) {
+function TLSMaterialEditor({
+  config,
+  onChange,
+  onOpenHelp,
+}: ConfigFormProps & { onOpenHelp: () => void }) {
   const expiry = String(config.mtls_cert_not_after ?? "");
   const isMTLSMode = config.auth_mode === "mtls";
   return (
     <div className="rounded-md border bg-muted/20 px-3 py-3 space-y-3">
-      <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        TLS / mTLS
-        {isMTLSMode && (
-          <span className="ml-2 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-200">
-            required for auth_mode: mtls
-          </span>
-        )}
+      <div className="flex items-center justify-between">
+        <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          TLS / mTLS
+          {isMTLSMode && (
+            <span className="ml-2 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-200">
+              required for auth_mode: mtls
+            </span>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={onOpenHelp}
+          className="text-xs text-blue-600 hover:underline dark:text-blue-400"
+        >
+          Learn about TLS / mTLS
+        </button>
       </div>
-      <p className="text-xs text-muted-foreground">
-        Outbound client certificate and private root CAs. The client
-        cert + key authenticate the gateway to mTLS-protected upstreams
-        per RFC 5246 / 8446: service mesh peers, PKI-fronted internal
-        APIs, healthcare integration engines, financial messaging
-        endpoints, FedRAMP services. The CA bundle is appended to the
-        system trust store, so public CAs remain trusted while upstreams
-        behind a private root (cluster-internal CA, corporate root) also
-        work. The private key is encrypted at rest when ENCRYPTION_KEY
-        is set and shown back as [REDACTED]; paste the new key value to
-        rotate.
-      </p>
       <PEMTextarea
         label="Client certificate (PEM)"
-        help="X.509 client certificate chain, leaf first. Public material, stored in plain text."
         value={String(config.mtls_client_cert_pem ?? "")}
         onChange={(v) => onChange(update(config, "mtls_client_cert_pem", v))}
         placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
       />
       <PEMTextarea
         label="Client private key (PEM)"
-        help="Private key matching the cert above. Encrypted at rest. Use [REDACTED] to keep the existing value when re-saving without changing it."
+        help="Encrypted at rest. Use [REDACTED] to keep the existing value when re-saving."
         value={String(config.mtls_client_key_pem ?? "")}
         onChange={(v) => onChange(update(config, "mtls_client_key_pem", v))}
         placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
@@ -1635,7 +1627,6 @@ function TLSMaterialEditor({ config, onChange }: ConfigFormProps) {
       />
       <PEMTextarea
         label="CA bundle (PEM)"
-        help="PEM-encoded root CA certificates to trust for this connection. Appended to system roots, not substituted. Leave empty when the upstream uses a public CA."
         value={String(config.tls_ca_bundle_pem ?? "")}
         onChange={(v) => onChange(update(config, "tls_ca_bundle_pem", v))}
         placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
@@ -1730,6 +1721,8 @@ function ApiGatewayConfigForm({
 }: ConfigFormProps & { connectionName: string; isCreate: boolean }) {
   const startOAuth = useStartAPIGatewayOAuth();
   const [oauthError, setOAuthError] = useState<string | null>(null);
+  const [authHelpOpen, setAuthHelpOpen] = useState(false);
+  const [tlsHelpOpen, setTlsHelpOpen] = useState(false);
   const handleConnect = useCallback(() => {
     setOAuthError(null);
     if (!connectionName) {
@@ -1763,40 +1756,36 @@ function ApiGatewayConfigForm({
         placeholder="https://api.vendor.example.com"
         mono
       />
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="mb-1 block text-xs font-medium">Auth mode</label>
-          <select
-            value={String(config.auth_mode ?? "none")}
-            onChange={(e) => onChange(update(config, "auth_mode", e.target.value))}
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2"
+      <div>
+        <div className="mb-1 flex items-center justify-between">
+          <label className="block text-xs font-medium">Auth mode</label>
+          <button
+            type="button"
+            onClick={() => setAuthHelpOpen(true)}
+            className="text-xs text-blue-600 hover:underline dark:text-blue-400"
           >
-            <option value="none">None</option>
-            <option value="bearer">Bearer token</option>
-            <option value="api_key">API key</option>
-            <option value="basic">Basic (RFC 7617)</option>
-            <option value="oauth2_client_credentials">OAuth 2.1 client_credentials</option>
-            <option value="oauth2_authorization_code">OAuth 2.1 authorization_code (browser sign-in)</option>
-            <option value="mtls">mTLS (client certificate is the credential)</option>
-          </select>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Bearer sends Authorization; API key sends a header or query param; Basic sends base64(username:password) for legacy APIs (Jenkins, on-prem Jira, etc.). OAuth client_credentials is machine-to-machine; authorization_code requires a one-time browser sign-in via Connect. mTLS authenticates at the TLS handshake (RFC 5246 / 8446) using the client certificate configured below, for upstreams that map the cert's subject DN to a user identity. Client cert + CA bundle can also be layered on top of any other mode.
-          </p>
+            Learn about auth modes
+          </button>
         </div>
-        <ConfigField
-          label="Connection name"
-          help="Optional override; defaults to the instance name above."
-          value={String(config.connection_name ?? "")}
-          onChange={(v) => onChange(update(config, "connection_name", v))}
-          placeholder={connectionName || "vendor"}
-          mono
-        />
+        <select
+          value={String(config.auth_mode ?? "none")}
+          onChange={(e) => onChange(update(config, "auth_mode", e.target.value))}
+          className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2"
+        >
+          <option value="none">None</option>
+          <option value="bearer">Bearer token</option>
+          <option value="api_key">API key</option>
+          <option value="basic">Basic (RFC 7617)</option>
+          <option value="oauth2_client_credentials">OAuth 2.1 client_credentials</option>
+          <option value="oauth2_authorization_code">OAuth 2.1 authorization_code (browser sign-in)</option>
+          <option value="mtls">mTLS (client certificate is the credential)</option>
+        </select>
       </div>
 
       {config.auth_mode === "bearer" && (
         <ConfigField
           label="Credential"
-          help="Bearer token. Encrypted at rest when ENCRYPTION_KEY is set. Use [REDACTED] when re-saving without changing it."
+          help="Bearer token. Encrypted at rest. Use [REDACTED] when re-saving without changing it."
           value={String(config.credential ?? "")}
           onChange={(v) => onChange(update(config, "credential", v))}
           sensitive
@@ -1983,7 +1972,11 @@ function ApiGatewayConfigForm({
         </div>
       )}
 
-      <TLSMaterialEditor config={config} onChange={onChange} />
+      <TLSMaterialEditor
+        config={config}
+        onChange={onChange}
+        onOpenHelp={() => setTlsHelpOpen(true)}
+      />
 
       <div className="rounded-md border bg-muted/20 px-3 py-3 space-y-2">
         <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -2059,6 +2052,22 @@ function ApiGatewayConfigForm({
           Reserved for future content-fencing of upstream responses.
         </p>
       </div>
+
+      <HelpDialog
+        open={authHelpOpen}
+        onOpenChange={setAuthHelpOpen}
+        title="Authentication modes"
+      >
+        <ApiGatewayAuthHelp />
+      </HelpDialog>
+
+      <HelpDialog
+        open={tlsHelpOpen}
+        onOpenChange={setTlsHelpOpen}
+        title="TLS and mTLS"
+      >
+        <ApiGatewayTLSHelp />
+      </HelpDialog>
     </>
   );
 }
