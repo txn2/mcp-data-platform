@@ -227,18 +227,25 @@ func TestNewBasicAuth_DefenseInDepth(t *testing.T) {
 }
 
 func TestConnoauthConfigFromOAuth2_MapsAuthStyleAndScopes(t *testing.T) {
-	got := connoauthConfigFromOAuth2(OAuth2Config{
-		AuthorizationURL:  "https://idp/authorize",
-		TokenURL:          "https://idp/token",
-		ClientID:          "id",
-		ClientSecret:      "secret",
-		Scopes:            []string{"api", "refresh_token"},
-		EndpointAuthStyle: OAuth2AuthStyleParams,
-		Prompt:            "consent",
+	got := connoauthConfigFromOAuth2(Config{
+		OAuth2: OAuth2Config{
+			AuthorizationURL:  "https://idp/authorize",
+			TokenURL:          "https://idp/token",
+			ClientID:          "id",
+			ClientSecret:      "secret",
+			Scopes:            []string{"api", "refresh_token"},
+			EndpointAuthStyle: OAuth2AuthStyleParams,
+			Prompt:            "consent",
+		},
+		TLSCABundlePEM: "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n",
 	})
 	assert.Equal(t, "authorization_code", got.Grant)
 	assert.Equal(t, []string{"api", "refresh_token"}, got.Scopes)
 	assert.Equal(t, "consent", got.Prompt)
+	// CABundlePEM must propagate so refresh paths against private-CA
+	// IdPs work; without this assertion a regression that drops the
+	// field from the translator would not be caught.
+	assert.Equal(t, "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n", got.CABundlePEM)
 }
 
 // --- helpers --------------------------------------------------------

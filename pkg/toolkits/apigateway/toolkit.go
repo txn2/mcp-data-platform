@@ -996,6 +996,15 @@ func errorResult(msg string) *mcp.CallToolResult {
 // instrumentClient) rather than here so test helpers can construct
 // a bare client without threading a metrics handle through every
 // call site.
+//
+// TLS-config build errors are intentionally not surfaced from this
+// constructor. ParseConfig has already validated cert + key + CA
+// bundle, so buildTLSConfig only fails here if a caller has
+// constructed a Config by hand and bypassed Validate. The fallback
+// returns a transport with the system default tls.Config and the
+// first outbound call will fail loudly with the underlying tls
+// error, which is the same surface a misconfigured transport would
+// produce on any other auth mode.
 func newHTTPClient(cfg Config) *http.Client {
 	return &http.Client{
 		Timeout:   cfg.CallTimeout,
@@ -1043,8 +1052,15 @@ const maxIdleConnections = 10
 // an unreachable upstream fails fast instead of consuming the full
 // CallTimeout budget. Exposed as a separate function so unit tests
 // can verify the wiring without standing up a network listener.
+//
+// When the connection carries mTLS material (cfg.MTLSClientCertPEM
+// + cfg.MTLSClientKeyPEM) or a custom CA bundle (cfg.TLSCABundlePEM),
+// the transport's TLSClientConfig is populated accordingly. With
+// neither set, TLSClientConfig stays nil and Go's net/http uses
+// system defaults. buildTLSConfig errors here are degraded to nil
+// (see newHTTPClient for the rationale).
 func newHTTPTransport(cfg Config) *http.Transport {
-	return &http.Transport{
+	t := &http.Transport{
 		DialContext: (&net.Dialer{
 			Timeout: cfg.ConnectTimeout,
 		}).DialContext,
@@ -1053,6 +1069,10 @@ func newHTTPTransport(cfg Config) *http.Transport {
 		IdleConnTimeout:       idleConnectionTimeout,
 		MaxIdleConns:          maxIdleConnections,
 	}
+	if tlsCfg, err := buildTLSConfig(cfg); err == nil && tlsCfg != nil {
+		t.TLSClientConfig = tlsCfg
+	}
+	return t
 }
 
 // Verify interface compliance at compile time. The registry.Toolkit

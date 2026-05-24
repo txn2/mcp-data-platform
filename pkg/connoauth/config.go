@@ -50,4 +50,13 @@ type Config struct {
 	// recognize it should leave this empty so the IdP doesn't reject
 	// the authorize request with invalid_request.
 	Prompt string
+	// CABundlePEM is an optional PEM bundle of root CAs added to the
+	// trust store used for credential-bearing POSTs to the IdP's
+	// token endpoint (both initial exchange and refresh). Required
+	// only when the IdP's TLS certificate is signed by a private CA
+	// not present in the host's default cert store. Public CAs are
+	// always trusted; the bundle is appended, not substituted.
+	// Empty is the common case (public IdPs like Auth0, Okta, and
+	// public Keycloak deployments).
+	CABundlePEM string
 }

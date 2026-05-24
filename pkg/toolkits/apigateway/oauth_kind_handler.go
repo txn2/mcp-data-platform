@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 
-	"golang.org/x/oauth2"
-
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 )
 
@@ -23,7 +21,7 @@ type OAuthKindHandler struct{}
 
 // NewOAuthKindHandler returns the API gateway adapter. The toolkit
 // argument is accepted for symmetry with the MCP gateway adapter but
-// is intentionally unused — the API gateway needs no post-auth
+// is intentionally unused: the API gateway needs no post-auth
 // side effect.
 func NewOAuthKindHandler(_ *Toolkit) *OAuthKindHandler {
 	return &OAuthKindHandler{}
@@ -32,8 +30,14 @@ func NewOAuthKindHandler(_ *Toolkit) *OAuthKindHandler {
 // ParseOAuthConfig validates the connection's stored config and maps
 // the HTTP API gateway's per-kind OAuth shape into a connoauth.Config.
 // Returns an error when the connection is not configured for the
-// authorization_code grant — the unified handler maps that to HTTP
+// authorization_code grant: the unified handler maps that to HTTP
 // 409 Conflict, matching the prior per-kind handler's response code.
+//
+// The mapping is delegated to connoauthConfigFromOAuth2 so the initial
+// code-exchange (this path) and the per-call silent-refresh (the
+// authenticator path) read every field through the same translator.
+// A regression here would otherwise drop CABundlePEM, Prompt, or
+// future fields from one path but not the other.
 func (*OAuthKindHandler) ParseOAuthConfig(connConfig map[string]any) (connoauth.Config, error) {
 	cfg, err := ParseConfig(connConfig)
 	if err != nil {
@@ -42,20 +46,7 @@ func (*OAuthKindHandler) ParseOAuthConfig(connConfig map[string]any) (connoauth.
 	if cfg.AuthMode != AuthModeOAuth2AuthorizationCode {
 		return connoauth.Config{}, errors.New("connection is not configured for authorization_code OAuth")
 	}
-	authStyle := oauth2.AuthStyleInHeader
-	if cfg.OAuth2.EndpointAuthStyle == OAuth2AuthStyleParams {
-		authStyle = oauth2.AuthStyleInParams
-	}
-	return connoauth.Config{
-		Grant:             "authorization_code",
-		AuthorizationURL:  cfg.OAuth2.AuthorizationURL,
-		TokenURL:          cfg.OAuth2.TokenURL,
-		ClientID:          cfg.OAuth2.ClientID,
-		ClientSecret:      cfg.OAuth2.ClientSecret,
-		Scopes:            cfg.OAuth2.Scopes,
-		EndpointAuthStyle: authStyle,
-		Prompt:            cfg.OAuth2.Prompt,
-	}, nil
+	return connoauthConfigFromOAuth2(cfg), nil
 }
 
 // AfterConnect is a no-op. The API gateway's Authenticator reads the

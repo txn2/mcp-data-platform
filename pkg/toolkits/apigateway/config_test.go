@@ -478,16 +478,24 @@ func TestParseMultiConfig_PropagatesPerInstanceError(t *testing.T) {
 	}
 }
 
-func TestParseConfig_PreservesExplicitConnectionName(t *testing.T) {
+// TestParseConfig_IgnoresLegacyConnectionNameOverride pins the
+// removal of the connection_name operator-facing override. The cfg
+// map field is no longer read; ConnectionName is always populated
+// from the toolkit instance name by ParseMultiConfig /
+// addParsedConnection. Existing DB rows that still carry
+// "connection_name" are tolerated (no error) but their value is
+// dropped, so admins cannot configure a two-name shape that was
+// always 1:1 in practice.
+func TestParseConfig_IgnoresLegacyConnectionNameOverride(t *testing.T) {
 	c, err := ParseConfig(map[string]any{
 		"base_url":        "https://x",
-		"connection_name": "explicit",
+		"connection_name": "ignored",
 	})
 	if err != nil {
 		t.Fatalf("ParseConfig: %v", err)
 	}
-	if c.ConnectionName != "explicit" {
-		t.Errorf("ConnectionName = %q; want %q", c.ConnectionName, "explicit")
+	if c.ConnectionName != "" {
+		t.Errorf("ConnectionName = %q; want empty (default-set runs in ParseMultiConfig)", c.ConnectionName)
 	}
 }
 

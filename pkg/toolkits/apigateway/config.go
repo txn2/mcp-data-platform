@@ -64,6 +64,20 @@ const (
 	// platform's database (refresh-token state survives restarts).
 	AuthModeOAuth2AuthorizationCode = "oauth2_authorization_code" // #nosec G101 -- mode name, not a credential
 
+	// AuthModeMTLS authenticates by presenting an X.509 client
+	// certificate during the TLS handshake per RFC 5246 / 8446. No
+	// Authorization header is sent: the cert IS the credential.
+	// Used by upstreams that map the cert's subject DN (or a SAN) to
+	// a user identity in their authorizer, including service-mesh
+	// peers, PKI-fronted internal APIs, healthcare integration
+	// engines, financial messaging endpoints, and FedRAMP / DoD-
+	// boundary services. Requires both mtls_client_cert_pem and
+	// mtls_client_key_pem on the connection config; the mTLS material
+	// can also be present alongside other auth modes (bearer + mTLS,
+	// etc.), but auth_mode=mtls is the explicit "no header
+	// credential" signal.
+	AuthModeMTLS = "mtls"
+
 	// APIKeyPlacementHeader (default) sends the credential as an HTTP
 	// header named by APIKeyHeader.
 	APIKeyPlacementHeader = "header"
@@ -112,7 +126,6 @@ const (
 	cfgKeyAPIKeyPlacement  = "api_key_placement"
 	cfgKeyUsername         = "username"
 	cfgKeyPassword         = "password" // #nosec G101 -- map key, not a credential; encryption handled by platform FieldEncryptor sensitive-keys list
-	cfgKeyConnectionName   = "connection_name"
 	cfgKeyConnectTimeout   = "connect_timeout"
 	cfgKeyCallTimeout      = "call_timeout"
 	cfgKeyTrustLevel       = "trust_level"
@@ -148,6 +161,15 @@ const (
 	cfgKeyOAuth2EndpointAuth = "oauth2_endpoint_auth_style" // #nosec G101 -- "header" or "params" — map key, not a credential
 	cfgKeyOAuth2AuthURL      = "oauth2_authorization_url"   // #nosec G101 -- map key, not a credential
 	cfgKeyOAuth2Prompt       = "oauth2_prompt"              // #nosec G101 -- map key, not a credential
+
+	// mTLS material config keys. Cert and CA bundle are public
+	// material (plain text at rest); the private key is in the
+	// platform's sensitive-keys list (see pkg/platform/fieldcrypt.go)
+	// and encrypted via FieldEncryptor like every other secret on a
+	// connection.
+	cfgKeyMTLSClientCertPEM = "mtls_client_cert_pem" // #nosec G101 -- map key, not a credential
+	cfgKeyMTLSClientKeyPEM  = "mtls_client_key_pem"  // #nosec G101 -- map key, not a credential
+	cfgKeyTLSCABundlePEM    = "tls_ca_bundle_pem"
 )
 
 // Config holds api-gateway toolkit configuration for a single upstream
@@ -182,9 +204,12 @@ type Config struct {
 	// platform's FieldEncryptor; the "password" cfg key is already in
 	// the sensitive-keys list.
 	Password string
-	// ConnectionName is the audit-visible connection identifier and the
-	// value passed in the tool's `connection` argument. Defaults to
-	// the toolkit instance name when unset.
+	// ConnectionName is the audit-visible connection identifier and
+	// the value passed in the tool's `connection` argument. Always
+	// populated from the toolkit instance name by ParseMultiConfig /
+	// addParsedConnection: there is no operator-facing override,
+	// because instance name and ConnectionName were always 1:1 and
+	// two names for one concept confused admins.
 	ConnectionName string
 	// ConnectTimeout caps the dial step on each invocation.
 	ConnectTimeout time.Duration
@@ -210,6 +235,28 @@ type Config struct {
 	// vendor subscription keys, etc.). Operator-supplied; the model
 	// never sets or overrides these. Values are encrypted at rest.
 	StaticHeaders map[string]string
+	// MTLSClientCertPEM is the PEM-encoded X.509 client certificate
+	// chain (leaf first) the gateway presents during the TLS
+	// handshake. Public material, stored in plain text. Required
+	// alongside MTLSClientKeyPEM and optional otherwise; the toolkit
+	// refuses ambiguous configs (one set, the other empty).
+	MTLSClientCertPEM string
+	// MTLSClientKeyPEM is the PEM-encoded private key matching
+	// MTLSClientCertPEM. Encrypted at rest via the platform's
+	// FieldEncryptor; the "mtls_client_key_pem" cfg key is in the
+	// sensitive-keys list in pkg/platform/fieldcrypt.go. Validation
+	// runs the cert + key through tls.X509KeyPair so a key that does
+	// not match the cert is rejected at write time, not on first
+	// outbound call.
+	MTLSClientKeyPEM string
+	// TLSCABundlePEM is an optional PEM bundle of root CA
+	// certificates added to the TLS trust store for outbound
+	// requests on this connection. Appended to the system root
+	// pool, not substituted: public CAs remain trusted. Required
+	// when the upstream's TLS certificate is signed by a private
+	// CA (cluster-internal CA, mesh CA, corporate root) that the
+	// host's default cert store does not carry.
+	TLSCABundlePEM string
 }
 
 // OAuth2Config describes the OAuth 2.1 client_credentials grant
@@ -311,7 +358,6 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	c.APIKeyParam = getString(cfg, cfgKeyAPIKeyParam)
 	c.Username = getString(cfg, cfgKeyUsername)
 	c.Password = getString(cfg, cfgKeyPassword)
-	c.ConnectionName = getString(cfg, cfgKeyConnectionName)
 	c.ConnectTimeout = getDuration(cfg, cfgKeyConnectTimeout, c.ConnectTimeout)
 	c.CallTimeout = getDuration(cfg, cfgKeyCallTimeout, c.CallTimeout)
 	c.TrustLevel = getStringDefault(cfg, cfgKeyTrustLevel, c.TrustLevel)
@@ -319,6 +365,9 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	c.CatalogID = getString(cfg, cfgKeyCatalogID)
 	c.OAuth2 = parseOAuth2Config(cfg)
 	c.StaticHeaders = getStringMap(cfg, cfgKeyStaticHeaders)
+	c.MTLSClientCertPEM = getString(cfg, cfgKeyMTLSClientCertPEM)
+	c.MTLSClientKeyPEM = getString(cfg, cfgKeyMTLSClientKeyPEM)
+	c.TLSCABundlePEM = getString(cfg, cfgKeyTLSCABundlePEM)
 
 	if err := c.Validate(); err != nil {
 		return Config{}, err
@@ -349,7 +398,10 @@ func (c Config) Validate() error {
 	if c.MaxResponseBytes <= 0 {
 		return errors.New("apigateway: max_response_bytes must be positive")
 	}
-	return c.validateStaticHeaders()
+	if err := c.validateStaticHeaders(); err != nil {
+		return err
+	}
+	return c.validateTLSMaterial()
 }
 
 // validateStaticHeaders refuses operator config that would collide with
@@ -436,8 +488,16 @@ func (c Config) validateAuth() error {
 		return c.validateOAuth2()
 	case AuthModeOAuth2AuthorizationCode:
 		return c.validateOAuth2AuthCode()
+	case AuthModeMTLS:
+		// The mTLS material is validated centrally by
+		// validateTLSMaterial (called from Validate) so the same
+		// rules apply whether mTLS is the credential or layered on
+		// top of bearer/api_key/basic/oauth2_*. The mode-specific
+		// requirement (cert + key MUST be present) is enforced
+		// there via Config.AuthMode inspection.
+		return nil
 	default:
-		return fmt.Errorf("apigateway: invalid auth_mode %q (want none, bearer, api_key, basic, oauth2_client_credentials, or oauth2_authorization_code)", c.AuthMode)
+		return fmt.Errorf("apigateway: invalid auth_mode %q (want none, bearer, api_key, basic, oauth2_client_credentials, oauth2_authorization_code, or mtls)", c.AuthMode)
 	}
 }
 

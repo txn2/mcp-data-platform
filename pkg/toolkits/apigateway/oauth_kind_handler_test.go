@@ -57,6 +57,39 @@ func TestOAuthKindHandler_ParseOAuthConfig_MapsAllFields(t *testing.T) {
 	}
 }
 
+// TestOAuthKindHandler_ParseOAuthConfig_PropagatesCABundle pins the
+// initial code-exchange path's CA-bundle propagation. The doc claims
+// that `tls_ca_bundle_pem` is honored on both the token-exchange and
+// refresh paths against private-CA IdPs; without this propagation the
+// very first Connect attempt would fall back to system trust and the
+// TLS handshake would fail before the refresh path ever ran. A
+// regression that re-broke the mapping (e.g., by re-introducing the
+// hand-rolled struct literal here) would silently re-create that
+// production bug.
+func TestOAuthKindHandler_ParseOAuthConfig_PropagatesCABundle(t *testing.T) {
+	t.Parallel()
+	// A short throwaway PEM is enough; ParseConfig validates parseability
+	// via validateCABundle (covered by the apigateway tls_test.go suite),
+	// so this test asserts only the propagation through the kind handler.
+	caCert, _, _ := generateCertPair(t, keyRSA2048)
+	h := &OAuthKindHandler{}
+	cfg, err := h.ParseOAuthConfig(map[string]any{
+		"base_url":                 "https://api.example/",
+		"auth_mode":                "oauth2_authorization_code",
+		"oauth2_authorization_url": "https://idp/auth",
+		"oauth2_token_url":         "https://idp/token",
+		"oauth2_client_id":         "c",
+		"oauth2_client_secret":     "s",
+		"tls_ca_bundle_pem":        caCert,
+	})
+	if err != nil {
+		t.Fatalf("ParseOAuthConfig: %v", err)
+	}
+	if cfg.CABundlePEM != caCert {
+		t.Fatalf("CABundlePEM not propagated: want %q got %q", caCert, cfg.CABundlePEM)
+	}
+}
+
 func TestOAuthKindHandler_ParseOAuthConfig_DefaultsToHeaderAuthStyle(t *testing.T) {
 	t.Parallel()
 	h := &OAuthKindHandler{}

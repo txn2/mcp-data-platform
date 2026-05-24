@@ -2,6 +2,8 @@ package connoauth
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -50,17 +52,42 @@ const scopeSep = " "
 // newTokenExchangeClient builds the http.Client used for any
 // credential-bearing POST to an OAuth token endpoint. CheckRedirect
 // refuses 3xx so a misconfigured or compromised IdP cannot redirect
-// the form body — which carries client_secret and the long-lived
-// refresh_token — to an attacker URL. Identical to the prior
+// the form body (which carries client_secret and the long-lived
+// refresh_token) to an attacker URL. Identical to the prior
 // per-kind helpers; consolidated here so the security guard cannot
 // drift between kinds.
-func newTokenExchangeClient() *http.Client {
-	return &http.Client{
+//
+// When cfg.CABundlePEM is non-empty, the bundle is appended to the
+// system root pool and used to verify the IdP's TLS certificate.
+// Public CAs remain trusted; the bundle never substitutes for the
+// system roots. An invalid bundle returns an error so the caller
+// can surface a clear failure at exchange/refresh time instead of
+// silently falling back to system trust (which would mask the
+// operator's intent).
+func newTokenExchangeClient(cfg Config) (*http.Client, error) {
+	client := &http.Client{
 		Timeout: tokenFetchTimeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
 	}
+	if cfg.CABundlePEM == "" {
+		return client, nil
+	}
+	pool, err := x509.SystemCertPool()
+	if err != nil || pool == nil {
+		pool = x509.NewCertPool()
+	}
+	if ok := pool.AppendCertsFromPEM([]byte(cfg.CABundlePEM)); !ok {
+		return nil, errors.New("connoauth: ca_bundle_pem contained no valid certificates")
+	}
+	client.Transport = &http.Transport{
+		TLSClientConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			RootCAs:    pool,
+		},
+	}
+	return client, nil
 }
 
 // Source is the per-connection access-token getter. Toolkits call
