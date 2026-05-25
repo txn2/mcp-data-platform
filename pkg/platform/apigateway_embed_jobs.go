@@ -87,7 +87,30 @@ func (p *Platform) WireAPIGatewayEmbedJobsFromDB() {
 		return
 	}
 
-	store := embedjobs.NewPostgresStore(p.db)
+	leaseDuration := p.config.APIGateway.EmbedJobs.LeaseDuration
+	if leaseDuration <= 0 {
+		leaseDuration = embedjobs.DefaultLeaseDuration
+	}
+	batchSize := p.config.APIGateway.EmbedJobs.BatchSize
+	if batchSize <= 0 {
+		batchSize = embedjobs.DefaultEmbedBatchSize
+	}
+	// embed_timeout >= lease_duration is an unusual ordering:
+	// the heartbeat at lease_duration/3 cadence will renew
+	// the DB lease through a long batch in normal operation,
+	// but the configuration implies the operator expects a
+	// single batch to outlive the lease, which is worth
+	// flagging at startup so a misconfigured pair doesn't
+	// pass review on the assumption the heartbeat compensates
+	// for any embed_timeout. Operators who meant this can
+	// raise lease_duration to put a comfortable margin
+	// between the two.
+	if embedTimeout := p.config.APIGateway.EmbedJobs.EmbedTimeout; embedTimeout > 0 && embedTimeout >= leaseDuration {
+		slog.Warn("apigateway embed jobs: embed_timeout >= lease_duration; consider raising lease_duration",
+			"embed_timeout", embedTimeout, "lease_duration", leaseDuration)
+	}
+
+	store := embedjobs.NewPostgresStore(p.db, embedjobs.WithLeaseDuration(leaseDuration))
 	p.apiGatewayEmbedJobsStore = store
 
 	resolver := &catalogSpecResolver{store: catalogStore}
@@ -95,12 +118,14 @@ func (p *Platform) WireAPIGatewayEmbedJobsFromDB() {
 	persister := &catalogEmbeddingPersister{store: catalogStore}
 
 	worker := embedjobs.NewWorker(embedjobs.WorkerConfig{
-		Store:       store,
-		Resolver:    resolver,
-		Computer:    computer,
-		Persister:   persister,
-		Reloader:    &apigatewayConnectionReloader{registry: p.toolkitRegistry},
-		Concurrency: p.config.APIGateway.EmbedJobs.Workers,
+		Store:         store,
+		Resolver:      resolver,
+		Computer:      computer,
+		Persister:     persister,
+		Reloader:      &apigatewayConnectionReloader{registry: p.toolkitRegistry},
+		Concurrency:   p.config.APIGateway.EmbedJobs.Workers,
+		LeaseDuration: leaseDuration,
+		BatchSize:     batchSize,
 	})
 	p.apiGatewayEmbedJobsWorker = worker
 
@@ -242,9 +267,14 @@ type embeddingProvider interface {
 // kit's ComputeOperationEmbeddings, and translates the result
 // back. The two intermediate types exist so embedjobs does not
 // import pgvector through every transitive consumer.
-func (c *apigatewayEmbeddingComputer) Compute(ctx context.Context, content, specName string, existing map[string]embedjobs.ExistingEmbedding, progress func(int)) ([]embedjobs.ComputedEmbedding, error) {
-	catalogExisting := make(map[string]apigatewaycatalog.OperationEmbedding, len(existing))
-	for k, v := range existing {
+//
+// The per-batch PersistBatch callback the worker supplies is
+// wrapped by translateBatchPersist so the catalog-typed rows
+// it receives flow into the worker's embedjobs-typed callback
+// without forcing embedjobs to import the catalog package.
+func (c *apigatewayEmbeddingComputer) Compute(ctx context.Context, req embedjobs.ComputeRequest) ([]embedjobs.ComputedEmbedding, error) {
+	catalogExisting := make(map[string]apigatewaycatalog.OperationEmbedding, len(req.Existing))
+	for k, v := range req.Existing {
 		catalogExisting[k] = apigatewaycatalog.OperationEmbedding{
 			OperationID: v.OperationID,
 			TextHash:    v.TextHash,
@@ -253,7 +283,15 @@ func (c *apigatewayEmbeddingComputer) Compute(ctx context.Context, content, spec
 			Dim:         v.Dim,
 		}
 	}
-	rows, err := apigatewaykit.ComputeOperationEmbeddings(ctx, c.embedder, content, specName, catalogExisting, progress)
+	rows, err := apigatewaykit.ComputeOperationEmbeddings(ctx, apigatewaykit.ComputeRequest{
+		Embedder:     c.embedder,
+		Content:      req.Content,
+		SpecName:     req.SpecName,
+		Existing:     catalogExisting,
+		BatchSize:    req.BatchSize,
+		Progress:     req.Progress,
+		PersistBatch: translateBatchPersist(req.PersistBatch),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("apigatewayEmbeddingComputer: %w", err)
 	}
@@ -268,6 +306,29 @@ func (c *apigatewayEmbeddingComputer) Compute(ctx context.Context, content, spec
 		}
 	}
 	return out, nil
+}
+
+// translateBatchPersist adapts the catalog-typed per-batch
+// callback the apigateway kit invokes into the embedjobs-typed
+// callback the worker supplies. nil in -> nil out so the
+// computer's "no persist callback" path is preserved end-to-end.
+func translateBatchPersist(cb func([]embedjobs.ComputedEmbedding) error) func([]apigatewaycatalog.OperationEmbedding) error {
+	if cb == nil {
+		return nil
+	}
+	return func(rows []apigatewaycatalog.OperationEmbedding) error {
+		out := make([]embedjobs.ComputedEmbedding, len(rows))
+		for i, r := range rows {
+			out[i] = embedjobs.ComputedEmbedding{
+				OperationID: r.OperationID,
+				TextHash:    r.TextHash,
+				Embedding:   r.Embedding,
+				Model:       r.Model,
+				Dim:         r.Dim,
+			}
+		}
+		return cb(out)
+	}
 }
 
 // catalogEmbeddingPersister wraps catalog.Store's embedding
@@ -302,9 +363,32 @@ func (p *catalogEmbeddingPersister) ListExisting(ctx context.Context, catalogID,
 // (catalogID, specName) with the supplied set via the catalog
 // store's transactional delete+insert.
 func (p *catalogEmbeddingPersister) Upsert(ctx context.Context, catalogID, specName string, rows []embedjobs.ComputedEmbedding) error {
-	catalogRows := make([]apigatewaycatalog.OperationEmbedding, len(rows))
+	if err := p.store.UpsertOperationEmbeddings(ctx, catalogID, specName, toCatalogEmbeddings(rows)); err != nil {
+		return fmt.Errorf("catalogEmbeddingPersister: %w", err)
+	}
+	return nil
+}
+
+// UpsertBatch writes a single chunk's worth of embedding rows
+// in place without disturbing rows outside the supplied set.
+// The worker invokes this via the PersistBatch callback so a
+// job that fails on chunk N still has chunks 0..N-1 visible to
+// the next attempt's ListExisting dedup pass.
+func (p *catalogEmbeddingPersister) UpsertBatch(ctx context.Context, catalogID, specName string, rows []embedjobs.ComputedEmbedding) error {
+	if err := p.store.UpsertOperationEmbeddingsBatch(ctx, catalogID, specName, toCatalogEmbeddings(rows)); err != nil {
+		return fmt.Errorf("catalogEmbeddingPersister: %w", err)
+	}
+	return nil
+}
+
+// toCatalogEmbeddings is the shared embedjobs->catalog row
+// translation used by both Upsert and UpsertBatch. Factored out
+// so the two persistence sites share one source of truth for
+// the column mapping.
+func toCatalogEmbeddings(rows []embedjobs.ComputedEmbedding) []apigatewaycatalog.OperationEmbedding {
+	out := make([]apigatewaycatalog.OperationEmbedding, len(rows))
 	for i, r := range rows {
-		catalogRows[i] = apigatewaycatalog.OperationEmbedding{
+		out[i] = apigatewaycatalog.OperationEmbedding{
 			OperationID: r.OperationID,
 			TextHash:    r.TextHash,
 			Embedding:   r.Embedding,
@@ -312,10 +396,7 @@ func (p *catalogEmbeddingPersister) Upsert(ctx context.Context, catalogID, specN
 			Dim:         r.Dim,
 		}
 	}
-	if err := p.store.UpsertOperationEmbeddings(ctx, catalogID, specName, catalogRows); err != nil {
-		return fmt.Errorf("catalogEmbeddingPersister: %w", err)
-	}
-	return nil
+	return out
 }
 
 // StampOperationCount writes the supplied count to the spec

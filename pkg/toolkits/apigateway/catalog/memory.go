@@ -269,6 +269,37 @@ func (s *MemoryStore) UpsertOperationEmbeddings(_ context.Context, catalogID, sp
 	return nil
 }
 
+// UpsertOperationEmbeddingsBatch inserts or updates the supplied
+// rows in place. Unlike UpsertOperationEmbeddings, it does not
+// delete absent rows: prior embeddings for operations not in
+// rows survive untouched. Mirrors the Postgres backend's
+// per-batch path used by the embed-jobs worker for incremental
+// persistence across chunks.
+func (s *MemoryStore) UpsertOperationEmbeddingsBatch(_ context.Context, catalogID, specName string, rows []OperationEmbedding) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.specs[catalogID]; !ok {
+		return ErrNotFound
+	}
+	if _, ok := s.specs[catalogID][specName]; !ok {
+		return ErrNotFound
+	}
+	specBucket, ok := s.embeddings[catalogID]
+	if !ok {
+		specBucket = make(map[string]map[string]OperationEmbedding)
+		s.embeddings[catalogID] = specBucket
+	}
+	bucket, ok := specBucket[specName]
+	if !ok {
+		bucket = make(map[string]OperationEmbedding, len(rows))
+		specBucket[specName] = bucket
+	}
+	for _, r := range rows {
+		bucket[r.OperationID] = cloneEmbeddingRow(r)
+	}
+	return nil
+}
+
 // ListOperationEmbeddings returns every embedding row for the
 // (catalogID, specName) pair. Empty slice (not error) when the
 // spec has no vectors yet.

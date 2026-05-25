@@ -131,12 +131,27 @@ const (
 // failed and surface in the admin UI for operator attention.
 const MaxAttempts = 5
 
-// LeaseDuration is how long a claiming worker holds its lease
-// before the reaper considers the job abandoned. Long enough for
-// a 1000-operation spec against a slow embedding provider; short
-// enough that a genuinely crashed pod's work resumes within
-// minutes, not hours.
-const LeaseDuration = 10 * time.Minute
+// DefaultLeaseDuration is the fallback lease window when the
+// worker / store has not been configured with an explicit
+// duration. Worker code paths read the active duration off
+// WorkerConfig / PostgresStore — see WorkerConfig.LeaseDuration
+// and WithLeaseDuration — so an operator on a slow CPU-only
+// embedder can raise the ceiling without recompiling.
+//
+// 10 minutes is the historical value: long enough for a
+// 1000-operation spec against a typical provider; short enough
+// that a genuinely crashed pod's work resumes within minutes.
+// The heartbeat (worker.go) extends the active lease while
+// the job is making progress, so this value gates "pod went
+// silent", not "embed batch is slow".
+const DefaultLeaseDuration = 10 * time.Minute
+
+// DefaultEmbedBatchSize is the fallback chunk size when the
+// worker has not been configured with an explicit batch size.
+// 32 keeps a single timed-out batch's lost progress small while
+// amortizing per-call overhead. Operators on a faster provider
+// can raise the value via apigateway.embed_jobs.batch_size.
+const DefaultEmbedBatchSize = 32
 
 // ReaperInterval is how often the reaper sweeps for expired
 // leases. Mid-point between fast resumption after a crash and
@@ -267,7 +282,9 @@ type Store interface {
 	// SELECT ... FOR UPDATE SKIP LOCKED so concurrent callers
 	// across pods do not block on each other. The returned job's
 	// status is updated to running and lease_expires_at is set
-	// to NOW() + LeaseDuration before Claim returns.
+	// to NOW() + the store's configured lease duration (see
+	// WithLeaseDuration; defaults to DefaultLeaseDuration) before
+	// Claim returns.
 	//
 	// Returns ErrNoJob when no pending job is available.
 	Claim(ctx context.Context, workerID string) (*Job, error)
@@ -304,6 +321,23 @@ type Store interface {
 	// to pending so another worker can claim it. Returns the
 	// number of rows released for log/metric output.
 	ReleaseExpiredLeases(ctx context.Context) (released int, err error)
+
+	// RenewLease extends a running job's lease window by
+	// duration. The worker calls this on a timer while a long
+	// embed pass is in flight so the reaper does not release a
+	// lease the worker is still actively using. The (id,
+	// worker_id, status='running') predicate enforces ownership:
+	// a renew from a worker whose lease has already rotated is
+	// a no-op (returns ErrNotFound) — the caller logs and lets
+	// the holding worker run the heartbeat instead.
+	//
+	// Returns nil on a successful renewal. Returns ErrNotFound
+	// when the row is not in (status=running, worker_id=$2),
+	// which the worker treats as a non-retryable signal to stop
+	// heartbeating without failing the surrounding embed pass
+	// (the next Complete / Retry / Fail call will pick up the
+	// rotation cleanly).
+	RenewLease(ctx context.Context, id int64, workerID string, duration time.Duration) error
 
 	// ReconcileGaps enqueues pending jobs for every spec whose
 	// embedding-row count does not equal its operation_count and

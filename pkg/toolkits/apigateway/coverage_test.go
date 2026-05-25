@@ -57,6 +57,10 @@ func (failingCatalogStore) UpsertOperationEmbeddings(context.Context, string, st
 	return errors.New("boom")
 }
 
+func (failingCatalogStore) UpsertOperationEmbeddingsBatch(context.Context, string, string, []catalog.OperationEmbedding) error {
+	return errors.New("boom")
+}
+
 func (failingCatalogStore) ListOperationEmbeddings(context.Context, string, string) ([]catalog.OperationEmbedding, error) {
 	return nil, errors.New("boom")
 }

@@ -34,15 +34,53 @@ const retryBackoffBase = 5 * time.Second
 // concrete type is exported so callers can inject the *sql.DB
 // directly; the interface in types.go is the contract.
 type PostgresStore struct {
-	db *sql.DB
+	db            *sql.DB
+	leaseDuration time.Duration
+}
+
+// PostgresStoreOption configures a PostgresStore at construction
+// time. Functional options keep NewPostgresStore backward-compatible
+// (the no-option call still works) while letting operators tune
+// fields the constructor would otherwise have to grow positional
+// arguments for.
+type PostgresStoreOption func(*PostgresStore)
+
+// WithLeaseDuration sets the duration the store stamps on a
+// successful Claim and the renewal window for RenewLease. The
+// worker's heartbeat re-stamps lease_expires_at = NOW() + d so
+// the reaper does not release a job that is actively running.
+//
+// d <= 0 falls back to DefaultLeaseDuration so a misconfigured
+// caller never produces an instant-expire row.
+func WithLeaseDuration(d time.Duration) PostgresStoreOption {
+	return func(s *PostgresStore) {
+		if d > 0 {
+			s.leaseDuration = d
+		}
+	}
 }
 
 // NewPostgresStore returns a Store backed by db. The caller owns
 // the connection lifecycle; closing db while the worker is
 // running is the caller's responsibility (typically the platform
 // lifecycle stops the worker before the DB is torn down).
-func NewPostgresStore(db *sql.DB) *PostgresStore {
-	return &PostgresStore{db: db}
+//
+// Without options, the store uses DefaultLeaseDuration for Claim
+// and RenewLease windows. Operators on slow embedders pass
+// WithLeaseDuration to widen the window.
+func NewPostgresStore(db *sql.DB, opts ...PostgresStoreOption) *PostgresStore {
+	s := &PostgresStore{db: db, leaseDuration: DefaultLeaseDuration}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
+}
+
+// LeaseDuration returns the configured lease window. Exposed so
+// the worker can size its claim-context timeout against the same
+// value the store stamps on Claim.
+func (s *PostgresStore) LeaseDuration() time.Duration {
+	return s.leaseDuration
 }
 
 // Compile-time interface check.
@@ -149,7 +187,7 @@ func (s *PostgresStore) Claim(ctx context.Context, workerID string) (*Job, error
 		           last_error, next_run_at, worker_id, lease_expires_at,
 		           created_at, started_at, completed_at, embedded_so_far
 	`
-	leaseSeconds := int(LeaseDuration / time.Second)
+	leaseSeconds := int(s.leaseDuration / time.Second)
 	row := tx.QueryRowContext(ctx, upd, id, workerID, leaseSeconds)
 	job, err := scanJob(row)
 	if err != nil {
@@ -213,6 +251,48 @@ func (s *PostgresStore) UpdateProgress(ctx context.Context, id int64, workerID s
 	`
 	if _, err := s.db.ExecContext(ctx, q, id, workerID, embeddedSoFar); err != nil {
 		return fmt.Errorf("embedjobs: update_progress: %w", err)
+	}
+	return nil
+}
+
+// RenewLease extends the running job's lease window by duration.
+// The worker's heartbeat goroutine calls this on a fraction of
+// the configured lease (~lease/3) so the reaper never sees an
+// expired-looking row while the embed pass is actively making
+// forward progress. The (id, worker_id, status='running')
+// predicate enforces ownership: a renew from a worker whose
+// lease already rotated to a sibling matches zero rows and
+// returns ErrNotFound — the heartbeat caller treats that as the
+// signal to stop heartbeating without failing the surrounding
+// embed pass.
+//
+// duration <= 0 is treated as the store's configured lease
+// duration (the value set via WithLeaseDuration / the default).
+// The fallback keeps a misconfigured caller from stamping an
+// instant-expire lease and re-triggering the reaper-kills-job
+// cycle this method exists to prevent.
+func (s *PostgresStore) RenewLease(ctx context.Context, id int64, workerID string, duration time.Duration) error {
+	if duration <= 0 {
+		duration = s.leaseDuration
+	}
+	const q = `
+		UPDATE api_catalog_embedding_jobs
+		   SET lease_expires_at = NOW() + ($3 || ' seconds')::INTERVAL
+		 WHERE id = $1
+		   AND status = 'running'
+		   AND worker_id = $2
+	`
+	seconds := int(duration / time.Second)
+	res, err := s.db.ExecContext(ctx, q, id, workerID, seconds)
+	if err != nil {
+		return fmt.Errorf("embedjobs: renew lease: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("embedjobs: renew lease rows-affected: %w", err)
+	}
+	if n == 0 {
+		return ErrNotFound
 	}
 	return nil
 }
