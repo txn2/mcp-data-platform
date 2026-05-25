@@ -846,3 +846,84 @@ func TestSetOperationCount_DBError(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+// TestUpsertOperationEmbeddingsBatch_OnConflictUpdates proves the
+// SQL uses INSERT ... ON CONFLICT DO UPDATE rather than DELETE +
+// INSERT. The embed-jobs worker depends on this additive shape
+// so a per-chunk write does not clobber prior chunks already
+// persisted by the same job.
+func TestUpsertOperationEmbeddingsBatch_OnConflictUpdates(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(`ON CONFLICT (catalog_id, spec_name, operation_id) DO UPDATE`)).
+		WithArgs("p", "default", "op1", []byte{0x01}, sqlmock.AnyArg(), "m", 2).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	err := store.UpsertOperationEmbeddingsBatch(context.Background(), "p", "default",
+		[]OperationEmbedding{
+			{OperationID: "op1", TextHash: []byte{0x01}, Embedding: []float32{0.1, 0.2}, Model: "m", Dim: 2},
+		})
+	if err != nil {
+		t.Fatalf("UpsertOperationEmbeddingsBatch: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestUpsertOperationEmbeddingsBatch_EmptyRowsShortCircuits
+// proves a zero-length batch returns nil without opening a
+// transaction. The catalog adapter calls into this path for
+// fully-cached specs where the planner finds nothing fresh to
+// embed; avoiding an empty BEGIN/COMMIT keeps the metric path
+// clean.
+func TestUpsertOperationEmbeddingsBatch_EmptyRowsShortCircuits(t *testing.T) {
+	t.Parallel()
+	store, _, done := newMockStore(t)
+	defer done()
+	if err := store.UpsertOperationEmbeddingsBatch(context.Background(), "p", "d", nil); err != nil {
+		t.Fatalf("nil rows should not error; got %v", err)
+	}
+}
+
+// TestUpsertOperationEmbeddingsBatch_FKViolation_ReturnsNotFound
+// proves a FK violation on an unknown (catalog, spec) maps to
+// ErrNotFound. The worker treats this as "spec was deleted
+// between dispatch and write" and terminates the job.
+func TestUpsertOperationEmbeddingsBatch_FKViolation_ReturnsNotFound(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(`ON CONFLICT (catalog_id, spec_name, operation_id) DO UPDATE`)).
+		WillReturnError(&pq.Error{Code: pgForeignKeyViolation})
+	mock.ExpectRollback()
+	err := store.UpsertOperationEmbeddingsBatch(context.Background(), "p", "default",
+		[]OperationEmbedding{{OperationID: "x", TextHash: []byte{0x01}, Embedding: []float32{0.1, 0.2}, Model: "m", Dim: 2}})
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("err = %v; want ErrNotFound", err)
+	}
+}
+
+// TestUpsertOperationEmbeddingsBatch_CommitError surfaces the
+// commit failure as a wrapped error rather than silently
+// swallowing it. A commit failure on a batch means the rows are
+// NOT persisted and the worker's PersistBatch callback should
+// see the error and surface a retry.
+func TestUpsertOperationEmbeddingsBatch_CommitError(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectBegin()
+	mock.ExpectExec(regexp.QuoteMeta(`ON CONFLICT (catalog_id, spec_name, operation_id) DO UPDATE`)).
+		WithArgs("p", "default", "op1", []byte{0x01}, sqlmock.AnyArg(), "m", 2).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit().WillReturnError(errors.New("commit failed"))
+	err := store.UpsertOperationEmbeddingsBatch(context.Background(), "p", "default",
+		[]OperationEmbedding{{OperationID: "op1", TextHash: []byte{0x01}, Embedding: []float32{0.1, 0.2}, Model: "m", Dim: 2}})
+	if err == nil {
+		t.Fatal("expected error on commit failure")
+	}
+}

@@ -367,6 +367,81 @@ func TestMemoryStore_OperationEmbeddings_DeleteIsIdempotent(t *testing.T) {
 	}
 }
 
+// TestMemoryStore_UpsertOperationEmbeddingsBatch_AdditiveSemantics
+// proves the per-batch path adds rows without removing rows
+// outside the batch — the property the embed-jobs worker relies
+// on for crash-resume across chunks. A second call with a
+// disjoint set must leave the first set intact, in contrast to
+// the atomic UpsertOperationEmbeddings which replaces the whole
+// spec.
+func TestMemoryStore_UpsertOperationEmbeddingsBatch_AdditiveSemantics(t *testing.T) {
+	t.Parallel()
+	s := NewMemoryStore()
+	ctx := context.Background()
+	mustCreateCatalogWithSpec(t, s, "p", "v1")
+	batch1 := []OperationEmbedding{
+		{OperationID: "a", TextHash: []byte{0x01}, Embedding: []float32{1, 0}, Model: "m", Dim: 2},
+	}
+	if err := s.UpsertOperationEmbeddingsBatch(ctx, "p", "v1", batch1); err != nil {
+		t.Fatalf("UpsertOperationEmbeddingsBatch #1: %v", err)
+	}
+	batch2 := []OperationEmbedding{
+		{OperationID: "b", TextHash: []byte{0x02}, Embedding: []float32{0, 1}, Model: "m", Dim: 2},
+	}
+	if err := s.UpsertOperationEmbeddingsBatch(ctx, "p", "v1", batch2); err != nil {
+		t.Fatalf("UpsertOperationEmbeddingsBatch #2: %v", err)
+	}
+	got, err := s.ListOperationEmbeddings(ctx, "p", "v1")
+	if err != nil {
+		t.Fatalf("ListOperationEmbeddings: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("after additive batches want 2 rows, got %d", len(got))
+	}
+}
+
+// TestMemoryStore_UpsertOperationEmbeddingsBatch_UpdatesExisting
+// proves a re-upsert of an existing operation_id overwrites the
+// stored vector rather than ignoring the call.
+func TestMemoryStore_UpsertOperationEmbeddingsBatch_UpdatesExisting(t *testing.T) {
+	t.Parallel()
+	s := NewMemoryStore()
+	ctx := context.Background()
+	mustCreateCatalogWithSpec(t, s, "p", "v1")
+	first := []OperationEmbedding{
+		{OperationID: "a", TextHash: []byte{0x01}, Embedding: []float32{1, 0}, Model: "m", Dim: 2},
+	}
+	if err := s.UpsertOperationEmbeddingsBatch(ctx, "p", "v1", first); err != nil {
+		t.Fatalf("first batch: %v", err)
+	}
+	updated := []OperationEmbedding{
+		{OperationID: "a", TextHash: []byte{0x02}, Embedding: []float32{0, 1}, Model: "m", Dim: 2},
+	}
+	if err := s.UpsertOperationEmbeddingsBatch(ctx, "p", "v1", updated); err != nil {
+		t.Fatalf("update batch: %v", err)
+	}
+	got, _ := s.ListOperationEmbeddings(ctx, "p", "v1")
+	if len(got) != 1 {
+		t.Fatalf("want 1 row after update, got %d", len(got))
+	}
+	if got[0].Embedding[1] != 1 {
+		t.Errorf("update did not replace vector; got %+v", got[0])
+	}
+}
+
+// TestMemoryStore_UpsertOperationEmbeddingsBatch_WithoutSpec
+// rejects writes against an unknown (catalog, spec), mirroring
+// the Postgres backend's FK violation surface.
+func TestMemoryStore_UpsertOperationEmbeddingsBatch_WithoutSpec(t *testing.T) {
+	t.Parallel()
+	s := NewMemoryStore()
+	err := s.UpsertOperationEmbeddingsBatch(context.Background(), "nope", "nope",
+		[]OperationEmbedding{{OperationID: "x", Embedding: []float32{1}, Dim: 1}})
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("err=%v want ErrNotFound", err)
+	}
+}
+
 // mustCreateCatalogWithSpec is the shared boilerplate for the
 // embedding tests: build a catalog + one inline spec so the FK
 // guard on UpsertOperationEmbeddings is satisfied.

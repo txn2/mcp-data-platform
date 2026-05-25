@@ -405,6 +405,53 @@ func (s *PostgresStore) UpsertOperationEmbeddings(ctx context.Context, catalogID
 	return nil
 }
 
+// UpsertOperationEmbeddingsBatch inserts or updates the supplied
+// rows without disturbing rows outside the batch. The embed-jobs
+// worker calls this per chunk so a job that fails on chunk N
+// leaves chunks 0..N-1 persisted for the next attempt's dedup
+// pass. Atomic per call: the upsert runs in one transaction so
+// a ranking read either sees the prior set or the prior set
+// plus this chunk, never a half-written chunk. Returns
+// ErrNotFound on FK violation (spec was deleted between
+// dispatch and write).
+func (s *PostgresStore) UpsertOperationEmbeddingsBatch(ctx context.Context, catalogID, specName string, rows []OperationEmbedding) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("catalog: upsert embeddings batch begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	const upsertQ = `
+		INSERT INTO api_catalog_operation_embeddings
+		    (catalog_id, spec_name, operation_id, text_hash,
+		     embedding, model, dim, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+		ON CONFLICT (catalog_id, spec_name, operation_id) DO UPDATE
+		   SET text_hash  = EXCLUDED.text_hash,
+		       embedding  = EXCLUDED.embedding,
+		       model      = EXCLUDED.model,
+		       dim        = EXCLUDED.dim,
+		       updated_at = NOW()
+	`
+	for _, r := range rows {
+		_, err = tx.ExecContext(ctx, upsertQ,
+			catalogID, specName, r.OperationID, r.TextHash,
+			pgvector.NewVector(r.Embedding), r.Model, r.Dim)
+		if isPGCode(err, pgForeignKeyViolation) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("catalog: upsert embedding batch %s: %w", r.OperationID, err)
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("catalog: upsert embeddings batch commit: %w", err)
+	}
+	return nil
+}
+
 // ListOperationEmbeddings returns every embedding row for the
 // (catalogID, specName) pair. Empty slice (not error) when the
 // spec has not been embedded yet — the caller surfaces this as

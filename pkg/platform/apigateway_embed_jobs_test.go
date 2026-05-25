@@ -107,7 +107,9 @@ info:
 paths: {}
 `
 	c := &apigatewayEmbeddingComputer{embedder: &fakeEmbedder{dim: 8}}
-	rows, err := c.Compute(context.Background(), spec, "spec1", nil, nil)
+	rows, err := c.Compute(context.Background(), embedjobs.ComputeRequest{
+		Content: spec, SpecName: "spec1",
+	})
 	if err != nil {
 		t.Fatalf("Compute: %v", err)
 	}
@@ -145,7 +147,9 @@ paths:
 			Dim:         4,
 		},
 	}
-	rows, err := c.Compute(context.Background(), spec, "spec1", existing, nil)
+	rows, err := c.Compute(context.Background(), embedjobs.ComputeRequest{
+		Content: spec, SpecName: "spec1", Existing: existing,
+	})
 	if err != nil {
 		t.Fatalf("Compute: %v", err)
 	}
@@ -163,7 +167,9 @@ paths:
 func TestApigatewayEmbeddingComputer_ParseError(t *testing.T) {
 	t.Parallel()
 	c := &apigatewayEmbeddingComputer{embedder: &fakeEmbedder{dim: 4}}
-	_, err := c.Compute(context.Background(), "this is not yaml at all: [", "spec1", nil, nil)
+	_, err := c.Compute(context.Background(), embedjobs.ComputeRequest{
+		Content: "this is not yaml at all: [", SpecName: "spec1",
+	})
 	if err == nil {
 		t.Fatal("expected parse error")
 	}
@@ -297,6 +303,10 @@ func (s *errStore) ReferencingConnections(_ context.Context, _ string) ([]apigat
 }
 
 func (s *errStore) UpsertOperationEmbeddings(_ context.Context, _, _ string, _ []apigatewaycatalog.OperationEmbedding) error {
+	return s.err
+}
+
+func (s *errStore) UpsertOperationEmbeddingsBatch(_ context.Context, _, _ string, _ []apigatewaycatalog.OperationEmbedding) error {
 	return s.err
 }
 

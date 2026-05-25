@@ -416,3 +416,17 @@ audit:
   enabled: false
   log_tool_calls: true
   retention_days: 90
+
+# API Gateway embedding job queue (the worker that turns spec
+# uploads into the per-operation vectors semantic / hybrid
+# ranking uses). Defaults are tuned for a GPU embedder; CPU-only
+# Ollama deployments processing large specs (~120+ ops) should
+# raise embed_timeout and lease_duration, and may want to lower
+# batch_size to recover from transient failures with less lost
+# work. See #479 for the failure mode that motivated these knobs.
+# apigateway:
+#   embed_jobs:
+#     workers: 1            # goroutines per pod; CPU-only saturates at 1
+#     embed_timeout: 5m     # per-batch HTTP call timeout; must be < lease_duration
+#     lease_duration: 10m   # claim window the heartbeat re-stamps at lease_duration/3
+#     batch_size: 32        # texts per upstream EmbedBatch call
