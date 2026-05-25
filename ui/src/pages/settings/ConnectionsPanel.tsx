@@ -195,7 +195,7 @@ function kindColor(kind: string): string {
 export function ConnectionsPanel() {
   const { data: systemInfo } = useSystemInfo();
   const isReadOnly = systemInfo?.config_mode === "file";
-  const { data: instances, isLoading } = useEffectiveConnections();
+  const { data: instances, isLoading, isFetching } = useEffectiveConnections();
   const connections = instances ?? [];
   // Bulk per-row OAuth health drives the connection-list health
   // badge. Polls every 10s in the hook so background-refresh
@@ -256,8 +256,13 @@ export function ConnectionsPanel() {
   );
 
   // Auto-select the first listed connection when none is selected
-  // (or the URL-restored one is stale).
+  // (or the URL-restored one is stale). Gate on !isFetching so the
+  // post-save refetch lands before we judge selectedKey stale —
+  // otherwise a freshly-created connection's setSelectedKey races
+  // the cache invalidation: the effect sees the pre-mutation list,
+  // can't find the new key, and snaps selection to firstListed.
   useEffect(() => {
+    if (isFetching) return;
     if (selectedKey) {
       // If the URL pointed at a connection that no longer exists,
       // fall through to first-listed.
@@ -267,7 +272,7 @@ export function ConnectionsPanel() {
     if (firstListed) {
       setSelectedKey(`${firstListed.kind}/${firstListed.name}`);
     }
-  }, [connections, selectedKey, firstListed]);
+  }, [connections, selectedKey, firstListed, isFetching]);
 
   // Mirror the selection back into the URL (without reloading) so a
   // round-trip through an OAuth callback's returnURL restores the
@@ -411,7 +416,8 @@ export function ConnectionsPanel() {
         {mode === "create" ? (
           <ConnectionEditor
             connection={null}
-            onSave={() => {
+            onSave={(savedKind, savedName) => {
+              setSelectedKey(`${savedKind}/${savedName}`);
               setMode("view");
               setDirty(false);
             }}
@@ -422,7 +428,8 @@ export function ConnectionsPanel() {
           mode === "edit" ? (
             <ConnectionEditor
               connection={selected}
-              onSave={() => {
+              onSave={(savedKind, savedName) => {
+                setSelectedKey(`${savedKind}/${savedName}`);
                 setMode("view");
                 setDirty(false);
               }}
@@ -675,7 +682,7 @@ function ConnectionViewer({
 
 interface EditorProps {
   connection: EffectiveConnection | null; // null = create mode
-  onSave: () => void;
+  onSave: (savedKind: string, savedName: string) => void;
   onCancel: () => void;
   onDirtyChange: (dirty: boolean) => void;
 }
@@ -751,7 +758,7 @@ function ConnectionEditor({ connection, onSave, onCancel, onDirtyChange }: Edito
         onSuccess: () => {
           setSaveSuccess(true);
           setTimeout(() => setSaveSuccess(false), 2000);
-          onSave();
+          onSave(kind, name);
         },
         onError: (err) => {
           setSaveError(err instanceof Error ? err.message : "Failed to save");
