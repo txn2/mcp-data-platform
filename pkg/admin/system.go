@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"encoding/json"
 	"net/http"
 	"sort"
 
@@ -240,12 +241,34 @@ func (h *Handler) buildToolTitleMap(r *http.Request) map[string]string {
 }
 
 // connectionInfo describes a toolkit connection.
+//
+// Tools and HiddenTools are declared as plain []string but ship as JSON
+// arrays, NEVER null. MarshalJSON enforces the non-nil invariant at
+// serialization time because the persona editor UI dereferences
+// .length / .map on the wire value, and several toolkits (notably
+// gateway with no live upstream) return nil from Tools().
 type connectionInfo struct {
 	Kind        string   `json:"kind" example:"trino"`
 	Name        string   `json:"name" example:"acme-warehouse"`
 	Connection  string   `json:"connection" example:"acme-warehouse"`
 	Tools       []string `json:"tools" example:"trino_query,trino_describe_table,trino_browse"`
 	HiddenTools []string `json:"hidden_tools"`
+}
+
+// MarshalJSON enforces the non-nil wire invariant for Tools and
+// HiddenTools no matter how the struct was constructed. This closes
+// the loophole where a future handler builds a connectionInfo by
+// struct literal and forgets to normalize.
+func (c connectionInfo) MarshalJSON() ([]byte, error) {
+	type alias connectionInfo
+	v := alias(c)
+	if v.Tools == nil {
+		v.Tools = []string{}
+	}
+	if v.HiddenTools == nil {
+		v.HiddenTools = []string{}
+	}
+	return json.Marshal(v) //nolint:wrapcheck // value struct of basic types cannot fail to marshal
 }
 
 // connectionListResponse wraps a list of connections.
@@ -275,13 +298,12 @@ func (h *Handler) listConnections(w http.ResponseWriter, _ *http.Request) {
 	if h.deps.ToolkitRegistry != nil {
 		for _, tk := range h.deps.ToolkitRegistry.All() {
 			tools := tk.Tools()
-			hidden := hiddenTools(tools, allow, deny)
 			conns = append(conns, connectionInfo{
 				Kind:        tk.Kind(),
 				Name:        tk.Name(),
 				Connection:  tk.Connection(),
 				Tools:       tools,
-				HiddenTools: hidden,
+				HiddenTools: hiddenTools(tools, allow, deny),
 			})
 		}
 	}

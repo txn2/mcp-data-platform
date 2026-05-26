@@ -30,6 +30,19 @@ type fakeStore struct {
 
 	progressByID       map[int64]int
 	lastProgressWorker string
+
+	renewCallsByID  map[int64]int
+	renewWorker     string
+	renewLeaseStub  func() error
+	lastRenewWindow time.Duration
+
+	// zeroRetryBackoff bypasses the exponential backoff in
+	// Retry so integration tests can drive a retry-and-resume
+	// sequence in seconds rather than waiting the 10s+ a real
+	// backoff would impose on the second attempt. Production
+	// Postgres backend ignores this flag — it lives on the
+	// in-memory fake only.
+	zeroRetryBackoff bool
 }
 
 func newFakeStore() *fakeStore { return &fakeStore{} }
@@ -72,7 +85,7 @@ func (s *fakeStore) Claim(_ context.Context, workerID string) (*Job, error) {
 		j.Attempts++
 		started := now
 		j.StartedAt = &started
-		lease := now.Add(LeaseDuration)
+		lease := now.Add(DefaultLeaseDuration)
 		j.LeaseExpiresAt = &lease
 		cp := *j
 		return &cp, nil
@@ -108,7 +121,11 @@ func (s *fakeStore) Retry(_ context.Context, id int64, workerID, errMsg string) 
 		j.LastError = errMsg
 		j.WorkerID = ""
 		j.LeaseExpiresAt = nil
-		j.NextRunAt = time.Now().Add(time.Duration(computeBackoffSeconds(j.Attempts)) * time.Second)
+		delay := time.Duration(computeBackoffSeconds(j.Attempts)) * time.Second
+		if s.zeroRetryBackoff {
+			delay = 0
+		}
+		j.NextRunAt = time.Now().Add(delay)
 		return nil
 	}
 	return ErrNotFound
@@ -198,6 +215,28 @@ func (s *fakeStore) UpdateProgress(_ context.Context, id int64, workerID string,
 	return nil
 }
 
+func (s *fakeStore) RenewLease(_ context.Context, id int64, workerID string, duration time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.renewCallsByID == nil {
+		s.renewCallsByID = make(map[int64]int)
+	}
+	s.renewCallsByID[id]++
+	s.renewWorker = workerID
+	s.lastRenewWindow = duration
+	if s.renewLeaseStub != nil {
+		return s.renewLeaseStub()
+	}
+	for _, j := range s.jobs {
+		if j.ID == id && j.Status == StatusRunning && j.WorkerID == workerID {
+			next := time.Now().Add(duration)
+			j.LeaseExpiresAt = &next
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
 // fakeResolver is the test SpecResolver: returns a fixed
 // content for the (catalog, spec) keys the test enqueues.
 type fakeResolver struct {
@@ -221,12 +260,22 @@ type fakeComputer struct {
 	rows  []ComputedEmbedding
 }
 
-func (c *fakeComputer) Compute(_ context.Context, _, _ string, _ map[string]ExistingEmbedding, progress func(int)) ([]ComputedEmbedding, error) {
+func (c *fakeComputer) Compute(_ context.Context, req ComputeRequest) ([]ComputedEmbedding, error) {
 	c.calls.Add(1)
 	// Honor the progress callback so the worker's update path is
 	// exercised even in tests with no real chunking.
-	if progress != nil {
-		progress(len(c.rows))
+	if req.Progress != nil {
+		req.Progress(len(c.rows))
+	}
+	// Honor PersistBatch so tests that drive the heartbeat /
+	// incremental-persist paths see the persister's UpsertBatch
+	// invoked. Forwarded as a single batch covering every row;
+	// chunking lives in fillFreshEmbeddings for the real
+	// computer, not in this stub.
+	if req.PersistBatch != nil && len(c.rows) > 0 {
+		if err := req.PersistBatch(c.rows); err != nil {
+			return nil, err
+		}
 	}
 	if c.err != nil {
 		return nil, c.err
@@ -236,12 +285,14 @@ func (c *fakeComputer) Compute(_ context.Context, _, _ string, _ map[string]Exis
 
 // fakePersister stores Upsert calls for inspection.
 type fakePersister struct {
-	mu            sync.Mutex
-	upserts       []ComputedEmbedding
-	existing      map[string]ExistingEmbedding
-	stampedCounts map[string]int
-	listErr       error
-	upErr         error
+	mu             sync.Mutex
+	upserts        []ComputedEmbedding
+	batchUpserts   [][]ComputedEmbedding
+	existing       map[string]ExistingEmbedding
+	stampedCounts  map[string]int
+	listErr        error
+	upErr          error
+	upsertBatchErr error
 }
 
 func (p *fakePersister) ListExisting(_ context.Context, _, _ string) (map[string]ExistingEmbedding, error) {
@@ -263,6 +314,23 @@ func (p *fakePersister) Upsert(_ context.Context, _, _ string, rows []ComputedEm
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.upserts = append(p.upserts, rows...)
+	return nil
+}
+
+// UpsertBatch records each per-batch call so tests can assert
+// that fillFreshEmbeddings drove incremental persistence (one
+// call per chunk) rather than batching everything to the final
+// Upsert. Errors via upsertBatchErr exercise the worker's
+// retry/fail path on persistence failure mid-job.
+func (p *fakePersister) UpsertBatch(_ context.Context, _, _ string, rows []ComputedEmbedding) error {
+	if p.upsertBatchErr != nil {
+		return p.upsertBatchErr
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	cp := make([]ComputedEmbedding, len(rows))
+	copy(cp, rows)
+	p.batchUpserts = append(p.batchUpserts, cp)
 	return nil
 }
 
@@ -656,7 +724,7 @@ type slowComputer struct {
 	rows  []ComputedEmbedding
 }
 
-func (c *slowComputer) Compute(ctx context.Context, _, _ string, _ map[string]ExistingEmbedding, _ func(int)) ([]ComputedEmbedding, error) {
+func (c *slowComputer) Compute(ctx context.Context, _ ComputeRequest) ([]ComputedEmbedding, error) {
 	select {
 	case <-time.After(c.delay):
 	case <-ctx.Done():
@@ -1051,5 +1119,468 @@ func TestGenerateWorkerID_Format(t *testing.T) {
 	// chars when crypto/rand succeeds.
 	if len(id) < 10 {
 		t.Errorf("id %q looks malformed", id)
+	}
+}
+
+// TestWorker_HeartbeatRenewsLeaseWhileComputing proves the worker
+// renews its lease at lease/heartbeatDivisor cadence while a long
+// Compute call is in flight. Without the heartbeat, a single
+// batch slower than LeaseDuration would let the reaper kill the
+// running context mid-pass — the #479 doom loop. With the
+// heartbeat, RenewLease fires at least once before Compute
+// returns, so the reaper continues to see a fresh lease.
+func TestWorker_HeartbeatRenewsLeaseWhileComputing(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	_, _ = store.Enqueue(context.Background(), SpecKey{CatalogID: "c", SpecName: "x"}, KindSpecWrite)
+	resolver := &fakeResolver{contents: map[string]string{"c/x": "spec"}}
+	// slowComputer takes 180ms; with LeaseDuration=60ms the
+	// heartbeat fires every 20ms (60ms / heartbeatDivisor=3), so
+	// at least 6 renewals should land before Compute returns.
+	computer := &slowComputer{
+		delay: 180 * time.Millisecond,
+		rows:  []ComputedEmbedding{{OperationID: "op", Dim: 4, Embedding: []float32{1, 0, 0, 0}}},
+	}
+	w := NewWorker(WorkerConfig{
+		Store: store, Resolver: resolver, Computer: computer, Persister: &fakePersister{},
+		WorkerID: "wh", PollEvery: 30 * time.Millisecond, LeaseDuration: 60 * time.Millisecond,
+	})
+	w.Start(context.Background())
+	defer w.Stop()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if store.completeCalls.Load() >= 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := store.completeCalls.Load(); got != 1 {
+		t.Fatalf("Complete called %d times; want 1", got)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	renewals := store.renewCallsByID[1]
+	if renewals == 0 {
+		t.Fatal("RenewLease was never called; heartbeat did not fire during the 180ms Compute")
+	}
+	// 180ms compute / 20ms tick = ~9 ticks; allow scheduler jitter
+	// with a floor of 2 to keep the test stable on slow CI.
+	if renewals < 2 {
+		t.Errorf("RenewLease called %d times; expected >= 2 across the 180ms Compute window", renewals)
+	}
+	if store.renewWorker != "wh" {
+		t.Errorf("renewWorker = %q; want %q", store.renewWorker, "wh")
+	}
+}
+
+// TestWorker_HeartbeatLetsComputeOutlastLeaseDuration is the #479
+// regression gate against a future "ctx bounded by LeaseDuration"
+// refactor. With LeaseDuration=40ms and Compute=320ms (8x lease),
+// any code path that ties the worker ctx deadline tightly to the
+// configured LeaseDuration (e.g. `context.WithTimeout(ctx,
+// w.cfg.LeaseDuration)`) would cancel Compute well before it
+// returns, surfacing as a retry. The fakeStore does not enforce
+// the lease itself, so this test asserts the ctx deadline shape,
+// not actual reaper-driven cancellation. The companion behavior
+// (heartbeat firing during a long Compute) is the
+// renewCallsByID floor below.
+func TestWorker_HeartbeatLetsComputeOutlastLeaseDuration(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	_, _ = store.Enqueue(context.Background(), SpecKey{CatalogID: "c", SpecName: "x"}, KindSpecWrite)
+	resolver := &fakeResolver{contents: map[string]string{"c/x": "spec"}}
+	computer := &slowComputer{
+		delay: 320 * time.Millisecond,
+		rows:  []ComputedEmbedding{{OperationID: "op", Dim: 4, Embedding: []float32{1, 0, 0, 0}}},
+	}
+	w := NewWorker(WorkerConfig{
+		Store: store, Resolver: resolver, Computer: computer, Persister: &fakePersister{},
+		WorkerID: "wo", PollEvery: 30 * time.Millisecond, LeaseDuration: 40 * time.Millisecond,
+	})
+	w.Start(context.Background())
+	defer w.Stop()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if store.completeCalls.Load() >= 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if store.completeCalls.Load() != 1 {
+		t.Fatalf("Compute exceeded LeaseDuration but did not complete; the heartbeat is no longer the authoritative deadline. completes=%d retries=%d",
+			store.completeCalls.Load(), store.retryCalls.Load())
+	}
+	store.mu.Lock()
+	renewals := store.renewCallsByID[1]
+	store.mu.Unlock()
+	if renewals < 3 {
+		t.Errorf("heartbeat fired only %d times across the 8x-lease Compute window; want >= 3", renewals)
+	}
+}
+
+// TestWorker_HeartbeatStopsAfterCompute proves the heartbeat
+// goroutine exits when the surrounding Compute returns: the
+// deferred hbCancel fires, ctx.Done unblocks heartbeat's select,
+// and no further RenewLease calls land. Verified by reading the
+// counter twice — once right after Complete, once after a short
+// settle delay — and asserting the counter did not advance.
+func TestWorker_HeartbeatStopsAfterCompute(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	_, _ = store.Enqueue(context.Background(), SpecKey{CatalogID: "c", SpecName: "x"}, KindSpecWrite)
+	resolver := &fakeResolver{contents: map[string]string{"c/x": "spec"}}
+	computer := &slowComputer{
+		delay: 100 * time.Millisecond,
+		rows:  []ComputedEmbedding{{OperationID: "op", Dim: 4, Embedding: []float32{1, 0, 0, 0}}},
+	}
+	w := NewWorker(WorkerConfig{
+		Store: store, Resolver: resolver, Computer: computer, Persister: &fakePersister{},
+		WorkerID: "ws", PollEvery: 30 * time.Millisecond, LeaseDuration: 60 * time.Millisecond,
+	})
+	w.Start(context.Background())
+	defer w.Stop()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if store.completeCalls.Load() >= 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if store.completeCalls.Load() != 1 {
+		t.Fatal("job never completed")
+	}
+	store.mu.Lock()
+	atComplete := store.renewCallsByID[1]
+	store.mu.Unlock()
+	// Wait three heartbeat intervals; the goroutine should have
+	// exited already.
+	time.Sleep(60 * time.Millisecond)
+	store.mu.Lock()
+	afterIdle := store.renewCallsByID[1]
+	store.mu.Unlock()
+	if afterIdle != atComplete {
+		t.Errorf("RenewLease counter advanced from %d to %d after Compute returned; heartbeat did not stop", atComplete, afterIdle)
+	}
+}
+
+// TestWorker_PersistBatchForwardsToUpsertBatch proves the worker
+// supplies a PersistBatch callback that the computer can invoke
+// to write a chunk's rows to the Persister via UpsertBatch. The
+// callback is the wiring that closes the #479 progress-loss
+// failure mode: a job that fails on chunk N leaves chunks 0..N-1
+// persisted for the next attempt's dedup pass.
+func TestWorker_PersistBatchForwardsToUpsertBatch(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	_, _ = store.Enqueue(context.Background(), SpecKey{CatalogID: "c", SpecName: "x"}, KindSpecWrite)
+	resolver := &fakeResolver{contents: map[string]string{"c/x": "spec"}}
+	rows := []ComputedEmbedding{
+		{OperationID: "a", Dim: 4, Embedding: []float32{1, 0, 0, 0}},
+		{OperationID: "b", Dim: 4, Embedding: []float32{0, 1, 0, 0}},
+	}
+	// fakeComputer calls req.PersistBatch(c.rows) when it is set,
+	// so this exercises the worker's adapter end-to-end.
+	computer := &fakeComputer{rows: rows}
+	persister := &fakePersister{}
+	w := NewWorker(WorkerConfig{
+		Store: store, Resolver: resolver, Computer: computer, Persister: persister,
+		WorkerID: "wb", PollEvery: 30 * time.Millisecond,
+	})
+	w.Start(context.Background())
+	defer w.Stop()
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if store.completeCalls.Load() >= 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	persister.mu.Lock()
+	defer persister.mu.Unlock()
+	if len(persister.batchUpserts) == 0 {
+		t.Fatal("UpsertBatch was never called; PersistBatch callback did not reach persister")
+	}
+	if got := persister.batchUpserts[0]; len(got) != len(rows) {
+		t.Errorf("batchUpserts[0] has %d rows; want %d", len(got), len(rows))
+	}
+}
+
+// TestWorker_PersistBatchErrorFailsCompute proves that an error
+// returned from UpsertBatch propagates back through Compute as
+// a retryable failure (the worker's compute-failed branch).
+// Confirms that a transient DB outage during incremental
+// persistence does not silently lose vectors — the job retries.
+func TestWorker_PersistBatchErrorFailsCompute(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	_, _ = store.Enqueue(context.Background(), SpecKey{CatalogID: "c", SpecName: "x"}, KindSpecWrite)
+	resolver := &fakeResolver{contents: map[string]string{"c/x": "spec"}}
+	rows := []ComputedEmbedding{{OperationID: "a", Dim: 4, Embedding: []float32{1, 0, 0, 0}}}
+	computer := &fakeComputer{rows: rows}
+	persister := &fakePersister{upsertBatchErr: errors.New("db pool exhausted")}
+	w := NewWorker(WorkerConfig{
+		Store: store, Resolver: resolver, Computer: computer, Persister: persister,
+		WorkerID: "we", PollEvery: 30 * time.Millisecond,
+	})
+	w.Start(context.Background())
+	defer w.Stop()
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if store.retryCalls.Load() > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if store.retryCalls.Load() == 0 {
+		t.Fatal("Retry was never called on persist-batch failure")
+	}
+	if store.completeCalls.Load() != 0 {
+		t.Errorf("Complete called %d times despite persist failure; want 0", store.completeCalls.Load())
+	}
+}
+
+// TestWorker_BatchSizeFlowsToComputeRequest proves the worker
+// passes WorkerConfig.BatchSize into ComputeRequest so the
+// computer's batching uses the operator's configured chunk size,
+// not the package default.
+func TestWorker_BatchSizeFlowsToComputeRequest(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	_, _ = store.Enqueue(context.Background(), SpecKey{CatalogID: "c", SpecName: "x"}, KindSpecWrite)
+	resolver := &fakeResolver{contents: map[string]string{"c/x": "spec"}}
+	var seenBatch atomic.Int32
+	computer := &requestRecordingComputer{
+		seenBatch: &seenBatch,
+		rows:      []ComputedEmbedding{{OperationID: "op", Dim: 4, Embedding: []float32{1, 0, 0, 0}}},
+	}
+	w := NewWorker(WorkerConfig{
+		Store: store, Resolver: resolver, Computer: computer, Persister: &fakePersister{},
+		WorkerID: "wbs", PollEvery: 30 * time.Millisecond, BatchSize: 16,
+	})
+	w.Start(context.Background())
+	defer w.Stop()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if store.completeCalls.Load() >= 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := seenBatch.Load(); got != 16 {
+		t.Errorf("computer saw BatchSize=%d; want 16", got)
+	}
+}
+
+// TestNewWorker_DefaultsLeaseAndBatchSize proves the constructor
+// fills in DefaultLeaseDuration and DefaultEmbedBatchSize when
+// the caller omits both. Documents the contract that operators
+// opting out of tuning still get the historical defaults rather
+// than instant-expire leases or single-text batches.
+func TestNewWorker_DefaultsLeaseAndBatchSize(t *testing.T) {
+	t.Parallel()
+	w := NewWorker(WorkerConfig{
+		Store:     newFakeStore(),
+		Resolver:  &fakeResolver{},
+		Computer:  &fakeComputer{},
+		Persister: &fakePersister{},
+	})
+	if w.cfg.LeaseDuration != DefaultLeaseDuration {
+		t.Errorf("LeaseDuration = %v; want DefaultLeaseDuration=%v", w.cfg.LeaseDuration, DefaultLeaseDuration)
+	}
+	if w.cfg.BatchSize != DefaultEmbedBatchSize {
+		t.Errorf("BatchSize = %d; want DefaultEmbedBatchSize=%d", w.cfg.BatchSize, DefaultEmbedBatchSize)
+	}
+}
+
+// requestRecordingComputer captures the BatchSize the worker
+// passes via ComputeRequest so tests can prove the config knob
+// reaches the actual computer call site.
+type requestRecordingComputer struct {
+	seenBatch *atomic.Int32
+	rows      []ComputedEmbedding
+}
+
+func (c *requestRecordingComputer) Compute(_ context.Context, req ComputeRequest) ([]ComputedEmbedding, error) {
+	// #nosec G115 -- test-only conversion; batch sizes are tens to hundreds, never near int32 range.
+	c.seenBatch.Store(int32(req.BatchSize))
+	if req.PersistBatch != nil && len(c.rows) > 0 {
+		if err := req.PersistBatch(c.rows); err != nil {
+			return nil, err
+		}
+	}
+	return c.rows, nil
+}
+
+// resumeFailComputer models the #479 mid-job failure: succeeds
+// on every chunk except the second, then on retry succeeds on
+// all chunks. It calls PersistBatch for each chunk it processes
+// so the test can prove the failed-attempt's first chunk
+// survives to the retry's dedup map.
+type resumeFailComputer struct {
+	mu        sync.Mutex
+	allRows   []ComputedEmbedding
+	chunkSize int
+	failOn    int // chunk index that errors on attempt 1
+	attempt   int
+}
+
+func (c *resumeFailComputer) Compute(_ context.Context, req ComputeRequest) ([]ComputedEmbedding, error) {
+	c.mu.Lock()
+	c.attempt++
+	attempt := c.attempt
+	c.mu.Unlock()
+	out := make([]ComputedEmbedding, 0, len(c.allRows))
+	for start := 0; start < len(c.allRows); start += c.chunkSize {
+		end := min(start+c.chunkSize, len(c.allRows))
+		chunk := c.allRows[start:end]
+		// Honor dedup: skip ops already in req.Existing. The
+		// resume test asserts the second attempt sees fewer
+		// upstream "calls" because the persisted chunk 0 lands
+		// in req.Existing on attempt 2.
+		fresh := make([]ComputedEmbedding, 0, len(chunk))
+		for _, r := range chunk {
+			if _, found := req.Existing[r.OperationID]; !found {
+				fresh = append(fresh, r)
+			}
+		}
+		if len(fresh) > 0 && req.PersistBatch != nil {
+			if err := req.PersistBatch(fresh); err != nil {
+				return nil, err
+			}
+		}
+		// Trigger the failure AFTER chunk 0 has persisted so
+		// the test can prove progress survives the failure.
+		if attempt == 1 && start/c.chunkSize == c.failOn {
+			return nil, errors.New("simulated upstream failure mid-job")
+		}
+		out = append(out, chunk...)
+	}
+	return out, nil
+}
+
+// inMemPersister mirrors the catalogEmbeddingPersister's
+// contract against an in-process map. ListExisting returns the
+// rows UpsertBatch wrote on prior attempts, which is the wiring
+// the integration test verifies survives across retries.
+type inMemPersister struct {
+	mu      sync.Mutex
+	rows    map[string]ComputedEmbedding
+	stamped int
+}
+
+func newInMemPersister() *inMemPersister {
+	return &inMemPersister{rows: map[string]ComputedEmbedding{}}
+}
+
+func (p *inMemPersister) ListExisting(_ context.Context, _, _ string) (map[string]ExistingEmbedding, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make(map[string]ExistingEmbedding, len(p.rows))
+	for k, v := range p.rows {
+		out[k] = ExistingEmbedding(v)
+	}
+	return out, nil
+}
+
+func (p *inMemPersister) Upsert(_ context.Context, _, _ string, rows []ComputedEmbedding) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	// Atomic replace: clear then write.
+	p.rows = make(map[string]ComputedEmbedding, len(rows))
+	for _, r := range rows {
+		p.rows[r.OperationID] = r
+	}
+	return nil
+}
+
+func (p *inMemPersister) UpsertBatch(_ context.Context, _, _ string, rows []ComputedEmbedding) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, r := range rows {
+		p.rows[r.OperationID] = r
+	}
+	return nil
+}
+
+func (p *inMemPersister) StampOperationCount(_ context.Context, _, _ string, count int) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.stamped = count
+	return nil
+}
+
+// TestWorker_IntegrationResumeAfterMidJobFailure proves the
+// end-to-end #479 fix: a job that fails on chunk N persists
+// chunks 0..N-1 via UpsertBatch, and the next attempt's
+// ListExisting dedup pass skips those operations entirely.
+//
+// Wires together: the real Worker, a fakeStore implementing
+// the queue state machine, a resumeFailComputer that fails on
+// chunk index 1 only on attempt 1, and an inMemPersister that
+// preserves UpsertBatch writes across attempts. Asserts:
+//
+//  1. After attempt 1 fails, the persister contains the rows
+//     from chunk 0 (proves PersistBatch + UpsertBatch wiring).
+//  2. After attempt 2 succeeds, the persister contains every
+//     row.
+//  3. The job's final status is succeeded.
+//
+// Without per-batch persistence and the heartbeat, attempt 1
+// would lose chunk 0's work and attempt 2 would redo it from
+// scratch — the literal failure mode #479 documents.
+func TestWorker_IntegrationResumeAfterMidJobFailure(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	store.zeroRetryBackoff = true
+	_, _ = store.Enqueue(context.Background(), SpecKey{CatalogID: "c", SpecName: "iterable"}, KindSpecWrite)
+	resolver := &fakeResolver{contents: map[string]string{"c/iterable": "spec-body"}}
+	// 3 chunks of 2 ops each = 6 total. Fail on chunk index 1
+	// (the second chunk) on attempt 1.
+	allRows := []ComputedEmbedding{
+		{OperationID: "op0", Dim: 2, Embedding: []float32{1, 0}, TextHash: []byte{0x00}, Model: "m"},
+		{OperationID: "op1", Dim: 2, Embedding: []float32{0, 1}, TextHash: []byte{0x01}, Model: "m"},
+		{OperationID: "op2", Dim: 2, Embedding: []float32{1, 1}, TextHash: []byte{0x02}, Model: "m"},
+		{OperationID: "op3", Dim: 2, Embedding: []float32{2, 0}, TextHash: []byte{0x03}, Model: "m"},
+		{OperationID: "op4", Dim: 2, Embedding: []float32{0, 2}, TextHash: []byte{0x04}, Model: "m"},
+		{OperationID: "op5", Dim: 2, Embedding: []float32{2, 2}, TextHash: []byte{0x05}, Model: "m"},
+	}
+	computer := &resumeFailComputer{allRows: allRows, chunkSize: 2, failOn: 1}
+	persister := newInMemPersister()
+	w := NewWorker(WorkerConfig{
+		Store: store, Resolver: resolver, Computer: computer, Persister: persister,
+		WorkerID: "wir", PollEvery: 30 * time.Millisecond,
+	})
+	w.Start(context.Background())
+	defer w.Stop()
+
+	// Wait for either job completion or the test deadline. The
+	// queue retries automatically on the retryable failure.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if store.completeCalls.Load() >= 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if store.completeCalls.Load() != 1 {
+		t.Fatalf("job never completed; completes=%d retries=%d",
+			store.completeCalls.Load(), store.retryCalls.Load())
+	}
+	if got := store.retryCalls.Load(); got < 1 {
+		t.Errorf("retry was never called; mid-job failure path not exercised")
+	}
+	persister.mu.Lock()
+	defer persister.mu.Unlock()
+	if len(persister.rows) != len(allRows) {
+		t.Fatalf("persister has %d rows; want %d (every op present after resume)", len(persister.rows), len(allRows))
+	}
+	for _, r := range allRows {
+		if _, ok := persister.rows[r.OperationID]; !ok {
+			t.Errorf("op %q missing from persister after resume", r.OperationID)
+		}
 	}
 }

@@ -87,6 +87,27 @@ func TestListPersonas(t *testing.T) {
 		require.True(t, ok, "first persona should be a map")
 		assert.Equal(t, float64(0), first["tool_count"])
 	})
+
+	// A persona registered with nil Roles (e.g. a YAML config without the
+	// roles: key) must serialize as "roles":[], not "roles":null, or the
+	// RolesPage / PersonasPanel UI crashes when iterating p.roles.
+	t.Run("nil Roles serializes as empty array, not null", func(t *testing.T) {
+		pReg := &mockPersonaRegistry{
+			allResult: []*persona.Persona{
+				{Name: "minimal", DisplayName: "Minimal", Roles: nil},
+			},
+		}
+		h := NewHandler(Deps{PersonaRegistry: pReg}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/personas", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		raw := w.Body.String()
+		assert.Contains(t, raw, `"roles":[]`, "roles must be []; got: %s", raw)
+		assert.NotContains(t, raw, `"roles":null`, "roles must never be null on the wire")
+	})
 }
 
 func TestGetPersona(t *testing.T) {
@@ -225,6 +246,33 @@ func TestGetPersona(t *testing.T) {
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &raw))
 		_, hasContext := raw["context"]
 		assert.False(t, hasContext, "context key should be omitted when empty")
+	})
+
+	// A persona built from a YAML config that omits roles/allow_tools/
+	// deny_tools must still serialize the required array fields as [].
+	// The PersonaEditor UI does draft.allowTools.filter(...) and the
+	// like; a null on the wire crashes the editor on open.
+	t.Run("nil slice fields serialize as empty arrays, not null", func(t *testing.T) {
+		p := &persona.Persona{
+			Name:        "minimal",
+			DisplayName: "Minimal",
+			Roles:       nil,
+			Tools:       persona.ToolRules{Allow: nil, Deny: nil},
+		}
+		pReg := &mockPersonaRegistry{allResult: []*persona.Persona{p}}
+		h := NewHandler(Deps{PersonaRegistry: pReg}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/personas/minimal", http.NoBody)
+		req.SetPathValue("name", "minimal")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		raw := w.Body.String()
+		for _, field := range []string{"roles", "allow_tools", "deny_tools", "tools"} {
+			assert.Contains(t, raw, fmt.Sprintf("%q:[]", field), "%s must be []; got: %s", field, raw)
+			assert.NotContains(t, raw, fmt.Sprintf("%q:null", field), "%s must never be null on the wire", field)
+		}
 	})
 }
 

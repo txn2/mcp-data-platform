@@ -920,7 +920,7 @@ function SpecsManager({ catalogID, isReadOnly }: { catalogID: string; isReadOnly
 
 // EmbeddingStatusBadge surfaces the per-spec embedding state
 // computed by the job queue. The badge color and label
-// communicate one of five states the operator can react to:
+// communicate one of six states the operator can react to:
 //
 //   green:  "N/M indexed"     — spec is fully indexed; semantic
 //                                ranking is active.
@@ -928,7 +928,14 @@ function SpecsManager({ catalogID, isReadOnly }: { catalogID: string; isReadOnly
 //                                this spec; counts move as the
 //                                worker progresses.
 //   amber:  "queued"          — the job is in the queue waiting
-//                                for a worker to pick it up.
+//                                for a worker to pick it up (first
+//                                attempt, no error history).
+//   amber+: "retrying (N tries)" — the job failed at least once
+//                                and is queued for another try.
+//                                Tooltip surfaces last_error so the
+//                                operator can decide whether to
+//                                wait, cancel, or investigate. Was
+//                                the silent failure mode #479 fixed.
 //   red:    "failed (last_error)" — the job exhausted retries.
 //                                The operator can click Retry
 //                                next to the badge to force a
@@ -977,6 +984,26 @@ function EmbeddingStatusBadge({ status }: { status?: APICatalogEmbeddingSpecStat
     );
   }
   if (jobStatus === "pending") {
+    // A pending row with attempts > 0 is a retry, not a first-time
+    // queue. Distinguishing the two is what closes the #479 silent-
+    // failure mode: a doom-looping job formerly rendered as
+    // "queued" through every retry with no indication anything was
+    // wrong. The retry badge surfaces the attempt count up front
+    // and the last error in the tooltip so an operator can decide
+    // whether to wait, cancel, or investigate.
+    const attempts = status.job_attempts ?? 0;
+    if (attempts > 0) {
+      const errMsg = status.job_last_error || "no error message recorded";
+      const tries = attempts === 1 ? "1 try" : `${attempts} tries`;
+      return (
+        <span
+          title={`Retrying after failure. ${tries} so far. Last error: ${errMsg}`}
+          className="inline-flex items-center gap-1 rounded bg-amber-200 px-1.5 py-0.5 text-xs text-amber-900 dark:bg-amber-900/40 dark:text-amber-100"
+        >
+          retrying ({tries})
+        </span>
+      );
+    }
     return (
       <span
         title="Queued for embedding"

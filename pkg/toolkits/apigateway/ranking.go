@@ -287,28 +287,57 @@ func indexOf(ops []OperationSummary, target OperationSummary) int {
 // model's context window, or hitting an HTTP body cap. The caller's
 // ctx is honored across all batches; the first batch error short-
 // circuits the rest.
+//
+// Implemented on top of embedInBatchesIter so the per-chunk
+// callback site exists in one place. Kept for callers that want
+// the full slice in one go (ranking-side embedQuery tests, etc.).
 func embedInBatches(ctx context.Context, embedder embedding.Provider, texts []string, batchSize int, chunkDone func(completed int)) ([][]float32, error) {
+	out := make([][]float32, 0, len(texts))
+	err := embedInBatchesIter(ctx, embedder, texts, batchSize, func(_, _ int, vectors [][]float32) error {
+		out = append(out, vectors...)
+		if chunkDone != nil {
+			chunkDone(len(out))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// embedInBatchesIter is the per-chunk variant of embedInBatches.
+// onChunk receives (start, end, vectors) for each successful batch
+// in arrival order; a non-nil error from onChunk short-circuits
+// the loop and is returned wrapped with the chunk's offsets so
+// the caller can correlate logs against the failure point.
+//
+// The per-chunk shape exists so callers that want to persist
+// per-batch (the embed-jobs worker, for crash-resume) do not have
+// to wait for the full slice to come back before writing the
+// first batch to durable storage. Pre-persist + heartbeat in the
+// worker is what closes the doom loop described in #479: progress
+// from a partial run survives the next attempt's dedup pass.
+func embedInBatchesIter(ctx context.Context, embedder embedding.Provider, texts []string, batchSize int, onChunk func(start, end int, vectors [][]float32) error) error {
 	if batchSize <= 0 {
 		batchSize = len(texts)
 	}
-	out := make([][]float32, 0, len(texts))
 	for start := 0; start < len(texts); start += batchSize {
 		end := min(start+batchSize, len(texts))
 		chunk := texts[start:end]
 		vectors, err := embedder.EmbedBatch(ctx, chunk)
 		if err != nil {
-			return nil, fmt.Errorf("batch [%d:%d]: %w", start, end, err)
+			return fmt.Errorf("batch [%d:%d]: %w", start, end, err)
 		}
 		if len(vectors) != len(chunk) {
-			return nil, fmt.Errorf("batch [%d:%d]: provider returned %d vectors for %d texts",
+			return fmt.Errorf("batch [%d:%d]: provider returned %d vectors for %d texts",
 				start, end, len(vectors), len(chunk))
 		}
-		out = append(out, vectors...)
-		if chunkDone != nil {
-			chunkDone(len(out))
+		if err := onChunk(start, end, vectors); err != nil {
+			return fmt.Errorf("batch [%d:%d] callback: %w", start, end, err)
 		}
 	}
-	return out, nil
+	return nil
 }
 
 // cosineSimilarity returns the cosine of the angle between a and b.

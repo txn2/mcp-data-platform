@@ -382,7 +382,7 @@ function EventsTab({ onNavigate }: { onNavigate?: (path: string) => void }) {
           className="rounded-md border bg-background px-3 py-1.5 text-sm outline-none ring-ring focus:ring-2"
         >
           <option value="">All Users</option>
-          {filters?.users.map((u) => (
+          {filters?.users?.map((u) => (
             <option key={u} value={u}>
               {filters.user_labels?.[u] || formatUser(u)}
             </option>
@@ -397,7 +397,7 @@ function EventsTab({ onNavigate }: { onNavigate?: (path: string) => void }) {
           className="rounded-md border bg-background px-3 py-1.5 text-sm outline-none ring-ring focus:ring-2"
         >
           <option value="">All Tools</option>
-          {filters?.tools.map((t) => (
+          {filters?.tools?.map((t) => (
             <option key={t} value={t}>
               {t}
             </option>

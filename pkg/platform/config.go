@@ -881,6 +881,39 @@ type APIGatewayEmbedJobsConfig struct {
 	// which covers a 32-text batch on CPU Ollama with margin. Operators
 	// on GPU embedders can lower this to keep the failure floor tight.
 	EmbedTimeout time.Duration `yaml:"embed_timeout"`
+
+	// BatchSize is the number of operations the worker hands to
+	// the embedding provider per upstream EmbedBatch call.
+	// Smaller batches keep one slow chunk's lost progress small
+	// at the cost of more per-call overhead; larger batches
+	// amortize that overhead. Zero or negative falls back to
+	// 32 (embedjobs.DefaultEmbedBatchSize), the value that
+	// shipped before this knob was operator-controlled.
+	//
+	// Tune lower (e.g. 16) when a CPU-only provider's per-batch
+	// latency exceeds EmbedTimeout on full chunks; tune higher
+	// (e.g. 64) on GPU providers where per-call overhead
+	// dominates per-text compute. See #479.
+	BatchSize int `yaml:"batch_size"`
+
+	// LeaseDuration is the lifetime a Claim stamps on a job and
+	// the cadence the worker's heartbeat goroutine renews it.
+	// The reaper releases leases past this window so a pod that
+	// genuinely crashed mid-embed has its job picked up by
+	// another worker. Zero or negative falls back to 10 minutes
+	// (embedjobs.DefaultLeaseDuration), the value that shipped
+	// before this knob was operator-controlled.
+	//
+	// On CPU-only embedders processing large specs (~150+ ops),
+	// total compute can exceed 10 minutes even though every
+	// individual batch finishes in 2-3 minutes. The heartbeat
+	// (lease_duration / 3 cadence) keeps the lease alive while
+	// chunks are completing, so this value caps "pod went
+	// silent" rather than "embed batch is slow" — but it must
+	// still be greater than EmbedTimeout so a single batch can
+	// finish inside one lease window before the heartbeat fires
+	// its first renewal. See #479.
+	LeaseDuration time.Duration `yaml:"lease_duration"`
 }
 
 // isExplicitlyDisabled returns true only when the pointer is non-nil and false.
