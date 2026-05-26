@@ -10,6 +10,7 @@ import (
 	mcpserver "github.com/txn2/mcp-data-platform/internal/server"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // systemInfoResponse is returned by GET /system/info.
@@ -298,12 +299,31 @@ func (h *Handler) listConnections(w http.ResponseWriter, _ *http.Request) {
 	if h.deps.ToolkitRegistry != nil {
 		for _, tk := range h.deps.ToolkitRegistry.All() {
 			tools := tk.Tools()
+			hidden := hiddenTools(tools, allow, deny)
+			// Multi-connection toolkits (apigateway, trino with multiple
+			// catalogs, etc.) must expand to one entry per real connection
+			// because that is what the persona filter authorizes against.
+			// Listing the single toolkit-level entry would make patterns
+			// like "blackbaud" unmatchable in the editor's live preview
+			// even though they work correctly at runtime.
+			if lister, ok := tk.(toolkit.ConnectionLister); ok {
+				for _, conn := range lister.ListConnections() {
+					conns = append(conns, connectionInfo{
+						Kind:        tk.Kind(),
+						Name:        conn.Name,
+						Connection:  conn.Name,
+						Tools:       tools,
+						HiddenTools: hidden,
+					})
+				}
+				continue
+			}
 			conns = append(conns, connectionInfo{
 				Kind:        tk.Kind(),
 				Name:        tk.Name(),
 				Connection:  tk.Connection(),
 				Tools:       tools,
-				HiddenTools: hiddenTools(tools, allow, deny),
+				HiddenTools: hidden,
 			})
 		}
 	}
