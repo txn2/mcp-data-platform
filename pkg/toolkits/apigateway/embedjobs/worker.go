@@ -16,18 +16,27 @@ import (
 
 // Worker-side constants and structured-log keys.
 const (
-	// claimTimeoutGrace is the slack between a worker's claim
-	// context deadline and the lease itself. The worker context
-	// must outlive the lease so a long-running embed does not
-	// race the deadline; 30s slack covers the post-embed
-	// Complete/Retry/Fail call against the DB.
-	claimTimeoutGrace = 30 * time.Second
-
 	// defaultPollEvery is the fallback poll interval when
 	// WorkerConfig.PollEvery is unset. LISTEN/NOTIFY is the
 	// primary wake signal; this exists so a missed notification
 	// does not stall a worker indefinitely.
 	defaultPollEvery = 30 * time.Second
+
+	// processSafetyBound caps a single process() call as a
+	// backstop against a Compute implementation that hangs
+	// without making forward progress (a code bug, not a slow
+	// upstream — per-HTTP-call timeouts inside the embedder
+	// already bound the upstream-hang case). One hour is large
+	// enough that any realistic CPU embedding pass completes
+	// well inside it, while still bounding K8s pod shutdown.
+	//
+	// Under normal operation this never fires: the heartbeat
+	// (lease/3 cadence) keeps the DB lease alive as long as
+	// Compute is making progress, and the heartbeat itself
+	// exits on lease rotation. The bound exists only to keep
+	// a buggy Compute from pinning a worker goroutine forever
+	// and stalling shutdown past the K8s termination grace.
+	processSafetyBound = 1 * time.Hour
 
 	logKeyJobID     = "job_id"
 	logKeyCatalogID = "catalog_id"
@@ -45,20 +54,51 @@ type SpecResolver interface {
 	GetSpecContent(ctx context.Context, catalogID, specName string) (content string, err error)
 }
 
+// ComputeRequest bundles the parameters EmbeddingComputer.Compute
+// needs. The struct shape keeps the interface call-site
+// self-documenting and accommodates the additional knobs that
+// joined the parameter set for #479 (batch size, per-batch
+// persistence callback) without growing positional arguments.
+type ComputeRequest struct {
+	// Content is the raw OpenAPI document text the worker fetched
+	// from the SpecResolver.
+	Content string
+
+	// SpecName is the catalog key the worker is processing.
+	SpecName string
+
+	// Existing is the dedup map from Persister.ListExisting. A
+	// match on (operation_id, text_hash, model, dim) lets the
+	// computer reuse the existing vector instead of calling the
+	// upstream embedder.
+	Existing map[string]ExistingEmbedding
+
+	// BatchSize caps the texts per upstream EmbedBatch call.
+	// Zero falls back to the implementation's default.
+	BatchSize int
+
+	// Progress is called at chunk boundaries with the cumulative
+	// count of operations whose vectors are ready (reused +
+	// freshly embedded). The worker forwards this to
+	// Store.UpdateProgress so the catalog status endpoint can
+	// render incremental progress before the final commit.
+	Progress func(completed int)
+
+	// PersistBatch is called after every successful chunk with
+	// just that chunk's rows. The worker's adapter forwards each
+	// call to Persister.UpsertBatch so progress survives a
+	// mid-job failure: the next attempt's ListExisting pass picks
+	// the persisted rows up and skips the upstream call. nil
+	// disables (the chunk's vectors are still in the final return
+	// slice for the worker's atomic Upsert at job completion).
+	PersistBatch func(rows []ComputedEmbedding) error
+}
+
 // EmbeddingComputer is the worker's bridge to the embedding
 // provider. The implementation calls
 // apigateway.ComputeOperationEmbeddings (or a test stub).
-//
-// progress is called by the implementation at chunk boundaries
-// inside a long embed pass with the cumulative number of operations
-// whose vectors are ready (reused-from-existing plus freshly
-// computed). The worker publishes the value to api_catalog_embedding_jobs
-// .embedded_so_far so the catalog status endpoint can render
-// incremental progress while the final atomic upsert is still
-// pending (#430). nil progress is acceptable; the implementation
-// skips the callback in that case.
 type EmbeddingComputer interface {
-	Compute(ctx context.Context, content, specName string, existing map[string]ExistingEmbedding, progress func(int)) ([]ComputedEmbedding, error)
+	Compute(ctx context.Context, req ComputeRequest) ([]ComputedEmbedding, error)
 }
 
 // ExistingEmbedding is the subset of catalog.OperationEmbedding
@@ -103,6 +143,18 @@ type EmbeddingPersister interface {
 	ListExisting(ctx context.Context, catalogID, specName string) (map[string]ExistingEmbedding, error)
 	Upsert(ctx context.Context, catalogID, specName string, rows []ComputedEmbedding) error
 	StampOperationCount(ctx context.Context, catalogID, specName string, count int) error
+
+	// UpsertBatch writes a single chunk's worth of embedding rows
+	// to durable storage without disturbing rows outside the
+	// supplied set. The worker calls this once per chunk inside
+	// EmbeddingComputer.Compute via the PersistBatch callback so
+	// a job that fails mid-pass leaves its prior chunks visible
+	// to the next attempt's ListExisting (and therefore to the
+	// dedup map that skips the upstream re-embed). Unlike Upsert,
+	// this method does NOT delete rows absent from the batch:
+	// stale-row cleanup happens once at job completion via the
+	// catalog adapter's final Upsert pass.
+	UpsertBatch(ctx context.Context, catalogID, specName string, rows []ComputedEmbedding) error
 }
 
 // ConnectionReloader is the optional hook the worker uses after
@@ -133,7 +185,34 @@ type WorkerConfig struct {
 	// Zero or negative falls back to 1, preserving the pre-#430
 	// single-goroutine behavior.
 	Concurrency int
+
+	// LeaseDuration is the window each Claim stamps on a job and
+	// the cadence the heartbeat goroutine uses to renew it. The
+	// store's WithLeaseDuration option should be set to the same
+	// value so Claim and RenewLease agree on the window.
+	//
+	// Zero or negative falls back to DefaultLeaseDuration. The
+	// heartbeat fires at LeaseDuration / heartbeatDivisor so a
+	// slow embed pass renews well before the reaper considers
+	// the lease abandoned.
+	LeaseDuration time.Duration
+
+	// BatchSize is the chunk size the Computer's embed pass uses
+	// per upstream EmbedBatch call. Smaller batches keep a single
+	// stuck call from burning the whole budget; larger batches
+	// amortize per-call overhead. Zero or negative falls back to
+	// DefaultEmbedBatchSize. Plumbed through to the Computer via
+	// the EmbeddingComputer interface.
+	BatchSize int
 }
+
+// heartbeatDivisor sets how often the heartbeat fires relative
+// to the lease window. lease/3 keeps two renewal opportunities
+// in flight before the reaper would consider the lease abandoned
+// (one renew at T+lease/3, second at T+2*lease/3, reaper kills
+// at T+lease). Two-fault tolerance against a transient DB blip
+// without spamming the table.
+const heartbeatDivisor = 3
 
 // Worker drains the job queue. One Worker instance per pod is
 // the typical deployment; multiple workers in the same pod are
@@ -159,6 +238,12 @@ func NewWorker(cfg WorkerConfig) *Worker {
 	}
 	if cfg.Concurrency <= 0 {
 		cfg.Concurrency = 1
+	}
+	if cfg.LeaseDuration <= 0 {
+		cfg.LeaseDuration = DefaultLeaseDuration
+	}
+	if cfg.BatchSize <= 0 {
+		cfg.BatchSize = DefaultEmbedBatchSize
 	}
 	return &Worker{
 		cfg:    cfg,
@@ -235,8 +320,16 @@ func (w *Worker) run() {
 }
 
 // drainQueue claims and processes jobs until the queue is empty
-// or shutdown is signaled. Each iteration is bounded so a flood
-// of jobs cannot starve the shutdown signal.
+// or shutdown is signaled. Each iteration is bounded by
+// processSafetyBound (1 hour) only as a backstop against a
+// Compute that hangs without forward progress — the DB lease
+// (renewed by the heartbeat at lease/3 cadence) is the
+// authoritative deadline for a normal run. An earlier revision
+// bounded the ctx at LeaseDuration + 30s, which silently
+// defeated the heartbeat: even with the DB lease alive, the
+// worker's local ctx would cancel Compute at the lease ceiling
+// and re-trigger the doom loop #479 was filed to close. See
+// processSafetyBound for the rationale on the new bound.
 func (w *Worker) drainQueue() {
 	for {
 		select {
@@ -244,7 +337,7 @@ func (w *Worker) drainQueue() {
 			return
 		default:
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), LeaseDuration+claimTimeoutGrace)
+		ctx, cancel := context.WithTimeout(context.Background(), processSafetyBound)
 		job, err := w.cfg.Store.Claim(ctx, w.cfg.WorkerID)
 		if errors.Is(err, ErrNoJob) {
 			cancel()
@@ -321,7 +414,37 @@ func (w *Worker) process(ctx context.Context, job *Job) {
 				logKeyJobID, job.ID, "embedded_so_far", completed, logKeyError, perr)
 		}
 	}
-	rows, err := w.cfg.Computer.Compute(ctx, content, job.SpecName, existing, progress)
+	persistBatch := func(batch []ComputedEmbedding) error {
+		// Per-batch durable persistence. Forwards to the
+		// Persister's batch upsert so a job that fails on chunk N
+		// still has vectors for chunks 0..N-1 saved. The next
+		// attempt's ListExisting pass sees them via the dedup map
+		// and skips the upstream call — the doom loop described
+		// in #479 is closed by this single call. Errors
+		// short-circuit the compute pass via a wrapping fmt.Errorf
+		// in fillFreshEmbeddings.
+		if perr := w.cfg.Persister.UpsertBatch(ctx, job.CatalogID, job.SpecName, batch); perr != nil {
+			return fmt.Errorf("persist batch: %w", perr)
+		}
+		return nil
+	}
+	// Start the heartbeat. The goroutine renews the lease while
+	// Compute runs so a slow embed pass on a CPU-only provider
+	// does not look "abandoned" to the reaper at the 10-minute
+	// mark and get its context canceled mid-batch. The heartbeat
+	// stops when the deferred cancel fires (Compute returns).
+	hbCtx, hbCancel := context.WithCancel(ctx)
+	defer hbCancel()
+	go w.heartbeat(hbCtx, job)
+
+	rows, err := w.cfg.Computer.Compute(ctx, ComputeRequest{
+		Content:      content,
+		SpecName:     job.SpecName,
+		Existing:     existing,
+		BatchSize:    w.cfg.BatchSize,
+		Progress:     progress,
+		PersistBatch: persistBatch,
+	})
 	if err != nil {
 		w.retryOrFail(ctx, job, fmt.Sprintf("compute failed: %v", err))
 		return
@@ -362,6 +485,47 @@ func (w *Worker) process(ctx context.Context, job *Job) {
 	slog.Info("embedjobs: job complete",
 		logKeyJobID, job.ID, logKeyCatalogID, job.CatalogID,
 		logKeySpecName, job.SpecName, "rows", len(rows))
+}
+
+// heartbeat renews the job's lease at lease/heartbeatDivisor
+// cadence while the surrounding embed pass is making forward
+// progress. Stops on ctx.Done (the caller's deferred cancel after
+// Compute returns) or on the first ErrNotFound from RenewLease
+// (which means the lease has rotated to another worker — the
+// current worker is no longer in charge and should not keep
+// stamping a lease it does not own).
+//
+// Errors other than ErrNotFound are logged at warn but do not
+// stop the heartbeat: a transient DB blip would otherwise let
+// the reaper see an unrenewed lease, kill the context, and
+// abort the embed pass — exactly the failure mode the heartbeat
+// exists to prevent. The next tick re-attempts the renewal.
+func (w *Worker) heartbeat(ctx context.Context, job *Job) {
+	interval := w.cfg.LeaseDuration / heartbeatDivisor
+	if interval <= 0 {
+		interval = DefaultLeaseDuration / heartbeatDivisor
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			err := w.cfg.Store.RenewLease(ctx, job.ID, w.cfg.WorkerID, w.cfg.LeaseDuration)
+			if errors.Is(err, ErrNotFound) {
+				// Lease rotated. Stop heartbeating; the new
+				// holder owns the row.
+				slog.Info("embedjobs: heartbeat stopping; lease rotated",
+					logKeyJobID, job.ID, "worker_id", w.cfg.WorkerID)
+				return
+			}
+			if err != nil && !errors.Is(err, context.Canceled) {
+				slog.Warn("embedjobs: lease renewal failed; will retry next tick",
+					logKeyJobID, job.ID, "worker_id", w.cfg.WorkerID, logKeyError, err)
+			}
+		}
+	}
 }
 
 // retryOrFail consults the attempts counter and routes the job

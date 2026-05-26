@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"encoding/json"
 	"net/http"
 	"sort"
 
@@ -9,6 +10,7 @@ import (
 	mcpserver "github.com/txn2/mcp-data-platform/internal/server"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // systemInfoResponse is returned by GET /system/info.
@@ -240,12 +242,34 @@ func (h *Handler) buildToolTitleMap(r *http.Request) map[string]string {
 }
 
 // connectionInfo describes a toolkit connection.
+//
+// Tools and HiddenTools are declared as plain []string but ship as JSON
+// arrays, NEVER null. MarshalJSON enforces the non-nil invariant at
+// serialization time because the persona editor UI dereferences
+// .length / .map on the wire value, and several toolkits (notably
+// gateway with no live upstream) return nil from Tools().
 type connectionInfo struct {
 	Kind        string   `json:"kind" example:"trino"`
 	Name        string   `json:"name" example:"acme-warehouse"`
 	Connection  string   `json:"connection" example:"acme-warehouse"`
 	Tools       []string `json:"tools" example:"trino_query,trino_describe_table,trino_browse"`
 	HiddenTools []string `json:"hidden_tools"`
+}
+
+// MarshalJSON enforces the non-nil wire invariant for Tools and
+// HiddenTools no matter how the struct was constructed. This closes
+// the loophole where a future handler builds a connectionInfo by
+// struct literal and forgets to normalize.
+func (c connectionInfo) MarshalJSON() ([]byte, error) {
+	type alias connectionInfo
+	v := alias(c)
+	if v.Tools == nil {
+		v.Tools = []string{}
+	}
+	if v.HiddenTools == nil {
+		v.HiddenTools = []string{}
+	}
+	return json.Marshal(v) //nolint:wrapcheck // value struct of basic types cannot fail to marshal
 }
 
 // connectionListResponse wraps a list of connections.
@@ -276,6 +300,24 @@ func (h *Handler) listConnections(w http.ResponseWriter, _ *http.Request) {
 		for _, tk := range h.deps.ToolkitRegistry.All() {
 			tools := tk.Tools()
 			hidden := hiddenTools(tools, allow, deny)
+			// Multi-connection toolkits (apigateway, trino with multiple
+			// catalogs, etc.) must expand to one entry per real connection
+			// because that is what the persona filter authorizes against.
+			// Listing the single toolkit-level entry would make patterns
+			// like "blackbaud" unmatchable in the editor's live preview
+			// even though they work correctly at runtime.
+			if lister, ok := tk.(toolkit.ConnectionLister); ok {
+				for _, conn := range lister.ListConnections() {
+					conns = append(conns, connectionInfo{
+						Kind:        tk.Kind(),
+						Name:        conn.Name,
+						Connection:  conn.Name,
+						Tools:       tools,
+						HiddenTools: hidden,
+					})
+				}
+				continue
+			}
 			conns = append(conns, connectionInfo{
 				Kind:        tk.Kind(),
 				Name:        tk.Name(),

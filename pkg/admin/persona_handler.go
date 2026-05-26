@@ -13,6 +13,10 @@ import (
 )
 
 // personaSummary is a lightweight persona representation for list responses.
+//
+// Roles is declared []string and ships as a JSON array, NEVER null. The
+// UI iterates p.roles directly (RolesPage, PersonasPanel) so a wire-level
+// null crashes the persona list. MarshalJSON enforces this invariant.
 type personaSummary struct {
 	Name        string   `json:"name" example:"data-engineer"`
 	DisplayName string   `json:"display_name" example:"Data Engineer"`
@@ -20,6 +24,16 @@ type personaSummary struct {
 	Roles       []string `json:"roles" example:"data_engineer"`
 	ToolCount   int      `json:"tool_count" example:"19"`
 	Source      string   `json:"source,omitempty" example:"file"` // "file", "database", or "both"
+}
+
+// MarshalJSON enforces the non-nil wire invariant for Roles.
+func (p personaSummary) MarshalJSON() ([]byte, error) {
+	type alias personaSummary
+	v := alias(p)
+	if v.Roles == nil {
+		v.Roles = []string{}
+	}
+	return json.Marshal(v) //nolint:wrapcheck // value struct of basic types cannot fail to marshal
 }
 
 // personaContextDetail holds context override fields nested under "context" in JSON.
@@ -31,6 +45,12 @@ type personaContextDetail struct {
 }
 
 // personaDetail includes resolved tool lists.
+//
+// Roles, AllowTools, DenyTools, and Tools ship as JSON arrays, NEVER
+// null. The PersonaEditor UI accesses .length / .filter on these
+// directly. AllowConnections / DenyConnections have omitempty so they
+// are absent when nil rather than null. MarshalJSON enforces the
+// non-nil invariant for the required arrays.
 type personaDetail struct {
 	Name             string                `json:"name" example:"data-engineer"`
 	DisplayName      string                `json:"display_name" example:"Data Engineer"`
@@ -44,6 +64,25 @@ type personaDetail struct {
 	Tools            []string              `json:"tools" example:"trino_query,trino_describe_table,datahub_search"`
 	Context          *personaContextDetail `json:"context,omitempty"`
 	Source           string                `json:"source,omitempty" example:"file"` // "file", "database", or "both"
+}
+
+// MarshalJSON enforces the non-nil wire invariant for the required arrays.
+func (p personaDetail) MarshalJSON() ([]byte, error) {
+	type alias personaDetail
+	v := alias(p)
+	if v.Roles == nil {
+		v.Roles = []string{}
+	}
+	if v.AllowTools == nil {
+		v.AllowTools = []string{}
+	}
+	if v.DenyTools == nil {
+		v.DenyTools = []string{}
+	}
+	if v.Tools == nil {
+		v.Tools = []string{}
+	}
+	return json.Marshal(v) //nolint:wrapcheck // value struct of basic types cannot fail to marshal
 }
 
 // personaCreateRequest is the request body for creating/updating a persona.
