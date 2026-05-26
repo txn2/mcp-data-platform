@@ -3,9 +3,9 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -428,10 +428,12 @@ func TestListConnections(t *testing.T) {
 	})
 
 	// A toolkit whose Tools() returns nil (e.g. gateway with no live
-	// upstream connections) must serialize as "tools":[], not "tools":null,
-	// or the persona editor's connections scope crashes when it reads
-	// c.tools.length on the wire value.
-	t.Run("nil Tools() serializes as empty array, not null", func(t *testing.T) {
+	// upstream connections) must serialize tools AND hidden_tools as [],
+	// not null. The persona editor's connections scope reads
+	// c.tools.length / c.hidden_tools.length on the wire value, and a
+	// null crashes the render. connectionInfo.MarshalJSON enforces the
+	// invariant for both fields no matter how the struct is constructed.
+	t.Run("nil Tools() serializes both tools and hidden_tools as empty arrays", func(t *testing.T) {
 		reg := &mockToolkitRegistry{
 			allResult: []mockToolkit{
 				{kind: "gateway", name: "vendor", connection: "vendor", tools: nil},
@@ -445,13 +447,9 @@ func TestListConnections(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		raw := w.Body.String()
-		assert.Contains(t, raw, `"tools":[]`, "tools must be []; got: %s", raw)
-		assert.NotContains(t, raw, `"tools":null`, "tools must never be null on the wire")
-
-		var body connectionListResponse
-		require.NoError(t, json.NewDecoder(strings.NewReader(raw)).Decode(&body))
-		require.Len(t, body.Connections, 1)
-		assert.NotNil(t, body.Connections[0].Tools, "Tools slice must be non-nil after decode")
-		assert.Empty(t, body.Connections[0].Tools)
+		for _, field := range []string{"tools", "hidden_tools"} {
+			assert.Contains(t, raw, fmt.Sprintf("%q:[]", field), "%s must be []; got: %s", field, raw)
+			assert.NotContains(t, raw, fmt.Sprintf("%q:null", field), "%s must never be null on the wire", field)
+		}
 	})
 }
