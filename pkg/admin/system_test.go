@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -424,5 +425,31 @@ func TestListConnections(t *testing.T) {
 		var body map[string]any
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
 		assert.Equal(t, float64(0), body["total"])
+	})
+
+	// A toolkit whose Tools() returns nil (e.g. gateway with no live
+	// upstream connections) must serialize tools AND hidden_tools as [],
+	// not null. The persona editor's connections scope reads
+	// c.tools.length / c.hidden_tools.length on the wire value, and a
+	// null crashes the render. connectionInfo.MarshalJSON enforces the
+	// invariant for both fields no matter how the struct is constructed.
+	t.Run("nil Tools() serializes both tools and hidden_tools as empty arrays", func(t *testing.T) {
+		reg := &mockToolkitRegistry{
+			allResult: []mockToolkit{
+				{kind: "gateway", name: "vendor", connection: "vendor", tools: nil},
+			},
+		}
+		h := NewHandler(Deps{ToolkitRegistry: reg}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/connections", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		raw := w.Body.String()
+		for _, field := range []string{"tools", "hidden_tools"} {
+			assert.Contains(t, raw, fmt.Sprintf("%q:[]", field), "%s must be []; got: %s", field, raw)
+			assert.NotContains(t, raw, fmt.Sprintf("%q:null", field), "%s must never be null on the wire", field)
+		}
 	})
 }
