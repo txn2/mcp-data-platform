@@ -272,19 +272,22 @@ export function PersonaEditor({
         kind: t.primaryKind,
       }));
     }
-    return connections.map((c) => ({
+    return connections.map((c) => {
       // The backend authorizes against toolkit.Connection() (see
       // pkg/registry/registry.go GetToolkitForTool → match.Connection,
       // consumed by pkg/persona/filter.go IsConnectionAllowed). The toolkit
       // instance "name" is unrelated and may diverge when connection_name
       // is configured explicitly, so allow/deny patterns must match against
       // the connection identifier, not the toolkit name.
-      key: c.connection,
-      primary: c.connection,
-      secondary: c.kind,
-      tertiary: `${c.tools.length} tools`,
-      kind: c.kind,
-    }));
+      const toolCount = c.tools?.length ?? 0;
+      return {
+        key: c.connection,
+        primary: c.connection,
+        secondary: c.kind,
+        tertiary: `${toolCount} tools`,
+        kind: c.kind,
+      };
+    });
   }, [scope, uniqueTools, connections]);
 
   const allowList = scope === "tools" ? draft.allowTools : draft.allowConnections;
@@ -536,9 +539,16 @@ export function PersonaEditor({
       )}
 
       {/* ─── MAIN: left identity/rules + tabbed right area ─── */}
-      <div className="grid min-h-0 flex-1 grid-cols-[300px_minmax(0,1fr)]">
+      {/*
+        Stack vertically below lg (1024px) so the scope tabs in the center
+        column remain reachable on narrow viewports — without this, the
+        fixed 300px left rail starves the right column of usable width and
+        users can't switch the Allow/Deny editor between tools and
+        connections scope.
+      */}
+      <div className="flex min-h-0 flex-1 flex-col lg:grid lg:grid-cols-[300px_minmax(0,1fr)]">
         {/* ── LEFT: Identity + Rules + Context ── */}
-        <aside className="overflow-y-auto border-r">
+        <aside className="border-b lg:overflow-y-auto lg:border-b-0 lg:border-r">
           <fieldset disabled={isReadOnly} className="contents">
           <Section title="Identity">
             <Field label="Name" required>
@@ -666,7 +676,7 @@ export function PersonaEditor({
         </aside>
 
         {/* ── RIGHT AREA: tabbed (Permissions / AI Assistant Behavior) ── */}
-        <div className="flex min-h-0 flex-col overflow-hidden">
+        <div className="flex flex-col lg:min-h-0 lg:overflow-hidden">
           <div className="flex shrink-0 border-b bg-muted/10 px-5">
             <MainTab
               active={mainTab === "permissions"}
@@ -722,10 +732,10 @@ export function PersonaEditor({
               </fieldset>
             </div>
           ) : (
-            <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_340px]">
+            <div className="flex flex-1 flex-col xl:grid xl:min-h-0 xl:grid-cols-[minmax(0,1fr)_340px]">
 
         {/* ── CENTER: Tool / Connection explorer ── */}
-        <section className="flex min-h-0 flex-col overflow-hidden">
+        <section className="flex flex-col xl:min-h-0 xl:overflow-hidden">
           <div className="border-b bg-muted/10 px-5 pt-4 pb-3">
             <div className="mb-3">
               <h3 className="text-base font-semibold leading-tight">
@@ -813,7 +823,7 @@ export function PersonaEditor({
           </div>
 
           <fieldset disabled={isReadOnly} className="contents">
-          <div className="flex-1 overflow-y-auto px-5 py-3">
+          <div className="px-5 py-3 xl:flex-1 xl:overflow-y-auto">
             {grouped.length === 0 && (
               <div className="py-12 text-center text-xs text-muted-foreground">
                 No {scope} match
@@ -913,7 +923,7 @@ export function PersonaEditor({
         </section>
 
         {/* ── RIGHT: Summary + Trace + Templates ── */}
-        <aside className="flex flex-col overflow-y-auto border-l">
+        <aside className="flex flex-col border-t xl:overflow-y-auto xl:border-t-0 xl:border-l">
           <div className="grid grid-cols-2 border-b">
             <div className="border-r px-4 py-3">
               <div className="text-2xl font-semibold text-emerald-600 dark:text-emerald-400">

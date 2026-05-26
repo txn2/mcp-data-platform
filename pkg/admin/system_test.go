@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -424,5 +425,33 @@ func TestListConnections(t *testing.T) {
 		var body map[string]any
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
 		assert.Equal(t, float64(0), body["total"])
+	})
+
+	// A toolkit whose Tools() returns nil (e.g. gateway with no live
+	// upstream connections) must serialize as "tools":[], not "tools":null,
+	// or the persona editor's connections scope crashes when it reads
+	// c.tools.length on the wire value.
+	t.Run("nil Tools() serializes as empty array, not null", func(t *testing.T) {
+		reg := &mockToolkitRegistry{
+			allResult: []mockToolkit{
+				{kind: "gateway", name: "vendor", connection: "vendor", tools: nil},
+			},
+		}
+		h := NewHandler(Deps{ToolkitRegistry: reg}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/connections", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		raw := w.Body.String()
+		assert.Contains(t, raw, `"tools":[]`, "tools must be []; got: %s", raw)
+		assert.NotContains(t, raw, `"tools":null`, "tools must never be null on the wire")
+
+		var body connectionListResponse
+		require.NoError(t, json.NewDecoder(strings.NewReader(raw)).Decode(&body))
+		require.Len(t, body.Connections, 1)
+		assert.NotNil(t, body.Connections[0].Tools, "Tools slice must be non-nil after decode")
+		assert.Empty(t, body.Connections[0].Tools)
 	})
 }

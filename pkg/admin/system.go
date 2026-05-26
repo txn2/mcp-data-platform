@@ -275,6 +275,9 @@ func (h *Handler) listConnections(w http.ResponseWriter, _ *http.Request) {
 	if h.deps.ToolkitRegistry != nil {
 		for _, tk := range h.deps.ToolkitRegistry.All() {
 			tools := tk.Tools()
+			if tools == nil {
+				tools = []string{}
+			}
 			hidden := hiddenTools(tools, allow, deny)
 			conns = append(conns, connectionInfo{
 				Kind:        tk.Kind(),
