@@ -5549,6 +5549,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/portal.problemDetail"
                         }
                     },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
                     "404": {
                         "description": "Not Found",
                         "schema": {
@@ -6268,7 +6274,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Revokes a share by its ID. Only the asset owner can revoke.",
+                "description": "Revokes a share by its ID. Only the owner can revoke.",
                 "produces": [
                     "application/json"
                 ],

@@ -430,11 +430,8 @@ func TestListConnections(t *testing.T) {
 
 	// A multi-connection toolkit (apigateway with N upstream connections,
 	// trino with multiple catalogs) must expand to one entry per real
-	// connection. The persona filter authorizes against the connection
-	// name (apigateway resolves "blackbaud" at call time), so listing the
-	// single toolkit-level entry makes patterns like "blackbaud"
-	// unmatchable in the editor's live preview even when they work
-	// correctly at runtime.
+	// connection because the persona filter authorizes against the
+	// connection name resolved at call time.
 	t.Run("multi-connection toolkit expands to one entry per connection", func(t *testing.T) {
 		mt := mockMultiConnectionToolkit{
 			mockToolkit: mockToolkit{
