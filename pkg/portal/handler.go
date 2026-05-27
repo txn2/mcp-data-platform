@@ -1241,7 +1241,7 @@ func (h *Handler) listShares(w http.ResponseWriter, r *http.Request) {
 // revokeShare handles DELETE /api/v1/portal/shares/{id}.
 //
 // @Summary      Revoke share
-// @Description  Revokes a share by its ID. Only the asset owner can revoke.
+// @Description  Revokes a share by its ID. Only the owner can revoke.
 // @Tags         Shares
 // @Produce      json
 // @Param        id  path  string  true  "Share ID"
@@ -1267,15 +1267,21 @@ func (h *Handler) revokeShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify ownership: check that the share's asset belongs to this user.
-	asset, err := h.deps.AssetStore.Get(r.Context(), share.AssetID)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "associated asset not found")
-		return
-	}
-	if asset.OwnerID != user.UserID {
-		writeError(w, http.StatusForbidden, "only the owner can revoke this share")
-		return
+	if share.CollectionID != "" {
+		if err := h.verifyCollectionOwner(r.Context(), share.CollectionID, user); err != nil {
+			writeError(w, err.code, err.message)
+			return
+		}
+	} else {
+		asset, err := h.deps.AssetStore.Get(r.Context(), share.AssetID)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "associated asset not found")
+			return
+		}
+		if asset.OwnerID != user.UserID {
+			writeError(w, http.StatusForbidden, "only the owner can revoke this share")
+			return
+		}
 	}
 
 	if err := h.deps.ShareStore.Revoke(r.Context(), shareID); err != nil {
@@ -1284,6 +1290,27 @@ func (h *Handler) revokeShare(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, statusResponse{Status: statusRevoked})
+}
+
+type ownerError struct {
+	code    int
+	message string
+}
+
+func (e *ownerError) Error() string { return e.message }
+
+func (h *Handler) verifyCollectionOwner(ctx context.Context, collectionID string, user *User) *ownerError {
+	if h.deps.CollectionStore == nil {
+		return &ownerError{http.StatusNotFound, "collections not available"}
+	}
+	coll, err := h.deps.CollectionStore.Get(ctx, collectionID)
+	if err != nil {
+		return &ownerError{http.StatusNotFound, "associated collection not found"}
+	}
+	if coll.OwnerID != user.UserID {
+		return &ownerError{http.StatusForbidden, "only the owner can revoke this share"}
+	}
+	return nil
 }
 
 // listSharedWithMe handles GET /api/v1/portal/shared-with-me.

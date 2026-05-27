@@ -43,6 +43,21 @@ type Store interface {
 	// hitting the embedding provider on the request path.
 	UpsertOperationEmbeddings(ctx context.Context, catalogID, specName string, rows []OperationEmbedding) error
 
+	// UpsertOperationEmbeddingsBatch inserts or updates the
+	// supplied rows in place. Unlike UpsertOperationEmbeddings,
+	// this method does NOT delete absent rows: rows for operations
+	// not in the batch survive untouched. Used by the embed-jobs
+	// worker for per-chunk incremental persistence so a job that
+	// fails on chunk N leaves chunks 0..N-1 visible to the next
+	// attempt's dedup pass via ListOperationEmbeddings.
+	//
+	// Atomic per call: the upsert runs inside one transaction so
+	// a concurrent ranking read either sees the prior set or the
+	// prior set plus this chunk, never a half-written chunk.
+	// Returns ErrNotFound when the referenced spec does not
+	// exist (FK violation on insert).
+	UpsertOperationEmbeddingsBatch(ctx context.Context, catalogID, specName string, rows []OperationEmbedding) error
+
 	// ListOperationEmbeddings returns every embedding row for
 	// (catalog_id, spec_name) so the toolkit can populate its
 	// per-connection vector map at registration time without
