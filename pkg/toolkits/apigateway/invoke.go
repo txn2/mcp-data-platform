@@ -32,6 +32,10 @@ var supportedMethods = map[string]bool{
 	http.MethodDelete: true,
 	http.MethodPatch:  true,
 	http.MethodHead:   true,
+	"PROPFIND":        true,
+	"MKCOL":           true,
+	"MOVE":            true,
+	"COPY":            true,
 }
 
 // maxTimeoutSeconds caps the per-call timeout the model can request.
@@ -58,6 +62,9 @@ var methodsAllowingBody = map[string]bool{
 	http.MethodPut:    true,
 	http.MethodDelete: true,
 	http.MethodPatch:  true,
+	"PROPFIND":        true,
+	"MOVE":            true,
+	"COPY":            true,
 }
 
 // InvokeInput is the parsed argument shape for api_invoke_endpoint.
@@ -181,7 +188,7 @@ func invoke(ctx context.Context, inv invocation, in InvokeInput) (InvokeOutput, 
 func validateMethod(method string) (string, error) {
 	m := strings.ToUpper(strings.TrimSpace(method))
 	if !supportedMethods[m] {
-		return "", fmt.Errorf("apigateway: method %q not supported (want GET, POST, PUT, DELETE, PATCH, or HEAD)", method)
+		return "", fmt.Errorf("apigateway: method %q not supported (want GET, POST, PUT, DELETE, PATCH, HEAD, PROPFIND, MKCOL, MOVE, or COPY)", method)
 	}
 	return m, nil
 }

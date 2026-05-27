@@ -75,7 +75,7 @@ var apiExportInputSchema = json.RawMessage(`{
     },
     "method": {
       "type": "string",
-      "enum": ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"],
+      "enum": ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "PROPFIND", "MKCOL", "MOVE", "COPY"],
       "description": "HTTP method. Required."
     },
     "path": {
@@ -138,7 +138,7 @@ var invokeEndpointSchema = json.RawMessage(`{
     },
     "method": {
       "type": "string",
-      "enum": ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"],
+      "enum": ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "PROPFIND", "MKCOL", "MOVE", "COPY"],
       "description": "HTTP method. Required."
     },
     "path": {
@@ -156,7 +156,7 @@ var invokeEndpointSchema = json.RawMessage(`{
       "additionalProperties": {"type": "string"}
     },
     "body": {
-      "description": "Optional request body. When the connection's OpenAPI catalog declares application/json on the resolved operation, objects/arrays are JSON-encoded and strings that parse as JSON pass through verbatim, both with Content-Type: application/json. Strings that do not parse as JSON, and bodies on operations the catalog does not declare, fall back to: objects/arrays as application/json, strings as text/plain. An explicit Content-Type in headers always wins. Ignored for GET and HEAD."
+      "description": "Optional request body. When the connection's OpenAPI catalog declares application/json on the resolved operation, objects/arrays are JSON-encoded and strings that parse as JSON pass through verbatim, both with Content-Type: application/json. Strings that do not parse as JSON, and bodies on operations the catalog does not declare, fall back to: objects/arrays as application/json, strings as text/plain. An explicit Content-Type in headers always wins. Ignored for GET, HEAD, and MKCOL."
     },
     "timeout_seconds": {
       "type": "integer",
