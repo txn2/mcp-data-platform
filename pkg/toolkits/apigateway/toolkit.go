@@ -364,7 +364,8 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Description: "Make an authenticated HTTP request against a registered API connection. " +
 			"The connection's auth (none/bearer/api_key) is applied automatically; the model " +
 			"never handles credentials. Returns status, selected response headers, and the parsed " +
-			"or text response body. Method is restricted to GET, POST, PUT, DELETE, PATCH, HEAD; " +
+			"or text response body. Method is restricted to GET, POST, PUT, DELETE, PATCH, HEAD, " +
+			"PROPFIND, MKCOL, MOVE, COPY; " +
 			"path is joined to the connection's base_url; response bodies above the connection's " +
 			"max_response_bytes are truncated and flagged. Use list_connections to discover " +
 			"available kind=api connections.",

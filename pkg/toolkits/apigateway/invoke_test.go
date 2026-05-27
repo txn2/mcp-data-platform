@@ -14,7 +14,7 @@ import (
 )
 
 func TestValidateMethod_AcceptsKnownAndRejectsOthers(t *testing.T) {
-	known := []string{"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"}
+	known := []string{"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "PROPFIND", "MKCOL", "MOVE", "COPY"}
 	for _, m := range known {
 		if got, err := validateMethod(m); err != nil || got != m {
 			t.Errorf("validateMethod(%q) = (%q, %v); want (%q, nil)", m, got, err, m)
@@ -23,7 +23,7 @@ func TestValidateMethod_AcceptsKnownAndRejectsOthers(t *testing.T) {
 	if got, err := validateMethod("get"); err != nil || got != "GET" {
 		t.Errorf("validateMethod(lowercase) = (%q, %v); want uppercase", got, err)
 	}
-	for _, m := range []string{"OPTIONS", "TRACE", "CONNECT", "BANANA"} {
+	for _, m := range []string{"OPTIONS", "TRACE", "CONNECT", "BANANA", "LOCK", "UNLOCK"} {
 		if _, err := validateMethod(m); err == nil {
 			t.Errorf("validateMethod(%q) want error", m)
 		}
@@ -579,6 +579,122 @@ func TestInvoke_EndToEnd_PostBodySent(t *testing.T) {
 	}
 	if !bytes.Contains(seenBody, []byte(`"name":"alice"`)) {
 		t.Errorf("body sent = %s", string(seenBody))
+	}
+}
+
+func TestInvoke_EndToEnd_PropfindSendsBody(t *testing.T) {
+	var seenMethod string
+	var seenBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenMethod = r.Method
+		seenBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/xml")
+		w.WriteHeader(http.StatusMultiStatus)
+		_, _ = io.WriteString(w, `<multistatus/>`)
+	}))
+	defer srv.Close()
+
+	cfg := Config{
+		BaseURL: srv.URL, AuthMode: AuthModeNone,
+		ConnectTimeout: time.Second, CallTimeout: 5 * time.Second,
+		MaxResponseBytes: DefaultMaxResponseBytes,
+	}
+	auth, _ := NewAuthenticator(cfg)
+	xmlBody := `<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:allprop/></d:propfind>`
+	out, err := invoke(context.Background(), invocation{cfg: cfg, auth: auth, client: newHTTPClient(cfg)}, InvokeInput{
+		Connection: "x", Method: "PROPFIND", Path: "/dav/files/user/",
+		Body:    xmlBody,
+		Headers: map[string]string{"Depth": "1", "Content-Type": "application/xml"},
+	})
+	if err != nil {
+		t.Fatalf("invoke: %v", err)
+	}
+	if seenMethod != "PROPFIND" {
+		t.Errorf("upstream method = %q; want PROPFIND", seenMethod)
+	}
+	if string(seenBody) != xmlBody {
+		t.Errorf("upstream body = %q; want XML propfind", string(seenBody))
+	}
+	if out.Status != http.StatusMultiStatus {
+		t.Errorf("status = %d; want 207", out.Status)
+	}
+}
+
+func TestInvoke_EndToEnd_WebDAVMethodsWithoutBody(t *testing.T) {
+	for _, method := range []string{"MKCOL", "MOVE", "COPY"} {
+		t.Run(method, func(t *testing.T) {
+			var seenMethod string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				seenMethod = r.Method
+				w.WriteHeader(http.StatusCreated)
+			}))
+			defer srv.Close()
+
+			cfg := Config{
+				BaseURL: srv.URL, AuthMode: AuthModeNone,
+				ConnectTimeout: time.Second, CallTimeout: 5 * time.Second,
+				MaxResponseBytes: DefaultMaxResponseBytes,
+			}
+			auth, _ := NewAuthenticator(cfg)
+			out, err := invoke(context.Background(), invocation{cfg: cfg, auth: auth, client: newHTTPClient(cfg)}, InvokeInput{
+				Connection: "x", Method: method, Path: "/dav/files/user/folder",
+			})
+			if err != nil {
+				t.Fatalf("invoke: %v", err)
+			}
+			if seenMethod != method {
+				t.Errorf("upstream method = %q; want %q", seenMethod, method)
+			}
+			if out.Status != http.StatusCreated {
+				t.Errorf("status = %d; want 201", out.Status)
+			}
+		})
+	}
+}
+
+func TestEncodeBody_SkipsBodyForMKCOL(t *testing.T) {
+	body, ct, err := encodeBody("MKCOL", "should be dropped", nil, nil)
+	if err != nil {
+		t.Fatalf("encodeBody: %v", err)
+	}
+	if body != nil || ct != "" {
+		t.Errorf("body/ct = %v/%q; want nil/empty for MKCOL", body, ct)
+	}
+}
+
+func TestEncodeBody_AllowsBodyForMOVE(t *testing.T) {
+	xmlBody := `<?xml version="1.0"?><d:propertybehavior xmlns:d="DAV:"><d:keepalive>*</d:keepalive></d:propertybehavior>`
+	body, _, err := encodeBody("MOVE", xmlBody, nil, nil)
+	if err != nil {
+		t.Fatalf("encodeBody: %v", err)
+	}
+	if string(body) != xmlBody {
+		t.Errorf("body = %q; want XML propertybehavior", string(body))
+	}
+}
+
+func TestEncodeBody_AllowsBodyForCOPY(t *testing.T) {
+	xmlBody := `<?xml version="1.0"?><d:propertybehavior xmlns:d="DAV:"><d:keepalive>*</d:keepalive></d:propertybehavior>`
+	body, _, err := encodeBody("COPY", xmlBody, nil, nil)
+	if err != nil {
+		t.Fatalf("encodeBody: %v", err)
+	}
+	if string(body) != xmlBody {
+		t.Errorf("body = %q; want XML propertybehavior", string(body))
+	}
+}
+
+func TestEncodeBody_AllowsBodyForPROPFIND(t *testing.T) {
+	xmlBody := `<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:allprop/></d:propfind>`
+	body, ct, err := encodeBody("PROPFIND", xmlBody, nil, nil)
+	if err != nil {
+		t.Fatalf("encodeBody: %v", err)
+	}
+	if string(body) != xmlBody {
+		t.Errorf("body = %q; want XML", string(body))
+	}
+	if !strings.HasPrefix(ct, "text/plain") {
+		t.Errorf("content-type = %q; want text/plain* (string body default)", ct)
 	}
 }
 
