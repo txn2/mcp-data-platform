@@ -15,6 +15,7 @@ import (
 	mcpserver "github.com/txn2/mcp-data-platform/internal/server"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 func TestGetSystemInfo(t *testing.T) {
@@ -425,6 +426,59 @@ func TestListConnections(t *testing.T) {
 		var body map[string]any
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
 		assert.Equal(t, float64(0), body["total"])
+	})
+
+	// A multi-connection toolkit (apigateway with N upstream connections,
+	// trino with multiple catalogs) must expand to one entry per real
+	// connection because the persona filter authorizes against the
+	// connection name resolved at call time.
+	t.Run("multi-connection toolkit expands to one entry per connection", func(t *testing.T) {
+		mt := mockMultiConnectionToolkit{
+			mockToolkit: mockToolkit{
+				kind: "api", name: "apigateway", connection: "apigateway",
+				tools: []string{"api_invoke_endpoint", "api_list_endpoints"},
+			},
+			connections: []toolkit.ConnectionDetail{
+				{Name: "vendor-a", Description: "Vendor A REST API"},
+				{Name: "vendor-b", Description: "Vendor B REST API"},
+				{Name: "vendor-c", Description: "Vendor C REST API"},
+			},
+		}
+		single := mockToolkit{
+			kind: "knowledge", name: "knowledge", connection: "knowledge",
+			tools: []string{"capture_insight", "apply_knowledge"},
+		}
+		reg := &mockToolkitRegistry{
+			rawToolkits: []registry.Toolkit{mt, single},
+			allResult:   []mockToolkit{single},
+		}
+		h := NewHandler(Deps{ToolkitRegistry: reg}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/connections", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var body connectionListResponse
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+		assert.Equal(t, 4, body.Total, "3 expanded API connections + 1 single-connection knowledge toolkit")
+
+		byName := make(map[string]connectionInfo, len(body.Connections))
+		for _, c := range body.Connections {
+			byName[c.Name] = c
+		}
+		for _, name := range []string{"vendor-a", "vendor-b", "vendor-c"} {
+			c, ok := byName[name]
+			require.True(t, ok, "expected expanded connection %q in response", name)
+			assert.Equal(t, "api", c.Kind, "%s should inherit kind from parent toolkit", name)
+			assert.Equal(t, name, c.Connection, "%s authorization identifier must equal connection name", name)
+			assert.ElementsMatch(t, []string{"api_invoke_endpoint", "api_list_endpoints"}, c.Tools)
+		}
+		// Single-connection toolkit unchanged.
+		kn, ok := byName["knowledge"]
+		require.True(t, ok)
+		assert.Equal(t, "knowledge", kn.Kind)
+		assert.Equal(t, "knowledge", kn.Connection)
 	})
 
 	// A toolkit whose Tools() returns nil (e.g. gateway with no live
