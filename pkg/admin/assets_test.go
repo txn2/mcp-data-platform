@@ -104,6 +104,10 @@ func (*mockAdminShareStore) ListActiveCollectionShareSummaries(_ context.Context
 	return map[string]portal.ShareSummary{}, nil
 }
 
+func (*mockAdminShareStore) GetUserAssetPermissionViaCollection(_ context.Context, _, _, _ string) (portal.SharePermission, error) {
+	return "", fmt.Errorf("no collection share")
+}
+
 type mockAdminS3Client struct {
 	getData   []byte
 	getCT     string

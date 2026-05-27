@@ -2,6 +2,7 @@ package portal
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -549,7 +550,43 @@ func TestPostgresShareStoreRevoke(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestPostgresShareStoreRevokeNotFound(t *testing.T) {
+func TestPostgresShareStoreGetUserAssetPermissionViaCollection(t *testing.T) {
+	t.Run("found", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		require.NoError(t, err)
+		defer db.Close() //nolint:errcheck // test cleanup
+
+		store := NewPostgresShareStore(db)
+
+		mock.ExpectQuery("SELECT ps.permission FROM portal_shares").
+			WithArgs("asset-1", "user-1", "user@example.com").
+			WillReturnRows(sqlmock.NewRows([]string{"permission"}).AddRow("editor"))
+
+		perm, err := store.GetUserAssetPermissionViaCollection(context.Background(), "asset-1", "user-1", "user@example.com")
+		assert.NoError(t, err)
+		assert.Equal(t, SharePermission("editor"), perm)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("not_found", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		require.NoError(t, err)
+		defer db.Close() //nolint:errcheck // test cleanup
+
+		store := NewPostgresShareStore(db)
+
+		mock.ExpectQuery("SELECT ps.permission FROM portal_shares").
+			WithArgs("asset-1", "user-1", "user@example.com").
+			WillReturnError(sql.ErrNoRows)
+
+		perm, err := store.GetUserAssetPermissionViaCollection(context.Background(), "asset-1", "user-1", "user@example.com")
+		assert.Error(t, err)
+		assert.Equal(t, SharePermission(""), perm)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+}
+
+func TestPostgresShareStoreRevokeIdempotent(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
@@ -561,8 +598,7 @@ func TestPostgresShareStoreRevokeNotFound(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
 	err = store.Revoke(context.Background(), "missing")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "not found or already revoked")
+	assert.NoError(t, err)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 

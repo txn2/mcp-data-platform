@@ -228,6 +228,7 @@ export function useRevokeShare() {
       apiFetch(`/shares/${shareId}`, { method: "DELETE" }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["shares"] });
+      void qc.invalidateQueries({ queryKey: ["collection-shares"] });
     },
   });
 }

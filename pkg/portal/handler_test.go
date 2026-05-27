@@ -62,20 +62,22 @@ func (m *mockAssetStore) Update(_ context.Context, _ string, _ AssetUpdate) erro
 func (m *mockAssetStore) SoftDelete(_ context.Context, _ string) error { return m.deleteErr }
 
 type mockShareStore struct {
-	insertErr     error
-	getByIDShare  *Share
-	getByIDErr    error
-	getByTokenRes *Share
-	getByTokenErr error
-	listByAsset   []Share
-	listByAssetE  error
-	sharedWithRes []SharedAsset
-	sharedWithTot int
-	sharedWithErr error
-	revokeErr     error
-	incrementErr  error
-	summaries     map[string]ShareSummary
-	summariesErr  error
+	insertErr      error
+	getByIDShare   *Share
+	getByIDErr     error
+	getByTokenRes  *Share
+	getByTokenErr  error
+	listByAsset    []Share
+	listByAssetE   error
+	sharedWithRes  []SharedAsset
+	sharedWithTot  int
+	sharedWithErr  error
+	revokeErr      error
+	incrementErr   error
+	summaries      map[string]ShareSummary
+	summariesErr   error
+	collAssetPerm  SharePermission
+	collAssetPermE error
 }
 
 func (m *mockShareStore) Insert(_ context.Context, _ Share) error { return m.insertErr }
@@ -110,6 +112,16 @@ func (*mockShareStore) GetUserCollectionPermission(_ context.Context, _, _, _ st
 
 func (*mockShareStore) ListSharedCollectionsWithUser(_ context.Context, _, _ string, _, _ int) ([]SharedCollection, int, error) {
 	return nil, 0, nil
+}
+
+func (m *mockShareStore) GetUserAssetPermissionViaCollection(_ context.Context, _, _, _ string) (SharePermission, error) {
+	if m.collAssetPerm != "" {
+		return m.collAssetPerm, nil
+	}
+	if m.collAssetPermE != nil {
+		return "", m.collAssetPermE
+	}
+	return "", fmt.Errorf("no collection share")
 }
 
 func (*mockShareStore) ListActiveCollectionShareSummaries(_ context.Context, _ []string) (map[string]ShareSummary, error) {
@@ -217,6 +229,10 @@ func (c *captureShareStore) ListSharedCollectionsWithUser(ctx context.Context, u
 
 func (c *captureShareStore) ListActiveCollectionShareSummaries(ctx context.Context, ids []string) (map[string]ShareSummary, error) {
 	return c.inner.ListActiveCollectionShareSummaries(ctx, ids)
+}
+
+func (c *captureShareStore) GetUserAssetPermissionViaCollection(ctx context.Context, assetID, userID, email string) (SharePermission, error) {
+	return c.inner.GetUserAssetPermissionViaCollection(ctx, assetID, userID, email)
 }
 
 // authMiddleware injects a User into the context for testing.
@@ -1773,6 +1789,19 @@ func TestCanEditAssetDBError(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
+func TestCanEditAssetViaCollectionShare(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "owner1"}
+	h := newTestHandler(
+		&mockAssetStore{},
+		&mockShareStore{listByAsset: []Share{}, collAssetPerm: "editor"},
+		&mockS3Client{}, nil,
+	)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/test", http.NoBody)
+	assert.True(t, h.canEditAsset(w, req, "a1", asset, &User{UserID: "u1", Email: "u1@example.com"}))
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
 func TestResolveSharePermission(t *testing.T) {
 	perm, err := resolveSharePermission(createShareRequest{}, "user@example.com")
 	assert.NoError(t, err)
@@ -2603,6 +2632,46 @@ func TestGetThumbnailDeletedAsset(t *testing.T) {
 	h.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusGone, w.Code)
+}
+
+func TestGetThumbnailViaCollectionShare(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{
+		ID: "a1", OwnerID: "other-user", S3Bucket: "b", ThumbnailS3Key: "portal/other/a1/thumbnail.png",
+		Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	sharedUser := &User{UserID: "dan-uuid", Email: "dan@example.com"}
+
+	t.Run("granted via collection share", func(t *testing.T) {
+		s3 := &mockS3Client{getData: []byte("PNG"), getCT: "image/png"}
+		h := newTestHandler(
+			&mockAssetStore{getAsset: asset},
+			&mockShareStore{listByAsset: []Share{}, collAssetPerm: "viewer"},
+			s3, sharedUser,
+		)
+
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/thumbnail", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, "image/png", w.Header().Get("Content-Type"))
+		assert.Equal(t, "PNG", w.Body.String())
+	})
+
+	t.Run("denied without any share", func(t *testing.T) {
+		h := newTestHandler(
+			&mockAssetStore{getAsset: asset},
+			&mockShareStore{listByAsset: []Share{}},
+			&mockS3Client{getData: []byte("PNG"), getCT: "image/png"}, sharedUser,
+		)
+
+		req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/thumbnail", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusForbidden, w.Code)
+	})
 }
 
 // --- Permission tests ---

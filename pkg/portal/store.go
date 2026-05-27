@@ -85,6 +85,7 @@ type ShareStore interface {
 	ListSharedCollectionsWithUser(ctx context.Context, userID, email string, limit, offset int) ([]SharedCollection, int, error)
 	ListActiveShareSummaries(ctx context.Context, assetIDs []string) (map[string]ShareSummary, error)
 	ListActiveCollectionShareSummaries(ctx context.Context, collectionIDs []string) (map[string]ShareSummary, error)
+	GetUserAssetPermissionViaCollection(ctx context.Context, assetID, userID, email string) (SharePermission, error)
 	Revoke(ctx context.Context, id string) error
 	IncrementAccess(ctx context.Context, id string) error
 }
@@ -819,21 +820,33 @@ func (s *postgresShareStore) ListActiveCollectionShareSummaries(ctx context.Cont
 	return result, nil
 }
 
+func (s *postgresShareStore) GetUserAssetPermissionViaCollection(ctx context.Context, assetID, userID, email string) (SharePermission, error) { //nolint:revive // interface impl
+	query := `
+		SELECT ps.permission FROM portal_shares ps
+		JOIN portal_collection_sections cs ON cs.collection_id = ps.collection_id
+		JOIN portal_collection_items ci ON ci.section_id = cs.id
+		WHERE ci.asset_id = $1
+		  AND ps.collection_id IS NOT NULL
+		  AND ps.revoked = FALSE
+		  AND (ps.expires_at IS NULL OR ps.expires_at > NOW())
+		  AND (ps.shared_with_user_id = $2 OR ($3 != '' AND LOWER(ps.shared_with_email) = LOWER($3)))
+		ORDER BY CASE ps.permission WHEN 'editor' THEN 0 ELSE 1 END
+		LIMIT 1
+	`
+	var perm string
+	err := s.db.QueryRowContext(ctx, query, assetID, userID, email).Scan(&perm)
+	if err != nil {
+		return "", fmt.Errorf("querying asset permission via collection: %w", err)
+	}
+	return SharePermission(perm), nil
+}
+
 func (s *postgresShareStore) Revoke(ctx context.Context, id string) error { //nolint:revive // interface impl
-	query := `UPDATE portal_shares SET revoked = TRUE WHERE id = $1 AND revoked = FALSE`
-	result, err := s.db.ExecContext(ctx, query, id)
+	query := `UPDATE portal_shares SET revoked = TRUE WHERE id = $1`
+	_, err := s.db.ExecContext(ctx, query, id)
 	if err != nil {
 		return fmt.Errorf("revoking share: %w", err)
 	}
-
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("checking rows affected: %w", err)
-	}
-	if affected == 0 {
-		return fmt.Errorf("share not found or already revoked: %s", id)
-	}
-
 	return nil
 }
 
@@ -960,6 +973,10 @@ func (*noopShareStore) ListActiveShareSummaries(_ context.Context, _ []string) (
 
 func (*noopShareStore) ListActiveCollectionShareSummaries(_ context.Context, _ []string) (map[string]ShareSummary, error) { //nolint:revive // interface impl
 	return map[string]ShareSummary{}, nil
+}
+
+func (*noopShareStore) GetUserAssetPermissionViaCollection(_ context.Context, _, _, _ string) (SharePermission, error) { //nolint:revive // interface impl
+	return "", nil
 }
 
 func (*noopShareStore) Revoke(_ context.Context, _ string) error          { return nil } //nolint:revive // interface impl
