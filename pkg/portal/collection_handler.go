@@ -619,6 +619,7 @@ func (h *Handler) uploadCollectionThumbnail(w http.ResponseWriter, r *http.Reque
 // @Param        id  path  string  true  "Collection ID"
 // @Success      200  {file}  binary
 // @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
 // @Failure      404  {object}  problemDetail
 // @Failure      503  {object}  problemDetail
 // @Security     ApiKeyAuth
@@ -636,6 +637,14 @@ func (h *Handler) getCollectionThumbnail(w http.ResponseWriter, r *http.Request)
 	if err != nil || coll.ThumbnailS3Key == "" {
 		writeError(w, http.StatusNotFound, "thumbnail not found")
 		return
+	}
+
+	if coll.OwnerID != user.UserID {
+		perm := h.collectionSharePermission(r, id, user)
+		if perm == "" {
+			writeError(w, http.StatusForbidden, errAccessDenied)
+			return
+		}
 	}
 
 	if h.deps.S3Client == nil {
