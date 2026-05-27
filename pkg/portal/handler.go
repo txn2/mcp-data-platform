@@ -1817,11 +1817,15 @@ func (h *Handler) canViewAsset(w http.ResponseWriter, r *http.Request, assetID s
 		writeError(w, http.StatusInternalServerError, "failed to check share access")
 		return false
 	}
-	if perm == "" {
-		writeError(w, http.StatusForbidden, errAccessDenied)
-		return false
+	if perm != "" {
+		return true
 	}
-	return true
+	collPerm, _ := h.deps.ShareStore.GetUserAssetPermissionViaCollection(r.Context(), assetID, user.UserID, user.Email)
+	if collPerm != "" {
+		return true
+	}
+	writeError(w, http.StatusForbidden, errAccessDenied)
+	return false
 }
 
 // canEditAsset checks owner or editor share access, writing an HTTP error on failure.
@@ -1834,11 +1838,15 @@ func (h *Handler) canEditAsset(w http.ResponseWriter, r *http.Request, assetID s
 		writeError(w, http.StatusInternalServerError, "failed to check share access")
 		return false
 	}
-	if perm != PermissionEditor {
-		writeError(w, http.StatusForbidden, "only the owner or an editor can update this asset")
-		return false
+	if perm == PermissionEditor {
+		return true
 	}
-	return true
+	collPerm, _ := h.deps.ShareStore.GetUserAssetPermissionViaCollection(r.Context(), assetID, user.UserID, user.Email)
+	if collPerm == PermissionEditor {
+		return true
+	}
+	writeError(w, http.StatusForbidden, "only the owner or an editor can update this asset")
+	return false
 }
 
 // resolveSharePermission validates and resolves the permission for a new share.

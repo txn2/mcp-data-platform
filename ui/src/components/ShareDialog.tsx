@@ -45,6 +45,7 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
   const [ttl, setTtl] = useState("24h");
   const [email, setEmail] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
+  const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
   const [permission, setPermission] = useState<SharePermission>("viewer");
   const [showOptions, setShowOptions] = useState(false);
   const [showExpiration, setShowExpiration] = useState(true);
@@ -97,7 +98,7 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
   const activeShares = shares.filter((s) => !s.revoked);
 
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+    <Dialog.Root open={open} onOpenChange={(v) => { if (!v) setConfirmRevoke(null); onOpenChange(v); }}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/40 z-40" />
         <Dialog.Content className="fixed top-1/2 left-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg rounded-lg border bg-card p-6 shadow-lg">
@@ -259,14 +260,36 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
                           )}
                         </button>
                       )}
-                      <button
-                        type="button"
-                        onClick={() => revokeShare.mutate(share.id)}
-                        className="rounded p-1 hover:bg-destructive/10 text-destructive"
-                        title="Revoke"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                      {confirmRevoke === share.id ? (
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              revokeShare.mutate(share.id);
+                              setConfirmRevoke(null);
+                            }}
+                            className="rounded px-2 py-0.5 text-xs font-medium bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                          >
+                            Remove
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmRevoke(null)}
+                            className="rounded px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setConfirmRevoke(share.id)}
+                          className="rounded p-1 hover:bg-destructive/10 text-destructive"
+                          title="Revoke"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
