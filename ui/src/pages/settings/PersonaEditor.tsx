@@ -251,6 +251,16 @@ export function PersonaEditor({
     [connsData],
   );
 
+  const toolConnectionCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const conn of connections) {
+      for (const toolName of conn.tools ?? []) {
+        counts.set(toolName, (counts.get(toolName) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [connections]);
+
   interface Item {
     key: string;
     primary: string;
@@ -261,16 +271,19 @@ export function PersonaEditor({
 
   const items = useMemo<Item[]>(() => {
     if (scope === "tools") {
-      return uniqueTools.map((t) => ({
-        key: t.name,
-        primary: t.name,
-        secondary: t.kinds.join(" · "),
-        tertiary:
-          t.connections.length === 1
-            ? "1 connection"
-            : `${t.connections.length} connections`,
-        kind: t.primaryKind,
-      }));
+      return uniqueTools.map((t) => {
+        const connCount = toolConnectionCounts.get(t.name) ?? t.connections.length;
+        return {
+          key: t.name,
+          primary: t.name,
+          secondary: t.kinds.join(" · "),
+          tertiary:
+            connCount === 1
+              ? "1 connection"
+              : `${connCount} connections`,
+          kind: t.primaryKind,
+        };
+      });
     }
     return connections.map((c) => {
       // The backend authorizes against toolkit.Connection() (see
@@ -288,7 +301,7 @@ export function PersonaEditor({
         kind: c.kind,
       };
     });
-  }, [scope, uniqueTools, connections]);
+  }, [scope, uniqueTools, connections, toolConnectionCounts]);
 
   const allowList = scope === "tools" ? draft.allowTools : draft.allowConnections;
   const denyList = scope === "tools" ? draft.denyTools : draft.denyConnections;
