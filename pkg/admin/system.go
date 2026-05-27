@@ -303,9 +303,6 @@ func (h *Handler) listConnections(w http.ResponseWriter, _ *http.Request) {
 			// Multi-connection toolkits (apigateway, trino with multiple
 			// catalogs, etc.) must expand to one entry per real connection
 			// because that is what the persona filter authorizes against.
-			// Listing the single toolkit-level entry would make patterns
-			// like "blackbaud" unmatchable in the editor's live preview
-			// even though they work correctly at runtime.
 			if lister, ok := tk.(toolkit.ConnectionLister); ok {
 				for _, conn := range lister.ListConnections() {
 					conns = append(conns, connectionInfo{
