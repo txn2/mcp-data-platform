@@ -1360,3 +1360,91 @@ func TestListSharedCollections(t *testing.T) {
 		assert.Equal(t, http.StatusUnauthorized, w.Code)
 	})
 }
+
+func TestGetCollectionThumbnail_SharedUser(t *testing.T) {
+	sharedUser := &User{UserID: "other-user", Email: "other@example.com"}
+
+	t.Run("shared_user_can_view", func(t *testing.T) {
+		coll := baseCollection()
+		coll.ThumbnailS3Key = "portal/collections/coll-1/thumbnail.png"
+		cs := &collHandlerMockCollStore{getColl: coll}
+		shares := &mockCollectionShareStore{collPermission: "viewer"}
+		s3 := &mockS3Client{getData: []byte("PNG"), getCT: "image/png"}
+		h := newTestHandlerWithCollections(&mockAssetStore{}, shares, cs, s3, sharedUser)
+
+		r := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/collections/coll-1/thumbnail", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, "image/png", w.Header().Get("Content-Type"))
+	})
+
+	t.Run("non_shared_user_forbidden", func(t *testing.T) {
+		coll := baseCollection()
+		coll.ThumbnailS3Key = "portal/collections/coll-1/thumbnail.png"
+		cs := &collHandlerMockCollStore{getColl: coll}
+		shares := &mockCollectionShareStore{collPermission: "", collPermErr: fmt.Errorf("no permission")}
+		s3 := &mockS3Client{getData: []byte("PNG"), getCT: "image/png"}
+		h := newTestHandlerWithCollections(&mockAssetStore{}, shares, cs, s3, sharedUser)
+
+		r := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/collections/coll-1/thumbnail", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+
+		assert.Equal(t, http.StatusForbidden, w.Code)
+	})
+}
+
+func TestRevokeCollectionShare(t *testing.T) {
+	t.Run("owner_can_revoke", func(t *testing.T) {
+		coll := baseCollection()
+		cs := &collHandlerMockCollStore{getColl: coll}
+		share := &Share{ID: "cs1", CollectionID: "coll-1"}
+		shares := &mockCollectionShareStore{
+			mockShareStore: mockShareStore{getByIDShare: share},
+		}
+		h := newTestHandlerWithCollections(&mockAssetStore{}, shares, cs, &mockS3Client{}, testUser)
+
+		r := httptest.NewRequestWithContext(context.Background(), "DELETE", "/api/v1/portal/shares/cs1", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var resp statusResponse
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+		assert.Equal(t, "revoked", resp.Status)
+	})
+
+	t.Run("non_owner_forbidden", func(t *testing.T) {
+		coll := baseCollection()
+		coll.OwnerID = "someone-else"
+		cs := &collHandlerMockCollStore{getColl: coll}
+		share := &Share{ID: "cs1", CollectionID: "coll-1"}
+		shares := &mockCollectionShareStore{
+			mockShareStore: mockShareStore{getByIDShare: share},
+		}
+		h := newTestHandlerWithCollections(&mockAssetStore{}, shares, cs, &mockS3Client{}, testUser)
+
+		r := httptest.NewRequestWithContext(context.Background(), "DELETE", "/api/v1/portal/shares/cs1", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+
+		assert.Equal(t, http.StatusForbidden, w.Code)
+	})
+
+	t.Run("collection_not_found", func(t *testing.T) {
+		cs := &collHandlerMockCollStore{getErr: fmt.Errorf("not found")}
+		share := &Share{ID: "cs1", CollectionID: "coll-1"}
+		shares := &mockCollectionShareStore{
+			mockShareStore: mockShareStore{getByIDShare: share},
+		}
+		h := newTestHandlerWithCollections(&mockAssetStore{}, shares, cs, &mockS3Client{}, testUser)
+
+		r := httptest.NewRequestWithContext(context.Background(), "DELETE", "/api/v1/portal/shares/cs1", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+
+		assert.Equal(t, http.StatusNotFound, w.Code)
+	})
+}

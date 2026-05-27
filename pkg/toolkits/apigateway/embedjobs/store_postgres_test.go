@@ -100,9 +100,9 @@ func TestClaim_HappyPath(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(`FOR UPDATE SKIP LOCKED`)).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(42)))
 	now := time.Now()
-	lease := now.Add(LeaseDuration)
+	lease := now.Add(DefaultLeaseDuration)
 	mock.ExpectQuery(regexp.QuoteMeta(`UPDATE api_catalog_embedding_jobs`)).
-		WithArgs(int64(42), "worker-x", int(LeaseDuration/time.Second)).
+		WithArgs(int64(42), "worker-x", int(DefaultLeaseDuration/time.Second)).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "catalog_id", "spec_name", "kind", "status", "attempts",
 			"last_error", "next_run_at", "worker_id", "lease_expires_at",
@@ -612,3 +612,131 @@ func TestHealth_DBError(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+// TestRenewLease_HappyPath proves the heartbeat's renewal query
+// updates lease_expires_at on a row the worker owns. The (id,
+// worker_id, status='running') predicate enforces ownership so
+// the test must supply matching args.
+func TestRenewLease_HappyPath(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectExec(regexp.QuoteMeta(`SET lease_expires_at = NOW()`)).
+		WithArgs(int64(42), "worker-x", int(DefaultLeaseDuration/time.Second)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := store.RenewLease(context.Background(), 42, "worker-x", DefaultLeaseDuration); err != nil {
+		t.Fatalf("RenewLease: %v", err)
+	}
+}
+
+// TestRenewLease_NotFoundOnLeaseRotation proves the worker sees
+// ErrNotFound when the lease has already rotated to another
+// worker (rowsAffected == 0). The heartbeat goroutine treats
+// this as the signal to exit.
+func TestRenewLease_NotFoundOnLeaseRotation(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectExec(regexp.QuoteMeta(`SET lease_expires_at = NOW()`)).
+		WithArgs(int64(42), "stale-worker", int(DefaultLeaseDuration/time.Second)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	err := store.RenewLease(context.Background(), 42, "stale-worker", DefaultLeaseDuration)
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("RenewLease err = %v; want ErrNotFound", err)
+	}
+}
+
+// TestRenewLease_DBErrorWrapped covers the network / pool
+// exhaustion path. The wrapped error keeps the embedjobs prefix
+// so logs aggregate.
+func TestRenewLease_DBErrorWrapped(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectExec(regexp.QuoteMeta(`SET lease_expires_at = NOW()`)).
+		WillReturnError(errors.New("connection refused"))
+	err := store.RenewLease(context.Background(), 42, "w", DefaultLeaseDuration)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+// TestRenewLease_NonPositiveDurationFallsBackToConfigured proves
+// that a zero or negative duration is treated as "use the store's
+// configured value". A misconfigured caller stamping an
+// instant-expire lease would re-trigger the doom loop the
+// heartbeat exists to prevent; the fallback rejects that.
+func TestRenewLease_NonPositiveDurationFallsBackToConfigured(t *testing.T) {
+	t.Parallel()
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	mock.MatchExpectationsInOrder(false)
+	store := NewPostgresStore(db, WithLeaseDuration(2*time.Minute))
+	mock.ExpectExec(regexp.QuoteMeta(`SET lease_expires_at = NOW()`)).
+		WithArgs(int64(1), "w", int((2*time.Minute)/time.Second)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	if err := store.RenewLease(context.Background(), 1, "w", 0); err != nil {
+		t.Fatalf("RenewLease: %v", err)
+	}
+}
+
+// TestWithLeaseDuration_StampsConfiguredValueOnClaim proves the
+// option flows into the Claim UPDATE: the seconds-since-epoch
+// arg the SQL uses for lease_expires_at matches the configured
+// duration, not DefaultLeaseDuration.
+func TestWithLeaseDuration_StampsConfiguredValueOnClaim(t *testing.T) {
+	t.Parallel()
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	mock.MatchExpectationsInOrder(false)
+	store := NewPostgresStore(db, WithLeaseDuration(15*time.Minute))
+	if got := store.LeaseDuration(); got != 15*time.Minute {
+		t.Errorf("LeaseDuration() = %v; want 15m", got)
+	}
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta(`FOR UPDATE SKIP LOCKED`)).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(7)))
+	now := time.Now()
+	lease := now.Add(15 * time.Minute)
+	mock.ExpectQuery(regexp.QuoteMeta(`UPDATE api_catalog_embedding_jobs`)).
+		WithArgs(int64(7), "w", int((15*time.Minute)/time.Second)).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "catalog_id", "spec_name", "kind", "status", "attempts",
+			"last_error", "next_run_at", "worker_id", "lease_expires_at",
+			"created_at", "started_at", "completed_at", "embedded_so_far",
+		}).AddRow(int64(7), "c", "s", "spec_write", "running", 1,
+			"", now, "w", lease, now, now, nil, 0))
+	mock.ExpectCommit()
+	if _, err := store.Claim(context.Background(), "w"); err != nil {
+		t.Fatalf("Claim: %v", err)
+	}
+}
+
+// TestWithLeaseDuration_NonPositiveKeepsDefault proves a caller
+// who passes WithLeaseDuration(0) does not silently downgrade
+// the store to instant-expire leases.
+func TestWithLeaseDuration_NonPositiveKeepsDefault(t *testing.T) {
+	t.Parallel()
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	store := NewPostgresStore(db, WithLeaseDuration(0), WithLeaseDuration(-1*time.Second))
+	if got := store.LeaseDuration(); got != DefaultLeaseDuration {
+		t.Errorf("LeaseDuration() = %v; want DefaultLeaseDuration=%v", got, DefaultLeaseDuration)
+	}
+}
+
+// pgUniqueViolationProof keeps the otherwise-unused pq import
+// reachable in the test file. The unique-violation sentinel is
+// asserted indirectly by Enqueue's ON CONFLICT path; the
+// reference here defends against the linter pruning the import
+// during an unrelated refactor.
+var _ = pq.Error{Code: pgUniqueViolation}

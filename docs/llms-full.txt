@@ -2686,11 +2686,29 @@ Semantic and hybrid ranking modes on `api_list_endpoints` need a vector per oper
 Four components run alongside the admin server:
 
 - **Producer**: every spec write (`upsert`, `upload`, `refresh`, `clone`) inserts a job row alongside the spec row and issues `pg_notify(api_catalog_embedding_jobs)`. ON CONFLICT against the partial unique index collapses duplicate enqueues to a no-op.
-- **Worker**: pulls one job at a time via `SELECT id FROM api_catalog_embedding_jobs WHERE status='pending' AND next_run_at <= NOW() FOR UPDATE SKIP LOCKED`, takes a 10-minute lease, calls `apigateway.ComputeOperationEmbeddings`, writes vectors to `api_catalog_operation_embeddings`, marks the job succeeded. SKIP LOCKED makes multi-pod operation lock-free.
+- **Worker**: pulls one job at a time via `SELECT id FROM api_catalog_embedding_jobs WHERE status='pending' AND next_run_at <= NOW() FOR UPDATE SKIP LOCKED`, takes a configurable lease (default 10 min), calls `apigateway.ComputeOperationEmbeddings`, writes vectors to `api_catalog_operation_embeddings`, marks the job succeeded. SKIP LOCKED makes multi-pod operation lock-free.
 - **Reaper**: sweeps every 30s; rows in status=running with elapsed `lease_expires_at` flip back to pending. Pod-crash recovery is automatic.
 - **Reconciler**: runs on every pod boot and every 5 min. One SQL statement enqueues jobs for any spec where `api_catalog_specs.operation_count <> COUNT(*) FROM api_catalog_operation_embeddings`. This is the convergence backstop.
 
-Retryable failures back off exponentially (5s, 10s, 20s, 40s, 80s) up to 5 attempts; terminal failures move to status=failed with the last error on the row, visible in the portal as a red badge with a Retry button. The portal polls embedding-health and embedding-status every 5s while the catalog editor is open; operators see indexing progress live and never need to click anything to populate embeddings (the Retry button only appears on failed rows).
+#### Heartbeat and incremental persistence (#479)
+
+Two properties of the worker prevent a slow-but-progressing job from being killed by the reaper or losing work on a transient failure:
+
+- **Lease heartbeat**: while `Compute` is running, the worker renews `lease_expires_at` every `lease_duration / 3` via `Store.RenewLease`. A 5-minute embed pass on CPU-only Ollama no longer looks "abandoned" to the reaper at the 10-minute mark — progress alone keeps the lease alive. The heartbeat goroutine exits when `Compute` returns and stops on `ErrNotFound` if the lease has already rotated to another worker.
+- **Per-chunk persistence**: the worker supplies a `PersistBatch` callback to `Compute` that writes each successful chunk's rows to `api_catalog_operation_embeddings` via `UpsertOperationEmbeddingsBatch` (INSERT ... ON CONFLICT DO UPDATE — does not delete absent rows). A job that fails on chunk N leaves chunks 0..N-1 visible to the next attempt's `ListExisting` pass, which the dedup planner uses to skip the upstream embed for those operations. The final atomic `UpsertOperationEmbeddings` at job completion does the canonical full replacement and removes any operations no longer in the spec.
+
+Together these properties close the doom-loop failure mode where a job that nearly succeeded on every attempt was killed at the reaper's lease ceiling and redid the same work from scratch indefinitely.
+
+Tuning knobs under `apigateway.embed_jobs`:
+
+| Field | Default | Effect |
+|---|---|---|
+| `embed_timeout` | `5m` | Per-batch HTTP call timeout against the embedding provider. Must be < `lease_duration` or the reaper kills the in-flight batch before the heartbeat fires. |
+| `lease_duration` | `10m` | Time a Claim stamps on a job and the heartbeat re-stamps at `lease_duration / 3` cadence. Caps "pod went silent", not "embed batch is slow". |
+| `batch_size` | `32` | Texts per upstream EmbedBatch call. Lower on slow CPU embedders (smaller chunks recover faster from transient failures); raise on GPU embedders where per-call overhead dominates. |
+| `workers` | `1` | Goroutines per pod sharing the queue. CPU-only embedders typically saturate at 1; GPU embedders benefit from 2-4. |
+
+Retryable failures back off exponentially (5s, 10s, 20s, 40s, 80s) up to 5 attempts; terminal failures move to status=failed with the last error on the row, visible in the portal as a red badge with a Retry button. The portal polls embedding-health and embedding-status every 5s while the catalog editor is open; operators see indexing progress live and never need to click anything to populate embeddings (the Retry button only appears on failed rows). A pending row with `attempts > 0` now renders as `retrying (N tries)` with the last error in the tooltip so a doom-looping job is no longer indistinguishable from a fresh queue (#479).
 
 ---
 

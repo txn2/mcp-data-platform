@@ -5988,6 +5988,10 @@ paths:
           description: Unauthorized
           schema:
             $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
         "404":
           description: Not Found
           schema:
@@ -6443,7 +6447,7 @@ paths:
       - Shares
   /portal/shares/{id}:
     delete:
-      description: Revokes a share by its ID. Only the asset owner can revoke.
+      description: Revokes a share by its ID. Only the owner can revoke.
       parameters:
       - description: Share ID
         in: path
