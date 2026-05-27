@@ -82,7 +82,9 @@ func seedCatalogWithEmbeddings(t *testing.T, store catalog.Store, embedder *trac
 	}); err != nil {
 		t.Fatalf("UpsertSpec: %v", err)
 	}
-	rows, err := ComputeOperationEmbeddings(ctx, embedder, persistedEmbedTestSpec, specName, nil, nil)
+	rows, err := ComputeOperationEmbeddings(ctx, ComputeRequest{
+		Embedder: embedder, Content: persistedEmbedTestSpec, SpecName: specName,
+	})
 	if err != nil {
 		t.Fatalf("ComputeOperationEmbeddings: %v", err)
 	}
@@ -174,7 +176,9 @@ func TestRestartPreservesEmbeddings(t *testing.T) {
 	_ = store.UpsertSpec(ctx, "shared", catalog.SpecEntry{
 		SpecName: "default", Content: persistedEmbedTestSpec, SourceKind: catalog.SourceInline,
 	})
-	rows, err := ComputeOperationEmbeddings(ctx, emb, persistedEmbedTestSpec, "default", nil, nil)
+	rows, err := ComputeOperationEmbeddings(ctx, ComputeRequest{
+		Embedder: emb, Content: persistedEmbedTestSpec, SpecName: "default",
+	})
 	if err != nil {
 		t.Fatalf("compute: %v", err)
 	}
@@ -362,7 +366,9 @@ func TestAddParsedConnection_VectorLookupSurvivesBasePathOverride(t *testing.T) 
 		SpecName: "default", Content: noOperationIDSpec, SourceKind: catalog.SourceInline,
 		BasePath: "/v2", // operator override, non-empty
 	})
-	rows, err := ComputeOperationEmbeddings(ctx, emb, noOperationIDSpec, "default", nil, nil)
+	rows, err := ComputeOperationEmbeddings(ctx, ComputeRequest{
+		Embedder: emb, Content: noOperationIDSpec, SpecName: "default",
+	})
 	if err != nil {
 		t.Fatalf("compute: %v", err)
 	}
