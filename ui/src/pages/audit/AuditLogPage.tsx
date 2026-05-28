@@ -20,20 +20,28 @@ import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
 import { formatDuration } from "@/lib/formatDuration";
 import { formatToolName } from "@/lib/formatToolName";
 import { formatUser } from "@/lib/formatUser";
+import { APIGatewayView } from "./APIGatewayView";
 
 const PER_PAGE = 20;
 
-type Tab = "overview" | "events" | "help";
+type Tab = "mcp" | "apigateway" | "events" | "help";
 
 const TAB_ITEMS: { key: Tab; label: string }[] = [
-  { key: "overview", label: "Overview" },
+  { key: "mcp", label: "MCP" },
+  { key: "apigateway", label: "API Gateway" },
   { key: "events", label: "Events" },
   { key: "help", label: "Help" },
 ];
 
+// MCP_EVENT_KIND scopes the MCP dashboard and the events table to
+// MCP tool calls, excluding apigateway invocations whose 24/7 ETL
+// volume otherwise drowns the human MCP signal (#464). The API Gateway
+// tab covers that traffic via the PromQL-backed view instead.
+const MCP_EVENT_KIND = "mcp_tool_call";
+
 export function AuditLogPage({ initialTab, onNavigate }: { initialTab?: string; onNavigate?: (path: string) => void }) {
   const [tab, setTab] = useState<Tab>(
-    (["overview", "events", "help"].includes(initialTab ?? "") ? initialTab : "overview") as Tab,
+    (["mcp", "apigateway", "events", "help"].includes(initialTab ?? "") ? initialTab : "mcp") as Tab,
   );
 
   return (
@@ -55,7 +63,8 @@ export function AuditLogPage({ initialTab, onNavigate }: { initialTab?: string; 
         ))}
       </div>
 
-      {tab === "overview" && <OverviewTab onNavigate={onNavigate} />}
+      {tab === "mcp" && <OverviewTab onNavigate={onNavigate} />}
+      {tab === "apigateway" && <APIGatewayView />}
       {tab === "events" && <EventsTab onNavigate={onNavigate} />}
       {tab === "help" && <AuditHelpTab />}
     </div>
@@ -91,12 +100,12 @@ function OverviewTab({ onNavigate }: { onNavigate?: (path: string) => void }) {
     [preset],
   );
 
-  const overview = useAuditOverview({ startTime, endTime });
-  const timeseries = useAuditTimeseries({ resolution: getResolution(preset), startTime, endTime });
-  const toolBreakdown = useAuditBreakdown({ groupBy: "tool_name", limit: 8, startTime, endTime });
-  const userBreakdown = useAuditBreakdown({ groupBy: "user_id", limit: 5, startTime, endTime });
-  const recentErrors = useAuditEvents({ perPage: 5, success: false });
-  const performance = useAuditPerformance({ startTime, endTime });
+  const overview = useAuditOverview({ eventKind: MCP_EVENT_KIND, startTime, endTime });
+  const timeseries = useAuditTimeseries({ resolution: getResolution(preset), eventKind: MCP_EVENT_KIND, startTime, endTime });
+  const toolBreakdown = useAuditBreakdown({ groupBy: "tool_name", limit: 8, eventKind: MCP_EVENT_KIND, startTime, endTime });
+  const userBreakdown = useAuditBreakdown({ groupBy: "user_id", limit: 5, eventKind: MCP_EVENT_KIND, startTime, endTime });
+  const recentErrors = useAuditEvents({ perPage: 5, success: false, eventKind: MCP_EVENT_KIND });
+  const performance = useAuditPerformance({ eventKind: MCP_EVENT_KIND, startTime, endTime });
 
   const o = overview.data;
 

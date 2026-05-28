@@ -34,7 +34,13 @@ function handleUnauthorized(): void {
   window.location.replace(loginURL);
 }
 
-async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+// apiFetchAt is the shared authenticated JSON fetch. It attaches the
+// session credential (cookie or X-API-Key), routes 401s through the
+// session-expiry recovery, and normalizes error bodies into ApiError.
+// The base is a parameter so non-admin authenticated surfaces (e.g. the
+// observability proxy under /api/v1/observability) reuse the exact same
+// auth + error handling instead of forking it.
+async function apiFetchAt<T>(base: string, path: string, init?: RequestInit): Promise<T> {
   const { apiKey, authMethod } = useAuthStore.getState();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -45,7 +51,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     headers["X-API-Key"] = apiKey;
   }
 
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const res = await fetch(`${base}${path}`, {
     ...init,
     headers,
     credentials: "include",
@@ -64,6 +70,10 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   return res.json() as Promise<T>;
+}
+
+function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  return apiFetchAt<T>(BASE_URL, path, init);
 }
 
 async function apiFetchRaw(path: string, init?: RequestInit): Promise<Response> {
@@ -89,4 +99,4 @@ async function apiFetchRaw(path: string, init?: RequestInit): Promise<Response> 
   return res;
 }
 
-export { apiFetch, apiFetchRaw, ApiError, BASE_URL };
+export { apiFetch, apiFetchAt, apiFetchRaw, ApiError, BASE_URL };

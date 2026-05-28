@@ -33,9 +33,11 @@ import {
   mockPortalMemoryRecords,
   mockPortalMemoryStats,
 } from "./data/memory";
+import { promInstantFor, promRangeFor } from "./data/observability";
 
 const ADMIN_BASE = "/api/v1/admin";
 const PORTAL_BASE = "/api/v1/portal";
+const OBSERVABILITY_BASE = "/api/v1/observability";
 
 // ---------------------------------------------------------------------------
 // Helpers — compute metrics from filtered events
@@ -685,6 +687,19 @@ export const handlers = [
     const url = new URL(request.url);
     const filtered = filterByTimeRange(url, mockAuditEvents);
     return HttpResponse.json(computePerformance(filtered));
+  }),
+
+  http.get(`${OBSERVABILITY_BASE}/query`, ({ request }) => {
+    const url = new URL(request.url);
+    return HttpResponse.json(promInstantFor(url.searchParams.get("query") ?? ""));
+  }),
+
+  http.get(`${OBSERVABILITY_BASE}/query_range`, ({ request }) => {
+    const url = new URL(request.url);
+    const start = Number(url.searchParams.get("start") ?? "0");
+    const end = Number(url.searchParams.get("end") ?? "0");
+    const step = Number(url.searchParams.get("step") ?? "60");
+    return HttpResponse.json(promRangeFor(start, end, step));
   }),
 
   http.get(`${ADMIN_BASE}/connection-instances/effective`, () => {
