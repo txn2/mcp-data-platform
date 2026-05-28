@@ -48,11 +48,11 @@ func (m *mockAuditMetricsQuerier) Performance(_ context.Context, _ audit.Metrics
 	return m.performanceResult, m.performanceErr
 }
 
-func (m *mockAuditMetricsQuerier) Enrichment(_ context.Context, _, _ *time.Time) (*audit.EnrichmentStats, error) {
+func (m *mockAuditMetricsQuerier) Enrichment(_ context.Context, _ audit.MetricsFilter) (*audit.EnrichmentStats, error) {
 	return m.enrichmentResult, m.enrichmentErr
 }
 
-func (m *mockAuditMetricsQuerier) Discovery(_ context.Context, _, _ *time.Time) (*audit.DiscoveryStats, error) {
+func (m *mockAuditMetricsQuerier) Discovery(_ context.Context, _ audit.MetricsFilter) (*audit.DiscoveryStats, error) {
 	return m.discoveryResult, m.discoveryErr
 }
 

@@ -170,6 +170,12 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
+                        "description": "Filter by event kind (mcp_tool_call, apigateway_invoke)",
+                        "name": "event_kind",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
                         "description": "Filter by MCP session ID",
                         "name": "session_id",
                         "in": "query"
@@ -373,6 +379,12 @@ const docTemplate = `{
                         "description": "End time (RFC 3339)",
                         "name": "end_time",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by event kind (mcp_tool_call, apigateway_invoke)",
+                        "name": "event_kind",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -430,6 +442,12 @@ const docTemplate = `{
                         "description": "End time (RFC 3339)",
                         "name": "end_time",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by event kind (mcp_tool_call, apigateway_invoke)",
+                        "name": "event_kind",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -477,6 +495,12 @@ const docTemplate = `{
                         "type": "string",
                         "description": "End time (RFC 3339)",
                         "name": "end_time",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by event kind (mcp_tool_call, apigateway_invoke)",
+                        "name": "event_kind",
                         "in": "query"
                     }
                 ],
@@ -526,6 +550,12 @@ const docTemplate = `{
                         "description": "End time (RFC 3339)",
                         "name": "end_time",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by event kind (mcp_tool_call, apigateway_invoke)",
+                        "name": "event_kind",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -573,6 +603,12 @@ const docTemplate = `{
                         "type": "string",
                         "description": "End time (RFC 3339)",
                         "name": "end_time",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by event kind (mcp_tool_call, apigateway_invoke)",
+                        "name": "event_kind",
                         "in": "query"
                     }
                 ],
@@ -627,6 +663,12 @@ const docTemplate = `{
                         "type": "string",
                         "description": "End time (RFC 3339)",
                         "name": "end_time",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by event kind (mcp_tool_call, apigateway_invoke)",
+                        "name": "event_kind",
                         "in": "query"
                     }
                 ],
@@ -696,6 +738,12 @@ const docTemplate = `{
                         "type": "string",
                         "description": "Filter by event source",
                         "name": "source",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by event kind (mcp_tool_call, apigateway_invoke)",
+                        "name": "event_kind",
                         "in": "query"
                     },
                     {
@@ -6890,6 +6938,16 @@ const docTemplate = `{
         "admin.auditFiltersResponse": {
             "type": "object",
             "properties": {
+                "event_kinds": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "mcp_tool_call",
+                        "apigateway_invoke"
+                    ]
+                },
                 "sources": {
                     "type": "array",
                     "items": {
@@ -8162,6 +8220,15 @@ const docTemplate = `{
                 "error_message": {
                     "type": "string"
                 },
+                "event_kind": {
+                    "description": "EventKind is the high-level category of the event. Set to\n\"mcp_tool_call\" for tools routed through the MCP toolkits (trino,\ndatahub, s3, mcp gateway) and \"apigateway_invoke\" for upstream\nHTTP API calls via the apigateway toolkit. Lets the portal split\nMCP activity from gateway noise without coupling to tool-name\npatterns. See EventType constants in event.go.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/audit.EventType"
+                        }
+                    ],
+                    "example": "mcp_tool_call"
+                },
                 "id": {
                     "type": "string",
                     "example": "evt_a1b2c3d4e5f6"
@@ -8227,6 +8294,23 @@ const docTemplate = `{
                     "example": "550e8400-e29b-41d4-a716-446655440000"
                 }
             }
+        },
+        "audit.EventType": {
+            "type": "string",
+            "enum": [
+                "tool_call",
+                "auth",
+                "admin",
+                "mcp_tool_call",
+                "apigateway_invoke"
+            ],
+            "x-enum-varnames": [
+                "EventTypeToolCall",
+                "EventTypeAuth",
+                "EventTypeAdmin",
+                "EventTypeMCPToolCall",
+                "EventTypeAPIGatewayInvoke"
+            ]
         },
         "audit.Overview": {
             "type": "object",

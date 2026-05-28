@@ -29,6 +29,7 @@ type TimeseriesFilter struct {
 	StartTime  *time.Time
 	EndTime    *time.Time
 	UserID     string
+	EventKind  string
 }
 
 // TimeseriesBucket holds counts for a single time bucket.
@@ -83,6 +84,10 @@ type BreakdownFilter struct {
 	// breakdown and appear as "no calls recorded" even when they have
 	// activity (#343 bug 2).
 	ToolName string
+	// EventKind scopes the aggregation to a specific event category.
+	// Lets the portal MCP view exclude apigateway noise without
+	// modifying the breakdown call sites.
+	EventKind string
 }
 
 // MetricsFilter provides common filtering for aggregate metric queries.
@@ -90,6 +95,7 @@ type MetricsFilter struct {
 	StartTime *time.Time
 	EndTime   *time.Time
 	UserID    string
+	EventKind string
 }
 
 // BreakdownEntry holds aggregated stats for a single dimension value.

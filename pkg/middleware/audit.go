@@ -43,6 +43,9 @@ type AuditEvent struct {
 	// operator-facing description.
 	EnrichmentMatchKind string `json:"enrichment_match_kind,omitempty"`
 	Authorized          bool   `json:"authorized"`
+	// EventKind is the high-level event category ("mcp_tool_call" or
+	// "apigateway_invoke"), derived from the toolkit kind at build time.
+	EventKind string `json:"event_kind,omitempty"`
 }
 
 // NoopAuditLogger discards all audit events.

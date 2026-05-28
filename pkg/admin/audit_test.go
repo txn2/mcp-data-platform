@@ -50,6 +50,18 @@ func TestListAuditEvents(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 	})
 
+	t.Run("passes event_kind into filter", func(t *testing.T) {
+		aq := &mockAuditQuerier{queryResult: events[:1], countResult: 1}
+		h := NewHandler(Deps{AuditQuerier: aq}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/audit/events?event_kind=apigateway_invoke", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, "apigateway_invoke", aq.lastQueryFilter.EventKind)
+	})
+
 	t.Run("returns empty list on no results", func(t *testing.T) {
 		aq := &mockAuditQuerier{queryResult: nil, countResult: 0}
 		h := NewHandler(Deps{AuditQuerier: aq}, nil)
@@ -175,6 +187,7 @@ func TestListAuditEventFilters(t *testing.T) {
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
 		assert.Equal(t, []string{"alice@acme.com", "bob@acme.com"}, body.Users)
 		assert.Equal(t, []string{"alice@acme.com", "bob@acme.com"}, body.Tools)
+		assert.Equal(t, []string{"alice@acme.com", "bob@acme.com"}, body.EventKinds)
 	})
 
 	t.Run("returns empty arrays when no events", func(t *testing.T) {

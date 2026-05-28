@@ -53,6 +53,7 @@ Every successful or failed tool call produces one row in `audit_logs`:
   "parameters": {"sql": "SELECT count(*) FROM orders"},
   "success": true,
   "error_message": "",
+  "event_kind": "mcp_tool_call",
   "created_date": "2026-02-04"
 }
 ```
@@ -86,6 +87,7 @@ Every successful or failed tool call produces one row in `audit_logs`:
 | `enrichment_tokens_full` | INTEGER | Estimated tokens for the full (non-dedup) enrichment content. Uses `chars / 4` approximation. |
 | `enrichment_tokens_dedup` | INTEGER | Estimated tokens for the dedup enrichment content. `0` when full enrichment was sent. |
 | `enrichment_mode` | VARCHAR(20) | Enrichment mode used: `full`, `summary`, `reference`, `none`, or empty (not enriched). |
+| `event_kind` | VARCHAR(64) | High-level event category: `apigateway_invoke` for HTTP API calls through the apigateway toolkit, `mcp_tool_call` for every other toolkit. Lets the Activity view split gateway traffic from MCP tool calls. See [Event kind](#event-kind-mcp-vs-api-gateway). |
 | `created_date` | DATE | Partition key derived from `timestamp`. Used for retention cleanup. |
 
 ## Caller class via source
@@ -109,6 +111,25 @@ GET /api/v1/admin/audit/events?source=admin   # portal-driven only
 ```
 
 Or in the portal UI, use the **All Sources** dropdown on the Audit Log page. The dropdown lists every source value seen in the current time window.
+
+## Event kind: MCP vs API gateway
+
+The `event_kind` field separates two classes of audited activity that otherwise share the same row shape:
+
+| `event_kind` | What it means |
+|--------------|---------------|
+| `mcp_tool_call` | A tool routed through one of the MCP toolkits (`trino`, `datahub`, `s3`, or the MCP gateway). |
+| `apigateway_invoke` | An HTTP API call proxied through the apigateway toolkit (`api_invoke_endpoint`, `api_export`, and the other `api_*` tools). |
+
+The kind is derived at write time from the toolkit kind, so it does not depend on tool-name string matching. A high-traffic API gateway can produce many rows per agent turn; the split lets the MCP Activity view exclude that traffic by default while a dedicated gateway view includes it.
+
+Filter by event kind in the admin API. The filter is accepted on the event list, stats, and every metrics endpoint (timeseries, breakdown, overview, performance, enrichment, discovery):
+
+```
+GET /api/v1/admin/audit/events?event_kind=mcp_tool_call        # MCP tool calls only
+GET /api/v1/admin/audit/events?event_kind=apigateway_invoke    # API gateway calls only
+GET /api/v1/admin/audit/metrics/timeseries?event_kind=mcp_tool_call
+```
 
 ## Parameter Sanitization
 

@@ -18,7 +18,36 @@ const (
 
 	// EventTypeAdmin is an administrative event.
 	EventTypeAdmin EventType = "admin"
+
+	// EventTypeMCPToolCall categorizes an MCP tool invocation routed
+	// through a non-apigateway toolkit (trino, datahub, s3, mcp gateway).
+	// Stamped into Event.EventKind at write time so the portal Activity
+	// view can exclude apigateway HTTP noise by default.
+	EventTypeMCPToolCall EventType = "mcp_tool_call"
+
+	// EventTypeAPIGatewayInvoke categorizes an HTTP API invocation
+	// through the apigateway toolkit. Stamped into Event.EventKind at
+	// write time so the portal Activity view can split these out from
+	// the MCP-only view.
+	EventTypeAPIGatewayInvoke EventType = "apigateway_invoke"
 )
+
+// toolkitKindAPIGateway is the toolkit-kind discriminator for the
+// apigateway toolkit (mirrors apigateway.Kind). Kept as a literal here
+// rather than importing the toolkit package so the low-level audit
+// package stays decoupled from toolkit implementations.
+const toolkitKindAPIGateway = "api"
+
+// EventKindForToolkit maps a toolkit kind to its high-level event
+// category. The apigateway toolkit ("api") produces HTTP invocations;
+// every other toolkit kind produces MCP tool calls. Used at audit
+// write time so the portal can split gateway noise from MCP activity.
+func EventKindForToolkit(toolkitKind string) EventType {
+	if toolkitKind == toolkitKindAPIGateway {
+		return EventTypeAPIGatewayInvoke
+	}
+	return EventTypeMCPToolCall
+}
 
 // NewEvent creates a new audit event.
 func NewEvent(toolName string) *Event {
@@ -110,6 +139,13 @@ func (e *Event) WithEnrichment(applied bool) *Event {
 // WithAuthorized records the authorization decision.
 func (e *Event) WithAuthorized(authorized bool) *Event {
 	e.Authorized = authorized
+	return e
+}
+
+// WithEventKind records the high-level category of the event
+// (e.g. mcp_tool_call, apigateway_invoke). See Event.EventKind.
+func (e *Event) WithEventKind(kind EventType) *Event {
+	e.EventKind = kind
 	return e
 }
 

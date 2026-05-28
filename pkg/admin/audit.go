@@ -21,6 +21,7 @@ type auditFiltersResponse struct {
 	Tools        []string          `json:"tools" example:"trino_query,datahub_search,s3_list_objects"`
 	ToolkitKinds []string          `json:"toolkit_kinds" example:"api,datahub,trino,s3,memory"`
 	Sources      []string          `json:"sources" example:"mcp,rest,admin"`
+	EventKinds   []string          `json:"event_kinds" example:"mcp_tool_call,apigateway_invoke"`
 	UserLabels   map[string]string `json:"user_labels,omitempty"`
 }
 
@@ -37,6 +38,7 @@ const (
 	colToolName       = "tool_name"
 	colToolkitKind    = "toolkit_kind"
 	colSource         = "source"
+	colEventKind      = "event_kind"
 )
 
 // listAuditEvents handles GET /api/v1/admin/audit/events.
@@ -49,6 +51,7 @@ const (
 // @Param        tool_name     query  string  false  "Filter by tool name"
 // @Param        toolkit_kind  query  string  false  "Filter by toolkit kind (e.g. api, trino, datahub, s3, memory)"
 // @Param        source        query  string  false  "Filter by event source (e.g. mcp)"
+// @Param        event_kind    query  string  false  "Filter by event kind (mcp_tool_call, apigateway_invoke)"
 // @Param        session_id    query  string  false  "Filter by MCP session ID"
 // @Param        success       query  boolean false  "Filter by success/failure"
 // @Param        start_time    query  string  false  "Events after this time (RFC 3339)"
@@ -69,6 +72,7 @@ func (h *Handler) listAuditEvents(w http.ResponseWriter, r *http.Request) {
 		ToolName:    q.Get(colToolName),
 		ToolkitKind: q.Get(colToolkitKind),
 		Source:      q.Get(colSource),
+		EventKind:   q.Get(colEventKind),
 		SessionID:   q.Get("session_id"),
 		Search:      q.Get("search"),
 		SortBy:      q.Get("sort_by"),
@@ -164,6 +168,12 @@ func (h *Handler) listAuditEventFilters(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	eventKinds, err := h.deps.AuditQuerier.Distinct(r.Context(), colEventKind, startTime, endTime)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to query distinct event kinds")
+		return
+	}
+
 	if users == nil {
 		users = []string{}
 	}
@@ -175,6 +185,9 @@ func (h *Handler) listAuditEventFilters(w http.ResponseWriter, r *http.Request) 
 	}
 	if sources == nil {
 		sources = []string{}
+	}
+	if eventKinds == nil {
+		eventKinds = []string{}
 	}
 
 	// Fetch user_id → user_email mapping for display labels.
@@ -189,6 +202,7 @@ func (h *Handler) listAuditEventFilters(w http.ResponseWriter, r *http.Request) 
 		Tools:        tools,
 		ToolkitKinds: toolkitKinds,
 		Sources:      sources,
+		EventKinds:   eventKinds,
 		UserLabels:   userLabels,
 	})
 }
@@ -231,6 +245,7 @@ func (h *Handler) getAuditEvent(w http.ResponseWriter, r *http.Request) {
 // @Param        tool_name     query  string  false  "Filter by tool name"
 // @Param        toolkit_kind  query  string  false  "Filter by toolkit kind"
 // @Param        source        query  string  false  "Filter by event source"
+// @Param        event_kind    query  string  false  "Filter by event kind (mcp_tool_call, apigateway_invoke)"
 // @Param        start_time    query  string  false  "Events after this time (RFC 3339)"
 // @Param        end_time      query  string  false  "Events before this time (RFC 3339)"
 // @Success      200  {object}  auditStatsResponse
@@ -245,6 +260,7 @@ func (h *Handler) getAuditStats(w http.ResponseWriter, r *http.Request) {
 		ToolName:    q.Get(colToolName),
 		ToolkitKind: q.Get(colToolkitKind),
 		Source:      q.Get(colSource),
+		EventKind:   q.Get(colEventKind),
 		StartTime:   parseTimeParam(q, "start_time"),
 		EndTime:     parseTimeParam(q, "end_time"),
 	}

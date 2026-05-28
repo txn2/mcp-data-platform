@@ -357,6 +357,119 @@ func TestOverview_Success(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestMetrics_EventKindFilter(t *testing.T) {
+	now := time.Now()
+	start := now.Add(-24 * time.Hour)
+
+	t.Run("timeseries", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		require.NoError(t, err)
+		defer func() { _ = db.Close() }()
+
+		rows := sqlmock.NewRows([]string{"bucket", "count", "success_count", "error_count", "avg_duration_ms"})
+		mock.ExpectQuery("SELECT").
+			WithArgs(start, now, "apigateway_invoke").
+			WillReturnRows(rows)
+
+		_, err = New(db, Config{}).Timeseries(context.Background(), audit.TimeseriesFilter{
+			Resolution: audit.ResolutionHour,
+			StartTime:  &start,
+			EndTime:    &now,
+			EventKind:  "apigateway_invoke",
+		})
+		require.NoError(t, err)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("breakdown", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		require.NoError(t, err)
+		defer func() { _ = db.Close() }()
+
+		rows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms"})
+		mock.ExpectQuery("SELECT").
+			WithArgs(start, now, "apigateway_invoke").
+			WillReturnRows(rows)
+
+		_, err = New(db, Config{}).Breakdown(context.Background(), audit.BreakdownFilter{
+			GroupBy:   audit.BreakdownByToolName,
+			StartTime: &start,
+			EndTime:   &now,
+			EventKind: "apigateway_invoke",
+		})
+		require.NoError(t, err)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("overview", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		require.NoError(t, err)
+		defer func() { _ = db.Close() }()
+
+		rows := sqlmock.NewRows([]string{
+			"total_calls", "success_rate", "avg_duration_ms",
+			"unique_users", "unique_tools", "enrichment_rate", "error_count",
+		}).AddRow(0, 0, 0, 0, 0, 0, 0)
+		mock.ExpectQuery("SELECT").
+			WithArgs(start, now, "apigateway_invoke").
+			WillReturnRows(rows)
+
+		_, err = New(db, Config{}).Overview(context.Background(), audit.MetricsFilter{
+			StartTime: &start,
+			EndTime:   &now,
+			EventKind: "apigateway_invoke",
+		})
+		require.NoError(t, err)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("performance", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		require.NoError(t, err)
+		defer func() { _ = db.Close() }()
+
+		rows := sqlmock.NewRows([]string{
+			"p50_ms", "p95_ms", "p99_ms", "avg_ms", "max_ms",
+			"avg_response_chars", "avg_request_chars",
+		}).AddRow(0, 0, 0, 0, 0, 0, 0)
+		mock.ExpectQuery("SELECT").
+			WithArgs(start, now, "apigateway_invoke").
+			WillReturnRows(rows)
+
+		_, err = New(db, Config{}).Performance(context.Background(), audit.MetricsFilter{
+			StartTime: &start,
+			EndTime:   &now,
+			EventKind: "apigateway_invoke",
+		})
+		require.NoError(t, err)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("enrichment", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		require.NoError(t, err)
+		defer func() { _ = db.Close() }()
+
+		rows := sqlmock.NewRows([]string{
+			"total_calls", "enriched_calls", "enrichment_rate",
+			"full_count", "summary_count", "reference_count", "none_count",
+			"total_tokens_full", "total_tokens_dedup", "tokens_saved",
+			"avg_tokens_full", "avg_tokens_dedup", "unique_sessions",
+		}).AddRow(0, 0, 0, 0, 0, 0, 0, int64(0), int64(0), int64(0), 0, 0, 0)
+		mock.ExpectQuery("SELECT").
+			WithArgs(start, now, "apigateway_invoke").
+			WillReturnRows(rows)
+
+		_, err = New(db, Config{}).Enrichment(context.Background(), audit.MetricsFilter{
+			StartTime: &start,
+			EndTime:   &now,
+			EventKind: "apigateway_invoke",
+		})
+		require.NoError(t, err)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+}
+
 func TestOverview_DefaultTimeRange(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
@@ -736,7 +849,7 @@ func TestEnrichment_Success(t *testing.T) {
 		WithArgs(start, now).
 		WillReturnRows(rows)
 
-	result, err := store.Enrichment(context.Background(), &start, &now)
+	result, err := store.Enrichment(context.Background(), audit.MetricsFilter{StartTime: &start, EndTime: &now})
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -771,7 +884,7 @@ func TestEnrichment_DefaultTimeRange(t *testing.T) {
 
 	mock.ExpectQuery("SELECT").WillReturnRows(rows)
 
-	result, err := store.Enrichment(context.Background(), nil, nil)
+	result, err := store.Enrichment(context.Background(), audit.MetricsFilter{})
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Equal(t, 0, result.TotalCalls)
@@ -785,7 +898,7 @@ func TestEnrichment_QueryError(t *testing.T) {
 	store := New(db, Config{})
 	mock.ExpectQuery("SELECT").WillReturnError(fmt.Errorf("db error"))
 
-	_, err = store.Enrichment(context.Background(), nil, nil)
+	_, err = store.Enrichment(context.Background(), audit.MetricsFilter{})
 	assert.ErrorContains(t, err, "querying enrichment")
 }
 
@@ -807,7 +920,7 @@ func TestDiscovery_Success(t *testing.T) {
 	}).AddRow(100, 60, 80, 50, 0.60, 20)
 
 	mock.ExpectQuery("WITH session_tools").
-		WithArgs(start, now).
+		WithArgs(start, now, "").
 		WillReturnRows(patternRows)
 
 	// Top tools query result
@@ -816,10 +929,10 @@ func TestDiscovery_Success(t *testing.T) {
 		AddRow("datahub_get_entity", 80, 1.0, 25.0)
 
 	mock.ExpectQuery("SELECT tool_name").
-		WithArgs(start, now).
+		WithArgs(start, now, "").
 		WillReturnRows(toolRows)
 
-	result, err := store.Discovery(context.Background(), &start, &now)
+	result, err := store.Discovery(context.Background(), audit.MetricsFilter{StartTime: &start, EndTime: &now})
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -832,6 +945,37 @@ func TestDiscovery_Success(t *testing.T) {
 	require.Len(t, result.TopDiscoveryTools, 2)
 	assert.Equal(t, "datahub_search", result.TopDiscoveryTools[0].Dimension)
 	assert.Equal(t, 120, result.TopDiscoveryTools[0].Count)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestDiscovery_EventKindFilter(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	store := New(db, Config{})
+	now := time.Now()
+	start := now.Add(-24 * time.Hour)
+
+	patternRows := sqlmock.NewRows([]string{
+		"total_sessions", "discovery_sessions", "query_sessions",
+		"discovery_before_query", "discovery_rate", "query_without_discovery",
+	}).AddRow(0, 0, 0, 0, 0, 0)
+	mock.ExpectQuery("WITH session_tools").
+		WithArgs(start, now, "apigateway_invoke").
+		WillReturnRows(patternRows)
+
+	toolRows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms"})
+	mock.ExpectQuery("SELECT tool_name").
+		WithArgs(start, now, "apigateway_invoke").
+		WillReturnRows(toolRows)
+
+	_, err = store.Discovery(context.Background(), audit.MetricsFilter{
+		StartTime: &start,
+		EndTime:   &now,
+		EventKind: "apigateway_invoke",
+	})
+	require.NoError(t, err)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -851,7 +995,7 @@ func TestDiscovery_DefaultTimeRange(t *testing.T) {
 	toolRows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms"})
 	mock.ExpectQuery("SELECT tool_name").WillReturnRows(toolRows)
 
-	result, err := store.Discovery(context.Background(), nil, nil)
+	result, err := store.Discovery(context.Background(), audit.MetricsFilter{})
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Equal(t, 0, result.TotalSessions)
@@ -866,7 +1010,7 @@ func TestDiscovery_PatternQueryError(t *testing.T) {
 	store := New(db, Config{})
 	mock.ExpectQuery("WITH session_tools").WillReturnError(fmt.Errorf("db error"))
 
-	_, err = store.Discovery(context.Background(), nil, nil)
+	_, err = store.Discovery(context.Background(), audit.MetricsFilter{})
 	assert.ErrorContains(t, err, "querying discovery patterns")
 }
 
@@ -885,7 +1029,7 @@ func TestDiscovery_TopToolsQueryError(t *testing.T) {
 
 	mock.ExpectQuery("SELECT tool_name").WillReturnError(fmt.Errorf("tool query error"))
 
-	_, err = store.Discovery(context.Background(), nil, nil)
+	_, err = store.Discovery(context.Background(), audit.MetricsFilter{})
 	assert.ErrorContains(t, err, "querying top discovery tools")
 }
 
@@ -906,7 +1050,7 @@ func TestDiscovery_TopToolsScanError(t *testing.T) {
 		AddRow("tool", "bad", "bad", "bad")
 	mock.ExpectQuery("SELECT tool_name").WillReturnRows(toolRows)
 
-	_, err = store.Discovery(context.Background(), nil, nil)
+	_, err = store.Discovery(context.Background(), audit.MetricsFilter{})
 	assert.Error(t, err)
 }
 
@@ -928,7 +1072,7 @@ func TestDiscovery_TopToolsRowsErr(t *testing.T) {
 		RowError(0, fmt.Errorf("row iteration error"))
 	mock.ExpectQuery("SELECT tool_name").WillReturnRows(toolRows)
 
-	_, err = store.Discovery(context.Background(), nil, nil)
+	_, err = store.Discovery(context.Background(), audit.MetricsFilter{})
 	assert.Error(t, err)
 }
 
@@ -948,7 +1092,7 @@ func TestDiscovery_EmptyTopTools(t *testing.T) {
 	toolRows := sqlmock.NewRows([]string{"dimension", "count", "success_rate", "avg_duration_ms"})
 	mock.ExpectQuery("SELECT tool_name").WillReturnRows(toolRows)
 
-	result, err := store.Discovery(context.Background(), nil, nil)
+	result, err := store.Discovery(context.Background(), audit.MetricsFilter{})
 	require.NoError(t, err)
 	assert.NotNil(t, result.TopDiscoveryTools) // empty slice, not nil
 	assert.Empty(t, result.TopDiscoveryTools)

@@ -10,6 +10,7 @@ import (
 const (
 	paramStartTime = "start_time"
 	paramEndTime   = "end_time"
+	paramEventKind = "event_kind"
 )
 
 // registerAuditMetricsRoutes registers audit metrics endpoints.
@@ -34,6 +35,7 @@ func (h *Handler) registerAuditMetricsRoutes() {
 // @Param        resolution  query  string  false  "Time bucket resolution: minute, hour, day (default: hour)"
 // @Param        start_time  query  string  false  "Start time (RFC 3339)"
 // @Param        end_time    query  string  false  "End time (RFC 3339)"
+// @Param        event_kind  query  string  false  "Filter by event kind (mcp_tool_call, apigateway_invoke)"
 // @Success      200  {array}   audit.TimeseriesBucket
 // @Failure      400  {object}  problemDetail
 // @Failure      500  {object}  problemDetail
@@ -56,6 +58,7 @@ func (h *Handler) getAuditTimeseries(w http.ResponseWriter, r *http.Request) {
 		Resolution: resolution,
 		StartTime:  parseTimeParam(q, paramStartTime),
 		EndTime:    parseTimeParam(q, paramEndTime),
+		EventKind:  q.Get(paramEventKind),
 	}
 
 	buckets, err := h.deps.AuditMetricsQuerier.Timeseries(r.Context(), filter)
@@ -77,6 +80,7 @@ func (h *Handler) getAuditTimeseries(w http.ResponseWriter, r *http.Request) {
 // @Param        limit       query  integer false  "Max entries (default: 10, max: 100)"
 // @Param        start_time  query  string  false  "Start time (RFC 3339)"
 // @Param        end_time    query  string  false  "End time (RFC 3339)"
+// @Param        event_kind  query  string  false  "Filter by event kind (mcp_tool_call, apigateway_invoke)"
 // @Success      200  {array}   audit.BreakdownEntry
 // @Failure      400  {object}  problemDetail
 // @Failure      500  {object}  problemDetail
@@ -105,6 +109,7 @@ func (h *Handler) getAuditBreakdown(w http.ResponseWriter, r *http.Request) {
 		Limit:     limit,
 		StartTime: parseTimeParam(q, paramStartTime),
 		EndTime:   parseTimeParam(q, paramEndTime),
+		EventKind: q.Get(paramEventKind),
 	}
 
 	entries, err := h.deps.AuditMetricsQuerier.Breakdown(r.Context(), filter)
@@ -124,6 +129,7 @@ func (h *Handler) getAuditBreakdown(w http.ResponseWriter, r *http.Request) {
 // @Produce      json
 // @Param        start_time  query  string  false  "Start time (RFC 3339)"
 // @Param        end_time    query  string  false  "End time (RFC 3339)"
+// @Param        event_kind  query  string  false  "Filter by event kind (mcp_tool_call, apigateway_invoke)"
 // @Success      200  {object}  audit.Overview
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
@@ -137,6 +143,7 @@ func (h *Handler) getAuditOverview(w http.ResponseWriter, r *http.Request) {
 		audit.MetricsFilter{
 			StartTime: parseTimeParam(q, paramStartTime),
 			EndTime:   parseTimeParam(q, paramEndTime),
+			EventKind: q.Get(paramEventKind),
 		},
 	)
 	if err != nil {
@@ -155,6 +162,7 @@ func (h *Handler) getAuditOverview(w http.ResponseWriter, r *http.Request) {
 // @Produce      json
 // @Param        start_time  query  string  false  "Start time (RFC 3339)"
 // @Param        end_time    query  string  false  "End time (RFC 3339)"
+// @Param        event_kind  query  string  false  "Filter by event kind (mcp_tool_call, apigateway_invoke)"
 // @Success      200  {object}  audit.PerformanceStats
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
@@ -168,6 +176,7 @@ func (h *Handler) getAuditPerformance(w http.ResponseWriter, r *http.Request) {
 		audit.MetricsFilter{
 			StartTime: parseTimeParam(q, paramStartTime),
 			EndTime:   parseTimeParam(q, paramEndTime),
+			EventKind: q.Get(paramEventKind),
 		},
 	)
 	if err != nil {
@@ -186,6 +195,7 @@ func (h *Handler) getAuditPerformance(w http.ResponseWriter, r *http.Request) {
 // @Produce      json
 // @Param        start_time  query  string  false  "Start time (RFC 3339)"
 // @Param        end_time    query  string  false  "End time (RFC 3339)"
+// @Param        event_kind  query  string  false  "Filter by event kind (mcp_tool_call, apigateway_invoke)"
 // @Success      200  {object}  audit.EnrichmentStats
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
@@ -196,8 +206,11 @@ func (h *Handler) getAuditEnrichment(w http.ResponseWriter, r *http.Request) {
 
 	stats, err := h.deps.AuditMetricsQuerier.Enrichment(
 		r.Context(),
-		parseTimeParam(q, paramStartTime),
-		parseTimeParam(q, paramEndTime),
+		audit.MetricsFilter{
+			StartTime: parseTimeParam(q, paramStartTime),
+			EndTime:   parseTimeParam(q, paramEndTime),
+			EventKind: q.Get(paramEventKind),
+		},
 	)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to query enrichment metrics")
@@ -215,6 +228,7 @@ func (h *Handler) getAuditEnrichment(w http.ResponseWriter, r *http.Request) {
 // @Produce      json
 // @Param        start_time  query  string  false  "Start time (RFC 3339)"
 // @Param        end_time    query  string  false  "End time (RFC 3339)"
+// @Param        event_kind  query  string  false  "Filter by event kind (mcp_tool_call, apigateway_invoke)"
 // @Success      200  {object}  audit.DiscoveryStats
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
@@ -225,8 +239,11 @@ func (h *Handler) getAuditDiscovery(w http.ResponseWriter, r *http.Request) {
 
 	stats, err := h.deps.AuditMetricsQuerier.Discovery(
 		r.Context(),
-		parseTimeParam(q, paramStartTime),
-		parseTimeParam(q, paramEndTime),
+		audit.MetricsFilter{
+			StartTime: parseTimeParam(q, paramStartTime),
+			EndTime:   parseTimeParam(q, paramEndTime),
+			EventKind: q.Get(paramEventKind),
+		},
 	)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to query discovery metrics")

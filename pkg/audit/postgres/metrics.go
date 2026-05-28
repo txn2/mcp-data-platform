@@ -45,6 +45,9 @@ func (s *Store) Timeseries(ctx context.Context, filter audit.TimeseriesFilter) (
 	if filter.UserID != "" {
 		qb = qb.Where(sq.Eq{colUserID: filter.UserID})
 	}
+	if filter.EventKind != "" {
+		qb = qb.Where(sq.Eq{colEventKind: filter.EventKind})
+	}
 
 	qb = qb.GroupBy("bucket").
 		OrderBy("bucket ASC")
@@ -136,6 +139,9 @@ func buildBreakdownQuery(filter audit.BreakdownFilter) (query string, args []any
 		// rendered them as "no calls recorded" in the UI.
 		qb = qb.Where(sq.Eq{colToolName: filter.ToolName})
 	}
+	if filter.EventKind != "" {
+		qb = qb.Where(sq.Eq{colEventKind: filter.EventKind})
+	}
 
 	qb = qb.GroupBy("dimension").
 		OrderBy("count DESC").
@@ -207,6 +213,9 @@ func (s *Store) Overview(ctx context.Context, filter audit.MetricsFilter) (*audi
 	if filter.UserID != "" {
 		qb = qb.Where(sq.Eq{colUserID: filter.UserID})
 	}
+	if filter.EventKind != "" {
+		qb = qb.Where(sq.Eq{colEventKind: filter.EventKind})
+	}
 
 	query, args, err := qb.ToSql()
 	if err != nil {
@@ -248,6 +257,9 @@ func (s *Store) Performance(ctx context.Context, filter audit.MetricsFilter) (*a
 	if filter.UserID != "" {
 		qb = qb.Where(sq.Eq{colUserID: filter.UserID})
 	}
+	if filter.EventKind != "" {
+		qb = qb.Where(sq.Eq{colEventKind: filter.EventKind})
+	}
 
 	query, args, err := qb.ToSql()
 	if err != nil {
@@ -274,9 +286,9 @@ func (s *Store) Performance(ctx context.Context, filter audit.MetricsFilter) (*a
 	return &p, nil
 }
 
-// Enrichment returns aggregate enrichment statistics for the given time range.
-func (s *Store) Enrichment(ctx context.Context, startTime, endTime *time.Time) (*audit.EnrichmentStats, error) {
-	start, end := defaultTimeRange(startTime, endTime)
+// Enrichment returns aggregate enrichment statistics for the given filter.
+func (s *Store) Enrichment(ctx context.Context, filter audit.MetricsFilter) (*audit.EnrichmentStats, error) {
+	start, end := defaultTimeRange(filter.StartTime, filter.EndTime)
 
 	qb := psq.Select(
 		"COUNT(*) AS total_calls",
@@ -295,6 +307,13 @@ func (s *Store) Enrichment(ctx context.Context, startTime, endTime *time.Time) (
 	).From("audit_logs").
 		Where(sq.GtOrEq{colTimestamp: start}).
 		Where(sq.LtOrEq{colTimestamp: end})
+
+	if filter.UserID != "" {
+		qb = qb.Where(sq.Eq{colUserID: filter.UserID})
+	}
+	if filter.EventKind != "" {
+		qb = qb.Where(sq.Eq{colEventKind: filter.EventKind})
+	}
 
 	query, args, err := qb.ToSql()
 	if err != nil {
@@ -323,17 +342,18 @@ func (s *Store) Enrichment(ctx context.Context, startTime, endTime *time.Time) (
 	return &stats, nil
 }
 
-// Discovery returns discovery-before-query pattern statistics for the given time range.
-func (s *Store) Discovery(ctx context.Context, startTime, endTime *time.Time) (*audit.DiscoveryStats, error) {
-	start, end := defaultTimeRange(startTime, endTime)
-
-	patternQuery := `
+// discoveryPatternQuery counts discovery-before-query session patterns.
+// The $3 event_kind predicate is a no-op when the bound value is empty
+// (caller always passes a value, "" meaning "all kinds"), which keeps
+// the SQL static — no string concatenation, no gosec G202.
+const discoveryPatternQuery = `
 WITH session_tools AS (
     SELECT session_id, toolkit_kind, tool_name,
            MIN(timestamp) AS first_call
     FROM audit_logs
     WHERE timestamp >= $1 AND timestamp <= $2
       AND session_id != ''
+      AND ($3 = '' OR event_kind = $3)
     GROUP BY session_id, toolkit_kind, tool_name
 ),
 session_patterns AS (
@@ -354,8 +374,27 @@ SELECT
     COUNT(*) FILTER (WHERE has_query AND NOT has_discovery) AS query_without_discovery
 FROM session_patterns`
 
+// discoveryTopToolsQuery ranks datahub discovery tools. Same static-$3
+// event_kind predicate as discoveryPatternQuery.
+const discoveryTopToolsQuery = `
+SELECT tool_name AS dimension,
+       COUNT(*) AS count,
+       CASE WHEN COUNT(*) > 0 THEN CAST(COUNT(*) FILTER (WHERE success = true) AS FLOAT) / COUNT(*) ELSE 0 END AS success_rate,
+       COALESCE(AVG(duration_ms), 0) AS avg_duration_ms
+FROM audit_logs
+WHERE timestamp >= $1 AND timestamp <= $2
+  AND toolkit_kind = 'datahub'
+  AND ($3 = '' OR event_kind = $3)
+GROUP BY tool_name
+ORDER BY count DESC
+LIMIT 10`
+
+// Discovery returns discovery-before-query pattern statistics for the given filter.
+func (s *Store) Discovery(ctx context.Context, filter audit.MetricsFilter) (*audit.DiscoveryStats, error) {
+	start, end := defaultTimeRange(filter.StartTime, filter.EndTime)
+
 	var stats audit.DiscoveryStats
-	err := s.db.QueryRowContext(ctx, patternQuery, start, end).Scan(
+	err := s.db.QueryRowContext(ctx, discoveryPatternQuery, start, end, filter.EventKind).Scan(
 		&stats.TotalSessions,
 		&stats.DiscoverySessions,
 		&stats.QuerySessions,
@@ -367,20 +406,7 @@ FROM session_patterns`
 		return nil, fmt.Errorf("querying discovery patterns: %w", err)
 	}
 
-	// Get top discovery tools
-	topToolsQuery := `
-SELECT tool_name AS dimension,
-       COUNT(*) AS count,
-       CASE WHEN COUNT(*) > 0 THEN CAST(COUNT(*) FILTER (WHERE success = true) AS FLOAT) / COUNT(*) ELSE 0 END AS success_rate,
-       COALESCE(AVG(duration_ms), 0) AS avg_duration_ms
-FROM audit_logs
-WHERE timestamp >= $1 AND timestamp <= $2
-  AND toolkit_kind = 'datahub'
-GROUP BY tool_name
-ORDER BY count DESC
-LIMIT 10`
-
-	rows, err := s.db.QueryContext(ctx, topToolsQuery, start, end)
+	rows, err := s.db.QueryContext(ctx, discoveryTopToolsQuery, start, end, filter.EventKind)
 	if err != nil {
 		return nil, fmt.Errorf("querying top discovery tools: %w", err)
 	}
