@@ -10,7 +10,55 @@ import (
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 
 	"github.com/txn2/mcp-data-platform/pkg/observability"
+	"github.com/txn2/mcp-data-platform/pkg/observability/proxy"
 )
+
+// observabilityReadCapability is the persona capability that grants
+// access to the PromQL query proxy. It is checked through the same
+// persona tool-allow filter that gates tools (see addToolVisibility
+// Middleware), so operators grant it by adding it to a persona's
+// allowed tools in the portal persona editor. Default-deny: a persona
+// must explicitly allow it (or match it via a wildcard).
+const observabilityReadCapability = "observability:read"
+
+// observabilityAuthorizer adapts the platform's authenticator and
+// authorizer to the proxy.Authorizer interface, keeping the proxy
+// package free of auth/persona imports. It authenticates the request
+// token, then checks the observability:read capability. The persona
+// name comes from the authorizer's own resolution (IsAuthorized returns
+// it), NOT a separate registry lookup, so the audit persona and the
+// rate-limit key stay consistent with the authorization decision even
+// when OIDC PersonaMapping reaches a persona whose own roles list does
+// not include the mapped role.
+type observabilityAuthorizer struct {
+	authn middleware.Authenticator
+	authz middleware.Authorizer
+}
+
+// Authorize implements proxy.Authorizer.
+func (a observabilityAuthorizer) Authorize(ctx context.Context) proxy.Decision {
+	if a.authn == nil {
+		return proxy.Decision{}
+	}
+	info, err := a.authn.Authenticate(ctx)
+	if err != nil || info == nil {
+		return proxy.Decision{}
+	}
+	dec := proxy.Decision{Authenticated: true, UserID: info.UserID, Email: info.Email}
+	if a.authz != nil {
+		dec.Allowed, dec.Persona, _ = a.authz.IsAuthorized(ctx, "", info.Roles, observabilityReadCapability, "")
+	}
+	return dec
+}
+
+// NewObservabilityAuthorizer returns the proxy.Authorizer backed by the
+// platform's auth stack. Used by cmd to build the PromQL proxy handler.
+func (p *Platform) NewObservabilityAuthorizer() proxy.Authorizer {
+	return observabilityAuthorizer{
+		authn: p.authenticator,
+		authz: p.authorizer,
+	}
+}
 
 // initObservability constructs the metrics recorder and (when
 // enabled) the matching HTTP listener. Configuration is read from

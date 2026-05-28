@@ -198,5 +198,58 @@ they do not replace.
 Setting `OTEL_METRICS_ENABLED=false` skips MeterProvider construction
 entirely, leaves the listener stopped, and reduces the request-time
 cost of the metrics middleware to a single nil-pointer compare per
-request. There is no "lightweight" in-memory metrics mode — either
+request. There is no "lightweight" in-memory metrics mode: either
 the full Prometheus exporter is running or nothing is.
+
+## PromQL query proxy
+
+The metrics above are scraped by Prometheus. To let the portal read
+them back without exposing Prometheus to the browser (CORS, a separate
+auth path, an internal service on the public edge), the platform serves
+a thin authenticated proxy:
+
+| Endpoint | Forwards to |
+|---|---|
+| `GET /api/v1/observability/query?query=...&time=...` | Prometheus `/api/v1/query` |
+| `GET /api/v1/observability/query_range?query=...&start=...&end=...&step=...` | Prometheus `/api/v1/query_range` |
+
+The proxy reuses the platform auth and persona model and keeps
+Prometheus on the internal network. The upstream response body is
+returned unchanged, so the portal can use any PromQL client library.
+
+### Configuration
+
+Unlike the metrics emitters (environment-only), the proxy is configured
+in `platform.yaml`:
+
+```yaml
+observability:
+  prometheus:
+    url: "http://prometheus.observability.svc.cluster.local:9090"
+    timeout: 30s
+    basic_auth:
+      username: "${PROM_USER}"
+      password: "${PROM_PASS}"
+    rate_limit_per_second: 10   # per persona; 0 selects the default (10)
+```
+
+When `url` is empty the proxy is **unconfigured**: its endpoints return
+`503` with body `observability backend not configured` so the portal
+renders a clean empty state instead of erroring.
+
+### Access control
+
+Each request must be authenticated and the caller's persona must grant
+the `observability:read` capability. This capability is checked through
+the same persona tool-allow filter that gates tools, so operators grant
+it in the portal persona editor by adding `observability:read` to a
+persona's allowed tools. Default-deny applies: a persona without it (and
+without a matching wildcard) is denied with `403`. Admin personas with
+`allow: ["*"]` receive it automatically.
+
+A per-persona rate limit (default 10 queries/second) returns `429` when
+exceeded, so a runaway portal session for one persona cannot starve
+others. Every query is recorded in the audit log as action
+`observability.query` (the PromQL expression is truncated to 1 KB to
+bound row size). Responses are not cached on the platform; Prometheus is
+the cache and the portal applies its own client-side stale-time.
