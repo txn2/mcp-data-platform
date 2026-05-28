@@ -21,6 +21,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
+	"github.com/txn2/mcp-data-platform/pkg/observability"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 )
 
@@ -40,6 +41,20 @@ type Deps struct {
 	// MCPServer is the assembled MCP server (with middleware chain
 	// already attached). Required.
 	MCPServer *mcp.Server
+
+	// Metrics records inbound request observations. Optional: nil
+	// disables inbound instrumentation (the handler is returned
+	// unwrapped, zero overhead).
+	Metrics *observability.Metrics
+
+	// Resolver maps (connection, method, path) to an OpenAPI
+	// operationId for the metric label. Optional: nil yields
+	// operation_id="unknown".
+	Resolver OperationResolver
+
+	// Identity maps the request auth context to a display identity for
+	// the metric label. Optional: nil yields identity="unknown".
+	Identity IdentityResolver
 }
 
 // NewHandler returns an http.Handler that exposes
@@ -74,7 +89,10 @@ func NewHandler(deps Deps) (http.Handler, error) {
 	}
 	mux := http.NewServeMux()
 	h := &handler{mcpServer: deps.MCPServer}
-	mux.HandleFunc("POST /api/v1/gateway/{connection}/invoke", h.invoke)
+	// Register the metrics-wrapped handler on the route so the wrapper
+	// sees the {connection} path value. withMetrics returns the handler
+	// unwrapped when deps.Metrics is nil.
+	mux.Handle("POST /api/v1/gateway/{connection}/invoke", withMetrics(http.HandlerFunc(h.invoke), deps))
 	return mux, nil
 }
 
@@ -109,6 +127,12 @@ func (h *handler) invoke(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+
+	// Surface method/path to the metrics middleware (if present) so it
+	// can resolve the operationId label without re-reading the body.
+	if m := getInvokeMeta(r.Context()); m != nil {
+		m.method, m.path = req.Method, req.Path
 	}
 
 	session, cleanup, sessErr := h.connectInternalSession(r)

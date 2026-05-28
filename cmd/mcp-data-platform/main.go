@@ -687,6 +687,31 @@ func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform) {
 // the in-memory MCP session. When auth is off, the wrapper is a no-op
 // and the request flows through anonymously (matching the rest of the
 // platform's behavior in that mode).
+// compositeOperationResolver fans an operationId lookup across every
+// registered apigateway toolkit (a multi-instance deployment splits
+// connections across toolkits). The first non-empty result wins; an
+// empty result means no toolkit owns the connection or no spec path
+// matched, which the metrics middleware maps to "unknown".
+type compositeOperationResolver []*apigatewaykit.Toolkit
+
+func (c compositeOperationResolver) ResolveOperationID(ctx context.Context, connection, method, path string) string {
+	for _, tk := range c {
+		if op := tk.ResolveOperationID(ctx, connection, method, path); op != "" {
+			return op
+		}
+	}
+	return ""
+}
+
+func (c compositeOperationResolver) HasConnection(connection string) bool {
+	for _, tk := range c {
+		if tk.HasConnection(connection) {
+			return true
+		}
+	}
+	return false
+}
+
 func mountGatewayAPI(mux *http.ServeMux, mcpServer *mcp.Server, p *platform.Platform, requireAuth bool) {
 	if mcpServer == nil || p == nil {
 		return
@@ -696,7 +721,19 @@ func mountGatewayAPI(mux *http.ServeMux, mcpServer *mcp.Server, p *platform.Plat
 		return
 	}
 
-	handler, err := gatewayhttp.NewHandler(gatewayhttp.Deps{MCPServer: mcpServer})
+	resolver := make(compositeOperationResolver, 0, len(apiToolkits))
+	for _, tk := range apiToolkits {
+		if api, ok := tk.(*apigatewaykit.Toolkit); ok {
+			resolver = append(resolver, api)
+		}
+	}
+
+	handler, err := gatewayhttp.NewHandler(gatewayhttp.Deps{
+		MCPServer: mcpServer,
+		Metrics:   p.Metrics(),
+		Resolver:  resolver,
+		Identity:  p.NewGatewayIdentityResolver(),
+	})
 	if err != nil {
 		log.Printf("REST gateway disabled: %v", err)
 		return

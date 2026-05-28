@@ -72,16 +72,47 @@ Expose port `9090` from the pod and surface it as a `metrics` service port.
 | `mcp_inflight_tool_calls` | gauge | (none) |
 | `apigateway_outbound_total` | counter | `connection`, `http_status_class`, `status_category` |
 | `apigateway_outbound_duration_seconds` | histogram | `connection`, `http_status_class`, `status_category` |
+| `apigateway_inbound_requests_total` | counter | `connection`, `operation_id`, `method`, `status_class`, `identity` |
+| `apigateway_inbound_duration_seconds` | histogram | `connection`, `operation_id`, `method`, `status_class` |
 
 Plus the free Go runtime + process metrics (`go_*`, `process_*`).
+
+The `apigateway_inbound_*` pair measures requests hitting the REST shim
+(`POST /api/v1/gateway/{connection}/invoke`, the NiFi-class ETL path),
+as opposed to `apigateway_outbound_*`, which measures the platform's own
+calls to the upstream API. `operation_id` is the OpenAPI operationId
+resolved from the connection's catalog by path-template matching (e.g.
+`GET /v1/users/123` resolves to `getUser`); it is `unknown` for
+connections with no catalog or requests that match no spec path.
+`identity` is the API key name or OIDC subject (`unknown` when
+unauthenticated) and is recorded on the request counter only, never on
+the duration histogram, to keep the histogram's bucket series from
+multiplying by the identity dimension. The `connection` and `method`
+labels are clamped to the registered-connection set and the supported
+HTTP-method set respectively, so an arbitrary URL segment or request
+body cannot mint unbounded label values (both fall back to `unknown`).
+
+Resolving `identity` re-authenticates the request token at the metrics
+layer (the REST shim does not surface the in-session identity back up to
+the HTTP handler). For API-key callers this is a cheap lookup; for OIDC
+it re-verifies the JWT per request. On very high-volume inbound traffic a
+per-token identity cache is the planned optimization; until then the
+extra verification is the cost of the `identity` label.
 
 ### Label semantics
 
 The label set is **deliberately small and closed**. High-cardinality
-fields (user id, email, request id, session id, raw upstream URLs, raw
+fields (user id, request id, session id, raw upstream URLs, raw
 error messages, free-text tool arguments) are **not** recorded as
-Prometheus labels — they belong on trace spans (Phase 2) and on audit
+Prometheus labels; they belong on trace spans (Phase 2) and on audit
 log rows.
+
+The one deliberate exception is the `identity` label on
+`apigateway_inbound_requests_total`, which is the API key name or OIDC
+subject (and may therefore be an email). Its cardinality is bounded by
+the count of real callers, which is small for the NiFi-class ETL clients
+this metric targets, and it is recorded on the counter only, never on a
+histogram.
 
 `status_category` values:
 

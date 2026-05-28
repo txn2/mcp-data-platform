@@ -97,6 +97,48 @@ func TestNewEnabledRecordsAllInstruments(t *testing.T) {
 	}
 }
 
+func TestRecordAPIGatewayInbound(t *testing.T) {
+	m, err := New(Config{Enabled: true, ListenAddr: ":0"})
+	if err != nil {
+		t.Fatalf("New(enabled) err = %v", err)
+	}
+	if m == nil {
+		t.Fatal("New(enabled) returned nil recorder")
+	}
+	defer func() { _ = m.Shutdown(context.Background()) }()
+
+	m.RecordAPIGatewayInbound(context.Background(), APIGatewayInboundAttrs{
+		Connection:  "salesforce",
+		OperationID: "getAccount",
+		Method:      "GET",
+		StatusClass: StatusClass2xx,
+		Identity:    "nifi-etl",
+	}, 30*time.Millisecond)
+
+	body := scrapeMetrics(t, m.Handler())
+
+	for _, want := range []string{
+		"apigateway_inbound_requests_total",
+		`connection="salesforce"`,
+		`operation_id="getAccount"`,
+		`method="GET"`,
+		`status_class="2xx"`,
+		`identity="nifi-etl"`,
+		"apigateway_inbound_duration_seconds",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("scrape body missing %q\n--- body ---\n%s", want, body)
+		}
+	}
+
+	// The duration histogram must NOT carry the identity dimension.
+	for line := range strings.SplitSeq(body, "\n") {
+		if strings.HasPrefix(line, "apigateway_inbound_duration_seconds") && strings.Contains(line, "identity=") {
+			t.Errorf("duration histogram must not carry identity label; got line: %s", line)
+		}
+	}
+}
+
 func TestNewListenerNilWhenDisabled(t *testing.T) {
 	m, _ := New(Config{Enabled: false})
 	if l := NewListener(m); l != nil {

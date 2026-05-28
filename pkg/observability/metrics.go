@@ -30,12 +30,27 @@ import (
 //   - mcp_inflight_tool_calls
 //   - apigateway_outbound_total
 //   - apigateway_outbound_duration_seconds
+//   - apigateway_inbound_requests_total{connection, operation_id, method, status_class, identity}
+//   - apigateway_inbound_duration_seconds{connection, operation_id, method, status_class}
+//
+// Inbound cardinality: the inbound series count is bounded by
+// connections × operation_ids × methods × status_classes × identities.
+// connection is operator-configured (small); method and status_class are
+// closed sets (~7 and 5); operation_id is bounded by the catalog's
+// operation count and falls back to "unknown" for connections with no
+// catalog or requests that match no spec path; identity is the API key
+// name or OIDC subject ("unknown" when unauthenticated). identity is
+// recorded ONLY on the request counter, never on the duration histogram,
+// to keep the histogram's bucket series from multiplying by the identity
+// dimension.
 const (
 	instToolCalls            = "mcp_tool_calls"
 	instToolCallDuration     = "mcp_tool_call_duration"
 	instInflightToolCalls    = "mcp_inflight_tool_calls"
 	instAPIGwOutbound        = "apigateway_outbound"
 	instAPIGwOutboundLatency = "apigateway_outbound_duration"
+	instAPIGwInbound         = "apigateway_inbound_requests"
+	instAPIGwInboundLatency  = "apigateway_inbound_duration"
 )
 
 // Histogram bucket boundaries (seconds). Tuned for tool-call and
@@ -58,6 +73,10 @@ const (
 	attrStatusCategory = "status_category"
 	attrConnection     = "connection"
 	attrHTTPStatus     = "http_status_class"
+	attrOperationID    = "operation_id"
+	attrMethod         = "method"
+	attrStatusClass    = "status_class"
+	attrIdentity       = "identity"
 )
 
 // ToolCallAttrs is the bounded label set for tool-call metrics. The
@@ -82,6 +101,22 @@ type APIGatewayAttrs struct {
 	StatusCategory  string
 }
 
+// APIGatewayInboundAttrs is the bounded label set for inbound HTTP
+// requests to the apigateway REST shim. OperationID is the OpenAPI
+// operationId resolved from the connection's catalog ("unknown" when
+// unresolved); Identity is the API key name or OIDC subject ("unknown"
+// when unauthenticated). The raw path, query string, and numeric status
+// code are NOT labels; they are cardinality bombs and belong on trace
+// spans. Identity is applied to the request counter only (see
+// RecordAPIGatewayInbound).
+type APIGatewayInboundAttrs struct {
+	Connection  string
+	OperationID string
+	Method      string
+	StatusClass string
+	Identity    string
+}
+
 // Metrics owns the OTel MeterProvider and the registered
 // instruments. A nil *Metrics is a valid no-op recorder: every Record
 // method becomes a fast nil-check, so call sites can record
@@ -97,6 +132,8 @@ type Metrics struct {
 	inflightToolCalls     metric.Int64UpDownCounter
 	apigwOutboundTotal    metric.Int64Counter
 	apigwOutboundDuration metric.Float64Histogram
+	apigwInboundTotal     metric.Int64Counter
+	apigwInboundDuration  metric.Float64Histogram
 
 	// shutdownFn calls into the underlying provider. Indirected so
 	// tests can simulate a provider that returns an error on Shutdown
@@ -225,6 +262,21 @@ func (m *Metrics) registerInstruments(meter metric.Meter) error {
 	if err != nil {
 		return fmt.Errorf(instErrFmt, instAPIGwOutboundLatency, err)
 	}
+	m.apigwInboundTotal, err = meter.Int64Counter(
+		instAPIGwInbound,
+		metric.WithDescription("Total number of inbound HTTP requests to the apigateway REST shim, labeled by connection, operation_id, method, status_class, and identity."),
+	)
+	if err != nil {
+		return fmt.Errorf(instErrFmt, instAPIGwInbound, err)
+	}
+	m.apigwInboundDuration, err = meter.Float64Histogram(
+		instAPIGwInboundLatency,
+		metric.WithDescription("Inbound HTTP request latency in seconds, measured at the apigateway REST shim, labeled by connection, operation_id, method, and status_class."),
+		metric.WithUnit("s"),
+	)
+	if err != nil {
+		return fmt.Errorf(instErrFmt, instAPIGwInboundLatency, err)
+	}
 	return nil
 }
 
@@ -306,4 +358,29 @@ func (m *Metrics) RecordAPIGatewayOutbound(ctx context.Context, attrs APIGateway
 	)
 	m.apigwOutboundTotal.Add(ctx, 1, set)
 	m.apigwOutboundDuration.Record(ctx, duration.Seconds(), set)
+}
+
+// RecordAPIGatewayInbound records one inbound REST-shim request
+// observation. The request counter carries the identity label; the
+// duration histogram deliberately omits it so the bucket series do not
+// multiply by the identity dimension. Nil-safe.
+func (m *Metrics) RecordAPIGatewayInbound(ctx context.Context, attrs APIGatewayInboundAttrs, duration time.Duration) {
+	if m == nil {
+		return
+	}
+	counterSet := metric.WithAttributes(
+		attribute.String(attrConnection, attrs.Connection),
+		attribute.String(attrOperationID, attrs.OperationID),
+		attribute.String(attrMethod, attrs.Method),
+		attribute.String(attrStatusClass, attrs.StatusClass),
+		attribute.String(attrIdentity, attrs.Identity),
+	)
+	histSet := metric.WithAttributes(
+		attribute.String(attrConnection, attrs.Connection),
+		attribute.String(attrOperationID, attrs.OperationID),
+		attribute.String(attrMethod, attrs.Method),
+		attribute.String(attrStatusClass, attrs.StatusClass),
+	)
+	m.apigwInboundTotal.Add(ctx, 1, counterSet)
+	m.apigwInboundDuration.Record(ctx, duration.Seconds(), histSet)
 }

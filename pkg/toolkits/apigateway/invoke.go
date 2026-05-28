@@ -193,6 +193,21 @@ func validateMethod(method string) (string, error) {
 	return m, nil
 }
 
+// NormalizeMethodLabel maps a caller-supplied HTTP method to a bounded
+// metric label: the uppercased method when it is in the supported set,
+// else "unknown". Tied to the same supportedMethods allowlist that
+// invoke validation uses so the metric label set cannot drift from the
+// methods the gateway actually accepts. Callers feed this raw,
+// unvalidated request input, so clamping here is what keeps the
+// method label from becoming an unbounded cardinality dimension.
+func NormalizeMethodLabel(method string) string {
+	m := strings.ToUpper(strings.TrimSpace(method))
+	if supportedMethods[m] {
+		return m
+	}
+	return "unknown"
+}
+
 func validatePath(p string) error {
 	if p == "" {
 		return errors.New("apigateway: path is required")
