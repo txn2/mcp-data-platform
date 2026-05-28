@@ -117,6 +117,7 @@ type Config struct {
 	Workflow      WorkflowConfig      `yaml:"workflow"`
 	SessionGate   SessionGateConfig   `yaml:"session_gate"`
 	APIGateway    APIGatewayConfig    `yaml:"apigateway"`
+	Observability ObservabilityConfig `yaml:"observability"`
 
 	// runtimeMu guards fields that can be mutated at runtime via the admin
 	// API (Tools.DescriptionOverrides, Tools.Deny). Other fields are
@@ -643,6 +644,34 @@ type AuditConfig struct {
 	Enabled       *bool `yaml:"enabled"`
 	LogToolCalls  bool  `yaml:"log_tool_calls"`
 	RetentionDays int   `yaml:"retention_days"`
+}
+
+// ObservabilityConfig configures the portal-facing observability
+// features that read from Prometheus. The metrics emitters themselves
+// are configured via environment (see pkg/observability/config.go);
+// this YAML section configures the authenticated PromQL query proxy
+// that the portal uses to read those metrics back.
+type ObservabilityConfig struct {
+	Prometheus PrometheusConfig `yaml:"prometheus"`
+}
+
+// PrometheusConfig points the PromQL query proxy at a Prometheus
+// instance. An empty URL leaves the proxy unconfigured: its endpoints
+// return 503 so the portal can render a clean empty state.
+type PrometheusConfig struct {
+	URL       string          `yaml:"url"`
+	Timeout   time.Duration   `yaml:"timeout"`
+	BasicAuth BasicAuthConfig `yaml:"basic_auth"`
+	// RateLimitPerSecond caps proxied queries per persona per second.
+	// Zero selects the default (10).
+	RateLimitPerSecond int `yaml:"rate_limit_per_second"`
+}
+
+// BasicAuthConfig holds optional HTTP basic-auth credentials forwarded
+// to Prometheus. Both empty means no auth header is sent.
+type BasicAuthConfig struct {
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
 }
 
 // MCPAppsConfig configures MCP Apps support for interactive UI components.

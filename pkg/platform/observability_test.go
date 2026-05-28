@@ -9,7 +9,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
+	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 )
@@ -200,4 +204,64 @@ func TestWireAPIGatewayMetrics_InstrumentsRegisteredToolkit(t *testing.T) {
 	// directly, so here we only verify the wire call does not error
 	// and the platform path exercises the loop body).
 	p.WireAPIGatewayMetrics()
+}
+
+// TestObservabilityAuthorizer_CapabilityGating proves the observability:read
+// capability is enforced through the REAL persona authorizer: a persona
+// whose tools.allow grants the capability passes; one that does not is
+// denied. This exercises the same authz path the proxy uses in
+// production (authenticate -> IsAuthorized(observability:read) -> persona).
+func TestObservabilityAuthorizer_CapabilityGating(t *testing.T) {
+	reg := persona.NewRegistry()
+	// The personas' own Roles deliberately do NOT include the mapped
+	// OIDC role ("ops-token"/"analyst-token"); resolution happens only
+	// through PersonaMapping. This is the case that exposed the prior
+	// bug where persona was resolved a second way (GetForRoles) that
+	// ignores PersonaMapping and returned empty.
+	require.NoError(t, reg.Register(&persona.Persona{
+		Name:  "ops",
+		Roles: []string{"ops-role"},
+		Tools: persona.ToolRules{Allow: []string{"observability:read"}},
+	}))
+	require.NoError(t, reg.Register(&persona.Persona{
+		Name:  "analyst",
+		Roles: []string{"analyst-role"},
+		Tools: persona.ToolRules{Allow: []string{"trino_*"}},
+	}))
+	mapper := &persona.OIDCRoleMapper{
+		PersonaMapping: map[string]string{"ops-token": "ops", "analyst-token": "analyst"},
+		Registry:       reg,
+	}
+	authz := persona.NewAuthorizer(reg, mapper)
+
+	tests := []struct {
+		name        string
+		roles       []string
+		wantAllowed bool
+		wantPersona string
+	}{
+		{"granted persona via PersonaMapping", []string{"ops-token"}, true, "ops"},
+		{"denied persona via PersonaMapping", []string{"analyst-token"}, false, "analyst"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Build through the public constructor so it is covered too.
+			p := &Platform{
+				authenticator:   stubAuthenticator{info: &middleware.UserInfo{UserID: "u", Roles: tc.roles}},
+				authorizer:      authz,
+				personaRegistry: reg,
+			}
+			dec := p.NewObservabilityAuthorizer().Authorize(context.Background())
+			assert.True(t, dec.Authenticated)
+			assert.Equal(t, tc.wantAllowed, dec.Allowed)
+			assert.Equal(t, tc.wantPersona, dec.Persona)
+		})
+	}
+}
+
+func TestObservabilityAuthorizer_Unauthenticated(t *testing.T) {
+	p := &Platform{authenticator: stubAuthenticator{err: errors.New("bad token")}}
+	dec := p.NewObservabilityAuthorizer().Authorize(context.Background())
+	assert.False(t, dec.Authenticated)
+	assert.False(t, dec.Allowed)
 }

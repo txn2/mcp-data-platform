@@ -26,10 +26,12 @@ import (
 	mcpserver "github.com/txn2/mcp-data-platform/internal/server"
 	"github.com/txn2/mcp-data-platform/internal/ui"
 	"github.com/txn2/mcp-data-platform/pkg/admin"
+	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/gatewayhttp"
 	"github.com/txn2/mcp-data-platform/pkg/health"
 	httpauth "github.com/txn2/mcp-data-platform/pkg/http"
+	"github.com/txn2/mcp-data-platform/pkg/observability/proxy"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -384,6 +386,11 @@ func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Pla
 	// (e.g. Apache NiFi). Auth + persona + audit all flow through the
 	// MCP middleware chain via an in-memory session.
 	mountGatewayAPI(mux, mcpServer, p, hcfg.requireAuth)
+
+	// Mount the authenticated PromQL query proxy the portal's
+	// observability views read from (#462). Always mounted; returns 503
+	// when Prometheus is not configured.
+	mountObservabilityProxy(mux, p, hcfg.requireAuth)
 
 	// Mount unified portal UI (includes both portal and admin sections)
 	mountPortalUI(mux, p, ui.Available())
@@ -745,6 +752,51 @@ func mountGatewayAPI(mux *http.ServeMux, mcpServer *mcp.Server, p *platform.Plat
 	}
 	mux.Handle("/api/v1/gateway/", wrapped)
 	log.Println("REST gateway enabled on /api/v1/gateway/{connection}/invoke")
+}
+
+// mountObservabilityProxy mounts the authenticated PromQL query proxy at
+// /api/v1/observability/. It is always mounted (gated behind auth +
+// the observability:read persona capability); when Prometheus is not
+// configured its endpoints return 503 so the portal renders a clean
+// empty state.
+func mountObservabilityProxy(mux *http.ServeMux, p *platform.Platform, requireAuth bool) {
+	if p == nil {
+		return
+	}
+	pc := p.Config().Observability.Prometheus
+	// Guard the typed-nil interface footgun: p.AuditStore() returns a
+	// concrete *Store that is nil when audit is disabled; passing it
+	// directly would yield a non-nil audit.Logger wrapping a nil
+	// pointer.
+	var auditor audit.Logger
+	if s := p.AuditStore(); s != nil {
+		auditor = s
+	}
+	handler, err := proxy.New(proxy.Config{
+		URL:                pc.URL,
+		Timeout:            pc.Timeout,
+		BasicAuthUser:      pc.BasicAuth.Username,
+		BasicAuthPass:      pc.BasicAuth.Password,
+		RateLimitPerSecond: pc.RateLimitPerSecond,
+	}, p.NewObservabilityAuthorizer(), auditor)
+	if err != nil {
+		log.Printf("observability proxy disabled: %v", err)
+		return
+	}
+
+	proxyMux := http.NewServeMux()
+	handler.Register(proxyMux)
+
+	var wrapped http.Handler = proxyMux
+	if requireAuth {
+		wrapped = httpauth.RequireAuth()(proxyMux)
+	}
+	mux.Handle("/api/v1/observability/", wrapped)
+	if pc.URL == "" {
+		log.Println("observability proxy mounted (Prometheus not configured; endpoints return 503)")
+	} else {
+		log.Println("observability proxy enabled on /api/v1/observability/{query,query_range}")
+	}
 }
 
 // buildResourceClaims creates resource Claims from an authenticated user,
