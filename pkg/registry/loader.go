@@ -1,7 +1,7 @@
 package registry
 
 import (
-	"fmt"
+	"log/slog"
 	"maps"
 )
 
@@ -57,7 +57,9 @@ func (l *Loader) Load(cfg LoaderConfig) error {
 			}
 
 			if err := l.registry.CreateAndRegister(toolkitCfg); err != nil {
-				return fmt.Errorf("loading toolkit %s/%s: %w", kind, name, err)
+				slog.Warn("skipping bad toolkit instance",
+					"kind", kind, "name", name, "error", err)
+				continue
 			}
 		}
 	}
@@ -110,7 +112,9 @@ func (l *Loader) loadKindFromMap(kind string, kindMap map[string]any) error {
 		}
 
 		if err := l.registry.CreateAndRegister(toolkitCfg); err != nil {
-			return fmt.Errorf("loading toolkit %s/%s: %w", kind, name, err)
+			slog.Warn("skipping bad toolkit instance",
+				"kind", kind, "name", name, "error", err)
+			continue
 		}
 	}
 	return nil
@@ -137,7 +141,9 @@ func (l *Loader) loadAggregate(
 ) error {
 	toolkit, err := factory(defaultName, instances)
 	if err != nil {
-		return fmt.Errorf("loading aggregate toolkit %s: %w", kind, err)
+		slog.Warn("skipping aggregate toolkit",
+			"kind", kind, "error", err)
+		return nil
 	}
 	return l.registry.Register(toolkit)
 }

@@ -193,6 +193,11 @@ func (h *Handler) setConnectionInstance(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	if err := registry.ValidateConnectionConfig(kind, req.Config); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid connection config: "+err.Error())
+		return
+	}
+
 	inst := platform.ConnectionInstance{
 		Kind:        kind,
 		Name:        name,

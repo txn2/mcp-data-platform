@@ -93,9 +93,9 @@ func TestLoader_Load(t *testing.T) {
 		}
 	})
 
-	t.Run("missing factory", func(t *testing.T) {
-		registry := NewRegistry()
-		loader := NewLoader(registry)
+	t.Run("missing factory skipped", func(t *testing.T) {
+		reg := NewRegistry()
+		loader := NewLoader(reg)
 
 		cfg := LoaderConfig{
 			Toolkits: map[string]ToolkitKindConfig{
@@ -109,8 +109,11 @@ func TestLoader_Load(t *testing.T) {
 		}
 
 		err := loader.Load(cfg)
-		if err == nil {
-			t.Error("expected error for missing factory")
+		if err != nil {
+			t.Errorf("expected error to be skipped, got: %v", err)
+		}
+		if len(reg.All()) != 0 {
+			t.Errorf("expected 0 toolkits, got %d", len(reg.All()))
 		}
 	})
 
@@ -173,7 +176,7 @@ func TestLoader_Load(t *testing.T) {
 		}
 	})
 
-	t.Run("aggregate factory error propagated", func(t *testing.T) {
+	t.Run("aggregate factory error skipped", func(t *testing.T) {
 		reg := NewRegistry()
 		reg.RegisterAggregateFactory("failing", func(_ string, _ map[string]map[string]any) (Toolkit, error) {
 			return nil, fmt.Errorf("aggregate creation failed")
@@ -190,8 +193,11 @@ func TestLoader_Load(t *testing.T) {
 		}
 
 		err := loader.Load(cfg)
-		if err == nil {
-			t.Error("expected error from aggregate factory")
+		if err != nil {
+			t.Errorf("expected error to be skipped, got: %v", err)
+		}
+		if len(reg.All()) != 0 {
+			t.Errorf("expected 0 toolkits, got %d", len(reg.All()))
 		}
 	})
 }
@@ -281,9 +287,9 @@ func TestLoader_LoadFromMap(t *testing.T) {
 		}
 	})
 
-	t.Run("missing factory", func(t *testing.T) {
-		registry := NewRegistry()
-		loader := NewLoader(registry)
+	t.Run("missing factory skipped", func(t *testing.T) {
+		reg := NewRegistry()
+		loader := NewLoader(reg)
 
 		toolkits := map[string]any{
 			"unknown": map[string]any{
@@ -295,8 +301,11 @@ func TestLoader_LoadFromMap(t *testing.T) {
 		}
 
 		err := loader.LoadFromMap(toolkits)
-		if err == nil {
-			t.Error("expected error for missing factory")
+		if err != nil {
+			t.Errorf("expected error to be skipped, got: %v", err)
+		}
+		if len(reg.All()) != 0 {
+			t.Errorf("expected 0 toolkits, got %d", len(reg.All()))
 		}
 	})
 
@@ -349,7 +358,7 @@ func TestLoader_LoadFromMap(t *testing.T) {
 		}
 	})
 
-	t.Run("aggregate factory error from map", func(t *testing.T) {
+	t.Run("aggregate factory error from map skipped", func(t *testing.T) {
 		reg := NewRegistry()
 		reg.RegisterAggregateFactory("fail-map", func(_ string, _ map[string]map[string]any) (Toolkit, error) {
 			return nil, fmt.Errorf("map aggregate failed")
@@ -364,8 +373,11 @@ func TestLoader_LoadFromMap(t *testing.T) {
 		}
 
 		err := loader.LoadFromMap(toolkits)
-		if err == nil {
-			t.Error("expected error from aggregate factory")
+		if err != nil {
+			t.Errorf("expected error to be skipped, got: %v", err)
+		}
+		if len(reg.All()) != 0 {
+			t.Errorf("expected 0 toolkits, got %d", len(reg.All()))
 		}
 	})
 }

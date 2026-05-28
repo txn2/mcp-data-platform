@@ -75,9 +75,10 @@ func S3Factory(name string, cfg map[string]any) (Toolkit, error) {
 }
 
 // GatewayAggregateFactory creates a multi-connection gateway toolkit from
-// all configured instances. Per-instance config parse errors fail the
-// factory; upstream connectivity failures are absorbed and logged so an
-// unreachable upstream cannot block platform startup.
+// all configured instances. Per-instance config parse errors are logged
+// and skipped by ParseMultiConfig; upstream connectivity failures are
+// absorbed and logged so a misconfigured or unreachable upstream cannot
+// block platform startup.
 func GatewayAggregateFactory(defaultName string, instances map[string]map[string]any) (Toolkit, error) {
 	cfg, err := gatewaykit.ParseMultiConfig(defaultName, instances)
 	if err != nil {
@@ -88,15 +89,40 @@ func GatewayAggregateFactory(defaultName string, instances map[string]map[string
 
 // APIGatewayAggregateFactory creates a multi-connection api-gateway
 // toolkit from all configured instances. Per-instance config parse
-// errors fail the factory; per-connection materialization failures
-// (auth-builder errors) are logged and skipped so a single bad
-// connection cannot block platform startup. Outbound HTTP failures
-// happen at invocation time and are surfaced through the tool's
-// response envelope, not at startup.
+// errors are logged and skipped by ParseMultiConfig; per-connection
+// materialization failures (auth-builder errors) are also logged and
+// skipped so a single bad connection cannot block platform startup.
+// Outbound HTTP failures happen at invocation time and are surfaced
+// through the tool's response envelope, not at startup.
 func APIGatewayAggregateFactory(defaultName string, instances map[string]map[string]any) (Toolkit, error) {
 	cfg, err := apigatewaykit.ParseMultiConfig(defaultName, instances)
 	if err != nil {
 		return nil, fmt.Errorf("parsing apigateway multi config: %w", err)
 	}
 	return apigatewaykit.NewMulti(cfg), nil
+}
+
+// ValidateConnectionConfig validates a connection config map against
+// the per-kind parser. Returns nil when the config is valid or the
+// kind has no registered validator.
+func ValidateConnectionConfig(kind string, cfg map[string]any) error {
+	var err error
+	switch kind {
+	case "trino":
+		_, err = trinokit.ParseConfig(cfg)
+	case "datahub":
+		_, err = datahubkit.ParseConfig(cfg)
+	case "s3":
+		_, err = s3kit.ParseConfig(cfg)
+	case gatewaykit.Kind:
+		_, err = gatewaykit.ParseConfig(cfg)
+	case apigatewaykit.Kind:
+		_, err = apigatewaykit.ParseConfig(cfg)
+	default:
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("validating %s config: %w", kind, err)
+	}
+	return nil
 }

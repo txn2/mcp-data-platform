@@ -524,26 +524,38 @@ func TestParseMultiConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("error in instance config", func(t *testing.T) {
+	t.Run("bad instance skipped good instance kept", func(t *testing.T) {
 		instances := map[string]map[string]any{
 			"good": {"host": "good.example.com"},
 			"bad":  {"timeout": "not-a-duration"},
 		}
 
-		_, err := ParseMultiConfig("good", instances)
-		if err == nil {
-			t.Error("expected error for invalid instance config")
+		mc, err := ParseMultiConfig("good", instances)
+		if err != nil {
+			t.Fatalf(trinoCfgTestUnexpectedErr, err)
+		}
+		if len(mc.Instances) != 1 {
+			t.Fatalf("expected 1 instance, got %d", len(mc.Instances))
+		}
+		if _, ok := mc.Instances["good"]; !ok {
+			t.Error("expected good instance to be present")
+		}
+		if _, ok := mc.Instances["bad"]; ok {
+			t.Error("expected bad instance to be excluded")
 		}
 	})
 
-	t.Run("missing host returns error", func(t *testing.T) {
+	t.Run("missing host skips instance", func(t *testing.T) {
 		instances := map[string]map[string]any{
 			"missing-host": {"user": "testuser"},
 		}
 
-		_, err := ParseMultiConfig("missing-host", instances)
-		if err == nil {
-			t.Error("expected error for missing host")
+		mc, err := ParseMultiConfig("missing-host", instances)
+		if err != nil {
+			t.Fatalf(trinoCfgTestUnexpectedErr, err)
+		}
+		if len(mc.Instances) != 0 {
+			t.Errorf("expected 0 instances, got %d", len(mc.Instances))
 		}
 	})
 }

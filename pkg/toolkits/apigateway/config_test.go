@@ -466,15 +466,22 @@ func TestParseMultiConfig_SetsConnectionName(t *testing.T) {
 	}
 }
 
-func TestParseMultiConfig_PropagatesPerInstanceError(t *testing.T) {
-	_, err := ParseMultiConfig("", map[string]map[string]any{
-		"bad": {"auth_mode": AuthModeBearer}, // missing base_url + credential
+func TestParseMultiConfig_SkipsBadInstance(t *testing.T) {
+	mc, err := ParseMultiConfig("good", map[string]map[string]any{
+		"good": {"base_url": "http://good.example.com"},
+		"bad":  {"auth_mode": AuthModeBearer}, // missing base_url + credential
 	})
-	if err == nil {
-		t.Fatal("ParseMultiConfig: want error, got nil")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "apigateway/bad") {
-		t.Errorf("error = %q; want instance-prefixed error", err.Error())
+	if len(mc.Instances) != 1 {
+		t.Fatalf("expected 1 instance, got %d", len(mc.Instances))
+	}
+	if _, ok := mc.Instances["good"]; !ok {
+		t.Error("expected good instance to be present")
+	}
+	if _, ok := mc.Instances["bad"]; ok {
+		t.Error("expected bad instance to be excluded")
 	}
 }
 

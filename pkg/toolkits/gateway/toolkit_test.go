@@ -290,15 +290,22 @@ func TestNewMulti_LoadsHealthyInstances(t *testing.T) {
 	}
 }
 
-func TestParseMultiConfig_SurfacesBadInstance(t *testing.T) {
-	_, err := ParseMultiConfig("primary", map[string]map[string]any{
+func TestParseMultiConfig_SkipsBadInstance(t *testing.T) {
+	mc, err := ParseMultiConfig("primary", map[string]map[string]any{
+		"good":  {"endpoint": "http://good.example.com/mcp"},
 		connCRM: {}, // no endpoint
 	})
-	if err == nil {
-		t.Fatal("expected parse error")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "gateway/crm") {
-		t.Errorf("error should name the instance, got: %v", err)
+	if len(mc.Instances) != 1 {
+		t.Fatalf("expected 1 instance, got %d", len(mc.Instances))
+	}
+	if _, ok := mc.Instances["good"]; !ok {
+		t.Error("expected good instance to be present")
+	}
+	if _, ok := mc.Instances[connCRM]; ok {
+		t.Error("expected bad instance to be excluded")
 	}
 }
 

@@ -5,6 +5,7 @@ package gateway
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 )
 
@@ -152,15 +153,17 @@ type MultiConfig struct {
 }
 
 // ParseMultiConfig validates and returns the parsed config for every
-// instance. Per-instance parse errors are surfaced as fatal (operator must
-// fix the config); dial/connectivity errors are handled at load time in
-// NewMulti, not here.
+// instance. Per-instance parse errors are logged and the bad instance is
+// skipped so one misconfigured connection cannot block startup.
+// Dial/connectivity errors are handled at load time in NewMulti, not here.
 func ParseMultiConfig(defaultName string, raw map[string]map[string]any) (MultiConfig, error) {
 	parsed := make(map[string]Config, len(raw))
 	for name, r := range raw {
 		c, err := ParseConfig(r)
 		if err != nil {
-			return MultiConfig{}, fmt.Errorf("gateway/%s: %w", name, err)
+			slog.Warn("skipping invalid connection instance",
+				"kind", Kind, "instance", name, "error", err)
+			continue
 		}
 		if c.ConnectionName == "" {
 			c.ConnectionName = name
