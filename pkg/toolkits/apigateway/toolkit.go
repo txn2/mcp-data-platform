@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/getkin/kin-openapi/routers"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
@@ -264,6 +265,13 @@ type conn struct {
 	specs        map[string]*specState
 	operations   []OperationSummary
 	embedVectors map[embedKey][]float32
+
+	// operationRouterOnce lazily builds operationRouter from specs on
+	// first ResolveOperationID call. The router lives on the conn and
+	// is discarded when ReloadConnection rebuilds the conn after a
+	// catalog edit, so no separate cache-invalidation path is needed.
+	operationRouterOnce sync.Once
+	operationRouter     routers.Router
 	// testDescs is a unit-test-only aid: lets ranking_test.go's
 	// buildTestConn / populateTestEmbeddings round-trip an
 	// operation's description through buildEmbedText without making

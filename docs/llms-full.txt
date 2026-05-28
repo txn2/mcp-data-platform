@@ -889,8 +889,12 @@ Metrics are enabled by default. Configuration is environment-only for Phase 1 to
 | `mcp_inflight_tool_calls` | gauge | (none) |
 | `apigateway_outbound_total` | counter | `connection`, `http_status_class`, `status_category` |
 | `apigateway_outbound_duration_seconds` | histogram | `connection`, `http_status_class`, `status_category` |
+| `apigateway_inbound_requests_total` | counter | `connection`, `operation_id`, `method`, `status_class`, `identity` |
+| `apigateway_inbound_duration_seconds` | histogram | `connection`, `operation_id`, `method`, `status_class` |
 
 Plus the free Go runtime + process metrics (`go_*`, `process_*`).
+
+The `apigateway_inbound_*` pair measures inbound requests to the REST shim (`POST /api/v1/gateway/{connection}/invoke`, the NiFi-class ETL path), as opposed to `apigateway_outbound_*` which measures the platform's calls to the upstream API. `operation_id` is the OpenAPI operationId resolved from the connection's catalog via path-template matching (`unknown` for no-catalog or no-match). `identity` is the API key name or OIDC subject (`unknown` when unauthenticated), recorded on the counter only (never the histogram) to bound bucket cardinality.
 
 ## Chokepoints
 

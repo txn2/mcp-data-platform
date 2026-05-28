@@ -2,15 +2,83 @@ package platform
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 )
+
+// stubAuthenticator returns a fixed UserInfo/error for identity tests.
+type stubAuthenticator struct {
+	info *middleware.UserInfo
+	err  error
+}
+
+func (s stubAuthenticator) Authenticate(_ context.Context) (*middleware.UserInfo, error) {
+	return s.info, s.err
+}
+
+func TestGatewayIdentityResolver(t *testing.T) {
+	tests := []struct {
+		name string
+		auth middleware.Authenticator
+		want string
+	}{
+		{
+			name: "api key name",
+			auth: stubAuthenticator{info: &middleware.UserInfo{UserID: "apikey:nifi-etl", AuthType: "apikey"}},
+			want: "nifi-etl",
+		},
+		{
+			name: "oidc email",
+			auth: stubAuthenticator{info: &middleware.UserInfo{UserID: "sub-123", Email: "jo@example.com", AuthType: "oidc"}},
+			want: "jo@example.com",
+		},
+		{
+			name: "oidc subject fallback when no email",
+			auth: stubAuthenticator{info: &middleware.UserInfo{UserID: "sub-123", AuthType: "oidc"}},
+			want: "sub-123",
+		},
+		{
+			name: "auth error yields unknown",
+			auth: stubAuthenticator{err: errors.New("bad token")},
+			want: "unknown",
+		},
+		{
+			name: "nil info yields unknown",
+			auth: stubAuthenticator{},
+			want: "unknown",
+		},
+		{
+			name: "apikey without prefix falls through to userid",
+			auth: stubAuthenticator{info: &middleware.UserInfo{UserID: "weird", AuthType: "apikey"}},
+			want: "weird",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &Platform{authenticator: tc.auth}
+			r := p.NewGatewayIdentityResolver()
+			if got := r.ResolveIdentity(context.Background()); got != tc.want {
+				t.Errorf("ResolveIdentity() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestGatewayIdentityResolver_NilAuthenticator(t *testing.T) {
+	p := &Platform{}
+	r := p.NewGatewayIdentityResolver()
+	if got := r.ResolveIdentity(context.Background()); got != "unknown" {
+		t.Errorf("ResolveIdentity() with nil authn = %q, want unknown", got)
+	}
+}
 
 func TestObservability_EnabledByDefault(t *testing.T) {
 	// Bind the listener to an ephemeral port so this test does not collide

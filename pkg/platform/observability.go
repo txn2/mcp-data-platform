@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 
 	"github.com/txn2/mcp-data-platform/pkg/observability"
@@ -80,4 +82,51 @@ func (p *Platform) WireAPIGatewayMetrics() {
 			api.SetMetrics(p.metrics)
 		}
 	}
+}
+
+// GatewayIdentityResolver resolves an inbound REST request's auth
+// context to a display identity for the inbound metric's identity
+// label. It reuses the platform's existing authenticator rather than
+// forking auth. Returns "unknown" when nothing resolves so the label
+// is always bounded. Structurally satisfies gatewayhttp.IdentityResolver
+// (kept concrete here so the platform package does not import
+// gatewayhttp).
+type GatewayIdentityResolver struct {
+	authn middleware.Authenticator
+}
+
+// identityUnknown is the bounded fallback label when no caller identity
+// can be resolved.
+const identityUnknown = "unknown"
+
+// NewGatewayIdentityResolver builds the resolver from the platform's
+// authenticator. Nil authenticator yields a resolver that always
+// returns "unknown".
+func (p *Platform) NewGatewayIdentityResolver() *GatewayIdentityResolver {
+	return &GatewayIdentityResolver{authn: p.Authenticator()}
+}
+
+// ResolveIdentity authenticates the token already placed on ctx and
+// returns a display name: the API key name for API-key auth, else the
+// OIDC email, else the raw subject, else "unknown".
+func (r *GatewayIdentityResolver) ResolveIdentity(ctx context.Context) string {
+	if r == nil || r.authn == nil {
+		return identityUnknown
+	}
+	info, err := r.authn.Authenticate(ctx)
+	if err != nil || info == nil {
+		return identityUnknown
+	}
+	if info.AuthType == "apikey" {
+		if name := strings.TrimPrefix(info.UserID, "apikey:"); name != "" && name != info.UserID {
+			return name
+		}
+	}
+	if info.Email != "" {
+		return info.Email
+	}
+	if info.UserID != "" {
+		return info.UserID
+	}
+	return identityUnknown
 }

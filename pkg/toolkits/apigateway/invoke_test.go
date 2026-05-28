@@ -30,6 +30,22 @@ func TestValidateMethod_AcceptsKnownAndRejectsOthers(t *testing.T) {
 	}
 }
 
+func TestNormalizeMethodLabel(t *testing.T) {
+	for _, m := range []string{"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "PROPFIND", "MKCOL", "MOVE", "COPY"} {
+		if got := NormalizeMethodLabel(m); got != m {
+			t.Errorf("NormalizeMethodLabel(%q) = %q; want %q", m, got, m)
+		}
+	}
+	if got := NormalizeMethodLabel("get"); got != "GET" {
+		t.Errorf("NormalizeMethodLabel(lowercase) = %q; want GET", got)
+	}
+	for _, m := range []string{"", "OPTIONS", "TRACE", "CONNECT", "garbage-xyz"} {
+		if got := NormalizeMethodLabel(m); got != "unknown" {
+			t.Errorf("NormalizeMethodLabel(%q) = %q; want unknown", m, got)
+		}
+	}
+}
+
 func TestValidatePath(t *testing.T) {
 	if err := validatePath("/v1/users"); err != nil {
 		t.Errorf("valid path rejected: %v", err)
