@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
 
@@ -446,6 +447,93 @@ func TestMCPAuditMiddleware_ResponseSizeLogged(t *testing.T) {
 	require.Len(t, events, 1)
 	assert.Equal(t, testAuditCharsResult, events[0].ResponseChars) // "result data here" = 16 chars.
 	assert.Equal(t, 1, events[0].ContentBlocks)
+}
+
+// recordingAuditStore captures the final audit.Event values that reach
+// the storage sink. It implements the auditStore interface the real
+// auditStoreAdapter depends on, so a test can wire the real adapter
+// over it and assert the end-to-end conversion result.
+type recordingAuditStore struct {
+	mu     sync.Mutex
+	events []audit.Event
+}
+
+func (r *recordingAuditStore) Log(_ context.Context, event audit.Event) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = append(r.events, event)
+	return nil
+}
+
+func (r *recordingAuditStore) Events() []audit.Event {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]audit.Event, len(r.events))
+	copy(out, r.events)
+	return out
+}
+
+// TestMCPAuditMiddleware_EventKindEndToEnd proves the full audit path:
+// MCPAuditMiddleware derives the event kind from the toolkit kind in
+// PlatformContext, the real auditStoreAdapter maps it through its
+// builder chain, and the resulting audit.Event carries the correct
+// EventKind at the storage sink. Issue #465.
+func TestMCPAuditMiddleware_EventKindEndToEnd(t *testing.T) {
+	tests := []struct {
+		name        string
+		toolName    string
+		toolkitKind string
+		want        audit.EventType
+	}{
+		{
+			name:        "apigateway invoke",
+			toolName:    "api_invoke_endpoint",
+			toolkitKind: "api",
+			want:        audit.EventTypeAPIGatewayInvoke,
+		},
+		{
+			name:        "mcp tool call",
+			toolName:    testAuditToolName,
+			toolkitKind: testAuditToolkit,
+			want:        audit.EventTypeMCPToolCall,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := &recordingAuditStore{}
+			// Real adapter over the recording sink — exercises the
+			// production builder chain, not a hand-built event.
+			logger := &auditStoreAdapter{store: rec}
+			mw := MCPAuditMiddleware(logger)
+
+			handler := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+				return &mcp.CallToolResult{
+					Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
+				}, nil
+			}
+			wrapped := mw(handler)
+
+			pc := NewPlatformContext("req-ek")
+			pc.UserID = testAuditEmail
+			pc.ToolName = tc.toolName
+			pc.ToolkitKind = tc.toolkitKind
+			ctx := WithPlatformContext(context.Background(), pc)
+
+			req := createAuditTestRequest(t, tc.toolName, nil)
+			_, err := wrapped(ctx, testAuditMethodCall, req)
+			require.NoError(t, err)
+
+			require.Eventually(t, func() bool {
+				return len(rec.Events()) == 1
+			}, time.Second, 10*time.Millisecond, "audit event should be logged")
+
+			got := rec.Events()[0]
+			assert.Equal(t, tc.want, got.EventKind)
+			assert.Equal(t, tc.toolName, got.ToolName)
+			assert.Equal(t, tc.toolkitKind, got.ToolkitKind)
+		})
+	}
 }
 
 // capturingAuditLogger captures audit events for testing.

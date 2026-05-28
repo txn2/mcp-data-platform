@@ -7,6 +7,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
 
@@ -154,6 +155,7 @@ func buildMCPAuditEvent(pc *PlatformContext, info auditCallInfo) AuditEvent {
 		EnrichmentMode:        pc.EnrichmentMode,
 		EnrichmentMatchKind:   pc.EnrichmentMatchKind,
 		Authorized:            pc.Authorized,
+		EventKind:             string(audit.EventKindForToolkit(pc.ToolkitKind)),
 	}
 }
 

@@ -50,6 +50,7 @@ const (
 	colUserEmail    = "user_email"
 	colSuccess      = "success"
 	colSource       = "source"
+	colEventKind    = "event_kind"
 )
 
 // psq is the PostgreSQL statement builder with dollar placeholders.
@@ -64,6 +65,7 @@ var auditColumns = []string{
 	"transport", "source", "enrichment_applied",
 	"enrichment_tokens_full", "enrichment_tokens_dedup",
 	"enrichment_mode", "enrichment_match_kind", "authorized",
+	colEventKind,
 }
 
 // Store implements audit.Logger using PostgreSQL.
@@ -99,8 +101,8 @@ func (s *Store) Log(ctx context.Context, event audit.Event) error {
 
 	query := `
 		INSERT INTO audit_logs
-		(id, timestamp, duration_ms, request_id, session_id, user_id, user_email, persona, tool_name, toolkit_kind, toolkit_name, connection, parameters, success, error_message, created_date, response_chars, request_chars, content_blocks, transport, source, enrichment_applied, enrichment_tokens_full, enrichment_tokens_dedup, enrichment_mode, enrichment_match_kind, authorized)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
+		(id, timestamp, duration_ms, request_id, session_id, user_id, user_email, persona, tool_name, toolkit_kind, toolkit_name, connection, parameters, success, error_message, created_date, response_chars, request_chars, content_blocks, transport, source, enrichment_applied, enrichment_tokens_full, enrichment_tokens_dedup, enrichment_mode, enrichment_match_kind, authorized, event_kind)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
 	`
 
 	_, err = s.db.ExecContext(ctx, query,
@@ -131,6 +133,7 @@ func (s *Store) Log(ctx context.Context, event audit.Event) error {
 		event.EnrichmentMode,
 		event.EnrichmentMatchKind,
 		event.Authorized,
+		string(event.EventKind),
 	)
 	if err != nil {
 		return fmt.Errorf("inserting audit log: %w", err)
@@ -148,6 +151,7 @@ func applyAuditFilter(qb sq.SelectBuilder, filter audit.QueryFilter) sq.SelectBu
 		{colToolName, filter.ToolName},
 		{colToolkitKind, filter.ToolkitKind},
 		{colSource, filter.Source},
+		{colEventKind, filter.EventKind},
 	} {
 		if eq.val != "" {
 			qb = qb.Where(sq.Eq{eq.col: eq.val})
@@ -227,6 +231,7 @@ func (s *Store) Distinct(ctx context.Context, column string, startTime, endTime 
 		colToolName:    true,
 		colToolkitKind: true,
 		colSource:      true,
+		colEventKind:   true,
 	}
 	if !allowed[column] {
 		return nil, fmt.Errorf("distinct not supported for column %q", column)
@@ -339,6 +344,7 @@ func (s *Store) executeQuery(ctx context.Context, query string, args []any, limi
 func (*Store) scanEvent(rows *sql.Rows) (audit.Event, error) {
 	var event audit.Event
 	var params []byte
+	var eventKind sql.NullString
 
 	err := rows.Scan(
 		&event.ID,
@@ -367,6 +373,7 @@ func (*Store) scanEvent(rows *sql.Rows) (audit.Event, error) {
 		&event.EnrichmentMode,
 		&event.EnrichmentMatchKind,
 		&event.Authorized,
+		&eventKind,
 	)
 	if err != nil {
 		return event, fmt.Errorf("scanning audit log row: %w", err)
@@ -374,6 +381,9 @@ func (*Store) scanEvent(rows *sql.Rows) (audit.Event, error) {
 
 	if len(params) > 0 {
 		_ = json.Unmarshal(params, &event.Parameters)
+	}
+	if eventKind.Valid {
+		event.EventKind = audit.EventType(eventKind.String)
 	}
 
 	return event, nil

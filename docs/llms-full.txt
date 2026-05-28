@@ -809,6 +809,7 @@ Every tool call produces one row in `audit_logs` with these fields:
 | `parameters` | JSONB | Tool call arguments with sensitive values redacted. |
 | `success` | BOOLEAN | `true` if tool handler succeeded. |
 | `error_message` | TEXT | Error description if `success` is `false`. |
+| `event_kind` | VARCHAR(64) | High-level category: `apigateway_invoke` for apigateway HTTP calls, `mcp_tool_call` for all other toolkits. See [Event kind](#event-kind-mcp-vs-api-gateway). |
 | `created_date` | DATE | Partition key derived from `timestamp`. |
 
 ## Parameter Sanitization
@@ -840,6 +841,17 @@ Tools on this platform are reachable through three entry points; the audit row's
 | `admin` | Admin REST API at `POST /api/v1/admin/tools/call`. Portal-driven tool runs. |
 
 Both REST entry points open an in-memory MCP session against the assembled server and tag the context (`middleware.WithSource`) before the call so the existing audit middleware records the originating class. Filter via `GET /api/v1/admin/audit/events?source=...` or the **All Sources** dropdown in the portal.
+
+## Event kind: MCP vs API gateway
+
+The `event_kind` field separates apigateway HTTP traffic from MCP tool calls. It is derived at write time from the toolkit kind — `apigateway_invoke` when the toolkit kind is `api`, `mcp_tool_call` otherwise — so it does not rely on tool-name matching. The split lets the MCP Activity view exclude high-volume gateway traffic by default while a dedicated gateway view includes it.
+
+| `event_kind` | Meaning |
+|--------------|---------|
+| `mcp_tool_call` | Tool routed through the trino, datahub, s3, or MCP gateway toolkits. |
+| `apigateway_invoke` | HTTP API call through the apigateway toolkit (`api_*` tools). |
+
+Accepted on the event list, stats, and all metrics endpoints (timeseries, breakdown, overview, performance, enrichment, discovery): `GET /api/v1/admin/audit/events?event_kind=apigateway_invoke`.
 
 ## Retention and partition rotation
 

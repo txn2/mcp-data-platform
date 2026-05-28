@@ -94,6 +94,13 @@ definitions:
     type: object
   admin.auditFiltersResponse:
     properties:
+      event_kinds:
+        example:
+        - mcp_tool_call
+        - apigateway_invoke
+        items:
+          type: string
+        type: array
       sources:
         example:
         - mcp
@@ -1004,6 +1011,17 @@ definitions:
         type: integer
       error_message:
         type: string
+      event_kind:
+        allOf:
+        - $ref: '#/definitions/audit.EventType'
+        description: |-
+          EventKind is the high-level category of the event. Set to
+          "mcp_tool_call" for tools routed through the MCP toolkits (trino,
+          datahub, s3, mcp gateway) and "apigateway_invoke" for upstream
+          HTTP API calls via the apigateway toolkit. Lets the portal split
+          MCP activity from gateway noise without coupling to tool-name
+          patterns. See EventType constants in event.go.
+        example: mcp_tool_call
       id:
         example: evt_a1b2c3d4e5f6
         type: string
@@ -1053,6 +1071,20 @@ definitions:
         example: 550e8400-e29b-41d4-a716-446655440000
         type: string
     type: object
+  audit.EventType:
+    enum:
+    - tool_call
+    - auth
+    - admin
+    - mcp_tool_call
+    - apigateway_invoke
+    type: string
+    x-enum-varnames:
+    - EventTypeToolCall
+    - EventTypeAuth
+    - EventTypeAdmin
+    - EventTypeMCPToolCall
+    - EventTypeAPIGatewayInvoke
   audit.Overview:
     properties:
       avg_duration_ms:
@@ -2569,6 +2601,10 @@ paths:
         in: query
         name: source
         type: string
+      - description: Filter by event kind (mcp_tool_call, apigateway_invoke)
+        in: query
+        name: event_kind
+        type: string
       - description: Filter by MCP session ID
         in: query
         name: session_id
@@ -2699,6 +2735,10 @@ paths:
         in: query
         name: end_time
         type: string
+      - description: Filter by event kind (mcp_tool_call, apigateway_invoke)
+        in: query
+        name: event_kind
+        type: string
       produces:
       - application/json
       responses:
@@ -2734,6 +2774,10 @@ paths:
         in: query
         name: end_time
         type: string
+      - description: Filter by event kind (mcp_tool_call, apigateway_invoke)
+        in: query
+        name: event_kind
+        type: string
       produces:
       - application/json
       responses:
@@ -2764,6 +2808,10 @@ paths:
         in: query
         name: end_time
         type: string
+      - description: Filter by event kind (mcp_tool_call, apigateway_invoke)
+        in: query
+        name: event_kind
+        type: string
       produces:
       - application/json
       responses:
@@ -2793,6 +2841,10 @@ paths:
         in: query
         name: end_time
         type: string
+      - description: Filter by event kind (mcp_tool_call, apigateway_invoke)
+        in: query
+        name: event_kind
+        type: string
       produces:
       - application/json
       responses:
@@ -2821,6 +2873,10 @@ paths:
       - description: End time (RFC 3339)
         in: query
         name: end_time
+        type: string
+      - description: Filter by event kind (mcp_tool_call, apigateway_invoke)
+        in: query
+        name: event_kind
         type: string
       produces:
       - application/json
@@ -2854,6 +2910,10 @@ paths:
       - description: End time (RFC 3339)
         in: query
         name: end_time
+        type: string
+      - description: Filter by event kind (mcp_tool_call, apigateway_invoke)
+        in: query
+        name: event_kind
         type: string
       produces:
       - application/json
@@ -2898,6 +2958,10 @@ paths:
       - description: Filter by event source
         in: query
         name: source
+        type: string
+      - description: Filter by event kind (mcp_tool_call, apigateway_invoke)
+        in: query
+        name: event_kind
         type: string
       - description: Events after this time (RFC 3339)
         in: query

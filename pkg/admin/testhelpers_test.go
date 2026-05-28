@@ -207,9 +207,13 @@ type mockAuditQuerier struct {
 	distinctErr         error
 	distinctPairsResult map[string]string
 	distinctPairsErr    error
+	// lastQueryFilter records the filter passed to the most recent
+	// Query call so handler tests can assert query-param extraction.
+	lastQueryFilter audit.QueryFilter
 }
 
-func (m *mockAuditQuerier) Query(_ context.Context, _ audit.QueryFilter) ([]audit.Event, error) {
+func (m *mockAuditQuerier) Query(_ context.Context, filter audit.QueryFilter) ([]audit.Event, error) {
+	m.lastQueryFilter = filter
 	return m.queryResult, m.queryErr
 }
 

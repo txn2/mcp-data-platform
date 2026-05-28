@@ -39,10 +39,35 @@ func TestEvent_Builders(t *testing.T) {
 		WithEnrichment(true).
 		WithAuthorized(true).
 		WithEnrichmentTokens(500, 45).
-		WithEnrichmentMode("full")
+		WithEnrichmentMode("full").
+		WithEventKind(EventTypeMCPToolCall)
 
 	assertEventCoreFields(t, event)
 	assertEventNewFields(t, event)
+	if event.EventKind != EventTypeMCPToolCall {
+		t.Errorf("EventKind = %q, want %q", event.EventKind, EventTypeMCPToolCall)
+	}
+}
+
+func TestEventKindForToolkit(t *testing.T) {
+	tests := []struct {
+		toolkitKind string
+		want        EventType
+	}{
+		{"api", EventTypeAPIGatewayInvoke},
+		{"trino", EventTypeMCPToolCall},
+		{"datahub", EventTypeMCPToolCall},
+		{"s3", EventTypeMCPToolCall},
+		{"mcp", EventTypeMCPToolCall},
+		{"", EventTypeMCPToolCall},
+	}
+	for _, tc := range tests {
+		t.Run(tc.toolkitKind, func(t *testing.T) {
+			if got := EventKindForToolkit(tc.toolkitKind); got != tc.want {
+				t.Errorf("EventKindForToolkit(%q) = %q, want %q", tc.toolkitKind, got, tc.want)
+			}
+		})
+	}
 }
 
 func assertEventCoreFields(t *testing.T, event *Event) {

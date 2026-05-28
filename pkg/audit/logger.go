@@ -53,6 +53,13 @@ type Event struct {
 	// suggestions (issue #444).
 	EnrichmentMatchKind string `json:"enrichment_match_kind,omitempty" example:"urn"`
 	Authorized          bool   `json:"authorized" example:"true"`
+	// EventKind is the high-level category of the event. Set to
+	// "mcp_tool_call" for tools routed through the MCP toolkits (trino,
+	// datahub, s3, mcp gateway) and "apigateway_invoke" for upstream
+	// HTTP API calls via the apigateway toolkit. Lets the portal split
+	// MCP activity from gateway noise without coupling to tool-name
+	// patterns. See EventType constants in event.go.
+	EventKind EventType `json:"event_kind,omitempty" example:"mcp_tool_call"`
 }
 
 // SortOrder defines sort direction.
@@ -90,6 +97,7 @@ type QueryFilter struct {
 	ToolName    string
 	ToolkitKind string
 	Source      string
+	EventKind   string
 	Search      string
 	Success     *bool
 	SortBy      string
