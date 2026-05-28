@@ -13,6 +13,7 @@ package apigateway
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"strings"
 	"time"
@@ -319,14 +320,17 @@ type MultiConfig struct {
 }
 
 // ParseMultiConfig validates and returns the parsed config for every
-// instance. Per-instance parse errors fail the platform startup; HTTP
+// instance. Per-instance parse errors are logged and the bad instance is
+// skipped so one misconfigured connection cannot block startup. HTTP
 // connectivity failures are handled at invocation time, not here.
 func ParseMultiConfig(defaultName string, raw map[string]map[string]any) (MultiConfig, error) {
 	parsed := make(map[string]Config, len(raw))
 	for name, r := range raw {
 		c, err := ParseConfig(r)
 		if err != nil {
-			return MultiConfig{}, fmt.Errorf("apigateway/%s: %w", name, err)
+			slog.Warn("skipping invalid connection instance",
+				"kind", Kind, "instance", name, "error", err)
+			continue
 		}
 		if c.ConnectionName == "" {
 			c.ConnectionName = name

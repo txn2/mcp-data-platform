@@ -291,7 +291,7 @@ func TestSetConnectionInstance(t *testing.T) {
 		h := connTestHandler(store, true)
 
 		body := `{"description":"No config"}`
-		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/connection-instances/trino/prod", strings.NewReader(body))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/connection-instances/s3/bucket1", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
@@ -302,6 +302,51 @@ func TestSetConnectionInstance(t *testing.T) {
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&result))
 		assert.NotNil(t, result.Config)
 		assert.Empty(t, result.Config)
+	})
+
+	t.Run("invalid trino config returns 400", func(t *testing.T) {
+		store := &mockConnectionStore{}
+		h := connTestHandler(store, true)
+
+		body := `{"config":{},"description":"Missing host"}`
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/connection-instances/trino/prod", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		pd := decodeProblem(w.Body.Bytes())
+		assert.Contains(t, pd.Detail, "host is required")
+	})
+
+	t.Run("invalid api config returns 400", func(t *testing.T) {
+		store := &mockConnectionStore{}
+		h := connTestHandler(store, true)
+
+		body := `{"config":{},"description":"Missing base_url"}`
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/connection-instances/api/test", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		pd := decodeProblem(w.Body.Bytes())
+		assert.Contains(t, pd.Detail, "base_url is required")
+	})
+
+	t.Run("invalid mcp config returns 400", func(t *testing.T) {
+		store := &mockConnectionStore{}
+		h := connTestHandler(store, true)
+
+		body := `{"config":{},"description":"Missing endpoint"}`
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/connection-instances/mcp/test", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		pd := decodeProblem(w.Body.Bytes())
+		assert.Contains(t, pd.Detail, "endpoint is required")
 	})
 
 	t.Run("read-only mode returns 404 for PUT", func(t *testing.T) {
@@ -824,8 +869,8 @@ func TestSetConnectionInstance_StripsMTLSCertNotAfterFromIncomingBody(t *testing
 		"description": "test"
 	}`)
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut,
-		"/api/v1/admin/connection-instances/trino/test", body)
-	req.SetPathValue("kind", "trino")
+		"/api/v1/admin/connection-instances/api/test", body)
+	req.SetPathValue("kind", "api")
 	req.SetPathValue("name", "test")
 	rr := httptest.NewRecorder()
 	h.setConnectionInstance(rr, req)

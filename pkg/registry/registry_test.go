@@ -385,12 +385,15 @@ func TestGatewayAggregateFactory_NoInstancesReturnsEmptyToolkit(t *testing.T) {
 	_ = tk.Close()
 }
 
-func TestGatewayAggregateFactory_BadInstanceConfigReturnsError(t *testing.T) {
-	_, err := GatewayAggregateFactory(regTestTest, map[string]map[string]any{
-		"broken": {}, // missing endpoint
+func TestGatewayAggregateFactory_BadInstanceSkipped(t *testing.T) {
+	tk, err := GatewayAggregateFactory(regTestTest, map[string]map[string]any{
+		"broken": {}, // missing endpoint, skipped
 	})
-	if err == nil {
-		t.Fatal("expected parse error for missing endpoint")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tk.Kind() != "mcp" {
+		t.Errorf("Kind: got %q, want %q", tk.Kind(), "mcp")
 	}
 }
 
@@ -411,12 +414,15 @@ func TestAPIGatewayAggregateFactory_NoInstancesReturnsEmptyToolkit(t *testing.T)
 	_ = tk.Close()
 }
 
-func TestAPIGatewayAggregateFactory_BadInstanceConfigReturnsError(t *testing.T) {
-	_, err := APIGatewayAggregateFactory(regTestTest, map[string]map[string]any{
-		"broken": {}, // missing base_url
+func TestAPIGatewayAggregateFactory_BadInstanceSkipped(t *testing.T) {
+	tk, err := APIGatewayAggregateFactory(regTestTest, map[string]map[string]any{
+		"broken": {}, // missing base_url, skipped
 	})
-	if err == nil {
-		t.Fatal("expected parse error for missing base_url")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if tk.Kind() != "api" {
+		t.Errorf("Kind: got %q, want %q", tk.Kind(), "api")
 	}
 }
 

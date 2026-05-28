@@ -2,6 +2,7 @@ package trino
 
 import (
 	"fmt"
+	"log/slog"
 	"time"
 )
 
@@ -23,7 +24,9 @@ func ParseMultiConfig(defaultName string, instances map[string]map[string]any) (
 	for name, raw := range instances {
 		cfg, err := ParseConfig(raw)
 		if err != nil {
-			return mc, fmt.Errorf("instance %s: %w", name, err)
+			slog.Warn("skipping invalid connection instance",
+				"kind", "trino", "instance", name, "error", err)
+			continue
 		}
 		if cfg.ConnectionName == "" {
 			cfg.ConnectionName = name

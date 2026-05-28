@@ -468,6 +468,85 @@ export function ConnectionsPanel() {
 // Connection Viewer (read-only)
 // ---------------------------------------------------------------------------
 
+const CONFIG_LABELS: Record<string, Record<string, string>> = {
+  trino: {
+    host: "Host",
+    port: "Port",
+    user: "Username",
+    password: "Password",
+    catalog: "Default Catalog",
+    schema: "Default Schema",
+    ssl: "SSL / TLS",
+    ssl_verify: "SSL Verify",
+    read_only: "Read Only",
+    default_limit: "Default Limit",
+    max_limit: "Max Limit",
+    timeout: "Timeout",
+    connection_name: "Connection Name",
+    description: "Description",
+  },
+  s3: {
+    endpoint: "Endpoint",
+    region: "Region",
+    access_key_id: "Access Key ID",
+    secret_access_key: "Secret Access Key",
+    session_token: "Session Token",
+    profile: "Profile",
+    bucket_prefix: "Bucket Prefix",
+    use_path_style: "Force Path Style",
+    disable_ssl: "Disable SSL",
+    read_only: "Read Only",
+    timeout: "Timeout",
+    max_get_size: "Max GET Size",
+    max_put_size: "Max PUT Size",
+    connection_name: "Connection Name",
+  },
+  mcp: {
+    endpoint: "Endpoint",
+    auth_mode: "Auth Mode",
+    credential: "Credential",
+    connect_timeout: "Connect Timeout",
+    call_timeout: "Call Timeout",
+    trust_level: "Trust Level",
+    connection_name: "Connection Name",
+    oauth_grant: "OAuth Grant Type",
+    oauth_token_url: "OAuth Token URL",
+    oauth_authorization_url: "OAuth Authorization URL",
+    oauth_client_id: "OAuth Client ID",
+    oauth_client_secret: "OAuth Client Secret",
+    oauth_scope: "OAuth Scope",
+    oauth_prompt: "OAuth Prompt",
+  },
+  api: {
+    base_url: "Base URL",
+    auth_mode: "Auth Mode",
+    credential: "Credential",
+    api_key_header: "API Key Header",
+    api_key_param: "API Key Parameter",
+    api_key_placement: "API Key Placement",
+    username: "Username",
+    password: "Password",
+    connect_timeout: "Connect Timeout",
+    call_timeout: "Call Timeout",
+    trust_level: "Trust Level",
+    max_response_bytes: "Max Response Bytes",
+    catalog_id: "OpenAPI Catalog",
+    connection_name: "Connection Name",
+    oauth2_token_url: "OAuth2 Token URL",
+    oauth2_authorization_url: "OAuth2 Authorization URL",
+    oauth2_client_id: "OAuth2 Client ID",
+    oauth2_client_secret: "OAuth2 Client Secret",
+    oauth2_scopes: "OAuth2 Scopes",
+    oauth2_endpoint_auth_style: "OAuth2 Auth Style",
+    oauth2_prompt: "OAuth2 Prompt",
+    mtls_client_cert_pem: "mTLS Client Certificate",
+    mtls_client_key_pem: "mTLS Client Key",
+    mtls_cert_not_after: "mTLS Cert Expiry",
+    tls_ca_bundle_pem: "TLS CA Bundle",
+    static_headers: "Static Headers",
+  },
+};
+
 function ConnectionViewer({
   connection,
   isReadOnly,
@@ -584,10 +663,15 @@ function ConnectionViewer({
               const displayValue = typeof value === "object" && value !== null
                 ? JSON.stringify(value)
                 : String(value);
+              const labelMap = CONFIG_LABELS[connection.kind] ?? {};
+              const displayLabel = labelMap[key];
               return (
                 <div key={key} className="flex items-center gap-4 px-4 py-2">
-                  <span className="text-xs font-mono text-muted-foreground w-48 shrink-0 truncate">
-                    {key}
+                  <span className="text-xs text-muted-foreground w-48 shrink-0 truncate" title={key}>
+                    {displayLabel ?? key}
+                    {displayLabel && (
+                      <span className="ml-1 font-mono text-[10px] opacity-50">{key}</span>
+                    )}
                   </span>
                   <span className="text-xs font-mono flex-1 truncate">
                     {displayValue}
@@ -714,6 +798,14 @@ function ConnectionEditor({ connection, onSave, onCancel, onDirtyChange }: Edito
     setConfigObj(next);
   }, []);
   const configJson = JSON.stringify(configObj); // for dirty tracking
+  const isConfigValid = useMemo(() => {
+    switch (kind) {
+      case "trino": return Boolean(configObj.host);
+      case "mcp": return Boolean(configObj.endpoint);
+      case "api": return Boolean(configObj.base_url);
+      default: return true;
+    }
+  }, [kind, configObj]);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -787,7 +879,7 @@ function ConnectionEditor({ connection, onSave, onCancel, onDirtyChange }: Edito
           <button
             type="button"
             onClick={handleSave}
-            disabled={isPending || (isCreate && (!name.trim() || !nameValid))}
+            disabled={isPending || !isConfigValid || (isCreate && (!name.trim() || !nameValid))}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all disabled:opacity-50",
               saveSuccess
@@ -954,6 +1046,7 @@ function ConfigField({
   placeholder,
   mono,
   sensitive,
+  required,
 }: {
   label: string;
   help?: string;
@@ -963,10 +1056,14 @@ function ConfigField({
   placeholder?: string;
   mono?: boolean;
   sensitive?: boolean;
+  required?: boolean;
 }) {
   return (
     <div>
-      <label className="mb-1 block text-xs font-medium">{label}</label>
+      <label className="mb-1 block text-xs font-medium">
+        {label}
+        {required && <span className="text-destructive ml-0.5">*</span>}
+      </label>
       <input
         type={sensitive ? "password" : type}
         value={value}
@@ -1040,6 +1137,7 @@ function TrinoConfigForm({ config, onChange }: ConfigFormProps) {
           onChange={(v) => onChange(update(config, "host", v))}
           placeholder="trino.example.com"
           mono
+          required
           help="Trino coordinator hostname or IP address"
         />
         <ConfigField
@@ -1431,6 +1529,7 @@ function GatewayConfigForm({ config, onChange }: ConfigFormProps) {
         onChange={(v) => onChange(update(config, "endpoint", v))}
         placeholder="https://vendor.example.com/mcp"
         mono
+        required
       />
       <div>
         <label className="mb-1 block text-xs font-medium">Auth mode</label>
@@ -1762,6 +1861,7 @@ function ApiGatewayConfigForm({
         onChange={(v) => onChange(update(config, "base_url", v))}
         placeholder="https://api.vendor.example.com"
         mono
+        required
       />
       <div>
         <div className="mb-1 flex items-center justify-between">
