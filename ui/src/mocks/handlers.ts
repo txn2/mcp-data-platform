@@ -696,10 +696,11 @@ export const handlers = [
 
   http.get(`${OBSERVABILITY_BASE}/query_range`, ({ request }) => {
     const url = new URL(request.url);
+    const query = url.searchParams.get("query") ?? "";
     const start = Number(url.searchParams.get("start") ?? "0");
     const end = Number(url.searchParams.get("end") ?? "0");
     const step = Number(url.searchParams.get("step") ?? "60");
-    return HttpResponse.json(promRangeFor(start, end, step));
+    return HttpResponse.json(promRangeFor(query, start, end, step));
   }),
 
   http.get(`${ADMIN_BASE}/connection-instances/effective`, () => {

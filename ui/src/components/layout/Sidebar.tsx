@@ -3,7 +3,6 @@ import { cn } from "@/lib/utils";
 import {
   Home,
   Wrench,
-  ScrollText,
   Lightbulb,
   Users,
   LogOut,
@@ -61,7 +60,6 @@ const adminNavItems: NavItem[] = [
   { path: "/admin/agent-instructions", label: "Agent Instructions", icon: Bot },
   { path: "/admin/api-catalogs", label: "API Catalogs", icon: BookOpen },
   { path: "/admin/assets", label: "Assets", icon: LayoutGrid },
-  { path: "/admin/audit", label: "Audit Log", icon: ScrollText },
   { path: "/admin/changelog", label: "Change Log", icon: Clock },
   { path: "/admin/connections", label: "Connections", icon: Cable },
   { path: "/admin/description", label: "Description", icon: FileText },

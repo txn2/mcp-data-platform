@@ -346,3 +346,15 @@ audit:
   enabled: true
   log_tool_calls: true
   retention_days: 90
+
+# Observability: the PromQL query proxy that powers the admin Dashboard's
+# "API Gateway" activity tab. Points at the dev Prometheus (docker-compose
+# service "prometheus", mapped to host :9091), which scrapes the platform's
+# /metrics endpoint (OTEL_METRICS_ADDR=:9464, set by dev/start.sh). Admin
+# personas already allow the observability:read capability via "*". With no
+# gateway traffic yet, the tab shows its empty state; invoke an api_* tool
+# against the api-test-fixture connection to populate it.
+observability:
+  prometheus:
+    url: "http://localhost:9091"
+    timeout: 10s

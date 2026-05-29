@@ -1,0 +1,18 @@
+# Dev-only Prometheus configuration.
+#
+# Scrapes the mcp-data-platform /metrics endpoint so the portal's admin
+# "API Gateway" activity tab has a real data source through the platform's
+# authenticated PromQL proxy (observability.prometheus in dev/platform.yaml).
+#
+# The platform runs on the host (via air), not in this compose network, so
+# the scrape target is host.docker.internal (mapped to the host gateway
+# below). OTEL_METRICS_ADDR is pinned to :9464 in dev/start.sh to avoid the
+# default :9090, which Keycloak already uses in this stack.
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: mcp-data-platform
+    static_configs:
+      - targets: ["host.docker.internal:9464"]

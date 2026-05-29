@@ -8,6 +8,10 @@ import {
 import { StatCard } from "@/components/cards/StatCard";
 import { TimeseriesChart, type TimeseriesSeries } from "@/components/charts/TimeseriesChart";
 import { BreakdownBarChart } from "@/components/charts/BarChart";
+import { FlowSankey } from "@/components/charts/FlowSankey";
+import { StatusStackChart } from "@/components/charts/StatusStackChart";
+import { UsageHeatmap } from "@/components/charts/UsageHeatmap";
+import type { PromVectorResponse } from "@/api/observability/types";
 import {
   topConnectionsByVolume,
   connectionRequestTotal,
@@ -16,7 +20,11 @@ import {
   topEndpoints,
   endpointByLabel,
   requestRateRange,
+  connectionOperationFlow,
+  statusClassRateRange,
   promVectorToBreakdown,
+  promVectorToFlow,
+  promMatrixToStatusStack,
   promMatrixToTimeseries,
   firstScalar,
 } from "./promql";
@@ -127,6 +135,38 @@ export function APIGatewayView() {
   const topConns = useObservabilityQuery(topConnectionsByVolume(window), {
     enabled: connection === null,
   });
+  const flow = useObservabilityQuery(connectionOperationFlow(window), {
+    enabled: connection === null,
+  });
+  const inboundTotal = useObservabilityQuery(
+    `sum(increase(apigateway_inbound_requests_total[${window}]))`,
+    { enabled: connection === null },
+  );
+  const outboundTotal = useObservabilityQuery(
+    `sum(increase(apigateway_outbound_total[${window}]))`,
+    { enabled: connection === null },
+  );
+  const outboundByCat = useObservabilityQuery(
+    `sum by (status_category) (increase(apigateway_outbound_total[${window}]))`,
+    { enabled: connection === null },
+  );
+  const statusStack = useObservabilityQueryRange(statusClassRateRange(rate), start, end, step, {
+    enabled: connection === null,
+  });
+  // Usage heatmap always shows the last 7 days at hourly resolution
+  // (independent of the page preset). Snap to the hour for a stable key.
+  const heat = useMemo(() => {
+    const hr = 3600;
+    const e = Math.floor(Date.now() / 1000 / hr) * hr;
+    return { start: e - 7 * 24 * hr, end: e };
+  }, []);
+  const heatRange = useObservabilityQueryRange(
+    "sum(increase(apigateway_inbound_requests_total[1h]))",
+    heat.start,
+    heat.end,
+    3600,
+    { enabled: connection === null },
+  );
 
   if (isBackendUnconfigured(topConns.error)) {
     return <ObservabilityEmptyState />;
@@ -135,15 +175,7 @@ export function APIGatewayView() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <Breadcrumb
-          connection={connection}
-          endpoint={endpoint}
-          onRoot={() => {
-            setConnection(null);
-            setEndpoint(null);
-          }}
-          onConnection={() => setEndpoint(null)}
-        />
+        {/* Time chooser on the left, consistent with the MCP tab. */}
         <div className="flex items-center gap-1">
           {presets.map((p) => (
             <button
@@ -160,17 +192,58 @@ export function APIGatewayView() {
             </button>
           ))}
         </div>
+        <Breadcrumb
+          connection={connection}
+          endpoint={endpoint}
+          onRoot={() => {
+            setConnection(null);
+            setEndpoint(null);
+          }}
+          onConnection={() => setEndpoint(null)}
+        />
       </div>
 
       {connection === null && (
-        <TopConnections
-          query={topConns}
-          onSelect={setConnection}
-          start={start}
-          end={end}
-          step={step}
-          rate={rate}
-        />
+        <>
+          <GatewayOverview
+            inbound={firstScalar(inboundTotal.data)}
+            outbound={firstScalar(outboundTotal.data)}
+            outboundByCat={outboundByCat.data}
+          />
+          <div className="rounded-lg border bg-card p-4">
+            <div className="mb-3 flex items-baseline justify-between">
+              <h3 className="text-sm font-medium">Status Mix</h3>
+              <span className="text-xs text-muted-foreground">requests/sec by class</span>
+            </div>
+            <StatusStackChart
+              data={promMatrixToStatusStack(statusStack.data)}
+              isLoading={statusStack.isLoading}
+              height={200}
+            />
+          </div>
+          <div className="rounded-lg border bg-card p-4">
+            <div className="mb-3 flex items-baseline justify-between">
+              <h3 className="text-sm font-medium">Usage Rhythm</h3>
+              <span className="text-xs text-muted-foreground">last 7 days · requests by weekday &amp; hour</span>
+            </div>
+            <UsageHeatmap data={promMatrixToTimeseries(heatRange.data)} isLoading={heatRange.isLoading} />
+          </div>
+          <div className="rounded-lg border bg-card p-4">
+            <div className="mb-3 flex items-baseline justify-between">
+              <h3 className="text-sm font-medium">Traffic Flow</h3>
+              <span className="text-xs text-muted-foreground">connection → operation, by volume</span>
+            </div>
+            <FlowSankey graph={promVectorToFlow(flow.data)} isLoading={flow.isLoading} height={400} />
+          </div>
+          <TopConnections
+            query={topConns}
+            onSelect={setConnection}
+            start={start}
+            end={end}
+            step={step}
+            rate={rate}
+          />
+        </>
       )}
 
       {connection !== null && endpoint === null && (
@@ -196,6 +269,48 @@ export function APIGatewayView() {
           rate={rate}
         />
       )}
+    </div>
+  );
+}
+
+// GatewayOverview summarizes inbound vs outbound traffic at the root level.
+// Inbound = requests the platform received at the REST shim; outbound =
+// upstream calls the gateway made on their behalf. The outbound error rate
+// (client + server categories) is the headline health signal for upstreams.
+function GatewayOverview({
+  inbound,
+  outbound,
+  outboundByCat,
+}: {
+  inbound?: number;
+  outbound?: number;
+  outboundByCat?: PromVectorResponse;
+}) {
+  const cats: Record<string, number> = {};
+  for (const r of outboundByCat?.data?.result ?? []) {
+    cats[r.metric["status_category"] ?? "unknown"] = Math.round(Number(r.value[1]));
+  }
+  const clientErr = cats["client_error"] ?? 0;
+  const serverErr = cats["server_error"] ?? 0;
+  const outTotal = (cats["success"] ?? 0) + clientErr + serverErr;
+  const errRate = outTotal > 0 ? (clientErr + serverErr) / outTotal : 0;
+
+  return (
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <StatCard
+        label="Inbound requests"
+        value={inbound !== undefined ? Math.round(inbound).toLocaleString() : "-"}
+      />
+      <StatCard
+        label="Outbound calls"
+        value={outbound !== undefined ? Math.round(outbound).toLocaleString() : "-"}
+      />
+      <StatCard
+        label="Outbound error rate"
+        value={outTotal > 0 ? `${(errRate * 100).toFixed(1)}%` : "-"}
+        className={errRate > 0.05 ? "border-red-500/40" : undefined}
+      />
+      <StatCard label="Upstream 5xx" value={serverErr.toLocaleString()} />
     </div>
   );
 }
@@ -413,14 +528,15 @@ function Breakdown({
 }
 
 // ObservabilityEmptyState is shown when the PromQL proxy returns 503
-// (Prometheus not configured for this deployment).
+// (metrics backend unavailable for this deployment). The copy is generic
+// on purpose: the people viewing this do not control the deployment, so
+// it states the situation without ops-facing configuration detail.
 export function ObservabilityEmptyState() {
   return (
     <div className="rounded-lg border border-dashed bg-card p-10 text-center">
-      <h3 className="text-sm font-medium">Observability backend not configured</h3>
+      <h3 className="text-sm font-medium">API gateway metrics unavailable</h3>
       <p className="mt-2 text-sm text-muted-foreground">
-        Configure a Prometheus instance under <code>observability.prometheus</code> to view API
-        gateway metrics. See the observability documentation.
+        API gateway metrics are not available for this platform right now.
       </p>
     </div>
   );

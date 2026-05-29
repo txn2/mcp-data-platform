@@ -7,7 +7,11 @@ import {
   topEndpoints,
   endpointByLabel,
   requestRateRange,
+  connectionOperationFlow,
+  statusClassRateRange,
   promVectorToBreakdown,
+  promVectorToFlow,
+  promMatrixToStatusStack,
   promMatrixToTimeseries,
   firstScalar,
 } from "./promql";
@@ -144,5 +148,83 @@ describe("PromQL result adapters", () => {
         data: { resultType: "vector", result: [{ metric: {}, value: [1, "NaN"] }] },
       }),
     ).toBeUndefined();
+  });
+});
+
+describe("connection -> operation flow", () => {
+  it("builds the by-connection-and-operation query", () => {
+    expect(connectionOperationFlow("24h")).toBe(
+      "sum by (connection, operation_id) (increase(apigateway_inbound_requests_total[24h]))",
+    );
+  });
+
+  it("maps a vector into a sankey graph with per-connection operation nodes", () => {
+    const resp: PromVectorResponse = {
+      status: "success",
+      data: {
+        resultType: "vector",
+        result: [
+          { metric: { connection: "salesforce", operation_id: "listContacts" }, value: [1, "800"] },
+          { metric: { connection: "salesforce", operation_id: "getAccount" }, value: [1, "500"] },
+          { metric: { connection: "stripe", operation_id: "listCharges" }, value: [1, "300"] },
+          { metric: { connection: "stripe", operation_id: "listContacts" }, value: [1, "0"] }, // dropped (0)
+        ],
+      },
+    };
+    const g = promVectorToFlow(resp);
+    // 2 connection nodes + 3 operation nodes (the 0-value link is dropped).
+    expect(g.links).toHaveLength(3);
+    expect(g.nodes.filter((n) => n.kind === "connection").map((n) => n.name).sort()).toEqual([
+      "salesforce",
+      "stripe",
+    ]);
+    // Operation nodes are connection-scoped: salesforce/listContacts and
+    // stripe/listContacts are distinct nodes despite the shared name.
+    const opNodes = g.nodes.filter((n) => n.kind === "operation");
+    expect(opNodes).toHaveLength(3);
+    // Every link points from a connection node to an operation node.
+    for (const l of g.links) {
+      expect(g.nodes[l.source]!.kind).toBe("connection");
+      expect(g.nodes[l.target]!.kind).toBe("operation");
+    }
+  });
+
+  it("returns an empty graph for undefined", () => {
+    expect(promVectorToFlow(undefined)).toEqual({ nodes: [], links: [] });
+  });
+});
+
+describe("status-class stacked area", () => {
+  it("builds the rate-by-status-class range query", () => {
+    expect(statusClassRateRange("5m")).toBe(
+      "sum by (status_class) (rate(apigateway_inbound_requests_total[5m]))",
+    );
+  });
+
+  it("merges multi-series matrix into per-timestamp 2xx/4xx/5xx buckets", () => {
+    const resp: PromMatrixResponse = {
+      status: "success",
+      data: {
+        resultType: "matrix",
+        result: [
+          { metric: { status_class: "2xx" }, values: [[100, "30"], [160, "32"]] },
+          { metric: { status_class: "4xx" }, values: [[100, "3"], [160, "4"]] },
+          { metric: { status_class: "503" }, values: [[100, "1"]] }, // folds into 5xx by leading digit
+        ],
+      },
+    };
+    const out = promMatrixToStatusStack(resp);
+    expect(out).toHaveLength(2);
+    expect(out[0]).toEqual({
+      bucket: new Date(100 * 1000).toISOString(),
+      "2xx": 30,
+      "4xx": 3,
+      "5xx": 1,
+    });
+    expect(out[1]).toMatchObject({ "2xx": 32, "4xx": 4, "5xx": 0 });
+  });
+
+  it("returns empty for undefined", () => {
+    expect(promMatrixToStatusStack(undefined)).toEqual([]);
   });
 });

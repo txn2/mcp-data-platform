@@ -145,3 +145,108 @@ export function promMatrixToTimeseries(resp: PromMatrixResponse | undefined): Ti
     avg_duration_ms: 0,
   }));
 }
+
+// --- connection -> operation flow (sankey) ---
+
+// connectionOperationFlow ranks inbound traffic by connection and the
+// operation within it, for the flow diagram. Two-level: connection (source)
+// to operation (target).
+export function connectionOperationFlow(window: string): string {
+  return `sum by (connection, operation_id) (increase(${reqTotal}[${window}]))`;
+}
+
+export interface FlowNode {
+  name: string;
+  kind: "connection" | "operation";
+}
+
+export interface FlowLink {
+  source: number;
+  target: number;
+  value: number;
+}
+
+export interface FlowGraph {
+  nodes: FlowNode[];
+  links: FlowLink[];
+}
+
+// promVectorToFlow maps a `by (connection, operation_id)` vector into a
+// sankey graph: one node per connection, one node per (connection,
+// operation) pair (operation names are connection-scoped so identical
+// names across connections do not merge), and a weighted link between
+// them. Capped to the topN busiest operations to keep the diagram legible.
+export function promVectorToFlow(
+  resp: PromVectorResponse | undefined,
+  topN = 14,
+): FlowGraph {
+  const rows = (resp?.data?.result ?? [])
+    .map((r) => ({
+      connection: r.metric["connection"] ?? "(none)",
+      operation: r.metric["operation_id"] ?? "unknown",
+      value: Math.round(Number(r.value[1])),
+    }))
+    .filter((r) => r.value > 0)
+    .sort((a, b) => b.value - a.value)
+    .slice(0, topN);
+
+  const nodes: FlowNode[] = [];
+  const index = new Map<string, number>();
+  const nodeIndex = (name: string, kind: FlowNode["kind"], key: string): number => {
+    const existing = index.get(key);
+    if (existing !== undefined) return existing;
+    const i = nodes.length;
+    nodes.push({ name, kind });
+    index.set(key, i);
+    return i;
+  };
+
+  const links: FlowLink[] = rows.map((r) => {
+    const src = nodeIndex(r.connection, "connection", `c:${r.connection}`);
+    const tgt = nodeIndex(r.operation, "operation", `o:${r.connection}:${r.operation}`);
+    return { source: src, target: tgt, value: r.value };
+  });
+
+  return { nodes, links };
+}
+
+// --- status-class stacked area over time ---
+
+// statusClassRateRange is a range query of request rate split by status
+// class, for the stacked area showing the 2xx/4xx/5xx mix over time.
+export function statusClassRateRange(rateWindow: string): string {
+  return `sum by (status_class) (rate(${reqTotal}[${rateWindow}]))`;
+}
+
+export interface StatusStackBucket {
+  bucket: string;
+  "2xx": number;
+  "4xx": number;
+  "5xx": number;
+}
+
+// promMatrixToStatusStack merges a multi-series matrix (one series per
+// status_class) into per-timestamp rows for a stacked area chart. Unknown
+// classes are folded into the nearest of 2xx/4xx/5xx by leading digit so a
+// stray label never drops data silently.
+export function promMatrixToStatusStack(
+  resp: PromMatrixResponse | undefined,
+): StatusStackBucket[] {
+  const byTs = new Map<number, StatusStackBucket>();
+  for (const series of resp?.data?.result ?? []) {
+    const cls = series.metric["status_class"] ?? "";
+    const key: "2xx" | "4xx" | "5xx" =
+      cls.startsWith("5") ? "5xx" : cls.startsWith("4") ? "4xx" : "2xx";
+    for (const [ts, val] of series.values) {
+      let row = byTs.get(ts);
+      if (!row) {
+        row = { bucket: new Date(ts * 1000).toISOString(), "2xx": 0, "4xx": 0, "5xx": 0 };
+        byTs.set(ts, row);
+      }
+      row[key] += Number(val);
+    }
+  }
+  return [...byTs.values()].sort(
+    (a, b) => Date.parse(a.bucket) - Date.parse(b.bucket),
+  );
+}

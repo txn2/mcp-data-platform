@@ -17,8 +17,8 @@ vi.mock("@/api/observability/hooks", async () => {
       isLoading: false,
       error: null,
     })),
-    useObservabilityQueryRange: vi.fn((_q: string, start: number, end: number, step: number) => ({
-      data: promRangeFor(start, end, step),
+    useObservabilityQueryRange: vi.fn((q: string, start: number, end: number, step: number) => ({
+      data: promRangeFor(q, start, end, step),
       isLoading: false,
       error: null,
     })),
@@ -47,7 +47,7 @@ describe("request-rate series wiring", () => {
   // `count` but chart plotting `success_count`) draws a zero line.
   it("plots a field the matrix adapter populates with a non-zero value", () => {
     const start = 1_700_000_000;
-    const out = promMatrixToTimeseries(promRange(start, start + 240, 60));
+    const out = promMatrixToTimeseries(promRange("rate", start, start + 240, 60));
     expect(out.length).toBeGreaterThan(0);
     // The chart's series dataKey must be a field the adapter fills with
     // real values; otherwise the line is flat regardless of traffic. This
@@ -57,17 +57,33 @@ describe("request-rate series wiring", () => {
   });
 });
 
+// rowButton finds the clickable breakdown row for a dimension value.
+// Connection/operation names also appear as SVG labels in the sankey, so a
+// plain getByText is ambiguous at the root level; the list rows are the
+// only <button>s containing the name (preset/breadcrumb buttons differ).
+function rowButton(name: string): HTMLElement {
+  const btn = screen
+    .getAllByRole("button")
+    .find(
+      (b) =>
+        (b.textContent || "").includes(name) &&
+        !["1h", "6h", "24h", "7d", "Connections"].includes((b.textContent || "").trim()),
+    );
+  if (!btn) throw new Error(`no clickable row for "${name}"`);
+  return btn;
+}
+
 describe("APIGatewayView", () => {
   it("renders top connections at the root level", () => {
     render(<APIGatewayView />);
     expect(screen.getByText("Top connections by request volume")).toBeInTheDocument();
-    expect(screen.getByText("salesforce")).toBeInTheDocument();
-    expect(screen.getByText("stripe")).toBeInTheDocument();
+    expect(rowButton("salesforce")).toBeInTheDocument();
+    expect(rowButton("stripe")).toBeInTheDocument();
   });
 
   it("drills into a connection: stat cards + top endpoints", () => {
     render(<APIGatewayView />);
-    fireEvent.click(screen.getByText("salesforce"));
+    fireEvent.click(rowButton("salesforce"));
 
     // Breadcrumb shows the selected connection.
     expect(screen.getByRole("button", { name: "salesforce" })).toBeInTheDocument();
@@ -82,7 +98,7 @@ describe("APIGatewayView", () => {
 
   it("drills into an endpoint: status/method/identity breakdowns", () => {
     render(<APIGatewayView />);
-    fireEvent.click(screen.getByText("salesforce"));
+    fireEvent.click(rowButton("salesforce"));
     fireEvent.click(screen.getByText("listContacts"));
 
     expect(screen.getByText("Status class")).toBeInTheDocument();
@@ -109,7 +125,7 @@ describe("APIGatewayView", () => {
     });
 
     render(<APIGatewayView />);
-    expect(screen.getByText("Observability backend not configured")).toBeInTheDocument();
+    expect(screen.getByText("API gateway metrics unavailable")).toBeInTheDocument();
     expect(screen.queryByText("Top connections by request volume")).not.toBeInTheDocument();
   });
 });
