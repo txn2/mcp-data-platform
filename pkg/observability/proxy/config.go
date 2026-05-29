@@ -20,9 +20,11 @@ const defaultTimeout = 30 * time.Second
 // configured. Matches the issue's documented default.
 const defaultRatePerSecond = 10
 
-// Config configures the PromQL proxy. An empty URL leaves the proxy
-// unconfigured: every endpoint returns 503 so the portal renders a
-// clean empty state instead of erroring.
+// Config configures the PromQL proxy. At the proxy-package level an empty
+// URL leaves the proxy unconfigured (every endpoint returns 503). In the
+// running server the cmd layer supplies an auto-discovered default when the
+// URL is unset, so an empty config value resolves to the default Prometheus
+// rather than disabling the proxy.
 type Config struct {
 	URL                string
 	Timeout            time.Duration

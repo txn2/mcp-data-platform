@@ -27,7 +27,7 @@ GOMOD := $(GO) mod
 GOFMT := gofmt
 GOLINT := golangci-lint
 
-.PHONY: all build test lint lint-full fmt clean install help docs-serve docs-build verify \
+.PHONY: all build test lint lint-full fmt clean install help docs-serve docs-build verify verify-release \
 	tools-check dead-code mutate patch-coverage doc-check swagger swagger-check \
 	semgrep codeql sast embed-clean \
 	frontend-install frontend-build frontend-build-content-viewer \
@@ -364,8 +364,16 @@ embed-clean:
 	@find $(UI_EMBED_DIR) -not -name '.gitkeep' -not -path $(UI_EMBED_DIR) -delete 2>/dev/null || true
 	@find $(CV_EMBED_DIR) -not -name '.gitkeep' -not -path $(CV_EMBED_DIR) -delete 2>/dev/null || true
 
-## verify: Run the full CI-equivalent check suite (test, lint, security, SAST, coverage, mutation, release)
-verify: tools-check fmt swagger-check embed-clean test lint security semgrep codeql coverage-report patch-coverage doc-check dead-code mutate release-check
+## verify-release: Full verify PLUS mutation testing — run only before cutting a release
+## Mutation testing (gremlins) is expensive and must NOT run per-revision.
+verify-release: verify mutate
+	@echo ""
+	@echo "=== Release verification complete (incl. mutation testing) ==="
+
+## verify: Run the CI-equivalent per-commit suite (test, lint, security, SAST, coverage, release)
+## NOTE: mutation testing is intentionally excluded — it lives in verify-release.
+## Do not add `mutate` back to this per-commit target.
+verify: tools-check fmt swagger-check embed-clean test lint security semgrep codeql coverage-report patch-coverage doc-check dead-code release-check
 	@echo ""
 	@echo "=== All checks passed ==="
 	@# Write the gate sentinel: the short SHA-256 of the working-tree diff

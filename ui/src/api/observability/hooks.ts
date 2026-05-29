@@ -11,11 +11,16 @@ const OBSERVABILITY_BASE = "/api/v1/observability";
 // portal does not refetch faster than the data can change.
 const PROM_STALE_TIME = 30_000;
 
-// isBackendUnconfigured reports whether an error is the proxy's 503
-// "Prometheus not configured" signal, which the views render as an
-// empty state rather than an error.
+// isBackendUnconfigured reports whether an error is a metrics-backend
+// availability failure: HTTP 503 (not configured), 502 (unreachable), or
+// 504 (timed out). The views render these as a "metrics unavailable" empty
+// state rather than a hard error. With Prometheus auto-discovery an absent
+// backend surfaces as 502 here, not 503.
 export function isBackendUnconfigured(err: unknown): boolean {
-  return err instanceof ApiError && err.status === 503;
+  return (
+    err instanceof ApiError &&
+    (err.status === 503 || err.status === 502 || err.status === 504)
+  );
 }
 
 // useObservabilityQuery runs an instant PromQL query. An empty query
