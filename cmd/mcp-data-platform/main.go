@@ -754,6 +754,11 @@ func mountGatewayAPI(mux *http.ServeMux, mcpServer *mcp.Server, p *platform.Plat
 	log.Println("REST gateway enabled on /api/v1/gateway/{connection}/invoke")
 }
 
+// defaultPrometheusURL is the auto-discovered in-cluster Prometheus endpoint
+// used when observability.prometheus.url is not configured. Set that config
+// value only to point at a Prometheus deployed under a different name.
+const defaultPrometheusURL = "http://mcp-data-platform-prometheus:9090"
+
 // mountObservabilityProxy mounts the authenticated PromQL query proxy at
 // /api/v1/observability/. It is always mounted (gated behind auth +
 // the observability:read persona capability); when Prometheus is not
@@ -764,6 +769,11 @@ func mountObservabilityProxy(mux *http.ServeMux, p *platform.Platform, requireAu
 		return
 	}
 	pc := p.Config().Observability.Prometheus
+	if pc.URL == "" {
+		// Auto-discover the default in-cluster Prometheus; the config only
+		// needs to override this to point at a non-default deployment.
+		pc.URL = defaultPrometheusURL
+	}
 	// Guard the typed-nil interface footgun: p.AuditStore() returns a
 	// concrete *Store that is nil when audit is disabled; passing it
 	// directly would yield a non-nil audit.Logger wrapping a nil
