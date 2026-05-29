@@ -586,11 +586,12 @@ Review, synthesize, and apply captured insights to the data catalog. Admin-only.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `action` | string | Yes | bulk_review, review, synthesize, apply, approve, reject |
-| `entity_urn` | string | Conditional | Required for review, synthesize, apply |
+| `action` | string | Yes | bulk_review, review, synthesize, apply, approve, reject, rollback, list_changesets |
+| `entity_urn` | string | Conditional | Required for review, synthesize, apply, list_changesets |
 | `insight_ids` | array | Conditional | Required for approve, reject |
 | `changes` | array | Conditional | Required for apply |
-| `confirm` | bool | No | Required when `require_confirmation` is true |
+| `changeset_id` | string | Conditional | Required for rollback |
+| `confirm` | bool | No | Required when `require_confirmation` is true (apply and rollback) |
 | `review_notes` | string | No | Notes for approve/reject actions |
 
 **Actions:**
@@ -600,6 +601,8 @@ Review, synthesize, and apply captured insights to the data catalog. Admin-only.
 - **approve/reject**: Transition insight status with optional notes
 - **synthesize**: Structured change proposals from approved insights
 - **apply**: Write changes to DataHub with changeset tracking
+- **list_changesets**: List an entity's changesets (id, timestamp, actor, change type, rollback status)
+- **rollback**: Revert a changeset's changes to their before-image and transition its source insights to `rolled_back` (requires `changeset_id` and `confirm`)
 
 **Supported change types for `apply` action:**
 

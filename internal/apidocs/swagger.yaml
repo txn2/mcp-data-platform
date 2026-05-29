@@ -1664,6 +1664,27 @@ definitions:
         example: urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)
         type: string
     type: object
+  knowledge.RollbackResult:
+    properties:
+      changeset_id:
+        type: string
+      insights_rolled_back:
+        items:
+          type: string
+        type: array
+      reverted_changes:
+        items:
+          type: string
+        type: array
+      rolled_back_by:
+        type: string
+      skipped_changes:
+        items:
+          type: string
+        type: array
+      target_urn:
+        type: string
+    type: object
   knowledge.SuggestedAction:
     properties:
       action_type:
@@ -3934,7 +3955,12 @@ paths:
       - Knowledge
   /admin/knowledge/changesets/{id}/rollback:
     post:
-      description: Rolls back a changeset, restoring previous values to DataHub.
+      description: |-
+        Reverts the DataHub aspects a changeset mutated back to their pre-change
+        state, transitions the source insights to rolled_back, and marks the
+        changeset rolled back. Refused (409) when already rolled back or when a
+        newer changeset has since touched the same aspect, and (422) when the
+        changeset contains change types whose prior state was not captured.
       parameters:
       - description: Changeset ID
         in: path
@@ -3947,13 +3973,17 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/admin.statusResponse'
+            $ref: '#/definitions/knowledge.RollbackResult'
         "404":
           description: Not Found
           schema:
             $ref: '#/definitions/admin.problemDetail'
         "409":
           description: Conflict
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "422":
+          description: Unprocessable Entity
           schema:
             $ref: '#/definitions/admin.problemDetail'
         "500":

@@ -2269,7 +2269,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Rolls back a changeset, restoring previous values to DataHub.",
+                "description": "Reverts the DataHub aspects a changeset mutated back to their pre-change\nstate, transitions the source insights to rolled_back, and marks the\nchangeset rolled back. Refused (409) when already rolled back or when a\nnewer changeset has since touched the same aspect, and (422) when the\nchangeset contains change types whose prior state was not captured.",
                 "produces": [
                     "application/json"
                 ],
@@ -2290,7 +2290,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/admin.statusResponse"
+                            "$ref": "#/definitions/knowledge.RollbackResult"
                         }
                     },
                     "404": {
@@ -2301,6 +2301,12 @@ const docTemplate = `{
                     },
                     "409": {
                         "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
                         "schema": {
                             "$ref": "#/definitions/admin.problemDetail"
                         }
@@ -9034,6 +9040,38 @@ const docTemplate = `{
                 "urn": {
                     "type": "string",
                     "example": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)"
+                }
+            }
+        },
+        "knowledge.RollbackResult": {
+            "type": "object",
+            "properties": {
+                "changeset_id": {
+                    "type": "string"
+                },
+                "insights_rolled_back": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "reverted_changes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "rolled_back_by": {
+                    "type": "string"
+                },
+                "skipped_changes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "target_urn": {
+                    "type": "string"
                 }
             }
         },

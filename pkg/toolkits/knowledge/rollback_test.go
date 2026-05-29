@@ -1,0 +1,342 @@
+package knowledge
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	sqlmock "github.com/DATA-DOG/go-sqlmock"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+const rbURN = "urn:li:dataset:rb"
+
+// seededStore returns a changeset store pre-populated with cs so RollbackChangeset
+// (which looks the changeset up by id) succeeds.
+func seededStore(cs *Changeset) *spyChangesetStore {
+	return &spyChangesetStore{Changesets: []Changeset{*cs}}
+}
+
+// changeEntry builds a single recorded-change map as stored in new_value.
+func changeEntry(changeType, target, detail string) map[string]any {
+	return map[string]any{"change_type": changeType, "target": target, "detail": detail}
+}
+
+func baseChangeset(id string, newValue, prevValue map[string]any) *Changeset {
+	return &Changeset{
+		ID:            id,
+		TargetURN:     rbURN,
+		CreatedAt:     time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC),
+		PreviousValue: prevValue,
+		NewValue:      newValue,
+	}
+}
+
+func TestRevertChangeset_RemovesAddedTerm(t *testing.T) {
+	cs := baseChangeset("cs1",
+		map[string]any{"change_0": changeEntry("add_glossary_term", "", "urn:li:glossaryTerm:new")},
+		map[string]any{"glossary_terms": []any{"urn:li:glossaryTerm:canonical"}},
+	)
+	cs.SourceInsightIDs = []string{"ins-1"}
+	store := seededStore(cs)
+	writer := &spyWriter{}
+	insights := &fullSpyStore{Insights: []Insight{{ID: "ins-1", Status: StatusApplied}}}
+
+	res, err := RevertChangeset(context.Background(), RollbackDeps{Writer: writer, Changesets: store, Insights: insights}, cs, "admin")
+	require.NoError(t, err)
+	require.Len(t, writer.WriteCalls, 1)
+	assert.Equal(t, "RemoveGlossaryTerm", writer.WriteCalls[0].Method)
+	assert.Equal(t, "urn:li:glossaryTerm:new", writer.WriteCalls[0].Arg1)
+	assert.True(t, store.Changesets[0].RolledBack)
+	assert.Equal(t, []string{"ins-1"}, res.InsightsRolledBack)
+	assert.Equal(t, StatusRolledBack, insights.Insights[0].Status)
+	assert.Len(t, res.RevertedChanges, 1)
+}
+
+func TestRevertChangeset_KeepsPreExistingTerm(t *testing.T) {
+	cs := baseChangeset("cs1",
+		map[string]any{"change_0": changeEntry("add_glossary_term", "", "urn:li:glossaryTerm:canonical")},
+		map[string]any{"glossary_terms": []any{"urn:li:glossaryTerm:canonical"}},
+	)
+	store := seededStore(cs)
+	writer := &spyWriter{}
+
+	res, err := RevertChangeset(context.Background(), RollbackDeps{Writer: writer, Changesets: store, Insights: &fullSpyStore{}}, cs, "admin")
+	require.NoError(t, err)
+	assert.Empty(t, writer.WriteCalls, "pre-existing term must not be removed")
+	assert.Len(t, res.SkippedChanges, 1)
+	assert.True(t, store.Changesets[0].RolledBack)
+}
+
+func TestRevertChangeset_RemovesAddedTag(t *testing.T) {
+	cs := baseChangeset("cs1",
+		map[string]any{"change_0": changeEntry("add_tag", "", "pii")},
+		map[string]any{"tags": []any{}},
+	)
+	store := seededStore(cs)
+	writer := &spyWriter{}
+
+	_, err := RevertChangeset(context.Background(), RollbackDeps{Writer: writer, Changesets: store, Insights: &fullSpyStore{}}, cs, "admin")
+	require.NoError(t, err)
+	require.Len(t, writer.WriteCalls, 1)
+	assert.Equal(t, "RemoveTag", writer.WriteCalls[0].Method)
+	assert.Equal(t, normalizeTagURN("pii"), writer.WriteCalls[0].Arg1)
+}
+
+func TestRevertChangeset_ReAddsRemovedTag(t *testing.T) {
+	tagURN := normalizeTagURN("pii")
+	cs := baseChangeset("cs1",
+		map[string]any{"change_0": changeEntry("remove_tag", "", "pii")},
+		map[string]any{"tags": []any{tagURN}},
+	)
+	store := seededStore(cs)
+	writer := &spyWriter{}
+
+	_, err := RevertChangeset(context.Background(), RollbackDeps{Writer: writer, Changesets: store, Insights: &fullSpyStore{}}, cs, "admin")
+	require.NoError(t, err)
+	require.Len(t, writer.WriteCalls, 1)
+	assert.Equal(t, "AddTag", writer.WriteCalls[0].Method)
+	assert.Equal(t, tagURN, writer.WriteCalls[0].Arg1)
+}
+
+func TestRevertChangeset_RemovedTagNotPreviouslyPresentIsNoop(t *testing.T) {
+	cs := baseChangeset("cs1",
+		map[string]any{"change_0": changeEntry("remove_tag", "", "pii")},
+		map[string]any{"tags": []any{}},
+	)
+	store := seededStore(cs)
+	writer := &spyWriter{}
+
+	res, err := RevertChangeset(context.Background(), RollbackDeps{Writer: writer, Changesets: store, Insights: &fullSpyStore{}}, cs, "admin")
+	require.NoError(t, err)
+	assert.Empty(t, writer.WriteCalls)
+	assert.Len(t, res.SkippedChanges, 1)
+}
+
+func TestRevertChangeset_FlagQualityIssueRemovesTag(t *testing.T) {
+	cs := baseChangeset("cs1",
+		map[string]any{"change_0": changeEntry("flag_quality_issue", "", "stale data")},
+		map[string]any{"tags": []any{}},
+	)
+	store := seededStore(cs)
+	writer := &spyWriter{}
+
+	_, err := RevertChangeset(context.Background(), RollbackDeps{Writer: writer, Changesets: store, Insights: &fullSpyStore{}}, cs, "admin")
+	require.NoError(t, err)
+	require.Len(t, writer.WriteCalls, 1)
+	assert.Equal(t, "RemoveTag", writer.WriteCalls[0].Method)
+	assert.Equal(t, qualityIssueTagURN, writer.WriteCalls[0].Arg1)
+}
+
+func TestRevertChangeset_RestoresDescription(t *testing.T) {
+	cs := baseChangeset("cs1",
+		map[string]any{"change_0": changeEntry("update_description", "", "new desc")},
+		map[string]any{"description": "old desc"},
+	)
+	store := seededStore(cs)
+	writer := &spyWriter{}
+
+	_, err := RevertChangeset(context.Background(), RollbackDeps{Writer: writer, Changesets: store, Insights: &fullSpyStore{}}, cs, "admin")
+	require.NoError(t, err)
+	require.Len(t, writer.WriteCalls, 1)
+	assert.Equal(t, "UpdateDescription", writer.WriteCalls[0].Method)
+	assert.Equal(t, "old desc", writer.WriteCalls[0].Arg1)
+}
+
+func TestRevertChangeset_RemovesDocumentationLink(t *testing.T) {
+	cs := baseChangeset("cs1",
+		map[string]any{"change_0": changeEntry("add_documentation", "https://docs/x", "the docs")},
+		map[string]any{},
+	)
+	store := seededStore(cs)
+	writer := &spyWriter{}
+
+	_, err := RevertChangeset(context.Background(), RollbackDeps{Writer: writer, Changesets: store, Insights: &fullSpyStore{}}, cs, "admin")
+	require.NoError(t, err)
+	require.Len(t, writer.WriteCalls, 1)
+	assert.Equal(t, "RemoveDocumentationLink", writer.WriteCalls[0].Method)
+	assert.Equal(t, "https://docs/x", writer.WriteCalls[0].Arg1)
+}
+
+func TestRevertChangeset_AlreadyRolledBack(t *testing.T) {
+	cs := baseChangeset("cs1", map[string]any{}, map[string]any{})
+	cs.RolledBack = true
+
+	_, err := RevertChangeset(context.Background(), RollbackDeps{Writer: &spyWriter{}, Changesets: seededStore(cs), Insights: &fullSpyStore{}}, cs, "admin")
+	assert.ErrorIs(t, err, ErrChangesetAlreadyRolledBack)
+}
+
+func TestRevertChangeset_UnrevertibleChangeType(t *testing.T) {
+	cs := baseChangeset("cs1",
+		map[string]any{"change_0": changeEntry("set_structured_property", "urn:li:structuredProperty:x", "v")},
+		map[string]any{},
+	)
+	store := seededStore(cs)
+	writer := &spyWriter{}
+
+	_, err := RevertChangeset(context.Background(), RollbackDeps{Writer: writer, Changesets: store, Insights: &fullSpyStore{}}, cs, "admin")
+	var unrev *UnrevertibleError
+	require.ErrorAs(t, err, &unrev)
+	assert.Equal(t, []string{"set_structured_property"}, unrev.ChangeTypes)
+	assert.Empty(t, writer.WriteCalls, "must not mutate DataHub for an unrevertible changeset")
+	assert.False(t, store.Changesets[0].RolledBack)
+}
+
+func TestRevertChangeset_ColumnDescriptionIsUnrevertible(t *testing.T) {
+	cs := baseChangeset("cs1",
+		map[string]any{"change_0": changeEntry("update_description", "column:amount", "new col desc")},
+		map[string]any{"description": "entity desc"},
+	)
+	_, err := RevertChangeset(context.Background(), RollbackDeps{Writer: &spyWriter{}, Changesets: seededStore(cs), Insights: &fullSpyStore{}}, cs, "admin")
+	var unrev *UnrevertibleError
+	require.ErrorAs(t, err, &unrev)
+	assert.Equal(t, []string{"update_description"}, unrev.ChangeTypes)
+}
+
+func TestRevertChangeset_ConflictWithNewerChangeset(t *testing.T) {
+	cs := baseChangeset("cs-old",
+		map[string]any{"change_0": changeEntry("add_glossary_term", "", "urn:li:glossaryTerm:a")},
+		map[string]any{"glossary_terms": []any{}},
+	)
+	newer := baseChangeset("cs-new",
+		map[string]any{"change_0": changeEntry("add_glossary_term", "", "urn:li:glossaryTerm:b")},
+		map[string]any{},
+	)
+	newer.CreatedAt = cs.CreatedAt.Add(time.Hour)
+	store := &spyChangesetStore{Changesets: []Changeset{*cs, *newer}}
+	writer := &spyWriter{}
+
+	_, err := RevertChangeset(context.Background(), RollbackDeps{Writer: writer, Changesets: store, Insights: &fullSpyStore{}}, cs, "admin")
+	var conflict *RollbackConflictError
+	require.ErrorAs(t, err, &conflict)
+	assert.Equal(t, []string{"cs-new"}, conflict.ConflictingIDs)
+	assert.Equal(t, []string{"glossary_terms"}, conflict.Aspects)
+	assert.Empty(t, writer.WriteCalls)
+}
+
+func TestRevertChangeset_RolledBackNewerChangesetIsNotConflict(t *testing.T) {
+	cs := baseChangeset("cs-old",
+		map[string]any{"change_0": changeEntry("add_glossary_term", "", "urn:li:glossaryTerm:a")},
+		map[string]any{"glossary_terms": []any{}},
+	)
+	newer := baseChangeset("cs-new",
+		map[string]any{"change_0": changeEntry("add_glossary_term", "", "urn:li:glossaryTerm:b")},
+		map[string]any{},
+	)
+	newer.CreatedAt = cs.CreatedAt.Add(time.Hour)
+	newer.RolledBack = true
+	store := &spyChangesetStore{Changesets: []Changeset{*cs, *newer}}
+
+	_, err := RevertChangeset(context.Background(), RollbackDeps{Writer: &spyWriter{}, Changesets: store, Insights: &fullSpyStore{}}, cs, "admin")
+	assert.NoError(t, err, "a rolled-back newer changeset is not a conflict")
+}
+
+func TestRevertChangeset_WriterErrorAbortsBeforeRecording(t *testing.T) {
+	cs := baseChangeset("cs1",
+		map[string]any{"change_0": changeEntry("add_glossary_term", "", "urn:li:glossaryTerm:new")},
+		map[string]any{"glossary_terms": []any{}},
+	)
+	store := seededStore(cs)
+	writer := &spyWriter{FailAtCall: 1}
+
+	_, err := RevertChangeset(context.Background(), RollbackDeps{Writer: writer, Changesets: store, Insights: &fullSpyStore{}}, cs, "admin")
+	require.Error(t, err)
+	assert.False(t, store.Changesets[0].RolledBack, "must not record a rollback that failed mid-write")
+}
+
+func TestRevertChangeset_ConflictListError(t *testing.T) {
+	cs := baseChangeset("cs1",
+		map[string]any{"change_0": changeEntry("add_tag", "", "pii")},
+		map[string]any{"tags": []any{}},
+	)
+	store := &spyChangesetStore{Changesets: []Changeset{*cs}, ListErr: errors.New("db down")}
+
+	_, err := RevertChangeset(context.Background(), RollbackDeps{Writer: &spyWriter{}, Changesets: store, Insights: &fullSpyStore{}}, cs, "admin")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "conflicting changesets")
+}
+
+// --- Parse helpers ---
+
+func TestParseRecordedChanges(t *testing.T) {
+	nv := map[string]any{
+		"change_0": changeEntry("add_tag", "", "pii"),
+		"change_1": changeEntry("add_glossary_term", "", "urn:li:glossaryTerm:x"),
+	}
+	got := parseRecordedChanges(nv)
+	require.Len(t, got, 2)
+	assert.Equal(t, "add_tag", got[0].ChangeType)
+	assert.Equal(t, "urn:li:glossaryTerm:x", got[1].Detail)
+}
+
+func TestParsePriorState(t *testing.T) {
+	prev := map[string]any{
+		"description":    "d",
+		"tags":           []any{"urn:li:tag:a"},
+		"glossary_terms": []string{"urn:li:glossaryTerm:b"},
+	}
+	ps := parsePriorState(prev)
+	assert.Equal(t, "d", ps.Description)
+	assert.True(t, ps.Tags["urn:li:tag:a"])
+	assert.True(t, ps.GlossaryTerms["urn:li:glossaryTerm:b"])
+}
+
+func TestStringSetField_AbsentOrWrongType(t *testing.T) {
+	assert.Empty(t, stringSetField(map[string]any{}, "tags"))
+	assert.Empty(t, stringSetField(map[string]any{"tags": 42}, "tags"))
+}
+
+func TestAspectFamily(t *testing.T) {
+	cases := map[string]struct {
+		change recordedChange
+		want   string
+	}{
+		"entity description": {recordedChange{ChangeType: "update_description", Target: ""}, "description"},
+		"column description": {recordedChange{ChangeType: "update_description", Target: "column:amount"}, "column_description:amount"},
+		"add tag":            {recordedChange{ChangeType: "add_tag"}, "tags"},
+		"remove tag":         {recordedChange{ChangeType: "remove_tag"}, "tags"},
+		"quality flag":       {recordedChange{ChangeType: "flag_quality_issue"}, "tags"},
+		"glossary":           {recordedChange{ChangeType: "add_glossary_term"}, "glossary_terms"},
+		"documentation":      {recordedChange{ChangeType: "add_documentation"}, "documentation"},
+		"other":              {recordedChange{ChangeType: "raise_incident"}, "raise_incident"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tc.want, aspectFamily(tc.change))
+		})
+	}
+}
+
+// --- MarkRolledBack store impls ---
+
+func TestPostgresStore_MarkRolledBack(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresStore(db)
+	mock.ExpectExec("UPDATE knowledge_insights").
+		WithArgs(StatusRolledBack, "admin", sqlmock.AnyArg(), "ins-1", StatusApplied).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	assert.NoError(t, store.MarkRolledBack(context.Background(), "ins-1", "admin"))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPostgresStore_MarkRolledBack_DBError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresStore(db)
+	mock.ExpectExec("UPDATE knowledge_insights").
+		WillReturnError(errors.New("boom"))
+
+	assert.Error(t, store.MarkRolledBack(context.Background(), "ins-1", "admin"))
+}
+
+func TestNoopStore_MarkRolledBack(t *testing.T) {
+	assert.NoError(t, NewNoopStore().MarkRolledBack(context.Background(), "x", "admin"))
+}

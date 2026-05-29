@@ -72,6 +72,8 @@ type applyKnowledgeInput struct {
 	Confirm    bool          `json:"confirm,omitempty"`
 	// For approve/reject actions
 	ReviewNotes string `json:"review_notes,omitempty"`
+	// ChangesetID is the target changeset for the rollback action.
+	ChangesetID string `json:"changeset_id,omitempty"`
 }
 
 // ApplyConfig configures the apply_knowledge tool.
@@ -178,8 +180,13 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		mcp.AddTool(s, &mcp.Tool{
 			Name:  applyToolName,
 			Title: "Apply Knowledge",
-			Description: "Reviews, synthesizes, and applies captured insights to the data catalog. Admin-only. " +
-				"Actions: bulk_review, review, synthesize, apply, approve, reject. " +
+			Description: "Reviews, synthesizes, applies, and rolls back captured insights to the data catalog. Admin-only. " +
+				"Actions: bulk_review, review, synthesize, apply, approve, reject, rollback, list_changesets. " +
+				"rollback (changeset_id required, confirm required) reverts the aspects a prior apply changed, back to their before-image: " +
+				"it removes tags/glossary terms/documentation links the apply added (leaving any that pre-existed) and restores the prior description. " +
+				"Rollback is refused if the changeset is already rolled back, if a newer changeset has since changed the same aspect, " +
+				"or if the changeset touched change types whose prior state was not captured (column descriptions, structured properties, incidents, curated queries, context documents, prompts). " +
+				"list_changesets (entity_urn required) lists an entity's changesets with their ids, timestamps, actors, and rollback status. " +
 				"Change types: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query, " +
 				"set_structured_property, remove_structured_property, raise_incident, resolve_incident, " +
 				"add_context_document, update_context_document, remove_context_document. " +
@@ -281,7 +288,11 @@ func (t *Toolkit) handleApplyKnowledge(ctx context.Context, _ *mcp.CallToolReque
 	if err := ValidateAction(input.Action); err != nil {
 		return errorResult(err.Error()), nil, nil //nolint:nilerr // MCP protocol
 	}
+	return t.dispatchApplyAction(ctx, input)
+}
 
+// dispatchApplyAction routes a validated apply_knowledge action to its handler.
+func (t *Toolkit) dispatchApplyAction(ctx context.Context, input applyKnowledgeInput) (*mcp.CallToolResult, any, error) {
 	switch input.Action {
 	case actionBulkReview:
 		return t.handleBulkReview(ctx)
@@ -295,6 +306,10 @@ func (t *Toolkit) handleApplyKnowledge(ctx context.Context, _ *mcp.CallToolReque
 		return t.handleApproveReject(ctx, input, StatusApproved)
 	case actionReject:
 		return t.handleApproveReject(ctx, input, StatusRejected)
+	case actionRollback:
+		return t.handleRollback(ctx, input)
+	case actionListChangesets:
+		return t.handleListChangesets(ctx, input)
 	default:
 		return errorResult("unknown action: " + input.Action), nil, nil
 	}
@@ -528,7 +543,15 @@ func (t *Toolkit) recordChangesetAndMarkApplied(ctx context.Context, input apply
 		fieldEntityURN:            input.EntityURN,
 		"changes_applied":         len(input.Changes),
 		"insights_marked_applied": len(input.InsightIDs),
-		fieldMessage:              fmt.Sprintf("Changes applied to DataHub. Changeset %s recorded for rollback.", csID),
+		fieldMessage: fmt.Sprintf("Changes applied to DataHub. Roll back with action=rollback changeset_id=%s. "+
+			"changes_applied counts requested changes; verify against resulting_state below.", csID),
+	}
+
+	// Re-read the entity so the caller can verify what actually persisted without
+	// a follow-up call. This closes the gap where changes_applied counted requested
+	// changes (a duplicate add is a no-op upstream) rather than verified writes.
+	if meta, err := t.datahubWriter.GetCurrentMetadata(ctx, input.EntityURN); err == nil {
+		result["resulting_state"] = metadataToMap(meta)
 	}
 
 	if len(createdURNs) > 0 {
@@ -602,7 +625,13 @@ func (t *Toolkit) dispatchNonColumnChanges(ctx context.Context, urn string, chan
 	for i, c := range changes {
 		queryURN, err := t.dispatchChange(ctx, urn, c)
 		if err != nil {
-			return nil, fmt.Errorf("datahub write failed for change %d of %d: %w, no changes were applied", i+1, len(changes), err)
+			// Writes are not transactional: changes 1..i already persisted and are
+			// NOT automatically undone. Report this honestly so the caller can use
+			// rollback (or re-apply) rather than assuming a clean failure.
+			if i == 0 {
+				return nil, fmt.Errorf("datahub write failed for change 1 of %d: %w (no changes were applied)", len(changes), err)
+			}
+			return nil, fmt.Errorf("datahub write failed for change %d of %d: %w (changes 1-%d were already applied and were NOT rolled back)", i+1, len(changes), err, i)
 		}
 		if queryURN != "" {
 			createdURNs = append(createdURNs, queryURN)

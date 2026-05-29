@@ -403,6 +403,27 @@ func TestMemoryInsightAdapter_MarkApplied_Error(t *testing.T) {
 	assert.Contains(t, err.Error(), "marking insight applied")
 }
 
+func TestMemoryInsightAdapter_MarkRolledBack(t *testing.T) {
+	store := &mockMemoryStore{}
+	adapter := NewMemoryInsightAdapter(store)
+
+	err := adapter.MarkRolledBack(context.Background(), "ins-001", "admin@example.com")
+	require.NoError(t, err)
+	assert.True(t, store.updateCalled)
+	assert.Equal(t, "ins-001", store.updateID)
+	assert.Equal(t, StatusRolledBack, store.updateData.Metadata[metaKeyInsightStatus])
+	assert.Equal(t, "admin@example.com", store.updateData.Metadata[metaKeyReviewedBy])
+}
+
+func TestMemoryInsightAdapter_MarkRolledBack_Error(t *testing.T) {
+	store := &mockMemoryStore{updateErr: fmt.Errorf("update failed")}
+	adapter := NewMemoryInsightAdapter(store)
+
+	err := adapter.MarkRolledBack(context.Background(), "ins-001", "admin")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "marking insight rolled back")
+}
+
 func TestMemoryInsightAdapter_Supersede(t *testing.T) {
 	store := &mockMemoryStore{
 		listRecords: []memory.Record{
