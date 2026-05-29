@@ -51,9 +51,10 @@ type fullSpyStore struct {
 	SupersedeErr   error
 
 	// Track calls
-	StatusCalls      []statusCall
-	MarkAppliedCalls []markAppliedCall
-	SupersedeCalls   []supersedeCall
+	StatusCalls       []statusCall
+	MarkAppliedCalls  []markAppliedCall
+	MarkRolledBackIDs []string
+	SupersedeCalls    []supersedeCall
 
 	// Configurable returns for Stats
 	StatsResult *InsightStats
@@ -168,6 +169,16 @@ func (s *fullSpyStore) MarkApplied(_ context.Context, id, appliedBy, changesetRe
 			s.Insights[i].AppliedBy = appliedBy
 			s.Insights[i].ChangesetRef = changesetRef
 			return nil
+		}
+	}
+	return nil
+}
+
+func (s *fullSpyStore) MarkRolledBack(_ context.Context, id, _ string) error {
+	s.MarkRolledBackIDs = append(s.MarkRolledBackIDs, id)
+	for i := range s.Insights {
+		if s.Insights[i].ID == id && s.Insights[i].Status == StatusApplied {
+			s.Insights[i].Status = StatusRolledBack
 		}
 	}
 	return nil
@@ -308,8 +319,16 @@ func (w *spyWriter) AddGlossaryTerm(_ context.Context, urn, termURN string) erro
 	return w.recordAndCheck("AddGlossaryTerm", urn, termURN, "")
 }
 
+func (w *spyWriter) RemoveGlossaryTerm(_ context.Context, urn, termURN string) error {
+	return w.recordAndCheck("RemoveGlossaryTerm", urn, termURN, "")
+}
+
 func (w *spyWriter) AddDocumentationLink(_ context.Context, urn, url, desc string) error {
 	return w.recordAndCheck("AddDocumentationLink", urn, url, desc)
+}
+
+func (w *spyWriter) RemoveDocumentationLink(_ context.Context, urn, url string) error {
+	return w.recordAndCheck("RemoveDocumentationLink", urn, url, "")
 }
 
 func (w *spyWriter) CreateCuratedQuery(_ context.Context, urn, name, sqlText, _ string) (string, error) {

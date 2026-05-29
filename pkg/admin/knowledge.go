@@ -2,6 +2,7 @@ package admin
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -321,13 +322,18 @@ func (h *KnowledgeHandler) GetChangeset(w http.ResponseWriter, r *http.Request) 
 // RollbackChangeset handles POST /api/v1/admin/knowledge/changesets/{id}/rollback.
 //
 // @Summary      Rollback changeset
-// @Description  Rolls back a changeset, restoring previous values to DataHub.
+// @Description  Reverts the DataHub aspects a changeset mutated back to their pre-change
+// @Description  state, transitions the source insights to rolled_back, and marks the
+// @Description  changeset rolled back. Refused (409) when already rolled back or when a
+// @Description  newer changeset has since touched the same aspect, and (422) when the
+// @Description  changeset contains change types whose prior state was not captured.
 // @Tags         Knowledge
 // @Produce      json
 // @Param        id  path  string  true  "Changeset ID"
-// @Success      200  {object}  statusResponse
+// @Success      200  {object}  knowledge.RollbackResult
 // @Failure      404  {object}  problemDetail
 // @Failure      409  {object}  problemDetail
+// @Failure      422  {object}  problemDetail
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
@@ -335,25 +341,10 @@ func (h *KnowledgeHandler) GetChangeset(w http.ResponseWriter, r *http.Request) 
 func (h *KnowledgeHandler) RollbackChangeset(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(pathParamID)
 
-	// Get changeset to check state and get previous values
 	cs, err := h.changesetStore.GetChangeset(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "changeset not found")
 		return
-	}
-	if cs.RolledBack {
-		writeError(w, http.StatusConflict, "changeset already rolled back")
-		return
-	}
-
-	// Write previous values back to DataHub
-	if h.datahubWriter != nil {
-		if desc, ok := cs.PreviousValue["description"].(string); ok && desc != "" {
-			if err := h.datahubWriter.UpdateDescription(r.Context(), cs.TargetURN, desc); err != nil {
-				writeError(w, http.StatusInternalServerError, "rollback failed: "+err.Error())
-				return
-			}
-		}
 	}
 
 	rolledBackBy := ""
@@ -361,12 +352,30 @@ func (h *KnowledgeHandler) RollbackChangeset(w http.ResponseWriter, r *http.Requ
 		rolledBackBy = user.UserID
 	}
 
-	if err := h.changesetStore.RollbackChangeset(r.Context(), id, rolledBackBy); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+	deps := knowledge.RollbackDeps{Writer: h.datahubWriter, Changesets: h.changesetStore, Insights: h.insightStore}
+	result, err := knowledge.RevertChangeset(r.Context(), deps, cs, rolledBackBy)
+	if err != nil {
+		writeRollbackError(w, err)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, statusResponse{Status: "rolled_back"})
+	writeJSON(w, http.StatusOK, result)
+}
+
+// writeRollbackError maps a RevertChangeset failure onto the appropriate HTTP status.
+func writeRollbackError(w http.ResponseWriter, err error) {
+	var unrevertible *knowledge.UnrevertibleError
+	var conflict *knowledge.RollbackConflictError
+	switch {
+	case errors.Is(err, knowledge.ErrChangesetAlreadyRolledBack):
+		writeError(w, http.StatusConflict, "changeset already rolled back")
+	case errors.As(err, &conflict):
+		writeError(w, http.StatusConflict, conflict.Error())
+	case errors.As(err, &unrevertible):
+		writeError(w, http.StatusUnprocessableEntity, unrevertible.Error())
+	default:
+		writeError(w, http.StatusInternalServerError, "rollback failed: "+err.Error())
+	}
 }
 
 // parseTimeParam parses an RFC3339 time from a query parameter.

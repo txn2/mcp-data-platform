@@ -207,11 +207,19 @@ Tag names and glossary term names are automatically normalized to full DataHub U
   "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)",
   "changes_applied": 2,
   "insights_marked_applied": 1,
-  "message": "Changes applied to DataHub. Changeset cs_x1y2z3a4b5c6 recorded for rollback."
+  "resulting_state": {
+    "description": "Order records with gross margin amounts (before returns)",
+    "tags": ["urn:li:tag:gross-margin"],
+    "glossary_terms": [],
+    "owners": []
+  },
+  "message": "Changes applied to DataHub. Roll back with action=rollback changeset_id=cs_x1y2z3a4b5c6. changes_applied counts requested changes; verify against resulting_state below."
 }
 ```
 
 Source insights move to `applied` status with a reference to the changeset.
+
+`changes_applied` counts the changes that were dispatched without error; a duplicate add (for example a tag that was already present) is a no-op upstream and still counts. The `resulting_state` field is a fresh read-back of the entity's description, tags, glossary terms, and owners after the apply, so callers can confirm what actually persisted without a follow-up call. Writes are not transactional: if a change in the middle of the list fails, earlier changes have already persisted and are reported in the error message rather than silently rolled back.
 
 ## Changeset Tracking
 
@@ -230,11 +238,25 @@ Every `apply` action creates a changeset record in the `knowledge_changesets` ta
 | `rolled_back_by` | Who reverted the changes |
 | `rolled_back_at` | When the changes were reverted |
 
-The `previous_value` field captures the entity's metadata at the time of application, which is used for rollback.
+The `previous_value` field captures the entity's metadata (description, tags, glossary terms, owners) at the time of application. This before-image is what bounds rollback: a change can be reverted only when its prior state is recoverable from this snapshot.
+
+## Discovering Changesets
+
+Use the `list_changesets` action to find an entity's changesets without already holding their ids (for example, before a rollback):
+
+```json
+{ "action": "list_changesets", "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)" }
+```
+
+Each entry returns `changeset_id`, `created_at`, `applied_by`, `change_type`, `source_insight_ids`, and the current `rolled_back` status.
 
 ## Rollback
 
-Changesets can be rolled back through the [Admin REST API](admin-api.md):
+A changeset can be rolled back through either the `apply_knowledge` MCP tool or the [Admin REST API](admin-api.md). Both paths use the same revert engine.
+
+```json
+{ "action": "rollback", "changeset_id": "cs_x1y2z3a4b5c6", "confirm": true }
+```
 
 ```bash
 curl -X POST \
@@ -242,12 +264,21 @@ curl -X POST \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
-Rollback restores the `previous_value` metadata to the DataHub entity. The changeset is marked as rolled back with the user and timestamp.
+Rollback reverts each change the apply made, back to its before-image:
 
-**Limitations:**
+- A tag, glossary term, or documentation link the apply **added** is removed, **unless** it was already present in the before-image (in which case the add was a no-op and the pre-existing value is kept). This is what preserves an entity's canonical glossary term when an apply added another term alongside it.
+- A tag the apply **removed** is restored.
+- A description the apply changed is reset to the prior description.
 
-- Rollback restores the metadata snapshot from the time of application. If the entity's metadata was modified by other means after the apply, the rollback overwrites those changes too.
-- A changeset can only be rolled back once.
+The rollback also transitions the changeset's source insights from `applied` to `rolled_back` and records the rollback as its own auditable tool call referencing the original `changeset_id`.
+
+**When rollback is refused (rather than silently applied):**
+
+- The changeset has already been rolled back.
+- A newer, not-yet-rolled-back changeset has since modified the same aspect on the same entity. Reverting would clobber that newer change, so the rollback is blocked and names the conflicting changeset; roll the newer one back first, or restore the desired state with a fresh apply.
+- The changeset contains change types whose prior state was not captured in the before-image and therefore cannot be reverted automatically: column-level descriptions, structured properties, incidents, curated queries, context documents, and prompts. For these, restore the desired state with a new apply.
+
+When the changeset contains a mix of revertible and unrevertible change types, the rollback is refused as a whole so it never leaves the entity in a partially reverted state.
 
 ## Complete Workflow Example
 

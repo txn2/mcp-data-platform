@@ -1387,12 +1387,15 @@ Review, synthesize, and apply captured insights to the data catalog. Admin-only.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `action` | string | Yes | bulk_review, review, synthesize, apply, approve, reject |
-| `entity_urn` | string | Conditional | Required for review, synthesize, apply |
+| `action` | string | Yes | bulk_review, review, synthesize, apply, approve, reject, rollback, list_changesets |
+| `entity_urn` | string | Conditional | Required for review, synthesize, apply, list_changesets |
 | `insight_ids` | array | Conditional | Required for approve, reject; optional for synthesize, apply |
 | `changes` | array | Conditional | Required for apply |
-| `confirm` | bool | No | Required when `require_confirmation` is true |
+| `changeset_id` | string | Conditional | Required for rollback |
+| `confirm` | bool | No | Required when `require_confirmation` is true (apply and rollback) |
 | `review_notes` | string | No | Notes for approve/reject actions |
+
+The `rollback` action reverts a changeset's changes to their before-image (removing added tags/glossary terms/documentation links, restoring a changed description), transitions the source insights to `rolled_back`, and marks the changeset rolled back. It is refused if the changeset is already rolled back, if a newer changeset has since modified the same aspect, or if the changeset touched change types whose prior state was not captured (column descriptions, structured properties, incidents, curated queries, context documents, prompts). The `list_changesets` action lists an entity's changesets for discovering rollback targets.
 
 ## Memory Tools
 
@@ -1578,7 +1581,7 @@ Every organization has tribal knowledge about its data that lives in the heads o
 The system has two MCP tools and an Admin REST API:
 
 - `capture_insight`: Records domain knowledge during sessions. Available to all personas when enabled. Creates insights with status `pending`.
-- `apply_knowledge`: Admin-only tool for reviewing, approving, synthesizing, and applying insights to DataHub. Actions: `bulk_review`, `review`, `synthesize`, `apply`, `approve`, `reject`.
+- `apply_knowledge`: Admin-only tool for reviewing, approving, synthesizing, applying, and rolling back insights to DataHub. Actions: `bulk_review`, `review`, `synthesize`, `apply`, `approve`, `reject`, `rollback`, `list_changesets`.
 - Admin REST API: HTTP endpoints for managing insights and changesets outside the MCP protocol.
 
 ## Configuration

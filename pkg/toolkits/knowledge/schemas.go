@@ -94,11 +94,15 @@ var applyKnowledgeSchema = json.RawMessage(`{
   "properties": {
     "action": {
       "type": "string",
-      "description": "The action to perform. Valid values: bulk_review, review, synthesize, apply, approve, reject"
+      "description": "The action to perform. Valid values: bulk_review, review, synthesize, apply, approve, reject, rollback, list_changesets"
     },
     "entity_urn": {
       "type": "string",
-      "description": "Target entity URN (required for review, synthesize, apply)"
+      "description": "Target entity URN (required for review, synthesize, apply, list_changesets; optional for rollback to validate the changeset belongs to this entity)"
+    },
+    "changeset_id": {
+      "type": "string",
+      "description": "Changeset to revert (required for rollback action). Obtain it from a prior apply response or the list_changesets action."
     },
     "insight_ids": {
       "type": "array",
@@ -139,7 +143,7 @@ var applyKnowledgeSchema = json.RawMessage(`{
     },
     "confirm": {
       "type": "boolean",
-      "description": "Set to true to confirm apply action when confirmation is required"
+      "description": "Set to true to confirm the apply or rollback action when confirmation is required"
     },
     "review_notes": {
       "type": "string",

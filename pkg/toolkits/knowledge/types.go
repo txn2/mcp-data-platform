@@ -277,12 +277,14 @@ const (
 
 // Apply-knowledge action names exposed by the apply_knowledge MCP tool.
 const (
-	actionBulkReview = "bulk_review"
-	actionReview     = "review"
-	actionSynthesize = "synthesize"
-	actionApply      = "apply"
-	actionApprove    = "approve"
-	actionReject     = "reject"
+	actionBulkReview     = "bulk_review"
+	actionReview         = "review"
+	actionSynthesize     = "synthesize"
+	actionApply          = "apply"
+	actionApprove        = "approve"
+	actionReject         = "reject"
+	actionRollback       = "rollback"
+	actionListChangesets = "list_changesets"
 )
 
 // validTransitions defines allowed status transitions.
@@ -497,21 +499,26 @@ type ProposedChange struct {
 	SourceInsightIDs []string `json:"source_insight_ids"`
 }
 
+// actionList is the human-readable list of valid apply_knowledge actions.
+const actionList = "bulk_review, review, synthesize, apply, approve, reject, rollback, list_changesets"
+
 // ValidateAction checks whether an action value is valid.
 func ValidateAction(action string) error {
 	validActions := map[string]bool{
-		actionBulkReview: true,
-		actionReview:     true,
-		actionSynthesize: true,
-		actionApply:      true,
-		actionApprove:    true,
-		actionReject:     true,
+		actionBulkReview:     true,
+		actionReview:         true,
+		actionSynthesize:     true,
+		actionApply:          true,
+		actionApprove:        true,
+		actionReject:         true,
+		actionRollback:       true,
+		actionListChangesets: true,
 	}
 	if action == "" {
-		return fmt.Errorf("action is required and must be one of: bulk_review, review, synthesize, apply, approve, reject")
+		return fmt.Errorf("action is required and must be one of: %s", actionList)
 	}
 	if !validActions[action] {
-		return fmt.Errorf("invalid action %q: must be one of: bulk_review, review, synthesize, apply, approve, reject", action)
+		return fmt.Errorf("invalid action %q: must be one of: %s", action, actionList)
 	}
 	return nil
 }

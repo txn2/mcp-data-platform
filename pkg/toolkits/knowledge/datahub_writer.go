@@ -18,7 +18,11 @@ type DataHubWriter interface {
 	AddTag(ctx context.Context, urn string, tag string) error
 	RemoveTag(ctx context.Context, urn string, tag string) error
 	AddGlossaryTerm(ctx context.Context, urn string, termURN string) error
+	// RemoveGlossaryTerm removes a glossary term association. Used to revert add_glossary_term.
+	RemoveGlossaryTerm(ctx context.Context, urn string, termURN string) error
 	AddDocumentationLink(ctx context.Context, urn string, url string, description string) error
+	// RemoveDocumentationLink removes a documentation link by URL. Used to revert add_documentation.
+	RemoveDocumentationLink(ctx context.Context, urn string, url string) error
 	CreateCuratedQuery(ctx context.Context, entityURN, name, sql, description string) (string, error)
 
 	// Structured properties (DataHub 1.4.x)
@@ -68,8 +72,14 @@ func (*NoopDataHubWriter) RemoveTag(_ context.Context, _, _ string) error { retu
 // AddGlossaryTerm is a no-op.
 func (*NoopDataHubWriter) AddGlossaryTerm(_ context.Context, _, _ string) error { return nil }
 
+// RemoveGlossaryTerm is a no-op.
+func (*NoopDataHubWriter) RemoveGlossaryTerm(_ context.Context, _, _ string) error { return nil }
+
 // AddDocumentationLink is a no-op.
 func (*NoopDataHubWriter) AddDocumentationLink(_ context.Context, _, _, _ string) error { return nil }
+
+// RemoveDocumentationLink is a no-op.
+func (*NoopDataHubWriter) RemoveDocumentationLink(_ context.Context, _, _ string) error { return nil }
 
 // CreateCuratedQuery is a no-op.
 func (*NoopDataHubWriter) CreateCuratedQuery(_ context.Context, _, _, _, _ string) (string, error) {

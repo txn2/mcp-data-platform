@@ -31,6 +31,10 @@ type InsightStore interface {
 	Update(ctx context.Context, id string, updates InsightUpdate) error
 	Stats(ctx context.Context, filter InsightFilter) (*InsightStats, error)
 	MarkApplied(ctx context.Context, id, appliedBy, changesetRef string) error
+	// MarkRolledBack transitions an applied insight to rolled_back. It is a no-op
+	// for insights not currently in the applied state, so re-running a rollback
+	// does not error or double-transition.
+	MarkRolledBack(ctx context.Context, id, rolledBackBy string) error
 	Supersede(ctx context.Context, entityURN string, excludeID string) (int, error)
 }
 
@@ -410,6 +414,23 @@ func (s *postgresStore) MarkApplied(ctx context.Context, id, appliedBy, changese
 	return nil
 }
 
+// MarkRolledBack transitions an applied insight to rolled_back. The WHERE clause
+// gates on the current status being applied so the call is idempotent: rolling
+// back the same changeset twice (or an insight whose status has since changed)
+// is a no-op rather than an error.
+func (s *postgresStore) MarkRolledBack(ctx context.Context, id, rolledBackBy string) error {
+	query := `
+		UPDATE knowledge_insights
+		SET status = $1, reviewed_by = $2, reviewed_at = $3
+		WHERE id = $4 AND status = $5
+	`
+
+	if _, err := s.db.ExecContext(ctx, query, StatusRolledBack, rolledBackBy, time.Now(), id, StatusApplied); err != nil {
+		return fmt.Errorf("marking insight as rolled back: %w", err)
+	}
+	return nil
+}
+
 // Supersede marks pending insights for an entity as superseded, except excludeID.
 func (s *postgresStore) Supersede(ctx context.Context, entityURN, excludeID string) (int, error) {
 	query := `
@@ -464,6 +485,7 @@ func (*noopStore) Stats(_ context.Context, _ InsightFilter) (*InsightStats, erro
 }
 
 func (*noopStore) MarkApplied(_ context.Context, _, _, _ string) error   { return nil }    //nolint:revive // interface impl
+func (*noopStore) MarkRolledBack(_ context.Context, _, _ string) error   { return nil }    //nolint:revive // interface impl
 func (*noopStore) Supersede(_ context.Context, _, _ string) (int, error) { return 0, nil } //nolint:revive // interface impl
 
 // Verify interface compliance.

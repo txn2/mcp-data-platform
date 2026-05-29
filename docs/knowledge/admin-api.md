@@ -372,7 +372,7 @@ curl -s "https://mcp.example.com/api/v1/admin/knowledge/changesets/cs_x1y2z3a4b5
 POST /api/v1/admin/knowledge/changesets/{id}/rollback
 ```
 
-Reverts a changeset by restoring the `previous_value` metadata to the DataHub entity.
+Reverts the DataHub aspects the changeset mutated back to their before-image, transitions the changeset's source insights to `rolled_back`, and marks the changeset rolled back. Uses the same revert engine as the `apply_knowledge` MCP `rollback` action; see [Governance: Rollback](governance.md#rollback) for the full semantics.
 
 **Example:**
 
@@ -386,12 +386,22 @@ curl -X POST "https://mcp.example.com/api/v1/admin/knowledge/changesets/cs_x1y2z
 ```json
 {
   "changeset_id": "cs_x1y2z3a4b5c6",
-  "rolled_back": true,
-  "message": "Changeset rolled back. Previous metadata restored."
+  "target_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)",
+  "reverted_changes": ["removed glossary term urn:li:glossaryTerm:gross-margin"],
+  "skipped_changes": [],
+  "insights_rolled_back": ["a1b2c3d4e5f6"],
+  "rolled_back_by": "admin@example.com"
 }
 ```
 
-A changeset can only be rolled back once. Attempting to roll back an already-rolled-back changeset returns an error.
+**Status codes:**
+
+| Status | Condition |
+|--------|-----------|
+| `200` | Reverted and recorded. |
+| `404` | Changeset not found. |
+| `409` | Already rolled back, or a newer changeset has since modified the same aspect. |
+| `422` | Changeset contains change types whose prior state was not captured (column descriptions, structured properties, incidents, curated queries, context documents, prompts). |
 
 ## Error Responses
 

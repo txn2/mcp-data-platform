@@ -151,6 +151,20 @@ func (a *memoryInsightAdapter) MarkApplied(ctx context.Context, id, appliedBy, c
 	return nil
 }
 
+// MarkRolledBack transitions an applied insight to rolled_back in the memory store.
+func (a *memoryInsightAdapter) MarkRolledBack(ctx context.Context, id, rolledBackBy string) error {
+	meta := map[string]any{
+		metaKeyReviewedBy:    rolledBackBy,
+		metaKeyInsightStatus: StatusRolledBack,
+	}
+	if err := a.store.Update(ctx, id, memory.RecordUpdate{
+		Metadata: meta,
+	}); err != nil {
+		return fmt.Errorf("marking insight rolled back: %w", err)
+	}
+	return nil
+}
+
 // Supersede marks older insights for an entity as superseded by a newer one.
 func (a *memoryInsightAdapter) Supersede(ctx context.Context, entityURN, excludeID string) (int, error) {
 	// List active records for this entity.

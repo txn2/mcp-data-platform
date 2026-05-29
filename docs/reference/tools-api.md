@@ -991,11 +991,12 @@ Review, synthesize, and apply captured insights to the data catalog. Admin-only.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `action` | string | Yes | One of: `bulk_review`, `review`, `synthesize`, `apply`, `approve`, `reject` |
-| `entity_urn` | string | Conditional | Required for `review`, `synthesize`, `apply` |
+| `action` | string | Yes | One of: `bulk_review`, `review`, `synthesize`, `apply`, `approve`, `reject`, `rollback`, `list_changesets` |
+| `entity_urn` | string | Conditional | Required for `review`, `synthesize`, `apply`, `list_changesets`; optional for `rollback` (validates the changeset belongs to this entity) |
 | `insight_ids` | array | Conditional | Required for `approve`, `reject`; optional for `synthesize`, `apply` |
 | `changes` | array | Conditional | Required for `apply` |
-| `confirm` | bool | No | Required when `require_confirmation` is enabled |
+| `changeset_id` | string | Conditional | Required for `rollback` |
+| `confirm` | bool | No | Required when `require_confirmation` is enabled (for `apply` and `rollback`) |
 | `review_notes` | string | No | Notes for `approve`/`reject` actions |
 
 **Change Schema (for `apply` action):**
@@ -1036,6 +1037,10 @@ Review, synthesize, and apply captured insights to the data catalog. Admin-only.
 | `reject` | Transition insights to rejected status | `insight_ids` |
 | `synthesize` | Structured change proposals from approved insights | `entity_urn` |
 | `apply` | Write changes to DataHub with changeset tracking | `entity_urn`, `changes` |
+| `list_changesets` | List an entity's changesets (id, timestamp, actor, change type, rollback status) | `entity_urn` |
+| `rollback` | Revert a changeset's changes to their before-image | `changeset_id`, `confirm` |
+
+`rollback` reverts the changes an `apply` made: it removes added tags/glossary terms/documentation links (keeping any that pre-existed in the before-image), restores a changed description, transitions the source insights to `rolled_back`, and marks the changeset rolled back. It is refused if the changeset is already rolled back, if a newer changeset has since modified the same aspect, or if the changeset touched change types whose prior state was not captured (column descriptions, structured properties, incidents, curated queries, context documents, prompts).
 
 **Response Schema (apply):**
 
@@ -1045,7 +1050,13 @@ Review, synthesize, and apply captured insights to the data catalog. Admin-only.
   "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)",
   "changes_applied": 2,
   "insights_marked_applied": 1,
-  "message": "Changes applied to DataHub. Changeset cs_x1y2z3a4b5c6d7e8f9a0b1c2d3e4f5a6 recorded for rollback."
+  "resulting_state": {
+    "description": "Order records with gross margin amounts (before returns)",
+    "tags": ["urn:li:tag:gross-margin"],
+    "glossary_terms": [],
+    "owners": []
+  },
+  "message": "Changes applied to DataHub. Roll back with action=rollback changeset_id=cs_x1y2z3a4b5c6d7e8f9a0b1c2d3e4f5a6. changes_applied counts requested changes; verify against resulting_state below."
 }
 ```
 

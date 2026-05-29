@@ -299,10 +299,26 @@ func (w *DataHubClientWriter) AddGlossaryTerm(ctx context.Context, urn, termURN 
 	return nil
 }
 
+// RemoveGlossaryTerm removes a glossary term association from an entity.
+func (w *DataHubClientWriter) RemoveGlossaryTerm(ctx context.Context, urn, termURN string) error {
+	if err := w.client.RemoveGlossaryTerm(ctx, urn, termURN); err != nil {
+		return fmt.Errorf("removing glossary term %s from %s: %w", termURN, urn, err)
+	}
+	return nil
+}
+
 // AddDocumentationLink adds a documentation link to an entity.
 func (w *DataHubClientWriter) AddDocumentationLink(ctx context.Context, urn, linkURL, description string) error {
 	if err := w.client.AddLink(ctx, urn, linkURL, description); err != nil {
 		return fmt.Errorf("adding link to %s: %w", urn, err)
+	}
+	return nil
+}
+
+// RemoveDocumentationLink removes a documentation link from an entity by URL.
+func (w *DataHubClientWriter) RemoveDocumentationLink(ctx context.Context, urn, linkURL string) error {
+	if err := w.client.RemoveLink(ctx, urn, linkURL); err != nil {
+		return fmt.Errorf("removing link from %s: %w", urn, err)
 	}
 	return nil
 }
