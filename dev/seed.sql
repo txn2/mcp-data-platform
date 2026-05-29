@@ -293,6 +293,17 @@ FROM
     LIMIT 1
   ) AS t;
 
+-- The Dashboard's MCP tab filters audit events by event_kind
+-- ('mcp_tool_call'). Migration 000048 backfills rows present at migration
+-- time, but this seed runs afterward, so set it here. Derive from
+-- toolkit_kind to mirror the platform's write-time logic (#465):
+-- apigateway invocations are apigateway_invoke, everything else is an MCP
+-- tool call. Without this the seeded rows have a NULL event_kind and are
+-- invisible to the MCP-scoped views.
+UPDATE audit_logs
+SET event_kind = CASE WHEN toolkit_kind = 'api' THEN 'apigateway_invoke' ELSE 'mcp_tool_call' END
+WHERE event_kind IS NULL;
+
 -- ============================================================================
 -- Knowledge Insights (8 in various states)
 -- ============================================================================

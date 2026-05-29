@@ -93,6 +93,7 @@ interface AuditEventsParams {
   sortBy?: AuditSortColumn;
   sortOrder?: SortOrder;
   success?: boolean | null;
+  eventKind?: string;
   startTime?: string;
   endTime?: string;
 }
@@ -105,6 +106,7 @@ export function useAuditEvents(params: AuditEventsParams = {}) {
   if (params.toolName) searchParams.set("tool_name", params.toolName);
   if (params.toolkitKind) searchParams.set("toolkit_kind", params.toolkitKind);
   if (params.source) searchParams.set("source", params.source);
+  if (params.eventKind) searchParams.set("event_kind", params.eventKind);
   if (params.search) searchParams.set("search", params.search);
   if (params.sortBy) searchParams.set("sort_by", params.sortBy);
   if (params.sortOrder) searchParams.set("sort_order", params.sortOrder);
@@ -133,6 +135,7 @@ export function useAuditFilters() {
 
 interface TimeseriesParams {
   resolution?: Resolution;
+  eventKind?: string;
   startTime?: string;
   endTime?: string;
 }
@@ -141,6 +144,7 @@ export function useAuditTimeseries(params: TimeseriesParams = {}) {
   const searchParams = new URLSearchParams();
   if (params.resolution)
     searchParams.set("resolution", params.resolution);
+  if (params.eventKind) searchParams.set("event_kind", params.eventKind);
   if (params.startTime) searchParams.set("start_time", params.startTime);
   if (params.endTime) searchParams.set("end_time", params.endTime);
 
@@ -158,6 +162,7 @@ export function useAuditTimeseries(params: TimeseriesParams = {}) {
 interface BreakdownParams {
   groupBy: BreakdownDimension;
   limit?: number;
+  eventKind?: string;
   startTime?: string;
   endTime?: string;
 }
@@ -166,6 +171,7 @@ export function useAuditBreakdown(params: BreakdownParams) {
   const searchParams = new URLSearchParams();
   searchParams.set("group_by", params.groupBy);
   if (params.limit) searchParams.set("limit", String(params.limit));
+  if (params.eventKind) searchParams.set("event_kind", params.eventKind);
   if (params.startTime) searchParams.set("start_time", params.startTime);
   if (params.endTime) searchParams.set("end_time", params.endTime);
 
@@ -180,12 +186,14 @@ export function useAuditBreakdown(params: BreakdownParams) {
 }
 
 interface TimeRangeParams {
+  eventKind?: string;
   startTime?: string;
   endTime?: string;
 }
 
 export function useAuditOverview(params: TimeRangeParams = {}) {
   const searchParams = new URLSearchParams();
+  if (params.eventKind) searchParams.set("event_kind", params.eventKind);
   if (params.startTime) searchParams.set("start_time", params.startTime);
   if (params.endTime) searchParams.set("end_time", params.endTime);
 
@@ -200,6 +208,7 @@ export function useAuditOverview(params: TimeRangeParams = {}) {
 
 export function useAuditPerformance(params: TimeRangeParams = {}) {
   const searchParams = new URLSearchParams();
+  if (params.eventKind) searchParams.set("event_kind", params.eventKind);
   if (params.startTime) searchParams.set("start_time", params.startTime);
   if (params.endTime) searchParams.set("end_time", params.endTime);
 

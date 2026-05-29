@@ -17,7 +17,6 @@ import { CollectionEditorPage } from "@/pages/collections/CollectionEditorPage";
 import { ResourcesPage } from "@/pages/resources/ResourcesPage";
 
 // Admin pages (admin only)
-import { HomePage } from "@/pages/home/HomePage";
 import { AdminAssetsPage } from "@/pages/assets/AdminAssetsPage";
 import { AdminAssetViewerPage } from "@/pages/viewer/AdminAssetViewerPage";
 import { ToolsPage } from "@/pages/tools/ToolsPage";
@@ -43,7 +42,7 @@ const pageTitles: Record<string, string> = {
   "/admin": "Dashboard",
   "/admin/assets": "Assets",
   "/admin/tools": "Tools",
-  "/admin/audit": "Audit Log",
+  "/admin/audit": "Dashboard",
   "/admin/knowledge": "Knowledge & Memory",
   "/admin/description": "Description",
   "/admin/agent-instructions": "Agent Instructions",
@@ -286,8 +285,10 @@ export function AppShell() {
           {isAdminRoute && !isAdmin && <AccessDenied />}
           {isAdminRoute && isAdmin && (
             <>
-              {route === "/admin" && (
-                <HomePage
+              {/* Dashboard now hosts the merged MCP / API Gateway / Events
+                  activity views (was a separate Audit Log page). */}
+              {(route === "/admin" || route === "/admin/audit") && (
+                <AuditLogPage
                   key={currentPath}
                   initialTab={initialTab}
                   onNavigate={navigate}
@@ -304,13 +305,6 @@ export function AppShell() {
               )}
               {route === "/admin/tools" && (
                 <ToolsPage key={currentPath} initialTab={initialTab} />
-              )}
-              {route === "/admin/audit" && (
-                <AuditLogPage
-                  key={currentPath}
-                  initialTab={initialTab}
-                  onNavigate={navigate}
-                />
               )}
               {route === "/admin/knowledge" && (
                 <KnowledgePage key={currentPath} initialTab={initialTab} />

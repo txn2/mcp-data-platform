@@ -13,7 +13,8 @@
     "test:watch": "vitest",
     "generate-api-types": "npx swagger2openapi ../internal/apidocs/swagger.json -o src/api/generated/openapi3.json && openapi-typescript src/api/generated/openapi3.json -o src/api/generated/admin-api.d.ts",
     "screenshots": "playwright test --config e2e/screenshots/playwright.config.ts",
-    "screenshots:convert": "tsx e2e/screenshots/helpers/convert.ts"
+    "screenshots:convert": "tsx e2e/screenshots/helpers/convert.ts",
+    "test:e2e": "playwright test --config e2e/interactive/playwright.config.ts"
   },
   "dependencies": {
     "@codemirror/lang-html": "^6.4.11",
@@ -35,6 +36,11 @@
     "@uiw/react-codemirror": "^4.25.8",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "d3-array": "^3.2.4",
+    "d3-sankey": "^0.12.3",
+    "d3-scale": "^4.0.2",
+    "d3-scale-chromatic": "^3.1.0",
+    "d3-shape": "^3.2.0",
     "dompurify": "^3.4.0",
     "html2canvas": "^1.4.1",
     "lucide-react": "^0.469.0",
@@ -55,6 +61,11 @@
     "@tailwindcss/vite": "^4.1.7",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
+    "@types/d3-array": "^3.2.2",
+    "@types/d3-sankey": "^0.12.5",
+    "@types/d3-scale": "^4.0.9",
+    "@types/d3-scale-chromatic": "^3.1.0",
+    "@types/d3-shape": "^3.1.8",
     "@types/dompurify": "^3.2.0",
     "@types/react": "^19.1.4",
     "@types/react-dom": "^19.1.5",

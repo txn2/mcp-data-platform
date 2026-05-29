@@ -128,6 +128,31 @@ services:
       timeout: 5s
       retries: 10
 
+  # Prometheus: scrapes the platform's /metrics endpoint (OTEL_METRICS_ADDR
+  # on the host, pinned to :9464 by dev/start.sh) so the portal's admin
+  # "API Gateway" activity tab has a real data source via the platform's
+  # authenticated PromQL proxy (observability.prometheus in platform.yaml).
+  # Dev-only; production scrapes the platform through its own monitoring
+  # stack. host.docker.internal lets this container reach the host-run
+  # platform; extra_hosts maps it on Linux engines too.
+  prometheus:
+    image: prom/prometheus:v3.1.0@sha256:6559acbd5d770b15bb3c954629ce190ac3cbbdb2b7f1c30f0385c4e05104e218
+    container_name: acme-dev-prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=2h"
+    ports:
+      - "127.0.0.1:9091:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
 volumes:
   acme_postgres_data:
   acme_seaweed_data:

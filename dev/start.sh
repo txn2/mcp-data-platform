@@ -68,14 +68,15 @@ fi
 ok "UI dependencies ready"
 
 # Port checks (8080 = platform, 5173 = vite, 5432 = postgres,
-# 9000 = seaweedfs, 9090 = keycloak, 9180 = dev-mcp-mock OAuth,
-# 9181 = dev-mcp-mock MCP, 9281 = mcp-test fixture, 9282 = api-test fixture)
-for port in 5432 8080 5173 9000 9090 9180 9181 9281 9282; do
+# 9000 = seaweedfs, 9090 = keycloak, 9091 = prometheus, 9180 = dev-mcp-mock
+# OAuth, 9181 = dev-mcp-mock MCP, 9281 = mcp-test fixture, 9282 = api-test
+# fixture, 9464 = platform /metrics scrape endpoint)
+for port in 5432 8080 5173 9000 9090 9091 9180 9181 9281 9282 9464; do
   if lsof -i ":$port" -sTCP:LISTEN > /dev/null 2>&1; then
     fail "Port $port is already in use. Run 'make dev-down' or stop the conflicting process."
   fi
 done
-ok "Ports 5432, 8080, 5173, 9000, 9090, 9180, 9181, 9281, 9282 are free"
+ok "Ports 5432, 8080, 5173, 9000, 9090, 9091, 9180, 9181, 9281, 9282, 9464 are free"
 
 echo ""
 
@@ -140,6 +141,21 @@ for i in $(seq 1 30); do
   sleep 1
 done
 ok "SeaweedFS ready on :9000"
+
+# Wait for Prometheus (powers the admin Dashboard's API Gateway tab via
+# the platform's PromQL proxy). Scrapes the platform's /metrics on the
+# host; data appears in the portal once gateway traffic is generated.
+info "Waiting for Prometheus..."
+for i in $(seq 1 30); do
+  if curl -sf http://localhost:9091/-/healthy > /dev/null 2>&1; then
+    break
+  fi
+  if [ "$i" -eq 30 ]; then
+    fail "Prometheus did not become ready within 30s (check 'docker logs acme-dev-prometheus')"
+  fi
+  sleep 1
+done
+ok "Prometheus ready on :9091"
 
 # Wait for Keycloak. First boot performs realm import + DB schema
 # creation, which is slow (90s on a fresh volume); steady-state
@@ -233,6 +249,9 @@ echo ""
 
 echo -e "${BOLD}Starting Go server (air)${NC}"
 AIR_LOG="/tmp/mcp-dev-air.log"
+# Pin the /metrics scrape endpoint to :9464. The default (:9090) collides
+# with Keycloak in this stack; the dev Prometheus scrapes this port.
+export OTEL_METRICS_ADDR=":9464"
 air -c dev/.air.toml > "$AIR_LOG" 2>&1 &
 PIDS+=($!)
 
@@ -499,6 +518,116 @@ fi
 
 echo ""
 
+# ─── Warm up API Gateway metrics ────────────────────────────────────
+#
+# The admin Dashboard's "API Gateway" tab reads apigateway_inbound_*
+# metrics from Prometheus via the platform's PromQL proxy. With no
+# traffic those metrics do not exist and the tab is empty, so the view
+# cannot be exercised locally. The view breaks traffic down by
+# connection, so a single connection is not a useful demo: register a few
+# extra demo connections (all backed by the api-test fixture, sharing its
+# catalog so operation_id resolves) and drive weighted traffic across all
+# of them with varied endpoints, methods, and a slice of 4xx. Then keep a
+# light trickle going so the request-rate timeseries stays live. Gateway
+# calls are event_kind apigateway_invoke, so they do NOT pollute the MCP
+# tab. Generic vendor names, not real integrations. Best-effort: failures
+# never block startup.
+echo -e "${BOLD}Warming up API Gateway metrics${NC}"
+
+# Register extra demo api connections so the per-connection breakdown is
+# meaningful. They reuse the api-test fixture's URL, key, and catalog.
+reg_demo_api() {
+  local name="$1" display="$2" body code
+  body=$(APITEST_CATALOG_READY="$APITEST_CATALOG_READY" APITEST_CATALOG_ID="$APITEST_CATALOG_ID" \
+    APITEST_DEV_KEY_VAL="$APITEST_DEV_KEY_VAL" NAME="$name" DISPLAY="$display" python3 -c '
+import json, os
+ready = os.environ.get("APITEST_CATALOG_READY", "0") == "1"
+cfg = {
+    "base_url": "http://localhost:9282",
+    "auth_mode": "api_key",
+    "credential": os.environ.get("APITEST_DEV_KEY_VAL", ""),
+    "api_key_placement": "header",
+    "api_key_header": "X-API-Key",
+    "connection_name": os.environ["NAME"],
+    "connect_timeout": "5s",
+    "call_timeout": "10s",
+    "trust_level": "untrusted",
+}
+if ready:
+    cfg["catalog_id"] = os.environ.get("APITEST_CATALOG_ID", "")
+print(json.dumps({"config": cfg, "description": "Dev demo: %s (api-test fixture) for API Gateway observability" % os.environ["DISPLAY"]}))
+')
+  code=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
+    -H "X-API-Key: acme-dev-key-2024" -H "Content-Type: application/json" \
+    -d "$body" "http://localhost:8080/api/v1/admin/connection-instances/api/$name" || echo "000")
+  case "$code" in
+    200|201) ok "demo connection '$name' registered" ;;
+    *) echo -e "  ${YELLOW}⚠${NC} demo connection '$name' register returned HTTP $code" ;;
+  esac
+}
+reg_demo_api salesforce Salesforce
+reg_demo_api stripe Stripe
+reg_demo_api github GitHub
+
+GW_CONNS=(api-test-fixture salesforce stripe github)
+
+gw() { # conn method path [bodyjson]
+  curl -s -o /dev/null -X POST \
+    -H "X-API-Key: acme-dev-key-2024" -H "Content-Type: application/json" \
+    -d "{\"method\":\"$2\",\"path\":\"$3\"${4:+,\"body\":$4}}" \
+    "http://localhost:8080/api/v1/gateway/$1/invoke" 2>/dev/null || true
+}
+gw_bad() { # conn -> malformed body, shim returns 400 (status_class 4xx)
+  curl -s -o /dev/null -X POST \
+    -H "X-API-Key: acme-dev-key-2024" -H "Content-Type: application/json" \
+    -d 'not-json' "http://localhost:8080/api/v1/gateway/$1/invoke" 2>/dev/null || true
+}
+gw_burst() { # conn
+  gw "$1" GET /v1/whoami;  gw "$1" GET /v1/headers;    gw "$1" GET /v1/fixed/demo
+  gw "$1" GET /v1/lorem;   gw "$1" GET /v1/status/200; gw "$1" GET /v1/status/200
+  gw "$1" GET /v1/slow;    gw "$1" GET /v1/flaky;      gw "$1" POST /v1/echo '{"hello":"world"}'
+}
+
+# HasConnection is a live lookup, but a connection added via the admin API
+# is not in the metrics clamp set the instant the PUT returns. Probe each
+# with a real invoke until it answers 200 so the burst is not dropped.
+for c in "${GW_CONNS[@]}"; do
+  for _ in $(seq 1 10); do
+    code=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+      -H "X-API-Key: acme-dev-key-2024" -H "Content-Type: application/json" \
+      -d '{"method":"GET","path":"/v1/whoami"}' \
+      "http://localhost:8080/api/v1/gateway/$c/invoke" 2>/dev/null || echo "000")
+    [ "$code" = "200" ] && break
+    sleep 1
+  done
+done
+
+# Weighted volume (parallel) so "top connections" has a clear ranking.
+for _ in 1 2 3 4 5 6; do gw_burst salesforce; done &
+for _ in 1 2 3 4;       do gw_burst stripe; done &
+for _ in 1 2 3;         do gw_burst github; done &
+for _ in 1 2;           do gw_burst api-test-fixture; done &
+wait
+for c in "${GW_CONNS[@]}"; do for _ in 1 2 3; do gw_bad "$c"; done; done
+ok "Generated API Gateway traffic across ${#GW_CONNS[@]} connections"
+
+# Light continuous trickle across all connections so the request-rate
+# timeseries stays live. Registered in PIDS so the exit trap stops it.
+(
+  while true; do
+    sleep 12
+    for c in "${GW_CONNS[@]}"; do
+      gw "$c" GET /v1/whoami
+      gw "$c" GET /v1/status/200
+    done
+    gw_bad salesforce
+  done
+) &
+PIDS+=($!)
+ok "API Gateway trickle running (every 12s); open Dashboard then API Gateway"
+
+echo ""
+
 # ─── Start Vite dev server ──────────────────────────────────────────
 
 echo -e "${BOLD}Starting Vite UI${NC}"
@@ -528,6 +657,12 @@ echo ""
 echo -e "  Portal UI:        ${CYAN}http://localhost:5173/portal/${NC}"
 echo -e "  Go API:           ${CYAN}http://localhost:8080${NC}"
 echo -e "  API Key:          ${CYAN}acme-dev-key-2024${NC}"
+echo -e "  Metrics:          ${CYAN}http://localhost:9464/metrics${NC} (scraped by Prometheus)"
+echo -e "  Prometheus:       ${CYAN}http://localhost:9091${NC}"
+echo ""
+echo -e "  ${BOLD}API Gateway activity tab${NC} (admin Dashboard)"
+echo -e "  Invoke an ${BOLD}api_*${NC} tool against ${BOLD}api-test-fixture${NC}, then watch"
+echo -e "  ${CYAN}Dashboard → API Gateway${NC} populate (allow a few seconds for the scrape)."
 echo ""
 echo -e "  ${BOLD}OIDC operator login (Keycloak)${NC}"
 echo -e "  Issuer:           ${CYAN}http://localhost:9090/realms/mcp-platform${NC}"

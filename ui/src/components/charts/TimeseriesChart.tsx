@@ -11,11 +11,30 @@ import type { TimeseriesBucket } from "@/api/admin/types";
 import { ChartSkeleton } from "./ChartSkeleton";
 import { formatDuration } from "@/lib/formatDuration";
 
+// TimeseriesSeries describes one line to plot. Callers that want
+// something other than the default success/error split (e.g. a single
+// request-rate line) pass their own series config.
+export interface TimeseriesSeries {
+  dataKey: keyof TimeseriesBucket;
+  name: string;
+  stroke: string;
+}
+
+// DEFAULT_SERIES is the success/error split used by every existing
+// caller (MCP activity dashboards). Kept as the default so this change
+// is backward-compatible.
+const DEFAULT_SERIES: TimeseriesSeries[] = [
+  { dataKey: "success_count", name: "Success", stroke: "hsl(142, 76%, 36%)" },
+  { dataKey: "error_count", name: "Errors", stroke: "hsl(0, 84%, 60%)" },
+];
+
 interface TimeseriesChartProps {
   data: TimeseriesBucket[] | undefined;
   isLoading: boolean;
   height?: number;
   preset?: "1h" | "6h" | "24h" | "7d";
+  /** Lines to plot. Defaults to the success/error split. */
+  series?: TimeseriesSeries[];
 }
 
 function formatTick(iso: string, preset?: string) {
@@ -35,6 +54,7 @@ export function TimeseriesChart({
   isLoading,
   height = 250,
   preset,
+  series = DEFAULT_SERIES,
 }: TimeseriesChartProps) {
   if (isLoading || !data) return <ChartSkeleton height={height} />;
 
@@ -68,22 +88,17 @@ export function TimeseriesChart({
             fontSize: "0.75rem",
           }}
         />
-        <Line
-          type="monotone"
-          dataKey="success_count"
-          stroke="hsl(142, 76%, 36%)"
-          strokeWidth={2}
-          dot={showDots ? { r: 3 } : false}
-          name="Success"
-        />
-        <Line
-          type="monotone"
-          dataKey="error_count"
-          stroke="hsl(0, 84%, 60%)"
-          strokeWidth={2}
-          dot={showDots ? { r: 3 } : false}
-          name="Errors"
-        />
+        {series.map((s) => (
+          <Line
+            key={s.dataKey}
+            type="monotone"
+            dataKey={s.dataKey}
+            stroke={s.stroke}
+            strokeWidth={2}
+            dot={showDots ? { r: 3 } : false}
+            name={s.name}
+          />
+        ))}
       </LineChart>
     </ResponsiveContainer>
   );
