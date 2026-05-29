@@ -828,6 +828,48 @@ func TestMountAdminAPI(t *testing.T) {
 	})
 }
 
+// TestMountObservabilityProxy covers mountObservabilityProxy: the nil-platform
+// skip and the requireAuth wiring (browser-session + OptionalAuth wrapping).
+// An unauthenticated request must be rejected by the proxy authorizer with a
+// 401 rather than panicking or, as in the v1.69.0 bug, never being reachable
+// by cookie-authenticated portal users.
+func TestMountObservabilityProxy(t *testing.T) {
+	t.Run("skips when platform is nil", func(_ *testing.T) {
+		mux := http.NewServeMux()
+		mountObservabilityProxy(mux, nil, true) // must not panic
+	})
+
+	t.Run("mounts and requires auth", func(t *testing.T) {
+		cfg := &platform.Config{
+			Server:   platform.ServerConfig{Name: "test", Transport: "http"},
+			Semantic: platform.SemanticConfig{Provider: "noop"},
+			Query:    platform.QueryConfig{Provider: "noop"},
+			Storage:  platform.StorageConfig{Provider: "noop"},
+		}
+		p, err := platform.New(platform.WithConfig(cfg))
+		if err != nil {
+			t.Fatalf("New() error = %v", err)
+		}
+		defer func() { _ = p.Close() }()
+
+		mux := http.NewServeMux()
+		mountObservabilityProxy(mux, p, true)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+			"/api/v1/observability/query?query=up", http.NoBody)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+
+		// A request with no credentials must be denied by the proxy
+		// authorizer (401 unauthenticated, or 403 when an anonymous user is
+		// resolved but lacks observability:read) rather than reaching
+		// Prometheus or returning 200.
+		if w.Code != http.StatusUnauthorized && w.Code != http.StatusForbidden {
+			t.Errorf("expected 401 or 403 for unauthenticated request, got %d", w.Code)
+		}
+	})
+}
+
 // TestAdminPortalGate was removed — admin UI is now part of the unified portal
 // SPA served at /portal/. Admin sections are role-gated in the SPA itself and
 // the admin API routes at /api/v1/admin/ enforce server-side authorization.

@@ -789,7 +789,13 @@ func mountObservabilityProxy(mux *http.ServeMux, p *platform.Platform, requireAu
 
 	var wrapped http.Handler = proxyMux
 	if requireAuth {
-		wrapped = httpauth.RequireAuth()(proxyMux)
+		// The portal SPA calls these endpoints directly with its
+		// browser-session cookie, so accept that (like the admin and
+		// portal APIs) in addition to Bearer/API-key tokens. The proxy's
+		// authorizer enforces authentication (401) and the
+		// observability:read capability (403); OptionalAuth only lifts a
+		// present token onto the context without rejecting cookie auth.
+		wrapped = p.ObservabilityAuthMiddleware()(httpauth.OptionalAuth()(proxyMux))
 	}
 	mux.Handle("/api/v1/observability/", wrapped)
 	if pc.URL == "" {

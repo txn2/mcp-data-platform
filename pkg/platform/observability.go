@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -23,8 +24,9 @@ const observabilityReadCapability = "observability:read"
 
 // observabilityAuthorizer adapts the platform's authenticator and
 // authorizer to the proxy.Authorizer interface, keeping the proxy
-// package free of auth/persona imports. It authenticates the request
-// token, then checks the observability:read capability. The persona
+// package free of auth/persona imports. It resolves the caller (browser
+// session cookie or request token), then checks the observability:read
+// capability. The persona
 // name comes from the authorizer's own resolution (IsAuthorized returns
 // it), NOT a separate registry lookup, so the audit persona and the
 // rate-limit key stay consistent with the authorization decision even
@@ -36,13 +38,25 @@ type observabilityAuthorizer struct {
 }
 
 // Authorize implements proxy.Authorizer.
+//
+// Identity is resolved preferring a pre-authenticated user placed on the
+// context by the browser-session HTTP middleware (the portal SPA calls the
+// proxy endpoints directly with its session cookie), then falling back to
+// token-based authentication for programmatic Bearer/API-key callers. This
+// mirrors Platform.resolveUserInfo; without the cookie path, cookie-only
+// portal requests resolve no identity and the proxy returns 401, bouncing
+// admins to the login page.
 func (a observabilityAuthorizer) Authorize(ctx context.Context) proxy.Decision {
-	if a.authn == nil {
-		return proxy.Decision{}
-	}
-	info, err := a.authn.Authenticate(ctx)
-	if err != nil || info == nil {
-		return proxy.Decision{}
+	info := middleware.GetPreAuthenticatedUser(ctx)
+	if info == nil {
+		if a.authn == nil {
+			return proxy.Decision{}
+		}
+		var err error
+		info, err = a.authn.Authenticate(ctx)
+		if err != nil || info == nil {
+			return proxy.Decision{}
+		}
 	}
 	dec := proxy.Decision{Authenticated: true, UserID: info.UserID, Email: info.Email}
 	if a.authz != nil {
@@ -58,6 +72,47 @@ func (p *Platform) NewObservabilityAuthorizer() proxy.Authorizer {
 		authn: p.authenticator,
 		authz: p.authorizer,
 	}
+}
+
+// browserCookieResolver resolves a portal session cookie to a user.
+// Satisfied by *browsersession.Authenticator; kept as an interface so the
+// middleware is testable without minting a signed session cookie.
+type browserCookieResolver interface {
+	AuthenticateHTTP(r *http.Request) (*middleware.UserInfo, error)
+}
+
+// observabilityBrowserAuth lifts a resolved browser-session user onto the
+// request context as a pre-authenticated user. A nil resolver or an
+// absent/invalid cookie leaves the context unchanged: it never rejects, so
+// the token-extraction middleware and the proxy's own authorizer still
+// handle the token path and 401/403 enforcement.
+func observabilityBrowserAuth(ba browserCookieResolver) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			if ba != nil {
+				if info, err := ba.AuthenticateHTTP(r); err == nil && info != nil {
+					ctx = middleware.WithPreAuthenticatedUser(ctx, info)
+				}
+			}
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// ObservabilityAuthMiddleware resolves the portal browser-session cookie
+// into a pre-authenticated user so the PromQL proxy (which the portal SPA
+// calls directly) accepts cookie auth in addition to Bearer/API-key tokens.
+// Without it, cookie-only portal requests carry no credentials the proxy can
+// read and get bounced to the login page.
+func (p *Platform) ObservabilityAuthMiddleware() func(http.Handler) http.Handler {
+	ba := p.BrowserSessionAuth()
+	if ba == nil {
+		// Avoid the typed-nil interface footgun: a nil *Authenticator
+		// wrapped in the interface would be non-nil.
+		return observabilityBrowserAuth(nil)
+	}
+	return observabilityBrowserAuth(ba)
 }
 
 // initObservability constructs the metrics recorder and (when
