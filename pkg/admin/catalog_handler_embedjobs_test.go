@@ -10,7 +10,7 @@ import (
 	"time"
 
 	apicatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
-	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/embedjobs"
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalogindex"
 )
 
 // fakeEmbedJobs implements admin.EmbedJobsStore in-memory.
@@ -18,7 +18,7 @@ import (
 // Postgres-backed and tested separately.
 type fakeEmbedJobs struct {
 	mu     sync.Mutex
-	jobs   []embedjobs.Job
+	jobs   []catalogindex.Job
 	nextID int64
 
 	enqueueErr  error
@@ -27,11 +27,11 @@ type fakeEmbedJobs struct {
 	statusesErr error
 	healthErr   error
 
-	statuses []embedjobs.SpecStatusRow
-	health   *embedjobs.CatalogHealth
+	statuses []catalogindex.SpecStatusRow
+	health   *catalogindex.CatalogHealth
 }
 
-func (f *fakeEmbedJobs) Enqueue(_ context.Context, key embedjobs.SpecKey, kind embedjobs.Kind) (bool, error) {
+func (f *fakeEmbedJobs) Enqueue(_ context.Context, key catalogindex.SpecKey, kind catalogindex.Kind) (bool, error) {
 	if f.enqueueErr != nil {
 		return false, f.enqueueErr
 	}
@@ -39,29 +39,29 @@ func (f *fakeEmbedJobs) Enqueue(_ context.Context, key embedjobs.SpecKey, kind e
 	defer f.mu.Unlock()
 	for _, j := range f.jobs {
 		if j.CatalogID == key.CatalogID && j.SpecName == key.SpecName &&
-			(j.Status == embedjobs.StatusPending || j.Status == embedjobs.StatusRunning) {
+			(j.Status == catalogindex.StatusPending || j.Status == catalogindex.StatusRunning) {
 			return false, nil
 		}
 	}
 	f.nextID++
-	f.jobs = append(f.jobs, embedjobs.Job{
+	f.jobs = append(f.jobs, catalogindex.Job{
 		ID:        f.nextID,
 		CatalogID: key.CatalogID,
 		SpecName:  key.SpecName,
 		Kind:      kind,
-		Status:    embedjobs.StatusPending,
+		Status:    catalogindex.StatusPending,
 		CreatedAt: time.Now(),
 	})
 	return true, nil
 }
 
-func (f *fakeEmbedJobs) List(_ context.Context, filter embedjobs.ListFilter) ([]embedjobs.Job, error) {
+func (f *fakeEmbedJobs) List(_ context.Context, filter catalogindex.ListFilter) ([]catalogindex.Job, error) {
 	if f.listErr != nil {
 		return nil, f.listErr
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	out := make([]embedjobs.Job, 0, len(f.jobs))
+	out := make([]catalogindex.Job, 0, len(f.jobs))
 	// Iterate newest-first to mirror the Postgres ORDER BY id DESC.
 	for i := len(f.jobs) - 1; i >= 0; i-- {
 		j := f.jobs[i]
@@ -82,7 +82,7 @@ func (f *fakeEmbedJobs) List(_ context.Context, filter embedjobs.ListFilter) ([]
 	return out, nil
 }
 
-func (f *fakeEmbedJobs) Get(_ context.Context, id int64) (*embedjobs.Job, error) {
+func (f *fakeEmbedJobs) Get(_ context.Context, id int64) (*catalogindex.Job, error) {
 	if f.getErr != nil {
 		return nil, f.getErr
 	}
@@ -94,14 +94,14 @@ func (f *fakeEmbedJobs) Get(_ context.Context, id int64) (*embedjobs.Job, error)
 			return &cp, nil
 		}
 	}
-	return nil, embedjobs.ErrNotFound
+	return nil, catalogindex.ErrNotFound
 }
 
-func (f *fakeEmbedJobs) SpecStatuses(_ context.Context, catalogID string) ([]embedjobs.SpecStatusRow, error) {
+func (f *fakeEmbedJobs) SpecStatuses(_ context.Context, catalogID string) ([]catalogindex.SpecStatusRow, error) {
 	if f.statusesErr != nil {
 		return nil, f.statusesErr
 	}
-	out := make([]embedjobs.SpecStatusRow, 0)
+	out := make([]catalogindex.SpecStatusRow, 0)
 	for _, s := range f.statuses {
 		if s.CatalogID == catalogID {
 			out = append(out, s)
@@ -110,12 +110,12 @@ func (f *fakeEmbedJobs) SpecStatuses(_ context.Context, catalogID string) ([]emb
 	return out, nil
 }
 
-func (f *fakeEmbedJobs) Health(_ context.Context, catalogID string) (*embedjobs.CatalogHealth, error) {
+func (f *fakeEmbedJobs) Health(_ context.Context, catalogID string) (*catalogindex.CatalogHealth, error) {
 	if f.healthErr != nil {
 		return nil, f.healthErr
 	}
 	if f.health == nil {
-		return &embedjobs.CatalogHealth{CatalogID: catalogID}, nil
+		return &catalogindex.CatalogHealth{CatalogID: catalogID}, nil
 	}
 	cp := *f.health
 	cp.CatalogID = catalogID
@@ -175,7 +175,7 @@ func TestSpecUpsert_EnqueuesJob(t *testing.T) {
 		t.Fatalf("expected 1 enqueued job, got %d", len(jobs.jobs))
 	}
 	j := jobs.jobs[0]
-	if j.CatalogID != "petstore" || j.SpecName != "default" || j.Kind != embedjobs.KindSpecWrite {
+	if j.CatalogID != "petstore" || j.SpecName != "default" || j.Kind != catalogindex.KindSpecWrite {
 		t.Errorf("unexpected job %+v", j)
 	}
 }
@@ -231,13 +231,13 @@ func TestListCatalogEmbeddingStatuses_ReturnsRows(t *testing.T) {
 	t.Parallel()
 	h, _, jobs := newCatalogTestHandlerWithJobs(t)
 	now := time.Now()
-	jobs.statuses = []embedjobs.SpecStatusRow{
+	jobs.statuses = []catalogindex.SpecStatusRow{
 		{
 			CatalogID:      "petstore",
 			SpecName:       "users",
 			OperationCount: 3,
 			EmbeddingCount: 3,
-			JobStatus:      embedjobs.StatusSucceeded,
+			JobStatus:      catalogindex.StatusSucceeded,
 			JobUpdatedAt:   &now,
 		},
 		{
@@ -245,7 +245,7 @@ func TestListCatalogEmbeddingStatuses_ReturnsRows(t *testing.T) {
 			SpecName:       "orders",
 			OperationCount: 5,
 			EmbeddingCount: 2,
-			JobStatus:      embedjobs.StatusRunning,
+			JobStatus:      catalogindex.StatusRunning,
 			JobAttempts:    1,
 		},
 	}
@@ -286,7 +286,7 @@ func TestListCatalogEmbeddingStatuses_StoreError(t *testing.T) {
 func TestGetCatalogEmbeddingHealth_ReturnsRollup(t *testing.T) {
 	t.Parallel()
 	h, _, jobs := newCatalogTestHandlerWithJobs(t)
-	jobs.health = &embedjobs.CatalogHealth{
+	jobs.health = &catalogindex.CatalogHealth{
 		SpecsTotal: 9, SpecsIndexed: 7, SpecsPending: 1, SpecsRunning: 1, SpecsFailed: 0,
 	}
 	res := doJSON(t, h, http.MethodGet, "/api/v1/admin/api-catalogs/petstore/embedding-health", nil)
@@ -318,9 +318,9 @@ func TestGetCatalogEmbeddingHealth_StoreError(t *testing.T) {
 func TestListCatalogEmbeddingJobs_FiltersByStatus(t *testing.T) {
 	t.Parallel()
 	h, _, jobs := newCatalogTestHandlerWithJobs(t)
-	jobs.jobs = []embedjobs.Job{
-		{ID: 1, CatalogID: "petstore", SpecName: "a", Status: embedjobs.StatusSucceeded, Kind: embedjobs.KindSpecWrite},
-		{ID: 2, CatalogID: "petstore", SpecName: "b", Status: embedjobs.StatusFailed, Kind: embedjobs.KindReconciler, LastError: "provider 502"},
+	jobs.jobs = []catalogindex.Job{
+		{ID: 1, CatalogID: "petstore", SpecName: "a", Status: catalogindex.StatusSucceeded, Kind: catalogindex.KindSpecWrite},
+		{ID: 2, CatalogID: "petstore", SpecName: "b", Status: catalogindex.StatusFailed, Kind: catalogindex.KindReconciler, LastError: "provider 502"},
 	}
 	res := doJSON(t, h, http.MethodGet, "/api/v1/admin/api-catalogs/petstore/embedding-jobs?status=failed", nil)
 	if res.Code != http.StatusOK {
@@ -344,9 +344,9 @@ func TestListCatalogEmbeddingJobs_FiltersByStatus(t *testing.T) {
 func TestListCatalogEmbeddingJobs_FiltersBySpecName(t *testing.T) {
 	t.Parallel()
 	h, _, jobs := newCatalogTestHandlerWithJobs(t)
-	jobs.jobs = []embedjobs.Job{
-		{ID: 1, CatalogID: "petstore", SpecName: "a", Status: embedjobs.StatusSucceeded},
-		{ID: 2, CatalogID: "petstore", SpecName: "b", Status: embedjobs.StatusSucceeded},
+	jobs.jobs = []catalogindex.Job{
+		{ID: 1, CatalogID: "petstore", SpecName: "a", Status: catalogindex.StatusSucceeded},
+		{ID: 2, CatalogID: "petstore", SpecName: "b", Status: catalogindex.StatusSucceeded},
 	}
 	res := doJSON(t, h, http.MethodGet, "/api/v1/admin/api-catalogs/petstore/embedding-jobs?spec_name=b", nil)
 	if res.Code != http.StatusOK {
@@ -391,7 +391,7 @@ func TestManualRetryEmbedding_Enqueues202(t *testing.T) {
 	if body["status"] != "queued" {
 		t.Errorf("status=%v, want queued", body["status"])
 	}
-	if len(jobs.jobs) != 1 || jobs.jobs[0].Kind != embedjobs.KindManualRetry {
+	if len(jobs.jobs) != 1 || jobs.jobs[0].Kind != catalogindex.KindManualRetry {
 		t.Errorf("expected one manual_retry job, got %+v", jobs.jobs)
 	}
 }
@@ -433,11 +433,11 @@ func TestSpecToResponseWithEmbedding_PopulatesJobFields(t *testing.T) {
 		SpecName: "default", Content: minimalSpec, SourceKind: apicatalog.SourceInline,
 		OperationCount: 1,
 	})
-	jobs.jobs = []embedjobs.Job{
+	jobs.jobs = []catalogindex.Job{
 		{
 			ID: 1, CatalogID: "petstore", SpecName: "default",
-			Status: embedjobs.StatusRunning, Attempts: 2,
-			Kind: embedjobs.KindSpecWrite,
+			Status: catalogindex.StatusRunning, Attempts: 2,
+			Kind: catalogindex.KindSpecWrite,
 		},
 	}
 	res := doJSON(t, h, http.MethodGet, "/api/v1/admin/api-catalogs/petstore/specs/default", nil)

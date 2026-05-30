@@ -36,6 +36,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/database/migrate"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
+	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/mcpapps"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -58,7 +59,7 @@ import (
 	s3storage "github.com/txn2/mcp-data-platform/pkg/storage/s3"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	apigatewaycatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
-	apigatewayembedjobs "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/embedjobs"
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalogindex"
 	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
@@ -194,17 +195,20 @@ type Platform struct {
 	stalenessWatcher *memory.StalenessWatcher
 	memoryAdapter    middleware.MemoryProvider
 
-	// api-gateway embedding job queue. The store is exposed to
-	// the admin handler (read-side queries + enqueue on spec
-	// write); the worker / reaper / reconciler drive the actual
-	// embedding pass off the request path. All four are nil
-	// until WireAPIGatewayEmbedJobsFromDB runs, which requires
-	// both a database connection and an embedding provider.
-	apiGatewayEmbedJobsStore      *apigatewayembedjobs.PostgresStore
-	apiGatewayEmbedJobsWorker     *apigatewayembedjobs.Worker
-	apiGatewayEmbedJobsReaper     *apigatewayembedjobs.Reaper
-	apiGatewayEmbedJobsReconciler *apigatewayembedjobs.Reconciler
-	apiGatewayEmbedJobsListener   *apigatewayembedjobs.Listener
+	// shared index-jobs embedding queue. The worker / reaper /
+	// reconciler drive the embedding pass off the request path,
+	// routing by source_kind through the registry; the admin handler
+	// reads its api-catalog-shaped view through the AdminStore over
+	// the same generic store. All are nil until
+	// WireAPIGatewayEmbedJobsFromDB runs, which requires both a
+	// database connection and a configured embedding provider.
+	indexJobsStore            *indexjobs.PostgresStore
+	indexJobsRegistry         *indexjobs.Registry
+	indexJobsWorker           *indexjobs.Worker
+	indexJobsReaper           *indexjobs.Reaper
+	indexJobsReconciler       *indexjobs.Reconciler
+	indexJobsListener         *indexjobs.Listener
+	apiGatewayEmbedAdminStore *catalogindex.AdminStore
 
 	// Portal stores (exposed for REST API in Phase 3)
 	portalAssetStore        portal.AssetStore

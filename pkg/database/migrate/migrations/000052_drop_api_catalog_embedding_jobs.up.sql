@@ -1,0 +1,25 @@
+-- 000052: drop api_catalog_embedding_jobs
+--
+-- The api-catalog embedding queue (migrations 000045 / 000046) is
+-- superseded by the generic index_jobs queue (migration 000051).
+-- The api-catalog consumer now enqueues, claims, and reports
+-- against index_jobs with source_kind = 'api_catalog'; the
+-- pkg/toolkits/apigateway/embedjobs package that owned this table
+-- has been removed.
+--
+-- Only the JOBS table is dropped. The vector table
+-- (api_catalog_operation_embeddings, migration 000044) and its
+-- FOREIGN KEY ... ON DELETE CASCADE to api_catalog_specs are kept
+-- untouched: the api-catalog Sink still reads and writes it, so the
+-- expensive embedding data never moves and spec deletion still
+-- cascades to its vectors. api_catalog_specs.operation_count
+-- (added in 000045) also stays; the Sink uses it as its expected-
+-- count breadcrumb and gap-detection target.
+--
+-- Dropping the jobs table loses only transient queue rows. Any
+-- pending or running api-catalog work is reconstructed in index_jobs
+-- by the reconciler's gap sweep on the next pod boot (it compares
+-- operation_count against the persisted vector count), so no
+-- embedding work is lost.
+
+DROP TABLE IF EXISTS api_catalog_embedding_jobs;

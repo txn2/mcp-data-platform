@@ -16,73 +16,76 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/txn2/mcp-data-platform/pkg/database/migrate"
-	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/embedjobs"
+	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 )
 
-// slowEmbedComputer drives the worker through several chunk
-// boundaries so the progress publish path exercises real DB writes
-// against the integration container. Each Compute call invokes the
-// supplied progress callback once per synthetic "chunk" with a small
-// sleep between them so the test can observe embedded_so_far moving
-// before the final Complete commits.
-type slowEmbedComputer struct {
-	chunkDelay  time.Duration
-	chunkCounts []int
-	finalRows   []embedjobs.ComputedEmbedding
+// slowEmbedder is an embedding.Provider whose EmbedBatch sleeps so
+// the worker crosses several chunk boundaries with observable delay,
+// letting the test watch items_done advance before the final Complete
+// commits (#430). It returns fixed-dimension zero vectors.
+type slowEmbedder struct {
+	dim        int
+	batchDelay time.Duration
 }
 
-func (c *slowEmbedComputer) Compute(ctx context.Context, _, _ string, _ map[string]embedjobs.ExistingEmbedding, progress func(int)) ([]embedjobs.ComputedEmbedding, error) {
-	for _, n := range c.chunkCounts {
-		select {
-		case <-time.After(c.chunkDelay):
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-		if progress != nil {
-			progress(n)
-		}
+func (e *slowEmbedder) Embed(_ context.Context, _ string) ([]float32, error) {
+	return make([]float32, e.dim), nil
+}
+
+func (e *slowEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
+	select {
+	case <-time.After(e.batchDelay):
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
-	return c.finalRows, nil
+	out := make([][]float32, len(texts))
+	for i := range out {
+		out[i] = make([]float32, e.dim)
+	}
+	return out, nil
 }
 
-// noopReloader satisfies the ConnectionReloader interface without
-// touching a real toolkit registry: this integration test does not
-// boot the api-gateway toolkit, only the job queue.
-type noopReloader struct{}
+func (e *slowEmbedder) Dimension() int { return e.dim }
+func (*slowEmbedder) Kind() string     { return "slow" }
 
-func (*noopReloader) ReloadConnectionsByCatalog(_ string) {}
+// fixedItemsSource returns a fixed set of items so the embed pass has
+// a known number of chunks to publish progress across.
+type fixedItemsSource struct{ count int }
 
-// inMemoryPersister substitutes for the real catalog persister.
-// The integration test asserts on embedded_so_far (which lives on
-// api_catalog_embedding_jobs); the embedding-vector rows themselves
-// are not exercised here.
-type inMemoryPersister struct{}
+func (*fixedItemsSource) Kind() string { return "test_progress" }
 
-func (*inMemoryPersister) ListExisting(_ context.Context, _, _ string) (map[string]embedjobs.ExistingEmbedding, error) {
+func (s *fixedItemsSource) LoadItems(_ context.Context, _ string) ([]indexjobs.Item, error) {
+	items := make([]indexjobs.Item, s.count)
+	for i := range items {
+		items[i] = indexjobs.Item{ItemID: string(rune('a' + i)), Text: "text"}
+	}
+	return items, nil
+}
+
+func (*fixedItemsSource) OnSucceeded(_ string) {}
+
+// inMemorySink discards vectors; the test asserts only on items_done
+// in index_jobs, not on persisted vectors.
+type inMemorySink struct{}
+
+func (*inMemorySink) Kind() string { return "test_progress" }
+func (*inMemorySink) ListExisting(_ context.Context, _ indexjobs.Key) (map[string]indexjobs.Vector, error) {
 	return nil, nil
 }
-
-func (*inMemoryPersister) Upsert(_ context.Context, _, _ string, _ []embedjobs.ComputedEmbedding) error {
+func (*inMemorySink) Upsert(_ context.Context, _ indexjobs.Key, _ []indexjobs.Vector) error {
 	return nil
 }
-
-func (*inMemoryPersister) StampOperationCount(_ context.Context, _, _ string, _ int) error {
+func (*inMemorySink) UpsertBatch(_ context.Context, _ indexjobs.Key, _ []indexjobs.Vector) error {
 	return nil
 }
+func (*inMemorySink) StampExpected(_ context.Context, _ indexjobs.Key, _ int) error { return nil }
+func (*inMemorySink) FindGaps(_ context.Context) ([]string, error)                  { return nil, nil }
 
-// staticResolver returns a fixed content blob for the (catalog,
-// spec) the test enqueues.
-type staticResolver struct{}
-
-func (*staticResolver) GetSpecContent(_ context.Context, _, _ string) (string, error) {
-	return "spec content (unused; slowEmbedComputer ignores it)", nil
-}
-
-// TestEmbedJobsProgress_EndToEnd verifies the wiring of the
-// embedded_so_far counter from worker chunk callback through the
-// Postgres UPDATE to the SpecStatuses read path used by the admin
-// UI (#430).
-func TestEmbedJobsProgress_EndToEnd(t *testing.T) {
+// TestIndexJobsProgress_EndToEnd verifies the wiring of the items_done
+// counter from the worker's chunk callback through the Postgres
+// UPDATE to the List read path (#430), now against the generic
+// index_jobs queue.
+func TestIndexJobsProgress_EndToEnd(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -109,69 +112,49 @@ func TestEmbedJobsProgress_EndToEnd(t *testing.T) {
 	defer db.Close() //nolint:errcheck // test cleanup
 	require.NoError(t, migrate.Run(db))
 
-	// A spec row is required for the FK on api_catalog_embedding_jobs.
-	_, err = db.ExecContext(ctx, `
-		INSERT INTO api_catalogs (id, name, display_name, version, description, created_at, updated_at)
-		VALUES ('c1', 'c1', 'c1', 'v1', '', NOW(), NOW())
-	`)
-	require.NoError(t, err)
-	_, err = db.ExecContext(ctx, `
-		INSERT INTO api_catalog_specs (catalog_id, spec_name, source_kind, content, operation_count, created_at, updated_at)
-		VALUES ('c1', 's1', 'inline', 'irrelevant', 12, NOW(), NOW())
-	`)
+	store := indexjobs.NewPostgresStore(db)
+	_, err = store.Enqueue(ctx, indexjobs.Key{SourceKind: "test_progress", SourceID: "unit1"}, indexjobs.TriggerWrite)
 	require.NoError(t, err)
 
-	store := embedjobs.NewPostgresStore(db)
-	_, err = store.Enqueue(ctx, embedjobs.SpecKey{CatalogID: "c1", SpecName: "s1"}, embedjobs.KindSpecWrite)
-	require.NoError(t, err)
+	reg := indexjobs.NewRegistry()
+	require.NoError(t, reg.Register(&fixedItemsSource{count: 12}, &inMemorySink{}))
 
-	computer := &slowEmbedComputer{
-		chunkDelay:  100 * time.Millisecond,
-		chunkCounts: []int{4, 8, 12},
-	}
-	w := embedjobs.NewWorker(embedjobs.WorkerConfig{
+	w := indexjobs.NewWorker(indexjobs.WorkerConfig{
 		Store:     store,
-		Resolver:  &staticResolver{},
-		Computer:  computer,
-		Persister: &inMemoryPersister{},
-		Reloader:  &noopReloader{},
+		Registry:  reg,
+		Embedder:  &slowEmbedder{dim: 4, batchDelay: 100 * time.Millisecond},
+		BatchSize: 4, // 12 items / 4 = 3 chunks -> progress at 4, 8, 12
 		WorkerID:  "test-worker",
-		PollEvery: 25 * time.Millisecond,
 	})
 	w.Start(ctx)
 	defer w.Stop()
 
-	// Poll SpecStatuses while the worker runs. Assert embedded_so_far
-	// is strictly increasing across at least two observations before
-	// the job completes.
 	var observations []int
-	deadline := time.Now().Add(2 * time.Second)
-	var lastJobStatus embedjobs.Status
+	deadline := time.Now().Add(5 * time.Second)
+	var lastStatus indexjobs.Status
 	for time.Now().Before(deadline) {
-		rows, statusErr := store.SpecStatuses(ctx, "c1")
-		require.NoError(t, statusErr)
-		require.Len(t, rows, 1)
-		row := rows[0]
-		if row.JobStatus == embedjobs.StatusRunning && row.EmbeddedSoFar > 0 {
-			if len(observations) == 0 || observations[len(observations)-1] != row.EmbeddedSoFar {
-				observations = append(observations, row.EmbeddedSoFar)
+		jobs, listErr := store.List(ctx, indexjobs.ListFilter{SourceKind: "test_progress"})
+		require.NoError(t, listErr)
+		require.Len(t, jobs, 1)
+		job := jobs[0]
+		if job.Status == indexjobs.StatusRunning && job.ItemsDone > 0 {
+			if len(observations) == 0 || observations[len(observations)-1] != job.ItemsDone {
+				observations = append(observations, job.ItemsDone)
 			}
 		}
-		lastJobStatus = row.JobStatus
-		if row.JobStatus == embedjobs.StatusSucceeded {
+		lastStatus = job.Status
+		if job.Status == indexjobs.StatusSucceeded {
 			break
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
 
-	assert.Equal(t, embedjobs.StatusSucceeded, lastJobStatus, "job should reach succeeded")
+	assert.Equal(t, indexjobs.StatusSucceeded, lastStatus, "job should reach succeeded")
 	if len(observations) < 2 {
-		t.Fatalf("expected at least 2 distinct embedded_so_far observations during running; got %v", observations)
+		t.Fatalf("expected at least 2 distinct items_done observations during running; got %v", observations)
 	}
-	// Each observation must be greater than the prior one: the
-	// counter only moves forward inside a single Claim.
 	for i := 1; i < len(observations); i++ {
 		assert.Greater(t, observations[i], observations[i-1],
-			"embedded_so_far must be strictly increasing during running: %v", observations)
+			"items_done must be strictly increasing during running: %v", observations)
 	}
 }

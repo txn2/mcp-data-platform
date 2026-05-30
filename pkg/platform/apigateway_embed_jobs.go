@@ -7,29 +7,29 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
+	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	apigatewaycatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
-	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/embedjobs"
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalogindex"
 )
 
-// defaultEmbedJobsTimeout is the fall-back timeout the worker uses for
-// its batched /api/embed POSTs when apigateway.embed_jobs.embed_timeout
-// is unset. 5 minutes covers a 32-text batch on CPU-only Ollama with
-// margin; GPU deployments can tighten this via config. See #445.
+// defaultEmbedJobsTimeout is the fall-back timeout the index-jobs
+// worker uses for its batched embedding calls when
+// apigateway.embed_jobs.embed_timeout is unset. 5 minutes covers a
+// 32-text batch on CPU-only Ollama with margin; GPU deployments can
+// tighten this via config. See #445.
 const defaultEmbedJobsTimeout = 5 * time.Minute
 
-// workerEmbedder returns the embedding.Provider the api-gateway embed-
-// jobs worker should use. When the platform's embedder is Ollama, the
+// workerEmbedder returns the embedding.Provider the index-jobs
+// worker should use. When the platform's embedder is Ollama, the
 // worker gets a dedicated Provider with a longer HTTP timeout
-// (apigateway.embed_jobs.embed_timeout, default 5m) so a batched call
-// on CPU-only Ollama does not exhaust the 30s default that
+// (apigateway.embed_jobs.embed_timeout, default 5m) so a batched
+// call on CPU-only Ollama does not exhaust the 30s default that
 // request-path callers (memory_recall, capture_insight, etc.) share.
 // For any other provider, the shared platform Provider is returned
 // unchanged.
 func (p *Platform) workerEmbedder() embedding.Provider {
-	// Only the ollama provider needs the longer timeout today; other
-	// providers (noop, future kinds) reuse the shared instance.
 	if p.config.Memory.Embedding.Provider != "ollama" {
 		return p.embeddingProv
 	}
@@ -44,145 +44,149 @@ func (p *Platform) workerEmbedder() embedding.Provider {
 	})
 }
 
-// WireAPIGatewayEmbedJobsFromDB initializes the api-gateway
-// embedding job queue: the Postgres store, the Worker, the
-// Reaper, the Reconciler, and the LISTEN adapter. Lifecycle
-// callbacks are registered so Stop on the platform cleanly
-// shuts every goroutine down.
+// WireAPIGatewayEmbedJobsFromDB initializes the shared index-jobs
+// queue (pkg/indexjobs) and registers the api-catalog consumer on
+// it: the Postgres store, the Source/Sink registry, the Worker, the
+// Reaper, the Reconciler, and the LISTEN adapter. The admin handler
+// reads its api-catalog-shaped view through an AdminStore over the
+// same generic store. Lifecycle callbacks shut every goroutine down
+// cleanly on platform Stop.
 //
-// No-op unless the platform has BOTH a database connection AND
-// an embedding provider: a queue without a worker that can
-// embed is just an accumulating backlog, and a worker without
-// a queue has nothing to do. File-mode and no-embedding
-// deployments fall back to the lexical ranking path with no
-// queue and no operator surface (api_list_endpoints returns
-// the errEmbeddingsNotIndexed note).
+// No-op unless the platform has BOTH a database connection AND a
+// configured embedding provider: a queue without a worker that can
+// embed is just an accumulating backlog, and standing the queue up
+// against the noop provider would fill the vector tables with zero
+// vectors the health endpoints report as "indexed" while ranking
+// silently degrades (#429). File-mode and no-embedding deployments
+// fall back to lexical ranking with no queue.
 //
-// Idempotent: calling twice is a no-op on the second call so
-// the platform wiring code can call this from multiple paths
-// (initial setup, config reload) without risk of double-start.
+// Idempotent: a second call is a no-op.
 func (p *Platform) WireAPIGatewayEmbedJobsFromDB() {
-	if p.apiGatewayEmbedJobsStore != nil {
-		return // already wired
-	}
-	if p.db == nil {
-		slog.Info("apigateway embed jobs: skipped (no database)")
-		return
-	}
-	if !embedding.IsConfigured(p.embeddingProv) {
-		// Either no provider wired at all, or the noop placeholder that
-		// returns zero vectors. Standing up the queue against the noop
-		// would fill api_catalog_operation_embeddings with [0,...,0]
-		// rows that the catalog health endpoint reports as "indexed"
-		// while semantic ranking quietly degrades to nonsense (#429).
-		// Lexical ranking via errEmbeddingsNotIndexed handles invokes
-		// in this state, and the UI surfaces the unconfigured signal
-		// via /api/v1/admin/embedding/status.
-		slog.Info("apigateway embed jobs: skipped (embedding provider not configured)")
-		return
-	}
-	catalogStore := p.APIGatewayCatalogStore()
-	if catalogStore == nil {
-		slog.Info("apigateway embed jobs: skipped (no catalog store)")
+	catalogStore, ok := p.indexJobsPreconditions()
+	if !ok {
 		return
 	}
 
-	leaseDuration := p.config.APIGateway.EmbedJobs.LeaseDuration
-	if leaseDuration <= 0 {
-		leaseDuration = embedjobs.DefaultLeaseDuration
-	}
-	batchSize := p.config.APIGateway.EmbedJobs.BatchSize
-	if batchSize <= 0 {
-		batchSize = embedjobs.DefaultEmbedBatchSize
-	}
-	// embed_timeout >= lease_duration is an unusual ordering:
-	// the heartbeat at lease_duration/3 cadence will renew
-	// the DB lease through a long batch in normal operation,
-	// but the configuration implies the operator expects a
-	// single batch to outlive the lease, which is worth
-	// flagging at startup so a misconfigured pair doesn't
-	// pass review on the assumption the heartbeat compensates
-	// for any embed_timeout. Operators who meant this can
-	// raise lease_duration to put a comfortable margin
-	// between the two.
-	if embedTimeout := p.config.APIGateway.EmbedJobs.EmbedTimeout; embedTimeout > 0 && embedTimeout >= leaseDuration {
-		slog.Warn("apigateway embed jobs: embed_timeout >= lease_duration; consider raising lease_duration",
-			"embed_timeout", embedTimeout, "lease_duration", leaseDuration)
-	}
+	leaseDuration, batchSize := p.resolveEmbedJobsTuning()
 
-	store := embedjobs.NewPostgresStore(p.db, embedjobs.WithLeaseDuration(leaseDuration))
-	p.apiGatewayEmbedJobsStore = store
+	store := indexjobs.NewPostgresStore(p.db, indexjobs.WithLeaseDuration(leaseDuration))
+	p.indexJobsStore = store
 
-	resolver := &catalogSpecResolver{store: catalogStore}
-	computer := &apigatewayEmbeddingComputer{embedder: p.workerEmbedder()}
-	persister := &catalogEmbeddingPersister{store: catalogStore}
+	reg := indexjobs.NewRegistry()
+	if err := reg.Register(
+		&catalogSource{store: catalogStore, registry: p.toolkitRegistry},
+		catalogindex.NewSink(catalogStore),
+	); err != nil {
+		// A registration failure is a wiring bug (duplicate kind /
+		// mismatched kinds), not a runtime condition. Log and leave
+		// the queue unwired rather than starting a worker with no
+		// consumers.
+		slog.Error("index jobs: api-catalog registration failed", "error", err)
+		p.indexJobsStore = nil
+		return
+	}
+	p.indexJobsRegistry = reg
+	p.apiGatewayEmbedAdminStore = catalogindex.NewAdminStore(store, p.db)
 
-	worker := embedjobs.NewWorker(embedjobs.WorkerConfig{
+	worker := indexjobs.NewWorker(indexjobs.WorkerConfig{
 		Store:         store,
-		Resolver:      resolver,
-		Computer:      computer,
-		Persister:     persister,
-		Reloader:      &apigatewayConnectionReloader{registry: p.toolkitRegistry},
+		Registry:      reg,
+		Embedder:      p.workerEmbedder(),
 		Concurrency:   p.config.APIGateway.EmbedJobs.Workers,
 		LeaseDuration: leaseDuration,
 		BatchSize:     batchSize,
 	})
-	p.apiGatewayEmbedJobsWorker = worker
+	p.indexJobsWorker = worker
 
-	reaper := embedjobs.NewReaper(store, 0)
-	p.apiGatewayEmbedJobsReaper = reaper
+	reaper := indexjobs.NewReaper(store, 0)
+	p.indexJobsReaper = reaper
 
-	reconciler := embedjobs.NewReconciler(store, 0)
-	p.apiGatewayEmbedJobsReconciler = reconciler
+	reconciler := indexjobs.NewReconciler(store, reg, 0)
+	p.indexJobsReconciler = reconciler
 
-	// LISTEN/NOTIFY adapter. Best-effort: if the role lacks
-	// LISTEN privilege we degrade to the worker's poll tick
-	// (default 30s) and continue. The data path is unaffected.
+	// LISTEN/NOTIFY adapter. Best-effort: if the role lacks LISTEN
+	// privilege we degrade to the worker's poll tick and continue.
 	if p.config.Database.DSN != "" {
-		listener := embedjobs.NewListener(p.config.Database.DSN, embedjobs.NotifyChannel, worker)
-		p.apiGatewayEmbedJobsListener = listener
+		p.indexJobsListener = indexjobs.NewListener(p.config.Database.DSN, indexjobs.NotifyChannel, worker)
 	}
 
 	p.lifecycle.OnStart(func(ctx context.Context) error {
 		worker.Start(ctx)
 		reaper.Start(ctx)
 		reconciler.Start(ctx)
-		if p.apiGatewayEmbedJobsListener != nil {
-			if err := p.apiGatewayEmbedJobsListener.Start(ctx); err != nil {
-				slog.Warn("apigateway embed jobs: listener start failed; falling back to poll-only", "error", err)
-				p.apiGatewayEmbedJobsListener = nil
+		if p.indexJobsListener != nil {
+			if err := p.indexJobsListener.Start(ctx); err != nil {
+				slog.Warn("index jobs: listener start failed; falling back to poll-only", "error", err)
+				p.indexJobsListener = nil
 			}
 		}
-		slog.Info("apigateway embed jobs: started")
+		slog.Info("index jobs: started", "kinds", reg.Kinds())
 		return nil
 	})
 	p.lifecycle.OnStop(func(ctx context.Context) error {
-		return p.stopAPIGatewayEmbedJobs(ctx, worker, reaper, reconciler)
+		return p.stopIndexJobs(ctx, worker, reaper, reconciler)
 	})
 }
 
-// stopAPIGatewayEmbedJobs runs the embed-jobs shutdown sequence inside
-// the bounded shutdown helper. Extracted from the OnStop closure so
-// unit tests can exercise both the happy path and the deadline-abort
-// path without spinning up the Postgres listener.
-//
-// Each component's Stop signals its goroutines via stopCh and blocks
-// on wg.Wait. Under normal conditions every Stop completes in
-// milliseconds; under failure (hung Postgres, stuck embedding call)
-// Worker.Stop could block past the K8s termination grace period.
-// boundedStop races the sequence against ctx.Done so the shutdown
-// path always returns within its deadline. Abandoned work is safe:
-// the Postgres-backed queue uses leases that expire, and another
+// indexJobsPreconditions checks the wiring guards and returns the
+// catalog store the api-catalog consumer needs. ok is false (with a
+// reason logged) when the queue must not be wired: already wired, no
+// database, an unconfigured embedding provider (#429), or no catalog
+// store.
+func (p *Platform) indexJobsPreconditions() (apigatewaycatalog.Store, bool) {
+	switch {
+	case p.indexJobsStore != nil:
+		return nil, false // already wired
+	case p.db == nil:
+		slog.Info("index jobs: skipped (no database)")
+		return nil, false
+	case !embedding.IsConfigured(p.embeddingProv):
+		slog.Info("index jobs: skipped (embedding provider not configured)")
+		return nil, false
+	}
+	catalogStore := p.APIGatewayCatalogStore()
+	if catalogStore == nil {
+		slog.Info("index jobs: skipped (no catalog store)")
+		return nil, false
+	}
+	return catalogStore, true
+}
+
+// resolveEmbedJobsTuning returns the worker lease duration and batch
+// size, defaulting unset config and warning on the unusual
+// embed_timeout >= lease_duration ordering (the heartbeat compensates
+// in normal operation, but the pairing is worth flagging at startup).
+func (p *Platform) resolveEmbedJobsTuning() (lease time.Duration, batch int) {
+	lease = p.config.APIGateway.EmbedJobs.LeaseDuration
+	if lease <= 0 {
+		lease = indexjobs.DefaultLeaseDuration
+	}
+	batch = p.config.APIGateway.EmbedJobs.BatchSize
+	if batch <= 0 {
+		batch = indexjobs.DefaultEmbedBatchSize
+	}
+	if embedTimeout := p.config.APIGateway.EmbedJobs.EmbedTimeout; embedTimeout > 0 && embedTimeout >= lease {
+		slog.Warn("index jobs: embed_timeout >= lease_duration; consider raising lease_duration",
+			"embed_timeout", embedTimeout, "lease_duration", lease)
+	}
+	return lease, batch
+}
+
+// stopIndexJobs runs the index-jobs shutdown sequence inside the
+// bounded shutdown helper. Each component's Stop signals its
+// goroutines and blocks on their WaitGroup; boundedStop races the
+// sequence against ctx.Done so shutdown always returns within its
+// deadline. Abandoned work is safe: leases expire and another
 // replica reclaims any uncompleted job on its next poll.
-func (p *Platform) stopAPIGatewayEmbedJobs(
+func (p *Platform) stopIndexJobs(
 	ctx context.Context,
-	worker *embedjobs.Worker,
-	reaper *embedjobs.Reaper,
-	reconciler *embedjobs.Reconciler,
+	worker *indexjobs.Worker,
+	reaper *indexjobs.Reaper,
+	reconciler *indexjobs.Reconciler,
 ) error {
-	return boundedStop(ctx, "apigateway embed jobs", func() {
-		if p.apiGatewayEmbedJobsListener != nil {
-			p.apiGatewayEmbedJobsListener.Stop()
+	return boundedStop(ctx, "index jobs", func() {
+		if p.indexJobsListener != nil {
+			p.indexJobsListener.Stop()
 		}
 		reconciler.Stop()
 		reaper.Stop()
@@ -190,12 +194,10 @@ func (p *Platform) stopAPIGatewayEmbedJobs(
 	})
 }
 
-// boundedStop runs fn in a goroutine and races it against ctx.Done so
-// a hung component cannot stall lifecycle shutdown past the supplied
-// deadline. Returns nil on clean completion or ctx.Err() if the
-// deadline fires first; in the deadline case a warning is logged with
-// the component label so operators can correlate against the
-// goroutine that hung.
+// boundedStop runs fn in a goroutine and races it against ctx.Done
+// so a hung component cannot stall lifecycle shutdown past the
+// supplied deadline. Returns nil on clean completion or ctx.Err() if
+// the deadline fires first.
 func boundedStop(ctx context.Context, component string, fn func()) error {
 	done := make(chan struct{})
 	go func() {
@@ -212,221 +214,63 @@ func boundedStop(ctx context.Context, component string, fn func()) error {
 	}
 }
 
-// APIGatewayEmbedJobsStore returns the embedding job queue's
-// store, or nil when no queue is wired. The admin handler reads
-// this for its enqueue and read-side queries.
-func (p *Platform) APIGatewayEmbedJobsStore() embedjobs.Store {
-	if p.apiGatewayEmbedJobsStore == nil {
+// APIGatewayEmbedJobsStore returns the api-catalog admin view of the
+// index-jobs queue (enqueue + read-side queries for the UI), or nil
+// when no queue is wired. The admin handler reads this.
+func (p *Platform) APIGatewayEmbedJobsStore() catalogindex.Store {
+	if p.apiGatewayEmbedAdminStore == nil {
 		return nil
 	}
-	return p.apiGatewayEmbedJobsStore
+	return p.apiGatewayEmbedAdminStore
 }
 
-// catalogSpecResolver implements embedjobs.SpecResolver against
-// a catalog.Store. The worker calls GetSpecContent on every job
-// claim to fetch the current spec content (which may have
-// changed since the job was enqueued).
-type catalogSpecResolver struct {
-	store apigatewaycatalog.Store
-}
-
-// GetSpecContent returns the content column on the spec row.
-// Returns ("", err) on any store error (treated as a retryable
-// failure by the worker).
-func (r *catalogSpecResolver) GetSpecContent(ctx context.Context, catalogID, specName string) (string, error) {
-	spec, err := r.store.GetSpec(ctx, catalogID, specName)
-	if err != nil {
-		return "", fmt.Errorf("catalogSpecResolver: %w", err)
-	}
-	return spec.Content, nil
-}
-
-// apigatewayEmbeddingComputer wraps
-// apigatewaykit.ComputeOperationEmbeddings. The translation
-// between embedjobs.ExistingEmbedding /
-// catalog.OperationEmbedding keeps the embedjobs package free
-// of the pgvector dependency the catalog package pulls in.
-type apigatewayEmbeddingComputer struct {
-	embedder embeddingProvider
-}
-
-// embeddingProvider is the local minimal interface this file
-// uses to refer to the platform's embedding.Provider. Declared
-// inline so the type assertion in WireAPIGatewayEmbedJobsFromDB
-// stays explicit and so this file does not pull the embedding
-// package's full surface.
-type embeddingProvider interface {
-	Embed(ctx context.Context, text string) ([]float32, error)
-	EmbedBatch(ctx context.Context, texts []string) ([][]float32, error)
-	Dimension() int
-	Kind() string
-}
-
-// Compute translates the embedjobs-side dedup map into a
-// catalog.OperationEmbedding-keyed map, invokes the apigateway
-// kit's ComputeOperationEmbeddings, and translates the result
-// back. The two intermediate types exist so embedjobs does not
-// import pgvector through every transitive consumer.
-//
-// The per-batch PersistBatch callback the worker supplies is
-// wrapped by translateBatchPersist so the catalog-typed rows
-// it receives flow into the worker's embedjobs-typed callback
-// without forcing embedjobs to import the catalog package.
-func (c *apigatewayEmbeddingComputer) Compute(ctx context.Context, req embedjobs.ComputeRequest) ([]embedjobs.ComputedEmbedding, error) {
-	catalogExisting := make(map[string]apigatewaycatalog.OperationEmbedding, len(req.Existing))
-	for k, v := range req.Existing {
-		catalogExisting[k] = apigatewaycatalog.OperationEmbedding{
-			OperationID: v.OperationID,
-			TextHash:    v.TextHash,
-			Embedding:   v.Embedding,
-			Model:       v.Model,
-			Dim:         v.Dim,
-		}
-	}
-	rows, err := apigatewaykit.ComputeOperationEmbeddings(ctx, apigatewaykit.ComputeRequest{
-		Embedder:     c.embedder,
-		Content:      req.Content,
-		SpecName:     req.SpecName,
-		Existing:     catalogExisting,
-		BatchSize:    req.BatchSize,
-		Progress:     req.Progress,
-		PersistBatch: translateBatchPersist(req.PersistBatch),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("apigatewayEmbeddingComputer: %w", err)
-	}
-	out := make([]embedjobs.ComputedEmbedding, len(rows))
-	for i, r := range rows {
-		out[i] = embedjobs.ComputedEmbedding{
-			OperationID: r.OperationID,
-			TextHash:    r.TextHash,
-			Embedding:   r.Embedding,
-			Model:       r.Model,
-			Dim:         r.Dim,
-		}
-	}
-	return out, nil
-}
-
-// translateBatchPersist adapts the catalog-typed per-batch
-// callback the apigateway kit invokes into the embedjobs-typed
-// callback the worker supplies. nil in -> nil out so the
-// computer's "no persist callback" path is preserved end-to-end.
-func translateBatchPersist(cb func([]embedjobs.ComputedEmbedding) error) func([]apigatewaycatalog.OperationEmbedding) error {
-	if cb == nil {
-		return nil
-	}
-	return func(rows []apigatewaycatalog.OperationEmbedding) error {
-		out := make([]embedjobs.ComputedEmbedding, len(rows))
-		for i, r := range rows {
-			out[i] = embedjobs.ComputedEmbedding{
-				OperationID: r.OperationID,
-				TextHash:    r.TextHash,
-				Embedding:   r.Embedding,
-				Model:       r.Model,
-				Dim:         r.Dim,
-			}
-		}
-		return cb(out)
-	}
-}
-
-// catalogEmbeddingPersister wraps catalog.Store's embedding
-// methods so the worker can write vectors without knowing about
-// the catalog package's full surface.
-type catalogEmbeddingPersister struct {
-	store apigatewaycatalog.Store
-}
-
-// ListExisting reads the current set of persisted embedding
-// rows for (catalogID, specName) and translates them into the
-// embedjobs-side ExistingEmbedding type for dedup.
-func (p *catalogEmbeddingPersister) ListExisting(ctx context.Context, catalogID, specName string) (map[string]embedjobs.ExistingEmbedding, error) {
-	rows, err := p.store.ListOperationEmbeddings(ctx, catalogID, specName)
-	if err != nil {
-		return nil, fmt.Errorf("catalogEmbeddingPersister: %w", err)
-	}
-	out := make(map[string]embedjobs.ExistingEmbedding, len(rows))
-	for _, r := range rows {
-		out[r.OperationID] = embedjobs.ExistingEmbedding{
-			OperationID: r.OperationID,
-			TextHash:    r.TextHash,
-			Embedding:   r.Embedding,
-			Model:       r.Model,
-			Dim:         r.Dim,
-		}
-	}
-	return out, nil
-}
-
-// Upsert atomically replaces the persisted embedding rows for
-// (catalogID, specName) with the supplied set via the catalog
-// store's transactional delete+insert.
-func (p *catalogEmbeddingPersister) Upsert(ctx context.Context, catalogID, specName string, rows []embedjobs.ComputedEmbedding) error {
-	if err := p.store.UpsertOperationEmbeddings(ctx, catalogID, specName, toCatalogEmbeddings(rows)); err != nil {
-		return fmt.Errorf("catalogEmbeddingPersister: %w", err)
-	}
-	return nil
-}
-
-// UpsertBatch writes a single chunk's worth of embedding rows
-// in place without disturbing rows outside the supplied set.
-// The worker invokes this via the PersistBatch callback so a
-// job that fails on chunk N still has chunks 0..N-1 visible to
-// the next attempt's ListExisting dedup pass.
-func (p *catalogEmbeddingPersister) UpsertBatch(ctx context.Context, catalogID, specName string, rows []embedjobs.ComputedEmbedding) error {
-	if err := p.store.UpsertOperationEmbeddingsBatch(ctx, catalogID, specName, toCatalogEmbeddings(rows)); err != nil {
-		return fmt.Errorf("catalogEmbeddingPersister: %w", err)
-	}
-	return nil
-}
-
-// toCatalogEmbeddings is the shared embedjobs->catalog row
-// translation used by both Upsert and UpsertBatch. Factored out
-// so the two persistence sites share one source of truth for
-// the column mapping.
-func toCatalogEmbeddings(rows []embedjobs.ComputedEmbedding) []apigatewaycatalog.OperationEmbedding {
-	out := make([]apigatewaycatalog.OperationEmbedding, len(rows))
-	for i, r := range rows {
-		out[i] = apigatewaycatalog.OperationEmbedding{
-			OperationID: r.OperationID,
-			TextHash:    r.TextHash,
-			Embedding:   r.Embedding,
-			Model:       r.Model,
-			Dim:         r.Dim,
-		}
-	}
-	return out
-}
-
-// StampOperationCount writes the supplied count to the spec
-// row's operation_count column so the reconciler's gap
-// predicate sees a fully-indexed spec.
-func (p *catalogEmbeddingPersister) StampOperationCount(ctx context.Context, catalogID, specName string, count int) error {
-	if err := p.store.SetOperationCount(ctx, catalogID, specName, count); err != nil {
-		return fmt.Errorf("catalogEmbeddingPersister: %w", err)
-	}
-	return nil
-}
-
-// apigatewayConnectionReloader implements
-// embedjobs.ConnectionReloader: after a successful embed, the
-// worker calls ReloadConnectionsByCatalog so live connections
-// pick up the new vectors without waiting for the next admin
-// save.
-type apigatewayConnectionReloader struct {
+// catalogSource implements indexjobs.Source for the api-catalog
+// kind. LoadItems fetches the current spec content and parses it
+// into per-operation embeddable items; OnSucceeded reloads live
+// connections so their in-memory vector map picks up the new rows.
+type catalogSource struct {
+	store    apigatewaycatalog.Store
 	registry *registry.Registry
 }
 
-// ReloadConnectionsByCatalog asks every registered api-gateway
-// toolkit to rebuild connections that mount the given catalog
-// so their in-memory vector map picks up the new embedding
-// rows the worker just wrote.
-func (r *apigatewayConnectionReloader) ReloadConnectionsByCatalog(catalogID string) {
-	if r.registry == nil {
+// Kind reports the api-catalog source kind.
+func (*catalogSource) Kind() string { return catalogindex.SourceKind }
+
+// LoadItems decodes the source_id, fetches the spec content, and
+// returns one item per operation. A missing spec surfaces as an
+// error (the worker treats it as terminal: the spec was deleted).
+func (s *catalogSource) LoadItems(ctx context.Context, sourceID string) ([]indexjobs.Item, error) {
+	catalogID, specName, ok := catalogindex.DecodeSourceID(sourceID)
+	if !ok {
+		return nil, fmt.Errorf("catalogSource: malformed source_id %q", sourceID)
+	}
+	spec, err := s.store.GetSpec(ctx, catalogID, specName)
+	if err != nil {
+		return nil, fmt.Errorf("catalogSource: get spec: %w", err)
+	}
+	ops, err := apigatewaykit.BuildOperationItems(spec.Content, specName)
+	if err != nil {
+		return nil, fmt.Errorf("catalogSource: build items: %w", err)
+	}
+	items := make([]indexjobs.Item, len(ops))
+	for i, op := range ops {
+		items[i] = indexjobs.Item{ItemID: op.OperationID, Text: op.Text}
+	}
+	return items, nil
+}
+
+// OnSucceeded asks every registered api-gateway toolkit to rebuild
+// connections that mount the catalog so their in-memory vector map
+// picks up the freshly-written rows.
+func (s *catalogSource) OnSucceeded(sourceID string) {
+	if s.registry == nil {
 		return
 	}
-	for _, tk := range r.registry.All() {
+	catalogID, _, ok := catalogindex.DecodeSourceID(sourceID)
+	if !ok {
+		return
+	}
+	for _, tk := range s.registry.All() {
 		if api, ok := tk.(*apigatewaykit.Toolkit); ok {
 			api.ReloadConnectionsByCatalog(catalogID)
 		}

@@ -73,6 +73,10 @@ func (failingCatalogStore) DeleteOperationEmbeddings(context.Context, string, st
 	return errors.New("boom")
 }
 
+func (failingCatalogStore) ListEmbeddingGaps(context.Context) ([]catalog.SpecKey, error) {
+	return nil, errors.New("boom")
+}
+
 func TestCatalogStore_Getter(t *testing.T) {
 	tk := New("api")
 	if tk.CatalogStore() != nil {
