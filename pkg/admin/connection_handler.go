@@ -673,18 +673,26 @@ func (h *Handler) hotAddConnection(kind, name string, config map[string]any) {
 		slog.Warn("failed to hot-add connection",
 			logKeyKind, kind, logKeyName, name, logKeyError, err)
 	}
+	// Tell peer replicas to rebuild this connection from the store too;
+	// the hot-add above only updates this replica (issue #501).
+	if h.deps.ReloadNotifier != nil {
+		h.deps.ReloadNotifier.PublishConnectionReload(kind, name)
+	}
 }
 
 // hotRemoveConnection attempts to remove the connection from a live toolkit that
 // implements toolkit.ConnectionManager.
 func (h *Handler) hotRemoveConnection(kind, name string) {
-	cm := h.findConnectionManager(kind)
-	if cm == nil || !cm.HasConnection(name) {
-		return
+	if cm := h.findConnectionManager(kind); cm != nil && cm.HasConnection(name) {
+		if err := cm.RemoveConnection(name); err != nil { // #nosec G706 -- structured slog call, not a format string
+			slog.Warn("failed to hot-remove connection",
+				logKeyKind, kind, logKeyName, name, logKeyError, err)
+		}
 	}
-	if err := cm.RemoveConnection(name); err != nil { // #nosec G706 -- structured slog call, not a format string
-		slog.Warn("failed to hot-remove connection",
-			logKeyKind, kind, logKeyName, name, logKeyError, err)
+	// Always broadcast: peer replicas reconcile from the store (now
+	// missing this row) and drop their copy of the connection (#501).
+	if h.deps.ReloadNotifier != nil {
+		h.deps.ReloadNotifier.PublishConnectionReload(kind, name)
 	}
 }
 

@@ -1103,6 +1103,12 @@ func (h *Handler) reloadConnectionsForCatalog(catalogID string) {
 		}
 		api.ReloadConnectionsByCatalog(catalogID)
 	}
+	// Broadcast to peer replicas so they rebuild their own in-memory
+	// connections from this catalog (issue #501). The loop above only
+	// reloads this replica.
+	if h.deps.ReloadNotifier != nil {
+		h.deps.ReloadNotifier.PublishCatalogReload(catalogID)
+	}
 }
 
 // firstNonEmpty returns a when non-empty, otherwise b. Used by the
