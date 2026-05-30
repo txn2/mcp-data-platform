@@ -46,15 +46,21 @@ func NewAuthenticator(c Config) (Authenticator, error) {
 		return newAPIKeyAuth(c)
 	case AuthModeBasic:
 		return newBasicAuth(c)
+	case AuthModeOAuth:
+		// The canonical OAuth mode dispatches on the grant. The
+		// authorization_code variant requires a TokenStore;
+		// NewAuthenticator alone cannot supply one (it has no DB
+		// handle), so the toolkit's addParsedConnection wires the
+		// TokenStore via SetTokenStore immediately after this returns.
+		if c.OAuth2.Grant == connoauth.GrantAuthorizationCode {
+			return newOAuth2AuthorizationCodeAuth(c), nil
+		}
+		return newOAuth2ClientCredentialsAuth(c), nil
 	case AuthModeOAuth2ClientCredentials:
+		// Legacy auth_mode (hand-built Configs that bypass ParseConfig).
 		return newOAuth2ClientCredentialsAuth(c), nil
 	case AuthModeOAuth2AuthorizationCode:
-		// authorization_code requires a TokenStore. NewAuthenticator
-		// alone cannot supply one (it has no DB handle); the toolkit's
-		// addParsedConnection wires the TokenStore at materialization
-		// time. Returning the un-stored variant here keeps the call
-		// site consistent: the toolkit immediately calls
-		// SetTokenStore on it.
+		// Legacy auth_mode (hand-built Configs that bypass ParseConfig).
 		return newOAuth2AuthorizationCodeAuth(c), nil
 	case AuthModeMTLS:
 		// The client certificate IS the credential. No header is
@@ -440,7 +446,7 @@ func connoauthConfigFromOAuth2(c Config) connoauth.Config {
 		authStyle = oauth2.AuthStyleInParams
 	}
 	return connoauth.Config{
-		Grant:             "authorization_code",
+		Grant:             c.OAuth2.Grant,
 		AuthorizationURL:  c.OAuth2.AuthorizationURL,
 		TokenURL:          c.OAuth2.TokenURL,
 		ClientID:          c.OAuth2.ClientID,

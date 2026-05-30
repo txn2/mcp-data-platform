@@ -262,3 +262,45 @@ func TestParseConfig_ScopeVerbatim(t *testing.T) {
 		})
 	}
 }
+
+// TestParseConfig_EndpointAuthStyleParams proves the endpoint auth
+// style round-trips through the shared connoauth parser and is
+// projected back to the operator-facing "params" string. Also covers
+// the nested oauth:{} form flattening for that field.
+func TestParseConfig_EndpointAuthStyleParams(t *testing.T) {
+	cfg, err := ParseConfig(map[string]any{
+		"endpoint":  "https://u.example.com",
+		"auth_mode": AuthModeOAuth,
+		"oauth": map[string]any{
+			"grant":               OAuthGrantClientCredentials,
+			"token_url":           "https://idp/token",
+			"client_id":           "cid",
+			"client_secret":       "csec",
+			"endpoint_auth_style": OAuthAuthStyleParams,
+		},
+	})
+	if err != nil {
+		t.Fatalf("ParseConfig: %v", err)
+	}
+	if cfg.OAuth.EndpointAuthStyle != OAuthAuthStyleParams {
+		t.Errorf("EndpointAuthStyle = %q, want %q", cfg.OAuth.EndpointAuthStyle, OAuthAuthStyleParams)
+	}
+}
+
+// TestParseConfig_RejectsInvalidEndpointAuthStyle proves a typo in the
+// endpoint auth style surfaces as a parse error rather than silently
+// defaulting (the shared parser is strict on this field).
+func TestParseConfig_RejectsInvalidEndpointAuthStyle(t *testing.T) {
+	_, err := ParseConfig(map[string]any{
+		"endpoint":                  "https://u.example.com",
+		"auth_mode":                 AuthModeOAuth,
+		"oauth_grant":               OAuthGrantClientCredentials,
+		"oauth_token_url":           "https://idp/token",
+		"oauth_client_id":           "cid",
+		"oauth_client_secret":       "csec",
+		"oauth_endpoint_auth_style": "bogus",
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid endpoint_auth_style")
+	}
+}

@@ -17,6 +17,10 @@ import (
 	"maps"
 	"strings"
 	"time"
+
+	"golang.org/x/oauth2"
+
+	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 )
 
 const (
@@ -44,8 +48,21 @@ const (
 	// sensitive-keys list).
 	AuthModeBasic = "basic"
 
-	// AuthModeOAuth2ClientCredentials acquires a bearer token via
-	// the OAuth 2.1 client_credentials grant — server-to-server,
+	// AuthModeOAuth is the canonical OAuth auth_mode shared across
+	// every toolkit kind (see connoauth.AuthModeOAuth). The specific
+	// flow is carried separately in OAuth2Config.Grant. ParseConfig
+	// normalizes the legacy api-only auth_mode values below to this
+	// form, so a parsed Config always reports AuthModeOAuth for an
+	// OAuth connection.
+	AuthModeOAuth = connoauth.AuthModeOAuth
+
+	// AuthModeOAuth2ClientCredentials is the legacy api-only auth_mode
+	// that encoded the client_credentials grant in the mode string.
+	// Retained so raw config authored before the schema unified (and
+	// hand-built test Configs) still parse; ParseConfig normalizes it
+	// to AuthModeOAuth + Grant=client_credentials.
+	//
+	// client_credentials acquires a bearer token — server-to-server,
 	// no human in the loop. The platform exchanges the configured
 	// client_id + client_secret for a token at OAuth.TokenURL and
 	// applies it as "Authorization: Bearer <token>" on outbound
@@ -149,19 +166,13 @@ const (
 	// of duplicating the documentation.
 	cfgKeyCatalogID = "catalog_id"
 
-	// OAuth2 config keys are top-level (not nested under "oauth2")
-	// because the platform's FieldEncryptor walks only the top
-	// level of the config map. A nested oauth2.client_secret would
-	// be stored unencrypted; flat keys let the existing
-	// encryption-at-rest pickup work without changes to the
-	// encryptor. Mirrors how the MCP gateway lays out oauth_*.
-	cfgKeyOAuth2TokenURL     = "oauth2_token_url"           // #nosec G101 -- map key, not a credential
-	cfgKeyOAuth2ClientID     = "oauth2_client_id"           // #nosec G101 -- map key, not a credential
-	cfgKeyOAuth2ClientSecret = "oauth2_client_secret"       // #nosec G101 -- map key, not a credential
-	cfgKeyOAuth2Scopes       = "oauth2_scopes"              // #nosec G101 -- map key, not a credential
-	cfgKeyOAuth2EndpointAuth = "oauth2_endpoint_auth_style" // #nosec G101 -- "header" or "params" — map key, not a credential
-	cfgKeyOAuth2AuthURL      = "oauth2_authorization_url"   // #nosec G101 -- map key, not a credential
-	cfgKeyOAuth2Prompt       = "oauth2_prompt"              // #nosec G101 -- map key, not a credential
+	// OAuth config keys are owned by pkg/connoauth (the canonical
+	// oauth_* vocabulary plus the legacy oauth2_* fallback). This
+	// toolkit delegates OAuth parsing to connoauth.ParseConfig rather
+	// than declaring its own key constants. The keys remain top-level
+	// (not nested) so the platform's FieldEncryptor, which walks only
+	// the top level of the config map, encrypts oauth_client_secret at
+	// rest without changes to the encryptor.
 
 	// mTLS material config keys. Cert and CA bundle are public
 	// material (plain text at rest); the private key is in the
@@ -271,6 +282,12 @@ type Config struct {
 // (PKCE verifier table, refresh-token cache) and an admin reauth
 // callback handler that this PR intentionally does not bring in.
 type OAuth2Config struct {
+	// Grant is the OAuth flow, populated by ParseConfig from the
+	// canonical oauth_grant (or derived from a legacy auth_mode). One
+	// of connoauth.GrantClientCredentials or
+	// connoauth.GrantAuthorizationCode. The authenticator and
+	// validation dispatch on this rather than on the auth_mode string.
+	Grant string
 	// TokenURL is the upstream's token endpoint. Required.
 	TokenURL string
 	// ClientID is the platform's registered client id. Required.
@@ -367,7 +384,19 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	c.TrustLevel = getStringDefault(cfg, cfgKeyTrustLevel, c.TrustLevel)
 	c.MaxResponseBytes = getInt64(cfg, cfgKeyMaxResponseBytes, c.MaxResponseBytes)
 	c.CatalogID = getString(cfg, cfgKeyCatalogID)
-	c.OAuth2 = parseOAuth2Config(cfg)
+	if isOAuthAuthMode(c.AuthMode) {
+		// Delegate OAuth parsing to the shared connoauth.ParseConfig
+		// (canonical oauth_* keys, legacy oauth2_* fallback, grant
+		// derivation) and normalize the auth_mode to the canonical
+		// AuthModeOAuth so the authenticator and validation dispatch on
+		// the grant rather than on three divergent mode strings.
+		parsed, err := connoauth.ParseConfig(Kind, getString(cfg, cfgKeyBaseURL), cfg)
+		if err != nil {
+			return Config{}, fmt.Errorf("apigateway: %w", err)
+		}
+		c.AuthMode = AuthModeOAuth
+		c.OAuth2 = oauth2ConfigFromConnoauth(parsed)
+	}
 	c.StaticHeaders = getStringMap(cfg, cfgKeyStaticHeaders)
 	c.MTLSClientCertPEM = getString(cfg, cfgKeyMTLSClientCertPEM)
 	c.MTLSClientKeyPEM = getString(cfg, cfgKeyMTLSClientKeyPEM)
@@ -488,6 +517,11 @@ func (c Config) validateAuth() error {
 		return c.validateAPIKeyAuth()
 	case AuthModeBasic:
 		return c.validateBasicAuth()
+	case AuthModeOAuth:
+		if c.OAuth2.Grant == connoauth.GrantAuthorizationCode {
+			return c.validateOAuth2AuthCode()
+		}
+		return c.validateOAuth2()
 	case AuthModeOAuth2ClientCredentials:
 		return c.validateOAuth2()
 	case AuthModeOAuth2AuthorizationCode:
@@ -588,19 +622,46 @@ func (c Config) validateAPIKeyAuth() error {
 	return nil
 }
 
-// parseOAuth2Config extracts the OAuth2 fields from the top-level
-// config map (flat keys; see the cfgKeyOAuth2* declarations for
-// the rationale). Returns a zero-value OAuth2Config when no OAuth2
-// keys are set; validation against AuthMode happens in Validate.
-func parseOAuth2Config(cfg map[string]any) OAuth2Config {
+// IsOAuthAuthorizationCode reports whether the connection uses the
+// OAuth authorization_code grant (canonical AuthModeOAuth plus that
+// grant). The admin redirect handler and the kind handler gate the
+// one-time browser flow on this, so they do not depend on the raw
+// auth_mode string shape.
+func (c Config) IsOAuthAuthorizationCode() bool {
+	return c.AuthMode == AuthModeOAuth && c.OAuth2.Grant == connoauth.GrantAuthorizationCode
+}
+
+// isOAuthAuthMode reports whether mode names an OAuth connection in any
+// of the recognized input shapes: the canonical AuthModeOAuth or either
+// legacy api-only mode that encoded the grant. ParseConfig uses this to
+// decide when to delegate to connoauth.ParseConfig and normalize.
+func isOAuthAuthMode(mode string) bool {
+	switch mode {
+	case AuthModeOAuth, AuthModeOAuth2ClientCredentials, AuthModeOAuth2AuthorizationCode:
+		return true
+	default:
+		return false
+	}
+}
+
+// oauth2ConfigFromConnoauth projects the shared connoauth.Config onto
+// the toolkit's OAuth2Config. The endpoint auth style is mapped back to
+// the operator-facing string form the authenticators and validation
+// expect.
+func oauth2ConfigFromConnoauth(c connoauth.Config) OAuth2Config {
+	style := OAuth2AuthStyleHeader
+	if c.EndpointAuthStyle == oauth2.AuthStyleInParams {
+		style = OAuth2AuthStyleParams
+	}
 	return OAuth2Config{
-		TokenURL:          getString(cfg, cfgKeyOAuth2TokenURL),
-		ClientID:          getString(cfg, cfgKeyOAuth2ClientID),
-		ClientSecret:      getString(cfg, cfgKeyOAuth2ClientSecret),
-		EndpointAuthStyle: getStringDefault(cfg, cfgKeyOAuth2EndpointAuth, OAuth2AuthStyleHeader),
-		Scopes:            getStringSlice(cfg, cfgKeyOAuth2Scopes),
-		AuthorizationURL:  getString(cfg, cfgKeyOAuth2AuthURL),
-		Prompt:            getString(cfg, cfgKeyOAuth2Prompt),
+		Grant:             c.Grant,
+		TokenURL:          c.TokenURL,
+		ClientID:          c.ClientID,
+		ClientSecret:      c.ClientSecret,
+		Scopes:            c.Scopes,
+		EndpointAuthStyle: style,
+		AuthorizationURL:  c.AuthorizationURL,
+		Prompt:            c.Prompt,
 	}
 }
 
@@ -632,29 +693,6 @@ func getStringMap(cfg map[string]any, key string) map[string]string {
 		}
 		if len(out) == 0 {
 			return nil
-		}
-		return out
-	}
-	return nil
-}
-
-// getStringSlice reads a []string from the config map. Accepts
-// either []string (programmatic construction) or []any (YAML
-// unmarshaling). Empty/missing returns nil.
-func getStringSlice(cfg map[string]any, key string) []string {
-	raw, ok := cfg[key]
-	if !ok {
-		return nil
-	}
-	switch v := raw.(type) {
-	case []string:
-		return v
-	case []any:
-		out := make([]string, 0, len(v))
-		for _, item := range v {
-			if s, isStr := item.(string); isStr {
-				out = append(out, s)
-			}
 		}
 		return out
 	}

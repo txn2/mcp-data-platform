@@ -6,7 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
+
+	"golang.org/x/oauth2"
+
+	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 )
 
 const (
@@ -185,7 +190,11 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	c.Endpoint = getString(cfg, cfgKeyEndpoint)
 	c.AuthMode = getStringDefault(cfg, cfgKeyAuthMode, c.AuthMode)
 	c.Credential = getString(cfg, cfgKeyCredential)
-	c.OAuth = parseOAuthConfig(cfg)
+	oauthCfg, err := parseOAuthConfig(cfg)
+	if err != nil {
+		return Config{}, err
+	}
+	c.OAuth = oauthCfg
 	c.ConnectionName = getString(cfg, cfgKeyConnectionName)
 	c.ConnectTimeout = getDuration(cfg, cfgKeyConnectTimeout, c.ConnectTimeout)
 	c.CallTimeout = getDuration(cfg, cfgKeyCallTimeout, c.CallTimeout)
@@ -259,36 +268,83 @@ func validateOAuth(o OAuthConfig) error {
 	return nil
 }
 
-// parseOAuthConfig extracts the oauth section from the raw config map.
-// The raw config nests oauth fields under an "oauth" key (preferred) or
-// reads them directly from "oauth_*" prefixed top-level keys (legacy /
-// flattened form for simple admin UIs).
-func parseOAuthConfig(cfg map[string]any) OAuthConfig {
-	var o OAuthConfig
-	if nested, ok := cfg["oauth"].(map[string]any); ok {
-		o = OAuthConfig{
-			Grant:             getStringDefault(nested, "grant", OAuthGrantClientCredentials),
-			TokenURL:          getString(nested, "token_url"),
-			AuthorizationURL:  getString(nested, "authorization_url"),
-			ClientID:          getString(nested, "client_id"),
-			ClientSecret:      getString(nested, "client_secret"),
-			Scope:             getString(nested, "scope"),
-			Prompt:            getString(nested, "prompt"),
-			EndpointAuthStyle: getStringDefault(nested, "endpoint_auth_style", OAuthAuthStyleHeader),
-		}
-	} else {
-		o = OAuthConfig{
-			Grant:             getStringDefault(cfg, "oauth_grant", OAuthGrantClientCredentials),
-			TokenURL:          getString(cfg, "oauth_token_url"),
-			AuthorizationURL:  getString(cfg, "oauth_authorization_url"),
-			ClientID:          getString(cfg, "oauth_client_id"),
-			ClientSecret:      getString(cfg, "oauth_client_secret"),
-			Scope:             getString(cfg, "oauth_scope"),
-			Prompt:            getString(cfg, "oauth_prompt"),
-			EndpointAuthStyle: getStringDefault(cfg, "oauth_endpoint_auth_style", OAuthAuthStyleHeader),
+// parseOAuthConfig extracts the OAuth section from the raw config map.
+// Parsing of the canonical oauth_* keys (and the legacy oauth2_*
+// fallback) is delegated to the shared connoauth.ParseConfig so every
+// toolkit kind reads one schema. The raw config may nest the oauth
+// fields under an "oauth" key (the admin-friendly form); that shape is
+// flattened to the canonical top-level keys before parsing.
+//
+// Returns the zero OAuthConfig (no error) for non-OAuth connections so
+// the unconditional call site stays valid; connoauth.ParseConfig is
+// only invoked when auth_mode is "oauth".
+func parseOAuthConfig(cfg map[string]any) (OAuthConfig, error) {
+	if getString(cfg, cfgKeyAuthMode) != AuthModeOAuth {
+		return OAuthConfig{}, nil
+	}
+	flat := flattenNestedOAuth(cfg)
+	parsed, err := connoauth.ParseConfig(Kind, getString(cfg, cfgKeyConnectionName), flat)
+	if err != nil {
+		return OAuthConfig{}, fmt.Errorf("gateway: %w", err)
+	}
+	return projectConnoauthOAuth(parsed), nil
+}
+
+// flattenNestedOAuth returns a config map with any nested "oauth" block
+// promoted to the canonical top-level oauth_* keys. Top-level keys are
+// preserved and win over nested ones, so a config that mixes shapes is
+// resolved deterministically. The "oauth" block itself is dropped from
+// the result so it is not mistaken for a scalar elsewhere.
+func flattenNestedOAuth(cfg map[string]any) map[string]any {
+	nested, ok := cfg["oauth"].(map[string]any)
+	if !ok {
+		return cfg
+	}
+	nestedToCanonical := map[string]string{
+		"grant":               connoauth.ConfigKeyGrant,
+		"token_url":           connoauth.ConfigKeyTokenURL,
+		"authorization_url":   connoauth.ConfigKeyAuthorizationURL,
+		"client_id":           connoauth.ConfigKeyClientID,
+		"client_secret":       connoauth.ConfigKeyClientSecret,
+		"scope":               connoauth.ConfigKeyScope,
+		"prompt":              connoauth.ConfigKeyPrompt,
+		"endpoint_auth_style": connoauth.ConfigKeyEndpointAuthStyle,
+	}
+	flat := make(map[string]any, len(cfg)+len(nested))
+	for nestedKey, canonicalKey := range nestedToCanonical {
+		if v, present := nested[nestedKey]; present {
+			flat[canonicalKey] = v
 		}
 	}
-	return o
+	for k, v := range cfg {
+		if k == "oauth" {
+			continue
+		}
+		flat[k] = v // top-level keys win over the nested block
+	}
+	return flat
+}
+
+// projectConnoauthOAuth maps the shared connoauth.Config onto the
+// gateway's OAuthConfig projection. The scope is rejoined to the
+// verbatim space-delimited string the gateway's status and round-trip
+// paths expect; the endpoint auth style is mapped back to the
+// operator-facing string form.
+func projectConnoauthOAuth(c connoauth.Config) OAuthConfig {
+	style := OAuthAuthStyleHeader
+	if c.EndpointAuthStyle == oauth2.AuthStyleInParams {
+		style = OAuthAuthStyleParams
+	}
+	return OAuthConfig{
+		Grant:             c.Grant,
+		TokenURL:          c.TokenURL,
+		AuthorizationURL:  c.AuthorizationURL,
+		ClientID:          c.ClientID,
+		ClientSecret:      c.ClientSecret,
+		Scope:             strings.Join(c.Scopes, " "),
+		Prompt:            c.Prompt,
+		EndpointAuthStyle: style,
+	}
 }
 
 func getString(cfg map[string]any, key string) string {

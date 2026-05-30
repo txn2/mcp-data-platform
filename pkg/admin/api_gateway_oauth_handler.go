@@ -257,7 +257,7 @@ func (h *Handler) loadAPIGatewayAuthCodeConfig(w http.ResponseWriter, r *http.Re
 		writeError(w, http.StatusBadRequest, err.Error())
 		return apigatewaykit.Config{}, false
 	}
-	if cfg.AuthMode != apigatewaykit.AuthModeOAuth2AuthorizationCode {
+	if !cfg.IsOAuthAuthorizationCode() {
 		writeError(w, http.StatusConflict, "connection is not configured for authorization_code OAuth")
 		return apigatewaykit.Config{}, false
 	}

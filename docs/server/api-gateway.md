@@ -53,11 +53,14 @@ curl -X PUT \
 | `bearer` | `Authorization: Bearer <credential>` |
 | `api_key` | `<api_key_header>: <credential>` (header) or `?<api_key_param>=<credential>` (query) |
 | `basic` | `Authorization: Basic base64(username:password)` per RFC 7617. For legacy APIs (Jenkins, on-prem Jira / Confluence Server / DC, internal apps) that never moved to bearer or OAuth. `password` may be empty for the `token:` pattern some APIs use. |
-| `oauth2_client_credentials` | Token fetched at `oauth2_token_url`, applied as `Authorization: Bearer ...` |
-| `oauth2_authorization_code` | Browser sign-in once; refresh token persisted (encrypted); access tokens refreshed silently |
+| `oauth` | OAuth 2.1. The grant is set separately in `oauth_grant` (`client_credentials` or `authorization_code`). `client_credentials` fetches a token at `oauth_token_url` and applies `Authorization: Bearer ...`; `authorization_code` adds a one-time browser sign-in with a persisted (encrypted) refresh token and silent refresh. |
 | `mtls` | No header. Authentication happens at the TLS handshake (RFC 5246 / 8446) via the configured client certificate. Used by upstreams that map the cert's subject DN to an internal user identity (service mesh peers, PKI-fronted internal APIs, healthcare integration engines, financial messaging endpoints, FedRAMP services, etc.). |
 
+The OAuth config keys (`oauth_grant`, `oauth_token_url`, `oauth_authorization_url`, `oauth_client_id`, `oauth_client_secret`, `oauth_scope`, `oauth_prompt`, `oauth_endpoint_auth_style`) are shared with every other toolkit kind, so an OAuth connection is configured the same way regardless of kind. `oauth_scope` is a single space-delimited string (the OAuth 2.0 wire form).
+
 The OAuth 2.1 authorization-code grant completes via the platform's shared `/api/v1/admin/oauth/callback` endpoint, the same path the MCP gateway uses. Register that exact callback URL with the upstream IdP.
+
+> **Deprecated (still accepted).** Earlier api-gateway connections used an `oauth2_*` key prefix and encoded the grant in the `auth_mode` value (`oauth2_client_credentials` / `oauth2_authorization_code`), with `oauth2_scopes` as an array. Those are read as a fallback and rewritten to the canonical keys automatically by a database migration on upgrade; no reconnect is required. The fallback is scheduled for removal in a future release.
 
 ## Private CAs and mTLS
 
@@ -100,7 +103,7 @@ GET responses on `/api/v1/admin/connection-instances/api/{name}` include `mtls_c
 
 ### IdP behind a private CA
 
-When `auth_mode` is `oauth2_client_credentials` or `oauth2_authorization_code` and the IdP itself is signed by a private CA, set `tls_ca_bundle_pem` on the connection. The same bundle is honored by the token-exchange and refresh paths so token fetches succeed against private IdPs. Client mTLS material is NOT presented to the IdP; if your IdP requires a client cert at the token endpoint, that's a separate concern from upstream mTLS and is not yet supported.
+When `auth_mode` is `oauth` (either grant) and the IdP itself is signed by a private CA, set `tls_ca_bundle_pem` on the connection. The same bundle is honored by the token-exchange and refresh paths so token fetches succeed against private IdPs. Client mTLS material is NOT presented to the IdP; if your IdP requires a client cert at the token endpoint, that's a separate concern from upstream mTLS and is not yet supported.
 
 ### Configuring an mTLS connection
 
@@ -187,12 +190,13 @@ Google APIs that bill quota against a separate project use the `x-goog-user-proj
 ```json
 "config": {
   "base_url": "https://www.googleapis.com",
-  "auth_mode": "oauth2_authorization_code",
-  "oauth2_authorization_url": "https://accounts.google.com/o/oauth2/v2/auth",
-  "oauth2_token_url":         "https://oauth2.googleapis.com/token",
-  "oauth2_client_id":         "your-google-client-id",
-  "oauth2_client_secret":     "your-google-client-secret",
-  "oauth2_scopes":            ["https://www.googleapis.com/auth/drive.readonly"],
+  "auth_mode": "oauth",
+  "oauth_grant":             "authorization_code",
+  "oauth_authorization_url": "https://accounts.google.com/o/oauth2/v2/auth",
+  "oauth_token_url":         "https://oauth2.googleapis.com/token",
+  "oauth_client_id":         "your-google-client-id",
+  "oauth_client_secret":     "your-google-client-secret",
+  "oauth_scope":             "https://www.googleapis.com/auth/drive.readonly",
   "static_headers": {
     "x-goog-user-project": "your-quota-project-id"
   }
@@ -206,16 +210,17 @@ Salesforce's REST API typically does not need a second header, but the same shap
 ```json
 "config": {
   "base_url": "https://your-instance.my.salesforce.com",
-  "auth_mode": "oauth2_authorization_code",
-  "oauth2_authorization_url": "https://login.salesforce.com/services/oauth2/authorize",
-  "oauth2_token_url":         "https://login.salesforce.com/services/oauth2/token",
-  "oauth2_client_id":         "your-connected-app-consumer-key",
-  "oauth2_client_secret":     "your-connected-app-consumer-secret",
-  "oauth2_scopes":            ["api", "refresh_token"]
+  "auth_mode": "oauth",
+  "oauth_grant":             "authorization_code",
+  "oauth_authorization_url": "https://login.salesforce.com/services/oauth2/authorize",
+  "oauth_token_url":         "https://login.salesforce.com/services/oauth2/token",
+  "oauth_client_id":         "your-connected-app-consumer-key",
+  "oauth_client_secret":     "your-connected-app-consumer-secret",
+  "oauth_scope":             "api refresh_token"
 }
 ```
 
-Add `refresh_token` to `oauth2_scopes` so Salesforce issues a refresh token — without it, the platform cannot keep the connection alive across access-token expiry.
+Add `refresh_token` to `oauth_scope` so Salesforce issues a refresh token — without it, the platform cannot keep the connection alive across access-token expiry.
 
 ## Admin portal
 
