@@ -1,11 +1,70 @@
 package platform
 
 import (
+	"context"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/session"
+	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 )
+
+// fakeConnStore returns a fixed config for every Get so the reloader's
+// AddConnection branch is exercised.
+type fakeConnStore struct{ cfg map[string]any }
+
+func (fakeConnStore) List(context.Context) ([]ConnectionInstance, error) { return nil, nil }
+func (f fakeConnStore) Get(_ context.Context, kind, name string) (*ConnectionInstance, error) {
+	return &ConnectionInstance{Kind: kind, Name: name, Config: f.cfg}, nil
+}
+func (fakeConnStore) Set(context.Context, ConnectionInstance) error { return nil }
+func (fakeConnStore) Delete(context.Context, string, string) error  { return nil }
+func (fakeConnStore) Persistent() bool                              { return false }
+
+// TestPlatform_ReloadWiring exercises the platform-level reload methods:
+// dedicated-bus init (memory fallback, no db), the connection/catalog
+// reloaders against a live api-gateway toolkit, the publish methods, and
+// shutdown. It is the coverage counterpart to the bus-core unit tests.
+func TestPlatform_ReloadWiring(t *testing.T) {
+	reg := registry.NewRegistry()
+	apiTk := apigatewaykit.New("api")
+	if err := reg.Register(apiTk); err != nil {
+		t.Fatalf("register toolkit: %v", err)
+	}
+	p := &Platform{
+		config:          &Config{},
+		toolkitRegistry: reg,
+		connectionStore: fakeConnStore{cfg: map[string]any{"base_url": "https://x"}},
+	}
+
+	p.initReloadBus() // no db -> in-memory broadcaster
+	if p.reloadBus == nil || p.reloadBroadcaster == nil {
+		t.Fatal("initReloadBus did not wire the bus")
+	}
+
+	// Reloaders against the live toolkit (rebuild from the fake store).
+	p.reloadConnectionLocal("api", "c1")
+	if !apiTk.HasConnection("c1") {
+		t.Error("reloadConnectionLocal did not add the connection")
+	}
+	p.reloadConnectionLocal("mcp", "ignored") // wrong kind: no-op, exercises the skip
+	p.reloadCatalogLocal("cat-1")             // ReloadConnectionsByCatalog on the api toolkit
+
+	// Publish methods (memory bus; no subscriber needed for coverage).
+	p.PublishConnectionReload("api", "c1")
+	p.PublishCatalogReload("cat-1")
+
+	if origin := newReplicaOrigin(); !strings.Contains(origin, "-") {
+		t.Errorf("origin %q lacks the hostname-suffix shape", origin)
+	}
+
+	p.stopReloadBus() // cancel subscriber + close broadcaster
+
+	// Publish after stop must be safe (broadcaster closed).
+	p.PublishConnectionReload("api", "c1")
+}
 
 // recordingHandlers captures reload-handler invocations on buffered
 // channels so tests can assert delivery (or non-delivery) with a timeout.
