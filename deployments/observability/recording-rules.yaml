@@ -1,0 +1,65 @@
+# Starter Prometheus recording rules for mcp-data-platform, delivered as a plain
+# ConfigMap (no Helm, no Operator CRD). Mount the data key into your Prometheus
+# rule_files path, e.g.:
+#
+#   volumeMounts:
+#     - name: mcp-rules
+#       mountPath: /etc/prometheus/rules/mcp-data-platform
+#   volumes:
+#     - name: mcp-rules
+#       configMap:
+#         name: mcp-data-platform-recording-rules
+#
+# and reference it from prometheus.yml:
+#
+#   rule_files:
+#     - /etc/prometheus/rules/mcp-data-platform/*.yaml
+#
+# Recording-rule names follow the Prometheus level:metric:operations convention.
+# Pre-computing these keeps the portal dashboards and alerts off the raw
+# histograms on every evaluation.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mcp-data-platform-recording-rules
+  namespace: mcp-data-platform
+  labels:
+    app.kubernetes.io/name: mcp-data-platform
+    app.kubernetes.io/component: observability
+data:
+  recording-rules.yaml: |
+    groups:
+      - name: mcp-data-platform.recording
+        interval: 30s
+        rules:
+          # MCP tool-call p95 latency over 5m (all tools).
+          - record: mcp:tool_call_duration:p95_5m
+            expr: histogram_quantile(0.95, sum by (le) (rate(mcp_tool_call_duration_seconds_bucket[5m])))
+
+          # MCP tool-call error rate over 5m, per tool. status_category is the
+          # bounded label set by the tool-call middleware; anything other than
+          # "ok" counts as an error.
+          - record: mcp:tool_call_error_rate:5m
+            expr: |
+              sum by (tool) (rate(mcp_tool_calls_total{status_category!="ok"}[5m]))
+                /
+              sum by (tool) (rate(mcp_tool_calls_total[5m]))
+
+          # Inbound API gateway latency quantiles over 5m (all connections).
+          - record: apigateway:inbound_duration:p50_5m
+            expr: histogram_quantile(0.50, sum by (le) (rate(apigateway_inbound_duration_seconds_bucket[5m])))
+          - record: apigateway:inbound_duration:p95_5m
+            expr: histogram_quantile(0.95, sum by (le) (rate(apigateway_inbound_duration_seconds_bucket[5m])))
+          - record: apigateway:inbound_duration:p99_5m
+            expr: histogram_quantile(0.99, sum by (le) (rate(apigateway_inbound_duration_seconds_bucket[5m])))
+
+          # Inbound API gateway error rate over 5m, per connection (4xx + 5xx).
+          - record: apigateway:inbound_error_rate:5m
+            expr: |
+              sum by (connection) (rate(apigateway_inbound_requests_total{status_class=~"4xx|5xx"}[5m]))
+                /
+              sum by (connection) (rate(apigateway_inbound_requests_total[5m]))
+
+          # Outbound (upstream) API gateway p95 latency over 5m, per connection.
+          - record: apigateway:outbound_duration:p95_5m
+            expr: histogram_quantile(0.95, sum by (le, connection) (rate(apigateway_outbound_duration_seconds_bucket[5m])))

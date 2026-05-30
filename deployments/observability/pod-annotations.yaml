@@ -1,0 +1,34 @@
+# Example Deployment patch that makes the mcp-data-platform pods scrapable by a
+# Prometheus configured with the standard `kubernetes-pods` annotation-based
+# service discovery. Apply by merging these annotations into your existing
+# Deployment's pod template (spec.template.metadata.annotations), or apply this
+# file directly if it matches your Deployment name/namespace.
+#
+# The platform serves metrics on a dedicated listener (default :9090, path
+# /metrics) that is enabled by setting OTEL_METRICS_ENABLED=true. The port and
+# address come from OTEL_METRICS_ADDR (default ":9090"); keep the annotation
+# port in sync with it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-data-platform
+  namespace: mcp-data-platform
+spec:
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: mcp-data-platform
+          # The metrics listener is separate from the MCP/HTTP transport port.
+          ports:
+            - name: metrics
+              containerPort: 9090
+          env:
+            - name: OTEL_METRICS_ENABLED
+              value: "true"
+            - name: OTEL_METRICS_ADDR
+              value: ":9090"

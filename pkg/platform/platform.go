@@ -447,6 +447,9 @@ func (p *Platform) initDatabase() error {
 	}
 
 	p.db = db
+	// Report this pool's saturation stats under the "platform" label. All
+	// stores (connections, audit, OAuth, sessions) share this single handle.
+	p.metrics.RegisterDBPool(p.db, "platform")
 	slog.Info("database connected", "max_open_conns", p.config.Database.MaxOpenConns)
 
 	// Run database migrations
@@ -1380,6 +1383,7 @@ func (p *Platform) initOAuth() error {
 		return fmt.Errorf("creating OAuth server: %w", err)
 	}
 
+	server.SetMetrics(p.metrics)
 	p.oauthServer = server
 	return nil
 }
@@ -2673,6 +2677,10 @@ func (p *Platform) createSemanticProvider() (semantic.Provider, error) {
 			return nil, fmt.Errorf("creating datahub semantic provider: %w", err)
 		}
 
+		// Instrument before the cache wrap so DataHub request metrics are
+		// recorded on the underlying client, not skipped by cache hits.
+		adapter.SetMetrics(p.metrics)
+
 		// Wrap with caching if enabled
 		if p.config.Semantic.Cache.Enabled {
 			return semantic.NewCachedProvider(adapter, semantic.CacheConfig{
@@ -2719,6 +2727,7 @@ func (p *Platform) createQueryProvider() (query.Provider, error) {
 		if err != nil {
 			return nil, fmt.Errorf("creating trino query provider: %w", err)
 		}
+		adapter.SetMetrics(p.metrics)
 		return adapter, nil
 
 	case providerNoop, "":
@@ -2948,6 +2957,11 @@ func (p *Platform) Start(ctx context.Context) error {
 	if err := p.promptManager.LoadPrompts(); err != nil {
 		return fmt.Errorf("loading prompts: %w", err)
 	}
+
+	// Wire toolkit-level metrics BEFORE registering tools: the S3 toolkit
+	// installs its mcp-s3 metrics middleware in SetMetrics, which must be in
+	// place when RegisterAllTools registers the handlers.
+	p.WireToolkitMetrics()
 
 	// Register tools from all toolkits
 	p.toolkitRegistry.RegisterAllTools(p.mcpServer)

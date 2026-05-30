@@ -10,6 +10,7 @@ import (
 	s3client "github.com/txn2/mcp-s3/pkg/client"
 	s3tools "github.com/txn2/mcp-s3/pkg/tools"
 
+	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
@@ -59,6 +60,7 @@ type Toolkit struct {
 	config    Config
 	client    *s3client.Client
 	s3Toolkit *s3tools.Toolkit
+	metrics   *observability.Metrics
 
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
@@ -73,7 +75,7 @@ func New(name string, cfg Config) (*Toolkit, error) {
 		return nil, err
 	}
 
-	s3Toolkit := createToolkit(client, cfg)
+	s3Toolkit := createToolkit(client, cfg, nil)
 
 	return &Toolkit{
 		name:      name,
@@ -126,9 +128,15 @@ func createClient(cfg Config) (*s3client.Client, error) {
 	return client, nil
 }
 
-// createToolkit creates the mcp-s3 toolkit with appropriate options.
-func createToolkit(client *s3client.Client, cfg Config) *s3tools.Toolkit {
+// createToolkit creates the mcp-s3 toolkit with appropriate options. When
+// metrics is enabled, a metrics middleware is installed so every S3 tool
+// execution records an s3_operations observation; it must be present before
+// the toolkit registers its handlers (see Toolkit.SetMetrics).
+func createToolkit(client *s3client.Client, cfg Config, metrics *observability.Metrics) *s3tools.Toolkit {
 	var opts []s3tools.Option
+	if metrics.Enabled() {
+		opts = append(opts, s3tools.WithMiddleware(newMetricsMiddleware(metrics)))
+	}
 	opts = append(opts, s3tools.WithReadOnly(cfg.ReadOnly))
 	if cfg.MaxGetSize > 0 {
 		opts = append(opts, s3tools.WithMaxGetSize(cfg.MaxGetSize))

@@ -1,0 +1,76 @@
+# Starter Prometheus alert rules for mcp-data-platform, delivered as a plain
+# ConfigMap (no Helm, no Operator CRD). Mount and reference it the same way as
+# recording-rules.yaml. Thresholds are conservative starting points; tune them
+# to your traffic before relying on them for paging.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mcp-data-platform-alert-rules
+  namespace: mcp-data-platform
+  labels:
+    app.kubernetes.io/name: mcp-data-platform
+    app.kubernetes.io/component: observability
+data:
+  alert-rules.yaml: |
+    groups:
+      - name: mcp-data-platform.alerts
+        rules:
+          # High inbound 5xx rate on a connection sustained over 5m.
+          - alert: APIGatewayHigh5xxRate
+            expr: |
+              sum by (connection) (rate(apigateway_inbound_requests_total{status_class="5xx"}[5m]))
+                /
+              sum by (connection) (rate(apigateway_inbound_requests_total[5m]))
+                > 0.05
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High inbound 5xx rate on connection {{ $labels.connection }}"
+              description: "More than 5% of inbound requests to {{ $labels.connection }} returned 5xx over the last 5m."
+
+          # Inbound p95 latency regressed vs its own trailing 1h baseline.
+          - alert: APIGatewayInboundLatencyRegression
+            expr: apigateway:inbound_duration:p95_5m > 2 * (apigateway:inbound_duration:p95_5m offset 1h)
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Inbound API gateway p95 latency regression"
+              description: "Inbound p95 latency is more than 2x its value 1h ago, sustained for 10m."
+
+          # Authentication/authorization failure spike of any kind over 5m,
+          # across MCP tool calls and OAuth token issuance/refresh.
+          - alert: AuthFailureSpike
+            expr: |
+              sum (rate(mcp_tool_calls_total{status_category=~"auth_err|authz_err"}[5m]))
+                + sum (rate(oauth_token_issuance_total{status!="ok"}[5m]))
+                + sum (rate(oauth_token_refresh_total{status!="ok"}[5m]))
+                > 1
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Authentication/authorization failure spike"
+              description: "Combined auth/authz failure rate exceeded 1/s over the last 5m."
+
+          # Database connection pool saturation: waits accumulating means the
+          # pool's max-open limit is being hit and requests are blocking.
+          - alert: DBPoolSaturation
+            expr: rate(db_pool_wait_count_total[5m]) > 0
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Database pool {{ $labels.pool }} is saturating"
+              description: "Connections are waiting for the {{ $labels.pool }} pool over the last 10m; consider raising max_open_conns."
+
+          # The platform target is down (not scrapable).
+          - alert: MCPDataPlatformDown
+            expr: up{job="mcp-data-platform"} == 0
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "mcp-data-platform target is down"
+              description: "Prometheus has not been able to scrape the mcp-data-platform target for 2m."
