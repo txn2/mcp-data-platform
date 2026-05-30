@@ -163,8 +163,8 @@ func ParseConfig(kind, name string, cfg map[string]any) (Config, error) {
 func resolveGrant(cfg map[string]any, legacy *bool) (string, error) {
 	if g := getStringValue(cfg, ConfigKeyGrant); g != "" {
 		if g != GrantAuthorizationCode && g != GrantClientCredentials {
-			return "", fmt.Errorf("%w: unknown oauth_grant %q (want %q or %q)",
-				ErrInvalidConfig, g, GrantAuthorizationCode, GrantClientCredentials)
+			return "", fmt.Errorf("unknown oauth_grant %q (want %q or %q): %w",
+				g, GrantAuthorizationCode, GrantClientCredentials, ErrInvalidConfig)
 		}
 		return g, nil
 	}
@@ -178,7 +178,7 @@ func resolveGrant(cfg map[string]any, legacy *bool) (string, error) {
 	case AuthModeOAuth, "":
 		return GrantClientCredentials, nil
 	default:
-		return "", fmt.Errorf("%w: cannot derive oauth grant from auth_mode %q", ErrInvalidConfig, mode)
+		return "", fmt.Errorf("cannot derive oauth grant from auth_mode %q: %w", mode, ErrInvalidConfig)
 	}
 }
 
@@ -189,7 +189,7 @@ func resolveScopes(cfg map[string]any, legacy *bool) ([]string, error) {
 	if raw, ok := cfg[ConfigKeyScope]; ok {
 		s, ok := raw.(string)
 		if !ok {
-			return nil, fmt.Errorf("%w: %s must be a space-delimited string", ErrInvalidConfig, ConfigKeyScope)
+			return nil, fmt.Errorf("config key %s must be a space-delimited string: %w", ConfigKeyScope, ErrInvalidConfig)
 		}
 		return strings.Fields(s), nil
 	}
@@ -213,13 +213,13 @@ func coerceScopeArray(raw any) ([]string, error) {
 		for _, e := range v {
 			s, ok := e.(string)
 			if !ok {
-				return nil, fmt.Errorf("%w: %s elements must be strings", ErrInvalidConfig, legacyKeyScopes)
+				return nil, fmt.Errorf("config key %s elements must be strings: %w", legacyKeyScopes, ErrInvalidConfig)
 			}
 			out = append(out, s)
 		}
 		return out, nil
 	default:
-		return nil, fmt.Errorf("%w: %s must be an array of strings", ErrInvalidConfig, legacyKeyScopes)
+		return nil, fmt.Errorf("config key %s must be an array of strings: %w", legacyKeyScopes, ErrInvalidConfig)
 	}
 }
 
@@ -242,8 +242,8 @@ func resolveAuthStyle(cfg map[string]any, legacy *bool) (oauth2.AuthStyle, error
 	case AuthStyleParams:
 		return oauth2.AuthStyleInParams, nil
 	default:
-		return oauth2.AuthStyleInHeader, fmt.Errorf("%w: unknown %s %q (want %q or %q)",
-			ErrInvalidConfig, ConfigKeyEndpointAuthStyle, s, AuthStyleHeader, AuthStyleParams)
+		return oauth2.AuthStyleInHeader, fmt.Errorf("unknown %s %q (want %q or %q): %w",
+			ConfigKeyEndpointAuthStyle, s, AuthStyleHeader, AuthStyleParams, ErrInvalidConfig)
 	}
 }
 

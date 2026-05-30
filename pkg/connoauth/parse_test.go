@@ -217,7 +217,7 @@ func TestParseConfig_DeprecationWarnOncePerConnection(t *testing.T) {
 	}
 	// Use unique names so this test is independent of any other test
 	// that may have populated the package-level dedup map.
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		if _, err := ParseConfig("api", "warn-once-conn", legacyCfg); err != nil {
 			t.Fatalf("ParseConfig: %v", err)
 		}
