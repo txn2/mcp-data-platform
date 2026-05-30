@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -255,6 +256,39 @@ func TestMemoryStore_UpsertSpec_RejectsInvalidBasePath(t *testing.T) {
 	}
 	if !errors.Is(err, ErrInvalidBasePath) {
 		t.Errorf("err=%v want errors.Is ErrInvalidBasePath", err)
+	}
+}
+
+// TestMemoryStore_UpsertSpec_TitleAndDescription proves the operator
+// summary overrides round-trip (normalized: trimmed) and an over-cap
+// value is rejected with ErrInvalidSpecMetadata, matching the
+// PostgresStore behavior.
+func TestMemoryStore_UpsertSpec_TitleAndDescription(t *testing.T) {
+	s := NewMemoryStore()
+	_ = s.CreateCatalog(context.Background(), Catalog{ID: "p", Name: "p", DisplayName: "P"})
+	if err := s.UpsertSpec(context.Background(), "p", SpecEntry{
+		SpecName: "default", Content: "x", SourceKind: SourceInline,
+		Title: "  Orders API  ", Description: "Manage orders",
+	}); err != nil {
+		t.Fatalf("UpsertSpec: %v", err)
+	}
+	got, err := s.GetSpec(context.Background(), "p", "default")
+	if err != nil {
+		t.Fatalf("GetSpec: %v", err)
+	}
+	if got.Title != "Orders API" {
+		t.Errorf("title=%q want trimmed %q", got.Title, "Orders API")
+	}
+	if got.Description != "Manage orders" {
+		t.Errorf("description=%q want %q", got.Description, "Manage orders")
+	}
+
+	err = s.UpsertSpec(context.Background(), "p", SpecEntry{
+		SpecName: "bad", Content: "x", SourceKind: SourceInline,
+		Description: strings.Repeat("x", 2001),
+	})
+	if !errors.Is(err, ErrInvalidSpecMetadata) {
+		t.Errorf("err=%v want errors.Is ErrInvalidSpecMetadata", err)
 	}
 }
 

@@ -724,6 +724,13 @@ export interface APICatalogSpec {
   // the derivation. See pkg/toolkits/apigateway/catalog
   // NormalizeBasePath for the validation rules.
   base_path?: string;
+  // Operator-set per-spec summary overrides surfaced by api_list_specs
+  // and the multi-spec gate on api_list_endpoints. Empty means "derive
+  // from the spec's info.title / info.description". See catalog
+  // NormalizeSpecTitle / NormalizeSpecDescription for the rules
+  // (trimmed, no CR/LF/NUL, capped at 200 / 2000 chars).
+  title?: string;
+  description?: string;
   last_fetched_at?: string;
   created_at?: string;
   updated_at?: string;
@@ -898,6 +905,8 @@ export function useUpsertAPICatalogSpec() {
       content?: string;
       source_url?: string;
       base_path?: string;
+      title?: string;
+      description?: string;
     }) =>
       apiFetch<APICatalogSpec>(
         `/api-catalogs/${catalogID}/specs/${specName}`,
@@ -920,17 +929,23 @@ export function useUploadAPICatalogSpec() {
       specName,
       file,
       base_path,
+      title,
+      description,
     }: {
       catalogID: string;
       specName: string;
       file: File;
       base_path?: string;
+      title?: string;
+      description?: string;
     }) => {
       const form = new FormData();
       form.append("file", file);
-      const qs = base_path && base_path.trim() !== ""
-        ? `?base_path=${encodeURIComponent(base_path.trim())}`
-        : "";
+      const params = new URLSearchParams();
+      if (base_path && base_path.trim() !== "") params.set("base_path", base_path.trim());
+      if (title && title.trim() !== "") params.set("title", title.trim());
+      if (description && description.trim() !== "") params.set("description", description.trim());
+      const qs = params.toString() ? `?${params.toString()}` : "";
       const res = await apiFetchRaw(
         `/api-catalogs/${catalogID}/specs/${specName}/upload${qs}`,
         { method: "PUT", body: form },

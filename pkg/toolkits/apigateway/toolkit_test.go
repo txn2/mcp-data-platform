@@ -194,7 +194,7 @@ func TestClose_TolerantOfClosedConnections(t *testing.T) {
 func TestTools_NamesInvokeAndListEndpoints(t *testing.T) {
 	tk := New("test")
 	tools := tk.Tools()
-	want := []string{ToolInvokeEndpoint, ToolListEndpoints, ToolGetEndpointSchema}
+	want := []string{ToolInvokeEndpoint, ToolListEndpoints, ToolListSpecs, ToolGetEndpointSchema}
 	if len(tools) != len(want) {
 		t.Fatalf("Tools() = %v; want %v", tools, want)
 	}

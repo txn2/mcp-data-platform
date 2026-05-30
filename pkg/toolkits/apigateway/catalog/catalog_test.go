@@ -122,3 +122,64 @@ func TestNormalizeBasePath(t *testing.T) {
 		})
 	}
 }
+
+func TestNormalizeSpecTitle(t *testing.T) {
+	cases := []struct {
+		name    string
+		in      string
+		want    string
+		wantErr bool
+	}{
+		{"empty stays empty", "", "", false},
+		{"trimmed", "  Orders API  ", "Orders API", false},
+		{"whitespace only becomes empty", "   ", "", false},
+		{"at cap", strings.Repeat("x", 200), strings.Repeat("x", 200), false},
+		{"over cap", strings.Repeat("x", 201), "", true},
+		{"CR rejected", "a\rb", "", true},
+		{"LF rejected", "a\nb", "", true},
+		{"NUL rejected", "a\x00b", "", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := NormalizeSpecTitle(c.in)
+			if (err != nil) != c.wantErr {
+				t.Fatalf("err=%v wantErr=%v", err, c.wantErr)
+			}
+			if c.wantErr && !errors.Is(err, ErrInvalidSpecMetadata) {
+				t.Errorf("err=%v want errors.Is ErrInvalidSpecMetadata", err)
+			}
+			if !c.wantErr && got != c.want {
+				t.Errorf("got %q want %q", got, c.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeSpecDescription(t *testing.T) {
+	cases := []struct {
+		name    string
+		in      string
+		want    string
+		wantErr bool
+	}{
+		{"empty stays empty", "", "", false},
+		{"trimmed", "  manage orders  ", "manage orders", false},
+		{"at cap", strings.Repeat("x", 2000), strings.Repeat("x", 2000), false},
+		{"over cap", strings.Repeat("x", 2001), "", true},
+		{"LF rejected", "line1\nline2", "", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := NormalizeSpecDescription(c.in)
+			if (err != nil) != c.wantErr {
+				t.Fatalf("err=%v wantErr=%v", err, c.wantErr)
+			}
+			if c.wantErr && !errors.Is(err, ErrInvalidSpecMetadata) {
+				t.Errorf("err=%v want errors.Is ErrInvalidSpecMetadata", err)
+			}
+			if !c.wantErr && got != c.want {
+				t.Errorf("got %q want %q", got, c.want)
+			}
+		})
+	}
+}

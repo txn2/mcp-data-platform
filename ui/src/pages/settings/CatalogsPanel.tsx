@@ -1131,6 +1131,8 @@ function SpecModal({
   const [content, setContent] = useState("");
   const [sourceURL, setSourceURL] = useState("");
   const [basePath, setBasePath] = useState("");
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -1145,6 +1147,8 @@ function SpecModal({
       setTab("url");
     }
     setBasePath(existing.base_path ?? "");
+    setTitle(existing.title ?? "");
+    setDescription(existing.description ?? "");
   }, [existing]);
 
   const submit = useCallback(async () => {
@@ -1161,6 +1165,8 @@ function SpecModal({
           source_kind: "inline",
           content,
           base_path: basePath.trim(),
+          title: title.trim(),
+          description: description.trim(),
         });
       } else if (tab === "url") {
         await upsert.mutateAsync({
@@ -1169,6 +1175,8 @@ function SpecModal({
           source_kind: "url",
           source_url: sourceURL,
           base_path: basePath.trim(),
+          title: title.trim(),
+          description: description.trim(),
         });
       } else if (tab === "upload") {
         if (!file) {
@@ -1184,13 +1192,15 @@ function SpecModal({
           specName,
           file,
           base_path: basePath.trim(),
+          title: title.trim(),
+          description: description.trim(),
         });
       }
       onSaved();
     } catch (e) {
       setError(e instanceof Error ? e.message : "save failed");
     }
-  }, [catalogID, specName, tab, content, sourceURL, basePath, file, upsert, upload, onSaved]);
+  }, [catalogID, specName, tab, content, sourceURL, basePath, title, description, file, upsert, upload, onSaved]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -1290,6 +1300,23 @@ function SpecModal({
             onChange={setBasePath}
             placeholder="/v1"
             mono
+          />
+
+          <LabeledInput
+            label="Title (optional)"
+            help="Short label for this spec shown in api_list_specs and the multi-spec gate on api_list_endpoints, so the agent can pick the right section. When empty, the toolkit derives it from the spec's info.title. Set this to override an unhelpful title or give a deployment-specific name. Max 200 characters."
+            value={title}
+            onChange={setTitle}
+            placeholder="Orders API"
+          />
+
+          <LabeledTextarea
+            label="Description (optional)"
+            help="One- or two-sentence summary shown alongside the title in api_list_specs. When empty, the toolkit derives it from the spec's info.description. Set this when the spec ships without a useful description. Max 2000 characters."
+            value={description}
+            onChange={setDescription}
+            placeholder="Create, list, and refund orders."
+            rows={3}
           />
 
           {error && (
