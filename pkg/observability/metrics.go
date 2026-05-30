@@ -2,6 +2,7 @@ package observability
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"sync"
@@ -51,7 +52,62 @@ const (
 	instAPIGwOutboundLatency = "apigateway_outbound_duration"
 	instAPIGwInbound         = "apigateway_inbound_requests"
 	instAPIGwInboundLatency  = "apigateway_inbound_duration"
+
+	// Toolkit and provider instruments (issue #461). Exposed names add the
+	// "_total" / "_seconds" suffixes the Prometheus exporter appends:
+	//   - trino_queries_total{status, query_kind}
+	//   - trino_query_duration_seconds{query_kind}
+	//   - datahub_requests_total{operation, status}
+	//   - datahub_request_duration_seconds{operation}
+	//   - s3_operations_total{operation, status}
+	//   - s3_operation_duration_seconds{operation}
+	//   - oauth_token_issuance_total{grant_type, status}
+	//   - oauth_token_refresh_total{status}
+	//   - oauth_token_refresh_duration_seconds
+	//
+	// NOTE: trino_bytes_scanned_total from the original acceptance criteria is
+	// NOT implemented: mcp-trino v1.3.0 QueryStats exposes row_count, duration,
+	// truncated, limit_applied, and query_id but no bytes-scanned figure, so
+	// there is no honest source for it. Revisit if the upstream client adds it.
+	instTrinoQueries        = "trino_queries"
+	instTrinoQueryDuration  = "trino_query_duration"
+	instDataHubRequests     = "datahub_requests"
+	instDataHubReqDuration  = "datahub_request_duration"
+	instS3Operations        = "s3_operations"
+	instS3OpDuration        = "s3_operation_duration"
+	instOAuthIssuance       = "oauth_token_issuance"
+	instOAuthRefresh        = "oauth_token_refresh"
+	instOAuthRefreshLatency = "oauth_token_refresh_duration"
+
+	// DB connection-pool instruments (issue #461), observed at scrape time
+	// from (*sql.DB).Stats() via a single registered callback. Exposed names:
+	//   - db_pool_open_connections{pool}
+	//   - db_pool_in_use{pool}
+	//   - db_pool_idle{pool}
+	//   - db_pool_wait_count_total{pool}
+	//   - db_pool_wait_duration_seconds_total{pool}
+	instDBPoolOpen         = "db_pool_open_connections"
+	instDBPoolInUse        = "db_pool_in_use"
+	instDBPoolIdle         = "db_pool_idle"
+	instDBPoolWaitCount    = "db_pool_wait_count"
+	instDBPoolWaitDuration = "db_pool_wait_duration"
 )
+
+// unitSeconds is the OTel unit for duration histograms; the Prometheus exporter
+// turns it into the "_seconds" name suffix.
+const unitSeconds = "s"
+
+// UpstreamStatus maps an error from an external dependency (Trino, DataHub, S3,
+// an IdP) to a bounded status label: nil is StatusOK, anything else is
+// StatusUpstreamErr. It reuses the platform's existing status taxonomy
+// (see status.go) rather than introducing a parallel client_err/server_err set.
+// Call sites with an HTTP status code should use HTTPStatusCategory instead.
+func UpstreamStatus(err error) string {
+	if err == nil {
+		return StatusOK
+	}
+	return StatusUpstreamErr
+}
 
 // Histogram bucket boundaries (seconds). Tuned for tool-call and
 // outbound-HTTP latencies the platform actually serves: most calls
@@ -77,6 +133,12 @@ const (
 	attrMethod         = "method"
 	attrStatusClass    = "status_class"
 	attrIdentity       = "identity"
+	// Toolkit / provider metric attribute keys (issue #461).
+	attrStatus    = "status"
+	attrQueryKind = "query_kind"
+	attrOperation = "operation"
+	attrGrantType = "grant_type"
+	attrPool      = "pool"
 )
 
 // ToolCallAttrs is the bounded label set for tool-call metrics. The
@@ -135,6 +197,30 @@ type Metrics struct {
 	apigwInboundTotal     metric.Int64Counter
 	apigwInboundDuration  metric.Float64Histogram
 
+	// Toolkit / provider instruments (issue #461).
+	trinoQueriesTotal    metric.Int64Counter
+	trinoQueryDuration   metric.Float64Histogram
+	datahubRequestsTotal metric.Int64Counter
+	datahubReqDuration   metric.Float64Histogram
+	s3OperationsTotal    metric.Int64Counter
+	s3OpDuration         metric.Float64Histogram
+	oauthIssuanceTotal   metric.Int64Counter
+	oauthRefreshTotal    metric.Int64Counter
+	oauthRefreshDuration metric.Float64Histogram
+
+	// DB connection-pool instruments, observed at scrape time from each
+	// registered pool's (*sql.DB).Stats(). The five instruments and the
+	// callback are registered exactly once at New(); RegisterDBPool only
+	// appends to dbPools, which the callback iterates under dbMu.
+	meter         metric.Meter
+	dbPoolOpen    metric.Int64ObservableGauge
+	dbPoolInUse   metric.Int64ObservableGauge
+	dbPoolIdle    metric.Int64ObservableGauge
+	dbPoolWaitCnt metric.Int64ObservableCounter
+	dbPoolWaitDur metric.Float64ObservableCounter
+	dbMu          sync.RWMutex
+	dbPools       []registeredPool
+
 	// shutdownFn calls into the underlying provider. Indirected so
 	// tests can simulate a provider that returns an error on Shutdown
 	// without needing the SDK to misbehave.
@@ -188,6 +274,7 @@ func New(cfg Config) (*Metrics, error) {
 		cfg:      cfg,
 		provider: provider,
 		registry: reg,
+		meter:    meter,
 		handler: promhttp.HandlerFor(reg, promhttp.HandlerOpts{
 			ErrorHandling: promhttp.HTTPErrorOnError,
 			// EnableOpenMetrics off — the counter "_total"
@@ -223,6 +310,17 @@ func durationHistogramView() sdkmetric.View {
 // registration failure so callers can grep on a single prefix.
 const instErrFmt = "observability: %s: %w"
 
+// wrapReg wraps an instrument-registration error with its name (or returns nil).
+// Centralizing the wrap lets the registration closures return a single
+// same-package value instead of a raw meter error, so there is one wrapped
+// error path rather than one per instrument.
+func wrapReg(name string, err error) error {
+	if err != nil {
+		return fmt.Errorf(instErrFmt, name, err)
+	}
+	return nil
+}
+
 func (m *Metrics) registerInstruments(meter metric.Meter) error {
 	var err error
 	m.toolCallsTotal, err = meter.Int64Counter(
@@ -235,7 +333,7 @@ func (m *Metrics) registerInstruments(meter metric.Meter) error {
 	m.toolCallDuration, err = meter.Float64Histogram(
 		instToolCallDuration,
 		metric.WithDescription("End-to-end MCP tool call latency in seconds, measured at the tool-call middleware."),
-		metric.WithUnit("s"),
+		metric.WithUnit(unitSeconds),
 	)
 	if err != nil {
 		return fmt.Errorf(instErrFmt, instToolCallDuration, err)
@@ -257,7 +355,7 @@ func (m *Metrics) registerInstruments(meter metric.Meter) error {
 	m.apigwOutboundDuration, err = meter.Float64Histogram(
 		instAPIGwOutboundLatency,
 		metric.WithDescription("Outbound HTTP call latency in seconds, measured at the apigateway transport."),
-		metric.WithUnit("s"),
+		metric.WithUnit(unitSeconds),
 	)
 	if err != nil {
 		return fmt.Errorf(instErrFmt, instAPIGwOutboundLatency, err)
@@ -272,10 +370,82 @@ func (m *Metrics) registerInstruments(meter metric.Meter) error {
 	m.apigwInboundDuration, err = meter.Float64Histogram(
 		instAPIGwInboundLatency,
 		metric.WithDescription("Inbound HTTP request latency in seconds, measured at the apigateway REST shim, labeled by connection, operation_id, method, and status_class."),
-		metric.WithUnit("s"),
+		metric.WithUnit(unitSeconds),
 	)
 	if err != nil {
 		return fmt.Errorf(instErrFmt, instAPIGwInboundLatency, err)
+	}
+	if err := m.registerToolkitInstruments(meter); err != nil {
+		return err
+	}
+	return m.registerDBPoolInstruments(meter)
+}
+
+// registerToolkitInstruments registers the Trino/DataHub/S3/OAuth instruments
+// (issue #461). Each instrument's construction is a closure; a single loop runs
+// them and wraps the first failure, so there is one error path rather than one
+// per instrument.
+func (m *Metrics) registerToolkitInstruments(meter metric.Meter) error {
+	regs := []func() error{
+		func() error {
+			v, err := meter.Int64Counter(instTrinoQueries,
+				metric.WithDescription("Total Trino queries executed through the platform's Trino toolkit, labeled by status and query_kind."))
+			m.trinoQueriesTotal = v
+			return wrapReg(instTrinoQueries, err)
+		},
+		func() error {
+			v, err := meter.Float64Histogram(instTrinoQueryDuration,
+				metric.WithDescription("Trino query latency in seconds, labeled by query_kind."), metric.WithUnit(unitSeconds))
+			m.trinoQueryDuration = v
+			return wrapReg(instTrinoQueryDuration, err)
+		},
+		func() error {
+			v, err := meter.Int64Counter(instDataHubRequests,
+				metric.WithDescription("Total DataHub requests made by the semantic provider, labeled by operation and status."))
+			m.datahubRequestsTotal = v
+			return wrapReg(instDataHubRequests, err)
+		},
+		func() error {
+			v, err := meter.Float64Histogram(instDataHubReqDuration,
+				metric.WithDescription("DataHub request latency in seconds, labeled by operation."), metric.WithUnit(unitSeconds))
+			m.datahubReqDuration = v
+			return wrapReg(instDataHubReqDuration, err)
+		},
+		func() error {
+			v, err := meter.Int64Counter(instS3Operations,
+				metric.WithDescription("Total S3 operations performed by the S3 toolkit, labeled by operation and status."))
+			m.s3OperationsTotal = v
+			return wrapReg(instS3Operations, err)
+		},
+		func() error {
+			v, err := meter.Float64Histogram(instS3OpDuration,
+				metric.WithDescription("S3 operation latency in seconds, labeled by operation."), metric.WithUnit(unitSeconds))
+			m.s3OpDuration = v
+			return wrapReg(instS3OpDuration, err)
+		},
+		func() error {
+			v, err := meter.Int64Counter(instOAuthIssuance,
+				metric.WithDescription("Total OAuth token issuances, labeled by grant_type and status."))
+			m.oauthIssuanceTotal = v
+			return wrapReg(instOAuthIssuance, err)
+		},
+		func() error {
+			v, err := meter.Int64Counter(instOAuthRefresh,
+				metric.WithDescription("Total OAuth token refreshes, labeled by status."))
+			m.oauthRefreshTotal = v
+			return wrapReg(instOAuthRefresh, err)
+		},
+		func() error {
+			v, err := meter.Float64Histogram(instOAuthRefreshLatency,
+				metric.WithDescription("OAuth token refresh latency in seconds."), metric.WithUnit(unitSeconds))
+			m.oauthRefreshDuration = v
+			return wrapReg(instOAuthRefreshLatency, err)
+		},
+	}
+	for _, fn := range regs {
+		if err := fn(); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -383,4 +553,163 @@ func (m *Metrics) RecordAPIGatewayInbound(ctx context.Context, attrs APIGatewayI
 	)
 	m.apigwInboundTotal.Add(ctx, 1, counterSet)
 	m.apigwInboundDuration.Record(ctx, duration.Seconds(), histSet)
+}
+
+// registeredPool pairs a *sql.DB with the bounded pool label it reports under.
+type registeredPool struct {
+	db   *sql.DB
+	name string
+}
+
+// registerDBPoolInstruments creates the five DB-pool observable instruments and
+// registers a single callback that, on each scrape, reads (*sql.DB).Stats() for
+// every pool registered via RegisterDBPool. The callback is registered exactly
+// once here; RegisterDBPool only appends to the observed set.
+func (m *Metrics) registerDBPoolInstruments(meter metric.Meter) error {
+	regs := []func() error{
+		func() error {
+			v, err := meter.Int64ObservableGauge(instDBPoolOpen,
+				metric.WithDescription("Open connections in the database pool (in use + idle), labeled by pool."))
+			m.dbPoolOpen = v
+			return wrapReg(instDBPoolOpen, err)
+		},
+		func() error {
+			v, err := meter.Int64ObservableGauge(instDBPoolInUse,
+				metric.WithDescription("Connections currently in use, labeled by pool."))
+			m.dbPoolInUse = v
+			return wrapReg(instDBPoolInUse, err)
+		},
+		func() error {
+			v, err := meter.Int64ObservableGauge(instDBPoolIdle,
+				metric.WithDescription("Idle connections in the database pool, labeled by pool."))
+			m.dbPoolIdle = v
+			return wrapReg(instDBPoolIdle, err)
+		},
+		func() error {
+			v, err := meter.Int64ObservableCounter(instDBPoolWaitCount,
+				metric.WithDescription("Cumulative count of waits for a database connection, labeled by pool."))
+			m.dbPoolWaitCnt = v
+			return wrapReg(instDBPoolWaitCount, err)
+		},
+		func() error {
+			v, err := meter.Float64ObservableCounter(instDBPoolWaitDuration,
+				metric.WithDescription("Cumulative time blocked waiting for a database connection, in seconds, labeled by pool."),
+				metric.WithUnit(unitSeconds))
+			m.dbPoolWaitDur = v
+			return wrapReg(instDBPoolWaitDuration, err)
+		},
+	}
+	for _, fn := range regs {
+		if err := fn(); err != nil {
+			return err
+		}
+	}
+	if _, err := meter.RegisterCallback(m.observeDBPools,
+		m.dbPoolOpen, m.dbPoolInUse, m.dbPoolIdle, m.dbPoolWaitCnt, m.dbPoolWaitDur); err != nil {
+		return fmt.Errorf(instErrFmt, "db_pool callback", err)
+	}
+	return nil
+}
+
+// observeDBPools is the scrape-time callback that reports each registered
+// pool's stats. Nil-safe receiver is not required (only registered when m != nil).
+func (m *Metrics) observeDBPools(_ context.Context, o metric.Observer) error {
+	m.dbMu.RLock()
+	defer m.dbMu.RUnlock()
+	for _, p := range m.dbPools {
+		s := p.db.Stats()
+		set := metric.WithAttributes(attribute.String(attrPool, p.name))
+		o.ObserveInt64(m.dbPoolOpen, int64(s.OpenConnections), set)
+		o.ObserveInt64(m.dbPoolInUse, int64(s.InUse), set)
+		o.ObserveInt64(m.dbPoolIdle, int64(s.Idle), set)
+		o.ObserveInt64(m.dbPoolWaitCnt, s.WaitCount, set)
+		o.ObserveFloat64(m.dbPoolWaitDur, s.WaitDuration.Seconds(), set)
+	}
+	return nil
+}
+
+// RegisterDBPool adds a *sql.DB to the set whose pool stats are reported on each
+// scrape under the given pool label. Call once per managed handle at startup.
+// Nil-safe (no-op when metrics are disabled or db is nil); ignores a duplicate
+// pool name so a double-registration cannot double-observe the same series.
+func (m *Metrics) RegisterDBPool(db *sql.DB, name string) {
+	if m == nil || db == nil {
+		return
+	}
+	m.dbMu.Lock()
+	defer m.dbMu.Unlock()
+	for _, p := range m.dbPools {
+		if p.name == name {
+			return
+		}
+	}
+	m.dbPools = append(m.dbPools, registeredPool{db: db, name: name})
+}
+
+// RecordTrinoQuery records one Trino query observation. status is one of the
+// bounded status constants (see status.go); query_kind is a bounded label such
+// as the SQL verb or the originating tool. Nil-safe.
+func (m *Metrics) RecordTrinoQuery(ctx context.Context, status, queryKind string, duration time.Duration) {
+	if m == nil {
+		return
+	}
+	m.trinoQueriesTotal.Add(ctx, 1, metric.WithAttributes(
+		attribute.String(attrStatus, status),
+		attribute.String(attrQueryKind, queryKind),
+	))
+	m.trinoQueryDuration.Record(ctx, duration.Seconds(),
+		metric.WithAttributes(attribute.String(attrQueryKind, queryKind)))
+}
+
+// RecordDataHubRequest records one DataHub request observation. operation is a
+// bounded label (get_entity, get_schema, get_lineage, get_glossary_term,
+// search_tables, ...); status is a bounded status constant. Nil-safe.
+func (m *Metrics) RecordDataHubRequest(ctx context.Context, operation, status string, duration time.Duration) {
+	if m == nil {
+		return
+	}
+	m.datahubRequestsTotal.Add(ctx, 1, metric.WithAttributes(
+		attribute.String(attrOperation, operation),
+		attribute.String(attrStatus, status),
+	))
+	m.datahubReqDuration.Record(ctx, duration.Seconds(),
+		metric.WithAttributes(attribute.String(attrOperation, operation)))
+}
+
+// RecordS3Operation records one S3 operation observation. operation is the S3
+// tool/op name (list_buckets, get_object, ...); status is a bounded status
+// constant. Nil-safe.
+func (m *Metrics) RecordS3Operation(ctx context.Context, operation, status string, duration time.Duration) {
+	if m == nil {
+		return
+	}
+	m.s3OperationsTotal.Add(ctx, 1, metric.WithAttributes(
+		attribute.String(attrOperation, operation),
+		attribute.String(attrStatus, status),
+	))
+	m.s3OpDuration.Record(ctx, duration.Seconds(),
+		metric.WithAttributes(attribute.String(attrOperation, operation)))
+}
+
+// RecordOAuthIssuance records one OAuth token issuance. grantType is the OAuth
+// grant (authorization_code, client_credentials, refresh_token); status is a
+// bounded status constant. Nil-safe.
+func (m *Metrics) RecordOAuthIssuance(ctx context.Context, grantType, status string) {
+	if m == nil {
+		return
+	}
+	m.oauthIssuanceTotal.Add(ctx, 1, metric.WithAttributes(
+		attribute.String(attrGrantType, grantType),
+		attribute.String(attrStatus, status),
+	))
+}
+
+// RecordOAuthRefresh records one OAuth token refresh outcome and its latency.
+// status is a bounded status constant. Nil-safe.
+func (m *Metrics) RecordOAuthRefresh(ctx context.Context, status string, duration time.Duration) {
+	if m == nil {
+		return
+	}
+	m.oauthRefreshTotal.Add(ctx, 1, metric.WithAttributes(attribute.String(attrStatus, status)))
+	m.oauthRefreshDuration.Record(ctx, duration.Seconds())
 }

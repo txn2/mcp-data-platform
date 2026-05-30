@@ -16,6 +16,8 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
+
+	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
 
 // Token and crypto size constants.
@@ -139,7 +141,13 @@ type Server struct {
 	dcr        *DCRService
 	stateStore StateStore
 	httpClient *http.Client
+	metrics    *observability.Metrics
 }
+
+// SetMetrics attaches the observability recorder so token issuance and refresh
+// outcomes are recorded. Nil-safe: the Record* calls no-op when metrics are
+// disabled, so the token path behaves identically either way.
+func (s *Server) SetMetrics(m *observability.Metrics) { s.metrics = m }
 
 // NewServer creates a new OAuth server.
 func NewServer(config ServerConfig, storage Storage) (*Server, error) {
@@ -280,11 +288,16 @@ func (s *Server) Authorize(ctx context.Context, req AuthorizationRequest, userID
 
 // Token handles the token endpoint.
 func (s *Server) Token(ctx context.Context, req TokenRequest) (*TokenResponse, error) {
+	start := time.Now()
 	switch req.GrantType {
 	case grantTypeAuthCode:
-		return s.handleAuthorizationCodeGrant(ctx, req)
+		resp, err := s.handleAuthorizationCodeGrant(ctx, req)
+		s.metrics.RecordOAuthIssuance(ctx, grantTypeAuthCode, observability.UpstreamStatus(err))
+		return resp, err
 	case grantTypeRefreshToken:
-		return s.handleRefreshTokenGrant(ctx, req)
+		resp, err := s.handleRefreshTokenGrant(ctx, req)
+		s.metrics.RecordOAuthRefresh(ctx, observability.UpstreamStatus(err), time.Since(start))
+		return resp, err
 	default:
 		return nil, fmt.Errorf("unsupported grant_type")
 	}

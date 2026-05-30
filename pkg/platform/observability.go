@@ -187,6 +187,29 @@ func (p *Platform) WireAPIGatewayMetrics() {
 	}
 }
 
+// metricsAware is implemented by toolkits that record their own metrics via a
+// SetMetrics injector (S3, apigateway, ...).
+type metricsAware interface {
+	SetMetrics(*observability.Metrics)
+}
+
+// WireToolkitMetrics pushes the recorder into every registered toolkit that
+// implements SetMetrics. It MUST run before the registry registers tool
+// handlers: the S3 toolkit installs an mcp-s3 middleware in SetMetrics that is
+// only effective if present at registration time. apigateway also implements
+// SetMetrics; wiring it here as well is idempotent (see WireAPIGatewayMetrics).
+// No-op when metrics are disabled.
+func (p *Platform) WireToolkitMetrics() {
+	if !p.metrics.Enabled() {
+		return
+	}
+	for _, tk := range p.toolkitRegistry.All() {
+		if ma, ok := tk.(metricsAware); ok {
+			ma.SetMetrics(p.metrics)
+		}
+	}
+}
+
 // GatewayIdentityResolver resolves an inbound REST request's auth
 // context to a display identity for the inbound metric's identity
 // label. It reuses the platform's existing authenticator rather than

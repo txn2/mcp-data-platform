@@ -911,6 +911,22 @@ Phase 2 adds OTLP tracing on the same chokepoints. Phase 3 extends to toolkit ad
 
 Worst-case counter cardinality for `mcp_tool_calls_total` with ~40 tools × 8 toolkit_kinds × 5 personas × 6 status_categories = 9,600 series; for `apigateway_outbound_total` with ~10 connections × 5 status_classes × 6 status_categories = 300 series. Both well within typical Prometheus and managed-observability backend per-metric series budgets.
 
+## Toolkit, provider, and DB-pool metrics
+
+Beyond the MCP and apigateway chokepoints, the toolkit and provider call paths are instrumented so the cross-injection fan-out and dependency health are visible:
+
+- **Trino** (query provider): `trino_queries_total{status, query_kind}` and `trino_query_duration_seconds{query_kind}`. `query_kind` is the SQL verb (`select`, `show`, `insert`, ...) for queries, or the metadata operation (`list_catalogs`, `list_schemas`, `list_tables`, `describe_table`) for catalog calls; unknown SQL maps to `other`. (No `trino_bytes_scanned_total`: the mcp-trino v1.3.0 client exposes no bytes-scanned figure.)
+- **DataHub** (semantic provider): `datahub_requests_total{operation, status}` and `datahub_request_duration_seconds{operation}`, instrumented via a client decorator so metrics record on the underlying request even when a cache wraps the provider. `operation` ∈ `get_entity`, `get_schema`, `get_schemas`, `get_lineage`, `get_column_lineage`, `get_glossary_term`, `get_queries`.
+- **S3** (S3 toolkit): `s3_operations_total{operation, status}` and `s3_operation_duration_seconds{operation}`, recorded by an mcp-s3 `ToolMiddleware` installed before tool registration. `operation` is the S3 tool name (`list_buckets`, `get_object`, ...).
+- **OAuth** (authorization server): `oauth_token_issuance_total{grant_type, status}`, `oauth_token_refresh_total{status}`, and `oauth_token_refresh_duration_seconds`.
+- **DB pool** (`database/sql`): `db_pool_open_connections`, `db_pool_in_use`, `db_pool_idle`, `db_pool_wait_count_total`, and `db_pool_wait_duration_seconds_total`, all labeled `pool`. These are OTel observable instruments read from `(*sql.DB).Stats()` at scrape time via a single callback registered once at startup; `RegisterDBPool(*sql.DB, name)` adds a handle to the observed set (the platform registers its shared pool as `pool="platform"`).
+
+`status` on these metrics reuses the platform's bounded status taxonomy (`ok` for success, `upstream_err` for a failed external call). Per-operation/query_kind label sets are bounded by the closed tool/operation lists.
+
+## Deployment manifests
+
+Plain Kubernetes manifests (no Helm, no Operator CRDs) ship in `deployments/observability/`: `pod-annotations.yaml` (enable the listener + `prometheus.io/*` scrape annotations), `recording-rules.yaml` and `alert-rules.yaml` (ConfigMaps with starter rules in the `level:metric:operations` convention — `mcp:tool_call_duration:p95_5m`, `apigateway:inbound_error_rate:5m`, a DB-pool saturation alert, an `up{job="mcp-data-platform"} == 0` alert, etc.), and a README covering how to mount the rules and confirm scraping. The full metric reference is `docs/observability.md`.
+
 ## What metrics do NOT replace
 
 - **Audit logs** remain the source of truth for "who called what entity, with what result" — compliance and user-level analytics.
