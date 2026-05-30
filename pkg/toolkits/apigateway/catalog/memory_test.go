@@ -523,3 +523,38 @@ func TestMemoryStore_SetOperationCount_NotFound(t *testing.T) {
 		t.Errorf("err=%v want ErrNotFound", err)
 	}
 }
+
+func TestMemoryStore_ListEmbeddingGaps(t *testing.T) {
+	s := NewMemoryStore()
+	ctx := context.Background()
+	if err := s.CreateCatalog(ctx, Catalog{ID: "c", Name: "c", DisplayName: "c"}); err != nil {
+		t.Fatalf("CreateCatalog: %v", err)
+	}
+	// spec "gap": operation_count 2 but zero vectors -> a gap.
+	if err := s.UpsertSpec(ctx, "c", SpecEntry{SpecName: "gap", Content: "x", SourceKind: SourceInline}); err != nil {
+		t.Fatalf("UpsertSpec gap: %v", err)
+	}
+	if err := s.SetOperationCount(ctx, "c", "gap", 2); err != nil {
+		t.Fatalf("SetOperationCount: %v", err)
+	}
+	// spec "ok": operation_count 1 and one vector -> not a gap.
+	if err := s.UpsertSpec(ctx, "c", SpecEntry{SpecName: "ok", Content: "x", SourceKind: SourceInline}); err != nil {
+		t.Fatalf("UpsertSpec ok: %v", err)
+	}
+	if err := s.UpsertOperationEmbeddings(ctx, "c", "ok", []OperationEmbedding{
+		{OperationID: "op1", TextHash: []byte("h"), Embedding: []float32{1}, Dim: 1},
+	}); err != nil {
+		t.Fatalf("UpsertOperationEmbeddings: %v", err)
+	}
+	if err := s.SetOperationCount(ctx, "c", "ok", 1); err != nil {
+		t.Fatalf("SetOperationCount ok: %v", err)
+	}
+
+	gaps, err := s.ListEmbeddingGaps(ctx)
+	if err != nil {
+		t.Fatalf("ListEmbeddingGaps: %v", err)
+	}
+	if len(gaps) != 1 || gaps[0].SpecName != "gap" {
+		t.Errorf("gaps = %+v; want only spec 'gap'", gaps)
+	}
+}

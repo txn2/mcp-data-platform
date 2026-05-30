@@ -26,7 +26,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	apicatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
-	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/embedjobs"
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalogindex"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 )
 
@@ -194,16 +194,17 @@ type Deps struct {
 	EmbedJobs EmbedJobsStore
 }
 
-// EmbedJobsStore is the subset of embedjobs.Store the admin
+// EmbedJobsStore is the subset of catalogindex.Store the admin
 // handler uses (enqueue + read-side queries for the UI). Declared
-// here so admin does not import embedjobs transitively for tests
-// that mock the queue.
+// here so admin can mock the queue without depending on its
+// concrete implementation. catalogindex backs it with the generic
+// index_jobs queue joined to the api_catalog tables.
 type EmbedJobsStore interface {
-	Enqueue(ctx context.Context, key embedjobs.SpecKey, kind embedjobs.Kind) (bool, error)
-	List(ctx context.Context, filter embedjobs.ListFilter) ([]embedjobs.Job, error)
-	Get(ctx context.Context, id int64) (*embedjobs.Job, error)
-	SpecStatuses(ctx context.Context, catalogID string) ([]embedjobs.SpecStatusRow, error)
-	Health(ctx context.Context, catalogID string) (*embedjobs.CatalogHealth, error)
+	Enqueue(ctx context.Context, key catalogindex.SpecKey, kind catalogindex.Kind) (bool, error)
+	List(ctx context.Context, filter catalogindex.ListFilter) ([]catalogindex.Job, error)
+	Get(ctx context.Context, id int64) (*catalogindex.Job, error)
+	SpecStatuses(ctx context.Context, catalogID string) ([]catalogindex.SpecStatusRow, error)
+	Health(ctx context.Context, catalogID string) (*catalogindex.CatalogHealth, error)
 }
 
 // APICatalogStore is the subset of apigateway/catalog.Store that the

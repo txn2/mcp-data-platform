@@ -1,4 +1,4 @@
-package embedjobs
+package indexjobs
 
 import (
 	"context"
@@ -11,32 +11,29 @@ import (
 )
 
 // notifier is the worker hook the listener notifies on every
-// received NOTIFY. Worker.Notify implements this; declaring it
-// as a one-method interface lets the listener be tested with a
-// fake without pulling in the full Worker type.
+// received NOTIFY. Worker.Notify implements this; declaring it as a
+// one-method interface lets the listener be tested with a fake
+// without pulling in the full Worker type.
 type notifier interface {
 	Notify()
 }
 
-// listenerBackoffFloor / Max bound pq.NewListener's exponential
-// reconnect schedule. Same constants the session broadcaster
-// uses for the same reasons (fast first reconnect after a
-// transient drop; cap the worst-case sleep on a long outage).
+// listenerBackoffFloor / Ceiling bound pq.NewListener's exponential
+// reconnect schedule: fast first reconnect after a transient drop;
+// capped worst-case sleep on a long outage.
 const (
 	listenerBackoffFloor   = 10 * time.Second
 	listenerBackoffCeiling = time.Minute
 )
 
-// Listener is the LISTEN-side of the LISTEN/NOTIFY adapter.
-// Producers issue NOTIFY in Store.Enqueue; this goroutine
-// receives the notifications and calls Worker.Notify so the
-// worker drops out of its poll wait immediately.
+// Listener is the LISTEN side of the LISTEN/NOTIFY adapter.
+// Producers issue NOTIFY in Store.Enqueue; this goroutine receives
+// the notifications and calls Worker.Notify so the worker drops out
+// of its poll wait immediately.
 //
-// The listener is intentionally separate from the Worker: a
-// pod running multiple Workers can share one Listener (saving
-// a pq connection) by registering multiple notifiers. A pod
-// running zero Workers but still receiving job notifications
-// (read-only admin replicas) can run the listener alone.
+// The listener is intentionally separate from the Worker: a pod
+// running multiple Workers can share one Listener by registering
+// multiple notifiers.
 type Listener struct {
 	dsn       string
 	channel   string
@@ -49,8 +46,7 @@ type Listener struct {
 }
 
 // NewListener constructs a Listener for the supplied DSN. The
-// listener does not connect until Start is called; constructing
-// it does no I/O.
+// listener does not connect until Start is called.
 func NewListener(dsn, channel string, notifiers ...notifier) *Listener {
 	if channel == "" {
 		channel = NotifyChannel
@@ -64,10 +60,9 @@ func NewListener(dsn, channel string, notifiers ...notifier) *Listener {
 }
 
 // Start opens the LISTEN connection and spawns the receive
-// goroutine. Returns nil on success. Errors here are returned
-// to the caller because a missing notification path silently
-// regresses embedding latency from immediate to the worker's
-// poll interval.
+// goroutine. Errors are returned because a missing notification
+// path silently regresses indexing latency from immediate to the
+// worker's poll interval.
 func (l *Listener) Start(_ context.Context) error {
 	if !l.started.CompareAndSwap(false, true) {
 		return nil
@@ -104,13 +99,10 @@ func (l *Listener) run() {
 		case <-l.stopCh:
 			return
 		case n := <-ch:
-			if n == nil {
-				// pq.Listener emits nil on a reconnect to
-				// signal "you may have missed events." Wake
-				// every notifier so they re-query the table.
-				l.broadcast()
-				continue
-			}
+			// pq.Listener emits nil on a reconnect to signal "you may
+			// have missed events." Either way, wake every notifier so
+			// they re-query the table.
+			_ = n
 			l.broadcast()
 		}
 	}
@@ -123,18 +115,17 @@ func (l *Listener) broadcast() {
 }
 
 // onEvent logs pq.Listener lifecycle changes. Non-fatal: the
-// listener reconnects on its own; we just want operator
-// visibility into how often the LISTEN connection bounced
-// during a postgres restart or network blip.
+// listener reconnects on its own; this is for operator visibility
+// into how often the LISTEN connection bounced.
 func (*Listener) onEvent(ev pq.ListenerEventType, err error) {
 	switch ev {
 	case pq.ListenerEventConnected:
-		slog.Info("embedjobs: listener connected")
+		slog.Info("indexjobs: listener connected")
 	case pq.ListenerEventDisconnected:
-		slog.Warn("embedjobs: listener disconnected", "error", err)
+		slog.Warn("indexjobs: listener disconnected", logKeyError, err)
 	case pq.ListenerEventReconnected:
-		slog.Info("embedjobs: listener reconnected")
+		slog.Info("indexjobs: listener reconnected")
 	case pq.ListenerEventConnectionAttemptFailed:
-		slog.Warn("embedjobs: listener connect attempt failed", "error", err)
+		slog.Warn("indexjobs: listener connect attempt failed", logKeyError, err)
 	}
 }

@@ -524,6 +524,43 @@ func (s *PostgresStore) SetOperationCount(ctx context.Context, catalogID, specNa
 	return nil
 }
 
+// ListEmbeddingGaps returns every (catalog_id, spec_name) whose
+// operation_count disagrees with its persisted embedding row count.
+// One statement: a LEFT JOIN of specs against the grouped embedding
+// count, filtered to mismatches. This is the gap predicate the
+// api-catalog queue ran inline before the indexjobs reconciler;
+// here it is exposed so the catalog Sink's FindGaps can drive it.
+// A spec with operation_count = 0 and no vectors is not a gap.
+func (s *PostgresStore) ListEmbeddingGaps(ctx context.Context) ([]SpecKey, error) {
+	const q = `
+		SELECT s.catalog_id, s.spec_name
+		  FROM api_catalog_specs s
+		  LEFT JOIN (
+		    SELECT catalog_id, spec_name, COUNT(*) AS embedded
+		      FROM api_catalog_operation_embeddings
+		     GROUP BY catalog_id, spec_name
+		  ) e USING (catalog_id, spec_name)
+		 WHERE s.operation_count <> COALESCE(e.embedded, 0)
+	`
+	rows, err := s.db.QueryContext(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("catalog: list embedding gaps: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck // close error on read-only iteration is not actionable
+	var out []SpecKey
+	for rows.Next() {
+		var k SpecKey
+		if err := rows.Scan(&k.CatalogID, &k.SpecName); err != nil {
+			return nil, fmt.Errorf("catalog: list embedding gaps scan: %w", err)
+		}
+		out = append(out, k)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("catalog: list embedding gaps rows: %w", err)
+	}
+	return out, nil
+}
+
 // DeleteOperationEmbeddings removes every embedding row for the
 // (catalogID, specName) pair. Used by the reembed admin endpoint
 // before recomputing. Spec deletion does not need to call this —

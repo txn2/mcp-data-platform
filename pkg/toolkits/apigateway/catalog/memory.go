@@ -352,6 +352,25 @@ func (s *MemoryStore) SetOperationCount(_ context.Context, catalogID, specName s
 	return nil
 }
 
+// ListEmbeddingGaps returns the (catalog_id, spec_name) pairs whose
+// OperationCount differs from the number of stored embedding rows.
+// Mirrors the Postgres backend so the indexjobs reconciler and the
+// catalog Sink's FindGaps can run against either store in tests.
+func (s *MemoryStore) ListEmbeddingGaps(_ context.Context) ([]SpecKey, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []SpecKey
+	for catalogID, bucket := range s.specs {
+		for specName, spec := range bucket {
+			embedded := len(s.embeddings[catalogID][specName])
+			if spec.OperationCount != embedded {
+				out = append(out, SpecKey{CatalogID: catalogID, SpecName: specName})
+			}
+		}
+	}
+	return out, nil
+}
+
 // DeleteOperationEmbeddings removes every embedding row for the
 // (catalogID, specName) pair. No-op when no rows exist.
 func (s *MemoryStore) DeleteOperationEmbeddings(_ context.Context, catalogID, specName string) error {

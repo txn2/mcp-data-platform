@@ -15,7 +15,7 @@ import (
 
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	apicatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
-	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/embedjobs"
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalogindex"
 )
 
 const (
@@ -854,7 +854,7 @@ func (h *Handler) specToResponseWithEmbedding(ctx context.Context, catalogID str
 		}
 	}
 	if h.deps.EmbedJobs != nil {
-		jobs, err := h.deps.EmbedJobs.List(ctx, embedjobs.ListFilter{
+		jobs, err := h.deps.EmbedJobs.List(ctx, catalogindex.ListFilter{
 			CatalogID: catalogID,
 			SpecName:  s.SpecName,
 			Limit:     1,
@@ -884,9 +884,9 @@ func (h *Handler) enqueueEmbedJob(ctx context.Context, catalogID, specName strin
 		// this is the documented degraded mode.
 		return
 	}
-	if _, err := h.deps.EmbedJobs.Enqueue(ctx, embedjobs.SpecKey{
+	if _, err := h.deps.EmbedJobs.Enqueue(ctx, catalogindex.SpecKey{
 		CatalogID: catalogID, SpecName: specName,
-	}, embedjobs.KindSpecWrite); err != nil {
+	}, catalogindex.KindSpecWrite); err != nil {
 		slog.Warn("apigateway: enqueue embedding job failed",
 			logKeyCatalogID, catalogID, logKeySpecName, specName, logKeyError, err)
 	}
@@ -944,9 +944,9 @@ func (h *Handler) getCatalogEmbeddingHealth(w http.ResponseWriter, r *http.Reque
 // debugging "why did this spec fail to index" questions.
 func (h *Handler) listCatalogEmbeddingJobs(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(catalogPathID)
-	filter := embedjobs.ListFilter{CatalogID: id, Limit: embeddingJobListDefaultLimit}
+	filter := catalogindex.ListFilter{CatalogID: id, Limit: embeddingJobListDefaultLimit}
 	if s := r.URL.Query().Get("status"); s != "" {
-		filter.Status = embedjobs.Status(s)
+		filter.Status = catalogindex.Status(s)
 	}
 	if s := r.URL.Query().Get("spec_name"); s != "" {
 		filter.SpecName = s
@@ -984,9 +984,9 @@ func (h *Handler) manualRetryEmbedding(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to get spec")
 		return
 	}
-	created, err := h.deps.EmbedJobs.Enqueue(r.Context(), embedjobs.SpecKey{
+	created, err := h.deps.EmbedJobs.Enqueue(r.Context(), catalogindex.SpecKey{
 		CatalogID: id, SpecName: specName,
-	}, embedjobs.KindManualRetry)
+	}, catalogindex.KindManualRetry)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to enqueue embedding job: "+err.Error())
 		return
@@ -999,7 +999,7 @@ func (h *Handler) manualRetryEmbedding(w http.ResponseWriter, r *http.Request) {
 
 // embeddingStatusResponse / embeddingHealthResponse /
 // embeddingJobResponse are the JSON shapes the admin endpoints
-// return. Mirroring the embedjobs types as a separate set keeps
+// return. Mirroring the catalogindex types as a separate set keeps
 // the wire format insulated from internal refactors.
 type embeddingStatusResponse struct {
 	SpecName       string `json:"spec_name"`
@@ -1021,7 +1021,7 @@ type embeddingStatusResponse struct {
 	JobUpdatedAt  string `json:"job_updated_at,omitempty"`
 }
 
-func embeddingStatusResponseFromRow(row embedjobs.SpecStatusRow) embeddingStatusResponse {
+func embeddingStatusResponseFromRow(row catalogindex.SpecStatusRow) embeddingStatusResponse {
 	resp := embeddingStatusResponse{
 		SpecName:       row.SpecName,
 		OperationCount: row.OperationCount,
@@ -1062,7 +1062,7 @@ type embeddingJobResponse struct {
 	CompletedAt    string `json:"completed_at,omitempty"`
 }
 
-func embeddingJobResponseFromJob(j embedjobs.Job) embeddingJobResponse {
+func embeddingJobResponseFromJob(j catalogindex.Job) embeddingJobResponse {
 	resp := embeddingJobResponse{
 		ID:        j.ID,
 		CatalogID: j.CatalogID,

@@ -2,13 +2,48 @@ package apigateway
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
 
+	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 )
+
+// computeEmbeddingsForTest builds the embedding rows for a spec the
+// way the indexjobs worker does (parse via BuildOperationItems, embed
+// each operation's text), so tests can seed the catalog store with
+// vectors the toolkit reads back at connection registration. The
+// embed-loop logic itself is unit-tested in pkg/indexjobs; here we
+// only need representative rows keyed by the synthesized operation id.
+func computeEmbeddingsForTest(t *testing.T, embedder embedding.Provider, content, specName string) []catalog.OperationEmbedding {
+	t.Helper()
+	items, err := BuildOperationItems(content, specName)
+	if err != nil {
+		t.Fatalf("BuildOperationItems: %v", err)
+	}
+	texts := make([]string, len(items))
+	for i, it := range items {
+		texts[i] = it.Text
+	}
+	vectors, err := embedder.EmbedBatch(context.Background(), texts)
+	if err != nil {
+		t.Fatalf("EmbedBatch: %v", err)
+	}
+	rows := make([]catalog.OperationEmbedding, len(items))
+	for i, it := range items {
+		sum := sha256.Sum256([]byte(it.Text))
+		rows[i] = catalog.OperationEmbedding{
+			OperationID: it.OperationID,
+			TextHash:    sum[:],
+			Embedding:   vectors[i],
+			Dim:         embedder.Dimension(),
+		}
+	}
+	return rows
+}
 
 // trackingEmbedder counts calls so tests can prove the provider
 // was NOT invoked at connection registration time (vectors come
@@ -82,12 +117,7 @@ func seedCatalogWithEmbeddings(t *testing.T, store catalog.Store, embedder *trac
 	}); err != nil {
 		t.Fatalf("UpsertSpec: %v", err)
 	}
-	rows, err := ComputeOperationEmbeddings(ctx, ComputeRequest{
-		Embedder: embedder, Content: persistedEmbedTestSpec, SpecName: specName,
-	})
-	if err != nil {
-		t.Fatalf("ComputeOperationEmbeddings: %v", err)
-	}
+	rows := computeEmbeddingsForTest(t, embedder, persistedEmbedTestSpec, specName)
 	if err := store.UpsertOperationEmbeddings(ctx, catalogID, specName, rows); err != nil {
 		t.Fatalf("UpsertOperationEmbeddings: %v", err)
 	}
@@ -176,12 +206,7 @@ func TestRestartPreservesEmbeddings(t *testing.T) {
 	_ = store.UpsertSpec(ctx, "shared", catalog.SpecEntry{
 		SpecName: "default", Content: persistedEmbedTestSpec, SourceKind: catalog.SourceInline,
 	})
-	rows, err := ComputeOperationEmbeddings(ctx, ComputeRequest{
-		Embedder: emb, Content: persistedEmbedTestSpec, SpecName: "default",
-	})
-	if err != nil {
-		t.Fatalf("compute: %v", err)
-	}
+	rows := computeEmbeddingsForTest(t, emb, persistedEmbedTestSpec, "default")
 	if err := store.UpsertOperationEmbeddings(ctx, "shared", "default", rows); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
@@ -366,12 +391,7 @@ func TestAddParsedConnection_VectorLookupSurvivesBasePathOverride(t *testing.T) 
 		SpecName: "default", Content: noOperationIDSpec, SourceKind: catalog.SourceInline,
 		BasePath: "/v2", // operator override, non-empty
 	})
-	rows, err := ComputeOperationEmbeddings(ctx, ComputeRequest{
-		Embedder: emb, Content: noOperationIDSpec, SpecName: "default",
-	})
-	if err != nil {
-		t.Fatalf("compute: %v", err)
-	}
+	rows := computeEmbeddingsForTest(t, emb, noOperationIDSpec, "default")
 	if err := store.UpsertOperationEmbeddings(ctx, "c", "default", rows); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}

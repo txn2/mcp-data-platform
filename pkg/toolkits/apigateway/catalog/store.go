@@ -84,6 +84,25 @@ type Store interface {
 	// Returns ErrNotFound when (catalogID, specName) does not
 	// exist. The worker treats that as best-effort and logs only.
 	SetOperationCount(ctx context.Context, catalogID, specName string, count int) error
+
+	// ListEmbeddingGaps returns the (catalog_id, spec_name) pairs
+	// whose operation_count does not equal the number of persisted
+	// rows in api_catalog_operation_embeddings. It is the api-catalog
+	// gap query the indexjobs reconciler drives via the catalog
+	// Sink's FindGaps: a spec written before the embedder was
+	// configured, vectors lost to an outage, or any other mismatch
+	// is returned so a reconciler job converges it. Specs with
+	// operation_count = 0 and no vectors are NOT a gap (there is
+	// genuinely nothing to embed).
+	ListEmbeddingGaps(ctx context.Context) ([]SpecKey, error)
+}
+
+// SpecKey identifies one component spec by its composite key. The
+// indexjobs reconciler maps each gap to an index_jobs source_id via
+// the api-catalog encoding.
+type SpecKey struct {
+	CatalogID string
+	SpecName  string
 }
 
 // ConnectionRef identifies a connection_instances row by its

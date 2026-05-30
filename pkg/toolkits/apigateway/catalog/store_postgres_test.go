@@ -972,3 +972,19 @@ func TestUpsertOperationEmbeddingsBatch_CommitError(t *testing.T) {
 		t.Fatal("expected error on commit failure")
 	}
 }
+
+func TestPostgres_ListEmbeddingGaps(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectQuery(regexp.QuoteMeta(`FROM api_catalog_specs s`)).
+		WillReturnRows(sqlmock.NewRows([]string{"catalog_id", "spec_name"}).
+			AddRow("c", "gap1").AddRow("c", "gap2"))
+	gaps, err := store.ListEmbeddingGaps(context.Background())
+	if err != nil {
+		t.Fatalf("ListEmbeddingGaps: %v", err)
+	}
+	if len(gaps) != 2 || gaps[0].SpecName != "gap1" || gaps[1].SpecName != "gap2" {
+		t.Errorf("gaps = %+v", gaps)
+	}
+}
