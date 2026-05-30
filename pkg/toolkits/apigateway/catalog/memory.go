@@ -163,6 +163,16 @@ func (s *MemoryStore) UpsertSpec(_ context.Context, catalogID string, spec SpecE
 		return err
 	}
 	spec.BasePath = normalizedBasePath
+	normalizedTitle, err := NormalizeSpecTitle(spec.Title)
+	if err != nil {
+		return err
+	}
+	spec.Title = normalizedTitle
+	normalizedDescription, err := NormalizeSpecDescription(spec.Description)
+	if err != nil {
+		return err
+	}
+	spec.Description = normalizedDescription
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.catalogs[catalogID]; !ok {

@@ -20,6 +20,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // ErrNotFound is returned when a catalog or spec lookup misses.
@@ -39,6 +40,12 @@ var ErrInvalidID = errors.New("catalog: invalid id")
 // base path fails validation. Exported so callers can map it to a
 // 400 response without string-matching the error message.
 var ErrInvalidBasePath = errors.New("catalog: invalid base_path")
+
+// ErrInvalidSpecMetadata is returned when an operator-supplied
+// per-spec Title or Description override fails validation (embedded
+// CR/LF/NUL or over the length cap). Exported so the admin handler
+// can map it to a 400 without string-matching the error message.
+var ErrInvalidSpecMetadata = errors.New("catalog: invalid spec metadata")
 
 // ErrInvalidSpecName is returned when a spec name doesn't match the
 // component-slug shape. Spec names appear in MCP tool output (the
@@ -85,6 +92,15 @@ type Catalog struct {
 // path that does not match what the spec author wrote (sandbox,
 // proxy, version pin). Must start with "/" when non-empty;
 // trailing slash is stripped at validation time.
+//
+// Title and Description are operator-supplied overrides for the
+// per-spec summary emitted by api_list_specs and the multi-spec gate
+// on api_list_endpoints. Empty means "no override"; the toolkit
+// derives the value from the spec content's info.title /
+// info.description at registration time. Set these when the spec
+// ships without a useful info.description, or when the operator wants
+// a deployment-specific label. Normalized on write: trimmed, no
+// embedded CR/LF/NUL, title capped at 200 chars, description at 2000.
 type SpecEntry struct {
 	SpecName      string
 	Content       string
@@ -92,6 +108,8 @@ type SpecEntry struct {
 	SourceURL     string
 	ETag          string
 	BasePath      string
+	Title         string
+	Description   string
 	LastFetchedAt time.Time
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
@@ -183,6 +201,51 @@ func NormalizeBasePath(s string) (string, error) {
 	}
 	if s != "/" {
 		s = strings.TrimSuffix(s, "/")
+	}
+	return s, nil
+}
+
+// Length caps for the operator-supplied per-spec summary overrides.
+// The title lands in single-line list output; the description is a
+// short blurb, not the full spec docs. Both caps are generous for
+// their purpose while keeping the api_list_specs response bounded.
+const (
+	maxSpecTitleLen       = 200
+	maxSpecDescriptionLen = 2000
+)
+
+// NormalizeSpecTitle validates and normalizes an operator-supplied
+// SpecEntry.Title override. Empty (after trimming) returns empty
+// output, the "no override, derive from info.title" sentinel.
+// Non-empty input must not contain CR/LF/NUL (the value lands in
+// single-line MCP tool output and operator-facing UI) and is capped
+// at 200 characters.
+func NormalizeSpecTitle(s string) (string, error) {
+	return normalizeSpecMetadata(s, maxSpecTitleLen)
+}
+
+// NormalizeSpecDescription validates and normalizes an
+// operator-supplied SpecEntry.Description override. Same rules as
+// NormalizeSpecTitle with a 2000-character cap.
+func NormalizeSpecDescription(s string) (string, error) {
+	return normalizeSpecMetadata(s, maxSpecDescriptionLen)
+}
+
+// normalizeSpecMetadata trims surrounding whitespace, returns empty
+// for the no-override case, rejects embedded control characters, and
+// enforces the rune-count cap. The cap counts runes (not bytes) so a
+// multi-byte label is measured the way an operator perceives its
+// length.
+func normalizeSpecMetadata(s string, maxRunes int) (string, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", nil
+	}
+	if strings.ContainsAny(s, "\r\n\x00") {
+		return "", fmt.Errorf("must not contain CR/LF/NUL: %w", ErrInvalidSpecMetadata)
+	}
+	if utf8.RuneCountInString(s) > maxRunes {
+		return "", fmt.Errorf("exceeds %d characters: %w", maxRunes, ErrInvalidSpecMetadata)
 	}
 	return s, nil
 }

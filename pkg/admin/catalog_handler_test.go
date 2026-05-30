@@ -539,3 +539,133 @@ func TestCatalog_UploadPreservesExistingBasePath(t *testing.T) {
 		t.Fatalf("expected preserved BasePath=/preset/v1, got %+v", saved)
 	}
 }
+
+// TestCatalog_UpsertSpecInlineWithTitleDescription proves the
+// operator summary overrides round-trip through the JSON upsert path
+// and are returned on the GET response.
+func TestCatalog_UpsertSpecInlineWithTitleDescription(t *testing.T) {
+	t.Parallel()
+	h, store := newCatalogTestHandler(t)
+	doJSON(t, h, http.MethodPost, "/api/v1/admin/api-catalogs", map[string]any{
+		"id": "p", "name": "p", "display_name": "P",
+	})
+	res := doJSON(t, h, http.MethodPut, "/api/v1/admin/api-catalogs/p/specs/default", map[string]any{
+		"source_kind": "inline",
+		"content":     "openapi: 3.0.0\ninfo: {title: x, version: '1'}\npaths: {}\n",
+		"title":       "Orders API",
+		"description": "Manage orders",
+	})
+	if res.Code != http.StatusOK {
+		t.Fatalf("upsert: %d %s", res.Code, res.Body.String())
+	}
+	saved, _ := store.GetSpec(context.Background(), "p", "default")
+	if saved == nil || saved.Title != "Orders API" || saved.Description != "Manage orders" {
+		t.Fatalf("expected stored title/description, got %+v", saved)
+	}
+}
+
+// TestCatalog_UpsertSpecRejectsInvalidSpecMetadata proves an over-cap
+// title is rejected with HTTP 400 (not 500) so operator input
+// mistakes do not pollute alerts.
+func TestCatalog_UpsertSpecRejectsInvalidSpecMetadata(t *testing.T) {
+	t.Parallel()
+	h, _ := newCatalogTestHandler(t)
+	doJSON(t, h, http.MethodPost, "/api/v1/admin/api-catalogs", map[string]any{
+		"id": "p", "name": "p", "display_name": "P",
+	})
+	res := doJSON(t, h, http.MethodPut, "/api/v1/admin/api-catalogs/p/specs/default", map[string]any{
+		"source_kind": "inline",
+		"content":     "openapi: 3.0.0\ninfo: {title: x, version: '1'}\npaths: {}\n",
+		"title":       strings.Repeat("x", 201), // over the 200-char cap
+	})
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for over-cap title, got %d %s", res.Code, res.Body.String())
+	}
+}
+
+// TestCatalog_UploadWithTitleDescription proves the ?title= and
+// ?description= query parameters are honored on multipart uploads.
+func TestCatalog_UploadWithTitleDescription(t *testing.T) {
+	t.Parallel()
+	h, store := newCatalogTestHandler(t)
+	doJSON(t, h, http.MethodPost, "/api/v1/admin/api-catalogs", map[string]any{
+		"id": "p", "name": "p", "display_name": "P",
+	})
+	body := &bytes.Buffer{}
+	w := multipart.NewWriter(body)
+	part, _ := w.CreateFormFile("file", "spec.yaml")
+	_, _ = part.Write([]byte("openapi: 3.0.0\ninfo: {title: x, version: '1'}\npaths: {}\n"))
+	_ = w.Close()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut,
+		"/api/v1/admin/api-catalogs/p/specs/uploaded/upload?title=Orders+API&description=Manage+orders", body)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("upload: %d %s", rec.Code, rec.Body.String())
+	}
+	saved, _ := store.GetSpec(context.Background(), "p", "uploaded")
+	if saved == nil || saved.Title != "Orders API" || saved.Description != "Manage orders" {
+		t.Fatalf("expected uploaded title/description, got %+v", saved)
+	}
+}
+
+// TestCatalog_UploadPreservesExistingTitleDescription proves a
+// re-upload without the query params keeps the previously-stored
+// override values instead of zeroing them out.
+func TestCatalog_UploadPreservesExistingTitleDescription(t *testing.T) {
+	t.Parallel()
+	h, store := newCatalogTestHandler(t)
+	_ = store.CreateCatalog(context.Background(), apicatalog.Catalog{
+		ID: "p", Name: "p", DisplayName: "P",
+	})
+	_ = store.UpsertSpec(context.Background(), "p", apicatalog.SpecEntry{
+		SpecName: "uploaded", Content: "openapi: 3.0.0\ninfo: {title: x, version: '1'}\npaths: {}\n",
+		SourceKind: apicatalog.SourceUpload, Title: "Preset Title", Description: "Preset Desc",
+	})
+	body := &bytes.Buffer{}
+	w := multipart.NewWriter(body)
+	part, _ := w.CreateFormFile("file", "spec.yaml")
+	_, _ = part.Write([]byte("openapi: 3.0.0\ninfo: {title: x, version: '2'}\npaths: {}\n"))
+	_ = w.Close()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut,
+		"/api/v1/admin/api-catalogs/p/specs/uploaded/upload", body)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("upload: %d %s", rec.Code, rec.Body.String())
+	}
+	saved, _ := store.GetSpec(context.Background(), "p", "uploaded")
+	if saved == nil || saved.Title != "Preset Title" || saved.Description != "Preset Desc" {
+		t.Fatalf("expected preserved title/description, got %+v", saved)
+	}
+}
+
+// TestCatalog_CloneCopiesTitleDescription proves the clone path
+// duplicates the operator summary overrides into the destination
+// catalog alongside the spec content.
+func TestCatalog_CloneCopiesTitleDescription(t *testing.T) {
+	t.Parallel()
+	h, store := newCatalogTestHandler(t)
+	_ = store.CreateCatalog(context.Background(), apicatalog.Catalog{
+		ID: "src", Name: "petstore", Version: "1", DisplayName: "Petstore",
+	})
+	_ = store.UpsertSpec(context.Background(), "src", apicatalog.SpecEntry{
+		SpecName: "default", Content: "x", SourceKind: apicatalog.SourceInline,
+		Title: "Orders API", Description: "Manage orders",
+	})
+	res := doJSON(t, h, http.MethodPost, "/api/v1/admin/api-catalogs/src/clone", map[string]any{
+		"id": "dst", "name": "petstore", "version": "2",
+	})
+	if res.Code != http.StatusCreated {
+		t.Fatalf("clone: %d %s", res.Code, res.Body.String())
+	}
+	specs, _ := store.ListSpecs(context.Background(), "dst")
+	if len(specs) != 1 {
+		t.Fatalf("clone did not copy specs: %+v", specs)
+	}
+	if specs[0].Title != "Orders API" || specs[0].Description != "Manage orders" {
+		t.Errorf("clone did not preserve title/description; got %+v", specs[0])
+	}
+}

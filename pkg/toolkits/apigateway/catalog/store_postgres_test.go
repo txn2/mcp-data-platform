@@ -5,6 +5,7 @@ import (
 	"database/sql/driver"
 	"errors"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -318,7 +319,7 @@ func TestUpsertSpec_Insert(t *testing.T) {
 	store, mock, done := newMockStore(t)
 	defer done()
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO api_catalog_specs`)).
-		WithArgs("petstore", "default", "openapi: 3.0", SourceInline, "", "", "", nil, 0).
+		WithArgs("petstore", "default", "openapi: 3.0", SourceInline, "", "", "", "", "", nil, 0).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	err := store.UpsertSpec(context.Background(), "petstore", SpecEntry{
 		SpecName:   "default",
@@ -337,7 +338,7 @@ func TestUpsertSpec_WithFetchedAt(t *testing.T) {
 	fetched := time.Now()
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO api_catalog_specs`)).
 		WithArgs("petstore", "default", "openapi: 3.0", SourceURL,
-			"https://petstore3.swagger.io/api/v3/openapi.json", "etag-xyz", "", fetched, 7).
+			"https://petstore3.swagger.io/api/v3/openapi.json", "etag-xyz", "", "", "", fetched, 7).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	err := store.UpsertSpec(context.Background(), "petstore", SpecEntry{
 		SpecName:       "default",
@@ -361,7 +362,7 @@ func TestUpsertSpec_WithBasePath(t *testing.T) {
 	store, mock, done := newMockStore(t)
 	defer done()
 	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO api_catalog_specs`)).
-		WithArgs("petstore", "default", "openapi: 3.0", SourceInline, "", "", "/v1", nil, 0).
+		WithArgs("petstore", "default", "openapi: 3.0", SourceInline, "", "", "/v1", "", "", nil, 0).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	err := store.UpsertSpec(context.Background(), "petstore", SpecEntry{
 		SpecName:   "default",
@@ -371,6 +372,46 @@ func TestUpsertSpec_WithBasePath(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("UpsertSpec: %v", err)
+	}
+}
+
+// TestUpsertSpec_WithTitleAndDescription proves the operator-supplied
+// summary overrides round-trip through the INSERT, normalized at write
+// time (surrounding whitespace trimmed).
+func TestUpsertSpec_WithTitleAndDescription(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectExec(regexp.QuoteMeta(`INSERT INTO api_catalog_specs`)).
+		WithArgs("petstore", "default", "openapi: 3.0", SourceInline, "", "", "",
+			"Orders API", "Manage orders", nil, 0).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	err := store.UpsertSpec(context.Background(), "petstore", SpecEntry{
+		SpecName:    "default",
+		Content:     "openapi: 3.0",
+		SourceKind:  SourceInline,
+		Title:       "  Orders API  ", // trimmed at write time
+		Description: "Manage orders",
+	})
+	if err != nil {
+		t.Fatalf("UpsertSpec: %v", err)
+	}
+}
+
+// TestUpsertSpec_RejectsInvalidSpecMetadata proves the validator stops
+// an over-cap title before the SQL exec.
+func TestUpsertSpec_RejectsInvalidSpecMetadata(t *testing.T) {
+	t.Parallel()
+	store, _, done := newMockStore(t)
+	defer done()
+	err := store.UpsertSpec(context.Background(), "petstore", SpecEntry{
+		SpecName:   "default",
+		Content:    "openapi: 3.0",
+		SourceKind: SourceInline,
+		Title:      strings.Repeat("x", 201), // over the 200-char cap
+	})
+	if !errors.Is(err, ErrInvalidSpecMetadata) {
+		t.Fatalf("err=%v want ErrInvalidSpecMetadata", err)
 	}
 }
 
@@ -458,10 +499,11 @@ func TestGetSpec_Success(t *testing.T) {
 		WithArgs("petstore", "default").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"spec_name", "content", "source_kind", "source_url",
-			"etag", "base_path", "last_fetched_at", "created_at", "updated_at",
+			"etag", "base_path", "title", "description",
+			"last_fetched_at", "created_at", "updated_at",
 			"operation_count",
 		}).AddRow("default", "openapi: 3.0", "url",
-			"https://x", "etag-1", "", now, now, now, 0))
+			"https://x", "etag-1", "", "", "", now, now, now, 0))
 	s, err := store.GetSpec(context.Background(), "petstore", "default")
 	if err != nil {
 		t.Fatalf("GetSpec: %v", err)
@@ -480,10 +522,11 @@ func TestGetSpec_NullFetchedAt(t *testing.T) {
 		WithArgs("petstore", "default").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"spec_name", "content", "source_kind", "source_url",
-			"etag", "base_path", "last_fetched_at", "created_at", "updated_at",
+			"etag", "base_path", "title", "description",
+			"last_fetched_at", "created_at", "updated_at",
 			"operation_count",
 		}).AddRow("default", "openapi: 3.0", "inline",
-			"", "", "", nil, now, now, 0))
+			"", "", "", "", "", nil, now, now, 0))
 	s, err := store.GetSpec(context.Background(), "petstore", "default")
 	if err != nil {
 		t.Fatalf("GetSpec: %v", err)
@@ -501,7 +544,8 @@ func TestGetSpec_NotFound(t *testing.T) {
 		WithArgs("petstore", "missing").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"spec_name", "content", "source_kind", "source_url",
-			"etag", "base_path", "last_fetched_at", "created_at", "updated_at",
+			"etag", "base_path", "title", "description",
+			"last_fetched_at", "created_at", "updated_at",
 			"operation_count",
 		}))
 	_, err := store.GetSpec(context.Background(), "petstore", "missing")
@@ -531,11 +575,12 @@ func TestListSpecs(t *testing.T) {
 		WithArgs("petstore").
 		WillReturnRows(sqlmock.NewRows([]string{
 			"spec_name", "content", "source_kind", "source_url",
-			"etag", "base_path", "last_fetched_at", "created_at", "updated_at",
+			"etag", "base_path", "title", "description",
+			"last_fetched_at", "created_at", "updated_at",
 			"operation_count",
 		}).
-			AddRow("users", "openapi: 3.0", "inline", "", "", "", nil, now, now, 0).
-			AddRow("orders", "openapi: 3.0", "url", "https://x", "etag", "/v1", now, now, now, 5))
+			AddRow("users", "openapi: 3.0", "inline", "", "", "", "", "", nil, now, now, 0).
+			AddRow("orders", "openapi: 3.0", "url", "https://x", "etag", "/v1", "", "", now, now, now, 5))
 	specs, err := store.ListSpecs(context.Background(), "petstore")
 	if err != nil {
 		t.Fatalf("ListSpecs: %v", err)

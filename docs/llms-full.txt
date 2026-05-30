@@ -2528,7 +2528,7 @@ In addition to the standard `/api/v1/admin/connection-instances/mcp/*` CRUD (use
 
 # API Gateway Toolkit
 
-The API gateway toolkit (`kind: api`) proxies arbitrary REST/HTTP APIs through the platform's auth, persona, and audit pipeline, the HTTP/JSON sibling of the MCP gateway. Three tools (`api_invoke_endpoint`, `api_list_endpoints`, `api_get_endpoint_schema`) handle every operation on every configured upstream. The model uses `api_list_endpoints` for discovery, `api_get_endpoint_schema` for precise per-endpoint detail, and `api_invoke_endpoint` for the call itself. No tool catalog explosion: ten upstreams = three tools total, regardless of endpoint count.
+The API gateway toolkit (`kind: api`) proxies arbitrary REST/HTTP APIs through the platform's auth, persona, and audit pipeline, the HTTP/JSON sibling of the MCP gateway. Four tools (`api_invoke_endpoint`, `api_list_endpoints`, `api_list_specs`, `api_get_endpoint_schema`) handle every operation on every configured upstream. The model uses `api_list_specs` to browse the sections of a multi-spec catalog, `api_list_endpoints` for operation discovery within a section, `api_get_endpoint_schema` for precise per-endpoint detail, and `api_invoke_endpoint` for the call itself. No tool catalog explosion: ten upstreams = four tools total, regardless of endpoint count.
 
 OpenAPI specs are stored separately in **API catalogs** (see the next section), globally-owned and versioned bundles that many connections can reference.
 
@@ -2686,6 +2686,12 @@ Any catalog or spec mutation calls `Toolkit.ReloadConnectionsByCatalog(catalogID
 ## Operation index
 
 `OperationSummary` gains a `Spec` field set to the component spec name (`drive`, `calendar`, `gmail`, etc. for a Google Workspace catalog). When the catalog has a single anonymous spec the field stays empty and is omitted from JSON. When two component specs in one catalog define the same `operation_id`, both summaries appear in `api_list_endpoints` with distinct `spec` values. `api_invoke_endpoint` and `api_get_endpoint_schema` accept an optional `spec` argument for disambiguation; ambiguous calls return a structured error listing the candidates.
+
+## api_list_specs and the multi-spec gate
+
+`api_list_specs` returns one `SpecSummary` per component spec in the connection's catalog: `name`, `title`, `description`, `operation_count`, and `base_path`. It is the "list before drill" step — the model browses a multi-spec catalog's sections before asking `api_list_endpoints` for one section's operations. `title` and `description` resolve at connection-load time: an operator override on the catalog spec row wins, otherwise they derive from the spec content's `info.title` / `info.description`. Overrides are normalized on write (trimmed, no CR/LF/NUL, capped at 200 / 2000 characters) and stored on `api_catalog_specs` (`title`, `description` columns, migration 000049). A connection with no catalog returns an empty `specs` list and a note pointing at direct `api_invoke_endpoint`.
+
+`api_list_endpoints` carries a multi-spec gate: when the connection's catalog has more than one component spec and the caller omits `spec`, the response returns no operations and instead carries the same spec summaries plus a note directing the model to call again with `spec=<name>` (or `api_list_specs`). This keeps the model from pulling every operation across every section in one oversized response. Single-spec catalogs and explicit `spec` filters fall through to the normal operation listing, so the common case is unchanged.
 
 ## api_get_endpoint_schema
 

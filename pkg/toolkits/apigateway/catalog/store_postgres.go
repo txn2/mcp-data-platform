@@ -214,18 +214,28 @@ func (s *PostgresStore) UpsertSpec(ctx context.Context, catalogID string, spec S
 	if err != nil {
 		return err
 	}
+	normalizedTitle, err := NormalizeSpecTitle(spec.Title)
+	if err != nil {
+		return err
+	}
+	normalizedDescription, err := NormalizeSpecDescription(spec.Description)
+	if err != nil {
+		return err
+	}
 	const q = `
 		INSERT INTO api_catalog_specs
 		    (catalog_id, spec_name, content, source_kind,
-		     source_url, etag, base_path, last_fetched_at,
-		     operation_count)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		     source_url, etag, base_path, title, description,
+		     last_fetched_at, operation_count)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		ON CONFLICT (catalog_id, spec_name) DO UPDATE
 		SET content         = EXCLUDED.content,
 		    source_kind     = EXCLUDED.source_kind,
 		    source_url      = EXCLUDED.source_url,
 		    etag            = EXCLUDED.etag,
 		    base_path       = EXCLUDED.base_path,
+		    title           = EXCLUDED.title,
+		    description     = EXCLUDED.description,
 		    last_fetched_at = EXCLUDED.last_fetched_at,
 		    operation_count = EXCLUDED.operation_count,
 		    updated_at      = NOW()
@@ -236,8 +246,8 @@ func (s *PostgresStore) UpsertSpec(ctx context.Context, catalogID string, spec S
 	}
 	_, err = s.db.ExecContext(ctx, q,
 		catalogID, spec.SpecName, spec.Content, spec.SourceKind,
-		spec.SourceURL, spec.ETag, normalizedBasePath, lastFetched,
-		spec.OperationCount)
+		spec.SourceURL, spec.ETag, normalizedBasePath, normalizedTitle,
+		normalizedDescription, lastFetched, spec.OperationCount)
 	if isPGCode(err, pgForeignKeyViolation) {
 		return ErrNotFound
 	}
@@ -251,8 +261,8 @@ func (s *PostgresStore) UpsertSpec(ctx context.Context, catalogID string, spec S
 func (s *PostgresStore) GetSpec(ctx context.Context, catalogID, specName string) (*SpecEntry, error) {
 	const q = `
 		SELECT spec_name, content, source_kind, source_url, etag,
-		       base_path, last_fetched_at, created_at, updated_at,
-		       operation_count
+		       base_path, title, description, last_fetched_at,
+		       created_at, updated_at, operation_count
 		  FROM api_catalog_specs
 		 WHERE catalog_id = $1 AND spec_name = $2
 	`
@@ -262,8 +272,8 @@ func (s *PostgresStore) GetSpec(ctx context.Context, catalogID, specName string)
 	)
 	err := s.db.QueryRowContext(ctx, q, catalogID, specName).Scan(
 		&spec.SpecName, &spec.Content, &spec.SourceKind, &spec.SourceURL,
-		&spec.ETag, &spec.BasePath, &fetchedAt, &spec.CreatedAt, &spec.UpdatedAt,
-		&spec.OperationCount)
+		&spec.ETag, &spec.BasePath, &spec.Title, &spec.Description, &fetchedAt,
+		&spec.CreatedAt, &spec.UpdatedAt, &spec.OperationCount)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -282,8 +292,8 @@ func (s *PostgresStore) GetSpec(ctx context.Context, catalogID, specName string)
 func (s *PostgresStore) ListSpecs(ctx context.Context, catalogID string) ([]SpecEntry, error) {
 	const q = `
 		SELECT spec_name, content, source_kind, source_url, etag,
-		       base_path, last_fetched_at, created_at, updated_at,
-		       operation_count
+		       base_path, title, description, last_fetched_at,
+		       created_at, updated_at, operation_count
 		  FROM api_catalog_specs
 		 WHERE catalog_id = $1
 		 ORDER BY spec_name ASC
@@ -300,8 +310,9 @@ func (s *PostgresStore) ListSpecs(ctx context.Context, catalogID string) ([]Spec
 			fetchedAt sql.NullTime
 		)
 		if err := rows.Scan(&spec.SpecName, &spec.Content, &spec.SourceKind,
-			&spec.SourceURL, &spec.ETag, &spec.BasePath, &fetchedAt,
-			&spec.CreatedAt, &spec.UpdatedAt, &spec.OperationCount); err != nil {
+			&spec.SourceURL, &spec.ETag, &spec.BasePath, &spec.Title,
+			&spec.Description, &fetchedAt, &spec.CreatedAt, &spec.UpdatedAt,
+			&spec.OperationCount); err != nil {
 			return nil, fmt.Errorf("catalog: list specs scan: %w", err)
 		}
 		if fetchedAt.Valid {

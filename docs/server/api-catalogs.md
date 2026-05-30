@@ -18,6 +18,8 @@ A catalog has:
   - **content**: raw YAML or JSON OpenAPI 3.x document.
   - **source_kind**: `inline`, `upload`, or `url`.
   - **source_url / etag / last_fetched_at**: populated when `source_kind` is `url`.
+  - **base_path**: optional operator override for the URL path segment prepended to every operation in the spec. Empty derives the prefix from the spec's `servers[0].url`.
+  - **title / description**: optional operator overrides for the per-spec summary shown by `api_list_specs` and the multi-spec gate. Empty derives them from the spec's `info.title` / `info.description`. Validated on write: trimmed, no embedded CR/LF/NUL, capped at 200 / 2000 characters.
 
 Multiple connections can reference the same catalog. Editing a spec inside a catalog fans out to every referencing connection: the toolkit rebuilds each connection's parsed-doc state in place so `api_list_endpoints` and `api_get_endpoint_schema` reflect the new content without a process restart.
 
@@ -118,9 +120,10 @@ The queue model collapses all three to a single design: enqueue is fast and sync
 
 ## Model-facing surface
 
-From the model's perspective, catalogs are invisible. Three tools see them through the connection:
+From the model's perspective, catalogs are invisible. Four tools see them through the connection:
 
-- `api_list_endpoints` returns one `OperationSummary` per operation across all component specs in the connection's catalog. Each summary carries a `spec` field set to the component spec name (e.g. `constituent`, `gift`) so the model can tell which spec defined the operation when names collide.
+- `api_list_specs` returns one summary per component spec in the connection's catalog: `name`, `title`, `description`, `operation_count`, and `base_path`. It is the "list before drill" step for a multi-spec catalog — the model browses the sections (e.g. `drive`, `calendar`, `gmail`) before asking for one section's operations. A connection with no catalog returns an empty list and a note pointing at direct `api_invoke_endpoint`.
+- `api_list_endpoints` returns one `OperationSummary` per operation across all component specs in the connection's catalog. Each summary carries a `spec` field set to the component spec name (e.g. `constituent`, `gift`) so the model can tell which spec defined the operation when names collide. When the catalog bundles more than one component spec and the model omits `spec`, the response returns no operations and instead carries the same spec summaries as `api_list_specs` plus a note — a multi-spec gate that keeps the model from pulling every operation across every section in one oversized response. A single-spec catalog, or an explicit `spec=<name>`, lists operations directly.
 - `api_get_endpoint_schema` returns parameters, request body, and per-status response schemas for one operation. It strips `security`, `securitySchemes`, `servers`, and auth-vendor extensions (`x-amazon-*`, `x-google-*`, `x-azure-*`, `x-apigateway-*`) — the connection is pre-authenticated and the model has no business choosing auth. When an `operation_id` is defined by more than one component spec, the tool returns a structured error listing the candidates; the model retries with `spec` set.
 - `api_invoke_endpoint` takes explicit `method` + `path`, so it doesn't need the spec qualifier — the catalog only feeds the discovery and schema-detail tools.
 

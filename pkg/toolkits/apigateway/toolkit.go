@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -45,6 +46,14 @@ const (
 	// to ToolInvokeEndpoint: the model uses list to discover what's
 	// available, then invoke to call it.
 	ToolListEndpoints = "api_list_endpoints"
+
+	// ToolListSpecs names the tool that returns one summary per
+	// component spec in a connection's catalog (name, title,
+	// description, operation_count, base_path). The model calls it to
+	// pick a section before drilling into operations with
+	// ToolListEndpoints(spec=...). Companion to the multi-spec gate
+	// on ToolListEndpoints.
+	ToolListSpecs = "api_list_specs"
 
 	logKeyConnection = "connection"
 	logKeyError      = "error"
@@ -307,6 +316,14 @@ type embedKey struct {
 // run through computeEffectiveBasePath so a connection.base_url
 // that already contains the prefix as a suffix gets the prefix
 // dropped and no doubling occurs at invoke time.
+//
+// title, description, and operationCount back the api_list_specs tool
+// and the multi-spec gate on api_list_endpoints. title/description
+// resolve at registration time: SpecEntry.Title/Description (operator
+// override) wins, falling back to the spec content's info.title /
+// info.description. operationCount is the number of operations the
+// spec parsed to, computed once here so the summary does not re-walk
+// the document on every call.
 type specState struct {
 	doc               *openapi3.T
 	sourceKind        string
@@ -314,6 +331,9 @@ type specState struct {
 	etag              string
 	lastFetchedAt     time.Time
 	effectiveBasePath string
+	title             string
+	description       string
+	operationCount    int
 }
 
 // New builds an empty toolkit. Connections are added later via
@@ -389,10 +409,26 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"substring match against operation_id, path, summary, and tags. Returns " +
 			"operation_id, method, path, summary, and tags for each match. If the " +
 			"connection has no OpenAPI spec configured, returns an empty list with a " +
-			"note. Persona policy still applies at invoke time — a listed operation " +
+			"note. If the connection's catalog bundles more than one component spec and " +
+			"you omit `spec`, the response returns no operations and instead lists the " +
+			"available specs (name, title, description, operation_count) so you can call " +
+			"again with spec=<name>; api_list_specs returns the same summaries directly. " +
+			"Persona policy still applies at invoke time — a listed operation " +
 			"may still be refused by api_invoke_endpoint.",
 		InputSchema: listEndpointsSchema,
 	}, t.handleListEndpoints)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:  ToolListSpecs,
+		Title: "List API Specs",
+		Description: "List the component specs in a registered API connection's catalog. " +
+			"Each row is one section of the API: name, title, description, operation_count, " +
+			"and base_path. Use this BEFORE api_list_endpoints on a multi-spec connection to " +
+			"pick the right section, then call api_list_endpoints with spec=<name> to list " +
+			"that section's operations. A connection with no catalog returns an empty list " +
+			"with a note; call api_invoke_endpoint with method+path directly in that case.",
+		InputSchema: listSpecsSchema,
+	}, t.handleListSpecs)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:  ToolGetEndpointSchema,
@@ -418,7 +454,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 // with ExportDeps wired so callers (audit / introspection) see the
 // tool list that actually exists at runtime.
 func (t *Toolkit) Tools() []string {
-	tools := []string{ToolInvokeEndpoint, ToolListEndpoints, ToolGetEndpointSchema}
+	tools := []string{ToolInvokeEndpoint, ToolListEndpoints, ToolListSpecs, ToolGetEndpointSchema}
 	t.mu.RLock()
 	hasExport := t.exportDeps != nil
 	t.mu.RUnlock()
@@ -452,7 +488,38 @@ type ListEndpointsInput struct {
 // distinguish "no spec" from "no matches").
 type ListEndpointsOutput struct {
 	Operations []OperationSummary `json:"operations"`
-	Note       string             `json:"note,omitempty"`
+	// Specs is populated only by the multi-spec gate: when the caller
+	// omits spec on a connection whose catalog bundles more than one
+	// component spec, Operations is empty and Specs carries the
+	// per-spec summaries so the model can pick a section in one turn.
+	Specs []SpecSummary `json:"specs,omitempty"`
+	Note  string        `json:"note,omitempty"`
+}
+
+// ListSpecsInput is the parsed argument shape for api_list_specs.
+type ListSpecsInput struct {
+	Connection string `json:"connection"`
+}
+
+// SpecSummary is one row in api_list_specs output and in the
+// multi-spec gate on api_list_endpoints. base_path is the effective
+// prefix applied to every operation in the spec (operator override or
+// the value derived from servers[0].url); operation_count is the
+// number of operations the spec parses to.
+type SpecSummary struct {
+	Name           string `json:"name"`
+	Title          string `json:"title,omitempty"`
+	Description    string `json:"description,omitempty"`
+	OperationCount int    `json:"operation_count"`
+	BasePath       string `json:"base_path,omitempty"`
+}
+
+// ListSpecsOutput is the structured result for api_list_specs. Empty
+// Specs + Note when the connection has no catalog configured (so the
+// model can distinguish "no catalog" from "no specs").
+type ListSpecsOutput struct {
+	Specs []SpecSummary `json:"specs"`
+	Note  string        `json:"note,omitempty"`
 }
 
 // defaultListEndpointsLimit caps the result set when the caller
@@ -476,6 +543,24 @@ func (t *Toolkit) handleListEndpoints(ctx context.Context, _ *mcp.CallToolReques
 		out := ListEndpointsOutput{
 			Operations: []OperationSummary{},
 			Note:       "no catalog_id configured for this connection; call api_invoke_endpoint with method+path directly",
+		}
+		return jsonResult(out), out, nil
+	}
+	// Multi-spec gate: when the connection's catalog bundles more than
+	// one component spec and the caller did not name one, return the
+	// per-spec summaries instead of the full (potentially 300+)
+	// operation dump. The model branches into a single spec on the
+	// next call via spec=<name>. A single-spec catalog or an explicit
+	// spec filter falls through to the normal operation listing below,
+	// so the common case is unchanged.
+	if in.Spec == "" && len(c.specs) > 1 {
+		summaries := buildSpecSummaries(c)
+		out := ListEndpointsOutput{
+			Operations: []OperationSummary{},
+			Specs:      summaries,
+			Note: fmt.Sprintf("this connection has %d component specs; call again with "+
+				"spec=<name> to list operations in one spec, or call api_list_specs to browse them",
+				len(summaries)),
 		}
 		return jsonResult(out), out, nil
 	}
@@ -508,6 +593,51 @@ func (t *Toolkit) handleListEndpoints(ctx context.Context, _ *mcp.CallToolReques
 		out.Note = fmt.Sprintf("ranking %q fell back to lexical: %s", mode, fallbackReason)
 	}
 	return jsonResult(out), out, nil
+}
+
+// handleListSpecs returns one summary per component spec in the
+// connection's catalog. It is the "list before drill" companion to
+// api_list_endpoints: the model calls it to see the catalog's
+// sections (name, title, description, operation_count) before asking
+// for one section's operations. A connection with no catalog returns
+// an empty Specs list and a Note pointing at the direct-invoke path.
+func (t *Toolkit) handleListSpecs(_ context.Context, _ *mcp.CallToolRequest, in ListSpecsInput) (*mcp.CallToolResult, any, error) {
+	if in.Connection == "" {
+		return errorResult("connection is required"), nil, nil
+	}
+	t.mu.RLock()
+	c, ok := t.connections[in.Connection]
+	t.mu.RUnlock()
+	if !ok {
+		return errorResult(fmt.Sprintf("connection %q not found (use list_connections to discover api connections)", in.Connection)), nil, nil
+	}
+	if len(c.specs) == 0 {
+		out := ListSpecsOutput{
+			Specs: []SpecSummary{},
+			Note:  "no catalog configured for this connection; call api_invoke_endpoint with method+path directly",
+		}
+		return jsonResult(out), out, nil
+	}
+	out := ListSpecsOutput{Specs: buildSpecSummaries(c)}
+	return jsonResult(out), out, nil
+}
+
+// buildSpecSummaries projects a connection's parsed specs into the
+// summary rows shared by api_list_specs and the multi-spec gate,
+// sorted by spec name for a stable, model-friendly order.
+func buildSpecSummaries(c *conn) []SpecSummary {
+	out := make([]SpecSummary, 0, len(c.specs))
+	for name, st := range c.specs {
+		out = append(out, SpecSummary{
+			Name:           name,
+			Title:          st.title,
+			Description:    st.description,
+			OperationCount: st.operationCount,
+			BasePath:       st.effectiveBasePath,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }
 
 // filterBySpec returns the subset of ops whose Spec exactly matches
@@ -701,6 +831,34 @@ func (t *Toolkit) addParsedConnection(name string, cfg Config) error {
 	return nil
 }
 
+// specSummaryTitle resolves the title shown in api_list_specs and the
+// multi-spec gate for one component spec. The operator override on
+// the catalog row wins; otherwise the value derives from the spec
+// content's info.title. Empty when neither is set.
+func specSummaryTitle(e catalog.SpecEntry, doc *openapi3.T) string {
+	if e.Title != "" {
+		return e.Title
+	}
+	if doc != nil && doc.Info != nil {
+		return strings.TrimSpace(doc.Info.Title)
+	}
+	return ""
+}
+
+// specSummaryDescription resolves the description the same way as
+// specSummaryTitle, falling back to info.description. The override is
+// already normalized at write time; the derived value is only trimmed
+// so a verbose spec description is surfaced as the author wrote it.
+func specSummaryDescription(e catalog.SpecEntry, doc *openapi3.T) string {
+	if e.Description != "" {
+		return e.Description
+	}
+	if doc != nil && doc.Info != nil {
+		return strings.TrimSpace(doc.Info.Description)
+	}
+	return ""
+}
+
 // buildConnSpecs loads the connection's catalog (when configured),
 // parses each component spec, builds the merged operation index,
 // and pre-loads the embedding vectors persisted at spec-upsert
@@ -748,6 +906,7 @@ func (t *Toolkit) buildConnSpecs(connName, catalogID, connBaseURL string) (
 			basePathSource = specBasePath(doc)
 		}
 		effectiveBasePath := computeEffectiveBasePath(connBaseURL, basePathSource)
+		specOps, _ := buildOperationIndex(doc, e.SpecName, effectiveBasePath)
 		specs[e.SpecName] = &specState{
 			doc:               doc,
 			sourceKind:        e.SourceKind,
@@ -755,8 +914,10 @@ func (t *Toolkit) buildConnSpecs(connName, catalogID, connBaseURL string) (
 			etag:              e.ETag,
 			lastFetchedAt:     e.LastFetchedAt,
 			effectiveBasePath: effectiveBasePath,
+			title:             specSummaryTitle(e, doc),
+			description:       specSummaryDescription(e, doc),
+			operationCount:    len(specOps),
 		}
-		specOps, _ := buildOperationIndex(doc, e.SpecName, effectiveBasePath)
 		operations = append(operations, specOps...)
 		// Pre-loading vectors from the store: every embedding row
 		// is keyed on (catalog_id, spec_name, operation_id) and

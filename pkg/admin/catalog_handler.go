@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -357,6 +358,8 @@ func (h *Handler) copyCatalogSpecs(w http.ResponseWriter, r *http.Request, srcID
 			SourceURL:      s.SourceURL,
 			ETag:           s.ETag,
 			BasePath:       s.BasePath,
+			Title:          s.Title,
+			Description:    s.Description,
 			LastFetchedAt:  s.LastFetchedAt,
 			OperationCount: s.OperationCount,
 		}
@@ -398,12 +401,18 @@ func (h *Handler) copyCatalogSpecs(w http.ResponseWriter, r *http.Request, srcID
 // See catalog.NormalizeBasePath for the leading-slash / trailing-
 // slash / control-character rules enforced on write.
 type specResponse struct {
-	SpecName      string `json:"spec_name"`
-	Content       string `json:"content,omitempty"`
-	SourceKind    string `json:"source_kind"`
-	SourceURL     string `json:"source_url,omitempty"`
-	ETag          string `json:"etag,omitempty"`
-	BasePath      string `json:"base_path,omitempty"`
+	SpecName   string `json:"spec_name"`
+	Content    string `json:"content,omitempty"`
+	SourceKind string `json:"source_kind"`
+	SourceURL  string `json:"source_url,omitempty"`
+	ETag       string `json:"etag,omitempty"`
+	BasePath   string `json:"base_path,omitempty"`
+	// Title and Description are the operator-set per-spec summary
+	// overrides. Empty means "derive from the spec's info.title /
+	// info.description". See catalog.NormalizeSpecTitle /
+	// NormalizeSpecDescription for the validation rules.
+	Title         string `json:"title,omitempty"`
+	Description   string `json:"description,omitempty"`
 	LastFetchedAt string `json:"last_fetched_at,omitempty"`
 	CreatedAt     string `json:"created_at,omitempty"`
 	UpdatedAt     string `json:"updated_at,omitempty"`
@@ -480,11 +489,19 @@ func (h *Handler) getCatalogSpec(w http.ResponseWriter, r *http.Request) {
 // spec's servers[0].url at registration time). Normalized via
 // catalog.NormalizeBasePath at write time: must start with "/",
 // must not contain CR/LF/NUL/?/#, trailing slash is stripped.
+// Title and Description set the operator-supplied per-spec summary
+// overrides surfaced by api_list_specs and the multi-spec gate.
+// Optional; empty leaves them unset (the toolkit derives the values
+// from the spec content's info.title / info.description). Normalized
+// via catalog.NormalizeSpecTitle / NormalizeSpecDescription at write
+// time: trimmed, no CR/LF/NUL, capped at 200 / 2000 chars.
 type upsertCatalogSpecRequest struct {
-	SourceKind string `json:"source_kind"`
-	Content    string `json:"content,omitempty"`
-	SourceURL  string `json:"source_url,omitempty"`
-	BasePath   string `json:"base_path,omitempty"`
+	SourceKind  string `json:"source_kind"`
+	Content     string `json:"content,omitempty"`
+	SourceURL   string `json:"source_url,omitempty"`
+	BasePath    string `json:"base_path,omitempty"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 func (h *Handler) upsertCatalogSpec(w http.ResponseWriter, r *http.Request) {
@@ -541,10 +558,12 @@ func (*Handler) materializeSpec(ctx context.Context, specName string, req upsert
 			return apicatalog.SpecEntry{}, errors.New("content is required for source_kind=inline")
 		}
 		return apicatalog.SpecEntry{
-			SpecName:   specName,
-			Content:    req.Content,
-			SourceKind: apicatalog.SourceInline,
-			BasePath:   req.BasePath,
+			SpecName:    specName,
+			Content:     req.Content,
+			SourceKind:  apicatalog.SourceInline,
+			BasePath:    req.BasePath,
+			Title:       req.Title,
+			Description: req.Description,
 		}, nil
 	case apicatalog.SourceURL:
 		if req.SourceURL == "" {
@@ -561,6 +580,8 @@ func (*Handler) materializeSpec(ctx context.Context, specName string, req upsert
 			SourceURL:     req.SourceURL,
 			ETag:          res.ETag,
 			BasePath:      req.BasePath,
+			Title:         req.Title,
+			Description:   req.Description,
 			LastFetchedAt: res.FetchedAt,
 		}, nil
 	case apicatalog.SourceUpload:
@@ -590,6 +611,8 @@ func (*Handler) specErrorStatus(err error) int {
 	case errors.Is(err, apicatalog.ErrInvalidSpecName):
 		return http.StatusBadRequest
 	case errors.Is(err, apicatalog.ErrInvalidBasePath):
+		return http.StatusBadRequest
+	case errors.Is(err, apicatalog.ErrInvalidSpecMetadata):
 		return http.StatusBadRequest
 	case errors.Is(err, apicatalog.ErrSSRFBlocked):
 		return http.StatusBadRequest
@@ -641,6 +664,35 @@ func readSpecUpload(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
 	return body, true
 }
 
+// applyUploadSpecMetadata sets the operator-overridable per-spec
+// metadata (base_path, title, description) on entry from the upload
+// request, applied per field with this precedence:
+//  1. Explicit ?base_path / ?title / ?description on the upload URL.
+//  2. The previously-stored value on the existing spec row (so a
+//     routine re-upload of refreshed content does not blow away an
+//     operator override).
+//  3. Empty (the migration default).
+//
+// existing may be nil (new spec or a swallowed lookup failure), in
+// which case only the explicit query values apply.
+func applyUploadSpecMetadata(entry *apicatalog.SpecEntry, q url.Values, existing *apicatalog.SpecEntry) {
+	entry.BasePath = q.Get("base_path")
+	entry.Title = q.Get("title")
+	entry.Description = q.Get("description")
+	if existing == nil {
+		return
+	}
+	if entry.BasePath == "" {
+		entry.BasePath = existing.BasePath
+	}
+	if entry.Title == "" {
+		entry.Title = existing.Title
+	}
+	if entry.Description == "" {
+		entry.Description = existing.Description
+	}
+}
+
 func (h *Handler) uploadCatalogSpec(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(catalogPathID)
 	specName := r.PathValue(catalogPathSpec)
@@ -653,25 +705,17 @@ func (h *Handler) uploadCatalogSpec(w http.ResponseWriter, r *http.Request) {
 		Content:    string(body),
 		SourceKind: apicatalog.SourceUpload,
 	}
-	// Base path precedence on upload:
-	//   1. Explicit ?base_path=... on the upload URL (operator sets
-	//      it during a new upload or changes it mid-stream)
-	//   2. The previously-stored value on an existing spec row (so
-	//      a routine re-upload of refreshed content does not blow
-	//      away the operator's override)
-	//   3. Empty (the migration default)
-	if explicit := r.URL.Query().Get("base_path"); explicit != "" {
-		entry.BasePath = explicit
-	} else if existing, err := h.deps.APICatalogStore.GetSpec(r.Context(), id, specName); err == nil && existing != nil {
-		entry.BasePath = existing.BasePath
-	} else if err != nil && !errors.Is(err, apicatalog.ErrNotFound) {
+	existing, lookupErr := h.deps.APICatalogStore.GetSpec(r.Context(), id, specName)
+	if lookupErr != nil && !errors.Is(lookupErr, apicatalog.ErrNotFound) {
 		// Log the swallowed lookup error so an operator chasing a
-		// vanished BasePath has a breadcrumb. The upload still
-		// proceeds with BasePath="" so a transient lookup failure
+		// vanished override has a breadcrumb. The upload still
+		// proceeds with empty overrides so a transient lookup failure
 		// does not block the operator from saving the new content.
-		slog.Warn("apigateway: catalog spec base_path preserve lookup failed",
-			"catalog_id", id, "spec_name", specName, logKeyError, err)
+		slog.Warn("apigateway: catalog spec metadata preserve lookup failed",
+			"catalog_id", id, "spec_name", specName, logKeyError, lookupErr)
+		existing = nil
 	}
+	applyUploadSpecMetadata(&entry, r.URL.Query(), existing)
 	if err := apicatalog.ValidateContent(entry.Content); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -719,6 +763,8 @@ func (h *Handler) refreshCatalogSpec(w http.ResponseWriter, r *http.Request) {
 		SourceURL:      existing.SourceURL,
 		ETag:           res.ETag,
 		BasePath:       existing.BasePath,
+		Title:          existing.Title,
+		Description:    existing.Description,
 		LastFetchedAt:  res.FetchedAt,
 		OperationCount: apicatalog.CountOperations(res.Content),
 	}
@@ -780,6 +826,8 @@ func specToResponse(s apicatalog.SpecEntry, includeContent bool) specResponse {
 		SourceURL:     s.SourceURL,
 		ETag:          s.ETag,
 		BasePath:      s.BasePath,
+		Title:         s.Title,
+		Description:   s.Description,
 		LastFetchedAt: formatTime(s.LastFetchedAt),
 		CreatedAt:     formatTime(s.CreatedAt),
 		UpdatedAt:     formatTime(s.UpdatedAt),

@@ -35,6 +35,20 @@ var listEndpointsSchema = json.RawMessage(`{
   }
 }`)
 
+// listSpecsSchema is the JSON Schema for the api_list_specs tool input.
+//
+//nolint:gochecknoglobals // MCP tool schema must be a package-level var
+var listSpecsSchema = json.RawMessage(`{
+  "type": "object",
+  "required": ["connection"],
+  "properties": {
+    "connection": {
+      "type": "string",
+      "description": "Name of the registered API connection (kind=api). Required. Use list_connections to discover available connections."
+    }
+  }
+}`)
+
 // getEndpointSchemaInputSchema is the JSON Schema for the
 // api_get_endpoint_schema tool input.
 //
