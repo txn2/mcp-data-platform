@@ -239,6 +239,9 @@ func (h *Handler) createPersona(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to register persona")
 		return
 	}
+	if h.deps.ReloadNotifier != nil {
+		h.deps.ReloadNotifier.PublishPersonaReload()
+	}
 
 	writeJSON(w, http.StatusCreated, toPersonaDetail(p, []string{}))
 }
@@ -296,6 +299,9 @@ func (h *Handler) updatePersona(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to update persona")
 		return
 	}
+	if h.deps.ReloadNotifier != nil {
+		h.deps.ReloadNotifier.PublishPersonaReload()
+	}
 
 	writeJSON(w, http.StatusOK, toPersonaDetail(p, []string{}))
 }
@@ -343,6 +349,9 @@ func (h *Handler) deletePersona(w http.ResponseWriter, r *http.Request) {
 	// it reverts immediately rather than disappearing until restart.
 	if h.deps.FilePersonaNames[name] {
 		h.revertToFilePersona(name)
+	}
+	if h.deps.ReloadNotifier != nil {
+		h.deps.ReloadNotifier.PublishPersonaReload()
 	}
 
 	writeJSON(w, http.StatusOK, statusResponse{Status: statusDeleted})

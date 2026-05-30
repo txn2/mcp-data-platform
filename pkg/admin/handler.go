@@ -77,6 +77,19 @@ type PromptInfoProvider interface {
 	AllPromptInfos() []registry.PromptInfo
 }
 
+// ReloadNotifier announces an admin-side configuration change to peer
+// replicas so their in-memory state is rebuilt (issue #501). The handler
+// reloads the local replica synchronously as before, then calls the
+// matching method here to broadcast the change. Implemented by
+// *platform.Platform; nil on single-replica or test setups, in which
+// case the broadcast is skipped.
+type ReloadNotifier interface {
+	PublishCatalogReload(catalogID string)
+	PublishConnectionReload(kind, name string)
+	PublishPersonaReload()
+	PublishAPIKeyReload()
+}
+
 // ToolkitRegistry abstracts registry.Registry for testability.
 type ToolkitRegistry interface {
 	All() []registry.Toolkit
@@ -101,6 +114,7 @@ type Deps struct {
 	FileDefaults        map[string]string
 	PersonaRegistry     PersonaRegistry
 	ToolkitRegistry     ToolkitRegistry
+	ReloadNotifier      ReloadNotifier
 	MCPServer           *mcp.Server
 	AuditQuerier        AuditQuerier
 	AuditMetricsQuerier AuditMetricsQuerier

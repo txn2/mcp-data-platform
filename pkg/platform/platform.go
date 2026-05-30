@@ -171,6 +171,14 @@ type Platform struct {
 	// database-backed so all replicas see every event.
 	broadcaster session.Broadcaster
 
+	// reloadBroadcaster carries server-side cross-replica reload events
+	// (connection/catalog/persona/apikey) on a dedicated channel,
+	// separate from the client-facing broadcaster, so admin config
+	// changes propagate to every replica's in-memory state (issue #501).
+	reloadBroadcaster session.Broadcaster
+	reloadBus         *reloadBus
+	reloadCancel      context.CancelFunc
+
 	// Tuning
 	ruleEngine    *tuning.RuleEngine
 	promptManager *tuning.PromptManager
@@ -1292,6 +1300,7 @@ func (p *Platform) initBroadcaster() {
 			p.broadcaster = b
 			slog.Info("broadcaster: postgres LISTEN/NOTIFY",
 				"channel", channel)
+			p.initReloadBus()
 			return
 		}
 		// Fallback path: the operator configured postgres but
@@ -1310,6 +1319,7 @@ func (p *Platform) initBroadcaster() {
 	} else {
 		slog.Info("broadcaster: memory (single-replica)")
 	}
+	p.initReloadBus()
 }
 
 // initOAuth initializes the OAuth server if enabled.
@@ -3686,6 +3696,8 @@ func (p *Platform) closeSessionLayer(errs *[]error) {
 		slog.Debug("shutdown: closing broadcaster")
 		closeResource(errs, p.broadcaster)
 	}
+	slog.Debug("shutdown: stopping reload bus")
+	p.stopReloadBus()
 	if p.oauthStoreCloser != nil {
 		slog.Debug("shutdown: closing OAuth store")
 		closeResource(errs, p.oauthStoreCloser)

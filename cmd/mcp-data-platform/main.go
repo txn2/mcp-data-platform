@@ -936,6 +936,7 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 		FileDefaults:       p.FileDefaults(),
 		PersonaRegistry:    p.PersonaRegistry(),
 		ToolkitRegistry:    p.ToolkitRegistry(),
+		ReloadNotifier:     p,
 		MCPServer:          p.MCPServer(),
 		BrowserAuth:        p.BrowserSessionAuth(),
 		DatabaseAvailable:  p.Config().Database.DSN != "",

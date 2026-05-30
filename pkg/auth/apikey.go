@@ -142,6 +142,24 @@ func (a *APIKeyAuthenticator) AddHashedKey(key APIKey) {
 	a.hashedKeys = append(a.hashedKeys, &key)
 }
 
+// ReplaceHashedKeys atomically replaces the full set of DB-loaded
+// (bcrypt-hashed) keys. Used to reconcile the in-memory key set after an
+// admin add or revoke, including across replicas (issue #501): unlike
+// AddHashedKey, this DROPS keys no longer present in the new set, so a
+// revoked key stops authenticating. File-config keys (fileKeys) are
+// untouched.
+func (a *APIKeyAuthenticator) ReplaceHashedKeys(keys []APIKey) {
+	cleaned := make([]*APIKey, 0, len(keys))
+	for i := range keys {
+		k := keys[i]
+		k.Key = "" // guard: hashed keys must not carry plaintext
+		cleaned = append(cleaned, &k)
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.hashedKeys = cleaned
+}
+
 // RemoveKey removes a plaintext API key by its value.
 func (a *APIKeyAuthenticator) RemoveKey(keyValue string) {
 	a.mu.Lock()
