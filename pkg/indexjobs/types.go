@@ -72,10 +72,15 @@ const (
 	// match its expected item count.
 	StatusSucceeded Status = "succeeded"
 
-	// StatusFailed is a terminal state: attempts exhausted.
-	// last_error explains. The reconciler will not re-enqueue a
-	// failed job; the operator must use the manual-retry path to
-	// force another attempt.
+	// StatusFailed is terminal for this job row: attempts are
+	// exhausted (last_error explains) and the worker will not retry
+	// it. It does NOT pin the unit permanently, though: the reconciler
+	// enqueues a fresh job for the same unit on its next sweep if a
+	// vector gap remains, because the partial unique index only
+	// suppresses pending/running rows, not failed ones. So a transient
+	// failure self-heals within one reconcile interval, while a
+	// permanent failure re-fails each cycle until the operator fixes
+	// the cause.
 	StatusFailed Status = "failed"
 )
 
@@ -386,9 +391,12 @@ type Sink interface {
 	StampExpected(ctx context.Context, key Key, count int) error
 
 	// FindGaps returns the source ids for this kind whose indexed
-	// vector count does not match the expected count and which do
-	// not already have an open job. The reconciler enqueues a job
-	// per returned id. Implementations diff the kind's expected
-	// count against COUNT(*) in the kind's vector table.
+	// vector count does not match the expected count. The reconciler
+	// enqueues a job per returned id; the framework's Enqueue
+	// idempotently suppresses any id that already has an open
+	// (pending/running) job, so implementations need only diff the
+	// kind's expected count against COUNT(*) in the kind's vector
+	// table and must NOT consult index_jobs themselves (doing so would
+	// re-couple the Sink to the queue's internals).
 	FindGaps(ctx context.Context) ([]string, error)
 }

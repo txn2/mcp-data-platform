@@ -13,13 +13,15 @@ import (
 // count mismatches.
 type fakeEmbedder struct {
 	dim        int
-	model      string
 	batchCalls atomic.Int32
 	failBatch  atomic.Bool
 	returnN    int // when > 0, EmbedBatch returns this many vectors regardless of input
 }
 
-func newFakeEmbedder(dim int) *fakeEmbedder { return &fakeEmbedder{dim: dim} }
+// fakeDim is the fixed dimensionality the test embedder produces.
+const fakeDim = 8
+
+func newFakeEmbedder() *fakeEmbedder { return &fakeEmbedder{dim: fakeDim} }
 
 func (e *fakeEmbedder) Embed(_ context.Context, _ string) ([]float32, error) {
 	v := make([]float32, e.dim)
@@ -73,7 +75,7 @@ func TestEmbedItems_NilEmbedderReturnsNil(t *testing.T) {
 
 func TestEmbedItems_EmptyItemsReturnsNil(t *testing.T) {
 	t.Parallel()
-	rows, err := embedItems(context.Background(), embedRequest{embedder: newFakeEmbedder(8), items: nil})
+	rows, err := embedItems(context.Background(), embedRequest{embedder: newFakeEmbedder(), items: nil})
 	if err != nil {
 		t.Fatalf("empty items should not error; got %v", err)
 	}
@@ -84,7 +86,7 @@ func TestEmbedItems_EmptyItemsReturnsNil(t *testing.T) {
 
 func TestEmbedItems_EmbedsAllFresh(t *testing.T) {
 	t.Parallel()
-	emb := newFakeEmbedder(8)
+	emb := newFakeEmbedder()
 	rows, err := embedItems(context.Background(), embedRequest{embedder: emb, items: twoItems()})
 	if err != nil {
 		t.Fatalf("embedItems: %v", err)
@@ -107,7 +109,7 @@ func TestEmbedItems_EmbedsAllFresh(t *testing.T) {
 
 func TestEmbedItems_BatchErrorPropagates(t *testing.T) {
 	t.Parallel()
-	emb := newFakeEmbedder(8)
+	emb := newFakeEmbedder()
 	emb.failBatch.Store(true)
 	_, err := embedItems(context.Background(), embedRequest{embedder: emb, items: twoItems()})
 	if err == nil {
@@ -120,7 +122,7 @@ func TestEmbedItems_BatchErrorPropagates(t *testing.T) {
 
 func TestEmbedItems_CountMismatchPropagates(t *testing.T) {
 	t.Parallel()
-	emb := newFakeEmbedder(8)
+	emb := newFakeEmbedder()
 	emb.returnN = 1 // returns 1 vector for 2 texts
 	_, err := embedItems(context.Background(), embedRequest{embedder: emb, items: twoItems(), batchSize: 2})
 	if err == nil {
@@ -133,7 +135,7 @@ func TestEmbedItems_CountMismatchPropagates(t *testing.T) {
 
 func TestEmbedItems_ProgressReportsReusedThenChunks(t *testing.T) {
 	t.Parallel()
-	emb := newFakeEmbedder(8)
+	emb := newFakeEmbedder()
 	var calls []int
 	rows, err := embedItems(context.Background(), embedRequest{
 		embedder: emb, items: twoItems(), batchSize: 1,
@@ -159,7 +161,7 @@ func TestEmbedItems_ProgressReportsReusedThenChunks(t *testing.T) {
 
 func TestEmbedItems_PersistBatchInvokedPerChunk(t *testing.T) {
 	t.Parallel()
-	emb := newFakeEmbedder(8)
+	emb := newFakeEmbedder()
 	var batches int
 	_, err := embedItems(context.Background(), embedRequest{
 		embedder: emb, items: twoItems(), batchSize: 1,
@@ -175,7 +177,7 @@ func TestEmbedItems_PersistBatchInvokedPerChunk(t *testing.T) {
 
 func TestEmbedItems_PersistBatchErrorPropagates(t *testing.T) {
 	t.Parallel()
-	emb := newFakeEmbedder(8)
+	emb := newFakeEmbedder()
 	_, err := embedItems(context.Background(), embedRequest{
 		embedder: emb, items: twoItems(), batchSize: 1,
 		persistBatch: func([]Vector) error { return errors.New("disk full") },
@@ -190,7 +192,7 @@ func TestEmbedItems_PersistBatchErrorPropagates(t *testing.T) {
 
 func TestEmbedItems_AllReusedSkipsEmbedder(t *testing.T) {
 	t.Parallel()
-	emb := modelEmbedder{fakeEmbedder: newFakeEmbedder(8), name: "m"}
+	emb := modelEmbedder{fakeEmbedder: newFakeEmbedder(), name: "m"}
 	// First pass builds the existing set.
 	rows, err := embedItems(context.Background(), embedRequest{embedder: emb, items: twoItems()})
 	if err != nil {
@@ -215,7 +217,7 @@ func TestEmbedItems_AllReusedSkipsEmbedder(t *testing.T) {
 
 func TestEmbedItems_ModelMismatchForcesReembed(t *testing.T) {
 	t.Parallel()
-	emb := modelEmbedder{fakeEmbedder: newFakeEmbedder(8), name: "new-model"}
+	emb := modelEmbedder{fakeEmbedder: newFakeEmbedder(), name: "new-model"}
 	// Existing vector stamped with a different model -> must re-embed.
 	existing := map[string]Vector{
 		"a": {ItemID: "a", TextHash: sha("alpha"), Embedding: make([]float32, 8), Model: "old-model", Dim: 8},
@@ -234,10 +236,10 @@ func TestEmbedItems_ModelMismatchForcesReembed(t *testing.T) {
 
 func TestProviderModel(t *testing.T) {
 	t.Parallel()
-	if got := providerModel(newFakeEmbedder(8)); got != "" {
+	if got := providerModel(newFakeEmbedder()); got != "" {
 		t.Errorf("plain embedder model = %q; want empty", got)
 	}
-	if got := providerModel(modelEmbedder{fakeEmbedder: newFakeEmbedder(8), name: "m"}); got != "m" {
+	if got := providerModel(modelEmbedder{fakeEmbedder: newFakeEmbedder(), name: "m"}); got != "m" {
 		t.Errorf("model embedder model = %q; want m", got)
 	}
 }

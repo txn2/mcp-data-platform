@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/lib/pq"
 )
 
 func newMockStore(t *testing.T) (*PostgresStore, sqlmock.Sqlmock, func()) {
@@ -256,15 +255,17 @@ func TestStore_EnqueueNotifyErrorStillCreated(t *testing.T) {
 	}
 }
 
-func TestIsPGCode(t *testing.T) {
+func TestLeaseSeconds_FloorsAtOne(t *testing.T) {
 	t.Parallel()
-	if isPGCode(nil, pgUniqueViolation) {
-		t.Error("nil error should not match any code")
+	cases := map[time.Duration]int{
+		5 * time.Minute:        300,
+		time.Second:            1,
+		500 * time.Millisecond: 1, // sub-second must not truncate to 0
+		0:                      1,
 	}
-	if isPGCode(errors.New("plain"), pgUniqueViolation) {
-		t.Error("non-pq error should not match")
-	}
-	if !isPGCode(&pq.Error{Code: pgUniqueViolation}, pgUniqueViolation) {
-		t.Error("matching pq error code should report true")
+	for d, want := range cases {
+		if got := leaseSeconds(d); got != want {
+			t.Errorf("leaseSeconds(%v) = %d; want %d", d, got, want)
+		}
 	}
 }

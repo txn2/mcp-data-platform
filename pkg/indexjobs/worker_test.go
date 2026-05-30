@@ -42,7 +42,7 @@ func (s *recordingStore) UpdateProgress(_ context.Context, _ int64, _ string, n 
 
 func newTestWorker(store Store, reg *Registry) *Worker {
 	return NewWorker(WorkerConfig{
-		Store: store, Registry: reg, Embedder: newFakeEmbedder(8), WorkerID: "w1",
+		Store: store, Registry: reg, Embedder: newFakeEmbedder(), WorkerID: "w1",
 	})
 }
 
@@ -249,7 +249,7 @@ func TestWorker_StartProcessesQueuedJobThenStops(t *testing.T) {
 	store := &loopStore{}
 	w := NewWorker(WorkerConfig{
 		Store: store, Registry: registryWith(src, &stubSink{kind: "k"}),
-		Embedder: newFakeEmbedder(8), WorkerID: "w1", PollEvery: 10 * time.Millisecond,
+		Embedder: newFakeEmbedder(), WorkerID: "w1", PollEvery: 10 * time.Millisecond,
 	})
 	w.Start(context.Background())
 	w.Start(context.Background()) // second Start is a no-op (idempotent)

@@ -8,8 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/lib/pq"
 )
 
 // defaultListLimit / maxListLimit bound the admin List query's page
@@ -168,8 +166,7 @@ func (s *PostgresStore) Claim(ctx context.Context, workerID string) (*Job, error
 		       items_done = 0
 		 WHERE id = $1
 		 RETURNING ` + jobColumns
-	leaseSeconds := int(s.leaseDuration / time.Second)
-	job, err := scanJob(tx.QueryRowContext(ctx, upd, id, workerID, leaseSeconds))
+	job, err := scanJob(tx.QueryRowContext(ctx, upd, id, workerID, leaseSeconds(s.leaseDuration)))
 	if err != nil {
 		return nil, fmt.Errorf("indexjobs: claim update: %w", err)
 	}
@@ -224,7 +221,7 @@ func (s *PostgresStore) RenewLease(ctx context.Context, id int64, workerID strin
 		   SET lease_expires_at = NOW() + ($3 || ' seconds')::INTERVAL
 		 WHERE id = $1 AND status = 'running' AND worker_id = $2
 	`
-	res, err := s.db.ExecContext(ctx, q, id, workerID, int(duration/time.Second))
+	res, err := s.db.ExecContext(ctx, q, id, workerID, leaseSeconds(duration))
 	if err != nil {
 		return fmt.Errorf("indexjobs: renew lease: %w", err)
 	}
@@ -411,6 +408,20 @@ func computeBackoffSeconds(attempts int) int {
 	return int(retryBackoffBase/time.Second) * (1 << attempts)
 }
 
+// leaseSeconds converts a lease duration to whole seconds for the
+// interval arithmetic, flooring at 1. Without the floor a sub-second
+// configured lease (e.g. 500ms) would compute to 0 and stamp
+// lease_expires_at = NOW() + '0 seconds' = NOW(), which the reaper
+// reclaims on its next sweep while the worker is still running the
+// job: a claim/reap/re-claim doom loop. The store and worker both
+// already reject d <= 0; this guards the sub-second remainder.
+func leaseSeconds(d time.Duration) int {
+	if s := int(d / time.Second); s > 0 {
+		return s
+	}
+	return 1
+}
+
 // scanJob is shared by Claim, Get, and List. rows is a row-like
 // reader (*sql.Row or *sql.Rows). Centralizing the column-to-field
 // mapping keeps drift impossible when a new nullable column is
@@ -497,27 +508,3 @@ func escapeLikePrefix(p string) string {
 func intToStr(n int) string {
 	return strconv.Itoa(n)
 }
-
-// pgUniqueViolation is the SQLSTATE Postgres returns when a unique
-// index rejects an INSERT. Retained for callers that need to
-// distinguish "already enqueued" from a genuine error.
-const pgUniqueViolation = "23505"
-
-// isPGCode reports whether err is a *pq.Error with the given
-// SQLSTATE.
-func isPGCode(err error, code string) bool {
-	if err == nil {
-		return false
-	}
-	var pqErr *pq.Error
-	if errors.As(err, &pqErr) {
-		return string(pqErr.Code) == code
-	}
-	return false
-}
-
-// Keep the helper symbols reachable from this file.
-var (
-	_ = pgUniqueViolation
-	_ = isPGCode
-)
