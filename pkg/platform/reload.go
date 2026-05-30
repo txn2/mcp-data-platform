@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/txn2/mcp-data-platform/pkg/auth"
 	"github.com/txn2/mcp-data-platform/pkg/session"
 	sessionpostgres "github.com/txn2/mcp-data-platform/pkg/session/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
@@ -18,12 +19,11 @@ import (
 // tools/list_changed fan-out, so they are never written to an MCP
 // client's SSE stream. The "platform/reload/" prefix (not
 // "notifications/") makes the separation obvious in logs.
-// Connection and catalog are wired in this change (the demonstrated
-// #501 bug); persona and API-key reloaders are tracked follow-ups that
-// plug into this same bus.
 const (
 	reloadMethodConnection = "platform/reload/connection"
 	reloadMethodCatalog    = "platform/reload/catalog" //nolint:gosec // event method name, not a credential
+	reloadMethodPersona    = "platform/reload/persona" //nolint:gosec // event method name, not a credential
+	reloadMethodAPIKey     = "platform/reload/apikey"  //nolint:gosec // event method name, not a credential
 )
 
 // reloadParamOrigin tags each reload event with the publishing replica's
@@ -42,6 +42,8 @@ const reloadParamOrigin = "origin"
 type reloadHandlers struct {
 	connection func(kind, name string)
 	catalog    func(catalogID string)
+	persona    func()
+	apiKey     func()
 }
 
 // reloadBus publishes and consumes cross-replica reload events over a
@@ -81,6 +83,18 @@ func (rb *reloadBus) publishConnection(ctx context.Context, kind, name string) {
 // should rebuild every connection that references it.
 func (rb *reloadBus) publishCatalog(ctx context.Context, catalogID string) {
 	rb.publish(ctx, reloadMethodCatalog, map[string]any{"catalog_id": catalogID})
+}
+
+// publishPersona announces that persona definitions changed and peers
+// should reconcile their persona registry from the store.
+func (rb *reloadBus) publishPersona(ctx context.Context) {
+	rb.publish(ctx, reloadMethodPersona, nil)
+}
+
+// publishAPIKey announces that API keys changed and peers should
+// re-sync their in-memory key set from the store.
+func (rb *reloadBus) publishAPIKey(ctx context.Context) {
+	rb.publish(ctx, reloadMethodAPIKey, nil)
 }
 
 func (rb *reloadBus) publish(ctx context.Context, method string, params map[string]any) {
@@ -129,22 +143,42 @@ func (rb *reloadBus) dispatch(ev session.Event) {
 	}
 	switch ev.Method {
 	case reloadMethodConnection:
-		kind, _ := ev.Params["kind"].(string)
-		name, _ := ev.Params["name"].(string)
-		if rb.handlers.connection != nil && kind != "" && name != "" {
-			rb.logger.Info("reload-bus: reloading connection from peer", "kind", kind, "name", name)
-			rb.handlers.connection(kind, name)
-		}
+		rb.dispatchConnection(ev)
 	case reloadMethodCatalog:
-		id, _ := ev.Params["catalog_id"].(string)
-		if rb.handlers.catalog != nil && id != "" {
-			rb.logger.Info("reload-bus: reloading catalog connections from peer", "catalog_id", id)
-			rb.handlers.catalog(id)
+		rb.dispatchCatalog(ev)
+	case reloadMethodPersona:
+		if rb.handlers.persona != nil {
+			rb.logger.Info("reload-bus: reloading personas from peer")
+			rb.handlers.persona()
+		}
+	case reloadMethodAPIKey:
+		if rb.handlers.apiKey != nil {
+			rb.logger.Info("reload-bus: reloading API keys from peer")
+			rb.handlers.apiKey()
 		}
 	default:
 		// Unknown method on the dedicated reload channel: ignore. This is
 		// the forward-compat path for a newer replica publishing a reload
 		// kind an older replica does not understand yet.
+	}
+}
+
+// dispatchConnection applies a peer's connection reload (kind/name).
+func (rb *reloadBus) dispatchConnection(ev session.Event) {
+	kind, _ := ev.Params["kind"].(string)
+	name, _ := ev.Params["name"].(string)
+	if rb.handlers.connection != nil && kind != "" && name != "" {
+		rb.logger.Info("reload-bus: reloading connection from peer", "kind", kind, "name", name)
+		rb.handlers.connection(kind, name)
+	}
+}
+
+// dispatchCatalog applies a peer's catalog reload (catalog_id).
+func (rb *reloadBus) dispatchCatalog(ev session.Event) {
+	id, _ := ev.Params["catalog_id"].(string)
+	if rb.handlers.catalog != nil && id != "" {
+		rb.logger.Info("reload-bus: reloading catalog connections from peer", "catalog_id", id)
+		rb.handlers.catalog(id)
 	}
 }
 
@@ -197,9 +231,8 @@ func (p *Platform) initReloadBus() {
 	p.reloadBus = newReloadBus(b, newReplicaOrigin(), reloadHandlers{
 		connection: p.reloadConnectionLocal,
 		catalog:    p.reloadCatalogLocal,
-		// persona and apiKey reloaders are tracked follow-ups on this bus
-		// (issue #501); leaving them nil means those events are ignored
-		// rather than mis-handled.
+		persona:    p.reloadPersonaLocal,
+		apiKey:     p.reloadAPIKeyLocal,
 	}, slog.Default())
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -247,11 +280,57 @@ func (p *Platform) reloadCatalogLocal(catalogID string) {
 	}
 }
 
+// reloadPersonaLocal reconciles the persona registry from the store on
+// this replica (re-registers/updates DB personas). Used by the reload
+// subscriber when a peer changes a persona.
+func (p *Platform) reloadPersonaLocal() {
+	p.loadDBPersonas()
+}
+
+// reloadAPIKeyLocal re-syncs the in-memory DB-loaded API keys from the
+// store on this replica, dropping revoked keys (ReplaceHashedKeys).
+func (p *Platform) reloadAPIKeyLocal() {
+	if p.apiKeyStore == nil || p.apiKeyAuth == nil {
+		return
+	}
+	defs, err := p.apiKeyStore.List(context.Background())
+	if err != nil {
+		slog.Warn("reload-bus: failed to list api keys for reload", logKeyError, err)
+		return
+	}
+	keys := make([]auth.APIKey, 0, len(defs))
+	for _, d := range defs {
+		keys = append(keys, auth.APIKey{
+			KeyHash:     d.KeyHash,
+			Name:        d.Name,
+			Email:       d.Email,
+			Description: d.Description,
+			Roles:       d.Roles,
+			ExpiresAt:   d.ExpiresAt,
+		})
+	}
+	p.apiKeyAuth.ReplaceHashedKeys(keys)
+}
+
 // PublishConnectionReload announces a connection config change to peer
 // replicas. Implements admin.ReloadNotifier. Safe when the bus is nil.
 func (p *Platform) PublishConnectionReload(kind, name string) {
 	if p.reloadBus != nil {
 		p.reloadBus.publishConnection(context.Background(), kind, name)
+	}
+}
+
+// PublishPersonaReload announces a persona change to peer replicas.
+func (p *Platform) PublishPersonaReload() {
+	if p.reloadBus != nil {
+		p.reloadBus.publishPersona(context.Background())
+	}
+}
+
+// PublishAPIKeyReload announces an API-key change to peer replicas.
+func (p *Platform) PublishAPIKeyReload() {
+	if p.reloadBus != nil {
+		p.reloadBus.publishAPIKey(context.Background())
 	}
 }
 

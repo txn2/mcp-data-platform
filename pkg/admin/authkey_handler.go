@@ -118,6 +118,9 @@ func (h *Handler) createAuthKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to persist api key")
 		return
 	}
+	if h.deps.ReloadNotifier != nil {
+		h.deps.ReloadNotifier.PublishAPIKeyReload()
+	}
 
 	writeJSON(w, http.StatusCreated, authKeyCreateResponse{
 		Name:        req.Name,
@@ -164,6 +167,9 @@ func (h *Handler) deleteAuthKey(w http.ResponseWriter, r *http.Request) {
 	if !h.deps.APIKeyManager.RemoveByName(name) {
 		writeError(w, http.StatusNotFound, "key not found")
 		return
+	}
+	if h.deps.ReloadNotifier != nil {
+		h.deps.ReloadNotifier.PublishAPIKeyReload()
 	}
 
 	writeJSON(w, http.StatusOK, statusResponse{Status: statusDeleted})

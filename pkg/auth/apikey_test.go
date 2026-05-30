@@ -196,6 +196,51 @@ func TestRemoveByNameHashedKey(t *testing.T) {
 	}
 }
 
+// TestReplaceHashedKeys proves the cross-replica reconcile path (issue
+// #501): replacing the DB-key set drops a revoked key (it stops
+// authenticating) and admits a newly added one, while file-config keys
+// are untouched.
+func TestReplaceHashedKeys(t *testing.T) {
+	auth := NewAPIKeyAuthenticator(APIKeyConfig{
+		Keys: []APIKey{{Key: "file-key", Name: "file", Roles: []string{testRoleAdmin}}},
+	})
+
+	hashFor := func(raw string) string {
+		h, err := bcrypt.GenerateFromPassword([]byte(raw), bcrypt.MinCost)
+		if err != nil {
+			t.Fatalf("bcrypt hash: %v", err)
+		}
+		return string(h)
+	}
+
+	// Seed an initial DB key, then replace the set with a different one:
+	// the old key is revoked, the new key is admitted.
+	auth.AddHashedKey(APIKey{KeyHash: hashFor("old-db-key"), Name: "old", Roles: []string{testRoleAnalyst}})
+	auth.ReplaceHashedKeys([]APIKey{
+		{KeyHash: hashFor("new-db-key"), Name: "new", Roles: []string{testRoleAnalyst}},
+	})
+
+	if _, err := auth.Authenticate(WithToken(context.Background(), "old-db-key")); err == nil {
+		t.Error("revoked key still authenticates after ReplaceHashedKeys")
+	}
+	if _, err := auth.Authenticate(WithToken(context.Background(), "new-db-key")); err != nil {
+		t.Errorf("new key should authenticate after ReplaceHashedKeys: %v", err)
+	}
+	// File-config key must survive a DB-key replacement.
+	if _, err := auth.Authenticate(WithToken(context.Background(), "file-key")); err != nil {
+		t.Errorf("file-config key must survive ReplaceHashedKeys: %v", err)
+	}
+
+	// Replacing with an empty set drops all DB keys but keeps file keys.
+	auth.ReplaceHashedKeys(nil)
+	if _, err := auth.Authenticate(WithToken(context.Background(), "new-db-key")); err == nil {
+		t.Error("DB key should be gone after ReplaceHashedKeys(nil)")
+	}
+	if _, err := auth.Authenticate(WithToken(context.Background(), "file-key")); err != nil {
+		t.Errorf("file-config key must survive ReplaceHashedKeys(nil): %v", err)
+	}
+}
+
 func TestGenerateKey(t *testing.T) {
 	auth := NewAPIKeyAuthenticator(APIKeyConfig{})
 

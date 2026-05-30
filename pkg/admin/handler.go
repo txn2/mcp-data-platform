@@ -86,6 +86,8 @@ type PromptInfoProvider interface {
 type ReloadNotifier interface {
 	PublishCatalogReload(catalogID string)
 	PublishConnectionReload(kind, name string)
+	PublishPersonaReload()
+	PublishAPIKeyReload()
 }
 
 // ToolkitRegistry abstracts registry.Registry for testability.

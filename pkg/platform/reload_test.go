@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/pkg/auth"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/session"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
@@ -23,6 +24,16 @@ func (fakeConnStore) Set(context.Context, ConnectionInstance) error { return nil
 func (fakeConnStore) Delete(context.Context, string, string) error  { return nil }
 func (fakeConnStore) Persistent() bool                              { return false }
 
+// fakeAPIKeyStore returns a single DB key so reloadAPIKeyLocal's
+// definition-to-APIKey mapping loop is exercised.
+type fakeAPIKeyStore struct{}
+
+func (fakeAPIKeyStore) List(context.Context) ([]APIKeyDefinition, error) {
+	return []APIKeyDefinition{{Name: "db-key", KeyHash: "$2a$hash", Roles: []string{"analyst"}}}, nil
+}
+func (fakeAPIKeyStore) Set(context.Context, APIKeyDefinition) error { return nil }
+func (fakeAPIKeyStore) Delete(context.Context, string) error        { return nil }
+
 // TestPlatform_ReloadWiring exercises the platform-level reload methods:
 // dedicated-bus init (memory fallback, no db), the connection/catalog
 // reloaders against a live api-gateway toolkit, the publish methods, and
@@ -37,6 +48,9 @@ func TestPlatform_ReloadWiring(t *testing.T) {
 		config:          &Config{},
 		toolkitRegistry: reg,
 		connectionStore: fakeConnStore{cfg: map[string]any{"base_url": "https://x"}},
+		personaStore:    &NoopPersonaStore{},
+		apiKeyStore:     fakeAPIKeyStore{},
+		apiKeyAuth:      auth.NewAPIKeyAuthenticator(auth.APIKeyConfig{}),
 	}
 
 	p.initReloadBus() // no db -> in-memory broadcaster
@@ -51,10 +65,14 @@ func TestPlatform_ReloadWiring(t *testing.T) {
 	}
 	p.reloadConnectionLocal("mcp", "ignored") // wrong kind: no-op, exercises the skip
 	p.reloadCatalogLocal("cat-1")             // ReloadConnectionsByCatalog on the api toolkit
+	p.reloadPersonaLocal()                    // reconcile personas from store
+	p.reloadAPIKeyLocal()                     // re-sync api keys from store
 
 	// Publish methods (memory bus; no subscriber needed for coverage).
 	p.PublishConnectionReload("api", "c1")
 	p.PublishCatalogReload("cat-1")
+	p.PublishPersonaReload()
+	p.PublishAPIKeyReload()
 
 	if origin := newReplicaOrigin(); !strings.Contains(origin, "-") {
 		t.Errorf("origin %q lacks the hostname-suffix shape", origin)
@@ -71,12 +89,16 @@ func TestPlatform_ReloadWiring(t *testing.T) {
 type recordingHandlers struct {
 	conn    chan [2]string
 	catalog chan string
+	persona chan struct{}
+	apiKey  chan struct{}
 }
 
 func newRecordingHandlers() recordingHandlers {
 	return recordingHandlers{
 		conn:    make(chan [2]string, 4),
 		catalog: make(chan string, 4),
+		persona: make(chan struct{}, 4),
+		apiKey:  make(chan struct{}, 4),
 	}
 }
 
@@ -84,6 +106,8 @@ func (r recordingHandlers) handlers() reloadHandlers {
 	return reloadHandlers{
 		connection: func(kind, name string) { r.conn <- [2]string{kind, name} },
 		catalog:    func(id string) { r.catalog <- id },
+		persona:    func() { r.persona <- struct{}{} },
+		apiKey:     func() { r.apiKey <- struct{}{} },
 	}
 }
 
@@ -137,12 +161,20 @@ func TestReloadBus_DispatchRouting(t *testing.T) {
 
 	rb.dispatch(session.Event{Method: reloadMethodCatalog, Params: map[string]any{"catalog_id": "cat-1", reloadParamOrigin: "peer"}})
 	rb.dispatch(session.Event{Method: reloadMethodConnection, Params: map[string]any{"kind": "mcp", "name": "up", reloadParamOrigin: "peer"}})
+	rb.dispatch(session.Event{Method: reloadMethodPersona, Params: map[string]any{reloadParamOrigin: "peer"}})
+	rb.dispatch(session.Event{Method: reloadMethodAPIKey, Params: map[string]any{reloadParamOrigin: "peer"}})
 
 	if got := <-rec.catalog; got != "cat-1" {
 		t.Errorf("catalog reload id=%q, want cat-1", got)
 	}
 	if got := <-rec.conn; got != [2]string{"mcp", "up"} {
 		t.Errorf("connection reload=%v, want [mcp up]", got)
+	}
+	if _, ok := <-rec.persona; !ok {
+		t.Error("persona reload not dispatched")
+	}
+	if _, ok := <-rec.apiKey; !ok {
+		t.Error("apikey reload not dispatched")
 	}
 }
 
