@@ -43,7 +43,7 @@ func (*OAuthKindHandler) ParseOAuthConfig(connConfig map[string]any) (connoauth.
 	if err != nil {
 		return connoauth.Config{}, err
 	}
-	if cfg.AuthMode != AuthModeOAuth2AuthorizationCode {
+	if !cfg.IsOAuthAuthorizationCode() {
 		return connoauth.Config{}, errors.New("connection is not configured for authorization_code OAuth")
 	}
 	return connoauthConfigFromOAuth2(cfg), nil

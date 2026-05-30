@@ -229,6 +229,7 @@ func TestNewBasicAuth_DefenseInDepth(t *testing.T) {
 func TestConnoauthConfigFromOAuth2_MapsAuthStyleAndScopes(t *testing.T) {
 	got := connoauthConfigFromOAuth2(Config{
 		OAuth2: OAuth2Config{
+			Grant:             "authorization_code",
 			AuthorizationURL:  "https://idp/authorize",
 			TokenURL:          "https://idp/token",
 			ClientID:          "id",
