@@ -30,6 +30,13 @@ paths:
           schema: { type: string }
       responses:
         "200": { description: ok }
+  /widgets:
+    get:
+      responses:
+        "200": { description: ok }
+    options:
+      responses:
+        "204": { description: no content }
 `
 
 // newResolverTestToolkit builds a toolkit with one connection whose
@@ -69,6 +76,23 @@ func TestResolveOperationID(t *testing.T) {
 		{"missing base path returns empty", "GET", "/users/1", ""},
 		{"empty path returns empty", "GET", "", ""},
 		{"relative path normalized to leading slash", "GET", "v1/users/9", "getUser"},
+		// #519: a collection endpoint invoked with a query string must
+		// still resolve. Before the fix the "?..." stayed in the path
+		// component and the collection route ("^/v1/users$") missed,
+		// collapsing list/bulk traffic into "unknown".
+		{"collection with query string", "GET", "/v1/users?limit=100&offset=0", "listUsers"},
+		{"item with query string", "GET", "/v1/users/123?expand=lines", "getUser"},
+		{"collection with fragment", "GET", "/v1/users#frag", "listUsers"},
+		// #519: an operation with no declared operationId must resolve
+		// to the same synthesized "<METHOD> <rawPath>" id that
+		// api_list_endpoints advertises, not "unknown".
+		{"synthesized id for missing operationId", "GET", "/v1/widgets", "GET /widgets"},
+		{"synthesized id with query string", "GET", "/v1/widgets?page=2", "GET /widgets"},
+		{"synthesized id lowercase method normalized", "get", "/v1/widgets", "GET /widgets"},
+		// #519: the router matches OPTIONS (openapi3 PathItem.Operations
+		// includes it) but api_list_endpoints does not list it, so the
+		// resolver must NOT synthesize a metric label for it.
+		{"unlisted method not synthesized", "OPTIONS", "/v1/widgets", ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

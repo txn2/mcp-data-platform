@@ -115,6 +115,29 @@ var pathItemMethods = []struct {
 	{"HEAD", func(p *openapi3.PathItem) *openapi3.Operation { return p.Head }},
 }
 
+// synthesizedOperationID builds the operationId used for an operation
+// that declares none. method must already be upper-cased; rawPath is
+// spec-relative. Shared by appendItemOperations (which advertises the id
+// via api_list_endpoints) and the metric operation resolver so the
+// listed id and the metric label can never diverge.
+func synthesizedOperationID(method, rawPath string) string {
+	return method + " " + rawPath
+}
+
+// listableMethod reports whether m (upper-cased) is an HTTP method
+// api_list_endpoints advertises, i.e. one of pathItemMethods. The
+// resolver only synthesizes ids for these: the router also matches
+// OPTIONS/TRACE/CONNECT, which pathItemMethods omits, so synthesizing
+// for them would invent a metric label no catalog entry carries.
+func listableMethod(m string) bool {
+	for _, pm := range pathItemMethods {
+		if pm.method == m {
+			return true
+		}
+	}
+	return false
+}
+
 // itemOpsCtx bundles the per-path-item context appendItemOperations
 // needs. Kept as a struct so the function stays under revive's
 // argument-limit ceiling.
@@ -150,7 +173,7 @@ func appendItemOperations(ops []OperationSummary, embedTexts []string, item *ope
 		}
 		id := op.OperationID
 		if id == "" {
-			id = m.method + " " + c.rawPath
+			id = synthesizedOperationID(m.method, c.rawPath)
 		}
 		summary := OperationSummary{
 			OperationID: id,

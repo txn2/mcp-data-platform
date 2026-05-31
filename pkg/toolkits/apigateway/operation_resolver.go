@@ -42,22 +42,65 @@ func (t *Toolkit) ResolveOperationID(_ context.Context, connection, method, path
 
 	req := &http.Request{
 		Method: strings.ToUpper(method),
-		URL:    &url.URL{Path: ensureLeadingSlash(path)},
+		URL:    &url.URL{Path: ensureLeadingSlash(stripQueryAndFragment(path))},
 	}
 	route, _, err := router.FindRoute(req)
 	if err != nil || route == nil || route.Operation == nil {
 		return ""
 	}
-	return route.Operation.OperationID
+	if id := route.Operation.OperationID; id != "" {
+		return id
+	}
+	// The matched operation declares no operationId. Synthesize the same
+	// id api_list_endpoints advertises for it (appendItemOperations) so
+	// the metric label agrees with the listed, invokable id instead of
+	// falling through to "unknown". Only methods the catalog lists qualify:
+	// the router also matches OPTIONS/TRACE/CONNECT, which pathItemMethods
+	// omits, so synthesizing for them would invent a label no catalog entry
+	// carries. rawPath is spec-relative, NOT route.Path (the
+	// effectiveBasePath-prefixed router key), because that is what the list
+	// side synthesizes from.
+	upper := strings.ToUpper(method)
+	if !listableMethod(upper) {
+		return ""
+	}
+	if raw := c.rawPathForRoute(route.Path); raw != "" {
+		return synthesizedOperationID(upper, raw)
+	}
+	return ""
+}
+
+// stripQueryAndFragment removes a "?query" and/or "#fragment" suffix
+// from a runtime path, leaving only the path component the router
+// matches on. A collection endpoint invoked with query parameters
+// (e.g. /v1/orders?limit=100) must still resolve to its operation;
+// leaving the query string in url.URL.Path makes the router try to
+// match it as part of the path and fall through to "" (#519).
+func stripQueryAndFragment(p string) string {
+	if i := strings.IndexAny(p, "?#"); i >= 0 {
+		return p[:i]
+	}
+	return p
 }
 
 // opRouter returns the connection's lazily-built path-matching router,
-// or nil when the connection has no usable spec paths.
+// or nil when the connection has no usable spec paths. The companion
+// rawByKey map (effectiveBasePath-prefixed router key -> spec-relative
+// raw path) is built in the same pass so operationId synthesis can
+// recover the raw path a matched route came from.
 func (c *conn) opRouter() routers.Router {
 	c.operationRouterOnce.Do(func() {
-		c.operationRouter = buildOperationRouter(c.specs)
+		c.operationRouter, c.operationRawPaths = buildOperationRouter(c.specs)
 	})
 	return c.operationRouter
+}
+
+// rawPathForRoute maps a matched route's effectiveBasePath-prefixed
+// Path back to the spec-relative raw path it was registered under, or
+// "" when unknown. Used to synthesize the operationId for operations
+// with no declared id, matching what api_list_endpoints advertises.
+func (c *conn) rawPathForRoute(routePath string) string {
+	return c.operationRawPaths[routePath]
 }
 
 // buildOperationRouter assembles a single gorillamux router covering
@@ -65,20 +108,28 @@ func (c *conn) opRouter() routers.Router {
 // paths are rebased to effectiveBasePath + rawPath (the runtime full
 // path) and the server is pinned to "/" so matching is path-only and
 // host-independent. Returns nil when no spec contributes any path.
-func buildOperationRouter(specs map[string]*specState) routers.Router {
+//
+// The second return value maps each router path key
+// (effectiveBasePath+rawPath) back to its spec-relative rawPath so the
+// resolver can synthesize "<METHOD> <rawPath>" ids for operations that
+// declare no operationId, mirroring api_list_endpoints.
+func buildOperationRouter(specs map[string]*specState) (router routers.Router, rawByKey map[string]string) {
 	paths := openapi3.NewPaths()
+	rawByKey = make(map[string]string)
 	count := 0
 	for _, st := range specs {
 		if st == nil || st.doc == nil || st.doc.Paths == nil {
 			continue
 		}
 		for rawPath, item := range st.doc.Paths.Map() {
-			paths.Set(st.effectiveBasePath+rawPath, item)
+			key := st.effectiveBasePath + rawPath
+			paths.Set(key, item)
+			rawByKey[key] = rawPath
 			count++
 		}
 	}
 	if count == 0 {
-		return nil
+		return nil, nil
 	}
 
 	doc := &openapi3.T{
@@ -89,9 +140,9 @@ func buildOperationRouter(specs map[string]*specState) routers.Router {
 	}
 	router, err := gorillamux.NewRouter(doc)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
-	return router
+	return router, rawByKey
 }
 
 // ensureLeadingSlash normalizes a runtime path so the router (which
