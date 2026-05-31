@@ -26,15 +26,17 @@ import { formatToolName } from "@/lib/formatToolName";
 import { formatUser } from "@/lib/formatUser";
 import { APIGatewayView } from "./APIGatewayView";
 import { HealthView } from "./HealthView";
+import { IndexingPage } from "@/pages/indexing/IndexingPage";
 
 const PER_PAGE = 20;
 
-type Tab = "mcp" | "apigateway" | "health" | "events";
+type Tab = "mcp" | "apigateway" | "health" | "indexing" | "events";
 
 const TAB_ITEMS: { key: Tab; label: string }[] = [
   { key: "mcp", label: "MCP" },
   { key: "apigateway", label: "API Gateway" },
   { key: "health", label: "Health" },
+  { key: "indexing", label: "Indexing" },
   { key: "events", label: "Events" },
 ];
 
@@ -46,7 +48,7 @@ const MCP_EVENT_KIND = "mcp_tool_call";
 
 export function AuditLogPage({ initialTab, onNavigate }: { initialTab?: string; onNavigate?: (path: string) => void }) {
   const [tab, setTab] = useState<Tab>(
-    (["mcp", "apigateway", "health", "events"].includes(initialTab ?? "") ? initialTab : "mcp") as Tab,
+    (["mcp", "apigateway", "health", "indexing", "events"].includes(initialTab ?? "") ? initialTab : "mcp") as Tab,
   );
 
   return (
@@ -72,6 +74,7 @@ export function AuditLogPage({ initialTab, onNavigate }: { initialTab?: string; 
       {tab === "mcp" && <OverviewTab onNavigate={onNavigate} />}
       {tab === "apigateway" && <APIGatewayView />}
       {tab === "health" && <HealthView />}
+      {tab === "indexing" && <IndexingPage />}
       {tab === "events" && <EventsTab onNavigate={onNavigate} />}
     </div>
   );

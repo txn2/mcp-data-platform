@@ -77,7 +77,7 @@ The dashboard includes:
 
 ## Indexing
 
-The Indexing dashboard is an admin-only, cross-kind view of embedding-index health for every consumer of the shared `index_jobs` queue (`pkg/indexjobs`): api-catalog operation vectors, tool descriptors, and any future consumer, which gets visibility here for free the moment it registers. Embedding work runs off the request path, so a provider outage, a model dimension mismatch, or repeated retries can silently degrade `ranking=semantic`/`hybrid` to lexical with only a log line as signal; this tab is the single place to answer whether indexing is healthy, what is covered, what failed, and why.
+The **Indexing** tab of the Dashboard (alongside MCP, API Gateway, Health, and Events) is an admin-only, cross-kind view of embedding-index health for every consumer of the shared `index_jobs` queue (`pkg/indexjobs`): api-catalog operation vectors, tool descriptors, and any future consumer, which gets visibility here for free the moment it registers. Embedding work runs off the request path, so a provider outage, a model dimension mismatch, or repeated retries can silently degrade `ranking=semantic`/`hybrid` to lexical with only a log line as signal; this tab is the single place to answer whether indexing is healthy, what is covered, what failed, and why.
 
 It is system-wide and admin-only by platform convention (operators see all indexing; it is not a per-persona capability). All data is real `index_jobs` and vector-table state — no mocked dimensions. The page polls every 5 seconds so it reflects work as the worker, reconciler, and reaper complete it.
 

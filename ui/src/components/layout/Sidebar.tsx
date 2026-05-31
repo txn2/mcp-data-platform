@@ -21,7 +21,6 @@ import {
   MessageSquare,
   FileUp,
   BookOpen,
-  Boxes,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
 import { useThemeStore } from "@/stores/theme";
@@ -64,7 +63,6 @@ const adminNavItems: NavItem[] = [
   { path: "/admin/changelog", label: "Change Log", icon: Clock },
   { path: "/admin/connections", label: "Connections", icon: Cable },
   { path: "/admin/description", label: "Description", icon: FileText },
-  { path: "/admin/indexing", label: "Indexing", icon: Boxes },
   { path: "/admin/keys", label: "Keys", icon: KeyRound },
   { path: "/admin/knowledge", label: "Knowledge & Memory", icon: Lightbulb },
   { path: "/admin/personas", label: "Personas", icon: Users },

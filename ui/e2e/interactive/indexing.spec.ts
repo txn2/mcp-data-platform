@@ -10,7 +10,11 @@ import { authenticate } from "../screenshots/helpers/auth";
 
 async function gotoIndexing(page: Page): Promise<void> {
   await authenticate(page);
-  await page.goto("/portal/admin/indexing");
+  await page.goto("/portal/admin");
+  // Indexing is a tab in the admin Dashboard tab bar (alongside MCP /
+  // API Gateway / Health / Events).
+  await expect(page.getByRole("button", { name: "MCP", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Indexing", exact: true }).click();
   await expect(page.getByText(/Embedding provider active/i)).toBeVisible();
 }
 

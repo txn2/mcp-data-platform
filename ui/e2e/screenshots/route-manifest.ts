@@ -155,11 +155,6 @@ export const routes: ScreenshotRoute[] = [
     category: "admin",
   },
   {
-    slug: "admin-indexing",
-    path: "/portal/admin/indexing",
-    category: "admin",
-  },
-  {
     slug: "admin-knowledge",
     path: "/portal/admin/knowledge",
     category: "admin",
