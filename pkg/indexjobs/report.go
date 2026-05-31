@@ -223,12 +223,15 @@ func (r *Reporter) Resolve(ctx context.Context, kind, sourceID string) (int, err
 // re-enqueues every unit the kind's Sink currently reports as out of
 // sync via FindGaps, which is the one generic per-kind enumeration the
 // framework exposes: for api_catalog that is every spec whose vector
-// count disagrees with its operation_count; for tools it is the single
-// tool corpus (its FindGaps always returns the source). The
-// manual-retry trigger makes the worker skip its text-hash dedup so
-// every item is re-embedded. Returns the source ids enqueued (which may
-// be empty when nothing is out of sync), or ErrUnknownKind when the
-// kind is not registered.
+// count disagrees with its operation_count; for tools it is the tool
+// corpus when its descriptors have drifted from the persisted vectors.
+// Both kinds report no gaps when fully in sync, so a kind-wide re-index
+// of an already-synced kind enqueues nothing and returns an empty list
+// (this matches the documented "re-enqueue every out-of-sync unit"
+// contract; force-re-embedding an unchanged unit is the per-unit path).
+// The manual-retry trigger makes the worker skip its text-hash dedup so
+// every item of an enqueued unit is re-embedded. Returns the source ids
+// enqueued, or ErrUnknownKind when the kind is not registered.
 //
 // Enqueue is idempotent: a unit that already has an open
 // (pending/running) job is collapsed by the partial unique index, so a

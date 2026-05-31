@@ -3,7 +3,6 @@ package indexjobs
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"fmt"
 
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
@@ -99,10 +98,9 @@ func embedItems(ctx context.Context, req embedRequest) ([]Vector, error) {
 func planVectors(items []Item, existing map[string]Vector, model string, dim int) (rows []Vector, toEmbedIdx []int, toEmbedTexts []string) {
 	rows = make([]Vector, len(items))
 	for i, item := range items {
-		sum := sha256.Sum256([]byte(item.Text))
 		row := Vector{
 			ItemID:   item.ItemID,
-			TextHash: sum[:],
+			TextHash: TextHash(item.Text),
 			Model:    model,
 			Dim:      dim,
 		}

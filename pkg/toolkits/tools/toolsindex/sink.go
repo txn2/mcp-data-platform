@@ -2,21 +2,34 @@ package toolsindex
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 )
 
+// CurrentItemsFunc returns the live tool corpus to index: the same
+// items the worker's Source.LoadItems produces. The Sink calls it from
+// FindGaps to diff the running registry against the persisted vectors,
+// so gap detection sees the in-process tool set (descriptions, deny
+// flips) a DB count never could.
+type CurrentItemsFunc func(ctx context.Context) ([]indexjobs.Item, error)
+
 // Sink implements indexjobs.Sink for the tools kind over the
-// tool_embeddings table (vectors) and index_sources (expected count).
-// The key's SourceID is used verbatim as the tool_embeddings source_id;
-// there is no composite encoding because, unlike api-catalog, the tool
-// corpus is a single flat set per source.
+// tool_embeddings table. The key's SourceID is used verbatim as the
+// tool_embeddings source_id; there is no composite encoding because,
+// unlike api-catalog, the tool corpus is a single flat set per source.
 type Sink struct {
-	store *Store
+	store        *Store
+	currentItems CurrentItemsFunc
 }
 
-// NewSink returns a Sink backed by the given store.
-func NewSink(store *Store) *Sink { return &Sink{store: store} }
+// NewSink returns a Sink backed by the given store. currentItems
+// supplies the live tool corpus for content-drift gap detection; when
+// nil, FindGaps falls back to re-syncing every sweep so a wiring
+// mistake never silently stops indexing.
+func NewSink(store *Store, currentItems CurrentItemsFunc) *Sink {
+	return &Sink{store: store, currentItems: currentItems}
+}
 
 // Compile-time interface checks.
 var (
@@ -63,8 +76,37 @@ func (s *Sink) Coverage(ctx context.Context) (indexjobs.Coverage, error) {
 // re-syncing (see Store.FindGaps), so there is no count to record.
 func (*Sink) StampExpected(context.Context, indexjobs.Key, int) error { return nil }
 
-// FindGaps returns the source ids whose expected count and persisted
-// vector count disagree.
+// FindGaps reports whether the live tool corpus has drifted from the
+// persisted vectors, returning the single tools source when it has and
+// an empty slice when the index is in sync.
+//
+// The tool set lives in the running process (compiled-in toolkits plus
+// admin visibility and description config), and it drifts in ways a
+// count comparison cannot see: a description edit or a deny flip changes
+// the live descriptor without changing the stored vector count. So
+// rather than the api-catalog count diff, this enumerates the live tools
+// and compares each one's embed-text hash against the persisted vector,
+// returning the source on any add, removal, or edit. A steady-state
+// registry produces no gap, so the reconciler stops enqueuing the
+// every-sweep no-op job the unconditional predecessor produced (issue
+// #511); an actual change still converges within one reconcile interval.
+//
+// currentItems nil is a wiring fault, not a steady state, so FindGaps
+// fails safe by re-syncing rather than silently reporting no gap.
 func (s *Sink) FindGaps(ctx context.Context) ([]string, error) {
-	return s.store.FindGaps(ctx)
+	if s.currentItems == nil {
+		return []string{SourceID}, nil
+	}
+	items, err := s.currentItems(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("toolsindex: find gaps load items: %w", err)
+	}
+	existing, err := s.store.ListVectors(ctx, SourceID)
+	if err != nil {
+		return nil, fmt.Errorf("toolsindex: find gaps list vectors: %w", err)
+	}
+	if indexjobs.ContentGap(items, existing) {
+		return []string{SourceID}, nil
+	}
+	return nil, nil
 }
