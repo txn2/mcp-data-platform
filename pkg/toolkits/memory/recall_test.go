@@ -129,7 +129,7 @@ func TestHandleRecall_SemanticStrategy(t *testing.T) {
 	t.Parallel()
 
 	store := &mockStore{
-		vectorResults: []memstore.ScoredRecord{
+		hybridResults: []memstore.ScoredRecord{
 			{Record: memstore.Record{ID: "v1", Content: "semantic match"}, Score: 0.95},
 		},
 	}
@@ -146,32 +146,73 @@ func TestHandleRecall_SemanticStrategy(t *testing.T) {
 
 	data := extractJSON(t, result)
 	assert.Equal(t, "semantic", data["strategy"])
+	assert.Equal(t, "hybrid", data["ranking"])
+	assert.Equal(t, float64(1), data["count"])
+	assert.NotContains(t, data, "degraded")
+}
+
+func TestHandleRecall_SemanticStrategy_ZeroVectorDegradesToLexical(t *testing.T) {
+	t.Parallel()
+
+	// Noop embedder returns zero vectors: recall must degrade to
+	// lexical-only and flag the response, not error.
+	store := &mockStore{
+		lexicalResults: []memstore.ScoredRecord{
+			{Record: memstore.Record{ID: "l1", Content: "keyword match"}, Score: 0.4},
+		},
+	}
+	embedder := embedding.NewNoopProvider(3)
+	tk := newTestToolkit(store, embedder)
+	ctx := ctxWithPC("user@example.com", "analyst")
+
+	result, _, err := tk.handleRecall(ctx, nil, recallInput{
+		Strategy: "semantic",
+		Query:    "search something",
+	})
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+	data := extractJSON(t, result)
+	assert.Equal(t, "lexical", data["ranking"])
+	assert.Equal(t, true, data["degraded"])
+	assert.Equal(t, degradedNote, data["note"])
 	assert.Equal(t, float64(1), data["count"])
 }
 
-func TestHandleRecall_SemanticStrategy_ZeroVectorGuard(t *testing.T) {
+func TestHandleRecall_LexicalStrategy(t *testing.T) {
 	t.Parallel()
 
-	// Noop embedder returns zero vectors, which should trigger the guard.
-	embedder := embedding.NewNoopProvider(3)
-	tk := newTestToolkit(&mockStore{}, embedder)
+	store := &mockStore{
+		lexicalResults: []memstore.ScoredRecord{
+			{Record: memstore.Record{ID: "l1", Content: "error_code 42"}, Score: 0.6},
+		},
+	}
+	// Embedder present but must not be used by the forced lexical strategy.
+	tk := newTestToolkit(store, &mockEmbedder{embedResult: []float32{0.1}})
 	ctx := ctxWithPC("user@example.com", "analyst")
 
 	result, _, err := tk.handleRecall(ctx, nil, recallInput{
-		Strategy: "semantic",
-		Query:    "search something",
+		Strategy: "lexical",
+		Query:    "error_code 42",
 	})
 	require.NoError(t, err)
-	assert.True(t, result.IsError)
+	assert.False(t, result.IsError)
 	data := extractJSON(t, result)
-	assert.Contains(t, data["error"], "semantic search unavailable")
+	assert.Equal(t, "lexical", data["strategy"])
+	assert.Equal(t, "lexical", data["ranking"])
+	assert.NotContains(t, data, "degraded", "explicit lexical is not a degradation")
+	assert.Empty(t, store.hybridQueries, "lexical strategy must not embed")
 }
 
-func TestHandleRecall_SemanticStrategy_EmbeddingError(t *testing.T) {
+func TestHandleRecall_SemanticStrategy_EmbeddingErrorDegradesToLexical(t *testing.T) {
 	t.Parallel()
 
+	store := &mockStore{
+		lexicalResults: []memstore.ScoredRecord{
+			{Record: memstore.Record{ID: "l1"}, Score: 0.4},
+		},
+	}
 	embedder := &mockEmbedder{embedErr: errors.New("embedding service down")}
-	tk := newTestToolkit(&mockStore{}, embedder)
+	tk := newTestToolkit(store, embedder)
 	ctx := ctxWithPC("user@example.com", "analyst")
 
 	result, _, err := tk.handleRecall(ctx, nil, recallInput{
@@ -179,9 +220,10 @@ func TestHandleRecall_SemanticStrategy_EmbeddingError(t *testing.T) {
 		Query:    "search something",
 	})
 	require.NoError(t, err)
-	assert.True(t, result.IsError)
+	assert.False(t, result.IsError)
 	data := extractJSON(t, result)
-	assert.Contains(t, data["error"], "embedding query")
+	assert.Equal(t, "lexical", data["ranking"])
+	assert.Equal(t, true, data["degraded"])
 }
 
 func TestHandleRecall_SemanticStrategy_NoQuery(t *testing.T) {
@@ -342,41 +384,65 @@ func TestRecallBySemantic_Successful(t *testing.T) {
 	t.Parallel()
 
 	store := &mockStore{
-		vectorResults: []memstore.ScoredRecord{
+		hybridResults: []memstore.ScoredRecord{
 			{Record: memstore.Record{ID: "v1"}, Score: 0.9},
 		},
 	}
 	embedder := &mockEmbedder{embedResult: []float32{0.1, 0.2}}
 	tk := newTestToolkit(store, embedder)
 
-	results, err := tk.recallBySemantic(context.Background(), "test query", "analyst", false)
+	outcome, err := tk.recallBySemantic(context.Background(), "test query", "analyst", false)
 	require.NoError(t, err)
-	require.Len(t, results, 1)
-	assert.Equal(t, "v1", results[0].Record.ID)
+	require.Len(t, outcome.records, 1)
+	assert.Equal(t, "v1", outcome.records[0].Record.ID)
+	assert.Equal(t, rankingHybrid, outcome.ranking)
+	assert.False(t, outcome.degraded)
+	// Hybrid arm carries both the embedding and the query text.
+	require.Len(t, store.hybridQueries, 1)
+	assert.Equal(t, "test query", store.hybridQueries[0].QueryText)
+	assert.Equal(t, []float32{0.1, 0.2}, store.hybridQueries[0].Embedding)
 }
 
-func TestRecallBySemantic_EmbeddingError(t *testing.T) {
+func TestRecallBySemantic_EmbeddingError_FallsBackToLexical(t *testing.T) {
 	t.Parallel()
 
+	store := &mockStore{
+		lexicalResults: []memstore.ScoredRecord{
+			{Record: memstore.Record{ID: "l1"}, Score: 0.4},
+		},
+	}
 	embedder := &mockEmbedder{embedErr: errors.New("service down")}
-	tk := newTestToolkit(&mockStore{}, embedder)
+	tk := newTestToolkit(store, embedder)
 
-	results, err := tk.recallBySemantic(context.Background(), "test", "analyst", false)
-	assert.Nil(t, results)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "embedding query")
+	outcome, err := tk.recallBySemantic(context.Background(), "orders_fact", "analyst", false)
+	require.NoError(t, err, "a down embedder must degrade, not error")
+	require.Len(t, outcome.records, 1)
+	assert.Equal(t, "l1", outcome.records[0].Record.ID)
+	assert.Equal(t, rankingLexical, outcome.ranking)
+	assert.True(t, outcome.degraded)
+	assert.Equal(t, degradedNote, outcome.note)
+	require.Len(t, store.lexicalQueries, 1)
+	assert.Equal(t, "orders_fact", store.lexicalQueries[0].QueryText)
 }
 
-func TestRecallBySemantic_ZeroVectorGuard(t *testing.T) {
+func TestRecallBySemantic_ZeroVector_FallsBackToLexical(t *testing.T) {
 	t.Parallel()
 
+	store := &mockStore{
+		lexicalResults: []memstore.ScoredRecord{
+			{Record: memstore.Record{ID: "l1"}, Score: 0.3},
+		},
+	}
 	embedder := &mockEmbedder{embedResult: []float32{0, 0, 0}}
-	tk := newTestToolkit(&mockStore{}, embedder)
+	tk := newTestToolkit(store, embedder)
 
-	results, err := tk.recallBySemantic(context.Background(), "test", "analyst", false)
-	assert.Nil(t, results)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "semantic search unavailable")
+	outcome, err := tk.recallBySemantic(context.Background(), "test", "analyst", false)
+	require.NoError(t, err)
+	require.Len(t, outcome.records, 1)
+	assert.Equal(t, rankingLexical, outcome.ranking)
+	assert.True(t, outcome.degraded)
+	// The zero-vector path must not reach the hybrid arm.
+	assert.Empty(t, store.hybridQueries)
 }
 
 func TestRecallBySemantic_EmptyQuery(t *testing.T) {
@@ -384,8 +450,8 @@ func TestRecallBySemantic_EmptyQuery(t *testing.T) {
 
 	tk := newTestToolkit(&mockStore{}, nil)
 
-	results, err := tk.recallBySemantic(context.Background(), "", "analyst", false)
-	assert.Nil(t, results)
+	outcome, err := tk.recallBySemantic(context.Background(), "", "analyst", false)
+	assert.Nil(t, outcome.records)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "query required")
 }
@@ -394,16 +460,38 @@ func TestRecallBySemantic_IncludeStale(t *testing.T) {
 	t.Parallel()
 
 	store := &mockStore{
-		vectorResults: []memstore.ScoredRecord{
+		hybridResults: []memstore.ScoredRecord{
 			{Record: memstore.Record{ID: "v1", Status: memstore.StatusStale}, Score: 0.8},
 		},
 	}
 	embedder := &mockEmbedder{embedResult: []float32{0.1, 0.2}}
 	tk := newTestToolkit(store, embedder)
 
-	results, err := tk.recallBySemantic(context.Background(), "test", "analyst", true)
+	outcome, err := tk.recallBySemantic(context.Background(), "test", "analyst", true)
 	require.NoError(t, err)
-	assert.Len(t, results, 1)
+	assert.Len(t, outcome.records, 1)
+	// include_stale=true must not constrain the hybrid query's status.
+	require.Len(t, store.hybridQueries, 1)
+	assert.Empty(t, store.hybridQueries[0].Status)
+}
+
+func TestRecallByLexical_Forced(t *testing.T) {
+	t.Parallel()
+
+	store := &mockStore{
+		lexicalResults: []memstore.ScoredRecord{
+			{Record: memstore.Record{ID: "l1"}, Score: 0.5},
+		},
+	}
+	// No embedder needed for forced lexical.
+	tk := newTestToolkit(store, &mockEmbedder{embedResult: []float32{0.1}})
+
+	outcome, err := tk.recallByLexical(context.Background(), "error_code_42", "analyst", false)
+	require.NoError(t, err)
+	require.Len(t, outcome.records, 1)
+	assert.Equal(t, rankingLexical, outcome.ranking)
+	assert.False(t, outcome.degraded, "explicit lexical is not a degradation")
+	assert.Empty(t, store.hybridQueries, "lexical strategy must not embed")
 }
 
 // ---------------------------------------------------------------------------
@@ -498,7 +586,7 @@ func TestRecallAuto_ParallelExecution(t *testing.T) {
 		entityRecords: []memstore.Record{
 			{ID: "e1", Content: "entity record"},
 		},
-		vectorResults: []memstore.ScoredRecord{
+		hybridResults: []memstore.ScoredRecord{
 			{Record: memstore.Record{ID: "v1", Content: "semantic record"}, Score: 0.9},
 		},
 	}
@@ -506,20 +594,22 @@ func TestRecallAuto_ParallelExecution(t *testing.T) {
 	tk := newTestToolkit(store, embedder)
 	ctx := ctxWithPC("user@example.com", "analyst")
 
-	results := tk.recallAuto(ctx, recallInput{
+	outcome := tk.recallAuto(ctx, recallInput{
 		Query:      "test query",
 		EntityURNs: []string{"urn:1"},
 	}, "analyst")
 
-	// Should have results from both strategies merged.
-	assert.NotEmpty(t, results)
+	// Should have results from both strategies merged, ranked by hybrid.
+	assert.NotEmpty(t, outcome.records)
+	assert.Equal(t, rankingHybrid, outcome.ranking)
+	assert.False(t, outcome.degraded)
 }
 
 func TestRecallAuto_OnlyQuery(t *testing.T) {
 	t.Parallel()
 
 	store := &mockStore{
-		vectorResults: []memstore.ScoredRecord{
+		hybridResults: []memstore.ScoredRecord{
 			{Record: memstore.Record{ID: "v1"}, Score: 0.85},
 		},
 	}
@@ -527,8 +617,27 @@ func TestRecallAuto_OnlyQuery(t *testing.T) {
 	tk := newTestToolkit(store, embedder)
 	ctx := ctxWithPC("user@example.com", "analyst")
 
-	results := tk.recallAuto(ctx, recallInput{Query: "something"}, "analyst")
-	assert.Len(t, results, 1)
+	outcome := tk.recallAuto(ctx, recallInput{Query: "something"}, "analyst")
+	assert.Len(t, outcome.records, 1)
+	assert.Equal(t, rankingHybrid, outcome.ranking)
+}
+
+func TestRecallAuto_OnlyQuery_DegradesWhenEmbedderDown(t *testing.T) {
+	t.Parallel()
+
+	store := &mockStore{
+		lexicalResults: []memstore.ScoredRecord{
+			{Record: memstore.Record{ID: "l1"}, Score: 0.4},
+		},
+	}
+	embedder := &mockEmbedder{embedErr: errors.New("down")}
+	tk := newTestToolkit(store, embedder)
+	ctx := ctxWithPC("user@example.com", "analyst")
+
+	outcome := tk.recallAuto(ctx, recallInput{Query: "orders"}, "analyst")
+	assert.Len(t, outcome.records, 1)
+	assert.Equal(t, rankingLexical, outcome.ranking)
+	assert.True(t, outcome.degraded, "auto must propagate the semantic arm's degradation")
 }
 
 func TestRecallAuto_OnlyURNs(t *testing.T) {
@@ -542,10 +651,11 @@ func TestRecallAuto_OnlyURNs(t *testing.T) {
 	tk := newTestToolkit(store, nil)
 	ctx := ctxWithPC("user@example.com", "analyst")
 
-	results := tk.recallAuto(ctx, recallInput{
+	outcome := tk.recallAuto(ctx, recallInput{
 		EntityURNs: []string{"urn:1"},
 	}, "analyst")
-	assert.Len(t, results, 1)
+	assert.Len(t, outcome.records, 1)
+	assert.Equal(t, strategyGraph, outcome.ranking)
 }
 
 func TestRecallAuto_NoInputs(t *testing.T) {
@@ -554,8 +664,8 @@ func TestRecallAuto_NoInputs(t *testing.T) {
 	tk := newTestToolkit(&mockStore{}, nil)
 	ctx := ctxWithPC("user@example.com", "analyst")
 
-	results := tk.recallAuto(ctx, recallInput{}, "analyst")
-	assert.Empty(t, results)
+	outcome := tk.recallAuto(ctx, recallInput{}, "analyst")
+	assert.Empty(t, outcome.records)
 }
 
 // ---------------------------------------------------------------------------

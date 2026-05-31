@@ -8,6 +8,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
+	"github.com/txn2/mcp-data-platform/pkg/memory/memoryindex"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	apigatewaycatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
@@ -167,6 +168,21 @@ func (p *Platform) registerIndexConsumers(reg *indexjobs.Registry, store *indexj
 		slog.Error("index jobs: tools registration failed", "error", err)
 	} else {
 		p.toolsIndexStore = toolsStore
+	}
+
+	// Memory consumer: backfills embeddings the synchronous write path
+	// could not produce (saved during an embedder outage) or that a model
+	// swap left stale. Registered only when memory is enabled (its store
+	// is wired); the reconciler's FindGaps discovers gaps from the
+	// memory_records table directly, so no bootstrap enqueue is needed.
+	if p.memoryStore != nil {
+		memStore := memoryindex.NewStore(p.db)
+		if err := reg.Register(
+			memoryindex.NewSource(memStore),
+			memoryindex.NewSink(memStore, embedding.ModelName(p.embeddingProv)),
+		); err != nil {
+			slog.Error("index jobs: memory registration failed", "error", err)
+		}
 	}
 }
 

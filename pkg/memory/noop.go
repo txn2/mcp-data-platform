@@ -37,6 +37,16 @@ func (*noopStore) VectorSearch(_ context.Context, _ VectorQuery) ([]ScoredRecord
 	return nil, nil
 }
 
+// HybridSearch returns an empty slice.
+func (*noopStore) HybridSearch(_ context.Context, _ HybridQuery) ([]ScoredRecord, error) {
+	return nil, nil
+}
+
+// LexicalSearch returns an empty slice.
+func (*noopStore) LexicalSearch(_ context.Context, _ LexicalQuery) ([]ScoredRecord, error) {
+	return nil, nil
+}
+
 // EntityLookup returns an empty slice.
 func (*noopStore) EntityLookup(_ context.Context, _, _ string) ([]Record, error) {
 	return nil, nil

@@ -44,7 +44,7 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | Knowledge | `capture_insight` | Record domain knowledge |
 | Knowledge | `apply_knowledge` | Review and apply insights to catalog (admin-only) |
 | Memory | `memory_manage` | Create, update, forget, list memories (opt-in per persona) |
-| Memory | `memory_recall` | Multi-strategy memory retrieval (entity, semantic, graph, auto) |
+| Memory | `memory_recall` | Multi-strategy memory retrieval (entity, semantic, lexical, graph, auto) |
 | Portal | `save_artifact` | Save an AI-generated artifact (JSX, HTML, SVG, etc.) |
 | Portal | `manage_artifact` | List, get, update, or delete saved artifacts |
 | Platform | `platform_find_tools` | Find the most relevant tools for a natural-language task, ranked by semantic similarity (persona-scoped) |
@@ -657,12 +657,14 @@ Multi-strategy memory retrieval. Use when cross-enrichment does not surface the 
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `query` | string | Yes | Natural language query for semantic search |
-| `strategy` | string | No | `entity`, `semantic`, `graph`, `auto` (default: `auto`) |
+| `query` | string | Yes | Natural language query (used by `semantic`, `lexical`, `auto`) |
+| `strategy` | string | No | `entity`, `semantic`, `lexical`, `graph`, `auto` (default: `auto`) |
 | `entity_urns` | string[] | No | DataHub URNs for `entity` and `graph` strategies |
 | `dimension` | string | No | Filter by LOCOMO dimension |
 | `include_stale` | bool | No | Include stale memories (default: false) |
 | `limit` | int | No | Max results (default 10, max 50) |
+
+`semantic` ranks by hybrid vector + lexical fusion and automatically falls back to lexical-only when no embedding provider is available; `lexical` forces full-text keyword matching with no embedding call. The response carries a `ranking` field (`hybrid`, `lexical`, `entity`, `graph`); a lexical fallback also sets `degraded: true` with a `note`. See [Memory Layer](../memory/overview.md#memory_recall).
 
 ---
 

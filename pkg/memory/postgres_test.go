@@ -73,6 +73,8 @@ func TestPostgresStore_Insert_WithEmbedding(t *testing.T) {
 	store := NewPostgresStore(db)
 	record := newTestRecord()
 	record.Embedding = []float32{0.1, 0.2, 0.3}
+	record.EmbeddingModel = "nomic-embed-text"
+	record.EmbeddingTextHash = []byte{0xaa, 0xbb}
 
 	mock.ExpectExec("INSERT INTO memory_records").
 		WithArgs(
@@ -82,7 +84,9 @@ func TestPostgresStore_Insert_WithEmbedding(t *testing.T) {
 			sqlmock.AnyArg(), // related_columns JSON
 			sqlmock.AnyArg(), // metadata JSON
 			record.Status,
-			sqlmock.AnyArg(), // embedding (pgvector)
+			sqlmock.AnyArg(),         // embedding (pgvector)
+			record.EmbeddingModel,    // embedding_model
+			record.EmbeddingTextHash, // embedding_text_hash
 		).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 

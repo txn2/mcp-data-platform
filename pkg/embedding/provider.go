@@ -51,6 +51,28 @@ func IsConfigured(p Provider) bool {
 	return p.Kind() != KindNoop
 }
 
+// modelNamed is the optional interface a concrete provider implements
+// to expose its underlying model identifier (e.g. "nomic-embed-text").
+// It is kept off the Provider interface because not every provider has
+// a meaningful model name (the noop placeholder has none), so forcing a
+// Model() method on the interface would be noise.
+type modelNamed interface {
+	Model() string
+}
+
+// ModelName returns p's underlying embedding model identifier when the
+// concrete provider exposes one, else "". The memory write path stamps
+// this on each row (embedding_model) and the indexjobs memory Sink diffs
+// stored rows against the current provider's model to find model-swap
+// gaps, so both sides must read the model the same way. Mirrors the
+// unexported indexjobs.providerModel.
+func ModelName(p Provider) string {
+	if m, ok := p.(modelNamed); ok {
+		return m.Model()
+	}
+	return ""
+}
+
 // Provider generates vector embeddings from text.
 type Provider interface {
 	// Embed generates an embedding vector for a single text input.

@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,6 +32,12 @@ type mockStore struct {
 	listErr         error
 	vectorResults   []memstore.ScoredRecord
 	vectorErr       error
+	hybridResults   []memstore.ScoredRecord
+	hybridErr       error
+	hybridQueries   []memstore.HybridQuery
+	lexicalResults  []memstore.ScoredRecord
+	lexicalErr      error
+	lexicalQueries  []memstore.LexicalQuery
 	entityRecords   []memstore.Record
 	entityErr       error
 	markStaleErr    error
@@ -93,6 +100,22 @@ func (m *mockStore) VectorSearch(_ context.Context, _ memstore.VectorQuery) ([]m
 	return m.vectorResults, nil
 }
 
+func (m *mockStore) HybridSearch(_ context.Context, q memstore.HybridQuery) ([]memstore.ScoredRecord, error) {
+	m.hybridQueries = append(m.hybridQueries, q)
+	if m.hybridErr != nil {
+		return nil, m.hybridErr
+	}
+	return m.hybridResults, nil
+}
+
+func (m *mockStore) LexicalSearch(_ context.Context, q memstore.LexicalQuery) ([]memstore.ScoredRecord, error) {
+	m.lexicalQueries = append(m.lexicalQueries, q)
+	if m.lexicalErr != nil {
+		return nil, m.lexicalErr
+	}
+	return m.lexicalResults, nil
+}
+
 func (m *mockStore) EntityLookup(_ context.Context, _, _ string) ([]memstore.Record, error) {
 	if m.entityErr != nil {
 		return nil, m.entityErr
@@ -123,7 +146,12 @@ type mockEmbedder struct {
 	embedResult []float32
 	embedErr    error
 	dim         int
+	model       string
 }
+
+// Model lets ModelName(t.embedder) return a non-empty identifier so the
+// write-path embedding breadcrumbs can be asserted.
+func (m *mockEmbedder) Model() string { return m.model }
 
 func (m *mockEmbedder) Embed(_ context.Context, _ string) ([]float32, error) {
 	if m.embedErr != nil {
@@ -300,6 +328,59 @@ func TestHandleRemember_Valid(t *testing.T) {
 	assert.Equal(t, "user", rec.Source)
 	assert.Equal(t, []float32{0.1, 0.2}, rec.Embedding)
 	assert.Equal(t, "sess-123", rec.Metadata["session_id"])
+}
+
+// TestHandleRemember_StampsEmbeddingBreadcrumbs proves the synchronous
+// write path records the provider model and the SHA-256 of the content
+// alongside the vector, so the indexjobs memory reconciler does not flag
+// a healthy row as a gap and the worker's text-hash dedup can skip it.
+func TestHandleRemember_StampsEmbeddingBreadcrumbs(t *testing.T) {
+	t.Parallel()
+
+	store := &mockStore{}
+	embedder := &mockEmbedder{embedResult: []float32{0.1, 0.2}, model: "nomic-embed-text"}
+	tk := newTestToolkit(store, embedder)
+	ctx := ctxWithPC("user@example.com", "analyst")
+
+	const content = "orders_fact is partitioned by event_day"
+	result, _, err := tk.handleManage(ctx, nil, manageInput{
+		Command: "remember",
+		Content: content,
+	})
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	require.Len(t, store.insertedRecords, 1)
+	rec := store.insertedRecords[0]
+	assert.Equal(t, "nomic-embed-text", rec.EmbeddingModel)
+	want := sha256.Sum256([]byte(content))
+	assert.Equal(t, want[:], rec.EmbeddingTextHash)
+}
+
+// TestHandleUpdate_StampsEmbeddingBreadcrumbs proves a content change on
+// update re-stamps the model and content hash with the new vector.
+func TestHandleUpdate_StampsEmbeddingBreadcrumbs(t *testing.T) {
+	t.Parallel()
+
+	store := &mockStore{
+		getResult: &memstore.Record{ID: "mem-1", CreatedBy: "user@example.com"},
+	}
+	embedder := &mockEmbedder{embedResult: []float32{0.3, 0.4}, model: "nomic-embed-text"}
+	tk := newTestToolkit(store, embedder)
+	ctx := ctxWithPC("user@example.com", "analyst")
+
+	const content = "updated: error_code 42 means a retryable timeout"
+	result, _, err := tk.handleManage(ctx, nil, manageInput{
+		Command: "update",
+		ID:      "mem-1",
+		Content: content,
+	})
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	assert.Equal(t, "nomic-embed-text", store.updatedFields.EmbeddingModel)
+	want := sha256.Sum256([]byte(content))
+	assert.Equal(t, want[:], store.updatedFields.EmbeddingTextHash)
 }
 
 // TestHandleRemember_NoopEmbedderSkipsEmbed proves the write-path
