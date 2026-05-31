@@ -52,6 +52,20 @@ func TestNoopStore_VectorSearch(t *testing.T) {
 	assert.Nil(t, results)
 }
 
+func TestNoopStore_HybridSearch(t *testing.T) {
+	store := NewNoopStore()
+	results, err := store.HybridSearch(context.Background(), HybridQuery{})
+	assert.NoError(t, err)
+	assert.Nil(t, results)
+}
+
+func TestNoopStore_LexicalSearch(t *testing.T) {
+	store := NewNoopStore()
+	results, err := store.LexicalSearch(context.Background(), LexicalQuery{})
+	assert.NoError(t, err)
+	assert.Nil(t, results)
+}
+
 func TestNoopStore_EntityLookup(t *testing.T) {
 	store := NewNoopStore()
 	records, err := store.EntityLookup(context.Background(), "urn:li:dataset:foo", "analyst")

@@ -1815,6 +1815,20 @@ definitions:
         items:
           type: number
         type: array
+      embedding_model:
+        description: |-
+          EmbeddingModel records the provider model that produced Embedding
+          (e.g. "nomic-embed-text"); EmbeddingTextHash is the SHA-256 of the
+          content fed to the embedder. They are the breadcrumbs the indexjobs
+          memory consumer uses to dedup re-embeds and detect model-swap gaps.
+          The synchronous write path stamps both when the embedder is healthy;
+          they are empty/nil on rows embedded before the column existed or
+          saved during an embedder outage (the reconciler later backfills).
+        type: string
+      embedding_text_hash:
+        items:
+          type: integer
+        type: array
       entity_urns:
         items:
           type: string

@@ -68,7 +68,8 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Name:  recallToolName,
 		Title: "Memory Recall",
 		Description: "Retrieves relevant memories using multi-strategy search. Strategies: entity (URN lookup), " +
-			"semantic (vector similarity), graph (DataHub lineage traversal), auto (combined). " +
+			"semantic (hybrid vector+lexical ranking, with automatic lexical-only fallback when the embedder is " +
+			"unavailable), lexical (forced full-text keyword match), graph (DataHub lineage traversal), auto (combined). " +
 			"Use when you need context from prior sessions that isn't automatically injected.",
 		InputSchema: memoryRecallSchema,
 	}, t.handleRecall)

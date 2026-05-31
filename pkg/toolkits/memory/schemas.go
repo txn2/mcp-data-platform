@@ -81,11 +81,11 @@ var memoryRecallSchema = json.RawMessage(`{
   "properties": {
     "query": {
       "type": "string",
-      "description": "Natural language query for semantic search. Used by 'semantic' and 'auto' strategies."
+      "description": "Natural language query. Used by 'semantic', 'lexical', and 'auto' strategies."
     },
     "strategy": {
       "type": "string",
-      "description": "Retrieval strategy: entity, semantic, graph, auto. Defaults to 'auto'."
+      "description": "Retrieval strategy: entity, semantic, lexical, graph, auto. Defaults to 'auto'. 'semantic' ranks by hybrid vector+lexical fusion (better on exact identifiers than pure vector) and falls back to lexical-only when no embedding provider is available; 'lexical' forces full-text keyword matching with no embedding call. When results are lexical-only the response sets degraded=true with a note."
     },
     "entity_urns": {
       "type": "array",

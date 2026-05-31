@@ -82,6 +82,8 @@ ollama pull nomic-embed-text
 
 Migration `000031_memory_records` creates the `memory_records` table with pgvector support. It automatically migrates existing data from the legacy `knowledge_insights` table and drops it.
 
+Migration `000054_memory_hybrid_search` adds hybrid recall: the `embedding_model` and `embedding_text_hash` breadcrumb columns (used by the index-jobs backfill consumer to dedup re-embeds and detect model-swap gaps), an `hnsw` ANN index on `embedding` (replaces the O(n) sequential cosine scan, requires pgvector >= 0.5.0), and a GIN index on `to_tsvector('english', content)` backing the lexical retrieval arm. No new configuration keys are introduced; the hybrid blend weight is fixed at 0.6 semantic / 0.4 lexical.
+
 The migration requires the pgvector PostgreSQL extension. For managed PostgreSQL services this is typically pre-installed. For self-hosted PostgreSQL:
 
 ```bash

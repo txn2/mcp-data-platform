@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -73,6 +74,22 @@ func validateRememberInput(input manageInput) error {
 	return nil
 }
 
+// embeddingBreadcrumbs returns the model identifier and content hash
+// that travel with a freshly-computed embedding so a synchronously-
+// embedded row carries the same breadcrumbs the indexjobs memory
+// consumer writes and dedups on (model match + SHA-256 text hash). A row
+// stamped this way is not flagged as a gap by the reconciler and is not
+// re-embedded on a later sweep unless its content or the provider model
+// changes. Returns zero values for an empty vector (embedder skipped or
+// failed), leaving the columns NULL/” so the reconciler backfills them.
+func (t *Toolkit) embeddingBreadcrumbs(emb []float32, content string) (model string, hash []byte) {
+	if len(emb) == 0 {
+		return "", nil
+	}
+	sum := sha256.Sum256([]byte(content))
+	return embedding.ModelName(t.embedder), sum[:]
+}
+
 // handleRemember creates a new memory record.
 func (t *Toolkit) handleRemember(ctx context.Context, input manageInput) (*mcp.CallToolResult, any, error) {
 	if err := validateRememberInput(input); err != nil {
@@ -98,20 +115,23 @@ func (t *Toolkit) handleRemember(ctx context.Context, input manageInput) (*mcp.C
 			emb = nil
 		}
 	}
+	embModel, embHash := t.embeddingBreadcrumbs(emb, input.Content)
 
 	record := memstore.Record{
-		ID:         id,
-		CreatedBy:  pc.UserEmail,
-		Persona:    pc.PersonaName,
-		Dimension:  memstore.NormalizeDimension(input.Dimension),
-		Content:    input.Content,
-		Category:   memstore.NormalizeCategory(input.Category),
-		Confidence: memstore.NormalizeConfidence(input.Confidence),
-		Source:     memstore.NormalizeSource(input.Source),
-		EntityURNs: input.EntityURNs,
-		Embedding:  emb,
-		Metadata:   input.Metadata,
-		Status:     memstore.StatusActive,
+		ID:                id,
+		CreatedBy:         pc.UserEmail,
+		Persona:           pc.PersonaName,
+		Dimension:         memstore.NormalizeDimension(input.Dimension),
+		Content:           input.Content,
+		Category:          memstore.NormalizeCategory(input.Category),
+		Confidence:        memstore.NormalizeConfidence(input.Confidence),
+		Source:            memstore.NormalizeSource(input.Source),
+		EntityURNs:        input.EntityURNs,
+		Embedding:         emb,
+		EmbeddingModel:    embModel,
+		EmbeddingTextHash: embHash,
+		Metadata:          input.Metadata,
+		Status:            memstore.StatusActive,
 	}
 
 	if record.Metadata == nil {
@@ -172,6 +192,7 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageInput) (*mcp.Cal
 			slog.Warn("embedding generation failed on update", "error", err)
 		} else {
 			updates.Embedding = emb
+			updates.EmbeddingModel, updates.EmbeddingTextHash = t.embeddingBreadcrumbs(emb, input.Content)
 		}
 	}
 

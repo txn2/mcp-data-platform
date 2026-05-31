@@ -22,6 +22,14 @@ type Store interface {
 	// VectorSearch performs cosine similarity search over embeddings.
 	VectorSearch(ctx context.Context, query VectorQuery) ([]ScoredRecord, error)
 
+	// HybridSearch fuses cosine similarity with a lexical full-text
+	// signal for higher-quality recall on identifier-heavy content.
+	HybridSearch(ctx context.Context, query HybridQuery) ([]ScoredRecord, error)
+
+	// LexicalSearch ranks by Postgres full-text relevance only, the
+	// graceful-degradation path when no embedding provider is available.
+	LexicalSearch(ctx context.Context, query LexicalQuery) ([]ScoredRecord, error)
+
 	// EntityLookup returns active memories linked to a DataHub URN.
 	EntityLookup(ctx context.Context, urn string, persona string) ([]Record, error)
 

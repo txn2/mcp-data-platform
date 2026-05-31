@@ -9,22 +9,13 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 )
 
-// modelNamed is the optional interface concrete embedding providers
-// implement to expose their underlying model identifier. Kept off
-// embedding.Provider so adding a provider does not force a Model()
-// method that may not be meaningful (the noop provider has no model
-// to name).
-type modelNamed interface {
-	Model() string
-}
-
 // providerModel returns the embedding provider's underlying model
-// identifier when the implementation exposes it, else "".
+// identifier when the implementation exposes it, else "". It delegates
+// to embedding.ModelName so the worker's dedup model-identity and the
+// memory write-path's stamped model are read through one definition, not
+// two that can drift.
 func providerModel(p embedding.Provider) string {
-	if m, ok := p.(modelNamed); ok {
-		return m.Model()
-	}
-	return ""
+	return embedding.ModelName(p)
 }
 
 // embedRequest bundles the parameters embedItems needs. The struct

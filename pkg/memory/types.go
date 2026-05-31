@@ -120,11 +120,20 @@ type Record struct {
 	EntityURNs     []string        `json:"entity_urns"`
 	RelatedColumns []RelatedColumn `json:"related_columns"`
 	Embedding      []float32       `json:"embedding,omitempty"`
-	Metadata       map[string]any  `json:"metadata"`
-	Status         string          `json:"status" example:"active"`
-	StaleReason    string          `json:"stale_reason,omitempty"`
-	StaleAt        *time.Time      `json:"stale_at,omitempty"`
-	LastVerified   *time.Time      `json:"last_verified,omitempty"`
+	// EmbeddingModel records the provider model that produced Embedding
+	// (e.g. "nomic-embed-text"); EmbeddingTextHash is the SHA-256 of the
+	// content fed to the embedder. They are the breadcrumbs the indexjobs
+	// memory consumer uses to dedup re-embeds and detect model-swap gaps.
+	// The synchronous write path stamps both when the embedder is healthy;
+	// they are empty/nil on rows embedded before the column existed or
+	// saved during an embedder outage (the reconciler later backfills).
+	EmbeddingModel    string         `json:"embedding_model,omitempty"`
+	EmbeddingTextHash []byte         `json:"embedding_text_hash,omitempty"`
+	Metadata          map[string]any `json:"metadata"`
+	Status            string         `json:"status" example:"active"`
+	StaleReason       string         `json:"stale_reason,omitempty"`
+	StaleAt           *time.Time     `json:"stale_at,omitempty"`
+	LastVerified      *time.Time     `json:"last_verified,omitempty"`
 }
 
 // RelatedColumn represents a column related to a memory record.
@@ -171,6 +180,12 @@ type RecordUpdate struct {
 	Dimension  string
 	Metadata   map[string]any
 	Embedding  []float32
+	// EmbeddingModel and EmbeddingTextHash travel with Embedding: when an
+	// update re-embeds changed content, the write path stamps the model
+	// and content hash alongside the new vector so the row's breadcrumbs
+	// stay consistent with the embedding the indexjobs consumer dedups on.
+	EmbeddingModel    string
+	EmbeddingTextHash []byte
 }
 
 // ValidateDimension checks whether a dimension value is valid.

@@ -9404,6 +9404,16 @@
                         "type": "number"
                     }
                 },
+                "embedding_model": {
+                    "description": "EmbeddingModel records the provider model that produced Embedding\n(e.g. \"nomic-embed-text\"); EmbeddingTextHash is the SHA-256 of the\ncontent fed to the embedder. They are the breadcrumbs the indexjobs\nmemory consumer uses to dedup re-embeds and detect model-swap gaps.\nThe synchronous write path stamps both when the embedder is healthy;\nthey are empty/nil on rows embedded before the column existed or\nsaved during an embedder outage (the reconciler later backfills).",
+                    "type": "string"
+                },
+                "embedding_text_hash": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
                 "entity_urns": {
                     "type": "array",
                     "items": {

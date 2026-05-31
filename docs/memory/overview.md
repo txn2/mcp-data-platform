@@ -78,9 +78,40 @@ Multi-strategy retrieval for when cross-enrichment is not enough.
 | Strategy | Method | LOCOMO Dimension |
 |----------|--------|-----------------|
 | `entity` | Direct URN lookup | Single-hop recall |
-| `semantic` | Vector similarity via pgvector | Open-domain recall |
+| `semantic` | Hybrid vector + lexical ranking via pgvector, with automatic lexical-only fallback when the embedder is unavailable | Open-domain recall |
+| `lexical` | Forced Postgres full-text keyword match (no embedding call) | Exact-term recall |
 | `graph` | DataHub lineage traversal + entity lookup | Multi-hop reasoning |
-| `auto` (default) | Runs entity + semantic + graph in parallel, deduplicates | All dimensions |
+| `auto` (default) | Runs semantic (hybrid/lexical) + graph in parallel, deduplicates | All dimensions |
+
+#### Hybrid ranking
+
+The `semantic` strategy fuses two signals per record: the embedding cosine similarity and a lexical full-text match flag, blended as `0.6 * semantic + 0.4 * lexical`. This mirrors the api-gateway ranking precedent and materially improves recall on identifier-heavy content (entity URNs, column names, error codes) where pure vector search underweights an exact token. The vector arm is backed by an `hnsw` ANN index on `memory_records.embedding`; the lexical arm by a GIN index on `to_tsvector('english', content)`.
+
+#### Graceful degradation
+
+When no embedding provider is configured (or it is down), `semantic` recall no longer errors. It falls back to lexical-only matching and labels the response so the degradation is not silent:
+
+```json
+{
+  "strategy": "semantic",
+  "ranking": "lexical",
+  "degraded": true,
+  "note": "embedding provider unavailable; results are lexical-only (exact-term matches), not semantic",
+  "memories": [ ... ]
+}
+```
+
+Lexical search also surfaces rows whose embedding is `NULL` (saved during an outage) that vector search would skip entirely. Every recall response carries a `ranking` field (`hybrid`, `lexical`, `entity`, or `graph`).
+
+## Embedding Backfill
+
+Memory is a consumer of the shared index-jobs framework (`source_kind = memory`), the same backfill queue the api-catalog and tools corpora use. The synchronous embed on write is preserved (a just-saved memory stays immediately recallable), and a periodic reconciler converges the gaps it cannot cover off the request path:
+
+- A memory saved while the embedder was down (`embedding IS NULL`) is re-embedded automatically once the provider returns, with no manual re-save.
+- A provider model swap re-embeds rows stamped with the previous model (`embedding_model` differs from the current model).
+- The `memory` kind appears on the admin Indexing dashboard with a real indexed/expected coverage ratio.
+
+The write path stamps `embedding_model` and `embedding_text_hash` (SHA-256 of the content) alongside each vector, so a healthy row is never flagged as a gap and the worker's text-hash dedup skips re-embedding unchanged content.
 
 ### capture_insight (existing, refactored)
 

@@ -13,6 +13,16 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
 
+// recallOutcome bundles a strategy's records with metadata describing
+// how they were ranked, so handleRecall can surface the ranking mode and
+// any graceful-degradation signal (lexical fallback) on the response.
+type recallOutcome struct {
+	records  []memstore.ScoredRecord
+	ranking  string
+	degraded bool
+	note     string
+}
+
 // handleRecall performs multi-strategy memory retrieval.
 func (t *Toolkit) handleRecall(ctx context.Context, _ *mcp.CallToolRequest, input recallInput) (*mcp.CallToolResult, any, error) {
 	pc := middleware.GetPlatformContext(ctx)
@@ -23,10 +33,12 @@ func (t *Toolkit) handleRecall(ctx context.Context, _ *mcp.CallToolRequest, inpu
 		strategy = strategyAuto
 	}
 
-	records, err := t.dispatchRecall(ctx, strategy, input, pc.PersonaName)
+	outcome, err := t.dispatchRecall(ctx, strategy, input, pc.PersonaName)
 	if err != nil {
 		return errorResult("recall failed: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
 	}
+
+	records := outcome.records
 
 	// Filter by dimension if specified.
 	if input.Dimension != "" {
@@ -44,11 +56,17 @@ func (t *Toolkit) handleRecall(ctx context.Context, _ *mcp.CallToolRequest, inpu
 		records = records[:limit]
 	}
 
-	return jsonResult(map[string]any{
+	result := map[string]any{
 		"memories": records,
 		"count":    len(records),
 		"strategy": strategy,
-	}), nil, nil
+		"ranking":  outcome.ranking,
+	}
+	if outcome.degraded {
+		result["degraded"] = true
+		result["note"] = outcome.note
+	}
+	return jsonResult(result), nil, nil
 }
 
 // clampLimit constrains the recall limit to valid bounds.
@@ -62,19 +80,26 @@ func clampLimit(limit int) int {
 	return limit
 }
 
-// dispatchRecall routes to the appropriate recall strategy.
-func (t *Toolkit) dispatchRecall(ctx context.Context, strategy string, input recallInput, persona string) ([]memstore.ScoredRecord, error) {
+// dispatchRecall routes to the appropriate recall strategy and wraps the
+// result in a recallOutcome carrying the ranking mode and degradation
+// signal. Entity and graph are exact lookups (no ranking degradation);
+// semantic is hybrid-or-lexical; lexical is forced full-text.
+func (t *Toolkit) dispatchRecall(ctx context.Context, strategy string, input recallInput, persona string) (recallOutcome, error) {
 	switch strategy {
 	case strategyEntity:
-		return t.recallByEntity(ctx, input.EntityURNs, persona)
+		r, err := t.recallByEntity(ctx, input.EntityURNs, persona)
+		return recallOutcome{records: r, ranking: strategyEntity}, err
 	case strategySemantic:
 		return t.recallBySemantic(ctx, input.Query, persona, input.IncludeStale)
+	case strategyLexical:
+		return t.recallByLexical(ctx, input.Query, persona, input.IncludeStale)
 	case strategyGraph:
-		return t.recallByGraph(ctx, input.EntityURNs, persona)
+		r, err := t.recallByGraph(ctx, input.EntityURNs, persona)
+		return recallOutcome{records: r, ranking: strategyGraph}, err
 	case strategyAuto:
 		return t.recallAuto(ctx, input, persona), nil
 	default:
-		return nil, fmt.Errorf("unknown strategy %q: use entity, semantic, graph, or auto", strategy)
+		return recallOutcome{}, fmt.Errorf("unknown strategy %q: use entity, semantic, lexical, graph, or auto", strategy)
 	}
 }
 
@@ -105,44 +130,95 @@ func (t *Toolkit) recallByEntity(ctx context.Context, urns []string, persona str
 	return results, nil
 }
 
-// recallBySemantic performs vector similarity search.
-func (t *Toolkit) recallBySemantic(ctx context.Context, query, persona string, includeStale bool) ([]memstore.ScoredRecord, error) {
+// recallBySemantic performs hybrid (vector + lexical) recall, degrading
+// to lexical-only when no embedding provider is available. It embeds the
+// query; if the embedder errors or returns a zero vector (the noop
+// placeholder), it falls back to LexicalSearch and flags the result as
+// degraded so the caller knows the results are keyword-only, not
+// semantic. Otherwise it fuses vector and lexical signals via
+// HybridSearch. Unlike the prior vector-only path, a missing embedder is
+// no longer an error.
+func (t *Toolkit) recallBySemantic(ctx context.Context, query, persona string, includeStale bool) (recallOutcome, error) {
 	if query == "" {
-		return nil, fmt.Errorf("query required for semantic strategy")
+		return recallOutcome{}, fmt.Errorf("query required for semantic strategy")
 	}
+
+	status := statusFilter(includeStale)
 
 	emb, err := t.embedder.Embed(ctx, query)
-	if err != nil {
-		return nil, fmt.Errorf("embedding query: %w", err)
-	}
-
-	// If all embedding values are zero (noop provider), semantic search is not available.
-	allZero := true
-	for _, v := range emb {
-		if v != 0 {
-			allZero = false
-			break
+	if err != nil || isZeroVector(emb) {
+		if err != nil {
+			slog.Debug("embedding query failed; falling back to lexical recall", "error", err)
 		}
-	}
-	if allZero {
-		return nil, fmt.Errorf("semantic search unavailable: no embedding provider configured (set memory.embedding.provider to 'ollama')")
+		return t.lexicalOutcome(ctx, query, persona, status, true)
 	}
 
-	vq := memstore.VectorQuery{
+	results, err := t.store.HybridSearch(ctx, memstore.HybridQuery{
 		Embedding: emb,
+		QueryText: query,
 		Limit:     maxRecallLimit,
 		Persona:   persona,
-	}
-	if !includeStale {
-		vq.Status = memstore.StatusActive
-	}
-
-	results, err := t.store.VectorSearch(ctx, vq)
+		Status:    status,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("vector search: %w", err)
+		return recallOutcome{}, fmt.Errorf("hybrid search: %w", err)
 	}
+	return recallOutcome{records: results, ranking: rankingHybrid}, nil
+}
 
-	return results, nil
+// recallByLexical performs forced lexical-only recall (no embedding
+// call). It is the explicit counterpart to the automatic fallback and is
+// not flagged degraded, because lexical was the caller's choice.
+func (t *Toolkit) recallByLexical(ctx context.Context, query, persona string, includeStale bool) (recallOutcome, error) {
+	if query == "" {
+		return recallOutcome{}, fmt.Errorf("query required for lexical strategy")
+	}
+	return t.lexicalOutcome(ctx, query, persona, statusFilter(includeStale), false)
+}
+
+// statusFilter maps the include-stale flag to the store status filter:
+// the empty string (no status constraint, so stale rows are eligible)
+// when stale is included, else active-only. Shared by the semantic,
+// lexical, and auto-fallback paths so the active-vs-stale policy lives
+// in one place.
+func statusFilter(includeStale bool) string {
+	if includeStale {
+		return ""
+	}
+	return memstore.StatusActive
+}
+
+// lexicalOutcome runs LexicalSearch and wraps the result. degraded marks
+// whether this was an automatic fallback (true) or an explicit lexical
+// request (false).
+func (t *Toolkit) lexicalOutcome(ctx context.Context, query, persona, status string, degraded bool) (recallOutcome, error) {
+	results, err := t.store.LexicalSearch(ctx, memstore.LexicalQuery{
+		QueryText: query,
+		Limit:     maxRecallLimit,
+		Persona:   persona,
+		Status:    status,
+	})
+	if err != nil {
+		return recallOutcome{}, fmt.Errorf("lexical search: %w", err)
+	}
+	out := recallOutcome{records: results, ranking: rankingLexical, degraded: degraded}
+	if degraded {
+		out.note = degradedNote
+	}
+	return out, nil
+}
+
+// isZeroVector reports whether every element is zero, the signature of
+// the noop embedding provider (real embeddings are never all-zero). A
+// zero query vector yields meaningless cosine similarity, so it forces
+// the lexical fallback.
+func isZeroVector(v []float32) bool {
+	for _, x := range v {
+		if x != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // recallByGraph walks DataHub lineage to find memories on related entities.
@@ -188,22 +264,32 @@ func (t *Toolkit) collectLineageURNs(ctx context.Context, urn string, urns map[s
 	}
 }
 
-// recallAuto runs entity + semantic + graph in parallel, then merges.
-func (t *Toolkit) recallAuto(ctx context.Context, input recallInput, persona string) []memstore.ScoredRecord {
+// recallAuto runs the semantic (hybrid-or-lexical) and graph strategies
+// in parallel, then merges. The merged outcome's ranking reflects the
+// semantic arm when a query was provided (hybrid, or lexical when the
+// embedder was unavailable), else the graph arm; a semantic-arm
+// degradation propagates so the caller still sees the lexical-only
+// signal even through auto.
+func (t *Toolkit) recallAuto(ctx context.Context, input recallInput, persona string) recallOutcome {
 	var mu sync.Mutex
 	var allResults []memstore.ScoredRecord
 	var wg sync.WaitGroup
 
-	// Run semantic search if query is provided.
+	merged := recallOutcome{ranking: strategyGraph}
+
+	// Run semantic (hybrid/lexical) search if query is provided.
 	if input.Query != "" {
 		wg.Go(func() {
-			r, err := t.recallBySemantic(ctx, input.Query, persona, input.IncludeStale)
+			sem, err := t.recallBySemantic(ctx, input.Query, persona, input.IncludeStale)
 			if err != nil {
 				slog.Debug("semantic recall failed in auto", "error", err)
 				return
 			}
 			mu.Lock()
-			allResults = append(allResults, r...)
+			allResults = append(allResults, sem.records...)
+			merged.ranking = sem.ranking
+			merged.degraded = sem.degraded
+			merged.note = sem.note
 			mu.Unlock()
 		})
 	}
@@ -229,7 +315,8 @@ func (t *Toolkit) recallAuto(ctx context.Context, input recallInput, persona str
 			"query", input.Query, "entity_urns", input.EntityURNs)
 	}
 
-	return dedup(allResults)
+	merged.records = dedup(allResults)
+	return merged
 }
 
 // dedup removes duplicate records by ID, keeping the highest score.

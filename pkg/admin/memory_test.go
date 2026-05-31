@@ -92,6 +92,14 @@ func (m *mockMemoryStore) VectorSearch(_ context.Context, _ memory.VectorQuery) 
 	return nil, m.vectorErr
 }
 
+func (m *mockMemoryStore) HybridSearch(_ context.Context, _ memory.HybridQuery) ([]memory.ScoredRecord, error) {
+	return nil, m.vectorErr
+}
+
+func (m *mockMemoryStore) LexicalSearch(_ context.Context, _ memory.LexicalQuery) ([]memory.ScoredRecord, error) {
+	return nil, m.vectorErr
+}
+
 func (m *mockMemoryStore) EntityLookup(_ context.Context, _, _ string) ([]memory.Record, error) {
 	return nil, m.entityErr
 }

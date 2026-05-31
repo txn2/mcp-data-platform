@@ -71,6 +71,14 @@ func (*mockMemoryStore) VectorSearch(_ context.Context, _ memory.VectorQuery) ([
 	return nil, nil //nolint:nilnil // mock returns nil for both
 }
 
+func (*mockMemoryStore) HybridSearch(_ context.Context, _ memory.HybridQuery) ([]memory.ScoredRecord, error) {
+	return nil, nil //nolint:nilnil // mock returns nil for both
+}
+
+func (*mockMemoryStore) LexicalSearch(_ context.Context, _ memory.LexicalQuery) ([]memory.ScoredRecord, error) {
+	return nil, nil //nolint:nilnil // mock returns nil for both
+}
+
 func (*mockMemoryStore) EntityLookup(_ context.Context, _, _ string) ([]memory.Record, error) {
 	return nil, nil //nolint:nilnil // mock returns nil for both
 }
