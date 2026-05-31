@@ -371,6 +371,26 @@ func (s *MemoryStore) ListEmbeddingGaps(_ context.Context) ([]SpecKey, error) {
 	return out, nil
 }
 
+// EmbeddingCoverage returns the system-wide indexed (stored embedding
+// rows) and expected (summed operation_count) totals. Mirrors the
+// Postgres backend so dashboard handler tests can run against either
+// store.
+func (s *MemoryStore) EmbeddingCoverage(_ context.Context) (indexed, expected int, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, bucket := range s.specs {
+		for _, spec := range bucket {
+			expected += spec.OperationCount
+		}
+	}
+	for _, specBucket := range s.embeddings {
+		for _, ops := range specBucket {
+			indexed += len(ops)
+		}
+	}
+	return indexed, expected, nil
+}
+
 // DeleteOperationEmbeddings removes every embedding row for the
 // (catalogID, specName) pair. No-op when no rows exist.
 func (s *MemoryStore) DeleteOperationEmbeddings(_ context.Context, catalogID, specName string) error {

@@ -261,6 +261,18 @@ func (p *Platform) APIGatewayEmbedJobsStore() catalogindex.Store {
 	return p.apiGatewayEmbedAdminStore
 }
 
+// IndexJobsReporter returns the cross-kind index-jobs reporter the
+// admin Indexing dashboard reads (per-kind counts, coverage, job list,
+// re-index), or nil when no queue is wired (no database or no
+// configured embedding provider). The dashboard renders a degraded
+// empty state for the nil case.
+func (p *Platform) IndexJobsReporter() *indexjobs.Reporter {
+	if p.indexJobsStore == nil || p.indexJobsRegistry == nil {
+		return nil
+	}
+	return indexjobs.NewReporter(p.indexJobsStore, p.indexJobsRegistry)
+}
+
 // catalogSource implements indexjobs.Source for the api-catalog
 // kind. LoadItems fetches the current spec content and parses it
 // into per-operation embeddable items; OnSucceeded reloads live

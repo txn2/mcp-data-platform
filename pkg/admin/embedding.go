@@ -52,12 +52,18 @@ type modelNamed interface {
 // @Security     BearerAuth
 // @Router       /admin/embedding/status [get]
 func (h *Handler) getEmbeddingStatus(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, h.embeddingProviderStatus())
+}
+
+// embeddingProviderStatus builds the embedding-provider health view
+// from the wired provider. Shared by GET /admin/embedding/status and
+// the Indexing dashboard summary banner so both report the same state
+// (a noop or nil provider makes the whole index meaningless, so the
+// dashboard surfaces it prominently).
+func (h *Handler) embeddingProviderStatus() embeddingProviderStatusResponse {
 	prov := h.deps.Embedder
 	if prov == nil {
-		writeJSON(w, http.StatusOK, embeddingProviderStatusResponse{
-			Status: embeddingStatusUnconfigured,
-		})
-		return
+		return embeddingProviderStatusResponse{Status: embeddingStatusUnconfigured}
 	}
 	resp := embeddingProviderStatusResponse{
 		Kind:      prov.Kind(),
@@ -71,5 +77,5 @@ func (h *Handler) getEmbeddingStatus(w http.ResponseWriter, _ *http.Request) {
 	} else {
 		resp.Status = embeddingStatusUnconfigured
 	}
-	writeJSON(w, http.StatusOK, resp)
+	return resp
 }

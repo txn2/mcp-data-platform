@@ -194,3 +194,7 @@ func (s *errStore) SetOperationCount(_ context.Context, _, _ string, _ int) erro
 func (s *errStore) ListEmbeddingGaps(_ context.Context) ([]apigatewaycatalog.SpecKey, error) {
 	return nil, s.err
 }
+
+func (s *errStore) EmbeddingCoverage(_ context.Context) (indexed, expected int, err error) {
+	return 0, 0, s.err
+}

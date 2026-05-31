@@ -77,6 +77,10 @@ func (failingCatalogStore) ListEmbeddingGaps(context.Context) ([]catalog.SpecKey
 	return nil, errors.New("boom")
 }
 
+func (failingCatalogStore) EmbeddingCoverage(context.Context) (indexed, expected int, err error) {
+	return 0, 0, errors.New("boom")
+}
+
 func TestCatalogStore_Getter(t *testing.T) {
 	tk := New("api")
 	if tk.CatalogStore() != nil {

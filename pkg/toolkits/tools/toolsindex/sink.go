@@ -18,8 +18,11 @@ type Sink struct {
 // NewSink returns a Sink backed by the given store.
 func NewSink(store *Store) *Sink { return &Sink{store: store} }
 
-// Compile-time interface check.
-var _ indexjobs.Sink = (*Sink)(nil)
+// Compile-time interface checks.
+var (
+	_ indexjobs.Sink             = (*Sink)(nil)
+	_ indexjobs.CoverageReporter = (*Sink)(nil)
+)
 
 // Kind reports the tools source kind.
 func (*Sink) Kind() string { return SourceKind }
@@ -40,6 +43,18 @@ func (s *Sink) Upsert(ctx context.Context, key indexjobs.Key, rows []indexjobs.V
 // it (the worker's incremental progress persistence).
 func (s *Sink) UpsertBatch(ctx context.Context, key indexjobs.Key, rows []indexjobs.Vector) error {
 	return s.store.UpsertBatch(ctx, key.SourceID, rows)
+}
+
+// Coverage reports the number of indexed tool vectors. ExpectedKnown
+// is false: the tools kind stamps no expected count (it re-syncs the
+// live registry every sweep), so the dashboard shows a sync indicator
+// from the latest job status rather than an indexed/expected ratio.
+func (s *Sink) Coverage(ctx context.Context) (indexjobs.Coverage, error) {
+	indexed, err := s.store.Coverage(ctx)
+	if err != nil {
+		return indexjobs.Coverage{}, err
+	}
+	return indexjobs.Coverage{Indexed: indexed, ExpectedKnown: false}, nil
 }
 
 // StampExpected is a no-op for the tools kind. The framework calls it

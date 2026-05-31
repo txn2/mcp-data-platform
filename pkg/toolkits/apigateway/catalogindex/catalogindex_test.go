@@ -28,6 +28,36 @@ func TestEncodeDecodeSourceID_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestSink_Coverage(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := catalog.NewMemoryStore()
+	if err := store.CreateCatalog(ctx, catalog.Catalog{ID: "c", Name: "c", DisplayName: "c"}); err != nil {
+		t.Fatalf("CreateCatalog: %v", err)
+	}
+	if err := store.UpsertSpec(ctx, "c", catalog.SpecEntry{
+		SpecName: "v1", Content: "x", SourceKind: catalog.SourceInline,
+	}); err != nil {
+		t.Fatalf("UpsertSpec: %v", err)
+	}
+	if err := store.SetOperationCount(ctx, "c", "v1", 3); err != nil {
+		t.Fatalf("SetOperationCount: %v", err)
+	}
+	if err := store.UpsertOperationEmbeddings(ctx, "c", "v1", []catalog.OperationEmbedding{
+		{OperationID: "op1", TextHash: []byte("h"), Embedding: []float32{1}, Dim: 1},
+	}); err != nil {
+		t.Fatalf("UpsertOperationEmbeddings: %v", err)
+	}
+
+	cov, err := NewSink(store).Coverage(ctx)
+	if err != nil {
+		t.Fatalf("Coverage: %v", err)
+	}
+	if cov.Indexed != 1 || cov.Expected != 3 || !cov.ExpectedKnown {
+		t.Errorf("coverage = %+v; want {Indexed 1, Expected 3, ExpectedKnown true}", cov)
+	}
+}
+
 func TestDecodeSourceID_Malformed(t *testing.T) {
 	t.Parallel()
 	if _, _, ok := DecodeSourceID("no-delimiter-here"); ok {

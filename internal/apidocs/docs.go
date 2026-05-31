@@ -2138,6 +2138,161 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/index-jobs": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns embedding-provider health plus a per-kind rollup (job-state counts, last activity, coverage) for every registered index_jobs consumer. Renders an empty kinds list when no queue is wired.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "System"
+                ],
+                "summary": "Cross-kind index-jobs health summary",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/admin.indexJobsSummaryResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/index-jobs/jobs": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns index_jobs rows newest first, filterable by kind, status, and source_id. Used by the dashboard's in-flight, retry/backoff, and failure-triage views.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "System"
+                ],
+                "summary": "Index-jobs drill-down list",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by source kind",
+                        "name": "kind",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by status (pending|running|succeeded|failed)",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by exact source id",
+                        "name": "source_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Max rows (default 50, max 500)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/definitions/admin.indexJobResponse"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/index-jobs/reindex": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Enqueues manual-retry jobs for a kind. With source_id it targets one unit; without, every out-of-sync unit. Mirrors the api-catalog manual-retry action across all kinds.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "System"
+                ],
+                "summary": "Re-index (manual retry / force re-embed)",
+                "parameters": [
+                    {
+                        "description": "Re-index target",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/admin.reindexRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/knowledge/changesets": {
             "get": {
                 "security": [
@@ -7316,6 +7471,119 @@ const docTemplate = `{
                 }
             }
         },
+        "admin.indexCoverageResponse": {
+            "type": "object",
+            "properties": {
+                "expected": {
+                    "type": "integer"
+                },
+                "expected_known": {
+                    "type": "boolean"
+                },
+                "indexed": {
+                    "type": "integer"
+                }
+            }
+        },
+        "admin.indexJobResponse": {
+            "type": "object",
+            "properties": {
+                "attempts": {
+                    "type": "integer"
+                },
+                "completed_at": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "items_done": {
+                    "type": "integer"
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "lease_expires_at": {
+                    "type": "string"
+                },
+                "next_run_at": {
+                    "type": "string"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_kind": {
+                    "type": "string"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "trigger": {
+                    "type": "string"
+                },
+                "worker_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "admin.indexJobsSummaryResponse": {
+            "type": "object",
+            "properties": {
+                "kinds": {
+                    "description": "Kinds is one summary row per registered index_jobs consumer,\nsorted by kind. Empty when no queue is wired (no database or no\nconfigured provider) or no consumer registered.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/admin.indexKindSummary"
+                    }
+                },
+                "provider": {
+                    "description": "Provider is the embedding-provider health (configured / model /\ndimension / status). A degraded provider makes every index\nmeaningless, so the dashboard shows it as a banner.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/admin.embeddingProviderStatusResponse"
+                        }
+                    ]
+                }
+            }
+        },
+        "admin.indexKindSummary": {
+            "type": "object",
+            "properties": {
+                "coverage": {
+                    "description": "Coverage is the indexed-vs-expected rollup, omitted for kinds\nwhose Sink reports none.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/admin.indexCoverageResponse"
+                        }
+                    ]
+                },
+                "failed": {
+                    "type": "integer"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "last_activity": {
+                    "description": "LastActivity is the most recent job's activity timestamp\n(completed, else started, else created), RFC3339, omitted when\nthe kind has no jobs yet.",
+                    "type": "string"
+                },
+                "pending": {
+                    "type": "integer"
+                },
+                "running": {
+                    "type": "integer"
+                },
+                "succeeded": {
+                    "type": "integer"
+                }
+            }
+        },
         "admin.insightListResponse": {
             "type": "object",
             "properties": {
@@ -7685,6 +7953,17 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                }
+            }
+        },
+        "admin.reindexRequest": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string"
+                },
+                "source_id": {
+                    "type": "string"
                 }
             }
         },

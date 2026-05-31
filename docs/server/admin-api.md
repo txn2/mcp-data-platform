@@ -193,6 +193,87 @@ Returns all toolkit connections with their tools.
 }
 ```
 
+## Index Jobs Endpoints
+
+Cross-kind embedding-index health for every consumer of the shared `index_jobs` queue (`pkg/indexjobs`). These back the admin portal's **Indexing** dashboard. They degrade gracefully when no queue is wired (no database or no configured embedding provider): the read endpoints return the provider status with an empty `kinds` list rather than an error.
+
+### Index Jobs Summary
+
+```
+GET /api/v1/admin/index-jobs
+```
+
+Returns embedding-provider health plus one rollup row per registered kind (per-state job counts, last activity, and coverage where derivable).
+
+**Response:**
+
+```json
+{
+  "provider": { "kind": "ollama", "model": "nomic-embed-text", "dimension": 768, "status": "ok" },
+  "kinds": [
+    {
+      "kind": "api_catalog",
+      "pending": 1, "running": 0, "succeeded": 6, "failed": 2,
+      "last_activity": "2026-05-30T12:00:00Z",
+      "coverage": { "indexed": 142, "expected": 168, "expected_known": true }
+    },
+    {
+      "kind": "tools",
+      "pending": 0, "running": 1, "succeeded": 1, "failed": 0,
+      "last_activity": "2026-05-30T12:02:00Z",
+      "coverage": { "indexed": 87, "expected": 0, "expected_known": false }
+    }
+  ]
+}
+```
+
+`coverage.expected_known` is `true` only for kinds that stamp an expected count (api-catalog's `operation_count`); the tools kind re-syncs continuously and reports `false`, in which case the dashboard renders a sync indicator from the latest job status instead of an indexed/expected ratio.
+
+### Index Jobs List
+
+```
+GET /api/v1/admin/index-jobs/jobs?kind=&status=&source_id=&limit=
+```
+
+Returns `index_jobs` rows newest first. All filters are optional; an omitted `kind` lists across every kind. `status` must be one of `pending`, `running`, `succeeded`, `failed`. `limit` defaults to 50 and is capped at 500.
+
+**Response:**
+
+```json
+{
+  "jobs": [
+    {
+      "id": 105, "source_kind": "api_catalog", "source_id": "github|v3",
+      "trigger": "reconciler", "status": "pending", "attempts": 2,
+      "last_error": "embed batch: provider timeout after 30s",
+      "next_run_at": "2026-05-30T12:03:30Z", "items_done": 0
+    }
+  ]
+}
+```
+
+### Re-index
+
+```
+POST /api/v1/admin/index-jobs/reindex
+```
+
+Enqueues manual-retry jobs. With a `source_id` it targets exactly that unit (the failure-triage Retry button); without, it re-enqueues every unit the kind currently reports as out of sync. Enqueue is idempotent — a unit with an open job is not double-queued.
+
+**Request:**
+
+```json
+{ "kind": "api_catalog", "source_id": "github|v3" }
+```
+
+**Response (`202 Accepted`):**
+
+```json
+{ "status": "queued", "enqueued": ["github|v3"], "count": 1 }
+```
+
+Returns `404` for an unregistered kind and `409` when no queue is wired.
+
 ## Config Endpoints
 
 ### Get Config

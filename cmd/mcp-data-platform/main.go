@@ -994,6 +994,9 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 	if jobs := p.APIGatewayEmbedJobsStore(); jobs != nil {
 		deps.EmbedJobs = jobs
 	}
+	if reporter := p.IndexJobsReporter(); reporter != nil {
+		deps.IndexJobs = reporter
+	}
 
 	if p.KnowledgeInsightStore() != nil {
 		deps.Knowledge = admin.NewKnowledgeHandler(

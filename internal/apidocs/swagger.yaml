@@ -362,6 +362,89 @@ definitions:
       when_predicate:
         $ref: '#/definitions/enrichment.Predicate'
     type: object
+  admin.indexCoverageResponse:
+    properties:
+      expected:
+        type: integer
+      expected_known:
+        type: boolean
+      indexed:
+        type: integer
+    type: object
+  admin.indexJobResponse:
+    properties:
+      attempts:
+        type: integer
+      completed_at:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: integer
+      items_done:
+        type: integer
+      last_error:
+        type: string
+      lease_expires_at:
+        type: string
+      next_run_at:
+        type: string
+      source_id:
+        type: string
+      source_kind:
+        type: string
+      started_at:
+        type: string
+      status:
+        type: string
+      trigger:
+        type: string
+      worker_id:
+        type: string
+    type: object
+  admin.indexJobsSummaryResponse:
+    properties:
+      kinds:
+        description: |-
+          Kinds is one summary row per registered index_jobs consumer,
+          sorted by kind. Empty when no queue is wired (no database or no
+          configured provider) or no consumer registered.
+        items:
+          $ref: '#/definitions/admin.indexKindSummary'
+        type: array
+      provider:
+        allOf:
+        - $ref: '#/definitions/admin.embeddingProviderStatusResponse'
+        description: |-
+          Provider is the embedding-provider health (configured / model /
+          dimension / status). A degraded provider makes every index
+          meaningless, so the dashboard shows it as a banner.
+    type: object
+  admin.indexKindSummary:
+    properties:
+      coverage:
+        allOf:
+        - $ref: '#/definitions/admin.indexCoverageResponse'
+        description: |-
+          Coverage is the indexed-vs-expected rollup, omitted for kinds
+          whose Sink reports none.
+      failed:
+        type: integer
+      kind:
+        type: string
+      last_activity:
+        description: |-
+          LastActivity is the most recent job's activity timestamp
+          (completed, else started, else created), RFC3339, omitted when
+          the kind has no jobs yet.
+        type: string
+      pending:
+        type: integer
+      running:
+        type: integer
+      succeeded:
+        type: integer
+    type: object
   admin.insightListResponse:
     properties:
       data:
@@ -619,6 +702,13 @@ definitions:
         items:
           type: string
         type: array
+    type: object
+  admin.reindexRequest:
+    properties:
+      kind:
+        type: string
+      source_id:
+        type: string
     type: object
   admin.setConnectionInstanceRequest:
     properties:
@@ -3878,6 +3968,107 @@ paths:
       summary: Test a gateway connection config
       tags:
       - Connections
+  /admin/index-jobs:
+    get:
+      description: Returns embedding-provider health plus a per-kind rollup (job-state
+        counts, last activity, coverage) for every registered index_jobs consumer.
+        Renders an empty kinds list when no queue is wired.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.indexJobsSummaryResponse'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Cross-kind index-jobs health summary
+      tags:
+      - System
+  /admin/index-jobs/jobs:
+    get:
+      description: Returns index_jobs rows newest first, filterable by kind, status,
+        and source_id. Used by the dashboard's in-flight, retry/backoff, and failure-triage
+        views.
+      parameters:
+      - description: Filter by source kind
+        in: query
+        name: kind
+        type: string
+      - description: Filter by status (pending|running|succeeded|failed)
+        in: query
+        name: status
+        type: string
+      - description: Filter by exact source id
+        in: query
+        name: source_id
+        type: string
+      - description: Max rows (default 50, max 500)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              items:
+                $ref: '#/definitions/admin.indexJobResponse'
+              type: array
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Index-jobs drill-down list
+      tags:
+      - System
+  /admin/index-jobs/reindex:
+    post:
+      consumes:
+      - application/json
+      description: Enqueues manual-retry jobs for a kind. With source_id it targets
+        one unit; without, every out-of-sync unit. Mirrors the api-catalog manual-retry
+        action across all kinds.
+      parameters:
+      - description: Re-index target
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/admin.reindexRequest'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Re-index (manual retry / force re-embed)
+      tags:
+      - System
   /admin/knowledge/changesets:
     get:
       description: Returns paginated changesets with optional filtering.

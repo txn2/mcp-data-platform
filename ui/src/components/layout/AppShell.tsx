@@ -29,6 +29,7 @@ import { PersonasPanel } from "@/pages/settings/PersonasPanel";
 import { AdminPromptsPage } from "@/pages/prompts/AdminPromptsPage";
 import { KeysPage } from "@/pages/settings/KeysPage";
 import { ChangelogPage } from "@/pages/settings/ChangelogPage";
+import { IndexingPage } from "@/pages/indexing/IndexingPage";
 import { ShieldAlert } from "lucide-react";
 
 const pageTitles: Record<string, string> = {
@@ -45,6 +46,7 @@ const pageTitles: Record<string, string> = {
   "/admin/audit": "Dashboard",
   "/admin/knowledge": "Knowledge & Memory",
   "/admin/description": "Description",
+  "/admin/indexing": "Indexing",
   "/admin/agent-instructions": "Agent Instructions",
   "/admin/api-catalogs": "API Catalogs",
   "/admin/connections": "Connections",
@@ -316,6 +318,7 @@ export function AppShell() {
                 <ConfigEditorPage configKey="server.agent_instructions" label="Agent Instructions" description="Guidance for AI agents using this platform" />
               )}
               {route === "/admin/api-catalogs" && <CatalogsPanel />}
+              {route === "/admin/indexing" && <IndexingPage />}
               {route === "/admin/connections" && <ConnectionsPanel />}
               {route === "/admin/personas" && <PersonasPanel />}
               {route === "/admin/prompts" && (
