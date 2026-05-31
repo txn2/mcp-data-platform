@@ -47,6 +47,7 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | Memory | `memory_recall` | Multi-strategy memory retrieval (entity, semantic, graph, auto) |
 | Portal | `save_artifact` | Save an AI-generated artifact (JSX, HTML, SVG, etc.) |
 | Portal | `manage_artifact` | List, get, update, or delete saved artifacts |
+| Platform | `platform_find_tools` | Find the most relevant tools for a natural-language task, ranked by semantic similarity (persona-scoped) |
 
 ---
 
@@ -772,6 +773,21 @@ When a deny pattern is a glob (e.g. `*_admin_*`) rather than a literal name, the
 | `DELETE /api/v1/admin/config/entries/tool.<name>.description` | Remove an override and revert to the file or built-in default. |
 
 See [Admin API](admin-api.md) for full request/response shapes.
+
+---
+
+## Platform Tools
+
+### platform_find_tools
+
+`platform_find_tools(query, limit)` ranks the platform's own registered tools by semantic similarity to a natural-language task description, so an agent can discover the right tools by intent instead of scanning every tool name. It is the tool-catalog analogue of `api_list_endpoints`' semantic ranking.
+
+- **Indexing** — every globally-visible tool's descriptor (name, description, and a parameter-schema summary) is embedded through the shared index-jobs framework (`source_kind = "tools"`) and persisted to the `tool_embeddings` table. The reconciler re-syncs the tool index on its schedule, so tool additions, removals, description-override edits, and visibility flips are picked up automatically; the worker's text-hash dedup re-embeds only the descriptors that actually changed, so a no-change pass costs no embedding calls. Embeddings are persona-neutral (indexed once for the whole catalog).
+- **Ranking** — the query is embedded and ranked against the stored vectors with pgvector cosine distance. When no embedding provider is configured or the index is empty, it falls back to a lexical name/description match and sets a `note` explaining why (the same UX as `api_list_endpoints`).
+- **Persona scoping** — results are filtered at read time to the tools the caller's persona is permitted to call, exactly like `tools/list`. The model never sees a tool it cannot call. (Row-level filtering, not per-persona embeddings.)
+- **Response** — `{ "tools": [ { "name", "description", "score" } ], "note"? }`, ranked most-relevant first and capped at `limit` (default 10, max 50).
+
+This is discovery, not routing: the agent still chooses which returned tool to call.
 
 ---
 

@@ -44,15 +44,17 @@ func TestResolveEmbedJobsTuning(t *testing.T) {
 func TestIndexJobsPreconditions_AlreadyWired(t *testing.T) {
 	t.Parallel()
 	p := &Platform{indexJobsStore: indexjobs.NewPostgresStore(nil)}
-	if _, ok := p.indexJobsPreconditions(); ok {
+	if p.indexJobsPreconditions() {
 		t.Error("already-wired platform should refuse to re-wire")
 	}
 }
 
-// TestIndexJobsPreconditions_NoCatalogStore covers the branch where a
-// database and embedder are present but no api-catalog toolkit is
-// registered, so there is no catalog store to read specs from.
-func TestIndexJobsPreconditions_NoCatalogStore(t *testing.T) {
+// TestWireIndexJobs_NoCatalogStore_WiresToolsOnly proves the framework
+// no longer gates on the api-catalog store: with a database and a
+// configured embedder but no catalog store, the queue still wires and
+// registers the tools consumer alone. (Before #440 a missing catalog
+// store skipped the whole queue.)
+func TestWireIndexJobs_NoCatalogStore_WiresToolsOnly(t *testing.T) {
 	t.Parallel()
 	db, _, err := sqlmock.New()
 	if err != nil {
@@ -62,10 +64,23 @@ func TestIndexJobsPreconditions_NoCatalogStore(t *testing.T) {
 	p := &Platform{
 		db:              db,
 		embeddingProv:   embedding.NewOllamaProvider(embedding.OllamaConfig{}),
+		config:          &Config{},
 		toolkitRegistry: registry.NewRegistry(), // no apigateway toolkit -> no catalog store
+		lifecycle:       &Lifecycle{},
 	}
-	if _, ok := p.indexJobsPreconditions(); ok {
-		t.Error("missing catalog store should refuse to wire")
+	if !p.indexJobsPreconditions() {
+		t.Fatal("db + embedder should satisfy the framework preconditions")
+	}
+	p.WireAPIGatewayEmbedJobsFromDB()
+	if p.indexJobsStore == nil {
+		t.Fatal("queue should wire for the tools consumer even without a catalog store")
+	}
+	kinds := p.indexJobsRegistry.Kinds()
+	if len(kinds) != 1 || kinds[0] != "tools" {
+		t.Errorf("kinds = %v; want [tools] (no catalog store registered)", kinds)
+	}
+	if p.APIGatewayEmbedJobsStore() != nil {
+		t.Error("admin store should be nil with no catalog store")
 	}
 }
 
@@ -172,8 +187,8 @@ func TestWireAPIGatewayEmbedJobsFromDB_WiresWorkerWithConfiguredConcurrency(t *t
 	if p.indexJobsRegistry == nil {
 		t.Fatal("registry must be wired")
 	}
-	if kinds := p.indexJobsRegistry.Kinds(); len(kinds) != 1 || kinds[0] != "api_catalog" {
-		t.Errorf("registry kinds = %v; want [api_catalog]", kinds)
+	if kinds := p.indexJobsRegistry.Kinds(); len(kinds) != 2 || kinds[0] != "api_catalog" || kinds[1] != "tools" {
+		t.Errorf("registry kinds = %v; want [api_catalog tools]", kinds)
 	}
 	if p.APIGatewayEmbedJobsStore() == nil {
 		t.Fatal("admin store must be exposed for the admin handler")

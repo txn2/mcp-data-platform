@@ -65,6 +65,7 @@ import (
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 	memorykit "github.com/txn2/mcp-data-platform/pkg/toolkits/memory"
 	portalkit "github.com/txn2/mcp-data-platform/pkg/toolkits/portal"
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/tools/toolsindex"
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
 )
@@ -209,6 +210,7 @@ type Platform struct {
 	indexJobsReconciler       *indexjobs.Reconciler
 	indexJobsListener         *indexjobs.Listener
 	apiGatewayEmbedAdminStore *catalogindex.AdminStore
+	toolsIndexStore           *toolsindex.Store
 
 	// Portal stores (exposed for REST API in Phase 3)
 	portalAssetStore        portal.AssetStore
@@ -2490,12 +2492,11 @@ func (p *Platform) addToolVisibilityMiddleware() {
 		Authenticator: p.authenticator,
 	}
 
-	// Wire persona-based filtering via the authorizer.
+	// Wire persona-based filtering via the authorizer. The same
+	// predicate backs platform_find_tools' read-time filter so the two
+	// cannot diverge (see personaAllowsTool).
 	if p.authorizer != nil {
-		cfg.IsToolAllowedForPersona = func(ctx context.Context, roles []string, toolName string) bool {
-			allowed, _, _ := p.authorizer.IsAuthorized(ctx, "", roles, toolName, "")
-			return allowed
-		}
+		cfg.IsToolAllowedForPersona = p.personaAllowsTool
 	}
 
 	p.mcpServer.AddReceivingMiddleware(
@@ -2983,6 +2984,7 @@ func (p *Platform) Start(ctx context.Context) error {
 	// Register platform-level tools
 	p.registerInfoTool()
 	p.registerConnectionsTool()
+	p.registerFindToolsTool()
 	p.registerPromptTool()
 
 	// Register platform-level prompts from config
