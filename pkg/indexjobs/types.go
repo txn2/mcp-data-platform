@@ -250,6 +250,12 @@ type KindCounts struct {
 	Running    int
 	Succeeded  int
 	Failed     int
+	// LastActivity is the most recent moment any job for this kind
+	// transitioned: MAX over the kind's rows of the greatest of
+	// completed_at, started_at, and created_at. Nil when the kind has
+	// no jobs. Computed as a true aggregate (not the newest-by-id row)
+	// so an out-of-order completion of an older job is not missed.
+	LastActivity *time.Time
 }
 
 // ErrNoJob is returned by Claim when no pending job is available.

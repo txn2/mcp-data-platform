@@ -561,6 +561,22 @@ func (s *PostgresStore) ListEmbeddingGaps(ctx context.Context) ([]SpecKey, error
 	return out, nil
 }
 
+// EmbeddingCoverage returns the system-wide indexed (row count of
+// api_catalog_operation_embeddings) and expected (summed
+// operation_count across api_catalog_specs) operation-vector totals.
+// Two independent aggregates, one round trip; both default to zero on
+// an empty corpus.
+func (s *PostgresStore) EmbeddingCoverage(ctx context.Context) (indexed, expected int, err error) {
+	const q = `
+		SELECT (SELECT COUNT(*) FROM api_catalog_operation_embeddings),
+		       (SELECT COALESCE(SUM(operation_count), 0) FROM api_catalog_specs)
+	`
+	if err := s.db.QueryRowContext(ctx, q).Scan(&indexed, &expected); err != nil {
+		return 0, 0, fmt.Errorf("catalog: embedding coverage: %w", err)
+	}
+	return indexed, expected, nil
+}
+
 // DeleteOperationEmbeddings removes every embedding row for the
 // (catalogID, specName) pair. Used by the reembed admin endpoint
 // before recomputing. Spec deletion does not need to call this —

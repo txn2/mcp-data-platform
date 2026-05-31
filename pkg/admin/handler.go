@@ -20,6 +20,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/configstore"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
+	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -192,6 +193,39 @@ type Deps struct {
 	// the platform was built without a database; spec writes
 	// still succeed in that mode but no embeddings are persisted.
 	EmbedJobs EmbedJobsStore
+
+	// IndexJobs is the cross-kind read + command surface for the admin
+	// Indexing dashboard (per-kind job-state counts, coverage, the job
+	// list / drill-down, and the manual re-index action). It serves
+	// every index_jobs consumer uniformly, so a new consumer gets
+	// dashboard visibility for free. nil when no queue is wired (no
+	// database or no configured embedding provider); the dashboard
+	// then renders a degraded empty state instead of an error.
+	IndexJobs IndexJobsService
+}
+
+// IndexJobsService is the cross-kind index-jobs surface the admin
+// Indexing dashboard consumes. Implemented by *indexjobs.Reporter over
+// the shared queue store + kind registry; declared here so admin can
+// mock it without depending on the queue's concrete types beyond its
+// value structs.
+type IndexJobsService interface {
+	// Kinds returns every registered source kind, sorted.
+	Kinds() []string
+	// Counts returns the per-state job rollup for one source kind.
+	Counts(ctx context.Context, kind string) (*indexjobs.KindCounts, error)
+	// Coverage returns the indexed-vs-expected rollup for the kind, or
+	// nil when the kind reports no coverage. Returns
+	// indexjobs.ErrUnknownKind for an unregistered kind.
+	Coverage(ctx context.Context, kind string) (*indexjobs.Coverage, error)
+	// List returns jobs matching the filter, newest first. A zero-value
+	// SourceKind lists across every kind.
+	List(ctx context.Context, filter indexjobs.ListFilter) ([]indexjobs.Job, error)
+	// Reindex enqueues manual-retry jobs for the kind (a single unit
+	// when sourceID is set, every out-of-sync unit otherwise) and
+	// returns the source ids enqueued. Returns indexjobs.ErrUnknownKind
+	// for an unregistered kind.
+	Reindex(ctx context.Context, kind, sourceID string) ([]string, error)
 }
 
 // EmbedJobsStore is the subset of catalogindex.Store the admin
@@ -352,6 +386,7 @@ func (h *Handler) registerRoutes() {
 	}
 	h.registerEnrichmentRoutes()
 	h.registerPromptRoutes()
+	h.registerIndexJobsRoutes()
 }
 
 // registerKnowledgeRoutes registers knowledge management endpoints or a

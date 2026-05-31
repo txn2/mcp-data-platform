@@ -973,6 +973,32 @@ func TestUpsertOperationEmbeddingsBatch_CommitError(t *testing.T) {
 	}
 }
 
+func TestPostgres_EmbeddingCoverage(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectQuery(regexp.QuoteMeta(`FROM api_catalog_operation_embeddings`)).
+		WillReturnRows(sqlmock.NewRows([]string{"indexed", "expected"}).AddRow(12, 20))
+	indexed, expected, err := store.EmbeddingCoverage(context.Background())
+	if err != nil {
+		t.Fatalf("EmbeddingCoverage: %v", err)
+	}
+	if indexed != 12 || expected != 20 {
+		t.Errorf("coverage = (%d, %d); want (12, 20)", indexed, expected)
+	}
+}
+
+func TestPostgres_EmbeddingCoverageError(t *testing.T) {
+	t.Parallel()
+	store, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectQuery(regexp.QuoteMeta(`FROM api_catalog_operation_embeddings`)).
+		WillReturnError(errors.New("boom"))
+	if _, _, err := store.EmbeddingCoverage(context.Background()); err == nil {
+		t.Error("EmbeddingCoverage should surface query error")
+	}
+}
+
 func TestPostgres_ListEmbeddingGaps(t *testing.T) {
 	t.Parallel()
 	store, mock, done := newMockStore(t)

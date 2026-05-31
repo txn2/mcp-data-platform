@@ -25,8 +25,11 @@ func NewSink(store catalog.Store) *Sink {
 	return &Sink{store: store}
 }
 
-// Compile-time interface check.
-var _ indexjobs.Sink = (*Sink)(nil)
+// Compile-time interface checks.
+var (
+	_ indexjobs.Sink             = (*Sink)(nil)
+	_ indexjobs.CoverageReporter = (*Sink)(nil)
+)
 
 // Kind reports the api-catalog source kind.
 func (*Sink) Kind() string { return SourceKind }
@@ -87,6 +90,19 @@ func (s *Sink) StampExpected(ctx context.Context, key indexjobs.Key, count int) 
 		return fmt.Errorf("catalogindex: stamp expected: %w", err)
 	}
 	return nil
+}
+
+// Coverage reports the api-catalog kind's system-wide indexed-vs-
+// expected operation-vector totals (indexed = stored vectors, expected
+// = summed operation_count). ExpectedKnown is always true because every
+// spec stamps an operation_count after a successful embed pass, so the
+// dashboard renders a real ratio for this kind.
+func (s *Sink) Coverage(ctx context.Context) (indexjobs.Coverage, error) {
+	indexed, expected, err := s.store.EmbeddingCoverage(ctx)
+	if err != nil {
+		return indexjobs.Coverage{}, fmt.Errorf("catalogindex: coverage: %w", err)
+	}
+	return indexjobs.Coverage{Indexed: indexed, Expected: expected, ExpectedKnown: true}, nil
 }
 
 // FindGaps returns the source ids whose operation_count disagrees

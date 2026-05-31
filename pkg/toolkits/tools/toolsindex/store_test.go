@@ -53,6 +53,56 @@ func TestStore_ErrorPaths(t *testing.T) {
 	}
 }
 
+func TestStore_Coverage(t *testing.T) {
+	t.Parallel()
+	st, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectQuery("COUNT.*FROM tool_embeddings").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(42))
+	got, err := st.Coverage(context.Background())
+	if err != nil {
+		t.Fatalf("Coverage: %v", err)
+	}
+	if got != 42 {
+		t.Errorf("Coverage = %d; want 42", got)
+	}
+}
+
+func TestStore_CoverageError(t *testing.T) {
+	t.Parallel()
+	st, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectQuery("COUNT.*FROM tool_embeddings").WillReturnError(errors.New("boom"))
+	if _, err := st.Coverage(context.Background()); err == nil {
+		t.Error("Coverage should surface query error")
+	}
+}
+
+func TestSink_Coverage(t *testing.T) {
+	t.Parallel()
+	st, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectQuery("COUNT.*FROM tool_embeddings").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(5))
+	cov, err := NewSink(st).Coverage(context.Background())
+	if err != nil {
+		t.Fatalf("Sink.Coverage: %v", err)
+	}
+	if cov.Indexed != 5 || cov.ExpectedKnown {
+		t.Errorf("coverage = %+v; want {Indexed 5, ExpectedKnown false}", cov)
+	}
+}
+
+func TestSink_CoverageError(t *testing.T) {
+	t.Parallel()
+	st, mock, done := newMockStore(t)
+	defer done()
+	mock.ExpectQuery("COUNT.*FROM tool_embeddings").WillReturnError(errors.New("boom"))
+	if _, err := NewSink(st).Coverage(context.Background()); err == nil {
+		t.Error("Sink.Coverage should surface store error")
+	}
+}
+
 func newMockStore(t *testing.T) (*Store, sqlmock.Sqlmock, func()) {
 	t.Helper()
 	db, mock, err := sqlmock.New()

@@ -164,6 +164,8 @@ A built-in web dashboard for monitoring, auditing, and managing the platform. En
 
 **Dashboard** — Real-time activity timelines, top tools/users, performance percentiles, error monitoring, knowledge insight summary, and connection health.
 
+**Indexing** — Admin-only, cross-kind embedding-index health for every consumer of the shared `index_jobs` queue (api-catalog operation vectors, tool descriptors, and any future consumer). A custom d3 state heatmap, per-kind coverage and status, a throughput timeline, embed-latency track, in-flight progress, retry backoff, and failure triage grouped by error signature with one-click re-index, so a provider outage or a stalled embed pass that silently degrades semantic ranking to lexical is visible in one place.
+
 ![Admin Tools page](docs/images/screenshots/light/admin-admin-tools-overview-light.webp)
 
 **Tools** — Master-detail surface for the full tool inventory. Search and group by connection or kind; drill into any tool to see its routing, persona allow/deny matrix, 24h audit aggregate, and cross-enrichment rules. Edit the per-tool description override, run the tool inline with auto-generated forms, and toggle global visibility (`tools.deny`) without leaving the page.

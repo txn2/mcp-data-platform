@@ -95,6 +95,14 @@ type Store interface {
 	// operation_count = 0 and no vectors are NOT a gap (there is
 	// genuinely nothing to embed).
 	ListEmbeddingGaps(ctx context.Context) ([]SpecKey, error)
+
+	// EmbeddingCoverage returns the system-wide indexed and expected
+	// operation-vector totals across every catalog and spec: indexed
+	// is the row count of api_catalog_operation_embeddings, expected
+	// is the sum of api_catalog_specs.operation_count. The admin
+	// Indexing dashboard renders the ratio as the api-catalog kind's
+	// coverage (the catalog Sink's CoverageReporter wraps this).
+	EmbeddingCoverage(ctx context.Context) (indexed, expected int, err error)
 }
 
 // SpecKey identifies one component spec by its composite key. The

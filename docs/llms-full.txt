@@ -1935,6 +1935,22 @@ Real-time platform health overview with configurable time ranges (1h, 6h, 24h, 7
 - Knowledge Insights: summary statistics and category breakdown
 - Connections: all configured toolkit connections with tool counts
 
+## Indexing
+
+Admin-only, cross-kind embedding-index health for every consumer of the shared `index_jobs` queue (api-catalog operation vectors, tool descriptors, and any future consumer, which gets visibility for free on registration). System-wide by platform convention, not a per-persona capability. All data is real `index_jobs` / vector-table state; the page polls every 5 seconds.
+
+- Provider health banner: embedding provider kind/model/dimension, or a degraded (noop / unconfigured) state since a bad provider makes the index meaningless and pauses indexing
+- Index state by kind: custom d3 heatmap (centerpiece) of kind rows by job-state columns (pending/running/succeeded/failed), cells colored by count
+- Per-kind cards: status distribution, coverage where derivable (api-catalog indexed-vs-expected from operation_count; tools indexed count with in-sync / re-syncing indicator), last activity, and a Re-index button that re-enqueues every out-of-sync unit
+- Throughput timeline: completed jobs over time (d3 area)
+- Embed latency: per-kind started-to-completed duration (p50 with p95 marker), surfacing slow passes (CPU-only embedder)
+- In flight: running jobs with worker id, lease countdown, items-done progress
+- Retry backoff: pending-after-failure jobs with attempt count and next run time
+- Failure triage: failed jobs grouped by error signature, each with one-click Retry that re-enqueues that unit
+- Jobs drill-down: filterable table (kind, status) of recent jobs with trigger, attempts, last update, error
+
+Backed by `GET /api/v1/admin/index-jobs` (summary + provider health), `GET /api/v1/admin/index-jobs/jobs` (drill-down), and `POST /api/v1/admin/index-jobs/reindex` (manual retry). Degrades to an empty state when no queue is wired (no database or no embedding provider). The existing per-catalog embedding badges in API Catalogs remain.
+
 ## Tools
 
 Master-detail layout: a left rail listing every registered tool (search by name, group by connection or kind, eye/eye-off icon for global-deny visibility) and a right pane with five tabs for the selected tool.
@@ -2252,6 +2268,14 @@ Swagger UI is served at `GET /api/v1/admin/docs/index.html`. The OpenAPI spec is
 - `GET /system/info` — Platform identity, version, runtime feature availability, config mode
 - `GET /tools` — All registered tools across toolkits
 - `GET /connections` — Toolkit connections with their tools
+
+## Index Jobs Endpoints
+
+Cross-kind embedding-index health for every `index_jobs` consumer; backs the admin portal's Indexing dashboard. Degrade gracefully (provider status + empty `kinds`) when no queue is wired.
+
+- `GET /index-jobs` — Provider health plus a per-kind rollup: per-state counts (pending/running/succeeded/failed), last activity, and coverage (`indexed`/`expected`/`expected_known`; `expected_known` is false for the tools kind, which re-syncs continuously and reports an indexed-only sync indicator)
+- `GET /index-jobs/jobs?kind=&status=&source_id=&limit=` — `index_jobs` rows newest first; optional filters (omitted kind lists across kinds), `limit` default 50, max 500
+- `POST /index-jobs/reindex` — `{kind, source_id?}` enqueues manual-retry jobs (one unit with source_id, every out-of-sync unit without); idempotent; `202` with `{status, enqueued, count}`; `404` unknown kind; `409` no queue wired
 
 ## Config Endpoints
 

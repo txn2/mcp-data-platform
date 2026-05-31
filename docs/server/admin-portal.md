@@ -75,6 +75,26 @@ The dashboard includes:
 - **Knowledge Insights** — Summary statistics and category breakdown with pending review queue
 - **Connections** — All configured toolkit connections with tool counts
 
+## Indexing
+
+The **Indexing** tab of the Dashboard (alongside MCP, API Gateway, Health, and Events) is an admin-only, cross-kind view of embedding-index health for every consumer of the shared `index_jobs` queue (`pkg/indexjobs`): api-catalog operation vectors, tool descriptors, and any future consumer, which gets visibility here for free the moment it registers. Embedding work runs off the request path, so a provider outage, a model dimension mismatch, or repeated retries can silently degrade `ranking=semantic`/`hybrid` to lexical with only a log line as signal; this tab is the single place to answer whether indexing is healthy, what is covered, what failed, and why.
+
+It is system-wide and admin-only by platform convention (operators see all indexing; it is not a per-persona capability). All data is real `index_jobs` and vector-table state — no mocked dimensions. The page polls every 5 seconds so it reflects work as the worker, reconciler, and reaper complete it.
+
+The tab includes:
+
+- **Provider health banner** — The embedding provider's kind, model, and dimension, or a clear degraded state (noop / unconfigured) since a bad provider makes the whole index meaningless and pauses indexing.
+- **Index state by kind** — A custom d3 heatmap (the centerpiece): kind rows by job-state columns (pending / running / succeeded / failed), each cell colored by how many units sit in that state, so a failing or sparse corner is obvious at a glance.
+- **Per-kind health cards** — A status distribution bar, coverage where derivable (api-catalog shows indexed-vs-expected from `operation_count`; tools shows an indexed count with an in-sync / re-syncing indicator, since it re-syncs continuously and stamps no expected count), last-activity time, and a **Re-index** button that re-enqueues every out-of-sync unit of the kind.
+- **Throughput timeline** — Completed jobs over time (d3 area), so an operator can see indexing keeping up or stalling.
+- **Embed latency** — Per-kind started-to-completed duration (p50 with a p95 marker), surfacing slow passes such as the CPU-only embedder case.
+- **In flight** — Running jobs with worker id, lease countdown, and items-done progress for long passes.
+- **Retry backoff** — Pending jobs that already failed once, with attempt count and next run time.
+- **Failure triage** — Failed jobs grouped by error signature, each with a one-click **Retry** that re-enqueues that specific unit.
+- **Jobs drill-down** — A filterable table (by kind and status) of recent jobs with trigger, attempts, last update, and error.
+
+The existing per-catalog embedding badges in the API Catalogs panel remain; this tab is the cross-kind superset.
+
 ## Tools
 
 ### Overview

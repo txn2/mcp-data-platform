@@ -558,3 +558,59 @@ func TestMemoryStore_ListEmbeddingGaps(t *testing.T) {
 		t.Errorf("gaps = %+v; want only spec 'gap'", gaps)
 	}
 }
+
+// TestMemoryStore_EmbeddingCoverage sums operation_count (expected)
+// across every spec and counts stored embedding rows (indexed), the
+// system-wide totals the admin Indexing dashboard renders for the
+// api-catalog kind.
+func TestMemoryStore_EmbeddingCoverage(t *testing.T) {
+	t.Parallel()
+	s := NewMemoryStore()
+	ctx := context.Background()
+
+	// Empty corpus: both totals zero.
+	indexed, expected, err := s.EmbeddingCoverage(ctx)
+	if err != nil {
+		t.Fatalf("EmbeddingCoverage empty: %v", err)
+	}
+	if indexed != 0 || expected != 0 {
+		t.Fatalf("empty coverage = (%d,%d); want (0,0)", indexed, expected)
+	}
+
+	if err := s.CreateCatalog(ctx, Catalog{ID: "c", Name: "c", DisplayName: "c"}); err != nil {
+		t.Fatalf("CreateCatalog: %v", err)
+	}
+	// spec a: expected 3, 2 vectors indexed.
+	if err := s.UpsertSpec(ctx, "c", SpecEntry{SpecName: "a", Content: "x", SourceKind: SourceInline}); err != nil {
+		t.Fatalf("UpsertSpec a: %v", err)
+	}
+	if err := s.SetOperationCount(ctx, "c", "a", 3); err != nil {
+		t.Fatalf("SetOperationCount a: %v", err)
+	}
+	if err := s.UpsertOperationEmbeddings(ctx, "c", "a", []OperationEmbedding{
+		{OperationID: "op1", TextHash: []byte("h"), Embedding: []float32{1}, Dim: 1},
+		{OperationID: "op2", TextHash: []byte("h"), Embedding: []float32{1}, Dim: 1},
+	}); err != nil {
+		t.Fatalf("UpsertOperationEmbeddings a: %v", err)
+	}
+	// spec b: expected 1, 1 vector indexed.
+	if err := s.UpsertSpec(ctx, "c", SpecEntry{SpecName: "b", Content: "x", SourceKind: SourceInline}); err != nil {
+		t.Fatalf("UpsertSpec b: %v", err)
+	}
+	if err := s.SetOperationCount(ctx, "c", "b", 1); err != nil {
+		t.Fatalf("SetOperationCount b: %v", err)
+	}
+	if err := s.UpsertOperationEmbeddings(ctx, "c", "b", []OperationEmbedding{
+		{OperationID: "op1", TextHash: []byte("h"), Embedding: []float32{1}, Dim: 1},
+	}); err != nil {
+		t.Fatalf("UpsertOperationEmbeddings b: %v", err)
+	}
+
+	indexed, expected, err = s.EmbeddingCoverage(ctx)
+	if err != nil {
+		t.Fatalf("EmbeddingCoverage: %v", err)
+	}
+	if indexed != 3 || expected != 4 {
+		t.Errorf("coverage = (indexed %d, expected %d); want (3, 4)", indexed, expected)
+	}
+}

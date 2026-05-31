@@ -358,13 +358,19 @@ func (s *PostgresStore) Counts(ctx context.Context, sourceKind string) (*KindCou
 		SELECT COUNT(*) FILTER (WHERE status = 'pending'),
 		       COUNT(*) FILTER (WHERE status = 'running'),
 		       COUNT(*) FILTER (WHERE status = 'succeeded'),
-		       COUNT(*) FILTER (WHERE status = 'failed')
+		       COUNT(*) FILTER (WHERE status = 'failed'),
+		       (SELECT MAX(COALESCE(completed_at, started_at, created_at))
+		          FROM index_jobs WHERE source_kind = $1)
 		  FROM last
 	`
 	c := &KindCounts{SourceKind: sourceKind}
+	var lastActivity sql.NullTime
 	if err := s.db.QueryRowContext(ctx, q, sourceKind).Scan(
-		&c.Pending, &c.Running, &c.Succeeded, &c.Failed); err != nil {
+		&c.Pending, &c.Running, &c.Succeeded, &c.Failed, &lastActivity); err != nil {
 		return nil, fmt.Errorf("indexjobs: counts: %w", err)
+	}
+	if lastActivity.Valid {
+		c.LastActivity = &lastActivity.Time
 	}
 	return c, nil
 }

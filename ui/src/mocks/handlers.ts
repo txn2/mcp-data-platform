@@ -34,6 +34,7 @@ import {
   mockPortalMemoryStats,
 } from "./data/memory";
 import { promInstantFor, promRangeFor } from "./data/observability";
+import { mockIndexJobsSummary, mockIndexJobs } from "./data/indexjobs";
 
 const ADMIN_BASE = "/api/v1/admin";
 const PORTAL_BASE = "/api/v1/portal";
@@ -586,6 +587,31 @@ export const handlers = [
       total: mockConnections.length,
     }),
   ),
+
+  // Indexing dashboard: cross-kind summary, job drill-down, re-index.
+  http.get(`${ADMIN_BASE}/index-jobs`, () => HttpResponse.json(mockIndexJobsSummary)),
+
+  http.get(`${ADMIN_BASE}/index-jobs/jobs`, ({ request }) => {
+    const url = new URL(request.url);
+    const kind = url.searchParams.get("kind");
+    const status = url.searchParams.get("status");
+    let jobs = mockIndexJobs;
+    if (kind) jobs = jobs.filter((j) => j.source_kind === kind);
+    if (status) jobs = jobs.filter((j) => j.status === status);
+    return HttpResponse.json({ jobs });
+  }),
+
+  http.post(`${ADMIN_BASE}/index-jobs/reindex`, async ({ request }) => {
+    const body = (await request.json().catch(() => ({}))) as {
+      kind?: string;
+      source_id?: string;
+    };
+    const enqueued = body.source_id ? [body.source_id] : ["all"];
+    return HttpResponse.json(
+      { status: "queued", enqueued, count: enqueued.length },
+      { status: 202 },
+    );
+  }),
 
   http.get(`${ADMIN_BASE}/audit/events/filters`, () => {
     const users = [...new Set(mockAuditEvents.map((e) => e.user_id))].sort();
