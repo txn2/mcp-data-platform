@@ -10,9 +10,8 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 )
 
-// Store persists tool embedding vectors (tool_embeddings) and the
-// expected-count breadcrumb (index_sources) and answers the query-time
-// cosine ranking. Backed by PostgreSQL + pgvector.
+// Store persists tool embedding vectors (tool_embeddings) and answers
+// the query-time cosine ranking. Backed by PostgreSQL + pgvector.
 type Store struct {
 	db *sql.DB
 }
@@ -118,15 +117,17 @@ func insertVectors(ctx context.Context, tx *sql.Tx, sourceID string, rows []inde
 	return nil
 }
 
-// Coverage returns the number of indexed tool vectors across every
-// source (one source today, "platform"). The tools kind stamps no
-// expected count — it re-syncs the live registry every reconcile sweep
-// (see FindGaps) — so only the indexed total is meaningful; the admin
-// dashboard pairs it with the latest job status to show a sync
-// indicator rather than an indexed/expected ratio.
-func (s *Store) Coverage(ctx context.Context) (int, error) {
+// Coverage returns the number of indexed tool vectors for the source.
+// The tools corpus is written as a complete set on every successful
+// index (Replace deletes-absent then inserts), so this count is both
+// "how many are indexed" and "how many there are": indexed equals
+// expected by construction. The Sink reports it as both halves of the
+// dashboard ratio, so there is no separate expected count to store or
+// to drift out of sync.
+func (s *Store) Coverage(ctx context.Context, sourceID string) (int, error) {
 	var indexed int
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM tool_embeddings`).Scan(&indexed); err != nil {
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM tool_embeddings WHERE source_id = $1`, sourceID).Scan(&indexed); err != nil {
 		return 0, fmt.Errorf("toolsindex: coverage: %w", err)
 	}
 	return indexed, nil

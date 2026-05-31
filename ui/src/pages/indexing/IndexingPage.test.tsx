@@ -48,7 +48,7 @@ const summary: IndexJobsSummary = {
       failed: 0,
       unresolved_failures: 0,
       last_activity: new Date().toISOString(),
-      coverage: { indexed: 87, expected: 0, expected_known: false },
+      coverage: { indexed: 87, expected: 87, expected_known: true },
     },
   ],
 };
@@ -157,12 +157,10 @@ describe("IndexingPage", () => {
 
   it("labels coverage as vectors, distinct from the job-state counts", () => {
     render(<IndexingPage />);
-    // Coverage family is labelled and shows the ratio for ratio-known kinds.
+    // Every kind shows a real indexed/expected ratio, including tools
+    // (its expected is the stamped descriptor count).
     expect(screen.getByText(/142 \/ 168 indexed/)).toBeInTheDocument();
-    // tools has no fixed denominator: it shows an indexed count + in sync
-    // (rendered with a full bar), not a fabricated ratio.
-    expect(screen.getByText(/87 indexed/)).toBeInTheDocument();
-    expect(screen.getByText(/in sync/i)).toBeInTheDocument();
+    expect(screen.getByText(/87 \/ 87 indexed/)).toBeInTheDocument();
     // Job-state family is labelled and shown for the active/degraded kinds.
     expect(screen.getAllByText(/Units by last run/i).length).toBeGreaterThan(0);
   });

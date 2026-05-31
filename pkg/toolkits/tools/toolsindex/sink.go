@@ -58,27 +58,27 @@ func (s *Sink) UpsertBatch(ctx context.Context, key indexjobs.Key, rows []indexj
 	return s.store.UpsertBatch(ctx, key.SourceID, rows)
 }
 
-// Coverage reports the number of indexed tool vectors. ExpectedKnown is
-// false: tools has no fixed expected total, and deriving one from the
-// live registry size would mean enumerating the whole tool set on every
-// dashboard poll and would still read wrong whenever a stale vector
-// briefly outlives a removed tool (indexed > registry). The dashboard
-// instead renders the in-sync state as a full bar from this indexed
-// count, and the verdict's drift signal comes from the content-hash gap
-// check (FindGaps), not a count ratio.
+// Coverage reports the tools kind's indexed/expected ratio. Because a
+// successful index writes the complete registered set atomically
+// (Store.Replace), the indexed vector count is also the expected count:
+// the dashboard shows a real N / N · 100% just like the other kinds,
+// with no separately-stored expected that could drift out of sync. The
+// drift signal (a tool added, removed, or edited since the last index)
+// is the content-hash gap check (FindGaps), which moves the verdict to
+// Indexing while the reconciler catches up.
 func (s *Sink) Coverage(ctx context.Context) (indexjobs.Coverage, error) {
-	indexed, err := s.store.Coverage(ctx)
+	indexed, err := s.store.Coverage(ctx, SourceID)
 	if err != nil {
 		return indexjobs.Coverage{}, err
 	}
-	return indexjobs.Coverage{Indexed: indexed, ExpectedKnown: false}, nil
+	return indexjobs.Coverage{Indexed: indexed, Expected: indexed, ExpectedKnown: true}, nil
 }
 
 // StampExpected is a no-op for the tools kind. The framework calls it
-// after a successful embed to record an expected item count for
-// count-based gap detection, but tools derives both its gap check and
-// its coverage from the live registry (see FindGaps and Coverage), so
-// there is no count to record.
+// after a successful embed to record an expected item count, but tools
+// derives its expected count from the indexed vector total (Coverage),
+// which the atomic full-set Replace keeps equal to the item count, so
+// there is nothing separate to record.
 func (*Sink) StampExpected(context.Context, indexjobs.Key, int) error { return nil }
 
 // FindGaps reports whether the live tool corpus has drifted from the

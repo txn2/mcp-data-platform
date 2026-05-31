@@ -40,7 +40,7 @@ export const mockIndexJobsSummary: IndexJobsSummary = {
       failed: 0,
       unresolved_failures: 0,
       last_activity: minsAgo(1),
-      coverage: { indexed: 87, expected: 0, expected_known: false },
+      coverage: { indexed: 87, expected: 87, expected_known: true },
     },
   ],
 };
