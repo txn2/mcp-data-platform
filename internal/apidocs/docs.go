@@ -7719,7 +7719,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "last_activity": {
-                    "description": "LastActivity is the most recent job's activity timestamp\n(completed, else started, else created), RFC3339, omitted when\nthe kind has no jobs yet. A nil LastActivity with complete\ncoverage is the \"fully indexed, idle\" case (verdict\nidle_complete), which the UI must not render as \"never\".",
+                    "description": "LastActivity is the most recent job's activity timestamp\n(completed, else started, else created), RFC3339, omitted when\nthe kind has no jobs yet (e.g. vectors seeded outside the queue).\nThe UI renders recency from this; its absence means \"no job has\nrun\", which on a fully-indexed kind reads as up to date, not\n\"never\".",
                     "type": "string"
                 },
                 "pending": {
@@ -7737,7 +7737,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "verdict": {
-                    "description": "Verdict is the plain-language health state the dashboard leads\nwith: \"healthy\", \"indexing\", \"degraded\", or \"idle_complete\".\nComputed server-side from counts + coverage so the UI renders one\nword instead of reconciling three independent metric families.",
+                    "description": "Verdict is the plain-language health state the dashboard leads\nwith: \"healthy\", \"indexing\", or \"degraded\". Computed server-side\nfrom counts + coverage so the UI renders one word instead of\nreconciling three independent metric families. \"healthy\" is the\nsingle resting state for any fully-indexed, quiescent, failure-free\nkind regardless of job history; recency is carried by LastActivity.",
                     "type": "string"
                 }
             }

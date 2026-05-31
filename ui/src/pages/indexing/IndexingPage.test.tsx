@@ -157,22 +157,24 @@ describe("IndexingPage", () => {
 
   it("labels coverage as vectors, distinct from the job-state counts", () => {
     render(<IndexingPage />);
-    // Coverage family is labelled and shows the ratio.
+    // Coverage family is labelled and shows the ratio for ratio-known kinds.
     expect(screen.getByText(/142 \/ 168 indexed/)).toBeInTheDocument();
-    // Job-state family is labelled so "succeeded" reads as units, not jobs.
+    // tools has no fixed denominator: it shows an indexed count + in sync
+    // (rendered with a full bar), not a fabricated ratio.
+    expect(screen.getByText(/87 indexed/)).toBeInTheDocument();
+    expect(screen.getByText(/in sync/i)).toBeInTheDocument();
+    // Job-state family is labelled and shown for the active/degraded kinds.
     expect(screen.getAllByText(/Units by last run/i).length).toBeGreaterThan(0);
-    // tools shows the indexed-only in-sync indicator (expected_known=false).
-    expect(screen.getByText(/87/)).toBeInTheDocument();
   });
 
-  it("renders a fully-indexed idle kind as idle, never 'never'", () => {
+  it("renders a fully-indexed kind with no job history as up to date, never 'never'", () => {
     summaryState = {
       data: {
         provider: summary.provider,
         kinds: [
           {
             kind: "seeded",
-            verdict: "idle_complete",
+            verdict: "healthy",
             pending: 0,
             running: 0,
             succeeded: 0,
@@ -185,8 +187,16 @@ describe("IndexingPage", () => {
       isLoading: false,
     };
     render(<IndexingPage />);
-    expect(screen.getByText(/fully indexed · idle/i)).toBeInTheDocument();
-    expect(screen.queryByText(/last synced never/i)).not.toBeInTheDocument();
+    // Same green resting badge as any other complete kind, recency line
+    // reads "fully indexed" (no timestamp), never "never", and the noisy
+    // all-zero per-state row is hidden.
+    expect(screen.getByText("Up to date")).toBeInTheDocument();
+    expect(screen.getByText(/fully indexed/i)).toBeInTheDocument();
+    // The card's recency line must not read "... never" for a kind with
+    // no job timestamp (the broad word "never" can legitimately appear in
+    // the unrelated job-table Updated column).
+    expect(screen.queryByText(/(indexed|synced) never/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Units by last run/i)).not.toBeInTheDocument();
   });
 
   it("renders failure triage from the failures endpoint with timestamps", () => {

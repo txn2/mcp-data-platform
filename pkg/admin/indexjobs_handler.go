@@ -41,9 +41,11 @@ type indexJobsSummaryResponse struct {
 type indexKindSummary struct {
 	Kind string `json:"kind"`
 	// Verdict is the plain-language health state the dashboard leads
-	// with: "healthy", "indexing", "degraded", or "idle_complete".
-	// Computed server-side from counts + coverage so the UI renders one
-	// word instead of reconciling three independent metric families.
+	// with: "healthy", "indexing", or "degraded". Computed server-side
+	// from counts + coverage so the UI renders one word instead of
+	// reconciling three independent metric families. "healthy" is the
+	// single resting state for any fully-indexed, quiescent, failure-free
+	// kind regardless of job history; recency is carried by LastActivity.
 	Verdict string `json:"verdict"`
 	Pending int    `json:"pending"`
 	Running int    `json:"running"`
@@ -59,9 +61,10 @@ type indexKindSummary struct {
 	UnresolvedFailures int `json:"unresolved_failures"`
 	// LastActivity is the most recent job's activity timestamp
 	// (completed, else started, else created), RFC3339, omitted when
-	// the kind has no jobs yet. A nil LastActivity with complete
-	// coverage is the "fully indexed, idle" case (verdict
-	// idle_complete), which the UI must not render as "never".
+	// the kind has no jobs yet (e.g. vectors seeded outside the queue).
+	// The UI renders recency from this; its absence means "no job has
+	// run", which on a fully-indexed kind reads as up to date, not
+	// "never".
 	LastActivity *string `json:"last_activity,omitempty"`
 	// Coverage is the indexed-vs-expected rollup, omitted for kinds
 	// whose Sink reports none.

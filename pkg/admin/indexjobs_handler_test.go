@@ -496,8 +496,9 @@ func TestIndexJobsSummary_VerdictAndUnresolved(t *testing.T) {
 		counts: map[string]*indexjobs.KindCounts{
 			// Idle with open failures and full coverage -> degraded.
 			"degraded_kind": {SourceKind: "degraded_kind", Succeeded: 5, Failed: 1, UnresolvedFailures: 1, LastActivity: &activity},
-			// 100% coverage, no job history -> idle_complete (the #509 case),
-			// must NOT read as "never".
+			// 100% coverage, no job history (seeded outside the queue) ->
+			// the single resting state (healthy), same as any other
+			// fully-indexed kind; must NOT read as "never".
 			"idle_kind": {SourceKind: "idle_kind"},
 		},
 		coverage: map[string]*indexjobs.Coverage{
@@ -524,8 +525,8 @@ func TestIndexJobsSummary_VerdictAndUnresolved(t *testing.T) {
 	if byKind["degraded_kind"].UnresolvedFailures != 1 {
 		t.Errorf("degraded_kind unresolved = %d; want 1", byKind["degraded_kind"].UnresolvedFailures)
 	}
-	if byKind["idle_kind"].Verdict != string(indexjobs.VerdictIdleComplete) {
-		t.Errorf("idle_kind verdict = %q; want idle_complete", byKind["idle_kind"].Verdict)
+	if byKind["idle_kind"].Verdict != string(indexjobs.VerdictHealthy) {
+		t.Errorf("idle_kind verdict = %q; want healthy", byKind["idle_kind"].Verdict)
 	}
 	if byKind["idle_kind"].LastActivity != nil {
 		t.Errorf("idle_kind last_activity = %v; want nil", byKind["idle_kind"].LastActivity)
