@@ -118,26 +118,6 @@ func insertVectors(ctx context.Context, tx *sql.Tx, sourceID string, rows []inde
 	return nil
 }
 
-// FindGaps always returns the single tools source, so the reconciler
-// re-syncs the tool index on every sweep.
-//
-// Unlike a DB-backed corpus, the tool set lives in the running process
-// (compiled-in toolkits plus admin visibility/description config), and
-// it drifts in ways a count comparison cannot see: a description edit
-// or a visibility flip changes the live descriptors without changing
-// the stored vector count, so an expected-vs-indexed count diff would
-// report "no gap" while the index is stale. Returning the source
-// unconditionally makes the worker re-enumerate the live registry each
-// sweep; its text-hash dedup (pkg/indexjobs/embed.go) skips the
-// embedding provider for unchanged tools, so a no-change pass costs one
-// in-memory tools/list plus a row rewrite, and any add / remove / edit
-// / deny-flip converges within one reconcile interval. The
-// content-blind count check is left to DB-backed consumers (#441+),
-// whose corpus is a table the gap query can compare against directly.
-func (*Store) FindGaps(_ context.Context) ([]string, error) {
-	return []string{SourceID}, nil
-}
-
 // Coverage returns the number of indexed tool vectors across every
 // source (one source today, "platform"). The tools kind stamps no
 // expected count — it re-syncs the live registry every reconcile sweep

@@ -164,7 +164,14 @@ func (p *Platform) registerIndexConsumers(reg *indexjobs.Registry, store *indexj
 	}
 
 	toolsStore := toolsindex.NewStore(p.db)
-	if err := reg.Register(&toolsSource{p: p}, toolsindex.NewSink(toolsStore)); err != nil {
+	toolsSrc := &toolsSource{p: p}
+	// The Sink's gap check diffs the live tool corpus against the
+	// persisted vectors, so it needs the same items the worker indexes;
+	// LoadItems (keyed on the single tools source) is that enumeration.
+	toolsItems := func(ctx context.Context) ([]indexjobs.Item, error) {
+		return toolsSrc.LoadItems(ctx, toolsindex.SourceID)
+	}
+	if err := reg.Register(toolsSrc, toolsindex.NewSink(toolsStore, toolsItems)); err != nil {
 		slog.Error("index jobs: tools registration failed", "error", err)
 	} else {
 		p.toolsIndexStore = toolsStore

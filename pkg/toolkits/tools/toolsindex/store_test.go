@@ -84,7 +84,7 @@ func TestSink_Coverage(t *testing.T) {
 	defer done()
 	mock.ExpectQuery("COUNT.*FROM tool_embeddings").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(5))
-	cov, err := NewSink(st).Coverage(context.Background())
+	cov, err := NewSink(st, nil).Coverage(context.Background())
 	if err != nil {
 		t.Fatalf("Sink.Coverage: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestSink_CoverageError(t *testing.T) {
 	st, mock, done := newMockStore(t)
 	defer done()
 	mock.ExpectQuery("COUNT.*FROM tool_embeddings").WillReturnError(errors.New("boom"))
-	if _, err := NewSink(st).Coverage(context.Background()); err == nil {
+	if _, err := NewSink(st, nil).Coverage(context.Background()); err == nil {
 		t.Error("Sink.Coverage should surface store error")
 	}
 }
@@ -117,7 +117,7 @@ func vec() []float32 { return []float32{1, 2, 3} }
 
 func TestSink_KindAndDelegation(t *testing.T) {
 	t.Parallel()
-	s := NewSink(NewStore(nil))
+	s := NewSink(NewStore(nil), nil)
 	if s.Kind() != SourceKind {
 		t.Errorf("Kind() = %q; want %q", s.Kind(), SourceKind)
 	}
@@ -179,19 +179,122 @@ func TestStore_UpsertBatch(t *testing.T) {
 	}
 }
 
-func TestStore_FindGaps_AlwaysReturnsSource(t *testing.T) {
+// itemsFunc returns a CurrentItemsFunc yielding the given items, for
+// the content-diff FindGaps tests.
+func itemsFunc(items ...indexjobs.Item) CurrentItemsFunc {
+	return func(context.Context) ([]indexjobs.Item, error) { return items, nil }
+}
+
+// vectorRows builds the mock tool_embeddings result for the given
+// name->text pairs, hashing each text the same way the worker does so
+// the gap check sees a match.
+func vectorRows(pairs map[string]string) *sqlmock.Rows {
+	rows := sqlmock.NewRows([]string{"tool_name", "text_hash", "embedding", "model", "dim"})
+	for name, text := range pairs {
+		rows.AddRow(name, indexjobs.TextHash(text), pgVecLiteral(vec()), "m", 3)
+	}
+	return rows
+}
+
+func TestSink_FindGaps_InSyncReturnsEmpty(t *testing.T) {
 	t.Parallel()
-	st, _, done := newMockStore(t)
+	st, mock, done := newMockStore(t)
 	defer done()
-	// No DB query: tools always re-syncs, so FindGaps unconditionally
-	// returns the single source.
-	gaps, err := st.FindGaps(context.Background())
+	// Live corpus matches the persisted vectors by name and text hash:
+	// no gap, so the reconciler enqueues nothing (issue #511).
+	mock.ExpectQuery("FROM tool_embeddings").WithArgs(SourceID).
+		WillReturnRows(vectorRows(map[string]string{"trino_query": "run sql", "s3_list": "list objects"}))
+	sink := NewSink(st, itemsFunc(
+		indexjobs.Item{ItemID: "trino_query", Text: "run sql"},
+		indexjobs.Item{ItemID: "s3_list", Text: "list objects"},
+	))
+	gaps, err := sink.FindGaps(context.Background())
+	if err != nil {
+		t.Fatalf("FindGaps: %v", err)
+	}
+	if len(gaps) != 0 {
+		t.Errorf("gaps = %v; want empty (in sync)", gaps)
+	}
+}
+
+func TestSink_FindGaps_DetectsDrift(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name      string
+		persisted map[string]string
+		live      []indexjobs.Item
+	}{
+		{
+			name:      "added tool",
+			persisted: map[string]string{"a": "ta"},
+			live:      []indexjobs.Item{{ItemID: "a", Text: "ta"}, {ItemID: "b", Text: "tb"}},
+		},
+		{
+			name:      "removed tool",
+			persisted: map[string]string{"a": "ta", "b": "tb"},
+			live:      []indexjobs.Item{{ItemID: "a", Text: "ta"}},
+		},
+		{
+			name:      "changed description",
+			persisted: map[string]string{"a": "old text"},
+			live:      []indexjobs.Item{{ItemID: "a", Text: "new text"}},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			st, mock, done := newMockStore(t)
+			defer done()
+			mock.ExpectQuery("FROM tool_embeddings").WithArgs(SourceID).
+				WillReturnRows(vectorRows(tc.persisted))
+			sink := NewSink(st, itemsFunc(tc.live...))
+			gaps, err := sink.FindGaps(context.Background())
+			if err != nil {
+				t.Fatalf("FindGaps: %v", err)
+			}
+			if len(gaps) != 1 || gaps[0] != SourceID {
+				t.Errorf("gaps = %v; want [%s] (drift detected)", gaps, SourceID)
+			}
+		})
+	}
+}
+
+func TestSink_FindGaps_NilItemsFuncResyncs(t *testing.T) {
+	t.Parallel()
+	// A nil items provider is a wiring fault, not a steady state, so
+	// FindGaps fails safe by re-syncing rather than reporting no gap.
+	sink := NewSink(NewStore(nil), nil)
+	gaps, err := sink.FindGaps(context.Background())
 	if err != nil {
 		t.Fatalf("FindGaps: %v", err)
 	}
 	if len(gaps) != 1 || gaps[0] != SourceID {
-		t.Errorf("gaps = %v; want [%s]", gaps, SourceID)
+		t.Errorf("gaps = %v; want [%s] (nil-items fallback)", gaps, SourceID)
 	}
+}
+
+func TestSink_FindGaps_ErrorPaths(t *testing.T) {
+	t.Parallel()
+	boom := errors.New("boom")
+	t.Run("load items error", func(t *testing.T) {
+		t.Parallel()
+		st, _, done := newMockStore(t)
+		defer done()
+		sink := NewSink(st, func(context.Context) ([]indexjobs.Item, error) { return nil, boom })
+		if _, err := sink.FindGaps(context.Background()); err == nil {
+			t.Error("FindGaps should surface a load-items error")
+		}
+	})
+	t.Run("list vectors error", func(t *testing.T) {
+		t.Parallel()
+		st, mock, done := newMockStore(t)
+		defer done()
+		mock.ExpectQuery("FROM tool_embeddings").WillReturnError(boom)
+		sink := NewSink(st, itemsFunc(indexjobs.Item{ItemID: "a", Text: "ta"}))
+		if _, err := sink.FindGaps(context.Background()); err == nil {
+			t.Error("FindGaps should surface a list-vectors error")
+		}
+	})
 }
 
 func TestStore_RankBySimilarity(t *testing.T) {
@@ -226,7 +329,7 @@ func TestSink_Delegation(t *testing.T) {
 	t.Parallel()
 	st, mock, done := newMockStore(t)
 	defer done()
-	sink := NewSink(st)
+	sink := NewSink(st, nil)
 	key := indexjobs.Key{SourceKind: SourceKind, SourceID: SourceID}
 	ctx := context.Background()
 
@@ -252,7 +355,10 @@ func TestSink_Delegation(t *testing.T) {
 		t.Fatalf("UpsertBatch: %v", err)
 	}
 
-	// StampExpected is a no-op (no DB); FindGaps always returns the source.
+	// StampExpected is a no-op (no DB). FindGaps here uses the nil-items
+	// fallback (this sink was built with nil currentItems), so it
+	// re-syncs without touching the DB; the content-diff paths are
+	// covered by the dedicated TestSink_FindGaps_* tests.
 	if err := sink.StampExpected(ctx, key, 5); err != nil {
 		t.Fatalf("StampExpected: %v", err)
 	}
