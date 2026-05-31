@@ -15,6 +15,7 @@ import { StatusBadge } from "@/components/cards/StatusBadge";
 import type { Insight, Changeset, MemoryRecord } from "@/api/admin/types";
 import { formatUser } from "@/lib/formatUser";
 import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
+import { CollapsibleMarkdown } from "@/components/renderers/CollapsibleMarkdown";
 import {
   PieChart,
   Pie,
@@ -1377,7 +1378,7 @@ function MemoryDrawer({
           <div>
             <p className="mb-1 text-xs text-muted-foreground">Content</p>
             <div className="rounded bg-muted p-3">
-              <MarkdownRenderer content={record.content} bare />
+              <CollapsibleMarkdown content={record.content} fadeFrom="from-muted" />
             </div>
           </div>
 

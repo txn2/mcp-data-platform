@@ -1532,7 +1532,9 @@ func (h *Handler) listMyInsights(w http.ResponseWriter, r *http.Request) {
 
 	q := r.URL.Query()
 	filter := knowledge.InsightFilter{
-		CapturedBy: user.UserID,
+		// Insights are owned by email (see capture_insight and the 000031
+		// migration), matching how memories are scoped below.
+		CapturedBy: user.Email,
 		Status:     q.Get("status"),
 		Category:   q.Get("category"),
 		Limit:      intParam(r, paramLimit, knowledge.DefaultLimit),
@@ -1574,7 +1576,8 @@ func (h *Handler) getMyInsightStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	stats, err := h.deps.InsightStore.Stats(r.Context(), knowledge.InsightFilter{
-		CapturedBy: user.UserID,
+		// Owned by email, consistent with listMyInsights and capture_insight.
+		CapturedBy: user.Email,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to query insight stats")

@@ -398,10 +398,13 @@ func parseJSONResult(t *testing.T, result *mcp.CallToolResult) map[string]any {
 }
 
 // ctxWithUser creates a context with a PlatformContext carrying the given user.
+// UserEmail is set to the same value as userID so capture_insight (which keys
+// ownership on email, issue #515) records the identifier these tests assert on.
 func ctxWithUser(userID, sessionID, persona string) context.Context {
 	pc := &middleware.PlatformContext{
 		SessionID:   sessionID,
 		UserID:      userID,
+		UserEmail:   userID,
 		PersonaName: persona,
 	}
 	return middleware.WithPlatformContext(context.Background(), pc)
@@ -1064,6 +1067,7 @@ func TestBuildInsight(t *testing.T) {
 	pc := &middleware.PlatformContext{
 		SessionID:   "s1",
 		UserID:      "u1",
+		UserEmail:   "u1@example.com",
 		PersonaName: testPersona,
 	}
 
@@ -1076,7 +1080,8 @@ func TestBuildInsight(t *testing.T) {
 	insight := buildInsight("id-1", pc, input)
 	assert.Equal(t, "id-1", insight.ID)
 	assert.Equal(t, "s1", insight.SessionID)
-	assert.Equal(t, "u1", insight.CapturedBy)
+	// Ownership is keyed on email, not the OIDC subject (issue #515).
+	assert.Equal(t, "u1@example.com", insight.CapturedBy)
 	assert.Equal(t, testPersona, insight.Persona)
 	assert.Equal(t, "user", insight.Source)             // Default when empty
 	assert.Equal(t, testConfidence, insight.Confidence) // Default
