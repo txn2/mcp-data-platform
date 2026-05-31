@@ -7,10 +7,13 @@
 // Unlike the api-catalog consumer, the tool corpus is not a DB table:
 // tools are registered in-process from compiled-in toolkits plus admin
 // visibility config. So the Source (in pkg/platform) enumerates the
-// live registry; this package owns only the vector storage (a Sink
-// over tool_embeddings) and the query-time ranking. The expected-count
-// breadcrumb the reconciler diffs against lives in the framework-owned
-// index_sources table (migration 000053).
+// live registry; this package owns the vector storage (a Sink over
+// tool_embeddings) and the query-time ranking. A successful index
+// writes the complete registered set atomically, so the indexed vector
+// count is also the expected count (Coverage reports both halves of the
+// dashboard ratio from it), and gap detection diffs the live registry
+// against the persisted vectors by descriptor hash (see Sink.FindGaps),
+// not a stored count.
 package toolsindex
 
 // SourceKind is the indexjobs source_kind this package serves.

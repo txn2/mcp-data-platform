@@ -235,7 +235,7 @@ Returns embedding-provider health plus one rollup row per registered kind: a pla
 
 `succeeded`/`failed` are per-unit latest-status counts ("N units whose last run was X"), not job counts. `unresolved_failures` is the number of distinct units with an open failed job (`status='failed'` and not yet resolved); it is the `degraded` verdict's trigger and the triage badge count, and it drops to zero once every failure is superseded or dismissed even though `failed` (latest status) may still count the unit.
 
-`coverage.expected_known` is `true` only for kinds that stamp an expected count (api-catalog's `operation_count`), which render a real indexed/expected ratio. The tools kind reports `false`: it has no fixed expected total (its drift signal is the content-hash gap check, not a count), so the dashboard renders its indexed count as an in-sync state rather than a ratio.
+`coverage.expected_known` is `true` for the current kinds, so all render a real indexed/expected ratio. api-catalog's expected comes from its stamped `operation_count`; the tools kind writes its complete registered set atomically on each index, so its indexed vector count is also its expected count (reported as both halves of the ratio). A kind reports `false` only when it has no expected total to show, in which case the dashboard shows an indexed-only state.
 
 ### Index Jobs List
 

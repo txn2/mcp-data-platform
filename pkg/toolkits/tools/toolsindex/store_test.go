@@ -57,14 +57,14 @@ func TestStore_Coverage(t *testing.T) {
 	t.Parallel()
 	st, mock, done := newMockStore(t)
 	defer done()
-	mock.ExpectQuery("COUNT.*FROM tool_embeddings").
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(42))
-	got, err := st.Coverage(context.Background())
+	mock.ExpectQuery("COUNT.*FROM tool_embeddings").WithArgs(SourceID).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(51))
+	indexed, err := st.Coverage(context.Background(), SourceID)
 	if err != nil {
 		t.Fatalf("Coverage: %v", err)
 	}
-	if got != 42 {
-		t.Errorf("Coverage = %d; want 42", got)
+	if indexed != 51 {
+		t.Errorf("Coverage = %d; want 51", indexed)
 	}
 }
 
@@ -73,7 +73,7 @@ func TestStore_CoverageError(t *testing.T) {
 	st, mock, done := newMockStore(t)
 	defer done()
 	mock.ExpectQuery("COUNT.*FROM tool_embeddings").WillReturnError(errors.New("boom"))
-	if _, err := st.Coverage(context.Background()); err == nil {
+	if _, err := st.Coverage(context.Background(), SourceID); err == nil {
 		t.Error("Coverage should surface query error")
 	}
 }
@@ -82,14 +82,17 @@ func TestSink_Coverage(t *testing.T) {
 	t.Parallel()
 	st, mock, done := newMockStore(t)
 	defer done()
-	mock.ExpectQuery("COUNT.*FROM tool_embeddings").
+	// Indexed count is reported as both halves of the ratio (the atomic
+	// full-set Replace keeps indexed == expected), so the dashboard shows
+	// a real N / N · 100%.
+	mock.ExpectQuery("COUNT.*FROM tool_embeddings").WithArgs(SourceID).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(5))
 	cov, err := NewSink(st, nil).Coverage(context.Background())
 	if err != nil {
 		t.Fatalf("Sink.Coverage: %v", err)
 	}
-	if cov.Indexed != 5 || cov.ExpectedKnown {
-		t.Errorf("coverage = %+v; want {Indexed 5, ExpectedKnown false}", cov)
+	if cov.Indexed != 5 || cov.Expected != 5 || !cov.ExpectedKnown {
+		t.Errorf("coverage = %+v; want {Indexed 5, Expected 5, ExpectedKnown true}", cov)
 	}
 }
 
@@ -355,7 +358,7 @@ func TestSink_Delegation(t *testing.T) {
 		t.Fatalf("UpsertBatch: %v", err)
 	}
 
-	// StampExpected is a no-op (no DB). FindGaps here uses the nil-items
+	// StampExpected is a no-op (no DB). FindGaps below uses the nil-items
 	// fallback (this sink was built with nil currentItems), so it
 	// re-syncs without touching the DB; the content-diff paths are
 	// covered by the dedicated TestSink_FindGaps_* tests.
