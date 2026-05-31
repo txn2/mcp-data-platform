@@ -26,7 +26,6 @@ import (
 	mcpserver "github.com/txn2/mcp-data-platform/internal/server"
 	"github.com/txn2/mcp-data-platform/internal/ui"
 	"github.com/txn2/mcp-data-platform/pkg/admin"
-	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/gatewayhttp"
 	"github.com/txn2/mcp-data-platform/pkg/health"
@@ -774,21 +773,13 @@ func mountObservabilityProxy(mux *http.ServeMux, p *platform.Platform, requireAu
 		// needs to override this to point at a non-default deployment.
 		pc.URL = defaultPrometheusURL
 	}
-	// Guard the typed-nil interface footgun: p.AuditStore() returns a
-	// concrete *Store that is nil when audit is disabled; passing it
-	// directly would yield a non-nil audit.Logger wrapping a nil
-	// pointer.
-	var auditor audit.Logger
-	if s := p.AuditStore(); s != nil {
-		auditor = s
-	}
 	handler, err := proxy.New(proxy.Config{
 		URL:                pc.URL,
 		Timeout:            pc.Timeout,
 		BasicAuthUser:      pc.BasicAuth.Username,
 		BasicAuthPass:      pc.BasicAuth.Password,
 		RateLimitPerSecond: pc.RateLimitPerSecond,
-	}, p.NewObservabilityAuthorizer(), auditor)
+	}, p.NewObservabilityAuthorizer())
 	if err != nil {
 		log.Printf("observability proxy disabled: %v", err)
 		return

@@ -249,7 +249,9 @@ without a matching wildcard) is denied with `403`. Admin personas with
 
 A per-persona rate limit (default 10 queries/second) returns `429` when
 exceeded, so a runaway portal session for one persona cannot starve
-others. Every query is recorded in the audit log as action
-`observability.query` (the PromQL expression is truncated to 1 KB to
-bound row size). Responses are not cached on the platform; Prometheus is
-the cache and the portal applies its own client-side stale-time.
+others. Proxy queries are not written to the audit log: the dashboards
+poll these endpoints on a refresh interval, so auditing each one flooded
+the audit trail and the tool-usage analytics with dashboard-internal
+reads that are not MCP tool calls. Responses are not cached on the
+platform; Prometheus is the cache and the portal applies its own
+client-side stale-time.
