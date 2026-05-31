@@ -34,11 +34,11 @@ test.describe("Admin Indexing Dashboard", () => {
     await expect(page.getByText(/87/).first()).toBeVisible();
   });
 
-  test("renders the d3 state heatmap and throughput timeline", async ({ page }) => {
-    const heatmap = page.locator('svg[aria-label="Index job state by kind"]');
-    await expect(heatmap).toBeVisible();
-    // 2 kinds x 4 states = 8 cells.
-    await expect(heatmap.locator("rect")).toHaveCount(8);
+  test("leads with a health verdict per kind and the throughput timeline", async ({ page }) => {
+    // The verdict is the lead health word, replacing the meaningless
+    // per-unit-count heatmap.
+    await expect(page.getByText("Degraded")).toBeVisible();
+    await expect(page.getByText("Indexing…")).toBeVisible();
     await expect(
       page.locator('svg[aria-label="Completed index jobs over time"]'),
     ).toBeVisible();
@@ -48,12 +48,14 @@ test.describe("Admin Indexing Dashboard", () => {
     await expect(page.getByText("In flight")).toBeVisible();
     await expect(page.getByText("Retry backoff")).toBeVisible();
     await expect(page.getByText("Failure triage")).toBeVisible();
-    // The failure-triage group surfaces the grouped error signature.
+    // The failure-triage group surfaces the grouped error signature and a
+    // last-seen timestamp drawn from the failures endpoint.
     await expect(page.getByText(/provider timeout/i).first()).toBeVisible();
+    await expect(page.getByText(/last seen/i).first()).toBeVisible();
   });
 
-  test("retrying a failed job posts a reindex", async ({ page }) => {
-    const retry = page.getByRole("button", { name: /Retry/i }).first();
+  test("retrying a failing unit posts a reindex", async ({ page }) => {
+    const retry = page.getByRole("button", { name: /^Retry/i }).first();
     const [resp] = await Promise.all([
       page.waitForResponse(
         (r) => r.url().includes("/index-jobs/reindex") && r.request().method() === "POST",
@@ -61,6 +63,17 @@ test.describe("Admin Indexing Dashboard", () => {
       retry.click(),
     ]);
     expect(resp.status()).toBe(202);
+  });
+
+  test("dismissing a failing unit posts a dismiss", async ({ page }) => {
+    const dismiss = page.getByRole("button", { name: /Dismiss/i }).first();
+    const [resp] = await Promise.all([
+      page.waitForResponse(
+        (r) => r.url().includes("/index-jobs/dismiss") && r.request().method() === "POST",
+      ),
+      dismiss.click(),
+    ]);
+    expect(resp.status()).toBe(200);
   });
 
   test("re-indexing a kind posts a reindex", async ({ page }) => {

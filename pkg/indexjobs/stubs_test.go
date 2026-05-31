@@ -22,3 +22,7 @@ func (*noopStore) UpdateProgress(context.Context, int64, string, int) error     
 func (*noopStore) Get(context.Context, int64) (*Job, error)                       { return nil, ErrNotFound }
 func (*noopStore) List(context.Context, ListFilter) ([]Job, error)                { return nil, nil }
 func (*noopStore) Counts(context.Context, string) (*KindCounts, error)            { return &KindCounts{}, nil }
+func (*noopStore) ActiveFailures(context.Context, string, int) ([]FailedUnit, error) {
+	return nil, nil
+}
+func (*noopStore) ResolveFailures(context.Context, Key) (int, error) { return 0, nil }

@@ -2166,6 +2166,109 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/index-jobs/dismiss": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Resolves every open failed job for one unit, clearing it from the triage surface. The explicit fallback for a failure that will never be superseded (e.g. a removed consumer's leftover rows). Idempotent: dismissing an already-clean unit returns 200 with resolved=0.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "System"
+                ],
+                "summary": "Dismiss a unit's open failures",
+                "parameters": [
+                    {
+                        "description": "Unit to dismiss",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/admin.dismissRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/index-jobs/failures": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the units with open (unresolved) failures, one entry per unit, most-recently-failed first, with first/last-seen timestamps and last-success context. A failure leaves this set automatically once a later job for the same unit succeeds, or when an operator dismisses it.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "System"
+                ],
+                "summary": "Active failure-triage units",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter by source kind",
+                        "name": "kind",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Max units (default 50, max 500)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/definitions/admin.failedUnitResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/admin/index-jobs/jobs": {
             "get": {
                 "security": [
@@ -7381,6 +7484,17 @@ const docTemplate = `{
                 }
             }
         },
+        "admin.dismissRequest": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string"
+                },
+                "source_id": {
+                    "type": "string"
+                }
+            }
+        },
         "admin.dryRunEnrichmentRequest": {
             "type": "object",
             "properties": {
@@ -7468,6 +7582,41 @@ const docTemplate = `{
                 },
                 "when_predicate": {
                     "$ref": "#/definitions/enrichment.Predicate"
+                }
+            }
+        },
+        "admin.failedUnitResponse": {
+            "type": "object",
+            "properties": {
+                "attempts": {
+                    "type": "integer"
+                },
+                "first_failed_at": {
+                    "type": "string"
+                },
+                "last_error": {
+                    "type": "string"
+                },
+                "last_failed_at": {
+                    "type": "string"
+                },
+                "last_succeeded_at": {
+                    "description": "LastSucceededAt is the unit's most recent success, omitted when it\nhas never succeeded, so the UI can show \"last succeeded Xm ago\".",
+                    "type": "string"
+                },
+                "latest_job_id": {
+                    "description": "LatestJobID is the row the UI drills into for the un-redacted\nerror and the job's timeline.",
+                    "type": "integer"
+                },
+                "occurrences": {
+                    "description": "Occurrences is how many open failed rows the unit has (\u003e1 means it\nfailed, was retried, and failed again without an intervening\nsuccess).",
+                    "type": "integer"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_kind": {
+                    "type": "string"
                 }
             }
         },
@@ -7570,7 +7719,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "last_activity": {
-                    "description": "LastActivity is the most recent job's activity timestamp\n(completed, else started, else created), RFC3339, omitted when\nthe kind has no jobs yet.",
+                    "description": "LastActivity is the most recent job's activity timestamp\n(completed, else started, else created), RFC3339, omitted when\nthe kind has no jobs yet. A nil LastActivity with complete\ncoverage is the \"fully indexed, idle\" case (verdict\nidle_complete), which the UI must not render as \"never\".",
                     "type": "string"
                 },
                 "pending": {
@@ -7580,7 +7729,16 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "succeeded": {
+                    "description": "Succeeded / Failed are per-unit latest-status counts (\"N units\nwhose last run was X\"), NOT job counts. The UI labels them as\nsuch so \"1 succeeded\" no longer reads as a one-job history.",
                     "type": "integer"
+                },
+                "unresolved_failures": {
+                    "description": "UnresolvedFailures is the number of distinct units with an open\nfailed job. It is the verdict's \"degraded\" signal and the count\nthe triage panel badge shows, distinct from Failed (which still\ncounts units whose latest row is a dismissed/superseded failure).",
+                    "type": "integer"
+                },
+                "verdict": {
+                    "description": "Verdict is the plain-language health state the dashboard leads\nwith: \"healthy\", \"indexing\", \"degraded\", or \"idle_complete\".\nComputed server-side from counts + coverage so the UI renders one\nword instead of reconciling three independent metric families.",
+                    "type": "string"
                 }
             }
         },

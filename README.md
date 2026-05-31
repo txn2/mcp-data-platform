@@ -164,7 +164,7 @@ A built-in web dashboard for monitoring, auditing, and managing the platform. En
 
 **Dashboard** — Real-time activity timelines, top tools/users, performance percentiles, error monitoring, knowledge insight summary, and connection health.
 
-**Indexing** — Admin-only, cross-kind embedding-index health for every consumer of the shared `index_jobs` queue (api-catalog operation vectors, tool descriptors, and any future consumer). A custom d3 state heatmap, per-kind coverage and status, a throughput timeline, embed-latency track, in-flight progress, retry backoff, and failure triage grouped by error signature with one-click re-index, so a provider outage or a stalled embed pass that silently degrades semantic ranking to lexical is visible in one place.
+**Indexing** — Admin-only, cross-kind embedding-index health for every consumer of the shared `index_jobs` queue (api-catalog operation vectors, tool descriptors, and any future consumer). Each kind leads with a plain health verdict (Healthy / Indexing… / Degraded / Idle complete), then keeps vector coverage distinct from per-unit job state, alongside a throughput timeline, embed-latency track, in-flight progress, and retry backoff. The failure triage is self-resolving: a failure clears once the unit is re-indexed successfully, with Retry and an explicit Dismiss, first/last-seen timestamps, and a drill-in to the underlying error. So a provider outage or a stalled embed pass that silently degrades semantic ranking to lexical is visible in one place.
 
 ![Admin Tools page](docs/images/screenshots/light/admin-admin-tools-overview-light.webp)
 

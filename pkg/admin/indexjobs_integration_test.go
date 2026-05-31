@@ -59,13 +59,13 @@ func TestIndexJobsSummary_RealAssembly(t *testing.T) {
 	}
 	reporter := indexjobs.NewReporter(store, reg)
 
-	// Counts query for the single registered kind (4 state counts plus
-	// the MAX last-activity aggregate).
+	// Counts query for the single registered kind (4 state counts, the
+	// MAX last-activity aggregate, and the unresolved-failure count).
 	activity := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
 	mock.ExpectQuery("WITH last AS").
 		WithArgs(catalogindex.SourceKind).
-		WillReturnRows(sqlmock.NewRows([]string{"pending", "running", "succeeded", "failed", "last_activity"}).
-			AddRow(1, 0, 3, 2, activity))
+		WillReturnRows(sqlmock.NewRows([]string{"pending", "running", "succeeded", "failed", "last_activity", "unresolved_failures"}).
+			AddRow(1, 0, 3, 2, activity, 2))
 
 	h := NewHandler(Deps{
 		IndexJobs: reporter,
@@ -92,6 +92,15 @@ func TestIndexJobsSummary_RealAssembly(t *testing.T) {
 	}
 	if k.Pending != 1 || k.Succeeded != 3 || k.Failed != 2 {
 		t.Errorf("counts = %+v; want pending 1 succeeded 3 failed 2", k)
+	}
+	if k.UnresolvedFailures != 2 {
+		t.Errorf("unresolved_failures = %d; want 2", k.UnresolvedFailures)
+	}
+	// pending > 0 means work is in flight, which takes priority over the
+	// open failures: the verdict the real DeriveVerdict produces is
+	// "indexing", computed from the same counts the response carries.
+	if k.Verdict != string(indexjobs.VerdictIndexing) {
+		t.Errorf("verdict = %q; want %q", k.Verdict, indexjobs.VerdictIndexing)
 	}
 	if k.Coverage == nil || k.Coverage.Indexed != 1 || k.Coverage.Expected != 2 || !k.Coverage.ExpectedKnown {
 		t.Errorf("coverage = %+v; want indexed 1 expected 2 known true", k.Coverage)

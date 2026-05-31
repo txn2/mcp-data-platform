@@ -256,6 +256,49 @@ type KindCounts struct {
 	// no jobs. Computed as a true aggregate (not the newest-by-id row)
 	// so an out-of-order completion of an older job is not missed.
 	LastActivity *time.Time
+	// UnresolvedFailures is the number of distinct units for this kind
+	// with at least one open failed job (status='failed' AND
+	// resolved_at IS NULL). It is the "is this kind degraded?" signal
+	// the dashboard verdict keys on, and is deliberately distinct from
+	// Failed: Failed is the per-unit latest-status rollup and still
+	// counts a unit whose newest row is failed even after that failure
+	// was dismissed (resolved) or superseded, whereas UnresolvedFailures
+	// drops to zero the moment every failure is resolved.
+	UnresolvedFailures int
+}
+
+// FailedUnit is one unit (source_kind, source_id) whose index attempts
+// left an unresolved failure, aggregated for the admin Indexing
+// dashboard's failure-triage surface. Collapsing a unit's repeated
+// failed rows into one entry keeps a unit that failed many times from
+// flooding the panel, while still exposing what an operator needs to
+// triage it: how long it has been failing, whether it ever succeeded,
+// and which job to drill into for the un-redacted error.
+type FailedUnit struct {
+	SourceKind string
+	SourceID   string
+	// LatestJobID is the id of the unit's most recent unresolved failed
+	// job: the row the dashboard's drill-in links to for the full,
+	// un-redacted error and the job timeline.
+	LatestJobID int64
+	// LastError is that latest failed job's error, un-redacted (the
+	// triage cards group on a redacted signature but drill in to this).
+	LastError string
+	// Attempts is the latest failed job's worker-attempt count.
+	Attempts int
+	// Occurrences is how many open failed rows the unit has. A value >1
+	// means the unit failed, was retried, and failed again without an
+	// intervening success.
+	Occurrences int
+	// FirstFailedAt is the earliest open failure for the unit ("first
+	// seen"); LastFailedAt is the most recent ("last seen").
+	FirstFailedAt time.Time
+	LastFailedAt  time.Time
+	// LastSucceededAt is the unit's most recent successful completion,
+	// or nil if it has never succeeded. When set, the dashboard shows
+	// "last succeeded Xm ago" to distinguish a unit that used to work
+	// from one that never has.
+	LastSucceededAt *time.Time
 }
 
 // ErrNoJob is returned by Claim when no pending job is available.
@@ -335,6 +378,22 @@ type Store interface {
 	// Counts returns the per-state job roll-up for one source kind.
 	// Used by the generic admin index-jobs surface.
 	Counts(ctx context.Context, sourceKind string) (*KindCounts, error)
+
+	// ActiveFailures returns the units whose index attempts left an
+	// open failure (status='failed' AND resolved_at IS NULL), one entry
+	// per unit, most-recently-failed first. An empty sourceKind lists
+	// across every kind, which the cross-kind triage panel relies on.
+	// limit bounds the result; a non-positive or oversized limit falls
+	// back to the store default.
+	ActiveFailures(ctx context.Context, sourceKind string, limit int) ([]FailedUnit, error)
+
+	// ResolveFailures stamps resolved_at on every open failed row for
+	// the unit (status='failed' AND resolved_at IS NULL), clearing it
+	// from the triage surface. Returns the number of rows resolved.
+	// Backs the dashboard's explicit "dismiss"; Complete performs the
+	// same resolution internally when a later job for the unit
+	// succeeds, so a superseded failure self-clears.
+	ResolveFailures(ctx context.Context, key Key) (resolved int, err error)
 }
 
 // Source is a consumer's "what to index" contract. One Source per

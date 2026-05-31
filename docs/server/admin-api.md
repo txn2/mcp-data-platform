@@ -203,7 +203,7 @@ Cross-kind embedding-index health for every consumer of the shared `index_jobs` 
 GET /api/v1/admin/index-jobs
 ```
 
-Returns embedding-provider health plus one rollup row per registered kind (per-state job counts, last activity, and coverage where derivable).
+Returns embedding-provider health plus one rollup row per registered kind: a plain-language health `verdict`, per-state job counts, the count of units with open failures, last activity, and coverage where derivable.
 
 **Response:**
 
@@ -213,13 +213,17 @@ Returns embedding-provider health plus one rollup row per registered kind (per-s
   "kinds": [
     {
       "kind": "api_catalog",
+      "verdict": "degraded",
       "pending": 1, "running": 0, "succeeded": 6, "failed": 2,
+      "unresolved_failures": 2,
       "last_activity": "2026-05-30T12:00:00Z",
       "coverage": { "indexed": 142, "expected": 168, "expected_known": true }
     },
     {
       "kind": "tools",
+      "verdict": "indexing",
       "pending": 0, "running": 1, "succeeded": 1, "failed": 0,
+      "unresolved_failures": 0,
       "last_activity": "2026-05-30T12:02:00Z",
       "coverage": { "indexed": 87, "expected": 0, "expected_known": false }
     }
@@ -227,7 +231,11 @@ Returns embedding-provider health plus one rollup row per registered kind (per-s
 }
 ```
 
-`coverage.expected_known` is `true` only for kinds that stamp an expected count (api-catalog's `operation_count`); the tools kind re-syncs continuously and reports `false`, in which case the dashboard renders a sync indicator from the latest job status instead of an indexed/expected ratio.
+`verdict` is one of `healthy`, `indexing`, `degraded`, or `idle_complete`, derived server-side from the same counts and coverage the response carries so the lead health word and the detail metrics can never disagree. `idle_complete` is the "fully indexed, nothing running, no job history" state (vectors seeded before the queue existed); it must read as idle, not as a failure.
+
+`succeeded`/`failed` are per-unit latest-status counts ("N units whose last run was X"), not job counts. `unresolved_failures` is the number of distinct units with an open failed job (`status='failed'` and not yet resolved); it is the `degraded` verdict's trigger and the triage badge count, and it drops to zero once every failure is superseded or dismissed even though `failed` (latest status) may still count the unit.
+
+`coverage.expected_known` is `true` only for kinds that stamp an expected count (api-catalog's `operation_count`); the tools kind re-syncs continuously and reports `false`, in which case the dashboard renders an in-sync indicator from coverage instead of an indexed/expected ratio.
 
 ### Index Jobs List
 
@@ -273,6 +281,54 @@ Enqueues manual-retry jobs. With a `source_id` it targets exactly that unit (the
 ```
 
 Returns `404` for an unregistered kind and `409` when no queue is wired.
+
+### Failure Triage
+
+```
+GET /api/v1/admin/index-jobs/failures?kind=&limit=
+```
+
+Returns the units with open (unresolved) failures, one entry per unit, most-recently-failed first. A unit leaves this set automatically once a later job for the same `(source_kind, source_id)` succeeds (`Complete` resolves superseded failures), or when an operator dismisses it. Both filters are optional; an omitted `kind` lists across every kind. `limit` defaults to 50 and is capped at 500.
+
+**Response:**
+
+```json
+{
+  "failures": [
+    {
+      "source_kind": "api_catalog", "source_id": "acme|v1",
+      "latest_job_id": 106, "last_error": "embed batch: provider timeout after 30s on spec \"acme\"",
+      "attempts": 5, "occurrences": 2,
+      "first_failed_at": "2026-05-30T10:00:00Z", "last_failed_at": "2026-05-30T11:00:00Z",
+      "last_succeeded_at": "2026-05-29T09:00:00Z"
+    }
+  ]
+}
+```
+
+`occurrences` is how many open failed rows the unit has (`>1` means it failed, was retried, and failed again without an intervening success). `last_succeeded_at` is omitted when the unit has never succeeded, so the dashboard can distinguish a unit that used to work from one that never has.
+
+### Dismiss Failure
+
+```
+POST /api/v1/admin/index-jobs/dismiss
+```
+
+Resolves every open failed job for one unit, clearing it from the failure-triage surface. This is the explicit fallback for a failure that will never be superseded (for example a removed consumer's leftover rows, which auto-resolve cannot reach because no future job for the kind will succeed). Idempotent: dismissing an already-clean unit returns `200` with `resolved: 0`.
+
+**Request:**
+
+```json
+{ "kind": "api_catalog", "source_id": "acme|v1" }
+```
+
+**Response (`200 OK`):**
+
+```json
+{ "status": "resolved", "resolved": 2 }
+```
+
+Returns `400` when `kind` or `source_id` is missing and `409` when no queue is wired.
 
 ## Config Endpoints
 

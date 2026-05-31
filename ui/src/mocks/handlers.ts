@@ -34,7 +34,7 @@ import {
   mockPortalMemoryStats,
 } from "./data/memory";
 import { promInstantFor, promRangeFor } from "./data/observability";
-import { mockIndexJobsSummary, mockIndexJobs } from "./data/indexjobs";
+import { mockIndexJobsSummary, mockIndexJobs, mockIndexJobsFailures } from "./data/indexjobs";
 
 const ADMIN_BASE = "/api/v1/admin";
 const PORTAL_BASE = "/api/v1/portal";
@@ -601,6 +601,14 @@ export const handlers = [
     return HttpResponse.json({ jobs });
   }),
 
+  http.get(`${ADMIN_BASE}/index-jobs/failures`, ({ request }) => {
+    const url = new URL(request.url);
+    const kind = url.searchParams.get("kind");
+    let failures = mockIndexJobsFailures;
+    if (kind) failures = failures.filter((f) => f.source_kind === kind);
+    return HttpResponse.json({ failures });
+  }),
+
   http.post(`${ADMIN_BASE}/index-jobs/reindex`, async ({ request }) => {
     const body = (await request.json().catch(() => ({}))) as {
       kind?: string;
@@ -611,6 +619,11 @@ export const handlers = [
       { status: "queued", enqueued, count: enqueued.length },
       { status: 202 },
     );
+  }),
+
+  http.post(`${ADMIN_BASE}/index-jobs/dismiss`, async ({ request }) => {
+    await request.json().catch(() => ({}));
+    return HttpResponse.json({ status: "resolved", resolved: 1 });
   }),
 
   http.get(`${ADMIN_BASE}/audit/events/filters`, () => {

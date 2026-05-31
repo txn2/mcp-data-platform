@@ -3,48 +3,57 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import type {
   IndexJobsSummary,
   IndexJob,
+  IndexFailedUnit,
 } from "@/api/admin/indexjobs";
 
 // Mock the index-jobs hooks so the page renders against canned state,
-// exercising the empty / degraded / healthy branches and the retry
-// interaction without a network or query client.
-const mutate = vi.fn();
+// exercising the verdict / coverage / triage branches and the
+// retry/dismiss interactions without a network or query client.
+const reindexMutate = vi.fn();
+const dismissMutate = vi.fn();
 let summaryState: { data?: IndexJobsSummary; isLoading: boolean };
 let jobsState: { data?: { jobs: IndexJob[] }; isError?: boolean };
+let failuresState: { data?: { failures: IndexFailedUnit[] }; isError?: boolean };
 
 vi.mock("@/api/admin/indexjobs", () => ({
   useIndexJobsSummary: () => summaryState,
   useIndexJobs: () => jobsState,
-  useReindex: () => ({ mutate, isPending: false, isError: false, error: null }),
+  useIndexJobFailures: () => failuresState,
+  useReindex: () => ({ mutate: reindexMutate, isPending: false, isError: false, error: null }),
+  useDismissFailure: () => ({ mutate: dismissMutate, isPending: false, isError: false, error: null }),
 }));
 
 import { IndexingPage } from "./IndexingPage";
 
-const healthySummary: IndexJobsSummary = {
+const summary: IndexJobsSummary = {
   provider: { kind: "ollama", model: "nomic-embed-text", dimension: 768, status: "ok" },
   kinds: [
     {
       kind: "api_catalog",
+      verdict: "degraded",
       pending: 1,
       running: 0,
       succeeded: 6,
       failed: 2,
+      unresolved_failures: 2,
       last_activity: new Date().toISOString(),
       coverage: { indexed: 142, expected: 168, expected_known: true },
     },
     {
       kind: "tools",
+      verdict: "indexing",
       pending: 0,
       running: 1,
       succeeded: 1,
       failed: 0,
+      unresolved_failures: 0,
       last_activity: new Date().toISOString(),
       coverage: { indexed: 87, expected: 0, expected_known: false },
     },
   ],
 };
 
-const healthyJobs: IndexJob[] = [
+const jobs: IndexJob[] = [
   {
     id: 1,
     source_kind: "tools",
@@ -55,22 +64,52 @@ const healthyJobs: IndexJob[] = [
     worker_id: "w1",
     items_done: 12,
   },
+  // Two routine reconciler successes for the same unit, which the table
+  // must collapse into a single "synced ×2" row.
   {
     id: 2,
+    source_kind: "tools",
+    source_id: "platform",
+    trigger: "reconciler",
+    status: "succeeded",
+    attempts: 1,
+    completed_at: new Date().toISOString(),
+    started_at: new Date(Date.now() - 1000).toISOString(),
+    items_done: 87,
+  },
+  {
+    id: 3,
+    source_kind: "tools",
+    source_id: "platform",
+    trigger: "reconciler",
+    status: "succeeded",
+    attempts: 1,
+    completed_at: new Date().toISOString(),
+    started_at: new Date(Date.now() - 1000).toISOString(),
+    items_done: 87,
+  },
+];
+
+const failures: IndexFailedUnit[] = [
+  {
     source_kind: "api_catalog",
     source_id: "acme|v1",
-    trigger: "reconciler",
-    status: "failed",
+    latest_job_id: 106,
+    last_error: 'embed batch: provider timeout after 30s on spec "acme"',
     attempts: 5,
-    last_error: "embed batch: provider timeout",
-    items_done: 0,
+    occurrences: 2,
+    first_failed_at: new Date(Date.now() - 120 * 60_000).toISOString(),
+    last_failed_at: new Date(Date.now() - 38 * 60_000).toISOString(),
+    last_succeeded_at: new Date(Date.now() - 300 * 60_000).toISOString(),
   },
 ];
 
 beforeEach(() => {
-  mutate.mockReset();
-  summaryState = { data: healthySummary, isLoading: false };
-  jobsState = { data: { jobs: healthyJobs } };
+  reindexMutate.mockReset();
+  dismissMutate.mockReset();
+  summaryState = { data: summary, isLoading: false };
+  jobsState = { data: { jobs } };
+  failuresState = { data: { failures } };
 });
 
 describe("IndexingPage", () => {
@@ -82,10 +121,7 @@ describe("IndexingPage", () => {
 
   it("renders an empty state when no consumers are registered", () => {
     summaryState = {
-      data: {
-        provider: { kind: "ollama", model: "m", dimension: 768, status: "ok" },
-        kinds: [],
-      },
+      data: { provider: { kind: "ollama", model: "m", dimension: 768, status: "ok" }, kinds: [] },
       isLoading: false,
     };
     render(<IndexingPage />);
@@ -96,7 +132,7 @@ describe("IndexingPage", () => {
     summaryState = {
       data: {
         provider: { kind: "noop", model: "", dimension: 0, status: "unconfigured" },
-        kinds: healthySummary.kinds,
+        kinds: summary.kinds,
       },
       isLoading: false,
     };
@@ -104,24 +140,75 @@ describe("IndexingPage", () => {
     expect(screen.getByText(/Embedding provider unconfigured/i)).toBeInTheDocument();
   });
 
-  it("renders cross-kind health, coverage, and failure triage", () => {
+  it("leads with a health verdict per kind and shows the active provider banner", () => {
     render(<IndexingPage />);
     expect(screen.getByText(/Embedding provider active/i)).toBeInTheDocument();
-    // Both kinds appear (kind card + job table rows).
-    expect(screen.getAllByText("api_catalog").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("tools").length).toBeGreaterThan(0);
-    // api_catalog coverage ratio is shown.
-    expect(screen.getByText(/142 \/ 168 indexed/)).toBeInTheDocument();
-    // tools shows the indexed-only sync indicator (expected_known=false).
-    expect(screen.getByText(/87/)).toBeInTheDocument();
-    // Failure triage surfaces the error (also appears in the job table).
-    expect(screen.getAllByText(/embed batch: provider timeout/i).length).toBeGreaterThan(0);
+    expect(screen.getByText("Degraded")).toBeInTheDocument();
+    expect(screen.getByText("Indexing…")).toBeInTheDocument();
   });
 
-  it("retries a failed job via the reindex mutation", () => {
+  it("shows a triage error state instead of 'all clear' when failures fail to load", () => {
+    failuresState = { data: { failures: [] }, isError: true };
+    render(<IndexingPage />);
+    // Both the panel body and the section hint surface the error.
+    expect(screen.getAllByText(/Could not load failures/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/No open failures/i)).not.toBeInTheDocument();
+  });
+
+  it("labels coverage as vectors, distinct from the job-state counts", () => {
+    render(<IndexingPage />);
+    // Coverage family is labelled and shows the ratio.
+    expect(screen.getByText(/142 \/ 168 indexed/)).toBeInTheDocument();
+    // Job-state family is labelled so "succeeded" reads as units, not jobs.
+    expect(screen.getAllByText(/Units by last run/i).length).toBeGreaterThan(0);
+    // tools shows the indexed-only in-sync indicator (expected_known=false).
+    expect(screen.getByText(/87/)).toBeInTheDocument();
+  });
+
+  it("renders a fully-indexed idle kind as idle, never 'never'", () => {
+    summaryState = {
+      data: {
+        provider: summary.provider,
+        kinds: [
+          {
+            kind: "seeded",
+            verdict: "idle_complete",
+            pending: 0,
+            running: 0,
+            succeeded: 0,
+            failed: 0,
+            unresolved_failures: 0,
+            coverage: { indexed: 34, expected: 34, expected_known: true },
+          },
+        ],
+      },
+      isLoading: false,
+    };
+    render(<IndexingPage />);
+    expect(screen.getByText(/fully indexed · idle/i)).toBeInTheDocument();
+    expect(screen.queryByText(/last synced never/i)).not.toBeInTheDocument();
+  });
+
+  it("renders failure triage from the failures endpoint with timestamps", () => {
+    render(<IndexingPage />);
+    expect(screen.getByText(/embed batch: provider timeout/i)).toBeInTheDocument();
+    expect(screen.getByText(/last succeeded/i)).toBeInTheDocument();
+    expect(screen.getByText(/2 failures · 5 attempts/i)).toBeInTheDocument();
+  });
+
+  it("retries a failing unit via the reindex mutation", () => {
     render(<IndexingPage />);
     fireEvent.click(screen.getByRole("button", { name: /Retry/i }));
-    expect(mutate).toHaveBeenCalledWith(
+    expect(reindexMutate).toHaveBeenCalledWith(
+      { kind: "api_catalog", source_id: "acme|v1" },
+      expect.anything(),
+    );
+  });
+
+  it("dismisses a failing unit via the dismiss mutation", () => {
+    render(<IndexingPage />);
+    fireEvent.click(screen.getByRole("button", { name: /Dismiss/i }));
+    expect(dismissMutate).toHaveBeenCalledWith(
       { kind: "api_catalog", source_id: "acme|v1" },
       expect.anything(),
     );
@@ -131,7 +218,13 @@ describe("IndexingPage", () => {
     render(<IndexingPage />);
     const reindexButtons = screen.getAllByRole("button", { name: /Re-index/i });
     fireEvent.click(reindexButtons[0]!);
-    expect(mutate).toHaveBeenCalledWith({ kind: "api_catalog" }, expect.anything());
+    expect(reindexMutate).toHaveBeenCalledWith({ kind: "api_catalog" }, expect.anything());
+  });
+
+  it("collapses routine reconciler heartbeats into a single synced row", () => {
+    render(<IndexingPage />);
+    // The two succeeded reconciler runs for tools/platform collapse to one.
+    expect(screen.getByText(/synced ×2/i)).toBeInTheDocument();
   });
 
   it("surfaces a banner when job details fail to load", () => {

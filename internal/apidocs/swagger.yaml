@@ -290,6 +290,13 @@ definitions:
           $ref: '#/definitions/admin.connectionOAuthHealthSummary'
         type: array
     type: object
+  admin.dismissRequest:
+    properties:
+      kind:
+        type: string
+      source_id:
+        type: string
+    type: object
   admin.dryRunEnrichmentRequest:
     properties:
       args:
@@ -361,6 +368,37 @@ definitions:
         type: string
       when_predicate:
         $ref: '#/definitions/enrichment.Predicate'
+    type: object
+  admin.failedUnitResponse:
+    properties:
+      attempts:
+        type: integer
+      first_failed_at:
+        type: string
+      last_error:
+        type: string
+      last_failed_at:
+        type: string
+      last_succeeded_at:
+        description: |-
+          LastSucceededAt is the unit's most recent success, omitted when it
+          has never succeeded, so the UI can show "last succeeded Xm ago".
+        type: string
+      latest_job_id:
+        description: |-
+          LatestJobID is the row the UI drills into for the un-redacted
+          error and the job's timeline.
+        type: integer
+      occurrences:
+        description: |-
+          Occurrences is how many open failed rows the unit has (>1 means it
+          failed, was retried, and failed again without an intervening
+          success).
+        type: integer
+      source_id:
+        type: string
+      source_kind:
+        type: string
     type: object
   admin.indexCoverageResponse:
     properties:
@@ -436,14 +474,34 @@ definitions:
         description: |-
           LastActivity is the most recent job's activity timestamp
           (completed, else started, else created), RFC3339, omitted when
-          the kind has no jobs yet.
+          the kind has no jobs yet. A nil LastActivity with complete
+          coverage is the "fully indexed, idle" case (verdict
+          idle_complete), which the UI must not render as "never".
         type: string
       pending:
         type: integer
       running:
         type: integer
       succeeded:
+        description: |-
+          Succeeded / Failed are per-unit latest-status counts ("N units
+          whose last run was X"), NOT job counts. The UI labels them as
+          such so "1 succeeded" no longer reads as a one-job history.
         type: integer
+      unresolved_failures:
+        description: |-
+          UnresolvedFailures is the number of distinct units with an open
+          failed job. It is the verdict's "degraded" signal and the count
+          the triage panel badge shows, distinct from Failed (which still
+          counts units whose latest row is a dismissed/superseded failure).
+        type: integer
+      verdict:
+        description: |-
+          Verdict is the plain-language health state the dashboard leads
+          with: "healthy", "indexing", "degraded", or "idle_complete".
+          Computed server-side from counts + coverage so the UI renders one
+          word instead of reconciling three independent metric families.
+        type: string
     type: object
   admin.insightListResponse:
     properties:
@@ -3998,6 +4056,75 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Cross-kind index-jobs health summary
+      tags:
+      - System
+  /admin/index-jobs/dismiss:
+    post:
+      consumes:
+      - application/json
+      description: 'Resolves every open failed job for one unit, clearing it from
+        the triage surface. The explicit fallback for a failure that will never be
+        superseded (e.g. a removed consumer''s leftover rows). Idempotent: dismissing
+        an already-clean unit returns 200 with resolved=0.'
+      parameters:
+      - description: Unit to dismiss
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/admin.dismissRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Dismiss a unit's open failures
+      tags:
+      - System
+  /admin/index-jobs/failures:
+    get:
+      description: Returns the units with open (unresolved) failures, one entry per
+        unit, most-recently-failed first, with first/last-seen timestamps and last-success
+        context. A failure leaves this set automatically once a later job for the
+        same unit succeeds, or when an operator dismisses it.
+      parameters:
+      - description: Filter by source kind
+        in: query
+        name: kind
+        type: string
+      - description: Max units (default 50, max 500)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              items:
+                $ref: '#/definitions/admin.failedUnitResponse'
+              type: array
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Active failure-triage units
       tags:
       - System
   /admin/index-jobs/jobs:

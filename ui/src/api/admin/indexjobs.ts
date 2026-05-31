@@ -25,16 +25,50 @@ export interface IndexProviderStatus {
   status: "ok" | "unconfigured";
 }
 
-// IndexKindSummary is one registered kind's job-state rollup, last
-// activity, and optional coverage.
+// IndexVerdict is the plain-language health state the dashboard leads
+// with per kind. Computed server-side so the lead word and the detail
+// metrics can never disagree.
+//   healthy        fully indexed and actively maintained
+//   indexing       work in flight (running or pending)
+//   degraded       an open failure or a known coverage shortfall
+//   idle_complete  fully indexed, nothing to do, no job history
+//                  (the "100% + last activity never" case, which must
+//                  not read as a failure)
+export type IndexVerdict = "healthy" | "indexing" | "degraded" | "idle_complete";
+
+// IndexKindSummary is one registered kind's verdict, job-state rollup,
+// last activity, and optional coverage.
 export interface IndexKindSummary {
   kind: string;
+  verdict: IndexVerdict;
   pending: number;
   running: number;
+  // succeeded / failed are per-unit latest-status counts ("N units
+  // whose last run was X"), NOT job counts.
   succeeded: number;
   failed: number;
+  // unresolved_failures is the number of distinct units with an open
+  // failed job: the verdict's "degraded" signal and the triage badge.
+  unresolved_failures: number;
   last_activity?: string;
   coverage?: IndexCoverage;
+}
+
+// IndexFailedUnit is one unit on the failure-triage surface: the latest
+// open failure plus the timestamps and last-success context an operator
+// needs to tell a live incident from a stale tombstone. A unit leaves
+// this set automatically once a later job for it succeeds, or when an
+// operator dismisses it.
+export interface IndexFailedUnit {
+  source_kind: string;
+  source_id: string;
+  latest_job_id: number;
+  last_error?: string;
+  attempts: number;
+  occurrences: number;
+  first_failed_at?: string;
+  last_failed_at?: string;
+  last_succeeded_at?: string;
 }
 
 // IndexJobsSummary is the cross-kind health payload rendered on load.
@@ -94,6 +128,40 @@ export function useIndexJobs(filter: IndexJobsFilter = {}) {
     queryKey: ["admin", "index-jobs", "jobs", filter],
     queryFn: () => apiFetch<{ jobs: IndexJob[] }>(`/index-jobs/jobs?${query}`),
     refetchInterval: 5000,
+  });
+}
+
+// useIndexJobFailures polls the failure-triage surface: units with open
+// (unresolved) failures, cross-kind by default. Separate from the job
+// list so the triage panel reflects only failures that still matter
+// (superseded and dismissed ones are filtered server-side).
+export function useIndexJobFailures(kind?: string) {
+  const qs = new URLSearchParams();
+  if (kind) qs.set("kind", kind);
+  qs.set("limit", "500");
+  const query = qs.toString();
+  return useQuery({
+    queryKey: ["admin", "index-jobs", "failures", kind ?? ""],
+    queryFn: () => apiFetch<{ failures: IndexFailedUnit[] }>(`/index-jobs/failures?${query}`),
+    refetchInterval: 5000,
+  });
+}
+
+// useDismissFailure resolves every open failure for one unit, the
+// operator escape hatch for a failure that will never be superseded.
+// Returns 200 with the count resolved; the polling summary/failures
+// queries then drop the unit on their next tick.
+export function useDismissFailure() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { kind: string; source_id: string }) =>
+      apiFetch<{ status: string; resolved: number }>("/index-jobs/dismiss", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["admin", "index-jobs"] });
+    },
   });
 }
 
