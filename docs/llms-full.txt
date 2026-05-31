@@ -940,7 +940,7 @@ The portal reads the scraped metrics back through an authenticated proxy rather 
 
 Configured under `observability.prometheus` in platform.yaml (`url`, `timeout`, `basic_auth.{username,password}`, `rate_limit_per_second`). An empty `url` leaves the proxy unconfigured: endpoints return 503 with `observability backend not configured` so the portal renders a clean empty state.
 
-Access is gated by the `observability:read` persona capability, checked through the same persona tool-allow filter that gates tools (operators grant it by adding `observability:read` to a persona's tools.allow; default-deny). A per-persona rate limit (default 10 queries/second) returns 429 when exceeded. Every query is audited as action `observability.query` with the PromQL expression truncated to 1 KB. Responses are not cached on the platform; Prometheus is the cache and the portal applies React Query stale-time.
+Access is gated by the `observability:read` persona capability, checked through the same persona tool-allow filter that gates tools (operators grant it by adding `observability:read` to a persona's tools.allow; default-deny). A per-persona rate limit (default 10 queries/second) returns 429 when exceeded. Proxy queries are not audited: the dashboards poll these endpoints on a refresh interval, so auditing each one flooded the audit trail and tool-usage analytics with dashboard-internal reads that are not MCP tool calls. Responses are not cached on the platform; Prometheus is the cache and the portal applies React Query stale-time.
 
 ---
 
