@@ -39,14 +39,13 @@ var ErrUnknownKind = errors.New("indexjobs: unknown source kind")
 // dashboard leads with for each kind. It collapses the three
 // structurally different metric families the surface used to render
 // side by side (vector coverage, per-unit job state, and open
-// failures) into one of four words an operator reads at a glance, so a
-// healthy fully-indexed-and-idle kind never looks broken.
+// failures) into one of three words an operator reads at a glance.
 type Verdict string
 
 const (
 	// VerdictIndexing means work is in flight: at least one unit is
 	// running or pending. It takes priority over every other state so
-	// an active pass never reads as degraded or idle.
+	// an active pass never reads as degraded or healthy.
 	VerdictIndexing Verdict = "indexing"
 
 	// VerdictDegraded means the kind needs attention with no active
@@ -54,48 +53,36 @@ const (
 	// shortfall (indexed < expected) that nothing is currently closing.
 	VerdictDegraded Verdict = "degraded"
 
-	// VerdictIdleComplete means the kind is fully indexed (or in sync)
-	// and there is nothing to do, AND it carries no job history. This is
-	// the seeded-before-the-queue case from issue #509: vectors present,
-	// zero job rows, last activity nil. It must read as "fully indexed,
-	// idle", never as "last activity never".
-	VerdictIdleComplete Verdict = "idle_complete"
-
-	// VerdictHealthy means the kind is fully indexed (or in sync) and
-	// actively kept that way: no shortfall, no open failure, no work in
-	// flight, and job history showing it has run.
+	// VerdictHealthy is the single resting state: the kind is fully
+	// indexed (or in sync), nothing is running or pending, and there are
+	// no open failures. It does NOT distinguish a queue-indexed kind from
+	// one whose vectors were seeded outside the queue (no job history):
+	// both are equally "done", and an earlier split on job-history
+	// presence (issue #509's idle_complete) only confused operators with
+	// two differently-named green states for the same situation. Recency
+	// is conveyed by the response's last_activity, not by the verdict.
 	VerdictHealthy Verdict = "healthy"
 )
 
 // DeriveVerdict reduces a kind's job-state counts and optional coverage
 // to a single Verdict. The branch order encodes the priority an
 // operator cares about: active work first, then anything needing
-// attention, then the two quiescent-and-healthy states. It reads only
-// fields already computed elsewhere, so it is a pure function the admin
-// handler and tests can exercise without a database.
+// attention, else the single resting state. It reads only fields
+// already computed elsewhere, so it is a pure function the admin handler
+// and tests can exercise without a database.
 //
 // A nil counts (no queue wired) is treated as fully quiescent. The
 // "needs attention" guards use UnresolvedFailures (open failures), not
 // Failed (the per-unit latest-status rollup), so a kind whose newest
 // row is a dismissed or superseded failure is not painted degraded. A
-// coverage shortfall counts only when ExpectedKnown: a continuously
-// re-syncing kind (ExpectedKnown=false) has no expected target and so
-// can never be "short".
+// coverage shortfall counts only when ExpectedKnown: a kind with no
+// expected target (ExpectedKnown=false) can never be "short".
 func DeriveVerdict(c *KindCounts, cov *Coverage) Verdict {
 	if hasActiveWork(c) {
 		return VerdictIndexing
 	}
 	if (c != nil && c.UnresolvedFailures > 0) || coverageShort(cov) {
 		return VerdictDegraded
-	}
-	// Quiescent and not short: fully indexed or in sync. Distinguish the
-	// seeded-before-the-queue case (no job history) from an actively
-	// maintained index so the former never renders "never". A zero-value
-	// timestamp is treated as "no history" too, matching the handler's
-	// IsZero check that omits last_activity, so the verdict and the
-	// emitted timestamp never disagree.
-	if c == nil || c.LastActivity == nil || c.LastActivity.IsZero() {
-		return VerdictIdleComplete
 	}
 	return VerdictHealthy
 }

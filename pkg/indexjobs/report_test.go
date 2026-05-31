@@ -269,10 +269,13 @@ func TestDeriveVerdict(t *testing.T) {
 			want:   VerdictHealthy,
 		},
 		{
-			name:   "complete without history is idle_complete (the #509 seeded case)",
+			// Complete with no job history (vectors seeded outside the
+			// queue) is the same resting state as one with history: both
+			// are healthy. Recency lives in last_activity, not the verdict.
+			name:   "complete without history is healthy (the #509 seeded case)",
 			counts: &KindCounts{},
 			cov:    &Coverage{Indexed: 34, Expected: 34, ExpectedKnown: true},
-			want:   VerdictIdleComplete,
+			want:   VerdictHealthy,
 		},
 		{
 			name:   "in-sync continuous kind with history is healthy",
@@ -281,10 +284,10 @@ func TestDeriveVerdict(t *testing.T) {
 			want:   VerdictHealthy,
 		},
 		{
-			name:   "in-sync continuous kind without history is idle_complete",
+			name:   "in-sync continuous kind without history is healthy",
 			counts: &KindCounts{},
 			cov:    &Coverage{Indexed: 50, ExpectedKnown: false},
-			want:   VerdictIdleComplete,
+			want:   VerdictHealthy,
 		},
 		{
 			name:   "no coverage with history is healthy",
@@ -292,15 +295,15 @@ func TestDeriveVerdict(t *testing.T) {
 			want:   VerdictHealthy,
 		},
 		{
-			name:   "nil counts is idle_complete",
+			name:   "nil counts is healthy",
 			counts: nil,
 			cov:    &Coverage{Indexed: 1, Expected: 1, ExpectedKnown: true},
-			want:   VerdictIdleComplete,
+			want:   VerdictHealthy,
 		},
 		{
-			name:   "empty kind is idle_complete",
+			name:   "empty kind is healthy",
 			counts: &KindCounts{},
-			want:   VerdictIdleComplete,
+			want:   VerdictHealthy,
 		},
 	}
 	for _, tc := range tests {

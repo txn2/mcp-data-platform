@@ -28,13 +28,11 @@ export interface IndexProviderStatus {
 // IndexVerdict is the plain-language health state the dashboard leads
 // with per kind. Computed server-side so the lead word and the detail
 // metrics can never disagree.
-//   healthy        fully indexed and actively maintained
-//   indexing       work in flight (running or pending)
-//   degraded       an open failure or a known coverage shortfall
-//   idle_complete  fully indexed, nothing to do, no job history
-//                  (the "100% + last activity never" case, which must
-//                  not read as a failure)
-export type IndexVerdict = "healthy" | "indexing" | "degraded" | "idle_complete";
+//   healthy   fully indexed / in sync, nothing running, no failures
+//             (the single resting state, regardless of job history)
+//   indexing  work in flight (running or pending)
+//   degraded  an open failure or a known coverage shortfall
+export type IndexVerdict = "healthy" | "indexing" | "degraded";
 
 // IndexKindSummary is one registered kind's verdict, job-state rollup,
 // last activity, and optional coverage.

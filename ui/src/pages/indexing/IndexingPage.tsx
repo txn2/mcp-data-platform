@@ -147,7 +147,7 @@ const VERDICT_META: Record<
   { label: string; text: string; bg: string; border: string; spin?: boolean; Icon: typeof CheckCircle2 }
 > = {
   healthy: {
-    label: "Healthy",
+    label: "Up to date",
     text: "text-emerald-600 dark:text-emerald-400",
     bg: "bg-emerald-500/10",
     border: "border-emerald-500/30",
@@ -168,17 +168,10 @@ const VERDICT_META: Record<
     border: "border-red-500/40",
     Icon: AlertTriangle,
   },
-  idle_complete: {
-    label: "Idle (complete)",
-    text: "text-muted-foreground",
-    bg: "bg-muted",
-    border: "border-border",
-    Icon: CheckCircle2,
-  },
 };
 
 function VerdictBadge({ verdict }: { verdict: IndexVerdict }) {
-  const m = VERDICT_META[verdict] ?? VERDICT_META.idle_complete;
+  const m = VERDICT_META[verdict] ?? VERDICT_META.healthy;
   return (
     <span
       className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${m.border} ${m.bg} ${m.text}`}
@@ -197,12 +190,26 @@ function CoverageLine({ summary }: { summary: IndexKindSummary }) {
     return <span className="text-xs text-muted-foreground">Vectors: coverage n/a</span>;
   }
   if (!cov.expected_known) {
+    // No fixed denominator (e.g. tools, sized by the live registry). Once
+    // anything is indexed it is in sync, so render a full bar to match the
+    // ratio-known kinds visually; an empty corpus shows no bar.
+    if (cov.indexed === 0) {
+      return <span className="text-xs text-muted-foreground">Vectors: not yet indexed</span>;
+    }
     return (
       <div className="space-y-1">
-        <div className="flex items-center gap-1 text-xs">
-          <span className="text-muted-foreground">Vectors:</span>
-          <span className="font-medium tabular-nums">{cov.indexed.toLocaleString()}</span>
-          <span className="text-muted-foreground">indexed · in sync</span>
+        <div className="flex items-center justify-between text-xs">
+          <span className="tabular-nums">
+            <span className="text-muted-foreground">Vectors: </span>
+            {cov.indexed.toLocaleString()} indexed
+          </span>
+          <span className="text-emerald-500">in sync</span>
+        </div>
+        <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+          <div
+            className="h-full rounded-full"
+            style={{ width: "100%", backgroundColor: STATUS_COLORS.succeeded }}
+          />
         </div>
       </div>
     );
@@ -246,14 +253,16 @@ function nowText(summary: IndexKindSummary): string {
   return "idle";
 }
 
-// syncedText is the "last synced" line. The seeded-before-the-queue case
-// (idle_complete with no job history) reads as "fully indexed · idle",
-// never "never".
+// syncedText is the recency line under the coverage bar. When the kind
+// has job history it reads "last indexed <relative>"; a kind whose
+// vectors were seeded outside the queue (no history) simply reads
+// "fully indexed" rather than "never", since there is no job timestamp
+// to report and the verdict already says it is up to date.
 function syncedText(summary: IndexKindSummary): string {
-  if (summary.verdict === "idle_complete" && !summary.last_activity) {
-    return "fully indexed · idle";
+  if (!summary.last_activity) {
+    return "fully indexed";
   }
-  return `last synced ${relTime(summary.last_activity)}`;
+  return `last indexed ${relTime(summary.last_activity)}`;
 }
 
 function KindCard({
@@ -265,6 +274,13 @@ function KindCard({
   onReindex: (kind: string) => void;
   reindexing: boolean;
 }) {
+  // The per-state breakdown is only meaningful when something is in
+  // flight or needs attention. For a kind that is simply up to date it
+  // is all zeros (or, confusingly, a stale "N succeeded"), so it is
+  // hidden: an up-to-date card is just the verdict, the coverage bar,
+  // and recency. It reappears when there is real work or a failure.
+  const showStates =
+    summary.running > 0 || summary.pending > 0 || summary.unresolved_failures > 0;
   return (
     <div className="flex flex-col gap-3 rounded-lg border bg-card p-4">
       <div className="flex items-center justify-between gap-2">
@@ -292,29 +308,32 @@ function KindCard({
         </span>
       </div>
 
-      {/* Job-state family, explicitly labelled so "succeeded" reads as
-          "units whose last run succeeded", not a job count. */}
-      <div className="border-t pt-2">
-        <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-          Units by last run
-        </div>
-        <div className="grid grid-cols-4 gap-1 text-center text-xs">
-          {(["pending", "running", "succeeded", "failed"] as const).map((s) => (
-            <div key={s}>
-              <div className="font-semibold tabular-nums" style={{ color: STATUS_COLORS[s] }}>
-                {summary[s].toLocaleString()}
-              </div>
-              <div className="text-[10px] text-muted-foreground">{s}</div>
-            </div>
-          ))}
-        </div>
-        {summary.unresolved_failures > 0 && (
-          <div className="mt-1 text-[10px] text-red-500">
-            {summary.unresolved_failures} unit{summary.unresolved_failures === 1 ? "" : "s"} need
-            attention
+      {/* Job-state family, shown only when there is active work or an
+          open failure; labelled so "succeeded" reads as "units whose
+          last run succeeded", not a job count. */}
+      {showStates && (
+        <div className="border-t pt-2">
+          <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+            Units by last run
           </div>
-        )}
-      </div>
+          <div className="grid grid-cols-4 gap-1 text-center text-xs">
+            {(["pending", "running", "succeeded", "failed"] as const).map((s) => (
+              <div key={s}>
+                <div className="font-semibold tabular-nums" style={{ color: STATUS_COLORS[s] }}>
+                  {summary[s].toLocaleString()}
+                </div>
+                <div className="text-[10px] text-muted-foreground">{s}</div>
+              </div>
+            ))}
+          </div>
+          {summary.unresolved_failures > 0 && (
+            <div className="mt-1 text-[10px] text-red-500">
+              {summary.unresolved_failures} unit{summary.unresolved_failures === 1 ? "" : "s"} need
+              attention
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

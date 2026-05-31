@@ -231,11 +231,11 @@ Returns embedding-provider health plus one rollup row per registered kind: a pla
 }
 ```
 
-`verdict` is one of `healthy`, `indexing`, `degraded`, or `idle_complete`, derived server-side from the same counts and coverage the response carries so the lead health word and the detail metrics can never disagree. `idle_complete` is the "fully indexed, nothing running, no job history" state (vectors seeded before the queue existed); it must read as idle, not as a failure.
+`verdict` is one of `healthy`, `indexing`, or `degraded`, derived server-side from the same counts and coverage the response carries so the lead health word and the detail metrics can never disagree. `healthy` is the single resting state for any fully-indexed, quiescent, failure-free kind, whether or not it has job history (a kind whose vectors were seeded outside the queue simply has a null `last_activity`); recency is read from `last_activity`, not the verdict.
 
 `succeeded`/`failed` are per-unit latest-status counts ("N units whose last run was X"), not job counts. `unresolved_failures` is the number of distinct units with an open failed job (`status='failed'` and not yet resolved); it is the `degraded` verdict's trigger and the triage badge count, and it drops to zero once every failure is superseded or dismissed even though `failed` (latest status) may still count the unit.
 
-`coverage.expected_known` is `true` only for kinds that stamp an expected count (api-catalog's `operation_count`); the tools kind stamps no expected count (it diffs the live registry by descriptor hash instead) and reports `false`, in which case the dashboard renders an in-sync indicator from coverage instead of an indexed/expected ratio.
+`coverage.expected_known` is `true` only for kinds that stamp an expected count (api-catalog's `operation_count`), which render a real indexed/expected ratio. The tools kind reports `false`: it has no fixed expected total (its drift signal is the content-hash gap check, not a count), so the dashboard renders its indexed count as an in-sync state rather than a ratio.
 
 ### Index Jobs List
 

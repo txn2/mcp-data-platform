@@ -58,10 +58,14 @@ func (s *Sink) UpsertBatch(ctx context.Context, key indexjobs.Key, rows []indexj
 	return s.store.UpsertBatch(ctx, key.SourceID, rows)
 }
 
-// Coverage reports the number of indexed tool vectors. ExpectedKnown
-// is false: the tools kind stamps no expected count (it re-syncs the
-// live registry every sweep), so the dashboard shows a sync indicator
-// from the latest job status rather than an indexed/expected ratio.
+// Coverage reports the number of indexed tool vectors. ExpectedKnown is
+// false: tools has no fixed expected total, and deriving one from the
+// live registry size would mean enumerating the whole tool set on every
+// dashboard poll and would still read wrong whenever a stale vector
+// briefly outlives a removed tool (indexed > registry). The dashboard
+// instead renders the in-sync state as a full bar from this indexed
+// count, and the verdict's drift signal comes from the content-hash gap
+// check (FindGaps), not a count ratio.
 func (s *Sink) Coverage(ctx context.Context) (indexjobs.Coverage, error) {
 	indexed, err := s.store.Coverage(ctx)
 	if err != nil {
@@ -72,8 +76,9 @@ func (s *Sink) Coverage(ctx context.Context) (indexjobs.Coverage, error) {
 
 // StampExpected is a no-op for the tools kind. The framework calls it
 // after a successful embed to record an expected item count for
-// count-based gap detection, but tools detects gaps by always
-// re-syncing (see Store.FindGaps), so there is no count to record.
+// count-based gap detection, but tools derives both its gap check and
+// its coverage from the live registry (see FindGaps and Coverage), so
+// there is no count to record.
 func (*Sink) StampExpected(context.Context, indexjobs.Key, int) error { return nil }
 
 // FindGaps reports whether the live tool corpus has drifted from the
