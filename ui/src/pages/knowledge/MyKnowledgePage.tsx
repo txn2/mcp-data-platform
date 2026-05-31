@@ -5,11 +5,11 @@ import {
   useMyMemories,
   useMyMemoryStats,
 } from "@/api/portal/hooks";
-import { useEmbeddingProviderStatus } from "@/api/admin/hooks";
 import { StatCard } from "@/components/cards/StatCard";
 import { Lightbulb, ChevronLeft, ChevronRight } from "lucide-react";
 import type { Insight, MemoryRecord } from "@/api/portal/types";
 import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
+import { CollapsibleMarkdown } from "@/components/renderers/CollapsibleMarkdown";
 import { formatEntityUrn } from "@/lib/formatEntityUrn";
 
 const STATUS_BADGES: Record<string, { label: string; cls: string }> = {
@@ -143,7 +143,7 @@ function MemoryCard({ record }: { record: MemoryRecord }) {
           {new Date(record.created_at).toLocaleDateString()}
         </span>
       </div>
-      <MarkdownRenderer content={record.content} bare />
+      <CollapsibleMarkdown content={record.content} />
       {record.entity_urns && record.entity_urns.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {record.entity_urns.map((urn) => (
@@ -346,9 +346,6 @@ function MyMemorySection() {
     limit: PAGE_SIZE,
     offset,
   });
-  const { data: embedStatus } = useEmbeddingProviderStatus();
-  const embedderUnconfigured = embedStatus?.status === "unconfigured";
-
   const s = stats.data;
   const totalItems = memories.data?.total ?? 0;
   const items = memories.data?.data ?? [];
@@ -373,22 +370,6 @@ function MyMemorySection() {
 
   return (
     <>
-      {embedderUnconfigured && (
-        <div
-          role="status"
-          className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200"
-        >
-          <strong>Embedding provider not configured.</strong> New memories are
-          persisted without vectors and semantic recall is unavailable; keyword
-          and entity-URN lookup still work. Set{" "}
-          <code className="rounded bg-amber-100 px-1 py-0.5 font-mono text-xs dark:bg-amber-900/40">
-            memory.embedding.provider
-          </code>{" "}
-          (e.g., to <code className="font-mono">ollama</code>) and restart to
-          enable semantic features.
-        </div>
-      )}
-
       {/* Summary Cards */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <StatCard label="Total Memories" value={s?.total ?? 0} />

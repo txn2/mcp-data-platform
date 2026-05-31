@@ -1001,10 +1001,14 @@ func buildInsight(id string, pc *middleware.PlatformContext, input captureInsigh
 		insight.SuggestedActions = []SuggestedAction{}
 	}
 
-	// Inject context from PlatformContext
+	// Inject context from PlatformContext. Ownership is keyed on the user's
+	// email, the canonical identity for memory_records.created_by (see the
+	// 000031 migration). memory_manage writes the same key, so insights and
+	// memories for one person share an owner and the portal can scope both
+	// with a single identity.
 	if pc != nil {
 		insight.SessionID = pc.SessionID
-		insight.CapturedBy = pc.UserID
+		insight.CapturedBy = pc.UserEmail
 		insight.Persona = pc.PersonaName
 	}
 

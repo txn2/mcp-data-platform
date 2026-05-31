@@ -17,13 +17,17 @@ const (
 )
 
 // memoryInsightAdapter implements InsightStore by delegating to a memory.Store.
+// It is a knowledge-dimension view of the shared memory store: every query it
+// issues is scoped to dimension via the dimension field, so callers can never
+// see (or supersede) memory records from other dimensions.
 type memoryInsightAdapter struct {
-	store memory.Store
+	store     memory.Store
+	dimension string
 }
 
 // NewMemoryInsightAdapter creates an InsightStore backed by a memory.Store.
 func NewMemoryInsightAdapter(store memory.Store) InsightStore {
-	return &memoryInsightAdapter{store: store}
+	return &memoryInsightAdapter{store: store, dimension: memory.DimensionKnowledge}
 }
 
 // Insert creates a new insight record in the memory store.
@@ -48,6 +52,7 @@ func (a *memoryInsightAdapter) Get(ctx context.Context, id string) (*Insight, er
 // List returns insights matching the given filter.
 func (a *memoryInsightAdapter) List(ctx context.Context, filter InsightFilter) ([]Insight, int, error) {
 	mf := memory.Filter{
+		Dimension: a.dimension,
 		Category:  filter.Category,
 		EntityURN: filter.EntityURN,
 		CreatedBy: filter.CapturedBy,
@@ -58,10 +63,11 @@ func (a *memoryInsightAdapter) List(ctx context.Context, filter InsightFilter) (
 		Offset:    filter.Offset,
 	}
 
-	// Map insight statuses to memory statuses.
+	// Map the insight status onto its memory status. This mapping is lossy:
+	// pending, approved and applied all collapse to memory StatusActive, so
+	// the store fetch alone cannot distinguish them. The exact insight status
+	// is recovered per record below and post-filtered.
 	mf.Status = mapInsightStatusToMemory(filter.Status)
-
-	// Confidence filtering is done post-fetch since memory.Filter doesn't have it.
 
 	records, total, err := a.store.List(ctx, mf)
 	if err != nil {
@@ -71,7 +77,13 @@ func (a *memoryInsightAdapter) List(ctx context.Context, filter InsightFilter) (
 	insights := make([]Insight, 0, len(records))
 	for _, r := range records {
 		insight := recordToInsight(r)
+		// Confidence and the exact insight status are filtered post-fetch:
+		// memory.Filter has no confidence field, and its status enum is
+		// coarser than the insight status (see the lossy mapping above).
 		if filter.Confidence != "" && insight.Confidence != filter.Confidence {
+			continue
+		}
+		if filter.Status != "" && insight.Status != filter.Status {
 			continue
 		}
 		insights = append(insights, insight)
@@ -107,17 +119,18 @@ func (a *memoryInsightAdapter) Update(ctx context.Context, id string, updates In
 	return nil
 }
 
-// Stats returns aggregate counts of insights by category, confidence, and status.
+// Stats returns aggregate counts of insights by category, confidence, and
+// status. The memory.Store has no Stats method, so we page through the
+// matching records and tally them. The filter must be scoped the same way
+// List scopes (owner + knowledge dimension); otherwise the totals would
+// count other users' records and non-knowledge memory dimensions, leaving
+// the stat card and the list disagreeing.
 func (a *memoryInsightAdapter) Stats(ctx context.Context, filter InsightFilter) (*InsightStats, error) {
-	// Use List to build stats since memory.Store doesn't have a Stats method.
 	mf := memory.Filter{
-		Status: mapInsightStatusToMemory(filter.Status),
-		Limit:  memory.MaxLimit,
-	}
-
-	records, total, err := a.store.List(ctx, mf)
-	if err != nil {
-		return nil, fmt.Errorf("listing records for insight stats: %w", err)
+		Dimension: a.dimension,
+		CreatedBy: filter.CapturedBy,
+		Status:    mapInsightStatusToMemory(filter.Status),
+		Limit:     memory.MaxLimit,
 	}
 
 	stats := &InsightStats{
@@ -126,12 +139,25 @@ func (a *memoryInsightAdapter) Stats(ctx context.Context, filter InsightFilter) 
 		ByStatus:     make(map[string]int),
 	}
 
-	for _, r := range records {
-		stats.ByCategory[r.Category]++
-		stats.ByConfidence[r.Confidence]++
-		stats.ByStatus[r.Status]++
+	for {
+		records, _, err := a.store.List(ctx, mf)
+		if err != nil {
+			return nil, fmt.Errorf("listing records for insight stats: %w", err)
+		}
+		for i := range records {
+			// Report the insight status (pending/approved/applied/...),
+			// not the raw memory status, so the keys match what callers
+			// and the postgres store produce.
+			stats.ByStatus[resolveInsightStatus(records[i])]++
+			stats.ByCategory[records[i].Category]++
+			stats.ByConfidence[records[i].Confidence]++
+		}
+		if len(records) < memory.MaxLimit {
+			break
+		}
+		mf.Offset += memory.MaxLimit
 	}
-	stats.TotalPending = total
+	stats.TotalPending = stats.ByStatus[StatusPending]
 
 	return stats, nil
 }
@@ -141,8 +167,13 @@ func (a *memoryInsightAdapter) MarkApplied(ctx context.Context, id, appliedBy, c
 	meta := map[string]any{
 		colAppliedBy:        appliedBy,
 		metaKeyChangesetRef: changesetRef,
+		// Persist the applied status explicitly. The memory status of an
+		// applied insight stays StatusActive (see mapInsightStatusToMemory),
+		// so without this override resolveInsightStatus would report applied
+		// insights as pending, inflating the pending count and leaving the
+		// applied count at zero (mirrors MarkRolledBack / UpdateStatus).
+		metaKeyInsightStatus: StatusApplied,
 	}
-	// Mark as archived in memory (promoted/applied).
 	if err := a.store.Update(ctx, id, memory.RecordUpdate{
 		Metadata: meta,
 	}); err != nil {
@@ -167,8 +198,11 @@ func (a *memoryInsightAdapter) MarkRolledBack(ctx context.Context, id, rolledBac
 
 // Supersede marks older insights for an entity as superseded by a newer one.
 func (a *memoryInsightAdapter) Supersede(ctx context.Context, entityURN, excludeID string) (int, error) {
-	// List active records for this entity.
+	// List active records for this entity. Scoped to the knowledge dimension
+	// so we never supersede a non-knowledge memory record that happens to
+	// reference the same entity URN.
 	records, _, err := a.store.List(ctx, memory.Filter{
+		Dimension: a.dimension,
 		EntityURN: entityURN,
 		Status:    memory.StatusActive,
 		Limit:     memory.MaxLimit,

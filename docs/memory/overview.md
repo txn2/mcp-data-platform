@@ -117,6 +117,8 @@ The write path stamps `embedding_model` and `embedding_text_hash` (SHA-256 of th
 
 Now writes to `memory_records` instead of the legacy `knowledge_insights` table. Creates memory records with insight-specific metadata (suggested_actions, related_columns). Generates embeddings via Ollama when available.
 
+Ownership is keyed on the user's **email** (`created_by`), the same key `memory_manage` uses and the one the portal scopes by, so a person's insights and memories share an owner and both appear under their **My Knowledge** view. Insights captured before this was unified were keyed on the OIDC subject; the `000056_knowledge_owner_email_backfill` migration rewrites those rows to the email last seen for that subject in `audit_logs` (stashing the original in `metadata.legacy_created_by` so it is reversible). Rows with no audit mapping are left unchanged.
+
 ### apply_knowledge (existing, refactored)
 
 Reads from `memory_records` via an adapter. Promotes curated memories into durable DataHub knowledge (context documents, glossary terms, tags, structured properties).

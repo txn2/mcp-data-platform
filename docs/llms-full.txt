@@ -1397,6 +1397,8 @@ Record domain knowledge shared during a session.
 | `related_columns` | array | No | [] | Related columns (max 20) |
 | `suggested_actions` | array | No | [] | Proposed catalog changes (max 5) |
 
+Captured insights are owned by the user's email (`memory_records.created_by`), the same key `memory_manage` and the portal use, so a person's insights and memories appear together under their **My Knowledge** view. Insights captured before this was unified (keyed on the OIDC subject) are migrated to email by `000056_knowledge_owner_email_backfill`.
+
 ### apply_knowledge
 
 Review, synthesize, and apply captured insights to the data catalog. Admin-only. Requires `knowledge.apply.enabled: true`.

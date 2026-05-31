@@ -269,6 +269,7 @@ func TestMemoryInsightAdapter_List_FilterMapping(t *testing.T) {
 
 	// Verify filter mapping
 	mf := store.listFilter
+	assert.Equal(t, memory.DimensionKnowledge, mf.Dimension)
 	assert.Equal(t, "correction", mf.Category)
 	assert.Equal(t, "urn:li:dataset:abc", mf.EntityURN)
 	assert.Equal(t, "user@example.com", mf.CreatedBy)
@@ -298,6 +299,31 @@ func TestMemoryInsightAdapter_List_ConfidencePostFiltering(t *testing.T) {
 	for _, ins := range insights {
 		assert.Equal(t, "high", ins.Confidence)
 	}
+}
+
+func TestMemoryInsightAdapter_List_StatusPostFilter(t *testing.T) {
+	// Both records are StatusActive in memory (pending/approved/applied all
+	// map to active), so the store cannot distinguish them. The adapter must
+	// post-filter by the resolved insight status. Without the post-filter,
+	// the "pending" tab would also list applied insights.
+	store := &mockMemoryStore{
+		listRecords: []memory.Record{
+			{ID: "r1", Status: memory.StatusActive}, // resolves to pending
+			{
+				ID:       "r2",
+				Status:   memory.StatusActive,
+				Metadata: map[string]any{metaKeyInsightStatus: StatusApplied},
+			},
+		},
+		listTotal: 2,
+	}
+	adapter := NewMemoryInsightAdapter(store)
+
+	insights, _, err := adapter.List(context.Background(), InsightFilter{Status: StatusPending})
+	require.NoError(t, err)
+	require.Len(t, insights, 1)
+	assert.Equal(t, "r1", insights[0].ID)
+	assert.Equal(t, StatusPending, insights[0].Status)
 }
 
 func TestMemoryInsightAdapter_List_Error(t *testing.T) {
@@ -368,17 +394,67 @@ func TestMemoryInsightAdapter_Stats(t *testing.T) {
 	}
 	adapter := NewMemoryInsightAdapter(store)
 
-	stats, err := adapter.Stats(context.Background(), InsightFilter{})
+	stats, err := adapter.Stats(context.Background(), InsightFilter{CapturedBy: "user@example.com"})
 	require.NoError(t, err)
 	require.NotNil(t, stats)
 
-	assert.Equal(t, 3, stats.TotalPending)
+	// Stats must be scoped exactly like List: owner + knowledge dimension.
+	// Otherwise the stat card counts other users' records and non-knowledge
+	// memory dimensions, disagreeing with the list (issue #515).
+	assert.Equal(t, "user@example.com", store.listFilter.CreatedBy)
+	assert.Equal(t, memory.DimensionKnowledge, store.listFilter.Dimension)
+
+	// ByStatus is keyed by insight status, not raw memory status:
+	// active -> pending, archived -> rejected.
+	assert.Equal(t, 2, stats.ByStatus[StatusPending])
+	assert.Equal(t, 1, stats.ByStatus[StatusRejected])
+	assert.Equal(t, 0, stats.ByStatus[memory.StatusActive])
+	// TotalPending counts the pending bucket, not the grand total.
+	assert.Equal(t, 2, stats.TotalPending)
 	assert.Equal(t, 2, stats.ByCategory["correction"])
 	assert.Equal(t, 1, stats.ByCategory["data_quality"])
 	assert.Equal(t, 2, stats.ByConfidence["high"])
 	assert.Equal(t, 1, stats.ByConfidence["low"])
-	assert.Equal(t, 2, stats.ByStatus[memory.StatusActive])
-	assert.Equal(t, 1, stats.ByStatus[memory.StatusArchived])
+}
+
+// paginatingMemoryStore returns records in MaxLimit-sized pages so the
+// Stats pagination loop can be exercised end to end. Without this, the
+// single-page mock would never drive the offset increment, and a broken
+// loop condition (e.g. dropping the break) would not be caught.
+type paginatingMemoryStore struct {
+	mockMemoryStore
+	all []memory.Record
+}
+
+func (p *paginatingMemoryStore) List(_ context.Context, filter memory.Filter) ([]memory.Record, int, error) {
+	start := filter.Offset
+	if start >= len(p.all) {
+		return nil, len(p.all), nil
+	}
+	end := min(start+filter.Limit, len(p.all))
+	return p.all[start:end], len(p.all), nil
+}
+
+func TestMemoryInsightAdapter_Stats_Paginates(t *testing.T) {
+	// One full page plus one extra forces a second List call.
+	total := memory.MaxLimit + 1
+	all := make([]memory.Record, total)
+	for i := range all {
+		all[i] = memory.Record{
+			ID:         fmt.Sprintf("r%d", i),
+			Category:   "correction",
+			Confidence: "high",
+			Status:     memory.StatusActive,
+		}
+	}
+	store := &paginatingMemoryStore{all: all}
+	adapter := NewMemoryInsightAdapter(store)
+
+	stats, err := adapter.Stats(context.Background(), InsightFilter{CapturedBy: "user@example.com"})
+	require.NoError(t, err)
+	assert.Equal(t, total, stats.ByCategory["correction"])
+	assert.Equal(t, total, stats.ByStatus[StatusPending])
+	assert.Equal(t, total, stats.TotalPending)
 }
 
 func TestMemoryInsightAdapter_Stats_Error(t *testing.T) {
@@ -400,6 +476,34 @@ func TestMemoryInsightAdapter_MarkApplied(t *testing.T) {
 	assert.Equal(t, "ins-001", store.updateID)
 	assert.Equal(t, "admin@example.com", store.updateData.Metadata["applied_by"])
 	assert.Equal(t, "cs-789", store.updateData.Metadata["changeset_ref"])
+	// Applied status must be persisted so resolveInsightStatus reports it as
+	// applied, not pending (an applied record stays StatusActive in memory).
+	assert.Equal(t, StatusApplied, store.updateData.Metadata[metaKeyInsightStatus])
+}
+
+// TestMemoryInsightAdapter_AppliedNotCountedAsPending proves the end-to-end
+// effect of MarkApplied persisting insight_status: an applied insight lands in
+// the applied bucket, not pending. Without the fix, Stats counted it as
+// pending and the applied StatCard read zero.
+func TestMemoryInsightAdapter_AppliedNotCountedAsPending(t *testing.T) {
+	store := &mockMemoryStore{
+		listRecords: []memory.Record{
+			{ID: "r1", Status: memory.StatusActive}, // genuinely pending
+			{
+				ID:       "r2",
+				Status:   memory.StatusActive, // applied stays active in memory
+				Metadata: map[string]any{metaKeyInsightStatus: StatusApplied},
+			},
+		},
+		listTotal: 2,
+	}
+	adapter := NewMemoryInsightAdapter(store)
+
+	stats, err := adapter.Stats(context.Background(), InsightFilter{CapturedBy: "u@example.com"})
+	require.NoError(t, err)
+	assert.Equal(t, 1, stats.ByStatus[StatusPending])
+	assert.Equal(t, 1, stats.ByStatus[StatusApplied])
+	assert.Equal(t, 1, stats.TotalPending)
 }
 
 func TestMemoryInsightAdapter_MarkApplied_Error(t *testing.T) {
@@ -452,6 +556,9 @@ func TestMemoryInsightAdapter_Supersede(t *testing.T) {
 	assert.Equal(t, "urn:li:dataset:abc", store.listFilter.EntityURN)
 	assert.Equal(t, memory.StatusActive, store.listFilter.Status)
 	assert.Equal(t, memory.MaxLimit, store.listFilter.Limit)
+	// Scoped to the knowledge dimension so it cannot supersede a
+	// non-knowledge memory record that shares the entity URN.
+	assert.Equal(t, memory.DimensionKnowledge, store.listFilter.Dimension)
 
 	// Verify supersede was called for old-1 and old-2 but not new-1
 	assert.Len(t, store.supersedeCalls, 2)

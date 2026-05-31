@@ -2176,7 +2176,7 @@ func TestListMyInsights_Success(t *testing.T) {
 		listResult: []knowledge.Insight{{ID: "ins-1", CapturedBy: "user-1", Status: "pending"}},
 		listTotal:  1,
 	}
-	user := &User{UserID: "user-1"}
+	user := &User{UserID: "user-1", Email: "user-1@example.com"}
 	h := newKnowledgeTestHandler(store, user)
 
 	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/knowledge/insights?status=pending&limit=10", http.NoBody)
@@ -2184,7 +2184,8 @@ func TestListMyInsights_Success(t *testing.T) {
 	h.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, "user-1", store.lastFilter.CapturedBy)
+	// Insights are scoped by email, not the OIDC subject (issue #515).
+	assert.Equal(t, "user-1@example.com", store.lastFilter.CapturedBy)
 	assert.Equal(t, "pending", store.lastFilter.Status)
 	assert.Equal(t, 10, store.lastFilter.Limit)
 }
@@ -2236,7 +2237,7 @@ func TestGetMyInsightStats_Success(t *testing.T) {
 			ByConfidence: map[string]int{"high": 1},
 		},
 	}
-	user := &User{UserID: "user-1"}
+	user := &User{UserID: "user-1", Email: "user-1@example.com"}
 	h := newKnowledgeTestHandler(store, user)
 
 	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/knowledge/insights/stats", http.NoBody)
@@ -2244,7 +2245,8 @@ func TestGetMyInsightStats_Success(t *testing.T) {
 	h.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, "user-1", store.lastFilter.CapturedBy)
+	// Stats are scoped by email, consistent with the list (issue #515).
+	assert.Equal(t, "user-1@example.com", store.lastFilter.CapturedBy)
 }
 
 func TestGetMyInsightStats_Unauthenticated(t *testing.T) {
