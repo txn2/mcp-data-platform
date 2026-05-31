@@ -12,6 +12,7 @@ import (
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	apigatewaycatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalogindex"
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/tools/toolsindex"
 )
 
 // defaultEmbedJobsTimeout is the fall-back timeout the index-jobs
@@ -62,31 +63,23 @@ func (p *Platform) workerEmbedder() embedding.Provider {
 //
 // Idempotent: a second call is a no-op.
 func (p *Platform) WireAPIGatewayEmbedJobsFromDB() {
-	catalogStore, ok := p.indexJobsPreconditions()
-	if !ok {
+	if !p.indexJobsPreconditions() {
 		return
 	}
 
 	leaseDuration, batchSize := p.resolveEmbedJobsTuning()
-
 	store := indexjobs.NewPostgresStore(p.db, indexjobs.WithLeaseDuration(leaseDuration))
-	p.indexJobsStore = store
-
 	reg := indexjobs.NewRegistry()
-	if err := reg.Register(
-		&catalogSource{store: catalogStore, registry: p.toolkitRegistry},
-		catalogindex.NewSink(catalogStore),
-	); err != nil {
-		// A registration failure is a wiring bug (duplicate kind /
-		// mismatched kinds), not a runtime condition. Log and leave
-		// the queue unwired rather than starting a worker with no
-		// consumers.
-		slog.Error("index jobs: api-catalog registration failed", "error", err)
-		p.indexJobsStore = nil
+	p.registerIndexConsumers(reg, store)
+	if len(reg.Kinds()) == 0 {
+		// db + embedder are present but nothing registered (no catalog
+		// store and tools registration somehow failed). A worker with
+		// no consumers has nothing to do.
+		slog.Info("index jobs: skipped (no consumers registered)")
 		return
 	}
+	p.indexJobsStore = store
 	p.indexJobsRegistry = reg
-	p.apiGatewayEmbedAdminStore = catalogindex.NewAdminStore(store, p.db)
 
 	worker := indexjobs.NewWorker(indexjobs.WorkerConfig{
 		Store:         store,
@@ -120,6 +113,7 @@ func (p *Platform) WireAPIGatewayEmbedJobsFromDB() {
 				p.indexJobsListener = nil
 			}
 		}
+		p.bootstrapToolsIndex(ctx)
 		slog.Info("index jobs: started", "kinds", reg.Kinds())
 		return nil
 	})
@@ -128,28 +122,71 @@ func (p *Platform) WireAPIGatewayEmbedJobsFromDB() {
 	})
 }
 
-// indexJobsPreconditions checks the wiring guards and returns the
-// catalog store the api-catalog consumer needs. ok is false (with a
-// reason logged) when the queue must not be wired: already wired, no
-// database, an unconfigured embedding provider (#429), or no catalog
-// store.
-func (p *Platform) indexJobsPreconditions() (apigatewaycatalog.Store, bool) {
+// indexJobsPreconditions reports whether the shared index-jobs
+// framework should be wired. It requires a database and a configured
+// embedding provider (#429: never stand the queue up against the noop
+// provider) and must not already be wired. Which consumers actually
+// register is decided in registerIndexConsumers: api-catalog needs its
+// catalog store, the tools consumer always registers.
+func (p *Platform) indexJobsPreconditions() bool {
 	switch {
 	case p.indexJobsStore != nil:
-		return nil, false // already wired
+		return false // already wired
 	case p.db == nil:
 		slog.Info("index jobs: skipped (no database)")
-		return nil, false
+		return false
 	case !embedding.IsConfigured(p.embeddingProv):
 		slog.Info("index jobs: skipped (embedding provider not configured)")
-		return nil, false
+		return false
 	}
-	catalogStore := p.APIGatewayCatalogStore()
-	if catalogStore == nil {
-		slog.Info("index jobs: skipped (no catalog store)")
-		return nil, false
+	return true
+}
+
+// registerIndexConsumers registers every available consumer on the
+// shared registry. The api-catalog consumer registers only when its
+// catalog store is present; the tools consumer always registers,
+// because the framework preconditions (database + embedding provider)
+// are all it needs to index the in-process tool registry. A
+// registration error is a wiring bug (duplicate/mismatched kind), so
+// it is logged and that consumer is skipped rather than aborting the
+// others.
+func (p *Platform) registerIndexConsumers(reg *indexjobs.Registry, store *indexjobs.PostgresStore) {
+	if catalogStore := p.APIGatewayCatalogStore(); catalogStore != nil {
+		if err := reg.Register(
+			&catalogSource{store: catalogStore, registry: p.toolkitRegistry},
+			catalogindex.NewSink(catalogStore),
+		); err != nil {
+			slog.Error("index jobs: api-catalog registration failed", "error", err)
+		} else {
+			p.apiGatewayEmbedAdminStore = catalogindex.NewAdminStore(store, p.db)
+		}
 	}
-	return catalogStore, true
+
+	toolsStore := toolsindex.NewStore(p.db)
+	if err := reg.Register(&toolsSource{p: p}, toolsindex.NewSink(toolsStore)); err != nil {
+		slog.Error("index jobs: tools registration failed", "error", err)
+	} else {
+		p.toolsIndexStore = toolsStore
+	}
+}
+
+// bootstrapToolsIndex enqueues the initial tools index job at startup.
+// The tool corpus is not a DB table the reconciler can discover on its
+// own (it diffs an already-recorded expected count, which does not
+// exist until the first embed), so the first index for a fresh
+// deployment must be kicked off explicitly. Idempotent: the partial
+// unique index collapses a duplicate enqueue, and the worker's
+// text-hash dedup skips re-embedding unchanged tools, so running it on
+// every boot is cheap.
+func (p *Platform) bootstrapToolsIndex(ctx context.Context) {
+	if p.toolsIndexStore == nil || p.indexJobsStore == nil {
+		return
+	}
+	if _, err := p.indexJobsStore.Enqueue(ctx,
+		indexjobs.Key{SourceKind: toolsindex.SourceKind, SourceID: toolsindex.SourceID},
+		indexjobs.TriggerWrite); err != nil {
+		slog.Warn("index jobs: tools bootstrap enqueue failed", "error", err)
+	}
 }
 
 // resolveEmbedJobsTuning returns the worker lease duration and batch
