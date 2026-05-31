@@ -281,6 +281,12 @@ type conn struct {
 	// catalog edit, so no separate cache-invalidation path is needed.
 	operationRouterOnce sync.Once
 	operationRouter     routers.Router
+	// operationRawPaths maps each operationRouter path key
+	// (effectiveBasePath+rawPath) back to its spec-relative rawPath so
+	// ResolveOperationID can synthesize "<METHOD> <rawPath>" ids for
+	// operations with no declared operationId, matching the ids
+	// api_list_endpoints advertises. Built alongside operationRouter.
+	operationRawPaths map[string]string
 	// testDescs is a unit-test-only aid: lets ranking_test.go's
 	// buildTestConn / populateTestEmbeddings round-trip an
 	// operation's description through buildEmbedText without making
