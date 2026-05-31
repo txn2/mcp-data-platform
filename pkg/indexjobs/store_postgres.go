@@ -177,7 +177,10 @@ func (s *PostgresStore) Claim(ctx context.Context, workerID string) (*Job, error
 }
 
 // Complete marks a running job succeeded. The worker_id predicate
-// enforces lease ownership; a rotated worker gets ErrNotFound.
+// enforces lease ownership; a rotated worker gets ErrNotFound. On a
+// successful flip it resolves any still-open failed rows for the same
+// unit, so a failure superseded by this success self-clears from the
+// admin Indexing dashboard's triage surface.
 func (s *PostgresStore) Complete(ctx context.Context, id int64, workerID string) error {
 	const q = `
 		UPDATE index_jobs
@@ -187,7 +190,55 @@ func (s *PostgresStore) Complete(ctx context.Context, id int64, workerID string)
 		       lease_expires_at = NULL
 		 WHERE id = $1 AND status = 'running' AND worker_id = $2
 	`
-	return s.execOwned(ctx, "complete", q, id, workerID)
+	if err := s.execOwned(ctx, "complete", q, id, workerID); err != nil {
+		return err
+	}
+	s.resolveSupersededFailures(ctx, id)
+	return nil
+}
+
+// resolveSupersededFailures stamps resolved_at on every open failed
+// row belonging to the same unit as the just-completed job, identified
+// by joining back to the completed row's (source_kind, source_id).
+// Best-effort: the success is already durable, so a sweep error is not
+// worth failing the Complete; the failure simply lingers until the
+// next success or an operator dismiss resolves it.
+func (s *PostgresStore) resolveSupersededFailures(ctx context.Context, completedJobID int64) {
+	const q = `
+		UPDATE index_jobs f
+		   SET resolved_at = NOW()
+		  FROM index_jobs c
+		 WHERE c.id = $1
+		   AND f.source_kind = c.source_kind
+		   AND f.source_id = c.source_id
+		   AND f.status = 'failed'
+		   AND f.resolved_at IS NULL
+	`
+	if _, err := s.db.ExecContext(ctx, q, completedJobID); err != nil {
+		_ = err // best-effort; resolves on the next success or operator dismiss
+	}
+}
+
+// ResolveFailures stamps resolved_at on every open failed row for the
+// unit, clearing it from the triage surface. Returns the number of
+// rows resolved (zero when the unit had no open failures, which the
+// dashboard treats as "already resolved", not an error).
+func (s *PostgresStore) ResolveFailures(ctx context.Context, key Key) (int, error) {
+	const q = `
+		UPDATE index_jobs
+		   SET resolved_at = NOW()
+		 WHERE source_kind = $1 AND source_id = $2
+		   AND status = 'failed' AND resolved_at IS NULL
+	`
+	res, err := s.db.ExecContext(ctx, q, key.SourceKind, key.SourceID)
+	if err != nil {
+		return 0, fmt.Errorf("indexjobs: resolve failures: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("indexjobs: resolve failures rows-affected: %w", err)
+	}
+	return int(n), nil
 }
 
 // UpdateProgress publishes the worker's chunk-boundary counter.
@@ -313,13 +364,20 @@ func (s *PostgresStore) Get(ctx context.Context, id int64) (*Job, error) {
 	return job, nil
 }
 
+// clampListLimit bounds an admin page size to (0, maxListLimit],
+// falling back to defaultListLimit for a missing or hostile value.
+// Shared by List and ActiveFailures so both paginate by one policy.
+func clampListLimit(limit int) int {
+	if limit <= 0 || limit > maxListLimit {
+		return defaultListLimit
+	}
+	return limit
+}
+
 // List returns jobs matching the filter, newest first.
 func (s *PostgresStore) List(ctx context.Context, filter ListFilter) ([]Job, error) {
 	predicates, args := buildListPredicates(filter)
-	limit := filter.Limit
-	if limit <= 0 || limit > maxListLimit {
-		limit = defaultListLimit
-	}
+	limit := clampListLimit(filter.Limit)
 	args = append(args, limit)
 	q := `SELECT ` + jobColumns + ` FROM index_jobs` + predicates +
 		` ORDER BY id DESC LIMIT $` + intToStr(len(args)) // #nosec G202 -- predicates are closed-set literal fragments; only $N placeholders are dynamic
@@ -360,19 +418,114 @@ func (s *PostgresStore) Counts(ctx context.Context, sourceKind string) (*KindCou
 		       COUNT(*) FILTER (WHERE status = 'succeeded'),
 		       COUNT(*) FILTER (WHERE status = 'failed'),
 		       (SELECT MAX(COALESCE(completed_at, started_at, created_at))
-		          FROM index_jobs WHERE source_kind = $1)
+		          FROM index_jobs WHERE source_kind = $1),
+		       (SELECT COUNT(DISTINCT source_id)
+		          FROM index_jobs
+		         WHERE source_kind = $1
+		           AND status = 'failed' AND resolved_at IS NULL)
 		  FROM last
 	`
 	c := &KindCounts{SourceKind: sourceKind}
 	var lastActivity sql.NullTime
 	if err := s.db.QueryRowContext(ctx, q, sourceKind).Scan(
-		&c.Pending, &c.Running, &c.Succeeded, &c.Failed, &lastActivity); err != nil {
+		&c.Pending, &c.Running, &c.Succeeded, &c.Failed, &lastActivity,
+		&c.UnresolvedFailures); err != nil {
 		return nil, fmt.Errorf("indexjobs: counts: %w", err)
 	}
 	if lastActivity.Valid {
 		c.LastActivity = &lastActivity.Time
 	}
 	return c, nil
+}
+
+// ActiveFailures returns the units whose index attempts left an open
+// failure, one entry per unit, most-recently-failed first. The CTE
+// reduces a unit's repeated failed rows to a single row (rn = 1 picks
+// the newest) while aggregating occurrence count and first/last-seen
+// timestamps over the same window, then left-joins the unit's most
+// recent success so the dashboard can show "last succeeded Xm ago".
+// The $1 = ” branch lets one prepared statement serve both the
+// cross-kind triage panel (empty kind) and a per-kind drill-down
+// without string concatenation.
+func (s *PostgresStore) ActiveFailures(ctx context.Context, sourceKind string, limit int) ([]FailedUnit, error) {
+	limit = clampListLimit(limit)
+	// The succeeded CTE is correlated to the failing units (the only
+	// ones the outer join needs a last-success for) rather than
+	// aggregating the entire succeeded history. Finished succeeded rows
+	// accumulate unboundedly and are the largest status bucket; without
+	// the correlation this read would seq-scan all of them on every
+	// 5s dashboard poll. Scoped to the small open-failed set, it rides
+	// the (source_kind, source_id) history index instead.
+	const q = `
+		WITH open_failed AS (
+		    SELECT id, source_kind, source_id, last_error, attempts,
+		           ROW_NUMBER() OVER (PARTITION BY source_kind, source_id ORDER BY id DESC) AS rn,
+		           COUNT(*)     OVER (PARTITION BY source_kind, source_id) AS occ,
+		           MIN(COALESCE(completed_at, created_at)) OVER (PARTITION BY source_kind, source_id) AS first_failed,
+		           MAX(COALESCE(completed_at, created_at)) OVER (PARTITION BY source_kind, source_id) AS last_failed
+		      FROM index_jobs
+		     WHERE status = 'failed' AND resolved_at IS NULL
+		       AND ($1 = '' OR source_kind = $1)
+		),
+		succeeded AS (
+		    SELECT source_kind, source_id, MAX(completed_at) AS last_succeeded
+		      FROM index_jobs
+		     WHERE status = 'succeeded'
+		       AND (source_kind, source_id) IN (SELECT source_kind, source_id FROM open_failed)
+		     GROUP BY source_kind, source_id
+		)
+		SELECT f.id, f.source_kind, f.source_id, f.last_error, f.attempts,
+		       f.occ, f.first_failed, f.last_failed, s.last_succeeded
+		  FROM open_failed f
+		  LEFT JOIN succeeded s
+		    ON s.source_kind = f.source_kind AND s.source_id = f.source_id
+		 WHERE f.rn = 1
+		 ORDER BY f.last_failed DESC NULLS LAST, f.id DESC
+		 LIMIT $2
+	`
+	rows, err := s.db.QueryContext(ctx, q, sourceKind, limit)
+	if err != nil {
+		return nil, fmt.Errorf("indexjobs: active failures: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck // close error on read-only iteration is not actionable
+	var out []FailedUnit
+	for rows.Next() {
+		u, err := scanFailedUnit(rows)
+		if err != nil {
+			return nil, fmt.Errorf("indexjobs: active failures scan: %w", err)
+		}
+		out = append(out, u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("indexjobs: active failures rows: %w", err)
+	}
+	return out, nil
+}
+
+// scanFailedUnit maps one ActiveFailures row to a FailedUnit. The
+// first/last-failed timestamps COALESCE created_at (NOT NULL) so they
+// are always present; last_succeeded is genuinely nullable.
+func scanFailedUnit(r rowScanner) (FailedUnit, error) {
+	var (
+		u             FailedUnit
+		firstFailed   sql.NullTime
+		lastFailed    sql.NullTime
+		lastSucceeded sql.NullTime
+	)
+	if err := r.Scan(&u.LatestJobID, &u.SourceKind, &u.SourceID, &u.LastError,
+		&u.Attempts, &u.Occurrences, &firstFailed, &lastFailed, &lastSucceeded); err != nil {
+		return FailedUnit{}, fmt.Errorf("indexjobs: scan failed unit: %w", err)
+	}
+	if firstFailed.Valid {
+		u.FirstFailedAt = firstFailed.Time
+	}
+	if lastFailed.Valid {
+		u.LastFailedAt = lastFailed.Time
+	}
+	if lastSucceeded.Valid {
+		u.LastSucceededAt = &lastSucceeded.Time
+	}
+	return u, nil
 }
 
 // execOwned runs an ownership-guarded UPDATE (the Complete / Fail

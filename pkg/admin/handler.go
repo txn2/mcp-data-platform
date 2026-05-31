@@ -221,11 +221,20 @@ type IndexJobsService interface {
 	// List returns jobs matching the filter, newest first. A zero-value
 	// SourceKind lists across every kind.
 	List(ctx context.Context, filter indexjobs.ListFilter) ([]indexjobs.Job, error)
+	// ActiveFailures returns the units with open (unresolved) failures,
+	// one entry per unit, most-recently-failed first. An empty kind
+	// lists across every kind, which the cross-kind triage panel relies
+	// on.
+	ActiveFailures(ctx context.Context, kind string, limit int) ([]indexjobs.FailedUnit, error)
 	// Reindex enqueues manual-retry jobs for the kind (a single unit
 	// when sourceID is set, every out-of-sync unit otherwise) and
 	// returns the source ids enqueued. Returns indexjobs.ErrUnknownKind
 	// for an unregistered kind.
 	Reindex(ctx context.Context, kind, sourceID string) ([]string, error)
+	// Resolve dismisses every open failure for the unit, the explicit
+	// fallback when a failure will never be superseded. Returns the
+	// number of failed rows resolved (zero is not an error).
+	Resolve(ctx context.Context, kind, sourceID string) (int, error)
 }
 
 // EmbedJobsStore is the subset of catalogindex.Store the admin

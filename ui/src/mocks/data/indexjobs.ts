@@ -1,6 +1,7 @@
 import type {
   IndexJob,
   IndexJobsSummary,
+  IndexFailedUnit,
 } from "@/api/admin/indexjobs";
 
 // Deterministic timestamps relative to a fixed "now" so the dashboard's
@@ -21,24 +22,56 @@ export const mockIndexJobsSummary: IndexJobsSummary = {
   kinds: [
     {
       kind: "api_catalog",
+      verdict: "degraded",
       pending: 1,
       running: 0,
       succeeded: 6,
       failed: 2,
+      unresolved_failures: 2,
       last_activity: minsAgo(3),
       coverage: { indexed: 142, expected: 168, expected_known: true },
     },
     {
       kind: "tools",
+      verdict: "indexing",
       pending: 0,
       running: 1,
       succeeded: 1,
       failed: 0,
+      unresolved_failures: 0,
       last_activity: minsAgo(1),
       coverage: { indexed: 87, expected: 0, expected_known: false },
     },
   ],
 };
+
+// mockIndexJobsFailures is the failure-triage surface: two units sharing
+// an error signature (so they group) plus the timestamps and last-success
+// context the triage cards render. Mirrors the failed rows in
+// mockIndexJobs.
+export const mockIndexJobsFailures: IndexFailedUnit[] = [
+  {
+    source_kind: "api_catalog",
+    source_id: "acme|v1",
+    latest_job_id: 106,
+    last_error: 'embed batch: provider timeout after 30s on spec "acme"',
+    attempts: 5,
+    occurrences: 2,
+    first_failed_at: minsAgo(120),
+    last_failed_at: minsAgo(38),
+    last_succeeded_at: minsAgo(300),
+  },
+  {
+    source_kind: "api_catalog",
+    source_id: "globex|v2",
+    latest_job_id: 107,
+    last_error: 'embed batch: provider timeout after 30s on spec "globex"',
+    attempts: 5,
+    occurrences: 1,
+    first_failed_at: minsAgo(33),
+    last_failed_at: minsAgo(33),
+  },
+];
 
 // mockIndexJobs spans every status the dashboard buckets: succeeded (for
 // throughput + latency), running (in-flight), pending-after-failure

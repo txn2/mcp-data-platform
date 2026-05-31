@@ -1944,16 +1944,15 @@ Real-time platform health overview with configurable time ranges (1h, 6h, 24h, 7
 Admin-only, cross-kind embedding-index health for every consumer of the shared `index_jobs` queue (api-catalog operation vectors, tool descriptors, and any future consumer, which gets visibility for free on registration). System-wide by platform convention, not a per-persona capability. All data is real `index_jobs` / vector-table state; the page polls every 5 seconds.
 
 - Provider health banner: embedding provider kind/model/dimension, or a degraded (noop / unconfigured) state since a bad provider makes the index meaningless and pauses indexing
-- Index state by kind: custom d3 heatmap (centerpiece) of kind rows by job-state columns (pending/running/succeeded/failed), cells colored by count
-- Per-kind cards: status distribution, coverage where derivable (api-catalog indexed-vs-expected from operation_count; tools indexed count with in-sync / re-syncing indicator), last activity, and a Re-index button that re-enqueues every out-of-sync unit
+- Per-kind cards (summary-first): each kind leads with a server-computed health verdict (Healthy / Indexing… / Degraded / Idle (complete)), then keeps the two metric families distinct — vector coverage (how much is indexed; api-catalog indexed-vs-expected from operation_count, tools an indexed count with an in-sync indicator) and units by last run (per-unit latest job state, labelled so "succeeded" reads as units not jobs). A "last synced" line shows relative time; the fully-indexed-with-no-history case reads "fully indexed · idle", never "never". A Re-index button re-enqueues every out-of-sync unit.
 - Throughput timeline: completed jobs over time (d3 area)
 - Embed latency: per-kind started-to-completed duration (p50 with p95 marker), surfacing slow passes (CPU-only embedder)
 - In flight: running jobs with worker id, lease countdown, items-done progress
 - Retry backoff: pending-after-failure jobs with attempt count and next run time
-- Failure triage: failed jobs grouped by error signature, each with one-click Retry that re-enqueues that unit
-- Jobs drill-down: filterable table (kind, status) of recent jobs with trigger, attempts, last update, error
+- Failure triage (self-resolving): units with open failures grouped by error signature, each with first-seen / last-seen timestamps, occurrence and attempt counts, last-succeeded context, and a drill-in to the un-redacted error and job id. A failure auto-resolves once a later job for the unit succeeds; Retry re-enqueues and clears the card on the next success, Dismiss is the explicit fallback for a failure no success will supersede (e.g. a removed consumer's leftover rows)
+- Jobs drill-down: filterable table (kind, status) of recent jobs; routine timer-driven reconciler successes for a unit collapse into a single "synced ×N" row so they do not drown the table
 
-Backed by `GET /api/v1/admin/index-jobs` (summary + provider health), `GET /api/v1/admin/index-jobs/jobs` (drill-down), and `POST /api/v1/admin/index-jobs/reindex` (manual retry). Degrades to an empty state when no queue is wired (no database or no embedding provider). The existing per-catalog embedding badges in API Catalogs remain.
+Backed by `GET /api/v1/admin/index-jobs` (summary + provider health + per-kind verdict), `GET /api/v1/admin/index-jobs/jobs` (drill-down), `GET /api/v1/admin/index-jobs/failures` (triage units), `POST /api/v1/admin/index-jobs/reindex` (manual retry), and `POST /api/v1/admin/index-jobs/dismiss` (resolve a unit's open failures). Degrades to an empty state when no queue is wired (no database or no embedding provider). The existing per-catalog embedding badges in API Catalogs remain.
 
 ## Tools
 
@@ -2277,9 +2276,11 @@ Swagger UI is served at `GET /api/v1/admin/docs/index.html`. The OpenAPI spec is
 
 Cross-kind embedding-index health for every `index_jobs` consumer; backs the admin portal's Indexing dashboard. Degrade gracefully (provider status + empty `kinds`) when no queue is wired.
 
-- `GET /index-jobs` — Provider health plus a per-kind rollup: per-state counts (pending/running/succeeded/failed), last activity, and coverage (`indexed`/`expected`/`expected_known`; `expected_known` is false for the tools kind, which re-syncs continuously and reports an indexed-only sync indicator)
+- `GET /index-jobs` — Provider health plus a per-kind rollup: a server-computed `verdict` (healthy/indexing/degraded/idle_complete), per-state counts (pending/running/succeeded/failed; succeeded/failed are per-unit latest status, not job counts), `unresolved_failures` (distinct units with an open failed job; the degraded trigger), last activity, and coverage (`indexed`/`expected`/`expected_known`; `expected_known` is false for the tools kind, which re-syncs continuously and reports an indexed-only in-sync indicator). `idle_complete` is the fully-indexed-no-history case and must read as idle, not failure
 - `GET /index-jobs/jobs?kind=&status=&source_id=&limit=` — `index_jobs` rows newest first; optional filters (omitted kind lists across kinds), `limit` default 50, max 500
+- `GET /index-jobs/failures?kind=&limit=` — units with open (unresolved) failures, one per unit, most-recently-failed first; each carries `latest_job_id`, un-redacted `last_error`, `attempts`, `occurrences`, `first_failed_at`/`last_failed_at`, and optional `last_succeeded_at`. A unit leaves this set once a later job for it succeeds (Complete resolves superseded failures) or when dismissed
 - `POST /index-jobs/reindex` — `{kind, source_id?}` enqueues manual-retry jobs (one unit with source_id, every out-of-sync unit without); idempotent; `202` with `{status, enqueued, count}`; `404` unknown kind; `409` no queue wired
+- `POST /index-jobs/dismiss` — `{kind, source_id}` resolves every open failure for one unit (explicit fallback for failures no success will supersede); idempotent; `200` with `{status, resolved}`; `400` missing fields; `409` no queue wired
 
 ## Config Endpoints
 

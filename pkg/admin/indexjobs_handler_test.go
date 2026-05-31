@@ -15,18 +15,26 @@ import (
 // It records the last List filter and Reindex args so tests can assert
 // query-param plumbing.
 type fakeIndexJobs struct {
-	kinds       []string
-	counts      map[string]*indexjobs.KindCounts
-	countsErr   error
-	coverage    map[string]*indexjobs.Coverage
-	coverageErr error
-	jobs        []indexjobs.Job
-	listErr     error
-	lastFilter  indexjobs.ListFilter
-	reindexIDs  []string
-	reindexErr  error
-	lastKind    string
-	lastSource  string
+	kinds           []string
+	counts          map[string]*indexjobs.KindCounts
+	countsErr       error
+	coverage        map[string]*indexjobs.Coverage
+	coverageErr     error
+	jobs            []indexjobs.Job
+	listErr         error
+	lastFilter      indexjobs.ListFilter
+	failures        []indexjobs.FailedUnit
+	failuresErr     error
+	lastFailKind    string
+	lastFailLimit   int
+	reindexIDs      []string
+	reindexErr      error
+	lastKind        string
+	lastSource      string
+	resolved        int
+	resolveErr      error
+	lastResolveKind string
+	lastResolveSrc  string
 }
 
 func (f *fakeIndexJobs) Kinds() []string { return f.kinds }
@@ -56,9 +64,22 @@ func (f *fakeIndexJobs) List(_ context.Context, filter indexjobs.ListFilter) ([]
 	return f.jobs, nil
 }
 
+func (f *fakeIndexJobs) ActiveFailures(_ context.Context, kind string, limit int) ([]indexjobs.FailedUnit, error) {
+	f.lastFailKind, f.lastFailLimit = kind, limit
+	if f.failuresErr != nil {
+		return nil, f.failuresErr
+	}
+	return f.failures, nil
+}
+
 func (f *fakeIndexJobs) Reindex(_ context.Context, kind, sourceID string) ([]string, error) {
 	f.lastKind, f.lastSource = kind, sourceID
 	return f.reindexIDs, f.reindexErr
+}
+
+func (f *fakeIndexJobs) Resolve(_ context.Context, kind, sourceID string) (int, error) {
+	f.lastResolveKind, f.lastResolveSrc = kind, sourceID
+	return f.resolved, f.resolveErr
 }
 
 func indexJobsTestHandler(svc IndexJobsService, prov *stubProvider) *Handler {
@@ -332,5 +353,181 @@ func TestValidJobStatus(t *testing.T) {
 		if validJobStatus(s) {
 			t.Errorf("validJobStatus(%q) = true; want false", s)
 		}
+	}
+}
+
+func TestListIndexJobsFailures_NilService(t *testing.T) {
+	t.Parallel()
+	h := indexJobsTestHandler(nil, nil)
+	res := doJSON(t, h, http.MethodGet, "/api/v1/admin/index-jobs/failures", nil)
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200", res.Code)
+	}
+	var got map[string][]failedUnitResponse
+	if err := json.Unmarshal(res.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(got["failures"]) != 0 {
+		t.Errorf("failures = %v; want empty", got["failures"])
+	}
+}
+
+func TestListIndexJobsFailures_MapsUnits(t *testing.T) {
+	t.Parallel()
+	first := time.Date(2026, 5, 30, 10, 0, 0, 0, time.UTC)
+	last := time.Date(2026, 5, 30, 11, 0, 0, 0, time.UTC)
+	succeeded := time.Date(2026, 5, 29, 9, 0, 0, 0, time.UTC)
+	svc := &fakeIndexJobs{failures: []indexjobs.FailedUnit{
+		{
+			SourceKind: "tools", SourceID: "platform", LatestJobID: 12, LastError: "ollama timeout",
+			Attempts: 5, Occurrences: 3, FirstFailedAt: first, LastFailedAt: last, LastSucceededAt: &succeeded,
+		},
+		{
+			SourceKind: "api_catalog", SourceID: "c|v1", LatestJobID: 8, LastError: "no consumer",
+			Attempts: 5, Occurrences: 1, FirstFailedAt: last, LastFailedAt: last,
+		},
+	}}
+	h := indexJobsTestHandler(svc, nil)
+	res := doJSON(t, h, http.MethodGet, "/api/v1/admin/index-jobs/failures?kind=tools&limit=10", nil)
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200; body %s", res.Code, res.Body.String())
+	}
+	if svc.lastFailKind != "tools" || svc.lastFailLimit != 10 {
+		t.Errorf("ActiveFailures args = %q/%d; want tools/10", svc.lastFailKind, svc.lastFailLimit)
+	}
+	var got map[string][]failedUnitResponse
+	if err := json.Unmarshal(res.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	f := got["failures"]
+	if len(f) != 2 {
+		t.Fatalf("failures = %d; want 2", len(f))
+	}
+	if f[0].SourceID != "platform" || f[0].LatestJobID != 12 || f[0].Occurrences != 3 {
+		t.Errorf("failure[0] = %+v", f[0])
+	}
+	if f[0].FirstFailedAt != first.Format(time.RFC3339) || f[0].LastFailedAt != last.Format(time.RFC3339) {
+		t.Errorf("failure[0] timestamps = %q / %q", f[0].FirstFailedAt, f[0].LastFailedAt)
+	}
+	if f[0].LastSucceededAt == nil || *f[0].LastSucceededAt != succeeded.Format(time.RFC3339) {
+		t.Errorf("failure[0] LastSucceededAt = %v", f[0].LastSucceededAt)
+	}
+	if f[1].LastSucceededAt != nil {
+		t.Errorf("failure[1] LastSucceededAt = %v; want nil (never succeeded)", f[1].LastSucceededAt)
+	}
+}
+
+func TestListIndexJobsFailures_ServiceError(t *testing.T) {
+	t.Parallel()
+	h := indexJobsTestHandler(&fakeIndexJobs{failuresErr: errors.New("boom")}, nil)
+	res := doJSON(t, h, http.MethodGet, "/api/v1/admin/index-jobs/failures", nil)
+	if res.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d; want 500", res.Code)
+	}
+}
+
+func TestDismiss_NilService(t *testing.T) {
+	t.Parallel()
+	h := indexJobsTestHandler(nil, nil)
+	res := doJSON(t, h, http.MethodPost, "/api/v1/admin/index-jobs/dismiss",
+		dismissRequest{Kind: "tools", SourceID: "platform"})
+	if res.Code != http.StatusConflict {
+		t.Fatalf("status = %d; want 409", res.Code)
+	}
+}
+
+func TestDismiss_BadBody(t *testing.T) {
+	t.Parallel()
+	h := indexJobsTestHandler(&fakeIndexJobs{}, nil)
+	res := doJSON(t, h, http.MethodPost, "/api/v1/admin/index-jobs/dismiss", "not-an-object")
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d; want 400", res.Code)
+	}
+}
+
+func TestDismiss_MissingFields(t *testing.T) {
+	t.Parallel()
+	h := indexJobsTestHandler(&fakeIndexJobs{}, nil)
+	for _, req := range []dismissRequest{{Kind: "tools"}, {SourceID: "platform"}, {}} {
+		res := doJSON(t, h, http.MethodPost, "/api/v1/admin/index-jobs/dismiss", req)
+		if res.Code != http.StatusBadRequest {
+			t.Errorf("dismiss %+v status = %d; want 400", req, res.Code)
+		}
+	}
+}
+
+func TestDismiss_ServiceError(t *testing.T) {
+	t.Parallel()
+	h := indexJobsTestHandler(&fakeIndexJobs{resolveErr: errors.New("boom")}, nil)
+	res := doJSON(t, h, http.MethodPost, "/api/v1/admin/index-jobs/dismiss",
+		dismissRequest{Kind: "tools", SourceID: "platform"})
+	if res.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d; want 500", res.Code)
+	}
+}
+
+func TestDismiss_Success(t *testing.T) {
+	t.Parallel()
+	svc := &fakeIndexJobs{resolved: 2}
+	h := indexJobsTestHandler(svc, nil)
+	res := doJSON(t, h, http.MethodPost, "/api/v1/admin/index-jobs/dismiss",
+		dismissRequest{Kind: "tools", SourceID: "platform"})
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200; body %s", res.Code, res.Body.String())
+	}
+	if svc.lastResolveKind != "tools" || svc.lastResolveSrc != "platform" {
+		t.Errorf("resolve args = %q/%q", svc.lastResolveKind, svc.lastResolveSrc)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(res.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	resolved, _ := got["resolved"].(float64)
+	if got["status"] != "resolved" || resolved != 2 {
+		t.Errorf("response = %+v", got)
+	}
+}
+
+func TestIndexJobsSummary_VerdictAndUnresolved(t *testing.T) {
+	t.Parallel()
+	activity := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	svc := &fakeIndexJobs{
+		kinds: []string{"degraded_kind", "idle_kind"},
+		counts: map[string]*indexjobs.KindCounts{
+			// Idle with open failures and full coverage -> degraded.
+			"degraded_kind": {SourceKind: "degraded_kind", Succeeded: 5, Failed: 1, UnresolvedFailures: 1, LastActivity: &activity},
+			// 100% coverage, no job history -> idle_complete (the #509 case),
+			// must NOT read as "never".
+			"idle_kind": {SourceKind: "idle_kind"},
+		},
+		coverage: map[string]*indexjobs.Coverage{
+			"degraded_kind": {Indexed: 5, Expected: 5, ExpectedKnown: true},
+			"idle_kind":     {Indexed: 34, Expected: 34, ExpectedKnown: true},
+		},
+	}
+	h := indexJobsTestHandler(svc, nil)
+	res := doJSON(t, h, http.MethodGet, "/api/v1/admin/index-jobs", nil)
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200", res.Code)
+	}
+	var got indexJobsSummaryResponse
+	if err := json.Unmarshal(res.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	byKind := map[string]indexKindSummary{}
+	for _, k := range got.Kinds {
+		byKind[k.Kind] = k
+	}
+	if byKind["degraded_kind"].Verdict != string(indexjobs.VerdictDegraded) {
+		t.Errorf("degraded_kind verdict = %q; want degraded", byKind["degraded_kind"].Verdict)
+	}
+	if byKind["degraded_kind"].UnresolvedFailures != 1 {
+		t.Errorf("degraded_kind unresolved = %d; want 1", byKind["degraded_kind"].UnresolvedFailures)
+	}
+	if byKind["idle_kind"].Verdict != string(indexjobs.VerdictIdleComplete) {
+		t.Errorf("idle_kind verdict = %q; want idle_complete", byKind["idle_kind"].Verdict)
+	}
+	if byKind["idle_kind"].LastActivity != nil {
+		t.Errorf("idle_kind last_activity = %v; want nil", byKind["idle_kind"].LastActivity)
 	}
 }

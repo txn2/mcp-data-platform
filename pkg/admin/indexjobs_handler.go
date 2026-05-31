@@ -36,21 +36,65 @@ type indexJobsSummaryResponse struct {
 	Kinds []indexKindSummary `json:"kinds"`
 }
 
-// indexKindSummary is one registered kind's job-state rollup, last
-// activity, and optional coverage.
+// indexKindSummary is one registered kind's health verdict, job-state
+// rollup, last activity, and optional coverage.
 type indexKindSummary struct {
-	Kind      string `json:"kind"`
-	Pending   int    `json:"pending"`
-	Running   int    `json:"running"`
-	Succeeded int    `json:"succeeded"`
-	Failed    int    `json:"failed"`
+	Kind string `json:"kind"`
+	// Verdict is the plain-language health state the dashboard leads
+	// with: "healthy", "indexing", "degraded", or "idle_complete".
+	// Computed server-side from counts + coverage so the UI renders one
+	// word instead of reconciling three independent metric families.
+	Verdict string `json:"verdict"`
+	Pending int    `json:"pending"`
+	Running int    `json:"running"`
+	// Succeeded / Failed are per-unit latest-status counts ("N units
+	// whose last run was X"), NOT job counts. The UI labels them as
+	// such so "1 succeeded" no longer reads as a one-job history.
+	Succeeded int `json:"succeeded"`
+	Failed    int `json:"failed"`
+	// UnresolvedFailures is the number of distinct units with an open
+	// failed job. It is the verdict's "degraded" signal and the count
+	// the triage panel badge shows, distinct from Failed (which still
+	// counts units whose latest row is a dismissed/superseded failure).
+	UnresolvedFailures int `json:"unresolved_failures"`
 	// LastActivity is the most recent job's activity timestamp
 	// (completed, else started, else created), RFC3339, omitted when
-	// the kind has no jobs yet.
+	// the kind has no jobs yet. A nil LastActivity with complete
+	// coverage is the "fully indexed, idle" case (verdict
+	// idle_complete), which the UI must not render as "never".
 	LastActivity *string `json:"last_activity,omitempty"`
 	// Coverage is the indexed-vs-expected rollup, omitted for kinds
 	// whose Sink reports none.
 	Coverage *indexCoverageResponse `json:"coverage,omitempty"`
+}
+
+// failedUnitResponse is one unit on the failure-triage surface: the
+// latest open failure plus the timestamps and last-success context an
+// operator needs to tell a live incident from a stale tombstone.
+type failedUnitResponse struct {
+	SourceKind string `json:"source_kind"`
+	SourceID   string `json:"source_id"`
+	// LatestJobID is the row the UI drills into for the un-redacted
+	// error and the job's timeline.
+	LatestJobID int64  `json:"latest_job_id"`
+	LastError   string `json:"last_error,omitempty"`
+	Attempts    int    `json:"attempts"`
+	// Occurrences is how many open failed rows the unit has (>1 means it
+	// failed, was retried, and failed again without an intervening
+	// success).
+	Occurrences   int    `json:"occurrences"`
+	FirstFailedAt string `json:"first_failed_at,omitempty"`
+	LastFailedAt  string `json:"last_failed_at,omitempty"`
+	// LastSucceededAt is the unit's most recent success, omitted when it
+	// has never succeeded, so the UI can show "last succeeded Xm ago".
+	LastSucceededAt *string `json:"last_succeeded_at,omitempty"`
+}
+
+// dismissRequest is the POST /index-jobs/dismiss body: resolve every
+// open failure for one unit.
+type dismissRequest struct {
+	Kind     string `json:"kind"`
+	SourceID string `json:"source_id"`
 }
 
 // indexCoverageResponse is a kind's indexed-vs-expected vector totals.
@@ -97,7 +141,9 @@ type reindexRequest struct {
 func (h *Handler) registerIndexJobsRoutes() {
 	h.mux.HandleFunc("GET /api/v1/admin/index-jobs", h.getIndexJobsSummary)
 	h.mux.HandleFunc("GET /api/v1/admin/index-jobs/jobs", h.listIndexJobs)
+	h.mux.HandleFunc("GET /api/v1/admin/index-jobs/failures", h.listIndexJobsFailures)
 	h.mux.HandleFunc("POST /api/v1/admin/index-jobs/reindex", h.reindexIndexJobs)
+	h.mux.HandleFunc("POST /api/v1/admin/index-jobs/dismiss", h.dismissIndexJobsFailure)
 }
 
 // getIndexJobsSummary handles GET /api/v1/admin/index-jobs.
@@ -124,7 +170,7 @@ func (h *Handler) getIndexJobsSummary(w http.ResponseWriter, r *http.Request) {
 		summary, err := kindSummary(r.Context(), svc, kind)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to load index-jobs summary")
-			slog.Warn("admin: index-jobs summary", "kind", sanitizeLogValue(kind), logKeyError, err)
+			slog.Warn("admin: index-jobs summary", logKeyKind, sanitizeLogValue(kind), logKeyError, err)
 			return
 		}
 		resp.Kinds = append(resp.Kinds, summary)
@@ -140,11 +186,12 @@ func kindSummary(ctx context.Context, svc IndexJobsService, kind string) (indexK
 		return indexKindSummary{}, fmt.Errorf("counts: %w", err)
 	}
 	out := indexKindSummary{
-		Kind:      kind,
-		Pending:   counts.Pending,
-		Running:   counts.Running,
-		Succeeded: counts.Succeeded,
-		Failed:    counts.Failed,
+		Kind:               kind,
+		Pending:            counts.Pending,
+		Running:            counts.Running,
+		Succeeded:          counts.Succeeded,
+		Failed:             counts.Failed,
+		UnresolvedFailures: counts.UnresolvedFailures,
 	}
 	if counts.LastActivity != nil && !counts.LastActivity.IsZero() {
 		s := counts.LastActivity.UTC().Format(time.RFC3339)
@@ -161,6 +208,9 @@ func kindSummary(ctx context.Context, svc IndexJobsService, kind string) (indexK
 			ExpectedKnown: cov.ExpectedKnown,
 		}
 	}
+	// Verdict is derived from the same counts + coverage the UI receives,
+	// so the lead health word and the detail metrics can never disagree.
+	out.Verdict = string(indexjobs.DeriveVerdict(counts, cov))
 	return out, nil
 }
 
@@ -210,6 +260,78 @@ func (h *Handler) listIndexJobs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"jobs": out})
 }
 
+// listIndexJobsFailures handles GET /api/v1/admin/index-jobs/failures.
+//
+// @Summary      Active failure-triage units
+// @Description  Returns the units with open (unresolved) failures, one entry per unit, most-recently-failed first, with first/last-seen timestamps and last-success context. A failure leaves this set automatically once a later job for the same unit succeeds, or when an operator dismisses it.
+// @Tags         System
+// @Produce      json
+// @Param        kind   query  string  false  "Filter by source kind"
+// @Param        limit  query  int     false  "Max units (default 50, max 500)"
+// @Success      200  {object}  map[string][]failedUnitResponse
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/index-jobs/failures [get]
+func (h *Handler) listIndexJobsFailures(w http.ResponseWriter, r *http.Request) {
+	svc := h.deps.IndexJobs
+	if svc == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"failures": []failedUnitResponse{}})
+		return
+	}
+	units, err := svc.ActiveFailures(r.Context(), r.URL.Query().Get("kind"), parseIndexJobsLimit(r.URL.Query().Get("limit")))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list index-job failures")
+		slog.Warn("admin: list index-job failures", logKeyError, err)
+		return
+	}
+	out := make([]failedUnitResponse, 0, len(units))
+	for i := range units {
+		out = append(out, failedUnitResponseFromUnit(units[i]))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"failures": out})
+}
+
+// dismissIndexJobsFailure handles POST /api/v1/admin/index-jobs/dismiss.
+//
+// @Summary      Dismiss a unit's open failures
+// @Description  Resolves every open failed job for one unit, clearing it from the triage surface. The explicit fallback for a failure that will never be superseded (e.g. a removed consumer's leftover rows). Idempotent: dismissing an already-clean unit returns 200 with resolved=0.
+// @Tags         System
+// @Accept       json
+// @Produce      json
+// @Param        request  body      dismissRequest  true  "Unit to dismiss"
+// @Success      200  {object}  map[string]any
+// @Failure      400  {object}  problemDetail
+// @Failure      409  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/index-jobs/dismiss [post]
+func (h *Handler) dismissIndexJobsFailure(w http.ResponseWriter, r *http.Request) {
+	svc := h.deps.IndexJobs
+	if svc == nil {
+		writeError(w, http.StatusConflict, "index jobs are not available without a database and an embedding provider")
+		return
+	}
+	var req dismissRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Kind == "" || req.SourceID == "" {
+		writeError(w, http.StatusBadRequest, "kind and source_id are required")
+		return
+	}
+	resolved, err := svc.Resolve(r.Context(), req.Kind, req.SourceID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to dismiss failure")
+		slog.Warn("admin: dismiss failure", logKeyKind, sanitizeLogValue(req.Kind), logKeyError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":   "resolved",
+		"resolved": resolved,
+	})
+}
+
 // reindexIndexJobs handles POST /api/v1/admin/index-jobs/reindex.
 //
 // @Summary      Re-index (manual retry / force re-embed)
@@ -247,7 +369,7 @@ func (h *Handler) reindexIndexJobs(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to enqueue re-index")
-		slog.Warn("admin: reindex", "kind", sanitizeLogValue(req.Kind), logKeyError, err)
+		slog.Warn("admin: reindex", logKeyKind, sanitizeLogValue(req.Kind), logKeyError, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{
@@ -307,6 +429,27 @@ func indexJobResponseFromJob(j indexjobs.Job) indexJobResponse {
 	out.LeaseExpiresAt = formatNullableTime(j.LeaseExpiresAt)
 	out.StartedAt = formatNullableTime(j.StartedAt)
 	out.CompletedAt = formatNullableTime(j.CompletedAt)
+	return out
+}
+
+// failedUnitResponseFromUnit maps a triage unit to its JSON shape. The
+// first/last-failed timestamps are always present (the store COALESCEs
+// created_at); last_succeeded is the genuinely-nullable one.
+func failedUnitResponseFromUnit(u indexjobs.FailedUnit) failedUnitResponse {
+	out := failedUnitResponse{
+		SourceKind:  u.SourceKind,
+		SourceID:    u.SourceID,
+		LatestJobID: u.LatestJobID,
+		LastError:   u.LastError,
+		Attempts:    u.Attempts,
+		Occurrences: u.Occurrences,
+	}
+	// formatTime (catalog_handler.go) renders zero -> "" so the omitempty
+	// tags drop the field; UTC-normalize first to match the other
+	// timestamps on this surface.
+	out.FirstFailedAt = formatTime(u.FirstFailedAt.UTC())
+	out.LastFailedAt = formatTime(u.LastFailedAt.UTC())
+	out.LastSucceededAt = formatNullableTime(u.LastSucceededAt)
 	return out
 }
 

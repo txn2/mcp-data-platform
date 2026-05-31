@@ -2,28 +2,36 @@ import { useMemo, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Loader2,
   RefreshCw,
   Database,
   Activity,
+  X,
 } from "lucide-react";
 import {
   useIndexJobsSummary,
   useIndexJobs,
+  useIndexJobFailures,
   useReindex,
+  useDismissFailure,
   type IndexKindSummary,
   type IndexJob,
+  type IndexFailedUnit,
+  type IndexVerdict,
 } from "@/api/admin/indexjobs";
-import { IndexCoverageHeatmap } from "@/components/charts/IndexCoverageHeatmap";
 import { IndexThroughputTimeline } from "@/components/charts/IndexThroughputTimeline";
 import { IndexLatencyTrack, type KindLatency } from "@/components/charts/IndexLatencyTrack";
 
-// IndexingPage is the admin-only cross-kind Indexing dashboard: embedding
-// health, coverage, throughput, latency, in-flight progress, retry
-// backoff, and failure triage for every index_jobs consumer (api-catalog
-// operation vectors, tool descriptors, and any future consumer, which
-// gets visibility here for free). All data is real index_jobs / vector
-// state from the admin index-jobs endpoints — no mocked dimensions.
+// IndexingPage is the admin-only cross-kind Indexing dashboard. It leads
+// with a plain health verdict per kind (Healthy / Indexing… / Degraded /
+// Idle complete) so an operator can answer "is indexing healthy?" at a
+// glance, then exposes throughput, latency, in-flight progress, retry
+// backoff, and a self-resolving failure triage. The two metric families
+// are kept visually distinct: vector coverage (how much is indexed) and
+// per-unit job state (each unit's most recent run). All data is real
+// index_jobs / vector state from the admin index-jobs endpoints.
 
 const STATUS_COLORS: Record<string, string> = {
   pending: "hsl(38, 92%, 50%)",
@@ -57,6 +65,22 @@ function percentile(sorted: number[], p: number): number {
   const rank = Math.ceil((p / 100) * sorted.length);
   const idx = Math.min(sorted.length - 1, Math.max(0, rank - 1));
   return sorted[idx]!;
+}
+
+// leaseRemaining describes how long a running job's lease has left.
+// lease_expires_at is in the future for a healthy renewing job, so the
+// relative-past relTime() would collapse it to "just now"; this renders
+// the forward delta ("4m") or "expired" once it elapses.
+function leaseRemaining(iso?: string): string {
+  if (!iso) return "no lease";
+  const ms = new Date(iso).getTime() - Date.now();
+  if (!Number.isFinite(ms)) return "no lease";
+  if (ms <= 0) return "expired";
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  return `${Math.floor(m / 60)}h`;
 }
 
 // fmtClock formats an ISO timestamp as a local clock time, guarding the
@@ -116,63 +140,82 @@ function ProviderBanner({
   );
 }
 
-// StatusBar is a compact stacked bar of a kind's job-state distribution.
-function StatusBar({ summary }: { summary: IndexKindSummary }) {
-  const total = summary.pending + summary.running + summary.succeeded + summary.failed;
-  if (total === 0) {
-    return <div className="h-2 w-full rounded-full bg-muted" />;
-  }
-  const segs: { key: string; val: number }[] = [
-    { key: "succeeded", val: summary.succeeded },
-    { key: "running", val: summary.running },
-    { key: "pending", val: summary.pending },
-    { key: "failed", val: summary.failed },
-  ];
+// VERDICT_META maps each server-computed verdict to its label, palette,
+// and icon so the lead health word is consistent everywhere it renders.
+const VERDICT_META: Record<
+  IndexVerdict,
+  { label: string; text: string; bg: string; border: string; spin?: boolean; Icon: typeof CheckCircle2 }
+> = {
+  healthy: {
+    label: "Healthy",
+    text: "text-emerald-600 dark:text-emerald-400",
+    bg: "bg-emerald-500/10",
+    border: "border-emerald-500/30",
+    Icon: CheckCircle2,
+  },
+  indexing: {
+    label: "Indexing…",
+    text: "text-blue-600 dark:text-blue-400",
+    bg: "bg-blue-500/10",
+    border: "border-blue-500/30",
+    spin: true,
+    Icon: Loader2,
+  },
+  degraded: {
+    label: "Degraded",
+    text: "text-red-600 dark:text-red-400",
+    bg: "bg-red-500/10",
+    border: "border-red-500/40",
+    Icon: AlertTriangle,
+  },
+  idle_complete: {
+    label: "Idle (complete)",
+    text: "text-muted-foreground",
+    bg: "bg-muted",
+    border: "border-border",
+    Icon: CheckCircle2,
+  },
+};
+
+function VerdictBadge({ verdict }: { verdict: IndexVerdict }) {
+  const m = VERDICT_META[verdict] ?? VERDICT_META.idle_complete;
   return (
-    <div className="flex h-2 w-full overflow-hidden rounded-full bg-muted" role="img" aria-label={`${summary.kind} job states`}>
-      {segs.map((s) =>
-        s.val === 0 ? null : (
-          <div
-            key={s.key}
-            style={{ width: `${(s.val / total) * 100}%`, backgroundColor: STATUS_COLORS[s.key] }}
-            title={`${s.key}: ${s.val}`}
-          />
-        ),
-      )}
-    </div>
+    <span
+      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${m.border} ${m.bg} ${m.text}`}
+    >
+      <m.Icon className={`h-3 w-3 ${m.spin ? "animate-spin" : ""}`} /> {m.label}
+    </span>
   );
 }
 
-function CoverageIndicator({ summary }: { summary: IndexKindSummary }) {
+// coverageLine renders the vector-coverage family (how much is indexed),
+// labelled "Vectors" so it never reads as a job count. expected_known
+// distinguishes a real ratio from a continuously-syncing kind.
+function CoverageLine({ summary }: { summary: IndexKindSummary }) {
   const cov = summary.coverage;
   if (!cov) {
-    return <span className="text-xs text-muted-foreground">coverage n/a</span>;
+    return <span className="text-xs text-muted-foreground">Vectors: coverage n/a</span>;
   }
   if (!cov.expected_known) {
-    // Tools-style: no stored expected count. Derive a sync indicator from
-    // the latest job states instead of an indexed/expected ratio.
-    const syncing = summary.running > 0 || summary.pending > 0;
     return (
-      <span className="flex items-center gap-1 text-xs">
-        <span className="font-medium tabular-nums">{cov.indexed.toLocaleString()}</span>
-        <span className="text-muted-foreground">indexed</span>
-        {syncing ? (
-          <span className="flex items-center gap-1 text-blue-500">
-            <Loader2 className="h-3 w-3 animate-spin" /> re-syncing
-          </span>
-        ) : summary.failed > 0 ? (
-          <span className="text-red-500">degraded</span>
-        ) : (
-          <span className="text-emerald-500">in sync</span>
-        )}
-      </span>
+      <div className="space-y-1">
+        <div className="flex items-center gap-1 text-xs">
+          <span className="text-muted-foreground">Vectors:</span>
+          <span className="font-medium tabular-nums">{cov.indexed.toLocaleString()}</span>
+          <span className="text-muted-foreground">indexed · in sync</span>
+        </div>
+      </div>
     );
+  }
+  if (cov.expected === 0 && cov.indexed === 0) {
+    return <span className="text-xs text-muted-foreground">Vectors: not yet indexed</span>;
   }
   const pct = cov.expected > 0 ? Math.round((cov.indexed / cov.expected) * 100) : 100;
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between text-xs">
         <span className="tabular-nums">
+          <span className="text-muted-foreground">Vectors: </span>
           {cov.indexed.toLocaleString()} / {cov.expected.toLocaleString()} indexed
         </span>
         <span className={pct >= 100 ? "text-emerald-500" : "text-muted-foreground"}>{pct}%</span>
@@ -190,6 +233,29 @@ function CoverageIndicator({ summary }: { summary: IndexKindSummary }) {
   );
 }
 
+// nowText describes what is running for the kind, derived from the
+// job-state counts. Distinct from the verdict so the card answers both
+// "is it healthy?" and "what is it doing right now?".
+function nowText(summary: IndexKindSummary): string {
+  if (summary.running > 0) {
+    return `embedding ${summary.running} unit${summary.running === 1 ? "" : "s"}`;
+  }
+  if (summary.pending > 0) {
+    return `${summary.pending} queued`;
+  }
+  return "idle";
+}
+
+// syncedText is the "last synced" line. The seeded-before-the-queue case
+// (idle_complete with no job history) reads as "fully indexed · idle",
+// never "never".
+function syncedText(summary: IndexKindSummary): string {
+  if (summary.verdict === "idle_complete" && !summary.last_activity) {
+    return "fully indexed · idle";
+  }
+  return `last synced ${relTime(summary.last_activity)}`;
+}
+
 function KindCard({
   summary,
   onReindex,
@@ -201,32 +267,53 @@ function KindCard({
 }) {
   return (
     <div className="flex flex-col gap-3 rounded-lg border bg-card p-4">
-      <div className="flex items-center justify-between">
-        <span className="font-mono text-sm font-medium">{summary.kind}</span>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-col gap-1">
+          <span className="truncate font-mono text-sm font-medium">{summary.kind}</span>
+          <VerdictBadge verdict={summary.verdict} />
+        </div>
         <button
           type="button"
           onClick={() => onReindex(summary.kind)}
           disabled={reindexing}
-          className="flex items-center gap-1 rounded-md border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent disabled:opacity-50"
+          className="flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent disabled:opacity-50"
           title="Re-index every out-of-sync unit of this kind"
         >
           <RefreshCw className={`h-3 w-3 ${reindexing ? "animate-spin" : ""}`} /> Re-index
         </button>
       </div>
-      <StatusBar summary={summary} />
-      <div className="grid grid-cols-4 gap-1 text-center text-xs">
-        {(["pending", "running", "succeeded", "failed"] as const).map((s) => (
-          <div key={s}>
-            <div className="font-semibold tabular-nums" style={{ color: STATUS_COLORS[s] }}>
-              {summary[s].toLocaleString()}
-            </div>
-            <div className="text-[10px] text-muted-foreground">{s}</div>
-          </div>
-        ))}
+
+      <CoverageLine summary={summary} />
+
+      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+        <span>{syncedText(summary)}</span>
+        <span>
+          now: <span className="text-foreground">{nowText(summary)}</span>
+        </span>
       </div>
-      <CoverageIndicator summary={summary} />
-      <div className="text-[11px] text-muted-foreground">
-        last activity {relTime(summary.last_activity)}
+
+      {/* Job-state family, explicitly labelled so "succeeded" reads as
+          "units whose last run succeeded", not a job count. */}
+      <div className="border-t pt-2">
+        <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+          Units by last run
+        </div>
+        <div className="grid grid-cols-4 gap-1 text-center text-xs">
+          {(["pending", "running", "succeeded", "failed"] as const).map((s) => (
+            <div key={s}>
+              <div className="font-semibold tabular-nums" style={{ color: STATUS_COLORS[s] }}>
+                {summary[s].toLocaleString()}
+              </div>
+              <div className="text-[10px] text-muted-foreground">{s}</div>
+            </div>
+          ))}
+        </div>
+        {summary.unresolved_failures > 0 && (
+          <div className="mt-1 text-[10px] text-red-500">
+            {summary.unresolved_failures} unit{summary.unresolved_failures === 1 ? "" : "s"} need
+            attention
+          </div>
+        )}
       </div>
     </div>
   );
@@ -264,7 +351,7 @@ function InFlightPanel({ jobs }: { jobs: IndexJob[] }) {
           <span className="shrink-0 text-xs text-muted-foreground">
             {j.items_done > 0 ? `${j.items_done} items · ` : ""}
             {j.worker_id ? `${j.worker_id} · ` : ""}
-            lease {relTime(j.lease_expires_at).replace(" ago", "")}
+            lease {leaseRemaining(j.lease_expires_at)}
           </span>
         </li>
       ))}
@@ -293,33 +380,138 @@ function RetryBackoffPanel({ jobs }: { jobs: IndexJob[] }) {
   );
 }
 
-function FailureTriage({
-  jobs,
+// failureKey identifies one failing unit across props/state.
+function failureKey(kind: string, sourceID: string): string {
+  return `${kind}::${sourceID}`;
+}
+
+// FailedUnitRow renders one failing unit inside a triage group: its
+// timestamps, last-success context, and Retry / Dismiss actions, with an
+// expandable drill-in to the un-redacted error and the underlying job id.
+function FailedUnitRow({
+  unit,
   onRetry,
-  activeKey,
+  onDismiss,
+  retrying,
+  dismissing,
 }: {
-  jobs: IndexJob[];
+  unit: IndexFailedUnit;
   onRetry: (kind: string, sourceID: string) => void;
-  // The reindex target currently in flight, so only its Retry button
-  // shows busy rather than disabling every retry at once.
-  activeKey: string | null;
+  onDismiss: (kind: string, sourceID: string) => void;
+  retrying: boolean;
+  dismissing: boolean;
 }) {
-  const failed = jobs.filter((j) => j.status === "failed");
+  const [open, setOpen] = useState(false);
+  const busy = retrying || dismissing;
+  return (
+    <li className="rounded border border-red-500/20 bg-background/40 px-2 py-1.5 text-xs">
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex min-w-0 items-center gap-1 text-left"
+          aria-expanded={open}
+        >
+          {open ? (
+            <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+          )}
+          <span className="truncate font-mono">
+            {unit.source_kind}/{unit.source_id}
+          </span>
+        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={() => onRetry(unit.source_kind, unit.source_id)}
+            disabled={busy}
+            className="flex items-center gap-1 rounded border px-2 py-0.5 text-muted-foreground transition-colors hover:bg-accent disabled:opacity-50"
+            title="Re-index this unit; the card clears once it succeeds"
+          >
+            <RefreshCw className={`h-3 w-3 ${retrying ? "animate-spin" : ""}`} /> Retry
+          </button>
+          <button
+            type="button"
+            onClick={() => onDismiss(unit.source_kind, unit.source_id)}
+            disabled={busy}
+            className="flex items-center gap-1 rounded border px-2 py-0.5 text-muted-foreground transition-colors hover:bg-accent disabled:opacity-50"
+            title="Dismiss: mark this failure resolved without re-indexing"
+          >
+            <X className="h-3 w-3" /> Dismiss
+          </button>
+        </div>
+      </div>
+      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 pl-4 text-[11px] text-muted-foreground">
+        <span>
+          {unit.occurrences} failure{unit.occurrences === 1 ? "" : "s"} · {unit.attempts} attempts
+        </span>
+        <span>first seen {relTime(unit.first_failed_at)}</span>
+        <span>last seen {relTime(unit.last_failed_at)}</span>
+        {unit.last_succeeded_at ? (
+          <span className="text-emerald-600 dark:text-emerald-400">
+            last succeeded {relTime(unit.last_succeeded_at)}
+          </span>
+        ) : (
+          <span>never succeeded</span>
+        )}
+      </div>
+      {open && (
+        <div className="mt-2 space-y-1 pl-4">
+          <div className="text-[11px] text-muted-foreground">
+            job #{unit.latest_job_id} · source id <code className="font-mono">{unit.source_id}</code>
+          </div>
+          <pre className="overflow-x-auto whitespace-pre-wrap rounded bg-muted/60 p-2 text-[11px] text-red-700 dark:text-red-300">
+            {unit.last_error || "no error recorded"}
+          </pre>
+        </div>
+      )}
+    </li>
+  );
+}
+
+function FailureTriage({
+  units,
+  isError,
+  onRetry,
+  onDismiss,
+  retryingKey,
+  dismissingKey,
+}: {
+  units: IndexFailedUnit[];
+  isError: boolean;
+  onRetry: (kind: string, sourceID: string) => void;
+  onDismiss: (kind: string, sourceID: string) => void;
+  retryingKey: string | null;
+  dismissingKey: string | null;
+}) {
   const groups = useMemo(() => {
-    const m = new Map<string, IndexJob[]>();
-    for (const j of failed) {
-      const sig = errorSignature(j.last_error ?? "unknown error");
+    const m = new Map<string, IndexFailedUnit[]>();
+    for (const u of units) {
+      const sig = errorSignature(u.last_error ?? "unknown error");
       const arr = m.get(sig) ?? [];
-      arr.push(j);
+      arr.push(u);
       m.set(sig, arr);
     }
     return [...m.entries()].sort((a, b) => b[1].length - a[1].length);
-  }, [failed]);
+  }, [units]);
 
-  if (failed.length === 0) {
+  // A load error must NOT read as "all clear": failures fall back to an
+  // empty list on error, which would otherwise render the green success
+  // state and mask real failures while the index silently degrades.
+  if (isError) {
+    return (
+      <p className="flex items-center justify-center gap-2 py-4 text-center text-sm text-amber-700 dark:text-amber-400">
+        <AlertTriangle className="h-4 w-4" /> Could not load failures; this list may be stale or
+        incomplete.
+      </p>
+    );
+  }
+  if (units.length === 0) {
     return (
       <p className="flex items-center justify-center gap-2 py-4 text-center text-sm text-emerald-600 dark:text-emerald-400">
-        <CheckCircle2 className="h-4 w-4" /> No failed jobs.
+        <CheckCircle2 className="h-4 w-4" /> No open failures. A failure clears automatically once
+        the unit is re-indexed successfully.
       </p>
     );
   }
@@ -331,28 +523,23 @@ function FailureTriage({
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
             <code className="break-all text-xs text-red-700 dark:text-red-300">{sig}</code>
             <span className="ml-auto shrink-0 rounded-full bg-red-500/15 px-2 text-xs text-red-600 dark:text-red-300">
-              {items.length}
+              {items.length} unit{items.length === 1 ? "" : "s"}
             </span>
           </div>
-          <ul className="space-y-1">
-            {items.map((j) => (
-              <li key={j.id} className="flex items-center justify-between gap-2 text-xs">
-                <span className="truncate font-mono">
-                  {j.source_kind}/{j.source_id} · {j.attempts} attempts
-                </span>
-                <button
-                  type="button"
-                  onClick={() => onRetry(j.source_kind, j.source_id)}
-                  disabled={activeKey === `${j.source_kind}::${j.source_id}`}
-                  className="flex shrink-0 items-center gap-1 rounded border px-2 py-0.5 text-muted-foreground transition-colors hover:bg-accent disabled:opacity-50"
-                >
-                  <RefreshCw
-                    className={`h-3 w-3 ${activeKey === `${j.source_kind}::${j.source_id}` ? "animate-spin" : ""}`}
-                  />{" "}
-                  Retry
-                </button>
-              </li>
-            ))}
+          <ul className="space-y-1.5">
+            {items.map((u) => {
+              const key = failureKey(u.source_kind, u.source_id);
+              return (
+                <FailedUnitRow
+                  key={u.latest_job_id}
+                  unit={u}
+                  onRetry={onRetry}
+                  onDismiss={onDismiss}
+                  retrying={retryingKey === key}
+                  dismissing={dismissingKey === key}
+                />
+              );
+            })}
           </ul>
         </div>
       ))}
@@ -360,8 +547,79 @@ function FailureTriage({
   );
 }
 
+// JobRow is a normalised job-table entry: either a single notable job or
+// a collapsed summary of routine reconciler heartbeats for one unit.
+interface JobRow {
+  key: string;
+  sourceKind: string;
+  sourceID: string;
+  status: string;
+  trigger: string;
+  attempts: number;
+  updated?: string;
+  error?: string;
+  // routineCount > 0 marks a collapsed heartbeat summary; the value is
+  // how many succeeded reconciler runs (across replicas) it stands for.
+  routineCount: number;
+}
+
+// collapseJobs folds the job firehose into table rows. Timer-driven
+// reconciler successes for the same unit (which every replica re-runs on
+// its own schedule, producing duplicate rows) collapse to one summary
+// row "synced ×N"; everything else stays an individual row. This keeps a
+// kind that re-syncs on a timer from drowning the table.
+function collapseJobs(jobs: IndexJob[]): JobRow[] {
+  const routine = new Map<string, JobRow>();
+  const rows: JobRow[] = [];
+  for (const j of jobs) {
+    const updated = j.completed_at ?? j.started_at ?? j.created_at;
+    if (j.status === "succeeded" && j.trigger === "reconciler") {
+      const k = failureKey(j.source_kind, j.source_id);
+      const cur = routine.get(k);
+      if (!cur) {
+        routine.set(k, {
+          key: `routine:${k}`,
+          sourceKind: j.source_kind,
+          sourceID: j.source_id,
+          status: "succeeded",
+          trigger: "reconciler",
+          attempts: j.attempts,
+          updated,
+          routineCount: 1,
+        });
+      } else {
+        cur.routineCount += 1;
+        // Keep the most recent timestamp as the row's "last synced".
+        if (updated && (!cur.updated || new Date(updated) > new Date(cur.updated))) {
+          cur.updated = updated;
+        }
+      }
+      continue;
+    }
+    rows.push({
+      key: `job:${j.id}`,
+      sourceKind: j.source_kind,
+      sourceID: j.source_id,
+      status: j.status,
+      trigger: j.trigger,
+      attempts: j.attempts,
+      updated,
+      error: j.last_error,
+      routineCount: 0,
+    });
+  }
+  const all = [...rows, ...routine.values()];
+  all.sort((a, b) => {
+    const ta = a.updated ? new Date(a.updated).getTime() : 0;
+    const tb = b.updated ? new Date(b.updated).getTime() : 0;
+    return tb - ta;
+  });
+  return all;
+}
+
 function JobTable({ jobs }: { jobs: IndexJob[] }) {
-  if (jobs.length === 0) {
+  const rows = useMemo(() => collapseJobs(jobs), [jobs]);
+  if (rows.length === 0) {
     return <p className="py-6 text-center text-sm text-muted-foreground">No jobs match this filter.</p>;
   }
   return (
@@ -379,20 +637,20 @@ function JobTable({ jobs }: { jobs: IndexJob[] }) {
           </tr>
         </thead>
         <tbody>
-          {jobs.map((j) => (
-            <tr key={j.id} className="border-b last:border-0">
-              <td className="py-1.5 pr-3 font-mono">{j.source_kind}</td>
-              <td className="max-w-[200px] truncate py-1.5 pr-3 font-mono">{j.source_id}</td>
+          {rows.map((r) => (
+            <tr key={r.key} className="border-b last:border-0">
+              <td className="py-1.5 pr-3 font-mono">{r.sourceKind}</td>
+              <td className="max-w-[200px] truncate py-1.5 pr-3 font-mono">{r.sourceID}</td>
               <td className="py-1.5 pr-3">
-                <JobStatusChip status={j.status} />
+                <JobStatusChip status={r.status} />
               </td>
-              <td className="py-1.5 pr-3 text-muted-foreground">{j.trigger}</td>
-              <td className="py-1.5 pr-3 tabular-nums">{j.attempts}</td>
               <td className="py-1.5 pr-3 text-muted-foreground">
-                {relTime(j.completed_at ?? j.started_at ?? j.created_at)}
+                {r.routineCount > 0 ? `reconciler · synced ×${r.routineCount}` : r.trigger}
               </td>
+              <td className="py-1.5 pr-3 tabular-nums">{r.routineCount > 0 ? "—" : r.attempts}</td>
+              <td className="py-1.5 pr-3 text-muted-foreground">{relTime(r.updated)}</td>
               <td className="max-w-[260px] truncate py-1.5 text-red-600 dark:text-red-400">
-                {j.last_error ?? ""}
+                {r.error ?? ""}
               </td>
             </tr>
           ))}
@@ -414,34 +672,46 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
   );
 }
 
-// reindexKey identifies a single in-flight re-index target so only the
-// clicked button shows a busy state (a kind-wide re-index keys on the
-// kind; a per-unit retry keys on kind + source id).
-function reindexKey(kind: string, sourceID?: string): string {
-  return sourceID ? `${kind}::${sourceID}` : kind;
-}
-
 export function IndexingPage() {
   const summaryQ = useIndexJobsSummary();
   const jobsQ = useIndexJobs({ limit: 500 });
+  const failuresQ = useIndexJobFailures();
   const reindex = useReindex();
+  const dismiss = useDismissFailure();
   const [kindFilter, setKindFilter] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<string>("");
-  // Which re-index target is currently in flight (null = none), so a
-  // single shared mutation does not disable every button at once.
+  // Which unit each shared mutation is acting on (null = none), so a
+  // single in-flight Retry/Dismiss does not disable every button at once.
+  const [retryingKey, setRetryingKey] = useState<string | null>(null);
+  const [dismissingKey, setDismissingKey] = useState<string | null>(null);
   const [activeReindex, setActiveReindex] = useState<string | null>(null);
 
-  const runReindex = (kind: string, sourceID?: string) => {
-    const key = reindexKey(kind, sourceID);
-    setActiveReindex(key);
+  const runReindexKind = (kind: string) => {
+    setActiveReindex(kind);
+    reindex.mutate({ kind }, { onSettled: () => setActiveReindex((k) => (k === kind ? null : k)) });
+  };
+
+  const retryUnit = (kind: string, sourceID: string) => {
+    const key = failureKey(kind, sourceID);
+    setRetryingKey(key);
     reindex.mutate(
-      sourceID ? { kind, source_id: sourceID } : { kind },
-      { onSettled: () => setActiveReindex((k) => (k === key ? null : k)) },
+      { kind, source_id: sourceID },
+      { onSettled: () => setRetryingKey((k) => (k === key ? null : k)) },
+    );
+  };
+
+  const dismissUnit = (kind: string, sourceID: string) => {
+    const key = failureKey(kind, sourceID);
+    setDismissingKey(key);
+    dismiss.mutate(
+      { kind, source_id: sourceID },
+      { onSettled: () => setDismissingKey((k) => (k === key ? null : k)) },
     );
   };
 
   const summary = summaryQ.data;
   const jobs = useMemo(() => jobsQ.data?.jobs ?? [], [jobsQ.data]);
+  const failures = useMemo(() => failuresQ.data?.failures ?? [], [failuresQ.data]);
 
   const latency = useMemo<KindLatency[]>(() => {
     const byKind = new Map<string, number[]>();
@@ -502,16 +772,21 @@ export function IndexingPage() {
         />
       )}
 
-      {reindex.isError && (
+      {(reindex.isError || dismiss.isError) && (
         <div className="flex items-center gap-2 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm text-red-700 dark:text-red-300">
-          <AlertTriangle className="h-4 w-4 shrink-0" /> Re-index request failed
-          {reindex.error instanceof Error ? `: ${reindex.error.message}` : ""}.
+          <AlertTriangle className="h-4 w-4 shrink-0" /> Action failed
+          {reindex.error instanceof Error
+            ? `: ${reindex.error.message}`
+            : dismiss.error instanceof Error
+              ? `: ${dismiss.error.message}`
+              : ""}
+          .
         </div>
       )}
       {jobsQ.isError && (
         <div className="flex items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm text-amber-700 dark:text-amber-400">
           <AlertTriangle className="h-4 w-4 shrink-0" /> Could not load job details; the
-          throughput, latency, in-flight, retry, and failure panels below may be incomplete.
+          throughput, latency, in-flight, and retry panels below may be incomplete.
         </div>
       )}
 
@@ -526,19 +801,14 @@ export function IndexingPage() {
         </div>
       ) : (
         <>
-          {/* Centerpiece: cross-kind job-state heatmap. */}
-          <Section title="Index state by kind" hint="units per state · brighter = more">
-            <IndexCoverageHeatmap kinds={kinds} />
-          </Section>
-
-          {/* Per-kind health cards. */}
+          {/* Summary-first: lead with a health verdict per kind. */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {kinds.map((k) => (
               <KindCard
                 key={k.kind}
                 summary={k}
                 reindexing={activeReindex === k.kind}
-                onReindex={(kind) => runReindex(kind)}
+                onReindex={runReindexKind}
               />
             ))}
           </div>
@@ -561,11 +831,21 @@ export function IndexingPage() {
             </Section>
           </div>
 
-          <Section title="Failure triage" hint="grouped by error signature">
+          <Section
+            title="Failure triage"
+            hint={
+              failuresQ.isError
+                ? "could not load failures"
+                : "open failures · auto-resolve on success"
+            }
+          >
             <FailureTriage
-              jobs={jobs}
-              activeKey={activeReindex}
-              onRetry={(kind, sourceID) => runReindex(kind, sourceID)}
+              units={failures}
+              isError={failuresQ.isError ?? false}
+              onRetry={retryUnit}
+              onDismiss={dismissUnit}
+              retryingKey={retryingKey}
+              dismissingKey={dismissingKey}
             />
           </Section>
 
@@ -602,6 +882,9 @@ export function IndexingPage() {
                   </option>
                 ))}
               </select>
+              <span className="text-[11px] text-muted-foreground">
+                routine reconciler syncs are collapsed
+              </span>
             </div>
             <JobTable jobs={filteredJobs} />
           </Section>

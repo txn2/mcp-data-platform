@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 )
 
 // recordStore embeds noopStore and records Enqueue calls, with
@@ -11,13 +12,18 @@ import (
 // tests can assert what the Reporter asked the queue to do.
 type recordStore struct {
 	noopStore
-	counts     *KindCounts
-	countsErr  error
-	list       []Job
-	listErr    error
-	enqErr     error
-	enqueued   []Key
-	enqTrigger []Trigger
+	counts      *KindCounts
+	countsErr   error
+	list        []Job
+	listErr     error
+	enqErr      error
+	enqueued    []Key
+	enqTrigger  []Trigger
+	failures    []FailedUnit
+	failuresErr error
+	resolved    int
+	resolveErr  error
+	resolveKey  Key
 }
 
 func (s *recordStore) Counts(context.Context, string) (*KindCounts, error) {
@@ -35,6 +41,15 @@ func (s *recordStore) Enqueue(_ context.Context, k Key, t Trigger) (bool, error)
 	s.enqueued = append(s.enqueued, k)
 	s.enqTrigger = append(s.enqTrigger, t)
 	return true, nil
+}
+
+func (s *recordStore) ActiveFailures(context.Context, string, int) ([]FailedUnit, error) {
+	return s.failures, s.failuresErr
+}
+
+func (s *recordStore) ResolveFailures(_ context.Context, k Key) (int, error) {
+	s.resolveKey = k
+	return s.resolved, s.resolveErr
 }
 
 // coverageSink is a stubSink that also reports coverage, for the
@@ -213,4 +228,138 @@ type gapErrSink struct {
 
 func (*gapErrSink) FindGaps(context.Context) ([]string, error) {
 	return nil, errors.New("gap query failed")
+}
+
+func TestDeriveVerdict(t *testing.T) {
+	t.Parallel()
+	activity := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name   string
+		counts *KindCounts
+		cov    *Coverage
+		want   Verdict
+	}{
+		{
+			name:   "running takes priority over failures",
+			counts: &KindCounts{Running: 1, UnresolvedFailures: 3},
+			cov:    &Coverage{Indexed: 1, Expected: 10, ExpectedKnown: true},
+			want:   VerdictIndexing,
+		},
+		{
+			name:   "pending is indexing",
+			counts: &KindCounts{Pending: 2},
+			want:   VerdictIndexing,
+		},
+		{
+			name:   "unresolved failures degrade when idle",
+			counts: &KindCounts{Succeeded: 5, UnresolvedFailures: 1, LastActivity: &activity},
+			cov:    &Coverage{Indexed: 5, Expected: 5, ExpectedKnown: true},
+			want:   VerdictDegraded,
+		},
+		{
+			name:   "known coverage shortfall degrades",
+			counts: &KindCounts{Succeeded: 3, LastActivity: &activity},
+			cov:    &Coverage{Indexed: 3, Expected: 10, ExpectedKnown: true},
+			want:   VerdictDegraded,
+		},
+		{
+			name:   "complete with history is healthy",
+			counts: &KindCounts{Succeeded: 10, LastActivity: &activity},
+			cov:    &Coverage{Indexed: 10, Expected: 10, ExpectedKnown: true},
+			want:   VerdictHealthy,
+		},
+		{
+			name:   "complete without history is idle_complete (the #509 seeded case)",
+			counts: &KindCounts{},
+			cov:    &Coverage{Indexed: 34, Expected: 34, ExpectedKnown: true},
+			want:   VerdictIdleComplete,
+		},
+		{
+			name:   "in-sync continuous kind with history is healthy",
+			counts: &KindCounts{Succeeded: 1, LastActivity: &activity},
+			cov:    &Coverage{Indexed: 50, ExpectedKnown: false},
+			want:   VerdictHealthy,
+		},
+		{
+			name:   "in-sync continuous kind without history is idle_complete",
+			counts: &KindCounts{},
+			cov:    &Coverage{Indexed: 50, ExpectedKnown: false},
+			want:   VerdictIdleComplete,
+		},
+		{
+			name:   "no coverage with history is healthy",
+			counts: &KindCounts{Succeeded: 2, LastActivity: &activity},
+			want:   VerdictHealthy,
+		},
+		{
+			name:   "nil counts is idle_complete",
+			counts: nil,
+			cov:    &Coverage{Indexed: 1, Expected: 1, ExpectedKnown: true},
+			want:   VerdictIdleComplete,
+		},
+		{
+			name:   "empty kind is idle_complete",
+			counts: &KindCounts{},
+			want:   VerdictIdleComplete,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := DeriveVerdict(tc.counts, tc.cov); got != tc.want {
+				t.Errorf("DeriveVerdict() = %q; want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestReporter_ActiveFailures(t *testing.T) {
+	t.Parallel()
+	t.Run("passes through units", func(t *testing.T) {
+		t.Parallel()
+		want := []FailedUnit{{SourceKind: "k1", SourceID: "u1", Occurrences: 2, LastError: "boom"}}
+		rep := NewReporter(&recordStore{failures: want}, newTestRegistry(t, &stubSink{kind: "k1"}))
+		got, err := rep.ActiveFailures(context.Background(), "k1", 50)
+		if err != nil {
+			t.Fatalf("ActiveFailures: %v", err)
+		}
+		if len(got) != 1 || got[0].SourceID != "u1" || got[0].Occurrences != 2 {
+			t.Errorf("ActiveFailures = %+v", got)
+		}
+	})
+	t.Run("wraps store error", func(t *testing.T) {
+		t.Parallel()
+		rep := NewReporter(&recordStore{failuresErr: errors.New("db down")}, newTestRegistry(t, &stubSink{kind: "k1"}))
+		if _, err := rep.ActiveFailures(context.Background(), "", 0); err == nil {
+			t.Fatal("expected active-failures error")
+		}
+	})
+}
+
+func TestReporter_Resolve(t *testing.T) {
+	t.Parallel()
+	t.Run("resolves for unregistered kind too", func(t *testing.T) {
+		t.Parallel()
+		// A leftover-kind tombstone (no consumer registered) must still
+		// be dismissable; Resolve does not gate on registration.
+		store := &recordStore{resolved: 3}
+		rep := NewReporter(store, newTestRegistry(t, &stubSink{kind: "k1"}))
+		n, err := rep.Resolve(context.Background(), "ghost_kind", "u9")
+		if err != nil {
+			t.Fatalf("Resolve: %v", err)
+		}
+		if n != 3 {
+			t.Errorf("resolved = %d; want 3", n)
+		}
+		if store.resolveKey != (Key{SourceKind: "ghost_kind", SourceID: "u9"}) {
+			t.Errorf("resolveKey = %+v", store.resolveKey)
+		}
+	})
+	t.Run("wraps store error", func(t *testing.T) {
+		t.Parallel()
+		rep := NewReporter(&recordStore{resolveErr: errors.New("db down")}, newTestRegistry(t, &stubSink{kind: "k1"}))
+		if _, err := rep.Resolve(context.Background(), "k1", "u1"); err == nil {
+			t.Fatal("expected resolve error")
+		}
+	})
 }
