@@ -208,6 +208,7 @@ type Platform struct {
 	indexJobsWorker           *indexjobs.Worker
 	indexJobsReaper           *indexjobs.Reaper
 	indexJobsReconciler       *indexjobs.Reconciler
+	indexJobsRetainer         *indexjobs.Retainer
 	indexJobsListener         *indexjobs.Listener
 	apiGatewayEmbedAdminStore *catalogindex.AdminStore
 	toolsIndexStore           *toolsindex.Store

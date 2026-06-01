@@ -53,6 +53,8 @@ func (*fakeJobs) ActiveFailures(context.Context, string, int) ([]indexjobs.Faile
 
 func (*fakeJobs) ResolveFailures(context.Context, indexjobs.Key) (int, error) { return 0, nil }
 
+func (*fakeJobs) PurgeTerminal(context.Context, int) (int, error) { return 0, nil }
+
 func TestAdminStore_EnqueueEncodesAndMapsTrigger(t *testing.T) {
 	t.Parallel()
 	jobs := &fakeJobs{}

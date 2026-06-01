@@ -240,4 +240,41 @@ describe("IndexingPage", () => {
     render(<IndexingPage />);
     expect(screen.getByText(/Could not load job details/i)).toBeInTheDocument();
   });
+
+  it("does not show pager controls when a single page suffices", () => {
+    // The default 3-job fixture collapses to two rows, well under one page.
+    render(<IndexingPage />);
+    expect(screen.queryByRole("button", { name: /Next page/i })).not.toBeInTheDocument();
+  });
+
+  it("paginates the jobs table and advances pages", () => {
+    // 30 distinct write jobs do not collapse, so the table has 30 rows >
+    // one 25-row page.
+    const many: IndexJob[] = Array.from({ length: 30 }, (_, i) => ({
+      id: 100 + i,
+      source_kind: "api_catalog",
+      source_id: `unit-${i}`,
+      trigger: "write",
+      status: "succeeded",
+      attempts: 1,
+      completed_at: new Date(Date.now() - i * 1000).toISOString(),
+      started_at: new Date(Date.now() - i * 1000 - 500).toISOString(),
+      items_done: 1,
+    }));
+    jobsState = { data: { jobs: many } };
+    render(<IndexingPage />);
+
+    // First page shows rows 1–25 of 30.
+    expect(screen.getByText(/Page 1 of 2/i)).toBeInTheDocument();
+    expect(screen.getByText(/1–25 of 30/)).toBeInTheDocument();
+    expect(screen.getByText("unit-0")).toBeInTheDocument();
+    expect(screen.queryByText("unit-29")).not.toBeInTheDocument();
+
+    // Advancing reveals the remaining rows.
+    fireEvent.click(screen.getByRole("button", { name: /Next page/i }));
+    expect(screen.getByText(/Page 2 of 2/i)).toBeInTheDocument();
+    expect(screen.getByText(/26–30 of 30/)).toBeInTheDocument();
+    expect(screen.getByText("unit-29")).toBeInTheDocument();
+    expect(screen.queryByText("unit-0")).not.toBeInTheDocument();
+  });
 });

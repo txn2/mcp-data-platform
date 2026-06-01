@@ -705,12 +705,18 @@ apigateway:
   embed_jobs:
     workers: 1
     embed_timeout: 5m
+    lease_duration: 10m
+    batch_size: 32
+    retention_days: 14
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `embed_jobs.workers` | int | `1` | Number of embedding-worker goroutines per pod. Each goroutine independently claims and processes jobs; the lease + `SKIP LOCKED` predicate in the queue's claim path prevents two goroutines (in the same pod or across pods) from picking the same job. Increase to 2-4 for deployments with many specs and a fast embedder; CPU-only embedders typically saturate at 1 because the bottleneck is the embedding model. |
 | `embed_jobs.embed_timeout` | duration | `5m` | HTTP timeout the worker applies to its batched `/api/embed` POSTs against Ollama. Scoped to the worker only so the shared 30s `memory.embedding.ollama.timeout` continues to govern request-path callers (memory recall, capture_insight, etc.); a wedged Ollama therefore fails MCP tool calls in 30s while the worker tolerates the longer batched-inference floor. Lower this on GPU embedders to tighten the failure floor. |
+| `embed_jobs.lease_duration` | duration | `10m` | Time a claim stamps on a job; the worker heartbeat re-stamps it at `lease_duration / 3` cadence so a long embed pass is not reaped mid-flight. Must be greater than `embed_timeout`. Caps "pod went silent", not "embed batch is slow". |
+| `embed_jobs.batch_size` | int | `32` | Texts per upstream EmbedBatch call. Lower on slow CPU embedders (smaller chunks recover faster from a transient failure); raise on GPU embedders where per-call overhead dominates. |
+| `embed_jobs.retention_days` | int | `14` | Age past which finished `index_jobs` history is purged by the background retainer: succeeded rows and failed rows that were resolved (superseded by a later success or operator-dismissed). The reconciler records one row per unit per sweep, so this keeps the table bounded while preserving a recent window for the admin Indexing dashboard's throughput, latency, and job-log views. Open failures (`failed` with no `resolved_at`) and in-flight jobs (`pending` / `running`) are never purged regardless of age. `0` uses the default (14); a negative value disables retention (history grows unbounded, for externally-managed cleanup). |
 
 ## MCP Apps Configuration
 

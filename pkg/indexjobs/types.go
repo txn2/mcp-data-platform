@@ -148,6 +148,22 @@ const ReaperInterval = 30 * time.Second
 // the data path tolerates lexical fallback while a gap waits.
 const ReconcilerInterval = 5 * time.Minute
 
+// DefaultRetentionDays is the fallback age past which the retainer
+// purges terminal job rows (succeeded, or failed-and-resolved). The
+// table accumulates one row per reconciler sweep per unit (every
+// ReconcilerInterval, on every replica), so finished history grows
+// unbounded without a sweep; 14 days keeps a useful window of recent
+// throughput / latency / job-log history while bounding the table.
+// Open failures (status='failed' with resolved_at NULL) and in-flight
+// rows (pending / running) are never purged regardless of age.
+const DefaultRetentionDays = 14
+
+// RetentionInterval is how often the retainer sweeps for expired
+// terminal rows. The purge is cheap and the table is slow-growing
+// relative to the lease/claim churn, so an hourly sweep keeps history
+// bounded without competing with the worker for the DB.
+const RetentionInterval = time.Hour
+
 // NotifyChannel is the Postgres LISTEN/NOTIFY channel producers
 // and workers use to coordinate low-latency wake-ups. Workers
 // LISTEN on this channel; producers issue pg_notify after a
@@ -394,6 +410,16 @@ type Store interface {
 	// same resolution internally when a later job for the unit
 	// succeeds, so a superseded failure self-clears.
 	ResolveFailures(ctx context.Context, key Key) (resolved int, err error)
+
+	// PurgeTerminal deletes finished job rows older than retentionDays:
+	// succeeded rows and failed rows that have been resolved (superseded
+	// by a later success or dismissed by an operator). Open failures
+	// (status='failed' AND resolved_at IS NULL) and in-flight rows
+	// (pending / running) are never deleted, so the failure-triage
+	// surface and the active queue are unaffected by retention. Returns
+	// the number of rows deleted. A non-positive retentionDays is a
+	// no-op (retention disabled). Backs the retainer's periodic sweep.
+	PurgeTerminal(ctx context.Context, retentionDays int) (deleted int, err error)
 }
 
 // Source is a consumer's "what to index" contract. One Source per
