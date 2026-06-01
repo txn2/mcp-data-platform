@@ -276,9 +276,9 @@ func firstTextContent(content []mcp.Content) (string, bool) {
 	return "", false
 }
 
-// classifyToolError inspects an MCP tool error envelope and picks an
-// HTTP status that best represents the failure. The matched patterns
-// are stable strings emitted by the apigateway toolkit and the MCP
+// classifyToolError inspects an MCP tool error and picks an HTTP
+// status that best represents the failure. The matched patterns are
+// stable strings emitted by the apigateway toolkit and the MCP
 // auth/authz middleware. Categories, in order of evaluation:
 //
 //   - "authentication failed" → 401 (caller's token bad)
@@ -295,12 +295,31 @@ func firstTextContent(content []mcp.Content) (string, bool) {
 // surface as auth failures, but BEFORE the "not found" pattern
 // because a transport error reading "no such host" must not be
 // mistaken for a connection-name lookup miss.
+//
+// Two producers feed this classifier with DIFFERENT payload shapes
+// (issue #533): the apigateway toolkit wraps its message in a
+// {"error":"..."} JSON envelope, while the auth/authz middleware
+// (PlatformError, see pkg/middleware) emits a bare string such as
+// "not authorized: ...". The envelope is only a serialization detail
+// and must not change the HTTP status, so the message is normalized
+// first (unwrap the envelope when present, otherwise use the raw
+// payload) and the SAME switch classifies both. Previously a
+// non-envelope payload short-circuited to 500, turning a permanent
+// 403/401 denial into a retryable 5xx that made upstream HTTP clients
+// retry-loop on a request that could never succeed.
+//
+// An unrecognized message defaults to 400, not 500: every genuine
+// transient or server-side condition (timeout → 504, transport → 502)
+// is matched explicitly above, so an unmatched message is by
+// elimination not known-retryable, and defaulting unknowns to a
+// retryable 5xx is the very retry-storm failure mode this classifier
+// exists to prevent.
 func classifyToolError(payload string) (status int, message string) {
+	msg := payload
 	var env errorEnvelope
-	if err := json.Unmarshal([]byte(payload), &env); err != nil {
-		return http.StatusInternalServerError, payload
+	if err := json.Unmarshal([]byte(payload), &env); err == nil && env.Error != "" {
+		msg = env.Error
 	}
-	msg := env.Error
 	lower := strings.ToLower(msg)
 	switch {
 	case strings.Contains(lower, "authentication failed"):
