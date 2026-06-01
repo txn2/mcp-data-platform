@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -244,11 +245,33 @@ func TestClassifyToolError(t *testing.T) {
 			payload:    `{"error":"dial tcp: lookup api.example.com: no such host"}`,
 			wantStatus: http.StatusBadGateway,
 		},
+		// Issue #533: the auth/authz middleware emits a bare-string
+		// payload (PlatformError), NOT a JSON envelope. These cases lock
+		// in that a plain string is classified on its message, not
+		// short-circuited to 500.
 		{
-			name:       "non-JSON payload → 500 with raw text",
+			name:       "plain-string authorization denial → 403",
+			payload:    `not authorized: connection not allowed for persona: example-persona`,
+			wantStatus: http.StatusForbidden,
+			wantMsg:    "not authorized: connection not allowed for persona: example-persona",
+		},
+		{
+			name:       "plain-string authentication failure → 401",
+			payload:    `authentication failed: invalid token`,
+			wantStatus: http.StatusUnauthorized,
+			wantMsg:    "authentication failed: invalid token",
+		},
+		{
+			name:       "unrecognized non-JSON payload → 400 (non-retryable, not 500)",
 			payload:    `garbage`,
-			wantStatus: http.StatusInternalServerError,
+			wantStatus: http.StatusBadRequest,
 			wantMsg:    "garbage",
+		},
+		{
+			name:       "JSON object without an error field → 400 with raw payload",
+			payload:    `{"unexpected":"shape"}`,
+			wantStatus: http.StatusBadRequest,
+			wantMsg:    `{"unexpected":"shape"}`,
 		},
 	}
 	for _, tc := range tests {
@@ -680,6 +703,123 @@ func TestIntegration_HeadersAndQueryForwarded(t *testing.T) {
 	}`
 	status, _ := postJSON(t, gateway.URL+"/api/v1/gateway/acme/invoke", body)
 	require.Equal(t, http.StatusOK, status)
+}
+
+// denyingAuthorizer always denies, mimicking a persona that does not
+// permit the requested connection. It returns the exact (false,
+// persona, reason) shape the real persona authorizer returns.
+type denyingAuthorizer struct {
+	persona string
+	reason  string
+}
+
+func (d denyingAuthorizer) IsAuthorized(_ context.Context, _ string, _ []string, _, _ string) (authorized bool, personaName, reason string) {
+	return false, d.persona, d.reason
+}
+
+// failingAuthenticator always fails authentication, mimicking a
+// rejected credential.
+type failingAuthenticator struct {
+	err string
+}
+
+func (f failingAuthenticator) Authenticate(_ context.Context) (*middleware.UserInfo, error) {
+	return nil, errors.New(f.err)
+}
+
+// newGatewayHTTPServerWithAuth wires the gateway over a real MCP server
+// that has the apigateway toolkit AND the real MCPToolCallMiddleware
+// attached. Auth/authz denials therefore travel the exact production
+// path: middleware -> PlatformError (a BARE STRING, not a JSON
+// envelope) -> in-memory MCP session -> REST classifier. This is what
+// proves issue #533 end to end. A unit test on classifyToolError alone
+// cannot, because it cannot demonstrate that the middleware's actual
+// output reaches the classifier in the bare-string shape the
+// classifier must handle — the original bug was precisely that the two
+// were never tested together.
+func newGatewayHTTPServerWithAuth(t *testing.T, upstreamURL, connName string, authn middleware.Authenticator, authz middleware.Authorizer) *httptest.Server {
+	t.Helper()
+
+	tk := apigatewaykit.New("apigateway")
+	if upstreamURL != "" {
+		require.NoError(t, tk.AddConnection(connName, map[string]any{
+			"base_url":        upstreamURL,
+			"auth_mode":       apigatewaykit.AuthModeNone,
+			"call_timeout":    "5s",
+			"connect_timeout": "2s",
+		}))
+	}
+
+	mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "v1"}, nil)
+	tk.RegisterTools(mcpServer)
+	mcpServer.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(
+		authn, authz, nil, middleware.ToolCallConfig{Transport: "http"}))
+
+	handler, err := NewHandler(Deps{MCPServer: mcpServer})
+	require.NoError(t, err)
+
+	srv := httptest.NewServer(handler)
+	t.Cleanup(func() {
+		time.Sleep(10 * time.Millisecond)
+	})
+	return srv
+}
+
+// TestIntegration_AuthorizationDeniedIsForbidden is the regression test
+// for issue #533: a persona denial originates in the auth/authz
+// middleware as a bare-string PlatformError, flows through the
+// in-memory MCP session, and must surface to the REST caller as HTTP
+// 403 — NOT a retryable 500. Before the fix the gateway returned 500,
+// causing upstream HTTP clients to retry-loop on a permanent denial.
+func TestIntegration_AuthorizationDeniedIsForbidden(t *testing.T) {
+	upstreamHits := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		upstreamHits++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	authz := denyingAuthorizer{
+		persona: "example-persona",
+		reason:  "connection not allowed for persona: example-persona",
+	}
+	gateway := newGatewayHTTPServerWithAuth(t, upstream.URL, "acme",
+		&middleware.NoopAuthenticator{DefaultUserID: "u1", DefaultRoles: []string{"analyst"}},
+		authz)
+	defer gateway.Close()
+
+	status, respBody := postJSON(t, gateway.URL+"/api/v1/gateway/acme/invoke",
+		`{"method":"GET","path":"/v1/x"}`)
+
+	require.Equal(t, http.StatusForbidden, status,
+		"a persona denial must surface as 403, not a retryable 5xx (issue #533)")
+	assert.Equal(t, 0, upstreamHits,
+		"the denial must occur before any upstream call is made")
+	var env errorEnvelope
+	require.NoError(t, json.Unmarshal(respBody, &env))
+	assert.Contains(t, env.Error, "not authorized",
+		"the 403 body must carry the denial reason for the caller")
+}
+
+// TestIntegration_AuthenticationFailedIsUnauthorized is the companion
+// regression test for issue #533 covering the 401 path: a rejected
+// credential produces a bare-string "authentication failed" error from
+// the middleware that must surface as HTTP 401, not 500.
+func TestIntegration_AuthenticationFailedIsUnauthorized(t *testing.T) {
+	gateway := newGatewayHTTPServerWithAuth(t, "", "acme",
+		failingAuthenticator{err: "invalid token"},
+		&middleware.NoopAuthorizer{})
+	defer gateway.Close()
+
+	status, respBody := postJSON(t, gateway.URL+"/api/v1/gateway/acme/invoke",
+		`{"method":"GET","path":"/v1/x"}`)
+
+	require.Equal(t, http.StatusUnauthorized, status,
+		"a rejected credential must surface as 401, not a retryable 5xx (issue #533)")
+	var env errorEnvelope
+	require.NoError(t, json.Unmarshal(respBody, &env))
+	assert.Contains(t, env.Error, "authentication failed",
+		"the 401 body must indicate the authentication failure")
 }
 
 // TestIntegration_SourceTaggedRest proves the central goal of issue #x:
