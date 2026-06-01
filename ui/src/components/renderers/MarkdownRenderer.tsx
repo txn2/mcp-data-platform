@@ -5,6 +5,42 @@ import type { Components } from "react-markdown";
 import mermaid from "mermaid";
 import DOMPurify from "dompurify";
 
+// DOMPurify's default FORBID_CONTENTS strips the children of `foreignObject`
+// (among others). We reuse that default list but drop `foreignobject` so the
+// HTML label markup mermaid places inside it survives. Everything else in the
+// list (script, style, iframe, ...) is still content-stripped.
+const MERMAID_FORBID_CONTENTS = [
+  "annotation-xml", "audio", "colgroup", "desc", "head", "iframe", "math", "mi",
+  "mn", "mo", "ms", "mtext", "noembed", "noframes", "noscript", "plaintext",
+  "script", "style", "svg", "template", "thead", "title", "video", "xmp",
+];
+
+/**
+ * Sanitize a mermaid-rendered SVG before injecting it into the DOM.
+ *
+ * Mermaid v11 renders node labels with `htmlLabels: true` (the default): the
+ * label text is an HTML `<span>`/`<div>` living inside an SVG `<foreignObject>`.
+ * DOMPurify's `svg`-only profile dropped that HTML, so node labels rendered
+ * invisible while subgraph/cluster titles (emitted as SVG `<text>`) survived
+ * (issue #521). Three settings are required to keep the labels while staying
+ * safe:
+ *   - `USE_PROFILES.html` so the `<div>`/`<span>`/`<p>` label tags are allowed.
+ *   - `ADD_TAGS: ['foreignObject']` because the svg profile disallows it.
+ *   - `HTML_INTEGRATION_POINTS: { foreignobject: true }` so DOMPurify's
+ *     namespace check treats foreignObject as an HTML integration point and
+ *     keeps its xhtml children (it only allows `annotation-xml` by default).
+ * Plus `MERMAID_FORBID_CONTENTS` so foreignObject contents are not stripped.
+ * Scripts and inline event handlers (onclick/onerror/...) are still removed.
+ */
+export function sanitizeMermaidSvg(svg: string): string {
+  return DOMPurify.sanitize(svg, {
+    USE_PROFILES: { svg: true, svgFilters: true, html: true },
+    ADD_TAGS: ["foreignObject"],
+    FORBID_CONTENTS: MERMAID_FORBID_CONTENTS,
+    HTML_INTEGRATION_POINTS: { foreignobject: true, "annotation-xml": true },
+  });
+}
+
 /** Detect whether the document is currently in dark mode. */
 function isDark(): boolean {
   return document.documentElement.classList.contains("dark");
@@ -73,7 +109,7 @@ function MermaidBlock({ content }: { content: string }) {
       .render(id, content)
       .then(({ svg }) => {
         if (!cancelled && ref.current) {
-          ref.current.innerHTML = DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true } });
+          ref.current.innerHTML = sanitizeMermaidSvg(svg);
           setError(null);
         }
       })
@@ -95,7 +131,7 @@ function MermaidBlock({ content }: { content: string }) {
       mermaid
         .render(id + "t", content)
         .then(({ svg }) => {
-          if (ref.current) ref.current.innerHTML = DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true } });
+          if (ref.current) ref.current.innerHTML = sanitizeMermaidSvg(svg);
         })
         .catch(() => {});
     });
@@ -132,7 +168,7 @@ export function MarkdownRenderer({ content, bare }: { content: string | null | u
     code: useCallback(
       // react-markdown passes `node` (hast AST) — destructure it out so it
       // doesn't leak into the DOM as an invalid attribute.
-      ({ className, children, node: _node, ...rest }: // eslint-disable-line @typescript-eslint/no-unused-vars
+      ({ className, children, node: _node, ...rest }:
         React.ComponentProps<"code"> & { node?: unknown }) => {
         const match = /language-(\w+)/.exec(className || "");
         const lang = match?.[1];
@@ -152,7 +188,7 @@ export function MarkdownRenderer({ content, bare }: { content: string | null | u
     ),
     // Strip the `node` prop from <pre> as well to prevent DOM warnings.
     pre: useCallback(
-      ({ node: _node, ...rest }: React.ComponentProps<"pre"> & { node?: unknown }) => ( // eslint-disable-line @typescript-eslint/no-unused-vars
+      ({ node: _node, ...rest }: React.ComponentProps<"pre"> & { node?: unknown }) => (
         <pre {...rest} />
       ),
       [],
