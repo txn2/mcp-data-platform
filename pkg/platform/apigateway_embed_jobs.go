@@ -98,6 +98,15 @@ func (p *Platform) WireAPIGatewayEmbedJobsFromDB() {
 	reconciler := indexjobs.NewReconciler(store, reg, 0)
 	p.indexJobsReconciler = reconciler
 
+	// Retention sweep: bound finished history so the reconciler's
+	// per-unit success rows do not accumulate unbounded (#523). A
+	// negative retention_days disables it; the worker/reaper/reconciler
+	// still run, history just never gets purged.
+	if retentionDays := p.resolveRetentionDays(); retentionDays > 0 {
+		retainer := indexjobs.NewRetainer(store, retentionDays, 0)
+		p.indexJobsRetainer = retainer
+	}
+
 	// LISTEN/NOTIFY adapter. Best-effort: if the role lacks LISTEN
 	// privilege we degrade to the worker's poll tick and continue.
 	if p.config.Database.DSN != "" {
@@ -108,6 +117,9 @@ func (p *Platform) WireAPIGatewayEmbedJobsFromDB() {
 		worker.Start(ctx)
 		reaper.Start(ctx)
 		reconciler.Start(ctx)
+		if p.indexJobsRetainer != nil {
+			p.indexJobsRetainer.Start(ctx)
+		}
 		if p.indexJobsListener != nil {
 			if err := p.indexJobsListener.Start(ctx); err != nil {
 				slog.Warn("index jobs: listener start failed; falling back to poll-only", "error", err)
@@ -232,6 +244,19 @@ func (p *Platform) resolveEmbedJobsTuning() (lease time.Duration, batch int) {
 	return lease, batch
 }
 
+// resolveRetentionDays returns the index_jobs history retention window in
+// days. Unset (zero) config falls back to indexjobs.DefaultRetentionDays;
+// a negative value passes through unchanged and signals "retention
+// disabled" to the caller (which then never wires a retainer). An
+// explicit positive value flows through verbatim.
+func (p *Platform) resolveRetentionDays() int {
+	days := p.config.APIGateway.EmbedJobs.RetentionDays
+	if days == 0 {
+		return indexjobs.DefaultRetentionDays
+	}
+	return days
+}
+
 // stopIndexJobs runs the index-jobs shutdown sequence inside the
 // bounded shutdown helper. Each component's Stop signals its
 // goroutines and blocks on their WaitGroup; boundedStop races the
@@ -247,6 +272,9 @@ func (p *Platform) stopIndexJobs(
 	return boundedStop(ctx, "index jobs", func() {
 		if p.indexJobsListener != nil {
 			p.indexJobsListener.Stop()
+		}
+		if p.indexJobsRetainer != nil {
+			p.indexJobsRetainer.Stop()
 		}
 		reconciler.Stop()
 		reaper.Stop()

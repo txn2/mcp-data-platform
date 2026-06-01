@@ -39,6 +39,53 @@ func TestResolveEmbedJobsTuning(t *testing.T) {
 	}
 }
 
+// TestResolveRetentionDays covers the retention-window defaulting: unset
+// config falls back to the package default, an explicit positive value
+// flows through, and a negative value passes through to signal "disabled".
+func TestResolveRetentionDays(t *testing.T) {
+	t.Parallel()
+	p := &Platform{config: &Config{}}
+	if got := p.resolveRetentionDays(); got != indexjobs.DefaultRetentionDays {
+		t.Errorf("unset retention_days = %d; want default %d", got, indexjobs.DefaultRetentionDays)
+	}
+	p.config.APIGateway.EmbedJobs.RetentionDays = 30
+	if got := p.resolveRetentionDays(); got != 30 {
+		t.Errorf("explicit retention_days = %d; want 30", got)
+	}
+	p.config.APIGateway.EmbedJobs.RetentionDays = -1
+	if got := p.resolveRetentionDays(); got != -1 {
+		t.Errorf("negative retention_days = %d; want -1 (disabled)", got)
+	}
+}
+
+// TestWireIndexJobs_NegativeRetentionDisablesRetainer proves a negative
+// retention_days wires the queue but no retainer, so finished history is
+// never purged (the operator-managed-cleanup escape hatch, #523).
+func TestWireIndexJobs_NegativeRetentionDisablesRetainer(t *testing.T) {
+	t.Parallel()
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close() //nolint:errcheck // test cleanup
+	cfg := &Config{}
+	cfg.APIGateway.EmbedJobs.RetentionDays = -1
+	p := &Platform{
+		db:              db,
+		embeddingProv:   embedding.NewOllamaProvider(embedding.OllamaConfig{}),
+		config:          cfg,
+		toolkitRegistry: registry.NewRegistry(),
+		lifecycle:       &Lifecycle{},
+	}
+	p.WireAPIGatewayEmbedJobsFromDB()
+	if p.indexJobsStore == nil {
+		t.Fatal("queue should still wire with retention disabled")
+	}
+	if p.indexJobsRetainer != nil {
+		t.Error("negative retention_days must not wire a retainer")
+	}
+}
+
 // TestIndexJobsPreconditions_AlreadyWired covers the idempotency
 // guard: a second wiring attempt is refused.
 func TestIndexJobsPreconditions_AlreadyWired(t *testing.T) {
@@ -81,6 +128,11 @@ func TestWireIndexJobs_NoCatalogStore_WiresToolsOnly(t *testing.T) {
 	}
 	if p.APIGatewayEmbedJobsStore() != nil {
 		t.Error("admin store should be nil with no catalog store")
+	}
+	// Unset retention_days defaults to a positive window, so the retainer
+	// is wired alongside the reaper/reconciler (#523).
+	if p.indexJobsRetainer == nil {
+		t.Error("default retention should wire a retainer")
 	}
 }
 

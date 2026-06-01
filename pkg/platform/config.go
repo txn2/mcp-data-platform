@@ -943,6 +943,23 @@ type APIGatewayEmbedJobsConfig struct {
 	// finish inside one lease window before the heartbeat fires
 	// its first renewal. See #479.
 	LeaseDuration time.Duration `yaml:"lease_duration"`
+
+	// RetentionDays bounds how long finished index_jobs history is
+	// kept. The queue records one row per reconciler sweep per unit
+	// (every 5 minutes, on every replica), so succeeded history grows
+	// without limit; the retainer periodically deletes succeeded and
+	// resolved-failed rows older than this window. Open failures
+	// (status='failed' with no resolved_at) and in-flight rows
+	// (pending / running) are never purged regardless of age, so the
+	// failure-triage surface and the active queue are unaffected.
+	//
+	// Zero falls back to 14 days (indexjobs.DefaultRetentionDays), a
+	// window that keeps a useful span of throughput / latency / job-log
+	// history for the admin Indexing dashboard while bounding the table.
+	// A negative value disables retention entirely (history grows
+	// unbounded), for deployments that prefer to manage cleanup
+	// externally. See #523.
+	RetentionDays int `yaml:"retention_days"`
 }
 
 // isExplicitlyDisabled returns true only when the pointer is non-nil and false.

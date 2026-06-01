@@ -430,3 +430,6 @@ audit:
 #     embed_timeout: 5m     # per-batch HTTP call timeout; must be < lease_duration
 #     lease_duration: 10m   # claim window the heartbeat re-stamps at lease_duration/3
 #     batch_size: 32        # texts per upstream EmbedBatch call
+#     retention_days: 14    # purge finished index_jobs history older than this;
+#                           # 0 = default (14), negative = disabled (keep forever).
+#                           # Open failures and in-flight jobs are never purged.

@@ -351,6 +351,75 @@ func (s *PostgresStore) ReleaseExpiredLeases(ctx context.Context) (int, error) {
 	return int(n), nil
 }
 
+// purgeBatchSize bounds how many rows a single retention DELETE removes.
+// The sweep deletes in batches rather than one statement so a first
+// sweep against a large pre-retention backlog cannot run a single
+// multi-million-row DELETE that exceeds the sweep timeout, rolls back,
+// and makes zero progress on every tick. Each batch commits on its own
+// (the store uses autocommit), so partial progress survives a later
+// deadline; steady state (a few rows per hour) drains in one batch.
+const purgeBatchSize = 5000
+
+// PurgeTerminal deletes finished history older than retentionDays.
+// The predicate matches only rows that are safe to forget: succeeded
+// rows, and failed rows that have already been resolved (resolved_at
+// set, i.e. superseded by a later success or dismissed). It never
+// matches an open failure (status='failed' AND resolved_at IS NULL),
+// so the triage surface keeps every unresolved failure regardless of
+// age, nor a pending/running row (their completed_at is NULL). The
+// cutoff is computed in Go rather than as NOW() - INTERVAL so the
+// boundary is testable with a fixed clock. retentionDays <= 0 is a
+// no-op so a misconfigured caller cannot wipe live history.
+//
+// The DELETE drains in purgeBatchSize chunks (oldest-first, riding the
+// index_jobs_retention partial index): it returns the running total and
+// stops early if ctx is canceled mid-sweep, treating the deadline as a
+// clean partial pass rather than an error since already-committed
+// batches stand and the next tick resumes.
+func (s *PostgresStore) PurgeTerminal(ctx context.Context, retentionDays int) (int, error) {
+	if retentionDays <= 0 {
+		return 0, nil
+	}
+	cutoff := time.Now().UTC().AddDate(0, 0, -retentionDays)
+	const q = `
+		DELETE FROM index_jobs
+		 WHERE id IN (
+		     SELECT id FROM index_jobs
+		      WHERE completed_at IS NOT NULL
+		        AND completed_at < $1
+		        AND (status = 'succeeded'
+		             OR (status = 'failed' AND resolved_at IS NOT NULL))
+		      ORDER BY completed_at
+		      LIMIT $2
+		 )
+	`
+	total := 0
+	for {
+		select {
+		case <-ctx.Done():
+			return total, nil // deadline between batches; committed work stands
+		default:
+		}
+		res, err := s.db.ExecContext(ctx, q, cutoff, purgeBatchSize)
+		if err != nil {
+			select {
+			case <-ctx.Done():
+				return total, nil // deadline during a batch; committed work stands
+			default:
+				return total, fmt.Errorf("indexjobs: purge terminal: %w", err)
+			}
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return total, fmt.Errorf("indexjobs: purge terminal rows-affected: %w", err)
+		}
+		total += int(n)
+		if n < purgeBatchSize {
+			return total, nil
+		}
+	}
+}
+
 // Get returns one job by id.
 func (s *PostgresStore) Get(ctx context.Context, id int64) (*Job, error) {
 	q := `SELECT ` + jobColumns + ` FROM index_jobs WHERE id = $1`
