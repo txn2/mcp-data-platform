@@ -16,7 +16,7 @@ A catalog has:
 - A list of **component specs**, each with:
   - **spec_name**: slug surfaced to the model in `OperationSummary.spec` to disambiguate operations across components.
   - **content**: raw YAML or JSON OpenAPI 3.x document.
-  - **source_kind**: `inline`, `upload`, or `url`.
+  - **source_kind**: `inline`, `upload`, `url`, or `embedded`. `embedded` is reserved for the built-in `platform-admin` catalog, whose content comes from the OpenAPI document embedded in the binary (see [Self-Configuration](self-configuration.md)); operators cannot create `embedded` specs through the admin API.
   - **source_url / etag / last_fetched_at**: populated when `source_kind` is `url`.
   - **base_path**: optional operator override for the URL path segment prepended to every operation in the spec. Empty derives the prefix from the spec's `servers[0].url`.
   - **title / description**: optional operator overrides for the per-spec summary shown by `api_list_specs` and the multi-spec gate. Empty derives them from the spec's `info.title` / `info.description`. Validated on write: trimmed, no embedded CR/LF/NUL, capped at 200 / 2000 characters.

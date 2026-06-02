@@ -75,6 +75,19 @@ func (h *Handler) registerAssetRoutes() {
 }
 
 // listAllAssets returns all platform assets (no owner filter).
+//
+// @Summary      List all assets
+// @Description  Returns all platform assets without owner restriction, with active share summaries.
+// @Tags         Portal Assets
+// @Produce      json
+// @Param        search  query  string  false  "Search term"
+// @Param        limit   query  int     false  "Page size"
+// @Param        offset  query  int     false  "Page offset"
+// @Success      200  {object}  adminAssetListResponse
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/assets [get]
 func (h *Handler) listAllAssets(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
@@ -123,6 +136,17 @@ type adminAssetListResponse struct {
 }
 
 // getAdminAsset returns a single asset without owner restriction.
+//
+// @Summary      Get asset
+// @Description  Returns a single asset by ID without owner restriction.
+// @Tags         Portal Assets
+// @Produce      json
+// @Param        id  path  string  true  "Asset ID"
+// @Success      200  {object}  portal.Asset
+// @Failure      404  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/assets/{id} [get]
 func (h *Handler) getAdminAsset(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(pathValueID)
 	asset, err := h.deps.AssetStore.Get(r.Context(), id)
@@ -134,6 +158,19 @@ func (h *Handler) getAdminAsset(w http.ResponseWriter, r *http.Request) {
 }
 
 // getAdminAssetContent returns an asset's S3 content without owner restriction.
+//
+// @Summary      Get asset content
+// @Description  Streams an asset's stored S3 content without owner restriction.
+// @Tags         Portal Assets
+// @Produce      octet-stream
+// @Param        id  path  string  true  "Asset ID"
+// @Success      200  {file}  binary
+// @Failure      404  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Failure      503  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/assets/{id}/content [get]
 func (h *Handler) getAdminAssetContent(w http.ResponseWriter, r *http.Request) {
 	if h.deps.S3Client == nil {
 		writeError(w, http.StatusServiceUnavailable, errAdminStorageNotReady)
@@ -170,6 +207,21 @@ type adminUpdateAssetRequest struct {
 }
 
 // updateAdminAsset updates any asset without owner restriction.
+//
+// @Summary      Update asset
+// @Description  Updates an asset's metadata (name, description, tags) without owner restriction.
+// @Tags         Portal Assets
+// @Accept       json
+// @Produce      json
+// @Param        id    path  string                  true  "Asset ID"
+// @Param        body  body  adminUpdateAssetRequest  true  "Asset metadata to update"
+// @Success      200  {object}  statusResponse
+// @Failure      400  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/assets/{id} [put]
 func (h *Handler) updateAdminAsset(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(pathValueID)
 	if _, err := h.deps.AssetStore.Get(r.Context(), id); err != nil {
@@ -203,6 +255,24 @@ func (h *Handler) updateAdminAsset(w http.ResponseWriter, r *http.Request) {
 }
 
 // updateAdminAssetContent replaces an asset's S3 content (no owner check for admins).
+//
+// @Summary      Update asset content
+// @Description  Replaces an asset's stored content from the raw request body and records a new version.
+// @Tags         Portal Assets
+// @Accept       octet-stream
+// @Produce      json
+// @Param        id    path  string  true  "Asset ID"
+// @Param        body  body  string  true  "Raw asset content"
+// @Success      200  {object}  statusResponse
+// @Failure      400  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      410  {object}  problemDetail
+// @Failure      413  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Failure      503  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/assets/{id}/content [put]
 func (h *Handler) updateAdminAssetContent(w http.ResponseWriter, r *http.Request) {
 	if h.deps.S3Client == nil {
 		writeError(w, http.StatusServiceUnavailable, errAdminStorageNotReady)
@@ -266,6 +336,24 @@ func (h *Handler) updateAdminAssetContent(w http.ResponseWriter, r *http.Request
 }
 
 // uploadAdminThumbnail uploads a PNG thumbnail for an asset (no owner check for admins).
+//
+// @Summary      Upload asset thumbnail
+// @Description  Stores a PNG thumbnail for an asset from the raw request body.
+// @Tags         Portal Assets
+// @Accept       png
+// @Produce      json
+// @Param        id    path  string  true  "Asset ID"
+// @Param        body  body  string  true  "Raw PNG thumbnail content"
+// @Success      200  {object}  statusResponse
+// @Failure      400  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      410  {object}  problemDetail
+// @Failure      413  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Failure      503  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/assets/{id}/thumbnail [put]
 func (h *Handler) uploadAdminThumbnail(w http.ResponseWriter, r *http.Request) {
 	if h.deps.S3Client == nil {
 		writeError(w, http.StatusServiceUnavailable, errAdminStorageNotReady)
@@ -317,6 +405,20 @@ func (h *Handler) uploadAdminThumbnail(w http.ResponseWriter, r *http.Request) {
 }
 
 // getAdminThumbnail returns an asset's thumbnail (no owner check for admins).
+//
+// @Summary      Get asset thumbnail
+// @Description  Streams an asset's PNG thumbnail without owner restriction.
+// @Tags         Portal Assets
+// @Produce      png
+// @Param        id  path  string  true  "Asset ID"
+// @Success      200  {file}  binary
+// @Failure      404  {object}  problemDetail
+// @Failure      410  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Failure      503  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/assets/{id}/thumbnail [get]
 func (h *Handler) getAdminThumbnail(w http.ResponseWriter, r *http.Request) {
 	if h.deps.S3Client == nil {
 		writeError(w, http.StatusServiceUnavailable, errAdminStorageNotReady)
@@ -354,6 +456,17 @@ func (h *Handler) getAdminThumbnail(w http.ResponseWriter, r *http.Request) {
 }
 
 // deleteAdminAsset soft-deletes any asset without owner restriction.
+//
+// @Summary      Delete asset
+// @Description  Soft-deletes an asset without owner restriction.
+// @Tags         Portal Assets
+// @Produce      json
+// @Param        id  path  string  true  "Asset ID"
+// @Success      200  {object}  statusResponse
+// @Failure      404  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/assets/{id} [delete]
 func (h *Handler) deleteAdminAsset(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(pathValueID)
 	if err := h.deps.AssetStore.SoftDelete(r.Context(), id); err != nil {
@@ -364,6 +477,20 @@ func (h *Handler) deleteAdminAsset(w http.ResponseWriter, r *http.Request) {
 }
 
 // listAdminVersions returns version history for an asset.
+//
+// @Summary      List asset versions
+// @Description  Returns the version history for an asset.
+// @Tags         Portal Assets
+// @Produce      json
+// @Param        id      path   string  true   "Asset ID"
+// @Param        limit   query  int     false  "Page size"
+// @Param        offset  query  int     false  "Page offset"
+// @Success      200  {object}  adminVersionListResponse
+// @Failure      404  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/assets/{id}/versions [get]
 func (h *Handler) listAdminVersions(w http.ResponseWriter, r *http.Request) {
 	if h.deps.VersionStore == nil {
 		writeJSON(w, http.StatusOK, adminVersionListResponse{Data: []portal.AssetVersion{}})
@@ -397,6 +524,21 @@ type adminVersionListResponse struct {
 }
 
 // getAdminVersionContent returns content for a specific version.
+//
+// @Summary      Get asset version content
+// @Description  Streams the stored content for a specific asset version.
+// @Tags         Portal Assets
+// @Produce      octet-stream
+// @Param        id       path  string  true  "Asset ID"
+// @Param        version  path  string  true  "Version number"
+// @Success      200  {file}  binary
+// @Failure      400  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Failure      503  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/assets/{id}/versions/{version}/content [get]
 func (h *Handler) getAdminVersionContent(w http.ResponseWriter, r *http.Request) {
 	if h.deps.VersionStore == nil || h.deps.S3Client == nil {
 		writeError(w, http.StatusServiceUnavailable, errAdminStorageNotReady)
@@ -436,6 +578,22 @@ func (h *Handler) getAdminVersionContent(w http.ResponseWriter, r *http.Request)
 }
 
 // revertAdminVersion creates a new version by reverting to a previous version's content.
+//
+// @Summary      Revert asset version
+// @Description  Creates a new asset version by reverting to a previous version's content.
+// @Tags         Portal Assets
+// @Produce      json
+// @Param        id       path  string  true  "Asset ID"
+// @Param        version  path  string  true  "Version number to revert to"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      410  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Failure      503  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/assets/{id}/versions/{version}/revert [post]
 func (h *Handler) revertAdminVersion(w http.ResponseWriter, r *http.Request) {
 	if h.deps.VersionStore == nil || h.deps.S3Client == nil {
 		writeError(w, http.StatusServiceUnavailable, errAdminStorageNotReady)

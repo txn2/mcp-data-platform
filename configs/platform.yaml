@@ -449,3 +449,11 @@ audit:
 #     # before any bytes stream. 0 = no cap (streaming is memory-bounded
 #     # regardless; the cap is a policy guard, not a memory guard).
 #     raw_max_bytes: 1073741824        # 1 GiB
+#   # Built-in platform-admin connection (issue #543): points the API
+#   # gateway at the platform's own /api/v1/admin/* surface so an admin
+#   # can configure the platform through the agent. Auto-enabled when
+#   # HTTP transport + admin API + database + api gateway are present.
+#   # See docs/server/self-configuration.md.
+#   self_connection:
+#     enabled: true            # nil/auto = on when prerequisites met; false to opt out
+#     base_url: ""             # override loopback admin URL; empty = http://127.0.0.1:<port>

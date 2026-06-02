@@ -56,3 +56,14 @@ func TestProgressTokenContext(t *testing.T) {
 		}
 	})
 }
+
+func TestAuthToken_RoundTrip(t *testing.T) {
+	ctx := context.Background()
+	if got := GetAuthToken(ctx); got != "" {
+		t.Errorf("GetAuthToken(empty) = %q; want \"\"", got)
+	}
+	ctx = WithAuthToken(ctx, "tok-123")
+	if got := GetAuthToken(ctx); got != "tok-123" {
+		t.Errorf("GetAuthToken = %q; want tok-123", got)
+	}
+}

@@ -84,6 +84,7 @@ nav:
       - Gateway Toolkit: server/gateway.md
       - API Gateway Toolkit: server/api-gateway.md
       - API Catalogs: server/api-catalogs.md
+      - Self-Configuration: server/self-configuration.md
     - MCP Apps:
       - Overview: mcpapps/overview.md
       - Configuration: mcpapps/configuration.md

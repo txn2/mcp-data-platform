@@ -64,6 +64,19 @@ type adminPromptUpdateRequest struct {
 }
 
 // listPrompts returns all prompts across all scopes, including system prompts.
+//
+// @Summary      List prompts
+// @Description  Returns all prompts across all scopes, including system-registered prompts. Supports scope, search, and owner_email filters.
+// @Tags         Prompts
+// @Produce      json
+// @Param        scope        query  string  false  "Filter by scope"
+// @Param        search       query  string  false  "Search term"
+// @Param        owner_email  query  string  false  "Filter by owner email"
+// @Success      200  {object}  adminPromptListResponse
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/prompts [get]
 func (h *Handler) listPrompts(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
@@ -144,6 +157,18 @@ func matchesSearch(info registry.PromptInfo, query string) bool {
 }
 
 // getPrompt returns a single prompt by ID.
+//
+// @Summary      Get prompt
+// @Description  Returns a single prompt by ID.
+// @Tags         Prompts
+// @Produce      json
+// @Param        id  path  string  true  "Prompt ID"
+// @Success      200  {object}  prompt.Prompt
+// @Failure      404  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/prompts/{id} [get]
 func (h *Handler) getPrompt(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	p, err := h.deps.PromptStore.GetByID(r.Context(), id)
@@ -159,6 +184,19 @@ func (h *Handler) getPrompt(w http.ResponseWriter, r *http.Request) {
 }
 
 // createPrompt creates a new prompt.
+//
+// @Summary      Create prompt
+// @Description  Creates a new prompt and registers it with the live MCP server when enabled.
+// @Tags         Prompts
+// @Accept       json
+// @Produce      json
+// @Param        body  body  adminPromptCreateRequest  true  "Prompt definition"
+// @Success      201  {object}  prompt.Prompt
+// @Failure      400  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/prompts [post]
 func (h *Handler) createPrompt(w http.ResponseWriter, r *http.Request) {
 	var req adminPromptCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -234,6 +272,22 @@ func buildPromptFromCreateRequest(req adminPromptCreateRequest) (result *prompt.
 }
 
 // updatePrompt updates an existing prompt.
+//
+// @Summary      Update prompt
+// @Description  Updates an existing prompt by ID and re-registers it with the live MCP server.
+// @Tags         Prompts
+// @Accept       json
+// @Produce      json
+// @Param        id    path  string                    true  "Prompt ID"
+// @Param        body  body  adminPromptUpdateRequest  true  "Prompt fields to update"
+// @Success      200  {object}  prompt.Prompt
+// @Failure      400  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      409  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/prompts/{id} [put]
 func (h *Handler) updatePrompt(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	existing, err := h.deps.PromptStore.GetByID(r.Context(), id)
@@ -352,6 +406,18 @@ func applyAdminPromptMetaFields(existing *prompt.Prompt, req adminPromptUpdateRe
 }
 
 // deletePrompt deletes a prompt by ID.
+//
+// @Summary      Delete prompt
+// @Description  Deletes a prompt by ID and unregisters it from the live MCP server.
+// @Tags         Prompts
+// @Produce      json
+// @Param        id  path  string  true  "Prompt ID"
+// @Success      200  {object}  statusResponse
+// @Failure      404  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/prompts/{id} [delete]
 func (h *Handler) deletePrompt(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	existing, err := h.deps.PromptStore.GetByID(r.Context(), id)

@@ -183,3 +183,17 @@ func TestNormalizeSpecDescription(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateSourceKind_Embedded(t *testing.T) {
+	if err := ValidateSourceKind(SourceEmbedded); err != nil {
+		t.Errorf("ValidateSourceKind(embedded) = %v; want nil", err)
+	}
+	for _, ok := range []string{SourceInline, SourceUpload, SourceURL} {
+		if err := ValidateSourceKind(ok); err != nil {
+			t.Errorf("ValidateSourceKind(%q) = %v; want nil", ok, err)
+		}
+	}
+	if err := ValidateSourceKind("bogus"); err == nil {
+		t.Error("ValidateSourceKind(bogus) = nil; want error")
+	}
+}

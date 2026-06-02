@@ -60,6 +60,16 @@ const (
 	SourceInline = "inline"
 	SourceUpload = "upload"
 	SourceURL    = "url"
+	// SourceEmbedded marks a spec whose content is sourced from a
+	// document embedded in the platform binary rather than supplied by
+	// an operator. The only producer today is the built-in
+	// platform-admin self-connection, which seeds its catalog from the
+	// generated OpenAPI document embedded at build time. Operators
+	// cannot create embedded specs through the admin API; the kind
+	// exists so the self-seeded row is distinguishable from
+	// operator-managed inline/upload/url specs (e.g. the portal does
+	// not offer a "Refresh"/"Edit content" affordance for it).
+	SourceEmbedded = "embedded"
 )
 
 // Catalog is the header row in api_catalogs. The (Name, Version)
@@ -167,14 +177,17 @@ func ValidateSpecName(s string) error {
 	return nil
 }
 
-// ValidateSourceKind reports whether s is one of the three known
-// source kinds. Returns nil on match, an error otherwise.
+// ValidateSourceKind reports whether s is one of the known source
+// kinds. Returns nil on match, an error otherwise. SourceEmbedded is
+// accepted here (the platform-admin self-seed writes it) but is not an
+// operator-selectable kind: the admin handler restricts operator input
+// to inline|upload|url separately.
 func ValidateSourceKind(s string) error {
 	switch s {
-	case SourceInline, SourceUpload, SourceURL:
+	case SourceInline, SourceUpload, SourceURL, SourceEmbedded:
 		return nil
 	default:
-		return errors.New("catalog: invalid source_kind (want inline|upload|url)")
+		return errors.New("catalog: invalid source_kind (want inline|upload|url|embedded)")
 	}
 }
 

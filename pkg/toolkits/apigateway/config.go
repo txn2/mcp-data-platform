@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"strconv"
 	"strings"
 	"time"
 
@@ -182,6 +183,9 @@ const (
 	cfgKeyMTLSClientCertPEM = "mtls_client_cert_pem" // #nosec G101 -- map key, not a credential
 	cfgKeyMTLSClientKeyPEM  = "mtls_client_key_pem"  // #nosec G101 -- map key, not a credential
 	cfgKeyTLSCABundlePEM    = "tls_ca_bundle_pem"
+
+	cfgKeyIdentityPassthrough = "identity_passthrough"
+	cfgKeyAdminOnly           = "admin_only"
 )
 
 // Config holds api-gateway toolkit configuration for a single upstream
@@ -269,6 +273,27 @@ type Config struct {
 	// CA (cluster-internal CA, mesh CA, corporate root) that the
 	// host's default cert store does not carry.
 	TLSCABundlePEM string
+	// IdentityPassthrough forwards the acting caller's inbound bearer
+	// token (the one that authenticated the MCP session, read from the
+	// request context) as the outbound Authorization header, instead of
+	// applying this connection's shared credential. It exists for the
+	// built-in platform-admin self-connection: a loopback call to the
+	// platform's own admin API must be authenticated, authorized, and
+	// audited as the real admin who made the MCP call, not as a single
+	// shared connection identity. When set, AuthMode should be "none"
+	// (the shared-credential Authenticator is skipped) and an empty
+	// inbound token is a hard error rather than an anonymous call.
+	IdentityPassthrough bool
+	// AdminOnly marks this connection as usable only by the admin
+	// persona by default. The platform collects every AdminOnly
+	// connection name into the authorizer's restricted set, which flips
+	// the connection-access default from allow to deny for non-admin
+	// personas: a restricted connection requires an explicit
+	// ConnectionRules.Allow match (the grant path) where an ordinary
+	// connection is allowed by an empty Allow. Set on the built-in
+	// platform-admin self-connection so self-configuration is not
+	// exposed to ordinary personas unless an admin grants it.
+	AdminOnly bool
 }
 
 // OAuth2Config describes the OAuth 2.1 client_credentials grant
@@ -401,6 +426,8 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	c.MTLSClientCertPEM = getString(cfg, cfgKeyMTLSClientCertPEM)
 	c.MTLSClientKeyPEM = getString(cfg, cfgKeyMTLSClientKeyPEM)
 	c.TLSCABundlePEM = getString(cfg, cfgKeyTLSCABundlePEM)
+	c.IdentityPassthrough = getBool(cfg, cfgKeyIdentityPassthrough)
+	c.AdminOnly = getBool(cfg, cfgKeyAdminOnly)
 
 	if err := c.Validate(); err != nil {
 		return Config{}, err
@@ -434,7 +461,22 @@ func (c Config) Validate() error {
 	if err := c.validateStaticHeaders(); err != nil {
 		return err
 	}
+	if err := c.validateIdentityPassthrough(); err != nil {
+		return err
+	}
 	return c.validateTLSMaterial()
+}
+
+// validateIdentityPassthrough enforces that a passthrough connection
+// carries no shared credential. Passthrough forwards the caller's inbound
+// token as the Authorization header, so a configured auth_mode would
+// either be ignored (confusing) or fight for the same header. Requiring
+// auth_mode=none keeps the single-credential-source invariant explicit.
+func (c Config) validateIdentityPassthrough() error {
+	if c.IdentityPassthrough && c.AuthMode != AuthModeNone {
+		return fmt.Errorf("apigateway: identity_passthrough requires auth_mode=none, got %q", c.AuthMode)
+	}
+	return nil
 }
 
 // validateStaticHeaders refuses operator config that would collide with
@@ -756,4 +798,23 @@ func getInt64(cfg map[string]any, key string, defaultVal int64) int64 {
 		return int64(v)
 	}
 	return defaultVal
+}
+
+// getBool reads a boolean flag from the config map. Absent or
+// unrecognized values default to false. A string value is parsed
+// leniently (strconv.ParseBool) so YAML/JSON that round-trips a flag as
+// "true"/"false" is honored alongside a native bool.
+func getBool(cfg map[string]any, key string) bool {
+	raw, ok := cfg[key]
+	if !ok {
+		return false
+	}
+	switch v := raw.(type) {
+	case bool:
+		return v
+	case string:
+		b, err := strconv.ParseBool(v)
+		return err == nil && b
+	}
+	return false
 }

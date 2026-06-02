@@ -34,7 +34,6 @@ type contextKey int
 
 const (
 	platformContextKey contextKey = iota
-	tokenContextKey
 	preAuthUserKey
 	sourceOverrideKey
 )
@@ -118,17 +117,17 @@ func MustGetPlatformContext(ctx context.Context) *PlatformContext {
 	return pc
 }
 
-// WithToken adds an authentication token to the context.
+// WithToken adds an authentication token to the context. The value is
+// stored via mcpcontext (not a key local to this package) so toolkit
+// packages can read it without importing middleware, which would form an
+// import cycle.
 func WithToken(ctx context.Context, token string) context.Context {
-	return context.WithValue(ctx, tokenContextKey, token)
+	return mcpcontext.WithAuthToken(ctx, token)
 }
 
 // GetToken retrieves an authentication token from the context.
 func GetToken(ctx context.Context) string {
-	if token, ok := ctx.Value(tokenContextKey).(string); ok {
-		return token
-	}
-	return ""
+	return mcpcontext.GetAuthToken(ctx)
 }
 
 // WithPreAuthenticatedUser adds a pre-authenticated user to the context.
