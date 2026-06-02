@@ -3,6 +3,8 @@ package apigateway
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -75,13 +77,23 @@ type s3Put struct {
 	Data                     []byte
 }
 
-func (f *fakeExportS3Client) PutObject(_ context.Context, bucket, key string, data []byte, contentType string) error {
+// PutObjectStream drains the streamed body so the captured Data matches
+// what a real upload would persist. The size cap is enforced by the
+// caller's cappedReader (the body it receives), which errors past the
+// cap exactly as the real transfer manager would see it — so a read
+// error here means "over cap" and no put is recorded, mirroring the
+// abort-on-error contract.
+func (f *fakeExportS3Client) PutObjectStream(_ context.Context, bucket, key string, body io.Reader, contentType string) (int64, error) {
 	if f.putErr != nil {
-		return f.putErr
+		return 0, f.putErr
+	}
+	data, err := io.ReadAll(body)
+	if err != nil {
+		return int64(len(data)), fmt.Errorf("fakeExportS3Client: read body: %w", err)
 	}
 	f.puts = append(f.puts, s3Put{Bucket: bucket, Key: key, ContentType: contentType, Data: data})
 	f.lastKey = key
-	return nil
+	return int64(len(data)), nil
 }
 
 type fakeExportShareCreator struct {
@@ -332,12 +344,16 @@ func TestHandleExport_DepsNotConfigured(t *testing.T) {
 }
 
 // TestHandleExport_CapExceededRefusesAsset proves the ">cap →
-// reject, do not write a partial asset" contract. A truncated
-// portal asset would mislead the operator who clicks the URL.
+// reject, do not write a partial asset" contract for a response with a
+// declared Content-Length: the export is refused by the pre-check in
+// runExport BEFORE any S3 write. A truncated portal asset would
+// mislead the operator who clicks the URL.
 func TestHandleExport_CapExceededRefusesAsset(t *testing.T) {
 	const upstreamSize = 2048
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", upstreamSize))
+		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(make([]byte, upstreamSize))
 	}))
 	t.Cleanup(upstream.Close)
@@ -365,6 +381,128 @@ func TestHandleExport_CapExceededRefusesAsset(t *testing.T) {
 	}
 	if len(store.inserted) != 0 {
 		t.Errorf("cap-exceeded must NOT insert asset row; got %d inserts", len(store.inserted))
+	}
+}
+
+// TestHandleExport_CapExceededChunkedAborts proves the over-cap path
+// for a chunked response with no Content-Length: the pre-check cannot
+// catch it, so the streaming upload enforces MaxBytes, aborts, and no
+// asset row is written. (The real transfer manager also aborts the
+// incomplete multipart upload; the fake models the no-asset outcome.)
+func TestHandleExport_CapExceededChunkedAborts(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		// No Content-Length => chunked. Flush so the length stays undeclared.
+		flusher, _ := w.(http.Flusher)
+		for range 4 {
+			_, _ = w.Write(make([]byte, 512))
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+	}))
+	t.Cleanup(upstream.Close)
+
+	store := &fakeExportAssetStore{}
+	ver := &fakeExportVersionStore{}
+	s3 := &fakeExportS3Client{}
+	deps := defaultExportDeps(store, ver, s3)
+	deps.Config = applyExportDefaults(ExportConfig{MaxBytes: 512})
+	deps.Config.MaxBytes = 512
+	tk := buildExportTestToolkit(t, upstream.URL, &deps)
+
+	r, _, _ := tk.handleExport(context.Background(), &mcp.CallToolRequest{}, exportInput{
+		Connection: "crm", Method: "GET", Path: "/stream", Name: "big",
+	})
+	if r == nil || !r.IsError {
+		t.Errorf("chunked over-cap should produce IsError; got %+v", r)
+	}
+	if len(s3.puts) != 0 {
+		t.Errorf("chunked over-cap must NOT record a completed put; got %d", len(s3.puts))
+	}
+	if len(store.inserted) != 0 {
+		t.Errorf("chunked over-cap must NOT insert asset row; got %d inserts", len(store.inserted))
+	}
+}
+
+// TestHandleExport_StreamErrorNoAsset proves a storage/stream failure
+// during the upload surfaces as an error and writes no asset or version
+// row — the streamed body never produced a usable object.
+func TestHandleExport_StreamErrorNoAsset(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"items":[1,2,3]}`)
+	}))
+	t.Cleanup(upstream.Close)
+
+	store := &fakeExportAssetStore{}
+	ver := &fakeExportVersionStore{}
+	s3 := &fakeExportS3Client{putErr: errors.New("s3 unavailable")}
+	deps := defaultExportDeps(store, ver, s3)
+	tk := buildExportTestToolkit(t, upstream.URL, &deps)
+
+	r, _, _ := tk.handleExport(context.Background(), &mcp.CallToolRequest{}, exportInput{
+		Connection: "crm", Method: "GET", Path: "/v1/items", Name: "dump",
+	})
+	if r == nil || !r.IsError {
+		t.Fatalf("stream error should produce IsError; got %+v", r)
+	}
+	if len(store.inserted) != 0 {
+		t.Errorf("stream error must NOT insert asset row; got %d", len(store.inserted))
+	}
+	if len(ver.createdVersions) != 0 {
+		t.Errorf("stream error must NOT insert version row; got %d", len(ver.createdVersions))
+	}
+}
+
+// TestHandleExport_InsertAssetError proves a failed asset-row insert
+// (after a successful stream) surfaces as an error result.
+func TestHandleExport_InsertAssetError(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"ok":true}`)
+	}))
+	t.Cleanup(upstream.Close)
+
+	store := &fakeExportAssetStore{insertErr: errors.New("db down")}
+	deps := defaultExportDeps(store, &fakeExportVersionStore{}, &fakeExportS3Client{})
+	tk := buildExportTestToolkit(t, upstream.URL, &deps)
+
+	r, _, _ := tk.handleExport(context.Background(), &mcp.CallToolRequest{}, exportInput{
+		Connection: "crm", Method: "GET", Path: "/x", Name: "x",
+	})
+	if r == nil || !r.IsError {
+		t.Fatalf("insert error should produce IsError; got %+v", r)
+	}
+	if !strings.Contains(textContent(r), "insert asset row") {
+		t.Errorf("payload = %s; want it to mention the insert failure", textContent(r))
+	}
+}
+
+// TestHandleExport_VersionRowErrorIsNonFatal proves a failed version-row
+// insert does NOT fail the export: the asset row is already in place and
+// the model still gets a usable asset id.
+func TestHandleExport_VersionRowErrorIsNonFatal(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"ok":true}`)
+	}))
+	t.Cleanup(upstream.Close)
+
+	store := &fakeExportAssetStore{}
+	ver := &fakeExportVersionStore{createErr: errors.New("version table down")}
+	deps := defaultExportDeps(store, ver, &fakeExportS3Client{})
+	tk := buildExportTestToolkit(t, upstream.URL, &deps)
+
+	r, payload, _ := tk.handleExport(context.Background(), &mcp.CallToolRequest{}, exportInput{
+		Connection: "crm", Method: "GET", Path: "/x", Name: "x",
+	})
+	if r == nil || r.IsError {
+		t.Fatalf("version-row failure must be non-fatal; got %+v", r)
+	}
+	out, _ := payload.(*exportOutput)
+	if out == nil || out.AssetID == "" {
+		t.Errorf("export should still return a usable asset id; got %+v", out)
+	}
+	if len(store.inserted) != 1 {
+		t.Errorf("asset row should still be inserted; got %d", len(store.inserted))
 	}
 }
 

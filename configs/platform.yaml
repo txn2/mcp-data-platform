@@ -434,11 +434,12 @@ audit:
 #                           # 0 = default (14), negative = disabled (keep forever).
 #                           # Open failures and in-flight jobs are never purged.
 #   memory:                 # OOM guard for the shared gateway process (#535)
-#     # Global ceiling on bytes committed to response buffering across ALL
-#     # api connections and BOTH api_invoke_endpoint and api_export. A
-#     # buffered read that would exceed this is rejected with a retryable
-#     # 429 before allocating, so a burst of large responses (each under
-#     # its per-request cap) cannot collectively OOMKill the pod.
+#     # Global ceiling on bytes committed to api_invoke_endpoint response
+#     # buffering across ALL api connections. A buffered read that would
+#     # exceed this is rejected with a retryable 429 before allocating, so
+#     # a burst of large responses (each under its per-request cap) cannot
+#     # collectively OOMKill the pod. api_export is exempt: it streams to
+#     # S3 and never buffers the full body.
 #     # 0 = disabled (per-request caps still apply). Size it ~3x the raw
 #     # body per concurrent large request, around
 #     # (container_memory_limit * 0.6) / 3 — NOT the whole limit.

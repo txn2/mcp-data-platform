@@ -898,12 +898,13 @@ type APIGatewayConfig struct {
 // could collectively exhaust the heap and get the container OOMKilled.
 type APIGatewayMemoryConfig struct {
 	// MaxInFlightBytes is the global ceiling on bytes committed to
-	// response-body buffering across all api connections and BOTH
-	// buffering tools (api_invoke_endpoint and api_export). A buffered
-	// read that would push committed bytes past this is rejected with a
-	// structured 429 (retryable) before the buffer is allocated. 0 =
-	// disabled (no global cap; per-connection max_response_bytes and the
-	// api_export cap still apply per request).
+	// api_invoke_endpoint response-body buffering across all api
+	// connections. A buffered read that would push committed bytes past
+	// this is rejected with a structured 429 (retryable) before the
+	// buffer is allocated. 0 = disabled (no global cap; per-connection
+	// max_response_bytes still applies per request). api_export is exempt:
+	// it streams directly to S3 (issue #537) and never buffers the full
+	// body, so it does not consume this budget.
 	//
 	// Sizing: budget roughly 3x the raw body size per concurrent large
 	// request (raw body + decoded copy + JSON-escaped envelope copy) and

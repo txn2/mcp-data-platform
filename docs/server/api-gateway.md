@@ -228,17 +228,19 @@ The admin portal's **Connections** page surfaces `static_headers` as a key/value
 
 ## Memory safety and the in-flight budget
 
-The gateway is a single shared process serving every connection and toolkit. Both buffering tools — `api_invoke_endpoint` (caps a single response at the connection's `max_response_bytes`, default 10 MiB) and `api_export` (caps a single export at `portal.export.max_bytes`, default 100 MiB) — read the response into memory. Per-request caps bound one call, but they do **not** bound the **sum** of concurrent calls: a burst of large responses, each under its own cap, can collectively exhaust the heap and get the container OOMKilled (exit 137), taking down every in-flight request on the pod.
+The gateway is a single shared process serving every connection and toolkit. `api_invoke_endpoint` buffers the upstream response into memory (capped per connection at `max_response_bytes`, default 10 MiB) so it can parse and envelope it. Per-request caps bound one call, but they do **not** bound the **sum** of concurrent calls: a burst of large responses, each under its own cap, can collectively exhaust the heap and get the container OOMKilled (exit 137), taking down every in-flight request on the pod.
 
-The global **in-flight memory budget** closes that gap. It tracks the bytes committed to response buffering across all connections and both tools, and refuses a new buffered read — before allocating the buffer — when granting it would push the total past the ceiling. A refused request returns the structured `gateway_memory_budget_exhausted` error, which the REST shim maps to a retryable `429`.
+The global **in-flight memory budget** closes that gap. It tracks the bytes committed to response buffering across all connections, and refuses a new buffered read — before allocating the buffer — when granting it would push the total past the ceiling. A refused request returns the structured `gateway_memory_budget_exhausted` error, which the REST shim maps to a retryable `429`.
+
+`api_export` does **not** count against this budget: it streams the upstream response directly to S3 (multipart, via the transfer manager) without buffering the whole body, so its memory stays roughly constant regardless of export size. The per-export size cap (`portal.export.max_bytes`, default 100 MiB) is still enforced — by an up-front `Content-Length` check for declared-length responses, and during the stream for chunked ones (the incomplete multipart upload is aborted past the cap, so no partial asset is created). The raw passthrough route (below) is the equivalent bounded path for returning a large body to the caller rather than landing it in an asset.
 
 ```yaml
 apigateway:
   memory:
-    # Global ceiling on bytes committed to response buffering across all
-    # api connections and both api_invoke_endpoint and api_export.
-    # 0 = disabled (per-request caps still apply). A buffered read that
-    # would exceed this is rejected with 429 before allocating.
+    # Global ceiling on bytes committed to api_invoke_endpoint response
+    # buffering across all api connections. (api_export streams to S3 and
+    # is exempt.) 0 = disabled (per-request caps still apply). A buffered
+    # read that would exceed this is rejected with 429 before allocating.
     max_in_flight_bytes: 314572800     # 300 MiB
 
     # All-or-nothing cap for the /invoke-raw streaming route. An upstream
