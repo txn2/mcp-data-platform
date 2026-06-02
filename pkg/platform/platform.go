@@ -247,6 +247,13 @@ type Platform struct {
 	// nil-safe so no enabled checks are needed at call sites.
 	metrics         *observability.Metrics
 	metricsListener *observability.Listener
+
+	// apiMemBudget is the process-wide in-flight memory budget shared by
+	// every api gateway toolkit's buffered tools (issue #535). Created
+	// once by WireAPIGatewayMemBudget and injected into each toolkit so
+	// accounting is truly process-wide, not per-instance. nil-safe:
+	// unset means unlimited.
+	apiMemBudget *apigatewaykit.MemBudget
 }
 
 // New creates a new platform instance.
@@ -3897,6 +3904,35 @@ func parseEntryFromMap(m map[string]any) (middleware.SentTableEntry, bool) {
 		}
 	}
 	return entry, true
+}
+
+// WireAPIGatewayMemBudget creates the process-wide in-flight memory
+// budget (issue #535) and injects the same handle into every registered
+// api gateway toolkit so buffered reads across all connections and both
+// api_invoke_endpoint and api_export are accounted against one ceiling.
+// Idempotent: the budget is created once and re-injected on subsequent
+// calls (so toolkits registered later still pick it up). A zero/unset
+// max yields a disabled (unlimited) budget that is still safe to call.
+func (p *Platform) WireAPIGatewayMemBudget() {
+	if p.apiMemBudget == nil {
+		p.apiMemBudget = apigatewaykit.NewMemBudget(p.config.APIGateway.Memory.MaxInFlightBytes)
+	}
+	for _, tk := range p.toolkitRegistry.GetByKind(apigatewaykit.Kind) {
+		if api, ok := tk.(*apigatewaykit.Toolkit); ok {
+			api.SetMemBudget(p.apiMemBudget)
+		}
+	}
+	if p.apiMemBudget.Enabled() {
+		slog.Info("api gateway in-flight memory budget enabled",
+			"max_in_flight_bytes", p.apiMemBudget.Max())
+	}
+}
+
+// APIGatewayRawMaxBytes returns the configured all-or-nothing size cap
+// for the raw passthrough REST route, for the REST shim to enforce as a
+// 413. 0 = no cap (the streamed path is memory-bounded regardless).
+func (p *Platform) APIGatewayRawMaxBytes() int64 {
+	return p.config.APIGateway.Memory.RawMaxBytes
 }
 
 // wireAPIGatewayExport injects portal dependencies into api gateway

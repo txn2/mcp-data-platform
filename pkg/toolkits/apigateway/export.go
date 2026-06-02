@@ -256,6 +256,7 @@ func (t *Toolkit) handleExport(ctx context.Context, _ *mcp.CallToolRequest, in e
 	deps := t.exportDeps
 	c, connOK := t.connections[in.Connection]
 	policy := t.routePolicy
+	budget := t.memBudget
 	t.mu.RUnlock()
 	if deps == nil {
 		return errorResult("api_export is not configured (portal asset store unavailable)"), nil, nil
@@ -291,10 +292,10 @@ func (t *Toolkit) handleExport(ctx context.Context, _ *mcp.CallToolRequest, in e
 	}
 
 	out, runErr := t.runExport(ctx, runExportArgs{
-		deps: deps, cfg: c.cfg, auth: c.auth, client: c.client, specs: c.specs, uc: uc, in: in,
+		deps: deps, cfg: c.cfg, auth: c.auth, client: c.client, specs: c.specs, uc: uc, in: in, budget: budget,
 	})
 	if runErr != nil {
-		return errorResult(runErr.Error()), nil, nil
+		return budgetOrErrorResult(runErr), nil, nil
 	}
 	return jsonResult(out), out, nil
 }
@@ -344,6 +345,9 @@ type runExportArgs struct {
 	specs  map[string]*specState
 	uc     *ExportUserContext
 	in     exportInput
+	// budget is the shared in-flight memory budget the export buffer
+	// reserves against (issue #535). nil = unlimited.
+	budget *MemBudget
 }
 
 // runExport executes the upstream call, uploads the response to
@@ -370,6 +374,28 @@ func (*Toolkit) runExport(ctx context.Context, a runExportArgs) (*exportOutput, 
 		return nil, fmt.Errorf("upstream request: %s", scrubTransportError(err))
 	}
 	defer resp.Body.Close() //nolint:errcheck // best-effort cleanup
+
+	// Reserve the worst-case export buffer against the shared in-flight
+	// memory budget BEFORE allocating it (issue #535). api_export
+	// buffers the whole bounded body as a []byte (the upstream mcp-s3
+	// client takes []byte, not a reader), so without this accounting a
+	// burst of concurrent exports — each up to 100 MiB — is an
+	// independent OOM vector. Counting it here makes the export buffer
+	// bounded and budgeted rather than unaccounted.
+	reserved, ok := reserveBodyBudget(a.budget, resp.ContentLength, deps.Config.MaxBytes)
+	if !ok {
+		slog.Warn("api_export: rejecting export, in-flight memory budget exhausted",
+			logKeyConnection, in.Connection, "path", in.Path,
+			"requested_bytes", reserved, "limit_bytes", a.budget.Max(), "in_use_bytes", a.budget.InUse())
+		return nil, &budgetError{
+			limit:      a.budget.Max(),
+			requested:  reserved,
+			inUse:      a.budget.InUse(),
+			connection: in.Connection,
+			path:       in.Path,
+		}
+	}
+	defer a.budget.Release(reserved)
 
 	body, err := readCappedExportBody(resp.Body, deps.Config.MaxBytes)
 	if err != nil {
@@ -414,43 +440,20 @@ type exportRequestParams struct {
 }
 
 // buildExportRequest assembles the *http.Request for the upstream
-// call using the same machinery api_invoke_endpoint uses (so SSRF
-// guards apply identically). Split out of runExport so the
-// build-and-go logic doesn't dominate one function's complexity.
+// call. It delegates to buildUpstreamRequest so the SSRF guards,
+// reserved-header checks, Content-Type negotiation, and credential
+// injection are byte-for-byte the same ones api_invoke_endpoint and the
+// raw passthrough use — there is exactly one place those rules live.
 func buildExportRequest(ctx context.Context, p exportRequestParams) (*http.Request, error) {
-	cfg, auth, specs, in := p.cfg, p.auth, p.specs, p.in
-	method, _ := validateMethod(in.Method) // already validated by caller
-	if err := validatePath(in.Path); err != nil {
-		return nil, err
-	}
-	authHeader := authHeaderForConfig(cfg)
-	if err := validateCustomHeaders(in.Headers, authHeader, cfg.StaticHeaders); err != nil {
-		return nil, err
-	}
-	declaredContentTypes := resolveDeclaredContentTypes(specs, method, in.Path)
-	bodyBytes, contentTypeFromBody, err := encodeBody(method, in.Body, declaredContentTypes, in.Headers)
-	if err != nil {
-		return nil, err
-	}
-	urlStr, err := buildURL(cfg.BaseURL, in.Path, in.Query)
-	if err != nil {
-		return nil, err
-	}
-	req, err := buildRequest(ctx, requestSpec{
-		method:        method,
-		url:           urlStr,
-		body:          bodyBytes,
-		contentType:   contentTypeFromBody,
-		headers:       in.Headers,
-		staticHeaders: cfg.StaticHeaders,
+	return buildUpstreamRequest(ctx, p.cfg, p.auth, p.specs, InvokeInput{
+		Connection:     p.in.Connection,
+		Method:         p.in.Method,
+		Path:           p.in.Path,
+		Query:          p.in.Query,
+		Headers:        p.in.Headers,
+		Body:           p.in.Body,
+		TimeoutSeconds: p.in.TimeoutSeconds,
 	})
-	if err != nil {
-		return nil, err
-	}
-	if applyErr := auth.Apply(req); applyErr != nil {
-		return nil, fmt.Errorf("auth: %w", applyErr)
-	}
-	return req, nil
 }
 
 // persistExportArgs bundles the inputs persistExportAsset needs.

@@ -226,6 +226,35 @@ Add `refresh_token` to `oauth_scope` so Salesforce issues a refresh token — wi
 
 The admin portal's **Connections** page surfaces `static_headers` as a key/value editor under each `kind: api` connection. Existing values are masked (the portal never sees the cleartext secret after the first save); add or delete to change the set. Names remain visible so an operator can confirm which headers are configured without revealing the values.
 
+## Memory safety and the in-flight budget
+
+The gateway is a single shared process serving every connection and toolkit. Both buffering tools — `api_invoke_endpoint` (caps a single response at the connection's `max_response_bytes`, default 10 MiB) and `api_export` (caps a single export at `portal.export.max_bytes`, default 100 MiB) — read the response into memory. Per-request caps bound one call, but they do **not** bound the **sum** of concurrent calls: a burst of large responses, each under its own cap, can collectively exhaust the heap and get the container OOMKilled (exit 137), taking down every in-flight request on the pod.
+
+The global **in-flight memory budget** closes that gap. It tracks the bytes committed to response buffering across all connections and both tools, and refuses a new buffered read — before allocating the buffer — when granting it would push the total past the ceiling. A refused request returns the structured `gateway_memory_budget_exhausted` error, which the REST shim maps to a retryable `429`.
+
+```yaml
+apigateway:
+  memory:
+    # Global ceiling on bytes committed to response buffering across all
+    # api connections and both api_invoke_endpoint and api_export.
+    # 0 = disabled (per-request caps still apply). A buffered read that
+    # would exceed this is rejected with 429 before allocating.
+    max_in_flight_bytes: 314572800     # 300 MiB
+
+    # All-or-nothing cap for the /invoke-raw streaming route. An upstream
+    # whose Content-Length exceeds this is rejected with 413 before any
+    # bytes stream. 0 = no cap (streaming keeps memory bounded anyway).
+    raw_max_bytes: 1073741824          # 1 GiB
+```
+
+Sizing `max_in_flight_bytes`: budget roughly **3× the raw body size** per concurrent large request (raw body + decoded copy + JSON-escaped envelope copy) and leave headroom for GC and the other toolkits' working set. A safe target keeps
+
+```
+max_in_flight_bytes ≈ (container_memory_limit × 0.6) / 3
+```
+
+so peak buffering stays well under the heap even at full utilization. Do **not** set it to the whole container limit or `GOMEMLIMIT` — that leaves no room for the transient marshalling copies or for GC. The raw passthrough route (below) is the memory-bounded path for legitimately large bodies and is exempt from the budget because it streams instead of buffering.
+
 ## REST gateway for non-MCP clients
 
 `api_invoke_endpoint` is also reachable over plain HTTP for clients that do not speak MCP (e.g. Apache NiFi, Airflow's HttpOperator, a shell script with `curl`). The route is connection-scoped:
@@ -260,9 +289,37 @@ Response: HTTP 200 with the toolkit's [`InvokeOutput`](https://github.com/txn2/m
 }
 ```
 
-Platform-level outcomes use HTTP status codes: `400` for a malformed request body, `401` for missing/invalid credentials, `403` for persona or route-policy denial, `404` for an unregistered connection, `500` for an internal failure. The split keeps "the platform refused" distinguishable from "the upstream returned 4xx/5xx" — a NiFi pipeline can route on the platform status and still inspect `status` inside the body for the upstream outcome.
+Platform-level outcomes use HTTP status codes: `400` for a malformed request body, `401` for missing/invalid credentials, `403` for persona or route-policy denial, `404` for an unregistered connection, `413` when a raw-mode body exceeds the configured cap, `429` when the global in-flight memory budget is momentarily exhausted, `502`/`504` for an unreachable or timed-out upstream, `500` for an internal failure. The split keeps "the platform refused" distinguishable from "the upstream returned 4xx/5xx" — a NiFi pipeline can route on the platform status and still inspect `status` inside the body for the upstream outcome.
+
+Retry semantics follow the status: `413` is permanent (the same request cannot succeed) and must not be retried; `429` is transient (the budget drains as concurrent reads finish) and is safe to retry with backoff, with a `Retry-After` header on the response.
 
 The route is only mounted when at least one `kind: api` toolkit instance is loaded. When `auth.allow_anonymous` is `false`, requests without a credential are rejected at the HTTP layer before the in-memory MCP session is created.
+
+### Raw passthrough for large or binary bodies
+
+`api_invoke_endpoint` buffers the upstream response and wraps it in the JSON envelope, which is the wrong shape for a large download or a binary object. For those, the REST shim offers a streaming passthrough on a separate route:
+
+```
+POST /api/v1/gateway/{connection}/invoke-raw
+```
+
+The request body is identical to `/invoke`. Instead of an `InvokeOutput` envelope, the gateway streams the upstream body straight to the client (`io.Copy`) with the upstream status code and `Content-Type`/`Content-Disposition`/`ETag`/`Cache-Control` headers, **still injecting the held upstream credential** — the caller never holds it. Memory stays bounded regardless of body size because the body is never buffered.
+
+Auth, persona authorization, route policy, and audit apply identically to `/invoke`: the raw request flows through the same in-memory MCP session, so a persona scoped to `GET /v1/files/*` cannot stream from a denied path.
+
+Size limit (all-or-nothing): when `apigateway.memory.raw_max_bytes` is set and the upstream's declared `Content-Length` exceeds it, the request is rejected with `413` **before any bytes are streamed**, carrying a structured body:
+
+```json
+{
+  "error":        "upstream_body_too_large",
+  "limit_bytes":  1073741824,
+  "actual_bytes": 2147483648,
+  "connection":   "vendor",
+  "path":         "/v1/files/big.parquet"
+}
+```
+
+For chunked responses (no `Content-Length`) the limit is enforced during the copy; because the status line is already sent it cannot become a `413`, so the stream is cut at the limit. Leave `raw_max_bytes` at `0` to disable the cap — streaming keeps memory bounded either way; the cap is a policy guard, not a memory guard.
 
 ### Apache NiFi example
 

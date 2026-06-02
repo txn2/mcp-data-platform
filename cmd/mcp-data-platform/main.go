@@ -209,6 +209,10 @@ func startServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Platfor
 			return fmt.Errorf("starting metrics listener: %w", err)
 		}
 		p.WireAPIGatewayMetrics()
+		// Wire the process-wide in-flight memory budget for BOTH
+		// transports so the OOM guard (issue #535) applies whether the
+		// platform runs in stdio or HTTP mode.
+		p.WireAPIGatewayMemBudget()
 	}
 
 	switch opts.transport {
@@ -735,10 +739,11 @@ func mountGatewayAPI(mux *http.ServeMux, mcpServer *mcp.Server, p *platform.Plat
 	}
 
 	handler, err := gatewayhttp.NewHandler(gatewayhttp.Deps{
-		MCPServer: mcpServer,
-		Metrics:   p.Metrics(),
-		Resolver:  resolver,
-		Identity:  p.NewGatewayIdentityResolver(),
+		MCPServer:   mcpServer,
+		Metrics:     p.Metrics(),
+		Resolver:    resolver,
+		Identity:    p.NewGatewayIdentityResolver(),
+		RawMaxBytes: p.APIGatewayRawMaxBytes(),
 	})
 	if err != nil {
 		log.Printf("REST gateway disabled: %v", err)

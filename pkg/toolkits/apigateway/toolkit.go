@@ -93,6 +93,26 @@ type Toolkit struct {
 	// nil = metrics subsystem disabled; the instrumented transport
 	// short-circuits to the bare base transport in that case.
 	metrics *observability.Metrics
+
+	// memBudget is the process-wide in-flight memory budget the
+	// buffered tools (api_invoke_endpoint, api_export) reserve against
+	// before allocating a response buffer (issue #535). nil = unlimited
+	// (no global budget configured); the budget type is nil-safe so the
+	// buffered path is unchanged in that case. Shared across toolkit
+	// instances when the platform injects the same handle into each.
+	memBudget *MemBudget
+}
+
+// SetMemBudget wires the shared in-flight memory budget the buffered
+// tools reserve against. Passing nil (or a disabled budget) leaves the
+// buffered path unbounded by a global cap — per-request caps still
+// apply. The platform creates one budget at startup and injects the
+// same handle into every api gateway toolkit so accounting is truly
+// process-wide, not per-instance.
+func (t *Toolkit) SetMemBudget(b *MemBudget) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.memBudget = b
 }
 
 // ConnOAuthStore returns the unified OAuth token store wired into
@@ -1024,6 +1044,7 @@ func (t *Toolkit) handleInvoke(ctx context.Context, _ *mcp.CallToolRequest, in I
 	t.mu.RLock()
 	c, ok := t.connections[in.Connection]
 	policy := t.routePolicy
+	budget := t.memBudget
 	t.mu.RUnlock()
 	if !ok {
 		return errorResult(fmt.Sprintf("connection %q not found (use list_connections to discover api connections)", in.Connection)), nil, nil
@@ -1036,9 +1057,20 @@ func (t *Toolkit) handleInvoke(ctx context.Context, _ *mcp.CallToolRequest, in I
 		return res, nil, nil //nolint:nilerr // tool error surfaced via result
 	}
 
-	out, err := invoke(ctx, invocation{cfg: c.cfg, auth: c.auth, client: c.client, specs: c.specs}, in)
+	// Raw passthrough (issue #535): when the REST shim has installed a
+	// RawSink on the context, stream the upstream body straight to it
+	// instead of buffering + enveloping. The route policy above has
+	// already authorized the call, so the streamed path inherits the
+	// same gating as the buffered path.
+	if raw := rawPassthroughFromContext(ctx); raw != nil {
+		return t.handleInvokeRaw(ctx, c, in, raw)
+	}
+
+	out, err := invoke(ctx, invocation{cfg: c.cfg, auth: c.auth, client: c.client, specs: c.specs, budget: budget}, in)
 	if err != nil {
-		return errorResult(err.Error()), nil, nil //nolint:nilerr // MCP protocol — argument validation surfaced as tool error
+		// Budget rejections render as a structured 429; argument
+		// validation failures render as a plain tool error.
+		return budgetOrErrorResult(err), nil, nil //nolint:nilerr // MCP protocol — failures surfaced via result
 	}
 	// Clear the api_export hint when the toolkit was built without
 	// export deps — the model would otherwise be told to use a tool
