@@ -24,6 +24,8 @@ import {
 import { GatewayActionBar, GatewayRulesDrawer } from "./GatewayActions";
 import { ConnectionOAuthStatusCard } from "./ConnectionOAuthStatusCard";
 import { HelpDialog } from "@/components/HelpDialog";
+import { MarkdownEditor } from "@/components/MarkdownEditor";
+import { CollapsibleMarkdown } from "@/components/renderers/CollapsibleMarkdown";
 import { ApiGatewayAuthHelp, ApiGatewayTLSHelp } from "./ApiGatewayHelpContent";
 
 // ConnectionOAuthHealthBadge renders the per-row health indicator
@@ -583,7 +585,9 @@ function ConnectionViewer({
             </span>
           </div>
           {connection.description && (
-            <p className="mt-1 text-sm text-muted-foreground">{connection.description}</p>
+            <div className="mt-1">
+              <CollapsibleMarkdown content={connection.description} maxHeightPx={200} fadeFrom="from-muted" />
+            </div>
           )}
           {connection.source === "both" && (
             <p className="mt-1 text-xs text-muted-foreground">
@@ -976,12 +980,11 @@ function ConnectionEditor({ connection, onSave, onCancel, onDirtyChange }: Edito
         {/* Description */}
         <div>
           <label className="mb-1 block text-xs font-medium">Description</label>
-          <input
-            type="text"
+          <MarkdownEditor
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="What this connection is for..."
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none ring-ring focus:ring-2"
+            onChange={setDescription}
+            minHeight="160px"
+            placeholder="What this connection is for... (usage notes, datasets/schemas, gotchas, owner/contact)"
           />
         </div>
 

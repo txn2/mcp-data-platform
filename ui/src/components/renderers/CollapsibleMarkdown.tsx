@@ -17,6 +17,10 @@ interface CollapsibleMarkdownProps {
   // background so the fade at the clamp edge blends in (e.g. "from-card",
   // "from-muted"). Defaults to the card background.
   fadeFrom?: string;
+  // maxHeightPx overrides the collapsed clamp height for consumers that want
+  // a taller preview (e.g. connection descriptions clamp to ~200px). Defaults
+  // to COLLAPSED_MAX_PX so existing consumers (memory records) are unaffected.
+  maxHeightPx?: number;
 }
 
 // CollapsibleMarkdown renders markdown clamped to a few lines with a
@@ -25,6 +29,7 @@ interface CollapsibleMarkdownProps {
 export function CollapsibleMarkdown({
   content,
   fadeFrom = "from-card",
+  maxHeightPx = COLLAPSED_MAX_PX,
 }: CollapsibleMarkdownProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
@@ -41,9 +46,9 @@ export function CollapsibleMarkdown({
     if (!el) {
       return;
     }
-    setOverflowing(el.scrollHeight > COLLAPSED_MAX_PX + OVERFLOW_SLACK_PX);
+    setOverflowing(el.scrollHeight > maxHeightPx + OVERFLOW_SLACK_PX);
     setExpanded(false);
-  }, [content]);
+  }, [content, maxHeightPx]);
 
   const clamped = overflowing && !expanded;
 
@@ -52,7 +57,7 @@ export function CollapsibleMarkdown({
       <div
         ref={ref}
         className="relative overflow-hidden"
-        style={clamped ? { maxHeight: COLLAPSED_MAX_PX } : undefined}
+        style={clamped ? { maxHeight: maxHeightPx } : undefined}
       >
         <MarkdownRenderer content={content} bare />
         {clamped && (
