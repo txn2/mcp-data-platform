@@ -474,13 +474,16 @@ func classifyToolError(payload string) (status int, message string) {
 // classifyMemoryRejection maps the gateway's memory-protection error
 // codes (issue #535) to HTTP statuses with deliberate retry semantics,
 // returning ok=false when the message is not a memory rejection so the
-// main classifier continues. 413 (body too large) is permanent and
-// non-retryable; 429 (budget exhausted) is transient and
-// retryable-with-backoff, consistent with the #533 retry policy.
+// main classifier continues. 413 (body too large) and 415 (body not
+// inlineable) are permanent and non-retryable; 429 (budget exhausted) is
+// transient and retryable-with-backoff, consistent with the #533 retry
+// policy.
 func classifyMemoryRejection(lower string) (status int, ok bool) {
 	switch {
 	case strings.Contains(lower, apigatewaykit.ErrCodeBodyTooLarge):
 		return http.StatusRequestEntityTooLarge, true
+	case strings.Contains(lower, apigatewaykit.ErrCodeBodyNotInlineable):
+		return http.StatusUnsupportedMediaType, true
 	case strings.Contains(lower, apigatewaykit.ErrCodeBudgetExhausted):
 		return http.StatusTooManyRequests, true
 	default:

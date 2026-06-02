@@ -1066,10 +1066,23 @@ func (t *Toolkit) handleInvoke(ctx context.Context, _ *mcp.CallToolRequest, in I
 		return t.handleInvokeRaw(ctx, c, in, raw)
 	}
 
+	// Whether api_export is registered on this deployment gates the
+	// steering hints below — the model must not be told to use a tool
+	// that isn't available here. Read once, before invoke().
+	t.mu.RLock()
+	hasExport := t.exportDeps != nil
+	t.mu.RUnlock()
+
 	out, err := invoke(ctx, invocation{cfg: c.cfg, auth: c.auth, client: c.client, specs: c.specs, budget: budget}, in)
 	if err != nil {
-		// Budget rejections render as a structured 429; argument
-		// validation failures render as a plain tool error.
+		// A binary body refused before buffering renders as a
+		// structured 415 with a steer to api_export; budget rejections
+		// render as a structured 429; argument validation failures
+		// render as a plain tool error.
+		var nb *nonInlineableBodyError
+		if errors.As(err, &nb) {
+			return nb.result(hasExport), nil, nil
+		}
 		return budgetOrErrorResult(err), nil, nil //nolint:nilerr // MCP protocol — failures surfaced via result
 	}
 	// Clear the api_export hint when the toolkit was built without
@@ -1077,9 +1090,6 @@ func (t *Toolkit) handleInvoke(ctx context.Context, _ *mcp.CallToolRequest, in I
 	// that isn't registered on this deployment. The hint itself
 	// originates in executeRequest which has no toolkit handle, so
 	// the gating happens here at the call site.
-	t.mu.RLock()
-	hasExport := t.exportDeps != nil
-	t.mu.RUnlock()
 	if !hasExport {
 		out.Hint = ""
 	}

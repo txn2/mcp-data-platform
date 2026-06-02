@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
 	"net/url"
 	"sort"
@@ -407,6 +408,11 @@ const applicationJSON = "application/json"
 // as applicationJSON.
 const textPlainUTF8 = "text/plain; charset=utf-8"
 
+// headerContentType is the canonical Content-Type header name, named so
+// the literal isn't repeated across the request builder, the response
+// decoder, and the inlineability guard.
+const headerContentType = "Content-Type"
+
 // encodeBody serializes the body for an outbound HTTP request and
 // returns the Content-Type the gateway proposes to set. Selection
 // rules, in order (issue #453):
@@ -498,7 +504,7 @@ func encodeBodyForJSONOperation(body any) (data []byte, contentType string, err 
 // and Go's http header set treats them the same.
 func callerSetsContentType(h map[string]string) bool {
 	for name := range h {
-		if strings.EqualFold(name, "Content-Type") {
+		if strings.EqualFold(name, headerContentType) {
 			return true
 		}
 	}
@@ -699,8 +705,8 @@ func buildRequest(ctx context.Context, spec requestSpec) (*http.Request, error) 
 	for name, value := range spec.staticHeaders {
 		req.Header.Set(name, value)
 	}
-	if spec.contentType != "" && req.Header.Get("Content-Type") == "" {
-		req.Header.Set("Content-Type", spec.contentType)
+	if spec.contentType != "" && req.Header.Get(headerContentType) == "" {
+		req.Header.Set(headerContentType, spec.contentType)
 	}
 	if req.Header.Get("Accept") == "" {
 		req.Header.Set("Accept", "application/json, */*;q=0.5")
@@ -813,11 +819,13 @@ type execParams struct {
 }
 
 // executeRequest performs the upstream call and buffers the response.
-// The returned error is non-nil ONLY for an in-flight memory budget
-// rejection (*budgetError): the caller maps that to a structured 429.
-// Every other outcome (transport failure, timeout, read error,
-// upstream 4xx/5xx) is carried in the InvokeOutput with a nil error,
-// preserving the existing gateway semantics.
+// The returned error is non-nil only for a pre-buffer refusal the caller
+// renders as a structured tool error: a *budgetError (in-flight memory
+// budget exhausted -> 429) or a *nonInlineableBodyError (binary response
+// body refused before buffering -> 415). Every other outcome (transport
+// failure, timeout, read error, upstream 4xx/5xx) is carried in the
+// InvokeOutput with a nil error, preserving the existing gateway
+// semantics.
 func executeRequest(p execParams) (InvokeOutput, error) {
 	start := time.Now()
 	// #nosec G107 G704 -- req.URL is constructed by buildURL, which parses the
@@ -834,6 +842,28 @@ func executeRequest(p execParams) (InvokeOutput, error) {
 		return InvokeOutput{Status: 0, Error: scrubTransportError(err), DurationMs: duration}, nil
 	}
 	defer resp.Body.Close() //nolint:errcheck // best-effort cleanup
+
+	// Refuse to inline a binary body BEFORE buffering it. api_invoke_endpoint
+	// returns the body through the MCP/JSON channel, where json.Marshal
+	// escapes every control / invalid-UTF-8 byte as \uXXXX; a high-entropy
+	// body (zip, image, octet-stream) inflates several-fold and is held in
+	// multiple copies, which can OOM the shared process. It is also useless
+	// to the model. Reject it with a structured error that steers the caller
+	// to api_export (which streams to a portal asset) instead of crashing or
+	// returning a truncated, escaped blob. A zero-length response is harmless
+	// regardless of type, so it is not refused (covers HEAD / 204 / empty).
+	respContentType := resp.Header.Get(headerContentType)
+	if resp.ContentLength != 0 && !isInlineableContentType(respContentType) {
+		slog.Warn("apigateway: refusing to inline non-text response body",
+			logKeyConnection, p.connection, "path", p.path,
+			"content_type", respContentType, "content_length", resp.ContentLength)
+		return InvokeOutput{}, &nonInlineableBodyError{
+			connection:  p.connection,
+			path:        p.path,
+			contentType: respContentType,
+			size:        resp.ContentLength,
+		}
+	}
 
 	// Reserve the worst-case buffer against the shared budget BEFORE
 	// allocating it. Refused reservations are rejected here rather than
@@ -867,7 +897,7 @@ func executeRequest(p execParams) (InvokeOutput, error) {
 			DurationMs: time.Since(start).Milliseconds(),
 		}, nil
 	}
-	parsed := decodeBody(resp.Header.Get("Content-Type"), body)
+	parsed := decodeBody(respContentType, body)
 	out := InvokeOutput{
 		Status:        resp.StatusCode,
 		Headers:       selectResponseHeaders(resp.Header),
@@ -906,6 +936,46 @@ func readBody(r io.Reader, maxBytes int64) (body []byte, truncated bool, err err
 // Content-Type indicates JSON; otherwise returns the body as a
 // string. Decoding failure on a JSON-typed response falls back to
 // returning the raw text so the model still sees something useful.
+// isInlineableContentType reports whether a response with this
+// Content-Type is safe to buffer and return inline through the MCP/JSON
+// channel. Text-shaped bodies (text/*, JSON, XML, form, JavaScript) are
+// inlineable: JSON-escaping them is roughly size-preserving. Binary
+// bodies (application/zip, application/octet-stream, image/*, audio/*,
+// video/*, application/pdf, ...) are NOT: json.Marshal escapes every
+// control and invalid-UTF-8 byte as \uXXXX, inflating a high-entropy
+// body several-fold, and the escaped copy is held alongside the raw
+// buffer and the re-marshaled MCP envelope. Returning such a body inline
+// both risks an OOM and is useless to the model. executeRequest refuses
+// those before buffering and steers the caller to api_export.
+//
+// An empty or unparseable Content-Type returns true so the legacy
+// buffered path (bounded by the per-request read cap) is unchanged for
+// responses that declare no usable type.
+func isInlineableContentType(contentType string) bool {
+	if contentType == "" {
+		return true
+	}
+	mt, _, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		return true
+	}
+	mt = strings.ToLower(mt)
+	if strings.HasPrefix(mt, "text/") {
+		return true
+	}
+	if strings.HasSuffix(mt, "+json") || strings.HasSuffix(mt, "+xml") {
+		return true
+	}
+	switch mt {
+	case applicationJSON, "application/xml",
+		"application/x-www-form-urlencoded",
+		"application/javascript", "application/ecmascript":
+		return true
+	default:
+		return false
+	}
+}
+
 func decodeBody(contentType string, body []byte) any {
 	if len(body) == 0 {
 		return nil
@@ -928,7 +998,7 @@ func decodeBody(contentType string, body []byte) any {
 //
 //nolint:gochecknoglobals // intentionally a package-level constant set
 var passthroughResponseHeaders = map[string]bool{
-	"Content-Type":          true,
+	headerContentType:       true,
 	"Content-Length":        true,
 	"Content-Encoding":      true,
 	"Etag":                  true,
