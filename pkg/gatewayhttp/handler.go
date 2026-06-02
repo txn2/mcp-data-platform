@@ -11,11 +11,13 @@
 package gatewayhttp
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -55,6 +57,13 @@ type Deps struct {
 	// Identity maps the request auth context to a display identity for
 	// the metric label. Optional: nil yields identity="unknown".
 	Identity IdentityResolver
+
+	// RawMaxBytes caps a single raw passthrough response on the
+	// /invoke-raw route (issue #535). A response whose upstream
+	// Content-Length exceeds this is rejected with 413 before any bytes
+	// are streamed. 0 = no all-or-nothing cap (memory stays bounded
+	// regardless because the raw path streams, never buffers).
+	RawMaxBytes int64
 }
 
 // NewHandler returns an http.Handler that exposes
@@ -88,16 +97,21 @@ func NewHandler(deps Deps) (http.Handler, error) {
 		return nil, errors.New("gatewayhttp: MCPServer is required")
 	}
 	mux := http.NewServeMux()
-	h := &handler{mcpServer: deps.MCPServer}
+	h := &handler{mcpServer: deps.MCPServer, rawMaxBytes: deps.RawMaxBytes}
 	// Register the metrics-wrapped handler on the route so the wrapper
 	// sees the {connection} path value. withMetrics returns the handler
 	// unwrapped when deps.Metrics is nil.
 	mux.Handle("POST /api/v1/gateway/{connection}/invoke", withMetrics(http.HandlerFunc(h.invoke), deps))
+	// invoke-raw streams the upstream body straight to the client with
+	// bounded memory (issue #535), for retrieving large/binary bodies
+	// through the gateway without buffering them into a JSON envelope.
+	mux.Handle("POST /api/v1/gateway/{connection}/invoke-raw", withMetrics(http.HandlerFunc(h.invokeRaw), deps))
 	return mux, nil
 }
 
 type handler struct {
-	mcpServer *mcp.Server
+	mcpServer   *mcp.Server
+	rawMaxBytes int64
 }
 
 // invokeRequest is the JSON shape REST callers POST. It mirrors
@@ -154,6 +168,110 @@ func (h *handler) invoke(w http.ResponseWriter, r *http.Request) {
 	writeToolResult(w, result)
 }
 
+// invokeRaw streams the upstream response body straight to the client
+// with bounded memory (issue #535). It routes through the SAME
+// in-memory MCP session as invoke — so the authenticator, persona
+// authorization, route policy, and audit middleware all apply — but
+// installs a RawSink on the session context so api_invoke_endpoint's
+// handler io.Copy's the upstream body to this ResponseWriter instead of
+// buffering it into the JSON envelope. The upstream credential is still
+// held and injected by the gateway; the caller never sees it.
+func (h *handler) invokeRaw(w http.ResponseWriter, r *http.Request) {
+	connection := r.PathValue("connection")
+	req, err := decodeInvokeRequest(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if m := getInvokeMeta(r.Context()); m != nil {
+		m.method, m.path = req.Method, req.Path
+	}
+
+	sink := &responseWriterSink{w: w}
+	rp := &apigatewaykit.RawPassthrough{Sink: sink, MaxBytes: h.rawMaxBytes}
+	session, cleanup, sessErr := h.connectSession(r, func(ctx context.Context) context.Context {
+		return apigatewaykit.WithRawPassthrough(ctx, rp)
+	})
+	if sessErr != nil {
+		writeError(w, http.StatusInternalServerError, "failed to connect to MCP server")
+		return
+	}
+	defer cleanup()
+
+	result, callErr := session.CallTool(r.Context(), &mcp.CallToolParams{
+		Name:      apigatewaykit.ToolInvokeEndpoint,
+		Arguments: buildInvokeArgs(connection, req),
+	})
+	// Once any byte (or the status line) has been streamed, the HTTP
+	// response is committed and cannot be rewritten. Whatever the tool
+	// result says, the client already has its answer.
+	if sink.wroteHeader() {
+		return
+	}
+	if callErr != nil {
+		writeError(w, http.StatusInternalServerError, callErr.Error())
+		return
+	}
+	writeRawToolError(w, result)
+}
+
+// writeRawToolError maps a non-streamed api_invoke_endpoint result to an
+// HTTP error. Reached only when nothing was streamed, i.e. the call
+// failed before the body began (request validation, auth/authz, route
+// policy, transport, or the 413 size rejection). A non-error result
+// here would mean the handler returned a sentinel without streaming,
+// which is a contract violation surfaced as 500.
+func writeRawToolError(w http.ResponseWriter, result *mcp.CallToolResult) {
+	payload, ok := firstTextContent(result.Content)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "unexpected response shape from api_invoke_endpoint")
+		return
+	}
+	if !result.IsError {
+		writeError(w, http.StatusInternalServerError, "raw passthrough produced no streamed response")
+		return
+	}
+	status, msg := classifyToolError(payload)
+	writeClassifiedError(w, status, payload, msg)
+}
+
+// responseWriterSink adapts an http.ResponseWriter to
+// apigatewaykit.RawSink. wroteHeader reports whether the status line
+// has been flushed so invokeRaw knows the response is committed.
+type responseWriterSink struct {
+	w     http.ResponseWriter
+	wrote bool
+}
+
+// AddHeader appends a response header value (RawSink).
+func (s *responseWriterSink) AddHeader(key, value string) { s.w.Header().Add(key, value) }
+
+// SetStatus flushes the response status line once (RawSink).
+func (s *responseWriterSink) SetStatus(code int) {
+	if s.wrote {
+		return
+	}
+	s.wrote = true
+	s.w.WriteHeader(code)
+}
+
+// Write streams body bytes, flushing a default 200 status first if the
+// handler streamed a body without an explicit status (RawSink).
+func (s *responseWriterSink) Write(p []byte) (int, error) {
+	if !s.wrote {
+		s.SetStatus(http.StatusOK)
+	}
+	n, err := s.w.Write(p)
+	if err != nil {
+		return n, fmt.Errorf("gatewayhttp: writing raw response: %w", err)
+	}
+	return n, nil
+}
+
+func (s *responseWriterSink) wroteHeader() bool { return s.wrote }
+
+var _ apigatewaykit.RawSink = (*responseWriterSink)(nil)
+
 // writeToolResult maps an api_invoke_endpoint CallToolResult to an
 // HTTP response. Split from invoke so it can be unit-tested with
 // hand-crafted results — the branches it guards (non-text content,
@@ -168,7 +286,7 @@ func writeToolResult(w http.ResponseWriter, result *mcp.CallToolResult) {
 	}
 	if result.IsError {
 		status, msg := classifyToolError(payload)
-		writeError(w, status, msg)
+		writeClassifiedError(w, status, payload, msg)
 		return
 	}
 	var out apigatewaykit.InvokeOutput
@@ -225,6 +343,16 @@ func decodeInvokeRequest(r *http.Request) (*invokeRequest, error) {
 }
 
 func (h *handler) connectInternalSession(r *http.Request) (*mcp.ClientSession, func(), error) {
+	return h.connectSession(r, nil)
+}
+
+// connectSession opens an in-memory MCP session against the platform's
+// assembled server. The optional decorate hook augments the SERVER
+// connection context (the one the tool handler observes), used by the
+// raw passthrough to install its RawSink so api_invoke_endpoint streams
+// to the client instead of buffering. Decorating the server context is
+// the same mechanism that propagates Source=rest to the handler.
+func (h *handler) connectSession(r *http.Request, decorate func(context.Context) context.Context) (*mcp.ClientSession, func(), error) {
 	t1, t2 := mcp.NewInMemoryTransports()
 	ctx := r.Context()
 	// Tag this in-memory MCP session as originating from the REST shim so
@@ -234,6 +362,9 @@ func (h *handler) connectInternalSession(r *http.Request) (*mcp.ClientSession, f
 	ctx = middleware.WithSource(ctx, middleware.SourceREST)
 	if token := readRequestToken(r); token != "" {
 		ctx = middleware.WithToken(ctx, token)
+	}
+	if decorate != nil {
+		ctx = decorate(ctx)
 	}
 	serverSession, err := h.mcpServer.Connect(ctx, t1, nil)
 	if err != nil {
@@ -321,6 +452,9 @@ func classifyToolError(payload string) (status int, message string) {
 		msg = env.Error
 	}
 	lower := strings.ToLower(msg)
+	if status, ok := classifyMemoryRejection(lower); ok {
+		return status, msg
+	}
 	switch {
 	case strings.Contains(lower, "authentication failed"):
 		return http.StatusUnauthorized, msg
@@ -334,6 +468,23 @@ func classifyToolError(payload string) (status int, message string) {
 		return http.StatusNotFound, msg
 	default:
 		return http.StatusBadRequest, msg
+	}
+}
+
+// classifyMemoryRejection maps the gateway's memory-protection error
+// codes (issue #535) to HTTP statuses with deliberate retry semantics,
+// returning ok=false when the message is not a memory rejection so the
+// main classifier continues. 413 (body too large) is permanent and
+// non-retryable; 429 (budget exhausted) is transient and
+// retryable-with-backoff, consistent with the #533 retry policy.
+func classifyMemoryRejection(lower string) (status int, ok bool) {
+	switch {
+	case strings.Contains(lower, apigatewaykit.ErrCodeBodyTooLarge):
+		return http.StatusRequestEntityTooLarge, true
+	case strings.Contains(lower, apigatewaykit.ErrCodeBudgetExhausted):
+		return http.StatusTooManyRequests, true
+	default:
+		return 0, false
 	}
 }
 
@@ -372,4 +523,36 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, errorEnvelope{Error: msg})
+}
+
+// retryAfterSeconds is the Retry-After hint sent with a 429 budget
+// rejection. Small and fixed: budget exhaustion is transient and
+// drains as concurrent buffered reads complete, so a short backoff is
+// appropriate (issue #535).
+const retryAfterSeconds = 1
+
+// writeClassifiedError writes a classified tool error to the client. It
+// preserves the toolkit's structured error envelope verbatim when the
+// payload is already a JSON object — so the diagnostic fields on the
+// 413/429 envelopes (limit_bytes, actual_bytes, in_use_bytes, ...)
+// reach the caller — and otherwise wraps the unwrapped message in the
+// standard {"error": ...} shape (e.g. the auth/authz middleware's bare
+// string payloads). A 429 also carries a Retry-After header so HTTP
+// clients back off rather than hot-retry.
+func writeClassifiedError(w http.ResponseWriter, status int, payload, msg string) {
+	if status == http.StatusTooManyRequests {
+		w.Header().Set("Retry-After", strconv.Itoa(retryAfterSeconds))
+	}
+	// Re-decode and re-encode the toolkit's structured envelope rather
+	// than passing the payload through verbatim: this preserves the
+	// diagnostic fields (limit_bytes, actual_bytes, ...) while emitting
+	// canonical JSON, so no untrusted bytes are reflected into the
+	// response. A non-object payload (e.g. the auth middleware's bare
+	// string) falls back to the standard {"error": ...} wrapper.
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(payload), &obj); err == nil && obj["error"] != nil {
+		writeJSON(w, status, obj)
+		return
+	}
+	writeError(w, status, msg)
 }

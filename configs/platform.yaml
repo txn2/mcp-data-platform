@@ -433,3 +433,18 @@ audit:
 #     retention_days: 14    # purge finished index_jobs history older than this;
 #                           # 0 = default (14), negative = disabled (keep forever).
 #                           # Open failures and in-flight jobs are never purged.
+#   memory:                 # OOM guard for the shared gateway process (#535)
+#     # Global ceiling on bytes committed to response buffering across ALL
+#     # api connections and BOTH api_invoke_endpoint and api_export. A
+#     # buffered read that would exceed this is rejected with a retryable
+#     # 429 before allocating, so a burst of large responses (each under
+#     # its per-request cap) cannot collectively OOMKill the pod.
+#     # 0 = disabled (per-request caps still apply). Size it ~3x the raw
+#     # body per concurrent large request, around
+#     # (container_memory_limit * 0.6) / 3 — NOT the whole limit.
+#     max_in_flight_bytes: 314572800   # 300 MiB
+#     # All-or-nothing cap for the streaming /invoke-raw route. An upstream
+#     # Content-Length over this is rejected with a non-retryable 413
+#     # before any bytes stream. 0 = no cap (streaming is memory-bounded
+#     # regardless; the cap is a policy guard, not a memory guard).
+#     raw_max_bytes: 1073741824        # 1 GiB

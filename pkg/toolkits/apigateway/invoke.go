@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"sort"
@@ -133,6 +134,10 @@ type invocation struct {
 	auth   Authenticator
 	client *http.Client
 	specs  map[string]*specState
+	// budget is the shared in-flight memory budget the buffered read
+	// reserves against (issue #535). nil = unlimited (test-only and
+	// unconfigured deployments), in which case reservation is a no-op.
+	budget *MemBudget
 }
 
 // invoke runs a single api_invoke_endpoint call against a known
@@ -140,49 +145,69 @@ type invocation struct {
 // failures (which the model should fix); upstream failures populate
 // InvokeOutput.Error with Status==0.
 func invoke(ctx context.Context, inv invocation, in InvokeInput) (InvokeOutput, error) {
-	method, err := validateMethod(in.Method)
-	if err != nil {
-		return InvokeOutput{}, err
-	}
-	if err := validatePath(in.Path); err != nil {
-		return InvokeOutput{}, err
-	}
-	authHeader := authHeaderForConfig(inv.cfg)
-	if err := validateCustomHeaders(in.Headers, authHeader, inv.cfg.StaticHeaders); err != nil {
-		return InvokeOutput{}, err
-	}
-
-	reqURL, err := buildURL(inv.cfg.BaseURL, in.Path, in.Query)
-	if err != nil {
-		return InvokeOutput{}, err
-	}
-
-	declaredContentTypes := resolveDeclaredContentTypes(inv.specs, method, in.Path)
-	body, contentType, err := encodeBody(method, in.Body, declaredContentTypes, in.Headers)
-	if err != nil {
-		return InvokeOutput{}, err
-	}
-
 	timeout := resolveTimeout(in.TimeoutSeconds, inv.cfg.CallTimeout)
 	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	req, err := buildRequest(callCtx, requestSpec{
+	req, err := buildUpstreamRequest(callCtx, inv.cfg, inv.auth, inv.specs, in)
+	if err != nil {
+		return InvokeOutput{}, err
+	}
+
+	return executeRequest(execParams{
+		client:     inv.client,
+		req:        req,
+		maxBytes:   inv.cfg.MaxResponseBytes,
+		budget:     inv.budget,
+		connection: inv.cfg.ConnectionName,
+		path:       in.Path,
+	})
+}
+
+// buildUpstreamRequest assembles the outbound *http.Request for a
+// connection from a parsed InvokeInput. It is the single place the
+// validation + SSRF guards (validatePath, host-pinned buildURL),
+// reserved-header checks, spec-driven Content-Type negotiation, and
+// credential injection live, so the buffered invoke path, the
+// api_export path, and the raw passthrough path cannot drift apart on
+// any of those rules. The caller owns the timeout context (the read can
+// outlive request construction), so ctx is passed in already scoped.
+func buildUpstreamRequest(ctx context.Context, cfg Config, auth Authenticator, specs map[string]*specState, in InvokeInput) (*http.Request, error) {
+	method, err := validateMethod(in.Method)
+	if err != nil {
+		return nil, err
+	}
+	if err := validatePath(in.Path); err != nil {
+		return nil, err
+	}
+	authHeader := authHeaderForConfig(cfg)
+	if err := validateCustomHeaders(in.Headers, authHeader, cfg.StaticHeaders); err != nil {
+		return nil, err
+	}
+	reqURL, err := buildURL(cfg.BaseURL, in.Path, in.Query)
+	if err != nil {
+		return nil, err
+	}
+	declaredContentTypes := resolveDeclaredContentTypes(specs, method, in.Path)
+	body, contentType, err := encodeBody(method, in.Body, declaredContentTypes, in.Headers)
+	if err != nil {
+		return nil, err
+	}
+	req, err := buildRequest(ctx, requestSpec{
 		method:        method,
 		url:           reqURL,
 		body:          body,
 		contentType:   contentType,
 		headers:       in.Headers,
-		staticHeaders: inv.cfg.StaticHeaders,
+		staticHeaders: cfg.StaticHeaders,
 	})
 	if err != nil {
-		return InvokeOutput{}, err
+		return nil, err
 	}
-	if err := inv.auth.Apply(req); err != nil {
-		return InvokeOutput{}, fmt.Errorf("apigateway: applying auth: %w", err)
+	if err := auth.Apply(req); err != nil {
+		return nil, fmt.Errorf("apigateway: applying auth: %w", err)
 	}
-
-	return executeRequest(inv.client, req, inv.cfg.MaxResponseBytes), nil
+	return req, nil
 }
 
 func validateMethod(method string) (string, error) {
@@ -774,7 +799,26 @@ func scrubTransportError(err error) string {
 	return fmt.Sprintf("%s %q: %v", ue.Op, parsed.String(), ue.Err)
 }
 
-func executeRequest(client *http.Client, req *http.Request, maxBytes int64) InvokeOutput {
+// execParams bundles the inputs executeRequest needs so the signature
+// stays under revive's argument-limit ceiling now that the buffered
+// read reserves against the shared in-flight memory budget (issue
+// #535) and needs the connection/path for the structured rejection.
+type execParams struct {
+	client     *http.Client
+	req        *http.Request
+	maxBytes   int64
+	budget     *MemBudget
+	connection string
+	path       string
+}
+
+// executeRequest performs the upstream call and buffers the response.
+// The returned error is non-nil ONLY for an in-flight memory budget
+// rejection (*budgetError): the caller maps that to a structured 429.
+// Every other outcome (transport failure, timeout, read error,
+// upstream 4xx/5xx) is carried in the InvokeOutput with a nil error,
+// preserving the existing gateway semantics.
+func executeRequest(p execParams) (InvokeOutput, error) {
 	start := time.Now()
 	// #nosec G107 G704 -- req.URL is constructed by buildURL, which parses the
 	// operator-configured base_url independently, joins the model-supplied
@@ -784,21 +828,44 @@ func executeRequest(client *http.Client, req *http.Request, maxBytes int64) Invo
 	// tricked into changing the host. The dynamic URL is therefore pinned to
 	// the connection's pre-registered host; SSRF is defeated at the construction
 	// site even though gosec's taint analysis cannot see the runtime guards.
-	resp, err := client.Do(req)
+	resp, err := p.client.Do(p.req)
 	duration := time.Since(start).Milliseconds()
 	if err != nil {
-		return InvokeOutput{Status: 0, Error: scrubTransportError(err), DurationMs: duration}
+		return InvokeOutput{Status: 0, Error: scrubTransportError(err), DurationMs: duration}, nil
 	}
 	defer resp.Body.Close() //nolint:errcheck // best-effort cleanup
 
-	body, truncated, readErr := readBody(resp.Body, maxBytes)
+	// Reserve the worst-case buffer against the shared budget BEFORE
+	// allocating it. Refused reservations are rejected here rather than
+	// risking an OOM under concurrency (issue #535). Content-Length, when
+	// the upstream provides it, tightens the reservation for small bodies.
+	readCap := p.maxBytes
+	if readCap <= 0 {
+		readCap = DefaultMaxResponseBytes
+	}
+	reserved, ok := reserveBodyBudget(p.budget, resp.ContentLength, readCap)
+	if !ok {
+		slog.Warn("apigateway: rejecting buffered request, in-flight memory budget exhausted",
+			logKeyConnection, p.connection, "path", p.path,
+			"requested_bytes", reserved, "limit_bytes", p.budget.Max(), "in_use_bytes", p.budget.InUse())
+		return InvokeOutput{}, &budgetError{
+			limit:      p.budget.Max(),
+			requested:  reserved,
+			inUse:      p.budget.InUse(),
+			connection: p.connection,
+			path:       p.path,
+		}
+	}
+	defer p.budget.Release(reserved)
+
+	body, truncated, readErr := readBody(resp.Body, p.maxBytes)
 	if readErr != nil {
 		return InvokeOutput{
 			Status:     resp.StatusCode,
 			Headers:    selectResponseHeaders(resp.Header),
 			Error:      readErr.Error(),
 			DurationMs: time.Since(start).Milliseconds(),
-		}
+		}, nil
 	}
 	parsed := decodeBody(resp.Header.Get("Content-Type"), body)
 	out := InvokeOutput{
@@ -817,7 +884,7 @@ func executeRequest(client *http.Client, req *http.Request, maxBytes int64) Invo
 		// trino_export uses for query results that don't fit.
 		out.Hint = "response exceeded max_response_bytes; use api_export to stream the full response into a portal asset (no model-context cost)"
 	}
-	return out
+	return out, nil
 }
 
 func readBody(r io.Reader, maxBytes int64) (body []byte, truncated bool, err error) {

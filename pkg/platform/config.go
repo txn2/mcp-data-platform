@@ -884,6 +884,46 @@ type SessionGateConfig struct {
 type APIGatewayConfig struct {
 	// EmbedJobs tunes the api-gateway embedding job queue.
 	EmbedJobs APIGatewayEmbedJobsConfig `yaml:"embed_jobs"`
+
+	// Memory bounds the gateway's response-body memory footprint across
+	// all connections so a burst of large responses cannot OOMKill the
+	// pod (issue #535).
+	Memory APIGatewayMemoryConfig `yaml:"memory"`
+}
+
+// APIGatewayMemoryConfig bounds the memory the api gateway commits to
+// response-body handling, the structural fix for issue #535: per-request
+// size caps bound a single call, but nothing bounded the SUM of
+// concurrent calls, so a burst of large responses (each under its cap)
+// could collectively exhaust the heap and get the container OOMKilled.
+type APIGatewayMemoryConfig struct {
+	// MaxInFlightBytes is the global ceiling on bytes committed to
+	// response-body buffering across all api connections and BOTH
+	// buffering tools (api_invoke_endpoint and api_export). A buffered
+	// read that would push committed bytes past this is rejected with a
+	// structured 429 (retryable) before the buffer is allocated. 0 =
+	// disabled (no global cap; per-connection max_response_bytes and the
+	// api_export cap still apply per request).
+	//
+	// Sizing: budget roughly 3x the raw body size per concurrent large
+	// request (raw body + decoded copy + JSON-escaped envelope copy) and
+	// leave headroom for GC and the other toolkits' working set. A safe
+	// target keeps
+	//   max_in_flight_bytes ≈ (container_memory_limit × 0.6) / 3
+	// so peak buffering stays well under the heap even at full
+	// utilization. Do NOT set this to the whole container limit or
+	// GOMEMLIMIT — that leaves no room for the transient marshaling
+	// copies or for GC.
+	MaxInFlightBytes int64 `yaml:"max_in_flight_bytes"`
+
+	// RawMaxBytes caps a single raw passthrough response on the
+	// /api/v1/gateway/{connection}/invoke-raw REST route
+	// (all-or-nothing). An upstream whose declared Content-Length
+	// exceeds this is rejected with 413 (non-retryable) before any bytes
+	// are streamed. 0 = no cap: the raw path streams (io.Copy) instead
+	// of buffering, so process memory stays bounded regardless of body
+	// size — the cap is a policy guard, not a memory guard.
+	RawMaxBytes int64 `yaml:"raw_max_bytes"`
 }
 
 // APIGatewayEmbedJobsConfig tunes the per-pod embedding worker.
