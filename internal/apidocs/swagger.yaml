@@ -76,6 +76,133 @@ definitions:
       source:
         $ref: '#/definitions/persona.AccessSource'
     type: object
+  admin.adminAssetListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/portal.Asset'
+        type: array
+      limit:
+        example: 20
+        type: integer
+      offset:
+        example: 0
+        type: integer
+      share_summaries:
+        additionalProperties:
+          $ref: '#/definitions/portal.ShareSummary'
+        type: object
+      total:
+        example: 10
+        type: integer
+    type: object
+  admin.adminPromptCreateRequest:
+    properties:
+      arguments:
+        items:
+          $ref: '#/definitions/prompt.Argument'
+        type: array
+      category:
+        example: analysis
+        type: string
+      content:
+        example: Analyze sales data for {date} grouped by region.
+        type: string
+      description:
+        example: Generate a daily sales summary by region
+        type: string
+      display_name:
+        example: Daily Sales Report
+        type: string
+      enabled:
+        example: true
+        type: boolean
+      name:
+        example: daily-sales-report
+        type: string
+      owner_email:
+        example: admin@example.com
+        type: string
+      personas:
+        example:
+        - analyst
+        - data-engineer
+        items:
+          type: string
+        type: array
+      scope:
+        example: persona
+        type: string
+      source:
+        example: database
+        type: string
+    type: object
+  admin.adminPromptListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/prompt.Prompt'
+        type: array
+      total:
+        example: 12
+        type: integer
+    type: object
+  admin.adminPromptUpdateRequest:
+    properties:
+      arguments:
+        items:
+          $ref: '#/definitions/prompt.Argument'
+        type: array
+      category:
+        type: string
+      content:
+        type: string
+      description:
+        type: string
+      display_name:
+        type: string
+      enabled:
+        type: boolean
+      name:
+        type: string
+      owner_email:
+        type: string
+      personas:
+        items:
+          type: string
+        type: array
+      scope:
+        type: string
+      source:
+        type: string
+    type: object
+  admin.adminUpdateAssetRequest:
+    properties:
+      description:
+        type: string
+      name:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
+    type: object
+  admin.adminVersionListResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/portal.AssetVersion'
+        type: array
+      limit:
+        example: 20
+        type: integer
+      offset:
+        example: 0
+        type: integer
+      total:
+        example: 3
+        type: integer
+    type: object
   admin.auditEventResponse:
     properties:
       data:
@@ -209,6 +336,29 @@ definitions:
         example: 3
         type: integer
     type: object
+  admin.catalogResponse:
+    properties:
+      created_at:
+        type: string
+      created_by:
+        type: string
+      description:
+        type: string
+      display_name:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      ref_count:
+        type: integer
+      spec_count:
+        type: integer
+      updated_at:
+        type: string
+      version:
+        type: string
+    type: object
   admin.changesetListResponse:
     properties:
       data:
@@ -224,6 +374,17 @@ definitions:
       total:
         example: 8
         type: integer
+    type: object
+  admin.cloneCatalogRequest:
+    properties:
+      display_name:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      version:
+        type: string
     type: object
   admin.configModeResponse:
     properties:
@@ -290,6 +451,19 @@ definitions:
           $ref: '#/definitions/admin.connectionOAuthHealthSummary'
         type: array
     type: object
+  admin.createCatalogRequest:
+    properties:
+      description:
+        type: string
+      display_name:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      version:
+        type: string
+    type: object
   admin.dismissRequest:
     properties:
       kind:
@@ -324,6 +498,40 @@ definitions:
         type: string
       id:
         type: string
+    type: object
+  admin.effectiveConfigEntry:
+    properties:
+      key:
+        example: server.description
+        type: string
+      source:
+        description: '"file" or "database"'
+        example: database
+        type: string
+      updated_at:
+        example: "2026-01-15T14:30:00Z"
+        type: string
+      updated_by:
+        example: admin@example.com
+        type: string
+      value:
+        example: ACME Corp analytics platform
+        type: string
+    type: object
+  admin.embeddingHealthResponse:
+    properties:
+      catalog_id:
+        type: string
+      specs_failed:
+        type: integer
+      specs_indexed:
+        type: integer
+      specs_pending:
+        type: integer
+      specs_running:
+        type: integer
+      specs_total:
+        type: integer
     type: object
   admin.embeddingProviderStatusResponse:
     properties:
@@ -771,6 +979,12 @@ definitions:
       source_id:
         type: string
     type: object
+  admin.setConfigEntryRequest:
+    properties:
+      value:
+        example: ACME Corp analytics platform
+        type: string
+    type: object
   admin.setConnectionInstanceRequest:
     properties:
       config:
@@ -778,6 +992,81 @@ definitions:
         type: object
       description:
         example: Production data warehouse
+        type: string
+    type: object
+  admin.specListResponse:
+    properties:
+      specs:
+        items:
+          $ref: '#/definitions/admin.specResponse'
+        type: array
+    type: object
+  admin.specResponse:
+    properties:
+      base_path:
+        type: string
+      content:
+        type: string
+      created_at:
+        type: string
+      description:
+        type: string
+      embedding_attempts:
+        description: |-
+          EmbeddingAttempts is the most recent job's attempt count.
+          Rendered as "running (attempt N)" while in flight, useful
+          for operators trying to gauge whether a slow provider is
+          just slow or stuck retrying.
+        type: integer
+      embedding_count:
+        description: |-
+          EmbeddingCount is the count of persisted operation embedding
+          rows for this (catalog, spec). Equal to OperationCount when
+          the queue has fully drained for the spec; less while a job
+          is in flight or after a partial failure.
+        type: integer
+      embedding_last_error:
+        description: |-
+          EmbeddingLastError is the most recent job's last_error
+          column. Non-empty only when the most recent job failed or
+          is on a retry; rendered in a tooltip / detail row so the
+          operator can see "provider returned 502" without grepping
+          pod logs.
+        type: string
+      embedding_status:
+        description: |-
+          EmbeddingStatus reflects the most recent embedding job's
+          terminal or in-flight state: "" when no job has ever run
+          for the spec, "pending" while queued, "running" while a
+          worker is processing it, "succeeded" when current, "failed"
+          when retries are exhausted. The portal uses this for the
+          per-spec badge text and color.
+        type: string
+      etag:
+        type: string
+      last_fetched_at:
+        type: string
+      operation_count:
+        description: |-
+          OperationCount is the number of operations the spec content
+          parses to. Stored alongside the spec on every write so the
+          portal can render "N/M indexed" without re-parsing the
+          content on the client.
+        type: integer
+      source_kind:
+        type: string
+      source_url:
+        type: string
+      spec_name:
+        type: string
+      title:
+        description: |-
+          Title and Description are the operator-set per-spec summary
+          overrides. Empty means "derive from the spec's info.title /
+          info.description". See catalog.NormalizeSpecTitle /
+          NormalizeSpecDescription for the validation rules.
+        type: string
+      updated_at:
         type: string
     type: object
   admin.startConnectionOAuthRequest:
@@ -1039,6 +1328,32 @@ definitions:
         type: boolean
       tool_name:
         example: trino_admin_kill
+        type: string
+    type: object
+  admin.updateCatalogRequest:
+    properties:
+      description:
+        type: string
+      display_name:
+        type: string
+      name:
+        type: string
+      version:
+        type: string
+    type: object
+  admin.upsertCatalogSpecRequest:
+    properties:
+      base_path:
+        type: string
+      content:
+        type: string
+      description:
+        type: string
+      source_kind:
+        type: string
+      source_url:
+        type: string
+      title:
         type: string
     type: object
   audit.BreakdownEntry:
@@ -1396,6 +1711,41 @@ definitions:
     - TypeRefreshRotationPersistenceFailed
     - TypeTokenDeletedRevoked
     - TypeTokenDeletedAdmin
+  configstore.ChangelogEntry:
+    properties:
+      action:
+        example: set
+        type: string
+      changed_at:
+        example: "2026-01-15T14:30:00Z"
+        type: string
+      changed_by:
+        example: admin@example.com
+        type: string
+      id:
+        example: 1
+        type: integer
+      key:
+        example: server.description
+        type: string
+      value:
+        type: string
+    type: object
+  configstore.Entry:
+    properties:
+      key:
+        example: server.description
+        type: string
+      updated_at:
+        example: "2026-01-15T14:30:00Z"
+        type: string
+      updated_by:
+        example: admin@example.com
+        type: string
+      value:
+        example: ACME Corp analytics platform
+        type: string
+    type: object
   connoauth.OAuthStatus:
     properties:
       authenticated_at:
@@ -2032,6 +2382,38 @@ definitions:
       name:
         example: Q4 Performance Review
         type: string
+    type: object
+  portal.AssetVersion:
+    properties:
+      asset_id:
+        example: asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK
+        type: string
+      change_summary:
+        example: Updated regional breakdown chart
+        type: string
+      content_type:
+        example: text/html
+        type: string
+      created_at:
+        type: string
+      created_by:
+        example: alice@example.com
+        type: string
+      id:
+        example: ver_01HK7R9A
+        type: string
+      s3_bucket:
+        example: portal-assets
+        type: string
+      s3_key:
+        example: assets/01HK7R8Z/v2/content.html
+        type: string
+      size_bytes:
+        example: 4500
+        type: integer
+      version:
+        example: 2
+        type: integer
     type: object
   portal.Collection:
     properties:
@@ -2691,6 +3073,614 @@ info:
   title: MCP Data Platform API
   version: "1.0"
 paths:
+  /admin/api-catalogs:
+    get:
+      description: Returns all API catalogs with derived spec_count and ref_count
+        fields.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/admin.catalogResponse'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List API catalogs
+      tags:
+      - API Catalogs
+    post:
+      consumes:
+      - application/json
+      description: Creates a new API catalog. Only available in database config mode.
+      parameters:
+      - description: Catalog definition
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/admin.createCatalogRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/admin.catalogResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Create API catalog
+      tags:
+      - API Catalogs
+  /admin/api-catalogs/{id}:
+    delete:
+      description: Deletes a catalog. Rejected with 409 if any connection still references
+        it.
+      parameters:
+      - description: Catalog ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.statusResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete API catalog
+      tags:
+      - API Catalogs
+    get:
+      description: Returns a single API catalog by ID with derived spec_count and
+        ref_count fields.
+      parameters:
+      - description: Catalog ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.catalogResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get API catalog
+      tags:
+      - API Catalogs
+    put:
+      consumes:
+      - application/json
+      description: Applies a partial edit to a catalog and reloads dependent api-gateway
+        connections.
+      parameters:
+      - description: Catalog ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Catalog fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/admin.updateCatalogRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.catalogResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update API catalog
+      tags:
+      - API Catalogs
+  /admin/api-catalogs/{id}/clone:
+    post:
+      consumes:
+      - application/json
+      description: Creates a new catalog by copying the source catalog's metadata,
+        specs, and embeddings.
+      parameters:
+      - description: Source catalog ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Destination catalog definition
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/admin.cloneCatalogRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/admin.catalogResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Clone API catalog
+      tags:
+      - API Catalogs
+  /admin/api-catalogs/{id}/embedding-health:
+    get:
+      description: Returns the per-catalog embedding roll-up (specs total/indexed/pending/running/failed).
+      parameters:
+      - description: Catalog ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.embeddingHealthResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get catalog embedding health
+      tags:
+      - API Catalogs
+  /admin/api-catalogs/{id}/embedding-jobs:
+    get:
+      description: Returns recent embedding job rows for a catalog, optionally filtered
+        by status and spec_name.
+      parameters:
+      - description: Catalog ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Filter by job status
+        in: query
+        name: status
+        type: string
+      - description: Filter by spec name
+        in: query
+        name: spec_name
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List catalog embedding jobs
+      tags:
+      - API Catalogs
+  /admin/api-catalogs/{id}/embedding-status:
+    get:
+      description: Returns one row per spec with operation_count, embedding_count,
+        and latest job state.
+      parameters:
+      - description: Catalog ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List catalog embedding statuses
+      tags:
+      - API Catalogs
+  /admin/api-catalogs/{id}/specs:
+    get:
+      description: Returns the specs in a catalog with embedding metadata. Spec content
+        is omitted.
+      parameters:
+      - description: Catalog ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.specListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List catalog specs
+      tags:
+      - API Catalogs
+  /admin/api-catalogs/{id}/specs/{spec}:
+    delete:
+      description: Removes a spec from a catalog and reloads dependent api-gateway
+        connections.
+      parameters:
+      - description: Catalog ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Spec name
+        in: path
+        name: spec
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.statusResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete catalog spec
+      tags:
+      - API Catalogs
+    get:
+      description: Returns a single catalog spec including its content and embedding
+        metadata.
+      parameters:
+      - description: Catalog ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Spec name
+        in: path
+        name: spec
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.specResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get catalog spec
+      tags:
+      - API Catalogs
+    put:
+      consumes:
+      - application/json
+      description: Creates or updates a catalog spec from inline content or a fetched
+        URL, then enqueues an embedding job.
+      parameters:
+      - description: Catalog ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Spec name
+        in: path
+        name: spec
+        required: true
+        type: string
+      - description: Spec source and metadata
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/admin.upsertCatalogSpecRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.specResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Upsert catalog spec
+      tags:
+      - API Catalogs
+  /admin/api-catalogs/{id}/specs/{spec}/reembed:
+    post:
+      description: Enqueues a manual_retry embedding job for a spec, recomputing vectors
+        fresh without the text-hash dedup.
+      parameters:
+      - description: Catalog ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Spec name
+        in: path
+        name: spec
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Retry catalog spec embedding
+      tags:
+      - API Catalogs
+  /admin/api-catalogs/{id}/specs/{spec}/refresh:
+    post:
+      description: Re-fetches a URL-sourced spec from its source_url, stores the new
+        content, and enqueues an embedding job.
+      parameters:
+      - description: Catalog ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Spec name
+        in: path
+        name: spec
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.specResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Refresh catalog spec
+      tags:
+      - API Catalogs
+  /admin/api-catalogs/{id}/specs/{spec}/upload:
+    put:
+      consumes:
+      - multipart/form-data
+      description: Stores a catalog spec from a multipart file upload, then enqueues
+        an embedding job.
+      parameters:
+      - description: Catalog ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Spec name
+        in: path
+        name: spec
+        required: true
+        type: string
+      - description: Operator base_path override
+        in: query
+        name: base_path
+        type: string
+      - description: Operator title override
+        in: query
+        name: title
+        type: string
+      - description: Operator description override
+        in: query
+        name: description
+        type: string
+      - description: OpenAPI spec file (YAML or JSON)
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.specResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "415":
+          description: Unsupported Media Type
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Upload catalog spec
+      tags:
+      - API Catalogs
   /admin/api-gateway/connections/{name}/oauth-start:
     post:
       consumes:
@@ -2767,6 +3757,442 @@ paths:
       summary: OAuth authorization-code callback for API gateway connections
       tags:
       - Connections
+  /admin/assets:
+    get:
+      description: Returns all platform assets without owner restriction, with active
+        share summaries.
+      parameters:
+      - description: Search term
+        in: query
+        name: search
+        type: string
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      - description: Page offset
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.adminAssetListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List all assets
+      tags:
+      - Portal Assets
+  /admin/assets/{id}:
+    delete:
+      description: Soft-deletes an asset without owner restriction.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.statusResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete asset
+      tags:
+      - Portal Assets
+    get:
+      description: Returns a single asset by ID without owner restriction.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.Asset'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get asset
+      tags:
+      - Portal Assets
+    put:
+      consumes:
+      - application/json
+      description: Updates an asset's metadata (name, description, tags) without owner
+        restriction.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Asset metadata to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/admin.adminUpdateAssetRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.statusResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update asset
+      tags:
+      - Portal Assets
+  /admin/assets/{id}/content:
+    get:
+      description: Streams an asset's stored S3 content without owner restriction.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get asset content
+      tags:
+      - Portal Assets
+    put:
+      consumes:
+      - application/octet-stream
+      description: Replaces an asset's stored content from the raw request body and
+        records a new version.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Raw asset content
+        in: body
+        name: body
+        required: true
+        schema:
+          type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.statusResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "410":
+          description: Gone
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update asset content
+      tags:
+      - Portal Assets
+  /admin/assets/{id}/thumbnail:
+    get:
+      description: Streams an asset's PNG thumbnail without owner restriction.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - image/png
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "410":
+          description: Gone
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get asset thumbnail
+      tags:
+      - Portal Assets
+    put:
+      consumes:
+      - image/png
+      description: Stores a PNG thumbnail for an asset from the raw request body.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Raw PNG thumbnail content
+        in: body
+        name: body
+        required: true
+        schema:
+          type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.statusResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "410":
+          description: Gone
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Upload asset thumbnail
+      tags:
+      - Portal Assets
+  /admin/assets/{id}/versions:
+    get:
+      description: Returns the version history for an asset.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      - description: Page offset
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.adminVersionListResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List asset versions
+      tags:
+      - Portal Assets
+  /admin/assets/{id}/versions/{version}/content:
+    get:
+      description: Streams the stored content for a specific asset version.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Version number
+        in: path
+        name: version
+        required: true
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get asset version content
+      tags:
+      - Portal Assets
+  /admin/assets/{id}/versions/{version}/revert:
+    post:
+      description: Creates a new asset version by reverting to a previous version's
+        content.
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Version number to revert to
+        in: path
+        name: version
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "410":
+          description: Gone
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Revert asset version
+      tags:
+      - Portal Assets
   /admin/audit/events:
     get:
       description: Returns paginated audit events with optional filtering.
@@ -3269,6 +4695,173 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Get config
+      tags:
+      - Config
+  /admin/config/changelog:
+    get:
+      description: Returns recent config change history entries.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/configstore.ChangelogEntry'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get config changelog
+      tags:
+      - Config
+  /admin/config/effective:
+    get:
+      description: 'Returns the merged config view: for each whitelisted key, the
+        database override if present, otherwise the file default.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/admin.effectiveConfigEntry'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List effective config
+      tags:
+      - Config
+  /admin/config/entries:
+    get:
+      description: Returns all database-backed config override entries.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/configstore.Entry'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List config entries
+      tags:
+      - Config
+  /admin/config/entries/{key}:
+    delete:
+      description: Removes a database-backed config override entry, reverting the
+        live config to the file default if one exists.
+      parameters:
+      - description: Config entry key
+        in: path
+        name: key
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete config entry
+      tags:
+      - Config
+    get:
+      description: Returns a single database-backed config override entry by key.
+      parameters:
+      - description: Config entry key
+        in: path
+        name: key
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/configstore.Entry'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get config entry
+      tags:
+      - Config
+    put:
+      consumes:
+      - application/json
+      description: Creates or updates a database-backed config override entry and
+        hot-reloads it into the live config.
+      parameters:
+      - description: Config entry key
+        in: path
+        name: key
+        required: true
+        type: string
+      - description: Config entry value
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/admin.setConfigEntryRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/configstore.Entry'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Set config entry
       tags:
       - Config
   /admin/config/export:
@@ -5002,6 +6595,178 @@ paths:
       summary: Preview a persona's decision for a tool
       tags:
       - Personas
+  /admin/prompts:
+    get:
+      description: Returns all prompts across all scopes, including system-registered
+        prompts. Supports scope, search, and owner_email filters.
+      parameters:
+      - description: Filter by scope
+        in: query
+        name: scope
+        type: string
+      - description: Search term
+        in: query
+        name: search
+        type: string
+      - description: Filter by owner email
+        in: query
+        name: owner_email
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.adminPromptListResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List prompts
+      tags:
+      - Prompts
+    post:
+      consumes:
+      - application/json
+      description: Creates a new prompt and registers it with the live MCP server
+        when enabled.
+      parameters:
+      - description: Prompt definition
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/admin.adminPromptCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/prompt.Prompt'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Create prompt
+      tags:
+      - Prompts
+  /admin/prompts/{id}:
+    delete:
+      description: Deletes a prompt by ID and unregisters it from the live MCP server.
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/admin.statusResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete prompt
+      tags:
+      - Prompts
+    get:
+      description: Returns a single prompt by ID.
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/prompt.Prompt'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get prompt
+      tags:
+      - Prompts
+    put:
+      consumes:
+      - application/json
+      description: Updates an existing prompt by ID and re-registers it with the live
+        MCP server.
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Prompt fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/admin.adminPromptUpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/prompt.Prompt'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update prompt
+      tags:
+      - Prompts
   /admin/system/info:
     get:
       description: Returns platform identity, version, runtime feature availability,

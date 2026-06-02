@@ -2807,6 +2807,24 @@ Retryable failures back off exponentially (5s, 10s, 20s, 40s, 80s) up to 5 attem
 
 ---
 
+# Self-Configuration (the platform-admin connection)
+
+The platform's premise is that an AI agent helps people operate their data and infrastructure. Self-configuration turns that capability inward: an admin connected over MCP can configure and maintain the platform itself, driving the same `/api/v1/admin/*` REST API the Portal uses, through the existing API gateway discovery and invoke tools. "Create an analyst persona that can query Trino but cannot run any delete tool" or "add an S3 connection for bucket reports and grant it to the finance persona" becomes a sentence to the agent rather than a click-path.
+
+How it works: on startup the platform registers a built-in API gateway connection named `platform-admin` whose OpenAPI catalog is sourced from the spec embedded in the binary (catalog `source_kind = embedded`). Because that spec is generated from the same source tree at build time, the catalog is by construction the exact admin API of the running version; a release that adds admin endpoints ships a new embedded spec, re-indexed automatically at startup with no URL fetch, scheduled poll, or operator catalog upkeep. The connection's `base_url` is the loopback address of the platform's own admin listener (e.g. `http://127.0.0.1:8080`), so an `api_invoke_endpoint` call is a loopback round-trip to `/api/v1/admin/*`. (The embedded OpenAPI 2.0 / Swagger document swaggo generates is converted to OpenAPI 3.0 at seed time, the form the gateway's spec parser accepts.)
+
+Caller identity: admin API mutations must be attributed to and authorized as the acting admin, not a shared connection identity. The connection is configured with `identity_passthrough: true` (and `auth_mode: none`): instead of applying a shared credential, `api_invoke_endpoint` forwards the acting caller's inbound bearer token (the token that authenticated the MCP session) as the outbound `Authorization` header. The admin API authenticates that token through the same authenticator the MCP transport uses, so authorization and audit logging attribute the change to the real admin. A passthrough call with no caller token fails fast rather than calling anonymously.
+
+Discovery and invocation behave like any other API gateway connection: `api_list_specs` / `api_list_endpoints` discover admin operations, `api_get_endpoint_schema` inspects an operation's parameters and request body, and `api_invoke_endpoint` calls an operation (e.g. `POST /api/v1/admin/personas`).
+
+Access control: the connection is admin-only by default. It is marked `admin_only: true`, which adds it to the authorizer's restricted set: for a restricted connection the usual "a persona with no connection allow-rules may use every connection" default does not apply. A non-admin persona is denied the connection unless an admin explicitly grants it by adding the connection name to that persona's connection allow-list; the built-in admin persona allows `*`, so it retains full access.
+
+Configuration: auto-enabled when the prerequisites are met (HTTP transport with the admin API mounted, a database, and the API gateway toolkit). Configured under `apigateway.self_connection`: `enabled` (nil/auto = on when prerequisites are met, false to opt out) and `base_url` (override the loopback admin URL; empty derives `http://127.0.0.1:<port>` from the server listen address — set it only when the admin API is reachable at a different loopback address, for example when `admin.path_prefix` has been changed from its `/api/v1/admin` default so the embedded spec's base path no longer matches the live routes).
+
+Security considerations: default scope is admin only (granting to another persona is an explicit admin action); mutations are attributed to the acting admin through the existing audit middleware via identity passthrough; destructive admin operations run through the same audit and authorization path as any other admin API call.
+
+---
+
 # Links
 
 - GitHub: https://github.com/txn2/mcp-data-platform

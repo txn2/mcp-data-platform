@@ -62,6 +62,15 @@ The OAuth 2.1 authorization-code grant completes via the platform's shared `/api
 
 > **Deprecated (still accepted).** Earlier api-gateway connections used an `oauth2_*` key prefix and encoded the grant in the `auth_mode` value (`oauth2_client_credentials` / `oauth2_authorization_code`), with `oauth2_scopes` as an array. Those are read as a fallback and rewritten to the canonical keys automatically by a database migration on upgrade; no reconnect is required. The fallback is scheduled for removal in a future release.
 
+### Identity passthrough and admin-only connections
+
+Two connection options support the built-in self-configuration connection (see [Self-Configuration](self-configuration.md)):
+
+| Key | Type | Meaning |
+|---|---|---|
+| `identity_passthrough` | bool | Forward the acting caller's inbound bearer token as the outbound `Authorization` header instead of applying this connection's shared credential. Requires `auth_mode: none`. A call with no caller token fails rather than calling anonymously. Intended for loopback calls to the platform's own API where the change must be attributed to the real user, not a shared identity. |
+| `admin_only` | bool | Mark the connection usable only by the admin persona by default. A non-admin persona is denied the connection unless an admin grants it via the persona's connection `allow` list. |
+
 ## Private CAs and mTLS
 
 mTLS (RFC 5246 / 8446 client certificate authentication at the TLS handshake) is the standard way HTTPS clients authenticate when a header bearer is not enough. The toolkit supports it generically; nothing here is vendor-specific. Common targets:

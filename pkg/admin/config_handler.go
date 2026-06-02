@@ -268,6 +268,16 @@ type effectiveConfigEntry struct {
 
 // listEffectiveConfig handles GET /api/v1/admin/config/effective.
 // Returns the merged view: for each whitelisted key, the DB override if present, otherwise the file default.
+//
+// @Summary      List effective config
+// @Description  Returns the merged config view: for each whitelisted key, the database override if present, otherwise the file default.
+// @Tags         Config
+// @Produce      json
+// @Success      200  {array}   effectiveConfigEntry
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/config/effective [get]
 func (h *Handler) listEffectiveConfig(w http.ResponseWriter, r *http.Request) {
 	// Get DB overrides.
 	dbEntries, err := h.deps.ConfigStore.List(r.Context())
@@ -313,6 +323,16 @@ func (h *Handler) listEffectiveConfig(w http.ResponseWriter, r *http.Request) {
 // --- Config Entry CRUD ---
 
 // listConfigEntries handles GET /api/v1/admin/config/entries.
+//
+// @Summary      List config entries
+// @Description  Returns all database-backed config override entries.
+// @Tags         Config
+// @Produce      json
+// @Success      200  {array}   configstore.Entry
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/config/entries [get]
 func (h *Handler) listConfigEntries(w http.ResponseWriter, r *http.Request) {
 	entries, err := h.deps.ConfigStore.List(r.Context())
 	if err != nil {
@@ -326,6 +346,18 @@ func (h *Handler) listConfigEntries(w http.ResponseWriter, r *http.Request) {
 }
 
 // getConfigEntry handles GET /api/v1/admin/config/entries/{key}.
+//
+// @Summary      Get config entry
+// @Description  Returns a single database-backed config override entry by key.
+// @Tags         Config
+// @Produce      json
+// @Param        key  path  string  true  "Config entry key"
+// @Success      200  {object}  configstore.Entry
+// @Failure      404  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/config/entries/{key} [get]
 func (h *Handler) getConfigEntry(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 	entry, err := h.deps.ConfigStore.Get(r.Context(), key)
@@ -346,6 +378,20 @@ type setConfigEntryRequest struct {
 }
 
 // setConfigEntry handles PUT /api/v1/admin/config/entries/{key}.
+//
+// @Summary      Set config entry
+// @Description  Creates or updates a database-backed config override entry and hot-reloads it into the live config.
+// @Tags         Config
+// @Accept       json
+// @Produce      json
+// @Param        key   path  string                 true  "Config entry key"
+// @Param        body  body  setConfigEntryRequest  true  "Config entry value"
+// @Success      200  {object}  configstore.Entry
+// @Failure      400  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/config/entries/{key} [put]
 func (h *Handler) setConfigEntry(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 	if !h.isConfigKeyAllowed(key) {
@@ -385,6 +431,19 @@ func (h *Handler) setConfigEntry(w http.ResponseWriter, r *http.Request) {
 }
 
 // deleteConfigEntry handles DELETE /api/v1/admin/config/entries/{key}.
+//
+// @Summary      Delete config entry
+// @Description  Removes a database-backed config override entry, reverting the live config to the file default if one exists.
+// @Tags         Config
+// @Produce      json
+// @Param        key  path  string  true  "Config entry key"
+// @Success      204  "No Content"
+// @Failure      400  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/config/entries/{key} [delete]
 func (h *Handler) deleteConfigEntry(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 	if !h.isConfigKeyAllowed(key) {
@@ -421,6 +480,16 @@ func (h *Handler) deleteConfigEntry(w http.ResponseWriter, r *http.Request) {
 }
 
 // getConfigChangelog handles GET /api/v1/admin/config/changelog.
+//
+// @Summary      Get config changelog
+// @Description  Returns recent config change history entries.
+// @Tags         Config
+// @Produce      json
+// @Success      200  {array}   configstore.ChangelogEntry
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/config/changelog [get]
 func (h *Handler) getConfigChangelog(w http.ResponseWriter, r *http.Request) {
 	entries, err := h.deps.ConfigStore.Changelog(r.Context(), defaultChangelogLimit)
 	if err != nil {

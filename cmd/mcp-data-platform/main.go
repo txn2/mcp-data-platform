@@ -378,6 +378,15 @@ func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Pla
 	// Mount admin API if enabled
 	mountAdminAPI(mux, p)
 
+	// Register the built-in platform-admin self-connection (issue #543)
+	// so an admin can drive /api/v1/admin/* through the api gateway. Only
+	// meaningful when the admin API is actually mounted, hence gated on
+	// admin.enabled here; the wiring itself no-ops without a catalog store
+	// or api-gateway toolkit. opts.address supplies the loopback port.
+	if p != nil && p.Config().Admin.Enabled {
+		p.WireAdminSelfConnection(opts.address)
+	}
+
 	// Mount portal API if enabled
 	mountPortalAPI(mux, p)
 

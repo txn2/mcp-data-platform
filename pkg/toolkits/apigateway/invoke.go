@@ -18,6 +18,7 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 
+	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
 
@@ -205,10 +206,36 @@ func buildUpstreamRequest(ctx context.Context, cfg Config, auth Authenticator, s
 	if err != nil {
 		return nil, err
 	}
+	if cfg.IdentityPassthrough {
+		if err := applyIdentityPassthrough(ctx, req); err != nil {
+			return nil, err
+		}
+		return req, nil
+	}
 	if err := auth.Apply(req); err != nil {
 		return nil, fmt.Errorf("apigateway: applying auth: %w", err)
 	}
 	return req, nil
+}
+
+// applyIdentityPassthrough forwards the acting caller's inbound bearer
+// token as the outbound Authorization header, in place of this
+// connection's shared credential. The token is the one that
+// authenticated the MCP session, bridged onto the request context by the
+// auth middleware and read here via mcpcontext (importing pkg/middleware
+// would form a cycle). An absent token is a hard error: a
+// passthrough connection (the built-in platform-admin self-connection)
+// must act as the calling admin, so an anonymous loopback call to the
+// admin API would be wrong, not merely unauthenticated. The Authorization
+// header is reserved from model input by validateCustomHeaders, so the
+// value set here cannot be overridden by a tool argument.
+func applyIdentityPassthrough(ctx context.Context, req *http.Request) error {
+	token := mcpcontext.GetAuthToken(ctx)
+	if token == "" {
+		return errors.New("apigateway: identity passthrough requires an authenticated caller token, but none was present on the request")
+	}
+	req.Header.Set(authorizationHeader, "Bearer "+token)
+	return nil
 }
 
 func validateMethod(method string) (string, error) {

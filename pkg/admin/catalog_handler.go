@@ -133,6 +133,17 @@ type catalogResponse struct {
 	RefCount    int    `json:"ref_count"`
 }
 
+// listCatalogs handles GET /api/v1/admin/api-catalogs.
+//
+// @Summary      List API catalogs
+// @Description  Returns all API catalogs with derived spec_count and ref_count fields.
+// @Tags         API Catalogs
+// @Produce      json
+// @Success      200  {array}   catalogResponse
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/api-catalogs [get]
 func (h *Handler) listCatalogs(w http.ResponseWriter, r *http.Request) {
 	cs, err := h.deps.APICatalogStore.ListCatalogs(r.Context())
 	if err != nil {
@@ -147,6 +158,19 @@ func (h *Handler) listCatalogs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// getCatalog handles GET /api/v1/admin/api-catalogs/{id}.
+//
+// @Summary      Get API catalog
+// @Description  Returns a single API catalog by ID with derived spec_count and ref_count fields.
+// @Tags         API Catalogs
+// @Produce      json
+// @Param        id  path  string  true  "Catalog ID"
+// @Success      200  {object}  catalogResponse
+// @Failure      404  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/api-catalogs/{id} [get]
 func (h *Handler) getCatalog(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(catalogPathID)
 	c, err := h.deps.APICatalogStore.GetCatalog(r.Context(), id)
@@ -170,6 +194,21 @@ type createCatalogRequest struct {
 	Description string `json:"description,omitempty"`
 }
 
+// createCatalog handles POST /api/v1/admin/api-catalogs.
+//
+// @Summary      Create API catalog
+// @Description  Creates a new API catalog. Only available in database config mode.
+// @Tags         API Catalogs
+// @Accept       json
+// @Produce      json
+// @Param        body  body  createCatalogRequest  true  "Catalog definition"
+// @Success      201  {object}  catalogResponse
+// @Failure      400  {object}  problemDetail
+// @Failure      409  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/api-catalogs [post]
 func (h *Handler) createCatalog(w http.ResponseWriter, r *http.Request) {
 	var req createCatalogRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -221,6 +260,23 @@ type updateCatalogRequest struct {
 	Description *string `json:"description,omitempty"`
 }
 
+// updateCatalog handles PUT /api/v1/admin/api-catalogs/{id}.
+//
+// @Summary      Update API catalog
+// @Description  Applies a partial edit to a catalog and reloads dependent api-gateway connections.
+// @Tags         API Catalogs
+// @Accept       json
+// @Produce      json
+// @Param        id    path  string                true  "Catalog ID"
+// @Param        body  body  updateCatalogRequest  true  "Catalog fields to update"
+// @Success      200  {object}  catalogResponse
+// @Failure      400  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      409  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/api-catalogs/{id} [put]
 func (h *Handler) updateCatalog(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(catalogPathID)
 	var req updateCatalogRequest
@@ -254,6 +310,20 @@ func (h *Handler) updateCatalog(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, statusResponse{Status: "ok"})
 }
 
+// deleteCatalog handles DELETE /api/v1/admin/api-catalogs/{id}.
+//
+// @Summary      Delete API catalog
+// @Description  Deletes a catalog. Rejected with 409 if any connection still references it.
+// @Tags         API Catalogs
+// @Produce      json
+// @Param        id  path  string  true  "Catalog ID"
+// @Success      200  {object}  statusResponse
+// @Failure      404  {object}  problemDetail
+// @Failure      409  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/api-catalogs/{id} [delete]
 func (h *Handler) deleteCatalog(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(catalogPathID)
 	refs, err := h.deps.APICatalogStore.ReferencingConnections(r.Context(), id)
@@ -289,6 +359,23 @@ type cloneCatalogRequest struct {
 	DisplayName string `json:"display_name,omitempty"`
 }
 
+// cloneCatalog handles POST /api/v1/admin/api-catalogs/{id}/clone.
+//
+// @Summary      Clone API catalog
+// @Description  Creates a new catalog by copying the source catalog's metadata, specs, and embeddings.
+// @Tags         API Catalogs
+// @Accept       json
+// @Produce      json
+// @Param        id    path  string               true  "Source catalog ID"
+// @Param        body  body  cloneCatalogRequest  true  "Destination catalog definition"
+// @Success      201  {object}  catalogResponse
+// @Failure      400  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      409  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/api-catalogs/{id}/clone [post]
 func (h *Handler) cloneCatalog(w http.ResponseWriter, r *http.Request) {
 	srcID := r.PathValue(catalogPathID)
 	var req cloneCatalogRequest
@@ -453,6 +540,18 @@ type specListResponse struct {
 	Specs []specResponse `json:"specs"`
 }
 
+// listCatalogSpecs handles GET /api/v1/admin/api-catalogs/{id}/specs.
+//
+// @Summary      List catalog specs
+// @Description  Returns the specs in a catalog with embedding metadata. Spec content is omitted.
+// @Tags         API Catalogs
+// @Produce      json
+// @Param        id  path  string  true  "Catalog ID"
+// @Success      200  {object}  specListResponse
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/api-catalogs/{id}/specs [get]
 func (h *Handler) listCatalogSpecs(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(catalogPathID)
 	specs, err := h.deps.APICatalogStore.ListSpecs(r.Context(), id)
@@ -467,6 +566,20 @@ func (h *Handler) listCatalogSpecs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// getCatalogSpec handles GET /api/v1/admin/api-catalogs/{id}/specs/{spec}.
+//
+// @Summary      Get catalog spec
+// @Description  Returns a single catalog spec including its content and embedding metadata.
+// @Tags         API Catalogs
+// @Produce      json
+// @Param        id    path  string  true  "Catalog ID"
+// @Param        spec  path  string  true  "Spec name"
+// @Success      200  {object}  specResponse
+// @Failure      404  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/api-catalogs/{id}/specs/{spec} [get]
 func (h *Handler) getCatalogSpec(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(catalogPathID)
 	specName := r.PathValue(catalogPathSpec)
@@ -504,6 +617,25 @@ type upsertCatalogSpecRequest struct {
 	Description string `json:"description,omitempty"`
 }
 
+// upsertCatalogSpec handles PUT /api/v1/admin/api-catalogs/{id}/specs/{spec}.
+//
+// @Summary      Upsert catalog spec
+// @Description  Creates or updates a catalog spec from inline content or a fetched URL, then enqueues an embedding job.
+// @Tags         API Catalogs
+// @Accept       json
+// @Produce      json
+// @Param        id    path  string                    true  "Catalog ID"
+// @Param        spec  path  string                    true  "Spec name"
+// @Param        body  body  upsertCatalogSpecRequest  true  "Spec source and metadata"
+// @Success      200  {object}  specResponse
+// @Failure      400  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      413  {object}  problemDetail
+// @Failure      502  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/api-catalogs/{id}/specs/{spec} [put]
 func (h *Handler) upsertCatalogSpec(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(catalogPathID)
 	specName := r.PathValue(catalogPathSpec)
@@ -693,6 +825,27 @@ func applyUploadSpecMetadata(entry *apicatalog.SpecEntry, q url.Values, existing
 	}
 }
 
+// uploadCatalogSpec handles PUT /api/v1/admin/api-catalogs/{id}/specs/{spec}/upload.
+//
+// @Summary      Upload catalog spec
+// @Description  Stores a catalog spec from a multipart file upload, then enqueues an embedding job.
+// @Tags         API Catalogs
+// @Accept       multipart/form-data
+// @Produce      json
+// @Param        id           path      string  true   "Catalog ID"
+// @Param        spec         path      string  true   "Spec name"
+// @Param        base_path    query     string  false  "Operator base_path override"
+// @Param        title        query     string  false  "Operator title override"
+// @Param        description  query     string  false  "Operator description override"
+// @Param        file         formData  file    true   "OpenAPI spec file (YAML or JSON)"
+// @Success      200  {object}  specResponse
+// @Failure      400  {object}  problemDetail
+// @Failure      413  {object}  problemDetail
+// @Failure      415  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/api-catalogs/{id}/specs/{spec}/upload [put]
 func (h *Handler) uploadCatalogSpec(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(catalogPathID)
 	specName := r.PathValue(catalogPathSpec)
@@ -735,6 +888,23 @@ func (h *Handler) uploadCatalogSpec(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, statusResponse{Status: "ok"})
 }
 
+// refreshCatalogSpec handles POST /api/v1/admin/api-catalogs/{id}/specs/{spec}/refresh.
+//
+// @Summary      Refresh catalog spec
+// @Description  Re-fetches a URL-sourced spec from its source_url, stores the new content, and enqueues an embedding job.
+// @Tags         API Catalogs
+// @Produce      json
+// @Param        id    path  string  true  "Catalog ID"
+// @Param        spec  path  string  true  "Spec name"
+// @Success      200  {object}  specResponse
+// @Failure      400  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      413  {object}  problemDetail
+// @Failure      502  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/api-catalogs/{id}/specs/{spec}/refresh [post]
 func (h *Handler) refreshCatalogSpec(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(catalogPathID)
 	specName := r.PathValue(catalogPathSpec)
@@ -777,6 +947,20 @@ func (h *Handler) refreshCatalogSpec(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, h.specToResponseWithEmbedding(r.Context(), id, entry, false))
 }
 
+// deleteCatalogSpec handles DELETE /api/v1/admin/api-catalogs/{id}/specs/{spec}.
+//
+// @Summary      Delete catalog spec
+// @Description  Removes a spec from a catalog and reloads dependent api-gateway connections.
+// @Tags         API Catalogs
+// @Produce      json
+// @Param        id    path  string  true  "Catalog ID"
+// @Param        spec  path  string  true  "Spec name"
+// @Success      200  {object}  statusResponse
+// @Failure      404  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/api-catalogs/{id}/specs/{spec} [delete]
 func (h *Handler) deleteCatalogSpec(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(catalogPathID)
 	specName := r.PathValue(catalogPathSpec)
@@ -902,6 +1086,17 @@ const logKeyCatalogID = "catalog_id"
 // state. The portal renders this list as per-spec badges in the
 // CatalogsPanel so the operator can see, at a glance, which
 // specs are fully indexed and which are queued / failed.
+//
+// @Summary      List catalog embedding statuses
+// @Description  Returns one row per spec with operation_count, embedding_count, and latest job state.
+// @Tags         API Catalogs
+// @Produce      json
+// @Param        id  path  string  true  "Catalog ID"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/api-catalogs/{id}/embedding-status [get]
 func (h *Handler) listCatalogEmbeddingStatuses(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(catalogPathID)
 	rows, err := h.deps.EmbedJobs.SpecStatuses(r.Context(), id)
@@ -920,6 +1115,17 @@ func (h *Handler) listCatalogEmbeddingStatuses(w http.ResponseWriter, r *http.Re
 
 // getCatalogEmbeddingHealth returns the per-catalog roll-up the
 // portal renders at the top of the catalog editor.
+//
+// @Summary      Get catalog embedding health
+// @Description  Returns the per-catalog embedding roll-up (specs total/indexed/pending/running/failed).
+// @Tags         API Catalogs
+// @Produce      json
+// @Param        id  path  string  true  "Catalog ID"
+// @Success      200  {object}  embeddingHealthResponse
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/api-catalogs/{id}/embedding-health [get]
 func (h *Handler) getCatalogEmbeddingHealth(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(catalogPathID)
 	h2, err := h.deps.EmbedJobs.Health(r.Context(), id)
@@ -942,6 +1148,19 @@ func (h *Handler) getCatalogEmbeddingHealth(w http.ResponseWriter, r *http.Reque
 // listCatalogEmbeddingJobs returns recent job rows for the
 // catalog. Used by the admin "Embedding history" view and for
 // debugging "why did this spec fail to index" questions.
+//
+// @Summary      List catalog embedding jobs
+// @Description  Returns recent embedding job rows for a catalog, optionally filtered by status and spec_name.
+// @Tags         API Catalogs
+// @Produce      json
+// @Param        id         path   string  true   "Catalog ID"
+// @Param        status     query  string  false  "Filter by job status"
+// @Param        spec_name  query  string  false  "Filter by spec name"
+// @Success      200  {object}  map[string]interface{}
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/api-catalogs/{id}/embedding-jobs [get]
 func (h *Handler) listCatalogEmbeddingJobs(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(catalogPathID)
 	filter := catalogindex.ListFilter{CatalogID: id, Limit: embeddingJobListDefaultLimit}
@@ -973,6 +1192,19 @@ func (h *Handler) listCatalogEmbeddingJobs(w http.ResponseWriter, r *http.Reques
 // worker treats identically to a spec_write job except for the
 // audit kind. The worker's compute path skips the text-hash
 // dedup for manual_retry kind, so vectors are recomputed fresh.
+//
+// @Summary      Retry catalog spec embedding
+// @Description  Enqueues a manual_retry embedding job for a spec, recomputing vectors fresh without the text-hash dedup.
+// @Tags         API Catalogs
+// @Produce      json
+// @Param        id    path  string  true  "Catalog ID"
+// @Param        spec  path  string  true  "Spec name"
+// @Success      202  {object}  map[string]interface{}
+// @Failure      404  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/api-catalogs/{id}/specs/{spec}/reembed [post]
 func (h *Handler) manualRetryEmbedding(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(catalogPathID)
 	specName := r.PathValue(catalogPathSpec)

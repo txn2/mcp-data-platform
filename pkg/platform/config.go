@@ -889,6 +889,43 @@ type APIGatewayConfig struct {
 	// all connections so a burst of large responses cannot OOMKill the
 	// pod (issue #535).
 	Memory APIGatewayMemoryConfig `yaml:"memory"`
+
+	// SelfConnection configures the built-in platform-admin connection
+	// that points the API gateway at the platform's own admin REST API.
+	SelfConnection APIGatewaySelfConnectionConfig `yaml:"self_connection"`
+}
+
+// APIGatewaySelfConnectionConfig configures the built-in "platform-admin"
+// API-gateway connection (issue #543), which lets an admin drive the
+// platform's own /api/v1/admin/* surface through api_list_endpoints /
+// api_invoke_endpoint. Its catalog is sourced from the OpenAPI document
+// embedded in the binary, so it stays in sync with the running version
+// with no manual catalog maintenance.
+//
+// Auto-enabled when the prerequisites are met (HTTP transport with the
+// admin API mounted, a database, and the API-gateway toolkit). Set
+// enabled: false to opt out.
+type APIGatewaySelfConnectionConfig struct {
+	// Enabled gates self-registration. Nil = auto (on when prerequisites
+	// are met); set explicitly to override.
+	Enabled *bool `yaml:"enabled"`
+	// BaseURL overrides the loopback admin API base URL the connection
+	// targets. Empty derives http://127.0.0.1:<port> from the server
+	// listen address. Set this only when the admin API is reachable at a
+	// different loopback address than the main listener.
+	BaseURL string `yaml:"base_url"`
+}
+
+// SelfConnectionEnabled reports whether the built-in platform-admin
+// connection should self-register, given whether its runtime
+// prerequisites are satisfied. A nil Enabled defaults to the
+// prerequisite result (auto); an explicit value overrides it but an
+// operator cannot force it on when the prerequisites are absent.
+func (c APIGatewaySelfConnectionConfig) SelfConnectionEnabled(prereqsMet bool) bool {
+	if c.Enabled == nil {
+		return prereqsMet
+	}
+	return *c.Enabled && prereqsMet
 }
 
 // APIGatewayMemoryConfig bounds the memory the api gateway commits to
