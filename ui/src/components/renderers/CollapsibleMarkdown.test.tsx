@@ -56,4 +56,25 @@ describe("CollapsibleMarkdown", () => {
     ).toBeInTheDocument();
     restore();
   });
+
+  it("uses a taller clamp when maxHeightPx is raised", () => {
+    // 150px overflows the default ~84px clamp but fits within a 200px clamp,
+    // so the toggle must not appear when the caller raises maxHeightPx.
+    const restore = setScrollHeight(150);
+    render(<CollapsibleMarkdown content="medium description" maxHeightPx={200} />);
+
+    expect(screen.getByText("medium description")).toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    restore();
+  });
+
+  it("still clamps content taller than the raised maxHeightPx", () => {
+    const restore = setScrollHeight(400);
+    render(<CollapsibleMarkdown content="long description" maxHeightPx={200} />);
+
+    expect(
+      screen.getByRole("button", { name: "Show more" }),
+    ).toBeInTheDocument();
+    restore();
+  });
 });
