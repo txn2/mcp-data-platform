@@ -232,6 +232,8 @@ The gateway is a single shared process serving every connection and toolkit. `ap
 
 The global **in-flight memory budget** closes that gap. It tracks the bytes committed to response buffering across all connections, and refuses a new buffered read — before allocating the buffer — when granting it would push the total past the ceiling. A refused request returns the structured `gateway_memory_budget_exhausted` error, which the REST shim maps to a retryable `429`.
 
+`api_invoke_endpoint` additionally **refuses binary (non-text) response bodies before buffering them**. The tool returns the body through the MCP/JSON channel, where `json.Marshal` escapes every control and invalid-UTF-8 byte as `\uXXXX`; a high-entropy body (a zip, image, PDF, or `application/octet-stream`) inflates several-fold and is held in multiple copies, so inlining even a single ~10 MiB binary can exceed the heap. Such a body is also useless to a model. When the upstream `Content-Type` is not a text-shaped type (`text/*`, `application/json`, `+json`/`+xml`, `application/xml`, form-urlencoded, JavaScript), the call is rejected — without reading the body — with the structured `upstream_body_not_inlineable` error (REST shim maps it to a non-retryable `415`), and the caller is steered to **`api_export`**, which streams the body to a portal asset instead. A zero-length response is never refused, so `HEAD` and empty `204` responses are unaffected. This is content-type-driven, not size-driven: a 3 MB CSV still returns inline, while a 1 KB zip does not.
+
 `api_export` does **not** count against this budget: it streams the upstream response directly to S3 (multipart, via the transfer manager) without buffering the whole body, so its memory stays roughly constant regardless of export size. The per-export size cap (`portal.export.max_bytes`, default 100 MiB) is still enforced — by an up-front `Content-Length` check for declared-length responses, and during the stream for chunked ones (the incomplete multipart upload is aborted past the cap, so no partial asset is created). The raw passthrough route (below) is the equivalent bounded path for returning a large body to the caller rather than landing it in an asset.
 
 ```yaml
@@ -291,7 +293,7 @@ Response: HTTP 200 with the toolkit's [`InvokeOutput`](https://github.com/txn2/m
 }
 ```
 
-Platform-level outcomes use HTTP status codes: `400` for a malformed request body, `401` for missing/invalid credentials, `403` for persona or route-policy denial, `404` for an unregistered connection, `413` when a raw-mode body exceeds the configured cap, `429` when the global in-flight memory budget is momentarily exhausted, `502`/`504` for an unreachable or timed-out upstream, `500` for an internal failure. The split keeps "the platform refused" distinguishable from "the upstream returned 4xx/5xx" — a NiFi pipeline can route on the platform status and still inspect `status` inside the body for the upstream outcome.
+Platform-level outcomes use HTTP status codes: `400` for a malformed request body, `401` for missing/invalid credentials, `403` for persona or route-policy denial, `404` for an unregistered connection, `413` when a raw-mode body exceeds the configured cap, `415` when an inline `api_invoke_endpoint` call hits a binary (non-inlineable) response body, `429` when the global in-flight memory budget is momentarily exhausted, `502`/`504` for an unreachable or timed-out upstream, `500` for an internal failure. The split keeps "the platform refused" distinguishable from "the upstream returned 4xx/5xx" — a NiFi pipeline can route on the platform status and still inspect `status` inside the body for the upstream outcome.
 
 Retry semantics follow the status: `413` is permanent (the same request cannot succeed) and must not be retried; `429` is transient (the budget drains as concurrent reads finish) and is safe to retry with backoff, with a `Retry-After` header on the response.
 
@@ -299,7 +301,7 @@ The route is only mounted when at least one `kind: api` toolkit instance is load
 
 ### Raw passthrough for large or binary bodies
 
-`api_invoke_endpoint` buffers the upstream response and wraps it in the JSON envelope, which is the wrong shape for a large download or a binary object. For those, the REST shim offers a streaming passthrough on a separate route:
+`api_invoke_endpoint` buffers the upstream response and wraps it in the JSON envelope, which is the wrong shape for a large download or a binary object (and is refused outright for binary content types, as described in [Memory safety](#memory-safety-and-the-in-flight-budget)). For those, the REST shim offers a streaming passthrough on a separate route:
 
 ```
 POST /api/v1/gateway/{connection}/invoke-raw

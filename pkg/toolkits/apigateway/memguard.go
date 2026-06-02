@@ -32,6 +32,16 @@ const (
 	// buffer would push the process past its global in-flight memory
 	// budget. The request is refused before the buffer is allocated.
 	ErrCodeBudgetExhausted = "gateway_memory_budget_exhausted"
+
+	// ErrCodeBodyNotInlineable is returned by api_invoke_endpoint when
+	// the upstream response is a binary / non-text body that cannot be
+	// returned inline through the MCP/JSON channel without risking an
+	// OOM (JSON-escape amplification) and that is useless to the model
+	// anyway. The body is refused before it is buffered; the caller is
+	// steered to api_export, which streams it to a portal asset. The
+	// REST shim maps it to 415 (permanent, non-retryable): retrying the
+	// same inline call cannot succeed, a different tool is required.
+	ErrCodeBodyNotInlineable = "upstream_body_not_inlineable"
 )
 
 // reserveBodyBudget computes the worst-case number of bytes a buffered
@@ -99,6 +109,47 @@ func bodyTooLargeResult(connection, path string, limit, actual int64) *mcp.CallT
 		"connection":   connection,
 		"path":         path,
 	})
+}
+
+// nonInlineableBodyError is the typed error api_invoke_endpoint returns
+// when the upstream Content-Type is a binary / non-text type the tool
+// refuses to buffer and inline. size is the upstream's declared
+// Content-Length, or -1 when the upstream did not declare one. It
+// implements error so it can flow through the buffered tool's plain
+// error return alongside *budgetError.
+type nonInlineableBodyError struct {
+	connection  string
+	path        string
+	contentType string
+	size        int64
+}
+
+func (e *nonInlineableBodyError) Error() string {
+	return fmt.Sprintf("%s: response Content-Type %q cannot be returned inline by api_invoke_endpoint; use api_export to stream it to an asset",
+		ErrCodeBodyNotInlineable, e.contentType)
+}
+
+// result renders the rejection as a structured tool error whose "error"
+// field is ErrCodeBodyNotInlineable (so the REST shim maps it to 415).
+// hasExport tailors the hint: when api_export is registered on this
+// deployment it is the recommended path; otherwise the model is told the
+// body simply cannot be retrieved inline (the streaming raw route is
+// REST-only and not reachable as an MCP tool).
+func (e *nonInlineableBodyError) result(hasExport bool) *mcp.CallToolResult {
+	fields := map[string]any{
+		"connection":   e.connection,
+		"path":         e.path,
+		"content_type": e.contentType,
+	}
+	if e.size >= 0 {
+		fields["size_bytes"] = e.size
+	}
+	if hasExport {
+		fields["hint"] = "This is a binary/non-text response that api_invoke_endpoint cannot return inline. Use api_export with the same connection, method, and path to stream it into a portal asset (no model-context cost), then read or presign the asset."
+	} else {
+		fields["hint"] = "This is a binary/non-text response that api_invoke_endpoint cannot return inline. Retrieve it through the gateway's raw passthrough REST route instead of an inline tool call."
+	}
+	return structuredErrorResult(ErrCodeBodyNotInlineable, fields)
 }
 
 // structuredErrorResult builds an IsError CallToolResult whose JSON

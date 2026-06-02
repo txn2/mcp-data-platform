@@ -156,6 +156,11 @@ func TestClassifyToolError_MemoryCodes(t *testing.T) {
 			wantStatus: http.StatusTooManyRequests,
 		},
 		{
+			name:       "body not inlineable -> 415",
+			payload:    `{"error":"` + apigatewaykit.ErrCodeBodyNotInlineable + `","content_type":"application/zip"}`,
+			wantStatus: http.StatusUnsupportedMediaType,
+		},
+		{
 			name:       "auth still classifies first",
 			payload:    `{"error":"authentication failed: bad token"}`,
 			wantStatus: http.StatusUnauthorized,
