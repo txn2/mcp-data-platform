@@ -54,10 +54,18 @@ type ExportVersionStore interface {
 }
 
 // ExportS3Client is the subset of portal.S3Client needed by
-// api_export. Note: this is the same shape as trinokit's; the
-// platform adapter implementing it can serve both toolkits.
+// api_export. It streams the upstream response straight to S3 without
+// buffering the full body in heap (issue #537), so a large export no
+// longer holds the whole payload in memory or competes for the global
+// in-flight budget. The platform adapter implements it via the mcp-s3
+// client's PutObjectStream.
 type ExportS3Client interface {
-	PutObject(ctx context.Context, bucket, key string, data []byte, contentType string) error
+	// PutObjectStream uploads body to bucket/key without buffering the
+	// whole payload, returning the bytes written. The caller bounds the
+	// size by wrapping body in a reader that errors past the cap; the
+	// transfer manager aborts the incomplete multipart upload on that
+	// read error, so no partial object or orphaned parts remain.
+	PutObjectStream(ctx context.Context, bucket, key string, body io.Reader, contentType string) (size int64, err error)
 }
 
 // ExportShareCreator creates public share links for exported
@@ -256,7 +264,6 @@ func (t *Toolkit) handleExport(ctx context.Context, _ *mcp.CallToolRequest, in e
 	deps := t.exportDeps
 	c, connOK := t.connections[in.Connection]
 	policy := t.routePolicy
-	budget := t.memBudget
 	t.mu.RUnlock()
 	if deps == nil {
 		return errorResult("api_export is not configured (portal asset store unavailable)"), nil, nil
@@ -292,10 +299,10 @@ func (t *Toolkit) handleExport(ctx context.Context, _ *mcp.CallToolRequest, in e
 	}
 
 	out, runErr := t.runExport(ctx, runExportArgs{
-		deps: deps, cfg: c.cfg, auth: c.auth, client: c.client, specs: c.specs, uc: uc, in: in, budget: budget,
+		deps: deps, cfg: c.cfg, auth: c.auth, client: c.client, specs: c.specs, uc: uc, in: in,
 	})
 	if runErr != nil {
-		return budgetOrErrorResult(runErr), nil, nil
+		return errorResult(runErr.Error()), nil, nil
 	}
 	return jsonResult(out), out, nil
 }
@@ -345,9 +352,6 @@ type runExportArgs struct {
 	specs  map[string]*specState
 	uc     *ExportUserContext
 	in     exportInput
-	// budget is the shared in-flight memory budget the export buffer
-	// reserves against (issue #535). nil = unlimited.
-	budget *MemBudget
 }
 
 // runExport executes the upstream call, uploads the response to
@@ -369,37 +373,20 @@ func (*Toolkit) runExport(ctx context.Context, a runExportArgs) (*exportOutput, 
 	// validatePath rejects path shapes (//, @, CR/LF/NUL) that
 	// would let url.Parse be tricked into changing the host. Same
 	// SSRF guards as api_invoke_endpoint, same #nosec rationale.
-	resp, err := client.Do(req) //nolint:bodyclose // closed via readCappedExportBody
+	resp, err := client.Do(req) //nolint:bodyclose // closed below
 	if err != nil {
 		return nil, fmt.Errorf("upstream request: %s", scrubTransportError(err))
 	}
 	defer resp.Body.Close() //nolint:errcheck // best-effort cleanup
 
-	// Reserve the worst-case export buffer against the shared in-flight
-	// memory budget BEFORE allocating it (issue #535). api_export
-	// buffers the whole bounded body as a []byte (the upstream mcp-s3
-	// client takes []byte, not a reader), so without this accounting a
-	// burst of concurrent exports — each up to 100 MiB — is an
-	// independent OOM vector. Counting it here makes the export buffer
-	// bounded and budgeted rather than unaccounted.
-	reserved, ok := reserveBodyBudget(a.budget, resp.ContentLength, deps.Config.MaxBytes)
-	if !ok {
-		slog.Warn("api_export: rejecting export, in-flight memory budget exhausted",
-			logKeyConnection, in.Connection, "path", in.Path,
-			"requested_bytes", reserved, "limit_bytes", a.budget.Max(), "in_use_bytes", a.budget.InUse())
-		return nil, &budgetError{
-			limit:      a.budget.Max(),
-			requested:  reserved,
-			inUse:      a.budget.InUse(),
-			connection: in.Connection,
-			path:       in.Path,
-		}
-	}
-	defer a.budget.Release(reserved)
-
-	body, err := readCappedExportBody(resp.Body, deps.Config.MaxBytes)
-	if err != nil {
-		return nil, err
+	// Reject before any S3 write when the upstream declares a length over
+	// the cap — the common case, and the same all-or-nothing contract the
+	// buffered path had (a partial asset would mislead the operator).
+	// Chunked/undeclared-length bodies are bounded during the stream by
+	// MaxBytes in persistExportAsset, which aborts and cleans up the
+	// incomplete multipart upload past the cap (issue #537).
+	if resp.ContentLength > 0 && resp.ContentLength > deps.Config.MaxBytes {
+		return nil, fmt.Errorf("upstream response (%d bytes) exceeds api_export cap of %d bytes — narrow the request (smaller page, fewer fields) or raise platform.export.max_bytes", resp.ContentLength, deps.Config.MaxBytes)
 	}
 
 	contentType := resp.Header.Get("Content-Type")
@@ -407,8 +394,12 @@ func (*Toolkit) runExport(ctx context.Context, a runExportArgs) (*exportOutput, 
 		contentType = "application/octet-stream"
 	}
 
-	assetID, err := persistExportAsset(ctx, persistExportArgs{
-		deps: deps, uc: uc, in: in, body: body, contentType: contentType, status: resp.StatusCode,
+	// Stream the upstream body straight to S3 (no full-body buffer). Bound
+	// the read by the export timeout via resp.Body, which is tied to
+	// exportCtx.
+	assetID, size, err := persistExportAsset(ctx, persistExportArgs{
+		deps: deps, uc: uc, in: in, body: resp.Body, maxBytes: deps.Config.MaxBytes,
+		contentType: contentType, status: resp.StatusCode,
 	})
 	if err != nil {
 		return nil, err
@@ -423,8 +414,8 @@ func (*Toolkit) runExport(ctx context.Context, a runExportArgs) (*exportOutput, 
 		ShareURL:    shareURL,
 		ContentType: contentType,
 		Status:      resp.StatusCode,
-		SizeBytes:   int64(len(body)),
-		Message:     fmt.Sprintf("Exported %d bytes from %s %s.", len(body), method, in.Path),
+		SizeBytes:   size,
+		Message:     fmt.Sprintf("Exported %d bytes from %s %s.", size, method, in.Path),
 	}, nil
 }
 
@@ -461,25 +452,38 @@ type persistExportArgs struct {
 	deps        *ExportDeps
 	uc          *ExportUserContext
 	in          exportInput
-	body        []byte
+	body        io.Reader
+	maxBytes    int64
 	contentType string
 	status      int
 }
 
-// persistExportAsset uploads the response bytes to S3 and inserts
-// the asset row + version row. Returns the asset id on success.
-// Version-row failure is non-fatal — the asset row is already in
-// place and the model has an id; failing the whole call would
-// orphan the S3 object.
-func persistExportAsset(ctx context.Context, p persistExportArgs) (string, error) {
-	deps, uc, in, body, contentType, status := p.deps, p.uc, p.in, p.body, p.contentType, p.status
-	assetID, err := generateExportAssetID()
+// persistExportAsset streams the response body to S3 and inserts the
+// asset row + version row. Returns the asset id and the number of bytes
+// written on success. Version-row failure is non-fatal — the asset row
+// is already in place and the model has an id; failing the whole call
+// would orphan the S3 object. An over-cap stream aborts the multipart
+// upload (no orphaned parts, no asset row) and returns the all-or-nothing
+// rejection error.
+func persistExportAsset(ctx context.Context, p persistExportArgs) (assetID string, size int64, err error) {
+	deps, uc, in, contentType, status := p.deps, p.uc, p.in, p.contentType, p.status
+	assetID, err = generateExportAssetID()
 	if err != nil {
-		return "", fmt.Errorf("generating asset id: %w", err)
+		return "", 0, fmt.Errorf("generating asset id: %w", err)
 	}
 	s3Key := buildExportS3Key(deps.S3Prefix, uc.UserID, assetID, contentType)
-	if err := deps.S3Client.PutObject(ctx, deps.S3Bucket, s3Key, body, contentType); err != nil {
-		return "", fmt.Errorf("s3 upload: %w", err)
+	// Bound the stream at the cap with a reader that errors past it; the
+	// transfer manager aborts the incomplete multipart upload on that
+	// read error, so no partial object or orphaned parts remain. The
+	// exceeded flag (not the SDK's wrapped error) is what distinguishes
+	// an over-cap chunked body from a transient storage error.
+	capped := &cappedReader{r: p.body, max: p.maxBytes}
+	size, err = deps.S3Client.PutObjectStream(ctx, deps.S3Bucket, s3Key, capped, contentType)
+	if err != nil {
+		if capped.exceeded {
+			return "", 0, fmt.Errorf("upstream response exceeded api_export cap of %d bytes — narrow the request (smaller page, fewer fields) or raise platform.export.max_bytes", p.maxBytes)
+		}
+		return "", 0, fmt.Errorf("streaming export to storage failed: %w", err)
 	}
 	asset := ExportAsset{
 		ID:             assetID,
@@ -490,14 +494,14 @@ func persistExportAsset(ctx context.Context, p persistExportArgs) (string, error
 		ContentType:    contentType,
 		S3Bucket:       deps.S3Bucket,
 		S3Key:          s3Key,
-		SizeBytes:      int64(len(body)),
+		SizeBytes:      size,
 		Tags:           in.Tags,
 		Provenance:     buildExportProvenance(uc, in, status),
 		SessionID:      uc.SessionID,
 		IdempotencyKey: in.IdempotencyKey,
 	}
 	if err := deps.AssetStore.InsertExportAsset(ctx, asset); err != nil {
-		return "", fmt.Errorf("insert asset row: %w", err)
+		return "", 0, fmt.Errorf("insert asset row: %w", err)
 	}
 	versionID, vidErr := generateExportAssetID()
 	if vidErr != nil {
@@ -506,7 +510,7 @@ func persistExportAsset(ctx context.Context, p persistExportArgs) (string, error
 		// and return the asset id so the model has a usable handle.
 		slog.Warn("api_export: generating version id failed",
 			"asset_id", assetID, "error", vidErr)
-		return assetID, nil
+		return assetID, size, nil
 	}
 	if _, vErr := deps.VersionStore.CreateExportVersion(ctx, ExportVersion{
 		ID:            versionID,
@@ -514,7 +518,7 @@ func persistExportAsset(ctx context.Context, p persistExportArgs) (string, error
 		S3Key:         s3Key,
 		S3Bucket:      deps.S3Bucket,
 		ContentType:   contentType,
-		SizeBytes:     int64(len(body)),
+		SizeBytes:     size,
 		CreatedBy:     uc.UserEmail,
 		ChangeSummary: "Exported from API endpoint",
 	}); vErr != nil {
@@ -526,7 +530,30 @@ func persistExportAsset(ctx context.Context, p persistExportArgs) (string, error
 		slog.Warn("api_export: failed to create version record",
 			"asset_id", assetID, "error", vErr)
 	}
-	return assetID, nil
+	return assetID, size, nil
+}
+
+// cappedReader bounds a stream at max bytes. Once more than max have
+// been read it returns an error (so the S3 transfer manager aborts the
+// incomplete multipart upload) and sets exceeded, which the caller
+// checks to distinguish an over-cap body from a transient storage
+// error. A max <= 0 disables the cap. The over-cap error text is
+// internal — the caller substitutes the operator-facing message.
+type cappedReader struct {
+	r        io.Reader
+	max      int64
+	n        int64
+	exceeded bool
+}
+
+func (c *cappedReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += int64(n)
+	if c.max > 0 && c.n > c.max {
+		c.exceeded = true
+		return n, fmt.Errorf("export body exceeded cap of %d bytes", c.max)
+	}
+	return n, err //nolint:wrapcheck // transparent pass-through of the wrapped reader's error
 }
 
 // resolveExportTimeout picks the timeout for a single api_export
@@ -541,26 +568,6 @@ func resolveExportTimeout(timeoutSeconds int, cfg ExportConfig) time.Duration {
 		return cfg.MaxTimeout
 	}
 	return requested
-}
-
-// readCappedExportBody reads up to maxBytes+1 bytes; returning an
-// error (NOT a truncated asset) when the body exceeded the cap. A
-// truncated asset would be misleading — the operator clicking the
-// portal asset would have no way to know the file is incomplete.
-// Refusing the export and pointing the model at "raise the cap or
-// narrow the request" is the correct contract.
-func readCappedExportBody(r io.Reader, maxBytes int64) ([]byte, error) {
-	if maxBytes <= 0 {
-		maxBytes = defaultExportMaxBytes
-	}
-	read, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
-	if err != nil {
-		return nil, fmt.Errorf("reading upstream response: %w", err)
-	}
-	if int64(len(read)) > maxBytes {
-		return nil, fmt.Errorf("upstream response exceeded api_export cap of %d bytes — narrow the request (smaller page, fewer fields) or raise platform.export.max_bytes", maxBytes)
-	}
-	return read, nil
 }
 
 // generateExportAssetID returns a 16-byte hex id. Same format as

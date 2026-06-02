@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"fmt"
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -225,6 +226,10 @@ type apiNoopS3Client struct{}
 
 func (*apiNoopS3Client) PutObject(_ context.Context, _, _ string, _ []byte, _ string) error {
 	return nil
+}
+
+func (*apiNoopS3Client) PutObjectStream(_ context.Context, _, _ string, _ io.Reader, _ string) (int64, error) {
+	return 0, nil
 }
 
 func (*apiNoopS3Client) GetObject(_ context.Context, _, _ string) (data []byte, contentType string, err error) { //nolint:gocritic // named for clarity

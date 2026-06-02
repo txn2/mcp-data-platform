@@ -239,39 +239,6 @@ func TestHandleInvoke_BudgetExhaustedReturns429Envelope(t *testing.T) {
 	}
 }
 
-// TestHandleExport_BudgetExhausted proves api_export is no longer an
-// independent OOM vector: its buffer reserves against the same budget,
-// and a refused reservation aborts the export BEFORE the S3 upload.
-func TestHandleExport_BudgetExhausted(t *testing.T) {
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = io.WriteString(w, strings.Repeat("z", 100))
-	}))
-	t.Cleanup(upstream.Close)
-
-	store := &fakeExportAssetStore{}
-	ver := &fakeExportVersionStore{}
-	s3 := &fakeExportS3Client{}
-	deps := defaultExportDeps(store, ver, s3)
-	tk := buildExportTestToolkit(t, upstream.URL, &deps)
-
-	budget := NewMemBudget(1000)
-	_ = budget.Acquire(950)
-	tk.SetMemBudget(budget)
-
-	r, _, _ := tk.handleExport(context.Background(), &mcp.CallToolRequest{}, exportInput{
-		Connection: "crm", Method: "GET", Path: "/v1/items", Name: "dump",
-	})
-	if r == nil || !r.IsError {
-		t.Fatalf("want IsError result; got %+v", r)
-	}
-	if !strings.Contains(textContent(r), ErrCodeBudgetExhausted) {
-		t.Errorf("payload = %s; want it to contain %q", textContent(r), ErrCodeBudgetExhausted)
-	}
-	if len(s3.puts) != 0 {
-		t.Errorf("S3 PutObject called %d times; budget rejection must abort before upload", len(s3.puts))
-	}
-}
-
 // TestHandleInvokeRaw_StreamsBodyAndInjectsCredential proves the raw
 // passthrough streams the upstream body verbatim to the sink with the
 // upstream status and Content-Type, AND that the gateway still injects

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -118,6 +119,11 @@ type mockAdminS3Client struct {
 
 func (m *mockAdminS3Client) PutObject(_ context.Context, _, _ string, _ []byte, _ string) error {
 	return m.putErr
+}
+
+func (m *mockAdminS3Client) PutObjectStream(_ context.Context, _, _ string, body io.Reader, _ string) (int64, error) {
+	n, _ := io.Copy(io.Discard, body)
+	return n, m.putErr
 }
 
 func (m *mockAdminS3Client) GetObject(_ context.Context, _, _ string) (body []byte, contentType string, err error) {
