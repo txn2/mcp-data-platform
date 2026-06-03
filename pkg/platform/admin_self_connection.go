@@ -27,6 +27,15 @@ const (
 	adminSelfSpecName       = "admin"
 	adminSelfCatalogVersion = "builtin"
 
+	// adminSelfDescription is the human-readable description surfaced for
+	// the built-in connection in the admin UI and the list_connections MCP
+	// tool, in place of the loopback base URL an ordinary api connection
+	// would show. Markdown is rendered by the portal.
+	adminSelfDescription = "Built-in self-configuration connection. Routes the API gateway to the " +
+		"platform's own admin REST API (`/api/v1/admin/*`) so an admin can create personas, " +
+		"manage connections, edit agent instructions, and manage prompts and API keys directly " +
+		"from an MCP session. Calls are authenticated and audited as the acting admin."
+
 	// adminSelfDefaultPort mirrors the --address default (":8080") and is
 	// used only when the listen address carries no parseable port.
 	adminSelfDefaultPort = "8080"
@@ -192,6 +201,7 @@ func registerAdminSelfConnection(tk *apigatewaykit.Toolkit, baseURL string) erro
 		"identity_passthrough": true,
 		"admin_only":           true,
 		"connection_name":      adminSelfConnectionName,
+		"description":          adminSelfDescription,
 	}); err != nil {
 		return fmt.Errorf("adding connection: %w", err)
 	}

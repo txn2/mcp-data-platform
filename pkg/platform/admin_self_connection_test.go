@@ -111,6 +111,17 @@ func TestSeedAdminSelfConnection_RegistersAndRestricts(t *testing.T) {
 	if !tk.HasConnection(adminSelfConnectionName) {
 		t.Fatal("platform-admin connection was not registered")
 	}
+	// The connection surfaces the built-in description (not the loopback
+	// base URL) so the admin UI shows a legit explanation.
+	var desc string
+	for _, c := range tk.ListConnections() {
+		if c.Name == adminSelfConnectionName {
+			desc = c.Description
+		}
+	}
+	if desc != adminSelfDescription {
+		t.Errorf("platform-admin description = %q; want the built-in description", desc)
+	}
 	// Catalog + spec seeded.
 	if specs, err := store.ListSpecs(context.Background(), adminSelfCatalogID); err != nil || len(specs) != 1 {
 		t.Fatalf("expected 1 seeded spec, got %d (err=%v)", len(specs), err)

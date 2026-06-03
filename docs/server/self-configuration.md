@@ -25,6 +25,11 @@ The connection's `base_url` is the loopback address of the platform's own admin
 listener (e.g. `http://127.0.0.1:8080`), so an `api_invoke_endpoint` call is a
 loopback round-trip to `/api/v1/admin/*`.
 
+In the Portal's Connections view the built-in connection carries a fixed
+description explaining its purpose and is attributed to **`system`** (it is
+provisioned by the binary, not authored by an operator), distinguishing it from
+connections an admin creates.
+
 ```mermaid
 flowchart LR
     A[Admin in MCP session] -->|api_invoke_endpoint| G[API gateway toolkit]

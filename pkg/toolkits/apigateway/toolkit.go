@@ -994,6 +994,18 @@ func (t *Toolkit) HasConnection(name string) bool {
 	return ok
 }
 
+// connectionDescription resolves the description surfaced for a connection:
+// the operator/built-in-supplied Description when set, otherwise the base
+// URL. The base-URL fallback preserves the long-standing behavior where an
+// api connection's subtitle in the admin UI (and list_connections) is its
+// upstream root.
+func connectionDescription(cfg Config) string {
+	if cfg.Description != "" {
+		return cfg.Description
+	}
+	return cfg.BaseURL
+}
+
 // ListConnections returns details for every registered connection,
 // in name-sorted order. Implements toolkit.ConnectionLister so the
 // platform's unified list_connections tool surfaces api connections
@@ -1011,7 +1023,7 @@ func (t *Toolkit) ListConnections() []toolkit.ConnectionDetail {
 		c := t.connections[name]
 		out = append(out, toolkit.ConnectionDetail{
 			Name:           name,
-			Description:    c.cfg.BaseURL,
+			Description:    connectionDescription(c.cfg),
 			IsDefault:      name == t.defaultName,
 			CatalogID:      c.cfg.CatalogID,
 			OperationCount: len(c.operations),

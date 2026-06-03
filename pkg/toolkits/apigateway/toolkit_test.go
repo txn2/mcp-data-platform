@@ -153,6 +153,29 @@ func TestListConnections_SortedByName(t *testing.T) {
 	}
 }
 
+func TestListConnections_DescriptionFallsBackToBaseURL(t *testing.T) {
+	tk := New("test")
+	if err := tk.AddConnection("plain", map[string]any{"base_url": "https://api.example.com"}); err != nil {
+		t.Fatalf("AddConnection(plain): %v", err)
+	}
+	if err := tk.AddConnection("described", map[string]any{
+		"base_url":    "https://api.example.com",
+		"description": "A friendly explanation.",
+	}); err != nil {
+		t.Fatalf("AddConnection(described): %v", err)
+	}
+	byName := map[string]string{}
+	for _, c := range tk.ListConnections() {
+		byName[c.Name] = c.Description
+	}
+	if got := byName["plain"]; got != "https://api.example.com" {
+		t.Errorf("plain description = %q; want base URL fallback", got)
+	}
+	if got := byName["described"]; got != "A friendly explanation." {
+		t.Errorf("described description = %q; want the supplied description", got)
+	}
+}
+
 func TestListConnections_FlagsDefault(t *testing.T) {
 	tk := NewMulti(MultiConfig{
 		DefaultName: "primary",

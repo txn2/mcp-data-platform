@@ -657,6 +657,30 @@ func TestMergeConnections(t *testing.T) {
 		assert.Equal(t, "database", result[1].Source)
 	})
 
+	t.Run("file-only connection attributed to system", func(t *testing.T) {
+		live := []liveConnectionInfo{
+			{kind: "api", name: "platform-admin", connection: "platform-admin", description: "Built-in.", tools: []string{"api_invoke_endpoint"}},
+		}
+		result := mergeConnections(live, nil)
+		require.Len(t, result, 1)
+		assert.Equal(t, "file", result[0].Source)
+		assert.Equal(t, "system", result[0].CreatedBy)
+		assert.Equal(t, "Built-in.", result[0].Description)
+	})
+
+	t.Run("DB instance overrides system attribution", func(t *testing.T) {
+		live := []liveConnectionInfo{
+			{kind: "trino", name: "prod", connection: "prod", tools: []string{"trino_query"}},
+		}
+		db := []platform.ConnectionInstance{
+			{Kind: "trino", Name: "prod", Description: "DB", CreatedBy: "admin@test.com"},
+		}
+		result := mergeConnections(live, db)
+		require.Len(t, result, 1)
+		assert.Equal(t, "both", result[0].Source)
+		assert.Equal(t, "admin@test.com", result[0].CreatedBy)
+	})
+
 	t.Run("nil inputs return empty array", func(t *testing.T) {
 		result := mergeConnections(nil, nil)
 		assert.NotNil(t, result)
