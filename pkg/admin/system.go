@@ -315,6 +315,13 @@ func (h *Handler) listConnections(w http.ResponseWriter, _ *http.Request) {
 				}
 				continue
 			}
+			// Built-in single-instance toolkits (knowledge, memory, portal,
+			// platform) report an empty Connection(), which the persona filter
+			// always allows as platform-level (IsConnectionAllowed): not a
+			// gateable connection, so it does not belong in this list.
+			if tk.Connection() == "" {
+				continue
+			}
 			conns = append(conns, connectionInfo{
 				Kind:        tk.Kind(),
 				Name:        tk.Name(),
