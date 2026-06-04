@@ -362,6 +362,32 @@ export function PersonaEditor({
     [scope, draft.denyTools, draft.denyConnections, onUpdate],
   );
 
+  // addMany adds every given pattern in a single update. Looping addAllow/
+  // addDeny would not work: each call reads the same pre-update draft, so only
+  // the last addition would survive. Used by the group "allow/deny all"
+  // buttons when a kind glob does not match every item (gateway tool names
+  // like "mcptest__echo" and connection names like "Test API" are not
+  // kind-prefixed, so a `${kind}_*` pattern matches none of them).
+  const addMany = useCallback(
+    (bucket: "allow" | "deny", patterns: string[]) => {
+      const clean = patterns.map((n) => n.trim()).filter(Boolean);
+      const key = (
+        scope === "tools"
+          ? bucket === "allow"
+            ? "allowTools"
+            : "denyTools"
+          : bucket === "allow"
+            ? "allowConnections"
+            : "denyConnections"
+      ) as keyof PersonaDraft;
+      const cur = draft[key] as string[];
+      const next = cur.slice();
+      for (const p of clean) if (!next.includes(p)) next.push(p);
+      if (next.length !== cur.length) onUpdate({ [key]: next });
+    },
+    [scope, draft, onUpdate],
+  );
+
   const removeAllow = useCallback(
     (pattern: string) => {
       if (scope === "tools")
@@ -858,6 +884,19 @@ export function PersonaEditor({
               const kindAllow = kindItems.filter(
                 (it) => resolved.get(it.key)?.decision === "allow",
               ).length;
+              // Prefer the concise `${kind}_*` glob ONLY when it actually
+              // matches every item in the group (native toolkits, whose tools
+              // are kind-prefixed) — it stays correct as future tools are
+              // added. Gateway tools ("mcptest__echo") and connection names
+              // ("Test API") are not kind-prefixed, so fall back to granting
+              // each item by exact name. Either way the action covers the whole
+              // kind group, independent of the search/status filter.
+              const kindGlob = `${kind}_*`;
+              const globCoversAll = kindItems.every((it) =>
+                matchPattern(kindGlob, it.primary),
+              );
+              const groupNames = kindItems.map((it) => it.primary);
+              const noun = scope === "tools" ? "tool" : "connection";
               return (
                 <div key={kind} className="mb-5 last:mb-0">
                   <div className="mb-1.5 flex items-baseline justify-between border-b pb-1">
@@ -871,18 +910,34 @@ export function PersonaEditor({
                     </div>
                     <div className="flex gap-1">
                       <button
-                        onClick={() => addAllow(`${kind}_*`)}
+                        onClick={() =>
+                          globCoversAll
+                            ? addAllow(kindGlob)
+                            : addMany("allow", groupNames)
+                        }
                         className="rounded px-1.5 py-0.5 font-mono text-[10px] text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
-                        title={`Add allow rule: ${kind}_*`}
+                        title={
+                          globCoversAll
+                            ? `Add allow rule: ${kindGlob}`
+                            : `Allow every ${kind} ${noun} by name`
+                        }
                       >
-                        + allow {kind}_*
+                        + allow {globCoversAll ? kindGlob : "all"}
                       </button>
                       <button
-                        onClick={() => addDeny(`${kind}_*`)}
+                        onClick={() =>
+                          globCoversAll
+                            ? addDeny(kindGlob)
+                            : addMany("deny", groupNames)
+                        }
                         className="rounded px-1.5 py-0.5 font-mono text-[10px] text-rose-700 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/40"
-                        title={`Add deny rule: ${kind}_*`}
+                        title={
+                          globCoversAll
+                            ? `Add deny rule: ${kindGlob}`
+                            : `Deny every ${kind} ${noun} by name`
+                        }
                       >
-                        + deny {kind}_*
+                        + deny {globCoversAll ? kindGlob : "all"}
                       </button>
                     </div>
                   </div>

@@ -428,6 +428,35 @@ func TestListConnections(t *testing.T) {
 		assert.Equal(t, float64(0), body["total"])
 	})
 
+	// Built-in single-instance toolkits (knowledge, memory, portal) report an
+	// empty Connection(). The persona filter always allows an empty connection
+	// name, so they are not gateable connections and must not appear here —
+	// listing them produced phantom "denied" rows in the persona editor that
+	// no allow pattern could clear.
+	t.Run("excludes toolkits with an empty connection name", func(t *testing.T) {
+		reg := &mockToolkitRegistry{
+			allResult: []mockToolkit{
+				{kind: "trino", name: "prod", connection: "prod-trino", tools: []string{"trino_query"}},
+				{kind: "knowledge", name: "knowledge", connection: "", tools: []string{"capture_insight"}},
+				{kind: "memory", name: "memory", connection: "", tools: []string{"memory_recall"}},
+			},
+		}
+		h := NewHandler(Deps{ToolkitRegistry: reg}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/connections", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var body connectionListResponse
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+		require.Len(t, body.Connections, 1, "only the real (non-empty) connection should be listed")
+		assert.Equal(t, "prod-trino", body.Connections[0].Connection)
+		for _, c := range body.Connections {
+			assert.NotEmpty(t, c.Connection, "no empty-connection rows may be returned")
+		}
+	})
+
 	// A multi-connection toolkit (apigateway with N upstream connections,
 	// trino with multiple catalogs) must expand to one entry per real
 	// connection because the persona filter authorizes against the
