@@ -185,7 +185,14 @@ const (
 	cfgKeyTLSCABundlePEM    = "tls_ca_bundle_pem"
 
 	cfgKeyIdentityPassthrough = "identity_passthrough"
-	cfgKeyAdminOnly           = "admin_only"
+
+	// cfgKeyDescription is an optional human-readable description of the
+	// connection, surfaced via ListConnections (and thus the admin UI and
+	// the list_connections MCP tool). When unset, ListConnections falls
+	// back to the base URL so existing connections keep their current
+	// subtitle. Set by the built-in platform-admin self-connection to
+	// explain what the connection is for.
+	cfgKeyDescription = "description"
 )
 
 // Config holds api-gateway toolkit configuration for a single upstream
@@ -194,6 +201,11 @@ type Config struct {
 	// BaseURL is the upstream API root (e.g. "https://api.example.com").
 	// Required. Trailing slash is stripped at parse time.
 	BaseURL string
+	// Description is an optional human-readable description of the
+	// connection. Empty for ordinary connections (ListConnections falls
+	// back to BaseURL); set by the built-in platform-admin
+	// self-connection to explain its purpose in the admin UI.
+	Description string
 	// AuthMode is "none", "bearer", or "api_key" in v1. OAuth modes
 	// land with #368.
 	AuthMode string
@@ -284,16 +296,6 @@ type Config struct {
 	// (the shared-credential Authenticator is skipped) and an empty
 	// inbound token is a hard error rather than an anonymous call.
 	IdentityPassthrough bool
-	// AdminOnly marks this connection as usable only by the admin
-	// persona by default. The platform collects every AdminOnly
-	// connection name into the authorizer's restricted set, which flips
-	// the connection-access default from allow to deny for non-admin
-	// personas: a restricted connection requires an explicit
-	// ConnectionRules.Allow match (the grant path) where an ordinary
-	// connection is allowed by an empty Allow. Set on the built-in
-	// platform-admin self-connection so self-configuration is not
-	// exposed to ordinary personas unless an admin grants it.
-	AdminOnly bool
 }
 
 // OAuth2Config describes the OAuth 2.1 client_credentials grant
@@ -427,7 +429,7 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	c.MTLSClientKeyPEM = getString(cfg, cfgKeyMTLSClientKeyPEM)
 	c.TLSCABundlePEM = getString(cfg, cfgKeyTLSCABundlePEM)
 	c.IdentityPassthrough = getBool(cfg, cfgKeyIdentityPassthrough)
-	c.AdminOnly = getBool(cfg, cfgKeyAdminOnly)
+	c.Description = getString(cfg, cfgKeyDescription)
 
 	if err := c.Validate(); err != nil {
 		return Config{}, err

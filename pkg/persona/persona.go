@@ -216,11 +216,10 @@ func AdminPersona() *Persona {
 			Allow: []string{"*"},
 			Deny:  []string{},
 		},
-		// Allow "*" explicitly (not an empty rule set) so the admin
-		// persona reaches admin-only/restricted connections such as the
-		// built-in platform-admin self-connection. For restricted
-		// connections an empty Allow is a deny; an explicit "*" match is
-		// the grant. See ToolFilter.IsConnectionAllowed.
+		// Connections are deny-by-default (see ToolFilter.IsConnectionAllowed):
+		// an empty Allow grants nothing. The admin persona allows "*" so it
+		// reaches every connection, including the built-in platform-admin
+		// self-connection.
 		Connections: ConnectionRules{
 			Allow: []string{"*"},
 		},

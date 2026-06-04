@@ -994,6 +994,18 @@ func (t *Toolkit) HasConnection(name string) bool {
 	return ok
 }
 
+// connectionDescription resolves the description surfaced for a connection:
+// the operator/built-in-supplied Description when set, otherwise the base
+// URL. The base-URL fallback preserves the long-standing behavior where an
+// api connection's subtitle in the admin UI (and list_connections) is its
+// upstream root.
+func connectionDescription(cfg Config) string {
+	if cfg.Description != "" {
+		return cfg.Description
+	}
+	return cfg.BaseURL
+}
+
 // ListConnections returns details for every registered connection,
 // in name-sorted order. Implements toolkit.ConnectionLister so the
 // platform's unified list_connections tool surfaces api connections
@@ -1011,31 +1023,13 @@ func (t *Toolkit) ListConnections() []toolkit.ConnectionDetail {
 		c := t.connections[name]
 		out = append(out, toolkit.ConnectionDetail{
 			Name:           name,
-			Description:    c.cfg.BaseURL,
+			Description:    connectionDescription(c.cfg),
 			IsDefault:      name == t.defaultName,
 			CatalogID:      c.cfg.CatalogID,
 			OperationCount: len(c.operations),
 		})
 	}
 	return out
-}
-
-// AdminOnlyConnections returns the names of every registered connection
-// configured with admin_only=true, in name-sorted order. The platform
-// feeds these into the persona authorizer's restricted set so non-admin
-// personas are denied them by default. Includes both operator-configured
-// admin-only connections and the built-in platform-admin self-connection.
-func (t *Toolkit) AdminOnlyConnections() []string {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	names := make([]string, 0)
-	for name, c := range t.connections {
-		if c.cfg.AdminOnly {
-			names = append(names, name)
-		}
-	}
-	sort.Strings(names)
-	return names
 }
 
 // Close releases per-connection HTTP client resources.

@@ -11,21 +11,17 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/mcpcontext"
 )
 
-func TestParseConfig_IdentityPassthroughAndAdminOnly(t *testing.T) {
+func TestParseConfig_IdentityPassthrough(t *testing.T) {
 	cfg, err := ParseConfig(map[string]any{
 		"base_url":             "https://x",
 		"auth_mode":            AuthModeNone,
 		"identity_passthrough": true,
-		"admin_only":           true,
 	})
 	if err != nil {
 		t.Fatalf("ParseConfig: %v", err)
 	}
 	if !cfg.IdentityPassthrough {
 		t.Error("IdentityPassthrough = false; want true")
-	}
-	if !cfg.AdminOnly {
-		t.Error("AdminOnly = false; want true")
 	}
 }
 
@@ -34,8 +30,8 @@ func TestParseConfig_FlagsDefaultFalse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseConfig: %v", err)
 	}
-	if cfg.IdentityPassthrough || cfg.AdminOnly {
-		t.Errorf("flags should default false; got passthrough=%v admin_only=%v", cfg.IdentityPassthrough, cfg.AdminOnly)
+	if cfg.IdentityPassthrough {
+		t.Errorf("identity_passthrough should default false; got %v", cfg.IdentityPassthrough)
 	}
 }
 
@@ -43,16 +39,12 @@ func TestParseConfig_StringBoolFlags(t *testing.T) {
 	cfg, err := ParseConfig(map[string]any{
 		"base_url":             "https://x",
 		"identity_passthrough": "true",
-		"admin_only":           "false",
 	})
 	if err != nil {
 		t.Fatalf("ParseConfig: %v", err)
 	}
 	if !cfg.IdentityPassthrough {
 		t.Error("string \"true\" should parse to IdentityPassthrough=true")
-	}
-	if cfg.AdminOnly {
-		t.Error("string \"false\" should parse to AdminOnly=false")
 	}
 }
 
@@ -171,32 +163,5 @@ func TestHandleInvoke_IdentityPassthroughRequiresToken(t *testing.T) {
 	}
 	if !strings.Contains(textContent(res), "identity passthrough requires an authenticated caller token") {
 		t.Errorf("missing actionable error; got: %s", textContent(res))
-	}
-}
-
-func TestAdminOnlyConnections(t *testing.T) {
-	tk := New("test")
-	mustAdd := func(name string, adminOnly bool) {
-		t.Helper()
-		if err := tk.AddConnection(name, map[string]any{
-			"base_url":   "https://x",
-			"admin_only": adminOnly,
-		}); err != nil {
-			t.Fatalf("AddConnection(%s): %v", name, err)
-		}
-	}
-	mustAdd("zeta-admin", true)
-	mustAdd("ordinary", false)
-	mustAdd("alpha-admin", true)
-
-	got := tk.AdminOnlyConnections()
-	want := []string{"alpha-admin", "zeta-admin"} // sorted, only admin_only
-	if len(got) != len(want) {
-		t.Fatalf("AdminOnlyConnections() = %v; want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("AdminOnlyConnections()[%d] = %q; want %q", i, got[i], want[i])
-		}
 	}
 }

@@ -41,6 +41,11 @@ const (
 	connectionKindAPI   = "api"
 )
 
+// connectionCreatorSystem is the created_by attribution for connections
+// provisioned by the platform itself (YAML config or a built-in
+// registration) rather than authored by a portal user.
+const connectionCreatorSystem = "system"
+
 // knownConnectionKinds lists the toolkit kinds that support multiple configurable
 // connection instances. DataHub is excluded because the platform connects to a
 // single catalog instance configured in the YAML file.
@@ -415,9 +420,15 @@ func mergeConnections(live []liveConnectionInfo, dbInstances []platform.Connecti
 	for _, l := range live {
 		key := l.kind + "/" + l.name
 		seen[key] = true
+		// A live connection with no DB instance is provisioned by the
+		// platform itself (YAML config or a built-in registration such as
+		// the platform-admin self-connection), never authored by a portal
+		// user. Attribute it to "system" rather than leaving created_by
+		// empty, which the UI renders as "unknown". A matching DB instance
+		// below overrides this with the real author.
 		ec := effectiveConnection{
 			Kind: l.kind, Name: l.name, Connection: l.connection, Source: platform.SourceFile, Tools: l.tools,
-			Description: l.description, Config: l.config,
+			Description: l.description, Config: l.config, CreatedBy: connectionCreatorSystem,
 		}
 		if inst, ok := dbMap[key]; ok {
 			ec.Source = platform.SourceBoth

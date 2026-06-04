@@ -192,7 +192,8 @@ personas:
       roles: ["admin"]
       tools:
         allow: ["*"]
-      # No connections block = all connections allowed
+      connections:
+        allow: ["*"]   # required: connections are deny-by-default
 ```
 
 ### How Connection Filtering Works
@@ -201,7 +202,7 @@ personas:
 2. The user's persona connection rules are evaluated: deny patterns are checked first, then allow patterns
 3. If the connection is denied (or not allowed), the tool call is rejected
 
-If the `connections` block is omitted or both `allow` and `deny` are empty, all connections are permitted. This preserves backward compatibility with existing configurations.
+Connections are **deny-by-default**, mirroring the tool axis: a persona reaches a connection only when a `connections.allow` pattern matches its name. If the `connections` block is omitted or `allow` is empty, the persona is granted **no** connections, so every tool call that targets a connection is denied. Grant each persona exactly the connections it needs (the admin persona typically uses `allow: ["*"]`).
 
 ### Pattern Syntax
 

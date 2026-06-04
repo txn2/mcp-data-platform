@@ -41,11 +41,14 @@ func TestGetToolDetail_FullJoin(t *testing.T) {
 		},
 	}
 
+	// Connections are deny-by-default, so a persona reaches the tool's
+	// connection (prod-trino) only via an explicit ConnsAllow. analyst and
+	// admin grant it; viewer is tool-denied anyway (datahub_* vs trino_query).
 	personaStore := &mockPersonaStore{
 		listResult: []platform.PersonaDefinition{
-			{Name: "analyst", ToolsAllow: []string{"trino_*"}, ToolsDeny: []string{}},
+			{Name: "analyst", ToolsAllow: []string{"trino_*"}, ToolsDeny: []string{}, ConnsAllow: []string{"prod-trino"}},
 			{Name: "viewer", ToolsAllow: []string{"datahub_*"}, ToolsDeny: []string{}},
-			{Name: "admin", ToolsAllow: []string{"*"}, ToolsDeny: []string{"*_delete_*"}},
+			{Name: "admin", ToolsAllow: []string{"*"}, ToolsDeny: []string{"*_delete_*"}, ConnsAllow: []string{"*"}},
 		},
 	}
 

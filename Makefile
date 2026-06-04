@@ -33,7 +33,7 @@ GOLINT := golangci-lint
 	frontend-install frontend-build frontend-build-content-viewer \
 	frontend-dev frontend-mock frontend-test \
 	e2e-up e2e-down e2e-seed e2e-test e2e e2e-logs e2e-clean \
-	dev dev-up dev-down mock-check \
+	dev dev-info dev-up dev-down mock-check \
 	preview-apps preview-platform-info
 
 ## all: Build and test
@@ -583,6 +583,11 @@ dev-down:
 ## waits for health, seeds data on first run, and reports clear status.
 dev:
 	@bash dev/start.sh
+
+## dev-info: Print the dev login (Portal URL, API key, sign-in users)
+## Handy when `make dev`'s startup banner has scrolled out of view.
+dev-info:
+	@bash dev/info.sh
 
 ## mock-check: Verify MSW mocks conform to Swagger spec types
 mock-check: swagger

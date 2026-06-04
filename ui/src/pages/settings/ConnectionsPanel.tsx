@@ -570,8 +570,11 @@ function ConnectionViewer({
   const catalogMapping = (rawMapping != null && typeof rawMapping === "object" && !Array.isArray(rawMapping))
     ? rawMapping as Record<string, string> : undefined;
   const hasDataHub = Boolean(datahubSourceName) || (catalogMapping != null && Object.keys(catalogMapping).length > 0);
-  const datahubFilterKeys = new Set(["datahub_source_name", "catalog_mapping"]);
-  const configEntries = Object.entries(connection.config ?? {}).filter(([key]) => !datahubFilterKeys.has(key));
+  // datahub_source_name/catalog_mapping render in their own DataHub section;
+  // description renders as the markdown subtitle above. Filter them out of the
+  // raw Configuration rows so they are not shown twice.
+  const hiddenConfigKeys = new Set(["datahub_source_name", "catalog_mapping", "description"]);
+  const configEntries = Object.entries(connection.config ?? {}).filter(([key]) => !hiddenConfigKeys.has(key));
 
   return (
     <div className="p-6 space-y-6">
