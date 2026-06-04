@@ -572,13 +572,13 @@ reg_demo_api github GitHub
 GW_CONNS=(api-test-fixture salesforce stripe github)
 
 gw() { # conn method path [bodyjson]
-  curl -s -o /dev/null -X POST \
+  curl -s --max-time 5 -o /dev/null -X POST \
     -H "X-API-Key: acme-dev-key-2024" -H "Content-Type: application/json" \
     -d "{\"method\":\"$2\",\"path\":\"$3\"${4:+,\"body\":$4}}" \
     "http://localhost:8080/api/v1/gateway/$1/invoke" 2>/dev/null || true
 }
 gw_bad() { # conn -> malformed body, shim returns 400 (status_class 4xx)
-  curl -s -o /dev/null -X POST \
+  curl -s --max-time 5 -o /dev/null -X POST \
     -H "X-API-Key: acme-dev-key-2024" -H "Content-Type: application/json" \
     -d 'not-json' "http://localhost:8080/api/v1/gateway/$1/invoke" 2>/dev/null || true
 }
@@ -591,25 +591,33 @@ gw_burst() { # conn
 # HasConnection is a live lookup, but a connection added via the admin API
 # is not in the metrics clamp set the instant the PUT returns. Probe each
 # with a real invoke until it answers 200 so the burst is not dropped.
-for c in "${GW_CONNS[@]}"; do
-  for _ in $(seq 1 10); do
-    code=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
-      -H "X-API-Key: acme-dev-key-2024" -H "Content-Type: application/json" \
-      -d '{"method":"GET","path":"/v1/whoami"}' \
-      "http://localhost:8080/api/v1/gateway/$c/invoke" 2>/dev/null || echo "000")
-    [ "$code" = "200" ] && break
-    sleep 1
+#
+# The whole warm-up (probe + weighted bursts + error samples) runs in the
+# background: a slow or unreachable fixture must never delay the "ready"
+# banner that tells the operator how to log in. Tracked in PIDS so the
+# exit trap stops it. Every curl is bounded by --max-time (see gw/gw_bad).
+(
+  for c in "${GW_CONNS[@]}"; do
+    for _ in $(seq 1 10); do
+      code=$(curl -s --max-time 5 -o /dev/null -w "%{http_code}" -X POST \
+        -H "X-API-Key: acme-dev-key-2024" -H "Content-Type: application/json" \
+        -d '{"method":"GET","path":"/v1/whoami"}' \
+        "http://localhost:8080/api/v1/gateway/$c/invoke" 2>/dev/null || echo "000")
+      [ "$code" = "200" ] && break
+      sleep 1
+    done
   done
-done
 
-# Weighted volume (parallel) so "top connections" has a clear ranking.
-for _ in 1 2 3 4 5 6; do gw_burst salesforce; done &
-for _ in 1 2 3 4;       do gw_burst stripe; done &
-for _ in 1 2 3;         do gw_burst github; done &
-for _ in 1 2;           do gw_burst api-test-fixture; done &
-wait
-for c in "${GW_CONNS[@]}"; do for _ in 1 2 3; do gw_bad "$c"; done; done
-ok "Generated API Gateway traffic across ${#GW_CONNS[@]} connections"
+  # Weighted volume (parallel) so "top connections" has a clear ranking.
+  for _ in 1 2 3 4 5 6; do gw_burst salesforce; done &
+  for _ in 1 2 3 4;       do gw_burst stripe; done &
+  for _ in 1 2 3;         do gw_burst github; done &
+  for _ in 1 2;           do gw_burst api-test-fixture; done &
+  wait
+  for c in "${GW_CONNS[@]}"; do for _ in 1 2 3; do gw_bad "$c"; done; done
+) &
+PIDS+=($!)
+ok "API Gateway warm-up running in the background"
 
 # Light continuous trickle across all connections so the request-rate
 # timeseries stays live. Registered in PIDS so the exit trap stops it.
@@ -685,6 +693,8 @@ echo -e "    • ${BOLD}oauth-api-dev${NC}  (kind=api, api-test fixture, IdP=Key
 echo ""
 echo -e "  Go files  → air rebuilds automatically"
 echo -e "  UI files  → Vite hot-reloads automatically"
+echo ""
+echo -e "  Scrolled away? Re-print the login any time with ${BOLD}make dev-info${NC}"
 echo ""
 echo -e "  Press ${BOLD}Ctrl-C${NC} to stop all services."
 echo ""
