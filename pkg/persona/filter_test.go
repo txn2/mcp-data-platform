@@ -336,10 +336,19 @@ func TestToolFilter_IsConnectionAllowed(t *testing.T) {
 			want:           true,
 		},
 		{
-			name: "empty allow list permits all",
+			name: "empty allow list denies (deny-by-default)",
 			persona: &Persona{
 				Name:        "analyst",
 				Connections: ConnectionRules{},
+			},
+			connectionName: "prod-trino",
+			want:           false,
+		},
+		{
+			name: "wildcard allow permits any connection",
+			persona: &Persona{
+				Name:        "admin",
+				Connections: ConnectionRules{Allow: []string{"*"}},
 			},
 			connectionName: "prod-trino",
 			want:           true,

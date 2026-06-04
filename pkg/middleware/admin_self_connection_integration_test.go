@@ -60,7 +60,6 @@ func TestPlatformAdminSelfConnection_IdentityPassthroughEndToEnd(t *testing.T) {
 		"base_url":             adminAPI.URL,
 		"auth_mode":            apigateway.AuthModeNone,
 		"identity_passthrough": true,
-		"admin_only":           true,
 	}); err != nil {
 		t.Fatalf("AddConnection: %v", err)
 	}

@@ -3,7 +3,6 @@ package persona
 import (
 	"context"
 	"path/filepath"
-	"sync"
 
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
@@ -11,45 +10,11 @@ import (
 // ToolFilter filters tools based on persona rules.
 type ToolFilter struct {
 	registry *Registry
-
-	// mu guards restricted, which is set once at platform wiring time
-	// and may be replaced if connections are reconfigured at runtime.
-	mu         sync.RWMutex
-	restricted map[string]bool
 }
 
 // NewToolFilter creates a new tool filter.
 func NewToolFilter(registry *Registry) *ToolFilter {
 	return &ToolFilter{registry: registry}
-}
-
-// SetRestrictedConnections records the set of connection names that are
-// admin-only by default. For a restricted connection the
-// backward-compatible "empty Allow ⇒ all connections allowed" default no
-// longer applies: a persona must carry an explicit ConnectionRules.Allow
-// pattern that matches the name (the grant path). The built-in admin
-// persona allows "*", so it keeps full access; ordinary personas, whose
-// Allow is empty by default, are denied until an admin grants the
-// connection. Passing an empty slice clears the restriction. Safe to call
-// at any time; replaces the previous set wholesale.
-func (f *ToolFilter) SetRestrictedConnections(names []string) {
-	set := make(map[string]bool, len(names))
-	for _, n := range names {
-		if n != "" {
-			set[n] = true
-		}
-	}
-	f.mu.Lock()
-	f.restricted = set
-	f.mu.Unlock()
-}
-
-// isRestricted reports whether the named connection is admin-only by
-// default.
-func (f *ToolFilter) isRestricted(name string) bool {
-	f.mu.RLock()
-	defer f.mu.RUnlock()
-	return f.restricted[name]
 }
 
 // IsAllowed checks if a tool is allowed for a persona.
@@ -120,14 +85,17 @@ func evaluateToolAccess(persona *Persona, toolName string) (allowed bool, patter
 }
 
 // IsConnectionAllowed checks if a connection is allowed for a persona.
-// If the persona has no connection allow rules, all connections are permitted
-// (backward-compatible default). Empty connection names are always allowed.
+// Connections are deny-by-default: a persona must carry an explicit
+// ConnectionRules.Allow pattern that matches the connection name. An empty
+// Allow list grants no connections. Deny rules take precedence over allow.
+// Empty connection names are platform-level (always allowed). A nil persona
+// is denied (fail-closed).
 //
-// Restricted (admin-only) connections are the exception to the empty-Allow
-// default: see SetRestrictedConnections. For a restricted name the persona
-// must carry an explicit Allow pattern that matches it; an empty Allow is a
-// deny. Deny rules still take precedence over everything.
-func (f *ToolFilter) IsConnectionAllowed(persona *Persona, connectionName string) bool {
+// This mirrors the tool axis (evaluateToolAccess), which also defaults to
+// deny. There is no "empty Allow means all connections" shortcut and no
+// special-cased connection category — the operator grants exactly the
+// connections each persona should reach.
+func (*ToolFilter) IsConnectionAllowed(persona *Persona, connectionName string) bool {
 	if persona == nil {
 		return false
 	}
@@ -137,35 +105,20 @@ func (f *ToolFilter) IsConnectionAllowed(persona *Persona, connectionName string
 		return true
 	}
 
-	// Check deny rules first (they take precedence)
+	// Check deny rules first (they take precedence).
 	for _, pattern := range persona.Connections.Deny {
 		if matchPattern(pattern, connectionName) {
 			return false
 		}
 	}
 
-	hasAllowMatch := func() bool {
-		for _, pattern := range persona.Connections.Allow {
-			if matchPattern(pattern, connectionName) {
-				return true
-			}
+	// Deny-by-default: require an explicit allow match.
+	for _, pattern := range persona.Connections.Allow {
+		if matchPattern(pattern, connectionName) {
+			return true
 		}
-		return false
 	}
-
-	// Restricted connections require an explicit allow match — the
-	// empty-Allow "all allowed" default does not apply to them.
-	if f.isRestricted(connectionName) {
-		return hasAllowMatch()
-	}
-
-	// If no allow rules, all connections are permitted (backward compat).
-	if len(persona.Connections.Allow) == 0 {
-		return true
-	}
-
-	// Default deny if allow rules exist but none match
-	return hasAllowMatch()
+	return false
 }
 
 // IsAPIRouteAllowed reports whether the persona may invoke (method, path)
@@ -327,16 +280,6 @@ func (a *Authorizer) IsAPIRouteAllowed(ctx context.Context, roles []string, conn
 		return false, personaName, "persona " + personaName + " disallows " + method + " " + path + " on connection " + connection
 	}
 	return true, personaName, ""
-}
-
-// SetRestrictedConnections records which connection names are admin-only
-// by default, delegating to the underlying ToolFilter. The platform calls
-// this at wiring time with every API-gateway connection flagged
-// admin_only (including the built-in platform-admin self-connection) so
-// connection-level authorization denies them to non-admin personas unless
-// explicitly granted. See ToolFilter.SetRestrictedConnections.
-func (a *Authorizer) SetRestrictedConnections(names []string) {
-	a.filter.SetRestrictedConnections(names)
 }
 
 // Verify interface compliance.

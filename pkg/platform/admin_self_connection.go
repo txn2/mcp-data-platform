@@ -12,7 +12,6 @@ import (
 	"github.com/getkin/kin-openapi/openapi2conv"
 
 	"github.com/txn2/mcp-data-platform/internal/apidocs"
-	"github.com/txn2/mcp-data-platform/pkg/persona"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	apigatewaycatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalogindex"
@@ -101,11 +100,14 @@ type embedEnqueuer interface {
 }
 
 // seedAdminSelfConnection performs the idempotent seed: ensure the
-// catalog + embedded spec exist, enqueue embedding, register (or reload)
-// the connection, and refresh the authorizer's restricted set so the
-// connection is admin-only by default. enqueuer may be nil (file mode /
-// no embedder), in which case embedding is skipped and ranking falls back
-// to lexical.
+// catalog + embedded spec exist, enqueue embedding, and register (or
+// reload) the connection. enqueuer may be nil (file mode / no embedder),
+// in which case embedding is skipped and ranking falls back to lexical.
+//
+// Connections are deny-by-default (see persona.ToolFilter), so the
+// self-connection is reachable only by personas whose ConnectionRules.Allow
+// matches it (the built-in admin persona allows "*"). There is no separate
+// admin-only flag to maintain: not granting it is the restriction.
 func (p *Platform) seedAdminSelfConnection(
 	ctx context.Context,
 	tk *apigatewaykit.Toolkit,
@@ -151,7 +153,6 @@ func (p *Platform) seedAdminSelfConnection(
 		return fmt.Errorf("registering connection: %w", err)
 	}
 
-	p.refreshRestrictedConnections(tk)
 	slog.Info("platform-admin self-connection: registered",
 		"connection", adminSelfConnectionName, "base_url", baseURL, "operations", opCount)
 	return nil
@@ -184,7 +185,9 @@ func ensureAdminSelfCatalog(ctx context.Context, store apigatewaycatalog.Store) 
 // registerAdminSelfConnection adds the platform-admin connection to the
 // toolkit, or reloads it when it already exists (a re-seed on a later
 // boot). The connection uses identity passthrough (the acting admin's
-// token authenticates the loopback call) and is admin-only by default.
+// token authenticates the loopback call). It carries no special access
+// flag: with connections deny-by-default, only personas that explicitly
+// allow it (the admin persona's "*") can reach it.
 func registerAdminSelfConnection(tk *apigatewaykit.Toolkit, baseURL string) error {
 	if tk.HasConnection(adminSelfConnectionName) {
 		// Already registered this process. Reload so an updated catalog
@@ -199,25 +202,12 @@ func registerAdminSelfConnection(tk *apigatewaykit.Toolkit, baseURL string) erro
 		"auth_mode":            apigatewaykit.AuthModeNone,
 		"catalog_id":           adminSelfCatalogID,
 		"identity_passthrough": true,
-		"admin_only":           true,
 		"connection_name":      adminSelfConnectionName,
 		"description":          adminSelfDescription,
 	}); err != nil {
 		return fmt.Errorf("adding connection: %w", err)
 	}
 	return nil
-}
-
-// refreshRestrictedConnections feeds every admin-only api-gateway
-// connection name into the persona authorizer so non-admin personas are
-// denied them by default. A no-op when the authorizer is not the persona
-// implementation (e.g. a test double).
-func (p *Platform) refreshRestrictedConnections(tk *apigatewaykit.Toolkit) {
-	pa, ok := p.authorizer.(*persona.Authorizer)
-	if !ok {
-		return
-	}
-	pa.SetRestrictedConnections(tk.AdminOnlyConnections())
 }
 
 // firstAPIGatewayToolkit returns the first registered api-gateway

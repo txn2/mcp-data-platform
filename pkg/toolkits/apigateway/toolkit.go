@@ -1032,24 +1032,6 @@ func (t *Toolkit) ListConnections() []toolkit.ConnectionDetail {
 	return out
 }
 
-// AdminOnlyConnections returns the names of every registered connection
-// configured with admin_only=true, in name-sorted order. The platform
-// feeds these into the persona authorizer's restricted set so non-admin
-// personas are denied them by default. Includes both operator-configured
-// admin-only connections and the built-in platform-admin self-connection.
-func (t *Toolkit) AdminOnlyConnections() []string {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	names := make([]string, 0)
-	for name, c := range t.connections {
-		if c.cfg.AdminOnly {
-			names = append(names, name)
-		}
-	}
-	sort.Strings(names)
-	return names
-}
-
 // Close releases per-connection HTTP client resources.
 func (t *Toolkit) Close() error {
 	t.mu.Lock()

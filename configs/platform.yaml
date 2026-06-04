@@ -63,6 +63,10 @@ database:
   max_open_conns: 25
 
 # Persona definitions
+# Connections are deny-by-default: a persona reaches a connection only when
+# its connections.allow matches the connection name (the same way tools.allow
+# works). An empty/omitted connections block grants no connections, so every
+# persona that should use data must list the connections it may reach.
 personas:
   analyst:
     display_name: "Data Analyst"
@@ -76,6 +80,12 @@ personas:
         - "s3_list_*"
       deny:
         - "s3_delete_*"
+    connections:
+      allow:
+        - "production"
+        - "staging"
+        - "primary"
+        - "data_lake"
     context:
       description_prefix: |
         You are helping a data analyst explore and query data.
@@ -95,6 +105,9 @@ personas:
         - "datahub_get_entity"
         - "datahub_browse"
       deny: []
+    connections:
+      allow:
+        - "primary"
     context:
       description_prefix: |
         You are providing business insights to an executive.
@@ -108,6 +121,9 @@ personas:
       allow:
         - "*"
       deny: []
+    connections:
+      allow:
+        - "*"
 
   default_persona: analyst
 

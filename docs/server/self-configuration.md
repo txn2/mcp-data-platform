@@ -62,13 +62,12 @@ The connection behaves like any other API gateway connection:
 
 ## Access control
 
-The `platform-admin` connection is **admin-only by default**. It is marked
-`admin_only: true`, which adds it to the authorizer's restricted set: for a
-restricted connection the usual "a persona with no connection allow-rules may
-use every connection" default does not apply. A non-admin persona is denied the
-connection unless an admin explicitly grants it by adding the connection name to
-that persona's connection `allow` list. The built-in `admin` persona allows
-`*`, so it retains full access.
+Connections are **deny-by-default** ([Personas](../personas/overview.md)): a
+persona reaches a connection only when its `connections.allow` matches the
+name. The `platform-admin` connection carries no special flag — it is reachable
+only by personas that explicitly allow it. Grant it to the persona that should
+operate the platform (the built-in `admin` persona allows `*`, so it has it);
+leave it out of every other persona and self-configuration stays admin-only.
 
 ## Configuration
 
@@ -98,7 +97,7 @@ the embedded spec's base path no longer matches the live routes).
 
 ## Related
 
-- [API Gateway Toolkit](api-gateway.md) — connection options (`identity_passthrough`, `admin_only`).
+- [API Gateway Toolkit](api-gateway.md) — connection options (`identity_passthrough`).
 - [API Catalogs](api-catalogs.md) — the `embedded` source kind used by the self-seeded catalog.
 - [Admin API](admin-api.md) — the REST surface the connection drives.
 - [Personas](../personas/overview.md) — connection allow/deny rules.

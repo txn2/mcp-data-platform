@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
@@ -126,15 +125,17 @@ func TestSeedAdminSelfConnection_RegistersAndRestricts(t *testing.T) {
 	if specs, err := store.ListSpecs(context.Background(), adminSelfCatalogID); err != nil || len(specs) != 1 {
 		t.Fatalf("expected 1 seeded spec, got %d (err=%v)", len(specs), err)
 	}
-	// Marked admin-only and pushed into the authorizer's restricted set.
-	if got := tk.AdminOnlyConnections(); len(got) != 1 || got[0] != adminSelfConnectionName {
-		t.Fatalf("AdminOnlyConnections = %v; want [%s]", got, adminSelfConnectionName)
-	}
-	analyst := &persona.Persona{Name: "analyst", Connections: persona.ConnectionRules{}}
+	// Connections are deny-by-default: a persona with no connection allow
+	// rules (the analyst) cannot reach the self-connection, while the admin
+	// persona reaches it via its explicit "*" grant. No admin-only flag or
+	// restricted set is involved — not granting it is the restriction.
 	filter := persona.NewToolFilter(nil)
-	filter.SetRestrictedConnections(tk.AdminOnlyConnections())
+	analyst := &persona.Persona{Name: "analyst", Connections: persona.ConnectionRules{}}
 	if filter.IsConnectionAllowed(analyst, adminSelfConnectionName) {
-		t.Error("non-admin persona should be denied the platform-admin connection by default")
+		t.Error("non-admin persona (empty connection allow) must be denied platform-admin")
+	}
+	if !filter.IsConnectionAllowed(persona.AdminPersona(), adminSelfConnectionName) {
+		t.Error("admin persona (allow \"*\") must be allowed platform-admin")
 	}
 
 	// Re-seed (idempotent): second call reloads, does not error.
@@ -205,14 +206,6 @@ func TestWireAdminSelfConnection_EnabledRegistersOnStart(t *testing.T) {
 	if !tk.HasConnection(adminSelfConnectionName) {
 		t.Fatal("self-connection not registered after OnStart fired")
 	}
-}
-
-// TestRefreshRestrictedConnections_NonPersonaAuthorizerNoop confirms the
-// refresh is a safe no-op when the authorizer is not the persona impl.
-func TestRefreshRestrictedConnections_NonPersonaAuthorizerNoop(_ *testing.T) {
-	tk := apigatewaykit.New("api")
-	p := &Platform{authorizer: &middleware.NoopAuthorizer{}}
-	p.refreshRestrictedConnections(tk) // must not panic
 }
 
 func TestConvertSwaggerToV3_InvalidInput(t *testing.T) {

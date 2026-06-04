@@ -110,15 +110,15 @@ interface Resolution {
   steps: TraceStep[];
 }
 
-// emptyAllowMeansAllow mirrors backend asymmetry between tool and connection
-// gating: pkg/persona/filter.go evaluates tools with default-deny on empty
-// allow, but IsConnectionAllowed permits all connections when the allow list
-// is empty (backward-compatible default). The UI must match.
-function resolve(
+// resolve mirrors pkg/persona/filter.go: both tools (evaluateToolAccess) and
+// connections (IsConnectionAllowed) are deny-by-default. Deny patterns take
+// precedence; otherwise an explicit allow match is required, and anything
+// unmatched falls through to default-deny. There is no "empty allow means
+// allow all" shortcut on either axis.
+export function resolve(
   name: string,
   allow: string[],
   deny: string[],
-  emptyAllowMeansAllow: boolean,
 ): Resolution {
   const steps: TraceStep[] = [];
   let decision: Decision = "default-deny";
@@ -133,11 +133,6 @@ function resolve(
       matchedPattern = p;
       decisiveIdx = steps.length - 1;
     }
-  }
-
-  if (decisiveIdx === -1 && allow.length === 0 && emptyAllowMeansAllow) {
-    decision = "allow";
-    matchedPattern = "(empty allow list)";
   }
 
   for (const p of allow) {
@@ -307,12 +302,11 @@ export function PersonaEditor({
   const denyList = scope === "tools" ? draft.denyTools : draft.denyConnections;
 
   const resolved = useMemo(() => {
+    // Both tools and connections are deny-by-default (see resolve / backend
+    // pkg/persona/filter.go): an empty allow-list grants nothing.
     const map = new Map<string, Resolution>();
     for (const it of items) {
-      map.set(
-        it.key,
-        resolve(it.primary, allowList, denyList, scope === "connections"),
-      );
+      map.set(it.key, resolve(it.primary, allowList, denyList));
     }
     return map;
   }, [items, allowList, denyList]);
@@ -629,7 +623,7 @@ export function PersonaEditor({
             description={
               scope === "tools"
                 ? "Tools must match at least one allow pattern to be reachable."
-                : "Connections must match at least one allow pattern. Empty list permits all connections."
+                : "Connections must match at least one allow pattern. An empty list grants no connections (deny-by-default)."
             }
           >
             <RuleList
