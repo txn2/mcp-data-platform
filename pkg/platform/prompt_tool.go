@@ -163,7 +163,7 @@ func (p *Platform) handlePromptUpdate(ctx context.Context, input managePromptInp
 		return promptErrorResult("name is required"), nil, nil
 	}
 
-	existing, err := p.promptStore.Get(ctx, input.Name)
+	existing, err := p.resolveManagedPrompt(ctx, input.Name, resolveEmail(ctx))
 	if err != nil {
 		slog.Error(promptErrGet, promptLogKey, input.Name, promptLogKeyErr, err)
 		return promptErrorResult(promptErrGet), nil, nil
@@ -237,7 +237,7 @@ func (p *Platform) handlePromptDelete(ctx context.Context, input managePromptInp
 		return promptErrorResult("name is required"), nil, nil
 	}
 
-	existing, err := p.promptStore.Get(ctx, input.Name)
+	existing, err := p.resolveManagedPrompt(ctx, input.Name, resolveEmail(ctx))
 	if err != nil {
 		slog.Error(promptErrGet, promptLogKey, input.Name, promptLogKeyErr, err)
 		return promptErrorResult(promptErrGet), nil, nil
@@ -256,12 +256,12 @@ func (p *Platform) handlePromptDelete(ctx context.Context, input managePromptInp
 		}
 	}
 
-	if err := p.promptStore.Delete(ctx, input.Name); err != nil {
+	if err := p.promptStore.DeleteByID(ctx, existing.ID); err != nil {
 		slog.Error("failed to delete prompt", promptLogKey, input.Name, promptLogKeyErr, err)
 		return promptErrorResult("failed to delete prompt"), nil, nil
 	}
 
-	p.UnregisterRuntimePrompt(input.Name)
+	p.UnregisterRuntimePrompt(existing.Name)
 
 	return promptJSONResult(map[string]any{
 		fieldStatus: "deleted",
@@ -342,7 +342,7 @@ func (p *Platform) handlePromptGet(ctx context.Context, input managePromptInput)
 		return promptErrorResult("name is required"), nil, nil
 	}
 
-	pr, err := p.promptStore.Get(ctx, input.Name)
+	pr, err := p.resolveManagedPrompt(ctx, input.Name, resolveEmail(ctx))
 	if err != nil {
 		slog.Error(promptErrGet, promptLogKey, input.Name, promptLogKeyErr, err)
 		return promptErrorResult(promptErrGet), nil, nil
@@ -360,6 +360,23 @@ func (p *Platform) handlePromptGet(ctx context.Context, input managePromptInput)
 	}
 
 	return promptJSONResult(pr)
+}
+
+// resolveManagedPrompt finds the prompt a manage_prompt command targets by
+// name. Personal names are unique only per owner, so the caller's own personal
+// prompt takes precedence; otherwise a globally-unique global/persona prompt is
+// returned.
+func (p *Platform) resolveManagedPrompt(ctx context.Context, name, email string) (*prompt.Prompt, error) {
+	if email != "" {
+		personal, err := p.promptStore.GetPersonal(ctx, email, name)
+		if err != nil {
+			return nil, err
+		}
+		if personal != nil {
+			return personal, nil
+		}
+	}
+	return p.promptStore.Get(ctx, name)
 }
 
 // resolveEmail returns the user email from context.

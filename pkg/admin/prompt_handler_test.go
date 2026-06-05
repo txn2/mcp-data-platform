@@ -48,6 +48,15 @@ func (m *mockPromptStore) Get(_ context.Context, name string) (*prompt.Prompt, e
 	return p, nil
 }
 
+func (m *mockPromptStore) GetPersonal(_ context.Context, ownerEmail, name string) (*prompt.Prompt, error) {
+	for _, p := range m.prompts {
+		if p.Scope == prompt.ScopePersonal && p.OwnerEmail == ownerEmail && p.Name == name {
+			return p, nil
+		}
+	}
+	return nil, nil //nolint:nilnil // Store interface contract: nil, nil means not found
+}
+
 func (m *mockPromptStore) GetByID(_ context.Context, id string) (*prompt.Prompt, error) {
 	for _, p := range m.prompts {
 		if p.ID == id {

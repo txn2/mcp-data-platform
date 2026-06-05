@@ -26,23 +26,78 @@ func New(db *sql.DB) *Store {
 	return &Store{db: db}
 }
 
+// promptColumns is the column list read by every SELECT, kept in one place so
+// the scan order in scanPrompt cannot drift from the query.
+const promptColumns = `id, name, display_name, description, content, arguments,
+	category, scope, personas, owner_email, source, enabled, tags, status,
+	approved_by, approved_at, deprecated_at, superseded_by, review_requested,
+	requested_scope, requested_personas, created_at, updated_at`
+
+// rowScanner is satisfied by *sql.Row and *sql.Rows.
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+// scanPrompt reads one row in promptColumns order into a Prompt.
+func scanPrompt(sc rowScanner) (*prompt.Prompt, error) {
+	p := &prompt.Prompt{}
+	var argsJSON []byte
+	if err := sc.Scan(
+		&p.ID, &p.Name, &p.DisplayName, &p.Description, &p.Content, &argsJSON,
+		&p.Category, &p.Scope, pq.Array(&p.Personas), &p.OwnerEmail,
+		&p.Source, &p.Enabled, pq.Array(&p.Tags), &p.Status,
+		&p.ApprovedBy, &p.ApprovedAt, &p.DeprecatedAt, &p.SupersededBy, &p.ReviewRequested,
+		&p.RequestedScope, pq.Array(&p.RequestedPersonas), &p.CreatedAt, &p.UpdatedAt,
+	); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(argsJSON, &p.Arguments); err != nil {
+		return nil, fmt.Errorf("unmarshal arguments: %w", err)
+	}
+	normalizeSlices(p)
+	return p, nil
+}
+
+// normalizeSlices ensures slice fields are non-nil for stable JSON output.
+func normalizeSlices(p *prompt.Prompt) {
+	if p.Arguments == nil {
+		p.Arguments = []prompt.Argument{}
+	}
+	if p.Personas == nil {
+		p.Personas = []string{}
+	}
+	if p.Tags == nil {
+		p.Tags = []string{}
+	}
+	if p.RequestedPersonas == nil {
+		p.RequestedPersonas = []string{}
+	}
+}
+
 // Create persists a new prompt. If p.ID is empty the database generates one.
 func (s *Store) Create(ctx context.Context, p *prompt.Prompt) error {
 	argsJSON, err := json.Marshal(p.Arguments)
 	if err != nil {
 		return fmt.Errorf("marshal arguments: %w", err)
 	}
+	if p.Status == "" {
+		p.Status = prompt.StatusDraft
+	}
 
 	query := `
 		INSERT INTO prompts (name, display_name, description, content, arguments,
-		                     category, scope, personas, owner_email, source, enabled)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		                     category, scope, personas, owner_email, source, enabled,
+		                     tags, status, approved_by, approved_at, deprecated_at,
+		                     superseded_by, review_requested, requested_scope, requested_personas)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+		        $12, $13, $14, $15, $16, $17, $18, $19, $20)
 		RETURNING id, created_at, updated_at`
 
 	err = s.db.QueryRowContext(ctx, query,
 		p.Name, p.DisplayName, p.Description, p.Content, argsJSON,
-		p.Category, p.Scope, pq.Array(p.Personas), p.OwnerEmail,
-		p.Source, p.Enabled,
+		p.Category, p.Scope, pq.Array(p.Personas), p.OwnerEmail, p.Source, p.Enabled,
+		pq.Array(p.Tags), p.Status, p.ApprovedBy, p.ApprovedAt, p.DeprecatedAt,
+		p.SupersededBy, p.ReviewRequested, p.RequestedScope, pq.Array(p.RequestedPersonas),
 	).Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("create prompt: %w", err)
@@ -50,50 +105,36 @@ func (s *Store) Create(ctx context.Context, p *prompt.Prompt) error {
 	return nil
 }
 
-// Get retrieves a prompt by name. Returns nil, nil if not found.
+// Get retrieves a non-personal (global or persona) prompt by name. Personal
+// prompts are per-owner; use GetPersonal. Returns nil, nil if not found.
 func (s *Store) Get(ctx context.Context, name string) (*prompt.Prompt, error) {
-	return s.getBy(ctx, "name", name)
+	query := `SELECT ` + promptColumns + ` FROM prompts
+	          WHERE name = $1 AND scope <> 'personal'`
+	return s.queryOne(ctx, query, name)
+}
+
+// GetPersonal retrieves a personal prompt by its owner and name. Returns nil,
+// nil if not found.
+func (s *Store) GetPersonal(ctx context.Context, ownerEmail, name string) (*prompt.Prompt, error) {
+	query := `SELECT ` + promptColumns + ` FROM prompts
+	          WHERE owner_email = $1 AND name = $2 AND scope = 'personal'`
+	return s.queryOne(ctx, query, ownerEmail, name)
 }
 
 // GetByID retrieves a prompt by ID. Returns nil, nil if not found.
 func (s *Store) GetByID(ctx context.Context, id string) (*prompt.Prompt, error) {
-	return s.getBy(ctx, "id", id)
+	query := `SELECT ` + promptColumns + ` FROM prompts WHERE id = $1`
+	return s.queryOne(ctx, query, id)
 }
 
-// validGetColumns is the allowlist of columns accepted by getBy.
-var validGetColumns = map[string]bool{"id": true, "name": true}
-
-func (s *Store) getBy(ctx context.Context, column, value string) (*prompt.Prompt, error) {
-	if !validGetColumns[column] {
-		return nil, fmt.Errorf("invalid column: %s", column)
-	}
-
-	query := `SELECT id, name, display_name, description, content, arguments,
-	                 category, scope, personas, owner_email, source, enabled,
-	                 created_at, updated_at
-	          FROM prompts WHERE ` + column + ` = $1`
-
-	p := &prompt.Prompt{}
-	var argsJSON []byte
-	err := s.db.QueryRowContext(ctx, query, value).Scan(
-		&p.ID, &p.Name, &p.DisplayName, &p.Description, &p.Content, &argsJSON,
-		&p.Category, &p.Scope, pq.Array(&p.Personas), &p.OwnerEmail,
-		&p.Source, &p.Enabled, &p.CreatedAt, &p.UpdatedAt,
-	)
+// queryOne runs a single-row query and maps not-found to (nil, nil).
+func (s *Store) queryOne(ctx context.Context, query string, args ...any) (*prompt.Prompt, error) {
+	p, err := scanPrompt(s.db.QueryRowContext(ctx, query, args...))
 	if err == sql.ErrNoRows {
 		return nil, nil //nolint:nilnil // Store interface contract: nil, nil means not found
 	}
 	if err != nil {
-		return nil, fmt.Errorf("get prompt by %s: %w", column, err)
-	}
-	if err := json.Unmarshal(argsJSON, &p.Arguments); err != nil {
-		return nil, fmt.Errorf("unmarshal arguments: %w", err)
-	}
-	if p.Arguments == nil {
-		p.Arguments = []prompt.Argument{}
-	}
-	if p.Personas == nil {
-		p.Personas = []string{}
+		return nil, fmt.Errorf("get prompt: %w", err)
 	}
 	return p, nil
 }
@@ -109,13 +150,17 @@ func (s *Store) Update(ctx context.Context, p *prompt.Prompt) error {
 		UPDATE prompts
 		SET name = $2, display_name = $3, description = $4, content = $5,
 		    arguments = $6, category = $7, scope = $8, personas = $9,
-		    owner_email = $10, source = $11, enabled = $12, updated_at = NOW()
+		    owner_email = $10, source = $11, enabled = $12, tags = $13,
+		    status = $14, approved_by = $15, approved_at = $16, deprecated_at = $17,
+		    superseded_by = $18, review_requested = $19, requested_scope = $20,
+		    requested_personas = $21, updated_at = NOW()
 		WHERE id = $1`
 
 	res, err := s.db.ExecContext(ctx, query,
 		p.ID, p.Name, p.DisplayName, p.Description, p.Content, argsJSON,
-		p.Category, p.Scope, pq.Array(p.Personas), p.OwnerEmail,
-		p.Source, p.Enabled,
+		p.Category, p.Scope, pq.Array(p.Personas), p.OwnerEmail, p.Source, p.Enabled,
+		pq.Array(p.Tags), p.Status, p.ApprovedBy, p.ApprovedAt, p.DeprecatedAt,
+		p.SupersededBy, p.ReviewRequested, p.RequestedScope, pq.Array(p.RequestedPersonas),
 	)
 	if err != nil {
 		return fmt.Errorf("update prompt: %w", err)
@@ -127,9 +172,9 @@ func (s *Store) Update(ctx context.Context, p *prompt.Prompt) error {
 	return nil
 }
 
-// Delete removes a prompt by name.
+// Delete removes a non-personal prompt by name.
 func (s *Store) Delete(ctx context.Context, name string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM prompts WHERE name = $1`, name)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM prompts WHERE name = $1 AND scope <> 'personal'`, name)
 	if err != nil {
 		return fmt.Errorf("delete prompt: %w", err)
 	}
@@ -149,10 +194,7 @@ func (s *Store) DeleteByID(ctx context.Context, id string) error {
 func (s *Store) List(ctx context.Context, filter prompt.ListFilter) ([]prompt.Prompt, error) {
 	where, args := buildWhere(filter)
 	// #nosec G202 -- WHERE clause built from validated parameters only (scope enum, email, bool, array, ILIKE pattern)
-	query := `SELECT id, name, display_name, description, content, arguments,
-	                 category, scope, personas, owner_email, source, enabled,
-	                 created_at, updated_at
-	          FROM prompts` + where + ` ORDER BY scope, name`
+	query := `SELECT ` + promptColumns + ` FROM prompts` + where + ` ORDER BY scope, name`
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -162,25 +204,11 @@ func (s *Store) List(ctx context.Context, filter prompt.ListFilter) ([]prompt.Pr
 
 	var result []prompt.Prompt
 	for rows.Next() {
-		var p prompt.Prompt
-		var argsJSON []byte
-		if err := rows.Scan(
-			&p.ID, &p.Name, &p.DisplayName, &p.Description, &p.Content, &argsJSON,
-			&p.Category, &p.Scope, pq.Array(&p.Personas), &p.OwnerEmail,
-			&p.Source, &p.Enabled, &p.CreatedAt, &p.UpdatedAt,
-		); err != nil {
+		p, err := scanPrompt(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan prompt: %w", err)
 		}
-		if err := json.Unmarshal(argsJSON, &p.Arguments); err != nil {
-			return nil, fmt.Errorf("unmarshal arguments: %w", err)
-		}
-		if p.Arguments == nil {
-			p.Arguments = []prompt.Argument{}
-		}
-		if p.Personas == nil {
-			p.Personas = []string{}
-		}
-		result = append(result, p)
+		result = append(result, *p)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate prompts: %w", err)

@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql/driver"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -18,7 +19,20 @@ import (
 var selectColumns = []string{
 	"id", "name", "display_name", "description", "content", "arguments",
 	"category", "scope", "personas", "owner_email", "source", "enabled",
+	"tags", "status", "approved_by", "approved_at", "deprecated_at",
+	"superseded_by", "review_requested", "requested_scope", "requested_personas",
 	"created_at", "updated_at",
+}
+
+// promptRow returns a full result row in promptColumns order for a global
+// prompt, so SELECT-mocking tests do not each repeat 23 values.
+func promptRow(id, name, scope string, argsJSON []byte, owner string, now time.Time) []driver.Value {
+	return []driver.Value{
+		id, name, "Test Prompt", "A test prompt", "Do something with {topic}", argsJSON,
+		"workflow", scope, pq.Array([]string{}), owner, "operator", true,
+		pq.Array([]string{}), "approved", "", nil, nil, "", false, "", pq.Array([]string{}),
+		now, now,
+	}
 }
 
 func newTestPrompt() *prompt.Prompt {
@@ -64,6 +78,7 @@ func TestCreate_Success(t *testing.T) {
 		p.Name, p.DisplayName, p.Description, p.Content, argsJSON,
 		p.Category, p.Scope, pq.Array(p.Personas), p.OwnerEmail,
 		p.Source, p.Enabled,
+		pq.Array(p.Tags), prompt.StatusDraft, "", nil, nil, "", false, "", pq.Array(p.RequestedPersonas),
 	).WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).
 		AddRow("uuid-123", now, now))
 
@@ -100,10 +115,7 @@ func TestGet_Success(t *testing.T) {
 
 	mock.ExpectQuery("SELECT .+ FROM prompts WHERE name").WithArgs("test-prompt").
 		WillReturnRows(sqlmock.NewRows(selectColumns).AddRow(
-			"uuid-123", "test-prompt", "Test Prompt", "A test prompt",
-			"Do something with {topic}", argsJSON,
-			"workflow", "global", pq.Array([]string{}), "admin@example.com",
-			"operator", true, now, now,
+			promptRow("uuid-123", "test-prompt", "global", argsJSON, "admin@example.com", now)...,
 		))
 
 	p, err := store.Get(context.Background(), "test-prompt")
@@ -143,10 +155,7 @@ func TestGetByID_Success(t *testing.T) {
 
 	mock.ExpectQuery("SELECT .+ FROM prompts WHERE id").WithArgs("uuid-123").
 		WillReturnRows(sqlmock.NewRows(selectColumns).AddRow(
-			"uuid-123", "my-prompt", "My Prompt", "desc",
-			"content", argsJSON,
-			"", "personal", pq.Array([]string{}), "user@example.com",
-			"operator", true, now, now,
+			promptRow("uuid-123", "my-prompt", "personal", argsJSON, "user@example.com", now)...,
 		))
 
 	p, err := store.GetByID(context.Background(), "uuid-123")
@@ -172,6 +181,8 @@ func TestUpdate_Success(t *testing.T) {
 		p.ID, p.Name, p.DisplayName, p.Description, p.Content, argsJSON,
 		p.Category, p.Scope, pq.Array(p.Personas), p.OwnerEmail,
 		p.Source, p.Enabled,
+		pq.Array(p.Tags), p.Status, p.ApprovedBy, p.ApprovedAt, p.DeprecatedAt,
+		p.SupersededBy, p.ReviewRequested, p.RequestedScope, pq.Array(p.RequestedPersonas),
 	).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	err = store.Update(context.Background(), p)
@@ -238,10 +249,8 @@ func TestList_NoFilter(t *testing.T) {
 
 	mock.ExpectQuery("SELECT .+ FROM prompts ORDER BY").
 		WillReturnRows(sqlmock.NewRows(selectColumns).
-			AddRow("id-1", "prompt-a", "Prompt A", "desc", "content", argsJSON,
-				"", "global", pq.Array([]string{}), "", "operator", true, now, now).
-			AddRow("id-2", "prompt-b", "Prompt B", "desc", "content", argsJSON,
-				"", "personal", pq.Array([]string{}), "user@example.com", "operator", true, now, now))
+			AddRow(promptRow("id-1", "prompt-a", "global", argsJSON, "", now)...).
+			AddRow(promptRow("id-2", "prompt-b", "personal", argsJSON, "user@example.com", now)...))
 
 	result, err := store.List(context.Background(), prompt.ListFilter{})
 	assert.NoError(t, err)
@@ -260,8 +269,7 @@ func TestList_WithScopeFilter(t *testing.T) {
 
 	mock.ExpectQuery("SELECT .+ FROM prompts WHERE scope = \\$1").WithArgs("global").
 		WillReturnRows(sqlmock.NewRows(selectColumns).
-			AddRow("id-1", "prompt-a", "Prompt A", "desc", "content", argsJSON,
-				"", "global", pq.Array([]string{}), "", "operator", true, now, now))
+			AddRow(promptRow("id-1", "prompt-a", "global", argsJSON, "", now)...))
 
 	result, err := store.List(context.Background(), prompt.ListFilter{Scope: "global"})
 	assert.NoError(t, err)
@@ -281,8 +289,7 @@ func TestList_WithPersonaFilter(t *testing.T) {
 	mock.ExpectQuery("SELECT .+ FROM prompts WHERE personas && \\$1").
 		WithArgs(pq.Array([]string{"analyst"})).
 		WillReturnRows(sqlmock.NewRows(selectColumns).
-			AddRow("id-1", "prompt-a", "Prompt A", "desc", "content", argsJSON,
-				"", "persona", pq.Array([]string{"analyst"}), "", "operator", true, now, now))
+			AddRow(promptRow("id-1", "prompt-a", "persona", argsJSON, "", now)...))
 
 	result, err := store.List(context.Background(), prompt.ListFilter{
 		Personas: []string{"analyst"},

@@ -59,6 +59,49 @@ const (
 	SourceSystem   = "system"
 )
 
+// Status constants define the prompt promotion lifecycle. A prompt starts as
+// draft, becomes approved (on admin promotion to persona/global scope), may
+// later be deprecated, and is finally superseded by a replacement.
+const (
+	StatusDraft      = "draft"
+	StatusApproved   = "approved"
+	StatusDeprecated = "deprecated"
+	StatusSuperseded = "superseded"
+)
+
+// validStatuses is the set of allowed status values.
+var validStatuses = map[string]bool{
+	StatusDraft:      true,
+	StatusApproved:   true,
+	StatusDeprecated: true,
+	StatusSuperseded: true,
+}
+
+// validStatusTransitions defines the allowed status transitions, mirroring the
+// knowledge-insight state machine.
+var validStatusTransitions = map[string]map[string]bool{
+	StatusDraft:      {StatusApproved: true, StatusSuperseded: true},
+	StatusApproved:   {StatusDeprecated: true, StatusSuperseded: true},
+	StatusDeprecated: {StatusSuperseded: true},
+}
+
+// ValidateStatus checks that a status value is recognized.
+func ValidateStatus(status string) error {
+	if !validStatuses[status] {
+		return fmt.Errorf("invalid status %q: must be draft, approved, deprecated, or superseded", status)
+	}
+	return nil
+}
+
+// ValidateStatusTransition checks whether a status transition is allowed.
+func ValidateStatusTransition(from, to string) error {
+	allowed, ok := validStatusTransitions[from]
+	if !ok || !allowed[to] {
+		return fmt.Errorf("invalid status transition from %q to %q", from, to)
+	}
+	return nil
+}
+
 // Argument describes a prompt argument.
 type Argument struct {
 	Name        string `json:"name" example:"date"`
@@ -80,8 +123,20 @@ type Prompt struct {
 	OwnerEmail  string     `json:"owner_email" example:"admin@example.com"`
 	Source      string     `json:"source" example:"database"`
 	Enabled     bool       `json:"enabled" example:"true"`
-	CreatedAt   time.Time  `json:"created_at" example:"2026-01-15T14:30:00Z"`
-	UpdatedAt   time.Time  `json:"updated_at" example:"2026-01-15T14:30:00Z"`
+	Tags        []string   `json:"tags" example:"sales,reporting"`
+
+	// Promotion lifecycle.
+	Status            string     `json:"status" example:"approved"`
+	ApprovedBy        string     `json:"approved_by,omitempty" example:"admin@example.com"`
+	ApprovedAt        *time.Time `json:"approved_at,omitempty"`
+	DeprecatedAt      *time.Time `json:"deprecated_at,omitempty"`
+	SupersededBy      string     `json:"superseded_by,omitempty" example:"daily-sales-report-v2"`
+	ReviewRequested   bool       `json:"review_requested" example:"false"`
+	RequestedScope    string     `json:"requested_scope,omitempty" example:"persona"`
+	RequestedPersonas []string   `json:"requested_personas,omitempty" example:"analyst"`
+
+	CreatedAt time.Time `json:"created_at" example:"2026-01-15T14:30:00Z"`
+	UpdatedAt time.Time `json:"updated_at" example:"2026-01-15T14:30:00Z"`
 }
 
 // ListFilter controls which prompts are returned by List.
@@ -98,8 +153,15 @@ type Store interface {
 	// Create persists a new prompt.
 	Create(ctx context.Context, p *Prompt) error
 
-	// Get retrieves a prompt by name. Returns nil, nil if not found.
+	// Get retrieves a non-personal (global or persona) prompt by name, which is
+	// globally unique. Returns nil, nil if not found. Personal prompts are
+	// per-owner and must be fetched with GetPersonal.
 	Get(ctx context.Context, name string) (*Prompt, error)
+
+	// GetPersonal retrieves a personal prompt by its owner and name. Personal
+	// names are unique only within an owner, so the owner is required to
+	// disambiguate. Returns nil, nil if not found.
+	GetPersonal(ctx context.Context, ownerEmail, name string) (*Prompt, error)
 
 	// GetByID retrieves a prompt by ID. Returns nil, nil if not found.
 	GetByID(ctx context.Context, id string) (*Prompt, error)

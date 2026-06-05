@@ -2531,6 +2531,8 @@ func (p *Platform) addPromptVisibilityMiddleware() {
 		Authenticator: p.authenticator,
 		AdminPersona:  p.config.Admin.Persona,
 		IsVisible:     p.isPromptVisible,
+		ListPersonal:  p.listPersonalPrompts,
+		GetPersonal:   p.getPersonalPrompt,
 	}
 	if p.personaRegistry != nil {
 		cfg.PersonasForRoles = personasForRolesFunc(p.personaRegistry)

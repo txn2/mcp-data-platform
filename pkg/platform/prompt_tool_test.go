@@ -46,6 +46,18 @@ func (m *mockPlatformPromptStore) Get(_ context.Context, name string) (*prompt.P
 	return p, nil //nolint:nilnil // interface contract
 }
 
+func (m *mockPlatformPromptStore) GetPersonal(_ context.Context, ownerEmail, name string) (*prompt.Prompt, error) {
+	if m.getErr != nil {
+		return nil, m.getErr
+	}
+	for _, p := range m.prompts {
+		if p.Scope == prompt.ScopePersonal && p.OwnerEmail == ownerEmail && p.Name == name {
+			return p, nil
+		}
+	}
+	return nil, nil //nolint:nilnil // interface contract
+}
+
 func (m *mockPlatformPromptStore) GetByID(_ context.Context, id string) (*prompt.Prompt, error) {
 	for _, p := range m.prompts {
 		if p.ID == id {
@@ -72,6 +84,9 @@ func (m *mockPlatformPromptStore) Delete(_ context.Context, name string) error {
 }
 
 func (m *mockPlatformPromptStore) DeleteByID(_ context.Context, id string) error {
+	if m.deleteErr != nil {
+		return m.deleteErr
+	}
 	for name, p := range m.prompts {
 		if p.ID == id {
 			delete(m.prompts, name)

@@ -20,6 +20,16 @@ type PromptVisibilityConfig struct {
 	PersonasForRoles PersonasForRoles
 	AdminPersona     string
 	IsVisible        PromptVisibility
+
+	// ListPersonal returns the caller's own personal prompts, served per-caller
+	// from the database rather than the shared registry (so two users can name
+	// theirs independently). Optional; nil disables personal injection.
+	ListPersonal func(ctx context.Context, email string) []*mcp.Prompt
+
+	// GetPersonal renders the caller's personal prompt of the given name, with
+	// the request arguments substituted. Returns ok=false when the caller has no
+	// such prompt. Optional; nil disables personal serving.
+	GetPersonal func(ctx context.Context, email, name string, args map[string]string) (*mcp.GetPromptResult, bool)
 }
 
 // MCPPromptVisibilityMiddleware scopes the native MCP prompt surface to the
@@ -44,6 +54,11 @@ func MCPPromptVisibilityMiddleware(cfg PromptVisibilityConfig) mcp.Middleware {
 				}
 				return filterPromptVisibility(ctx, cfg, req, result), nil
 			case methodPromptsGet:
+				// A caller's own personal prompt is served from the database,
+				// since it is not in the shared registry.
+				if res, ok := servePersonalGet(ctx, cfg, req); ok {
+					return res, nil
+				}
 				if err := denyHiddenPromptGet(ctx, cfg, req); err != nil {
 					return nil, err
 				}
@@ -91,6 +106,12 @@ func filterPromptVisibility(ctx context.Context, cfg PromptVisibilityConfig, req
 			filtered = append(filtered, pr)
 		}
 	}
+
+	// Inject the caller's own personal prompts, which are served per-caller
+	// from the database rather than the shared registry.
+	if cfg.ListPersonal != nil && email != "" {
+		filtered = append(filtered, cfg.ListPersonal(ctx, email)...)
+	}
 	listResult.Prompts = filtered
 
 	if before != len(filtered) {
@@ -127,12 +148,43 @@ func denyHiddenPromptGet(ctx context.Context, cfg PromptVisibilityConfig, req mc
 // promptNameFromRequest extracts the requested prompt name from a prompts/get
 // request, or "" when it cannot be determined.
 func promptNameFromRequest(req mcp.Request) string {
-	if req == nil {
-		return ""
-	}
-	params, ok := req.GetParams().(*mcp.GetPromptParams)
-	if !ok || params == nil {
+	params := getPromptParams(req)
+	if params == nil {
 		return ""
 	}
 	return params.Name
+}
+
+// getPromptParams returns the typed params of a prompts/get request, or nil.
+func getPromptParams(req mcp.Request) *mcp.GetPromptParams {
+	if req == nil {
+		return nil
+	}
+	params, ok := req.GetParams().(*mcp.GetPromptParams)
+	if !ok {
+		return nil
+	}
+	return params
+}
+
+// servePersonalGet serves the caller's own personal prompt of the requested
+// name from the database, returning (result, true) when it exists. Personal
+// prompts are not in the shared registry, so this is how a caller invokes them.
+func servePersonalGet(ctx context.Context, cfg PromptVisibilityConfig, req mcp.Request) (mcp.Result, bool) {
+	if cfg.GetPersonal == nil {
+		return nil, false
+	}
+	params := getPromptParams(req)
+	if params == nil || params.Name == "" {
+		return nil, false
+	}
+	email, _, _ := resolvePromptCaller(ctx, cfg, req)
+	if email == "" {
+		return nil, false
+	}
+	res, ok := cfg.GetPersonal(ctx, email, params.Name, params.Arguments)
+	if !ok {
+		return nil, false
+	}
+	return res, true
 }

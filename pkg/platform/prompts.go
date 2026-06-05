@@ -455,13 +455,21 @@ func (p *Platform) registerDatabasePrompts() {
 
 // registerDatabasePrompt registers a single database prompt with the MCP server.
 func (p *Platform) registerDatabasePrompt(pr *prompt.Prompt) {
+	// Personal prompts are NOT registered on the shared MCP server: the registry
+	// is keyed by name, so two users' same-named personal prompts would collide.
+	// They are served per-caller from the database by the prompt-visibility
+	// middleware instead. Only global and persona prompts (globally-unique
+	// names) live in the static registry.
+	if pr.Scope == prompt.ScopePersonal {
+		return
+	}
+
 	promptContent := pr.Content
 
 	// Record scope/owner BEFORE AddPrompt makes the prompt servable, so a
 	// concurrent prompts/list or prompts/get during a runtime registration
 	// never sees the new prompt as an unrecorded (and therefore visible)
-	// built-in. Without this ordering a freshly created personal prompt would
-	// be briefly visible to every caller.
+	// built-in.
 	p.setPromptScope(pr)
 
 	mcpArgs := make([]*mcp.PromptArgument, 0, len(pr.Arguments))
@@ -498,6 +506,61 @@ func (p *Platform) registerDatabasePrompt(pr *prompt.Prompt) {
 	p.promptInfosMu.Lock()
 	p.promptInfos = append(p.promptInfos, info)
 	p.promptInfosMu.Unlock()
+}
+
+// toMCPPromptArgs maps prompt arguments to their MCP descriptors.
+func toMCPPromptArgs(args []prompt.Argument) []*mcp.PromptArgument {
+	out := make([]*mcp.PromptArgument, 0, len(args))
+	for _, a := range args {
+		out = append(out, &mcp.PromptArgument{
+			Name:        a.Name,
+			Description: a.Description,
+			Required:    a.Required,
+		})
+	}
+	return out
+}
+
+// listPersonalPrompts returns the caller's own enabled personal prompts as MCP
+// prompt descriptors, for the prompt-visibility middleware to inject into
+// prompts/list. Personal prompts are served per-caller from the database rather
+// than the shared static registry, so two users can name theirs independently.
+func (p *Platform) listPersonalPrompts(ctx context.Context, email string) []*mcp.Prompt {
+	if p.promptStore == nil || email == "" {
+		return nil
+	}
+	enabled := true
+	prompts, err := p.promptStore.List(ctx, prompt.ListFilter{
+		Scope:      prompt.ScopePersonal,
+		OwnerEmail: email,
+		Enabled:    &enabled,
+	})
+	if err != nil {
+		slog.Warn("failed to list personal prompts", logKeyError, err)
+		return nil
+	}
+	out := make([]*mcp.Prompt, 0, len(prompts))
+	for i := range prompts {
+		out = append(out, &mcp.Prompt{
+			Name:        prompts[i].Name,
+			Description: prompts[i].Description,
+			Arguments:   toMCPPromptArgs(prompts[i].Arguments),
+		})
+	}
+	return out
+}
+
+// getPersonalPrompt renders the caller's personal prompt of the given name for
+// prompts/get. Returns (nil, false) when the caller has no such enabled prompt.
+func (p *Platform) getPersonalPrompt(ctx context.Context, email, name string, args map[string]string) (*mcp.GetPromptResult, bool) {
+	if p.promptStore == nil || email == "" {
+		return nil, false
+	}
+	pr, err := p.promptStore.GetPersonal(ctx, email, name)
+	if err != nil || pr == nil || !pr.Enabled {
+		return nil, false
+	}
+	return buildPromptResult(substituteArgs(pr.Content, args)), true
 }
 
 // RegisterRuntimePrompt registers a prompt with the live MCP server at runtime.

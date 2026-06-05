@@ -13,6 +13,7 @@ import (
 type PromptStore interface {
 	Create(ctx context.Context, p *prompt.Prompt) error
 	Get(ctx context.Context, name string) (*prompt.Prompt, error)
+	GetPersonal(ctx context.Context, ownerEmail, name string) (*prompt.Prompt, error)
 	GetByID(ctx context.Context, id string) (*prompt.Prompt, error)
 	Update(ctx context.Context, p *prompt.Prompt) error
 	Delete(ctx context.Context, name string) error
@@ -295,7 +296,8 @@ func (h *Handler) applyAndValidatePortalUpdate(ctx context.Context, existing *pr
 		return http.StatusBadRequest, errMsg
 	}
 	if existing.Name != oldName {
-		dup, _ := h.deps.PromptStore.Get(ctx, existing.Name)
+		// Portal prompts are personal; names are unique per owner.
+		dup, _ := h.deps.PromptStore.GetPersonal(ctx, existing.OwnerEmail, existing.Name)
 		if dup != nil {
 			return http.StatusConflict, "prompt name already exists"
 		}
