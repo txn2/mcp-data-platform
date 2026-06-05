@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MyAssetsPage } from "./MyAssetsPage";
 
@@ -102,6 +102,39 @@ describe("MyAssetsPage: share icons overlay on card thumbnail", () => {
 
     expect(screen.queryByTitle("Shared with users")).not.toBeInTheDocument();
     expect(screen.getByTitle("Has public link")).toBeInTheDocument();
+  });
+
+  it("searching does not crash when an asset has no description", () => {
+    // Regression: the API serializes description with `omitempty`, so an
+    // asset with no description arrives as undefined. The client-side search
+    // filter called `description.toLowerCase()` unguarded and crashed the
+    // page the moment the user typed anything.
+    mockUseAssets.mockReturnValue({
+      data: {
+        // The search term below must NOT match the name, so the filter
+        // falls through to the (undefined) description term that crashed.
+        data: [makeAsset({ name: "Annual Summary", description: undefined })],
+        total: 1,
+        limit: 50,
+        offset: 0,
+        share_summaries: {},
+      },
+      isLoading: false,
+    } as unknown as ReturnType<typeof useAssets>);
+
+    render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
+    expect(screen.getByText("Annual Summary")).toBeInTheDocument();
+
+    // Typing a query that matches neither the name nor the absent description
+    // forces evaluation of the description branch of the filter.
+    expect(() =>
+      fireEvent.change(screen.getByPlaceholderText("Search assets..."), {
+        target: { value: "revenue" },
+      }),
+    ).not.toThrow();
+
+    // The descriptionless, non-matching asset is filtered out without crashing.
+    expect(screen.queryByText("Annual Summary")).not.toBeInTheDocument();
   });
 
   it("no share icons when share_summaries is empty", () => {

@@ -65,8 +65,8 @@ export function MyAssetsPage({ onNavigate }: Props) {
   const assets = (data?.data ?? []).filter(
     (a) =>
       !search ||
-      a.name.toLowerCase().includes(search.toLowerCase()) ||
-      a.description.toLowerCase().includes(search.toLowerCase()),
+      (a.name ?? "").toLowerCase().includes(search.toLowerCase()) ||
+      (a.description ?? "").toLowerCase().includes(search.toLowerCase()),
   );
 
   return (

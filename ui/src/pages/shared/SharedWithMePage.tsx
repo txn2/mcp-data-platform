@@ -56,8 +56,8 @@ export function SharedWithMePage({ onNavigate }: Props) {
   const items = (data?.data ?? []).filter(
     (item) =>
       !search ||
-      item.asset.name.toLowerCase().includes(search.toLowerCase()) ||
-      item.asset.description.toLowerCase().includes(search.toLowerCase()),
+      (item.asset.name ?? "").toLowerCase().includes(search.toLowerCase()) ||
+      (item.asset.description ?? "").toLowerCase().includes(search.toLowerCase()),
   );
 
   const filteredItems = items.filter(

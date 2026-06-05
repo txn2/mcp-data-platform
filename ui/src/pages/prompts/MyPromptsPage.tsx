@@ -120,9 +120,9 @@ export function MyPromptsPage({ onNavigate }: Props) {
       const q = debouncedSearch.toLowerCase();
       list = list.filter(
         (p) =>
-          p.name.toLowerCase().includes(q) ||
-          p.display_name.toLowerCase().includes(q) ||
-          p.description.toLowerCase().includes(q),
+          (p.name ?? "").toLowerCase().includes(q) ||
+          (p.display_name ?? "").toLowerCase().includes(q) ||
+          (p.description ?? "").toLowerCase().includes(q),
       );
     }
     list.sort((a, b) => {

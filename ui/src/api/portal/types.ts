@@ -8,7 +8,9 @@ export interface Asset {
   owner_id: string;
   owner_email: string;
   name: string;
-  description: string;
+  // Optional: the API serializes description with `omitempty`, so an asset
+  // with no description omits the field entirely (arrives as undefined).
+  description?: string;
   content_type: string;
   s3_bucket: string;
   s3_key: string;
