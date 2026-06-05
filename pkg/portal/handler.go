@@ -20,21 +20,26 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/txn2/mcp-data-platform/pkg/audit"
+	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
 
 // Common error messages, path value keys, and query parameter names.
 const (
-	errAuthRequired    = "authentication required"
-	errAssetNotFound   = "asset not found"
-	errAssetDeleted    = "asset has been deleted"
-	errStorageNotReady = "content storage not configured"
-	errAccessDenied    = "access denied"
-	pathKeyID          = "id"
-	paramLimit         = "limit"
-	paramOffset        = "offset"
-	headerContentType  = "Content-Type"
+	errAuthRequired        = "authentication required"
+	errSearchScopeRequired = "a user identity (email) is required to scope search results"
+	errAssetNotFound       = "asset not found"
+	errAssetDeleted        = "asset has been deleted"
+	errStorageNotReady     = "content storage not configured"
+	errAccessDenied        = "access denied"
+	// logKeyError is the structured-logging key for an error value.
+	logKeyError       = "error"
+	pathKeyID         = "id"
+	paramLimit        = "limit"
+	paramOffset       = "offset"
+	paramQuery        = "q"
+	headerContentType = "Content-Type"
 )
 
 // defaultNoticeText is the notice shown on public shares when no custom text is provided.
@@ -53,9 +58,24 @@ type InsightReader interface {
 	Stats(ctx context.Context, filter knowledge.InsightFilter) (*knowledge.InsightStats, error)
 }
 
-// MemoryReader provides read-only access to user memory records.
+// MemoryReader provides read-only access to user memory records. The
+// search methods back the portal's per-user "my knowledge" search: both
+// queries are scoped to the caller via CreatedBy server-side, so a user
+// can never search another user's records.
 type MemoryReader interface {
 	List(ctx context.Context, filter memory.Filter) ([]memory.Record, int, error)
+	HybridSearch(ctx context.Context, q memory.HybridQuery) ([]memory.ScoredRecord, error)
+	LexicalSearch(ctx context.Context, q memory.LexicalQuery) ([]memory.ScoredRecord, error)
+}
+
+// InsightSearcher is the optional relevance-search capability of the
+// insight store. Only the memory-backed adapter implements it (insights
+// are knowledge-dimension memory records there); the legacy separate-table
+// store, used only when the memory layer is disabled, has no embeddings
+// and does not implement it. The knowledge-search route is registered only
+// when the wired InsightStore satisfies this interface.
+type InsightSearcher interface {
+	Search(ctx context.Context, q knowledge.InsightSearchQuery) ([]knowledge.ScoredInsight, error)
 }
 
 // PersonaInfo holds resolved persona details for the current user.
@@ -85,6 +105,7 @@ type Deps struct {
 	AuditMetrics       AuditMetrics
 	InsightStore       InsightReader
 	MemoryStore        MemoryReader
+	EmbeddingProvider  embedding.Provider
 	PersonaResolver    PersonaResolver
 	// Platform brand (far right of public viewer header)
 	BrandName    string // display name (default: "MCP Data Platform")
@@ -186,12 +207,18 @@ func (h *Handler) registerRoutes() {
 	if h.deps.InsightStore != nil {
 		h.mux.HandleFunc("GET /api/v1/portal/knowledge/insights", h.listMyInsights)
 		h.mux.HandleFunc("GET /api/v1/portal/knowledge/insights/stats", h.getMyInsightStats)
+		// Relevance search is registered only when the wired insight store
+		// supports it (memory-backed deployments); see InsightSearcher.
+		if _, ok := h.deps.InsightStore.(InsightSearcher); ok {
+			h.mux.HandleFunc("GET /api/v1/portal/knowledge/insights/search", h.searchMyInsights)
+		}
 	}
 
 	// Memory routes (user-scoped memory records)
 	if h.deps.MemoryStore != nil {
 		h.mux.HandleFunc("GET /api/v1/portal/memory/records", h.listMyMemories)
 		h.mux.HandleFunc("GET /api/v1/portal/memory/records/stats", h.getMyMemoryStats)
+		h.mux.HandleFunc("GET /api/v1/portal/memory/records/search", h.searchMyMemories)
 	}
 
 	// Public routes (rate limited)
@@ -822,7 +849,7 @@ func (h *Handler) cleanupOrphanedS3(ctx context.Context, bucket, key string) {
 	}
 	if err := h.deps.S3Client.DeleteObject(ctx, bucket, key); err != nil {
 		slog.Warn("failed to clean up orphaned S3 object", // #nosec G706 -- structured log, not user-facing
-			"bucket", bucket, "key", key, "error", err)
+			"bucket", bucket, "key", key, logKeyError, err)
 	}
 }
 
@@ -1702,6 +1729,182 @@ func (h *Handler) getMyMemoryStats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, stats)
 }
 
+// scoredMemoryRecord is a memory record plus its search relevance score.
+// The embedded record preserves the same JSON shape as the list endpoint,
+// so the only addition the client sees is the "score" field.
+type scoredMemoryRecord struct {
+	memory.Record
+	Score float64 `json:"score"`
+}
+
+// scoredInsightRecord is an insight plus its search relevance score,
+// embedding the insight to preserve the list endpoint's JSON shape.
+type scoredInsightRecord struct {
+	knowledge.Insight
+	Score float64 `json:"score"`
+}
+
+// searchMyMemories handles GET /api/v1/portal/memory/records/search.
+//
+// @Summary      Search my memory records
+// @Description  Ranks the current user's memory records by relevance to q. Uses hybrid (semantic + lexical) ranking when an embedding provider is configured, falling back to lexical-only otherwise. Always scoped server-side to the requesting user.
+// @Tags         Memory
+// @Produce      json
+// @Param        q          query  string   true   "Search query"
+// @Param        dimension  query  string   false  "Filter by dimension"
+// @Param        status     query  string   false  "Filter by status"
+// @Param        limit      query  integer  false  "Max results (default: 20)"
+// @Success      200  {object}  paginatedResponse
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/memory/records/search [get]
+func (h *Handler) searchMyMemories(w http.ResponseWriter, r *http.Request) {
+	user := GetUser(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, errAuthRequired)
+		return
+	}
+	// Email is the sole server-side scoping key. An empty email would make
+	// scopeFilters omit the created_by predicate and return every user's
+	// records, so fail closed rather than run an unscoped search (#516).
+	if user.Email == "" {
+		writeError(w, http.StatusForbidden, errSearchScopeRequired)
+		return
+	}
+
+	query := strings.TrimSpace(r.URL.Query().Get(paramQuery))
+	if query == "" {
+		writeError(w, http.StatusBadRequest, "query parameter 'q' is required")
+		return
+	}
+
+	limit := intParam(r, paramLimit, memory.DefaultLimit)
+	emb := h.embedSearchQuery(r.Context(), query)
+
+	var (
+		scored []memory.ScoredRecord
+		err    error
+	)
+	if len(emb) > 0 {
+		scored, err = h.deps.MemoryStore.HybridSearch(r.Context(), memory.HybridQuery{
+			Embedding: emb,
+			QueryText: query,
+			CreatedBy: user.Email,
+			Dimension: r.URL.Query().Get("dimension"),
+			Status:    r.URL.Query().Get("status"),
+			Limit:     limit,
+		})
+	} else {
+		scored, err = h.deps.MemoryStore.LexicalSearch(r.Context(), memory.LexicalQuery{
+			QueryText: query,
+			CreatedBy: user.Email,
+			Dimension: r.URL.Query().Get("dimension"),
+			Status:    r.URL.Query().Get("status"),
+			Limit:     limit,
+		})
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to search memory records")
+		return
+	}
+
+	results := make([]scoredMemoryRecord, 0, len(scored))
+	for i := range scored {
+		results = append(results, scoredMemoryRecord{Record: scored[i].Record, Score: scored[i].Score})
+	}
+	writeJSON(w, http.StatusOK, paginatedResponse{
+		Data: results, Total: len(results), Limit: limit, Offset: 0,
+	})
+}
+
+// searchMyInsights handles GET /api/v1/portal/knowledge/insights/search.
+//
+// @Summary      Search my knowledge insights
+// @Description  Ranks the current user's knowledge insights by relevance to q. Uses hybrid (semantic + lexical) ranking when an embedding provider is configured, falling back to lexical-only otherwise. Always scoped server-side to the requesting user.
+// @Tags         Knowledge
+// @Produce      json
+// @Param        q       query  string   true   "Search query"
+// @Param        status  query  string   false  "Filter by insight status"
+// @Param        limit   query  integer  false  "Max results (default: 20)"
+// @Success      200  {object}  paginatedResponse
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/knowledge/insights/search [get]
+func (h *Handler) searchMyInsights(w http.ResponseWriter, r *http.Request) {
+	user := GetUser(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, errAuthRequired)
+		return
+	}
+
+	// The route is only registered when the store implements InsightSearcher,
+	// so this assertion holds; guard defensively regardless.
+	if user.Email == "" {
+		writeError(w, http.StatusForbidden, errSearchScopeRequired)
+		return
+	}
+
+	searcher, ok := h.deps.InsightStore.(InsightSearcher)
+	if !ok {
+		writeError(w, http.StatusNotFound, "knowledge search not available")
+		return
+	}
+
+	query := strings.TrimSpace(r.URL.Query().Get(paramQuery))
+	if query == "" {
+		writeError(w, http.StatusBadRequest, "query parameter 'q' is required")
+		return
+	}
+
+	limit := intParam(r, paramLimit, knowledge.DefaultLimit)
+	scored, err := searcher.Search(r.Context(), knowledge.InsightSearchQuery{
+		QueryText:  query,
+		Embedding:  h.embedSearchQuery(r.Context(), query),
+		CapturedBy: user.Email,
+		Status:     r.URL.Query().Get("status"),
+		Limit:      limit,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to search insights")
+		return
+	}
+
+	results := make([]scoredInsightRecord, 0, len(scored))
+	for i := range scored {
+		results = append(results, scoredInsightRecord{Insight: scored[i].Insight, Score: scored[i].Score})
+	}
+	writeJSON(w, http.StatusOK, paginatedResponse{
+		Data: results, Total: len(results), Limit: limit, Offset: 0,
+	})
+}
+
+// embedSearchQuery returns the query embedding when an embedding provider
+// is configured and reachable, or nil to signal the lexical-only fallback.
+// A nil/noop provider, an embed error, or a zero vector (the noop
+// provider's output) all degrade to lexical search, mirroring the
+// memory_recall tool's behavior so the portal and the agent surface rank
+// the same way.
+func (h *Handler) embedSearchQuery(ctx context.Context, query string) []float32 {
+	if !embedding.IsConfigured(h.deps.EmbeddingProvider) {
+		return nil
+	}
+	emb, err := h.deps.EmbeddingProvider.Embed(ctx, query)
+	if err != nil {
+		slog.Warn("portal search embedding failed; falling back to lexical", logKeyError, err)
+		return nil
+	}
+	if embedding.IsZeroVector(emb) {
+		return nil
+	}
+	return emb
+}
+
 // --- Helpers ---
 
 // statusResponse is a generic status response.
@@ -1972,7 +2175,7 @@ func (h *Handler) performAssetCopy(ctx context.Context, asset *Asset, user *User
 		}
 		if _, err := h.deps.VersionStore.CreateVersion(ctx, v1); err != nil {
 			slog.Warn("failed to create initial version for copied asset", // #nosec G706 -- structured log, not user-facing
-				"asset_id", newID, "error", err)
+				"asset_id", newID, logKeyError, err)
 		}
 	}
 
@@ -2120,7 +2323,7 @@ func (h *Handler) createAsset(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := h.deps.VersionStore.CreateVersion(ctx, v1); err != nil {
 		slog.Warn("failed to create initial version for new asset", // #nosec G706 -- structured log, not user-facing
-			"asset_id", newID, "error", err)
+			"asset_id", newID, logKeyError, err)
 	}
 
 	writeJSON(w, http.StatusCreated, newAsset)

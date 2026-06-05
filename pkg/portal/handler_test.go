@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/pkg/audit"
+	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
@@ -2169,6 +2170,149 @@ func (m *mockInsightStore) Stats(_ context.Context, f knowledge.InsightFilter) (
 
 var _ InsightReader = (*mockInsightStore)(nil)
 
+// mockSearchableInsightStore implements both InsightReader and
+// InsightSearcher, modeling the memory-backed adapter that powers
+// knowledge search in real deployments.
+type mockSearchableInsightStore struct {
+	mockInsightStore
+	searchResult []knowledge.ScoredInsight
+	searchErr    error
+	lastQuery    knowledge.InsightSearchQuery
+}
+
+func (m *mockSearchableInsightStore) Search(_ context.Context, q knowledge.InsightSearchQuery) ([]knowledge.ScoredInsight, error) {
+	m.lastQuery = q
+	return m.searchResult, m.searchErr
+}
+
+var (
+	_ InsightReader   = (*mockSearchableInsightStore)(nil)
+	_ InsightSearcher = (*mockSearchableInsightStore)(nil)
+)
+
+func newKnowledgeSearchHandler(store InsightReader, emb embedding.Provider, user *User) *Handler {
+	return NewHandler(Deps{
+		AssetStore:        &mockAssetStore{},
+		ShareStore:        &mockShareStore{},
+		InsightStore:      store,
+		EmbeddingProvider: emb,
+	}, testAuthMiddleware(user))
+}
+
+func TestSearchMyInsights_Success(t *testing.T) {
+	store := &mockSearchableInsightStore{
+		searchResult: []knowledge.ScoredInsight{
+			{Insight: knowledge.Insight{ID: "ins-1", CapturedBy: "user-1@example.com", Status: "approved"}, Score: 0.93},
+		},
+	}
+	user := &User{UserID: "user-1", Email: "user-1@example.com"}
+	h := newKnowledgeSearchHandler(store, &fakeEmbedder{vec: []float32{0.1, 0.2, 0.3}}, user)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET",
+		"/api/v1/portal/knowledge/insights/search?q=churn&status=approved&limit=7", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "user-1@example.com", store.lastQuery.CapturedBy, "search must be scoped to the caller")
+	assert.Equal(t, "churn", store.lastQuery.QueryText)
+	assert.Equal(t, "approved", store.lastQuery.Status)
+	assert.Equal(t, 7, store.lastQuery.Limit)
+	assert.NotEmpty(t, store.lastQuery.Embedding, "configured embedder must supply a query vector")
+
+	var resp struct {
+		Total int `json:"total"`
+		Data  []struct {
+			ID    string  `json:"id"`
+			Score float64 `json:"score"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	require.Equal(t, 1, resp.Total)
+	require.Len(t, resp.Data, 1)
+	assert.InDelta(t, 0.93, resp.Data[0].Score, 1e-6)
+	assert.Equal(t, "ins-1", resp.Data[0].ID)
+}
+
+func TestSearchMyInsights_LexicalWhenNoEmbedder(t *testing.T) {
+	store := &mockSearchableInsightStore{}
+	user := &User{UserID: "user-1", Email: "user-1@example.com"}
+	h := newKnowledgeSearchHandler(store, nil, user)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET",
+		"/api/v1/portal/knowledge/insights/search?q=churn", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Empty(t, store.lastQuery.Embedding, "no embedder means a lexical (no-vector) query")
+}
+
+// TestSearchMyInsights_RouteNotRegisteredWithoutSearcher proves the route
+// is gated on the InsightSearcher capability: a plain InsightReader (the
+// legacy separate-table store) does not get a search route, so the path
+// 404s rather than 500-ing or silently misbehaving.
+func TestSearchMyInsights_RouteNotRegisteredWithoutSearcher(t *testing.T) {
+	store := &mockInsightStore{} // InsightReader only, no Search
+	user := &User{UserID: "user-1", Email: "user-1@example.com"}
+	h := newKnowledgeTestHandler(store, user)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET",
+		"/api/v1/portal/knowledge/insights/search?q=churn", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestSearchMyInsights_MissingQuery(t *testing.T) {
+	store := &mockSearchableInsightStore{}
+	user := &User{UserID: "user-1", Email: "user-1@example.com"}
+	h := newKnowledgeSearchHandler(store, nil, user)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET",
+		"/api/v1/portal/knowledge/insights/search?q=", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestSearchMyInsights_Unauthenticated(t *testing.T) {
+	h := newKnowledgeSearchHandler(&mockSearchableInsightStore{}, nil, nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET",
+		"/api/v1/portal/knowledge/insights/search?q=x", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestSearchMyInsights_EmptyEmailFailsClosed(t *testing.T) {
+	store := &mockSearchableInsightStore{}
+	user := &User{UserID: "u1", Email: ""}
+	h := newKnowledgeSearchHandler(store, nil, user)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET",
+		"/api/v1/portal/knowledge/insights/search?q=churn", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Equal(t, knowledge.InsightSearchQuery{}, store.lastQuery,
+		"no search may run without a scoping email")
+}
+
+func TestSearchMyInsights_Error(t *testing.T) {
+	store := &mockSearchableInsightStore{searchErr: fmt.Errorf("db error")}
+	user := &User{UserID: "user-1", Email: "user-1@example.com"}
+	h := newKnowledgeSearchHandler(store, nil, user)
+	req := httptest.NewRequestWithContext(context.Background(), "GET",
+		"/api/v1/portal/knowledge/insights/search?q=x", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
 func newKnowledgeTestHandler(store *mockInsightStore, user *User) *Handler {
 	return NewHandler(Deps{
 		AssetStore:   &mockAssetStore{},
@@ -3773,15 +3917,29 @@ func TestVersionedExtension(t *testing.T) {
 // --- Memory mock and tests ---
 
 type mockMemoryStore struct {
-	listResult []memory.Record
-	listTotal  int
-	listErr    error
-	lastFilter memory.Filter
+	listResult   []memory.Record
+	listTotal    int
+	listErr      error
+	lastFilter   memory.Filter
+	searchResult []memory.ScoredRecord
+	searchErr    error
+	lastHybridQ  *memory.HybridQuery
+	lastLexicalQ *memory.LexicalQuery
 }
 
 func (m *mockMemoryStore) List(_ context.Context, f memory.Filter) ([]memory.Record, int, error) {
 	m.lastFilter = f
 	return m.listResult, m.listTotal, m.listErr
+}
+
+func (m *mockMemoryStore) HybridSearch(_ context.Context, q memory.HybridQuery) ([]memory.ScoredRecord, error) {
+	m.lastHybridQ = &q
+	return m.searchResult, m.searchErr
+}
+
+func (m *mockMemoryStore) LexicalSearch(_ context.Context, q memory.LexicalQuery) ([]memory.ScoredRecord, error) {
+	m.lastLexicalQ = &q
+	return m.searchResult, m.searchErr
 }
 
 var _ MemoryReader = (*mockMemoryStore)(nil)
@@ -3792,6 +3950,194 @@ func newMemoryTestHandler(store *mockMemoryStore, user *User) *Handler {
 		ShareStore:  &mockShareStore{},
 		MemoryStore: store,
 	}, testAuthMiddleware(user))
+}
+
+// fakeEmbedder is a configured (non-noop) embedding provider for tests.
+// It returns a fixed non-zero vector so the search handlers take the
+// hybrid path; set embedErr to exercise the lexical fallback on error.
+type fakeEmbedder struct {
+	vec      []float32
+	embedErr error
+}
+
+func (f *fakeEmbedder) Embed(_ context.Context, _ string) ([]float32, error) {
+	if f.embedErr != nil {
+		return nil, f.embedErr
+	}
+	return f.vec, nil
+}
+
+func (f *fakeEmbedder) EmbedBatch(_ context.Context, texts []string) ([][]float32, error) {
+	out := make([][]float32, len(texts))
+	for i := range texts {
+		out[i] = f.vec
+	}
+	return out, nil
+}
+func (*fakeEmbedder) Dimension() int { return 3 }
+func (*fakeEmbedder) Kind() string   { return embedding.KindOllama }
+
+func newMemorySearchHandler(store *mockMemoryStore, emb embedding.Provider, user *User) *Handler {
+	return NewHandler(Deps{
+		AssetStore:        &mockAssetStore{},
+		ShareStore:        &mockShareStore{},
+		MemoryStore:       store,
+		EmbeddingProvider: emb,
+	}, testAuthMiddleware(user))
+}
+
+func TestSearchMyMemories_HybridWhenEmbedderConfigured(t *testing.T) {
+	store := &mockMemoryStore{
+		searchResult: []memory.ScoredRecord{
+			{Record: memory.Record{ID: "mem-1", CreatedBy: "alice@example.com", Content: "churn"}, Score: 0.87},
+		},
+	}
+	user := &User{UserID: "u1", Email: "alice@example.com"}
+	h := newMemorySearchHandler(store, &fakeEmbedder{vec: []float32{0.1, 0.2, 0.3}}, user)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET",
+		"/api/v1/portal/memory/records/search?q=churn&dimension=event&status=active&limit=5", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NotNil(t, store.lastHybridQ, "configured embedder must select hybrid search")
+	assert.Nil(t, store.lastLexicalQ)
+	assert.Equal(t, "alice@example.com", store.lastHybridQ.CreatedBy, "search must be scoped to the caller")
+	assert.Equal(t, "event", store.lastHybridQ.Dimension)
+	assert.Equal(t, "active", store.lastHybridQ.Status)
+	assert.Equal(t, "churn", store.lastHybridQ.QueryText)
+	assert.Equal(t, 5, store.lastHybridQ.Limit)
+
+	var resp struct {
+		Total int `json:"total"`
+		Data  []struct {
+			ID    string  `json:"id"`
+			Score float64 `json:"score"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	assert.Equal(t, 1, resp.Total)
+	require.Len(t, resp.Data, 1)
+	// The score field rides along with the record fields.
+	assert.InDelta(t, 0.87, resp.Data[0].Score, 1e-6)
+	assert.Equal(t, "mem-1", resp.Data[0].ID)
+}
+
+func TestSearchMyMemories_LexicalFallbackWithoutEmbedder(t *testing.T) {
+	store := &mockMemoryStore{}
+	user := &User{UserID: "u1", Email: "alice@example.com"}
+	// No embedding provider: the handler must use lexical search.
+	h := newMemorySearchHandler(store, nil, user)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET",
+		"/api/v1/portal/memory/records/search?q=churn", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NotNil(t, store.lastLexicalQ, "missing embedder must select lexical search")
+	assert.Nil(t, store.lastHybridQ)
+	assert.Equal(t, "alice@example.com", store.lastLexicalQ.CreatedBy)
+}
+
+func TestSearchMyMemories_NoopEmbedderFallsBackToLexical(t *testing.T) {
+	store := &mockMemoryStore{}
+	user := &User{UserID: "u1", Email: "alice@example.com"}
+	// A noop provider reports Kind()==noop, so IsConfigured is false.
+	h := newMemorySearchHandler(store, embedding.NewNoopProvider(3), user)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET",
+		"/api/v1/portal/memory/records/search?q=churn", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NotNil(t, store.lastLexicalQ, "noop embedder must degrade to lexical")
+	assert.Nil(t, store.lastHybridQ)
+}
+
+func TestSearchMyMemories_ZeroVectorFallsBackToLexical(t *testing.T) {
+	store := &mockMemoryStore{}
+	user := &User{UserID: "u1", Email: "alice@example.com"}
+	// A configured (non-noop) provider that nonetheless returns a zero
+	// vector: cosine is meaningless, so the handler must degrade to lexical.
+	h := newMemorySearchHandler(store, &fakeEmbedder{vec: []float32{0, 0, 0}}, user)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET",
+		"/api/v1/portal/memory/records/search?q=churn", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NotNil(t, store.lastLexicalQ, "a zero query vector must degrade to lexical search")
+	assert.Nil(t, store.lastHybridQ)
+}
+
+func TestSearchMyMemories_EmbedErrorFallsBackToLexical(t *testing.T) {
+	store := &mockMemoryStore{}
+	user := &User{UserID: "u1", Email: "alice@example.com"}
+	h := newMemorySearchHandler(store, &fakeEmbedder{embedErr: fmt.Errorf("ollama down")}, user)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET",
+		"/api/v1/portal/memory/records/search?q=churn", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NotNil(t, store.lastLexicalQ, "embed error must degrade to lexical, not fail the request")
+}
+
+func TestSearchMyMemories_MissingQuery(t *testing.T) {
+	store := &mockMemoryStore{}
+	user := &User{UserID: "u1", Email: "alice@example.com"}
+	h := newMemorySearchHandler(store, nil, user)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET",
+		"/api/v1/portal/memory/records/search?q=%20%20", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code, "blank query must be rejected")
+}
+
+func TestSearchMyMemories_Unauthenticated(t *testing.T) {
+	h := newMemorySearchHandler(&mockMemoryStore{}, nil, nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET",
+		"/api/v1/portal/memory/records/search?q=x", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+// TestSearchMyMemories_EmptyEmailFailsClosed proves the per-user scope
+// boundary: an authenticated user with no email must be rejected, not
+// allowed to run a search that would omit the created_by predicate and
+// return every user's records (#516).
+func TestSearchMyMemories_EmptyEmailFailsClosed(t *testing.T) {
+	store := &mockMemoryStore{}
+	user := &User{UserID: "u1", Email: ""} // authenticated but no email
+	h := newMemorySearchHandler(store, nil, user)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET",
+		"/api/v1/portal/memory/records/search?q=churn", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Nil(t, store.lastHybridQ, "no search may run without a scoping email")
+	assert.Nil(t, store.lastLexicalQ, "no search may run without a scoping email")
+}
+
+func TestSearchMyMemories_Error(t *testing.T) {
+	store := &mockMemoryStore{searchErr: fmt.Errorf("db error")}
+	user := &User{UserID: "u1", Email: "alice@example.com"}
+	h := newMemorySearchHandler(store, nil, user)
+	req := httptest.NewRequestWithContext(context.Background(), "GET",
+		"/api/v1/portal/memory/records/search?q=x", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
 func TestListMyMemories_Success(t *testing.T) {

@@ -890,6 +890,9 @@ func wirePortalOptionalDeps(deps *portal.Deps, p *platform.Platform) {
 	if p.MemoryStore() != nil {
 		deps.MemoryStore = p.MemoryStore()
 	}
+	if ep := p.EmbeddingProvider(); ep != nil {
+		deps.EmbeddingProvider = ep
+	}
 	if pr := p.PersonaRegistry(); pr != nil {
 		tr := p.ToolkitRegistry()
 		deps.PersonaResolver = buildPersonaResolver(pr, tr)

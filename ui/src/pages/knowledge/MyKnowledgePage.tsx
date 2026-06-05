@@ -1,12 +1,14 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   useMyInsights,
   useMyInsightStats,
   useMyMemories,
   useMyMemoryStats,
+  useSearchMyInsights,
+  useSearchMyMemories,
 } from "@/api/portal/hooks";
 import { StatCard } from "@/components/cards/StatCard";
-import { Lightbulb, ChevronLeft, ChevronRight } from "lucide-react";
+import { Lightbulb, ChevronLeft, ChevronRight, Search } from "lucide-react";
 import type { Insight, MemoryRecord } from "@/api/portal/types";
 import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
 import { CollapsibleMarkdown } from "@/components/renderers/CollapsibleMarkdown";
@@ -68,6 +70,43 @@ const DIMENSION_LABELS: Record<string, string> = {
 const PAGE_SIZE = 20;
 
 type Tab = "knowledge" | "memory";
+
+// useDebounced returns value after it has stopped changing for delayMs,
+// so typing in a search box issues one request after the user pauses
+// rather than one per keystroke.
+function useDebounced<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(t);
+  }, [value, delayMs]);
+  return debounced;
+}
+
+// SearchBox is a controlled text input with a leading search icon, shared
+// by the Knowledge and Memory tabs.
+function SearchBox({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <div className="relative min-w-[220px] flex-1">
+      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full rounded-md border bg-background pl-9 pr-3 py-2 text-sm outline-none ring-ring focus:ring-2"
+      />
+    </div>
+  );
+}
 
 function BadgeLabel({ status }: { status: string }) {
   const badge = STATUS_BADGES[status] ?? {
@@ -214,6 +253,9 @@ export function MyKnowledgePage() {
 function MyKnowledgeSection() {
   const [statusFilter, setStatusFilter] = useState("");
   const [offset, setOffset] = useState(0);
+  const [searchInput, setSearchInput] = useState("");
+  const search = useDebounced(searchInput, 300);
+  const searching = search.trim().length > 0;
 
   const stats = useMyInsightStats();
   const insights = useMyInsights({
@@ -221,10 +263,18 @@ function MyKnowledgeSection() {
     limit: PAGE_SIZE,
     offset,
   });
+  // Search refines by the active status filter and ranks by relevance.
+  const searchResults = useSearchMyInsights(search, {
+    status: statusFilter || undefined,
+    limit: PAGE_SIZE,
+  });
 
   const s = stats.data;
   const totalItems = insights.data?.total ?? 0;
-  const items = insights.data?.data ?? [];
+  const items = searching
+    ? (searchResults.data?.data ?? [])
+    : (insights.data?.data ?? []);
+  const listLoading = searching ? searchResults.isLoading : insights.isLoading;
   const hasNext = offset + PAGE_SIZE < totalItems;
   const hasPrev = offset > 0;
 
@@ -250,29 +300,42 @@ function MyKnowledgeSection() {
         <StatCard label="Applied" value={s?.by_status?.applied ?? 0} />
       </div>
 
-      {/* Filters */}
-      <div className="flex items-center gap-1">
-        {statusFilters.map((f) => (
-          <button
-            key={f.value}
-            onClick={() => {
-              setStatusFilter(f.value);
-              setOffset(0);
-            }}
-            className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-              statusFilter === f.value
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-muted"
-            }`}
-          >
-            {f.label}
-          </button>
-        ))}
+      {/* Search + Filters */}
+      <div className="flex flex-wrap items-center gap-3">
+        <SearchBox
+          value={searchInput}
+          onChange={setSearchInput}
+          placeholder="Search insights..."
+        />
+        <div className="flex items-center gap-1">
+          {statusFilters.map((f) => (
+            <button
+              key={f.value}
+              onClick={() => {
+                setStatusFilter(f.value);
+                setOffset(0);
+              }}
+              className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                statusFilter === f.value
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-muted"
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Insights List */}
-      {insights.isLoading ? (
-        <p className="text-sm text-muted-foreground">Loading...</p>
+      {listLoading ? (
+        <p className="text-sm text-muted-foreground">
+          {searching ? "Searching..." : "Loading..."}
+        </p>
+      ) : searching && items.length === 0 ? (
+        <p className="py-12 text-center text-sm text-muted-foreground">
+          No insights match &quot;{search.trim()}&quot;.
+        </p>
       ) : items.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
           <Lightbulb className="h-12 w-12 mb-2 opacity-30" />
@@ -301,8 +364,8 @@ function MyKnowledgeSection() {
         </div>
       )}
 
-      {/* Pagination */}
-      {totalItems > PAGE_SIZE && (
+      {/* Pagination (browse mode only; search returns a ranked top-K) */}
+      {!searching && totalItems > PAGE_SIZE && (
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <span>
             {offset + 1}-{Math.min(offset + PAGE_SIZE, totalItems)} of{" "}
@@ -338,6 +401,9 @@ function MyMemorySection() {
   const [statusFilter, setStatusFilter] = useState("");
   const [dimensionFilter, setDimensionFilter] = useState("");
   const [offset, setOffset] = useState(0);
+  const [searchInput, setSearchInput] = useState("");
+  const search = useDebounced(searchInput, 300);
+  const searching = search.trim().length > 0;
 
   const stats = useMyMemoryStats();
   const memories = useMyMemories({
@@ -346,9 +412,18 @@ function MyMemorySection() {
     limit: PAGE_SIZE,
     offset,
   });
+  // Search refines by the active status and dimension filters.
+  const searchResults = useSearchMyMemories(search, {
+    status: statusFilter || undefined,
+    dimension: dimensionFilter || undefined,
+    limit: PAGE_SIZE,
+  });
   const s = stats.data;
   const totalItems = memories.data?.total ?? 0;
-  const items = memories.data?.data ?? [];
+  const items = searching
+    ? (searchResults.data?.data ?? [])
+    : (memories.data?.data ?? []);
+  const listLoading = searching ? searchResults.isLoading : memories.isLoading;
   const hasNext = offset + PAGE_SIZE < totalItems;
   const hasPrev = offset > 0;
 
@@ -381,8 +456,13 @@ function MyMemorySection() {
         />
       </div>
 
-      {/* Filters */}
+      {/* Search + Filters */}
       <div className="flex flex-wrap items-center gap-3">
+        <SearchBox
+          value={searchInput}
+          onChange={setSearchInput}
+          placeholder="Search memories..."
+        />
         <div className="flex items-center gap-1">
           {statusFilters.map((f) => (
             <button
@@ -418,8 +498,14 @@ function MyMemorySection() {
       </div>
 
       {/* Memory List */}
-      {memories.isLoading ? (
-        <p className="text-sm text-muted-foreground">Loading...</p>
+      {listLoading ? (
+        <p className="text-sm text-muted-foreground">
+          {searching ? "Searching..." : "Loading..."}
+        </p>
+      ) : searching && items.length === 0 ? (
+        <p className="py-12 text-center text-sm text-muted-foreground">
+          No memories match &quot;{search.trim()}&quot;.
+        </p>
       ) : items.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
           <p className="text-sm font-medium">No memories yet</p>
@@ -437,8 +523,8 @@ function MyMemorySection() {
         </div>
       )}
 
-      {/* Pagination */}
-      {totalItems > PAGE_SIZE && (
+      {/* Pagination (browse mode only; search returns a ranked top-K) */}
+      {!searching && totalItems > PAGE_SIZE && (
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <span>
             {offset + 1}-{Math.min(offset + PAGE_SIZE, totalItems)} of{" "}

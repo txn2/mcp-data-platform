@@ -154,17 +154,21 @@ Two tabs:
 ### Knowledge
 
 - **Summary cards** — Total insights, pending, approved, and applied counts
+- **Search** — Free-text search ranks your insights by relevance to the query. With an embedding provider configured it uses hybrid (semantic + lexical) ranking; without one it falls back to lexical search. Results respect the active status filter, and search is always scoped to your own insights
 - **Status filters** — All, Pending, Approved, Applied, Rejected
 - **Insight cards** — Category badge, status badge, creation date, insight text (rendered as markdown), linked entity URNs, and review notes
-- **Pagination** — 20 items per page
+- **Pagination** — 20 items per page (browse mode; search returns a ranked top-K)
 
 ### Memory
 
 - **Summary cards** — Total memories, active, stale, and dimension count
+- **Search** — Free-text search ranks your memory records by relevance, using hybrid (semantic + lexical) ranking when an embedding provider is configured and lexical search otherwise. Results respect the active status and dimension filters, and search is always scoped to your own records
 - **Filters** — Status (All, Active, Stale, Archived) and dimension dropdown
 - **Memory cards** — Dimension, category, status, content (rendered as markdown), entity URN links, and stale reason if applicable
 
 See [Knowledge Capture](../knowledge/overview.md) and [Memory Layer](../memory/overview.md) for how these are created during sessions.
+
+The search box mirrors the `memory_recall` tool: it ranks semantically when an embedding provider is configured and degrades to lexical search otherwise, so search always returns results even without embeddings.
 
 ## Prompts
 

@@ -51,6 +51,21 @@ func IsConfigured(p Provider) bool {
 	return p.Kind() != KindNoop
 }
 
+// IsZeroVector reports whether every component of v is zero, the signature
+// of the noop provider's output (an unconfigured embedder). Cosine
+// similarity against a zero vector is meaningless, so request-path callers
+// (memory_recall, the portal knowledge/memory search) use this to degrade
+// to lexical ranking. Shared so every surface makes the same hybrid-vs-
+// lexical decision and they cannot drift.
+func IsZeroVector(v []float32) bool {
+	for _, x := range v {
+		if x != 0 {
+			return false
+		}
+	}
+	return true
+}
+
 // modelNamed is the optional interface a concrete provider implements
 // to expose its underlying model identifier (e.g. "nomic-embed-text").
 // It is kept off the Provider interface because not every provider has

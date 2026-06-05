@@ -92,6 +92,73 @@ func (a *memoryInsightAdapter) List(ctx context.Context, filter InsightFilter) (
 	return insights, total, nil
 }
 
+// InsightSearchQuery parameterizes a relevance-ranked insight search. It
+// is owner-scoped (CapturedBy) and, like List, restricted to the knowledge
+// dimension by the adapter. Embedding drives semantic (hybrid) ranking
+// when non-empty; a nil/empty Embedding selects the lexical-only path used
+// when no embedding provider is configured. The caller (the portal search
+// handler) owns the embedder and precomputes Embedding so the adapter does
+// not depend on an embedding provider.
+type InsightSearchQuery struct {
+	QueryText  string
+	Embedding  []float32
+	CapturedBy string
+	Status     string
+	Limit      int
+}
+
+// ScoredInsight pairs an insight with its search relevance score.
+type ScoredInsight struct {
+	Insight Insight
+	Score   float64
+}
+
+// Search returns the caller's knowledge-dimension insights ranked by
+// relevance to the query. It delegates to the shared memory search
+// primitives (HybridSearch when an embedding is supplied, LexicalSearch
+// otherwise), enforcing the same owner + knowledge-dimension scope as
+// List, then maps the scored records back to insights. As in List, the
+// exact insight status is recovered per record and post-filtered, because
+// the memory status enum is coarser than the insight status.
+func (a *memoryInsightAdapter) Search(ctx context.Context, q InsightSearchQuery) ([]ScoredInsight, error) {
+	var (
+		scored []memory.ScoredRecord
+		err    error
+	)
+	memStatus := mapInsightStatusToMemory(q.Status)
+	if len(q.Embedding) > 0 {
+		scored, err = a.store.HybridSearch(ctx, memory.HybridQuery{
+			Embedding: q.Embedding,
+			QueryText: q.QueryText,
+			CreatedBy: q.CapturedBy,
+			Dimension: a.dimension,
+			Status:    memStatus,
+			Limit:     q.Limit,
+		})
+	} else {
+		scored, err = a.store.LexicalSearch(ctx, memory.LexicalQuery{
+			QueryText: q.QueryText,
+			CreatedBy: q.CapturedBy,
+			Dimension: a.dimension,
+			Status:    memStatus,
+			Limit:     q.Limit,
+		})
+	}
+	if err != nil {
+		return nil, fmt.Errorf("searching insight records: %w", err)
+	}
+
+	results := make([]ScoredInsight, 0, len(scored))
+	for i := range scored {
+		insight := recordToInsight(scored[i].Record)
+		if q.Status != "" && insight.Status != q.Status {
+			continue
+		}
+		results = append(results, ScoredInsight{Insight: insight, Score: scored[i].Score})
+	}
+	return results, nil
+}
+
 // UpdateStatus changes the review status of an insight.
 func (a *memoryInsightAdapter) UpdateStatus(ctx context.Context, id, status, reviewedBy, reviewNotes string) error {
 	meta := map[string]any{

@@ -159,6 +159,36 @@ func TestHybridSearch_PersonaAndStatusFilters(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+// TestHybridSearch_CreatedByAndDimensionFilters verifies the per-user and
+// per-dimension scope predicates (the portal's "my knowledge" search
+// boundary) are bound in order after the vector and query: created_by=$3,
+// dimension=$4, persona=$5, status=$6.
+func TestHybridSearch_CreatedByAndDimensionFilters(t *testing.T) {
+	t.Parallel()
+
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresStore(db)
+
+	mock.ExpectQuery("UNION ALL").
+		WithArgs(sqlmock.AnyArg(), "orders", "user@example.com", DimensionKnowledge, "analyst", StatusActive).
+		WillReturnRows(sqlmock.NewRows(hybridColumns))
+
+	_, err = store.HybridSearch(context.Background(), HybridQuery{
+		Embedding: []float32{0.1},
+		QueryText: "orders",
+		CreatedBy: "user@example.com",
+		Dimension: DimensionKnowledge,
+		Persona:   "analyst",
+		Status:    StatusActive,
+		Limit:     10,
+	})
+	require.NoError(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestHybridSearch_QueryError(t *testing.T) {
 	t.Parallel()
 
@@ -281,6 +311,35 @@ func TestLexicalSearch_SurfacesNullEmbeddingRows(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+// TestLexicalSearch_CreatedByAndDimensionFilters verifies the lexical arm
+// binds the same scope predicates after its single $1=query parameter:
+// created_by=$2, dimension=$3, persona=$4, status=$5. This is the
+// embedder-unavailable path of the portal's per-user knowledge search.
+func TestLexicalSearch_CreatedByAndDimensionFilters(t *testing.T) {
+	t.Parallel()
+
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresStore(db)
+
+	mock.ExpectQuery("ts_rank_cd").
+		WithArgs("orders_fact", "user@example.com", DimensionKnowledge, "analyst", StatusActive).
+		WillReturnRows(sqlmock.NewRows(lexicalColumns))
+
+	_, err = store.LexicalSearch(context.Background(), LexicalQuery{
+		QueryText: "orders_fact",
+		CreatedBy: "user@example.com",
+		Dimension: DimensionKnowledge,
+		Persona:   "analyst",
+		Status:    StatusActive,
+		Limit:     10,
+	})
+	require.NoError(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestLexicalSearch_QueryError(t *testing.T) {
 	t.Parallel()
 
@@ -294,6 +353,58 @@ func TestLexicalSearch_QueryError(t *testing.T) {
 	_, err = store.LexicalSearch(context.Background(), LexicalQuery{QueryText: "q", Limit: 10})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "lexical search")
+}
+
+// --- VectorSearch ---
+
+// TestVectorSearch_CreatedByAndDimensionFilters covers the cosine arm now
+// that it shares scopeFilters: with only $1=vector fixed, the scope
+// predicates start at $2 (created_by=$2, dimension=$3, status=$4). It also
+// asserts the returned row is scored and MinScore filtering is applied.
+func TestVectorSearch_CreatedByAndDimensionFilters(t *testing.T) {
+	t.Parallel()
+
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresStore(db)
+
+	rows := sqlmock.NewRows(lexicalColumns) // record cols + score, same shape
+	addLexicalRow(rows, "above", true, 0.80)
+	addLexicalRow(rows, "below", true, 0.10) // dropped by MinScore
+	mock.ExpectQuery("ORDER BY embedding").
+		WithArgs(sqlmock.AnyArg(), "user@example.com", DimensionKnowledge, StatusActive).
+		WillReturnRows(rows)
+
+	got, err := store.VectorSearch(context.Background(), VectorQuery{
+		Embedding: []float32{0.1, 0.2},
+		CreatedBy: "user@example.com",
+		Dimension: DimensionKnowledge,
+		Status:    StatusActive,
+		MinScore:  0.5,
+		Limit:     10,
+	})
+	require.NoError(t, err)
+	require.Len(t, got, 1, "MinScore must drop the below-threshold row")
+	assert.Equal(t, "above", got[0].Record.ID)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestArchivedExclusion pins the rule that resolves the archived-status
+// search contradiction: the default `status <> 'archived'` predicate is
+// emitted only when no explicit status is requested. An explicit status
+// (including "archived") is enforced separately by scopeFilters, so it
+// must NOT also get the exclusion, or `status <> 'archived' AND status =
+// 'archived'` would match nothing.
+func TestArchivedExclusion(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, " AND status <> 'archived'", archivedExclusion(""),
+		"no explicit status must default to excluding archived (recall semantics)")
+	assert.Equal(t, "", archivedExclusion("archived"),
+		"an explicit archived filter must not also exclude archived")
+	assert.Equal(t, "", archivedExclusion(StatusActive),
+		"any explicit status governs fully; no default exclusion")
 }
 
 func TestClampStoreLimit(t *testing.T) {

@@ -261,3 +261,7 @@ export interface MemoryStats {
   by_category: Record<string, number>;
   by_status: Record<string, number>;
 }
+
+// Search results carry a relevance score alongside the record fields.
+export type ScoredMemoryRecord = MemoryRecord & { score: number };
+export type ScoredInsight = Insight & { score: number };
