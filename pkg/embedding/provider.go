@@ -1,7 +1,10 @@
 // Package embedding provides text embedding generation for memory vector search.
 package embedding
 
-import "context"
+import (
+	"context"
+	"log/slog"
+)
 
 // DefaultDimension is the default embedding dimensionality (nomic-embed-text).
 const DefaultDimension = 768
@@ -64,6 +67,27 @@ func IsZeroVector(v []float32) bool {
 		}
 	}
 	return true
+}
+
+// EmbedForSearch returns a query embedding for relevance ranking, or nil to
+// signal that the caller should fall back to lexical-only ranking. It returns
+// nil when no real provider is configured, when the embed call errors, or when
+// the result is a zero vector (the noop placeholder's output). This is the one
+// hybrid-vs-lexical decision shared by every request-path search surface
+// (recall_insight, the portal knowledge/asset search), so they cannot drift.
+func EmbedForSearch(ctx context.Context, p Provider, query string) []float32 {
+	if !IsConfigured(p) {
+		return nil
+	}
+	emb, err := p.Embed(ctx, query)
+	if err != nil {
+		slog.Warn("search embedding failed; falling back to lexical ranking", "error", err)
+		return nil
+	}
+	if IsZeroVector(emb) {
+		return nil
+	}
+	return emb
 }
 
 // modelNamed is the optional interface a concrete provider implements

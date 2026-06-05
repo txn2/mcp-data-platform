@@ -55,7 +55,7 @@ mcp-data-platform is the orchestration layer for the txn2 MCP ecosystem. DataHub
 
 ## Knowledge Capture
 
-- [Overview](https://mcp-data-platform.txn2.com/knowledge/overview/): Tribal knowledge capture for data catalogs. capture_insight records domain knowledge during AI sessions (backed by memory_records); apply_knowledge provides admin review, synthesis, and DataHub write-back with changeset tracking and rollback
+- [Overview](https://mcp-data-platform.txn2.com/knowledge/overview/): Tribal knowledge capture for data catalogs. capture_insight records domain knowledge during AI sessions (backed by memory_records); recall_insight searches a user's captured insights by relevance (hybrid semantic + lexical); apply_knowledge provides admin review, synthesis, and DataHub write-back with changeset tracking and rollback
 - [Governance Workflow](https://mcp-data-platform.txn2.com/knowledge/governance/): Active metadata management through human-in-the-loop curation with bulk review, approve/reject, synthesize change proposals, apply changes to DataHub, changeset tracking, rollback, column-level targeting, agent-driven curated query creation, context document CRUD
 - [Admin API](https://mcp-data-platform.txn2.com/knowledge/admin-api/): REST endpoints for managing insights and changesets
 

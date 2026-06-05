@@ -1399,6 +1399,18 @@ Record domain knowledge shared during a session.
 
 Captured insights are owned by the user's email (`memory_records.created_by`), the same key `memory_manage` and the portal use, so a person's insights and memories appear together under their **My Knowledge** view. Insights captured before this was unified (keyed on the OIDC subject) are migrated to email by `000056_knowledge_owner_email_backfill`.
 
+### recall_insight
+
+Search the calling user's captured insights by relevance to a natural-language query. Registered only when the memory layer is enabled (insights are knowledge-dimension `memory_records`). Results are scoped server-side to the caller's own insights (`created_by` = the caller's email), the same owner key as `capture_insight` and the portal Knowledge search, and the tool fails closed when the caller has no email.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `query` | string | Yes | - | Natural-language description of the knowledge sought |
+| `status` | string | No | - | Filter by review status: pending, approved, rejected, applied, superseded, rolled_back |
+| `limit` | integer | No | 20 | Maximum results (max 100) |
+
+Ranking is hybrid (semantic vector + lexical) when an embedding provider is configured, falling back to lexical-only when no embedder is configured, the embedder errors, or it returns a zero vector. The response carries `ranking` (`hybrid` or `lexical`), `count`, and an `insights` array pairing each insight (with its status and related entity URNs) with a relevance `score`. This reuses the same search primitives and hybrid-vs-lexical decision as `memory_recall` and the portal Knowledge search, so all three rank the same way.
+
 ### apply_knowledge
 
 Review, synthesize, and apply captured insights to the data catalog. Admin-only. Requires `knowledge.apply.enabled: true`.
@@ -1600,9 +1612,10 @@ Every organization has tribal knowledge about its data that lives in the heads o
 
 ## How It Works
 
-The system has two MCP tools and an Admin REST API:
+The system has three MCP tools and an Admin REST API:
 
 - `capture_insight`: Records domain knowledge during sessions. Available to all personas when enabled. Creates insights with status `pending`.
+- `recall_insight`: Searches the calling user's captured insights by relevance (hybrid semantic + lexical, lexical-only fallback). Registered when the memory layer is enabled. Lets the agent reuse prior knowledge instead of re-asking.
 - `apply_knowledge`: Admin-only tool for reviewing, approving, synthesizing, applying, and rolling back insights to DataHub. Actions: `bulk_review`, `review`, `synthesize`, `apply`, `approve`, `reject`, `rollback`, `list_changesets`.
 - Admin REST API: HTTP endpoints for managing insights and changesets outside the MCP protocol.
 

@@ -68,15 +68,12 @@ type MemoryReader interface {
 	LexicalSearch(ctx context.Context, q memory.LexicalQuery) ([]memory.ScoredRecord, error)
 }
 
-// InsightSearcher is the optional relevance-search capability of the
-// insight store. Only the memory-backed adapter implements it (insights
-// are knowledge-dimension memory records there); the legacy separate-table
-// store, used only when the memory layer is disabled, has no embeddings
-// and does not implement it. The knowledge-search route is registered only
-// when the wired InsightStore satisfies this interface.
-type InsightSearcher interface {
-	Search(ctx context.Context, q knowledge.InsightSearchQuery) ([]knowledge.ScoredInsight, error)
-}
+// InsightSearcher is the optional relevance-search capability of the insight
+// store, declared canonically in the knowledge package next to its query and
+// result types. The knowledge-search route (and the recall_insight tool) are
+// registered only when the wired InsightStore satisfies it; the memory-backed
+// adapter does, the legacy separate-table store does not.
+type InsightSearcher = knowledge.InsightSearcher
 
 // PersonaInfo holds resolved persona details for the current user.
 type PersonaInfo struct {
@@ -1884,25 +1881,13 @@ func (h *Handler) searchMyInsights(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// embedSearchQuery returns the query embedding when an embedding provider
-// is configured and reachable, or nil to signal the lexical-only fallback.
-// A nil/noop provider, an embed error, or a zero vector (the noop
-// provider's output) all degrade to lexical search, mirroring the
-// memory_recall tool's behavior so the portal and the agent surface rank
-// the same way.
+// embedSearchQuery returns the query embedding for the portal's memory,
+// knowledge, and asset relevance search, or nil to signal the lexical-only
+// fallback. It delegates to embedding.EmbedForSearch so the portal and the
+// agent surfaces (memory_recall, recall_insight) make one shared hybrid-vs-
+// lexical decision and cannot drift.
 func (h *Handler) embedSearchQuery(ctx context.Context, query string) []float32 {
-	if !embedding.IsConfigured(h.deps.EmbeddingProvider) {
-		return nil
-	}
-	emb, err := h.deps.EmbeddingProvider.Embed(ctx, query)
-	if err != nil {
-		slog.Warn("portal search embedding failed; falling back to lexical", logKeyError, err)
-		return nil
-	}
-	if embedding.IsZeroVector(emb) {
-		return nil
-	}
-	return emb
+	return embedding.EmbedForSearch(ctx, h.deps.EmbeddingProvider, query)
 }
 
 // --- Helpers ---

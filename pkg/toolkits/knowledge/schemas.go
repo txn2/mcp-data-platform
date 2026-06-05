@@ -85,6 +85,30 @@ var captureInsightSchema = json.RawMessage(`{
   }
 }`)
 
+// recallInsightSchema is the JSON Schema for the recall_insight tool input.
+// See captureInsightSchema comment for why enum constraints are omitted;
+// the status value is post-filtered server-side against the insight status.
+var recallInsightSchema = json.RawMessage(`{
+  "type": "object",
+  "required": ["query"],
+  "additionalProperties": false,
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "Natural-language description of the knowledge you are looking for. Results are ranked by semantic relevance (hybrid vector + lexical) when an embedding provider is configured, and by lexical relevance otherwise.",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "description": "Optional filter by insight review status. Valid values: pending, approved, rejected, applied, superseded, rolled_back"
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Maximum number of insights to return (default 20, max 100)"
+    }
+  }
+}`)
+
 // applyKnowledgeSchema is the JSON Schema for the apply_knowledge tool input.
 // See captureInsightSchema comment for why enum constraints are omitted.
 var applyKnowledgeSchema = json.RawMessage(`{
