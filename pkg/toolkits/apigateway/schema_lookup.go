@@ -145,7 +145,8 @@ func (t *Toolkit) handleGetEndpointSchema(_ context.Context, _ *mcp.CallToolRequ
 type operationMatch struct {
 	specName string
 	method   string
-	path     string
+	path     string // full runtime path: effectiveBasePath + spec rawPath
+	rawPath  string // spec-relative path, used to synthesize the operationId
 	op       *openapi3.Operation
 }
 
@@ -184,17 +185,25 @@ func collectOperationMatches(c *conn, operationID, specFilter string) ([]*operat
 			fullPath := basePath + path
 			id := op.OperationID
 			if id == "" {
-				// Synthesized id must match what buildOperationIndex
-				// emits or the operationID returned by
-				// api_list_endpoints will not resolve here. Both
-				// sites use METHOD + " " + full upstream path.
-				id = method + " " + fullPath
+				// Synthesize from the spec-relative path, NOT the
+				// basePath-prefixed fullPath. api_list_endpoints
+				// (appendItemOperations) advertises the id built from
+				// the spec-relative rawPath so the id stays a property
+				// of the spec content alone. Matching here on fullPath
+				// instead severed every synthesized-id lookup on any
+				// connection with a non-empty effectiveBasePath — the
+				// built-in platform-admin spec (base path /api/v1) hit
+				// this squarely: api_list_endpoints advertised
+				// "GET /admin/personas" while this resolver looked up
+				// "GET /api/v1/admin/personas" and returned not-found.
+				// Use the one shared helper so the two sites cannot drift.
+				id = synthesizedOperationID(method, path)
 			}
 			if id != operationID {
 				return
 			}
 			matches = append(matches, &operationMatch{
-				specName: specName, method: method, path: fullPath, op: op,
+				specName: specName, method: method, path: fullPath, rawPath: path, op: op,
 			})
 			candidates = append(candidates, schemaCandidate{
 				Spec: specName, Method: method, Path: fullPath,
@@ -244,7 +253,10 @@ func walkOperations(doc *openapi3.T, fn func(method, path string, op *openapi3.O
 // m.path is already the full upstream path (the spec's base path
 // prepended at collectOperationMatches time) so the output's Path
 // field agrees with the path reported by api_list_endpoints for
-// the same operation. Same for the synthesized OperationID.
+// the same operation. The synthesized OperationID, by contrast, is
+// built from the spec-relative rawPath via the shared helper so it
+// agrees with the id api_list_endpoints advertises (which is
+// base-path-independent), not with m.path.
 func buildEndpointSchemaOutput(m *operationMatch) EndpointSchemaOutput {
 	out := EndpointSchemaOutput{
 		Spec:        m.specName,
@@ -255,7 +267,7 @@ func buildEndpointSchemaOutput(m *operationMatch) EndpointSchemaOutput {
 		Description: m.op.Description,
 	}
 	if out.OperationID == "" {
-		out.OperationID = m.method + " " + m.path
+		out.OperationID = synthesizedOperationID(m.method, m.rawPath)
 	}
 	out.Parameters = flattenParameters(m.op.Parameters)
 	out.RequestBody = flattenRequestBody(m.op.RequestBody)

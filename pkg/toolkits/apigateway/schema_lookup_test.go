@@ -786,3 +786,146 @@ func TestGetEndpointSchema_ConstAndEnumPreserved(t *testing.T) {
 		t.Errorf("status.enum not preserved (got %v): %+v", status["enum"], status)
 	}
 }
+
+// basePathNoOpIDSpec mirrors the built-in platform-admin spec: a
+// non-empty server base path (/api/v1) and operations that declare no
+// operationId. This is the exact shape that exposed the synthesized-id
+// divergence between api_list_endpoints and api_get_endpoint_schema:
+// the list side synthesizes "<METHOD> <spec-relative path>" while the
+// schema lookup formerly synthesized "<METHOD> <basePath+path>", so
+// every listed id returned not-found at the schema lookup. Includes a
+// collection path and a templated path to cover both.
+const basePathNoOpIDSpec = `
+openapi: 3.0.3
+info:
+  title: Platform Admin
+  version: "1.0"
+servers:
+  - url: https://admin.example.com/api/v1
+paths:
+  /admin/personas:
+    get:
+      summary: List personas
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+  /admin/personas/{name}:
+    get:
+      summary: Get persona
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+`
+
+func setupBasePathNoOpIDTk(t *testing.T) *Toolkit {
+	t.Helper()
+	tk := New("api")
+	setupCatalogWithSpec(t, tk, "platform-admin", "admin", basePathNoOpIDSpec)
+	if err := tk.AddConnection("c", map[string]any{
+		// base_url is the host root, so effectiveBasePath resolves to the
+		// spec's /api/v1 (non-empty) — the platform-admin scenario.
+		"base_url":   "https://admin.example.com",
+		"catalog_id": "platform-admin",
+	}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	return tk
+}
+
+// listOperation pulls a single operation out of a handleListEndpoints
+// result by its full runtime path, failing the test if absent.
+func listOperation(t *testing.T, tk *Toolkit, connection, path string) OperationSummary {
+	t.Helper()
+	_, raw, err := tk.handleListEndpoints(context.Background(), nil, ListEndpointsInput{
+		Connection: connection,
+	})
+	if err != nil {
+		t.Fatalf("handleListEndpoints: %v", err)
+	}
+	out, ok := raw.(ListEndpointsOutput)
+	if !ok {
+		t.Fatalf("list output type %T", raw)
+	}
+	for _, op := range out.Operations {
+		if op.Path == path {
+			return op
+		}
+	}
+	t.Fatalf("operation with path %q not in list: %+v", path, out.Operations)
+	return OperationSummary{}
+}
+
+// TestGetEndpointSchema_SynthesizedIDRoundTripsWithBasePath is the
+// regression guard for the platform-admin bug: an operation_id taken
+// verbatim from api_list_endpoints must resolve through
+// api_get_endpoint_schema even when the connection has a non-empty
+// effectiveBasePath and the operation declares no operationId.
+func TestGetEndpointSchema_SynthesizedIDRoundTripsWithBasePath(t *testing.T) {
+	tk := setupBasePathNoOpIDTk(t)
+
+	// The list side reports the full runtime path but a base-path-free
+	// synthesized id. Lock both down so a regression on either side trips
+	// this test.
+	listed := listOperation(t, tk, "c", "/api/v1/admin/personas")
+	if listed.OperationID != "GET /admin/personas" {
+		t.Fatalf("list operation_id = %q, want base-path-free %q", listed.OperationID, "GET /admin/personas")
+	}
+
+	// Feed the listed id straight into the schema lookup — the broken
+	// discover->schema flow.
+	r, _, err := tk.handleGetEndpointSchema(context.Background(), nil, GetEndpointSchemaInput{
+		Connection: "c", OperationID: listed.OperationID,
+	})
+	if err != nil || r.IsError {
+		t.Fatalf("schema lookup for %q: err=%v isError=%v body=%s",
+			listed.OperationID, err, r.IsError, textContent(r))
+	}
+	out := parseSchemaResult(t, r)
+	if out.OperationID != listed.OperationID {
+		t.Errorf("schema operation_id = %q, want round-trip %q", out.OperationID, listed.OperationID)
+	}
+	if out.Method != "GET" || out.Path != listed.Path {
+		t.Errorf("schema op mismatch: got method=%q path=%q, want GET %q", out.Method, out.Path, listed.Path)
+	}
+}
+
+// TestGetEndpointSchema_SynthesizedIDTemplatedPathWithBasePath covers
+// the templated-path variant (/admin/personas/{name}) so the round-trip
+// holds for path-parameter operations too.
+func TestGetEndpointSchema_SynthesizedIDTemplatedPathWithBasePath(t *testing.T) {
+	tk := setupBasePathNoOpIDTk(t)
+
+	listed := listOperation(t, tk, "c", "/api/v1/admin/personas/{name}")
+	if listed.OperationID != "GET /admin/personas/{name}" {
+		t.Fatalf("list operation_id = %q, want %q", listed.OperationID, "GET /admin/personas/{name}")
+	}
+
+	r, _, err := tk.handleGetEndpointSchema(context.Background(), nil, GetEndpointSchemaInput{
+		Connection: "c", OperationID: listed.OperationID,
+	})
+	if err != nil || r.IsError {
+		t.Fatalf("schema lookup for %q: err=%v isError=%v body=%s",
+			listed.OperationID, err, r.IsError, textContent(r))
+	}
+	out := parseSchemaResult(t, r)
+	if out.OperationID != listed.OperationID || out.Path != listed.Path {
+		t.Errorf("templated round-trip mismatch: got id=%q path=%q, want id=%q path=%q",
+			out.OperationID, out.Path, listed.OperationID, listed.Path)
+	}
+	if len(out.Parameters) != 1 || out.Parameters[0].In != "path" || out.Parameters[0].Name != "name" {
+		t.Errorf("expected one path param 'name': %+v", out.Parameters)
+	}
+}
