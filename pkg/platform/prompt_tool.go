@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -52,16 +53,19 @@ func (c *platformPromptCreator) RegisterRuntimePrompt(p *prompt.Prompt) {
 
 // managePromptInput is the input schema for the manage_prompt tool.
 type managePromptInput struct {
-	Command     string            `json:"command"`
-	Name        string            `json:"name,omitempty"`
-	DisplayName string            `json:"display_name,omitempty"`
-	Description string            `json:"description,omitempty"`
-	Content     string            `json:"content,omitempty"`
-	Arguments   []prompt.Argument `json:"arguments,omitempty"`
-	Category    string            `json:"category,omitempty"`
-	Scope       string            `json:"scope,omitempty"`
-	Personas    []string          `json:"personas,omitempty"`
-	Search      string            `json:"search,omitempty"`
+	Command      string            `json:"command"`
+	Name         string            `json:"name,omitempty"`
+	DisplayName  string            `json:"display_name,omitempty"`
+	Description  string            `json:"description,omitempty"`
+	Content      string            `json:"content,omitempty"`
+	Arguments    []prompt.Argument `json:"arguments,omitempty"`
+	Category     string            `json:"category,omitempty"`
+	Scope        string            `json:"scope,omitempty"`
+	Personas     []string          `json:"personas,omitempty"`
+	Tags         []string          `json:"tags,omitempty"`
+	Status       string            `json:"status,omitempty"`
+	SupersededBy string            `json:"superseded_by,omitempty"`
+	Search       string            `json:"search,omitempty"`
 }
 
 // registerPromptTool registers the manage_prompt tool with the MCP server.
@@ -138,6 +142,7 @@ func (p *Platform) handlePromptCreate(ctx context.Context, input managePromptInp
 		Category:    input.Category,
 		Scope:       scope,
 		Personas:    personas,
+		Tags:        input.Tags,
 		OwnerEmail:  email,
 		Source:      prompt.SourceOperator,
 		Enabled:     true,
@@ -182,8 +187,20 @@ func (p *Platform) handlePromptUpdate(ctx context.Context, input managePromptInp
 		}
 	}
 
+	oldScope := existing.Scope
 	if errMsg := applyPromptUpdates(existing, input, p.isAdminPersona(ctx)); errMsg != "" {
 		return promptErrorResult(errMsg), nil, nil
+	}
+	if errMsg := applyStatusTransition(existing, input.Status, input.SupersededBy, email, p.isAdminPersona(ctx)); errMsg != "" {
+		return promptErrorResult(errMsg), nil, nil
+	}
+	// Promoting a personal prompt into the shared (global/persona) namespace
+	// requires a name that is free there; the shared names are globally unique.
+	if oldScope == prompt.ScopePersonal && existing.Scope != prompt.ScopePersonal {
+		if dup, _ := p.promptStore.Get(ctx, existing.Name); dup != nil && dup.ID != existing.ID {
+			return promptErrorResult(fmt.Sprintf(
+				"the name %q is already used by a %s prompt; rename before promoting", existing.Name, dup.Scope)), nil, nil
+		}
 	}
 
 	if err := p.promptStore.Update(ctx, existing); err != nil {
@@ -228,6 +245,41 @@ func applyPromptUpdates(existing *prompt.Prompt, input managePromptInput, isAdmi
 	if input.Personas != nil {
 		existing.Personas = input.Personas
 	}
+	if input.Tags != nil {
+		existing.Tags = input.Tags
+	}
+	return ""
+}
+
+// applyStatusTransition validates and applies a prompt status change, stamping
+// the lifecycle timestamps. Approval (-> approved) is admin-only. Returns a
+// non-empty error message on an invalid or unauthorized transition.
+func applyStatusTransition(existing *prompt.Prompt, newStatus, supersededBy, actorEmail string, isAdmin bool) string {
+	if newStatus == "" || newStatus == existing.Status {
+		return ""
+	}
+	if err := prompt.ValidateStatus(newStatus); err != nil {
+		return err.Error()
+	}
+	if err := prompt.ValidateStatusTransition(existing.Status, newStatus); err != nil {
+		return err.Error()
+	}
+	if newStatus == prompt.StatusApproved && !isAdmin {
+		return "only admins can approve a prompt"
+	}
+	now := time.Now().UTC()
+	switch newStatus {
+	case prompt.StatusApproved:
+		existing.ApprovedBy = actorEmail
+		existing.ApprovedAt = &now
+		existing.ReviewRequested = false
+	case prompt.StatusDeprecated:
+		existing.DeprecatedAt = &now
+	case prompt.StatusSuperseded:
+		// Record which prompt replaces this one, if the caller named it.
+		existing.SupersededBy = supersededBy
+	}
+	existing.Status = newStatus
 	return ""
 }
 
@@ -370,13 +422,17 @@ func (p *Platform) resolveManagedPrompt(ctx context.Context, name, email string)
 	if email != "" {
 		personal, err := p.promptStore.GetPersonal(ctx, email, name)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("resolving personal prompt: %w", err)
 		}
 		if personal != nil {
 			return personal, nil
 		}
 	}
-	return p.promptStore.Get(ctx, name)
+	shared, err := p.promptStore.Get(ctx, name)
+	if err != nil {
+		return nil, fmt.Errorf("resolving shared prompt: %w", err)
+	}
+	return shared, nil
 }
 
 // resolveEmail returns the user email from context.
@@ -478,6 +534,20 @@ func managePromptSchema() any {
 				schemaKeyType:        "array",
 				"items":              map[string]any{schemaKeyType: schemaValString},
 				schemaKeyDescription: "Personas this prompt is assigned to. Defaults to empty list if omitted.",
+			},
+			"tags": map[string]any{
+				schemaKeyType:        "array",
+				"items":              map[string]any{schemaKeyType: schemaValString},
+				schemaKeyDescription: "Free-form tags for organizing and searching prompts (create/update).",
+			},
+			"status": map[string]any{
+				schemaKeyType:        schemaValString,
+				"enum":               []string{prompt.StatusDraft, prompt.StatusApproved, prompt.StatusDeprecated, prompt.StatusSuperseded},
+				schemaKeyDescription: "Lifecycle status (update). Transitions: draft->approved->deprecated->superseded. Approval is admin-only.",
+			},
+			"superseded_by": map[string]any{
+				schemaKeyType:        schemaValString,
+				schemaKeyDescription: "Name of the prompt that replaces this one (set when transitioning status to 'superseded').",
 			},
 			"search": map[string]any{
 				schemaKeyType:        schemaValString,

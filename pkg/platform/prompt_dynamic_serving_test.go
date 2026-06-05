@@ -33,6 +33,32 @@ func TestListVisiblePrompts_ScopePrefixesAndScoping(t *testing.T) {
 	assert.False(t, names["personal-bob"], "another user's personal prompt must not be visible")
 }
 
+func TestPromptServing_AnonymousIsFailClosed(t *testing.T) {
+	// An anonymous caller (empty email, no personas) sees only globals and can
+	// fetch only globals, never personal or persona prompts.
+	p, store := newTestPlatformWithPromptStore()
+	store.prompts["g"] = &prompt.Prompt{Name: "g", Scope: prompt.ScopeGlobal, Enabled: true}
+	store.prompts["pa"] = &prompt.Prompt{Name: "pa", Scope: prompt.ScopePersona, Personas: []string{"analyst"}, Enabled: true}
+	store.prompts["mine"] = &prompt.Prompt{Name: "mine", Scope: prompt.ScopePersonal, OwnerEmail: "sarah@example.com", Enabled: true}
+
+	out := p.listVisiblePrompts(context.Background(), "", nil)
+	names := map[string]bool{}
+	for _, pr := range out {
+		names[pr.Name] = true
+	}
+	assert.True(t, names["global-g"], "anonymous sees globals")
+	assert.False(t, names["analyst-pa"], "anonymous must not see persona prompts")
+	assert.False(t, names["personal-mine"], "anonymous must not see personal prompts")
+	assert.Len(t, out, 1, "anonymous list contains only the global prompt")
+
+	_, ok := p.getDynamicPrompt(context.Background(), "", nil, "personal-mine", nil)
+	assert.False(t, ok, "anonymous cannot fetch a personal prompt")
+	_, ok = p.getDynamicPrompt(context.Background(), "", nil, "analyst-pa", nil)
+	assert.False(t, ok, "anonymous cannot fetch a persona prompt")
+	_, ok = p.getDynamicPrompt(context.Background(), "", nil, "global-g", nil)
+	assert.True(t, ok, "anonymous can fetch a global prompt")
+}
+
 func TestGetDynamicPrompt_ResolvesByPrefix(t *testing.T) {
 	p, store := newTestPlatformWithPromptStore()
 	store.prompts["g1"] = &prompt.Prompt{Name: "g1", Scope: prompt.ScopeGlobal, Content: "global {x}", Enabled: true}

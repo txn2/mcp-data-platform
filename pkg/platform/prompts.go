@@ -14,68 +14,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 )
 
-// promptScope records the visibility attributes of a database-backed prompt,
-// used by the prompts/list filter to decide whether a caller may see it.
-type promptScope struct {
-	scope      string
-	ownerEmail string
-	personas   []string
-}
-
-// setPromptScope records (or replaces) a database prompt's visibility entry.
-func (p *Platform) setPromptScope(pr *prompt.Prompt) {
-	p.promptScopesMu.Lock()
-	defer p.promptScopesMu.Unlock()
-	if p.promptScopes == nil {
-		p.promptScopes = make(map[string]promptScope)
-	}
-	p.promptScopes[pr.Name] = promptScope{
-		scope:      pr.Scope,
-		ownerEmail: pr.OwnerEmail,
-		personas:   pr.Personas,
-	}
-}
-
-// deletePromptScope drops a database prompt's visibility entry.
-func (p *Platform) deletePromptScope(name string) {
-	p.promptScopesMu.Lock()
-	defer p.promptScopesMu.Unlock()
-	delete(p.promptScopes, name)
-}
-
-// isPromptVisible reports whether a prompt should appear in prompts/list for a
-// caller with the given identity. Built-in prompts (absent from promptScopes)
-// are always visible. Database prompts are gated by scope: global to everyone,
-// personal only to the owning email, persona only when the caller belongs to
-// one of the prompt's personas. An empty/anonymous caller therefore sees only
-// global and built-in prompts (fail closed). Admins see everything.
-func (p *Platform) isPromptVisible(email string, personas []string, isAdmin bool, name string) bool {
-	p.promptScopesMu.RLock()
-	ps, ok := p.promptScopes[name]
-	p.promptScopesMu.RUnlock()
-	if !ok {
-		return true // built-in / non-database prompt
-	}
-	if isAdmin {
-		return true
-	}
-	switch ps.scope {
-	case prompt.ScopeGlobal:
-		return true
-	case prompt.ScopePersonal:
-		return email != "" && email == ps.ownerEmail
-	case prompt.ScopePersona:
-		for _, pn := range personas {
-			if slices.Contains(ps.personas, pn) {
-				return true
-			}
-		}
-		return false
-	default:
-		return false // unknown scope: fail closed
-	}
-}
-
 // Prompt and toolkit kind constants.
 const (
 	autoPromptName = "platform-overview"
@@ -521,42 +459,51 @@ func (p *Platform) listVisiblePrompts(ctx context.Context, email string, persona
 	if p.promptStore == nil {
 		return nil
 	}
-	enabled := true
-	var out []*mcp.Prompt
-
-	globals, err := p.promptStore.List(ctx, prompt.ListFilter{Scope: prompt.ScopeGlobal, Enabled: &enabled})
-	if err != nil {
-		slog.Warn("failed to list global prompts", logKeyError, err)
-	}
-	for i := range globals {
-		out = append(out, promptDescriptor(promptPrefixGlobal+globals[i].Name, &globals[i]))
-	}
-
-	if len(personas) > 0 {
-		personaPrompts, perr := p.promptStore.List(ctx, prompt.ListFilter{
-			Scope: prompt.ScopePersona, Personas: personas, Enabled: &enabled,
-		})
-		if perr != nil {
-			slog.Warn("failed to list persona prompts", logKeyError, perr)
-		}
-		for i := range personaPrompts {
-			for _, persona := range personas {
-				if slices.Contains(personaPrompts[i].Personas, persona) {
-					out = append(out, promptDescriptor(persona+"-"+personaPrompts[i].Name, &personaPrompts[i]))
-				}
-			}
-		}
-	}
-
+	out := p.listScopedDescriptors(ctx, prompt.ListFilter{Scope: prompt.ScopeGlobal}, promptPrefixGlobal)
+	out = append(out, p.listPersonaDescriptors(ctx, personas)...)
 	if email != "" {
-		personal, perr := p.promptStore.List(ctx, prompt.ListFilter{
-			Scope: prompt.ScopePersonal, OwnerEmail: email, Enabled: &enabled,
-		})
-		if perr != nil {
-			slog.Warn("failed to list personal prompts", logKeyError, perr)
-		}
-		for i := range personal {
-			out = append(out, promptDescriptor(promptPrefixPersonal+personal[i].Name, &personal[i]))
+		out = append(out, p.listScopedDescriptors(ctx, prompt.ListFilter{Scope: prompt.ScopePersonal, OwnerEmail: email}, promptPrefixPersonal)...)
+	}
+	return out
+}
+
+// listScopedDescriptors lists enabled prompts matching the filter and presents
+// each under a fixed scope prefix (for global and personal scopes).
+func (p *Platform) listScopedDescriptors(ctx context.Context, filter prompt.ListFilter, prefix string) []*mcp.Prompt {
+	enabled := true
+	filter.Enabled = &enabled
+	prompts, err := p.promptStore.List(ctx, filter)
+	if err != nil {
+		slog.Warn("failed to list prompts", logKeyError, err, "scope", filter.Scope)
+		return nil
+	}
+	out := make([]*mcp.Prompt, 0, len(prompts))
+	for i := range prompts {
+		out = append(out, promptDescriptor(prefix+prompts[i].Name, &prompts[i]))
+	}
+	return out
+}
+
+// listPersonaDescriptors lists the caller's persona prompts, presenting each
+// once per persona the caller belongs to (the prefix is the persona name).
+func (p *Platform) listPersonaDescriptors(ctx context.Context, personas []string) []*mcp.Prompt {
+	if len(personas) == 0 {
+		return nil
+	}
+	enabled := true
+	personaPrompts, err := p.promptStore.List(ctx, prompt.ListFilter{
+		Scope: prompt.ScopePersona, Personas: personas, Enabled: &enabled,
+	})
+	if err != nil {
+		slog.Warn("failed to list persona prompts", logKeyError, err)
+		return nil
+	}
+	var out []*mcp.Prompt
+	for i := range personaPrompts {
+		for _, persona := range personas {
+			if slices.Contains(personaPrompts[i].Personas, persona) {
+				out = append(out, promptDescriptor(persona+"-"+personaPrompts[i].Name, &personaPrompts[i]))
+			}
 		}
 	}
 	return out
@@ -572,19 +519,39 @@ func (p *Platform) getDynamicPrompt(ctx context.Context, email string, personas 
 	if p.promptStore == nil {
 		return nil, false
 	}
-
-	if bare, ok := strings.CutPrefix(name, promptPrefixPersonal); ok && email != "" {
-		if pr, err := p.promptStore.GetPersonal(ctx, email, bare); err == nil && pr != nil && pr.Enabled {
-			return p.renderPrompt(pr, args)
-		}
-		return nil, false
+	if bare, ok := strings.CutPrefix(name, promptPrefixPersonal); ok {
+		return p.getOwnedPersonalPrompt(ctx, email, bare, args)
 	}
 	if bare, ok := strings.CutPrefix(name, promptPrefixGlobal); ok {
-		if pr, err := p.promptStore.Get(ctx, bare); err == nil && pr != nil && pr.Enabled && pr.Scope == prompt.ScopeGlobal {
-			return p.renderPrompt(pr, args)
-		}
+		return p.getGlobalPrompt(ctx, bare, args)
+	}
+	return p.getPersonaPrompt(ctx, personas, name, args)
+}
+
+// getOwnedPersonalPrompt renders the caller's own personal prompt of the bare name.
+func (p *Platform) getOwnedPersonalPrompt(ctx context.Context, email, bare string, args map[string]string) (*mcp.GetPromptResult, bool) {
+	if email == "" {
 		return nil, false
 	}
+	pr, err := p.promptStore.GetPersonal(ctx, email, bare)
+	if err != nil || pr == nil || !pr.Enabled {
+		return nil, false
+	}
+	return p.renderPrompt(pr, args)
+}
+
+// getGlobalPrompt renders the global prompt of the bare name.
+func (p *Platform) getGlobalPrompt(ctx context.Context, bare string, args map[string]string) (*mcp.GetPromptResult, bool) {
+	pr, err := p.promptStore.Get(ctx, bare)
+	if err != nil || pr == nil || !pr.Enabled || pr.Scope != prompt.ScopeGlobal {
+		return nil, false
+	}
+	return p.renderPrompt(pr, args)
+}
+
+// getPersonaPrompt resolves a <persona>-<name> prompt for a caller who belongs
+// to that persona and is shared the target prompt.
+func (p *Platform) getPersonaPrompt(ctx context.Context, personas []string, name string, args map[string]string) (*mcp.GetPromptResult, bool) {
 	for _, persona := range personas {
 		bare, ok := strings.CutPrefix(name, persona+"-")
 		if !ok {
@@ -615,7 +582,6 @@ func (p *Platform) RegisterRuntimePrompt(pr *prompt.Prompt) {
 // Called after delete operations on the prompt store.
 func (p *Platform) UnregisterRuntimePrompt(name string) {
 	p.mcpServer.RemovePrompts(name)
-	p.deletePromptScope(name)
 	p.promptInfosMu.Lock()
 	for i, info := range p.promptInfos {
 		if info.Name == name {

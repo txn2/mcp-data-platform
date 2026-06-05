@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -33,6 +34,9 @@ const promptColumns = `id, name, display_name, description, content, arguments,
 	approved_by, approved_at, deprecated_at, superseded_by, review_requested,
 	requested_scope, requested_personas, created_at, updated_at`
 
+// promptSelect is the base SELECT for the prompt columns.
+const promptSelect = "SELECT " + promptColumns + " FROM prompts"
+
 // rowScanner is satisfied by *sql.Row and *sql.Rows.
 type rowScanner interface {
 	Scan(dest ...any) error
@@ -49,7 +53,7 @@ func scanPrompt(sc rowScanner) (*prompt.Prompt, error) {
 		&p.ApprovedBy, &p.ApprovedAt, &p.DeprecatedAt, &p.SupersededBy, &p.ReviewRequested,
 		&p.RequestedScope, pq.Array(&p.RequestedPersonas), &p.CreatedAt, &p.UpdatedAt,
 	); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("scanning prompt row: %w", err)
 	}
 	if err := json.Unmarshal(argsJSON, &p.Arguments); err != nil {
 		return nil, fmt.Errorf("unmarshal arguments: %w", err)
@@ -108,29 +112,27 @@ func (s *Store) Create(ctx context.Context, p *prompt.Prompt) error {
 // Get retrieves a non-personal (global or persona) prompt by name. Personal
 // prompts are per-owner; use GetPersonal. Returns nil, nil if not found.
 func (s *Store) Get(ctx context.Context, name string) (*prompt.Prompt, error) {
-	query := `SELECT ` + promptColumns + ` FROM prompts
-	          WHERE name = $1 AND scope <> 'personal'`
+	query := promptSelect + ` WHERE name = $1 AND scope <> 'personal'`
 	return s.queryOne(ctx, query, name)
 }
 
 // GetPersonal retrieves a personal prompt by its owner and name. Returns nil,
 // nil if not found.
 func (s *Store) GetPersonal(ctx context.Context, ownerEmail, name string) (*prompt.Prompt, error) {
-	query := `SELECT ` + promptColumns + ` FROM prompts
-	          WHERE owner_email = $1 AND name = $2 AND scope = 'personal'`
+	query := promptSelect + ` WHERE owner_email = $1 AND name = $2 AND scope = 'personal'`
 	return s.queryOne(ctx, query, ownerEmail, name)
 }
 
 // GetByID retrieves a prompt by ID. Returns nil, nil if not found.
 func (s *Store) GetByID(ctx context.Context, id string) (*prompt.Prompt, error) {
-	query := `SELECT ` + promptColumns + ` FROM prompts WHERE id = $1`
+	query := promptSelect + ` WHERE id = $1`
 	return s.queryOne(ctx, query, id)
 }
 
 // queryOne runs a single-row query and maps not-found to (nil, nil).
 func (s *Store) queryOne(ctx context.Context, query string, args ...any) (*prompt.Prompt, error) {
 	p, err := scanPrompt(s.db.QueryRowContext(ctx, query, args...))
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil //nolint:nilnil // Store interface contract: nil, nil means not found
 	}
 	if err != nil {
@@ -194,7 +196,7 @@ func (s *Store) DeleteByID(ctx context.Context, id string) error {
 func (s *Store) List(ctx context.Context, filter prompt.ListFilter) ([]prompt.Prompt, error) {
 	where, args := buildWhere(filter)
 	// #nosec G202 -- WHERE clause built from validated parameters only (scope enum, email, bool, array, ILIKE pattern)
-	query := `SELECT ` + promptColumns + ` FROM prompts` + where + ` ORDER BY scope, name`
+	query := promptSelect + where + ` ORDER BY scope, name`
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {

@@ -24,14 +24,18 @@ var selectColumns = []string{
 	"created_at", "updated_at",
 }
 
+// testRowTime is the fixed created_at/updated_at value used by promptRow; the
+// SELECT-mocking tests do not assert on timestamps.
+var testRowTime = time.Unix(1700000000, 0).UTC()
+
 // promptRow returns a full result row in promptColumns order for a global
 // prompt, so SELECT-mocking tests do not each repeat 23 values.
-func promptRow(id, name, scope string, argsJSON []byte, owner string, now time.Time) []driver.Value {
+func promptRow(id, name, scope string, argsJSON []byte, owner string) []driver.Value {
 	return []driver.Value{
 		id, name, "Test Prompt", "A test prompt", "Do something with {topic}", argsJSON,
 		"workflow", scope, pq.Array([]string{}), owner, "operator", true,
 		pq.Array([]string{}), "approved", "", nil, nil, "", false, "", pq.Array([]string{}),
-		now, now,
+		testRowTime, testRowTime,
 	}
 }
 
@@ -110,12 +114,11 @@ func TestGet_Success(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	store := New(db)
-	now := time.Now().UTC()
 	argsJSON := []byte(`[{"name":"topic","description":"The topic","required":true}]`)
 
 	mock.ExpectQuery("SELECT .+ FROM prompts WHERE name").WithArgs("test-prompt").
 		WillReturnRows(sqlmock.NewRows(selectColumns).AddRow(
-			promptRow("uuid-123", "test-prompt", "global", argsJSON, "admin@example.com", now)...,
+			promptRow("uuid-123", "test-prompt", "global", argsJSON, "admin@example.com")...,
 		))
 
 	p, err := store.Get(context.Background(), "test-prompt")
@@ -150,12 +153,11 @@ func TestGetByID_Success(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	store := New(db)
-	now := time.Now().UTC()
 	argsJSON := []byte(`[]`)
 
 	mock.ExpectQuery("SELECT .+ FROM prompts WHERE id").WithArgs("uuid-123").
 		WillReturnRows(sqlmock.NewRows(selectColumns).AddRow(
-			promptRow("uuid-123", "my-prompt", "personal", argsJSON, "user@example.com", now)...,
+			promptRow("uuid-123", "my-prompt", "personal", argsJSON, "user@example.com")...,
 		))
 
 	p, err := store.GetByID(context.Background(), "uuid-123")
@@ -244,13 +246,12 @@ func TestList_NoFilter(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	store := New(db)
-	now := time.Now().UTC()
 	argsJSON := []byte(`[]`)
 
 	mock.ExpectQuery("SELECT .+ FROM prompts ORDER BY").
 		WillReturnRows(sqlmock.NewRows(selectColumns).
-			AddRow(promptRow("id-1", "prompt-a", "global", argsJSON, "", now)...).
-			AddRow(promptRow("id-2", "prompt-b", "personal", argsJSON, "user@example.com", now)...))
+			AddRow(promptRow("id-1", "prompt-a", "global", argsJSON, "")...).
+			AddRow(promptRow("id-2", "prompt-b", "personal", argsJSON, "user@example.com")...))
 
 	result, err := store.List(context.Background(), prompt.ListFilter{})
 	assert.NoError(t, err)
@@ -264,12 +265,11 @@ func TestList_WithScopeFilter(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	store := New(db)
-	now := time.Now().UTC()
 	argsJSON := []byte(`[]`)
 
 	mock.ExpectQuery("SELECT .+ FROM prompts WHERE scope = \\$1").WithArgs("global").
 		WillReturnRows(sqlmock.NewRows(selectColumns).
-			AddRow(promptRow("id-1", "prompt-a", "global", argsJSON, "", now)...))
+			AddRow(promptRow("id-1", "prompt-a", "global", argsJSON, "")...))
 
 	result, err := store.List(context.Background(), prompt.ListFilter{Scope: "global"})
 	assert.NoError(t, err)
@@ -283,13 +283,12 @@ func TestList_WithPersonaFilter(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	store := New(db)
-	now := time.Now().UTC()
 	argsJSON := []byte(`[]`)
 
 	mock.ExpectQuery("SELECT .+ FROM prompts WHERE personas && \\$1").
 		WithArgs(pq.Array([]string{"analyst"})).
 		WillReturnRows(sqlmock.NewRows(selectColumns).
-			AddRow(promptRow("id-1", "prompt-a", "persona", argsJSON, "", now)...))
+			AddRow(promptRow("id-1", "prompt-a", "persona", argsJSON, "")...))
 
 	result, err := store.List(context.Background(), prompt.ListFilter{
 		Personas: []string{"analyst"},
