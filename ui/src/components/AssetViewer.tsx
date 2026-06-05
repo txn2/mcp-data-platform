@@ -192,7 +192,7 @@ export function AssetViewer({
   function startEdit() {
     if (!asset) return;
     setEditName(asset.name);
-    setEditDesc(asset.description);
+    setEditDesc(asset.description ?? "");
     setEditTags(asset.tags.join(", "));
     setEditing(true);
   }

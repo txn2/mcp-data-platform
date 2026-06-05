@@ -134,9 +134,9 @@ function AssetBrowserModal({
       const q = search.toLowerCase();
       list = list.filter(
         (a) =>
-          a.name.toLowerCase().includes(q) ||
-          a.description.toLowerCase().includes(q) ||
-          a.tags.some((t) => t.toLowerCase().includes(q)),
+          (a.name ?? "").toLowerCase().includes(q) ||
+          (a.description ?? "").toLowerCase().includes(q) ||
+          (a.tags ?? []).some((t) => t.toLowerCase().includes(q)),
       );
     }
     list = [...list].sort((a, b) => {

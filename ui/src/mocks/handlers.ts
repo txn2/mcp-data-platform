@@ -1065,7 +1065,7 @@ export const handlers = [
       filtered = filtered.filter(
         (a) =>
           a.name.toLowerCase().includes(search) ||
-          a.description.toLowerCase().includes(search) ||
+          (a.description ?? "").toLowerCase().includes(search) ||
           a.owner_email.toLowerCase().includes(search) ||
           a.owner_id.toLowerCase().includes(search) ||
           a.tags.some((t: string) => t.toLowerCase().includes(search)),
