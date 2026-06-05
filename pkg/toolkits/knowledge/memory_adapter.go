@@ -113,6 +113,16 @@ type ScoredInsight struct {
 	Score   float64
 }
 
+// InsightSearcher is the optional relevance-search capability of an
+// InsightStore. Only the memory-backed adapter implements it; the legacy
+// SQL store and the noop store do not. Both the recall_insight tool and the
+// portal insight-search route type-assert the wired store against this to
+// gate registration, so the capability is declared once here next to the
+// query and result types it uses.
+type InsightSearcher interface {
+	Search(ctx context.Context, q InsightSearchQuery) ([]ScoredInsight, error)
+}
+
 // Search returns the caller's knowledge-dimension insights ranked by
 // relevance to the query. It delegates to the shared memory search
 // primitives (HybridSearch when an embedding is supplied, LexicalSearch

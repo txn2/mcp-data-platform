@@ -42,6 +42,7 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | S3 | `s3_delete_object` | Delete object (if not read-only) |
 | S3 | `s3_copy_object` | Copy object (if not read-only) |
 | Knowledge | `capture_insight` | Record domain knowledge |
+| Knowledge | `recall_insight` | Relevance search over your captured insights (semantic + lexical) |
 | Knowledge | `apply_knowledge` | Review and apply insights to catalog (admin-only) |
 | Memory | `memory_manage` | Create, update, forget, list memories (opt-in per persona) |
 | Memory | `memory_recall` | Multi-strategy memory retrieval (entity, semantic, lexical, graph, auto) |
@@ -576,6 +577,22 @@ Record domain knowledge shared during a session. Available to all personas when 
 | `entity_urns` | array | No | [] | Related DataHub entity URNs (max 10) |
 | `related_columns` | array | No | [] | Related columns (max 20) |
 | `suggested_actions` | array | No | [] | Proposed catalog changes (max 5). Action types: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query, set_structured_property, remove_structured_property, raise_incident, resolve_incident, add_context_document, update_context_document, remove_context_document |
+
+---
+
+### recall_insight
+
+Search your previously captured insights by relevance, instead of re-asking the user or re-deriving knowledge. Registered only when the memory layer is enabled (insights are stored as knowledge-dimension `memory_records`). Results are scoped server-side to the calling user's own captured insights.
+
+Ranking is hybrid (semantic vector + lexical) when an embedding provider is configured, and lexical-only otherwise. The response carries a `ranking` field (`hybrid` or `lexical`), a `count`, and an `insights` array where each entry pairs the insight (with its review status and related entity URNs as provenance) with a relevance `score`. This mirrors `memory_recall`'s ranking so the agent and the portal Knowledge search rank the same way.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `query` | string | Yes | - | Natural-language description of the knowledge you are looking for |
+| `status` | string | No | - | Filter by review status: pending, approved, rejected, applied, superseded, rolled_back |
+| `limit` | integer | No | 20 | Maximum results (max 100) |
 
 ---
 
