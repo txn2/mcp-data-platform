@@ -8,6 +8,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	memstore "github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
@@ -146,7 +147,7 @@ func (t *Toolkit) recallBySemantic(ctx context.Context, query, persona string, i
 	status := statusFilter(includeStale)
 
 	emb, err := t.embedder.Embed(ctx, query)
-	if err != nil || isZeroVector(emb) {
+	if err != nil || embedding.IsZeroVector(emb) {
 		if err != nil {
 			slog.Debug("embedding query failed; falling back to lexical recall", "error", err)
 		}
@@ -206,19 +207,6 @@ func (t *Toolkit) lexicalOutcome(ctx context.Context, query, persona, status str
 		out.note = degradedNote
 	}
 	return out, nil
-}
-
-// isZeroVector reports whether every element is zero, the signature of
-// the noop embedding provider (real embeddings are never all-zero). A
-// zero query vector yields meaningless cosine similarity, so it forces
-// the lexical fallback.
-func isZeroVector(v []float32) bool {
-	for _, x := range v {
-		if x != 0 {
-			return false
-		}
-	}
-	return true
 }
 
 // recallByGraph walks DataHub lineage to find memories on related entities.

@@ -1917,7 +1917,7 @@ Human-uploaded reference materials (SQL templates, runbooks, checklists) accessi
 Assets and collections shared by other users. Two tabs: Assets (grid/table with content type, tags, sharer, permission badge, size, date) and Collections (table with name, sharer, access level, date).
 
 ## Knowledge & Memory
-Personal view of captured insights and memories. Knowledge tab: summary cards, status filters, insight cards with category/status badges, entity URNs. Memory tab: summary cards, status/dimension filters, memory cards with markdown content.
+Personal view of captured insights and memories. Knowledge tab: summary cards, status filters, insight cards with category/status badges, entity URNs. Memory tab: summary cards, status/dimension filters, memory cards with markdown content. Both tabs have a relevance search box (hybrid semantic + lexical when an embedding provider is configured, lexical fallback otherwise) that respects the active filters and is always scoped to the requesting user. Backed by `GET /api/v1/portal/memory/records/search?q=` and `GET /api/v1/portal/knowledge/insights/search?q=`.
 
 ## Prompts
 Personal and available prompt templates. Two tabs: Personal (create/edit/delete own prompts) and Available (global/persona prompts). Search, sortable columns, expandable rows with full content and copy button. Scope badges: Personal, Global, Persona, System.

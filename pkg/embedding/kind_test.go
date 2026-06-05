@@ -30,6 +30,24 @@ func TestIsConfigured(t *testing.T) {
 	}
 }
 
+// TestIsZeroVector covers the shared hybrid-vs-lexical fallback signal:
+// an all-zero vector (the noop provider's output) is "zero"; any non-zero
+// component, including a single one in any position, is not.
+func TestIsZeroVector(t *testing.T) {
+	if !IsZeroVector(nil) {
+		t.Errorf("IsZeroVector(nil) = false; want true")
+	}
+	if !IsZeroVector([]float32{0, 0, 0}) {
+		t.Errorf("IsZeroVector(all-zero) = false; want true")
+	}
+	if IsZeroVector([]float32{0, 0, 0.0001}) {
+		t.Errorf("IsZeroVector(trailing non-zero) = true; want false")
+	}
+	if IsZeroVector([]float32{-1, 0, 0}) {
+		t.Errorf("IsZeroVector(leading non-zero) = true; want false")
+	}
+}
+
 // TestModelName returns the provider's model when exposed, else "". The
 // memory write path and the indexjobs memory Sink both read the model
 // this way, so they must agree.

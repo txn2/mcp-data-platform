@@ -2,6 +2,7 @@ package knowledge
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -35,6 +36,10 @@ type mockMemoryStore struct {
 	supersedeNewID  string
 	supersedeErr    error
 	supersedeCalls  []struct{ OldID, NewID string }
+	searchResult    []memory.ScoredRecord
+	searchErr       error
+	lastHybridQ     *memory.HybridQuery
+	lastLexicalQ    *memory.LexicalQuery
 }
 
 func (m *mockMemoryStore) Insert(_ context.Context, record memory.Record) error {
@@ -71,12 +76,14 @@ func (*mockMemoryStore) VectorSearch(_ context.Context, _ memory.VectorQuery) ([
 	return nil, nil //nolint:nilnil // mock returns nil for both
 }
 
-func (*mockMemoryStore) HybridSearch(_ context.Context, _ memory.HybridQuery) ([]memory.ScoredRecord, error) {
-	return nil, nil //nolint:nilnil // mock returns nil for both
+func (m *mockMemoryStore) HybridSearch(_ context.Context, q memory.HybridQuery) ([]memory.ScoredRecord, error) {
+	m.lastHybridQ = &q
+	return m.searchResult, m.searchErr
 }
 
-func (*mockMemoryStore) LexicalSearch(_ context.Context, _ memory.LexicalQuery) ([]memory.ScoredRecord, error) {
-	return nil, nil //nolint:nilnil // mock returns nil for both
+func (m *mockMemoryStore) LexicalSearch(_ context.Context, q memory.LexicalQuery) ([]memory.ScoredRecord, error) {
+	m.lastLexicalQ = &q
+	return m.searchResult, m.searchErr
 }
 
 func (*mockMemoryStore) EntityLookup(_ context.Context, _, _ string) ([]memory.Record, error) {
@@ -96,6 +103,73 @@ func (m *mockMemoryStore) Supersede(_ context.Context, oldID, newID string) erro
 }
 
 var _ memory.Store = (*mockMemoryStore)(nil)
+
+func TestMemoryInsightAdapter_Search_HybridScopesToOwnerAndDimension(t *testing.T) {
+	store := &mockMemoryStore{
+		searchResult: []memory.ScoredRecord{
+			{Record: memory.Record{ID: "i1", CreatedBy: "user@example.com", Content: "churn analysis"}, Score: 0.91},
+		},
+	}
+	adapter := &memoryInsightAdapter{store: store, dimension: memory.DimensionKnowledge}
+
+	got, err := adapter.Search(context.Background(), InsightSearchQuery{
+		QueryText:  "churn",
+		Embedding:  []float32{0.1, 0.2},
+		CapturedBy: "user@example.com",
+		Limit:      10,
+	})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "i1", got[0].Insight.ID)
+	assert.InDelta(t, 0.91, got[0].Score, 1e-9)
+
+	require.NotNil(t, store.lastHybridQ, "embedding present must select the hybrid arm")
+	assert.Nil(t, store.lastLexicalQ)
+	assert.Equal(t, "user@example.com", store.lastHybridQ.CreatedBy, "must scope to the owner")
+	assert.Equal(t, memory.DimensionKnowledge, store.lastHybridQ.Dimension, "must scope to the knowledge dimension")
+}
+
+func TestMemoryInsightAdapter_Search_LexicalFallbackWhenNoEmbedding(t *testing.T) {
+	store := &mockMemoryStore{}
+	adapter := &memoryInsightAdapter{store: store, dimension: memory.DimensionKnowledge}
+
+	_, err := adapter.Search(context.Background(), InsightSearchQuery{
+		QueryText:  "churn",
+		CapturedBy: "user@example.com",
+		Limit:      10,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, store.lastLexicalQ, "no embedding must select the lexical arm")
+	assert.Nil(t, store.lastHybridQ)
+	assert.Equal(t, "user@example.com", store.lastLexicalQ.CreatedBy)
+	assert.Equal(t, memory.DimensionKnowledge, store.lastLexicalQ.Dimension)
+}
+
+func TestMemoryInsightAdapter_Search_PostFiltersByStatus(t *testing.T) {
+	store := &mockMemoryStore{
+		searchResult: []memory.ScoredRecord{
+			{Record: memory.Record{ID: "approved", CreatedBy: "u", Metadata: map[string]any{metaKeyInsightStatus: "approved"}}, Score: 0.8},
+			{Record: memory.Record{ID: "pending", CreatedBy: "u", Metadata: map[string]any{metaKeyInsightStatus: "pending"}}, Score: 0.7},
+		},
+	}
+	adapter := &memoryInsightAdapter{store: store, dimension: memory.DimensionKnowledge}
+
+	got, err := adapter.Search(context.Background(), InsightSearchQuery{
+		QueryText: "x", Embedding: []float32{0.1}, CapturedBy: "u", Status: "approved", Limit: 10,
+	})
+	require.NoError(t, err)
+	require.Len(t, got, 1, "only the approved insight survives the exact-status post-filter")
+	assert.Equal(t, "approved", got[0].Insight.ID)
+}
+
+func TestMemoryInsightAdapter_Search_Error(t *testing.T) {
+	store := &mockMemoryStore{searchErr: errors.New("boom")}
+	adapter := &memoryInsightAdapter{store: store, dimension: memory.DimensionKnowledge}
+
+	_, err := adapter.Search(context.Background(), InsightSearchQuery{QueryText: "x", CapturedBy: "u"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "searching insight records")
+}
 
 func TestMemoryInsightAdapter_Insert(t *testing.T) {
 	store := &mockMemoryStore{}

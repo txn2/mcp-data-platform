@@ -16,6 +16,8 @@ import type {
   InsightStats,
   MemoryRecord,
   MemoryStats,
+  ScoredMemoryRecord,
+  ScoredInsight,
   Collection,
   CollectionConfig,
   CollectionResponse,
@@ -403,6 +405,28 @@ export function useMyInsightStats() {
   });
 }
 
+// useSearchMyInsights ranks the caller's insights by relevance to query.
+// Disabled (no request) until query is non-empty, so the list endpoint
+// remains the default browse experience.
+export function useSearchMyInsights(
+  query: string,
+  params?: { status?: string; limit?: number },
+) {
+  const q = query.trim();
+  const sp = new URLSearchParams({ q });
+  if (params?.status) sp.set("status", params.status);
+  if (params?.limit) sp.set("limit", String(params.limit));
+
+  return useQuery({
+    queryKey: ["search-my-insights", q, params],
+    enabled: q.length > 0,
+    queryFn: () =>
+      apiFetch<PaginatedResponse<ScoredInsight>>(
+        `/knowledge/insights/search?${sp.toString()}`,
+      ),
+  });
+}
+
 // --- Collections ---
 
 export function useCollections(params?: { search?: string; limit?: number; offset?: number }) {
@@ -669,5 +693,28 @@ export function useMyMemoryStats() {
   return useQuery({
     queryKey: ["my-memory-stats"],
     queryFn: () => apiFetch<MemoryStats>("/memory/records/stats"),
+  });
+}
+
+// useSearchMyMemories ranks the caller's memory records by relevance to
+// query. Disabled (no request) until query is non-empty, so the list
+// endpoint remains the default browse experience.
+export function useSearchMyMemories(
+  query: string,
+  params?: { dimension?: string; status?: string; limit?: number },
+) {
+  const q = query.trim();
+  const sp = new URLSearchParams({ q });
+  if (params?.dimension) sp.set("dimension", params.dimension);
+  if (params?.status) sp.set("status", params.status);
+  if (params?.limit) sp.set("limit", String(params.limit));
+
+  return useQuery({
+    queryKey: ["search-my-memories", q, params],
+    enabled: q.length > 0,
+    queryFn: () =>
+      apiFetch<PaginatedResponse<ScoredMemoryRecord>>(
+        `/memory/records/search?${sp.toString()}`,
+      ),
   });
 }

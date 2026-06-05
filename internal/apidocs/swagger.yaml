@@ -8295,6 +8295,51 @@ paths:
       summary: List my insights
       tags:
       - Knowledge
+  /portal/knowledge/insights/search:
+    get:
+      description: Ranks the current user's knowledge insights by relevance to q.
+        Uses hybrid (semantic + lexical) ranking when an embedding provider is configured,
+        falling back to lexical-only otherwise. Always scoped server-side to the requesting
+        user.
+      parameters:
+      - description: Search query
+        in: query
+        name: q
+        required: true
+        type: string
+      - description: Filter by insight status
+        in: query
+        name: status
+        type: string
+      - description: 'Max results (default: 20)'
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.paginatedResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Search my knowledge insights
+      tags:
+      - Knowledge
   /portal/knowledge/insights/stats:
     get:
       description: Returns aggregate statistics for the current user's insights.
@@ -8388,6 +8433,55 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: List my memory records
+      tags:
+      - Memory
+  /portal/memory/records/search:
+    get:
+      description: Ranks the current user's memory records by relevance to q. Uses
+        hybrid (semantic + lexical) ranking when an embedding provider is configured,
+        falling back to lexical-only otherwise. Always scoped server-side to the requesting
+        user.
+      parameters:
+      - description: Search query
+        in: query
+        name: q
+        required: true
+        type: string
+      - description: Filter by dimension
+        in: query
+        name: dimension
+        type: string
+      - description: Filter by status
+        in: query
+        name: status
+        type: string
+      - description: 'Max results (default: 20)'
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.paginatedResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Search my memory records
       tags:
       - Memory
   /portal/memory/records/stats:

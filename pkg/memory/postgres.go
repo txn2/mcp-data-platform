@@ -304,19 +304,11 @@ func (s *postgresStore) VectorSearch(ctx context.Context, query VectorQuery) ([]
 
 	// Build SQL manually to avoid squirrel placeholder collision with the
 	// vector parameter ($1) used in the ORDER BY and SELECT expressions.
-	args := []any{pgvector.NewVector(query.Embedding)}
-	paramIdx := 2
+	// Optional scope predicates start at $2 (only $1=vector is fixed).
+	filterClause, filterArgs := scopeFilters(query.CreatedBy, query.Dimension, query.Persona, query.Status, 2)
+	args := append([]any{pgvector.NewVector(query.Embedding)}, filterArgs...)
 
-	where := "WHERE embedding IS NOT NULL AND status <> 'archived'"
-	if query.Persona != "" {
-		where += fmt.Sprintf(" AND persona = $%d", paramIdx)
-		args = append(args, query.Persona)
-		paramIdx++
-	}
-	if query.Status != "" {
-		where += fmt.Sprintf(" AND status = $%d", paramIdx)
-		args = append(args, query.Status)
-	}
+	where := "WHERE embedding IS NOT NULL" + archivedExclusion(query.Status) + filterClause
 
 	sqlStr := fmt.Sprintf( // #nosec G201 -- tableName is a constant, cols are hardcoded, where uses parameterized placeholders, limit is a sanitized int
 		"SELECT %s, 1 - (embedding <=> $1) AS score FROM %s %s ORDER BY embedding <=> $1 LIMIT %d",
@@ -354,27 +346,53 @@ const ftsExpr = "to_tsvector('english', content)"
 const ftsQuery = "plainto_tsquery('english', $2)"
 
 // Scope-filter starting parameter indices. HybridSearch binds $1=vector
-// and $2=query, so its optional persona/status predicates start at $3;
-// LexicalSearch binds only $1=query, so its filters start at $2.
+// and $2=query, so its optional created_by/dimension/persona/status
+// predicates start at $3; LexicalSearch binds only $1=query, so its
+// filters start at $2. VectorSearch binds only $1=vector and passes 2.
 const (
 	hybridFilterStartParam  = 3
 	lexicalFilterStartParam = 2
 )
 
-// scopeFilters builds the optional persona/status predicates shared by
-// the search arms, parameterized from startIdx. Returns the clause
-// (prefixed with " AND " when non-empty) and the matching args so the
-// caller can append them after the fixed query/vector parameters.
-func scopeFilters(persona, status string, startIdx int) (clause string, args []any) {
-	idx := startIdx
-	if persona != "" {
-		clause += fmt.Sprintf(" AND persona = $%d", idx)
-		args = append(args, persona)
-		idx++
+// archivedExclusion returns the default predicate that hides archived
+// rows. It applies only when the caller requested no explicit status: an
+// explicit status (including "archived") is enforced by scopeFilters and
+// governs fully, so a portal search can surface archived rows when the
+// user asks for them, while recall and the default (status-unset) search
+// still exclude archived. Without this, a hardcoded `status <> 'archived'`
+// base ANDed with an explicit `status = 'archived'` is unsatisfiable and
+// silently returns zero rows.
+func archivedExclusion(status string) string {
+	if status == "" {
+		return " AND status <> 'archived'"
 	}
-	if status != "" {
-		clause += fmt.Sprintf(" AND status = $%d", idx)
-		args = append(args, status)
+	return ""
+}
+
+// scopeFilters builds the optional created_by/dimension/persona/status
+// predicates shared by the search arms, parameterized from startIdx.
+// Returns the clause (prefixed with " AND " when non-empty) and the
+// matching args so the caller can append them after the fixed
+// query/vector parameters. created_by comes first because per-user
+// scoping is the portal's security boundary (a user must not be able to
+// search another user's records); the args slice is appended in the same
+// order the placeholders are emitted.
+func scopeFilters(createdBy, dimension, persona, status string, startIdx int) (clause string, args []any) {
+	idx := startIdx
+	for _, f := range []struct {
+		col, val string
+	}{
+		{colCreatedBy, createdBy},
+		{colDimension, dimension},
+		{colPersona, persona},
+		{colStatus, status},
+	} {
+		if f.val == "" {
+			continue
+		}
+		clause += fmt.Sprintf(" AND %s = $%d", f.col, idx)
+		args = append(args, f.val)
+		idx++
 	}
 	return clause, args
 }
@@ -390,7 +408,8 @@ func scopeFilters(persona, status string, startIdx int) (clause string, args []a
 // union is deduped by id (keeping the higher fused score) and sorted.
 func (s *postgresStore) HybridSearch(ctx context.Context, query HybridQuery) ([]ScoredRecord, error) {
 	limit := clampStoreLimit(query.Limit)
-	filterClause, filterArgs := scopeFilters(query.Persona, query.Status, hybridFilterStartParam)
+	filterClause, filterArgs := scopeFilters(query.CreatedBy, query.Dimension, query.Persona, query.Status, hybridFilterStartParam)
+	archived := archivedExclusion(query.Status)
 	args := make([]any, 0, 2+len(filterArgs))
 	args = append(args, pgvector.NewVector(query.Embedding), query.QueryText)
 	args = append(args, filterArgs...)
@@ -400,14 +419,14 @@ func (s *postgresStore) HybridSearch(ctx context.Context, query HybridQuery) ([]
 	// sanitized int.
 	vecArm := fmt.Sprintf(
 		"SELECT %s, 1 - (embedding <=> $1) AS vec_score, (%s @@ %s) AS lex_match "+
-			"FROM %s WHERE embedding IS NOT NULL AND status <> 'archived'%s "+
+			"FROM %s WHERE embedding IS NOT NULL%s%s "+
 			"ORDER BY embedding <=> $1 LIMIT %d",
-		rawRecordCols, ftsExpr, ftsQuery, tableName, filterClause, limit)
+		rawRecordCols, ftsExpr, ftsQuery, tableName, archived, filterClause, limit)
 	lexArm := fmt.Sprintf(
 		"SELECT %s, CASE WHEN embedding IS NOT NULL THEN 1 - (embedding <=> $1) ELSE 0 END AS vec_score, TRUE AS lex_match "+
-			"FROM %s WHERE %s @@ %s AND status <> 'archived'%s "+
+			"FROM %s WHERE %s @@ %s%s%s "+
 			"ORDER BY ts_rank_cd(%s, %s) DESC LIMIT %d",
-		rawRecordCols, tableName, ftsExpr, ftsQuery, filterClause, ftsExpr, ftsQuery, limit)
+		rawRecordCols, tableName, ftsExpr, ftsQuery, archived, filterClause, ftsExpr, ftsQuery, limit)
 	// #nosec G202 -- vecArm and lexArm are assembled from constant column
 	// and expression strings with parameterized placeholders; no user
 	// input is concatenated into the SQL.
@@ -434,7 +453,7 @@ func (s *postgresStore) HybridSearch(ctx context.Context, query HybridQuery) ([]
 // as the other arms.
 func (s *postgresStore) LexicalSearch(ctx context.Context, query LexicalQuery) ([]ScoredRecord, error) {
 	limit := clampStoreLimit(query.Limit)
-	filterClause, filterArgs := scopeFilters(query.Persona, query.Status, lexicalFilterStartParam)
+	filterClause, filterArgs := scopeFilters(query.CreatedBy, query.Dimension, query.Persona, query.Status, lexicalFilterStartParam)
 	args := make([]any, 0, 1+len(filterArgs))
 	args = append(args, query.QueryText)
 	args = append(args, filterArgs...)
@@ -446,9 +465,9 @@ func (s *postgresStore) LexicalSearch(ctx context.Context, query LexicalQuery) (
 	// persona, status are parameterized; limit is a sanitized int.
 	sqlStr := fmt.Sprintf(
 		"SELECT %s, ts_rank_cd(%s, %s) AS score "+
-			"FROM %s WHERE %s @@ %s AND status <> 'archived'%s "+
+			"FROM %s WHERE %s @@ %s%s%s "+
 			"ORDER BY score DESC LIMIT %d",
-		rawRecordCols, ftsExpr, lexQuery, tableName, ftsExpr, lexQuery, filterClause, limit)
+		rawRecordCols, ftsExpr, lexQuery, tableName, ftsExpr, lexQuery, archivedExclusion(query.Status), filterClause, limit)
 
 	rows, err := s.db.QueryContext(ctx, sqlStr, args...)
 	if err != nil {
