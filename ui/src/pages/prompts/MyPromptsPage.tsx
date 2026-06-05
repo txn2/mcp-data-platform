@@ -16,6 +16,9 @@ import { useMyPrompts, useCreateMyPrompt } from "@/api/portal/hooks";
 import type { Prompt } from "@/api/admin/types";
 import { cn } from "@/lib/utils";
 import { extractPromptArguments } from "./promptArguments";
+import { MarkdownEditor } from "@/components/MarkdownEditor";
+import { PromptNameField } from "./PromptNameField";
+import { validatePromptName, isPromptNameConflict } from "./promptName";
 
 interface Props {
   onNavigate: (path: string) => void;
@@ -87,6 +90,7 @@ export function MyPromptsPage({ onNavigate }: Props) {
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState<FormData>(emptyForm);
   const [mutationError, setMutationError] = useState<string | null>(null);
+  const [nameConflict, setNameConflict] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
@@ -156,6 +160,7 @@ export function MyPromptsPage({ onNavigate }: Props) {
 
   function handleCreate() {
     setMutationError(null);
+    setNameConflict(null);
     createMutation.mutate(form, {
       onSuccess: (p) => {
         setCreating(false);
@@ -163,7 +168,12 @@ export function MyPromptsPage({ onNavigate }: Props) {
         if (p?.id) onNavigate(`/prompts/${p.id}`);
       },
       onError: (err) => {
-        setMutationError(err instanceof Error ? err.message : "Operation failed");
+        const msg = err instanceof Error ? err.message : "Operation failed";
+        if (isPromptNameConflict(msg)) {
+          setNameConflict("That name is already taken.");
+        } else {
+          setMutationError(msg);
+        }
       },
     });
   }
@@ -240,10 +250,11 @@ export function MyPromptsPage({ onNavigate }: Props) {
             <button onClick={() => setCreating(false)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs text-muted-foreground">Name</label>
-              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none" placeholder="my-prompt" />
-            </div>
+            <PromptNameField
+              value={form.name}
+              onChange={(v) => { setForm({ ...form, name: v }); setNameConflict(null); }}
+              serverError={nameConflict}
+            />
             <div>
               <label className="text-xs text-muted-foreground">Display Name</label>
               <input value={form.display_name} onChange={(e) => setForm({ ...form, display_name: e.target.value })} className="w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none" placeholder="My Prompt" />
@@ -260,7 +271,12 @@ export function MyPromptsPage({ onNavigate }: Props) {
             </div>
             <div className="col-span-2">
               <label className="text-xs text-muted-foreground">Content (Markdown)</label>
-              <textarea value={form.content} onChange={(e) => handleContentChange(e.target.value)} rows={6} className="w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none font-mono" placeholder="Prompt content with {{arg}} placeholders..." />
+              <MarkdownEditor
+                value={form.content}
+                onChange={handleContentChange}
+                minHeight="12rem"
+                placeholder="Prompt content with {{arg}} placeholders..."
+              />
               <p className="text-[11px] text-muted-foreground mt-1">
                 Use <code className="font-mono">{"{{name}}"}</code> (preferred) or <code className="font-mono">{"{name}"}</code> to declare an argument. Rows auto-appear below as you type.
               </p>
@@ -318,7 +334,7 @@ export function MyPromptsPage({ onNavigate }: Props) {
           )}
           <div className="flex justify-end gap-2 pt-2">
             <button onClick={() => setCreating(false)} className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted">Cancel</button>
-            <button onClick={handleCreate} disabled={!form.name || !form.content || createMutation.isPending} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+            <button onClick={handleCreate} disabled={!form.content || createMutation.isPending || validatePromptName(form.name) !== null} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
               <Save className="h-3.5 w-3.5" /> {createMutation.isPending ? "Saving..." : "Create"}
             </button>
           </div>

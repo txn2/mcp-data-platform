@@ -21,7 +21,10 @@ import {
 import { useMyPrompts, useUpdateMyPrompt, useDeleteMyPrompt, useCreateAsset } from "@/api/portal/hooks";
 import { ShareDialog } from "@/components/ShareDialog";
 import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
+import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
+import { PromptNameField } from "./PromptNameField";
+import { validatePromptName, isPromptNameConflict } from "./promptName";
 import type { Prompt } from "@/api/admin/types";
 import { cn } from "@/lib/utils";
 import { extractPromptArguments } from "./promptArguments";
@@ -132,6 +135,7 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<EditForm>({ name: "", display_name: "", description: "", content: "", category: "", arguments: [] });
   const [error, setError] = useState<string | null>(null);
+  const [nameConflict, setNameConflict] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [shareAssetId, setShareAssetId] = useState<string | null>(null);
@@ -177,6 +181,7 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
   const handleSave = useCallback(() => {
     if (!prompt) return;
     setError(null);
+    setNameConflict(null);
     updateMutation.mutate(
       { id: prompt.id, ...form },
       {
@@ -184,7 +189,12 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
           setEditing(false);
         },
         onError: (err) => {
-          setError(err instanceof Error ? err.message : "Save failed");
+          const msg = err instanceof Error ? err.message : "Save failed";
+          if (isPromptNameConflict(msg)) {
+            setNameConflict("That name is already taken.");
+          } else {
+            setError(msg);
+          }
         },
       },
     );
@@ -353,7 +363,7 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
           <>
             <button
               onClick={handleSave}
-              disabled={!dirty || updateMutation.isPending}
+              disabled={!dirty || updateMutation.isPending || validatePromptName(form.name) !== null}
               className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
               <Save className="h-3.5 w-3.5" /> {updateMutation.isPending ? "Saving..." : "Save"}
@@ -411,10 +421,11 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
       {editing && (
         <div className="rounded-lg border bg-card p-4 space-y-3">
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs text-muted-foreground">Name</label>
-              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none" />
-            </div>
+            <PromptNameField
+              value={form.name}
+              onChange={(v) => { setForm({ ...form, name: v }); setNameConflict(null); }}
+              serverError={nameConflict}
+            />
             <div>
               <label className="text-xs text-muted-foreground">Display Name</label>
               <input value={form.display_name} onChange={(e) => setForm({ ...form, display_name: e.target.value })} className="w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none" />
@@ -435,11 +446,11 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
           </div>
           <div>
             <label className="text-xs text-muted-foreground">Content (Markdown)</label>
-            <textarea
+            <MarkdownEditor
               value={form.content}
-              onChange={(e) => handleContentChange(e.target.value)}
-              rows={16}
-              className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none font-mono"
+              onChange={handleContentChange}
+              minHeight="20rem"
+              placeholder="Prompt content with {{arg}} placeholders..."
             />
             <p className="text-[11px] text-muted-foreground mt-1">
               Use <code className="font-mono">{"{{name}}"}</code> (preferred) or <code className="font-mono">{"{name}"}</code> to declare an argument. Rows auto-appear below as you type.

@@ -26,6 +26,9 @@ import {
 } from "@/api/admin/hooks";
 import type { Prompt } from "@/api/admin/types";
 import { cn } from "@/lib/utils";
+import { MarkdownEditor } from "@/components/MarkdownEditor";
+import { PromptNameField } from "./PromptNameField";
+import { validatePromptName, isPromptNameConflict } from "./promptName";
 
 interface Props {
   onNavigate: (path: string) => void;
@@ -40,7 +43,6 @@ const scopeStyles: Record<string, ScopeStyle> = {
   system: { label: "System", icon: MessageSquare, color: "bg-amber-500/10 text-amber-400 border-amber-500/20" },
 };
 
-// eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- literal key, always present
 const defaultScopeStyle: ScopeStyle = scopeStyles["personal"]!;
 
 function getScopeStyle(scope: string): ScopeStyle {
@@ -117,6 +119,7 @@ export function AdminPromptsPage({ onNavigate: _onNavigate }: Props) {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
+  const [nameConflict, setNameConflict] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
@@ -185,12 +188,18 @@ export function AdminPromptsPage({ onNavigate: _onNavigate }: Props) {
 
   function handleSubmit() {
     setMutationError(null);
+    setNameConflict(null);
     const personas = form.personas
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
     const onError = (err: unknown) => {
-      setMutationError(err instanceof Error ? err.message : "Operation failed");
+      const msg = err instanceof Error ? err.message : "Operation failed";
+      if (isPromptNameConflict(msg)) {
+        setNameConflict("That name is already taken.");
+      } else {
+        setMutationError(msg);
+      }
     };
 
     if (formMode === "create") {
@@ -309,10 +318,11 @@ export function AdminPromptsPage({ onNavigate: _onNavigate }: Props) {
             </button>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs text-muted-foreground">Name</label>
-              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none" placeholder="my-prompt" />
-            </div>
+            <PromptNameField
+              value={form.name}
+              onChange={(v) => { setForm({ ...form, name: v }); setNameConflict(null); }}
+              serverError={nameConflict}
+            />
             <div>
               <label className="text-xs text-muted-foreground">Display Name</label>
               <input value={form.display_name} onChange={(e) => setForm({ ...form, display_name: e.target.value })} className="w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none" placeholder="My Prompt" />
@@ -323,7 +333,12 @@ export function AdminPromptsPage({ onNavigate: _onNavigate }: Props) {
             </div>
             <div className="col-span-2">
               <label className="text-xs text-muted-foreground">Content</label>
-              <textarea value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} rows={4} className="w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none font-mono" placeholder="Prompt content with {arg} placeholders..." />
+              <MarkdownEditor
+                value={form.content}
+                onChange={(v) => setForm({ ...form, content: v })}
+                minHeight="10rem"
+                placeholder="Prompt content with {arg} placeholders..."
+              />
             </div>
             <div>
               <label className="text-xs text-muted-foreground">Scope</label>
@@ -359,7 +374,7 @@ export function AdminPromptsPage({ onNavigate: _onNavigate }: Props) {
           )}
           <div className="flex justify-end gap-2 pt-2">
             <button onClick={() => setFormMode("closed")} className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted">Cancel</button>
-            <button onClick={handleSubmit} disabled={!form.name || !form.content || isMutating} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+            <button onClick={handleSubmit} disabled={!form.content || isMutating || validatePromptName(form.name) !== null} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
               <Save className="h-3.5 w-3.5" />
               {isMutating ? "Saving..." : formMode === "create" ? "Create" : "Save"}
             </button>
