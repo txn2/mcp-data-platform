@@ -13,6 +13,7 @@ const (
 	methodToolsList              = "tools/list"
 	methodResourcesTemplatesList = "resources/templates/list"
 	methodPromptsList            = "prompts/list"
+	methodPromptsGet             = "prompts/get"
 )
 
 // ToolVisibilityConfig configures tool visibility filtering for tools/list responses.
