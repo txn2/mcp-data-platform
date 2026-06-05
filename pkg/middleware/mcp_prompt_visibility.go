@@ -21,15 +21,16 @@ type PromptVisibilityConfig struct {
 	AdminPersona     string
 	IsVisible        PromptVisibility
 
-	// ListPersonal returns the caller's own personal prompts, served per-caller
-	// from the database rather than the shared registry (so two users can name
-	// theirs independently). Optional; nil disables personal injection.
-	ListPersonal func(ctx context.Context, email string) []*mcp.Prompt
+	// ListVisible returns the caller's visible database prompts as MCP
+	// descriptors, each under its scope-prefixed name (global-, <persona>-,
+	// personal-) computed per-viewer. Database prompts are served from here
+	// rather than the shared static registry. Optional; nil disables injection.
+	ListVisible func(ctx context.Context, email string, personas []string) []*mcp.Prompt
 
-	// GetPersonal renders the caller's personal prompt of the given name, with
-	// the request arguments substituted. Returns ok=false when the caller has no
-	// such prompt. Optional; nil disables personal serving.
-	GetPersonal func(ctx context.Context, email, name string, args map[string]string) (*mcp.GetPromptResult, bool)
+	// GetByName resolves a prefixed prompt name to the caller's visible database
+	// prompt and renders it with the request arguments. Returns ok=false when no
+	// such visible prompt exists. Optional; nil disables database serving.
+	GetByName func(ctx context.Context, email string, personas []string, name string, args map[string]string) (*mcp.GetPromptResult, bool)
 }
 
 // MCPPromptVisibilityMiddleware scopes the native MCP prompt surface to the
@@ -54,9 +55,9 @@ func MCPPromptVisibilityMiddleware(cfg PromptVisibilityConfig) mcp.Middleware {
 				}
 				return filterPromptVisibility(ctx, cfg, req, result), nil
 			case methodPromptsGet:
-				// A caller's own personal prompt is served from the database,
-				// since it is not in the shared registry.
-				if res, ok := servePersonalGet(ctx, cfg, req); ok {
+				// Database prompts are served from the database by their
+				// scope-prefixed name, since they are not in the shared registry.
+				if res, ok := serveDatabaseGet(ctx, cfg, req); ok {
 					return res, nil
 				}
 				if err := denyHiddenPromptGet(ctx, cfg, req); err != nil {
@@ -100,17 +101,19 @@ func filterPromptVisibility(ctx context.Context, cfg PromptVisibilityConfig, req
 	email, personas, isAdmin := resolvePromptCaller(ctx, cfg, req)
 
 	before := len(listResult.Prompts)
+
+	// The static result holds only built-in prompts; database prompts are served
+	// from the database with a per-viewer scope prefix. Filter the built-ins by
+	// visibility, then append the caller's visible database prompts (each under
+	// its prefixed name, so names never collide and need no dedup).
 	filtered := make([]*mcp.Prompt, 0, before)
 	for _, pr := range listResult.Prompts {
 		if cfg.IsVisible(email, personas, isAdmin, pr.Name) {
 			filtered = append(filtered, pr)
 		}
 	}
-
-	// Inject the caller's own personal prompts, which are served per-caller
-	// from the database rather than the shared registry.
-	if cfg.ListPersonal != nil && email != "" {
-		filtered = append(filtered, cfg.ListPersonal(ctx, email)...)
+	if cfg.ListVisible != nil {
+		filtered = append(filtered, cfg.ListVisible(ctx, email, personas)...)
 	}
 	listResult.Prompts = filtered
 
@@ -167,22 +170,20 @@ func getPromptParams(req mcp.Request) *mcp.GetPromptParams {
 	return params
 }
 
-// servePersonalGet serves the caller's own personal prompt of the requested
-// name from the database, returning (result, true) when it exists. Personal
-// prompts are not in the shared registry, so this is how a caller invokes them.
-func servePersonalGet(ctx context.Context, cfg PromptVisibilityConfig, req mcp.Request) (mcp.Result, bool) {
-	if cfg.GetPersonal == nil {
+// serveDatabaseGet resolves a prefixed prompt name to the caller's visible
+// database prompt and serves it, returning (result, true) when it exists.
+// Database prompts are not in the shared registry, so this is how a caller
+// invokes them by their scope-prefixed name.
+func serveDatabaseGet(ctx context.Context, cfg PromptVisibilityConfig, req mcp.Request) (mcp.Result, bool) {
+	if cfg.GetByName == nil {
 		return nil, false
 	}
 	params := getPromptParams(req)
 	if params == nil || params.Name == "" {
 		return nil, false
 	}
-	email, _, _ := resolvePromptCaller(ctx, cfg, req)
-	if email == "" {
-		return nil, false
-	}
-	res, ok := cfg.GetPersonal(ctx, email, params.Name, params.Arguments)
+	email, personas, _ := resolvePromptCaller(ctx, cfg, req)
+	res, ok := cfg.GetByName(ctx, email, personas, params.Name, params.Arguments)
 	if !ok {
 		return nil, false
 	}

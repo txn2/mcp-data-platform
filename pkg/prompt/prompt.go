@@ -77,8 +77,9 @@ var validStatuses = map[string]bool{
 	StatusSuperseded: true,
 }
 
-// validStatusTransitions defines the allowed status transitions, mirroring the
-// knowledge-insight state machine.
+// validStatusTransitions defines the allowed status transitions. It follows the
+// same validated-transition-graph pattern as the knowledge-insight lifecycle,
+// but with prompt-specific states.
 var validStatusTransitions = map[string]map[string]bool{
 	StatusDraft:      {StatusApproved: true, StatusSuperseded: true},
 	StatusApproved:   {StatusDeprecated: true, StatusSuperseded: true},

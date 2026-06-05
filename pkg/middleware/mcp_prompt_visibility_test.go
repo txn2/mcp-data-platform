@@ -54,6 +54,55 @@ func TestMCPPromptVisibilityMiddleware_FiltersList(t *testing.T) {
 	}
 }
 
+func TestMCPPromptVisibilityMiddleware_InjectsScopePrefixedDatabasePrompts(t *testing.T) {
+	// The static list holds only built-ins; the caller's database prompts are
+	// injected under their scope-prefixed names. Prefixes keep every name
+	// distinct, so there is no collision even if a personal prompt's bare name
+	// matches a global one.
+	base := func(_ context.Context, method string, _ mcp.Request) (mcp.Result, error) {
+		return promptListResult("builtin-overview"), nil
+	}
+	var gotEmail string
+	var gotPersonas []string
+	cfg := PromptVisibilityConfig{
+		IsVisible: func(_ string, _ []string, _ bool, _ string) bool { return true },
+		ListVisible: func(_ context.Context, email string, personas []string) []*mcp.Prompt {
+			gotEmail, gotPersonas = email, personas
+			return []*mcp.Prompt{{Name: "global-report"}, {Name: "personal-report"}, {Name: "analyst-runbook"}}
+		},
+		PersonasForRoles: func(_ []string) []string { return []string{"analyst"} },
+		Authenticator: &mockAuthenticator{
+			authenticateFunc: func(_ context.Context) (*UserInfo, error) {
+				return &UserInfo{Email: "sarah@example.com", Roles: []string{"r-analyst"}}, nil
+			},
+		},
+	}
+	handler := MCPPromptVisibilityMiddleware(cfg)(base)
+	got, err := handler(context.Background(), methodPromptsList, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	lr, ok := got.(*mcp.ListPromptsResult)
+	if !ok {
+		t.Fatalf("want *mcp.ListPromptsResult, got %T", got)
+	}
+	names := promptResultNames(lr)
+	// built-in + the three prefixed database prompts, in order.
+	want := []string{"builtin-overview", "global-report", "personal-report", "analyst-runbook"}
+	if len(names) != len(want) {
+		t.Fatalf("want %v, got %v", want, names)
+	}
+	for i := range want {
+		if names[i] != want[i] {
+			t.Errorf("position %d: want %q, got %q", i, want[i], names[i])
+		}
+	}
+	// ListVisible received the resolved caller identity (email + personas).
+	if gotEmail != "sarah@example.com" || len(gotPersonas) != 1 || gotPersonas[0] != "analyst" {
+		t.Errorf("ListVisible got email=%q personas=%v", gotEmail, gotPersonas)
+	}
+}
+
 func TestMCPPromptVisibilityMiddleware_PassThroughNonList(t *testing.T) {
 	base := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		return &mcp.CallToolResult{}, nil
