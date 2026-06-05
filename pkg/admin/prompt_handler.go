@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
@@ -43,6 +44,7 @@ type adminPromptCreateRequest struct {
 	Category    string            `json:"category" example:"analysis"`
 	Scope       string            `json:"scope" example:"persona"`
 	Personas    []string          `json:"personas" example:"analyst,data-engineer"`
+	Tags        []string          `json:"tags" example:"sales,reporting"`
 	OwnerEmail  string            `json:"owner_email" example:"admin@example.com"`
 	Source      string            `json:"source" example:"database"`
 	Enabled     *bool             `json:"enabled" example:"true"`
@@ -50,17 +52,20 @@ type adminPromptCreateRequest struct {
 
 // adminPromptUpdateRequest is the request body for updating a prompt.
 type adminPromptUpdateRequest struct {
-	Name        *string           `json:"name"`
-	DisplayName *string           `json:"display_name"`
-	Description *string           `json:"description"`
-	Content     *string           `json:"content"`
-	Arguments   []prompt.Argument `json:"arguments"`
-	Category    *string           `json:"category"`
-	Scope       *string           `json:"scope"`
-	Personas    []string          `json:"personas"`
-	OwnerEmail  *string           `json:"owner_email"`
-	Source      *string           `json:"source"`
-	Enabled     *bool             `json:"enabled"`
+	Name         *string           `json:"name"`
+	DisplayName  *string           `json:"display_name"`
+	Description  *string           `json:"description"`
+	Content      *string           `json:"content"`
+	Arguments    []prompt.Argument `json:"arguments"`
+	Category     *string           `json:"category"`
+	Scope        *string           `json:"scope"`
+	Personas     []string          `json:"personas"`
+	Tags         []string          `json:"tags"`
+	Status       *string           `json:"status"`
+	SupersededBy *string           `json:"superseded_by"`
+	OwnerEmail   *string           `json:"owner_email"`
+	Source       *string           `json:"source"`
+	Enabled      *bool             `json:"enabled"`
 }
 
 // listPrompts returns all prompts across all scopes, including system prompts.
@@ -240,6 +245,9 @@ func buildPromptFromCreateRequest(req adminPromptCreateRequest) (result *prompt.
 	if err := prompt.ValidateScope(scope); err != nil {
 		return nil, err.Error()
 	}
+	if err := prompt.ValidateTags(req.Tags); err != nil {
+		return nil, err.Error()
+	}
 	source := req.Source
 	if source == "" {
 		source = prompt.SourceOperator
@@ -258,6 +266,7 @@ func buildPromptFromCreateRequest(req adminPromptCreateRequest) (result *prompt.
 		Category:    req.Category,
 		Scope:       scope,
 		Personas:    req.Personas,
+		Tags:        req.Tags,
 		OwnerEmail:  req.OwnerEmail,
 		Source:      source,
 		Enabled:     enabled,
@@ -307,8 +316,9 @@ func (h *Handler) updatePrompt(w http.ResponseWriter, r *http.Request) {
 	}
 
 	oldName := existing.Name
+	oldScope := existing.Scope
 
-	status, msg := h.applyAdminPromptUpdate(r.Context(), existing, req)
+	status, msg := h.applyAdminPromptUpdate(r.Context(), existing, req, adminUserEmail(r))
 	if status != 0 {
 		writeError(w, status, msg)
 		return
@@ -325,9 +335,13 @@ func (h *Handler) updatePrompt(w http.ResponseWriter, r *http.Request) {
 		existing = refreshed
 	}
 
-	// Re-register with live MCP server
+	// Re-register the name-keyed runtime metadata. Personal prompts are not
+	// tracked there (their names collide across owners), so unregister the old
+	// name only for shared scopes; RegisterRuntimePrompt self-skips personal.
 	if h.deps.PromptRegistrar != nil {
-		h.deps.PromptRegistrar.UnregisterRuntimePrompt(oldName)
+		if oldScope != prompt.ScopePersonal {
+			h.deps.PromptRegistrar.UnregisterRuntimePrompt(oldName)
+		}
 		if existing.Enabled {
 			h.deps.PromptRegistrar.RegisterRuntimePrompt(existing)
 		}
@@ -338,22 +352,61 @@ func (h *Handler) updatePrompt(w http.ResponseWriter, r *http.Request) {
 
 // applyAdminPromptUpdate validates name rename and applies field updates.
 // Returns (0, "") on success, or (httpStatus, errorMessage) on failure.
-func (h *Handler) applyAdminPromptUpdate(ctx context.Context, existing *prompt.Prompt, req adminPromptUpdateRequest) (status int, errMsg string) {
-	if req.Name != nil && *req.Name != existing.Name {
-		if err := prompt.ValidateName(*req.Name); err != nil {
-			return http.StatusBadRequest, err.Error()
-		}
-		dup, _ := h.deps.PromptStore.Get(ctx, *req.Name)
-		if dup != nil {
-			return http.StatusConflict, "prompt name already exists"
-		}
-		existing.Name = *req.Name
+func (h *Handler) applyAdminPromptUpdate(ctx context.Context, existing *prompt.Prompt, req adminPromptUpdateRequest, actorEmail string) (status int, errMsg string) {
+	if status, errMsg := h.applyAdminPromptRename(ctx, existing, req); status != 0 {
+		return status, errMsg
 	}
-
 	if errMsg := applyAdminPromptUpdateFields(existing, req); errMsg != "" {
 		return http.StatusBadRequest, errMsg
 	}
+	if errMsg := applyAdminPromptStatus(existing, req, actorEmail); errMsg != "" {
+		return http.StatusBadRequest, errMsg
+	}
 	return 0, ""
+}
+
+// applyAdminPromptRename validates and applies a name change, detecting a
+// collision in the prompt's own name namespace. Returns (0, "") when there is no
+// rename or it succeeds.
+func (h *Handler) applyAdminPromptRename(ctx context.Context, existing *prompt.Prompt, req adminPromptUpdateRequest) (status int, errMsg string) {
+	if req.Name == nil || *req.Name == existing.Name {
+		return 0, ""
+	}
+	if err := prompt.ValidateName(*req.Name); err != nil {
+		return http.StatusBadRequest, err.Error()
+	}
+	// Names are scoped: personal names are unique per owner, shared
+	// (global/persona) names are globally unique. Check the namespace the prompt
+	// actually lives in so a personal-prompt rename detects a same-owner
+	// collision instead of surfacing an opaque DB error.
+	var dup *prompt.Prompt
+	if existing.Scope == prompt.ScopePersonal {
+		dup, _ = h.deps.PromptStore.GetPersonal(ctx, existing.OwnerEmail, *req.Name)
+	} else {
+		dup, _ = h.deps.PromptStore.Get(ctx, *req.Name)
+	}
+	if dup != nil && dup.ID != existing.ID {
+		return http.StatusConflict, "prompt name already exists"
+	}
+	existing.Name = *req.Name
+	return 0, ""
+}
+
+// applyAdminPromptStatus applies a lifecycle status transition if requested.
+// Admin API callers are admins, so approval is permitted. Returns a non-empty
+// error message on an invalid or unauthorized transition.
+func applyAdminPromptStatus(existing *prompt.Prompt, req adminPromptUpdateRequest, actorEmail string) string {
+	if req.Status == nil {
+		return ""
+	}
+	supersededBy := ""
+	if req.SupersededBy != nil {
+		supersededBy = *req.SupersededBy
+	}
+	if err := existing.ApplyStatusTransition(*req.Status, supersededBy, actorEmail, true, time.Now().UTC()); err != nil {
+		return err.Error()
+	}
+	return ""
 }
 
 // applyAdminPromptUpdateFields applies non-nil fields from the update request to the prompt.
@@ -365,6 +418,11 @@ func applyAdminPromptUpdateFields(existing *prompt.Prompt, req adminPromptUpdate
 			return err.Error()
 		}
 		existing.Scope = *req.Scope
+	}
+	if req.Tags != nil {
+		if err := prompt.ValidateTags(req.Tags); err != nil {
+			return err.Error()
+		}
 	}
 	applyAdminPromptMetaFields(existing, req)
 	return ""
@@ -393,6 +451,9 @@ func applyAdminPromptContentFields(existing *prompt.Prompt, req adminPromptUpdat
 func applyAdminPromptMetaFields(existing *prompt.Prompt, req adminPromptUpdateRequest) {
 	if req.Personas != nil {
 		existing.Personas = req.Personas
+	}
+	if req.Tags != nil {
+		existing.Tags = req.Tags
 	}
 	if req.OwnerEmail != nil {
 		existing.OwnerEmail = *req.OwnerEmail
@@ -435,8 +496,9 @@ func (h *Handler) deletePrompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Unregister from live MCP server
-	if h.deps.PromptRegistrar != nil {
+	// Unregister the name-keyed runtime metadata. Personal prompts are not
+	// tracked there (names collide across owners), so skip them.
+	if h.deps.PromptRegistrar != nil && existing.Scope != prompt.ScopePersonal {
 		h.deps.PromptRegistrar.UnregisterRuntimePrompt(existing.Name)
 	}
 

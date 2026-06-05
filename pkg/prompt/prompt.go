@@ -13,6 +13,13 @@ import (
 // maxNameLength is the maximum allowed length for a prompt name.
 const maxNameLength = 128
 
+// maxTags and maxTagLength bound a prompt's tag list, mirroring the limits
+// applied to assets and managed resources so tag input is uniformly bounded.
+const (
+	maxTags      = 20
+	maxTagLength = 100
+)
+
 // validNamePattern matches lowercase letters, digits, hyphens, and underscores.
 var validNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
@@ -33,6 +40,19 @@ func ValidateName(name string) error {
 	}
 	if !validNamePattern.MatchString(name) {
 		return fmt.Errorf("name must contain only lowercase letters, digits, hyphens, and underscores")
+	}
+	return nil
+}
+
+// ValidateTags checks that a prompt's tag list is within bounds.
+func ValidateTags(tags []string) error {
+	if len(tags) > maxTags {
+		return fmt.Errorf("too many tags: %d (max %d)", len(tags), maxTags)
+	}
+	for _, t := range tags {
+		if len(t) > maxTagLength {
+			return fmt.Errorf("tag exceeds %d characters", maxTagLength)
+		}
 	}
 	return nil
 }
@@ -103,6 +123,38 @@ func ValidateStatusTransition(from, to string) error {
 	return nil
 }
 
+// ApplyStatusTransition validates and applies a status change to the prompt,
+// stamping the lifecycle metadata. A no-op when newStatus is empty or unchanged.
+// Approval (-> approved) requires isAdmin; supersededBy is recorded when moving
+// to superseded. now is passed in for testability. Returns an error on an
+// invalid or unauthorized transition. Shared by the manage_prompt tool and the
+// admin API so both enforce the lifecycle identically.
+func (p *Prompt) ApplyStatusTransition(newStatus, supersededBy, actorEmail string, isAdmin bool, now time.Time) error {
+	if newStatus == "" || newStatus == p.Status {
+		return nil
+	}
+	if err := ValidateStatus(newStatus); err != nil {
+		return err
+	}
+	if err := ValidateStatusTransition(p.Status, newStatus); err != nil {
+		return err
+	}
+	if newStatus == StatusApproved && !isAdmin {
+		return fmt.Errorf("only admins can approve a prompt")
+	}
+	switch newStatus {
+	case StatusApproved:
+		p.ApprovedBy = actorEmail
+		p.ApprovedAt = &now
+	case StatusDeprecated:
+		p.DeprecatedAt = &now
+	case StatusSuperseded:
+		p.SupersededBy = supersededBy
+	}
+	p.Status = newStatus
+	return nil
+}
+
 // Argument describes a prompt argument.
 type Argument struct {
 	Name        string `json:"name" example:"date"`
@@ -127,14 +179,11 @@ type Prompt struct {
 	Tags        []string   `json:"tags" example:"sales,reporting"`
 
 	// Promotion lifecycle.
-	Status            string     `json:"status" example:"approved"`
-	ApprovedBy        string     `json:"approved_by,omitempty" example:"admin@example.com"`
-	ApprovedAt        *time.Time `json:"approved_at,omitempty"`
-	DeprecatedAt      *time.Time `json:"deprecated_at,omitempty"`
-	SupersededBy      string     `json:"superseded_by,omitempty" example:"daily-sales-report-v2"`
-	ReviewRequested   bool       `json:"review_requested" example:"false"`
-	RequestedScope    string     `json:"requested_scope,omitempty" example:"persona"`
-	RequestedPersonas []string   `json:"requested_personas,omitempty" example:"analyst"`
+	Status       string     `json:"status" example:"approved"`
+	ApprovedBy   string     `json:"approved_by,omitempty" example:"admin@example.com"`
+	ApprovedAt   *time.Time `json:"approved_at,omitempty"`
+	DeprecatedAt *time.Time `json:"deprecated_at,omitempty"`
+	SupersededBy string     `json:"superseded_by,omitempty" example:"daily-sales-report-v2"`
 
 	CreatedAt time.Time `json:"created_at" example:"2026-01-15T14:30:00Z"`
 	UpdatedAt time.Time `json:"updated_at" example:"2026-01-15T14:30:00Z"`

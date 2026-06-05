@@ -20,8 +20,7 @@ var selectColumns = []string{
 	"id", "name", "display_name", "description", "content", "arguments",
 	"category", "scope", "personas", "owner_email", "source", "enabled",
 	"tags", "status", "approved_by", "approved_at", "deprecated_at",
-	"superseded_by", "review_requested", "requested_scope", "requested_personas",
-	"created_at", "updated_at",
+	"superseded_by", "created_at", "updated_at",
 }
 
 // testRowTime is the fixed created_at/updated_at value used by promptRow; the
@@ -34,7 +33,7 @@ func promptRow(id, name, scope string, argsJSON []byte, owner string) []driver.V
 	return []driver.Value{
 		id, name, "Test Prompt", "A test prompt", "Do something with {topic}", argsJSON,
 		"workflow", scope, pq.Array([]string{}), owner, "operator", true,
-		pq.Array([]string{}), "approved", "", nil, nil, "", false, "", pq.Array([]string{}),
+		pq.Array([]string{}), "approved", "", nil, nil, "",
 		testRowTime, testRowTime,
 	}
 }
@@ -82,7 +81,7 @@ func TestCreate_Success(t *testing.T) {
 		p.Name, p.DisplayName, p.Description, p.Content, argsJSON,
 		p.Category, p.Scope, pq.Array(p.Personas), p.OwnerEmail,
 		p.Source, p.Enabled,
-		pq.Array(p.Tags), prompt.StatusDraft, "", nil, nil, "", false, "", pq.Array(p.RequestedPersonas),
+		pq.Array(p.Tags), prompt.StatusDraft, "", nil, nil, "",
 	).WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).
 		AddRow("uuid-123", now, now))
 
@@ -184,7 +183,7 @@ func TestUpdate_Success(t *testing.T) {
 		p.Category, p.Scope, pq.Array(p.Personas), p.OwnerEmail,
 		p.Source, p.Enabled,
 		pq.Array(p.Tags), p.Status, p.ApprovedBy, p.ApprovedAt, p.DeprecatedAt,
-		p.SupersededBy, p.ReviewRequested, p.RequestedScope, pq.Array(p.RequestedPersonas),
+		p.SupersededBy,
 	).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	err = store.Update(context.Background(), p)

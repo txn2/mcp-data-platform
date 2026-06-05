@@ -122,6 +122,9 @@ func (p *Platform) handlePromptCreate(ctx context.Context, input managePromptInp
 	if err := prompt.ValidateScope(scope); err != nil {
 		return promptErrorResult(err.Error()), nil, nil
 	}
+	if err := prompt.ValidateTags(input.Tags); err != nil {
+		return promptErrorResult(err.Error()), nil, nil
+	}
 
 	email := resolveEmail(ctx)
 	if !p.isAdminPersona(ctx) && scope != prompt.ScopePersonal {
@@ -168,7 +171,7 @@ func (p *Platform) handlePromptUpdate(ctx context.Context, input managePromptInp
 		return promptErrorResult("name is required"), nil, nil
 	}
 
-	existing, err := p.resolveManagedPrompt(ctx, input.Name, resolveEmail(ctx))
+	existing, err := p.resolveManagedPrompt(ctx, input.Name, resolveEmail(ctx), input.Scope)
 	if err != nil {
 		slog.Error(promptErrGet, promptLogKey, input.Name, promptLogKeyErr, err)
 		return promptErrorResult(promptErrGet), nil, nil
@@ -208,8 +211,13 @@ func (p *Platform) handlePromptUpdate(ctx context.Context, input managePromptInp
 		return promptErrorResult("failed to update prompt"), nil, nil
 	}
 
-	// Re-register with updated content
-	p.UnregisterRuntimePrompt(existing.Name)
+	// Re-register the name-keyed metadata. Personal prompts are not tracked
+	// there (names collide across owners), so only (un)register shared scopes;
+	// RegisterRuntimePrompt self-skips personal, and unregistering the old name
+	// is gated on the old scope to avoid dropping an unrelated shared entry.
+	if oldScope != prompt.ScopePersonal {
+		p.UnregisterRuntimePrompt(existing.Name)
+	}
 	p.RegisterRuntimePrompt(existing)
 
 	return promptJSONResult(map[string]any{
@@ -246,6 +254,9 @@ func applyPromptUpdates(existing *prompt.Prompt, input managePromptInput, isAdmi
 		existing.Personas = input.Personas
 	}
 	if input.Tags != nil {
+		if err := prompt.ValidateTags(input.Tags); err != nil {
+			return err.Error()
+		}
 		existing.Tags = input.Tags
 	}
 	return ""
@@ -255,31 +266,9 @@ func applyPromptUpdates(existing *prompt.Prompt, input managePromptInput, isAdmi
 // the lifecycle timestamps. Approval (-> approved) is admin-only. Returns a
 // non-empty error message on an invalid or unauthorized transition.
 func applyStatusTransition(existing *prompt.Prompt, newStatus, supersededBy, actorEmail string, isAdmin bool) string {
-	if newStatus == "" || newStatus == existing.Status {
-		return ""
-	}
-	if err := prompt.ValidateStatus(newStatus); err != nil {
+	if err := existing.ApplyStatusTransition(newStatus, supersededBy, actorEmail, isAdmin, time.Now().UTC()); err != nil {
 		return err.Error()
 	}
-	if err := prompt.ValidateStatusTransition(existing.Status, newStatus); err != nil {
-		return err.Error()
-	}
-	if newStatus == prompt.StatusApproved && !isAdmin {
-		return "only admins can approve a prompt"
-	}
-	now := time.Now().UTC()
-	switch newStatus {
-	case prompt.StatusApproved:
-		existing.ApprovedBy = actorEmail
-		existing.ApprovedAt = &now
-		existing.ReviewRequested = false
-	case prompt.StatusDeprecated:
-		existing.DeprecatedAt = &now
-	case prompt.StatusSuperseded:
-		// Record which prompt replaces this one, if the caller named it.
-		existing.SupersededBy = supersededBy
-	}
-	existing.Status = newStatus
 	return ""
 }
 
@@ -289,7 +278,7 @@ func (p *Platform) handlePromptDelete(ctx context.Context, input managePromptInp
 		return promptErrorResult("name is required"), nil, nil
 	}
 
-	existing, err := p.resolveManagedPrompt(ctx, input.Name, resolveEmail(ctx))
+	existing, err := p.resolveManagedPrompt(ctx, input.Name, resolveEmail(ctx), input.Scope)
 	if err != nil {
 		slog.Error(promptErrGet, promptLogKey, input.Name, promptLogKeyErr, err)
 		return promptErrorResult(promptErrGet), nil, nil
@@ -313,7 +302,11 @@ func (p *Platform) handlePromptDelete(ctx context.Context, input managePromptInp
 		return promptErrorResult("failed to delete prompt"), nil, nil
 	}
 
-	p.UnregisterRuntimePrompt(existing.Name)
+	// Personal prompts are not tracked in the name-keyed metadata; unregistering
+	// by name would drop an unrelated shared entry of the same name.
+	if existing.Scope != prompt.ScopePersonal {
+		p.UnregisterRuntimePrompt(existing.Name)
+	}
 
 	return promptJSONResult(map[string]any{
 		fieldStatus: "deleted",
@@ -394,7 +387,7 @@ func (p *Platform) handlePromptGet(ctx context.Context, input managePromptInput)
 		return promptErrorResult("name is required"), nil, nil
 	}
 
-	pr, err := p.resolveManagedPrompt(ctx, input.Name, resolveEmail(ctx))
+	pr, err := p.resolveManagedPrompt(ctx, input.Name, resolveEmail(ctx), input.Scope)
 	if err != nil {
 		slog.Error(promptErrGet, promptLogKey, input.Name, promptLogKeyErr, err)
 		return promptErrorResult(promptErrGet), nil, nil
@@ -415,11 +408,14 @@ func (p *Platform) handlePromptGet(ctx context.Context, input managePromptInput)
 }
 
 // resolveManagedPrompt finds the prompt a manage_prompt command targets by
-// name. Personal names are unique only per owner, so the caller's own personal
-// prompt takes precedence; otherwise a globally-unique global/persona prompt is
-// returned.
-func (p *Platform) resolveManagedPrompt(ctx context.Context, name, email string) (*prompt.Prompt, error) {
-	if email != "" {
+// name. Personal names are unique only per owner, so by default the caller's own
+// personal prompt takes precedence; otherwise a globally-unique global/persona
+// prompt is returned. An explicit shared scope (global/persona) skips the
+// personal lookup so a caller who owns a same-named personal prompt can still
+// target the shared one.
+func (p *Platform) resolveManagedPrompt(ctx context.Context, name, email, scope string) (*prompt.Prompt, error) {
+	sharedOnly := scope == prompt.ScopeGlobal || scope == prompt.ScopePersona
+	if email != "" && !sharedOnly {
 		personal, err := p.promptStore.GetPersonal(ctx, email, name)
 		if err != nil {
 			return nil, fmt.Errorf("resolving personal prompt: %w", err)

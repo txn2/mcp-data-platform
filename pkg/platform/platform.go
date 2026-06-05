@@ -239,7 +239,6 @@ type Platform struct {
 	promptInfosMu sync.RWMutex
 	promptInfos   []registry.PromptInfo
 
-
 	// MCP Apps
 	mcpAppsRegistry *mcpapps.Registry
 

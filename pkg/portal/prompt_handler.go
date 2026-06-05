@@ -61,6 +61,7 @@ type portalPromptCreateRequest struct {
 	Content     string            `json:"content" example:"Analyze the following data: {{data}}"`
 	Arguments   []prompt.Argument `json:"arguments"`
 	Category    string            `json:"category" example:"analysis"`
+	Tags        []string          `json:"tags" example:"analysis,reporting"`
 }
 
 // listMyPrompts handles GET /api/v1/portal/prompts.
@@ -164,6 +165,10 @@ func (h *Handler) createMyPrompt(w http.ResponseWriter, r *http.Request) {
 		writePortalError(w, http.StatusBadRequest, "content is required")
 		return
 	}
+	if err := prompt.ValidateTags(req.Tags); err != nil {
+		writePortalError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	p := &prompt.Prompt{
 		Name:        req.Name,
@@ -172,6 +177,7 @@ func (h *Handler) createMyPrompt(w http.ResponseWriter, r *http.Request) {
 		Content:     req.Content,
 		Arguments:   req.Arguments,
 		Category:    req.Category,
+		Tags:        req.Tags,
 		Scope:       prompt.ScopePersonal,
 		Personas:    []string{},
 		OwnerEmail:  user.Email,
@@ -262,9 +268,12 @@ func (h *Handler) updateMyPrompt(w http.ResponseWriter, r *http.Request) {
 	writePortalJSON(w, http.StatusOK, existing)
 }
 
-// reregisterPrompt unregisters the old name and re-registers if the prompt is enabled.
+// reregisterPrompt unregisters the old name and re-registers if the prompt is
+// enabled. Personal prompts are not tracked in the name-keyed runtime metadata
+// (their names collide across owners), so unregistering by name could drop an
+// unrelated global/persona entry; skip them entirely.
 func reregisterPrompt(reg PromptRegistrar, oldName string, p *prompt.Prompt) {
-	if reg == nil {
+	if reg == nil || p.Scope == prompt.ScopePersonal {
 		return
 	}
 	reg.UnregisterRuntimePrompt(oldName)
@@ -328,6 +337,12 @@ func applyPortalPromptFields(existing *prompt.Prompt, req portalPromptCreateRequ
 	}
 	if req.Category != "" {
 		existing.Category = req.Category
+	}
+	if req.Tags != nil {
+		if err := prompt.ValidateTags(req.Tags); err != nil {
+			return err.Error()
+		}
+		existing.Tags = req.Tags
 	}
 	return ""
 }

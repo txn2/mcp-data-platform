@@ -46,7 +46,7 @@ func (m *mockPromptStore) GetPersonal(_ context.Context, ownerEmail, name string
 			return p, nil
 		}
 	}
-	return nil, nil
+	return nil, nil //nolint:nilnil // Store interface contract: nil, nil means not found
 }
 
 func (m *mockPromptStore) GetByID(_ context.Context, id string) (*prompt.Prompt, error) {
@@ -241,8 +241,29 @@ func TestPortalUpdatePrompt_OwnPrompt(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, "new content", store.prompts["my-prompt"].Content)
-	assert.Contains(t, registrar.unregistered, "my-prompt")
-	assert.Contains(t, registrar.registered, "my-prompt")
+	// Personal prompts are served per-caller from the store and are not tracked
+	// in the name-keyed runtime metadata, so no (un)registration occurs.
+	assert.NotContains(t, registrar.unregistered, "my-prompt")
+	assert.NotContains(t, registrar.registered, "my-prompt")
+}
+
+// An admin may edit a shared (non-personal) prompt through the portal; those
+// are tracked in the name-keyed runtime metadata, so reregistration occurs.
+func TestPortalUpdatePrompt_AdminSharedReregisters(t *testing.T) {
+	h, store, registrar := newTestPortalPromptHandler()
+	store.prompts["g"] = &prompt.Prompt{
+		ID: "uuid-1", Name: "g", Content: "old", Scope: prompt.ScopeGlobal, Enabled: true,
+	}
+
+	body := portalPromptCreateRequest{Content: "new content"}
+	bodyBytes, _ := json.Marshal(body)
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/portal/prompts/uuid-1", bytes.NewReader(bodyBytes)), "admin@example.com", "admin")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, registrar.unregistered, "g")
+	assert.Contains(t, registrar.registered, "g")
 }
 
 func TestPortalUpdatePrompt_OtherUserDenied(t *testing.T) {

@@ -585,3 +585,25 @@ func TestIsBuiltinDisabled(t *testing.T) {
 		})
 	}
 }
+
+// resolveManagedPrompt prefers the caller's personal prompt by default, but an
+// explicit shared scope targets the global/persona prompt of the same name.
+func TestResolveManagedPrompt_ScopePreference(t *testing.T) {
+	p, store := newTestPlatformWithPromptStore()
+	store.prompts["report"] = &prompt.Prompt{ID: "g", Name: "report", Scope: prompt.ScopeGlobal, Content: "global"}
+	store.prompts["personal:report"] = &prompt.Prompt{
+		ID: "p", Name: "report", Scope: prompt.ScopePersonal, OwnerEmail: "admin@x", Content: "personal",
+	}
+
+	ctx := context.Background()
+
+	got, err := p.resolveManagedPrompt(ctx, "report", "admin@x", "")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "p", got.ID, "default resolution prefers the caller's personal prompt")
+
+	got, err = p.resolveManagedPrompt(ctx, "report", "admin@x", prompt.ScopeGlobal)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "g", got.ID, "explicit global scope targets the shared prompt")
+}

@@ -28,6 +28,8 @@ import type { Prompt } from "@/api/admin/types";
 import { cn } from "@/lib/utils";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { PromptNameField } from "./PromptNameField";
+import { PromptStatusBadge } from "./PromptStatusBadge";
+import { TagsField } from "./TagsField";
 import { validatePromptName, isPromptNameConflict } from "./promptName";
 
 interface Props {
@@ -66,6 +68,8 @@ type SortDir = "asc" | "desc";
 
 type FormMode = "closed" | "create" | "edit";
 
+type PromptStatus = NonNullable<Prompt["status"]>;
+
 interface FormData {
   id?: string;
   name: string;
@@ -75,6 +79,9 @@ interface FormData {
   category: string;
   scope: Prompt["scope"];
   personas: string;
+  tags: string[];
+  status: PromptStatus;
+  superseded_by: string;
   owner_email: string;
   enabled: boolean;
 }
@@ -87,9 +94,27 @@ const emptyForm: FormData = {
   category: "",
   scope: "global",
   personas: "",
+  tags: [],
+  status: "draft",
+  superseded_by: "",
   owner_email: "",
   enabled: true,
 };
+
+// validStatusNext mirrors the server-side prompt lifecycle state machine
+// (pkg/prompt/prompt.go validStatusTransitions). The select offers only the
+// current status plus its reachable successors so the server never rejects the
+// choice with a 400.
+const validStatusNext: Record<PromptStatus, PromptStatus[]> = {
+  draft: ["approved", "superseded"],
+  approved: ["deprecated", "superseded"],
+  deprecated: ["superseded"],
+  superseded: [],
+};
+
+function statusOptionsFor(current: PromptStatus): PromptStatus[] {
+  return [current, ...validStatusNext[current]];
+}
 
 const columns: { key: SortKey; label: string; width?: string }[] = [
   { key: "name", label: "Name" },
@@ -147,6 +172,14 @@ export function AdminPromptsPage({ onNavigate: _onNavigate }: Props) {
     });
   }, []);
 
+  // The lifecycle status the server currently holds for the prompt being edited
+  // (form.status may already reflect an unsaved selection). Valid transitions
+  // are computed from this, never from the in-progress form value.
+  const editingOriginalStatus: PromptStatus =
+    (formMode === "edit" && form.id
+      ? data?.data.find((p) => p.id === form.id)?.status
+      : undefined) ?? form.status;
+
   const sorted = useMemo(() => {
     const list = [...(data?.data ?? [])];
     list.sort((a, b) => {
@@ -174,6 +207,9 @@ export function AdminPromptsPage({ onNavigate: _onNavigate }: Props) {
       category: p.category,
       scope: p.scope,
       personas: (p.personas ?? []).join(", "),
+      tags: p.tags ?? [],
+      status: p.status ?? "draft",
+      superseded_by: p.superseded_by ?? "",
       owner_email: p.owner_email,
       enabled: p.enabled,
     });
@@ -212,6 +248,7 @@ export function AdminPromptsPage({ onNavigate: _onNavigate }: Props) {
           category: form.category,
           scope: form.scope,
           personas,
+          tags: form.tags,
           owner_email: form.owner_email,
           enabled: form.enabled,
         },
@@ -228,6 +265,9 @@ export function AdminPromptsPage({ onNavigate: _onNavigate }: Props) {
           category: form.category,
           scope: form.scope,
           personas,
+          tags: form.tags,
+          status: form.status,
+          superseded_by: form.status === "superseded" ? form.superseded_by : undefined,
           owner_email: form.owner_email,
           enabled: form.enabled,
         },
@@ -352,6 +392,23 @@ export function AdminPromptsPage({ onNavigate: _onNavigate }: Props) {
               <label className="text-xs text-muted-foreground">Category</label>
               <input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none" placeholder="workflow" />
             </div>
+            <TagsField key={form.id ?? "new"} tags={form.tags} onChange={(tags) => setForm({ ...form, tags })} />
+            {formMode === "edit" && (
+              <div>
+                <label className="text-xs text-muted-foreground">Lifecycle Status</label>
+                <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as PromptStatus })} className="w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none">
+                  {statusOptionsFor(editingOriginalStatus).map((s) => (
+                    <option key={s} value={s} className="capitalize">{s}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {formMode === "edit" && form.status === "superseded" && (
+              <div>
+                <label className="text-xs text-muted-foreground">Superseded By (prompt name)</label>
+                <input value={form.superseded_by} onChange={(e) => setForm({ ...form, superseded_by: e.target.value })} className="w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none" placeholder="report-v2" />
+              </div>
+            )}
             {form.scope === "persona" && (
               <div className="col-span-2">
                 <label className="text-xs text-muted-foreground">Personas (comma-separated)</label>
@@ -410,7 +467,10 @@ export function AdminPromptsPage({ onNavigate: _onNavigate }: Props) {
                         {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                       </td>
                       <td className="px-4 py-2">
-                        <div className="font-medium truncate">{p.display_name || p.name}</div>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="font-medium truncate">{p.display_name || p.name}</span>
+                          {p.scope !== "system" && <PromptStatusBadge status={p.status} />}
+                        </div>
                       </td>
                       <td className="px-4 py-2"><ScopeBadge scope={p.scope} /></td>
                       <td className="px-4 py-2 truncate text-muted-foreground">{p.description}</td>
@@ -447,6 +507,20 @@ export function AdminPromptsPage({ onNavigate: _onNavigate }: Props) {
                             </div>
                             {p.personas?.length > 0 && (
                               <div className="text-xs"><span className="text-muted-foreground">Personas:</span> {p.personas.join(", ")}</div>
+                            )}
+                            {p.tags && p.tags.length > 0 && (
+                              <div className="flex items-center gap-1.5 flex-wrap text-xs">
+                                <span className="text-muted-foreground">Tags:</span>
+                                {p.tags.map((t) => (
+                                  <span key={t} className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">{t}</span>
+                                ))}
+                              </div>
+                            )}
+                            {p.status === "superseded" && p.superseded_by && (
+                              <div className="text-xs"><span className="text-muted-foreground">Superseded by:</span> <span className="font-mono">{p.superseded_by}</span></div>
+                            )}
+                            {p.approved_by && (
+                              <div className="text-xs"><span className="text-muted-foreground">Approved by:</span> {p.approved_by}</div>
                             )}
                             {p.arguments?.length > 0 && (
                               <div className="text-xs"><span className="text-muted-foreground">Arguments:</span> {p.arguments.map((a) => `{${a.name}}${a.required ? "*" : ""}`).join(", ")}</div>

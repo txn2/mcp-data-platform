@@ -24,6 +24,8 @@ import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { PromptNameField } from "./PromptNameField";
+import { PromptStatusBadge } from "./PromptStatusBadge";
+import { TagsField } from "./TagsField";
 import { validatePromptName, isPromptNameConflict } from "./promptName";
 import type { Prompt } from "@/api/admin/types";
 import { cn } from "@/lib/utils";
@@ -115,6 +117,7 @@ interface EditForm {
   description: string;
   content: string;
   category: string;
+  tags: string[];
   arguments: Prompt["arguments"];
 }
 
@@ -133,7 +136,7 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
 
   const [viewMode, setViewMode] = useState<ViewMode>("preview");
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState<EditForm>({ name: "", display_name: "", description: "", content: "", category: "", arguments: [] });
+  const [form, setForm] = useState<EditForm>({ name: "", display_name: "", description: "", content: "", category: "", tags: [], arguments: [] });
   const [error, setError] = useState<string | null>(null);
   const [nameConflict, setNameConflict] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -151,6 +154,7 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
         description: prompt.description,
         content: prompt.content,
         category: prompt.category,
+        tags: prompt.tags ?? [],
         arguments: prompt.arguments ?? [],
       });
     }
@@ -311,6 +315,7 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
         </button>
         <h2 className="text-lg font-semibold truncate flex-1 min-w-0">{prompt.display_name || prompt.name}</h2>
         <ScopeBadge scope={prompt.scope} />
+        <PromptStatusBadge status={prompt.status} />
 
         {!editing && (
           <>
@@ -411,6 +416,16 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
           <div className="md:col-span-2"><span className="text-muted-foreground">Description:</span> <span className="break-words">{prompt.description || "—"}</span></div>
           <div><span className="text-muted-foreground">Owner:</span> <span>{prompt.owner_email || "—"}</span></div>
           <div><span className="text-muted-foreground">Updated:</span> <span>{prompt.updated_at ? new Date(prompt.updated_at).toLocaleString() : "—"}</span></div>
+          {prompt.tags && prompt.tags.length > 0 && (
+            <div className="md:col-span-2 flex items-center gap-1.5 flex-wrap">
+              <span className="text-muted-foreground">Tags:</span>
+              {prompt.tags.map((t) => (
+                <span key={t} className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                  {t}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -443,6 +458,7 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
               <label className="text-xs text-muted-foreground">Category</label>
               <input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none" />
             </div>
+            <TagsField key={prompt.id} tags={form.tags} onChange={(tags) => setForm({ ...form, tags })} />
           </div>
           <div>
             <label className="text-xs text-muted-foreground">Content (Markdown)</label>

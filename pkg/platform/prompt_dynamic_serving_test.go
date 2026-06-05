@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -89,4 +90,78 @@ func TestGetDynamicPrompt_ResolvesByPrefix(t *testing.T) {
 
 	_, ok = p.getDynamicPrompt(ctx, "sarah@example.com", analyst, "global-nope", nil)
 	assert.False(t, ok, "an unknown name resolves to nothing")
+}
+
+// A persona may literally be named "global" or "personal". The reserved-prefix
+// branches of getDynamicPrompt must fall through to persona resolution so such a
+// persona's prompts remain fetchable.
+func TestGetDynamicPrompt_ReservedPrefixPersonaName(t *testing.T) {
+	p, store := newTestPlatformWithPromptStore()
+	store.prompts["report"] = &prompt.Prompt{
+		Name: "report", Scope: prompt.ScopePersona, Personas: []string{"global"},
+		Content: "persona-global report", Enabled: true,
+	}
+	store.prompts["runbook"] = &prompt.Prompt{
+		Name: "runbook", Scope: prompt.ScopePersona, Personas: []string{"personal"},
+		Content: "persona-personal runbook", Enabled: true,
+	}
+
+	ctx := context.Background()
+	_, ok := p.getDynamicPrompt(ctx, "u@example.com", []string{"global"}, "global-report", nil)
+	assert.True(t, ok, "a persona named 'global' resolves its prompt via fall-through")
+	_, ok = p.getDynamicPrompt(ctx, "u@example.com", []string{"personal"}, "personal-runbook", nil)
+	assert.True(t, ok, "a persona named 'personal' resolves its prompt via fall-through")
+}
+
+// Personal prompts are excluded from the name-keyed runtime metadata (their
+// names collide across owners), and unregistering by name must not drop an
+// unrelated shared entry of the same name.
+func TestRuntimePromptMetadata_ExcludesPersonal(t *testing.T) {
+	p, _ := newTestPlatformWithPromptStore()
+	p.RegisterRuntimePrompt(&prompt.Prompt{Name: "g", Scope: prompt.ScopeGlobal})
+	p.RegisterRuntimePrompt(&prompt.Prompt{Name: "mine", Scope: prompt.ScopePersonal, OwnerEmail: "a@x"})
+
+	tracked := func() map[string]bool {
+		names := map[string]bool{}
+		p.promptInfosMu.RLock()
+		defer p.promptInfosMu.RUnlock()
+		for _, i := range p.promptInfos {
+			names[i.Name] = true
+		}
+		return names
+	}
+
+	names := tracked()
+	assert.True(t, names["g"], "global prompt is tracked")
+	assert.False(t, names["mine"], "personal prompt is not tracked")
+
+	p.RegisterRuntimePrompt(&prompt.Prompt{Name: "shared", Scope: prompt.ScopeGlobal})
+	p.UnregisterRuntimePrompt("g")
+	after := tracked()
+	assert.False(t, after["g"], "unregister drops the named global entry")
+	assert.True(t, after["shared"], "unrelated shared entries are retained")
+}
+
+// When persona and prompt names both contain hyphens a presented name can split
+// more than one way; the most specific (longest) persona prefix must win
+// deterministically.
+func TestGetPersonaPrompt_LongestPrefixWins(t *testing.T) {
+	p, store := newTestPlatformWithPromptStore()
+	store.prompts["engineer-report"] = &prompt.Prompt{
+		Name: "engineer-report", Scope: prompt.ScopePersona, Personas: []string{"data"},
+		Content: "data persona", Enabled: true,
+	}
+	store.prompts["report"] = &prompt.Prompt{
+		Name: "report", Scope: prompt.ScopePersona, Personas: []string{"data-engineer"},
+		Content: "data-engineer persona", Enabled: true,
+	}
+
+	res, ok := p.getDynamicPrompt(context.Background(), "u@example.com",
+		[]string{"data", "data-engineer"}, "data-engineer-report", nil)
+	require.True(t, ok)
+	require.Len(t, res.Messages, 1)
+	tc, isText := res.Messages[0].Content.(*mcp.TextContent)
+	require.True(t, isText)
+	assert.Equal(t, "data-engineer persona", tc.Text,
+		"longest persona prefix (data-engineer) wins over data")
 }

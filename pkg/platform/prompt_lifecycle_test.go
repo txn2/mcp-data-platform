@@ -30,18 +30,17 @@ func TestApplyStatusTransition(t *testing.T) {
 	})
 
 	t.Run("approval is admin-only", func(t *testing.T) {
-		p := &prompt.Prompt{Status: prompt.StatusDraft, ReviewRequested: true}
+		p := &prompt.Prompt{Status: prompt.StatusDraft}
 		assert.Contains(t, applyStatusTransition(p, prompt.StatusApproved, "", "u@x", false), "only admins can approve")
 		assert.Equal(t, prompt.StatusDraft, p.Status)
 	})
 
-	t.Run("admin approval stamps metadata and clears review flag", func(t *testing.T) {
-		p := &prompt.Prompt{Status: prompt.StatusDraft, ReviewRequested: true}
+	t.Run("admin approval stamps metadata", func(t *testing.T) {
+		p := &prompt.Prompt{Status: prompt.StatusDraft}
 		assert.Empty(t, applyStatusTransition(p, prompt.StatusApproved, "", "admin@x", true))
 		assert.Equal(t, prompt.StatusApproved, p.Status)
 		assert.Equal(t, "admin@x", p.ApprovedBy)
 		assert.NotNil(t, p.ApprovedAt)
-		assert.False(t, p.ReviewRequested)
 	})
 
 	t.Run("deprecate stamps deprecated_at", func(t *testing.T) {

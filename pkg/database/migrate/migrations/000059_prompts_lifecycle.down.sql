@@ -10,9 +10,6 @@ DROP INDEX IF EXISTS uq_prompts_name_shared;
 ALTER TABLE prompts ADD CONSTRAINT prompts_name_key UNIQUE (name);
 
 ALTER TABLE prompts
-    DROP COLUMN IF EXISTS requested_personas,
-    DROP COLUMN IF EXISTS requested_scope,
-    DROP COLUMN IF EXISTS review_requested,
     DROP COLUMN IF EXISTS superseded_by,
     DROP COLUMN IF EXISTS deprecated_at,
     DROP COLUMN IF EXISTS approved_at,

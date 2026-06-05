@@ -232,9 +232,12 @@ Features:
 
 - **Scope filter** — Dropdown to filter by Global, Persona, Personal, or System scope
 - **Search** — Full-text search across name and description
-- **New Prompt** — Create prompts with scope, persona assignment, and enabled/disabled state
+- **New Prompt** — Create prompts with scope, persona assignment, tags, and enabled/disabled state
 - **Sortable table** — Name, scope badge, description, owner, category, and actions
 - **Scope badges** — Global (blue), Persona (purple), Personal (gray), System (amber)
+- **Status badges** — Lifecycle state next to each name: draft (gray), approved (emerald), deprecated (amber), superseded (rose)
+- **Lifecycle controls** — Editing a prompt exposes a status selector to move it through draft -> approved -> deprecated/superseded; approval stamps the acting admin. Selecting **superseded** reveals a field to record the replacement prompt name.
+- **Tags** — Comma-separated labels set on create and edit, shown as chips in the expanded row
 
 ## Connections
 

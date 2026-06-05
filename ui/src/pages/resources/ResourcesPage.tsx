@@ -20,6 +20,7 @@ import { resourceFetchRaw } from "@/api/resources/client";
 import { useAuthStore } from "@/stores/auth";
 import { usePersonas } from "@/api/admin/hooks";
 import { formatBytes } from "@/lib/format";
+import { parseTags } from "@/lib/tags";
 import type { Resource, ResourceUpdate } from "@/api/resources/types";
 
 const CATEGORIES = ["samples", "playbooks", "templates", "references"] as const;
@@ -375,7 +376,7 @@ function UploadModal({ onClose, admin, personaNames }: { onClose: () => void; ad
     setUploading(true);
     setError("");
 
-    const tags = tagsInput.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean);
+    const tags = parseTags(tagsInput);
     const successes: string[] = [];
     const errors: string[] = [];
 
@@ -650,7 +651,7 @@ function EditModal({ resource: r, onClose }: { resource: Resource; onClose: () =
     const upd: ResourceUpdate = {};
     if (displayName.trim() !== r.display_name) upd.display_name = displayName.trim();
     if (description.trim() !== r.description) upd.description = description.trim();
-    const tags = tagsInput.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean);
+    const tags = parseTags(tagsInput);
     if (JSON.stringify(tags) !== JSON.stringify(r.tags)) upd.tags = tags;
     if (cat !== r.category) upd.category = cat;
 
