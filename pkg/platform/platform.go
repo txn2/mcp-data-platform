@@ -239,6 +239,14 @@ type Platform struct {
 	promptInfosMu sync.RWMutex
 	promptInfos   []registry.PromptInfo
 
+	// promptScopes records the scope/owner/personas of each database-backed
+	// prompt by name, so the prompts/list visibility middleware can hide
+	// prompts the caller is not entitled to see. Built-in prompts are absent
+	// from this map and are always visible. Maintained in registerDatabasePrompt
+	// and UnregisterRuntimePrompt.
+	promptScopesMu sync.RWMutex
+	promptScopes   map[string]promptScope
+
 	// MCP Apps
 	mcpAppsRegistry *mcpapps.Registry
 
@@ -2409,6 +2417,7 @@ func (p *Platform) finalizeSetup() {
 
 	// 8. Tool visibility - reduces tools/list for token savings
 	p.addToolVisibilityMiddleware()
+	p.addPromptVisibilityMiddleware()
 
 	// 8.5 Description overrides - replaces tool descriptions with workflow guidance
 	p.addDescriptionOverrideMiddleware()
@@ -2509,6 +2518,25 @@ func (p *Platform) addToolVisibilityMiddleware() {
 
 	p.mcpServer.AddReceivingMiddleware(
 		middleware.MCPToolVisibilityMiddleware(cfg),
+	)
+}
+
+// addPromptVisibilityMiddleware registers prompts/list visibility filtering so
+// a caller only sees prompts they are entitled to (global + built-in to all,
+// persona prompts to persona members, personal prompts to their owner). Without
+// it the shared MCP server returns every database prompt — including other
+// users' personal prompts — to every client.
+func (p *Platform) addPromptVisibilityMiddleware() {
+	cfg := middleware.PromptVisibilityConfig{
+		Authenticator: p.authenticator,
+		AdminPersona:  p.config.Admin.Persona,
+		IsVisible:     p.isPromptVisible,
+	}
+	if p.personaRegistry != nil {
+		cfg.PersonasForRoles = personasForRolesFunc(p.personaRegistry)
+	}
+	p.mcpServer.AddReceivingMiddleware(
+		middleware.MCPPromptVisibilityMiddleware(cfg),
 	)
 }
 

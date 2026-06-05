@@ -4,6 +4,7 @@ package platform
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"sort"
 	"strings"
 
@@ -12,6 +13,68 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 )
+
+// promptScope records the visibility attributes of a database-backed prompt,
+// used by the prompts/list filter to decide whether a caller may see it.
+type promptScope struct {
+	scope      string
+	ownerEmail string
+	personas   []string
+}
+
+// setPromptScope records (or replaces) a database prompt's visibility entry.
+func (p *Platform) setPromptScope(pr *prompt.Prompt) {
+	p.promptScopesMu.Lock()
+	defer p.promptScopesMu.Unlock()
+	if p.promptScopes == nil {
+		p.promptScopes = make(map[string]promptScope)
+	}
+	p.promptScopes[pr.Name] = promptScope{
+		scope:      pr.Scope,
+		ownerEmail: pr.OwnerEmail,
+		personas:   pr.Personas,
+	}
+}
+
+// deletePromptScope drops a database prompt's visibility entry.
+func (p *Platform) deletePromptScope(name string) {
+	p.promptScopesMu.Lock()
+	defer p.promptScopesMu.Unlock()
+	delete(p.promptScopes, name)
+}
+
+// isPromptVisible reports whether a prompt should appear in prompts/list for a
+// caller with the given identity. Built-in prompts (absent from promptScopes)
+// are always visible. Database prompts are gated by scope: global to everyone,
+// personal only to the owning email, persona only when the caller belongs to
+// one of the prompt's personas. An empty/anonymous caller therefore sees only
+// global and built-in prompts (fail closed). Admins see everything.
+func (p *Platform) isPromptVisible(email string, personas []string, isAdmin bool, name string) bool {
+	p.promptScopesMu.RLock()
+	ps, ok := p.promptScopes[name]
+	p.promptScopesMu.RUnlock()
+	if !ok {
+		return true // built-in / non-database prompt
+	}
+	if isAdmin {
+		return true
+	}
+	switch ps.scope {
+	case prompt.ScopeGlobal:
+		return true
+	case prompt.ScopePersonal:
+		return email != "" && email == ps.ownerEmail
+	case prompt.ScopePersona:
+		for _, pn := range personas {
+			if slices.Contains(ps.personas, pn) {
+				return true
+			}
+		}
+		return false
+	default:
+		return false // unknown scope: fail closed
+	}
+}
 
 // Prompt and toolkit kind constants.
 const (
@@ -394,6 +457,13 @@ func (p *Platform) registerDatabasePrompts() {
 func (p *Platform) registerDatabasePrompt(pr *prompt.Prompt) {
 	promptContent := pr.Content
 
+	// Record scope/owner BEFORE AddPrompt makes the prompt servable, so a
+	// concurrent prompts/list or prompts/get during a runtime registration
+	// never sees the new prompt as an unrecorded (and therefore visible)
+	// built-in. Without this ordering a freshly created personal prompt would
+	// be briefly visible to every caller.
+	p.setPromptScope(pr)
+
 	mcpArgs := make([]*mcp.PromptArgument, 0, len(pr.Arguments))
 	for _, arg := range pr.Arguments {
 		mcpArgs = append(mcpArgs, &mcp.PromptArgument{
@@ -440,6 +510,7 @@ func (p *Platform) RegisterRuntimePrompt(pr *prompt.Prompt) {
 // Called after delete operations on the prompt store.
 func (p *Platform) UnregisterRuntimePrompt(name string) {
 	p.mcpServer.RemovePrompts(name)
+	p.deletePromptScope(name)
 	p.promptInfosMu.Lock()
 	for i, info := range p.promptInfos {
 		if info.Name == name {

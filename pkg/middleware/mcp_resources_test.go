@@ -193,7 +193,7 @@ func TestGetOrAuthenticatePC(t *testing.T) {
 	t.Run("returns existing PlatformContext", func(t *testing.T) {
 		existing := &PlatformContext{UserID: "existing"}
 		ctx := context.WithValue(context.Background(), platformContextKey, existing)
-		got := getOrAuthenticatePC(ctx, nil, ManagedResourceConfig{})
+		got := getOrAuthenticatePC(ctx, nil, nil, nil, "")
 		if got != existing {
 			t.Error("should return existing PlatformContext")
 		}
@@ -212,7 +212,7 @@ func TestGetOrAuthenticatePC(t *testing.T) {
 		req := &mcp.ServerRequest[*mcp.ReadResourceParams]{
 			Params: &mcp.ReadResourceParams{URI: "mcp://global/test/file.txt"},
 		}
-		got := getOrAuthenticatePC(context.Background(), req, cfg)
+		got := getOrAuthenticatePC(context.Background(), req, cfg.Authenticator, cfg.PersonasForRoles, cfg.AdminPersona)
 		if got == nil {
 			t.Fatal("expected non-nil PlatformContext")
 		}
@@ -227,14 +227,14 @@ func TestGetOrAuthenticatePC(t *testing.T) {
 	t.Run("returns nil when auth fails", func(t *testing.T) {
 		auth := &mockManagedAuth{err: fmt.Errorf("unauthorized")}
 		cfg := ManagedResourceConfig{Authenticator: auth}
-		got := getOrAuthenticatePC(context.Background(), nil, cfg)
+		got := getOrAuthenticatePC(context.Background(), nil, cfg.Authenticator, cfg.PersonasForRoles, cfg.AdminPersona)
 		if got != nil {
 			t.Error("expected nil when auth fails")
 		}
 	})
 
 	t.Run("returns nil when no authenticator", func(t *testing.T) {
-		got := getOrAuthenticatePC(context.Background(), nil, ManagedResourceConfig{})
+		got := getOrAuthenticatePC(context.Background(), nil, nil, nil, "")
 		if got != nil {
 			t.Error("expected nil when no authenticator configured")
 		}
@@ -249,7 +249,7 @@ func TestGetOrAuthenticatePC(t *testing.T) {
 			AdminPersona:     "admin",
 			PersonasForRoles: func(_ []string) []string { return []string{"analyst"} },
 		}
-		got := getOrAuthenticatePC(context.Background(), nil, cfg)
+		got := getOrAuthenticatePC(context.Background(), nil, cfg.Authenticator, cfg.PersonasForRoles, cfg.AdminPersona)
 		if got == nil {
 			t.Fatal("expected non-nil PlatformContext")
 		}

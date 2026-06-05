@@ -161,7 +161,7 @@ func containsManagedResources(resources []*mcp.Resource, prefix string) bool {
 // authorized the filter so callers can include user/persona attribution in
 // their log lines. Returns (nil, nil) when auth fails.
 func resolveVisibleManagedURIsWithPC(ctx context.Context, req mcp.Request, cfg ManagedResourceConfig) (pc *PlatformContext, visible map[string]bool) {
-	pc = getOrAuthenticatePC(ctx, req, cfg)
+	pc = getOrAuthenticatePC(ctx, req, cfg.Authenticator, cfg.PersonasForRoles, cfg.AdminPersona)
 	if pc == nil {
 		return nil, nil
 	}
@@ -223,7 +223,7 @@ func handleManagedRead(ctx context.Context, next mcp.MethodHandler, method strin
 	}
 	slog.Debug("managed resources read: found in store", logKeyURI, uri, "scope", res.Scope, "id", res.ID)
 
-	pc := getOrAuthenticatePC(ctx, req, cfg)
+	pc := getOrAuthenticatePC(ctx, req, cfg.Authenticator, cfg.PersonasForRoles, cfg.AdminPersona)
 	if pc == nil {
 		slog.Warn("managed resources read: auth failed, falling through to SDK", logKeyURI, uri)
 		return next(ctx, method, req)
@@ -307,12 +307,12 @@ func claimsFromPC(pc *PlatformContext, cfg ManagedResourceConfig) resource.Claim
 // (set by MCPToolCallMiddleware for tools/call), or authenticates the user
 // directly for resources/list and resources/read methods. Returns nil if
 // authentication fails or no authenticator is configured.
-func getOrAuthenticatePC(ctx context.Context, req mcp.Request, cfg ManagedResourceConfig) *PlatformContext {
+func getOrAuthenticatePC(ctx context.Context, req mcp.Request, auth Authenticator, personasForRoles PersonasForRoles, adminPersona string) *PlatformContext {
 	if pc := GetPlatformContext(ctx); pc != nil {
 		slog.Debug("getOrAuthenticatePC: using existing PlatformContext", logKeyUserID, pc.UserID)
 		return pc
 	}
-	if cfg.Authenticator == nil {
+	if auth == nil {
 		slog.Debug("getOrAuthenticatePC: no authenticator configured")
 		return nil
 	}
@@ -322,7 +322,7 @@ func getOrAuthenticatePC(ctx context.Context, req mcp.Request, cfg ManagedResour
 	}
 	tokenPresent := GetToken(ctx) != ""
 	slog.Debug("getOrAuthenticatePC: attempting direct auth", "token_present", tokenPresent)
-	userInfo, err := cfg.Authenticator.Authenticate(ctx)
+	userInfo, err := auth.Authenticate(ctx)
 	if err != nil || userInfo == nil {
 		slog.Debug("getOrAuthenticatePC: auth failed", logKeyError, err, "user_nil", userInfo == nil)
 		return nil
@@ -334,12 +334,12 @@ func getOrAuthenticatePC(ctx context.Context, req mcp.Request, cfg ManagedResour
 		Roles:     userInfo.Roles,
 	}
 	// Resolve persona for admin status.
-	if cfg.PersonasForRoles != nil {
-		personas := cfg.PersonasForRoles(userInfo.Roles)
+	if personasForRoles != nil {
+		personas := personasForRoles(userInfo.Roles)
 		if len(personas) > 0 {
 			pc.PersonaName = personas[0]
 		}
-		pc.IsAdmin = cfg.AdminPersona != "" && slices.Contains(personas, cfg.AdminPersona)
+		pc.IsAdmin = adminPersona != "" && slices.Contains(personas, adminPersona)
 	}
 	return pc
 }
