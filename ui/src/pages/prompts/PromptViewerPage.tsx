@@ -17,6 +17,7 @@ import {
   FileBox,
   Share2,
   Braces,
+  ArrowUpCircle,
 } from "lucide-react";
 import { useMyPrompts, useUpdateMyPrompt, useDeleteMyPrompt, useCreateAsset } from "@/api/portal/hooks";
 import { ShareDialog } from "@/components/ShareDialog";
@@ -144,6 +145,21 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
   const [shareAssetId, setShareAssetId] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [saveAsAssetNotice, setSaveAsAssetNotice] = useState<{ assetId: string; name: string } | null>(null);
+  const [promoteOpen, setPromoteOpen] = useState(false);
+  const [promoteScope, setPromoteScope] = useState<"persona" | "global">("persona");
+  const [promotePersonas, setPromotePersonas] = useState("");
+  const [promoteError, setPromoteError] = useState<string | null>(null);
+
+  const openPromote = useCallback(() => {
+    setPromoteError(null);
+    setPromoteScope("persona");
+    setPromotePersonas("");
+    setPromoteOpen(true);
+  }, []);
+  const closePromote = useCallback(() => {
+    setPromoteOpen(false);
+    setPromoteError(null);
+  }, []);
 
   // Reset edit form when prompt loads/changes.
   useEffect(() => {
@@ -203,6 +219,23 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
       },
     );
   }, [prompt, form, updateMutation]);
+
+  const handleRequestPromotion = useCallback(() => {
+    if (!prompt) return;
+    setPromoteError(null);
+    const personas = promotePersonas.split(",").map((s) => s.trim()).filter(Boolean);
+    if (promoteScope === "persona" && personas.length === 0) {
+      setPromoteError("Select at least one persona to request promotion.");
+      return;
+    }
+    updateMutation.mutate(
+      { id: prompt.id, requested_scope: promoteScope, requested_personas: personas },
+      {
+        onSuccess: () => closePromote(),
+        onError: (err) => setPromoteError(err instanceof Error ? err.message : "Request failed"),
+      },
+    );
+  }, [prompt, promoteScope, promotePersonas, updateMutation, closePromote]);
 
   const handleDelete = useCallback(() => {
     if (!prompt) return;
@@ -316,6 +349,11 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
         <h2 className="text-lg font-semibold truncate flex-1 min-w-0">{prompt.display_name || prompt.name}</h2>
         <ScopeBadge scope={prompt.scope} />
         <PromptStatusBadge status={prompt.status} />
+        {prompt.review_requested && (
+          <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-400 whitespace-nowrap">
+            <ArrowUpCircle className="h-3 w-3" /> Promotion requested
+          </span>
+        )}
 
         {!editing && (
           <>
@@ -345,6 +383,15 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
               <Share2 className="h-3.5 w-3.5" />
               Share
             </button>
+            {isOwner && !prompt.review_requested && (
+              <button
+                onClick={openPromote}
+                className="inline-flex items-center gap-1.5 rounded-md border border-amber-500/30 px-3 py-1.5 text-sm font-medium text-amber-400 hover:bg-amber-500/10"
+                title="Request an admin promote this prompt to a shared scope"
+              >
+                <ArrowUpCircle className="h-3.5 w-3.5" /> Request Promotion
+              </button>
+            )}
             {isOwner && (
               <>
                 <button
@@ -605,6 +652,57 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
             }
           }}
         />
+      )}
+
+      {/* Request promotion dialog */}
+      {promoteOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={closePromote}
+            onKeyDown={(e) => { if (e.key === "Escape") closePromote(); }}
+            role="button"
+            tabIndex={-1}
+            aria-label="Close"
+          />
+          <div className="relative rounded-lg border bg-card p-6 shadow-lg max-w-sm w-full mx-4 space-y-4">
+            <div>
+              <h3 className="text-sm font-semibold">Request promotion</h3>
+              <p className="text-sm text-muted-foreground">An admin will review and approve. Until then your prompt stays personal.</p>
+            </div>
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="radio" name="promote-scope" checked={promoteScope === "persona"} onChange={() => setPromoteScope("persona")} />
+                <Users className="h-4 w-4 text-purple-400" /> Persona
+              </label>
+              {promoteScope === "persona" && (
+                <input
+                  value={promotePersonas}
+                  onChange={(e) => setPromotePersonas(e.target.value)}
+                  placeholder="analyst, data-engineer"
+                  className="w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none"
+                />
+              )}
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="radio" name="promote-scope" checked={promoteScope === "global"} onChange={() => setPromoteScope("global")} />
+                <Globe className="h-4 w-4 text-blue-400" /> Global (everyone)
+              </label>
+            </div>
+            {promoteError && (
+              <div className="rounded-md bg-red-500/10 border border-red-500/20 px-3 py-2 text-xs text-red-400">{promoteError}</div>
+            )}
+            <div className="flex justify-end gap-2">
+              <button onClick={closePromote} className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent">Cancel</button>
+              <button
+                onClick={handleRequestPromotion}
+                disabled={updateMutation.isPending}
+                className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              >
+                <ArrowUpCircle className="h-3.5 w-3.5" /> {updateMutation.isPending ? "Submitting..." : "Submit request"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

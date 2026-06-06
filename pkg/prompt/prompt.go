@@ -155,6 +155,81 @@ func (p *Prompt) ApplyStatusTransition(newStatus, supersededBy, actorEmail strin
 	return nil
 }
 
+// ApplyPromotionRequest records an owner's request to promote a personal prompt
+// into a shared scope. The prompt must be personal; the target must be persona
+// (with at least one persona) or global. It only sets the request signal; the
+// scope does not change until an admin approves (see ApprovePromotion).
+func (p *Prompt) ApplyPromotionRequest(requestedScope string, requestedPersonas []string) error {
+	if p.Scope != ScopePersonal {
+		return fmt.Errorf("only personal prompts can request promotion")
+	}
+	if p.Status == StatusDeprecated || p.Status == StatusSuperseded {
+		return fmt.Errorf("cannot request promotion of a %s prompt", p.Status)
+	}
+	if requestedScope != ScopePersona && requestedScope != ScopeGlobal {
+		return fmt.Errorf("requested scope must be %q or %q", ScopePersona, ScopeGlobal)
+	}
+	if requestedScope == ScopePersona && len(requestedPersonas) == 0 {
+		return fmt.Errorf("persona promotion requires at least one persona")
+	}
+	p.ReviewRequested = true
+	p.RequestedScope = requestedScope
+	if requestedScope == ScopePersona {
+		p.RequestedPersonas = append([]string(nil), requestedPersonas...)
+	} else {
+		p.RequestedPersonas = []string{}
+	}
+	return nil
+}
+
+// ApprovePromotion applies a pending promotion request: it moves the prompt to
+// the requested scope/personas, marks it approved (stamping the admin), and
+// clears the request signal. Returns an error if there is no pending request or
+// the prompt is no longer personal (its scope changed out from under the
+// request). The caller is responsible for checking the target shared name is free.
+func (p *Prompt) ApprovePromotion(actorEmail string, now time.Time) error {
+	if !p.ReviewRequested {
+		return fmt.Errorf("prompt has no pending promotion request")
+	}
+	if p.Scope != ScopePersonal {
+		// The scope was changed (e.g. via a direct admin edit) after the request
+		// was filed; the stale request must not silently re-scope it.
+		p.clearPromotionRequest()
+		return fmt.Errorf("prompt is no longer personal; promotion request is stale")
+	}
+	if p.RequestedScope != ScopePersona && p.RequestedScope != ScopeGlobal {
+		return fmt.Errorf("invalid requested scope %q", p.RequestedScope)
+	}
+	p.Scope = p.RequestedScope
+	if p.Scope == ScopePersona {
+		p.Personas = append([]string(nil), p.RequestedPersonas...)
+	} else {
+		p.Personas = []string{}
+	}
+	// Promotion produces a freshly approved shared prompt; clear any stale
+	// deprecation/supersede markers carried from the personal record.
+	p.Status = StatusApproved
+	p.ApprovedBy = actorEmail
+	p.ApprovedAt = &now
+	p.DeprecatedAt = nil
+	p.SupersededBy = ""
+	p.clearPromotionRequest()
+	return nil
+}
+
+// RejectPromotion clears a pending promotion request, leaving the prompt
+// personal and otherwise unchanged.
+func (p *Prompt) RejectPromotion() {
+	p.clearPromotionRequest()
+}
+
+// clearPromotionRequest resets the promotion-request signal fields.
+func (p *Prompt) clearPromotionRequest() {
+	p.ReviewRequested = false
+	p.RequestedScope = ""
+	p.RequestedPersonas = []string{}
+}
+
 // Argument describes a prompt argument.
 type Argument struct {
 	Name        string `json:"name" example:"date"`
@@ -185,17 +260,26 @@ type Prompt struct {
 	DeprecatedAt *time.Time `json:"deprecated_at,omitempty"`
 	SupersededBy string     `json:"superseded_by,omitempty" example:"daily-sales-report-v2"`
 
+	// Promotion request: an owner asks to move a personal prompt into a shared
+	// scope. ReviewRequested marks the prompt as pending in the admin queue;
+	// RequestedScope/RequestedPersonas record the target. Cleared on approve or
+	// reject (see ApplyPromotionRequest / ApprovePromotion).
+	ReviewRequested   bool     `json:"review_requested" example:"false"`
+	RequestedScope    string   `json:"requested_scope,omitempty" example:"persona"`
+	RequestedPersonas []string `json:"requested_personas,omitempty" example:"analyst"`
+
 	CreatedAt time.Time `json:"created_at" example:"2026-01-15T14:30:00Z"`
 	UpdatedAt time.Time `json:"updated_at" example:"2026-01-15T14:30:00Z"`
 }
 
 // ListFilter controls which prompts are returned by List.
 type ListFilter struct {
-	Scope      string   // "global", "persona", "personal", or "" for all
-	Personas   []string // filter by persona membership (OR match)
-	OwnerEmail string   // filter by owner
-	Enabled    *bool    // filter by enabled state
-	Search     string   // free-text search on name, display_name, description
+	Scope           string   // "global", "persona", "personal", or "" for all
+	Personas        []string // filter by persona membership (OR match)
+	OwnerEmail      string   // filter by owner
+	Enabled         *bool    // filter by enabled state
+	Search          string   // free-text search on name, display_name, description
+	ReviewRequested *bool    // filter by pending promotion request (admin queue)
 }
 
 // Store defines the interface for prompt persistence.

@@ -31,7 +31,8 @@ func New(db *sql.DB) *Store {
 // the scan order in scanPrompt cannot drift from the query.
 const promptColumns = `id, name, display_name, description, content, arguments,
 	category, scope, personas, owner_email, source, enabled, tags, status,
-	approved_by, approved_at, deprecated_at, superseded_by, created_at, updated_at`
+	approved_by, approved_at, deprecated_at, superseded_by,
+	review_requested, requested_scope, requested_personas, created_at, updated_at`
 
 // promptSelect is the base SELECT for the prompt columns.
 const promptSelect = "SELECT " + promptColumns + " FROM prompts"
@@ -50,6 +51,7 @@ func scanPrompt(sc rowScanner) (*prompt.Prompt, error) {
 		&p.Category, &p.Scope, pq.Array(&p.Personas), &p.OwnerEmail,
 		&p.Source, &p.Enabled, pq.Array(&p.Tags), &p.Status,
 		&p.ApprovedBy, &p.ApprovedAt, &p.DeprecatedAt, &p.SupersededBy,
+		&p.ReviewRequested, &p.RequestedScope, pq.Array(&p.RequestedPersonas),
 		&p.CreatedAt, &p.UpdatedAt,
 	); err != nil {
 		return nil, fmt.Errorf("scanning prompt row: %w", err)
@@ -72,6 +74,9 @@ func normalizeSlices(p *prompt.Prompt) {
 	if p.Tags == nil {
 		p.Tags = []string{}
 	}
+	if p.RequestedPersonas == nil {
+		p.RequestedPersonas = []string{}
+	}
 }
 
 // Create persists a new prompt. If p.ID is empty the database generates one.
@@ -88,16 +93,16 @@ func (s *Store) Create(ctx context.Context, p *prompt.Prompt) error {
 		INSERT INTO prompts (name, display_name, description, content, arguments,
 		                     category, scope, personas, owner_email, source, enabled,
 		                     tags, status, approved_by, approved_at, deprecated_at,
-		                     superseded_by)
+		                     superseded_by, review_requested, requested_scope, requested_personas)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-		        $12, $13, $14, $15, $16, $17)
+		        $12, $13, $14, $15, $16, $17, $18, $19, $20)
 		RETURNING id, created_at, updated_at`
 
 	err = s.db.QueryRowContext(ctx, query,
 		p.Name, p.DisplayName, p.Description, p.Content, argsJSON,
 		p.Category, p.Scope, pq.Array(p.Personas), p.OwnerEmail, p.Source, p.Enabled,
 		pq.Array(p.Tags), p.Status, p.ApprovedBy, p.ApprovedAt, p.DeprecatedAt,
-		p.SupersededBy,
+		p.SupersededBy, p.ReviewRequested, p.RequestedScope, pq.Array(p.RequestedPersonas),
 	).Scan(&p.ID, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("create prompt: %w", err)
@@ -150,14 +155,15 @@ func (s *Store) Update(ctx context.Context, p *prompt.Prompt) error {
 		    arguments = $6, category = $7, scope = $8, personas = $9,
 		    owner_email = $10, source = $11, enabled = $12, tags = $13,
 		    status = $14, approved_by = $15, approved_at = $16, deprecated_at = $17,
-		    superseded_by = $18, updated_at = NOW()
+		    superseded_by = $18, review_requested = $19, requested_scope = $20,
+		    requested_personas = $21, updated_at = NOW()
 		WHERE id = $1`
 
 	res, err := s.db.ExecContext(ctx, query,
 		p.ID, p.Name, p.DisplayName, p.Description, p.Content, argsJSON,
 		p.Category, p.Scope, pq.Array(p.Personas), p.OwnerEmail, p.Source, p.Enabled,
 		pq.Array(p.Tags), p.Status, p.ApprovedBy, p.ApprovedAt, p.DeprecatedAt,
-		p.SupersededBy,
+		p.SupersededBy, p.ReviewRequested, p.RequestedScope, pq.Array(p.RequestedPersonas),
 	)
 	if err != nil {
 		return fmt.Errorf("update prompt: %w", err)
@@ -250,6 +256,11 @@ func buildWhere(f prompt.ListFilter) (clause string, params []any) {
 	if len(f.Personas) > 0 {
 		conds = append(conds, fmt.Sprintf("personas && $%d", idx))
 		args = append(args, pq.Array(f.Personas))
+		idx++
+	}
+	if f.ReviewRequested != nil {
+		conds = append(conds, fmt.Sprintf("review_requested = $%d", idx))
+		args = append(args, *f.ReviewRequested)
 		idx++
 	}
 	if f.Search != "" {

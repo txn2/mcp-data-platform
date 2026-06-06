@@ -53,7 +53,9 @@ type portalPromptListResponse struct {
 	Available []prompt.Prompt `json:"available"`
 }
 
-// portalPromptCreateRequest is the request body for creating a personal prompt.
+// portalPromptCreateRequest is the request body for creating or updating a
+// personal prompt. On update it can also carry a promotion request: setting
+// requested_scope flags the prompt for the admin review queue.
 type portalPromptCreateRequest struct {
 	Name        string            `json:"name" example:"my-analysis-prompt"`
 	DisplayName string            `json:"display_name" example:"My Analysis Prompt"`
@@ -62,6 +64,11 @@ type portalPromptCreateRequest struct {
 	Arguments   []prompt.Argument `json:"arguments"`
 	Category    string            `json:"category" example:"analysis"`
 	Tags        []string          `json:"tags" example:"analysis,reporting"`
+
+	// Promotion request (update only). RequestedScope of "persona" or "global"
+	// flags the prompt for the admin queue; "" leaves any existing request as is.
+	RequestedScope    string   `json:"requested_scope,omitempty" example:"persona"`
+	RequestedPersonas []string `json:"requested_personas,omitempty" example:"analyst"`
 }
 
 // listMyPrompts handles GET /api/v1/portal/prompts.
@@ -343,6 +350,11 @@ func applyPortalPromptFields(existing *prompt.Prompt, req portalPromptCreateRequ
 			return err.Error()
 		}
 		existing.Tags = req.Tags
+	}
+	if req.RequestedScope != "" {
+		if err := existing.ApplyPromotionRequest(req.RequestedScope, req.RequestedPersonas); err != nil {
+			return err.Error()
+		}
 	}
 	return ""
 }

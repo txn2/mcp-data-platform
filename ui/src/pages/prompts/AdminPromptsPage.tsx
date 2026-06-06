@@ -29,6 +29,7 @@ import { cn } from "@/lib/utils";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { PromptNameField } from "./PromptNameField";
 import { PromptStatusBadge } from "./PromptStatusBadge";
+import { PromptReviewQueue } from "./PromptReviewQueue";
 import { TagsField } from "./TagsField";
 import { validatePromptName, isPromptNameConflict } from "./promptName";
 
@@ -314,6 +315,9 @@ export function AdminPromptsPage({ onNavigate: _onNavigate }: Props) {
 
   return (
     <div className="space-y-4">
+      {/* Pending promotion requests (renders only when non-empty) */}
+      <PromptReviewQueue />
+
       {/* Toolbar */}
       <div className="flex items-center gap-3">
         <div className="relative max-w-md flex-1">

@@ -22,6 +22,8 @@ func (h *Handler) registerPromptRoutes() {
 	h.mux.HandleFunc("POST /api/v1/admin/prompts", h.createPrompt)
 	h.mux.HandleFunc("PUT /api/v1/admin/prompts/{id}", h.updatePrompt)
 	h.mux.HandleFunc("DELETE /api/v1/admin/prompts/{id}", h.deletePrompt)
+	h.mux.HandleFunc("POST /api/v1/admin/prompts/{id}/approve", h.approvePromptPromotion)
+	h.mux.HandleFunc("POST /api/v1/admin/prompts/{id}/reject", h.rejectPromptPromotion)
 }
 
 // adminPromptListResponse is the paginated response for prompt listing.
@@ -33,6 +35,13 @@ type adminPromptListResponse struct {
 // promptScopeSystem identifies prompts contributed by built-in providers
 // rather than stored in the database.
 const promptScopeSystem = "system"
+
+// Shared literals for prompt handlers.
+const (
+	promptPathID       = "id"
+	errMsgGetPrompt    = "failed to get prompt"
+	errMsgPromptNotErr = "prompt not found"
+)
 
 // adminPromptCreateRequest is the request body for creating a prompt.
 type adminPromptCreateRequest struct {
@@ -92,6 +101,13 @@ func (h *Handler) listPrompts(w http.ResponseWriter, r *http.Request) {
 	if owner := q.Get("owner_email"); owner != "" {
 		filter.OwnerEmail = owner
 	}
+	// The admin review queue requests review_requested=true; only database
+	// prompts carry the flag, so the system-prompt merge is skipped for it.
+	queueOnly := q.Get("review_requested") == "true"
+	if queueOnly {
+		t := true
+		filter.ReviewRequested = &t
+	}
 
 	prompts, err := h.deps.PromptStore.List(r.Context(), filter)
 	if err != nil {
@@ -102,7 +118,9 @@ func (h *Handler) listPrompts(w http.ResponseWriter, r *http.Request) {
 		prompts = []prompt.Prompt{}
 	}
 
-	prompts = h.mergeSystemPrompts(prompts, filter)
+	if !queueOnly {
+		prompts = h.mergeSystemPrompts(prompts, filter)
+	}
 
 	total, countErr := h.deps.PromptStore.Count(r.Context(), filter)
 	if countErr != nil {
@@ -175,14 +193,14 @@ func matchesSearch(info registry.PromptInfo, query string) bool {
 // @Security     BearerAuth
 // @Router       /admin/prompts/{id} [get]
 func (h *Handler) getPrompt(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id := r.PathValue(promptPathID)
 	p, err := h.deps.PromptStore.GetByID(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get prompt")
+		writeError(w, http.StatusInternalServerError, errMsgGetPrompt)
 		return
 	}
 	if p == nil {
-		writeError(w, http.StatusNotFound, "prompt not found")
+		writeError(w, http.StatusNotFound, errMsgPromptNotErr)
 		return
 	}
 	writeJSON(w, http.StatusOK, p)
@@ -298,14 +316,14 @@ func buildPromptFromCreateRequest(req adminPromptCreateRequest) (result *prompt.
 // @Security     BearerAuth
 // @Router       /admin/prompts/{id} [put]
 func (h *Handler) updatePrompt(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id := r.PathValue(promptPathID)
 	existing, err := h.deps.PromptStore.GetByID(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get prompt")
+		writeError(w, http.StatusInternalServerError, errMsgGetPrompt)
 		return
 	}
 	if existing == nil {
-		writeError(w, http.StatusNotFound, "prompt not found")
+		writeError(w, http.StatusNotFound, errMsgPromptNotErr)
 		return
 	}
 
@@ -353,14 +371,40 @@ func (h *Handler) updatePrompt(w http.ResponseWriter, r *http.Request) {
 // applyAdminPromptUpdate validates name rename and applies field updates.
 // Returns (0, "") on success, or (httpStatus, errorMessage) on failure.
 func (h *Handler) applyAdminPromptUpdate(ctx context.Context, existing *prompt.Prompt, req adminPromptUpdateRequest, actorEmail string) (status int, errMsg string) {
+	oldScope := existing.Scope
 	if status, errMsg := h.applyAdminPromptRename(ctx, existing, req); status != 0 {
 		return status, errMsg
 	}
 	if errMsg := applyAdminPromptUpdateFields(existing, req); errMsg != "" {
 		return http.StatusBadRequest, errMsg
 	}
+	if status, errMsg := h.applyAdminPromptScopeChange(ctx, existing, oldScope); status != 0 {
+		return status, errMsg
+	}
 	if errMsg := applyAdminPromptStatus(existing, req, actorEmail); errMsg != "" {
 		return http.StatusBadRequest, errMsg
+	}
+	return 0, ""
+}
+
+// applyAdminPromptScopeChange handles a direct admin scope change. It obsoletes
+// any pending promotion request and, when promoting a personal prompt into the
+// shared namespace, enforces the same global-name uniqueness the queue-approval
+// path enforces.
+func (h *Handler) applyAdminPromptScopeChange(ctx context.Context, existing *prompt.Prompt, oldScope string) (status int, errMsg string) {
+	if existing.Scope == oldScope {
+		return 0, ""
+	}
+	// A direct scope change resolves any pending promotion request.
+	existing.RejectPromotion()
+	if oldScope == prompt.ScopePersonal && existing.Scope != prompt.ScopePersonal {
+		dup, err := h.deps.PromptStore.Get(ctx, existing.Name)
+		if err != nil {
+			return http.StatusInternalServerError, "failed to check prompt name"
+		}
+		if dup != nil && dup.ID != existing.ID {
+			return http.StatusConflict, "a shared prompt with this name already exists"
+		}
 	}
 	return 0, ""
 }
@@ -480,14 +524,14 @@ func applyAdminPromptMetaFields(existing *prompt.Prompt, req adminPromptUpdateRe
 // @Security     BearerAuth
 // @Router       /admin/prompts/{id} [delete]
 func (h *Handler) deletePrompt(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	id := r.PathValue(promptPathID)
 	existing, err := h.deps.PromptStore.GetByID(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to get prompt")
+		writeError(w, http.StatusInternalServerError, errMsgGetPrompt)
 		return
 	}
 	if existing == nil {
-		writeError(w, http.StatusNotFound, "prompt not found")
+		writeError(w, http.StatusNotFound, errMsgPromptNotErr)
 		return
 	}
 
@@ -503,4 +547,118 @@ func (h *Handler) deletePrompt(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, statusResponse{Status: statusDeleted})
+}
+
+// approvePromptPromotion approves a pending promotion request: it applies the
+// requested scope and personas, marks the prompt approved, and clears the
+// request. The promoted name must be free in the shared namespace.
+//
+// @Summary      Approve prompt promotion
+// @Description  Approves a personal prompt's pending promotion request, moving it to the requested persona/global scope and marking it approved.
+// @Tags         Prompts
+// @Produce      json
+// @Param        id  path  string  true  "Prompt ID"
+// @Success      200  {object}  prompt.Prompt
+// @Failure      400  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      409  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/prompts/{id}/approve [post]
+// loadApprovablePrompt fetches a prompt and validates it can be promoted: it
+// must exist, have a pending request, and its target shared name must be free.
+// Returns (prompt, 0, "") on success or (nil, httpStatus, message) otherwise.
+func (h *Handler) loadApprovablePrompt(ctx context.Context, id string) (p *prompt.Prompt, status int, errMsg string) {
+	existing, err := h.deps.PromptStore.GetByID(ctx, id)
+	if err != nil {
+		return nil, http.StatusInternalServerError, errMsgGetPrompt
+	}
+	if existing == nil {
+		return nil, http.StatusNotFound, errMsgPromptNotErr
+	}
+	if !existing.ReviewRequested {
+		return nil, http.StatusBadRequest, "prompt has no pending promotion request"
+	}
+	// The promoted prompt enters the shared namespace, where names are globally
+	// unique. Reject if the name is already taken so the owner renames first. A
+	// store error must not be read as "no duplicate".
+	dup, dupErr := h.deps.PromptStore.Get(ctx, existing.Name)
+	if dupErr != nil {
+		return nil, http.StatusInternalServerError, "failed to check prompt name"
+	}
+	if dup != nil && dup.ID != existing.ID {
+		return nil, http.StatusConflict, "a shared prompt with this name already exists; rename before promoting"
+	}
+	return existing, 0, ""
+}
+
+func (h *Handler) approvePromptPromotion(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue(promptPathID)
+	existing, status, msg := h.loadApprovablePrompt(r.Context(), id)
+	if status != 0 {
+		writeError(w, status, msg)
+		return
+	}
+
+	if err := existing.ApprovePromotion(adminUserEmail(r), time.Now().UTC()); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := h.deps.PromptStore.Update(r.Context(), existing); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update prompt")
+		return
+	}
+	if refreshed, _ := h.deps.PromptStore.GetByID(r.Context(), id); refreshed != nil {
+		existing = refreshed
+	}
+
+	// The prompt is now shared, so register its runtime metadata.
+	if h.deps.PromptRegistrar != nil && existing.Enabled {
+		h.deps.PromptRegistrar.RegisterRuntimePrompt(existing)
+	}
+
+	writeJSON(w, http.StatusOK, existing)
+}
+
+// rejectPromptPromotion clears a pending promotion request, leaving the prompt
+// personal and unchanged.
+//
+// @Summary      Reject prompt promotion
+// @Description  Clears a personal prompt's pending promotion request, leaving it personal.
+// @Tags         Prompts
+// @Produce      json
+// @Param        id  path  string  true  "Prompt ID"
+// @Success      200  {object}  prompt.Prompt
+// @Failure      404  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/prompts/{id}/reject [post]
+func (h *Handler) rejectPromptPromotion(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue(promptPathID)
+	existing, err := h.deps.PromptStore.GetByID(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, errMsgGetPrompt)
+		return
+	}
+	if existing == nil {
+		writeError(w, http.StatusNotFound, errMsgPromptNotErr)
+		return
+	}
+	if !existing.ReviewRequested {
+		writeError(w, http.StatusBadRequest, "prompt has no pending promotion request")
+		return
+	}
+
+	existing.RejectPromotion()
+	if err := h.deps.PromptStore.Update(r.Context(), existing); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update prompt")
+		return
+	}
+	if refreshed, _ := h.deps.PromptStore.GetByID(r.Context(), id); refreshed != nil {
+		existing = refreshed
+	}
+
+	writeJSON(w, http.StatusOK, existing)
 }

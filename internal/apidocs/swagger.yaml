@@ -2909,6 +2909,18 @@ definitions:
       name:
         example: my-analysis-prompt
         type: string
+      requested_personas:
+        example:
+        - analyst
+        items:
+          type: string
+        type: array
+      requested_scope:
+        description: |-
+          Promotion request (update only). RequestedScope of "persona" or "global"
+          flags the prompt for the admin queue; "" leaves any existing request as is.
+        example: persona
+        type: string
       tags:
         example:
         - analysis
@@ -3044,6 +3056,23 @@ definitions:
         items:
           type: string
         type: array
+      requested_personas:
+        example:
+        - analyst
+        items:
+          type: string
+        type: array
+      requested_scope:
+        example: persona
+        type: string
+      review_requested:
+        description: |-
+          Promotion request: an owner asks to move a personal prompt into a shared
+          scope. ReviewRequested marks the prompt as pending in the admin queue;
+          RequestedScope/RequestedPersonas record the target. Cleared on approve or
+          reject (see ApplyPromotionRequest / ApprovePromotion).
+        example: false
+        type: boolean
       scope:
         example: persona
         type: string
@@ -6808,6 +6837,76 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Update prompt
+      tags:
+      - Prompts
+  /admin/prompts/{id}/approve:
+    post:
+      description: Approves a personal prompt's pending promotion request, moving
+        it to the requested persona/global scope and marking it approved.
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/prompt.Prompt'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Approve prompt promotion
+      tags:
+      - Prompts
+  /admin/prompts/{id}/reject:
+    post:
+      description: Clears a personal prompt's pending promotion request, leaving it
+        personal.
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/prompt.Prompt'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Reject prompt promotion
       tags:
       - Prompts
   /admin/system/info:

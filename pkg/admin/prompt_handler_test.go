@@ -41,11 +41,13 @@ func (m *mockPromptStore) Create(_ context.Context, p *prompt.Prompt) error {
 }
 
 func (m *mockPromptStore) Get(_ context.Context, name string) (*prompt.Prompt, error) {
-	p, ok := m.prompts[name]
-	if !ok {
-		return nil, nil //nolint:nilnil // Store interface contract: nil, nil means not found
+	// Mirror the real store: Get resolves only shared (non-personal) prompts.
+	for _, p := range m.prompts {
+		if p.Name == name && p.Scope != prompt.ScopePersonal {
+			return p, nil
+		}
 	}
-	return p, nil
+	return nil, nil //nolint:nilnil // Store interface contract: nil, nil means not found
 }
 
 func (m *mockPromptStore) GetPersonal(_ context.Context, ownerEmail, name string) (*prompt.Prompt, error) {
@@ -60,7 +62,10 @@ func (m *mockPromptStore) GetPersonal(_ context.Context, ownerEmail, name string
 func (m *mockPromptStore) GetByID(_ context.Context, id string) (*prompt.Prompt, error) {
 	for _, p := range m.prompts {
 		if p.ID == id {
-			return p, nil
+			// Return a copy, like a real store: a handler mutating the returned
+			// prompt must not change stored state until it calls Update.
+			cp := *p
+			return &cp, nil
 		}
 	}
 	return nil, nil //nolint:nilnil // Store interface contract: nil, nil means not found
@@ -512,3 +517,117 @@ func (m *mockPromptInfoProvider) AllPromptInfos() []registry.PromptInfo {
 }
 
 var _ PromptInfoProvider = (*mockPromptInfoProvider)(nil)
+
+func TestApprovePromotion_Success(t *testing.T) {
+	h, store, registrar := newTestPromptHandler()
+	store.prompts["report"] = &prompt.Prompt{
+		ID: "uuid-1", Name: "report", Scope: prompt.ScopePersonal, Status: prompt.StatusDraft,
+		OwnerEmail: "u@x", Enabled: true,
+		ReviewRequested: true, RequestedScope: prompt.ScopePersona, RequestedPersonas: []string{"analyst"},
+	}
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/prompts/uuid-1/approve", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	got := store.prompts["report"]
+	assert.Equal(t, prompt.ScopePersona, got.Scope)
+	assert.Equal(t, []string{"analyst"}, got.Personas)
+	assert.Equal(t, prompt.StatusApproved, got.Status)
+	assert.False(t, got.ReviewRequested)
+	assert.Empty(t, got.RequestedScope)
+	assert.Contains(t, registrar.registered, "report")
+}
+
+func TestApprovePromotion_NoPendingRequest(t *testing.T) {
+	h, store, _ := newTestPromptHandler()
+	store.prompts["report"] = &prompt.Prompt{ID: "uuid-1", Name: "report", Scope: prompt.ScopePersonal}
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/prompts/uuid-1/approve", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestApprovePromotion_NameCollision(t *testing.T) {
+	h, store, _ := newTestPromptHandler()
+	// A shared prompt already owns the name in the global namespace.
+	store.prompts["report"] = &prompt.Prompt{ID: "shared-1", Name: "report", Scope: prompt.ScopeGlobal}
+	store.prompts["personal:report"] = &prompt.Prompt{
+		ID: "uuid-1", Name: "report", Scope: prompt.ScopePersonal, Enabled: true,
+		ReviewRequested: true, RequestedScope: prompt.ScopeGlobal,
+	}
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/prompts/uuid-1/approve", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+}
+
+func TestRejectPromotion(t *testing.T) {
+	h, store, _ := newTestPromptHandler()
+	store.prompts["report"] = &prompt.Prompt{
+		ID: "uuid-1", Name: "report", Scope: prompt.ScopePersonal,
+		ReviewRequested: true, RequestedScope: prompt.ScopePersona, RequestedPersonas: []string{"analyst"},
+	}
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/prompts/uuid-1/reject", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	got := store.prompts["report"]
+	assert.False(t, got.ReviewRequested)
+	assert.Equal(t, prompt.ScopePersonal, got.Scope)
+}
+
+func TestRejectPromotion_NoPendingRequest(t *testing.T) {
+	h, store, _ := newTestPromptHandler()
+	store.prompts["report"] = &prompt.Prompt{ID: "uuid-1", Name: "report", Scope: prompt.ScopePersonal}
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/prompts/uuid-1/reject", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// A direct admin scope change obsoletes any pending promotion request.
+func TestUpdatePrompt_DirectScopeChangeClearsRequest(t *testing.T) {
+	h, store, _ := newTestPromptHandler()
+	store.prompts["report"] = &prompt.Prompt{
+		ID: "uuid-1", Name: "report", Scope: prompt.ScopePersonal, OwnerEmail: "u@x", Enabled: true,
+		ReviewRequested: true, RequestedScope: prompt.ScopePersona, RequestedPersonas: []string{"analyst"},
+	}
+
+	newScope := prompt.ScopeGlobal
+	body, _ := json.Marshal(adminPromptUpdateRequest{Scope: &newScope})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/prompts/uuid-1", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	got := store.prompts["report"]
+	assert.Equal(t, prompt.ScopeGlobal, got.Scope)
+	assert.False(t, got.ReviewRequested, "stale promotion request cleared on direct scope change")
+}
+
+// A direct admin promotion into the shared namespace is blocked on a name clash.
+func TestUpdatePrompt_DirectScopeChangeCollision(t *testing.T) {
+	h, store, _ := newTestPromptHandler()
+	store.prompts["report"] = &prompt.Prompt{ID: "shared-1", Name: "report", Scope: prompt.ScopeGlobal}
+	store.prompts["personal:report"] = &prompt.Prompt{
+		ID: "uuid-1", Name: "report", Scope: prompt.ScopePersonal, OwnerEmail: "u@x",
+	}
+
+	newScope := prompt.ScopeGlobal
+	body, _ := json.Marshal(adminPromptUpdateRequest{Scope: &newScope})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/prompts/uuid-1", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+}

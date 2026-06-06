@@ -473,6 +473,8 @@ export interface Prompt {
   deprecated_at?: string;
   superseded_by?: string;
   review_requested?: boolean;
+  requested_scope?: string;
+  requested_personas?: string[];
   owner_email: string;
   source: string;
   enabled: boolean;
