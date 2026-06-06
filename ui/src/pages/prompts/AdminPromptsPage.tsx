@@ -15,7 +15,7 @@ import {
   ChevronDown,
   ChevronUp,
   ChevronsUpDown,
-  Edit,
+  Pencil,
   Copy,
 } from "lucide-react";
 import {
@@ -448,13 +448,22 @@ export function AdminPromptsPage({ onNavigate: _onNavigate }: Props) {
           <p className="text-sm font-medium">No prompts found</p>
         </div>
       ) : (
-        <div className="rounded-lg border bg-card overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="rounded-lg border bg-card overflow-x-auto">
+          <table className="w-full text-sm table-fixed">
+            <colgroup>
+              <col className="w-10" />
+              <col className="w-[22%]" />
+              <col className="w-[110px]" />
+              <col />
+              <col className="w-[160px]" />
+              <col className="w-[90px]" />
+              <col className="w-[180px]" />
+            </colgroup>
             <thead className="border-b bg-muted/50">
               <tr>
                 <th className="w-8 px-2" />
                 {columns.map(renderSortHeader)}
-                <th className="px-4 py-2 text-right font-medium text-muted-foreground w-[80px]">Actions</th>
+                <th className="px-4 py-2 text-right font-medium text-muted-foreground">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -480,18 +489,38 @@ export function AdminPromptsPage({ onNavigate: _onNavigate }: Props) {
                           {p.enabled ? "Active" : "Disabled"}
                         </span>
                       </td>
-                      <td className="px-4 py-2 text-right">
+                      <td className="px-4 py-2">
                         {p.scope === "system" ? (
-                          <span className="text-xs text-muted-foreground">read-only</span>
+                          <span className="text-xs text-muted-foreground">Read-only</span>
                         ) : deleteConfirm === p.id ? (
-                          <div className="inline-flex gap-1" onClick={(e) => e.stopPropagation()}>
-                            <button onClick={() => handleDelete(p.id)} className="text-xs text-red-500 hover:text-red-400">Confirm</button>
-                            <button onClick={() => setDeleteConfirm(null)} className="text-xs text-muted-foreground hover:text-foreground">Cancel</button>
+                          <div className="inline-flex gap-2 justify-end" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              onClick={() => handleDelete(p.id)}
+                              className="inline-flex items-center gap-1.5 rounded-md bg-destructive px-2.5 py-1 text-xs font-medium text-destructive-foreground hover:bg-destructive/90"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" /> Delete
+                            </button>
+                            <button
+                              onClick={() => setDeleteConfirm(null)}
+                              className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent"
+                            >
+                              Cancel
+                            </button>
                           </div>
                         ) : (
-                          <div className="inline-flex gap-1" onClick={(e) => e.stopPropagation()}>
-                            <button onClick={() => openEdit(p)} className="text-muted-foreground hover:text-foreground" title="Edit"><Edit className="h-3.5 w-3.5" /></button>
-                            <button onClick={() => setDeleteConfirm(p.id)} className="text-muted-foreground hover:text-red-500" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>
+                          <div className="inline-flex gap-2 justify-end" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              onClick={() => openEdit(p)}
+                              className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent"
+                            >
+                              <Pencil className="h-3.5 w-3.5" /> Edit
+                            </button>
+                            <button
+                              onClick={() => setDeleteConfirm(p.id)}
+                              className="inline-flex items-center gap-1.5 rounded-md border border-destructive/30 px-2.5 py-1 text-xs font-medium text-destructive hover:bg-destructive/10"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" /> Delete
+                            </button>
                           </div>
                         )}
                       </td>
