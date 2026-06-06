@@ -466,6 +466,13 @@ export interface Prompt {
   category: string;
   scope: "global" | "persona" | "personal" | "system";
   personas: string[];
+  tags: string[];
+  status: "draft" | "approved" | "deprecated" | "superseded";
+  approved_by?: string;
+  approved_at?: string;
+  deprecated_at?: string;
+  superseded_by?: string;
+  review_requested?: boolean;
   owner_email: string;
   source: string;
   enabled: boolean;

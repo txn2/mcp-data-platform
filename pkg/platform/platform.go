@@ -239,14 +239,6 @@ type Platform struct {
 	promptInfosMu sync.RWMutex
 	promptInfos   []registry.PromptInfo
 
-	// promptScopes records the scope/owner/personas of each database-backed
-	// prompt by name, so the prompts/list visibility middleware can hide
-	// prompts the caller is not entitled to see. Built-in prompts are absent
-	// from this map and are always visible. Maintained in registerDatabasePrompt
-	// and UnregisterRuntimePrompt.
-	promptScopesMu sync.RWMutex
-	promptScopes   map[string]promptScope
-
 	// MCP Apps
 	mcpAppsRegistry *mcpapps.Registry
 
@@ -2529,8 +2521,8 @@ func (p *Platform) addToolVisibilityMiddleware() {
 func (p *Platform) addPromptVisibilityMiddleware() {
 	cfg := middleware.PromptVisibilityConfig{
 		Authenticator: p.authenticator,
-		AdminPersona:  p.config.Admin.Persona,
-		IsVisible:     p.isPromptVisible,
+		ListVisible:   p.listVisiblePrompts,
+		GetByName:     p.getDynamicPrompt,
 	}
 	if p.personaRegistry != nil {
 		cfg.PersonasForRoles = personasForRolesFunc(p.personaRegistry)

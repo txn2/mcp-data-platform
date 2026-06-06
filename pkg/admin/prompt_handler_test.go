@@ -48,6 +48,15 @@ func (m *mockPromptStore) Get(_ context.Context, name string) (*prompt.Prompt, e
 	return p, nil
 }
 
+func (m *mockPromptStore) GetPersonal(_ context.Context, ownerEmail, name string) (*prompt.Prompt, error) {
+	for _, p := range m.prompts {
+		if p.Scope == prompt.ScopePersonal && p.OwnerEmail == ownerEmail && p.Name == name {
+			return p, nil
+		}
+	}
+	return nil, nil //nolint:nilnil // Store interface contract: nil, nil means not found
+}
+
 func (m *mockPromptStore) GetByID(_ context.Context, id string) (*prompt.Prompt, error) {
 	for _, p := range m.prompts {
 		if p.ID == id {
@@ -315,6 +324,56 @@ func TestUpdatePrompt_RenameConflict(t *testing.T) {
 	update := adminPromptUpdateRequest{Name: &newName}
 	bodyBytes, _ := json.Marshal(update)
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/prompts/uuid-a", bytes.NewReader(bodyBytes))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+}
+
+// The admin update path drives the lifecycle state machine: draft -> approved
+// stamps the approver, and an invalid transition is rejected with 400.
+func TestUpdatePrompt_StatusTransition(t *testing.T) {
+	h, store, _ := newTestPromptHandler()
+	store.prompts["p"] = &prompt.Prompt{
+		ID: "uuid-1", Name: "p", Scope: prompt.ScopeGlobal, Status: prompt.StatusDraft, Enabled: true,
+	}
+
+	approved := prompt.StatusApproved
+	update := adminPromptUpdateRequest{Status: &approved}
+	bodyBytes, _ := json.Marshal(update)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/prompts/uuid-1", bytes.NewReader(bodyBytes))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, prompt.StatusApproved, store.prompts["p"].Status)
+
+	// draft is no longer reachable from approved; the state machine rejects it.
+	draft := prompt.StatusDraft
+	update = adminPromptUpdateRequest{Status: &draft}
+	bodyBytes, _ = json.Marshal(update)
+	req = httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/prompts/uuid-1", bytes.NewReader(bodyBytes))
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// Renaming a personal prompt into a name another personal prompt of the same
+// owner already uses must surface a clean 409, not an opaque 500. The collision
+// check runs against the per-owner personal namespace (GetPersonal), since
+// Store.Get excludes personal scope.
+func TestUpdatePrompt_PersonalRenameConflict(t *testing.T) {
+	h, store, _ := newTestPromptHandler()
+	store.prompts["report"] = &prompt.Prompt{
+		ID: "uuid-a", Name: "report", Scope: prompt.ScopePersonal, OwnerEmail: "alice@x", Content: "a",
+	}
+	store.prompts["summary"] = &prompt.Prompt{
+		ID: "uuid-b", Name: "summary", Scope: prompt.ScopePersonal, OwnerEmail: "alice@x", Content: "b",
+	}
+
+	newName := "report"
+	update := adminPromptUpdateRequest{Name: &newName}
+	bodyBytes, _ := json.Marshal(update)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/prompts/uuid-b", bytes.NewReader(bodyBytes))
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 

@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { extractPromptArguments } from "./promptArguments";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { PromptNameField } from "./PromptNameField";
+import { TagsField } from "./TagsField";
 import { validatePromptName, isPromptNameConflict } from "./promptName";
 
 interface Props {
@@ -61,6 +62,7 @@ interface FormData {
   description: string;
   content: string;
   category: string;
+  tags: string[];
   arguments: Prompt["arguments"];
 }
 
@@ -70,6 +72,7 @@ const emptyForm: FormData = {
   description: "",
   content: "",
   category: "",
+  tags: [],
   arguments: [],
 };
 
@@ -328,6 +331,7 @@ export function MyPromptsPage({ onNavigate }: Props) {
               <label className="text-xs text-muted-foreground">Category</label>
               <input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none" placeholder="workflow" />
             </div>
+            <TagsField tags={form.tags} onChange={(tags) => setForm({ ...form, tags })} />
           </div>
           {mutationError && (
             <div className="rounded-md bg-red-500/10 border border-red-500/20 px-3 py-2 text-xs text-red-400">{mutationError}</div>

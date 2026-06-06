@@ -617,6 +617,7 @@ export function useCreateMyPrompt() {
       content: string;
       arguments?: { name: string; description: string; required: boolean }[];
       category?: string;
+      tags?: string[];
     }) =>
       apiFetch<import("@/api/admin/types").Prompt>("/prompts", {
         method: "POST",
@@ -638,6 +639,7 @@ export function useUpdateMyPrompt() {
       description?: string;
       content?: string;
       category?: string;
+      tags?: string[];
       arguments?: { name: string; description: string; required: boolean }[];
     }) =>
       apiFetch<import("@/api/admin/types").Prompt>(`/prompts/${id}`, {

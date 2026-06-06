@@ -13,6 +13,13 @@ import (
 // maxNameLength is the maximum allowed length for a prompt name.
 const maxNameLength = 128
 
+// maxTags and maxTagLength bound a prompt's tag list, mirroring the limits
+// applied to assets and managed resources so tag input is uniformly bounded.
+const (
+	maxTags      = 20
+	maxTagLength = 100
+)
+
 // validNamePattern matches lowercase letters, digits, hyphens, and underscores.
 var validNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
@@ -33,6 +40,19 @@ func ValidateName(name string) error {
 	}
 	if !validNamePattern.MatchString(name) {
 		return fmt.Errorf("name must contain only lowercase letters, digits, hyphens, and underscores")
+	}
+	return nil
+}
+
+// ValidateTags checks that a prompt's tag list is within bounds.
+func ValidateTags(tags []string) error {
+	if len(tags) > maxTags {
+		return fmt.Errorf("too many tags: %d (max %d)", len(tags), maxTags)
+	}
+	for _, t := range tags {
+		if len(t) > maxTagLength {
+			return fmt.Errorf("tag exceeds %d characters", maxTagLength)
+		}
 	}
 	return nil
 }
@@ -59,6 +79,82 @@ const (
 	SourceSystem   = "system"
 )
 
+// Status constants define the prompt promotion lifecycle. A prompt starts as
+// draft, becomes approved (on admin promotion to persona/global scope), may
+// later be deprecated, and is finally superseded by a replacement.
+const (
+	StatusDraft      = "draft"
+	StatusApproved   = "approved"
+	StatusDeprecated = "deprecated"
+	StatusSuperseded = "superseded"
+)
+
+// validStatuses is the set of allowed status values.
+var validStatuses = map[string]bool{
+	StatusDraft:      true,
+	StatusApproved:   true,
+	StatusDeprecated: true,
+	StatusSuperseded: true,
+}
+
+// validStatusTransitions defines the allowed status transitions. It follows the
+// same validated-transition-graph pattern as the knowledge-insight lifecycle,
+// but with prompt-specific states.
+var validStatusTransitions = map[string]map[string]bool{
+	StatusDraft:      {StatusApproved: true, StatusSuperseded: true},
+	StatusApproved:   {StatusDeprecated: true, StatusSuperseded: true},
+	StatusDeprecated: {StatusSuperseded: true},
+}
+
+// ValidateStatus checks that a status value is recognized.
+func ValidateStatus(status string) error {
+	if !validStatuses[status] {
+		return fmt.Errorf("invalid status %q: must be draft, approved, deprecated, or superseded", status)
+	}
+	return nil
+}
+
+// ValidateStatusTransition checks whether a status transition is allowed.
+func ValidateStatusTransition(from, to string) error {
+	allowed, ok := validStatusTransitions[from]
+	if !ok || !allowed[to] {
+		return fmt.Errorf("invalid status transition from %q to %q", from, to)
+	}
+	return nil
+}
+
+// ApplyStatusTransition validates and applies a status change to the prompt,
+// stamping the lifecycle metadata. A no-op when newStatus is empty or unchanged.
+// Approval (-> approved) requires isAdmin; supersededBy is recorded when moving
+// to superseded. now is passed in for testability. Returns an error on an
+// invalid or unauthorized transition. Shared by the manage_prompt tool and the
+// admin API so both enforce the lifecycle identically.
+func (p *Prompt) ApplyStatusTransition(newStatus, supersededBy, actorEmail string, isAdmin bool, now time.Time) error {
+	if newStatus == "" || newStatus == p.Status {
+		return nil
+	}
+	if err := ValidateStatus(newStatus); err != nil {
+		return err
+	}
+	if err := ValidateStatusTransition(p.Status, newStatus); err != nil {
+		return err
+	}
+	if newStatus == StatusApproved && !isAdmin {
+		return fmt.Errorf("only admins can approve a prompt")
+	}
+	switch newStatus {
+	case StatusApproved:
+		p.ApprovedBy = actorEmail
+		p.ApprovedAt = &now
+	case StatusDeprecated:
+		p.DeprecatedAt = &now
+	case StatusSuperseded:
+		p.SupersededBy = supersededBy
+	}
+	p.Status = newStatus
+	return nil
+}
+
 // Argument describes a prompt argument.
 type Argument struct {
 	Name        string `json:"name" example:"date"`
@@ -80,8 +176,17 @@ type Prompt struct {
 	OwnerEmail  string     `json:"owner_email" example:"admin@example.com"`
 	Source      string     `json:"source" example:"database"`
 	Enabled     bool       `json:"enabled" example:"true"`
-	CreatedAt   time.Time  `json:"created_at" example:"2026-01-15T14:30:00Z"`
-	UpdatedAt   time.Time  `json:"updated_at" example:"2026-01-15T14:30:00Z"`
+	Tags        []string   `json:"tags" example:"sales,reporting"`
+
+	// Promotion lifecycle.
+	Status       string     `json:"status" example:"approved"`
+	ApprovedBy   string     `json:"approved_by,omitempty" example:"admin@example.com"`
+	ApprovedAt   *time.Time `json:"approved_at,omitempty"`
+	DeprecatedAt *time.Time `json:"deprecated_at,omitempty"`
+	SupersededBy string     `json:"superseded_by,omitempty" example:"daily-sales-report-v2"`
+
+	CreatedAt time.Time `json:"created_at" example:"2026-01-15T14:30:00Z"`
+	UpdatedAt time.Time `json:"updated_at" example:"2026-01-15T14:30:00Z"`
 }
 
 // ListFilter controls which prompts are returned by List.
@@ -98,8 +203,15 @@ type Store interface {
 	// Create persists a new prompt.
 	Create(ctx context.Context, p *Prompt) error
 
-	// Get retrieves a prompt by name. Returns nil, nil if not found.
+	// Get retrieves a non-personal (global or persona) prompt by name, which is
+	// globally unique. Returns nil, nil if not found. Personal prompts are
+	// per-owner and must be fetched with GetPersonal.
 	Get(ctx context.Context, name string) (*Prompt, error)
+
+	// GetPersonal retrieves a personal prompt by its owner and name. Personal
+	// names are unique only within an owner, so the owner is required to
+	// disambiguate. Returns nil, nil if not found.
+	GetPersonal(ctx context.Context, ownerEmail, name string) (*Prompt, error)
 
 	// GetByID retrieves a prompt by ID. Returns nil, nil if not found.
 	GetByID(ctx context.Context, id string) (*Prompt, error)

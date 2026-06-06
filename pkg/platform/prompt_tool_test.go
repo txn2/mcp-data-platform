@@ -46,6 +46,18 @@ func (m *mockPlatformPromptStore) Get(_ context.Context, name string) (*prompt.P
 	return p, nil //nolint:nilnil // interface contract
 }
 
+func (m *mockPlatformPromptStore) GetPersonal(_ context.Context, ownerEmail, name string) (*prompt.Prompt, error) {
+	if m.getErr != nil {
+		return nil, m.getErr
+	}
+	for _, p := range m.prompts {
+		if p.Scope == prompt.ScopePersonal && p.OwnerEmail == ownerEmail && p.Name == name {
+			return p, nil
+		}
+	}
+	return nil, nil //nolint:nilnil // interface contract
+}
+
 func (m *mockPlatformPromptStore) GetByID(_ context.Context, id string) (*prompt.Prompt, error) {
 	for _, p := range m.prompts {
 		if p.ID == id {
@@ -72,6 +84,9 @@ func (m *mockPlatformPromptStore) Delete(_ context.Context, name string) error {
 }
 
 func (m *mockPlatformPromptStore) DeleteByID(_ context.Context, id string) error {
+	if m.deleteErr != nil {
+		return m.deleteErr
+	}
 	for name, p := range m.prompts {
 		if p.ID == id {
 			delete(m.prompts, name)
@@ -569,4 +584,26 @@ func TestIsBuiltinDisabled(t *testing.T) {
 			assert.Equal(t, tt.expected, p.isBuiltinDisabled(tt.prompt))
 		})
 	}
+}
+
+// resolveManagedPrompt prefers the caller's personal prompt by default, but an
+// explicit shared scope targets the global/persona prompt of the same name.
+func TestResolveManagedPrompt_ScopePreference(t *testing.T) {
+	p, store := newTestPlatformWithPromptStore()
+	store.prompts["report"] = &prompt.Prompt{ID: "g", Name: "report", Scope: prompt.ScopeGlobal, Content: "global"}
+	store.prompts["personal:report"] = &prompt.Prompt{
+		ID: "p", Name: "report", Scope: prompt.ScopePersonal, OwnerEmail: "admin@x", Content: "personal",
+	}
+
+	ctx := context.Background()
+
+	got, err := p.resolveManagedPrompt(ctx, "report", "admin@x", "")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "p", got.ID, "default resolution prefers the caller's personal prompt")
+
+	got, err = p.resolveManagedPrompt(ctx, "report", "admin@x", prompt.ScopeGlobal)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, "g", got.ID, "explicit global scope targets the shared prompt")
 }

@@ -9578,6 +9578,16 @@ const docTemplate = `{
                 "source": {
                     "type": "string",
                     "example": "database"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "sales",
+                        "reporting"
+                    ]
                 }
             }
         },
@@ -9637,6 +9647,18 @@ const docTemplate = `{
                 },
                 "source": {
                     "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "superseded_by": {
+                    "type": "string"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -13302,6 +13324,16 @@ const docTemplate = `{
                 "name": {
                     "type": "string",
                     "example": "my-analysis-prompt"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "analysis",
+                        "reporting"
+                    ]
                 }
             }
         },
@@ -13427,6 +13459,13 @@ const docTemplate = `{
         "prompt.Prompt": {
             "type": "object",
             "properties": {
+                "approved_at": {
+                    "type": "string"
+                },
+                "approved_by": {
+                    "type": "string",
+                    "example": "admin@example.com"
+                },
                 "arguments": {
                     "type": "array",
                     "items": {
@@ -13444,6 +13483,9 @@ const docTemplate = `{
                 "created_at": {
                     "type": "string",
                     "example": "2026-01-15T14:30:00Z"
+                },
+                "deprecated_at": {
+                    "type": "string"
                 },
                 "description": {
                     "type": "string",
@@ -13486,6 +13528,25 @@ const docTemplate = `{
                 "source": {
                     "type": "string",
                     "example": "database"
+                },
+                "status": {
+                    "description": "Promotion lifecycle.",
+                    "type": "string",
+                    "example": "approved"
+                },
+                "superseded_by": {
+                    "type": "string",
+                    "example": "daily-sales-report-v2"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "sales",
+                        "reporting"
+                    ]
                 },
                 "updated_at": {
                     "type": "string",

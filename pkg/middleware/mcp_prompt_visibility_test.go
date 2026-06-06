@@ -8,7 +8,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-var errTest = errors.New("upstream failure")
+var errPromptUpstream = errors.New("upstream failure")
 
 func promptListResult(names ...string) *mcp.ListPromptsResult {
 	prompts := make([]*mcp.Prompt, len(names))
@@ -26,20 +26,26 @@ func promptResultNames(r *mcp.ListPromptsResult) []string {
 	return out
 }
 
-func TestMCPPromptVisibilityMiddleware_FiltersList(t *testing.T) {
-	base := func(_ context.Context, method string, _ mcp.Request) (mcp.Result, error) {
-		if method == methodPromptsList {
-			return promptListResult("global", "secret", "mine"), nil
-		}
-		return &mcp.CallToolResult{}, nil
+func TestMCPPromptVisibilityMiddleware_InjectsDatabasePrompts(t *testing.T) {
+	// The static list holds only built-ins; the caller's database prompts are
+	// appended under their scope-prefixed names, and ListVisible receives the
+	// resolved caller identity (email + personas).
+	base := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		return promptListResult("builtin-overview"), nil
 	}
+	var gotEmail string
+	var gotPersonas []string
 	cfg := PromptVisibilityConfig{
-		IsVisible: func(_ string, _ []string, _ bool, name string) bool {
-			return name != "secret"
+		PersonasForRoles: func(_ []string) []string { return []string{"analyst"} },
+		Authenticator: &mockAuthenticator{authenticateFunc: func(_ context.Context) (*UserInfo, error) {
+			return &UserInfo{Email: "sarah@example.com", Roles: []string{"r-analyst"}}, nil
+		}},
+		ListVisible: func(_ context.Context, email string, personas []string) []*mcp.Prompt {
+			gotEmail, gotPersonas = email, personas
+			return []*mcp.Prompt{{Name: "global-report"}, {Name: "personal-report"}, {Name: "analyst-runbook"}}
 		},
 	}
 	handler := MCPPromptVisibilityMiddleware(cfg)(base)
-
 	got, err := handler(context.Background(), methodPromptsList, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -48,31 +54,22 @@ func TestMCPPromptVisibilityMiddleware_FiltersList(t *testing.T) {
 	if !ok {
 		t.Fatalf("want *mcp.ListPromptsResult, got %T", got)
 	}
+	want := []string{"builtin-overview", "global-report", "personal-report", "analyst-runbook"}
 	names := promptResultNames(lr)
-	if len(names) != 2 || names[0] != "global" || names[1] != "mine" {
-		t.Errorf("expected [global mine], got %v", names)
+	if len(names) != len(want) {
+		t.Fatalf("want %v, got %v", want, names)
+	}
+	for i := range want {
+		if names[i] != want[i] {
+			t.Errorf("position %d: want %q, got %q", i, want[i], names[i])
+		}
+	}
+	if gotEmail != "sarah@example.com" || len(gotPersonas) != 1 || gotPersonas[0] != "analyst" {
+		t.Errorf("ListVisible got email=%q personas=%v", gotEmail, gotPersonas)
 	}
 }
 
-func TestMCPPromptVisibilityMiddleware_PassThroughNonList(t *testing.T) {
-	base := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
-		return &mcp.CallToolResult{}, nil
-	}
-	called := false
-	cfg := PromptVisibilityConfig{IsVisible: func(_ string, _ []string, _ bool, _ string) bool {
-		called = true
-		return true
-	}}
-	handler := MCPPromptVisibilityMiddleware(cfg)(base)
-	if _, err := handler(context.Background(), "tools/call", nil); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if called {
-		t.Error("IsVisible must not be consulted for non-prompts/list methods")
-	}
-}
-
-func TestMCPPromptVisibilityMiddleware_NilIsVisibleNoOp(t *testing.T) {
+func TestMCPPromptVisibilityMiddleware_NilListVisibleIsNoOp(t *testing.T) {
 	base := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		return promptListResult("a", "b"), nil
 	}
@@ -83,104 +80,83 @@ func TestMCPPromptVisibilityMiddleware_NilIsVisibleNoOp(t *testing.T) {
 		t.Fatalf("want *mcp.ListPromptsResult, got %T", got)
 	}
 	if len(lr.Prompts) != 2 {
-		t.Errorf("nil IsVisible must not filter; got %d", len(lr.Prompts))
+		t.Errorf("nil ListVisible must not change the list; got %d", len(lr.Prompts))
 	}
 }
 
-func TestMCPPromptVisibilityMiddleware_ResolvesCallerIdentity(t *testing.T) {
+func TestMCPPromptVisibilityMiddleware_ListErrorPropagates(t *testing.T) {
 	base := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
-		return promptListResult("mine"), nil
+		return nil, errPromptUpstream
 	}
-	var gotEmail string
-	var gotPersonas []string
+	cfg := PromptVisibilityConfig{ListVisible: func(_ context.Context, _ string, _ []string) []*mcp.Prompt { return nil }}
+	handler := MCPPromptVisibilityMiddleware(cfg)(base)
+	if _, err := handler(context.Background(), methodPromptsList, nil); !errors.Is(err, errPromptUpstream) {
+		t.Errorf("expected upstream error to propagate, got %v", err)
+	}
+}
+
+func TestMCPPromptVisibilityMiddleware_PassThroughNonPromptMethods(t *testing.T) {
+	called := false
+	base := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		return &mcp.CallToolResult{}, nil
+	}
 	cfg := PromptVisibilityConfig{
-		Authenticator: &mockAuthenticator{
-			authenticateFunc: func(_ context.Context) (*UserInfo, error) {
-				return &UserInfo{UserID: "u", Email: "sarah@example.com", Roles: []string{"r-analyst"}}, nil
-			},
-		},
-		PersonasForRoles: func(roles []string) []string {
-			if len(roles) > 0 && roles[0] == "r-analyst" {
-				return []string{"analyst"}
-			}
-			return nil
-		},
-		IsVisible: func(email string, personas []string, _ bool, _ string) bool {
-			gotEmail = email
-			gotPersonas = personas
-			return true
+		ListVisible: func(_ context.Context, _ string, _ []string) []*mcp.Prompt { called = true; return nil },
+		GetByName: func(_ context.Context, _ string, _ []string, _ string, _ map[string]string) (*mcp.GetPromptResult, bool) {
+			called = true
+			return nil, false
 		},
 	}
 	handler := MCPPromptVisibilityMiddleware(cfg)(base)
-	if _, err := handler(context.Background(), methodPromptsList, nil); err != nil {
+	if _, err := handler(context.Background(), "tools/call", nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if gotEmail != "sarah@example.com" {
-		t.Errorf("email = %q; want sarah@example.com", gotEmail)
-	}
-	if len(gotPersonas) != 1 || gotPersonas[0] != "analyst" {
-		t.Errorf("personas = %v; want [analyst]", gotPersonas)
+	if called {
+		t.Error("prompt callbacks must not run for non-prompt methods")
 	}
 }
 
-func TestMCPPromptVisibilityMiddleware_AllowsVisibleGet(t *testing.T) {
+func TestMCPPromptVisibilityMiddleware_ServesDatabaseGet(t *testing.T) {
 	nextCalled := false
 	base := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
 		nextCalled = true
 		return &mcp.GetPromptResult{}, nil
 	}
 	cfg := PromptVisibilityConfig{
-		IsVisible: func(_ string, _ []string, _ bool, name string) bool { return name == "ok" },
+		GetByName: func(_ context.Context, _ string, _ []string, name string, _ map[string]string) (*mcp.GetPromptResult, bool) {
+			if name == "personal-report" {
+				return &mcp.GetPromptResult{}, true
+			}
+			return nil, false
+		},
 	}
 	handler := MCPPromptVisibilityMiddleware(cfg)(base)
-	req := &mcp.ServerRequest[*mcp.GetPromptParams]{Params: &mcp.GetPromptParams{Name: "ok"}}
-
-	_, err := handler(context.Background(), methodPromptsGet, req)
-	if err != nil {
-		t.Fatalf("visible prompt get should not error: %v", err)
-	}
-	if !nextCalled {
-		t.Error("next handler must run for a visible prompt")
-	}
-}
-
-func TestMCPPromptVisibilityMiddleware_DeniesHiddenGet(t *testing.T) {
-	nextCalled := false
-	base := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
-		nextCalled = true
-		return &mcp.GetPromptResult{}, nil
-	}
-	cfg := PromptVisibilityConfig{
-		IsVisible: func(_ string, _ []string, _ bool, name string) bool { return name != "secret" },
-	}
-	handler := MCPPromptVisibilityMiddleware(cfg)(base)
-	req := &mcp.ServerRequest[*mcp.GetPromptParams]{Params: &mcp.GetPromptParams{Name: "secret"}}
-
-	_, err := handler(context.Background(), methodPromptsGet, req)
-	if err == nil {
-		t.Fatal("hidden prompt get must be denied")
+	req := &mcp.ServerRequest[*mcp.GetPromptParams]{Params: &mcp.GetPromptParams{Name: "personal-report"}}
+	if _, err := handler(context.Background(), methodPromptsGet, req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 	if nextCalled {
-		t.Error("next handler must NOT run for a hidden prompt (no content fetched)")
+		t.Error("a database prompt should be served by the middleware, not passed to next")
 	}
 }
 
-func TestMCPPromptVisibilityMiddleware_GetEdgeCasesAllow(t *testing.T) {
+func TestMCPPromptVisibilityMiddleware_GetFallsThroughForBuiltins(t *testing.T) {
 	cases := []struct {
 		name string
 		cfg  PromptVisibilityConfig
 		req  mcp.Request
 	}{
-		{
-			name: "nil IsVisible is a no-op",
-			cfg:  PromptVisibilityConfig{},
-			req:  &mcp.ServerRequest[*mcp.GetPromptParams]{Params: &mcp.GetPromptParams{Name: "x"}},
-		},
-		{
-			name: "missing name defers to the SDK",
-			cfg:  PromptVisibilityConfig{IsVisible: func(_ string, _ []string, _ bool, _ string) bool { return false }},
-			req:  &mcp.ServerRequest[*mcp.GetPromptParams]{Params: &mcp.GetPromptParams{Name: ""}},
-		},
+		{"unresolved database name", PromptVisibilityConfig{
+			GetByName: func(_ context.Context, _ string, _ []string, _ string, _ map[string]string) (*mcp.GetPromptResult, bool) {
+				return nil, false
+			},
+		}, &mcp.ServerRequest[*mcp.GetPromptParams]{Params: &mcp.GetPromptParams{Name: "platform-overview"}}},
+		{"nil GetByName", PromptVisibilityConfig{}, &mcp.ServerRequest[*mcp.GetPromptParams]{Params: &mcp.GetPromptParams{Name: "x"}}},
+		{"nil request", PromptVisibilityConfig{
+			GetByName: func(_ context.Context, _ string, _ []string, _ string, _ map[string]string) (*mcp.GetPromptResult, bool) {
+				return nil, false
+			},
+		}, nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -191,54 +167,27 @@ func TestMCPPromptVisibilityMiddleware_GetEdgeCasesAllow(t *testing.T) {
 			}
 			handler := MCPPromptVisibilityMiddleware(tc.cfg)(base)
 			if _, err := handler(context.Background(), methodPromptsGet, tc.req); err != nil {
-				t.Fatalf("expected allow, got error: %v", err)
+				t.Fatalf("unexpected error: %v", err)
 			}
 			if !nextCalled {
-				t.Error("next must run when the get is allowed")
+				t.Error("a name the middleware does not serve must fall through to the static registry")
 			}
 		})
 	}
 }
 
-func TestMCPPromptVisibilityMiddleware_GetNilRequestAllows(t *testing.T) {
-	nextCalled := false
-	base := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
-		nextCalled = true
-		return &mcp.GetPromptResult{}, nil
-	}
-	cfg := PromptVisibilityConfig{IsVisible: func(_ string, _ []string, _ bool, _ string) bool { return false }}
-	handler := MCPPromptVisibilityMiddleware(cfg)(base)
-	if _, err := handler(context.Background(), methodPromptsGet, nil); err != nil {
-		t.Fatalf("nil request should defer to the SDK, got error: %v", err)
-	}
-	if !nextCalled {
-		t.Error("next must run when the name cannot be determined")
-	}
-}
-
-func TestMCPPromptVisibilityMiddleware_ListErrorPropagates(t *testing.T) {
-	wantErr := errTest
-	base := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
-		return nil, wantErr
-	}
-	cfg := PromptVisibilityConfig{IsVisible: func(_ string, _ []string, _ bool, _ string) bool { return true }}
-	handler := MCPPromptVisibilityMiddleware(cfg)(base)
-	if _, err := handler(context.Background(), methodPromptsList, nil); !errors.Is(err, wantErr) {
-		t.Errorf("expected the upstream error to propagate, got %v", err)
-	}
-}
-
 func TestResolvePromptCaller_PersonaNameFallback(t *testing.T) {
-	// When PersonasForRoles is nil, a single PersonaName from an existing
+	// With no PersonasForRoles, a single PersonaName from an existing
 	// PlatformContext is used as the caller's persona set.
 	base := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
-		return promptListResult("p"), nil
+		return promptListResult(), nil
 	}
+	var gotEmail string
 	var gotPersonas []string
 	cfg := PromptVisibilityConfig{
-		IsVisible: func(_ string, personas []string, _ bool, _ string) bool {
-			gotPersonas = personas
-			return true
+		ListVisible: func(_ context.Context, email string, personas []string) []*mcp.Prompt {
+			gotEmail, gotPersonas = email, personas
+			return nil
 		},
 	}
 	ctx := WithPlatformContext(context.Background(), &PlatformContext{UserEmail: "x@example.com", PersonaName: "analyst"})
@@ -246,34 +195,24 @@ func TestResolvePromptCaller_PersonaNameFallback(t *testing.T) {
 	if _, err := handler(ctx, methodPromptsList, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(gotPersonas) != 1 || gotPersonas[0] != "analyst" {
-		t.Errorf("personas = %v; want [analyst]", gotPersonas)
+	if gotEmail != "x@example.com" || len(gotPersonas) != 1 || gotPersonas[0] != "analyst" {
+		t.Errorf("got email=%q personas=%v", gotEmail, gotPersonas)
 	}
 }
 
-func TestMCPPromptVisibilityMiddleware_NoAuthYieldsEmptyIdentity(t *testing.T) {
-	// No authenticator → nil PlatformContext → empty identity, so an
-	// IsVisible that hides non-global-on-empty-email drops the personal prompt.
+func TestResolvePromptCaller_NoAuthEmptyIdentity(t *testing.T) {
 	base := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
-		return promptListResult("mine"), nil
+		return promptListResult(), nil
 	}
 	gotEmail := "unset"
 	cfg := PromptVisibilityConfig{
-		IsVisible: func(email string, _ []string, _ bool, _ string) bool {
-			gotEmail = email
-			return email != ""
-		},
+		ListVisible: func(_ context.Context, email string, _ []string) []*mcp.Prompt { gotEmail = email; return nil },
 	}
 	handler := MCPPromptVisibilityMiddleware(cfg)(base)
-	got, _ := handler(context.Background(), methodPromptsList, nil)
-	lr, ok := got.(*mcp.ListPromptsResult)
-	if !ok {
-		t.Fatalf("want *mcp.ListPromptsResult, got %T", got)
+	if _, err := handler(context.Background(), methodPromptsList, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 	if gotEmail != "" {
-		t.Errorf("expected empty identity with no authenticator, got %q", gotEmail)
-	}
-	if len(lr.Prompts) != 0 {
-		t.Errorf("anonymous caller should see no personal prompts; got %d", len(lr.Prompts))
+		t.Errorf("no authenticator should yield empty identity, got %q", gotEmail)
 	}
 }

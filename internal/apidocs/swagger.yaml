@@ -136,6 +136,13 @@ definitions:
       source:
         example: database
         type: string
+      tags:
+        example:
+        - sales
+        - reporting
+        items:
+          type: string
+        type: array
     type: object
   admin.adminPromptListResponse:
     properties:
@@ -175,6 +182,14 @@ definitions:
         type: string
       source:
         type: string
+      status:
+        type: string
+      superseded_by:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
     type: object
   admin.adminUpdateAssetRequest:
     properties:
@@ -2894,6 +2909,13 @@ definitions:
       name:
         example: my-analysis-prompt
         type: string
+      tags:
+        example:
+        - analysis
+        - reporting
+        items:
+          type: string
+        type: array
     type: object
   portal.portalPromptListResponse:
     properties:
@@ -2977,6 +2999,11 @@ definitions:
     type: object
   prompt.Prompt:
     properties:
+      approved_at:
+        type: string
+      approved_by:
+        example: admin@example.com
+        type: string
       arguments:
         items:
           $ref: '#/definitions/prompt.Argument'
@@ -2989,6 +3016,8 @@ definitions:
         type: string
       created_at:
         example: "2026-01-15T14:30:00Z"
+        type: string
+      deprecated_at:
         type: string
       description:
         example: Generate a daily sales summary by region
@@ -3021,6 +3050,20 @@ definitions:
       source:
         example: database
         type: string
+      status:
+        description: Promotion lifecycle.
+        example: approved
+        type: string
+      superseded_by:
+        example: daily-sales-report-v2
+        type: string
+      tags:
+        example:
+        - sales
+        - reporting
+        items:
+          type: string
+        type: array
       updated_at:
         example: "2026-01-15T14:30:00Z"
         type: string

@@ -15,7 +15,7 @@ import {
   ChevronDown,
   ChevronUp,
   ChevronsUpDown,
-  Edit,
+  Pencil,
   Copy,
 } from "lucide-react";
 import {
@@ -28,6 +28,8 @@ import type { Prompt } from "@/api/admin/types";
 import { cn } from "@/lib/utils";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { PromptNameField } from "./PromptNameField";
+import { PromptStatusBadge } from "./PromptStatusBadge";
+import { TagsField } from "./TagsField";
 import { validatePromptName, isPromptNameConflict } from "./promptName";
 
 interface Props {
@@ -66,6 +68,8 @@ type SortDir = "asc" | "desc";
 
 type FormMode = "closed" | "create" | "edit";
 
+type PromptStatus = NonNullable<Prompt["status"]>;
+
 interface FormData {
   id?: string;
   name: string;
@@ -75,6 +79,9 @@ interface FormData {
   category: string;
   scope: Prompt["scope"];
   personas: string;
+  tags: string[];
+  status: PromptStatus;
+  superseded_by: string;
   owner_email: string;
   enabled: boolean;
 }
@@ -87,9 +94,27 @@ const emptyForm: FormData = {
   category: "",
   scope: "global",
   personas: "",
+  tags: [],
+  status: "draft",
+  superseded_by: "",
   owner_email: "",
   enabled: true,
 };
+
+// validStatusNext mirrors the server-side prompt lifecycle state machine
+// (pkg/prompt/prompt.go validStatusTransitions). The select offers only the
+// current status plus its reachable successors so the server never rejects the
+// choice with a 400.
+const validStatusNext: Record<PromptStatus, PromptStatus[]> = {
+  draft: ["approved", "superseded"],
+  approved: ["deprecated", "superseded"],
+  deprecated: ["superseded"],
+  superseded: [],
+};
+
+function statusOptionsFor(current: PromptStatus): PromptStatus[] {
+  return [current, ...validStatusNext[current]];
+}
 
 const columns: { key: SortKey; label: string; width?: string }[] = [
   { key: "name", label: "Name" },
@@ -147,6 +172,14 @@ export function AdminPromptsPage({ onNavigate: _onNavigate }: Props) {
     });
   }, []);
 
+  // The lifecycle status the server currently holds for the prompt being edited
+  // (form.status may already reflect an unsaved selection). Valid transitions
+  // are computed from this, never from the in-progress form value.
+  const editingOriginalStatus: PromptStatus =
+    (formMode === "edit" && form.id
+      ? data?.data.find((p) => p.id === form.id)?.status
+      : undefined) ?? form.status;
+
   const sorted = useMemo(() => {
     const list = [...(data?.data ?? [])];
     list.sort((a, b) => {
@@ -174,6 +207,9 @@ export function AdminPromptsPage({ onNavigate: _onNavigate }: Props) {
       category: p.category,
       scope: p.scope,
       personas: (p.personas ?? []).join(", "),
+      tags: p.tags ?? [],
+      status: p.status ?? "draft",
+      superseded_by: p.superseded_by ?? "",
       owner_email: p.owner_email,
       enabled: p.enabled,
     });
@@ -212,6 +248,7 @@ export function AdminPromptsPage({ onNavigate: _onNavigate }: Props) {
           category: form.category,
           scope: form.scope,
           personas,
+          tags: form.tags,
           owner_email: form.owner_email,
           enabled: form.enabled,
         },
@@ -228,6 +265,9 @@ export function AdminPromptsPage({ onNavigate: _onNavigate }: Props) {
           category: form.category,
           scope: form.scope,
           personas,
+          tags: form.tags,
+          status: form.status,
+          superseded_by: form.status === "superseded" ? form.superseded_by : undefined,
           owner_email: form.owner_email,
           enabled: form.enabled,
         },
@@ -352,6 +392,23 @@ export function AdminPromptsPage({ onNavigate: _onNavigate }: Props) {
               <label className="text-xs text-muted-foreground">Category</label>
               <input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none" placeholder="workflow" />
             </div>
+            <TagsField key={form.id ?? "new"} tags={form.tags} onChange={(tags) => setForm({ ...form, tags })} />
+            {formMode === "edit" && (
+              <div>
+                <label className="text-xs text-muted-foreground">Lifecycle Status</label>
+                <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as PromptStatus })} className="w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none">
+                  {statusOptionsFor(editingOriginalStatus).map((s) => (
+                    <option key={s} value={s} className="capitalize">{s}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {formMode === "edit" && form.status === "superseded" && (
+              <div>
+                <label className="text-xs text-muted-foreground">Superseded By (prompt name)</label>
+                <input value={form.superseded_by} onChange={(e) => setForm({ ...form, superseded_by: e.target.value })} className="w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none" placeholder="report-v2" />
+              </div>
+            )}
             {form.scope === "persona" && (
               <div className="col-span-2">
                 <label className="text-xs text-muted-foreground">Personas (comma-separated)</label>
@@ -391,13 +448,22 @@ export function AdminPromptsPage({ onNavigate: _onNavigate }: Props) {
           <p className="text-sm font-medium">No prompts found</p>
         </div>
       ) : (
-        <div className="rounded-lg border bg-card overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="rounded-lg border bg-card overflow-x-auto">
+          <table className="w-full text-sm table-fixed">
+            <colgroup>
+              <col className="w-10" />
+              <col className="w-[22%]" />
+              <col className="w-[110px]" />
+              <col />
+              <col className="w-[160px]" />
+              <col className="w-[90px]" />
+              <col className="w-[180px]" />
+            </colgroup>
             <thead className="border-b bg-muted/50">
               <tr>
                 <th className="w-8 px-2" />
                 {columns.map(renderSortHeader)}
-                <th className="px-4 py-2 text-right font-medium text-muted-foreground w-[80px]">Actions</th>
+                <th className="px-4 py-2 text-right font-medium text-muted-foreground">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -410,7 +476,10 @@ export function AdminPromptsPage({ onNavigate: _onNavigate }: Props) {
                         {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                       </td>
                       <td className="px-4 py-2">
-                        <div className="font-medium truncate">{p.display_name || p.name}</div>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="font-medium truncate">{p.display_name || p.name}</span>
+                          {p.scope !== "system" && <PromptStatusBadge status={p.status} />}
+                        </div>
                       </td>
                       <td className="px-4 py-2"><ScopeBadge scope={p.scope} /></td>
                       <td className="px-4 py-2 truncate text-muted-foreground">{p.description}</td>
@@ -420,18 +489,38 @@ export function AdminPromptsPage({ onNavigate: _onNavigate }: Props) {
                           {p.enabled ? "Active" : "Disabled"}
                         </span>
                       </td>
-                      <td className="px-4 py-2 text-right">
+                      <td className="px-4 py-2">
                         {p.scope === "system" ? (
-                          <span className="text-xs text-muted-foreground">read-only</span>
+                          <span className="text-xs text-muted-foreground">Read-only</span>
                         ) : deleteConfirm === p.id ? (
-                          <div className="inline-flex gap-1" onClick={(e) => e.stopPropagation()}>
-                            <button onClick={() => handleDelete(p.id)} className="text-xs text-red-500 hover:text-red-400">Confirm</button>
-                            <button onClick={() => setDeleteConfirm(null)} className="text-xs text-muted-foreground hover:text-foreground">Cancel</button>
+                          <div className="inline-flex gap-2 justify-end" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              onClick={() => handleDelete(p.id)}
+                              className="inline-flex items-center gap-1.5 rounded-md bg-destructive px-2.5 py-1 text-xs font-medium text-destructive-foreground hover:bg-destructive/90"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" /> Delete
+                            </button>
+                            <button
+                              onClick={() => setDeleteConfirm(null)}
+                              className="rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent"
+                            >
+                              Cancel
+                            </button>
                           </div>
                         ) : (
-                          <div className="inline-flex gap-1" onClick={(e) => e.stopPropagation()}>
-                            <button onClick={() => openEdit(p)} className="text-muted-foreground hover:text-foreground" title="Edit"><Edit className="h-3.5 w-3.5" /></button>
-                            <button onClick={() => setDeleteConfirm(p.id)} className="text-muted-foreground hover:text-red-500" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>
+                          <div className="inline-flex gap-2 justify-end" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              onClick={() => openEdit(p)}
+                              className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-accent"
+                            >
+                              <Pencil className="h-3.5 w-3.5" /> Edit
+                            </button>
+                            <button
+                              onClick={() => setDeleteConfirm(p.id)}
+                              className="inline-flex items-center gap-1.5 rounded-md border border-destructive/30 px-2.5 py-1 text-xs font-medium text-destructive hover:bg-destructive/10"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" /> Delete
+                            </button>
                           </div>
                         )}
                       </td>
@@ -447,6 +536,20 @@ export function AdminPromptsPage({ onNavigate: _onNavigate }: Props) {
                             </div>
                             {p.personas?.length > 0 && (
                               <div className="text-xs"><span className="text-muted-foreground">Personas:</span> {p.personas.join(", ")}</div>
+                            )}
+                            {p.tags && p.tags.length > 0 && (
+                              <div className="flex items-center gap-1.5 flex-wrap text-xs">
+                                <span className="text-muted-foreground">Tags:</span>
+                                {p.tags.map((t) => (
+                                  <span key={t} className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">{t}</span>
+                                ))}
+                              </div>
+                            )}
+                            {p.status === "superseded" && p.superseded_by && (
+                              <div className="text-xs"><span className="text-muted-foreground">Superseded by:</span> <span className="font-mono">{p.superseded_by}</span></div>
+                            )}
+                            {p.approved_by && (
+                              <div className="text-xs"><span className="text-muted-foreground">Approved by:</span> {p.approved_by}</div>
                             )}
                             {p.arguments?.length > 0 && (
                               <div className="text-xs"><span className="text-muted-foreground">Arguments:</span> {p.arguments.map((a) => `{${a.name}}${a.required ? "*" : ""}`).join(", ")}</div>

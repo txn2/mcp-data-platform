@@ -187,4 +187,16 @@ Features:
 - **Sortable columns** — Name, scope, description, category
 - **Expandable rows** — Click the chevron to see the full prompt content, arguments, and copy-to-clipboard button
 - **Scope badges** — Personal (gray), Global (blue), Persona (purple), System (amber)
-- **New Prompt** — Create prompts with name, display name, description, content (supports `{arg}` placeholders), and category
+- **Status badges** — Lifecycle state shown on the prompt viewer: draft (gray), approved (emerald), deprecated (amber), superseded (rose)
+- **Tags** — Free-form, comma-separated labels for organizing prompts, set on create and edit and shown as chips
+- **New Prompt** — Create prompts with name, display name, description, content (supports `{arg}` placeholders), category, and tags
+
+### Personal naming and scope prefixes
+
+Personal prompt names are unique per owner, so two users can each have a prompt named `report` without colliding. When prompts are served to an AI agent over MCP, names are prefixed by scope so they never clash across users or personas:
+
+- Personal prompts appear as `personal-<name>` (for example, `personal-report`)
+- Persona prompts appear as `<persona>-<name>` (one entry per persona you belong to, for example `analyst-report`)
+- Global prompts appear as `global-<name>`
+
+These prefixes are computed at serve time; the stored name stays bare. To make a personal prompt visible at the persona or global scope, rename it if a prompt with that name already exists at the target scope.

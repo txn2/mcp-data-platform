@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -52,16 +53,19 @@ func (c *platformPromptCreator) RegisterRuntimePrompt(p *prompt.Prompt) {
 
 // managePromptInput is the input schema for the manage_prompt tool.
 type managePromptInput struct {
-	Command     string            `json:"command"`
-	Name        string            `json:"name,omitempty"`
-	DisplayName string            `json:"display_name,omitempty"`
-	Description string            `json:"description,omitempty"`
-	Content     string            `json:"content,omitempty"`
-	Arguments   []prompt.Argument `json:"arguments,omitempty"`
-	Category    string            `json:"category,omitempty"`
-	Scope       string            `json:"scope,omitempty"`
-	Personas    []string          `json:"personas,omitempty"`
-	Search      string            `json:"search,omitempty"`
+	Command      string            `json:"command"`
+	Name         string            `json:"name,omitempty"`
+	DisplayName  string            `json:"display_name,omitempty"`
+	Description  string            `json:"description,omitempty"`
+	Content      string            `json:"content,omitempty"`
+	Arguments    []prompt.Argument `json:"arguments,omitempty"`
+	Category     string            `json:"category,omitempty"`
+	Scope        string            `json:"scope,omitempty"`
+	Personas     []string          `json:"personas,omitempty"`
+	Tags         []string          `json:"tags,omitempty"`
+	Status       string            `json:"status,omitempty"`
+	SupersededBy string            `json:"superseded_by,omitempty"`
+	Search       string            `json:"search,omitempty"`
 }
 
 // registerPromptTool registers the manage_prompt tool with the MCP server.
@@ -118,6 +122,9 @@ func (p *Platform) handlePromptCreate(ctx context.Context, input managePromptInp
 	if err := prompt.ValidateScope(scope); err != nil {
 		return promptErrorResult(err.Error()), nil, nil
 	}
+	if err := prompt.ValidateTags(input.Tags); err != nil {
+		return promptErrorResult(err.Error()), nil, nil
+	}
 
 	email := resolveEmail(ctx)
 	if !p.isAdminPersona(ctx) && scope != prompt.ScopePersonal {
@@ -138,6 +145,7 @@ func (p *Platform) handlePromptCreate(ctx context.Context, input managePromptInp
 		Category:    input.Category,
 		Scope:       scope,
 		Personas:    personas,
+		Tags:        input.Tags,
 		OwnerEmail:  email,
 		Source:      prompt.SourceOperator,
 		Enabled:     true,
@@ -163,7 +171,7 @@ func (p *Platform) handlePromptUpdate(ctx context.Context, input managePromptInp
 		return promptErrorResult("name is required"), nil, nil
 	}
 
-	existing, err := p.promptStore.Get(ctx, input.Name)
+	existing, err := p.resolveManagedPrompt(ctx, input.Name, resolveEmail(ctx), input.Scope)
 	if err != nil {
 		slog.Error(promptErrGet, promptLogKey, input.Name, promptLogKeyErr, err)
 		return promptErrorResult(promptErrGet), nil, nil
@@ -182,8 +190,20 @@ func (p *Platform) handlePromptUpdate(ctx context.Context, input managePromptInp
 		}
 	}
 
+	oldScope := existing.Scope
 	if errMsg := applyPromptUpdates(existing, input, p.isAdminPersona(ctx)); errMsg != "" {
 		return promptErrorResult(errMsg), nil, nil
+	}
+	if errMsg := applyStatusTransition(existing, input.Status, input.SupersededBy, email, p.isAdminPersona(ctx)); errMsg != "" {
+		return promptErrorResult(errMsg), nil, nil
+	}
+	// Promoting a personal prompt into the shared (global/persona) namespace
+	// requires a name that is free there; the shared names are globally unique.
+	if oldScope == prompt.ScopePersonal && existing.Scope != prompt.ScopePersonal {
+		if dup, _ := p.promptStore.Get(ctx, existing.Name); dup != nil && dup.ID != existing.ID {
+			return promptErrorResult(fmt.Sprintf(
+				"the name %q is already used by a %s prompt; rename before promoting", existing.Name, dup.Scope)), nil, nil
+		}
 	}
 
 	if err := p.promptStore.Update(ctx, existing); err != nil {
@@ -191,8 +211,13 @@ func (p *Platform) handlePromptUpdate(ctx context.Context, input managePromptInp
 		return promptErrorResult("failed to update prompt"), nil, nil
 	}
 
-	// Re-register with updated content
-	p.UnregisterRuntimePrompt(existing.Name)
+	// Re-register the name-keyed metadata. Personal prompts are not tracked
+	// there (names collide across owners), so only (un)register shared scopes;
+	// RegisterRuntimePrompt self-skips personal, and unregistering the old name
+	// is gated on the old scope to avoid dropping an unrelated shared entry.
+	if oldScope != prompt.ScopePersonal {
+		p.UnregisterRuntimePrompt(existing.Name)
+	}
 	p.RegisterRuntimePrompt(existing)
 
 	return promptJSONResult(map[string]any{
@@ -228,6 +253,22 @@ func applyPromptUpdates(existing *prompt.Prompt, input managePromptInput, isAdmi
 	if input.Personas != nil {
 		existing.Personas = input.Personas
 	}
+	if input.Tags != nil {
+		if err := prompt.ValidateTags(input.Tags); err != nil {
+			return err.Error()
+		}
+		existing.Tags = input.Tags
+	}
+	return ""
+}
+
+// applyStatusTransition validates and applies a prompt status change, stamping
+// the lifecycle timestamps. Approval (-> approved) is admin-only. Returns a
+// non-empty error message on an invalid or unauthorized transition.
+func applyStatusTransition(existing *prompt.Prompt, newStatus, supersededBy, actorEmail string, isAdmin bool) string {
+	if err := existing.ApplyStatusTransition(newStatus, supersededBy, actorEmail, isAdmin, time.Now().UTC()); err != nil {
+		return err.Error()
+	}
 	return ""
 }
 
@@ -237,7 +278,7 @@ func (p *Platform) handlePromptDelete(ctx context.Context, input managePromptInp
 		return promptErrorResult("name is required"), nil, nil
 	}
 
-	existing, err := p.promptStore.Get(ctx, input.Name)
+	existing, err := p.resolveManagedPrompt(ctx, input.Name, resolveEmail(ctx), input.Scope)
 	if err != nil {
 		slog.Error(promptErrGet, promptLogKey, input.Name, promptLogKeyErr, err)
 		return promptErrorResult(promptErrGet), nil, nil
@@ -256,12 +297,16 @@ func (p *Platform) handlePromptDelete(ctx context.Context, input managePromptInp
 		}
 	}
 
-	if err := p.promptStore.Delete(ctx, input.Name); err != nil {
+	if err := p.promptStore.DeleteByID(ctx, existing.ID); err != nil {
 		slog.Error("failed to delete prompt", promptLogKey, input.Name, promptLogKeyErr, err)
 		return promptErrorResult("failed to delete prompt"), nil, nil
 	}
 
-	p.UnregisterRuntimePrompt(input.Name)
+	// Personal prompts are not tracked in the name-keyed metadata; unregistering
+	// by name would drop an unrelated shared entry of the same name.
+	if existing.Scope != prompt.ScopePersonal {
+		p.UnregisterRuntimePrompt(existing.Name)
+	}
 
 	return promptJSONResult(map[string]any{
 		fieldStatus: "deleted",
@@ -342,7 +387,7 @@ func (p *Platform) handlePromptGet(ctx context.Context, input managePromptInput)
 		return promptErrorResult("name is required"), nil, nil
 	}
 
-	pr, err := p.promptStore.Get(ctx, input.Name)
+	pr, err := p.resolveManagedPrompt(ctx, input.Name, resolveEmail(ctx), input.Scope)
 	if err != nil {
 		slog.Error(promptErrGet, promptLogKey, input.Name, promptLogKeyErr, err)
 		return promptErrorResult(promptErrGet), nil, nil
@@ -360,6 +405,30 @@ func (p *Platform) handlePromptGet(ctx context.Context, input managePromptInput)
 	}
 
 	return promptJSONResult(pr)
+}
+
+// resolveManagedPrompt finds the prompt a manage_prompt command targets by
+// name. Personal names are unique only per owner, so by default the caller's own
+// personal prompt takes precedence; otherwise a globally-unique global/persona
+// prompt is returned. An explicit shared scope (global/persona) skips the
+// personal lookup so a caller who owns a same-named personal prompt can still
+// target the shared one.
+func (p *Platform) resolveManagedPrompt(ctx context.Context, name, email, scope string) (*prompt.Prompt, error) {
+	sharedOnly := scope == prompt.ScopeGlobal || scope == prompt.ScopePersona
+	if email != "" && !sharedOnly {
+		personal, err := p.promptStore.GetPersonal(ctx, email, name)
+		if err != nil {
+			return nil, fmt.Errorf("resolving personal prompt: %w", err)
+		}
+		if personal != nil {
+			return personal, nil
+		}
+	}
+	shared, err := p.promptStore.Get(ctx, name)
+	if err != nil {
+		return nil, fmt.Errorf("resolving shared prompt: %w", err)
+	}
+	return shared, nil
 }
 
 // resolveEmail returns the user email from context.
@@ -461,6 +530,20 @@ func managePromptSchema() any {
 				schemaKeyType:        "array",
 				"items":              map[string]any{schemaKeyType: schemaValString},
 				schemaKeyDescription: "Personas this prompt is assigned to. Defaults to empty list if omitted.",
+			},
+			"tags": map[string]any{
+				schemaKeyType:        "array",
+				"items":              map[string]any{schemaKeyType: schemaValString},
+				schemaKeyDescription: "Free-form tags for organizing and searching prompts (create/update).",
+			},
+			"status": map[string]any{
+				schemaKeyType:        schemaValString,
+				"enum":               []string{prompt.StatusDraft, prompt.StatusApproved, prompt.StatusDeprecated, prompt.StatusSuperseded},
+				schemaKeyDescription: "Lifecycle status (update). Transitions: draft->approved->deprecated->superseded. Approval is admin-only.",
+			},
+			"superseded_by": map[string]any{
+				schemaKeyType:        schemaValString,
+				schemaKeyDescription: "Name of the prompt that replaces this one (set when transitioning status to 'superseded').",
 			},
 			"search": map[string]any{
 				schemaKeyType:        schemaValString,
