@@ -22,8 +22,9 @@ theme:
     - navigation.instant
     - navigation.instant.progress
     - navigation.tracking
-    - navigation.tabs
-    - navigation.tabs.sticky
+    # Top-level navigation lives in the custom rail header (docs/overrides/partials/header.html).
+    # navigation.tabs is intentionally OFF so the full nav tree renders in the left sidebar;
+    # with tabs on, removing the Material tab bar would make non-active sections unreachable.
     - navigation.sections
     - navigation.top
     - navigation.footer
@@ -102,12 +103,12 @@ nav:
     - Configuration: reference/configuration.md
     - Providers: reference/providers.md
     - Middleware: reference/middleware.md
-  - Support:
-    - Release Highlights: release-highlights.md
-    - Troubleshooting: support/troubleshooting.md
-    - Research:
-      - MCP Gateway Landscape Survey: research/mcp-gateway-landscape-2026.md
-      - MCP Gateway Live End-to-End Test: research/mcp-gateway-livetest-2026.md
+    - Support:
+      - Release Highlights: release-highlights.md
+      - Troubleshooting: support/troubleshooting.md
+      - Research:
+        - MCP Gateway Landscape Survey: research/mcp-gateway-landscape-2026.md
+        - MCP Gateway Live End-to-End Test: research/mcp-gateway-livetest-2026.md
 
 extra:
   social:

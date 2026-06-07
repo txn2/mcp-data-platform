@@ -79,12 +79,9 @@
   <script src="{{ 'javascripts/mermaid-fullscreen.js' | url }}"></script>
 {% endblock %}
 
-{# Inner-page skip-to-content. The homepage template overrides block header
-   wholesale and includes its own skiplink targeting #main. #}
-{% block header %}
-<a class="skiplink" href="#main">skip to content</a>
-{{ super() }}
-{% endblock %}
+{# The header (the txn2 rail) is defined once in docs/overrides/partials/header.html
+   and rendered by Material's default `block header` include, so no per-template
+   header override is needed here. The rail carries its own skip-to-content link. #}
 
 {# Inner-page skip target. Material's <main data-md-component="main"> has no
    id, so we drop a focusable anchor at the top of the content area. The
