@@ -1,0 +1,55 @@
+{#-
+  Custom txn2 "rail" header. Overrides Material's stock partials/header.html so
+  EVERY page (home and inner docs pages) renders the same header. Top-level
+  navigation is the curated rail nav below; the full nav tree lives in the left
+  sidebar (navigation.tabs is intentionally disabled in mkdocs.yml).
+
+  Links use the `url` filter so they resolve correctly from any page depth.
+  Search and the mobile drawer toggle reuse Material's machinery: the
+  `#__search` / `#__drawer` checkbox inputs are rendered in base.html on every
+  page, so the labels here drive Material's standard behavior.
+-#}
+<header class="rail" data-md-component="header">
+  <a class="skiplink" href="#main">skip to content</a>
+
+  <a href="{{ '.' | url }}" class="rail__brand" aria-label="{{ config.site_name }} home">
+    <span class="rail__mark" aria-hidden="true">◐</span>
+    <span class="rail__name">mcp-data-platform</span>
+    <span class="rail__sep" aria-hidden="true">·</span>
+    <span class="rail__sub">composable mcp data platform</span>
+  </a>
+
+  <div class="rail__meta">
+    <span class="rail__rel">v1.x</span>
+    <span class="rail__dot" aria-hidden="true">●</span>
+    <span data-clock>·· UTC</span>
+    <span class="rail__dot" aria-hidden="true">●</span>
+    <a href="https://txn2.com" class="rail__org">part of <em class="serif">txn2</em>&nbsp;↗</a>
+  </div>
+
+  <nav class="rail__nav" aria-label="primary">
+    {%- if not page.is_homepage %}
+    <label class="rail__icon md-header__button md-icon" for="__drawer" title="menu" aria-label="menu">
+      {% include ".icons/material/menu.svg" %}
+    </label>
+    {%- endif %}
+
+    <a href="{{ '.' | url }}"{% if page.is_homepage %} aria-current="page"{% endif %}>home</a>
+    <a href="{{ 'server/installation/' | url }}">install</a>
+    <a href="{{ 'server/overview/' | url }}">server</a>
+    <a href="{{ 'library/overview/' | url }}">library</a>
+    <a href="{{ 'reference/tools-api/' | url }}">reference</a>
+
+    {%- if "material/search" in config.plugins %}
+      {%- set search = config.plugins["material/search"] | attr("config") %}
+      {%- if search.enabled %}
+    <label class="rail__icon md-header__button md-icon" for="__search" title="search" aria-label="{{ lang.t('search.title') }}">
+      {% include ".icons/material/magnify.svg" %}
+    </label>
+    {% include "partials/search.html" %}
+      {%- endif %}
+    {%- endif %}
+
+    <a href="{{ config.repo_url | default('https://github.com/txn2/mcp-data-platform', true) }}" class="rail__cta">github&nbsp;↗</a>
+  </nav>
+</header>

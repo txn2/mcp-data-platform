@@ -371,6 +371,27 @@ a.rail__brand:focus-visible { outline-offset: 4px; }
   .rail__nav a:not(.rail__cta) { display: none; }
 }
 
+/* Rail search + drawer controls.
+   The labels reuse Material's .md-header__button so Material's responsive
+   show/hide (menu icon below the sidebar breakpoint, search box vs. magnify
+   icon by viewport) applies automatically; we only retint them for the rail. */
+.rail__nav .rail__icon.md-header__button {
+  color: var(--paper-dim);
+  margin: 0;
+  padding: 4px;
+  height: auto;
+  line-height: 0;
+}
+.rail__nav .rail__icon.md-header__button:hover { color: var(--signal); }
+.rail__nav .rail__icon.md-header__button svg {
+  width: 1.15rem;
+  height: 1.15rem;
+  fill: currentColor;
+}
+/* Keep the inline search box from stretching the rail's nav cell. */
+.rail__nav .md-search { display: flex; align-items: center; }
+.rail__nav .md-search__form { background: var(--ink); }
+
 /* ──────────────────────────────────────────────────────────────
    HERO
    All rules scoped under .page--home so component classes never
@@ -448,7 +469,10 @@ a.rail__brand:focus-visible { outline-offset: 4px; }
 }
 
 .page--home .hero__display {
-  flex: 1 1 auto;
+  /* Hug the title to its own width (do not grow to fill the row) so the
+     right-pinned hero__stamp keeps a clear gutter instead of colliding with
+     the display type on wide screens. */
+  flex: 0 1 auto;
   min-width: 0;
   font-family: var(--serif);
   font-weight: 300;

@@ -10,36 +10,9 @@
   <meta name="page-template" content="home">
 {% endblock %}
 
-{# Replace Material's header with the txn2 rail. #}
-{% block header %}
-<header class="rail" data-md-component="header">
-  <a class="skiplink" href="#main">skip to content</a>
-  <a href="./" class="rail__brand" aria-label="mcp-data-platform home">
-    <span class="rail__mark" aria-hidden="true">◐</span>
-    <span class="rail__name">mcp-data-platform</span>
-    <span class="rail__sep" aria-hidden="true">·</span>
-    <span class="rail__sub">composable mcp data platform</span>
-  </a>
-  <div class="rail__meta">
-    <span class="rail__rel">v1.x</span>
-    <span class="rail__dot" aria-hidden="true">●</span>
-    <span data-clock>·· UTC</span>
-    <span class="rail__dot" aria-hidden="true">●</span>
-    <a href="https://txn2.com" class="rail__org">part of <em class="serif">txn2</em>&nbsp;↗</a>
-  </div>
-  <nav class="rail__nav" aria-label="primary">
-    <a href="./" aria-current="page">home</a>
-    <a href="server/installation/">install</a>
-    <a href="server/overview/">server</a>
-    <a href="library/overview/">library</a>
-    <a href="reference/tools-api/">reference</a>
-    <a href="https://github.com/txn2/mcp-data-platform" class="rail__cta">github&nbsp;↗</a>
-  </nav>
-</header>
-{% endblock %}
-
-{# No nav tabs on the homepage. #}
-{% block tabs %}{% endblock %}
+{# The header (the txn2 rail) is shared across all pages via
+   docs/overrides/partials/header.html, so the homepage no longer defines its
+   own header block. #}
 
 {# No announce. #}
 {% block announce %}{% endblock %}
@@ -64,7 +37,7 @@
       <p class="hero__stamp__line">org / txn2</p>
       <p class="hero__stamp__line">est. 2025</p>
       <p class="hero__stamp__line"><a href="https://pkg.go.dev/github.com/txn2/mcp-data-platform">pkg.go.dev&nbsp;↗</a></p>
-      <p class="hero__stamp__line hero__stamp__line--ok">apache 2.0 · semantic first</p>
+      <p class="hero__stamp__line hero__stamp__line--ok">apache 2.0</p>
     </div>
 
     <div class="hero__main">
