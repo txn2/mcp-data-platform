@@ -16,17 +16,14 @@ import (
 var _ prompt.Searcher = (*Store)(nil)
 
 // promptFTSExpr is the full-text expression the lexical arm matches and ranks
-// against. It MUST stay byte-identical to the GIN index expression in migration
-// 000062 or the planner will not use the index. It also defines the lexical
-// corpus, and the title term is coalesce(nullif(display_name,”), name) so the
-// corpus matches prompt.IndexText (which falls back to the name when
-// display_name is empty); otherwise a name-only prompt would be embedded but
-// absent from the lexical arm.
-const promptFTSExpr = `to_tsvector('english', ` +
-	`coalesce(nullif(display_name, ''), name) || ' ' || ` +
-	`coalesce(description, '')  || ' ' || ` +
-	`coalesce(content, '')      || ' ' || ` +
-	`coalesce(array_to_string(tags, ' '), ''))`
+// against. It calls the prompt_fts() function from migration 000062 with the
+// same argument order, so the planner uses idx_prompts_search_fts (the GIN index
+// built on that same call). A function, not an inline expression, is required
+// because the composition folds in array_to_string(tags), which is only STABLE
+// while a GIN index expression demands IMMUTABLE; prompt_fts composes the same
+// corpus as prompt.IndexText (title + description + body + tags, the title
+// falling back from display_name to name).
+const promptFTSExpr = `prompt_fts(display_name, name, description, content, tags)`
 
 // promptFTSQuery is the parameterized tsquery the lexical predicate compares
 // against. $2 is the query text in the hybrid arms; searchLexical rebinds it to

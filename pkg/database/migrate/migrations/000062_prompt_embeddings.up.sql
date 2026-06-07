@@ -40,14 +40,23 @@ ALTER TABLE prompts
 CREATE INDEX IF NOT EXISTS idx_prompts_embedding_hnsw
     ON prompts USING hnsw (embedding vector_cosine_ops);
 
--- The title term is coalesce(nullif(display_name,''), name) so it matches
--- prompt.IndexText, which falls back to the name when display_name is empty;
--- otherwise a prompt with no display_name would be embedded on its name but
--- absent from the lexical corpus, costing it the lexical-match boost and
--- excluding it from the lexical-only fallback path.
-CREATE INDEX IF NOT EXISTS idx_prompts_search_fts
-    ON prompts USING gin (to_tsvector('english',
+-- prompt_fts composes the lexical document from the same fields prompt.IndexText
+-- embeds (title + description + body + tags), where the title is
+-- coalesce(nullif(display_name,''), name) so a prompt with no display_name is
+-- still findable by name. It is wrapped in a function because array_to_string is
+-- only STABLE, and a GIN index expression requires every function be IMMUTABLE;
+-- the composition is deterministic for a text[] with a constant delimiter, so
+-- marking the wrapper IMMUTABLE is correct. The request-path search must call
+-- prompt_fts with the same argument order to hit this index.
+CREATE OR REPLACE FUNCTION prompt_fts(
+    display_name text, name text, description text, content text, tags text[]
+) RETURNS tsvector LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+    SELECT to_tsvector('english',
         coalesce(nullif(display_name, ''), name) || ' ' ||
         coalesce(description, '')  || ' ' ||
         coalesce(content, '')      || ' ' ||
-        coalesce(array_to_string(tags, ' '), '')));
+        coalesce(array_to_string(tags, ' '), ''));
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_prompts_search_fts
+    ON prompts USING gin (prompt_fts(display_name, name, description, content, tags));
