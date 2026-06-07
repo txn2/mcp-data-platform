@@ -654,6 +654,31 @@ export function useMyPrompts() {
   });
 }
 
+// ScoredPrompt pairs a prompt with its relevance score, as returned by the
+// ranked prompt search endpoint.
+export interface ScoredPrompt {
+  prompt: import("@/api/admin/types").Prompt;
+  score: number;
+}
+
+// useSearchMyPrompts ranks approved prompts visible to the caller by relevance
+// to query. Disabled (no request) until query is non-empty, so the list
+// endpoint remains the default browse experience.
+export function useSearchMyPrompts(query: string, params?: { limit?: number }) {
+  const q = query.trim();
+  const sp = new URLSearchParams({ q });
+  if (params?.limit) sp.set("limit", String(params.limit));
+
+  return useQuery({
+    queryKey: ["search-my-prompts", q, params],
+    enabled: q.length > 0,
+    queryFn: () =>
+      apiFetch<PaginatedResponse<ScoredPrompt>>(
+        `/prompts/search?${sp.toString()}`,
+      ),
+  });
+}
+
 export function useCreateMyPrompt() {
   const queryClient = useQueryClient();
   return useMutation({

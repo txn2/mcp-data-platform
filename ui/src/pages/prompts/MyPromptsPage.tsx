@@ -12,7 +12,7 @@ import {
   ChevronUp,
   ChevronsUpDown,
 } from "lucide-react";
-import { useMyPrompts, useCreateMyPrompt } from "@/api/portal/hooks";
+import { useMyPrompts, useCreateMyPrompt, useSearchMyPrompts } from "@/api/portal/hooks";
 import type { Prompt } from "@/api/admin/types";
 import { cn } from "@/lib/utils";
 import { extractPromptArguments } from "./promptArguments";
@@ -105,6 +105,8 @@ export function MyPromptsPage({ onNavigate }: Props) {
 
   const { data, isLoading } = useMyPrompts();
   const createMutation = useCreateMyPrompt();
+  const searching = debouncedSearch.trim().length > 0;
+  const searchResults = useSearchMyPrompts(debouncedSearch);
 
   const personal = data?.personal ?? [];
   const available = data?.available ?? [];
@@ -122,17 +124,9 @@ export function MyPromptsPage({ onNavigate }: Props) {
     });
   }, []);
 
+  // Browse mode: the active tab's prompts sorted by the chosen column.
   const sorted = useMemo(() => {
-    let list = [...items];
-    if (debouncedSearch) {
-      const q = debouncedSearch.toLowerCase();
-      list = list.filter(
-        (p) =>
-          (p.name ?? "").toLowerCase().includes(q) ||
-          (p.display_name ?? "").toLowerCase().includes(q) ||
-          (p.description ?? "").toLowerCase().includes(q),
-      );
-    }
+    const list = [...items];
     list.sort((a, b) => {
       const av = sortValue(a, sortBy);
       const bv = sortValue(b, sortBy);
@@ -140,7 +134,18 @@ export function MyPromptsPage({ onNavigate }: Props) {
       return sortDir === "asc" ? cmp : -cmp;
     });
     return list;
-  }, [items, debouncedSearch, sortBy, sortDir]);
+  }, [items, sortBy, sortDir]);
+
+  // Search mode: approved prompts across the caller's visibility ranked by
+  // relevance. The server applies visibility before ranking and returns results
+  // already ordered, so the rank order is preserved (no client re-sort).
+  const ranked = useMemo(
+    () => (searchResults.data?.data ?? []).map((s) => s.prompt),
+    [searchResults.data],
+  );
+
+  const displayItems = searching ? ranked : sorted;
+  const listLoading = searching ? searchResults.isLoading : isLoading;
 
   function openCreate() {
     setForm(emptyForm);
@@ -237,7 +242,7 @@ export function MyPromptsPage({ onNavigate }: Props) {
         </div>
         <div className="relative max-w-md flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search prompts..." className="w-full rounded-md border bg-background pl-9 pr-3 py-2 text-sm outline-none ring-ring focus:ring-2" />
+          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search prompts by meaning..." className="w-full rounded-md border bg-background pl-9 pr-3 py-2 text-sm outline-none ring-ring focus:ring-2" />
         </div>
         {isPersonalTab && (
           <button onClick={openCreate} className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
@@ -346,16 +351,26 @@ export function MyPromptsPage({ onNavigate }: Props) {
         </div>
       )}
 
+      {/* Relevance hint (search mode): results are ranked by similarity across
+          every scope the caller can see, so the active tab does not bound them. */}
+      {searching && (
+        <p className="text-xs text-muted-foreground">
+          Ranked by relevance to &ldquo;{debouncedSearch.trim()}&rdquo; across all prompts you can see.
+        </p>
+      )}
+
       {/* Table */}
-      {isLoading ? (
-        <div className="flex items-center justify-center py-12 text-muted-foreground">Loading...</div>
-      ) : sorted.length === 0 ? (
+      {listLoading ? (
+        <div className="flex items-center justify-center py-12 text-muted-foreground">{searching ? "Searching..." : "Loading..."}</div>
+      ) : displayItems.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
           <MessageSquare className="h-12 w-12 mb-2 opacity-30" />
           <p className="text-sm font-medium">
-            {items.length === 0
-              ? (isPersonalTab ? "No personal prompts yet" : "No available prompts")
-              : "No prompts match your search"}
+            {searching
+              ? `No prompts match "${debouncedSearch.trim()}"`
+              : items.length === 0
+                ? (isPersonalTab ? "No personal prompts yet" : "No available prompts")
+                : "No prompts match your search"}
           </p>
         </div>
       ) : (
@@ -373,7 +388,7 @@ export function MyPromptsPage({ onNavigate }: Props) {
               </tr>
             </thead>
             <tbody className="divide-y">
-              {sorted.map((p) => (
+              {displayItems.map((p) => (
                 <tr
                   key={p.id}
                   className="hover:bg-muted/30 cursor-pointer"

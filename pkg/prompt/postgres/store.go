@@ -11,6 +11,7 @@ import (
 
 	"github.com/lib/pq"
 
+	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 )
 
@@ -42,25 +43,42 @@ type rowScanner interface {
 	Scan(dest ...any) error
 }
 
-// scanPrompt reads one row in promptColumns order into a Prompt.
-func scanPrompt(sc rowScanner) (*prompt.Prompt, error) {
-	p := &prompt.Prompt{}
-	var argsJSON []byte
-	if err := sc.Scan(
-		&p.ID, &p.Name, &p.DisplayName, &p.Description, &p.Content, &argsJSON,
+// promptScanDest returns the scan destinations for one prompt row in
+// promptColumns order. It is the single definition of that order, shared by
+// scanPrompt and the ranked-search scanners (which append their score columns),
+// so the scan order cannot drift from promptColumns across call sites.
+func promptScanDest(p *prompt.Prompt, argsJSON *[]byte) []any {
+	return []any{
+		&p.ID, &p.Name, &p.DisplayName, &p.Description, &p.Content, argsJSON,
 		&p.Category, &p.Scope, pq.Array(&p.Personas), &p.OwnerEmail,
 		&p.Source, &p.Enabled, pq.Array(&p.Tags), &p.Status,
 		&p.ApprovedBy, &p.ApprovedAt, &p.DeprecatedAt, &p.SupersededBy,
 		&p.ReviewRequested, &p.RequestedScope, pq.Array(&p.RequestedPersonas),
 		&p.CreatedAt, &p.UpdatedAt,
-	); err != nil {
+	}
+}
+
+// scanPrompt reads one row in promptColumns order into a Prompt.
+func scanPrompt(sc rowScanner) (*prompt.Prompt, error) {
+	p := &prompt.Prompt{}
+	var argsJSON []byte
+	if err := sc.Scan(promptScanDest(p, &argsJSON)...); err != nil {
 		return nil, fmt.Errorf("scanning prompt row: %w", err)
 	}
+	if err := finishPrompt(p, argsJSON); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+// finishPrompt unmarshals the arguments JSON and normalizes nil slices for a
+// freshly scanned prompt. Shared by scanPrompt and the search scanners.
+func finishPrompt(p *prompt.Prompt, argsJSON []byte) error {
 	if err := json.Unmarshal(argsJSON, &p.Arguments); err != nil {
-		return nil, fmt.Errorf("unmarshal arguments: %w", err)
+		return fmt.Errorf("unmarshal arguments: %w", err)
 	}
 	normalizeSlices(p)
-	return p, nil
+	return nil
 }
 
 // normalizeSlices ensures slice fields are non-nil for stable JSON output.
@@ -149,6 +167,15 @@ func (s *Store) Update(ctx context.Context, p *prompt.Prompt) error {
 		return fmt.Errorf("marshal arguments: %w", err)
 	}
 
+	// Clear the embedding when the indexed text changes so a content edit never
+	// leaves a stale vector ranking against the old text. The CASE compares the
+	// stored hash against the new text's hash (both reference the pre-update
+	// row), so a metadata-only edit (status, personas) preserves the embedding
+	// and avoids needless re-embedding; an actual text change drops it to NULL
+	// for the reconciler to backfill. The hash is indexjobs.TextHash, the exact
+	// hash the worker stores, so the two definitions cannot diverge.
+	newHash := indexjobs.TextHash(prompt.IndexText(p))
+
 	query := `
 		UPDATE prompts
 		SET name = $2, display_name = $3, description = $4, content = $5,
@@ -156,7 +183,14 @@ func (s *Store) Update(ctx context.Context, p *prompt.Prompt) error {
 		    owner_email = $10, source = $11, enabled = $12, tags = $13,
 		    status = $14, approved_by = $15, approved_at = $16, deprecated_at = $17,
 		    superseded_by = $18, review_requested = $19, requested_scope = $20,
-		    requested_personas = $21, updated_at = NOW()
+		    requested_personas = $21,
+		    embedding = CASE WHEN embedding_text_hash IS DISTINCT FROM $22
+		                     THEN NULL ELSE embedding END,
+		    embedding_model = CASE WHEN embedding_text_hash IS DISTINCT FROM $22
+		                          THEN '' ELSE embedding_model END,
+		    embedding_text_hash = CASE WHEN embedding_text_hash IS DISTINCT FROM $22
+		                              THEN NULL ELSE embedding_text_hash END,
+		    updated_at = NOW()
 		WHERE id = $1`
 
 	res, err := s.db.ExecContext(ctx, query,
@@ -164,6 +198,7 @@ func (s *Store) Update(ctx context.Context, p *prompt.Prompt) error {
 		p.Category, p.Scope, pq.Array(p.Personas), p.OwnerEmail, p.Source, p.Enabled,
 		pq.Array(p.Tags), p.Status, p.ApprovedBy, p.ApprovedAt, p.DeprecatedAt,
 		p.SupersededBy, p.ReviewRequested, p.RequestedScope, pq.Array(p.RequestedPersonas),
+		newHash,
 	)
 	if err != nil {
 		return fmt.Errorf("update prompt: %w", err)

@@ -1726,6 +1726,25 @@ export const handlers = [
     return HttpResponse.json(mockPortalPrompts);
   }),
 
+  // Ranked prompt search: substring match over the caller's visible prompts,
+  // returned as scored results in descending order (mock relevance).
+  http.get(`${PORTAL_BASE}/prompts/search`, ({ request }) => {
+    const url = new URL(request.url);
+    const q = (url.searchParams.get("q") ?? "").trim().toLowerCase();
+    const visible = [...mockPortalPrompts.personal, ...mockPortalPrompts.available];
+    const matches = q
+      ? visible.filter(
+          (p) =>
+            (p.name ?? "").toLowerCase().includes(q) ||
+            (p.display_name ?? "").toLowerCase().includes(q) ||
+            (p.description ?? "").toLowerCase().includes(q) ||
+            (p.content ?? "").toLowerCase().includes(q),
+        )
+      : [];
+    const data = matches.map((p, i) => ({ prompt: p, score: 1 - i * 0.05 }));
+    return HttpResponse.json({ data, total: data.length, limit: 20, offset: 0 });
+  }),
+
   // =========================================================================
   // Admin — Prompts
   // =========================================================================

@@ -8904,6 +8904,52 @@ paths:
       summary: Share a prompt
       tags:
       - Prompts
+  /portal/prompts/search:
+    get:
+      description: Ranks approved prompts visible to the caller by relevance to q.
+        Uses hybrid (semantic + lexical) ranking when an embedding provider is configured,
+        falling back to lexical-only otherwise. Visibility (global, matching-persona,
+        and own personal prompts; all approved prompts for admins) is applied before
+        ranking.
+      parameters:
+      - description: Search query
+        in: query
+        name: q
+        required: true
+        type: string
+      - description: 'Max results (default: 20)'
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.paginatedResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Search my prompts
+      tags:
+      - Prompts
   /portal/shared-collections:
     get:
       description: Returns paginated collections that other users have shared with

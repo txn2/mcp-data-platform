@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 )
 
@@ -188,6 +189,7 @@ func TestUpdate_Success(t *testing.T) {
 		p.Source, p.Enabled,
 		pq.Array(p.Tags), p.Status, p.ApprovedBy, p.ApprovedAt, p.DeprecatedAt,
 		p.SupersededBy, p.ReviewRequested, p.RequestedScope, pq.Array(p.RequestedPersonas),
+		indexjobs.TextHash(prompt.IndexText(p)),
 	).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	err = store.Update(context.Background(), p)

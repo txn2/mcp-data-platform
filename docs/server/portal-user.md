@@ -184,8 +184,8 @@ Two tabs:
 
 Features:
 
-- **Search** — Full-text search across name, display name, and description
-- **Sortable columns** — Name, scope, description, category
+- **Search** — Type a phrase to rank prompts by relevance to what you mean, not just literal substrings. Results span every prompt you can see (your personal, global, and persona prompts), are ranked best-first, and only include approved prompts. Ranking is semantic (vector similarity) when an embedding provider is configured, with a keyword fallback otherwise.
+- **Sortable columns** — Name, scope, description, category (browse mode; search mode preserves relevance order)
 - **Expandable rows** — Click the chevron to see the full prompt content, arguments, and copy-to-clipboard button
 - **Scope badges** — Personal (gray), Global (blue), Persona (purple), System (amber)
 - **Status badges** — Lifecycle state shown on the prompt viewer: draft (gray), approved (emerald), deprecated (amber), superseded (rose)

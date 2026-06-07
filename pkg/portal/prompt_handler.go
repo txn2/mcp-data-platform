@@ -58,6 +58,7 @@ func (h *Handler) registerPromptRoutes() {
 		return
 	}
 	h.mux.HandleFunc("GET /api/v1/portal/prompts", h.listMyPrompts)
+	h.mux.HandleFunc("GET /api/v1/portal/prompts/search", h.searchMyPrompts)
 	h.mux.HandleFunc("POST /api/v1/portal/prompts", h.createMyPrompt)
 	h.mux.HandleFunc("PUT /api/v1/portal/prompts/{id}", h.updateMyPrompt)
 	h.mux.HandleFunc("DELETE /api/v1/portal/prompts/{id}", h.deleteMyPrompt)
@@ -154,6 +155,69 @@ func (h *Handler) listMyPrompts(w http.ResponseWriter, r *http.Request) {
 	writePortalJSON(w, http.StatusOK, portalPromptListResponse{
 		Personal:  personal,
 		Available: available,
+	})
+}
+
+// searchMyPrompts handles GET /api/v1/portal/prompts/search.
+//
+// @Summary      Search my prompts
+// @Description  Ranks approved prompts visible to the caller by relevance to q. Uses hybrid (semantic + lexical) ranking when an embedding provider is configured, falling back to lexical-only otherwise. Visibility (global, matching-persona, and own personal prompts; all approved prompts for admins) is applied before ranking.
+// @Tags         Prompts
+// @Produce      json
+// @Param        q      query  string   true   "Search query"
+// @Param        limit  query  integer  false  "Max results (default: 20)"
+// @Success      200  {object}  paginatedResponse
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Failure      503  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/prompts/search [get]
+func (h *Handler) searchMyPrompts(w http.ResponseWriter, r *http.Request) {
+	user := GetUser(r.Context())
+	if user == nil {
+		writePortalError(w, http.StatusUnauthorized, errMsgAuthRequired)
+		return
+	}
+
+	searcher, ok := h.deps.PromptStore.(prompt.Searcher)
+	if !ok {
+		writePortalError(w, http.StatusServiceUnavailable, "prompt search is unavailable")
+		return
+	}
+
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	if query == "" {
+		writePortalError(w, http.StatusBadRequest, "query parameter 'q' is required")
+		return
+	}
+
+	isAdmin := hasAnyRole(user.Roles, h.deps.AdminRoles)
+	persona := ""
+	if pi := h.resolveUserPersona(user); pi != nil {
+		persona = pi.Name
+	}
+	limit := intParam(r, paramLimit, prompt.DefaultSearchLimit)
+
+	scored, err := searcher.Search(r.Context(), prompt.SearchQuery{
+		Embedding:  h.embedSearchQuery(r.Context(), query),
+		QueryText:  query,
+		OwnerEmail: user.Email,
+		Persona:    persona,
+		IsAdmin:    isAdmin,
+		Limit:      limit,
+	})
+	if err != nil {
+		writePortalError(w, http.StatusInternalServerError, "failed to search prompts")
+		return
+	}
+	if scored == nil {
+		scored = []prompt.ScoredPrompt{}
+	}
+
+	writePortalJSON(w, http.StatusOK, paginatedResponse{
+		Data: scored, Total: len(scored), Limit: limit, Offset: 0,
 	})
 }
 
