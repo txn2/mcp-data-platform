@@ -18,6 +18,8 @@ import type {
   MemoryStats,
   ScoredMemoryRecord,
   ScoredInsight,
+  ScoredAsset,
+  ScoredCollection,
   Collection,
   CollectionConfig,
   CollectionResponse,
@@ -69,6 +71,22 @@ export function useAssets(params?: {
     queryKey: ["assets", params],
     queryFn: () =>
       apiFetch<PaginatedResponse<Asset>>(`/assets${qs ? `?${qs}` : ""}`),
+  });
+}
+
+// useSearchAssets ranks the caller's own assets by relevance to a free-text
+// query (semantic + keyword, server-side). Disabled when the query is empty so
+// the asset library falls back to the plain list. Mirrors useSearchMyMemories.
+export function useSearchAssets(query: string, params?: { limit?: number }) {
+  const q = query.trim();
+  const sp = new URLSearchParams({ q });
+  if (params?.limit) sp.set("limit", String(params.limit));
+
+  return useQuery({
+    queryKey: ["search-assets", q, params],
+    enabled: q.length > 0,
+    queryFn: () =>
+      apiFetch<PaginatedResponse<ScoredAsset>>(`/assets/search?${sp.toString()}`),
   });
 }
 
@@ -441,6 +459,22 @@ export function useCollections(params?: { search?: string; limit?: number; offse
     queryKey: ["collections", params],
     queryFn: () =>
       apiFetch<PaginatedResponse<Collection>>(`/collections${qs ? `?${qs}` : ""}`),
+  });
+}
+
+// useSearchCollections ranks the caller's own collections by relevance to a
+// free-text query (matching name, description, and section text; semantic +
+// keyword, server-side). Disabled when the query is empty.
+export function useSearchCollections(query: string, params?: { limit?: number }) {
+  const q = query.trim();
+  const sp = new URLSearchParams({ q });
+  if (params?.limit) sp.set("limit", String(params.limit));
+
+  return useQuery({
+    queryKey: ["search-collections", q, params],
+    enabled: q.length > 0,
+    queryFn: () =>
+      apiFetch<PaginatedResponse<ScoredCollection>>(`/collections/search?${sp.toString()}`),
   });
 }
 

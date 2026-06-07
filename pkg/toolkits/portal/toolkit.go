@@ -13,6 +13,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/query"
@@ -53,6 +54,7 @@ const (
 	actionUpdateCollection = "update_collection"
 	actionDeleteCollection = "delete_collection"
 	actionSetSections      = "set_sections"
+	actionSearch           = "search"
 
 	// JSON field names used in MCP tool result payloads.
 	fieldAssetID = "asset_id"
@@ -88,6 +90,10 @@ type manageArtifactInput struct {
 	Sections     []sectionInput `json:"sections,omitempty"`
 	Search       string         `json:"search,omitempty"`
 	Offset       int            `json:"offset,omitempty"`
+
+	// Query (search action) ranks the caller's assets by relevance to a
+	// free-text query instead of the substring Search filter.
+	Query string `json:"query,omitempty"`
 }
 
 // sectionInput defines a collection section in MCP tool input.
@@ -123,6 +129,11 @@ type Config struct {
 	S3Prefix        string
 	BaseURL         string
 	MaxContentSize  int // max artifact content size in bytes (0 = no limit)
+
+	// Embedder embeds search queries for the ranked `search` action. When nil
+	// or the noop placeholder, search degrades to lexical-only ranking (the
+	// store decides via embedding.EmbedForSearch).
+	Embedder embedding.Provider
 }
 
 // Toolkit implements the portal artifact toolkit.
@@ -137,6 +148,7 @@ type Toolkit struct {
 	s3Prefix        string
 	baseURL         string
 	maxContentSize  int
+	embedder        embedding.Provider
 	actions         map[string]manageActionHandler
 
 	semanticProvider semantic.Provider
@@ -172,6 +184,7 @@ func New(cfg Config) *Toolkit {
 		s3Prefix:        cfg.S3Prefix,
 		baseURL:         cfg.BaseURL,
 		maxContentSize:  cfg.MaxContentSize,
+		embedder:        cfg.Embedder,
 	}
 	tk.actions = tk.buildActions()
 	return tk
@@ -204,11 +217,13 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Name:  manageToolName,
 		Title: "Manage Artifact",
 		Description: "Manages saved artifacts and collections. " +
-			"Asset actions: list, get, update, delete, list_versions, revert. " +
+			"Asset actions: list, get, update, delete, list_versions, revert, search. " +
 			"Collection actions: create_collection, list_collections, get_collection, " +
 			"update_collection, delete_collection, set_sections. " +
 			"Note: 'list' returns full metadata including provenance for each asset. " +
-			"Use 'get' with a specific asset_id for content retrieval.",
+			"Use 'get' with a specific asset_id for content retrieval. " +
+			"Use 'search' with a 'query' to rank your assets by relevance (semantic + " +
+			"keyword) instead of paging the whole list.",
 		InputSchema: manageArtifactSchema,
 	}, t.handleManageArtifact)
 
@@ -394,6 +409,7 @@ func (t *Toolkit) buildActions() map[string]manageActionHandler {
 		actionUpdateCollection: t.handleUpdateCollection,
 		actionDeleteCollection: t.handleDeleteCollection,
 		actionSetSections:      t.handleSetSections,
+		actionSearch:           t.handleSearch,
 	}
 }
 
@@ -402,7 +418,7 @@ func (t *Toolkit) handleManageArtifact(ctx context.Context, _ *mcp.CallToolReque
 	handler, ok := t.actions[input.Action]
 	if !ok {
 		return errorResult(fmt.Sprintf(
-			"invalid action %q: must be one of: list, get, update, delete, list_versions, revert, "+
+			"invalid action %q: must be one of: list, get, update, delete, list_versions, revert, search, "+
 				"create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections",
 			input.Action)), nil, nil
 	}

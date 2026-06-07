@@ -43,7 +43,7 @@ var manageArtifactSchema = json.RawMessage(`{
   "properties": {
     "action": {
       "type": "string",
-      "description": "Action to perform. Asset actions: list, get, update, delete, list_versions, revert. Collection actions: create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections"
+      "description": "Action to perform. Asset actions: list, get, update, delete, list_versions, revert, search. Collection actions: create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections"
     },
     "asset_id": {
       "type": "string",
@@ -85,7 +85,11 @@ var manageArtifactSchema = json.RawMessage(`{
     },
     "search": {
       "type": "string",
-      "description": "Search term for list_collections"
+      "description": "Substring filter for list_collections"
+    },
+    "query": {
+      "type": "string",
+      "description": "Free-text relevance query for the 'search' action. Ranks your saved assets by semantic + keyword similarity within your own assets."
     },
     "offset": {
       "type": "integer",

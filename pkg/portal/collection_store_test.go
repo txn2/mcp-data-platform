@@ -405,9 +405,10 @@ func TestPostgresCollectionStoreSetSections(t *testing.T) {
 		WithArgs("item3", "sec2", "asset3", 0).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	// Touch updated_at
-	mock.ExpectExec("UPDATE portal_collections SET updated_at").
-		WithArgs(sqlmock.AnyArg(), "coll1").
+	// Refresh sections_text, clear the embedding, and touch updated_at. The
+	// first arg is the denormalized section text (titles + descriptions).
+	mock.ExpectExec("UPDATE portal_collections\\s+SET sections_text").
+		WithArgs("Section A First Section B Second", sqlmock.AnyArg(), "coll1").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	mock.ExpectCommit()

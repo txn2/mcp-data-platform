@@ -157,6 +157,11 @@ func (h *Handler) registerRoutes() {
 	// Authenticated routes
 	h.mux.HandleFunc("GET /api/v1/portal/me", h.getMe)
 	h.mux.HandleFunc("GET /api/v1/portal/assets", h.listAssets)
+	// Relevance search is registered only when the wired asset store supports it
+	// (pgvector-backed deployments); see AssetSearcher.
+	if _, ok := h.deps.AssetStore.(AssetSearcher); ok {
+		h.mux.HandleFunc("GET /api/v1/portal/assets/search", h.searchMyAssets)
+	}
 	h.mux.HandleFunc("POST /api/v1/portal/assets", h.createAsset)
 	h.mux.HandleFunc("GET /api/v1/portal/assets/{id}", h.getAsset)
 	h.mux.HandleFunc("GET /api/v1/portal/assets/{id}/content", h.getAssetContent)
@@ -178,6 +183,9 @@ func (h *Handler) registerRoutes() {
 	if h.deps.CollectionStore != nil {
 		h.mux.HandleFunc("POST /api/v1/portal/collections", h.createCollection)
 		h.mux.HandleFunc("GET /api/v1/portal/collections", h.listCollections)
+		if _, ok := h.deps.CollectionStore.(CollectionSearcher); ok {
+			h.mux.HandleFunc("GET /api/v1/portal/collections/search", h.searchMyCollections)
+		}
 		h.mux.HandleFunc("GET /api/v1/portal/collections/{id}", h.getCollection)
 		h.mux.HandleFunc("PUT /api/v1/portal/collections/{id}", h.updateCollection)
 		h.mux.HandleFunc("DELETE /api/v1/portal/collections/{id}", h.deleteCollection)

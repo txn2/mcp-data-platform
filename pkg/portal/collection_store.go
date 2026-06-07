@@ -94,28 +94,45 @@ func (s *postgresCollectionStore) Get(ctx context.Context, id string) (*Collecti
 	return coll, nil
 }
 
-func (s *postgresCollectionStore) getHeader(ctx context.Context, id string) (*Collection, error) {
-	query := `
-		SELECT id, owner_id, owner_email, name, description, thumbnail_s3_key, config,
-		       created_at, updated_at, deleted_at
-		FROM portal_collections WHERE id = $1
-	`
-	var c Collection
-	var deletedAt sql.NullTime
-	var configJSON []byte
-	err := s.db.QueryRowContext(ctx, query, id).Scan(
-		&c.ID, &c.OwnerID, &c.OwnerEmail, &c.Name, &c.Description, &c.ThumbnailS3Key, &configJSON,
-		&c.CreatedAt, &c.UpdatedAt, &deletedAt,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("querying collection: %w", err)
+// collectionColumns is the header projection shared by getHeader, the list
+// query, and the ranked-search queries, in collectionScanDest order so the scan
+// cannot drift from the SELECT.
+const collectionColumns = `id, owner_id, owner_email, name, description, thumbnail_s3_key, config, created_at, updated_at, deleted_at`
+
+// collectionScanDest returns the scan destinations for one collection header row
+// in collectionColumns order. The ranked-search scanners append their score
+// column to this slice.
+func collectionScanDest(c *Collection, configJSON *[]byte, deletedAt *sql.NullTime) []any {
+	return []any{
+		&c.ID, &c.OwnerID, &c.OwnerEmail, &c.Name, &c.Description, &c.ThumbnailS3Key, configJSON,
+		&c.CreatedAt, &c.UpdatedAt, deletedAt,
 	}
+}
+
+// finishScannedCollection applies the nullable deleted_at and unmarshals the
+// config JSON (best-effort) for a freshly scanned collection header.
+func finishScannedCollection(c *Collection, configJSON []byte, deletedAt sql.NullTime) {
 	if deletedAt.Valid {
 		c.DeletedAt = &deletedAt.Time
 	}
 	if len(configJSON) > 0 {
 		_ = json.Unmarshal(configJSON, &c.Config) // best-effort; empty config on error
 	}
+}
+
+func (s *postgresCollectionStore) getHeader(ctx context.Context, id string) (*Collection, error) {
+	query := `
+		SELECT ` + collectionColumns + `
+		FROM portal_collections WHERE id = $1
+	`
+	var c Collection
+	var deletedAt sql.NullTime
+	var configJSON []byte
+	err := s.db.QueryRowContext(ctx, query, id).Scan(collectionScanDest(&c, &configJSON, &deletedAt)...)
+	if err != nil {
+		return nil, fmt.Errorf("querying collection: %w", err)
+	}
+	finishScannedCollection(&c, configJSON, deletedAt)
 	return &c, nil
 }
 
@@ -330,7 +347,14 @@ func (s *postgresCollectionStore) populateAssetTags(ctx context.Context, collect
 }
 
 func (s *postgresCollectionStore) Update(ctx context.Context, id, name, description string) error { //nolint:revive // interface impl
-	query := `UPDATE portal_collections SET name = $1, description = $2, updated_at = $3 WHERE id = $4 AND deleted_at IS NULL`
+	// Drop the embedding so the reconciler re-embeds against the new name +
+	// description off the request path (these feed CollectionIndexText). The
+	// embedding columns are added by migration 000063, which runs at startup
+	// before any request is served, so they always exist here.
+	query := `UPDATE portal_collections
+		SET name = $1, description = $2, updated_at = $3,
+		    embedding = NULL, embedding_model = '', embedding_text_hash = NULL
+		WHERE id = $4 AND deleted_at IS NULL`
 	result, err := s.db.ExecContext(ctx, query, name, description, time.Now(), id)
 	if err != nil {
 		return fmt.Errorf("updating collection: %w", err)
@@ -445,9 +469,16 @@ func (*postgresCollectionStore) replaceSections(ctx context.Context, tx *sql.Tx,
 		}
 	}
 
-	// Touch updated_at on the collection.
-	if _, err := tx.ExecContext(ctx, `UPDATE portal_collections SET updated_at = $1 WHERE id = $2`, time.Now(), collectionID); err != nil {
-		return fmt.Errorf("updating collection timestamp: %w", err)
+	// Refresh the denormalized sections_text (the lexical FTS source for section
+	// content) and drop the embedding so the reconciler re-embeds against the new
+	// section text off the request path. Touches updated_at in the same write.
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE portal_collections
+		    SET sections_text = $1, embedding = NULL, embedding_model = '',
+		        embedding_text_hash = NULL, updated_at = $2
+		  WHERE id = $3`,
+		SectionsText(sections), time.Now(), collectionID); err != nil {
+		return fmt.Errorf("updating collection sections_text: %w", err)
 	}
 
 	return nil

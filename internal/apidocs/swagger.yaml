@@ -7933,6 +7933,55 @@ paths:
       summary: Revert to version
       tags:
       - Assets
+  /portal/assets/search:
+    get:
+      description: Ranks the current user's saved assets by relevance to q. Uses hybrid
+        (semantic + lexical) ranking when an embedding provider is configured, falling
+        back to lexical-only otherwise. Always scoped server-side to the requesting
+        user's own assets.
+      parameters:
+      - description: Search query
+        in: query
+        name: q
+        required: true
+        type: string
+      - description: 'Max results (default: 20)'
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.paginatedResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Search my assets
+      tags:
+      - Assets
   /portal/collections:
     get:
       description: Returns paginated collections owned by the current user.
@@ -8409,6 +8458,56 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Upload collection thumbnail
+      tags:
+      - Collections
+  /portal/collections/search:
+    get:
+      description: Ranks the current user's collections by relevance to q (matching
+        name, description, and section titles/descriptions). Uses hybrid (semantic
+        + lexical) ranking when an embedding provider is configured, falling back
+        to lexical-only otherwise. Always scoped server-side to the requesting user's
+        own collections.
+      parameters:
+      - description: Search query
+        in: query
+        name: q
+        required: true
+        type: string
+      - description: 'Max results (default: 20)'
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.paginatedResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Search my collections
       tags:
       - Collections
   /portal/knowledge/insights:

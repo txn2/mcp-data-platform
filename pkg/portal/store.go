@@ -420,13 +420,16 @@ func (s *postgresAssetStore) Update(ctx context.Context, id string, updates Asse
 
 func applyUpdateFields(qb sq.UpdateBuilder, updates AssetUpdate) (sq.UpdateBuilder, error) {
 	hasUpdates := false
+	indexedChanged := false
 	if updates.Name != nil {
 		qb = qb.Set("name", *updates.Name)
 		hasUpdates = true
+		indexedChanged = true
 	}
 	if updates.Description != nil {
 		qb = qb.Set("description", *updates.Description)
 		hasUpdates = true
+		indexedChanged = true
 	}
 	if updates.Tags != nil {
 		tags, err := json.Marshal(updates.Tags)
@@ -435,6 +438,7 @@ func applyUpdateFields(qb sq.UpdateBuilder, updates AssetUpdate) (sq.UpdateBuild
 		}
 		qb = qb.Set("tags", tags)
 		hasUpdates = true
+		indexedChanged = true
 	}
 	if updates.ContentType != "" {
 		qb = qb.Set("content_type", updates.ContentType)
@@ -454,6 +458,20 @@ func applyUpdateFields(qb sq.UpdateBuilder, updates AssetUpdate) (sq.UpdateBuild
 	}
 	if !hasUpdates {
 		return qb, fmt.Errorf("no fields to update")
+	}
+	// When an indexed field (name, description, tags) changes, drop the
+	// embedding so the reconciler re-embeds against the new text off the
+	// request path; a content-only or thumbnail edit leaves the vector intact.
+	// The embedding columns are added by migration 000063, which (like all
+	// migrations) runs at startup before any request is served, so they always
+	// exist when this code path executes.
+	if indexedChanged {
+		// Use literal NULL (not a bound nil parameter) for the vector and hash
+		// columns so the clear matches the collection and prompt stores and never
+		// relies on the driver inferring a parameter type for the vector column.
+		qb = qb.Set("embedding", sq.Expr("NULL")).
+			Set("embedding_model", "").
+			Set("embedding_text_hash", sq.Expr("NULL"))
 	}
 	return qb, nil
 }
@@ -1080,25 +1098,38 @@ func applyAssetFilter(qb sq.SelectBuilder, filter AssetFilter) sq.SelectBuilder 
 	return qb
 }
 
+// assetScanDest returns the scan destinations for one asset row in the column
+// order shared by the list query (queryAssets) and the ranked-search queries
+// (which append their score columns). It is the single definition of that order,
+// so the scan cannot drift from the projection across call sites.
+func assetScanDest(a *Asset, tags, prov *[]byte, deletedAt *sql.NullTime) []any {
+	return []any{
+		&a.ID, &a.OwnerID, &a.OwnerEmail, &a.Name, &a.Description,
+		&a.ContentType, &a.S3Bucket, &a.S3Key, &a.ThumbnailS3Key, &a.SizeBytes,
+		tags, prov, &a.SessionID, &a.CurrentVersion, &a.CreatedAt, &a.UpdatedAt, deletedAt,
+		&a.IdempotencyKey,
+	}
+}
+
+// finishScannedAsset applies the nullable deleted_at and unmarshals the tags +
+// provenance JSON for a freshly scanned asset. Shared by scanAssetRow and the
+// ranked-search scanners.
+func finishScannedAsset(asset *Asset, tags, prov []byte, deletedAt sql.NullTime) error {
+	if deletedAt.Valid {
+		asset.DeletedAt = &deletedAt.Time
+	}
+	return unmarshalAssetJSON(asset, tags, prov)
+}
+
 func scanAssetRow(rows *sql.Rows) (Asset, error) {
 	var asset Asset
 	var tags, prov []byte
 	var deletedAt sql.NullTime
 
-	if err := rows.Scan(
-		&asset.ID, &asset.OwnerID, &asset.OwnerEmail, &asset.Name, &asset.Description,
-		&asset.ContentType, &asset.S3Bucket, &asset.S3Key, &asset.ThumbnailS3Key, &asset.SizeBytes,
-		&tags, &prov, &asset.SessionID, &asset.CurrentVersion, &asset.CreatedAt, &asset.UpdatedAt, &deletedAt,
-		&asset.IdempotencyKey,
-	); err != nil {
+	if err := rows.Scan(assetScanDest(&asset, &tags, &prov, &deletedAt)...); err != nil {
 		return asset, fmt.Errorf("scanning asset row: %w", err)
 	}
-
-	if deletedAt.Valid {
-		asset.DeletedAt = &deletedAt.Time
-	}
-
-	if err := unmarshalAssetJSON(&asset, tags, prov); err != nil {
+	if err := finishScannedAsset(&asset, tags, prov, deletedAt); err != nil {
 		return asset, err
 	}
 	return asset, nil

@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Search, FileText, Image, Code, File, Users, Globe, Table2, LayoutGrid, List, FolderOpen, Eye } from "lucide-react";
-import { useAssets } from "@/api/portal/hooks";
+import { useAssets, useSearchAssets } from "@/api/portal/hooks";
 import { formatBytes } from "@/lib/format";
 import { ThumbnailQueue } from "@/components/ThumbnailQueue";
 import { AuthImg } from "@/components/AuthImg";
@@ -47,6 +47,7 @@ function contentTypeBadgeColor(ct: string) {
 
 export function MyAssetsPage({ onNavigate }: Props) {
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [contentType, setContentType] = useState("");
   const [tag, setTag] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>(getStoredViewMode);
@@ -57,17 +58,25 @@ export function MyAssetsPage({ onNavigate }: Props) {
     localStorage.setItem(VIEW_STORAGE_KEY, mode);
   }
 
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+  const searching = debouncedSearch.trim().length > 0;
+
   const { data, isLoading } = useAssets({
     content_type: contentType || undefined,
     tag: tag || undefined,
   });
+  // Relevance search ranks the caller's own assets by semantic + keyword
+  // similarity server-side; the content-type / tag selects apply to browse mode
+  // only (the ranked endpoint scopes by owner alone).
+  const searchResults = useSearchAssets(debouncedSearch);
 
-  const assets = (data?.data ?? []).filter(
-    (a) =>
-      !search ||
-      (a.name ?? "").toLowerCase().includes(search.toLowerCase()) ||
-      (a.description ?? "").toLowerCase().includes(search.toLowerCase()),
-  );
+  const assets = searching
+    ? (searchResults.data?.data ?? []).map((s) => s.asset)
+    : (data?.data ?? []);
+  const isLoadingList = searching ? searchResults.isLoading : isLoading;
 
   return (
     <div className="space-y-4">
@@ -79,7 +88,7 @@ export function MyAssetsPage({ onNavigate }: Props) {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search assets..."
+            placeholder="Search assets by meaning..."
             className="w-full rounded-md border bg-background pl-9 pr-3 py-2 text-sm outline-none ring-ring focus:ring-2"
           />
         </div>
@@ -121,9 +130,14 @@ export function MyAssetsPage({ onNavigate }: Props) {
       </div>
 
       {/* Results */}
-      {isLoading ? (
+      {isLoadingList ? (
         <div className="flex items-center justify-center py-12 text-muted-foreground">
-          Loading...
+          {searching ? "Searching..." : "Loading..."}
+        </div>
+      ) : searching && assets.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+          <Search className="h-12 w-12 mb-2 opacity-30" />
+          <p className="text-sm font-medium">No assets match &ldquo;{debouncedSearch.trim()}&rdquo;</p>
         </div>
       ) : assets.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
@@ -330,10 +344,18 @@ export function MyAssetsPage({ onNavigate }: Props) {
         </div>
       )}
 
-      {data && data.total > data.limit && (
-        <p className="text-sm text-muted-foreground text-center">
-          Showing {assets.length} of {data.total} assets
-        </p>
+      {searching ? (
+        assets.length > 0 && (
+          <p className="text-xs text-muted-foreground text-center">
+            Ranked by relevance to &ldquo;{debouncedSearch.trim()}&rdquo; across your assets.
+          </p>
+        )
+      ) : (
+        data && data.total > data.limit && (
+          <p className="text-sm text-muted-foreground text-center">
+            Showing {assets.length} of {data.total} assets
+          </p>
+        )
       )}
 
       <ThumbnailQueue assets={assets} />
