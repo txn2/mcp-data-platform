@@ -350,9 +350,18 @@ export function AdminPromptsPage({ onNavigate: _onNavigate }: Props) {
         </button>
       </div>
 
-      {/* Form */}
+      {/* Form (modal overlay so it is always visible, never scrolled off-screen) */}
       {formMode !== "closed" && (
-        <div className="rounded-lg border bg-card p-4 space-y-3">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:p-8">
+          <div
+            className="fixed inset-0 bg-black/50"
+            onClick={() => setFormMode("closed")}
+            onKeyDown={(e) => { if (e.key === "Escape") setFormMode("closed"); }}
+            role="button"
+            tabIndex={-1}
+            aria-label="Close"
+          />
+          <div className="relative my-4 w-full max-w-2xl rounded-lg border bg-card p-4 space-y-3 shadow-xl">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold">
               {formMode === "create" ? "Create Prompt" : "Edit Prompt"}
@@ -439,6 +448,7 @@ export function AdminPromptsPage({ onNavigate: _onNavigate }: Props) {
               <Save className="h-3.5 w-3.5" />
               {isMutating ? "Saving..." : formMode === "create" ? "Create" : "Save"}
             </button>
+          </div>
           </div>
         </div>
       )}

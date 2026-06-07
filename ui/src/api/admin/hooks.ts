@@ -669,7 +669,7 @@ export function useConnectionInstance(kind: string, name: string) {
 export function useSetConnectionInstance() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ kind, name, ...body }: { kind: string; name: string; config: Record<string, any>; description?: string }) =>
+    mutationFn: ({ kind, name, ...body }: { kind: string; name: string; config: Record<string, unknown>; description?: string }) =>
       apiFetch<ConnectionInstance>(`/connection-instances/${kind}/${name}`, {
         method: "PUT",
         body: JSON.stringify(body),
@@ -1112,7 +1112,7 @@ export function useDeleteAPICatalogSpec() {
 
 export function useTestGatewayConnection() {
   return useMutation({
-    mutationFn: ({ name, config }: { name: string; config: Record<string, any> }) =>
+    mutationFn: ({ name, config }: { name: string; config: Record<string, unknown> }) =>
       apiFetch<import("./types").GatewayTestResponse>(
         `/gateway/connections/${name}/test`,
         { method: "POST", body: JSON.stringify({ config }) },

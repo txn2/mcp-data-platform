@@ -63,12 +63,12 @@ export function PromptDialog({
   // that changes identity every render; depending on it would
   // overwrite the operator's typed input whenever the parent
   // re-renders (TanStack Query refetches, sibling state changes, ...).
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!open) return;
     const next: Record<string, string> = {};
     for (const f of fields) next[f.name] = f.defaultValue ?? "";
     setValues(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const missingRequired = fields.some(
@@ -84,7 +84,6 @@ export function PromptDialog({
     } catch (err) {
       // Caller owns error surfacing via the `error` prop; log so the
       // rejection isn't silent.
-      // eslint-disable-next-line no-console
       console.error("PromptDialog onConfirm rejected:", err);
     } finally {
       setBusy(false);

@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { extractPromptArguments } from "./promptArguments";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { PromptNameField } from "./PromptNameField";
+import { PromptStatusBadge } from "./PromptStatusBadge";
 import { TagsField } from "./TagsField";
 import { validatePromptName, isPromptNameConflict } from "./promptName";
 
@@ -379,7 +380,15 @@ export function MyPromptsPage({ onNavigate }: Props) {
                   onClick={() => openPrompt(p)}
                 >
                   <td className="px-4 py-2 align-top">
-                    <div className="font-medium break-words">{p.display_name || p.name}</div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium break-words">{p.display_name || p.name}</span>
+                      {p.scope !== "system" && <PromptStatusBadge status={p.status} />}
+                      {p.review_requested && (
+                        <span className="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-400">
+                          promotion requested
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-2 align-top"><ScopeBadge scope={p.scope} /></td>
                   <td className="px-4 py-2 align-top text-muted-foreground">

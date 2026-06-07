@@ -19,7 +19,7 @@ interface RoleRow {
 
 export function RolesPage() {
   const { data: personaList, isLoading } = usePersonas();
-  const personas = personaList?.personas ?? [];
+  const personas = useMemo(() => personaList?.personas ?? [], [personaList]);
 
   // Flatten: each role in each persona becomes its own row, sorted by role.
   const rows = useMemo<RoleRow[]>(() => {

@@ -226,7 +226,7 @@ function drawCover(
   const boxRatio = w / h;
 
   let sx = 0;
-  let sy = 0;
+  const sy = 0;
   let sw = img.naturalWidth;
   let sh = img.naturalHeight;
 

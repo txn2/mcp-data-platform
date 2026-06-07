@@ -38,7 +38,7 @@ export function GatewayActionBar({
   onOpenRules,
 }: {
   connectionName: string;
-  connectionConfig: Record<string, any>;
+  connectionConfig: Record<string, unknown>;
   onOpenRules: () => void;
 }) {
   const test = useTestGatewayConnection();
@@ -476,8 +476,8 @@ function DryRunPanel({ connectionName, ruleId }: { connectionName: string; ruleI
   const handleRun = useCallback(async () => {
     setParseError(null);
     setResult(null);
-    let args: Record<string, any>;
-    let resp: any;
+    let args: Record<string, unknown>;
+    let resp: unknown;
     try {
       args = JSON.parse(argsJSON);
       resp = JSON.parse(respJSON);

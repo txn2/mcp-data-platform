@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   usePersonas,
   usePersonaDetail,
@@ -67,7 +67,7 @@ export function PersonasPanel() {
   const { data: systemInfo } = useSystemInfo();
   const isReadOnly = systemInfo?.config_mode === "file";
   const { data: personaList, isLoading } = usePersonas();
-  const personas = personaList?.personas ?? [];
+  const personas = useMemo(() => personaList?.personas ?? [], [personaList]);
   const deleteMutation = useDeletePersona();
 
   const [selected, setSelected] = useState<string | null>(null);

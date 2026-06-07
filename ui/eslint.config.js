@@ -4,7 +4,8 @@ import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist"] },
+  // Build output and generated MSW service workers are not hand-edited source.
+  { ignores: ["dist", "dist-content-viewer", "public/mockServiceWorker.js"] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],

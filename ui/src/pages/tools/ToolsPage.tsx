@@ -42,7 +42,7 @@ export function ToolsPage({ initialTab: _initialTab }: { initialTab?: string } =
 
   const { data: toolsData, isLoading: toolsLoading } = useTools();
 
-  const tools = toolsData?.tools ?? [];
+  const tools = useMemo(() => toolsData?.tools ?? [], [toolsData]);
   const hiddenToolNames = useMemo(
     () => new Set(tools.filter((t) => t.hidden).map((t) => t.name)),
     [tools],
