@@ -9,6 +9,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/memory/memoryindex"
+	"github.com/txn2/mcp-data-platform/pkg/prompt/promptindex"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	apigatewaycatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
@@ -201,6 +202,22 @@ func (p *Platform) registerIndexConsumers(reg *indexjobs.Registry, store *indexj
 			memoryindex.NewSink(memStore, embedding.ModelName(p.embeddingProv)),
 		); err != nil {
 			slog.Error("index jobs: memory registration failed", "error", err)
+		}
+	}
+
+	// Prompts consumer: embeds approved prompts for semantic discovery (#557).
+	// Registered only when the prompt store is wired. Gap detection runs against
+	// the prompts table directly (approved + enabled rows missing a vector), and
+	// the request-path Update clears a prompt's embedding when its indexed text
+	// changes, so the reconciler is a complete backstop for every write path; no
+	// bootstrap enqueue is needed.
+	if p.promptStore != nil {
+		promptStore := promptindex.NewStore(p.db)
+		if err := reg.Register(
+			promptindex.NewSource(promptStore),
+			promptindex.NewSink(promptStore, embedding.ModelName(p.embeddingProv)),
+		); err != nil {
+			slog.Error("index jobs: prompts registration failed", logKeyError, err)
 		}
 	}
 }

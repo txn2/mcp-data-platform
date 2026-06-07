@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 )
@@ -66,6 +68,11 @@ type managePromptInput struct {
 	Status       string            `json:"status,omitempty"`
 	SupersededBy string            `json:"superseded_by,omitempty"`
 	Search       string            `json:"search,omitempty"`
+
+	// Query (list command) ranks visible approved prompts by relevance instead
+	// of the substring Search filter; Limit caps the ranked results.
+	Query string `json:"query,omitempty"`
+	Limit int    `json:"limit,omitempty"`
 
 	// Promotion request (owner action on a personal prompt, applied by update).
 	// Setting RequestedScope flags the prompt for the admin promotion queue
@@ -325,8 +332,14 @@ func (p *Platform) handlePromptDelete(ctx context.Context, input managePromptInp
 	})
 }
 
-// handlePromptList lists prompts visible to the current user.
+// handlePromptList lists prompts visible to the current user. When a free-text
+// query is supplied it ranks visible approved prompts by relevance; otherwise
+// it returns the visible set filtered by the substring Search and scope.
 func (p *Platform) handlePromptList(ctx context.Context, input managePromptInput) (*mcp.CallToolResult, any, error) {
+	if strings.TrimSpace(input.Query) != "" {
+		return p.handlePromptSearch(ctx, input)
+	}
+
 	filter := prompt.ListFilter{
 		Scope:  input.Scope,
 		Search: input.Search,
@@ -390,6 +403,51 @@ func (p *Platform) mergeExtraScopes(ctx context.Context, prompts []prompt.Prompt
 		}
 	}
 	return prompts
+}
+
+// handlePromptSearch ranks visible approved prompts by relevance to the query.
+// Visibility is applied before ranking: a non-admin caller ranks over global,
+// matching-persona, and their own personal approved prompts; an admin ranks
+// over all approved prompts. Ranking is hybrid (semantic + lexical) when an
+// embedding provider is configured and lexical-only otherwise, reported as the
+// "ranking" field so the caller knows which path produced the results.
+func (p *Platform) handlePromptSearch(ctx context.Context, input managePromptInput) (*mcp.CallToolResult, any, error) {
+	searcher, ok := p.promptStore.(prompt.Searcher)
+	if !ok {
+		return promptErrorResult("prompt search is unavailable: semantic discovery is not enabled"), nil, nil
+	}
+
+	query := strings.TrimSpace(input.Query)
+	persona := ""
+	if pc := middleware.GetPlatformContext(ctx); pc != nil {
+		persona = pc.PersonaName
+	}
+
+	emb := embedding.EmbedForSearch(ctx, p.embeddingProv, query)
+	ranking := "lexical"
+	if len(emb) > 0 {
+		ranking = "hybrid"
+	}
+
+	scored, err := searcher.Search(ctx, prompt.SearchQuery{
+		Embedding:  emb,
+		QueryText:  query,
+		OwnerEmail: resolveEmail(ctx),
+		Persona:    persona,
+		IsAdmin:    p.isAdminPersona(ctx),
+		Scope:      input.Scope,
+		Limit:      input.Limit,
+	})
+	if err != nil {
+		slog.Error("failed to search prompts", promptLogKeyErr, err)
+		return promptErrorResult("failed to search prompts"), nil, nil
+	}
+
+	return promptJSONResult(map[string]any{
+		"prompts": scored,
+		"count":   len(scored),
+		"ranking": ranking,
+	})
 }
 
 // handlePromptGet retrieves a single prompt by name.
@@ -567,7 +625,16 @@ func managePromptSchema() any {
 			},
 			"search": map[string]any{
 				schemaKeyType:        schemaValString,
-				schemaKeyDescription: "Free-text search filter (for list command)",
+				schemaKeyDescription: "Substring filter on name, display name, and description (for list command).",
+			},
+			"query": map[string]any{
+				schemaKeyType: schemaValString,
+				schemaKeyDescription: "Free-text relevance query (for list command). Ranks visible approved " +
+					"prompts by similarity to the query within your visibility. Takes precedence over 'search'.",
+			},
+			"limit": map[string]any{
+				schemaKeyType:        "integer",
+				schemaKeyDescription: "Max ranked results to return when 'query' is set (default 20).",
 			},
 			"requested_scope": map[string]any{
 				schemaKeyType:        schemaValString,

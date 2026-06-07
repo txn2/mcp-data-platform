@@ -308,12 +308,27 @@ WHERE event_kind IS NULL;
 -- Knowledge Insights (8 in various states)
 -- ============================================================================
 
-INSERT INTO knowledge_insights (
-  id, session_id, captured_by, persona,
-  category, insight_text, confidence, entity_urns, related_columns,
-  suggested_actions, status, reviewed_by, review_notes, applied_by, changeset_ref,
-  created_at
-) VALUES
+-- knowledge_insights was dropped in migration 31, which folded it into the
+-- universal memory_records table (dimension='knowledge'). Seed memory_records
+-- directly, applying the same field mapping that migration's data-migration used,
+-- so the row data below can stay as-is in the VALUES list.
+INSERT INTO memory_records (
+  id, created_by, persona, dimension, category, content, confidence, source,
+  entity_urns, related_columns, metadata, status, created_at, updated_at
+)
+SELECT
+  v.id, v.captured_by, v.persona, 'knowledge', v.category, v.insight_text,
+  v.confidence, 'user', v.entity_urns::jsonb, v.related_columns::jsonb,
+  jsonb_build_object(
+    'session_id', v.session_id, 'legacy_status', v.status,
+    'suggested_actions', v.suggested_actions::jsonb,
+    'reviewed_by', v.reviewed_by, 'review_notes', v.review_notes,
+    'applied_by', v.applied_by, 'changeset_ref', v.changeset_ref),
+  CASE WHEN v.status IN ('rejected', 'rolled_back') THEN 'archived'
+       WHEN v.status = 'superseded' THEN 'superseded'
+       ELSE 'active' END,
+  v.created_at, v.created_at
+FROM (VALUES
 (
   'ins-001', 'sess-101', 'marcus.johnson@example.com', 'data-engineer',
   'business_context',
@@ -402,13 +417,12 @@ INSERT INTO knowledge_insights (
   'pending', '', '', '', '',
   NOW() - interval '12 hours'
 )
-ON CONFLICT (id) DO UPDATE SET
-  category = EXCLUDED.category,
-  insight_text = EXCLUDED.insight_text,
-  confidence = EXCLUDED.confidence,
-  status = EXCLUDED.status,
-  reviewed_by = EXCLUDED.reviewed_by,
-  review_notes = EXCLUDED.review_notes;
+) AS v(
+  id, session_id, captured_by, persona, category, insight_text, confidence,
+  entity_urns, related_columns, suggested_actions, status, reviewed_by,
+  review_notes, applied_by, changeset_ref, created_at
+)
+ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================================
 -- Knowledge Changesets (2: 1 applied, 1 rolled back)
@@ -843,4 +857,15 @@ VALUES
   ]'::jsonb,
   'reporting', 'personal', '{}', 'admin@example.com', 'operator', true
 )
-ON CONFLICT (name) DO NOTHING;
+-- No column target: migration 59 (#558) replaced the plain unique(name) with two
+-- partial unique indexes (shared vs personal), which a single ON CONFLICT (name)
+-- can no longer match. Untargeted DO NOTHING catches either, keeping the seed
+-- idempotent across both scopes.
+ON CONFLICT DO NOTHING;
+
+-- Seeded prompts insert as 'draft' (migration 59's default). Mark them approved
+-- so they are served over MCP and picked up by semantic discovery (#557), which
+-- only indexes approved prompts. Mirrors the 59 backfill of pre-existing rows.
+UPDATE prompts
+   SET status = 'approved', approved_at = NOW(), approved_by = 'admin@acme.example.com'
+ WHERE source = 'operator' AND status = 'draft';

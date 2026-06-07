@@ -70,13 +70,13 @@ ok "UI dependencies ready"
 # Port checks (8080 = platform, 5173 = vite, 5432 = postgres,
 # 9000 = seaweedfs, 9090 = keycloak, 9091 = prometheus, 9180 = dev-mcp-mock
 # OAuth, 9181 = dev-mcp-mock MCP, 9281 = mcp-test fixture, 9282 = api-test
-# fixture, 9464 = platform /metrics scrape endpoint)
-for port in 5432 8080 5173 9000 9090 9091 9180 9181 9281 9282 9464; do
+# fixture, 9464 = platform /metrics scrape endpoint, 11434 = ollama embedder)
+for port in 5432 8080 5173 9000 9090 9091 9180 9181 9281 9282 9464 11434; do
   if lsof -i ":$port" -sTCP:LISTEN > /dev/null 2>&1; then
     fail "Port $port is already in use. Run 'make dev-down' or stop the conflicting process."
   fi
 done
-ok "Ports 5432, 8080, 5173, 9000, 9090, 9091, 9180, 9181, 9281, 9282, 9464 are free"
+ok "Ports 5432, 8080, 5173, 9000, 9090, 9091, 9180, 9181, 9281, 9282, 9464, 11434 are free"
 
 echo ""
 
@@ -201,6 +201,36 @@ for i in $(seq 1 60); do
 done
 ok "api-test fixture ready on :9282"
 
+# Wait for Ollama (the embedding provider for semantic indexing). The platform
+# degrades to lexical-only without it, so a failure here WARNS rather than aborts
+# the run — but it must be visible, not silent (the embedder being absent was
+# previously invisible until embed jobs started failing).
+info "Waiting for Ollama embedder..."
+OLLAMA_READY=""
+for i in $(seq 1 60); do
+  if curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; then
+    OLLAMA_READY=1
+    break
+  fi
+  sleep 1
+done
+if [ -n "$OLLAMA_READY" ]; then
+  ok "Ollama ready on :11434"
+  # Pull the embedding model the platform is configured to use. Cached in the
+  # acme_ollama_data volume after the first run, so this is a fast no-op on
+  # subsequent `make dev` runs.
+  info "Pulling embedding model nomic-embed-text (first run downloads ~270MB)..."
+  if docker exec acme-dev-ollama ollama pull nomic-embed-text > /dev/null 2>&1; then
+    ok "Embedding model nomic-embed-text ready"
+  else
+    echo -e "  ${BOLD}WARN${NC}: failed to pull nomic-embed-text; semantic indexing will be disabled." >&2
+    echo -e "        Retry with: docker exec acme-dev-ollama ollama pull nomic-embed-text" >&2
+  fi
+else
+  echo -e "  ${BOLD}WARN${NC}: Ollama did not become ready on :11434; semantic indexing will be disabled" >&2
+  echo -e "        (the platform falls back to lexical ranking). Check 'docker logs acme-dev-ollama'." >&2
+fi
+
 # Create the portal-assets S3 bucket (requires aws CLI)
 if which aws > /dev/null 2>&1; then
   info "Creating S3 bucket..."
@@ -276,7 +306,15 @@ echo ""
 
 echo -e "${BOLD}Seeding development data${NC}"
 docker cp dev/seed.sql "$PG_CONTAINER":/tmp/seed.sql
-docker exec "$PG_CONTAINER" psql -U platform -d mcp_platform -f /tmp/seed.sql > /dev/null 2>&1
+# ON_ERROR_STOP + no error-swallowing: a seed that has rotted against a schema
+# migration (a dropped table, a changed constraint) must fail the run loudly, not
+# hide behind >/dev/null. Silently swallowed seed errors let three seed bugs
+# survive across many sessions until a volume wipe exposed them.
+if ! docker exec "$PG_CONTAINER" psql -U platform -d mcp_platform \
+    -v ON_ERROR_STOP=1 -f /tmp/seed.sql > /dev/null; then
+  echo "FAIL: seeding failed (see error above); the seed has likely rotted against a migration." >&2
+  exit 1
+fi
 ok "Database seeded"
 bash dev/seed-s3.sh
 ok "Asset content uploaded to S3"

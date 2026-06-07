@@ -36,6 +36,23 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    # Real Postgres (pgvector) backs the migration gate:
+    # TestMigrationsAgainstRealPostgres applies every migration + the dev seed
+    # against this service, catching SQL the planner only rejects against a live
+    # engine (e.g. a non-IMMUTABLE function in an index expression). The test
+    # skips when MIGRATE_TEST_DSN is unset, so it is a no-op without this service.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16@sha256:00ba258a66dac104fd5171074a0084462a64a1369d8513f3d0a634e2f24d15bc
+        env:
+          POSTGRES_USER: migrate
+          POSTGRES_PASSWORD: migrate
+          POSTGRES_DB: migrate_check
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U migrate -d migrate_check"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -47,6 +64,8 @@ jobs:
           cache: true
 
       - name: Run tests with coverage
+        env:
+          MIGRATE_TEST_DSN: postgres://migrate:migrate@localhost:5432/migrate_check?sslmode=disable
         run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
 
       - name: Check coverage threshold

@@ -29,7 +29,7 @@ GOLINT := golangci-lint
 
 .PHONY: all build test lint lint-full fmt clean install help docs-serve docs-build verify verify-release \
 	tools-check dead-code mutate patch-coverage doc-check swagger swagger-check \
-	semgrep codeql sast embed-clean \
+	semgrep codeql sast embed-clean migrate-check \
 	frontend-install frontend-build frontend-build-content-viewer \
 	frontend-dev frontend-mock frontend-test \
 	e2e-up e2e-down e2e-seed e2e-test e2e e2e-logs e2e-clean \
@@ -61,6 +61,34 @@ test-short:
 test-integration:
 	@echo "Running integration tests..."
 	$(GOTEST) -v -tags=integration ./...
+
+# Real-Postgres migration gate. Applies every embedded migration + the dev seed
+# to a disposable pgvector instance (up -> seed -> down -> up), catching SQL the
+# planner only rejects against a live engine (e.g. a non-IMMUTABLE function in an
+# index expression), down-migration dependency-order bugs, and dev-seed rot.
+# sqlmock and the embedded-file presence checks cannot catch these. Provisions
+# its own container on a non-default port so it never touches the dev DB.
+MIGRATE_PG_IMAGE := pgvector/pgvector:pg16@sha256:00ba258a66dac104fd5171074a0084462a64a1369d8513f3d0a634e2f24d15bc
+MIGRATE_PG_CONTAINER := mcp-migrate-check-pg
+MIGRATE_PG_PORT := 55432
+
+## migrate-check: Apply all migrations + seed to a throwaway real Postgres
+migrate-check:
+	@echo "Running real-Postgres migration gate..."
+	@docker rm -f $(MIGRATE_PG_CONTAINER) >/dev/null 2>&1 || true
+	@docker run -d --name $(MIGRATE_PG_CONTAINER) \
+		-e POSTGRES_USER=migrate -e POSTGRES_PASSWORD=migrate -e POSTGRES_DB=migrate_check \
+		-p $(MIGRATE_PG_PORT):5432 $(MIGRATE_PG_IMAGE) >/dev/null
+	@trap 'docker rm -f $(MIGRATE_PG_CONTAINER) >/dev/null 2>&1 || true' EXIT; \
+		echo "  waiting for Postgres on :$(MIGRATE_PG_PORT)..."; \
+		for i in $$(seq 1 30); do \
+			docker exec $(MIGRATE_PG_CONTAINER) pg_isready -U migrate -d migrate_check >/dev/null 2>&1 && break; \
+			if [ "$$i" = "30" ]; then echo "FAIL: Postgres did not become ready" >&2; exit 1; fi; \
+			sleep 1; \
+		done; \
+		MIGRATE_TEST_DSN="postgres://migrate:migrate@localhost:$(MIGRATE_PG_PORT)/migrate_check?sslmode=disable" \
+			$(GOTEST) -count=1 -run TestMigrationsAgainstRealPostgres ./pkg/database/migrate/
+	@echo "Migration gate passed."
 
 ## coverage: Generate coverage report
 coverage: test
@@ -373,7 +401,7 @@ verify-release: verify mutate
 ## verify: Run the CI-equivalent per-commit suite (test, lint, security, SAST, coverage, release)
 ## NOTE: mutation testing is intentionally excluded — it lives in verify-release.
 ## Do not add `mutate` back to this per-commit target.
-verify: tools-check fmt swagger-check embed-clean test lint security semgrep codeql coverage-report patch-coverage doc-check dead-code release-check
+verify: tools-check fmt swagger-check embed-clean test migrate-check lint security semgrep codeql coverage-report patch-coverage doc-check dead-code release-check
 	@echo ""
 	@echo "=== All checks passed ==="
 	@# Write the gate sentinel: the short SHA-256 of the working-tree diff

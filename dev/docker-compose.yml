@@ -153,6 +153,29 @@ services:
       timeout: 5s
       retries: 10
 
+  # Ollama: local embedding provider backing semantic indexing (#557). The
+  # host-run platform points embedding.ollama.url at http://localhost:11434
+  # (dev/platform.yaml), so bundling it here makes `make dev` exercise the
+  # semantic path out of the box instead of silently degrading to lexical-only.
+  # dev/start.sh pulls the nomic-embed-text model once the service is healthy.
+  # CPU-only under Docker on macOS (no GPU passthrough) — embedding is slower
+  # than a host/GPU Ollama but correct; the model volume persists across
+  # `make dev` runs (only `make dev-down` wipes it).
+  ollama:
+    image: ollama/ollama:0.30.6@sha256:fbaaecc6c632a73c2b4ca25ef52dbee0b68d07783fcb850f916404c004040f90
+    container_name: acme-dev-ollama
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - acme_ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
 volumes:
   acme_postgres_data:
   acme_seaweed_data:
+  acme_ollama_data:
