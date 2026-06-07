@@ -830,6 +830,10 @@ For `tools/list` responses: Icons, DescOverrides, and Visibility modify tool met
 
 Audit events are written **asynchronously** in a goroutine to avoid blocking tool responses. If the database write fails, the error is logged via `slog.Error` but the tool call still succeeds.
 
+### Error contract
+
+Every failed `tools/call` returns a uniform, self-describing error so an agent consumer can tell a correctable mistake from a platform problem instead of guessing (and falsely concluding the platform is down). A failure sets `isError: true`, a self-describing text message (`<message> (code: <code>) Hint: <hint>`), and a machine-readable `structuredContent.error` object `{code, category, message, hint}`. `code` is a stable identifier (`missing_required_parameter`, `not_found`, `unauthenticated`, `unauthorized`, `setup_required`, `feature_unavailable`, `internal_error`, `tool_error`); `category` is the broad class an agent branches on (`client_input`, `not_found`, `authentication_failed`, `authorization_denied`, `user_declined`, `setup_required`, `feature_unavailable`, `internal`, `tool_error`). A central normalization middleware (`MCPErrorContractMiddleware`, registered inner to Audit/Metrics) guarantees the envelope is present even when a tool returns only a bare message, recovers a panicking handler into a categorized `internal_error` result rather than a dropped connection, and leaves source-categorized results (auth/authz, missing-parameter, not-found, feature-unavailable, setup-required) untouched. The `category` continues to feed the audit log (`error_category`) and metrics (`status_category`). It is built by extending the existing `PlatformError` / `CategorizedError` rather than a parallel type, and covers every toolkit (including the proxied trino/datahub/s3 tools) at the shared chain, so no upstream-library change is required.
+
 ## Caller class via `source`
 
 Tools on this platform are reachable through three entry points; the audit row's `source` field records which one was used:

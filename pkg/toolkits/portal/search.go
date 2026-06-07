@@ -7,6 +7,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
 
@@ -29,17 +30,23 @@ const (
 func (t *Toolkit) handleSearch(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
 	searcher, ok := t.assetStore.(portal.AssetSearcher)
 	if !ok {
-		return errorResult("asset search is unavailable: semantic discovery is not enabled"), nil, nil
+		return middleware.UnavailableResult(
+			"asset search is unavailable: semantic discovery is not enabled",
+			"This deployment has no embedding/search backend wired. Use action=list to page assets instead.",
+		), nil, nil
 	}
 
 	query := strings.TrimSpace(input.Query)
 	if query == "" {
-		return errorResult("query is required for search action"), nil, nil
+		return middleware.MissingParameterResult("query"), nil, nil
 	}
 
 	ownerID := resolveOwnerID(ctx)
 	if strings.TrimSpace(ownerID) == "" || ownerID == anonymousUserName {
-		return errorResult("a user identity is required to search assets"), nil, nil
+		return middleware.UnauthorizedResult(
+			"a user identity is required to search assets",
+			"Authenticate so the search can be scoped to your assets. This is an identity problem, not a platform outage.",
+		), nil, nil
 	}
 
 	emb := embedding.EmbedForSearch(ctx, t.embedder, query)

@@ -6,6 +6,50 @@ description: Complete API specification for all MCP tools. Parameters, response 
 
 Complete specification for all MCP tools provided by mcp-data-platform.
 
+## Error contract
+
+Every failed tool call returns a uniform, self-describing error so an agent can tell a correctable mistake from a platform problem and act on it. A failure sets `isError: true` and carries both a human-readable text message and a machine-readable `structuredContent.error` object:
+
+```json
+{
+  "isError": true,
+  "content": [
+    { "type": "text", "text": "the \"asset_id\" parameter is required (code: missing_required_parameter) Hint: Supply \"asset_id\" and retry. This is a problem with the call's arguments, not a platform fault." }
+  ],
+  "structuredContent": {
+    "error": {
+      "code": "missing_required_parameter",
+      "category": "client_input",
+      "message": "the \"asset_id\" parameter is required",
+      "hint": "Supply \"asset_id\" and retry. This is a problem with the call's arguments, not a platform fault."
+    }
+  }
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `code` | Stable, machine-readable identifier the agent may branch on (for example `missing_required_parameter`, `not_found`, `unauthorized`, `setup_required`, `internal_error`). |
+| `category` | Broad class (see below) telling the agent whose fault the failure is. |
+| `message` | The specific failure. |
+| `hint` | The corrective action, when the caller can take one. |
+
+**Categories**
+
+| Category | Whose fault | What to do |
+|----------|-------------|------------|
+| `client_input` | The call | Fix the arguments and retry. |
+| `not_found` | The call | The named resource does not exist; correct the reference. |
+| `authentication_failed` | The caller's identity | Provide valid credentials. |
+| `authorization_denied` | The caller's identity | The persona is not permitted; request access. |
+| `user_declined` | The user | A consent prompt was declined. |
+| `setup_required` | Session state | Call the required setup tool first. |
+| `feature_unavailable` | Deployment config | The feature is not enabled on this deployment; do not present it as an outage. |
+| `internal` | The platform | Not the caller's fault; do not retry with modified input. |
+| `tool_error` | Unclassified | A tool failure that has not been given a finer category; the message is still descriptive. |
+
+The contract is uniform by construction: a normalization layer guarantees every error result carries this envelope even when an individual tool returns only a bare message, so an agent never receives an opaque, undifferentiated string. The `category` is also recorded on the audit log (`error_category`) for operators.
+
 ## Trino Tools
 
 ### trino_query

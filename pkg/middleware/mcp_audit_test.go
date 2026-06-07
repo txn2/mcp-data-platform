@@ -570,7 +570,7 @@ func TestBuildMCPAuditEvent_ErrorCategory(t *testing.T) {
 		pc.Transport = "http"
 		pc.Source = testAuditSourceMCP
 
-		result := createCategorizedErrorResult(ErrCategoryAuth, "auth failed")
+		result := BuildErrorResult(&PlatformError{Category: ErrCategoryAuth, Message: "auth failed"})
 		event := buildMCPAuditEvent(pc, auditCallInfo{
 			Request:   createAuditTestRequest(t, testAuditToolName, nil),
 			Result:    result,

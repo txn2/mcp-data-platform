@@ -48,13 +48,25 @@ func searchResultMap(t *testing.T, r *mcp.CallToolResult) map[string]any {
 	return m
 }
 
+// errText returns the human-readable text content of an error result. Error
+// results carry a self-describing message (and, via the error-contract
+// middleware end to end, a structured envelope); the toolkit handler tests
+// assert on the message substring here.
+func errText(t *testing.T, r *mcp.CallToolResult) string {
+	t.Helper()
+	require.NotEmpty(t, r.Content)
+	tc, ok := r.Content[0].(*mcp.TextContent)
+	require.True(t, ok)
+	return tc.Text
+}
+
 func TestHandleSearch_Unavailable(t *testing.T) {
 	// Plain in-memory store does not implement portal.AssetSearcher.
 	tk := New(Config{Name: "test", AssetStore: newInMemoryAssetStore(), S3Bucket: "b"})
 	r, _, _ := tk.handleManageArtifact(searchCtx(), nil,
 		manageArtifactInput{Action: actionSearch, Query: "x"})
 	require.True(t, r.IsError)
-	assert.Contains(t, searchResultMap(t, r)["error"], "unavailable")
+	assert.Contains(t, errText(t, r), "unavailable")
 }
 
 func TestHandleSearch_MissingQuery(t *testing.T) {
@@ -63,7 +75,7 @@ func TestHandleSearch_MissingQuery(t *testing.T) {
 	r, _, _ := tk.handleManageArtifact(searchCtx(), nil,
 		manageArtifactInput{Action: actionSearch, Query: "   "})
 	require.True(t, r.IsError)
-	assert.Contains(t, searchResultMap(t, r)["error"], "query is required")
+	assert.Contains(t, errText(t, r), "required")
 }
 
 func TestHandleSearch_FailClosedAnonymous(t *testing.T) {
@@ -73,7 +85,7 @@ func TestHandleSearch_FailClosedAnonymous(t *testing.T) {
 	r, _, _ := tk.handleManageArtifact(context.Background(), nil,
 		manageArtifactInput{Action: actionSearch, Query: "sales"})
 	require.True(t, r.IsError)
-	assert.Contains(t, searchResultMap(t, r)["error"], "user identity")
+	assert.Contains(t, errText(t, r), "user identity")
 }
 
 func TestHandleSearch_FailClosedWhitespaceIdentity(t *testing.T) {
@@ -82,7 +94,7 @@ func TestHandleSearch_FailClosedWhitespaceIdentity(t *testing.T) {
 	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "   ", UserEmail: searchTestEmail})
 	r, _, _ := tk.handleManageArtifact(ctx, nil, manageArtifactInput{Action: actionSearch, Query: "sales"})
 	require.True(t, r.IsError)
-	assert.Contains(t, searchResultMap(t, r)["error"], "user identity")
+	assert.Contains(t, errText(t, r), "user identity")
 }
 
 func TestHandleSearch_Success(t *testing.T) {

@@ -2364,6 +2364,16 @@ func (p *Platform) finalizeSetup() {
 		)
 	}
 
+	// 3.5. Error contract - normalizes every tools/call error result into a
+	// self-describing {code, category, message, hint} envelope and recovers a
+	// panicking handler into a categorized internal error (#539). Registered
+	// inner to Audit/Metrics so they observe the normalized category, and outer
+	// to the handler whose results it normalizes. Always on: an uncategorized
+	// error result must never reach the agent as an opaque string.
+	p.mcpServer.AddReceivingMiddleware(
+		middleware.MCPErrorContractMiddleware(),
+	)
+
 	// 4. Audit - logs tool calls (reads PlatformContext set by Auth/Authz above)
 	if !isExplicitlyDisabled(p.config.Audit.Enabled) && p.config.Audit.LogToolCalls {
 		p.mcpServer.AddReceivingMiddleware(

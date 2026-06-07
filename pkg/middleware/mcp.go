@@ -66,17 +66,30 @@ const (
 	ErrCategoryDeclined = "user_declined"
 )
 
-// PlatformError is a categorized error for structured audit and client handling.
+// PlatformError is a categorized, self-describing error for structured audit
+// and agent-facing handling. Code is a stable machine-readable identifier
+// (snake_case, e.g. "missing_required_parameter"); Category is the broad class
+// an agent branches on (see the ErrCategory* constants); Hint is the corrective
+// action the caller can take. Code and Hint are optional for backward
+// compatibility; errors carrying only Category + Message still work and are
+// enriched to the full contract by MCPErrorContractMiddleware.
 type PlatformError struct {
 	Category string
 	Message  string
+	Code     string
+	Hint     string
 }
 
-// Error implements the error interface.
+// Error implements the error interface. It returns the bare message so audit
+// and logging keep their existing shape; the agent-facing text (with code and
+// hint) is built by BuildErrorResult.
 func (e *PlatformError) Error() string { return e.Message }
 
 // ErrorCategory implements CategorizedError.
 func (e *PlatformError) ErrorCategory() string { return e.Category }
+
+// ErrorCode returns the stable machine-readable code, or "" if unset.
+func (e *PlatformError) ErrorCode() string { return e.Code }
 
 // ToolCallConfig holds configuration for MCPToolCallMiddleware.
 type ToolCallConfig struct {
@@ -247,7 +260,11 @@ func authenticateAndAuthorize(
 				"request_id", params.pc.RequestID,
 				"error", err.Error(),
 			)
-			return createCategorizedErrorResult(ErrCategoryAuth, "authentication failed: "+err.Error()), nil
+			return BuildErrorResult(NewToolError(
+				CodeUnauthenticated, ErrCategoryAuth,
+				"authentication failed: "+err.Error(),
+				"Provide valid credentials (a Bearer token or API key) and retry. This is an identity problem, not a platform outage.",
+			)), nil
 		}
 	}
 
@@ -273,7 +290,11 @@ func authenticateAndAuthorize(
 			"reason", reason,
 			"request_id", params.pc.RequestID,
 		)
-		return createCategorizedErrorResult(ErrCategoryAuthz, "not authorized: "+reason), nil
+		return BuildErrorResult(NewToolError(
+			CodeUnauthorized, ErrCategoryAuthz,
+			"not authorized: "+reason,
+			authzHint(personaName, params.toolName),
+		)), nil
 	}
 
 	authType := ""
@@ -394,15 +415,6 @@ func extractToolName(req mcp.Request) (string, error) {
 // which are genuine protocol-level errors rather than tool-level failures.
 func newInvalidParamsError(msg string) *jsonrpc.Error {
 	return &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: msg}
-}
-
-// createCategorizedErrorResult creates an MCP error result with a category
-// for structured audit queries. The category is embedded in the error and
-// extractable via ErrorCategory().
-func createCategorizedErrorResult(category, errMsg string) mcp.Result {
-	result := &mcp.CallToolResult{}
-	result.SetError(&PlatformError{Category: category, Message: errMsg})
-	return result
 }
 
 // CategorizedError is implemented by errors that carry a category for audit.

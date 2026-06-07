@@ -92,9 +92,15 @@ func buildMCPAuditEvent(pc *PlatformContext, info auditCallInfo) AuditEvent {
 		errorCategory = ErrorCategory(info.Err)
 	} else if callResult != nil && callResult.IsError {
 		success = false
-		errorMsg = extractMCPErrorMessage(callResult)
+		// Prefer the structured error's bare message (no code/hint suffix) so
+		// the audit row stays terse; the self-describing text and structured
+		// envelope are for the agent, not the audit log. Fall back to the
+		// rendered text content for results that carry no stashed error.
 		if getErr := callResult.GetError(); getErr != nil {
+			errorMsg = getErr.Error()
 			errorCategory = ErrorCategory(getErr)
+		} else {
+			errorMsg = extractMCPErrorMessage(callResult)
 		}
 	}
 

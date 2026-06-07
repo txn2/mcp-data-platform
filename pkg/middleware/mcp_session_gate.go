@@ -218,10 +218,12 @@ func createSessionGateError(initTool, blockedTool string) mcp.Result {
 		initTool, blockedTool, initTool, initTool,
 	)
 
-	result := &mcp.CallToolResult{}
-	result.SetError(&PlatformError{
-		Category: ErrCategorySetupRequired,
-		Message:  msg,
-	})
-	return result
+	// Build the full self-describing contract here: the session gate
+	// short-circuits before the error-contract normalizer (it is registered
+	// outer to it), so it must emit the {code, category, message, hint}
+	// envelope itself rather than rely on enrichment.
+	return BuildErrorResult(NewToolError(
+		CodeSetupRequired, ErrCategorySetupRequired, msg,
+		fmt.Sprintf("Call %s first, then retry. This is a session-setup requirement, not a platform outage.", initTool),
+	))
 }

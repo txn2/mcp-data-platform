@@ -61,6 +61,9 @@ const (
 	fieldMessage = "message"
 	fieldTotal   = "total"
 
+	// assetNotFoundHint is the corrective hint on an asset-not-found error.
+	assetNotFoundHint = "Verify the asset_id; call manage_artifact action=list to see your assets."
+
 	// anonymousUserName is the fallback owner identifier when the request has
 	// no authenticated user (no PlatformContext or empty user/email).
 	anonymousUserName = "anonymous"
@@ -454,7 +457,7 @@ func (t *Toolkit) handleGet(ctx context.Context, input manageArtifactInput) (*mc
 
 	asset, err := t.assetStore.Get(ctx, input.AssetID)
 	if err != nil {
-		return errorResult("asset not found: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return middleware.NotFoundResult("asset not found: "+err.Error(), assetNotFoundHint), nil, nil //nolint:nilerr // MCP protocol
 	}
 
 	if asset.DeletedAt != nil {
@@ -471,7 +474,7 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageArtifactInput) (
 
 	asset, err := t.assetStore.Get(ctx, input.AssetID)
 	if err != nil {
-		return errorResult("asset not found: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return middleware.NotFoundResult("asset not found: "+err.Error(), assetNotFoundHint), nil, nil //nolint:nilerr // MCP protocol
 	}
 
 	ownerID := resolveOwnerID(ctx)
@@ -552,7 +555,7 @@ func (t *Toolkit) handleDelete(ctx context.Context, input manageArtifactInput) (
 
 	asset, err := t.assetStore.Get(ctx, input.AssetID)
 	if err != nil {
-		return errorResult("asset not found: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return middleware.NotFoundResult("asset not found: "+err.Error(), assetNotFoundHint), nil, nil //nolint:nilerr // MCP protocol
 	}
 
 	ownerID := resolveOwnerID(ctx)
@@ -599,7 +602,7 @@ func (t *Toolkit) handleRevert(ctx context.Context, input manageArtifactInput) (
 
 	asset, err := t.assetStore.Get(ctx, input.AssetID)
 	if err != nil {
-		return errorResult("asset not found: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return middleware.NotFoundResult("asset not found: "+err.Error(), assetNotFoundHint), nil, nil //nolint:nilerr // MCP protocol
 	}
 
 	ownerID := resolveOwnerID(ctx)
@@ -609,7 +612,7 @@ func (t *Toolkit) handleRevert(ctx context.Context, input manageArtifactInput) (
 
 	targetVer, err := t.versionStore.GetByVersion(ctx, input.AssetID, input.Version)
 	if err != nil {
-		return errorResult("version not found: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return middleware.NotFoundResult("version not found: "+err.Error(), "Call manage_artifact action=list_versions to see valid version numbers."), nil, nil //nolint:nilerr // MCP protocol
 	}
 
 	if t.s3Client == nil {
