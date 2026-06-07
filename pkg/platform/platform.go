@@ -1645,6 +1645,7 @@ func (p *Platform) initPortal() error {
 		S3Prefix:        p.config.Portal.S3Prefix,
 		BaseURL:         p.config.Portal.PublicBaseURL,
 		MaxContentSize:  p.config.Portal.MaxContentSize,
+		Embedder:        p.embeddingProv,
 	})
 
 	if err := p.toolkitRegistry.Register(tk); err != nil {

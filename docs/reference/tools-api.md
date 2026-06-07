@@ -1108,14 +1108,15 @@ List, retrieve, update, or delete saved artifacts. All mutations enforce ownersh
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `action` | string | Yes | - | One of: `list`, `get`, `update`, `delete` |
+| `action` | string | Yes | - | One of: `list`, `get`, `update`, `delete`, `search` |
 | `asset_id` | string | Conditional | - | Required for `get`, `update`, `delete` |
 | `content` | string | No | - | New content (for `update` — replaces S3 object) |
 | `name` | string | No | - | New name (for `update`) |
 | `description` | string | No | - | New description (for `update`) |
 | `tags` | array | No | - | New tags (for `update`) |
 | `content_type` | string | No | - | New content type (for `update`, only when replacing content) |
-| `limit` | integer | No | 50 | Max results for `list` (max 200) |
+| `query` | string | Conditional | - | Free-text relevance query (required for `search`) |
+| `limit` | integer | No | 50 | Max results for `list` (max 200); ranked `search` defaults to 20 (max 100) |
 
 **Actions:**
 
@@ -1125,6 +1126,7 @@ List, retrieve, update, or delete saved artifacts. All mutations enforce ownersh
 | `get` | Retrieve full asset metadata | `asset_id` |
 | `update` | Change metadata or replace content | `asset_id` |
 | `delete` | Soft-delete an artifact | `asset_id` |
+| `search` | Rank the caller's own assets by relevance to `query` (hybrid vector + lexical, lexical-only fallback). Returns each match with a `score` plus a `ranking` field; scoped server-side to the caller's own assets by `owner_id` (the library's ownership key) and fails closed without an identity. | `query` |
 
 **Response Schema (list):**
 

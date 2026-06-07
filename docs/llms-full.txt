@@ -1482,18 +1482,21 @@ Response includes asset_id, portal_url (if public_base_url configured), provenan
 
 ### manage_artifact
 
-List, retrieve, update, or delete saved artifacts. Ownership enforced — users can only modify their own artifacts.
+List, retrieve, update, delete, or relevance-search saved artifacts. Ownership enforced — users can only modify or find their own artifacts.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `action` | string | Yes | - | list, get, update, delete |
+| `action` | string | Yes | - | list, get, update, delete, search |
 | `asset_id` | string | Conditional | - | Required for get, update, delete |
 | `content` | string | No | - | New content (for update — replaces S3 object) |
 | `name` | string | No | - | New name (for update) |
 | `description` | string | No | - | New description (for update) |
 | `tags` | array | No | - | New tags (for update) |
 | `content_type` | string | No | - | New content type (for update, only when replacing content) |
-| `limit` | integer | No | 50 | Max results for list (max 200) |
+| `query` | string | Conditional | - | Free-text relevance query (required for search) |
+| `limit` | integer | No | 50 | Max results for list (max 200); ranked search defaults to 20 (max 100) |
+
+The `search` action ranks the caller's own assets by relevance to `query` using the shared hybrid (vector + lexical) ranking — weighted hybrid when an embedding provider is configured, automatic lexical-only fallback otherwise — and returns each match with a `score` plus a `ranking` field (`hybrid` or `lexical`). It is scoped server-side to the caller's own assets by `owner_id` — the same ownership key the asset library list and the update/delete checks use, so search returns exactly the assets the caller can list (note: `owner_email` is a secondary display field that can diverge from `owner_id` across API-key vs OIDC identities, so it is deliberately NOT the scope key) — and fails closed when the caller has no identity. The Portal exposes the same ranking over HTTP at `GET /api/v1/portal/assets/search?q=...` and `GET /api/v1/portal/collections/search?q=...` (each row carries a `score`), mirroring the Knowledge & Memory and prompt search endpoints.
 
 ---
 

@@ -47,7 +47,7 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | Memory | `memory_manage` | Create, update, forget, list memories (opt-in per persona) |
 | Memory | `memory_recall` | Multi-strategy memory retrieval (entity, semantic, lexical, graph, auto) |
 | Portal | `save_artifact` | Save an AI-generated artifact (JSX, HTML, SVG, etc.) |
-| Portal | `manage_artifact` | List, get, update, or delete saved artifacts |
+| Portal | `manage_artifact` | List, get, update, delete, or relevance-search saved artifacts |
 | Platform | `platform_find_tools` | Find the most relevant tools for a natural-language task, ranked by semantic similarity (persona-scoped) |
 
 ---
@@ -722,14 +722,15 @@ List, retrieve, update, or delete saved artifacts. All mutations enforce ownersh
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `action` | string | Yes | - | Action to perform: list, get, update, delete |
+| `action` | string | Yes | - | Action to perform: list, get, update, delete, search |
 | `asset_id` | string | Conditional | - | Required for get, update, delete |
 | `content` | string | No | - | New content (for update — replaces S3 object) |
 | `name` | string | No | - | New name (for update) |
 | `description` | string | No | - | New description (for update) |
 | `tags` | array | No | - | New tags (for update) |
 | `content_type` | string | No | - | New content type (for update, only when replacing content) |
-| `limit` | integer | No | 50 | Max results for list action (max 200) |
+| `query` | string | Conditional | - | Free-text relevance query (required for search) |
+| `limit` | integer | No | 50 | Max results for list (max 200); ranked search defaults to 20 (max 100) |
 
 **Actions:**
 
@@ -737,6 +738,7 @@ List, retrieve, update, or delete saved artifacts. All mutations enforce ownersh
 - **get**: Retrieve full asset metadata by ID
 - **update**: Change name, description, tags, or replace content
 - **delete**: Soft-delete an artifact
+- **search**: Rank the caller's own assets by relevance to `query`. Uses the same hybrid (vector + lexical) ranking as the prompt and Knowledge & Memory search: weighted hybrid when an embedding provider is configured, automatic lexical-only fallback otherwise. Returns each match with a `score` and reports `ranking` (`hybrid` or `lexical`). Scoped server-side to the caller's own assets by `owner_id` — the same ownership key the asset library and update/delete checks use, so search returns exactly what you see in the library — and fails closed when the caller has no identity, so a user can never find an asset they cannot view.
 
 ---
 

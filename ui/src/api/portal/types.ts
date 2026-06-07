@@ -267,3 +267,15 @@ export interface MemoryStats {
 // Search results carry a relevance score alongside the record fields.
 export type ScoredMemoryRecord = MemoryRecord & { score: number };
 export type ScoredInsight = Insight & { score: number };
+
+// Asset and collection relevance-search results nest the entity under a key
+// (matching the Go ScoredAsset / ScoredCollection payloads), mirroring
+// ScoredPrompt rather than the flat memory/insight shape.
+export interface ScoredAsset {
+  asset: Asset;
+  score: number;
+}
+export interface ScoredCollection {
+  collection: Collection;
+  score: number;
+}

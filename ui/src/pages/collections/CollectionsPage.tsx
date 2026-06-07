@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Search, FolderOpen, Plus, LayoutGrid, List, Users, Globe } from "lucide-react";
-import { useCollections, useCreateCollection } from "@/api/portal/hooks";
+import { useCollections, useCreateCollection, useSearchCollections } from "@/api/portal/hooks";
 import { AuthImg } from "@/components/AuthImg";
 import { CollectionThumbnailQueue } from "@/components/CollectionThumbnailQueue";
 
@@ -18,6 +18,7 @@ interface Props {
 
 export function CollectionsPage({ onNavigate }: Props) {
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>(getStoredViewMode);
 
   function toggleViewMode(mode: ViewMode) {
@@ -25,10 +26,22 @@ export function CollectionsPage({ onNavigate }: Props) {
     localStorage.setItem(VIEW_STORAGE_KEY, mode);
   }
 
-  const { data, isLoading } = useCollections({ search: search || undefined });
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+  const searching = debouncedSearch.trim().length > 0;
+
+  const { data, isLoading } = useCollections();
+  // Relevance search ranks the caller's own collections by semantic + keyword
+  // similarity (matching name, description, and section text) server-side.
+  const searchResults = useSearchCollections(debouncedSearch);
   const createMutation = useCreateCollection();
 
-  const collections = data?.data ?? [];
+  const collections = searching
+    ? (searchResults.data?.data ?? []).map((s) => s.collection)
+    : (data?.data ?? []);
+  const isLoadingList = searching ? searchResults.isLoading : isLoading;
 
   async function handleCreate() {
     if (createMutation.isPending) return;
@@ -48,7 +61,7 @@ export function CollectionsPage({ onNavigate }: Props) {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search collections..."
+            placeholder="Search collections by meaning..."
             className="w-full rounded-md border bg-background pl-9 pr-3 py-2 text-sm outline-none ring-ring focus:ring-2"
           />
         </div>
@@ -79,9 +92,14 @@ export function CollectionsPage({ onNavigate }: Props) {
       </div>
 
       {/* Results */}
-      {isLoading ? (
+      {isLoadingList ? (
         <div className="flex items-center justify-center py-12 text-muted-foreground">
-          Loading...
+          {searching ? "Searching..." : "Loading..."}
+        </div>
+      ) : searching && collections.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+          <Search className="h-12 w-12 mb-2 opacity-30" />
+          <p className="text-sm font-medium">No collections match &ldquo;{debouncedSearch.trim()}&rdquo;</p>
         </div>
       ) : collections.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
@@ -223,10 +241,18 @@ export function CollectionsPage({ onNavigate }: Props) {
         </div>
       )}
 
-      {data && data.total > data.limit && (
-        <p className="text-sm text-muted-foreground text-center">
-          Showing {collections.length} of {data.total} collections
-        </p>
+      {searching ? (
+        collections.length > 0 && (
+          <p className="text-xs text-muted-foreground text-center">
+            Ranked by relevance to &ldquo;{debouncedSearch.trim()}&rdquo; across your collections.
+          </p>
+        )
+      ) : (
+        data && data.total > data.limit && (
+          <p className="text-sm text-muted-foreground text-center">
+            Showing {collections.length} of {data.total} collections
+          </p>
+        )
       )}
 
       <CollectionThumbnailQueue collections={collections} />
