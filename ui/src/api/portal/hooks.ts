@@ -231,6 +231,7 @@ export function useRevokeShare() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["shares"] });
       void qc.invalidateQueries({ queryKey: ["collection-shares"] });
+      void qc.invalidateQueries({ queryKey: ["prompt-shares"] });
     },
   });
 }
@@ -573,6 +574,52 @@ export function useCreateCollectionShare() {
       void qc.invalidateQueries({ queryKey: ["collection-shares", vars.collectionId] });
       void qc.invalidateQueries({ queryKey: ["collections"] });
     },
+  });
+}
+
+export function usePromptShares(promptId: string) {
+  return useQuery({
+    queryKey: ["prompt-shares", promptId],
+    queryFn: () => apiFetch<Share[]>(`/prompts/${promptId}/shares`),
+    enabled: !!promptId,
+  });
+}
+
+export function useCreatePromptShare() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      promptId,
+      ...body
+    }: {
+      promptId: string;
+      shared_with_user_id?: string;
+      shared_with_email?: string;
+      permission?: SharePermission;
+    }) =>
+      apiFetch<ShareResponse>(`/prompts/${promptId}/shares`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: (_, vars) => {
+      void qc.invalidateQueries({ queryKey: ["prompt-shares", vars.promptId] });
+    },
+  });
+}
+
+// SharedPromptItem is a prompt shared with the current user plus share metadata.
+export interface SharedPromptItem {
+  prompt: import("@/api/admin/types").Prompt;
+  share_id: string;
+  shared_by: string;
+  shared_at: string;
+  permission: SharePermission;
+}
+
+export function useSharedPrompts() {
+  return useQuery({
+    queryKey: ["shared-prompts"],
+    queryFn: () => apiFetch<SharedPromptItem[]>("/shared-prompts"),
   });
 }
 

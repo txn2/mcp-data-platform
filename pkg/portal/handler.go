@@ -1159,10 +1159,11 @@ func (h *Handler) createShare(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, resp)
 }
 
-// shareTarget identifies what a share is for — either an asset or a collection.
+// shareTarget identifies what a share is for: an asset, a collection, or a prompt.
 type shareTarget struct {
 	AssetID      string
 	CollectionID string
+	PromptID     string
 }
 
 // buildShare validates the request and constructs a Share, returning an error for invalid input.
@@ -1196,6 +1197,7 @@ func buildShare(target shareTarget, createdBy string, req createShareRequest) (S
 		ID:               uuid.New().String(),
 		AssetID:          target.AssetID,
 		CollectionID:     target.CollectionID,
+		PromptID:         target.PromptID,
 		Token:            token,
 		CreatedBy:        createdBy,
 		SharedWithUserID: req.SharedWithUserID,
@@ -1291,12 +1293,27 @@ func (h *Handler) revokeShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if share.CollectionID != "" {
+	switch {
+	case share.PromptID != "":
+		if h.deps.PromptStore == nil {
+			writeError(w, http.StatusNotFound, "associated prompt not found")
+			return
+		}
+		pr, err := h.deps.PromptStore.GetByID(r.Context(), share.PromptID)
+		if err != nil || pr == nil {
+			writeError(w, http.StatusNotFound, "associated prompt not found")
+			return
+		}
+		if pr.OwnerEmail != user.Email {
+			writeError(w, http.StatusForbidden, "only the owner can revoke this share")
+			return
+		}
+	case share.CollectionID != "":
 		if err := h.verifyCollectionOwner(r.Context(), share.CollectionID, user); err != nil {
 			writeError(w, err.code, err.message)
 			return
 		}
-	} else {
+	default:
 		asset, err := h.deps.AssetStore.Get(r.Context(), share.AssetID)
 		if err != nil {
 			writeError(w, http.StatusNotFound, "associated asset not found")

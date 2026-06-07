@@ -77,6 +77,14 @@ func (m *mockCollectionShareStore) ListByCollection(_ context.Context, _ string)
 	return m.listByCollRes, m.listByCollErr
 }
 
+func (*mockCollectionShareStore) ListByPrompt(_ context.Context, _ string) ([]Share, error) {
+	return nil, nil
+}
+
+func (*mockCollectionShareStore) ListSharedPromptsWithUser(_ context.Context, _, _ string) ([]SharedPromptRef, error) {
+	return nil, nil
+}
+
 func (m *mockCollectionShareStore) GetUserCollectionPermission(_ context.Context, _, _, _ string) (SharePermission, error) {
 	return m.collPermission, m.collPermErr
 }

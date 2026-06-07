@@ -130,14 +130,15 @@ The Resources page provides:
 
 ## Shared With Me
 
-The Shared With Me page shows assets and collections that other users have shared with you.
+The Shared With Me page shows assets, collections, and prompts that other users have shared with you.
 
 ![Shared With Me](../images/screenshots/light/user-shared-light.webp#only-light)![Shared With Me](../images/screenshots/dark/user-shared-dark.webp#only-dark)
 
-Two tabs:
+Three tabs:
 
 - **Assets** — Shared assets displayed in grid or table view with content type badges, tags, sharer name, permission level (Viewer/Editor), file size, and share date
 - **Collections** — Shared collections with name, description, sharer, access level, and share date
+- **Prompts** — Prompts shared with you, with name, description, sharer, access level, and share date. These are real runnable prompts: your agent can invoke a shared prompt over MCP as `shared-<name>`
 
 Click any shared asset to open it in the viewer:
 
@@ -191,6 +192,11 @@ Features:
 - **Tags** — Free-form, comma-separated labels for organizing prompts, set on create and edit and shown as chips
 - **New Prompt** — Create prompts with name, display name, description, content (supports `{arg}` placeholders), category, and tags
 - **Request Promotion** — On your own personal prompt, ask an admin to promote it to a persona (you choose which) or to global scope. The prompt stays personal and shows a "Promotion requested" badge until an admin approves or rejects it in the admin review queue.
+- **Share** — Share your prompt directly with another user by email. The recipient gets a real, runnable prompt (with its arguments intact), not a markdown snapshot. "Save as Asset" remains a separate action for exporting the content as a markdown asset.
+
+### Sharing a prompt
+
+Open your prompt and choose **Share**, then enter a recipient's email. The recipient sees it under **Shared With Me → Prompts** and their agent can run it over MCP as `shared-<name>` (auto-deduplicated if names collide). Sharing is owner-initiated and does not require admin approval; revoke a share any time from the Share dialog. Markdown export ("Save as Asset") is a distinct action for documentation or external sharing.
 
 ### Requesting promotion
 

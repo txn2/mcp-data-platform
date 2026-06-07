@@ -447,6 +447,7 @@ func toMCPPromptArgs(args []prompt.Argument) []*mcp.PromptArgument {
 const (
 	promptPrefixPersonal = "personal-"
 	promptPrefixGlobal   = "global-"
+	promptPrefixShared   = "shared-"
 )
 
 // promptDescriptor builds an MCP prompt descriptor under a presented (prefixed)
@@ -472,6 +473,38 @@ func (p *Platform) listVisiblePrompts(ctx context.Context, email string, persona
 	out = append(out, p.listPersonaDescriptors(ctx, personas)...)
 	if email != "" {
 		out = append(out, p.listScopedDescriptors(ctx, prompt.ListFilter{Scope: prompt.ScopePersonal, OwnerEmail: email}, promptPrefixPersonal)...)
+		out = append(out, p.listSharedDescriptors(ctx, email)...)
+	}
+	return out
+}
+
+// listSharedDescriptors lists prompts shared directly with the caller (by
+// another user), presenting each as shared-<name>. Shares are looked up via the
+// portal share store and the prompt bodies fetched from the prompt store. If two
+// shared prompts collide on bare name, the first (most recent share) wins so the
+// list and getDynamicPrompt agree.
+func (p *Platform) listSharedDescriptors(ctx context.Context, email string) []*mcp.Prompt {
+	if p.portalShareStore == nil {
+		return nil
+	}
+	refs, err := p.portalShareStore.ListSharedPromptsWithUser(ctx, "", email)
+	if err != nil {
+		slog.Warn("failed to list shared prompts", logKeyError, err)
+		return nil
+	}
+	var out []*mcp.Prompt
+	seen := make(map[string]bool, len(refs))
+	for _, ref := range refs {
+		pr, err := p.promptStore.GetByID(ctx, ref.PromptID)
+		// Only personal prompts are served via the shared- alias. A prompt that
+		// was promoted to a shared scope after being shared is already served
+		// under its global-/persona- prefix; serving it again as shared- would
+		// duplicate it.
+		if err != nil || pr == nil || !pr.Enabled || pr.Scope != prompt.ScopePersonal || seen[pr.Name] {
+			continue
+		}
+		seen[pr.Name] = true
+		out = append(out, promptDescriptor(promptPrefixShared+pr.Name, pr))
 	}
 	return out
 }
@@ -543,7 +576,35 @@ func (p *Platform) getDynamicPrompt(ctx context.Context, email string, personas 
 			return res, true
 		}
 	}
+	if bare, ok := strings.CutPrefix(name, promptPrefixShared); ok {
+		if res, found := p.getSharedPrompt(ctx, email, bare, args); found {
+			return res, true
+		}
+	}
 	return p.getPersonaPrompt(ctx, personas, name, args)
+}
+
+// getSharedPrompt renders a prompt shared directly with the caller, matched by
+// bare name. The first matching active share wins (consistent with the dedup in
+// listSharedDescriptors).
+func (p *Platform) getSharedPrompt(ctx context.Context, email, bare string, args map[string]string) (*mcp.GetPromptResult, bool) {
+	if email == "" || p.portalShareStore == nil {
+		return nil, false
+	}
+	refs, err := p.portalShareStore.ListSharedPromptsWithUser(ctx, "", email)
+	if err != nil {
+		return nil, false
+	}
+	for _, ref := range refs {
+		pr, err := p.promptStore.GetByID(ctx, ref.PromptID)
+		if err != nil || pr == nil || !pr.Enabled || pr.Scope != prompt.ScopePersonal {
+			continue
+		}
+		if pr.Name == bare {
+			return p.renderPrompt(pr, args)
+		}
+	}
+	return nil, false
 }
 
 // getOwnedPersonalPrompt renders the caller's own personal prompt of the bare name.

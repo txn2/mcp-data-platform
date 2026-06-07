@@ -72,9 +72,11 @@ func (*inMemorySink) Kind() string { return "test_progress" }
 func (*inMemorySink) ListExisting(_ context.Context, _ indexjobs.Key) (map[string]indexjobs.Vector, error) {
 	return nil, nil
 }
+
 func (*inMemorySink) Upsert(_ context.Context, _ indexjobs.Key, _ []indexjobs.Vector) error {
 	return nil
 }
+
 func (*inMemorySink) UpsertBatch(_ context.Context, _ indexjobs.Key, _ []indexjobs.Vector) error {
 	return nil
 }

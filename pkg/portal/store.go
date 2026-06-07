@@ -73,16 +73,18 @@ type VersionStore interface {
 	GetLatest(ctx context.Context, assetID string) (*AssetVersion, error)
 }
 
-// ShareStore persists and queries share links for assets and collections.
+// ShareStore persists and queries share links for assets, collections, and prompts.
 type ShareStore interface {
 	Insert(ctx context.Context, share Share) error
 	GetByID(ctx context.Context, id string) (*Share, error)
 	GetByToken(ctx context.Context, token string) (*Share, error)
 	ListByAsset(ctx context.Context, assetID string) ([]Share, error)
 	ListByCollection(ctx context.Context, collectionID string) ([]Share, error)
+	ListByPrompt(ctx context.Context, promptID string) ([]Share, error)
 	GetUserCollectionPermission(ctx context.Context, collectionID, userID, email string) (SharePermission, error)
 	ListSharedWithUser(ctx context.Context, userID, email string, limit, offset int) ([]SharedAsset, int, error)
 	ListSharedCollectionsWithUser(ctx context.Context, userID, email string, limit, offset int) ([]SharedCollection, int, error)
+	ListSharedPromptsWithUser(ctx context.Context, userID, email string) ([]SharedPromptRef, error)
 	ListActiveShareSummaries(ctx context.Context, assetIDs []string) (map[string]ShareSummary, error)
 	ListActiveCollectionShareSummaries(ctx context.Context, collectionIDs []string) (map[string]ShareSummary, error)
 	GetUserAssetPermissionViaCollection(ctx context.Context, assetID, userID, email string) (SharePermission, error)
@@ -488,16 +490,19 @@ func NewPostgresShareStore(db *sql.DB) ShareStore {
 func (s *postgresShareStore) Insert(ctx context.Context, share Share) error { //nolint:revive // interface impl
 	query := `
 		INSERT INTO portal_shares
-		(id, asset_id, collection_id, token, created_by, expires_at, shared_with_user_id, shared_with_email, hide_expiration, notice_text, permission)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		(id, asset_id, collection_id, prompt_id, token, created_by, expires_at, shared_with_user_id, shared_with_email, hide_expiration, notice_text, permission)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	`
 
-	var assetID, collectionID sql.NullString
+	var assetID, collectionID, promptID sql.NullString
 	if share.AssetID != "" {
 		assetID = sql.NullString{String: share.AssetID, Valid: true}
 	}
 	if share.CollectionID != "" {
 		collectionID = sql.NullString{String: share.CollectionID, Valid: true}
+	}
+	if share.PromptID != "" {
+		promptID = sql.NullString{String: share.PromptID, Valid: true}
 	}
 
 	var expiresAt sql.NullTime
@@ -521,7 +526,7 @@ func (s *postgresShareStore) Insert(ctx context.Context, share Share) error { //
 	}
 
 	_, err := s.db.ExecContext(ctx, query,
-		share.ID, assetID, collectionID, share.Token, share.CreatedBy, expiresAt, sharedWith, sharedEmail, share.HideExpiration, share.NoticeText, string(perm),
+		share.ID, assetID, collectionID, promptID, share.Token, share.CreatedBy, expiresAt, sharedWith, sharedEmail, share.HideExpiration, share.NoticeText, string(perm),
 	)
 	if err != nil {
 		return fmt.Errorf("inserting share: %w", err)
@@ -531,7 +536,7 @@ func (s *postgresShareStore) Insert(ctx context.Context, share Share) error { //
 
 func (s *postgresShareStore) GetByID(ctx context.Context, id string) (*Share, error) { //nolint:revive // interface impl
 	query := `
-		SELECT id, asset_id, collection_id, token, created_by, shared_with_user_id, shared_with_email,
+		SELECT id, asset_id, collection_id, prompt_id, token, created_by, shared_with_user_id, shared_with_email,
 		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission
 		FROM portal_shares WHERE id = $1
 	`
@@ -540,7 +545,7 @@ func (s *postgresShareStore) GetByID(ctx context.Context, id string) (*Share, er
 
 func (s *postgresShareStore) GetByToken(ctx context.Context, token string) (*Share, error) { //nolint:revive // interface impl
 	query := `
-		SELECT id, asset_id, collection_id, token, created_by, shared_with_user_id, shared_with_email,
+		SELECT id, asset_id, collection_id, prompt_id, token, created_by, shared_with_user_id, shared_with_email,
 		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission
 		FROM portal_shares WHERE token = $1
 	`
@@ -549,7 +554,7 @@ func (s *postgresShareStore) GetByToken(ctx context.Context, token string) (*Sha
 
 func (s *postgresShareStore) ListByAsset(ctx context.Context, assetID string) ([]Share, error) { //nolint:revive // interface impl
 	query := `
-		SELECT id, asset_id, collection_id, token, created_by, shared_with_user_id, shared_with_email,
+		SELECT id, asset_id, collection_id, prompt_id, token, created_by, shared_with_user_id, shared_with_email,
 		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission
 		FROM portal_shares WHERE asset_id = $1 ORDER BY created_at DESC
 	`
@@ -558,11 +563,52 @@ func (s *postgresShareStore) ListByAsset(ctx context.Context, assetID string) ([
 
 func (s *postgresShareStore) ListByCollection(ctx context.Context, collectionID string) ([]Share, error) { //nolint:revive // interface impl
 	query := `
-		SELECT id, asset_id, collection_id, token, created_by, shared_with_user_id, shared_with_email,
+		SELECT id, asset_id, collection_id, prompt_id, token, created_by, shared_with_user_id, shared_with_email,
 		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission
 		FROM portal_shares WHERE collection_id = $1 ORDER BY created_at DESC
 	`
 	return s.listShares(ctx, query, collectionID)
+}
+
+func (s *postgresShareStore) ListByPrompt(ctx context.Context, promptID string) ([]Share, error) { //nolint:revive // interface impl
+	query := `
+		SELECT id, asset_id, collection_id, prompt_id, token, created_by, shared_with_user_id, shared_with_email,
+		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission
+		FROM portal_shares WHERE prompt_id = $1 ORDER BY created_at DESC
+	`
+	return s.listShares(ctx, query, promptID)
+}
+
+// ListSharedPromptsWithUser returns active (non-revoked, unexpired) prompt
+// shares targeting the given user id or email, most recent first. Only share
+// references are returned; the prompt bodies are fetched from the prompt store.
+func (s *postgresShareStore) ListSharedPromptsWithUser(ctx context.Context, userID, email string) ([]SharedPromptRef, error) { //nolint:revive // interface impl
+	query := `
+		SELECT prompt_id, id, created_by, created_at, permission
+		FROM portal_shares
+		WHERE prompt_id IS NOT NULL AND revoked = FALSE
+		  AND (expires_at IS NULL OR expires_at > NOW())
+		  AND ( ($1 <> '' AND shared_with_user_id = $1) OR ($2 <> '' AND LOWER(shared_with_email) = LOWER($2)) )
+		ORDER BY created_at DESC
+	`
+	rows, err := s.db.QueryContext(ctx, query, userID, email)
+	if err != nil {
+		return nil, fmt.Errorf("querying shared prompts: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck // best-effort cleanup after read-only query
+
+	var refs []SharedPromptRef
+	for rows.Next() {
+		var r SharedPromptRef
+		if err := rows.Scan(&r.PromptID, &r.ShareID, &r.SharedBy, &r.SharedAt, &r.Permission); err != nil {
+			return nil, fmt.Errorf("scanning shared prompt: %w", err)
+		}
+		refs = append(refs, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating shared prompt rows: %w", err)
+	}
+	return refs, nil
 }
 
 func (s *postgresShareStore) GetUserCollectionPermission(ctx context.Context, collectionID, userID, email string) (SharePermission, error) { //nolint:revive // interface impl
@@ -861,12 +907,12 @@ func (s *postgresShareStore) IncrementAccess(ctx context.Context, id string) err
 
 func (s *postgresShareStore) scanShare(ctx context.Context, query, arg string) (*Share, error) {
 	var share Share
-	var assetID, collectionID sql.NullString
+	var assetID, collectionID, promptID sql.NullString
 	var expiresAt, lastAccessed sql.NullTime
 	var sharedWith, sharedEmail sql.NullString
 
 	err := s.db.QueryRowContext(ctx, query, arg).Scan(
-		&share.ID, &assetID, &collectionID, &share.Token, &share.CreatedBy,
+		&share.ID, &assetID, &collectionID, &promptID, &share.Token, &share.CreatedBy,
 		&sharedWith, &sharedEmail, &expiresAt, &share.Revoked,
 		&share.HideExpiration, &share.NoticeText, &share.AccessCount, &lastAccessed, &share.CreatedAt, &share.Permission,
 	)
@@ -879,6 +925,9 @@ func (s *postgresShareStore) scanShare(ctx context.Context, query, arg string) (
 	}
 	if collectionID.Valid {
 		share.CollectionID = collectionID.String
+	}
+	if promptID.Valid {
+		share.PromptID = promptID.String
 	}
 	if sharedWith.Valid {
 		share.SharedWithUserID = sharedWith.String
@@ -952,6 +1001,14 @@ func (*noopShareStore) ListByAsset(_ context.Context, _ string) ([]Share, error)
 }
 
 func (*noopShareStore) ListByCollection(_ context.Context, _ string) ([]Share, error) { //nolint:revive // interface impl
+	return nil, nil
+}
+
+func (*noopShareStore) ListByPrompt(_ context.Context, _ string) ([]Share, error) { //nolint:revive // interface impl
+	return nil, nil
+}
+
+func (*noopShareStore) ListSharedPromptsWithUser(_ context.Context, _, _ string) ([]SharedPromptRef, error) { //nolint:revive // interface impl
 	return nil, nil
 }
 
@@ -1049,12 +1106,12 @@ func scanAssetRow(rows *sql.Rows) (Asset, error) {
 
 func scanShareRow(rows *sql.Rows) (Share, error) {
 	var share Share
-	var assetID, collectionID sql.NullString
+	var assetID, collectionID, promptID sql.NullString
 	var expiresAt, lastAccessed sql.NullTime
 	var sharedWith, sharedEmail sql.NullString
 
 	if err := rows.Scan(
-		&share.ID, &assetID, &collectionID, &share.Token, &share.CreatedBy,
+		&share.ID, &assetID, &collectionID, &promptID, &share.Token, &share.CreatedBy,
 		&sharedWith, &sharedEmail, &expiresAt, &share.Revoked,
 		&share.HideExpiration, &share.NoticeText, &share.AccessCount, &lastAccessed, &share.CreatedAt, &share.Permission,
 	); err != nil {
@@ -1066,6 +1123,9 @@ func scanShareRow(rows *sql.Rows) (Share, error) {
 	}
 	if collectionID.Valid {
 		share.CollectionID = collectionID.String
+	}
+	if promptID.Valid {
+		share.PromptID = promptID.String
 	}
 	if sharedWith.Valid {
 		share.SharedWithUserID = sharedWith.String

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -17,9 +18,10 @@ import (
 // --- Mock PromptStore ---
 
 type mockPromptStore struct {
-	prompts   map[string]*prompt.Prompt
-	createErr error
-	updateErr error
+	prompts    map[string]*prompt.Prompt
+	createErr  error
+	updateErr  error
+	getByIDErr error
 }
 
 func newMockPromptStore() *mockPromptStore {
@@ -50,6 +52,9 @@ func (m *mockPromptStore) GetPersonal(_ context.Context, ownerEmail, name string
 }
 
 func (m *mockPromptStore) GetByID(_ context.Context, id string) (*prompt.Prompt, error) {
+	if m.getByIDErr != nil {
+		return nil, m.getByIDErr
+	}
 	for _, p := range m.prompts {
 		if p.ID == id {
 			return p, nil
@@ -368,4 +373,273 @@ func TestPortalUpdatePrompt_AllFields(t *testing.T) {
 	assert.Equal(t, "new content", p.Content)
 	assert.Equal(t, "analytics", p.Category)
 	assert.Len(t, p.Arguments, 1)
+}
+
+func newTestPortalPromptShareHandler() (*Handler, *mockPromptStore, *mockShareStore) {
+	pstore := newMockPromptStore()
+	sstore := &mockShareStore{}
+	h := NewHandler(Deps{
+		PromptStore: pstore,
+		ShareStore:  sstore,
+		AdminRoles:  []string{"admin"},
+		AssetStore:  &noopAssetStore{},
+	}, nil)
+	return h, pstore, sstore
+}
+
+func TestCreatePromptShare_OwnerOnly(t *testing.T) {
+	h, store, sstore := newTestPortalPromptShareHandler()
+	store.prompts["report"] = &prompt.Prompt{
+		ID: "p1", Name: "report", Scope: prompt.ScopePersonal, OwnerEmail: "alice@example.com",
+	}
+	body, _ := json.Marshal(createShareRequest{SharedWithEmail: "bob@example.com", Permission: "viewer"})
+
+	// Owner can share.
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/portal/prompts/p1/shares", bytes.NewReader(body)), "alice@example.com")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusCreated, w.Code)
+	require.NotNil(t, sstore.inserted)
+	assert.Equal(t, "p1", sstore.inserted.PromptID)
+	assert.Equal(t, "bob@example.com", sstore.inserted.SharedWithEmail)
+
+	// A non-owner cannot.
+	req = withUser(httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/portal/prompts/p1/shares", bytes.NewReader(body)), "mallory@example.com")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestCreatePromptShare_RejectsNonPersonal(t *testing.T) {
+	h, store, _ := newTestPortalPromptShareHandler()
+	store.prompts["g"] = &prompt.Prompt{ID: "g1", Name: "g", Scope: prompt.ScopeGlobal, OwnerEmail: "alice@example.com"}
+	body, _ := json.Marshal(createShareRequest{SharedWithEmail: "bob@example.com"})
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/portal/prompts/g1/shares", bytes.NewReader(body)), "alice@example.com")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestListSharedPrompts(t *testing.T) {
+	h, store, sstore := newTestPortalPromptShareHandler()
+	store.prompts["report"] = &prompt.Prompt{ID: "p1", Name: "report", Scope: prompt.ScopePersonal, OwnerEmail: "alice@example.com"}
+	sstore.promptRefs = []SharedPromptRef{{PromptID: "p1", ShareID: "s1", SharedBy: "alice@example.com", Permission: "viewer"}}
+
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/portal/shared-prompts", http.NoBody), "bob@example.com")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var out []SharedPrompt
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	require.Len(t, out, 1)
+	assert.Equal(t, "report", out[0].Prompt.Name)
+	assert.Equal(t, "alice@example.com", out[0].SharedBy)
+}
+
+func TestCreatePromptShare_RequiresRecipient(t *testing.T) {
+	h, store, _ := newTestPortalPromptShareHandler()
+	store.prompts["report"] = &prompt.Prompt{ID: "p1", Name: "report", Scope: prompt.ScopePersonal, OwnerEmail: "alice@example.com"}
+	body, _ := json.Marshal(createShareRequest{}) // no recipient
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/portal/prompts/p1/shares", bytes.NewReader(body)), "alice@example.com")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCreatePromptShare_RejectsSelfShare(t *testing.T) {
+	h, store, _ := newTestPortalPromptShareHandler()
+	store.prompts["report"] = &prompt.Prompt{ID: "p1", Name: "report", Scope: prompt.ScopePersonal, OwnerEmail: "alice@example.com"}
+	body, _ := json.Marshal(createShareRequest{SharedWithEmail: "Alice@example.com"})
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/portal/prompts/p1/shares", bytes.NewReader(body)), "alice@example.com")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCreatePromptShare_NotFound(t *testing.T) {
+	h, _, _ := newTestPortalPromptShareHandler()
+	body, _ := json.Marshal(createShareRequest{SharedWithEmail: "bob@example.com"})
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/portal/prompts/missing/shares", bytes.NewReader(body)), "alice@example.com")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestListPromptShares_OwnerOnly(t *testing.T) {
+	h, store, sstore := newTestPortalPromptShareHandler()
+	store.prompts["report"] = &prompt.Prompt{ID: "p1", Name: "report", Scope: prompt.ScopePersonal, OwnerEmail: "alice@example.com"}
+	sstore.listByAsset = nil // unused
+
+	// Owner lists.
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/portal/prompts/p1/shares", http.NoBody), "alice@example.com")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	// Non-owner forbidden.
+	req = withUser(httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/portal/prompts/p1/shares", http.NoBody), "mallory@example.com")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestRevokePromptShare_OwnerOnly(t *testing.T) {
+	h, store, sstore := newTestPortalPromptShareHandler()
+	store.prompts["report"] = &prompt.Prompt{ID: "p1", Name: "report", Scope: prompt.ScopePersonal, OwnerEmail: "alice@example.com"}
+	sstore.getByIDShare = &Share{ID: "s1", PromptID: "p1", CreatedBy: "alice@example.com"}
+
+	// Owner revokes.
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/portal/shares/s1", http.NoBody), "alice@example.com")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	// Non-owner forbidden.
+	req = withUser(httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/portal/shares/s1", http.NoBody), "mallory@example.com")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestCreatePromptShare_GetByIDError(t *testing.T) {
+	h, store, _ := newTestPortalPromptShareHandler()
+	store.getByIDErr = fmt.Errorf("db down")
+	body, _ := json.Marshal(createShareRequest{SharedWithEmail: "bob@example.com"})
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/portal/prompts/p1/shares", bytes.NewReader(body)), "alice@example.com")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestCreatePromptShare_InvalidBody(t *testing.T) {
+	h, store, _ := newTestPortalPromptShareHandler()
+	store.prompts["report"] = &prompt.Prompt{ID: "p1", Name: "report", Scope: prompt.ScopePersonal, OwnerEmail: "alice@example.com"}
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/portal/prompts/p1/shares", bytes.NewReader([]byte("{not json"))), "alice@example.com")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCreatePromptShare_InvalidPermission(t *testing.T) {
+	h, store, _ := newTestPortalPromptShareHandler()
+	store.prompts["report"] = &prompt.Prompt{ID: "p1", Name: "report", Scope: prompt.ScopePersonal, OwnerEmail: "alice@example.com"}
+	body, _ := json.Marshal(createShareRequest{SharedWithEmail: "bob@example.com", Permission: "owner"})
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/portal/prompts/p1/shares", bytes.NewReader(body)), "alice@example.com")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCreatePromptShare_InsertError(t *testing.T) {
+	h, store, sstore := newTestPortalPromptShareHandler()
+	store.prompts["report"] = &prompt.Prompt{ID: "p1", Name: "report", Scope: prompt.ScopePersonal, OwnerEmail: "alice@example.com"}
+	sstore.insertErr = fmt.Errorf("db down")
+	body, _ := json.Marshal(createShareRequest{SharedWithEmail: "bob@example.com", Permission: "viewer"})
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/portal/prompts/p1/shares", bytes.NewReader(body)), "alice@example.com")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestCreatePromptShare_Unauthenticated(t *testing.T) {
+	h, _, _ := newTestPortalPromptShareHandler()
+	body, _ := json.Marshal(createShareRequest{SharedWithEmail: "bob@example.com"})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/portal/prompts/p1/shares", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestListPromptShares_Unauthenticated(t *testing.T) {
+	h, _, _ := newTestPortalPromptShareHandler()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/portal/prompts/p1/shares", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestListPromptShares_GetByIDError(t *testing.T) {
+	h, store, _ := newTestPortalPromptShareHandler()
+	store.getByIDErr = fmt.Errorf("db down")
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/portal/prompts/p1/shares", http.NoBody), "alice@example.com")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestListPromptShares_NotFound(t *testing.T) {
+	h, _, _ := newTestPortalPromptShareHandler()
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/portal/prompts/missing/shares", http.NoBody), "alice@example.com")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestListPromptShares_ListError(t *testing.T) {
+	h, store, sstore := newTestPortalPromptShareHandler()
+	store.prompts["report"] = &prompt.Prompt{ID: "p1", Name: "report", Scope: prompt.ScopePersonal, OwnerEmail: "alice@example.com"}
+	sstore.listByPromptE = fmt.Errorf("db down")
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/portal/prompts/p1/shares", http.NoBody), "alice@example.com")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestListSharedPrompts_Unauthenticated(t *testing.T) {
+	h, _, _ := newTestPortalPromptShareHandler()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/portal/shared-prompts", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestListSharedPrompts_ListError(t *testing.T) {
+	h, _, sstore := newTestPortalPromptShareHandler()
+	sstore.promptRefsErr = fmt.Errorf("db down")
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/portal/shared-prompts", http.NoBody), "bob@example.com")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestListSharedPrompts_SkipsMissingPrompt(t *testing.T) {
+	h, store, sstore := newTestPortalPromptShareHandler()
+	// ref points at a prompt that no longer exists; it is skipped.
+	sstore.promptRefs = []SharedPromptRef{
+		{PromptID: "gone", ShareID: "s1", SharedBy: "alice@example.com", Permission: "viewer"},
+		{PromptID: "p1", ShareID: "s2", SharedBy: "alice@example.com", Permission: "viewer"},
+	}
+	store.prompts["report"] = &prompt.Prompt{ID: "p1", Name: "report", Scope: prompt.ScopePersonal, OwnerEmail: "alice@example.com"}
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/portal/shared-prompts", http.NoBody), "bob@example.com")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	var out []SharedPrompt
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	require.Len(t, out, 1)
+	assert.Equal(t, "report", out[0].Prompt.Name)
+}
+
+func TestRevokePromptShare_PromptMissing(t *testing.T) {
+	h, _, sstore := newTestPortalPromptShareHandler()
+	// share references a prompt the store no longer has.
+	sstore.getByIDShare = &Share{ID: "s1", PromptID: "gone", CreatedBy: "alice@example.com"}
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/portal/shares/s1", http.NoBody), "alice@example.com")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestRevokePromptShare_NoPromptStore(t *testing.T) {
+	sstore := &mockShareStore{getByIDShare: &Share{ID: "s1", PromptID: "p1", CreatedBy: "alice@example.com"}}
+	h := NewHandler(Deps{
+		ShareStore: sstore,
+		AssetStore: &noopAssetStore{},
+		AdminRoles: []string{"admin"},
+	}, nil)
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/portal/shares/s1", http.NoBody), "alice@example.com")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
 }

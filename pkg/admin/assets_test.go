@@ -93,6 +93,14 @@ func (*mockAdminShareStore) ListByCollection(_ context.Context, _ string) ([]por
 	return nil, nil
 }
 
+func (*mockAdminShareStore) ListByPrompt(_ context.Context, _ string) ([]portal.Share, error) {
+	return nil, nil
+}
+
+func (*mockAdminShareStore) ListSharedPromptsWithUser(_ context.Context, _, _ string) ([]portal.SharedPromptRef, error) {
+	return nil, nil
+}
+
 func (*mockAdminShareStore) GetUserCollectionPermission(_ context.Context, _, _, _ string) (portal.SharePermission, error) {
 	return "", fmt.Errorf("no shares")
 }
