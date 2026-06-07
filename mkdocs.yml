@@ -103,6 +103,7 @@ nav:
     - Providers: reference/providers.md
     - Middleware: reference/middleware.md
   - Support:
+    - Release Highlights: release-highlights.md
     - Troubleshooting: support/troubleshooting.md
     - Research:
       - MCP Gateway Landscape Survey: research/mcp-gateway-landscape-2026.md

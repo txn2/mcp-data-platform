@@ -136,6 +136,7 @@ claude mcp add data-platform \
 
 - [Examples Gallery](https://mcp-data-platform.txn2.com/examples/): Real-world configurations for enterprise governance, data democratization, and AI/ML workflows
 - [Troubleshooting](https://mcp-data-platform.txn2.com/support/troubleshooting/): Common issues, error codes, debugging guide
+- [Release Highlights](https://mcp-data-platform.txn2.com/release-highlights/): Timeline-oriented quick reference of significant features by theme and release (v1.62.0 to v1.81.1); GitHub Releases remain the authoritative per-release changelog
 - [Ecosystem](https://mcp-data-platform.txn2.com/ecosystem/): Sister MCP projects (mcp-datahub, mcp-s3, mcp-trino) and how they compose
 - [GitHub Repository](https://github.com/txn2/mcp-data-platform): Source code, issues, and releases
 - [Security Article](https://imti.co/mcp-defense/): MCP Defense, a case study in AI security

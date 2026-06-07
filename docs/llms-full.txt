@@ -2845,6 +2845,48 @@ Security considerations: default scope is admin only (granting to another person
 
 ---
 
+# Release Highlights
+
+A timeline-oriented quick reference to the significant features and improvements shipped since v1.61.2, spanning releases v1.62.0 through v1.81.1. Work is grouped by theme and tagged with the release it landed in. The GitHub Releases (https://github.com/txn2/mcp-data-platform/releases) remain the authoritative, per-release changelog with exact commits and verification artifacts; this is a curated summary and routine dependency/CI bumps are omitted.
+
+## API Gateway (kind=api)
+
+The gateway proxies arbitrary REST and HTTP APIs through the same auth, persona, and audit pipeline as the rest of the platform. Versioned OpenAPI catalogs back connections, and `api_get_endpoint_schema` returns per-operation parameters, request body, and per-status responses (later surfacing oneOf/anyOf/allOf, response headers, and const, around v1.66.0). `api_list_specs` browses a catalog's component specs with a multi-spec gate. A REST shim (v1.63.0, `POST /api/v1/gateway/{connection}/invoke`) exposes `api_invoke_endpoint` to non-MCP HTTP clients under the same persona allowlists and audit. Auth modes added HTTP Basic (v1.65.0) and mTLS with private-CA trust plus a connection editor (v1.67.0), with OAuth connection config unified across kinds (v1.70.0). WebDAV methods (v1.68.0): PROPFIND, MKCOL, MOVE, COPY. A fix made `api_get_endpoint_schema` resolve synthesized operation ids under a base path (v1.79.2). Bounded memory and streaming: a global in-flight memory budget, a raw streaming passthrough route, `api_export` streaming directly to S3 (v1.77.0), and refusal of binary response bodies before buffering (v1.77.1). The embedding pipeline is a Postgres-backed job queue (v1.62.0) with pgvector operation embeddings and incremental embed progress (v1.64.0), warmed at connection-add time. Gateway semantics are correct: upstream status surfaced in the body, platform status reflecting platform outcomes, auth/authz denials mapping to 401/403, and Content-Type driven from the catalog.
+
+## Self-configuration and connection access
+
+The built-in `platform-admin` self-connection (v1.78.0) is a loopback API gateway connection pointed at the platform's own `/api/v1/admin/*` REST API, with its catalog sourced from the spec embedded in the binary so it always matches the running version; calls use identity passthrough so changes are authenticated and audited as the acting admin. Connection access became deny-by-default (v1.79.0): a persona reaches a connection only via an explicit `connections.allow` match (breaking: persona configs must list the connections each persona may reach). The persona-editor connection list was cleaned up (v1.79.1) so built-in toolkits with no real connection identity (knowledge, memory, portal) no longer appear as gateable connections.
+
+## Connection OAuth and credentials
+
+A unified OAuth connection-config schema (v1.70.0) configures OAuth connections the same way regardless of kind, with correctness fixes including a distributed refresh lock that preserves the IdP error code and description, refresh using plain Basic auth, terminal classification of client-auth failures with health on the connection list, and honest event types for locally-decided revocations.
+
+## Semantic discovery, embeddings, and indexing
+
+`platform_find_tools` (v1.72.0) adds semantic tool discovery by intent. A reusable indexing-job framework (v1.71.0) plus an API-catalog migration gained history retention and a paginated jobs table. A cross-kind Indexing dashboard (v1.73.0) reports embedding health, later computing a real content-diff so indexing stops re-syncing forever (v1.75.x). Hybrid memory recall (v1.74.0) is vector search with a lexical fallback, plus an index_jobs backfill. A semantic-similarity fallback was added for cross-toolkit injection in the enrichment layer.
+
+## Prompt library and relevance search (epic #525)
+
+The prompt-library epic completed across four phases and extended relevance ranking (vector plus lexical, with an automatic lexical-only fallback) to every searchable surface. Everything is additive and backward compatible; with no embedding provider configured each search degrades cleanly to keyword ranking. Phase 1 (v1.81.0): a draft/approved/deprecated/superseded(by) lifecycle with validated transitions, GIN-indexed multi-valued tags[] alongside the single category, and scope-aware name uniqueness (personal names unique per owner; global and persona names globally unique). Phase 2 (v1.81.0): owners request promotion of a personal prompt to a persona or global scope via `manage_prompt update`, and admins approve or reject from a review queue (promotion to a shared scope stays admin-only). Phase 3 (v1.81.0): native user-to-user sharing by email, where the recipient gets a real runnable MCP prompt (served as `shared-<name>`) with arguments[] intact and a portal entry under Shared With Me, reusing the existing portal_shares table instead of the prior markdown-asset degradation. Phase 4 (v1.81.0): approved, enabled prompts are embedded off the request path on the shared index-jobs framework, and `manage_prompt list query=...` plus the portal prompt-library search rank by similarity with visibility and persona scoping applied before ranking. Native MCP prompt visibility (v1.81.0): prompts/list and prompts/get are now scoped per caller by a visibility middleware. The portal Knowledge & Memory page gained debounced free-text relevance search on both tabs (v1.80.0), reusing the same hybrid primitives as `memory_recall` (knowledge insights are stored as knowledge-dimension memory records, so there is no separate index), scoped server-side to the caller's email and failing closed (403) if the identity carries no email. Relevance search also covers saved assets and collections (v1.81.0), with a new `recall_insight` tool, all routed through one shared hybrid ranking.
+
+## Observability and audit
+
+Prometheus metrics cover the tool-call and API gateway chokepoints, including inbound API gateway metrics with per-endpoint labels and toolkit plus DB-pool metrics with k8s manifests, enabled by default with a hardened shutdown path. An authenticated PromQL query proxy accepts the Portal session cookie and feeds a redesigned admin observability dashboard (v1.69.0). Audit events are tagged with an event_kind to split MCP from API gateway traffic, caller class is tagged via source, and audit uses monthly partitions.
+
+## Knowledge and memory
+
+Real changeset rollback with list_changesets actions in the knowledge toolkit; knowledge and memory scoped correctly in the Portal with owner unified on email and collapsible reveals; hybrid memory recall and portal relevance search across both tabs.
+
+## Portal and admin UI
+
+A unified persona editor with tabbed permissions and AI-behavior views and a live "what can this persona do?" preview; redesigned admin observability dashboards (v1.69.0); markdown connection descriptions with a collapsible reveal (v1.77.2); connection-list and shared-collection improvements (recipient-visible assets, idempotent revoke, confirm-before-remove, shared thumbnail access); Mermaid node labels preserved in saved markdown assets; and two portal reliability fixes (v1.81.0), including one that could blank the asset library on a keystroke.
+
+## Reliability, security, and correctness
+
+A cross-user provenance leak closed on the stateless HTTP transport; a cross-replica reload bus so admin config changes propagate across replicas (v1.70.1); connection config validated before save with bad instances skipped on startup instead of failing the whole boot; the Go toolchain moved to 1.26.4 to clear two standard-library advisories (v1.79.0); and a self-describing, uniform tool-execution error contract in the middleware (v1.81.1).
+
+---
+
 # Links
 
 - GitHub: https://github.com/txn2/mcp-data-platform
