@@ -641,6 +641,8 @@ export function useUpdateMyPrompt() {
       category?: string;
       tags?: string[];
       arguments?: { name: string; description: string; required: boolean }[];
+      requested_scope?: string;
+      requested_personas?: string[];
     }) =>
       apiFetch<import("@/api/admin/types").Prompt>(`/prompts/${id}`, {
         method: "PUT",

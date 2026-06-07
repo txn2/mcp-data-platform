@@ -607,3 +607,40 @@ func TestResolveManagedPrompt_ScopePreference(t *testing.T) {
 	require.NotNil(t, got)
 	assert.Equal(t, "g", got.ID, "explicit global scope targets the shared prompt")
 }
+
+// manage_prompt update with requested_scope flags the owner's personal prompt
+// for the admin promotion queue without changing its scope.
+func TestManagePrompt_RequestPromotion(t *testing.T) {
+	p, store := newTestPlatformWithPromptStore()
+	store.prompts["report"] = &prompt.Prompt{
+		ID: "id1", Name: "report", Scope: prompt.ScopePersonal,
+		OwnerEmail: "u@x", Content: "x", Enabled: true,
+	}
+
+	ctx := userCtx("u@x", "analyst")
+	_, _, err := p.handleManagePrompt(ctx, managePromptInput{
+		Command: "update", Name: "report",
+		RequestedScope: prompt.ScopePersona, RequestedPersonas: []string{"analyst"},
+	})
+	require.NoError(t, err)
+
+	got := store.prompts["report"]
+	assert.True(t, got.ReviewRequested, "promotion request flag set")
+	assert.Equal(t, prompt.ScopePersona, got.RequestedScope)
+	assert.Equal(t, []string{"analyst"}, got.RequestedPersonas)
+	assert.Equal(t, prompt.ScopePersonal, got.Scope, "scope must not change on request")
+}
+
+// A non-personal prompt cannot be flagged for promotion.
+func TestManagePrompt_RequestPromotion_RejectsNonPersonal(t *testing.T) {
+	p, store := newTestPlatformWithPromptStore()
+	store.prompts["report"] = &prompt.Prompt{
+		ID: "id1", Name: "report", Scope: prompt.ScopeGlobal, Content: "x", Enabled: true,
+	}
+
+	res, _, err := p.handleManagePrompt(adminCtx(), managePromptInput{
+		Command: "update", Name: "report", RequestedScope: prompt.ScopePersona, RequestedPersonas: []string{"analyst"},
+	})
+	require.NoError(t, err)
+	assert.True(t, res.IsError, "expected an error result for non-personal promotion request")
+}

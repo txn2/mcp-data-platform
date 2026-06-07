@@ -190,6 +190,11 @@ Features:
 - **Status badges** — Lifecycle state shown on the prompt viewer: draft (gray), approved (emerald), deprecated (amber), superseded (rose)
 - **Tags** — Free-form, comma-separated labels for organizing prompts, set on create and edit and shown as chips
 - **New Prompt** — Create prompts with name, display name, description, content (supports `{arg}` placeholders), category, and tags
+- **Request Promotion** — On your own personal prompt, ask an admin to promote it to a persona (you choose which) or to global scope. The prompt stays personal and shows a "Promotion requested" badge until an admin approves or rejects it in the admin review queue.
+
+### Requesting promotion
+
+A personal prompt is yours alone. To make it available to your team or the whole organization, open it and choose **Request Promotion**, then pick a target: one or more personas, or global. An admin reviews the request and, on approval, the prompt moves to the requested scope and becomes a real shared prompt. Scope promotion is admin-only; requesting it is the self-service path.
 
 ### Personal naming and scope prefixes
 

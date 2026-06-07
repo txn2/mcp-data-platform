@@ -28,7 +28,7 @@ export function CsvRenderer({ content, fileName = "data.csv" }: Props) {
     [content],
   );
 
-  const columns = parsed.meta.fields ?? [];
+  const columns = useMemo(() => parsed.meta.fields ?? [], [parsed]);
   const allRows = parsed.data;
 
   const filtered = useMemo(() => {

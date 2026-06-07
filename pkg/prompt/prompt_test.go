@@ -109,3 +109,151 @@ func TestApplyStatusTransition(t *testing.T) {
 		}
 	})
 }
+
+func TestApplyPromotionRequest(t *testing.T) {
+	t.Run("rejects non-personal prompts", func(t *testing.T) {
+		p := &Prompt{Scope: ScopeGlobal}
+		if err := p.ApplyPromotionRequest(ScopePersona, []string{"analyst"}); err == nil {
+			t.Error("expected error promoting a non-personal prompt")
+		}
+	})
+
+	t.Run("rejects invalid target scope", func(t *testing.T) {
+		p := &Prompt{Scope: ScopePersonal}
+		if err := p.ApplyPromotionRequest("bogus", nil); err == nil {
+			t.Error("expected error for invalid requested scope")
+		}
+		if err := p.ApplyPromotionRequest(ScopePersonal, nil); err == nil {
+			t.Error("requesting personal scope should be rejected")
+		}
+	})
+
+	t.Run("persona request requires personas", func(t *testing.T) {
+		p := &Prompt{Scope: ScopePersonal}
+		if err := p.ApplyPromotionRequest(ScopePersona, nil); err == nil {
+			t.Error("persona promotion without personas should be rejected")
+		}
+	})
+
+	t.Run("records a persona request", func(t *testing.T) {
+		p := &Prompt{Scope: ScopePersonal}
+		if err := p.ApplyPromotionRequest(ScopePersona, []string{"analyst"}); err != nil {
+			t.Fatal(err)
+		}
+		if !p.ReviewRequested || p.RequestedScope != ScopePersona || len(p.RequestedPersonas) != 1 {
+			t.Errorf("request not recorded: %+v", p)
+		}
+		if p.Scope != ScopePersonal {
+			t.Error("scope must not change on request")
+		}
+	})
+
+	t.Run("global request clears personas", func(t *testing.T) {
+		p := &Prompt{Scope: ScopePersonal}
+		if err := p.ApplyPromotionRequest(ScopeGlobal, []string{"ignored"}); err != nil {
+			t.Fatal(err)
+		}
+		if p.RequestedScope != ScopeGlobal || len(p.RequestedPersonas) != 0 {
+			t.Errorf("global request should not carry personas: %+v", p)
+		}
+	})
+}
+
+func TestApprovePromotion(t *testing.T) {
+	now := time.Unix(1700000000, 0).UTC()
+
+	t.Run("rejects when no request pending", func(t *testing.T) {
+		p := &Prompt{Scope: ScopePersonal}
+		if err := p.ApprovePromotion("admin@x", now); err == nil {
+			t.Error("approve with no pending request should error")
+		}
+	})
+
+	t.Run("applies persona promotion", func(t *testing.T) {
+		p := &Prompt{
+			Scope: ScopePersonal, Status: StatusDraft, OwnerEmail: "u@x",
+			ReviewRequested: true, RequestedScope: ScopePersona, RequestedPersonas: []string{"analyst", "engineer"},
+		}
+		if err := p.ApprovePromotion("admin@x", now); err != nil {
+			t.Fatal(err)
+		}
+		if p.Scope != ScopePersona || len(p.Personas) != 2 {
+			t.Errorf("scope/personas not applied: %+v", p)
+		}
+		if p.Status != StatusApproved || p.ApprovedBy != "admin@x" || p.ApprovedAt == nil {
+			t.Errorf("approval not stamped: %+v", p)
+		}
+		if p.ReviewRequested || p.RequestedScope != "" || len(p.RequestedPersonas) != 0 {
+			t.Errorf("request not cleared: %+v", p)
+		}
+	})
+
+	t.Run("global promotion clears personas", func(t *testing.T) {
+		p := &Prompt{
+			Scope: ScopePersonal, Status: StatusDraft, Personas: []string{"stale"},
+			ReviewRequested: true, RequestedScope: ScopeGlobal,
+		}
+		if err := p.ApprovePromotion("admin@x", now); err != nil {
+			t.Fatal(err)
+		}
+		if p.Scope != ScopeGlobal || len(p.Personas) != 0 {
+			t.Errorf("global promotion should clear personas: %+v", p)
+		}
+	})
+}
+
+func TestRejectPromotion(t *testing.T) {
+	p := &Prompt{
+		Scope: ScopePersonal, ReviewRequested: true,
+		RequestedScope: ScopePersona, RequestedPersonas: []string{"analyst"},
+	}
+	p.RejectPromotion()
+	if p.ReviewRequested || p.RequestedScope != "" || len(p.RequestedPersonas) != 0 {
+		t.Errorf("request not cleared: %+v", p)
+	}
+	if p.Scope != ScopePersonal {
+		t.Error("reject must leave scope personal")
+	}
+}
+
+func TestApplyPromotionRequest_RejectsTerminalStatus(t *testing.T) {
+	for _, s := range []string{StatusDeprecated, StatusSuperseded} {
+		p := &Prompt{Scope: ScopePersonal, Status: s}
+		if err := p.ApplyPromotionRequest(ScopeGlobal, nil); err == nil {
+			t.Errorf("promotion request on %s prompt should be rejected", s)
+		}
+	}
+}
+
+func TestApprovePromotion_StaleWhenNoLongerPersonal(t *testing.T) {
+	now := time.Unix(1700000000, 0).UTC()
+	p := &Prompt{
+		Scope:           ScopeGlobal, // scope changed out from under the request
+		ReviewRequested: true, RequestedScope: ScopePersona, RequestedPersonas: []string{"analyst"},
+	}
+	if err := p.ApprovePromotion("admin@x", now); err == nil {
+		t.Fatal("expected stale-request error when prompt is no longer personal")
+	}
+	if p.Scope != ScopeGlobal {
+		t.Errorf("scope must not be re-stamped: %q", p.Scope)
+	}
+	if p.ReviewRequested {
+		t.Error("stale request should be cleared")
+	}
+}
+
+func TestApprovePromotion_ClearsLifecycleMarkers(t *testing.T) {
+	now := time.Unix(1700000000, 0).UTC()
+	dep := now
+	p := &Prompt{
+		Scope: ScopePersonal, Status: StatusApproved,
+		DeprecatedAt: &dep, SupersededBy: "old-v1",
+		ReviewRequested: true, RequestedScope: ScopeGlobal,
+	}
+	if err := p.ApprovePromotion("admin@x", now); err != nil {
+		t.Fatal(err)
+	}
+	if p.DeprecatedAt != nil || p.SupersededBy != "" {
+		t.Errorf("stale lifecycle markers not cleared: %+v", p)
+	}
+}

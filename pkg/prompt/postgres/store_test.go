@@ -5,6 +5,7 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,7 +21,8 @@ var selectColumns = []string{
 	"id", "name", "display_name", "description", "content", "arguments",
 	"category", "scope", "personas", "owner_email", "source", "enabled",
 	"tags", "status", "approved_by", "approved_at", "deprecated_at",
-	"superseded_by", "created_at", "updated_at",
+	"superseded_by", "review_requested", "requested_scope", "requested_personas",
+	"created_at", "updated_at",
 }
 
 // testRowTime is the fixed created_at/updated_at value used by promptRow; the
@@ -34,6 +36,7 @@ func promptRow(id, name, scope string, argsJSON []byte, owner string) []driver.V
 		id, name, "Test Prompt", "A test prompt", "Do something with {topic}", argsJSON,
 		"workflow", scope, pq.Array([]string{}), owner, "operator", true,
 		pq.Array([]string{}), "approved", "", nil, nil, "",
+		false, "", pq.Array([]string{}),
 		testRowTime, testRowTime,
 	}
 }
@@ -82,6 +85,7 @@ func TestCreate_Success(t *testing.T) {
 		p.Category, p.Scope, pq.Array(p.Personas), p.OwnerEmail,
 		p.Source, p.Enabled,
 		pq.Array(p.Tags), prompt.StatusDraft, "", nil, nil, "",
+		false, "", pq.Array(p.RequestedPersonas),
 	).WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).
 		AddRow("uuid-123", now, now))
 
@@ -183,7 +187,7 @@ func TestUpdate_Success(t *testing.T) {
 		p.Category, p.Scope, pq.Array(p.Personas), p.OwnerEmail,
 		p.Source, p.Enabled,
 		pq.Array(p.Tags), p.Status, p.ApprovedBy, p.ApprovedAt, p.DeprecatedAt,
-		p.SupersededBy,
+		p.SupersededBy, p.ReviewRequested, p.RequestedScope, pq.Array(p.RequestedPersonas),
 	).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	err = store.Update(context.Background(), p)
@@ -379,4 +383,18 @@ func TestBuildWhere_Empty(t *testing.T) {
 	where, args := buildWhere(prompt.ListFilter{})
 	assert.Empty(t, where)
 	assert.Nil(t, args)
+}
+
+func TestBuildWhere_ReviewRequested(t *testing.T) {
+	yes := true
+	clause, params := buildWhere(prompt.ListFilter{ReviewRequested: &yes})
+	if !strings.Contains(clause, "review_requested = $1") {
+		t.Errorf("clause missing review_requested filter: %q", clause)
+	}
+	if len(params) != 1 {
+		t.Fatalf("expected 1 param, got %d", len(params))
+	}
+	if v, ok := params[0].(bool); !ok || !v {
+		t.Errorf("expected param true, got %v", params[0])
+	}
 }

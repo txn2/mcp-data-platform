@@ -5811,6 +5811,116 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/prompts/{id}/approve": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Approves a personal prompt's pending promotion request, moving it to the requested persona/global scope and marking it approved.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Prompts"
+                ],
+                "summary": "Approve prompt promotion",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Prompt ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/prompt.Prompt"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/prompts/{id}/reject": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Clears a personal prompt's pending promotion request, leaving it personal.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Prompts"
+                ],
+                "summary": "Reject prompt promotion",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Prompt ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/prompt.Prompt"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/system/info": {
             "get": {
                 "security": [
@@ -13325,6 +13435,20 @@ const docTemplate = `{
                     "type": "string",
                     "example": "my-analysis-prompt"
                 },
+                "requested_personas": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "analyst"
+                    ]
+                },
+                "requested_scope": {
+                    "description": "Promotion request (update only). RequestedScope of \"persona\" or \"global\"\nflags the prompt for the admin queue; \"\" leaves any existing request as is.",
+                    "type": "string",
+                    "example": "persona"
+                },
                 "tags": {
                     "type": "array",
                     "items": {
@@ -13520,6 +13644,24 @@ const docTemplate = `{
                         "analyst",
                         "data-engineer"
                     ]
+                },
+                "requested_personas": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "analyst"
+                    ]
+                },
+                "requested_scope": {
+                    "type": "string",
+                    "example": "persona"
+                },
+                "review_requested": {
+                    "description": "Promotion request: an owner asks to move a personal prompt into a shared\nscope. ReviewRequested marks the prompt as pending in the admin queue;\nRequestedScope/RequestedPersonas record the target. Cleared on approve or\nreject (see ApplyPromotionRequest / ApprovePromotion).",
+                    "type": "boolean",
+                    "example": false
                 },
                 "scope": {
                     "type": "string",

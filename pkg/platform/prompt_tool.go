@@ -66,6 +66,12 @@ type managePromptInput struct {
 	Status       string            `json:"status,omitempty"`
 	SupersededBy string            `json:"superseded_by,omitempty"`
 	Search       string            `json:"search,omitempty"`
+
+	// Promotion request (owner action on a personal prompt, applied by update).
+	// Setting RequestedScope flags the prompt for the admin promotion queue
+	// without changing its scope; an admin approves to apply it.
+	RequestedScope    string   `json:"requested_scope,omitempty"`
+	RequestedPersonas []string `json:"requested_personas,omitempty"`
 }
 
 // registerPromptTool registers the manage_prompt tool with the MCP server.
@@ -258,6 +264,11 @@ func applyPromptUpdates(existing *prompt.Prompt, input managePromptInput, isAdmi
 			return err.Error()
 		}
 		existing.Tags = input.Tags
+	}
+	if input.RequestedScope != "" {
+		if err := existing.ApplyPromotionRequest(input.RequestedScope, input.RequestedPersonas); err != nil {
+			return err.Error()
+		}
 	}
 	return ""
 }
@@ -476,8 +487,17 @@ func promptJSONResult(v any) (*mcp.CallToolResult, any, error) {
 const (
 	schemaKeyType        = "type"        //nolint:revive // schema key constant
 	schemaKeyDescription = "description" //nolint:revive // schema key constant
+	schemaKeyItems       = "items"       //nolint:revive // schema key constant
+	schemaKeyEnum        = "enum"        //nolint:revive // schema key constant
 	schemaValString      = "string"      //nolint:revive // schema value constant
+	schemaValArray       = "array"       //nolint:revive // schema value constant
 )
+
+// promotionRequestScopes are the shared scopes a personal prompt can request
+// promotion into (every scope except personal). Built with append rather than a
+// two-element composite literal, which a semgrep registry rule misflags as an
+// unbounded make() capacity.
+var promotionRequestScopes = append([]string{prompt.ScopePersona}, prompt.ScopeGlobal)
 
 // managePromptSchema returns the JSON schema for the manage_prompt tool.
 func managePromptSchema() any {
@@ -486,7 +506,7 @@ func managePromptSchema() any {
 		"properties": map[string]any{
 			"command": map[string]any{
 				schemaKeyType:        schemaValString,
-				"enum":               []string{"create", "update", "delete", cmdList, "get"},
+				schemaKeyEnum:        []string{"create", "update", "delete", cmdList, "get"},
 				schemaKeyDescription: "The operation to perform",
 			},
 			fieldName: map[string]any{
@@ -506,8 +526,8 @@ func managePromptSchema() any {
 				schemaKeyDescription: "Prompt content template. Use {arg_name} for argument placeholders.",
 			},
 			"arguments": map[string]any{
-				schemaKeyType: "array",
-				"items": map[string]any{
+				schemaKeyType: schemaValArray,
+				schemaKeyItems: map[string]any{
 					schemaKeyType: "object",
 					"properties": map[string]any{
 						fieldName:            map[string]any{schemaKeyType: schemaValString},
@@ -523,22 +543,22 @@ func managePromptSchema() any {
 			},
 			"scope": map[string]any{
 				schemaKeyType:        schemaValString,
-				"enum":               []string{prompt.ScopeGlobal, prompt.ScopePersona, prompt.ScopePersonal},
+				schemaKeyEnum:        []string{prompt.ScopeGlobal, prompt.ScopePersona, prompt.ScopePersonal},
 				schemaKeyDescription: "Visibility scope. Non-admins can only use 'personal'.",
 			},
 			"personas": map[string]any{
-				schemaKeyType:        "array",
-				"items":              map[string]any{schemaKeyType: schemaValString},
+				schemaKeyType:        schemaValArray,
+				schemaKeyItems:       map[string]any{schemaKeyType: schemaValString},
 				schemaKeyDescription: "Personas this prompt is assigned to. Defaults to empty list if omitted.",
 			},
 			"tags": map[string]any{
-				schemaKeyType:        "array",
-				"items":              map[string]any{schemaKeyType: schemaValString},
+				schemaKeyType:        schemaValArray,
+				schemaKeyItems:       map[string]any{schemaKeyType: schemaValString},
 				schemaKeyDescription: "Free-form tags for organizing and searching prompts (create/update).",
 			},
 			"status": map[string]any{
 				schemaKeyType:        schemaValString,
-				"enum":               []string{prompt.StatusDraft, prompt.StatusApproved, prompt.StatusDeprecated, prompt.StatusSuperseded},
+				schemaKeyEnum:        []string{prompt.StatusDraft, prompt.StatusApproved, prompt.StatusDeprecated, prompt.StatusSuperseded},
 				schemaKeyDescription: "Lifecycle status (update). Transitions: draft->approved->deprecated->superseded. Approval is admin-only.",
 			},
 			"superseded_by": map[string]any{
@@ -548,6 +568,16 @@ func managePromptSchema() any {
 			"search": map[string]any{
 				schemaKeyType:        schemaValString,
 				schemaKeyDescription: "Free-text search filter (for list command)",
+			},
+			"requested_scope": map[string]any{
+				schemaKeyType:        schemaValString,
+				schemaKeyEnum:        promotionRequestScopes,
+				schemaKeyDescription: "Request promotion of your personal prompt to this shared scope (update). Flags it for the admin review queue; an admin approves to apply it. Does not change the scope by itself.",
+			},
+			"requested_personas": map[string]any{
+				schemaKeyType:        schemaValArray,
+				schemaKeyItems:       map[string]any{schemaKeyType: schemaValString},
+				schemaKeyDescription: "Target personas for a 'persona' promotion request (required when requested_scope is 'persona').",
 			},
 		},
 		"required": []string{"command"},

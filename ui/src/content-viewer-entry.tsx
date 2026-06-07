@@ -85,7 +85,7 @@ if (dataEl) {
 // Expose MarkdownRenderer for pages that need to render multiple markdown blocks
 // (e.g., public collection viewer with collection + section descriptions).
 // Uses the exact same React component as the single-asset viewer.
-(window as any).renderMarkdown = function(element: HTMLElement, content: string) {
+(window as Window & { renderMarkdown?: (element: HTMLElement, content: string) => void }).renderMarkdown = function (element: HTMLElement, content: string) {
   createRoot(element).render(<MarkdownRenderer content={content} bare />);
 };
 

@@ -440,7 +440,7 @@ export interface EffectiveConfigEntry {
 export interface ConnectionInstance {
   kind: string;
   name: string;
-  config: Record<string, any>;
+  config: Record<string, unknown>;
   description: string;
   created_by: string;
   updated_at: string;
@@ -473,6 +473,8 @@ export interface Prompt {
   deprecated_at?: string;
   superseded_by?: string;
   review_requested?: boolean;
+  requested_scope?: string;
+  requested_personas?: string[];
   owner_email: string;
   source: string;
   enabled: boolean;
@@ -492,7 +494,7 @@ export interface EffectiveConnection {
   description?: string;
   source: "file" | "database" | "both";
   tools: string[];
-  config?: Record<string, any>;
+  config?: Record<string, unknown>;
   created_by?: string;
   updated_at?: string;
 }
@@ -632,7 +634,7 @@ export interface EnrichmentPredicate {
 export interface EnrichmentAction {
   source: string;
   operation: string;
-  parameters?: Record<string, any>;
+  parameters?: Record<string, unknown>;
 }
 
 export interface EnrichmentMerge {
@@ -673,13 +675,13 @@ export interface FiredRule {
 }
 
 export interface DryRunRequest {
-  args?: Record<string, any>;
-  response?: any;
+  args?: Record<string, unknown>;
+  response?: unknown;
   user?: { id?: string; email?: string };
 }
 
 export interface DryRunResponse {
-  response: any;
+  response: unknown;
   warnings?: string[];
   fired?: FiredRule[];
 }

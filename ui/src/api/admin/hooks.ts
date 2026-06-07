@@ -669,7 +669,7 @@ export function useConnectionInstance(kind: string, name: string) {
 export function useSetConnectionInstance() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ kind, name, ...body }: { kind: string; name: string; config: Record<string, any>; description?: string }) =>
+    mutationFn: ({ kind, name, ...body }: { kind: string; name: string; config: Record<string, unknown>; description?: string }) =>
       apiFetch<ConnectionInstance>(`/connection-instances/${kind}/${name}`, {
         method: "PUT",
         body: JSON.stringify(body),
@@ -1112,7 +1112,7 @@ export function useDeleteAPICatalogSpec() {
 
 export function useTestGatewayConnection() {
   return useMutation({
-    mutationFn: ({ name, config }: { name: string; config: Record<string, any> }) =>
+    mutationFn: ({ name, config }: { name: string; config: Record<string, unknown> }) =>
       apiFetch<import("./types").GatewayTestResponse>(
         `/gateway/connections/${name}/test`,
         { method: "POST", body: JSON.stringify({ config }) },
@@ -1442,6 +1442,7 @@ interface AdminPromptsParams {
   search?: string;
   scope?: string;
   owner_email?: string;
+  review_requested?: boolean;
 }
 
 export function useAdminPrompts(params: AdminPromptsParams = {}) {
@@ -1449,6 +1450,7 @@ export function useAdminPrompts(params: AdminPromptsParams = {}) {
   if (params.search) searchParams.set("search", params.search);
   if (params.scope) searchParams.set("scope", params.scope);
   if (params.owner_email) searchParams.set("owner_email", params.owner_email);
+  if (params.review_requested) searchParams.set("review_requested", "true");
 
   const qs = searchParams.toString();
   return useQuery({
@@ -1501,6 +1503,28 @@ export function useDeleteAdminPrompt() {
   return useMutation({
     mutationFn: (id: string) =>
       apiFetch(`/prompts/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "prompts"] });
+    },
+  });
+}
+
+export function useApprovePromptPromotion() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<Prompt>(`/prompts/${id}/approve`, { method: "POST" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "prompts"] });
+    },
+  });
+}
+
+export function useRejectPromptPromotion() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<Prompt>(`/prompts/${id}/reject`, { method: "POST" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin", "prompts"] });
     },

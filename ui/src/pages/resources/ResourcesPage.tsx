@@ -339,7 +339,7 @@ function UploadModal({ onClose, admin, personaNames }: { onClose: () => void; ad
   }
 
   // Build the list of (scope, scope_id) pairs to upload to.
-  function resolveTargets(): { scope: string; scope_id: string }[] {
+  const resolveTargets = useCallback((): { scope: string; scope_id: string }[] => {
     if (scope === "global") return [{ scope: "global", scope_id: "" }];
     if (scope === "persona") {
       return selectedPersonas.map((name) => ({ scope: "persona", scope_id: name }));
@@ -350,7 +350,7 @@ function UploadModal({ onClose, admin, personaNames }: { onClose: () => void; ad
     }
     // Non-admin user scope: always own user
     return [{ scope: "user", scope_id: user?.user_id || "" }];
-  }
+  }, [scope, selectedPersonas, admin, userEmails, user]);
 
   const submitting = useRef(false);
 
@@ -408,7 +408,7 @@ function UploadModal({ onClose, admin, personaNames }: { onClose: () => void; ad
     } else {
       onClose();
     }
-  }, [file, displayName, description, scope, selectedPersonas, userEmails, effectiveCategory, tagsInput, user, upload, onClose]);
+  }, [file, displayName, description, scope, effectiveCategory, tagsInput, upload, onClose, resolveTargets]);
 
   return (
     <Overlay onClose={onClose}>

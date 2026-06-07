@@ -132,7 +132,7 @@ export function AssetViewer({
         onError: () => setSaveStatus("error"),
       },
     );
-  }, [asset, contentUpdateMutation, editedContent]);
+  }, [asset, contentUpdateMutation, editedContent, onSelectVersion]);
 
   const handleSaveContent = useCallback(() => {
     if (isSharedEditor) {

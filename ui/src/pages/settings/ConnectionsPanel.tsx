@@ -198,7 +198,7 @@ export function ConnectionsPanel() {
   const { data: systemInfo } = useSystemInfo();
   const isReadOnly = systemInfo?.config_mode === "file";
   const { data: instances, isLoading, isFetching } = useEffectiveConnections();
-  const connections = instances ?? [];
+  const connections = useMemo(() => instances ?? [], [instances]);
   // Bulk per-row OAuth health drives the connection-list health
   // badge. Polls every 10s in the hook so background-refresh
   // failures (refresher runs every 5min) become visible within
@@ -789,7 +789,7 @@ function ConnectionEditor({ connection, onSave, onCancel, onDirtyChange }: Edito
   const [description, setDescription] = useState(
     connection?.description || (connection?.config?.description as string) || "",
   );
-  const [configObj, setConfigObj] = useState<Record<string, any>>(
+  const [configObj, setConfigObj] = useState<Record<string, unknown>>(
     connection?.config ? { ...connection.config } : {},
   );
   // configObjRef mirrors configObj synchronously so handleSave can
@@ -800,7 +800,7 @@ function ConnectionEditor({ connection, onSave, onCancel, onDirtyChange }: Edito
   // the keystroke-eager SensitiveKeyValueEditor immediately before
   // the Save click is included in the PUT body.
   const configObjRef = useRef(configObj);
-  const updateConfig = useCallback((next: Record<string, any>) => {
+  const updateConfig = useCallback((next: Record<string, unknown>) => {
     configObjRef.current = next;
     setConfigObj(next);
   }, []);
@@ -1039,8 +1039,8 @@ function InfoCard({ label, value }: { label: string; value: string }) {
 // ---------------------------------------------------------------------------
 
 interface ConfigFormProps {
-  config: Record<string, any>;
-  onChange: (config: Record<string, any>) => void;
+  config: Record<string, unknown>;
+  onChange: (config: Record<string, unknown>) => void;
 }
 
 function ConfigField({
@@ -1124,7 +1124,7 @@ function ConfigToggle({
   );
 }
 
-function update(config: Record<string, any>, key: string, value: any): Record<string, any> {
+function update(config: Record<string, unknown>, key: string, value: unknown): Record<string, unknown> {
   if (value === "" || value === undefined) {
     const next = { ...config };
     delete next[key];

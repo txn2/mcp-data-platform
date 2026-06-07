@@ -51,7 +51,6 @@ export function ConfirmDialog({
       await onConfirm();
     } catch (err) {
       // Caller owns error surfacing; log so the rejection isn't silent.
-      // eslint-disable-next-line no-console
       console.error("ConfirmDialog onConfirm rejected:", err);
     } finally {
       setBusy(false);
