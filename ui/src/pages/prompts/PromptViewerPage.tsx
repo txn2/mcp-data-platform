@@ -19,7 +19,7 @@ import {
   Braces,
   ArrowUpCircle,
 } from "lucide-react";
-import { useMyPrompts, useUpdateMyPrompt, useDeleteMyPrompt, useCreateAsset } from "@/api/portal/hooks";
+import { useMyPrompts, useUpdateMyPrompt, useDeleteMyPrompt, useCreateAsset, useSharedPrompts } from "@/api/portal/hooks";
 import { useAuthStore } from "@/stores/auth";
 import { ShareDialog } from "@/components/ShareDialog";
 import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
@@ -125,16 +125,22 @@ interface EditForm {
 
 export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
   const { data, isLoading } = useMyPrompts();
+  const { data: sharedData } = useSharedPrompts();
   const updateMutation = useUpdateMyPrompt();
   const deleteMutation = useDeleteMyPrompt();
   const createAssetMutation = useCreateAsset();
+  const myEmail = useAuthStore((s) => s.user?.email) ?? "";
 
   const prompt = useMemo<Prompt | undefined>(() => {
-    if (!data) return undefined;
-    return [...data.personal, ...data.available].find((p) => p.id === promptId);
-  }, [data, promptId]);
+    // Include prompts shared with the user so a "Shared With Me" prompt opens
+    // here (it is not in the caller's own personal/available lists).
+    const shared = (sharedData ?? []).map((s) => s.prompt);
+    return [...(data?.personal ?? []), ...(data?.available ?? []), ...shared].find((p) => p.id === promptId);
+  }, [data, sharedData, promptId]);
 
-  const isOwner = prompt?.scope === "personal";
+  // Owner = a personal prompt the current user owns. A prompt shared with the
+  // user is also personal-scoped but owned by someone else, so it is read-only.
+  const isOwner = prompt?.scope === "personal" && prompt?.owner_email === myEmail;
 
   const [viewMode, setViewMode] = useState<ViewMode>("preview");
   const [editing, setEditing] = useState(false);
@@ -143,7 +149,6 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
   const [nameConflict, setNameConflict] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [shareAssetId, setShareAssetId] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [saveAsAssetNotice, setSaveAsAssetNotice] = useState<{ assetId: string; name: string } | null>(null);
   const myPersona = useAuthStore((s) => s.user?.persona) ?? "";
@@ -290,29 +295,11 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
   const handleShare = useCallback(() => {
     if (!prompt) return;
     setError(null);
-    // Sharing a prompt means snapshotting it as a markdown asset, then sharing
-    // that asset. This reuses the asset share infrastructure (user shares,
-    // public links, expiration, revocation) without duplicating it for prompts.
-    const name = (prompt.display_name || prompt.name).trim() || "Prompt";
-    createAssetMutation.mutate(
-      {
-        name,
-        description: prompt.description || `Snapshot of prompt "${prompt.name}"`,
-        content_type: "text/markdown",
-        content: prompt.content,
-        tags: prompt.category ? ["prompt", prompt.category] : ["prompt"],
-      },
-      {
-        onSuccess: (asset) => {
-          setShareAssetId(asset.id);
-          setShareOpen(true);
-        },
-        onError: (err) => {
-          setError(err instanceof Error ? err.message : "Failed to prepare share");
-        },
-      },
-    );
-  }, [prompt, createAssetMutation]);
+    // Share the prompt natively: the recipient gets a real, runnable prompt
+    // (served over MCP as shared-<name>), not a markdown-asset snapshot. The
+    // markdown export remains available as the separate "Save as Asset" action.
+    setShareOpen(true);
+  }, [prompt]);
 
   if (isLoading) {
     return <LoadingIndicator />;
@@ -375,15 +362,16 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
               <FileBox className="h-3.5 w-3.5" />
               {createAssetMutation.isPending ? "Saving..." : "Save as Asset"}
             </button>
-            <button
-              onClick={handleShare}
-              disabled={createAssetMutation.isPending}
-              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-              title="Save as asset and share with another user"
-            >
-              <Share2 className="h-3.5 w-3.5" />
-              Share
-            </button>
+            {isOwner && (
+              <button
+                onClick={handleShare}
+                className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                title="Share this prompt with another user"
+              >
+                <Share2 className="h-3.5 w-3.5" />
+                Share
+              </button>
+            )}
             {isOwner && !prompt.review_requested && (
               <button
                 onClick={openPromote}
@@ -639,21 +627,12 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
         </div>
       )}
 
-      {/* Share dialog (over a freshly created asset snapshot) */}
-      {shareAssetId && (
-        <ShareDialog
-          target={{ type: "asset", id: shareAssetId }}
-          open={shareOpen}
-          onOpenChange={(o) => {
-            setShareOpen(o);
-            if (!o) {
-              // Surface the asset snapshot so the user can find it later.
-              setSaveAsAssetNotice({ assetId: shareAssetId, name: prompt.display_name || prompt.name });
-              setShareAssetId(null);
-            }
-          }}
-        />
-      )}
+      {/* Native prompt share dialog */}
+      <ShareDialog
+        target={{ type: "prompt", id: prompt.id }}
+        open={shareOpen}
+        onOpenChange={setShareOpen}
+      />
 
       {/* Request promotion dialog */}
       {promoteOpen && (

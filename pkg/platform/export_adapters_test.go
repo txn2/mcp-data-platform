@@ -58,11 +58,16 @@ type stubShareStore struct {
 	insertErr     error
 	getByTokenRes *portal.Share
 	getByTokenErr error
+	promptRefs    []portal.SharedPromptRef
 }
 
 func (s *stubShareStore) Insert(_ context.Context, share portal.Share) error {
 	s.inserted = &share
 	return s.insertErr
+}
+
+func (s *stubShareStore) ListSharedPromptsWithUser(_ context.Context, _, _ string) ([]portal.SharedPromptRef, error) {
+	return s.promptRefs, nil
 }
 
 func (s *stubShareStore) GetByToken(_ context.Context, _ string) (*portal.Share, error) {

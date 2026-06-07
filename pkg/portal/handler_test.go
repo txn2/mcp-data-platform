@@ -80,9 +80,20 @@ type mockShareStore struct {
 	summariesErr   error
 	collAssetPerm  SharePermission
 	collAssetPermE error
+	inserted       *Share
+	promptRefs     []SharedPromptRef
+	promptRefsErr  error
+	listByPrompt   []Share
+	listByPromptE  error
 }
 
-func (m *mockShareStore) Insert(_ context.Context, _ Share) error { return m.insertErr }
+func (m *mockShareStore) Insert(_ context.Context, s Share) error {
+	if m.insertErr == nil {
+		m.inserted = &s
+	}
+	return m.insertErr
+}
+
 func (m *mockShareStore) GetByID(_ context.Context, _ string) (*Share, error) {
 	return m.getByIDShare, m.getByIDErr
 }
@@ -106,6 +117,14 @@ func (m *mockShareStore) ListActiveShareSummaries(_ context.Context, _ []string)
 
 func (*mockShareStore) ListByCollection(_ context.Context, _ string) ([]Share, error) {
 	return nil, nil
+}
+
+func (m *mockShareStore) ListByPrompt(_ context.Context, _ string) ([]Share, error) {
+	return m.listByPrompt, m.listByPromptE
+}
+
+func (m *mockShareStore) ListSharedPromptsWithUser(_ context.Context, _, _ string) ([]SharedPromptRef, error) {
+	return m.promptRefs, m.promptRefsErr
 }
 
 func (*mockShareStore) GetUserCollectionPermission(_ context.Context, _, _, _ string) (SharePermission, error) {
@@ -224,6 +243,14 @@ func (c *captureShareStore) ListActiveShareSummaries(ctx context.Context, ids []
 
 func (c *captureShareStore) ListByCollection(ctx context.Context, id string) ([]Share, error) {
 	return c.inner.ListByCollection(ctx, id)
+}
+
+func (c *captureShareStore) ListByPrompt(ctx context.Context, id string) ([]Share, error) {
+	return c.inner.ListByPrompt(ctx, id)
+}
+
+func (c *captureShareStore) ListSharedPromptsWithUser(ctx context.Context, userID, email string) ([]SharedPromptRef, error) {
+	return c.inner.ListSharedPromptsWithUser(ctx, userID, email)
 }
 
 func (c *captureShareStore) GetUserCollectionPermission(ctx context.Context, collectionID, userID, email string) (SharePermission, error) {

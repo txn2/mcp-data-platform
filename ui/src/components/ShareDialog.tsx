@@ -1,12 +1,13 @@
 import { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { X, Link, Trash2, Check, Copy, ChevronDown, ChevronRight } from "lucide-react";
-import { useShares, useCreateShare, useRevokeShare, useCollectionShares, useCreateCollectionShare } from "@/api/portal/hooks";
+import { useShares, useCreateShare, useRevokeShare, useCollectionShares, useCreateCollectionShare, usePromptShares, useCreatePromptShare } from "@/api/portal/hooks";
 import type { SharePermission } from "@/api/portal/types";
 
 export type ShareTarget =
   | { type: "asset"; id: string }
-  | { type: "collection"; id: string };
+  | { type: "collection"; id: string }
+  | { type: "prompt"; id: string };
 
 interface Props {
   /** @deprecated Use `target` instead. */
@@ -34,13 +35,16 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
   // Resolve target: prefer `target` prop, fall back to `assetId` for backward compat.
   const resolved: ShareTarget = target ?? { type: "asset", id: assetId ?? "" };
   const isCollection = resolved.type === "collection";
+  const isPrompt = resolved.type === "prompt";
 
-  const { data: assetShares = [] } = useShares(isCollection ? "" : resolved.id);
+  const { data: assetShares = [] } = useShares(resolved.type === "asset" ? resolved.id : "");
   const { data: collectionShares = [] } = useCollectionShares(isCollection ? resolved.id : "");
-  const shares = isCollection ? collectionShares : assetShares;
+  const { data: promptShares = [] } = usePromptShares(isPrompt ? resolved.id : "");
+  const shares = isCollection ? collectionShares : isPrompt ? promptShares : assetShares;
 
   const createAssetShare = useCreateShare();
   const createCollShare = useCreateCollectionShare();
+  const createPromptShare = useCreatePromptShare();
   const revokeShare = useRevokeShare();
   const [ttl, setTtl] = useState("24h");
   const [email, setEmail] = useState("");
@@ -53,7 +57,7 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
     "Proprietary & Confidential. Only share with authorized viewers.",
   );
 
-  const isPending = createAssetShare.isPending || createCollShare.isPending;
+  const isPending = createAssetShare.isPending || createCollShare.isPending || createPromptShare.isPending;
 
   function handleCreatePublicLink() {
     const opts = {
@@ -70,7 +74,9 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
 
   function handleShareWithUser() {
     if (!email.trim()) return;
-    if (isCollection) {
+    if (isPrompt) {
+      createPromptShare.mutate({ promptId: resolved.id, shared_with_email: email.trim(), permission });
+    } else if (isCollection) {
       createCollShare.mutate({ collectionId: resolved.id, shared_with_email: email.trim(), permission });
     } else {
       createAssetShare.mutate({ assetId: resolved.id, shared_with_email: email.trim(), permission });
@@ -103,13 +109,14 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
         <Dialog.Overlay className="fixed inset-0 bg-black/40 z-40" />
         <Dialog.Content className="fixed top-1/2 left-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg rounded-lg border bg-card p-6 shadow-lg">
           <div className="flex items-center justify-between mb-4">
-            <Dialog.Title className="text-lg font-semibold">{isCollection ? "Share Collection" : "Share Asset"}</Dialog.Title>
+            <Dialog.Title className="text-lg font-semibold">{isPrompt ? "Share Prompt" : isCollection ? "Share Collection" : "Share Asset"}</Dialog.Title>
             <Dialog.Close className="rounded-md p-1 hover:bg-accent">
               <X className="h-4 w-4" />
             </Dialog.Close>
           </div>
 
-          {/* Create public link */}
+          {/* Create public link (not available for prompts, which are run, not viewed via a public page) */}
+          {!isPrompt && (
           <div className="mb-4">
             <h3 className="text-sm font-medium mb-2">Public Link</h3>
             <div className="flex gap-2">
@@ -171,6 +178,7 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
               </div>
             )}
           </div>
+          )}
 
           {/* Share with user */}
           <div className="mb-4">

@@ -4,10 +4,22 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 )
+
+// SharedPrompt is a prompt shared with the current user, with share metadata,
+// for the "Shared With Me" listing.
+type SharedPrompt struct {
+	Prompt     prompt.Prompt   `json:"prompt"`
+	ShareID    string          `json:"share_id"`
+	SharedBy   string          `json:"shared_by"`
+	SharedAt   time.Time       `json:"shared_at"`
+	Permission SharePermission `json:"permission"`
+}
 
 // PromptStore provides prompt persistence for the portal.
 type PromptStore interface {
@@ -33,8 +45,12 @@ type PromptRegistrar interface {
 	UnregisterRuntimePrompt(name string)
 }
 
-// errMsgAuthRequired is the standard error message for unauthenticated portal requests.
-const errMsgAuthRequired = "authentication required"
+// Shared messages/keys for the prompt portal handlers.
+const (
+	errMsgAuthRequired   = "authentication required"
+	errMsgGetPrompt      = "failed to get prompt"
+	errMsgPromptNotFound = "prompt not found"
+)
 
 // registerPromptRoutes registers user-facing prompt routes if the store is available.
 func (h *Handler) registerPromptRoutes() {
@@ -45,6 +61,11 @@ func (h *Handler) registerPromptRoutes() {
 	h.mux.HandleFunc("POST /api/v1/portal/prompts", h.createMyPrompt)
 	h.mux.HandleFunc("PUT /api/v1/portal/prompts/{id}", h.updateMyPrompt)
 	h.mux.HandleFunc("DELETE /api/v1/portal/prompts/{id}", h.deleteMyPrompt)
+	if h.deps.ShareStore != nil {
+		h.mux.HandleFunc("POST /api/v1/portal/prompts/{id}/shares", h.createPromptShare)
+		h.mux.HandleFunc("GET /api/v1/portal/prompts/{id}/shares", h.listPromptShares)
+		h.mux.HandleFunc("GET /api/v1/portal/shared-prompts", h.listSharedPrompts)
+	}
 }
 
 // portalPromptListResponse is the response for user prompt listing.
@@ -233,14 +254,14 @@ func (h *Handler) updateMyPrompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := r.PathValue("id")
+	id := r.PathValue(pathKeyID)
 	existing, err := h.deps.PromptStore.GetByID(r.Context(), id)
 	if err != nil {
-		writePortalError(w, http.StatusInternalServerError, "failed to get prompt")
+		writePortalError(w, http.StatusInternalServerError, errMsgGetPrompt)
 		return
 	}
 	if existing == nil {
-		writePortalError(w, http.StatusNotFound, "prompt not found")
+		writePortalError(w, http.StatusNotFound, errMsgPromptNotFound)
 		return
 	}
 
@@ -381,14 +402,14 @@ func (h *Handler) deleteMyPrompt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := r.PathValue("id")
+	id := r.PathValue(pathKeyID)
 	existing, err := h.deps.PromptStore.GetByID(r.Context(), id)
 	if err != nil {
-		writePortalError(w, http.StatusInternalServerError, "failed to get prompt")
+		writePortalError(w, http.StatusInternalServerError, errMsgGetPrompt)
 		return
 	}
 	if existing == nil {
-		writePortalError(w, http.StatusNotFound, "prompt not found")
+		writePortalError(w, http.StatusNotFound, errMsgPromptNotFound)
 		return
 	}
 
@@ -464,4 +485,166 @@ func writePortalJSON(w http.ResponseWriter, status int, v any) {
 // writePortalError writes a JSON error response.
 func writePortalError(w http.ResponseWriter, status int, msg string) {
 	writePortalJSON(w, status, map[string]string{"error": msg})
+}
+
+// createPromptShare shares a personal prompt with another user. Only the prompt
+// owner may share it. The recipient gets a real, runnable prompt (served over
+// MCP as shared-<name>), not a markdown asset snapshot.
+//
+// @Summary      Share a prompt
+// @Description  Shares the caller's personal prompt with another user by email or user id.
+// @Tags         Prompts
+// @Accept       json
+// @Produce      json
+// @Param        id    path  string              true  "Prompt ID"
+// @Param        body  body  createShareRequest  true  "Share details"
+// @Success      201  {object}  shareResponse
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/prompts/{id}/shares [post]
+// validatePromptRecipient checks the recipient email for a prompt share.
+// Prompt shares are user-to-user by email only (no public-link/token view for
+// prompts), and the MCP serving path matches recipients by email. It returns a
+// user-facing error message, or "" when the recipient is valid.
+func validatePromptRecipient(sharedWithEmail, ownerEmail string) string {
+	recipient := strings.TrimSpace(sharedWithEmail)
+	if recipient == "" {
+		return "a recipient email is required to share a prompt"
+	}
+	if strings.EqualFold(recipient, ownerEmail) {
+		return "you already own this prompt"
+	}
+	return ""
+}
+
+func (h *Handler) createPromptShare(w http.ResponseWriter, r *http.Request) {
+	user := GetUser(r.Context())
+	if user == nil {
+		writePortalError(w, http.StatusUnauthorized, errMsgAuthRequired)
+		return
+	}
+	id := r.PathValue(pathKeyID)
+	pr, err := h.deps.PromptStore.GetByID(r.Context(), id)
+	if err != nil {
+		writePortalError(w, http.StatusInternalServerError, errMsgGetPrompt)
+		return
+	}
+	if pr == nil {
+		writePortalError(w, http.StatusNotFound, errMsgPromptNotFound)
+		return
+	}
+	// Only the owner of a personal prompt may share it.
+	if pr.Scope != prompt.ScopePersonal || pr.OwnerEmail != user.Email {
+		writePortalError(w, http.StatusForbidden, "only the owner can share this prompt")
+		return
+	}
+
+	var req createShareRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writePortalError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if msg := validatePromptRecipient(req.SharedWithEmail, user.Email); msg != "" {
+		writePortalError(w, http.StatusBadRequest, msg)
+		return
+	}
+	req.SharedWithUserID = "" // prompt shares resolve by email
+	share, buildErr := buildShare(shareTarget{PromptID: id}, user.Email, req)
+	if buildErr != nil {
+		writePortalError(w, http.StatusBadRequest, buildErr.Error())
+		return
+	}
+	if err := h.deps.ShareStore.Insert(r.Context(), share); err != nil {
+		writePortalError(w, http.StatusInternalServerError, "failed to create share")
+		return
+	}
+	writePortalJSON(w, http.StatusCreated, shareResponse{Share: share})
+}
+
+// listPromptShares lists the shares an owner created for a prompt.
+//
+// @Summary      List prompt shares
+// @Description  Returns all shares for a prompt. Only the owner can view them.
+// @Tags         Prompts
+// @Produce      json
+// @Param        id  path  string  true  "Prompt ID"
+// @Success      200  {array}   Share
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/prompts/{id}/shares [get]
+func (h *Handler) listPromptShares(w http.ResponseWriter, r *http.Request) {
+	user := GetUser(r.Context())
+	if user == nil {
+		writePortalError(w, http.StatusUnauthorized, errMsgAuthRequired)
+		return
+	}
+	id := r.PathValue(pathKeyID)
+	pr, err := h.deps.PromptStore.GetByID(r.Context(), id)
+	if err != nil {
+		writePortalError(w, http.StatusInternalServerError, errMsgGetPrompt)
+		return
+	}
+	if pr == nil {
+		writePortalError(w, http.StatusNotFound, errMsgPromptNotFound)
+		return
+	}
+	if pr.OwnerEmail != user.Email {
+		writePortalError(w, http.StatusForbidden, "only the owner can view shares")
+		return
+	}
+	shares, err := h.deps.ShareStore.ListByPrompt(r.Context(), id)
+	if err != nil {
+		writePortalError(w, http.StatusInternalServerError, "failed to list shares")
+		return
+	}
+	if shares == nil {
+		shares = []Share{}
+	}
+	writePortalJSON(w, http.StatusOK, shares)
+}
+
+// listSharedPrompts lists prompts shared with the current user.
+//
+// @Summary      List prompts shared with me
+// @Description  Returns prompts other users have shared with the current user.
+// @Tags         Prompts
+// @Produce      json
+// @Success      200  {array}   SharedPrompt
+// @Failure      401  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/shared-prompts [get]
+func (h *Handler) listSharedPrompts(w http.ResponseWriter, r *http.Request) {
+	user := GetUser(r.Context())
+	if user == nil {
+		writePortalError(w, http.StatusUnauthorized, errMsgAuthRequired)
+		return
+	}
+	refs, err := h.deps.ShareStore.ListSharedPromptsWithUser(r.Context(), user.UserID, user.Email)
+	if err != nil {
+		writePortalError(w, http.StatusInternalServerError, "failed to list shared prompts")
+		return
+	}
+	out := make([]SharedPrompt, 0, len(refs))
+	for _, ref := range refs {
+		pr, err := h.deps.PromptStore.GetByID(r.Context(), ref.PromptID)
+		if err != nil || pr == nil {
+			continue
+		}
+		out = append(out, SharedPrompt{
+			Prompt:     *pr,
+			ShareID:    ref.ShareID,
+			SharedBy:   ref.SharedBy,
+			SharedAt:   ref.SharedAt,
+			Permission: ref.Permission,
+		})
+	}
+	writePortalJSON(w, http.StatusOK, out)
 }

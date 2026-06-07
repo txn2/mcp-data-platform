@@ -104,12 +104,13 @@ func ValidSharePermission(p string) bool {
 	return p == string(PermissionViewer) || p == string(PermissionEditor)
 }
 
-// Share represents a share link for an asset or collection.
-// Exactly one of AssetID or CollectionID is set.
+// Share represents a share link for an asset, collection, or prompt.
+// Exactly one of AssetID, CollectionID, or PromptID is set.
 type Share struct {
 	ID               string          `json:"id" example:"share_01HK7R9B"`
 	AssetID          string          `json:"asset_id,omitempty" example:"asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"`
 	CollectionID     string          `json:"collection_id,omitempty"`
+	PromptID         string          `json:"prompt_id,omitempty"`
 	Token            string          `json:"token" example:"tk_a1b2c3d4e5f6"`
 	CreatedBy        string          `json:"created_by" example:"alice@example.com"`
 	SharedWithUserID string          `json:"shared_with_user_id,omitempty"`
@@ -131,6 +132,17 @@ type SharedAsset struct {
 	SharedBy   string          `json:"shared_by" example:"alice@example.com"`
 	SharedAt   time.Time       `json:"shared_at"`
 	Permission SharePermission `json:"permission" example:"viewer"`
+}
+
+// SharedPromptRef references a prompt shared with a user along with share
+// metadata. The prompt body is fetched separately from the prompt store so the
+// share store stays decoupled from the prompt domain.
+type SharedPromptRef struct {
+	PromptID   string
+	ShareID    string
+	SharedBy   string
+	SharedAt   time.Time
+	Permission SharePermission
 }
 
 // ShareSummary indicates what kinds of active shares exist for an asset.

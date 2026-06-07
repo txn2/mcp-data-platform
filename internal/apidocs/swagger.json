@@ -8891,6 +8891,135 @@
                 }
             }
         },
+        "/portal/prompts/{id}/shares": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns all shares for a prompt. Only the owner can view them.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Prompts"
+                ],
+                "summary": "List prompt shares",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Prompt ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/portal.Share"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Shares the caller's personal prompt with another user by email or user id.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Prompts"
+                ],
+                "summary": "Share a prompt",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Prompt ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Share details",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/portal.createShareRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/portal.shareResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/shared-collections": {
             "get": {
                 "security": [
@@ -8938,6 +9067,43 @@
                     },
                     "500": {
                         "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/shared-prompts": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns prompts other users have shared with the current user.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Prompts"
+                ],
+                "summary": "List prompts shared with me",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/portal.SharedPrompt"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
                         "schema": {
                             "$ref": "#/definitions/portal.problemDetail"
                         }
@@ -12959,6 +13125,9 @@
                     ],
                     "example": "viewer"
                 },
+                "prompt_id": {
+                    "type": "string"
+                },
                 "revoked": {
                     "type": "boolean",
                     "example": false
@@ -13024,6 +13193,26 @@
                 "shared_by": {
                     "type": "string",
                     "example": "alice@example.com"
+                }
+            }
+        },
+        "portal.SharedPrompt": {
+            "type": "object",
+            "properties": {
+                "permission": {
+                    "$ref": "#/definitions/portal.SharePermission"
+                },
+                "prompt": {
+                    "$ref": "#/definitions/prompt.Prompt"
+                },
+                "share_id": {
+                    "type": "string"
+                },
+                "shared_at": {
+                    "type": "string"
+                },
+                "shared_by": {
+                    "type": "string"
                 }
             }
         },

@@ -2582,6 +2582,8 @@ definitions:
         allOf:
         - $ref: '#/definitions/portal.SharePermission'
         example: viewer
+      prompt_id:
+        type: string
       revoked:
         example: false
         type: boolean
@@ -2626,6 +2628,19 @@ definitions:
         type: string
       shared_by:
         example: alice@example.com
+        type: string
+    type: object
+  portal.SharedPrompt:
+    properties:
+      permission:
+        $ref: '#/definitions/portal.SharePermission'
+      prompt:
+        $ref: '#/definitions/prompt.Prompt'
+      share_id:
+        type: string
+      shared_at:
+        type: string
+      shared_by:
         type: string
     type: object
   portal.assetResponse:
@@ -8807,6 +8822,88 @@ paths:
       summary: Update personal prompt
       tags:
       - Prompts
+  /portal/prompts/{id}/shares:
+    get:
+      description: Returns all shares for a prompt. Only the owner can view them.
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/portal.Share'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List prompt shares
+      tags:
+      - Prompts
+    post:
+      consumes:
+      - application/json
+      description: Shares the caller's personal prompt with another user by email
+        or user id.
+      parameters:
+      - description: Prompt ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Share details
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/portal.createShareRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/portal.shareResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Share a prompt
+      tags:
+      - Prompts
   /portal/shared-collections:
     get:
       description: Returns paginated collections that other users have shared with
@@ -8841,6 +8938,28 @@ paths:
       summary: List collections shared with me
       tags:
       - Shares
+  /portal/shared-prompts:
+    get:
+      description: Returns prompts other users have shared with the current user.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/portal.SharedPrompt'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List prompts shared with me
+      tags:
+      - Prompts
   /portal/shared-with-me:
     get:
       description: Returns paginated assets that other users have shared with the

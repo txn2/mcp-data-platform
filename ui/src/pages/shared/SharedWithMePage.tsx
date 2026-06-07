@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Search, FileText, Image, Code, File, Table2, LayoutGrid, List, FolderOpen } from "lucide-react";
-import { useSharedWithMe, useSharedCollections } from "@/api/portal/hooks";
+import { useSharedWithMe, useSharedCollections, useSharedPrompts } from "@/api/portal/hooks";
 import { formatBytes } from "@/lib/format";
 import { ThumbnailQueue } from "@/components/ThumbnailQueue";
 import { AuthImg } from "@/components/AuthImg";
@@ -36,7 +36,7 @@ function contentTypeBadgeColor(ct: string) {
   return "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300";
 }
 
-type SharedTab = "assets" | "collections";
+type SharedTab = "assets" | "collections" | "prompts";
 
 export function SharedWithMePage({ onNavigate }: Props) {
   const [search, setSearch] = useState("");
@@ -52,6 +52,7 @@ export function SharedWithMePage({ onNavigate }: Props) {
 
   const { data, isLoading } = useSharedWithMe();
   const { data: collectionsData, isLoading: collectionsLoading } = useSharedCollections();
+  const { data: sharedPrompts = [], isLoading: promptsLoading } = useSharedPrompts();
 
   const items = (data?.data ?? []).filter(
     (item) =>
@@ -86,9 +87,15 @@ export function SharedWithMePage({ onNavigate }: Props) {
         >
           Collections
         </button>
+        <button
+          onClick={() => setTab("prompts")}
+          className={`rounded-sm px-3 py-1.5 text-sm font-medium transition-colors ${tab === "prompts" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+        >
+          Prompts
+        </button>
       </div>
 
-      {tab === "collections" ? (
+      {tab === "collections" && (
         /* Collections tab */
         collectionsLoading ? (
           <div className="flex items-center justify-center py-12 text-muted-foreground">Loading...</div>
@@ -144,7 +151,66 @@ export function SharedWithMePage({ onNavigate }: Props) {
             </table>
           </div>
         )
-      ) : (
+      )}
+
+      {tab === "prompts" && (
+        promptsLoading ? (
+          <div className="flex items-center justify-center py-12 text-muted-foreground">Loading...</div>
+        ) : sharedPrompts.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+            <File className="h-12 w-12 mb-2 opacity-30" />
+            <p className="text-sm">No shared prompts</p>
+            <p className="text-xs mt-1">Prompts shared with you will appear here, runnable as <code>shared-&lt;name&gt;</code>.</p>
+          </div>
+        ) : (
+          <div className="rounded-lg border bg-card overflow-hidden">
+            <table className="w-full text-sm table-fixed">
+              <thead>
+                <tr className="border-b bg-muted/50">
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[40%]">Name</th>
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[25%]">Shared By</th>
+                  <th className="px-4 py-2.5 text-center font-medium text-muted-foreground w-[12%]">Access</th>
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[12%]">Shared</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sharedPrompts.map((item) => (
+                  <tr
+                    key={item.share_id}
+                    onClick={() => onNavigate(`/prompts/${item.prompt.id}`)}
+                    className="border-b last:border-0 cursor-pointer transition-colors hover:bg-accent/50"
+                  >
+                    <td className="px-4 py-2.5 max-w-0">
+                      <div className="flex items-center gap-2">
+                        <Code className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <span className="font-medium truncate block">{item.prompt.display_name || item.prompt.name}</span>
+                          {item.prompt.description && (
+                            <span className="text-xs text-muted-foreground truncate block">{item.prompt.description}</span>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5 max-w-0">
+                      <span className="text-muted-foreground truncate block">{item.shared_by}</span>
+                    </td>
+                    <td className="px-4 py-2.5 text-center">
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${item.permission === "editor" ? "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"}`}>
+                        {item.permission === "editor" ? "Editor" : "Viewer"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-muted-foreground">
+                      {new Date(item.shared_at).toLocaleDateString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+      )}
+
+      {tab === "assets" && (
       <>
       {/* Asset filters */}
       <div className="flex flex-wrap items-center gap-3">
