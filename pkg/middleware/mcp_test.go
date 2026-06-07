@@ -833,17 +833,14 @@ func TestPlatformError(t *testing.T) {
 	})
 }
 
-func TestCreateCategorizedErrorResult(t *testing.T) {
-	result := createCategorizedErrorResult(ErrCategoryAuth, "auth failed")
-	callResult, ok := result.(*mcp.CallToolResult)
-	if !ok {
-		t.Fatal("result is not *mcp.CallToolResult")
-	}
+func TestBuildErrorResult_FeedsAuditCategory(t *testing.T) {
+	callResult := BuildErrorResult(&PlatformError{Category: ErrCategoryAuth, Message: "auth failed"})
 	if !callResult.IsError {
 		t.Error("expected IsError to be true")
 	}
 
-	// Verify the error category is embedded
+	// The category is embedded via SetError so ErrorCategory (read by audit and
+	// metrics) recovers it from the result.
 	err := callResult.GetError()
 	if err == nil {
 		t.Fatal("GetError() returned nil")

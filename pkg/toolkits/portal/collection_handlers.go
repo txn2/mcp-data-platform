@@ -6,6 +6,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 )
 
@@ -19,7 +20,8 @@ const validationMsgFmt = "validation: %s"
 func (t *Toolkit) getActiveCollection(ctx context.Context, id string) (*portal.Collection, *mcp.CallToolResult) {
 	coll, err := t.collectionStore.Get(ctx, id)
 	if err != nil {
-		return nil, errorResult("collection not found: " + err.Error())
+		return nil, middleware.NotFoundResult("collection not found: "+err.Error(),
+			"Verify the collection_id; call manage_artifact action=list_collections to see your collections.")
 	}
 	if coll.DeletedAt != nil {
 		return nil, errorResult(collectionDeletedMsg)

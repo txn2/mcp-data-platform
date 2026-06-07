@@ -81,9 +81,14 @@ type CategorizedError interface {
 // pkg/middleware.ErrCategory* uses so the platform's existing error
 // taxonomy maps to bounded metric labels without duplication.
 const (
-	CategoryAuth     = "authentication_failed"
-	CategoryAuthz    = "authorization_denied"
-	CategoryDeclined = "user_declined"
+	CategoryAuth          = "authentication_failed"
+	CategoryAuthz         = "authorization_denied"
+	CategoryDeclined      = "user_declined"
+	CategoryClientInput   = "client_input"
+	CategoryNotFound      = "not_found"
+	CategorySetupRequired = "setup_required"
+	CategoryUnavailable   = "feature_unavailable"
+	CategoryInternal      = "internal"
 )
 
 // ClassifyError maps an error returned from a tool handler (or from
@@ -140,9 +145,16 @@ func ClassifyToolCallResult(err error, isToolError bool, errCategory string) str
 		return StatusAuthErr
 	case CategoryAuthz:
 		return StatusAuthzErr
-	case CategoryDeclined:
+	// Caller- or config-correctable faults: the request cannot be served as-is
+	// for a reason that is not a platform fault or a transient backend error.
+	case CategoryDeclined, CategoryClientInput, CategoryNotFound,
+		CategorySetupRequired, CategoryUnavailable:
 		return StatusValidationErr
+	case CategoryInternal:
+		return StatusInternalErr
 	}
+	// Uncategorized tool failures (category tool_error or unset) and proxied
+	// backend failures are treated as downstream-of-dispatch failures.
 	return StatusUpstreamErr
 }
 
