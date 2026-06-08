@@ -68,6 +68,14 @@ jobs:
           MIGRATE_TEST_DSN: postgres://migrate:migrate@localhost:5432/migrate_check?sslmode=disable
         run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
 
+      # Real-DB round-trip gate for tool write paths. Self-provisions pgvector
+      # via testcontainers (Docker is available on ubuntu-latest runners) and
+      # runs every *RealDB* test against the real schema. This is the gate the
+      # prompt-create defect bypassed: sqlmock rubber-stamped an INSERT that real
+      # Postgres rejects (NULL into NOT NULL tags). Blocks merge on failure.
+      - name: Run real-DB round-trip gate
+        run: make test-realdb
+
       - name: Check coverage threshold
         run: |
           COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print substr($3, 1, length($3)-1)}')

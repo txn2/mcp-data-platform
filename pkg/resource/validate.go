@@ -147,7 +147,7 @@ func normalizeFilename(name string) string {
 	var b strings.Builder
 	for _, r := range name {
 		if r == '.' || r == '-' || r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r) {
-			b.WriteRune(r)
+			_, _ = b.WriteRune(r) // strings.Builder.WriteRune never returns a non-nil error
 		}
 	}
 	return b.String()
