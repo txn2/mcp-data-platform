@@ -106,6 +106,54 @@ func TestStore_Create_RealDB_RoundTrip(t *testing.T) {
 	})
 }
 
+// TestStore_SearchLexical_RealDB_Differentiates is the #587 regression for
+// prompt search: lexical ranking must differentiate two single-match prompts
+// (exact short match outranking a long single-mention) rather than collapsing
+// both to the flat weight-D 0.1. Fails without the ts_rank_cd normalization.
+func TestStore_SearchLexical_RealDB_Differentiates(t *testing.T) {
+	store := New(testdb.New(t))
+	ctx := context.Background()
+
+	exact := &prompt.Prompt{
+		Name: "exact-prompt", Content: "revenue", Scope: prompt.ScopeGlobal,
+		Status: prompt.StatusApproved, Enabled: true, Source: prompt.SourceOperator,
+	}
+	long := &prompt.Prompt{
+		Name:    "long-prompt",
+		Content: "Quarterly revenue grew across every region this year compared with the prior period.",
+		Scope:   prompt.ScopeGlobal, Status: prompt.StatusApproved, Enabled: true, Source: prompt.SourceOperator,
+	}
+	require.NoError(t, store.Create(ctx, exact))
+	require.NoError(t, store.Create(ctx, long))
+
+	// No embedding -> lexical path.
+	results, err := store.Search(ctx, prompt.SearchQuery{QueryText: "revenue", Limit: 10})
+	require.NoError(t, err)
+
+	scores := map[string]float64{}
+	for _, r := range results {
+		scores[r.Prompt.Name] = r.Score
+	}
+	require.Contains(t, scores, exact.Name)
+	require.Contains(t, scores, long.Name)
+
+	// Differentiation, not direction: prompt_fts is a weighted multi-column
+	// function, so which of the two ranks higher depends on its weighting. What
+	// the normalization guarantees is that two single-match records of different
+	// lengths get clearly different scores instead of both collapsing to the
+	// flat weight-D value. Assert a clear margin regardless of order.
+	hi, lo := scores[exact.Name], scores[long.Name]
+	if lo > hi {
+		hi, lo = lo, hi
+	}
+	assert.Greater(t, hi, 1.2*lo,
+		"single-match records of different lengths must get clearly different scores, not a flat value")
+	for name, s := range scores {
+		assert.Greater(t, s, 0.0, "score for %s must be positive", name)
+		assert.Less(t, s, 1.0, "score for %s must be < 1", name)
+	}
+}
+
 // TestStore_Update_RealDB_NilTags guards the same defect on the Update path:
 // an edit that does not set tags must not bind NULL into the NOT NULL column.
 func TestStore_Update_RealDB_NilTags(t *testing.T) {

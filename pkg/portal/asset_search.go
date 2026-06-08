@@ -28,6 +28,15 @@ const assetFTSExpr = `portal_asset_fts(name, description, tags)`
 
 // Parameterized tsquery for the lexical predicate. $2 binds the query text in
 // the hybrid arms; the lexical-only path rebinds it to $1 (no vector parameter).
+// lexRankNormalization is the ts_rank_cd normalization bitmask for the lexical
+// relevance score. Bit 1 divides the rank by 1 + log(document length) so a
+// short, dense match outranks a long single-mention; without it every
+// single-match record collapses to the weight-D 0.1 and lexical ranking is flat
+// (#587, same root cause as #578). Bit 32 maps the result into (0,1). Applied
+// only to the returned lex_rank score, not the hybrid ORDER BY, whose fused
+// score uses a lexMatch boolean rather than the rank value.
+const lexRankNormalization = 1 | 32
+
 const (
 	assetFTSQueryHybrid  = "plainto_tsquery('english', $2)"
 	assetFTSQueryLexical = "plainto_tsquery('english', $1)"
@@ -144,16 +153,17 @@ func collectHybridAssets(rows *sql.Rows, limit int) ([]ScoredAsset, error) {
 // searchAssetsLexical ranks the caller's non-deleted assets by full-text
 // relevance only. It is the graceful-degradation path used when no embedding
 // provider is available: it has no vector parameter, surfaces NULL-embedding
-// rows, and orders by ts_rank_cd in SQL (the same ranker the hybrid lexical arm
-// uses).
+// rows, and orders by a length-normalized ts_rank_cd score (lexRankNormalization)
+// so single-match records do not collapse to a flat 0.1.
 func (s *postgresAssetStore) searchAssetsLexical(ctx context.Context, q AssetSearchQuery) ([]ScoredAsset, error) {
 	// #nosec G201 -- column list and FTS expr are constants; owner_id is a
-	// parameterized placeholder; limit is a sanitized int.
+	// parameterized placeholder; limit and the normalization bitmask are
+	// sanitized ints.
 	query := fmt.Sprintf(
-		"SELECT %s, ts_rank_cd(%s, %s) AS lex_rank "+
+		"SELECT %s, ts_rank_cd(%s, %s, %d) AS lex_rank "+
 			"FROM portal_assets WHERE deleted_at IS NULL AND owner_id = $2 "+
 			"AND %s @@ %s ORDER BY lex_rank DESC LIMIT %d",
-		assetSearchColumns, assetFTSExpr, assetFTSQueryLexical,
+		assetSearchColumns, assetFTSExpr, assetFTSQueryLexical, lexRankNormalization,
 		assetFTSExpr, assetFTSQueryLexical, q.EffectiveLimit())
 
 	rows, err := s.db.QueryContext(ctx, query, q.QueryText, q.OwnerID)

@@ -33,6 +33,15 @@ const (
 	promptFTSQueryLexical = "plainto_tsquery('english', $1)"
 )
 
+// lexRankNormalization is the ts_rank_cd normalization bitmask for the lexical
+// relevance score. Bit 1 divides the rank by 1 + log(document length) so a
+// short, dense match outranks a long single-mention; without it every
+// single-match record collapses to the weight-D 0.1 and lexical ranking is flat
+// (#587, same root cause as #578). Bit 32 maps the result into (0,1). Applied
+// only to the returned lex_rank score, not the hybrid ORDER BY, whose fused
+// score uses a lexMatch boolean rather than the rank value.
+const lexRankNormalization = 1 | 32
+
 // Visibility-filter starting parameter indices. The hybrid arms bind $1=vector
 // and $2=query, so their visibility predicate starts at $3; the lexical-only
 // path binds only $1=query, so it starts at $2.
@@ -148,17 +157,19 @@ func collectHybridScored(rows *sql.Rows) ([]prompt.ScoredPrompt, error) {
 
 // searchLexical ranks visible approved prompts by full-text relevance only. It
 // is the graceful-degradation path used when no embedding provider is available:
-// it has no vector parameter, surfaces NULL-embedding rows, and orders by
-// ts_rank_cd in SQL (the same ranker the hybrid lexical arm uses).
+// it has no vector parameter, surfaces NULL-embedding rows, and orders by a
+// length-normalized ts_rank_cd score (lexRankNormalization) so single-match
+// records do not collapse to a flat 0.1.
 func (s *Store) searchLexical(ctx context.Context, q prompt.SearchQuery) ([]prompt.ScoredPrompt, error) {
 	vis, args, _ := promptVisibilityClause(q, lexicalVisibilityStart)
 	// #nosec G201 -- promptColumns/promptFTSExpr are constants; vis is built from
-	// parameterized placeholders only (see promptVisibilityClause).
+	// parameterized placeholders only (see promptVisibilityClause); the
+	// normalization bitmask is a sanitized int.
 	query := fmt.Sprintf(
-		"SELECT %s, ts_rank_cd(%s, %s) AS lex_rank "+
+		"SELECT %s, ts_rank_cd(%s, %s, %d) AS lex_rank "+
 			"FROM prompts WHERE status = 'approved' AND enabled = true "+
 			"AND %s @@ %s%s ORDER BY lex_rank DESC LIMIT %d",
-		promptColumns, promptFTSExpr, promptFTSQueryLexical,
+		promptColumns, promptFTSExpr, promptFTSQueryLexical, lexRankNormalization,
 		promptFTSExpr, promptFTSQueryLexical, vis, q.EffectiveLimit())
 
 	params := append([]any{q.QueryText}, args...)
