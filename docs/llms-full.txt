@@ -614,7 +614,8 @@ The `database` store requires `database.dsn`. Database-backed sessions survive r
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `region` | string | us-east-1 | AWS region |
-| `endpoint` | string | - | Custom S3 endpoint (for MinIO) |
+| `endpoint` | string | - | Custom S3 endpoint for data operations (for MinIO, SeaweedFS) |
+| `public_endpoint` | string | - | Public endpoint used only to sign presigned URLs (`s3_presign_url`); set it to an externally resolvable address. Empty falls back to `endpoint`. |
 | `access_key_id` | string | - | AWS access key ID |
 | `secret_access_key` | string | - | AWS secret access key |
 | `read_only` | bool | false | Restrict to read operations |
