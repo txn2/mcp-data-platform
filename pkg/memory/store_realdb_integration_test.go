@@ -92,3 +92,41 @@ func TestMemoryStore_StatusUpdate_RealDB_ArchivedExcludedFromActive(t *testing.T
 	require.NoError(t, err)
 	assert.True(t, containsID(archived, rec.ID), "archived insight must remain visible under an archived-status list")
 }
+
+// TestMemoryStore_LexicalSearch_RealDB_Differentiates is the #578 regression:
+// lexical ranking must differentiate two single-match records (an exact short
+// match outranking a long single-mention) rather than collapsing both to the
+// flat weight-D 0.1, and scores must stay within (0,1].
+func TestMemoryStore_LexicalSearch_RealDB_Differentiates(t *testing.T) {
+	store := NewPostgresStore(testdb.New(t))
+	ctx := context.Background()
+
+	exact := Record{ID: "lex_exact", Dimension: "knowledge", Status: StatusActive, Content: "revenue"}
+	long := Record{
+		ID: "lex_long", Dimension: "knowledge", Status: StatusActive,
+		Content: "Quarterly revenue grew across every region this year compared with the prior period.",
+	}
+	require.NoError(t, store.Insert(ctx, exact))
+	require.NoError(t, store.Insert(ctx, long))
+
+	results, err := store.LexicalSearch(ctx, LexicalQuery{QueryText: "revenue", Dimension: "knowledge", Limit: 10})
+	require.NoError(t, err)
+
+	scores := map[string]float64{}
+	for _, r := range results {
+		scores[r.Record.ID] = r.Score
+	}
+	require.Contains(t, scores, exact.ID)
+	require.Contains(t, scores, long.ID)
+
+	// Substantially differentiated: the exact short match must outrank the long
+	// single-mention by a clear margin. The flat-0.1 bug made these equal; a
+	// too-weak normalization would make them nearly equal.
+	assert.Greater(t, scores[exact.ID], 2*scores[long.ID],
+		"exact match must rank well above a long single-mention, not collapse to a flat score")
+	// Scores are bounded into (0,1) by the 32 normalization bit.
+	for id, s := range scores {
+		assert.Greater(t, s, 0.0, "score for %s must be positive", id)
+		assert.Less(t, s, 1.0, "score for %s must be < 1", id)
+	}
+}

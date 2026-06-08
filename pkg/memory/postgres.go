@@ -344,6 +344,21 @@ const rawRecordCols = "id, created_at, updated_at, created_by, persona, dimensio
 // 000054) or the planner will not use the index.
 const ftsExpr = "to_tsvector('english', content)"
 
+// ftsRankNormalization is the ts_rank_cd normalization bitmask for the
+// LexicalSearch score. Bit 1 divides the rank by 1 + log(document length) so a
+// short, dense match outranks a long document that mentions the term once;
+// without it every single-match record collapses to the same weight-D 0.1 and
+// lexical ranking is effectively flat (#578). Bit 32 maps the result into (0,1)
+// so the returned score reads as a normalized relevance. Verified against real
+// Postgres: with no normalization two single-match records both score 0.1; with
+// 1|32 the exact match scores ~0.126 versus ~0.046 for a long single-mention.
+//
+// Deliberately NOT applied to the HybridSearch lexArm: its ts_rank_cd only
+// orders the top-k lexical candidates, and the fused hybrid score uses a
+// lexMatch boolean, not the rank value, so normalizing it would change which
+// candidates survive without improving the score.
+const ftsRankNormalization = 1 | 32
+
 // ftsQuery is the parameterized tsquery the lexical predicate compares
 // against. $2 is the user's query text in HybridSearch; LexicalSearch
 // rebinds it to $1 (it has no vector parameter).
@@ -468,10 +483,10 @@ func (s *postgresStore) LexicalSearch(ctx context.Context, query LexicalQuery) (
 	// #nosec G201 -- tableName/cols/exprs are constants; query text,
 	// persona, status are parameterized; limit is a sanitized int.
 	sqlStr := fmt.Sprintf(
-		"SELECT %s, ts_rank_cd(%s, %s) AS score "+
+		"SELECT %s, ts_rank_cd(%s, %s, %d) AS score "+
 			"FROM %s WHERE %s @@ %s%s%s "+
 			"ORDER BY score DESC LIMIT %d",
-		rawRecordCols, ftsExpr, lexQuery, tableName, ftsExpr, lexQuery, archivedExclusion(query.Status), filterClause, limit)
+		rawRecordCols, ftsExpr, lexQuery, ftsRankNormalization, tableName, ftsExpr, lexQuery, archivedExclusion(query.Status), filterClause, limit)
 
 	rows, err := s.db.QueryContext(ctx, sqlStr, args...)
 	if err != nil {
