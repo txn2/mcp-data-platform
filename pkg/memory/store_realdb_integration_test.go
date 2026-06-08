@@ -39,3 +39,56 @@ func TestMemoryStore_Insert_RealDB_RoundTrip(t *testing.T) {
 	assert.Equal(t, rec.Content, got.Content)
 	assert.Equal(t, "knowledge", got.Dimension)
 }
+
+// TestMemoryStore_StatusUpdate_RealDB_ArchivedExcludedFromActive is the #579
+// regression at the store level: archiving a record via Update (the path a
+// rejected insight takes) must move the status COLUMN, so a status-filtered
+// read (what memory_recall uses) excludes it, while an archived-status read
+// still finds it (archived, not deleted).
+func TestMemoryStore_StatusUpdate_RealDB_ArchivedExcludedFromActive(t *testing.T) {
+	store := NewPostgresStore(testdb.New(t))
+	ctx := context.Background()
+
+	rec := Record{
+		ID:        "mem_realdb_reject",
+		Content:   "Insight that will be rejected.",
+		Dimension: "knowledge",
+		Category:  "business_context",
+		Source:    "user",
+		Status:    StatusActive,
+	}
+	require.NoError(t, store.Insert(ctx, rec))
+
+	containsID := func(records []Record, id string) bool {
+		for _, r := range records {
+			if r.ID == id {
+				return true
+			}
+		}
+		return false
+	}
+	activeList := func() []Record {
+		recs, _, err := store.List(ctx, Filter{Dimension: "knowledge", Status: StatusActive, Limit: 50})
+		require.NoError(t, err)
+		return recs
+	}
+
+	// Before reject: the active-status list (what recall uses) contains it.
+	require.True(t, containsID(activeList(), rec.ID), "record must be in the active list before reject")
+
+	// Reject maps to archived; Update threads Status through to the column.
+	require.NoError(t, store.Update(ctx, rec.ID, RecordUpdate{Status: StatusArchived}))
+
+	got, err := store.Get(ctx, rec.ID)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, StatusArchived, got.Status, "update must move the status column to archived")
+
+	// After reject: the active-status list excludes it (recall no longer sees it).
+	assert.False(t, containsID(activeList(), rec.ID), "archived insight must not appear in an active-status list")
+
+	// An archived-status list still finds it (archived, not deleted).
+	archived, _, err := store.List(ctx, Filter{Dimension: "knowledge", Status: StatusArchived, Limit: 50})
+	require.NoError(t, err)
+	assert.True(t, containsID(archived, rec.ID), "archived insight must remain visible under an archived-status list")
+}

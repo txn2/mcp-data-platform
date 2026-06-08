@@ -600,6 +600,11 @@ func TestBuildUpdateColumns(t *testing.T) {
 			hasUpdates: true,
 		},
 		{
+			name:       "status only",
+			updates:    RecordUpdate{Status: StatusArchived},
+			hasUpdates: true,
+		},
+		{
 			name: "all fields",
 			updates: RecordUpdate{
 				Content:    "updated",
@@ -623,6 +628,16 @@ func TestBuildUpdateColumns(t *testing.T) {
 			assert.Equal(t, tt.hasUpdates, hasUpdates)
 		})
 	}
+}
+
+func TestBuildUpdateColumns_SetsStatusColumn(t *testing.T) {
+	qb, hasUpdates, err := buildUpdateColumns(RecordUpdate{Status: StatusArchived})
+	require.NoError(t, err)
+	require.True(t, hasUpdates)
+	query, args, err := qb.ToSql()
+	require.NoError(t, err)
+	assert.Contains(t, query, colStatus+" =", "update must set the status column")
+	assert.Contains(t, args, StatusArchived)
 }
 
 // --- applyPagination tests ---

@@ -178,8 +178,13 @@ type RecordUpdate struct {
 	Category   string
 	Confidence string
 	Dimension  string
-	Metadata   map[string]any
-	Embedding  []float32
+	// Status transitions the record's lifecycle column (active, archived,
+	// superseded). Empty leaves it unchanged. Required so a status change made
+	// via Update (e.g. an insight rejection that maps to archived) moves the
+	// status column, not just metadata, so status-filtered reads honor it.
+	Status    string
+	Metadata  map[string]any
+	Embedding []float32
 	// EmbeddingModel and EmbeddingTextHash travel with Embedding: when an
 	// update re-embeds changed content, the write path stamps the model
 	// and content hash alongside the new vector so the row's breadcrumbs

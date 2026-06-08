@@ -177,6 +177,11 @@ func (a *memoryInsightAdapter) UpdateStatus(ctx context.Context, id, status, rev
 		metaKeyInsightStatus: status,
 	}
 	if err := a.store.Update(ctx, id, memory.RecordUpdate{
+		// Persist the mapped memory status to the column, not just the metadata:
+		// a rejected insight maps to archived, and recall filters on the status
+		// column, so without this a rejected insight stays active and keeps
+		// surfacing in memory_recall.
+		Status:   mapInsightStatusToMemory(status),
 		Metadata: meta,
 	}); err != nil {
 		return fmt.Errorf("updating insight status: %w", err)
@@ -251,6 +256,11 @@ func (a *memoryInsightAdapter) MarkApplied(ctx context.Context, id, appliedBy, c
 		// applied count at zero (mirrors MarkRolledBack / UpdateStatus).
 		metaKeyInsightStatus: StatusApplied,
 	}
+	// Deliberately metadata-only: applied maps to active, and a legitimately
+	// applied insight (approved -> applied) is already active, so the column
+	// needs no change. Force-writing active here would resurrect a previously
+	// archived insight (e.g. apply called on a rejected id, which the apply path
+	// does not transition-validate) back into recall, re-opening #579.
 	if err := a.store.Update(ctx, id, memory.RecordUpdate{
 		Metadata: meta,
 	}); err != nil {
@@ -266,6 +276,9 @@ func (a *memoryInsightAdapter) MarkRolledBack(ctx context.Context, id, rolledBac
 		metaKeyInsightStatus: StatusRolledBack,
 	}
 	if err := a.store.Update(ctx, id, memory.RecordUpdate{
+		// Rolled-back insights map to archived; persist it to the status column
+		// so they stop surfacing in memory_recall (same fix as UpdateStatus).
+		Status:   mapInsightStatusToMemory(StatusRolledBack),
 		Metadata: meta,
 	}); err != nil {
 		return fmt.Errorf("marking insight rolled back: %w", err)
