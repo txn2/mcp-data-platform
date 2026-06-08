@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -11,6 +12,18 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
+
+// errResourceBlobMissing marks a read failure where the resource row exists but
+// its backing object is gone (an orphaned resource). handleManagedRead checks
+// for it to self-heal by pruning the dead row.
+var errResourceBlobMissing = errors.New("backing object missing")
+
+// resourcePruner is the optional capability to delete a resource row. The
+// configured Store (resource.Store) implements it; ResourceListProvider does
+// not require it, so the read path type-asserts and prunes only when available.
+type resourcePruner interface {
+	Delete(ctx context.Context, id string) error
+}
 
 const (
 	methodListResources = "resources/list"
@@ -237,7 +250,49 @@ func handleManagedRead(ctx context.Context, next mcp.MethodHandler, method strin
 	}
 
 	slog.Debug("managed resources read: serving content", logKeyURI, uri, "mime_type", res.MIMEType, "s3_key", res.S3Key)
-	return fetchResourceContent(ctx, cfg, res)
+	result, err := fetchResourceContent(ctx, cfg, res)
+	if err != nil && errors.Is(err, errResourceBlobMissing) {
+		// Self-heal: the backing object is confirmed gone, so the row is a
+		// permanent orphan that would keep appearing in resources/list and
+		// failing every read. Best-effort prune it so the list/read divergence
+		// closes the moment an orphan is actually accessed.
+		pruneOrphanedResource(ctx, cfg, res)
+	}
+	return result, err
+}
+
+// pruneOrphanedResource best-effort deletes a resource row whose backing object
+// is missing, so it stops appearing in resources/list. It only runs on a
+// confirmed not-found (errResourceBlobMissing), never on a transient failure,
+// and a delete error is logged but not surfaced (the read already returned the
+// actionable error to the caller).
+func pruneOrphanedResource(ctx context.Context, cfg ManagedResourceConfig, res *resource.Resource) {
+	pruner, ok := cfg.Store.(resourcePruner)
+	if !ok || res.ID == "" {
+		return
+	}
+	if delErr := pruner.Delete(ctx, res.ID); delErr != nil {
+		slog.Warn("managed resource: failed to prune orphaned row", logKeyURI, res.URI, "id", res.ID, logKeyError, delErr)
+		return
+	}
+	slog.Info("managed resource: pruned orphaned row (backing object missing)", logKeyURI, res.URI, "id", res.ID)
+}
+
+// isObjectNotFound reports whether a blob-store GetObject error indicates the
+// object does not exist (an orphaned resource), as opposed to a transient or
+// permission failure that a retry might resolve. The mcp-s3 client wraps the
+// underlying AWS/SeaweedFS error without a typed not-found, so detection is by
+// the standard S3 not-found signatures present in the wrapped message.
+func isObjectNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "nosuchkey") ||
+		strings.Contains(msg, "not found") ||
+		strings.Contains(msg, "notfound") ||
+		strings.Contains(msg, "status code: 404") ||
+		strings.Contains(msg, "404 not found")
 }
 
 // fetchResourceContent fetches resource content from S3 and builds the read result.
@@ -255,8 +310,19 @@ func fetchResourceContent(ctx context.Context, cfg ManagedResourceConfig, res *r
 
 	body, _, s3Err := cfg.S3Client.GetObject(ctx, cfg.S3Bucket, res.S3Key)
 	if s3Err != nil {
+		if isObjectNotFound(s3Err) {
+			// The resource row exists but its backing object is gone: an
+			// orphaned managed resource (it still appears in resources/list).
+			// Return a distinct, actionable message instead of an opaque
+			// failure, so the caller learns the content is permanently missing
+			// (and an operator can prune or re-upload it) rather than concluding
+			// resource reads are broken.
+			slog.Warn("managed resource read: backing object missing (orphaned resource)",
+				logKeyURI, res.URI, "s3_key", res.S3Key)
+			return nil, fmt.Errorf("resource content unavailable for %q: %w (orphaned resource; remove or re-upload it)", res.URI, errResourceBlobMissing)
+		}
 		slog.Error("managed resource read: s3 get failed", logKeyError, s3Err, logKeyURI, res.URI)
-		return nil, fmt.Errorf("error reading resource content")
+		return nil, fmt.Errorf("error reading resource content for %q", res.URI)
 	}
 
 	// For text types under 1 MB, return inline. Otherwise, return as blob.
