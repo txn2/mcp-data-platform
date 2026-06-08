@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -15,10 +16,19 @@ import (
 
 type mockResourceStore struct {
 	resources map[string]*resource.Resource
+	deleted   []string // ids passed to Delete (records orphan prunes)
 }
 
 func newMockResourceStore() *mockResourceStore {
 	return &mockResourceStore{resources: make(map[string]*resource.Resource)}
+}
+
+// Delete records the id and removes the row, so mockResourceStore satisfies the
+// optional resourcePruner capability the read path uses to prune orphans.
+func (m *mockResourceStore) Delete(_ context.Context, id string) error {
+	m.deleted = append(m.deleted, id)
+	delete(m.resources, id)
+	return nil
 }
 
 func (m *mockResourceStore) List(_ context.Context, filter resource.Filter) ([]resource.Resource, int, error) {
@@ -47,6 +57,7 @@ func (m *mockResourceStore) GetByURI(_ context.Context, uri string) (*resource.R
 
 type mockBlobReader struct {
 	objects map[string][]byte
+	getErr  error // when set, GetObject returns this regardless of objects
 }
 
 func newMockBlobReader() *mockBlobReader {
@@ -54,9 +65,12 @@ func newMockBlobReader() *mockBlobReader {
 }
 
 func (m *mockBlobReader) GetObject(_ context.Context, _, key string) (body []byte, ct string, err error) {
+	if m.getErr != nil {
+		return nil, "", m.getErr
+	}
 	data, ok := m.objects[key]
 	if !ok {
-		return nil, "", fmt.Errorf("not found")
+		return nil, "", fmt.Errorf("s3 get: NoSuchKey: the specified key does not exist; status code: 404")
 	}
 	return data, "text/plain", nil
 }
@@ -747,13 +761,44 @@ func TestFetchResourceContent_NoS3(t *testing.T) {
 	}
 }
 
-func TestFetchResourceContent_S3Error(t *testing.T) {
-	blob := newMockBlobReader() // empty, so all gets fail
+// TestMCPManagedResourceMiddleware_ReadOrphaned_Prunes is the #576 self-heal:
+// reading a managed resource whose backing object is gone returns an actionable
+// "missing/orphaned" error AND prunes the dead row, so it stops appearing in
+// resources/list.
+func TestMCPManagedResourceMiddleware_ReadOrphaned_Prunes(t *testing.T) {
+	store := newMockResourceStore()
+	blob := newMockBlobReader() // empty -> GetObject returns NoSuchKey/404
 
-	cfg := ManagedResourceConfig{
-		S3Client: blob,
-		S3Bucket: "test-bucket",
+	store.resources["r1"] = &resource.Resource{
+		ID:       "r1",
+		Scope:    resource.ScopeGlobal,
+		URI:      "mcp://global/samples/orphan.csv",
+		MIMEType: "text/csv",
+		S3Key:    "resources/global/r1/orphan.csv", // no matching blob object
 	}
+
+	cfg := ManagedResourceConfig{Store: store, S3Client: blob, S3Bucket: "test-bucket", URIScheme: "mcp"}
+	next := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		return nil, fmt.Errorf("should not reach next")
+	}
+	handler := MCPManagedResourceMiddleware(cfg)(next)
+
+	ctx := WithPlatformContext(context.Background(), &PlatformContext{UserID: "user-1", Roles: []string{"admin"}})
+	_, err := handler(ctx, methodReadResource, makeReadRequest(t, "mcp://global/samples/orphan.csv"))
+
+	if err == nil || !strings.Contains(err.Error(), "missing") {
+		t.Fatalf("expected an actionable missing/orphaned error, got: %v", err)
+	}
+	// The orphaned row was pruned so it will not reappear in list.
+	if len(store.deleted) != 1 || store.deleted[0] != "r1" {
+		t.Errorf("expected orphaned resource r1 to be pruned, deleted=%v", store.deleted)
+	}
+}
+
+func TestFetchResourceContent_MissingBlobIsActionable(t *testing.T) {
+	blob := newMockBlobReader() // empty -> GetObject returns a NoSuchKey/404 error
+
+	cfg := ManagedResourceConfig{S3Client: blob, S3Bucket: "test-bucket"}
 	res := &resource.Resource{
 		URI:      "mcp://global/samples/test.csv",
 		MIMEType: "text/csv",
@@ -763,6 +808,50 @@ func TestFetchResourceContent_S3Error(t *testing.T) {
 	_, err := fetchResourceContent(context.Background(), cfg, res)
 	if err == nil {
 		t.Fatal("expected error for missing S3 object")
+	}
+	// The error names the resource and identifies it as orphaned/missing, not an
+	// opaque "error reading resource content".
+	if !strings.Contains(err.Error(), "missing") || !strings.Contains(err.Error(), res.URI) {
+		t.Errorf("missing-blob error must be actionable and name the URI, got: %q", err.Error())
+	}
+}
+
+func TestFetchResourceContent_TransientErrorIsGeneric(t *testing.T) {
+	blob := &mockBlobReader{getErr: fmt.Errorf("connection reset by peer")}
+
+	cfg := ManagedResourceConfig{S3Client: blob, S3Bucket: "test-bucket"}
+	res := &resource.Resource{URI: "mcp://global/samples/test.csv", S3Key: "k"}
+
+	_, err := fetchResourceContent(context.Background(), cfg, res)
+	if err == nil {
+		t.Fatal("expected error for transient S3 failure")
+	}
+	// A transient failure must NOT be reported as orphaned/missing.
+	if strings.Contains(err.Error(), "missing") || strings.Contains(err.Error(), "orphaned") {
+		t.Errorf("transient error must not be reported as missing/orphaned, got: %q", err.Error())
+	}
+}
+
+func TestIsObjectNotFound(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"nosuchkey", fmt.Errorf("s3 get: NoSuchKey: the specified key does not exist"), true},
+		{"status 404", fmt.Errorf("s3 get: api error, status code: 404"), true},
+		{"plain not found", fmt.Errorf("not found"), true},
+		{"connection reset", fmt.Errorf("connection reset by peer"), false},
+		{"permission denied", fmt.Errorf("s3 get: AccessDenied: access denied"), false},
+		{"timeout", fmt.Errorf("context deadline exceeded"), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isObjectNotFound(tt.err); got != tt.want {
+				t.Errorf("isObjectNotFound(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
 	}
 }
 
