@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -358,6 +359,8 @@ func (t *Toolkit) installLiveConnection(name string, cfg Config, res *discoverRe
 		desc:       "Gateway to " + cfg.Endpoint,
 		ccProvider: res.ccProvider,
 	}
+	// A successful dial + discover means the upstream is reachable now.
+	u.recordSuccess()
 	t.connections[name] = u
 	if t.server != nil {
 		t.addToolsToServerLocked(u)
@@ -500,12 +503,23 @@ func (t *Toolkit) notifyToolListChanged() {
 
 // upstream tracks a single live connection to a remote MCP server.
 type upstream struct {
-	name      string
-	config    Config
-	client    *upstreamClient
-	tools     []*mcp.Tool // cached definitions from discovery
-	toolNames []string
-	desc      string
+	name   string
+	config Config
+	client *upstreamClient
+	// reconnectMu single-flights re-dials when the upstream session is
+	// dropped (evicted or restarted). Concurrent forwarders that all hit the
+	// dead session serialize here; the first re-dials, the rest observe the
+	// already-swapped client and skip dialing again.
+	reconnectMu sync.Mutex
+	// lastSuccessUnix and lastCallErr track per-connection reachability for the
+	// list_connections health surface. Updated off the request path by the
+	// forwarder, so they use atomics rather than the toolkit lock; lastCallErr
+	// always holds a string ("" when healthy).
+	lastSuccessUnix atomic.Int64
+	lastCallErr     atomic.Value // string
+	tools           []*mcp.Tool  // cached definitions from discovery
+	toolNames       []string
+	desc            string
 	// ccProvider is the live in-memory client_credentials token
 	// provider for this connection. Non-nil ONLY for live oauth
 	// client_credentials upstreams; nil for authorization_code (which
@@ -794,6 +808,8 @@ func (t *Toolkit) installDialResult(r dialResult) error {
 		desc:       "Gateway to " + cfg.Endpoint,
 		ccProvider: r.ccProvider,
 	}
+	// A successful dial + discover means the upstream is reachable now.
+	u.recordSuccess()
 	t.connections[name] = u
 	if t.server != nil {
 		t.addToolsToServerLocked(u)
@@ -828,6 +844,10 @@ func (t *Toolkit) RemoveConnection(name string) error {
 	}
 	delete(t.connections, name)
 	client := u.client
+	// Clear the pointer so a concurrent in-flight forwarder reading currentClient
+	// sees the connection as gone (returns "upstream unavailable") rather than
+	// attempting to reconnect a removed connection.
+	u.client = nil
 	connectionName := u.config.ConnectionName
 	t.mu.Unlock()
 	if notify {
@@ -1133,6 +1153,7 @@ func (t *Toolkit) ListConnections() []toolkit.ConnectionDetail {
 			Name:        name,
 			Description: u.desc,
 			IsDefault:   name == t.defaultName,
+			Health:      u.health(),
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
@@ -1216,24 +1237,153 @@ func (t *Toolkit) addToolsToServerLocked(u *upstream) {
 func (t *Toolkit) makeForwarder(u *upstream, remoteName, localName string) mcp.ToolHandler {
 	connection := u.config.ConnectionName
 	callTimeout := u.config.CallTimeout
-	client := u.client
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Read the live client each call rather than capturing it: a re-dial
+		// (below) swaps u.client in place, and the forwarder must pick up the
+		// fresh session on subsequent calls.
+		client := t.currentClient(u)
 		if client == nil {
 			return upstreamErr(connection, "upstream unavailable"), nil
 		}
-		callCtx, cancel := context.WithTimeout(ctx, callTimeout)
-		defer cancel()
 
 		args := argumentsFromRequest(req)
-		res, err := client.callTool(callCtx, remoteName, args)
+		res, err := callTool(ctx, client, callTimeout, remoteName, args)
+		if err != nil && isSessionDropped(err) {
+			// The upstream evicted or restarted the session. Re-dial once and
+			// retry so a transient session loss is transparent to the caller,
+			// instead of failing every call until the toolkit is recreated.
+			fresh, rerr := t.reconnectUpstream(u, client)
+			if rerr != nil {
+				msg := "reconnect after dropped session failed: " + rerr.Error()
+				u.recordError(msg)
+				return upstreamErr(connection, msg), nil //nolint:nilerr // MCP protocol: tool errors are returned in CallToolResult.IsError, not as Go errors
+			}
+			res, err = callTool(ctx, fresh, callTimeout, remoteName, args)
+		}
 		if err != nil {
+			u.recordError(err.Error())
 			return upstreamErr(connection, err.Error()), nil
 		}
+		// The transport call succeeded; the connection is reachable even when the
+		// upstream tool itself returned res.IsError.
+		u.recordSuccess()
 		if !res.IsError {
 			t.applyEnrichment(ctx, connection, localName, req, res)
 		}
 		return res, nil
 	}
+}
+
+// recordSuccess marks the upstream reachable as of now and clears any prior
+// error. Called off the request path by the forwarder.
+func (u *upstream) recordSuccess() {
+	u.lastSuccessUnix.Store(time.Now().Unix())
+	u.lastCallErr.Store("")
+}
+
+// recordError records the most recent call or connect failure for the health
+// surface.
+func (u *upstream) recordError(msg string) {
+	u.lastCallErr.Store(msg)
+}
+
+// health snapshots the upstream's reachability for list_connections. The caller
+// must hold t.mu (read) because it reads u.client.
+func (u *upstream) health() *toolkit.ConnectionHealth {
+	lastErr := ""
+	if v := u.lastCallErr.Load(); v != nil {
+		lastErr, _ = v.(string)
+	}
+	// Placeholders (client == nil) never make a forwarded call, so their failure
+	// reason lives in u.lastError (the dial/discover error) instead. Surface it
+	// so an unreachable connection reports why.
+	if lastErr == "" {
+		lastErr = u.lastError
+	}
+	return &toolkit.ConnectionHealth{
+		Reachable:       u.client != nil && lastErr == "",
+		LastSuccessUnix: u.lastSuccessUnix.Load(),
+		LastError:       lastErr,
+	}
+}
+
+// callTool forwards a single call to the given client under a per-call timeout.
+func callTool(ctx context.Context, client *upstreamClient, timeout time.Duration,
+	remoteName string, args any,
+) (*mcp.CallToolResult, error) {
+	callCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	return client.callTool(callCtx, remoteName, args)
+}
+
+// currentClient returns the connection's live upstream client under the read
+// lock. Returns nil when the connection is a placeholder (not yet dialed) or
+// has been removed.
+func (t *Toolkit) currentClient(u *upstream) *upstreamClient {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return u.client
+}
+
+// isSessionDropped reports whether err indicates the upstream MCP session was
+// evicted, restarted, or closed, as opposed to a normal tool error or a
+// transport timeout. These are the signals a re-dial can recover from. The
+// go-sdk surfaces them as wrapped text, so matching is by substring.
+func isSessionDropped(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "session not found") ||
+		strings.Contains(msg, "client is closing") ||
+		strings.Contains(msg, "server is closing") ||
+		strings.Contains(msg, "connection closed")
+}
+
+// reconnectUpstream re-dials the connection after its session was dropped and
+// swaps u.client to the fresh session. Single-flighted via u.reconnectMu: when
+// several concurrent forwarders hit the same dead session, the first re-dials
+// and the rest observe the already-swapped client (cur != dead) and reuse it.
+// dead is the session the caller just failed against; it is closed once a fresh
+// session is installed.
+func (t *Toolkit) reconnectUpstream(u *upstream, dead *upstreamClient) (*upstreamClient, error) {
+	u.reconnectMu.Lock()
+	defer u.reconnectMu.Unlock()
+
+	// Another in-flight call may have already reconnected.
+	if cur := t.currentClient(u); cur != nil && cur != dead {
+		return cur, nil
+	}
+
+	dialCtx, cancel := dialContext(u.config)
+	defer cancel()
+	provider, ccProvider := t.tokenProviderFor(u.name, u.config.OAuth)
+	fresh, err := dial(dialCtx, u.config, dialDeps{TokenProvider: provider})
+	if err != nil {
+		return nil, err
+	}
+
+	t.mu.Lock()
+	// If the connection was removed or replaced while we dialed, do not install
+	// the fresh session: it would never be tracked in t.connections and so never
+	// closed (a leak), and it would silently resurrect a removed connection.
+	if t.connections[u.name] != u {
+		t.mu.Unlock()
+		_ = fresh.close()
+		return nil, errors.New("connection removed during reconnect")
+	}
+	u.client = fresh
+	// For client_credentials, route Status / ReacquireOAuthToken through the
+	// provider the fresh session actually uses.
+	if ccProvider != nil {
+		u.ccProvider = ccProvider
+	}
+	t.mu.Unlock()
+
+	if dead != nil {
+		_ = dead.close()
+	}
+	return fresh, nil
 }
 
 // applyEnrichment runs the configured engine against the upstream response.

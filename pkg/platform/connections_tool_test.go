@@ -153,6 +153,48 @@ func TestHandleListConnections(t *testing.T) {
 	})
 }
 
+func TestHandleListConnections_SurfacesHealth(t *testing.T) {
+	reg := registry.NewRegistry()
+	require.NoError(t, reg.Register(&mockConnectionListerToolkit{
+		mockToolkit: mockToolkit{kind: "mcp", name: "gw", tools: []string{"gw__echo"}},
+		connections: []toolkit.ConnectionDetail{
+			{Name: "up", Health: &toolkit.ConnectionHealth{Reachable: true, LastSuccessUnix: 1700000000}},
+			{Name: "down", Health: &toolkit.ConnectionHealth{Reachable: false, LastError: "dial failed"}},
+			{Name: "no-health"},
+		},
+	}))
+
+	p := &Platform{toolkitRegistry: reg}
+	result, _, err := p.handleListConnections(context.Background(), &mcp.CallToolRequest{})
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+
+	var out listConnectionsOutput
+	tc, ok := result.Content[0].(*mcp.TextContent)
+	require.True(t, ok)
+	require.NoError(t, json.Unmarshal([]byte(tc.Text), &out))
+
+	byName := make(map[string]connectionEntry, len(out.Connections))
+	for _, c := range out.Connections {
+		byName[c.Name] = c
+	}
+
+	up := byName["up"]
+	require.NotNil(t, up.Health)
+	assert.True(t, up.Health.Reachable)
+	assert.NotEmpty(t, up.Health.LastSuccess, "last_success rendered from unix time")
+	assert.Empty(t, up.Health.LastError)
+
+	down := byName["down"]
+	require.NotNil(t, down.Health)
+	assert.False(t, down.Health.Reachable)
+	assert.Equal(t, "dial failed", down.Health.LastError)
+	assert.Empty(t, down.Health.LastSuccess, "zero unix time omitted")
+
+	// A connection without health tracking carries no health block.
+	assert.Nil(t, byName["no-health"].Health)
+}
+
 func TestHandleListConnections_WithConnectionLister(t *testing.T) {
 	t.Run("expands multi-connection toolkit", func(t *testing.T) {
 		reg := registry.NewRegistry()
