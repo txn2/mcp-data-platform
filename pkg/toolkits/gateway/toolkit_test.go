@@ -19,6 +19,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/session"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 )
 
@@ -704,15 +705,30 @@ func TestEndToEnd_UpstreamErrorResultForwarded(t *testing.T) {
 }
 
 func TestEndToEnd_TransportFailureAttribution(t *testing.T) {
+	// Stand up an upstream we can take down entirely. A merely-dropped session
+	// is now recovered by the forwarder's reconnect (see #572), so to exercise
+	// attribution of a genuine, unrecoverable transport failure the whole
+	// upstream must be unreachable (the re-dial fails too).
+	srv := mcp.NewServer(&mcp.Implementation{Name: "upstream", Version: "0.0.1"}, nil)
+	type echoArgs struct {
+		Message string `json:"message"`
+	}
+	mcp.AddTool(srv, &mcp.Tool{Name: toolEcho, Description: "echo"},
+		func(_ context.Context, _ *mcp.CallToolRequest, a echoArgs) (*mcp.CallToolResult, any, error) {
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "echo:" + a.Message}}}, nil, nil
+		})
+	ts := httptest.NewServer(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil))
+
 	tk := New("primary")
 	t.Cleanup(func() { _ = tk.Close() })
-	_ = tk.AddConnection(connCRM, connectionConfig(upstreamServer(t), connCRM))
+	if err := tk.AddConnection(connCRM, connectionConfig(ts.URL, connCRM)); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
 
-	// Kill the upstream session so next call fails at transport.
-	tk.mu.RLock()
-	u := tk.connections[connCRM]
-	tk.mu.RUnlock()
-	_ = u.client.close()
+	// Take the upstream down: the existing session is dead and a re-dial cannot
+	// succeed, so the failure surfaces instead of being recovered.
+	ts.CloseClientConnections()
+	ts.Close()
 
 	client := platformWithToolkit(t, tk)
 	t.Cleanup(func() { _ = client.Close() })
@@ -1103,6 +1119,190 @@ func TestMakeForwarder_NilClientReturnsUnavailable(t *testing.T) {
 	if !strings.Contains(tc.Text, "upstream:nilc") || !strings.Contains(tc.Text, "upstream unavailable") {
 		t.Errorf("unexpected error text: %q", tc.Text)
 	}
+}
+
+// swappableUpstreamServer stands up an MCP upstream whose backing handler can
+// be replaced mid-test. Calling the returned kill func swaps in a fresh
+// StreamableHTTPHandler that has no record of the gateway's existing session
+// id, so the gateway's next request returns "session not found", simulating an
+// upstream restart or session eviction.
+func swappableUpstreamServer(t *testing.T) (url string, kill func()) {
+	t.Helper()
+	newHandler := func() http.Handler {
+		srv := mcp.NewServer(&mcp.Implementation{Name: "upstream", Version: "0.0.1"}, nil)
+		type echoArgs struct {
+			Message string `json:"message"`
+		}
+		mcp.AddTool(srv, &mcp.Tool{Name: toolEcho, Description: "echo"},
+			func(_ context.Context, _ *mcp.CallToolRequest, a echoArgs) (*mcp.CallToolResult, any, error) {
+				return &mcp.CallToolResult{
+					Content: []mcp.Content{&mcp.TextContent{Text: "echo:" + a.Message}},
+				}, nil, nil
+			})
+		return mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil)
+	}
+
+	var mu sync.Mutex
+	current := newHandler()
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		h := current
+		mu.Unlock()
+		h.ServeHTTP(w, r)
+	}))
+	t.Cleanup(func() {
+		ts.CloseClientConnections()
+		ts.Close()
+	})
+	kill = func() {
+		mu.Lock()
+		current = newHandler()
+		mu.Unlock()
+	}
+	return ts.URL, kill
+}
+
+// TestForwarder_ReconnectsAfterDroppedSession is the #572 regression: when the
+// upstream session is evicted or restarted, the gateway must re-dial and retry
+// transparently instead of returning "session not found" on every call until
+// the toolkit is recreated.
+func TestForwarder_ReconnectsAfterDroppedSession(t *testing.T) {
+	url, kill := swappableUpstreamServer(t)
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+
+	if err := tk.AddConnection(connCRM, connectionConfig(url, connCRM)); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+
+	tk.mu.RLock()
+	u := tk.connections[connCRM]
+	tk.mu.RUnlock()
+	require.NotNil(t, u)
+	require.NotNil(t, u.client)
+	firstClient := u.client
+
+	handler := tk.makeForwarder(u, toolEcho, localCRMEcho)
+	call := func(msg string) *mcp.CallToolResult {
+		req := &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{
+			Name:      toolEcho,
+			Arguments: json.RawMessage(`{"message":"` + msg + `"}`),
+		}}
+		res, err := handler(context.Background(), req)
+		require.NoError(t, err)
+		return res
+	}
+
+	// Baseline against the live session.
+	res := call("one")
+	require.False(t, res.IsError, "baseline call should succeed")
+	assert.Contains(t, firstText(t, res).Text, "echo:one")
+
+	// Evict the session.
+	kill()
+
+	// The next call hits a dead session; the forwarder must reconnect and retry.
+	res = call("two")
+	assert.False(t, res.IsError, "call after dropped session should reconnect and succeed: %+v", res)
+	assert.Contains(t, firstText(t, res).Text, "echo:two")
+
+	// The client was swapped to a fresh session.
+	tk.mu.RLock()
+	newClient := u.client
+	tk.mu.RUnlock()
+	assert.NotSame(t, firstClient, newClient, "expected a fresh upstream client after reconnect")
+}
+
+// healthFor returns the health snapshot for the named connection, or nil.
+func healthFor(details []toolkit.ConnectionDetail, name string) *toolkit.ConnectionHealth {
+	for _, d := range details {
+		if d.Name == name {
+			return d.Health
+		}
+	}
+	return nil
+}
+
+// TestListConnections_SurfacesHealth covers the #572 health surface: a live
+// connection reports reachable, and once the upstream is unreachable and a call
+// fails, list_connections reflects it instead of looking healthy.
+func TestListConnections_SurfacesHealth(t *testing.T) {
+	srv := mcp.NewServer(&mcp.Implementation{Name: "upstream", Version: "0.0.1"}, nil)
+	type echoArgs struct {
+		Message string `json:"message"`
+	}
+	mcp.AddTool(srv, &mcp.Tool{Name: toolEcho, Description: "echo"},
+		func(_ context.Context, _ *mcp.CallToolRequest, a echoArgs) (*mcp.CallToolResult, any, error) {
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "echo:" + a.Message}}}, nil, nil
+		})
+	ts := httptest.NewServer(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil))
+
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+	if err := tk.AddConnection(connCRM, connectionConfig(ts.URL, connCRM)); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+
+	// Healthy right after a successful connect.
+	h := healthFor(tk.ListConnections(), connCRM)
+	require.NotNil(t, h)
+	assert.True(t, h.Reachable, "reachable after connect")
+	assert.Positive(t, h.LastSuccessUnix, "last success recorded at connect")
+	assert.Empty(t, h.LastError)
+
+	// Take the upstream down and forward a call: it fails unrecoverably.
+	ts.CloseClientConnections()
+	ts.Close()
+	tk.mu.RLock()
+	u := tk.connections[connCRM]
+	tk.mu.RUnlock()
+	handler := tk.makeForwarder(u, toolEcho, localCRMEcho)
+	res, err := handler(context.Background(), &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{
+		Name:      toolEcho,
+		Arguments: json.RawMessage(`{"message":"x"}`),
+	}})
+	require.NoError(t, err)
+	require.True(t, res.IsError)
+
+	// list_connections now reports the connection as unreachable with the error.
+	h = healthFor(tk.ListConnections(), connCRM)
+	require.NotNil(t, h)
+	assert.False(t, h.Reachable, "unreachable after an unrecoverable failure")
+	assert.NotEmpty(t, h.LastError)
+}
+
+// TestForwarder_RemovedConnectionDoesNotReconnect guards the reconnect leak:
+// once a connection is removed, an in-flight forwarder must report the upstream
+// as unavailable rather than re-dialing and resurrecting a session that Close
+// would never reach.
+func TestForwarder_RemovedConnectionDoesNotReconnect(t *testing.T) {
+	url := upstreamServer(t)
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+	if err := tk.AddConnection(connCRM, connectionConfig(url, connCRM)); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+
+	tk.mu.RLock()
+	u := tk.connections[connCRM]
+	tk.mu.RUnlock()
+	handler := tk.makeForwarder(u, toolEcho, localCRMEcho)
+
+	if err := tk.RemoveConnection(connCRM); err != nil {
+		t.Fatalf("RemoveConnection: %v", err)
+	}
+
+	res, err := handler(context.Background(), &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{
+		Name:      toolEcho,
+		Arguments: json.RawMessage(`{"message":"x"}`),
+	}})
+	require.NoError(t, err)
+	require.True(t, res.IsError)
+	assert.Contains(t, firstText(t, res).Text, "upstream unavailable")
+
+	// The removed connection was not resurrected.
+	assert.False(t, tk.HasConnection(connCRM), "removed connection must not reappear")
+	assert.Nil(t, u.client, "client must be cleared on removal")
 }
 
 func TestConcurrentAddConnection_Safe(t *testing.T) {
