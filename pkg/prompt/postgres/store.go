@@ -99,6 +99,12 @@ func normalizeSlices(p *prompt.Prompt) {
 
 // Create persists a new prompt. If p.ID is empty the database generates one.
 func (s *Store) Create(ctx context.Context, p *prompt.Prompt) error {
+	// Normalize nil slices to empty before binding: pq.Array(nil) binds SQL NULL,
+	// which violates the NOT NULL constraints on personas, tags, and
+	// requested_personas (each DEFAULT '{}'). The column DEFAULT does not apply
+	// because the INSERT supplies an explicit value. tags is the field with no
+	// input source on the create path, so without this every create fails.
+	normalizeSlices(p)
 	argsJSON, err := json.Marshal(p.Arguments)
 	if err != nil {
 		return fmt.Errorf("marshal arguments: %w", err)
@@ -162,6 +168,9 @@ func (s *Store) queryOne(ctx context.Context, query string, args ...any) (*promp
 
 // Update modifies an existing prompt identified by ID.
 func (s *Store) Update(ctx context.Context, p *prompt.Prompt) error {
+	// See Create: nil slices must be normalized to empty so pq.Array binds '{}'
+	// rather than NULL into the NOT NULL personas/tags/requested_personas columns.
+	normalizeSlices(p)
 	argsJSON, err := json.Marshal(p.Arguments)
 	if err != nil {
 		return fmt.Errorf("marshal arguments: %w", err)

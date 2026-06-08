@@ -231,10 +231,12 @@ func TestHandlePromptCreate_NilPersonasDefaultsToEmpty(t *testing.T) {
 	assert.Equal(t, []string{}, store.prompts["no-personas"].Personas)
 }
 
-func TestHandlePromptCreate_StoreErrorDoesNotLeakDetails(t *testing.T) {
+func TestHandlePromptCreate_StoreErrorDoesNotLeakToNonAdmin(t *testing.T) {
 	p, store := newTestPlatformWithPromptStore()
 	store.createErr = fmt.Errorf("pq: null value in column \"personas\" violates not-null constraint (23502)")
-	r, _, _ := p.handlePromptCreate(adminCtx(), managePromptInput{
+	// A non-admin creating a personal prompt reaches the store; the raw DB error
+	// (which carries SQL/schema detail) must not leak to a non-admin caller.
+	r, _, _ := p.handlePromptCreate(userCtx("user@example.com", "analyst"), managePromptInput{
 		Name: "test", Content: "content",
 	})
 	assert.True(t, r.IsError)
@@ -242,6 +244,21 @@ func TestHandlePromptCreate_StoreErrorDoesNotLeakDetails(t *testing.T) {
 	assert.Contains(t, text, "failed to create prompt")
 	assert.NotContains(t, text, "pq:")
 	assert.NotContains(t, text, "23502")
+}
+
+func TestHandlePromptCreate_StoreErrorAdminSeesDetail(t *testing.T) {
+	p, store := newTestPlatformWithPromptStore()
+	store.createErr = fmt.Errorf("pq: null value in column \"personas\" violates not-null constraint (23502)")
+	// Admins are platform operators: they get the underlying error to diagnose
+	// failures (admin-gated, per the self-describing error contract).
+	r, _, _ := p.handlePromptCreate(adminCtx(), managePromptInput{
+		Name: "test", Content: "content",
+	})
+	assert.True(t, r.IsError)
+	text := resultText(r)
+	assert.Contains(t, text, "failed to create prompt")
+	assert.Contains(t, text, "pq:")
+	assert.Contains(t, text, "23502")
 }
 
 func TestHandlePromptCreate_StoreError(t *testing.T) {
@@ -319,7 +336,7 @@ func TestHandlePromptUpdate_StoreGetError(t *testing.T) {
 	assert.True(t, r.IsError)
 	text := resultText(r)
 	assert.Contains(t, text, "failed to get prompt")
-	assert.NotContains(t, text, "pq:")
+	assert.Contains(t, text, "pq:") // admin sees detail (admin-gated error contract)
 }
 
 func TestHandlePromptUpdate_StoreUpdateError(t *testing.T) {
@@ -332,7 +349,7 @@ func TestHandlePromptUpdate_StoreUpdateError(t *testing.T) {
 	assert.True(t, r.IsError)
 	text := resultText(r)
 	assert.Contains(t, text, "failed to update prompt")
-	assert.NotContains(t, text, "pq:")
+	assert.Contains(t, text, "pq:") // admin sees detail (admin-gated error contract)
 }
 
 // --- handlePromptDelete ---
@@ -371,7 +388,7 @@ func TestHandlePromptDelete_StoreGetError(t *testing.T) {
 	assert.True(t, r.IsError)
 	text := resultText(r)
 	assert.Contains(t, text, "failed to get prompt")
-	assert.NotContains(t, text, "pq:")
+	assert.Contains(t, text, "pq:") // admin sees detail (admin-gated error contract)
 }
 
 func TestHandlePromptDelete_StoreDeleteError(t *testing.T) {
@@ -384,7 +401,7 @@ func TestHandlePromptDelete_StoreDeleteError(t *testing.T) {
 	assert.True(t, r.IsError)
 	text := resultText(r)
 	assert.Contains(t, text, "failed to delete prompt")
-	assert.NotContains(t, text, "pq:")
+	assert.Contains(t, text, "pq:") // admin sees detail (admin-gated error contract)
 }
 
 // --- handlePromptList ---
@@ -444,7 +461,41 @@ func TestHandlePromptList_StoreError(t *testing.T) {
 	assert.True(t, r.IsError)
 	text := resultText(r)
 	assert.Contains(t, text, "failed to list prompts")
-	assert.NotContains(t, text, "pq:")
+	assert.Contains(t, text, "pq:") // admin sees detail (admin-gated error contract)
+}
+
+func TestPromptErrorDetail(t *testing.T) {
+	p := &Platform{config: &Config{Admin: AdminConfig{Persona: "admin"}}}
+	cause := fmt.Errorf("pq: null value in column \"tags\" (23502)")
+
+	t.Run("admin sees underlying detail", func(t *testing.T) {
+		r := p.promptErrorDetail(adminCtx(), "failed to create prompt", cause)
+		assert.True(t, r.IsError)
+		text := resultText(r)
+		assert.Contains(t, text, "failed to create prompt")
+		assert.Contains(t, text, "pq:")
+		assert.Contains(t, text, "23502")
+	})
+
+	t.Run("non-admin with request id gets breadcrumb only", func(t *testing.T) {
+		pc := middleware.NewPlatformContext("req-xyz")
+		pc.PersonaName = "analyst"
+		pc.UserEmail = "user@example.com"
+		ctx := middleware.WithPlatformContext(context.Background(), pc)
+		r := p.promptErrorDetail(ctx, "failed to create prompt", cause)
+		text := resultText(r)
+		assert.Contains(t, text, "failed to create prompt")
+		assert.Contains(t, text, "req-xyz")
+		assert.NotContains(t, text, "pq:")
+		assert.NotContains(t, text, "23502")
+	})
+
+	t.Run("non-admin without request id gets generic message", func(t *testing.T) {
+		r := p.promptErrorDetail(userCtx("user@example.com", "analyst"), "failed to create prompt", cause)
+		text := resultText(r)
+		assert.Equal(t, "failed to create prompt", text)
+		assert.NotContains(t, text, "pq:")
+	})
 }
 
 // --- handlePromptGet ---
@@ -483,7 +534,7 @@ func TestHandlePromptGet_StoreError(t *testing.T) {
 	assert.True(t, r.IsError)
 	text := resultText(r)
 	assert.Contains(t, text, "failed to get prompt")
-	assert.NotContains(t, text, "pq:")
+	assert.Contains(t, text, "pq:") // admin sees detail (admin-gated error contract)
 }
 
 // --- applyPromptUpdates ---

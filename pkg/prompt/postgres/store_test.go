@@ -51,12 +51,17 @@ func newTestPrompt() *prompt.Prompt {
 		Arguments: []prompt.Argument{
 			{Name: "topic", Description: "The topic", Required: true},
 		},
-		Category:   "workflow",
-		Scope:      prompt.ScopeGlobal,
-		Personas:   []string{},
-		OwnerEmail: "admin@example.com",
-		Source:     prompt.SourceOperator,
-		Enabled:    true,
+		Category: "workflow",
+		Scope:    prompt.ScopeGlobal,
+		// Slice fields are non-nil, matching what Create/Update persist: the
+		// store normalizes nil slices to empty so pq.Array binds '{}' rather
+		// than NULL into the NOT NULL personas/tags/requested_personas columns.
+		Personas:          []string{},
+		Tags:              []string{},
+		RequestedPersonas: []string{},
+		OwnerEmail:        "admin@example.com",
+		Source:            prompt.SourceOperator,
+		Enabled:           true,
 	}
 }
 
