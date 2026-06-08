@@ -492,14 +492,29 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageArtifactInput) (
 		updates.Description = &input.Description
 	}
 
-	if input.Content != "" {
+	hasContent := input.Content != ""
+	// Content is versioned separately via uploadContentUpdate, which updates the
+	// asset's current-version pointer. A metadata update is only present when one
+	// of the indexable fields was supplied. The metadata Update must not run for a
+	// content-only edit: the store's applyUpdateFields rejects an empty update
+	// with "no fields to update", which would report failure even though the
+	// content write already committed.
+	hasMetadata := updates.Name != nil || updates.Description != nil || updates.Tags != nil
+
+	if !hasContent && !hasMetadata {
+		return errorResult("no fields to update: provide content, name, description, or tags"), nil, nil
+	}
+
+	if hasContent {
 		if contentErr := t.uploadContentUpdate(ctx, asset, input); contentErr != nil {
 			return errorResult("failed to upload new content: " + contentErr.Error()), nil, nil //nolint:nilerr // MCP protocol
 		}
 	}
 
-	if err := t.assetStore.Update(ctx, input.AssetID, updates); err != nil {
-		return errorResult("failed to update asset: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+	if hasMetadata {
+		if err := t.assetStore.Update(ctx, input.AssetID, updates); err != nil {
+			return errorResult("failed to update asset: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		}
 	}
 
 	return jsonResult(map[string]any{
