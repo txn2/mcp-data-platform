@@ -239,19 +239,81 @@ func TestManageArtifact_UpdateWithContent(t *testing.T) {
 		Tags: []string{}, Provenance: portal.Provenance{},
 	})
 
+	versions := newInMemoryVersionStore()
 	s3 := &mockS3Client{}
 	tk := New(Config{
-		Name: "test", AssetStore: store, S3Client: s3,
+		Name: "test", AssetStore: store, VersionStore: versions, S3Client: s3,
+		S3Bucket: "bucket", S3Prefix: "assets/",
+	})
+
+	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user1"})
+
+	// Content-only update: no metadata fields. The content write commits a new
+	// version; the handler must not then run the empty metadata Update, which the
+	// store rejects with "no fields to update", reporting failure on a write that
+	// actually committed (#573).
+	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+		Action: "update", AssetID: "a1", Content: "<div>Updated</div>",
+	})
+	require.NoError(t, err)
+	assert.False(t, result.IsError, "content-only update must succeed")
+
+	vv, _, _ := versions.ListByAsset(context.Background(), "a1", 0, 0)
+	assert.Len(t, vv, 1, "content update must create exactly one version")
+}
+
+func TestManageArtifact_UpdateNoFields(t *testing.T) {
+	store := newInMemoryAssetStore()
+	_ = store.Insert(context.Background(), portal.Asset{
+		ID: "a1", OwnerID: "user1", Name: "Old", Tags: []string{},
+		Provenance: portal.Provenance{},
+	})
+
+	versions := newInMemoryVersionStore()
+	tk := New(Config{
+		Name: "test", AssetStore: store, VersionStore: versions, S3Bucket: "bucket",
+	})
+
+	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user1"})
+
+	// Neither content nor metadata: a genuine no-op must report an error and
+	// create no version.
+	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
+		Action: "update", AssetID: "a1",
+	})
+	require.NoError(t, err)
+	assert.True(t, result.IsError, "empty update must report an error")
+
+	vv, _, _ := versions.ListByAsset(context.Background(), "a1", 0, 0)
+	assert.Empty(t, vv, "empty update must not create a version")
+}
+
+func TestManageArtifact_UpdateContentAndMetadata(t *testing.T) {
+	store := newInMemoryAssetStore()
+	_ = store.Insert(context.Background(), portal.Asset{
+		ID: "a1", OwnerID: "user1", Name: "Old", ContentType: "text/html",
+		Tags: []string{}, Provenance: portal.Provenance{},
+	})
+
+	versions := newInMemoryVersionStore()
+	s3 := &mockS3Client{}
+	tk := New(Config{
+		Name: "test", AssetStore: store, VersionStore: versions, S3Client: s3,
 		S3Bucket: "bucket", S3Prefix: "assets/",
 	})
 
 	ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{UserID: "user1"})
 
 	result, _, err := tk.handleManageArtifact(ctx, nil, manageArtifactInput{
-		Action: "update", AssetID: "a1", Content: "<div>Updated</div>",
+		Action: "update", AssetID: "a1", Content: "<div>v2</div>", Name: "New Name",
 	})
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
+
+	asset, _ := store.Get(context.Background(), "a1")
+	assert.Equal(t, "New Name", asset.Name, "metadata must be applied alongside content")
+	vv, _, _ := versions.ListByAsset(context.Background(), "a1", 0, 0)
+	assert.Len(t, vv, 1, "content+metadata update must create one version")
 }
 
 func TestManageArtifact_UpdateWrongOwner(t *testing.T) {
@@ -400,6 +462,14 @@ func (s *inMemoryAssetStore) Update(_ context.Context, id string, updates portal
 	a, ok := s.assets[id]
 	if !ok || a.DeletedAt != nil {
 		return notFoundError{}
+	}
+	// Mirror the real store's applyUpdateFields guard: an update with no fields
+	// set is rejected. Without this the mock rubber-stamps an empty update that
+	// real Postgres rejects, hiding the content-only update bug (#573).
+	if updates.Name == nil && updates.Description == nil && updates.Tags == nil &&
+		updates.ContentType == "" && updates.S3Key == "" && !updates.HasContent &&
+		updates.ThumbnailS3Key == nil {
+		return fmt.Errorf("no fields to update")
 	}
 	if updates.Name != nil {
 		a.Name = *updates.Name
