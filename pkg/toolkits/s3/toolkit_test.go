@@ -1,6 +1,8 @@
 package s3
 
 import (
+	"context"
+	neturl "net/url"
 	"slices"
 	"testing"
 	"time"
@@ -241,6 +243,61 @@ func TestNew(t *testing.T) {
 		if err == nil {
 			// If somehow it succeeded (e.g., mock environment), that's fine too
 			t.Log("New() succeeded unexpectedly, but this is acceptable")
+		}
+	})
+}
+
+// TestCreateClient_PublicEndpointPresign proves the #575 fix end to end through
+// the real config path: a YAML map is parsed by ParseConfig, the toolkit builds
+// its client via createClient, and s3_presign_url signs against public_endpoint
+// when set, falling back to the internal endpoint when absent. Driving it from a
+// map (not a hand-built Config) is deliberate: it would catch ParseConfig
+// dropping the key. Presigning is local, so no network is required.
+func TestCreateClient_PublicEndpointPresign(t *testing.T) {
+	ctx := context.Background()
+	baseMap := func() map[string]any {
+		return map[string]any{
+			"region":            s3TestRegionEast,
+			"endpoint":          "http://internal-s3:8333",
+			"access_key_id":     "test",
+			"secret_access_key": "secret",
+			"use_path_style":    true,
+		}
+	}
+	presignHost := func(t *testing.T, cfgMap map[string]any) *neturl.URL {
+		t.Helper()
+		cfg, err := ParseConfig(cfgMap)
+		if err != nil {
+			t.Fatalf("ParseConfig: %v", err)
+		}
+		client, err := createClient(cfg)
+		if err != nil {
+			t.Fatalf("createClient: %v", err)
+		}
+		got, err := client.PresignGetURL(ctx, "bucket", "key.txt", time.Hour)
+		if err != nil {
+			t.Fatalf("PresignGetURL: %v", err)
+		}
+		u, err := neturl.Parse(got.URL)
+		if err != nil {
+			t.Fatalf("parse %q: %v", got.URL, err)
+		}
+		return u
+	}
+
+	t.Run("signs against public endpoint when set", func(t *testing.T) {
+		cfgMap := baseMap()
+		cfgMap["public_endpoint"] = "https://s3.public.example.com"
+		u := presignHost(t, cfgMap)
+		if u.Scheme != "https" || u.Host != "s3.public.example.com" {
+			t.Errorf("presigned URL = %s://%s, want https://s3.public.example.com", u.Scheme, u.Host)
+		}
+	})
+
+	t.Run("falls back to data endpoint when unset", func(t *testing.T) {
+		u := presignHost(t, baseMap())
+		if u.Host != "internal-s3:8333" {
+			t.Errorf("presigned URL host = %s, want internal-s3:8333", u.Host)
 		}
 	})
 }

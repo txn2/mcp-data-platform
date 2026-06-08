@@ -36,6 +36,7 @@ func TestParseConfig_ValidAllFields(t *testing.T) {
 	cfg := map[string]any{
 		"region":            "us-west-2",
 		"endpoint":          "http://localhost:9000",
+		"public_endpoint":   "https://s3.example.com",
 		"access_key_id":     "AKIAIOSFODNN7EXAMPLE",
 		"secret_access_key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
 		"session_token":     "token123",
@@ -64,6 +65,9 @@ func assertS3ConfigAllFields(t *testing.T, result Config) {
 	}
 	if result.Endpoint != "http://localhost:9000" {
 		t.Errorf("expected endpoint 'http://localhost:9000', got %q", result.Endpoint)
+	}
+	if result.PublicEndpoint != "https://s3.example.com" {
+		t.Errorf("expected public_endpoint 'https://s3.example.com', got %q", result.PublicEndpoint)
 	}
 	if result.AccessKeyID != "AKIAIOSFODNN7EXAMPLE" { //nolint:gosec // G101: test fixture, not a real credential
 		t.Errorf("expected AccessKeyID, got %q", result.AccessKeyID)

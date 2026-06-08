@@ -201,6 +201,12 @@ toolkits:
       data_lake:
         region: "us-east-1"
         bucket_prefix: "data-lake-"
+        # endpoint: "http://seaweedfs-s3:8333"      # internal/cluster S3 endpoint for data operations
+        # public_endpoint: "https://s3.example.com" # externally resolvable endpoint used only to sign
+        #                                           # presigned URLs (s3_presign_url); presigned URLs are
+        #                                           # signed against it instead of endpoint. Data traffic
+        #                                           # keeps using endpoint. Empty falls back to endpoint.
+        # use_path_style: true                      # required for SeaweedFS / MinIO style addressing
     default: data_lake
     config:
       read_only: true

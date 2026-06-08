@@ -360,6 +360,7 @@ toolkits:
     <instance_name>:
       region: "us-east-1"
       endpoint: ""
+      public_endpoint: ""
       access_key_id: ${AWS_ACCESS_KEY_ID}
       secret_access_key: ${AWS_SECRET_ACCESS_KEY}
       session_token: ""
@@ -377,7 +378,8 @@ toolkits:
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `region` | string | `us-east-1` | AWS region |
-| `endpoint` | string | - | Custom S3 endpoint |
+| `endpoint` | string | - | Custom S3 endpoint for data operations (internal/cluster address for SeaweedFS, MinIO, etc.) |
+| `public_endpoint` | string | - | Public-facing endpoint used only to sign presigned URLs (`s3_presign_url`). When set to an externally resolvable address, presigned URLs are signed against it instead of `endpoint`, while data traffic keeps using `endpoint`. Empty falls back to `endpoint`. |
 | `access_key_id` | string | - | AWS access key ID |
 | `secret_access_key` | string | - | AWS secret access key |
 | `session_token` | string | - | AWS session token |

@@ -20,6 +20,7 @@ import (
 type Config struct {
 	Region          string                      `yaml:"region"`
 	Endpoint        string                      `yaml:"endpoint"`
+	PublicEndpoint  string                      `yaml:"public_endpoint"`
 	AccessKeyID     string                      `yaml:"access_key_id"`
 	SecretAccessKey string                      `yaml:"secret_access_key"`
 	SessionToken    string                      `yaml:"session_token"` // #nosec G117 -- S3 session token from admin YAML config
@@ -110,6 +111,7 @@ func createClient(cfg Config) (*s3client.Client, error) {
 	clientCfg := &s3client.Config{
 		Region:          cfg.Region,
 		Endpoint:        cfg.Endpoint,
+		PresignEndpoint: cfg.PublicEndpoint,
 		AccessKeyID:     cfg.AccessKeyID,
 		SecretAccessKey: cfg.SecretAccessKey,
 		SessionToken:    cfg.SessionToken,

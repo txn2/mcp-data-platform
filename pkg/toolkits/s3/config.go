@@ -27,6 +27,7 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	// String fields
 	c.Region = getStringDefault(cfg, "region", c.Region)
 	c.Endpoint = getString(cfg, "endpoint")
+	c.PublicEndpoint = getString(cfg, "public_endpoint")
 	c.AccessKeyID = getString(cfg, "access_key_id")
 	c.SecretAccessKey = getString(cfg, "secret_access_key")
 	c.SessionToken = getString(cfg, "session_token")
