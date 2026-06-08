@@ -123,12 +123,13 @@ func (s *postgresCollectionStore) searchCollectionsHybrid(ctx context.Context, q
 // full-text relevance only (the no-embedder fallback).
 func (s *postgresCollectionStore) searchCollectionsLexical(ctx context.Context, q CollectionSearchQuery) ([]ScoredCollection, error) {
 	// #nosec G201 -- column list and FTS expr are constants; owner_id is a
-	// parameterized placeholder; limit is a sanitized int.
+	// parameterized placeholder; limit and the normalization bitmask are
+	// sanitized ints.
 	query := fmt.Sprintf(
-		"SELECT %s, ts_rank_cd(%s, %s) AS lex_rank "+
+		"SELECT %s, ts_rank_cd(%s, %s, %d) AS lex_rank "+
 			"FROM portal_collections WHERE deleted_at IS NULL AND owner_id = $2 "+
 			"AND %s @@ %s ORDER BY lex_rank DESC LIMIT %d",
-		collectionColumns, collectionFTSExpr, collectionFTSQueryLexical,
+		collectionColumns, collectionFTSExpr, collectionFTSQueryLexical, lexRankNormalization,
 		collectionFTSExpr, collectionFTSQueryLexical, q.EffectiveLimit())
 
 	rows, err := s.db.QueryContext(ctx, query, q.QueryText, q.OwnerID)
