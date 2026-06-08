@@ -420,6 +420,24 @@ func TestMemoryInsightAdapter_UpdateStatus(t *testing.T) {
 	assert.Equal(t, "reviewer@example.com", store.updateData.Metadata["reviewed_by"])
 	assert.Equal(t, "LGTM", store.updateData.Metadata["review_notes"])
 	assert.Equal(t, StatusApproved, store.updateData.Metadata["insight_status"])
+	// Approved maps to the active memory status column.
+	assert.Equal(t, memory.StatusActive, store.updateData.Status)
+}
+
+// TestMemoryInsightAdapter_UpdateStatus_RejectArchives is the #579 regression:
+// rejecting an insight must move the memory status COLUMN to archived (not just
+// metadata), because memory_recall filters on the column. Without this a
+// rejected insight stays active and keeps surfacing in recall.
+func TestMemoryInsightAdapter_UpdateStatus_RejectArchives(t *testing.T) {
+	store := &mockMemoryStore{}
+	adapter := NewMemoryInsightAdapter(store)
+
+	err := adapter.UpdateStatus(context.Background(), "ins-001", StatusRejected, "rev@example.com", "not useful")
+	require.NoError(t, err)
+	require.True(t, store.updateCalled)
+	assert.Equal(t, StatusRejected, store.updateData.Metadata["insight_status"])
+	assert.Equal(t, memory.StatusArchived, store.updateData.Status,
+		"rejected insight must archive the status column so recall excludes it")
 }
 
 func TestMemoryInsightAdapter_UpdateStatus_Error(t *testing.T) {
@@ -599,6 +617,8 @@ func TestMemoryInsightAdapter_MarkRolledBack(t *testing.T) {
 	assert.Equal(t, "ins-001", store.updateID)
 	assert.Equal(t, StatusRolledBack, store.updateData.Metadata[metaKeyInsightStatus])
 	assert.Equal(t, "admin@example.com", store.updateData.Metadata[metaKeyReviewedBy])
+	// Rolled-back maps to archived; the column must move too (same bug as reject).
+	assert.Equal(t, memory.StatusArchived, store.updateData.Status)
 }
 
 func TestMemoryInsightAdapter_MarkRolledBack_Error(t *testing.T) {

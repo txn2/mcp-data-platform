@@ -181,6 +181,10 @@ func buildUpdateColumns(updates RecordUpdate) (sq.UpdateBuilder, bool, error) {
 		qb = qb.Set(colDimension, updates.Dimension)
 		hasUpdates = true
 	}
+	if updates.Status != "" {
+		qb = qb.Set(colStatus, updates.Status)
+		hasUpdates = true
+	}
 	if updates.Metadata != nil {
 		meta, err := json.Marshal(updates.Metadata)
 		if err != nil {
