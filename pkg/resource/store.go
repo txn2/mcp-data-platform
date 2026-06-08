@@ -49,6 +49,13 @@ func (s *postgresStore) Insert(ctx context.Context, r Resource) error { //nolint
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 	`
 	scopeID := sql.NullString{String: r.ScopeID, Valid: r.ScopeID != ""}
+	// Normalize nil tags to empty: pq.Array(nil) binds SQL NULL, which violates
+	// the NOT NULL constraint on the tags TEXT[] column (the column DEFAULT '{}'
+	// does not apply once the INSERT supplies an explicit value). A caller that
+	// omits tags would otherwise fail with error 23502.
+	if r.Tags == nil {
+		r.Tags = []string{}
+	}
 	_, err := s.db.ExecContext(ctx, query,
 		r.ID, string(r.Scope), scopeID, r.Category, r.Filename, r.DisplayName,
 		r.Description, r.MIMEType, r.SizeBytes, r.S3Key, r.URI,
