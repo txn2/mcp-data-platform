@@ -62,6 +62,28 @@ test-integration:
 	@echo "Running integration tests..."
 	$(GOTEST) -v -tags=integration ./...
 
+# Real-DB round-trip gate for tool write paths. Runs every integration test
+# named *RealDB* against a self-provisioned pgvector container (testcontainers),
+# exercising the actual schema (NOT NULL constraints, defaults, column types)
+# that sqlmock cannot. This is the gate that would have caught the prompt-create
+# defect that shipped to production (pq.Array(nil) -> NULL into NOT NULL tags).
+# Convention: name any tool write-path round-trip test *RealDB* so it runs here.
+# Requires Docker. Part of `verify`, alongside migrate-check.
+## test-realdb: Real-Postgres round-trip gate for tool write paths (Docker required)
+test-realdb:
+	@echo "Running real-DB round-trip gate..."
+	$(GOTEST) -count=1 -tags=integration -run 'RealDB' ./...
+	@echo "Real-DB gate passed."
+
+# Live post-deploy smoke: connects to a RUNNING MCP server as a real MCP client
+# (admin API key) and exercises every user-facing write tool end to end, then
+# cleans up. This is the layer that catches deployment drift / config the
+# in-process gates cannot see. Skips unless MCP_API_KEY is set.
+## smoke: Live smoke against a running MCP (env: MCP_BASE_URL, MCP_API_KEY)
+smoke:
+	@echo "Running live smoke against $${MCP_BASE_URL:-http://localhost:8099}..."
+	$(GOTEST) -count=1 -tags=integration ./test/smoke/ -run Smoke -v
+
 # Real-Postgres migration gate. Applies every embedded migration + the dev seed
 # to a disposable pgvector instance (up -> seed -> down -> up), catching SQL the
 # planner only rejects against a live engine (e.g. a non-IMMUTABLE function in an
@@ -401,7 +423,7 @@ verify-release: verify mutate
 ## verify: Run the CI-equivalent per-commit suite (test, lint, security, SAST, coverage, release)
 ## NOTE: mutation testing is intentionally excluded — it lives in verify-release.
 ## Do not add `mutate` back to this per-commit target.
-verify: tools-check fmt swagger-check embed-clean test migrate-check lint security semgrep codeql coverage-report patch-coverage doc-check dead-code release-check
+verify: tools-check fmt swagger-check embed-clean test migrate-check test-realdb lint security semgrep codeql coverage-report patch-coverage doc-check dead-code release-check
 	@echo ""
 	@echo "=== All checks passed ==="
 	@# Write the gate sentinel: the short SHA-256 of the working-tree diff

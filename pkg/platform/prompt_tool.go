@@ -166,7 +166,7 @@ func (p *Platform) handlePromptCreate(ctx context.Context, input managePromptInp
 
 	if err := p.promptStore.Create(ctx, pr); err != nil {
 		slog.Error("failed to create prompt", promptLogKey, input.Name, promptLogKeyErr, err)
-		return promptErrorResult("failed to create prompt"), nil, nil
+		return p.promptErrorDetail(ctx, "failed to create prompt", err), nil, nil
 	}
 
 	p.RegisterRuntimePrompt(pr)
@@ -187,7 +187,7 @@ func (p *Platform) handlePromptUpdate(ctx context.Context, input managePromptInp
 	existing, err := p.resolveManagedPrompt(ctx, input.Name, resolveEmail(ctx), input.Scope)
 	if err != nil {
 		slog.Error(promptErrGet, promptLogKey, input.Name, promptLogKeyErr, err)
-		return promptErrorResult(promptErrGet), nil, nil
+		return p.promptErrorDetail(ctx, promptErrGet, err), nil, nil
 	}
 	if existing == nil {
 		return promptErrorResult(fmt.Sprintf("prompt %q not found", input.Name)), nil, nil
@@ -221,7 +221,7 @@ func (p *Platform) handlePromptUpdate(ctx context.Context, input managePromptInp
 
 	if err := p.promptStore.Update(ctx, existing); err != nil {
 		slog.Error("failed to update prompt", promptLogKey, input.Name, promptLogKeyErr, err)
-		return promptErrorResult("failed to update prompt"), nil, nil
+		return p.promptErrorDetail(ctx, "failed to update prompt", err), nil, nil
 	}
 
 	// Re-register the name-keyed metadata. Personal prompts are not tracked
@@ -299,7 +299,7 @@ func (p *Platform) handlePromptDelete(ctx context.Context, input managePromptInp
 	existing, err := p.resolveManagedPrompt(ctx, input.Name, resolveEmail(ctx), input.Scope)
 	if err != nil {
 		slog.Error(promptErrGet, promptLogKey, input.Name, promptLogKeyErr, err)
-		return promptErrorResult(promptErrGet), nil, nil
+		return p.promptErrorDetail(ctx, promptErrGet, err), nil, nil
 	}
 	if existing == nil {
 		return promptErrorResult(fmt.Sprintf("prompt %q not found", input.Name)), nil, nil
@@ -317,7 +317,7 @@ func (p *Platform) handlePromptDelete(ctx context.Context, input managePromptInp
 
 	if err := p.promptStore.DeleteByID(ctx, existing.ID); err != nil {
 		slog.Error("failed to delete prompt", promptLogKey, input.Name, promptLogKeyErr, err)
-		return promptErrorResult("failed to delete prompt"), nil, nil
+		return p.promptErrorDetail(ctx, "failed to delete prompt", err), nil, nil
 	}
 
 	// Personal prompts are not tracked in the name-keyed metadata; unregistering
@@ -363,7 +363,7 @@ func (p *Platform) handlePromptList(ctx context.Context, input managePromptInput
 	prompts, err := p.promptStore.List(ctx, filter)
 	if err != nil {
 		slog.Error("failed to list prompts", promptLogKeyErr, err)
-		return promptErrorResult("failed to list prompts"), nil, nil
+		return p.promptErrorDetail(ctx, "failed to list prompts", err), nil, nil
 	}
 
 	// For non-admins without an explicit scope, also include global and persona-scoped prompts.
@@ -440,7 +440,7 @@ func (p *Platform) handlePromptSearch(ctx context.Context, input managePromptInp
 	})
 	if err != nil {
 		slog.Error("failed to search prompts", promptLogKeyErr, err)
-		return promptErrorResult("failed to search prompts"), nil, nil
+		return p.promptErrorDetail(ctx, "failed to search prompts", err), nil, nil
 	}
 
 	return promptJSONResult(map[string]any{
@@ -459,7 +459,7 @@ func (p *Platform) handlePromptGet(ctx context.Context, input managePromptInput)
 	pr, err := p.resolveManagedPrompt(ctx, input.Name, resolveEmail(ctx), input.Scope)
 	if err != nil {
 		slog.Error(promptErrGet, promptLogKey, input.Name, promptLogKeyErr, err)
-		return promptErrorResult(promptErrGet), nil, nil
+		return p.promptErrorDetail(ctx, promptErrGet, err), nil, nil
 	}
 	if pr == nil {
 		return promptErrorResult(fmt.Sprintf("prompt %q not found", input.Name)), nil, nil
@@ -516,6 +516,22 @@ func (p *Platform) isAdminPersona(ctx context.Context) bool {
 		return false
 	}
 	return pc.PersonaName == p.config.Admin.Persona
+}
+
+// promptErrorDetail builds a tool error for a failed store or internal
+// operation. The public message is always safe to show. Admins are the platform
+// operators, so they additionally see the underlying error detail; non-admins
+// get only a request-id breadcrumb so an operator can correlate the failure in
+// the logs. Raw errors (which may carry SQL or schema detail) are never shown to
+// non-admins. The full error is always written to the server log by the caller.
+func (p *Platform) promptErrorDetail(ctx context.Context, public string, err error) *mcp.CallToolResult {
+	if p.isAdminPersona(ctx) {
+		return promptErrorResult(fmt.Sprintf("%s: %v", public, err))
+	}
+	if pc := middleware.GetPlatformContext(ctx); pc != nil && pc.RequestID != "" {
+		return promptErrorResult(fmt.Sprintf("%s (request_id: %s)", public, pc.RequestID))
+	}
+	return promptErrorResult(public)
 }
 
 // promptErrorResult creates an error tool result.
