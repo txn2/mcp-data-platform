@@ -570,10 +570,10 @@ injection:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `trino_semantic_enrichment` | bool | `false` | Enrich Trino results with DataHub metadata |
-| `datahub_query_enrichment` | bool | `false` | Add query availability to DataHub search results |
-| `s3_semantic_enrichment` | bool | `false` | Enrich S3 results with DataHub metadata |
-| `datahub_storage_enrichment` | bool | `false` | Add S3 availability to DataHub results |
+| `trino_semantic_enrichment` | bool | `true` | Enrich Trino results with DataHub metadata. Default on; read-only and no-ops without a semantic provider. Set `false` to disable. |
+| `datahub_query_enrichment` | bool | `true` | Add query availability to DataHub search results. Default on; set `false` to disable. |
+| `s3_semantic_enrichment` | bool | `true` | Enrich S3 results with DataHub metadata. Default on; set `false` to disable. |
+| `datahub_storage_enrichment` | bool | `true` | Add S3 availability to DataHub results. Default on; set `false` to disable. |
 | `unwrap_json` | bool | `true` | Auto-unwrap single-row VARCHAR-of-JSON results |
 | `column_context_filtering` | bool | `true` | Limit column enrichment to SQL-referenced columns |
 | `session_dedup.enabled` | bool | `true` | Whether session dedup is active |

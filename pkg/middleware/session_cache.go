@@ -35,6 +35,7 @@ type SessionEnrichmentCache struct {
 	entryTTL       time.Duration
 	sessionTimeout time.Duration
 	done           chan struct{}
+	stopOnce       sync.Once
 
 	// Cumulative token counters for diagnostics.
 	tokensFull    atomic.Int64
@@ -145,9 +146,10 @@ func (c *SessionEnrichmentCache) StartCleanup(interval time.Duration) {
 	}()
 }
 
-// Stop stops the background cleanup goroutine.
+// Stop stops the background cleanup goroutine. It is idempotent: multiple calls
+// (e.g. Platform.Close invoked more than once) close the done channel exactly once.
 func (c *SessionEnrichmentCache) Stop() {
-	close(c.done)
+	c.stopOnce.Do(func() { close(c.done) })
 }
 
 // SessionCount returns the number of tracked sessions.

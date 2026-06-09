@@ -468,10 +468,15 @@ type StorageConfig struct {
 
 // InjectionConfig configures cross-injection.
 type InjectionConfig struct {
-	TrinoSemanticEnrichment  bool               `yaml:"trino_semantic_enrichment"`
-	DataHubQueryEnrichment   bool               `yaml:"datahub_query_enrichment"`
-	S3SemanticEnrichment     bool               `yaml:"s3_semantic_enrichment"`
-	DataHubStorageEnrichment bool               `yaml:"datahub_storage_enrichment"`
+	// The four cross-injection flags default to true (nil = enabled). They are
+	// the platform's core differentiator and are read-only: each no-ops safely
+	// when its provider (semantic / query / storage) is absent, so defaulting on
+	// is safe and removes the need to opt every deployment into enrichment. Set
+	// the flag to false explicitly to disable. Read via the Is*Enabled helpers.
+	TrinoSemanticEnrichment  *bool              `yaml:"trino_semantic_enrichment"`
+	DataHubQueryEnrichment   *bool              `yaml:"datahub_query_enrichment"`
+	S3SemanticEnrichment     *bool              `yaml:"s3_semantic_enrichment"`
+	DataHubStorageEnrichment *bool              `yaml:"datahub_storage_enrichment"`
 	EstimateRowCounts        bool               `yaml:"estimate_row_counts"`
 	SessionDedup             SessionDedupConfig `yaml:"session_dedup"`
 
@@ -531,6 +536,31 @@ func (c *InjectionConfig) IsColumnContextFilteringEnabled() bool {
 		return true
 	}
 	return *c.ColumnContextFiltering
+}
+
+// IsTrinoSemanticEnrichmentEnabled reports whether Trino results are enriched
+// with semantic context, defaulting to true when not explicitly set. The
+// enrichment no-ops when no semantic provider is configured.
+func (c *InjectionConfig) IsTrinoSemanticEnrichmentEnabled() bool {
+	return c.TrinoSemanticEnrichment == nil || *c.TrinoSemanticEnrichment
+}
+
+// IsDataHubQueryEnrichmentEnabled reports whether DataHub results are enriched
+// with query/availability context, defaulting to true when not explicitly set.
+func (c *InjectionConfig) IsDataHubQueryEnrichmentEnabled() bool {
+	return c.DataHubQueryEnrichment == nil || *c.DataHubQueryEnrichment
+}
+
+// IsS3SemanticEnrichmentEnabled reports whether S3 results are enriched with
+// semantic context, defaulting to true when not explicitly set.
+func (c *InjectionConfig) IsS3SemanticEnrichmentEnabled() bool {
+	return c.S3SemanticEnrichment == nil || *c.S3SemanticEnrichment
+}
+
+// IsDataHubStorageEnrichmentEnabled reports whether DataHub results are enriched
+// with storage context, defaulting to true when not explicitly set.
+func (c *InjectionConfig) IsDataHubStorageEnrichmentEnabled() bool {
+	return c.DataHubStorageEnrichment == nil || *c.DataHubStorageEnrichment
 }
 
 // defaultSchemaPreviewMaxColumns is the default cap for schema preview columns.
@@ -737,9 +767,18 @@ type CSPAppConfig struct {
 
 // ResourcesConfig configures MCP resource templates and managed resources.
 type ResourcesConfig struct {
-	Enabled bool                `yaml:"enabled"` // gates schema/glossary/availability templates
+	// Enabled gates the schema/glossary/availability resource templates and the
+	// DataHub->Trino resource links (ResourceLinksEnabled). Read-only serving, so
+	// it defaults to true (nil = enabled); set false to disable. Read via IsEnabled.
+	Enabled *bool               `yaml:"enabled"`
 	Custom  []CustomResourceDef `yaml:"custom"`  // always registered when non-empty
 	Managed ManagedResourcesCfg `yaml:"managed"` // human-uploaded resources via portal
+}
+
+// IsEnabled reports whether the resource templates and DataHub->Trino resource
+// links are served, defaulting to true when not explicitly set.
+func (c *ResourcesConfig) IsEnabled() bool {
+	return c.Enabled == nil || *c.Enabled
 }
 
 // defaultManagedResourcesS3Bucket is the default S3 bucket for managed resources.

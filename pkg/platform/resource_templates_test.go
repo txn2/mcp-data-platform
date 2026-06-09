@@ -457,7 +457,7 @@ func TestRegisterResourceTemplates(t *testing.T) {
 	t.Run("disabled", func(_ *testing.T) {
 		s := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "v0.1"}, nil)
 		p := &Platform{
-			config:    &Config{Resources: ResourcesConfig{Enabled: false}},
+			config:    &Config{Resources: ResourcesConfig{Enabled: new(false)}},
 			mcpServer: s,
 		}
 		p.registerResourceTemplates()
@@ -467,7 +467,7 @@ func TestRegisterResourceTemplates(t *testing.T) {
 	t.Run("enabled", func(_ *testing.T) {
 		s := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "v0.1"}, nil)
 		p := &Platform{
-			config:    &Config{Resources: ResourcesConfig{Enabled: true}},
+			config:    &Config{Resources: ResourcesConfig{Enabled: new(true)}},
 			mcpServer: s,
 		}
 		p.registerResourceTemplates()

@@ -361,8 +361,8 @@ func TestMCPMiddlewareWithEnrichment(t *testing.T) {
 		Query:    QueryConfig{Provider: testProviderNoop},
 		Storage:  StorageConfig{Provider: testProviderNoop},
 		Injection: InjectionConfig{
-			TrinoSemanticEnrichment: true,
-			DataHubQueryEnrichment:  true,
+			TrinoSemanticEnrichment: new(true),
+			DataHubQueryEnrichment:  new(true),
 		},
 		Audit: AuditConfig{
 			Enabled: new(true),
@@ -3359,13 +3359,13 @@ func TestBuildServerCapabilities(t *testing.T) {
 			config:        Config{},
 			wantTools:     true,
 			wantLogging:   true,
-			wantResources: false,
+			wantResources: true,
 			wantPrompts:   true,
 		},
 		{
 			name: "resources enabled",
 			config: Config{
-				Resources: ResourcesConfig{Enabled: true},
+				Resources: ResourcesConfig{Enabled: new(true)},
 			},
 			wantTools:     true,
 			wantLogging:   true,
@@ -3381,7 +3381,7 @@ func TestBuildServerCapabilities(t *testing.T) {
 			},
 			wantTools:     true,
 			wantLogging:   true,
-			wantResources: false,
+			wantResources: true,
 			wantPrompts:   true,
 		},
 		{
@@ -3391,7 +3391,7 @@ func TestBuildServerCapabilities(t *testing.T) {
 			},
 			wantTools:     true,
 			wantLogging:   true,
-			wantResources: false,
+			wantResources: true,
 			wantPrompts:   true,
 		},
 		{
@@ -3401,18 +3401,30 @@ func TestBuildServerCapabilities(t *testing.T) {
 			},
 			wantTools:     true,
 			wantLogging:   true,
-			wantResources: false,
+			wantResources: true,
 			wantPrompts:   true,
 		},
 		{
 			name: "all capabilities enabled",
 			config: Config{
-				Resources: ResourcesConfig{Enabled: true},
+				Resources: ResourcesConfig{Enabled: new(true)},
 				Knowledge: KnowledgeConfig{Enabled: new(true)},
 			},
 			wantTools:     true,
 			wantLogging:   true,
 			wantResources: true,
+			wantPrompts:   true,
+		},
+		{
+			// Resources default on (#571 default-on); explicit false with no
+			// managed store or custom resources reports the capability absent.
+			name: "resources explicitly disabled",
+			config: Config{
+				Resources: ResourcesConfig{Enabled: new(false)},
+			},
+			wantTools:     true,
+			wantLogging:   true,
+			wantResources: false,
 			wantPrompts:   true,
 		},
 	}

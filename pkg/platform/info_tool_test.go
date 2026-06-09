@@ -11,7 +11,10 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
+	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
+	"github.com/txn2/mcp-data-platform/pkg/semantic"
+	"github.com/txn2/mcp-data-platform/pkg/storage"
 )
 
 const (
@@ -56,8 +59,8 @@ func TestHandleInfo(t *testing.T) {
 					"datahub": map[string]any{},
 				},
 				Injection: InjectionConfig{
-					TrinoSemanticEnrichment: true,
-					DataHubQueryEnrichment:  true,
+					TrinoSemanticEnrichment: new(true),
+					DataHubQueryEnrichment:  new(true),
 				},
 				Audit: AuditConfig{
 					Enabled: new(true),
@@ -135,10 +138,10 @@ func TestInfoFeatures(t *testing.T) {
 			Version: testInfoVersion,
 		},
 		Injection: InjectionConfig{
-			TrinoSemanticEnrichment:  true,
-			DataHubQueryEnrichment:   true,
-			S3SemanticEnrichment:     false,
-			DataHubStorageEnrichment: true,
+			TrinoSemanticEnrichment:  new(true),
+			DataHubQueryEnrichment:   new(true),
+			S3SemanticEnrichment:     new(false),
+			DataHubStorageEnrichment: new(true),
 		},
 		Audit: AuditConfig{
 			Enabled: new(true),
@@ -146,9 +149,12 @@ func TestInfoFeatures(t *testing.T) {
 	}
 
 	p := &Platform{
-		config:          &config,
-		personaRegistry: persona.NewRegistry(),
-		toolkitRegistry: registry.NewRegistry(),
+		config:           &config,
+		personaRegistry:  persona.NewRegistry(),
+		toolkitRegistry:  registry.NewRegistry(),
+		semanticProvider: semantic.NewNoopProvider(),
+		queryProvider:    query.NewNoopProvider(),
+		storageProvider:  storage.NewNoopProvider(),
 	}
 	result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
 
@@ -159,6 +165,32 @@ func TestInfoFeatures(t *testing.T) {
 	assert.True(t, info.Features.QueryEnrichment, "query enrichment should be enabled")
 	assert.True(t, info.Features.StorageEnrichment, "storage enrichment should be enabled")
 	assert.True(t, info.Features.AuditLogging, "audit logging should be enabled")
+}
+
+// TestInfoFeatures_EnrichmentReportedOffWithoutProvider verifies the honesty
+// gate: with enrichment flags default-on (nil) but no providers configured,
+// platform_info must NOT report enrichment as enabled, since nothing would be
+// produced. The agent should not be told it has context it cannot receive.
+func TestInfoFeatures_EnrichmentReportedOffWithoutProvider(t *testing.T) {
+	config := Config{
+		Server: ServerConfig{Name: "feature-test", Version: testInfoVersion},
+		// Injection left zero-value: every enrichment flag is nil => default-on.
+	}
+
+	p := &Platform{
+		config:          &config,
+		personaRegistry: persona.NewRegistry(),
+		toolkitRegistry: registry.NewRegistry(),
+		// No providers configured.
+	}
+	result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
+
+	require.NoError(t, err)
+	info := requireInfoFromResult(t, result)
+
+	assert.False(t, info.Features.SemanticEnrichment, "no semantic provider => not reported")
+	assert.False(t, info.Features.QueryEnrichment, "no query provider => not reported")
+	assert.False(t, info.Features.StorageEnrichment, "no storage provider => not reported")
 }
 
 func TestInfoConfigVersion(t *testing.T) {

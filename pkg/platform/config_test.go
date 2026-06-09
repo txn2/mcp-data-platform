@@ -573,14 +573,26 @@ func TestConfigTypes_PersonaDef(t *testing.T) {
 }
 
 func TestConfigTypes_InjectionConfig(t *testing.T) {
-	cfg := InjectionConfig{
-		TrinoSemanticEnrichment:  true,
-		DataHubQueryEnrichment:   true,
-		S3SemanticEnrichment:     true,
-		DataHubStorageEnrichment: true,
+	// The four cross-injection flags default to enabled when unset (#571): an
+	// operator should not have to opt every deployment into the core feature.
+	var def InjectionConfig
+	if !def.IsTrinoSemanticEnrichmentEnabled() {
+		t.Error("TrinoSemanticEnrichment should default enabled")
 	}
-	if !cfg.TrinoSemanticEnrichment {
-		t.Error("TrinoSemanticEnrichment = false")
+	if !def.IsDataHubQueryEnrichmentEnabled() {
+		t.Error("DataHubQueryEnrichment should default enabled")
+	}
+	if !def.IsS3SemanticEnrichmentEnabled() {
+		t.Error("S3SemanticEnrichment should default enabled")
+	}
+	if !def.IsDataHubStorageEnrichmentEnabled() {
+		t.Error("DataHubStorageEnrichment should default enabled")
+	}
+
+	// An explicit false disables.
+	off := InjectionConfig{TrinoSemanticEnrichment: new(false)}
+	if off.IsTrinoSemanticEnrichmentEnabled() {
+		t.Error("explicit false should disable TrinoSemanticEnrichment")
 	}
 }
 

@@ -2605,7 +2605,7 @@ func (p *Platform) buildServerCapabilities() *mcp.ServerCapabilities {
 	}
 
 	// Resources are available when templates or managed resources are enabled.
-	if p.config.Resources.Enabled || p.resourceStore != nil || len(p.config.Resources.Custom) > 0 {
+	if p.config.Resources.IsEnabled() || p.resourceStore != nil || len(p.config.Resources.Custom) > 0 {
 		caps.Resources = &mcp.ResourceCapabilities{ListChanged: true}
 	}
 
@@ -2619,10 +2619,10 @@ func (p *Platform) buildServerCapabilities() *mcp.ServerCapabilities {
 
 // addEnrichmentMiddleware adds the semantic enrichment middleware if any injection is configured.
 func (p *Platform) addEnrichmentMiddleware() {
-	needsEnrichment := p.config.Injection.TrinoSemanticEnrichment ||
-		p.config.Injection.DataHubQueryEnrichment ||
-		p.config.Injection.S3SemanticEnrichment ||
-		p.config.Injection.DataHubStorageEnrichment
+	needsEnrichment := p.config.Injection.IsTrinoSemanticEnrichmentEnabled() ||
+		p.config.Injection.IsDataHubQueryEnrichmentEnabled() ||
+		p.config.Injection.IsS3SemanticEnrichmentEnabled() ||
+		p.config.Injection.IsDataHubStorageEnrichmentEnabled()
 
 	if !needsEnrichment {
 		return
@@ -2649,11 +2649,11 @@ func (p *Platform) addEnrichmentMiddleware() {
 // optional session dedup cache setup.
 func (p *Platform) buildEnrichmentConfig() middleware.EnrichmentConfig {
 	cfg := middleware.EnrichmentConfig{
-		EnrichTrinoResults:          p.config.Injection.TrinoSemanticEnrichment,
-		EnrichDataHubResults:        p.config.Injection.DataHubQueryEnrichment,
-		EnrichS3Results:             p.config.Injection.S3SemanticEnrichment,
-		EnrichDataHubStorageResults: p.config.Injection.DataHubStorageEnrichment,
-		ResourceLinksEnabled:        p.config.Resources.Enabled,
+		EnrichTrinoResults:          p.config.Injection.IsTrinoSemanticEnrichmentEnabled(),
+		EnrichDataHubResults:        p.config.Injection.IsDataHubQueryEnrichmentEnabled(),
+		EnrichS3Results:             p.config.Injection.IsS3SemanticEnrichmentEnabled(),
+		EnrichDataHubStorageResults: p.config.Injection.IsDataHubStorageEnrichmentEnabled(),
+		ResourceLinksEnabled:        p.config.Resources.IsEnabled(),
 		ColumnContextFiltering:      p.config.Injection.IsColumnContextFilteringEnabled(),
 		SearchSchemaPreview:         p.config.Injection.IsSearchSchemaPreviewEnabled(),
 		SchemaPreviewMaxColumns:     p.config.Injection.EffectiveSchemaPreviewMaxColumns(),
