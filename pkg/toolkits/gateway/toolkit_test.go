@@ -1271,6 +1271,66 @@ func TestListConnections_SurfacesHealth(t *testing.T) {
 	assert.NotEmpty(t, h.LastError)
 }
 
+// TestStatus_HealthyIsSessionLevel_DistinctFromReachability guards the
+// intentional distinction between the two health axes: Status().Healthy means
+// "a live upstream session exists", while list_connections reachability means
+// "session exists AND the last forwarded call did not error". After a forwarded
+// call fails with a non-session transport error, the session is still alive, so
+// Status().Healthy stays true while list_connections reports unreachable. The
+// admin connections UI and list_connections both read the reachability signal
+// (shared ConnectionHealthWire), so the operator-facing surfaces still agree;
+// Status' session-level flag is a separate, non-rendered axis.
+func TestStatus_HealthyIsSessionLevel_DistinctFromReachability(t *testing.T) {
+	srv := mcp.NewServer(&mcp.Implementation{Name: "upstream", Version: "0.0.1"}, nil)
+	type echoArgs struct {
+		Message string `json:"message"`
+	}
+	mcp.AddTool(srv, &mcp.Tool{Name: toolEcho, Description: "echo"},
+		func(_ context.Context, _ *mcp.CallToolRequest, a echoArgs) (*mcp.CallToolResult, any, error) {
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "echo:" + a.Message}}}, nil, nil
+		})
+	ts := httptest.NewServer(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil))
+
+	tk := New("primary")
+	t.Cleanup(func() { _ = tk.Close() })
+	if err := tk.AddConnection(connCRM, connectionConfig(ts.URL, connCRM)); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+
+	// After a successful connect both axes agree: session up, last call ok.
+	status := tk.Status(context.Background(), connCRM)
+	require.NotNil(t, status)
+	assert.True(t, status.Healthy, "status healthy after connect")
+	h := healthFor(tk.ListConnections(), connCRM)
+	require.NotNil(t, h)
+	assert.True(t, h.Reachable, "reachable after connect")
+
+	// Take the upstream down and forward a call: it fails unrecoverably.
+	ts.CloseClientConnections()
+	ts.Close()
+	tk.mu.RLock()
+	u := tk.connections[connCRM]
+	tk.mu.RUnlock()
+	handler := tk.makeForwarder(u, toolEcho, localCRMEcho)
+	res, err := handler(context.Background(), &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{
+		Name:      toolEcho,
+		Arguments: json.RawMessage(`{"message":"x"}`),
+	}})
+	require.NoError(t, err)
+	require.True(t, res.IsError)
+
+	// The session object still exists, so Status().Healthy stays true, but the
+	// connection is no longer reachable (last call errored). The two axes
+	// intentionally diverge here.
+	status = tk.Status(context.Background(), connCRM)
+	require.NotNil(t, status)
+	assert.True(t, status.Healthy, "session-level Healthy stays true while the client is non-nil")
+	h = healthFor(tk.ListConnections(), connCRM)
+	require.NotNil(t, h)
+	assert.False(t, h.Reachable, "reachability flips false after an unrecoverable call failure")
+	assert.NotEmpty(t, h.LastError)
+}
+
 // TestForwarder_RemovedConnectionDoesNotReconnect guards the reconnect leak:
 // once a connection is removed, an in-flight forwarder must report the upstream
 // as unavailable rather than re-dialing and resurrecting a session that Close

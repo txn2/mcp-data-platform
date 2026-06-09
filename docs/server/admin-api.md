@@ -187,11 +187,31 @@ Returns all toolkit connections with their tools.
       "name": "prod",
       "connection": "prod-trino",
       "tools": ["trino_query", "trino_describe_table"]
+    },
+    {
+      "kind": "mcp",
+      "name": "vendor-crm",
+      "connection": "vendor-crm",
+      "tools": ["vendor-crm__search"],
+      "health": {
+        "reachable": false,
+        "last_success": "2026-06-09T12:00:00Z",
+        "last_error": "dial tcp: connection refused"
+      }
     }
   ],
-  "total": 1
+  "total": 2
 }
 ```
+
+The optional `health` object reports a gateway (`mcp` kind) upstream's runtime
+reachability: `reachable` (live session with no failed last call),
+`last_success` (RFC3339 UTC time of the last successful forwarded call, omitted
+when none), and `last_error` (most recent call or connect failure). It is
+present only for connection kinds that hold a live session and is the same
+state the `list_connections` MCP tool reports, so the admin UI and the tool
+never show conflicting health for the same connection. Kinds without
+reachability tracking omit the field.
 
 ## Index Jobs Endpoints
 

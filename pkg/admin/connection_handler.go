@@ -291,15 +291,16 @@ func (h *Handler) deleteConnectionInstance(w http.ResponseWriter, r *http.Reques
 
 // effectiveConnection merges a live toolkit connection with its DB instance (if any).
 type effectiveConnection struct {
-	Kind        string         `json:"kind" example:"trino"`
-	Name        string         `json:"name" example:"acme-warehouse"`
-	Connection  string         `json:"connection" example:"acme-warehouse"`
-	Description string         `json:"description,omitempty" example:"Production data warehouse"`
-	Source      string         `json:"source" example:"file"` // "file", "database", or "both"
-	Tools       []string       `json:"tools" example:"trino_query,trino_describe_table"`
-	Config      map[string]any `json:"config,omitempty"`
-	CreatedBy   string         `json:"created_by,omitempty" example:"admin@example.com"`
-	UpdatedAt   *time.Time     `json:"updated_at,omitempty"`
+	Kind        string                        `json:"kind" example:"trino"`
+	Name        string                        `json:"name" example:"acme-warehouse"`
+	Connection  string                        `json:"connection" example:"acme-warehouse"`
+	Description string                        `json:"description,omitempty" example:"Production data warehouse"`
+	Source      string                        `json:"source" example:"file"` // "file", "database", or "both"
+	Tools       []string                      `json:"tools" example:"trino_query,trino_describe_table"`
+	Config      map[string]any                `json:"config,omitempty"`
+	CreatedBy   string                        `json:"created_by,omitempty" example:"admin@example.com"`
+	UpdatedAt   *time.Time                    `json:"updated_at,omitempty"`
+	Health      *toolkit.ConnectionHealthWire `json:"health,omitempty"`
 }
 
 // listEffectiveConnections returns the merged view of file-configured and DB-managed connections.
@@ -329,6 +330,7 @@ type liveConnectionInfo struct {
 	description            string
 	tools                  []string
 	config                 map[string]any
+	health                 *toolkit.ConnectionHealthWire
 }
 
 // collectLiveConnections returns info for running data toolkit instances (trino, s3).
@@ -366,6 +368,7 @@ func (h *Handler) expandMultiConnections(live []liveConnectionInfo, tk registry.
 		info := liveConnectionInfo{
 			kind: tk.Kind(), name: conn.Name, connection: conn.Name,
 			description: conn.Description, tools: tools,
+			health: conn.Health.Wire(),
 		}
 		info.config = h.lookupToolkitInstanceConfig(tk.Kind(), conn.Name)
 		live = append(live, info)
@@ -429,6 +432,9 @@ func mergeConnections(live []liveConnectionInfo, dbInstances []platform.Connecti
 		ec := effectiveConnection{
 			Kind: l.kind, Name: l.name, Connection: l.connection, Source: platform.SourceFile, Tools: l.tools,
 			Description: l.description, Config: l.config, CreatedBy: connectionCreatorSystem,
+			// Health reflects the live runtime session; a DB-only instance
+			// (handled in the loop below) has no session, so health stays nil.
+			Health: l.health,
 		}
 		if inst, ok := dbMap[key]; ok {
 			ec.Source = platform.SourceBoth

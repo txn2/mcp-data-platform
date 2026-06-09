@@ -8,7 +8,10 @@ import {
   useSystemInfo,
   useConnectionsOAuthHealth,
 } from "@/api/admin/hooks";
-import type { ConnectionOAuthHealthSummary } from "@/api/admin/types";
+import type {
+  ConnectionHealth,
+  ConnectionOAuthHealthSummary,
+} from "@/api/admin/types";
 import type { EffectiveConnection } from "@/api/admin/types";
 import { cn } from "@/lib/utils";
 import {
@@ -78,6 +81,87 @@ function ConnectionOAuthHealthBadge({
     );
   }
   return null;
+}
+
+// GatewayHealthBadge renders the runtime reachability of a gateway upstream on
+// the connection list. Present only when the backend reports health (gateway
+// kinds with a live session). Mirrors the list_connections MCP tool: reachable
+// shows green, unreachable shows red with the last error in the tooltip so an
+// operator sees a dead upstream from the list without clicking in.
+function GatewayHealthBadge({
+  health,
+}: {
+  health: ConnectionHealth | undefined;
+}) {
+  if (!health) return null;
+  if (health.reachable) {
+    const tooltip = health.last_success
+      ? `Reachable. Last successful call ${new Date(health.last_success).toLocaleString()}.`
+      : "Reachable.";
+    return (
+      <span
+        className="shrink-0 inline-flex items-center gap-1 rounded px-1 py-0 text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+        title={tooltip}
+        aria-label={tooltip}
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+        reachable
+      </span>
+    );
+  }
+  const tooltip = health.last_error
+    ? `Unreachable: ${health.last_error}`
+    : "Unreachable.";
+  return (
+    <span
+      className="shrink-0 inline-flex items-center gap-1 rounded px-1 py-0 text-xs font-medium bg-destructive/10 text-destructive"
+      title={tooltip}
+      aria-label={tooltip}
+    >
+      <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
+      unreachable
+    </span>
+  );
+}
+
+// GatewayHealthDetail renders the full reachability detail for a selected
+// gateway connection: reachable/unreachable, the last successful call time,
+// and the last error. Surfaces in the detail pane so an operator diagnosing a
+// failing upstream sees the reason without leaving the connection editor.
+function GatewayHealthDetail({ health }: { health: ConnectionHealth }) {
+  return (
+    <div className="rounded-md border p-4">
+      <div className="mb-3 flex items-center gap-2">
+        {health.reachable ? (
+          <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+        ) : (
+          <AlertCircle className="h-4 w-4 text-destructive" />
+        )}
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Reachability
+        </h3>
+        <GatewayHealthBadge health={health} />
+      </div>
+      <dl className="space-y-2 text-xs">
+        <div className="flex justify-between gap-4">
+          <dt className="text-muted-foreground">Last successful call</dt>
+          <dd className="font-mono">
+            {health.last_success
+              ? new Date(health.last_success).toLocaleString()
+              : "never"}
+          </dd>
+        </div>
+        {health.last_error && (
+          <div className="flex justify-between gap-4">
+            <dt className="text-muted-foreground">Last error</dt>
+            <dd className="font-mono text-destructive break-all text-right">
+              {health.last_error}
+            </dd>
+          </div>
+        )}
+      </dl>
+    </div>
+  );
 }
 
 // APICatalogPicker renders the dropdown that points an api-kind
@@ -368,9 +452,12 @@ export function ConnectionsPanel() {
                       <span className="block truncate font-mono text-sm font-medium">
                         {c.name}
                       </span>
-                      {showHealth && (
-                        <div className="mt-1">
-                          <ConnectionOAuthHealthBadge health={health} />
+                      {(showHealth || c.health) && (
+                        <div className="mt-1 flex flex-wrap items-center gap-1">
+                          {showHealth && (
+                            <ConnectionOAuthHealthBadge health={health} />
+                          )}
+                          <GatewayHealthBadge health={c.health} />
                         </div>
                       )}
                       {c.description && (
@@ -631,6 +718,13 @@ function ConnectionViewer({
           connectionName={connection.name}
           onClose={() => setRulesOpen(false)}
         />
+      )}
+
+      {/* Runtime reachability for gateway upstreams. Same state the
+          list_connections MCP tool reports, so the admin UI and the tool
+          never disagree about whether an upstream is up. */}
+      {connection.health && (
+        <GatewayHealthDetail health={connection.health} />
       )}
 
       {/* OAuth status — shown for every connection kind that supports

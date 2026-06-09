@@ -10475,6 +10475,9 @@ const docTemplate = `{
                     "type": "string",
                     "example": "acme-warehouse"
                 },
+                "health": {
+                    "$ref": "#/definitions/toolkit.ConnectionHealthWire"
+                },
                 "hidden_tools": {
                     "type": "array",
                     "items": {
@@ -14152,6 +14155,20 @@ const docTemplate = `{
                 "total": {
                     "type": "integer",
                     "example": 42
+                }
+            }
+        },
+        "toolkit.ConnectionHealthWire": {
+            "type": "object",
+            "properties": {
+                "last_error": {
+                    "type": "string"
+                },
+                "last_success": {
+                    "type": "string"
+                },
+                "reachable": {
+                    "type": "boolean"
                 }
             }
         }

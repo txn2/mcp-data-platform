@@ -46,6 +46,9 @@ export interface ConnectionInfo {
   connection: string;
   tools: string[];
   hidden_tools: string[];
+  // Present for gateway (mcp) connections; mirrors the Go connectionInfo
+  // and swagger admin.connectionInfo shape. See ConnectionHealth.
+  health?: ConnectionHealth;
 }
 
 export interface ConnectionListResponse {
@@ -487,6 +490,16 @@ export interface PromptListResponse {
   total: number;
 }
 
+// ConnectionHealth is a gateway upstream's runtime reachability, mirroring the
+// list_connections MCP tool's health shape so the admin UI and the tool report
+// the same state for the same connection. Present only for connection kinds
+// that hold a live session (gateway); omitted otherwise.
+export interface ConnectionHealth {
+  reachable: boolean;
+  last_success?: string;
+  last_error?: string;
+}
+
 export interface EffectiveConnection {
   kind: string;
   name: string;
@@ -497,6 +510,7 @@ export interface EffectiveConnection {
   config?: Record<string, unknown>;
   created_by?: string;
   updated_at?: string;
+  health?: ConnectionHealth;
 }
 
 // ---------------------------------------------------------------------------

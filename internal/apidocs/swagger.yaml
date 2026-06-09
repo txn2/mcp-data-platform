@@ -415,6 +415,8 @@ definitions:
       connection:
         example: acme-warehouse
         type: string
+      health:
+        $ref: '#/definitions/toolkit.ConnectionHealthWire'
       hidden_tools:
         items:
           type: string
@@ -3150,6 +3152,15 @@ definitions:
       total:
         example: 42
         type: integer
+    type: object
+  toolkit.ConnectionHealthWire:
+    properties:
+      last_error:
+        type: string
+      last_success:
+        type: string
+      reachable:
+        type: boolean
     type: object
 host: localhost:8080
 info:

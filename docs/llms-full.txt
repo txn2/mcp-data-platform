@@ -2514,7 +2514,7 @@ The dry-run endpoint accepts a sample `{ args, response, user }` and returns the
 
 ## Failure isolation
 
-A gateway upstream that's unreachable at startup logs a warning, records zero tools for that connection, and does not block platform startup. Other connections keep working. A connection that becomes unhealthy at runtime returns tool-error results prefixed `upstream:<connection>:` so the LLM can self-correct, and the audit log captures the failure with the same event shape as a successful call.
+A gateway upstream that's unreachable at startup logs a warning, records zero tools for that connection, and does not block platform startup. Other connections keep working. A connection that becomes unhealthy at runtime returns tool-error results prefixed `upstream:<connection>:` so the LLM can self-correct, and the audit log captures the failure with the same event shape as a successful call. The per-connection reachability (reachable, last successful call time, last error) is surfaced identically by the `list_connections` MCP tool and the admin connections API/UI via a shared wire shape, so the operator and the model never see conflicting health for the same connection. This reachability signal ("did the last forwarded call work?") is distinct from the gateway status endpoint's session-level `healthy` flag ("is the upstream session established?"): a live session whose most recent call failed with a transport error stays `healthy:true` at `/status` but reports unreachable in the connections list. The status endpoint backs the OAuth/session panel and is not rendered as connection health.
 
 ---
 

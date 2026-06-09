@@ -535,4 +535,59 @@ func TestListConnections(t *testing.T) {
 			assert.NotContains(t, raw, fmt.Sprintf("%q:null", field), "%s must never be null on the wire", field)
 		}
 	})
+
+	// A gateway upstream's reachability must reach the /admin/connections
+	// surface, identically to list_connections, so operators see the same
+	// health in the admin UI and the MCP tool. A connection without health
+	// tracking (no live session) omits the field.
+	t.Run("gateway connection health is surfaced", func(t *testing.T) {
+		mt := mockMultiConnectionToolkit{
+			mockToolkit: mockToolkit{
+				kind: "mcp", name: "gateway", connection: "gateway",
+				tools: []string{"vendor_echo"},
+			},
+			connections: []toolkit.ConnectionDetail{
+				{
+					Name: "up",
+					Health: &toolkit.ConnectionHealth{
+						Reachable: true, LastSuccessUnix: 1_700_000_000,
+					},
+				},
+				{
+					Name: "down",
+					Health: &toolkit.ConnectionHealth{
+						Reachable: false, LastError: "connection refused",
+					},
+				},
+				{Name: "untracked"},
+			},
+		}
+		reg := &mockToolkitRegistry{rawToolkits: []registry.Toolkit{mt}}
+		h := NewHandler(Deps{ToolkitRegistry: reg}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/connections", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var body connectionListResponse
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+
+		byName := make(map[string]connectionInfo, len(body.Connections))
+		for _, c := range body.Connections {
+			byName[c.Name] = c
+		}
+
+		up := byName["up"]
+		require.NotNil(t, up.Health)
+		assert.True(t, up.Health.Reachable)
+		assert.Equal(t, "2023-11-14T22:13:20Z", up.Health.LastSuccess)
+
+		down := byName["down"]
+		require.NotNil(t, down.Health)
+		assert.False(t, down.Health.Reachable)
+		assert.Equal(t, "connection refused", down.Health.LastError)
+
+		assert.Nil(t, byName["untracked"].Health, "no health struct means no health on the wire")
+	})
 }
