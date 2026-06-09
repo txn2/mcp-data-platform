@@ -1,15 +1,19 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MyAssetsPage } from "./MyAssetsPage";
 
-// Mock the useAssets hook
+// Mock the asset hooks. useSearchAssets is called unconditionally by the page
+// (its result is only read while a search is active); stub it with a safe idle
+// default so these share-icon tests render without a live query.
 vi.mock("@/api/portal/hooks", () => ({
   useAssets: vi.fn(),
+  useSearchAssets: vi.fn(() => ({ data: undefined, isLoading: false })),
 }));
 
-import { useAssets } from "@/api/portal/hooks";
+import { useAssets, useSearchAssets } from "@/api/portal/hooks";
 const mockUseAssets = vi.mocked(useAssets);
+const mockUseSearchAssets = vi.mocked(useSearchAssets);
 
 function wrapper({ children }: { children: React.ReactNode }) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -104,37 +108,44 @@ describe("MyAssetsPage: share icons overlay on card thumbnail", () => {
     expect(screen.getByTitle("Has public link")).toBeInTheDocument();
   });
 
-  it("searching does not crash when an asset has no description", () => {
-    // Regression: the API serializes description with `omitempty`, so an
-    // asset with no description arrives as undefined. The client-side search
-    // filter called `description.toLowerCase()` unguarded and crashed the
-    // page the moment the user typed anything.
+  it("renders ranked search results without crashing on a missing description", () => {
+    // Search is server-side (useSearchAssets). The API serializes description
+    // with `omitempty`, so a ranked result can arrive with description
+    // undefined; rendering it must not crash. Typing debounces 300ms before the
+    // ranked results replace the browse list.
     mockUseAssets.mockReturnValue({
-      data: {
-        // The search term below must NOT match the name, so the filter
-        // falls through to the (undefined) description term that crashed.
-        data: [makeAsset({ name: "Annual Summary", description: undefined })],
-        total: 1,
-        limit: 50,
-        offset: 0,
-        share_summaries: {},
-      },
+      data: { data: [makeAsset({ name: "Annual Summary" })], total: 1, limit: 50, offset: 0, share_summaries: {} },
       isLoading: false,
     } as unknown as ReturnType<typeof useAssets>);
+    mockUseSearchAssets.mockReturnValue({
+      data: {
+        data: [{ asset: makeAsset({ id: "r1", name: "Revenue Report", description: undefined }), score: 0.9 }],
+      },
+      isLoading: false,
+    } as unknown as ReturnType<typeof useSearchAssets>);
 
-    render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
-    expect(screen.getByText("Annual Summary")).toBeInTheDocument();
+    vi.useFakeTimers();
+    try {
+      render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
+      expect(screen.getByText("Annual Summary")).toBeInTheDocument();
 
-    // Typing a query that matches neither the name nor the absent description
-    // forces evaluation of the description branch of the filter.
-    expect(() =>
-      fireEvent.change(screen.getByPlaceholderText("Search assets..."), {
-        target: { value: "revenue" },
-      }),
-    ).not.toThrow();
+      expect(() =>
+        fireEvent.change(screen.getByPlaceholderText("Search assets by meaning..."), {
+          target: { value: "revenue" },
+        }),
+      ).not.toThrow();
 
-    // The descriptionless, non-matching asset is filtered out without crashing.
-    expect(screen.queryByText("Annual Summary")).not.toBeInTheDocument();
+      // Advance past the 300ms debounce so the ranked results take over.
+      act(() => {
+        vi.advanceTimersByTime(300);
+      });
+
+      // The descriptionless ranked result renders; the browse list is replaced.
+      expect(screen.getByText("Revenue Report")).toBeInTheDocument();
+      expect(screen.queryByText("Annual Summary")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("no share icons when share_summaries is empty", () => {

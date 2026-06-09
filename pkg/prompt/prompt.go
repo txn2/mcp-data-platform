@@ -280,6 +280,8 @@ type ListFilter struct {
 	Enabled         *bool    // filter by enabled state
 	Search          string   // free-text search on name, display_name, description
 	ReviewRequested *bool    // filter by pending promotion request (admin queue)
+	Source          string   // include only this origin (operator, agent, system); "" for all
+	ExcludeSource   string   // exclude this origin (e.g. "system" to hide ingested static prompts)
 }
 
 // Store defines the interface for prompt persistence.

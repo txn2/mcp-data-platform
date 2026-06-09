@@ -269,6 +269,23 @@ func TestList_NoFilter(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestBuildWhere_SourceFilters(t *testing.T) {
+	clause, args := buildWhere(prompt.ListFilter{Source: prompt.SourceSystem})
+	assert.Contains(t, clause, "source = $1")
+	assert.Equal(t, []any{prompt.SourceSystem}, args)
+
+	clause, args = buildWhere(prompt.ListFilter{ExcludeSource: prompt.SourceSystem})
+	assert.Contains(t, clause, "source <> $1")
+	assert.Equal(t, []any{prompt.SourceSystem}, args)
+
+	// Both, plus a following Search, keep correct placeholder numbering.
+	clause, args = buildWhere(prompt.ListFilter{Source: prompt.SourceOperator, ExcludeSource: prompt.SourceSystem, Search: "x"})
+	assert.Contains(t, clause, "source = $1")
+	assert.Contains(t, clause, "source <> $2")
+	assert.Contains(t, clause, "$3")
+	assert.Equal(t, []any{prompt.SourceOperator, prompt.SourceSystem, "%x%"}, args)
+}
+
 func TestList_WithScopeFilter(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)

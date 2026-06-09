@@ -106,6 +106,41 @@ func TestStore_Create_RealDB_RoundTrip(t *testing.T) {
 	})
 }
 
+// TestStore_ListSourceFilters_RealDB exercises the Source and ExcludeSource
+// filters against real Postgres (#593): ingested static prompts (source=system)
+// must be hideable from human-facing list queries and selectable for the
+// reconciler's prune.
+func TestStore_ListSourceFilters_RealDB(t *testing.T) {
+	store := New(testdb.New(t))
+	ctx := context.Background()
+
+	require.NoError(t, store.Create(ctx, &prompt.Prompt{
+		Name: "op-global", Content: "x", Scope: prompt.ScopeGlobal,
+		Source: prompt.SourceOperator, Status: prompt.StatusApproved, Enabled: true,
+	}))
+	require.NoError(t, store.Create(ctx, &prompt.Prompt{
+		Name: "sys-global", Content: "y", Scope: prompt.ScopeGlobal,
+		Source: prompt.SourceSystem, Status: prompt.StatusApproved, Enabled: true,
+	}))
+
+	names := func(ps []prompt.Prompt) []string {
+		out := make([]string, 0, len(ps))
+		for _, p := range ps {
+			out = append(out, p.Name)
+		}
+		return out
+	}
+
+	excl, err := store.List(ctx, prompt.ListFilter{ExcludeSource: prompt.SourceSystem})
+	require.NoError(t, err)
+	assert.Contains(t, names(excl), "op-global")
+	assert.NotContains(t, names(excl), "sys-global")
+
+	only, err := store.List(ctx, prompt.ListFilter{Source: prompt.SourceSystem})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"sys-global"}, names(only))
+}
+
 // TestStore_SearchLexical_RealDB_Differentiates is the #587 regression for
 // prompt search: lexical ranking must differentiate two single-match prompts
 // (exact short match outranking a long single-mention) rather than collapsing

@@ -192,6 +192,9 @@ func (p *Platform) handlePromptUpdate(ctx context.Context, input managePromptInp
 	if existing == nil {
 		return promptErrorResult(fmt.Sprintf("prompt %q not found", input.Name)), nil, nil
 	}
+	if existing.Source == prompt.SourceSystem {
+		return promptErrorResult("this prompt is defined in server configuration or built in and is read-only; edit it in config"), nil, nil
+	}
 
 	email := resolveEmail(ctx)
 	if !p.isAdminPersona(ctx) {
@@ -303,6 +306,9 @@ func (p *Platform) handlePromptDelete(ctx context.Context, input managePromptInp
 	}
 	if existing == nil {
 		return promptErrorResult(fmt.Sprintf("prompt %q not found", input.Name)), nil, nil
+	}
+	if existing.Source == prompt.SourceSystem {
+		return promptErrorResult("this prompt is defined in server configuration or built in and is read-only; remove it from config"), nil, nil
 	}
 
 	email := resolveEmail(ctx)

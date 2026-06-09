@@ -34,6 +34,39 @@ func TestListVisiblePrompts_ScopePrefixesAndScoping(t *testing.T) {
 	assert.False(t, names["personal-bob"], "another user's personal prompt must not be visible")
 }
 
+func TestListVisiblePrompts_ExcludesSystemRows(t *testing.T) {
+	// Ingested static prompts (source=system) are served under their bare name
+	// via AddPrompt; they must not also appear as a global- prefixed entry.
+	p, store := newTestPlatformWithPromptStore()
+	store.prompts["g1"] = &prompt.Prompt{Name: "g1", Scope: prompt.ScopeGlobal, Source: prompt.SourceOperator, Enabled: true}
+	store.prompts["sys"] = &prompt.Prompt{Name: "sys", Scope: prompt.ScopeGlobal, Source: prompt.SourceSystem, Enabled: true}
+
+	out := p.listVisiblePrompts(context.Background(), "", nil)
+	names := map[string]bool{}
+	for _, pr := range out {
+		names[pr.Name] = true
+	}
+	assert.True(t, names["global-g1"], "operator global prompt is served")
+	assert.False(t, names["global-sys"], "system row must not be served as a global- duplicate")
+}
+
+func TestRegisterDatabasePrompts_SkipsSystemRows(t *testing.T) {
+	p, store := newTestPlatformWithPromptStore()
+	store.prompts["op"] = &prompt.Prompt{Name: "op", Scope: prompt.ScopeGlobal, Source: prompt.SourceOperator, Enabled: true}
+	store.prompts["sys"] = &prompt.Prompt{Name: "sys", Scope: prompt.ScopeGlobal, Source: prompt.SourceSystem, Enabled: true}
+
+	p.registerDatabasePrompts()
+
+	infos := map[string]bool{}
+	p.promptInfosMu.RLock()
+	for _, i := range p.promptInfos {
+		infos[i.Name] = true
+	}
+	p.promptInfosMu.RUnlock()
+	assert.True(t, infos["op"], "operator database prompt registered for admin listing")
+	assert.False(t, infos["sys"], "system row must be skipped (already served via AddPrompt)")
+}
+
 func TestPromptServing_AnonymousIsFailClosed(t *testing.T) {
 	// An anonymous caller (empty email, no personas) sees only globals and can
 	// fetch only globals, never personal or persona prompts.

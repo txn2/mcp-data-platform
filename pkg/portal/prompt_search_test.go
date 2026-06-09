@@ -95,6 +95,30 @@ func TestSearchMyPrompts_Success(t *testing.T) {
 	assert.Equal(t, 5, store.gotQuery.Limit)
 }
 
+func TestSearchMyPrompts_ExcludesSystemPrompts(t *testing.T) {
+	// Ingested static prompts (source=system) are searchable for agents via
+	// manage_prompt, but the portal omits them from a user's own prompt search.
+	result := []prompt.ScoredPrompt{
+		{Prompt: prompt.Prompt{ID: "p-1", Name: "daily-sales", Source: prompt.SourceOperator}, Score: 0.91},
+		{Prompt: prompt.Prompt{ID: "sys-1", Name: "explore-data", Source: prompt.SourceSystem}, Score: 0.88},
+	}
+	h, _ := newSearchablePortalHandler(result)
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/api/v1/portal/prompts/search?q=data", http.NoBody), "alice@example.com")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp struct {
+		Data  []prompt.ScoredPrompt `json:"data"`
+		Total int                   `json:"total"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, 1, resp.Total)
+	require.Len(t, resp.Data, 1)
+	assert.Equal(t, "daily-sales", resp.Data[0].Prompt.Name)
+}
+
 func TestSearchMyPrompts_AdminFlag(t *testing.T) {
 	h, store := newSearchablePortalHandler(nil)
 	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodGet,

@@ -128,10 +128,13 @@ func (h *Handler) listMyPrompts(w http.ResponseWriter, r *http.Request) {
 		personal = []prompt.Prompt{}
 	}
 
-	// Get global prompts
+	// Get global prompts. Ingested static prompts (source=system) are added
+	// separately by systemPrompts below; exclude the store rows here so they are
+	// not listed twice or shown as editable global prompts.
 	available, err := h.deps.PromptStore.List(r.Context(), prompt.ListFilter{
-		Scope:   prompt.ScopeGlobal,
-		Enabled: &enabled,
+		Scope:         prompt.ScopeGlobal,
+		Enabled:       &enabled,
+		ExcludeSource: prompt.SourceSystem,
 	})
 	if err != nil {
 		available = []prompt.Prompt{}
@@ -212,12 +215,19 @@ func (h *Handler) searchMyPrompts(w http.ResponseWriter, r *http.Request) {
 		writePortalError(w, http.StatusInternalServerError, "failed to search prompts")
 		return
 	}
-	if scored == nil {
-		scored = []prompt.ScoredPrompt{}
+	// Ingested static prompts (source=system) are searchable for agents via the
+	// MCP manage_prompt tool, but the portal surfaces them in its dedicated
+	// system-prompt list rather than in a user's own prompt search.
+	results := make([]prompt.ScoredPrompt, 0, len(scored))
+	for _, sp := range scored {
+		if sp.Prompt.Source == prompt.SourceSystem {
+			continue
+		}
+		results = append(results, sp)
 	}
 
 	writePortalJSON(w, http.StatusOK, paginatedResponse{
-		Data: scored, Total: len(scored), Limit: limit, Offset: 0,
+		Data: results, Total: len(results), Limit: limit, Offset: 0,
 	})
 }
 
