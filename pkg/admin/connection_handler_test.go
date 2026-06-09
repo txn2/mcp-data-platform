@@ -625,6 +625,96 @@ func TestListEffectiveConnections(t *testing.T) {
 		assert.Equal(t, "both", body[1].Source)
 		assert.Equal(t, "DB override for ES", body[1].Description, "DB description overrides file")
 	})
+
+	t.Run("gateway connection health is surfaced", func(t *testing.T) {
+		reg := &mockToolkitRegistry{
+			rawToolkits: []registry.Toolkit{
+				mockMultiConnectionToolkit{
+					mockToolkit: mockToolkit{
+						kind: "mcp", name: "gateway", connection: "gateway",
+						tools: []string{"vendor_echo"},
+					},
+					connections: []toolkit.ConnectionDetail{
+						{
+							Name: "up", Description: "reachable upstream",
+							Health: &toolkit.ConnectionHealth{
+								Reachable: true, LastSuccessUnix: 1_700_000_000,
+							},
+						},
+						{
+							Name: "down", Description: "unreachable upstream",
+							Health: &toolkit.ConnectionHealth{
+								Reachable: false, LastError: "dial tcp: connection refused",
+							},
+						},
+					},
+				},
+			},
+		}
+		h := NewHandler(Deps{
+			Config:          testConfig(),
+			ToolkitRegistry: reg,
+			ConfigStore:     &mockConfigStore{mode: "database"},
+		}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/connection-instances/effective", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var body []effectiveConnection
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+		require.Len(t, body, 2)
+
+		byName := make(map[string]effectiveConnection, len(body))
+		for _, ec := range body {
+			byName[ec.Name] = ec
+		}
+
+		up := byName["up"]
+		require.NotNil(t, up.Health, "reachable connection must carry health")
+		assert.True(t, up.Health.Reachable)
+		assert.Equal(t, "2023-11-14T22:13:20Z", up.Health.LastSuccess, "unix success formatted as RFC3339 UTC")
+		assert.Empty(t, up.Health.LastError)
+
+		down := byName["down"]
+		require.NotNil(t, down.Health, "unreachable connection must carry health")
+		assert.False(t, down.Health.Reachable)
+		assert.Equal(t, "dial tcp: connection refused", down.Health.LastError)
+		assert.Empty(t, down.Health.LastSuccess, "no success time when never reachable")
+	})
+
+	t.Run("connection without health tracking omits the field", func(t *testing.T) {
+		reg := &mockToolkitRegistry{
+			rawToolkits: []registry.Toolkit{
+				mockMultiConnectionToolkit{
+					mockToolkit: mockToolkit{
+						kind: "trino", name: "warehouse", connection: "warehouse",
+						tools: []string{"trino_query"},
+					},
+					connections: []toolkit.ConnectionDetail{
+						{Name: "warehouse", Description: "no health"},
+					},
+				},
+			},
+		}
+		h := NewHandler(Deps{
+			Config:          testConfig(),
+			ToolkitRegistry: reg,
+			ConfigStore:     &mockConfigStore{mode: "database"},
+		}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/connection-instances/effective", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var body []effectiveConnection
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+		require.Len(t, body, 1)
+		assert.Nil(t, body[0].Health, "toolkits that do not track reachability omit health")
+	})
 }
 
 func TestMergeConnections(t *testing.T) {

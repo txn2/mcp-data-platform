@@ -905,6 +905,18 @@ func (t *Toolkit) Status(ctx context.Context, name string) *ConnectionStatus {
 		t.mu.RUnlock()
 		return nil
 	}
+	// Healthy means a live upstream session exists (the connection dialed and
+	// holds a client). This is intentionally DISTINCT from the per-connection
+	// reachability that ListConnections / list_connections surface
+	// (ConnectionHealth.Reachable = session exists AND the last forwarded call
+	// did not error): a live session whose most recent call failed with a
+	// non-session transport error stays Healthy here but reports unreachable
+	// there. Status answers "is the session up?" for the OAuth/session panel;
+	// the connections list answers "did the last call work?". The admin
+	// connections UI and list_connections both read the reachability signal
+	// (via the shared toolkit.ConnectionHealthWire), so the two
+	// operator-facing surfaces agree; this session-level flag is a separate
+	// axis and is not rendered as connection health.
 	healthy := u.client != nil
 	cfg := u.config
 	tools := append([]string(nil), u.toolNames...)

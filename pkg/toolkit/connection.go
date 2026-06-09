@@ -4,6 +4,8 @@
 // toolkit implementations themselves.
 package toolkit
 
+import "time"
+
 // ConnectionDetail provides information about a single connection within a toolkit.
 //
 // CatalogID and OperationCount are optional and only populated by toolkits
@@ -27,15 +29,51 @@ type ConnectionDetail struct {
 }
 
 // ConnectionHealth is the runtime reachability of a gateway upstream.
+//
+// Reachability is observed passively from forwarded traffic, not from an active
+// background probe: a transport error or timeout on a forwarded call marks the
+// connection unreachable, and it is cleared by the next successful call (or a
+// re-dial). So an idle connection that saw one transient failure can read
+// unreachable until traffic resumes, even though its session is alive. A
+// tool-level error (e.g. bad arguments) is NOT a transport failure and does not
+// affect reachability.
 type ConnectionHealth struct {
 	// Reachable is true when the connection has a live session and its most
-	// recent interaction did not end in an unrecovered error.
+	// recent forwarded call did not end in an unrecovered transport error.
 	Reachable bool
 	// LastSuccessUnix is the unix-seconds time of the last successful
 	// forwarded call (or the initial connect). Zero when none has succeeded.
 	LastSuccessUnix int64
 	// LastError is the most recent call or connect failure, empty when healthy.
 	LastError string
+}
+
+// ConnectionHealthWire is the JSON wire shape for ConnectionHealth, shared by
+// every operator surface (the list_connections MCP tool and the admin
+// connections API) so they report identical reachability for the same
+// connection by construction rather than by two copies happening to agree.
+type ConnectionHealthWire struct {
+	Reachable   bool   `json:"reachable"`
+	LastSuccess string `json:"last_success,omitempty"`
+	LastError   string `json:"last_error,omitempty"`
+}
+
+// Wire renders runtime health into its JSON wire shape, formatting the last
+// success time as RFC3339 UTC (omitted when no call has ever succeeded).
+// Returns nil for a nil receiver so connections that do not track
+// reachability omit the field entirely.
+func (h *ConnectionHealth) Wire() *ConnectionHealthWire {
+	if h == nil {
+		return nil
+	}
+	w := &ConnectionHealthWire{
+		Reachable: h.Reachable,
+		LastError: h.LastError,
+	}
+	if h.LastSuccessUnix > 0 {
+		w.LastSuccess = time.Unix(h.LastSuccessUnix, 0).UTC().Format(time.RFC3339)
+	}
+	return w
 }
 
 // ConnectionLister is an optional interface for toolkits that manage multiple

@@ -3,7 +3,6 @@ package platform
 import (
 	"context"
 	"encoding/json"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -20,24 +19,15 @@ import (
 // rather than only via a downstream tool failing with "no catalog
 // configured".
 type connectionEntry struct {
-	Kind              string            `json:"kind"`
-	Name              string            `json:"name"`
-	Connection        string            `json:"connection"`
-	Description       string            `json:"description,omitempty"`
-	IsDefault         bool              `json:"is_default,omitempty"`
-	DataHubSourceName string            `json:"datahub_source_name,omitempty"`
-	CatalogID         string            `json:"catalog_id,omitempty"`
-	OperationCount    int               `json:"operation_count,omitempty"`
-	Health            *connectionHealth `json:"health,omitempty"`
-}
-
-// connectionHealth is the runtime reachability of a connection, surfaced for
-// gateway kinds that hold a live upstream session so an evicted or dead
-// upstream is visible from list_connections.
-type connectionHealth struct {
-	Reachable   bool   `json:"reachable"`
-	LastSuccess string `json:"last_success,omitempty"`
-	LastError   string `json:"last_error,omitempty"`
+	Kind              string                        `json:"kind"`
+	Name              string                        `json:"name"`
+	Connection        string                        `json:"connection"`
+	Description       string                        `json:"description,omitempty"`
+	IsDefault         bool                          `json:"is_default,omitempty"`
+	DataHubSourceName string                        `json:"datahub_source_name,omitempty"`
+	CatalogID         string                        `json:"catalog_id,omitempty"`
+	OperationCount    int                           `json:"operation_count,omitempty"`
+	Health            *toolkit.ConnectionHealthWire `json:"health,omitempty"`
 }
 
 // listConnectionsOutput is the JSON response for the list_connections tool.
@@ -111,16 +101,7 @@ func (p *Platform) entriesFromLister(entries []connectionEntry, tk registry.Tool
 		if src := p.connectionSources.ForConnection(tk.Kind(), conn.Name); src != nil {
 			entry.DataHubSourceName = src.DataHubSourceName
 		}
-		if conn.Health != nil {
-			h := &connectionHealth{
-				Reachable: conn.Health.Reachable,
-				LastError: conn.Health.LastError,
-			}
-			if conn.Health.LastSuccessUnix > 0 {
-				h.LastSuccess = time.Unix(conn.Health.LastSuccessUnix, 0).UTC().Format(time.RFC3339)
-			}
-			entry.Health = h
-		}
+		entry.Health = conn.Health.Wire()
 		entries = append(entries, entry)
 	}
 	return entries

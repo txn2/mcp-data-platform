@@ -249,11 +249,12 @@ func (h *Handler) buildToolTitleMap(r *http.Request) map[string]string {
 // .length / .map on the wire value, and several toolkits (notably
 // gateway with no live upstream) return nil from Tools().
 type connectionInfo struct {
-	Kind        string   `json:"kind" example:"trino"`
-	Name        string   `json:"name" example:"acme-warehouse"`
-	Connection  string   `json:"connection" example:"acme-warehouse"`
-	Tools       []string `json:"tools" example:"trino_query,trino_describe_table,trino_browse"`
-	HiddenTools []string `json:"hidden_tools"`
+	Kind        string                        `json:"kind" example:"trino"`
+	Name        string                        `json:"name" example:"acme-warehouse"`
+	Connection  string                        `json:"connection" example:"acme-warehouse"`
+	Tools       []string                      `json:"tools" example:"trino_query,trino_describe_table,trino_browse"`
+	HiddenTools []string                      `json:"hidden_tools"`
+	Health      *toolkit.ConnectionHealthWire `json:"health,omitempty"`
 }
 
 // MarshalJSON enforces the non-nil wire invariant for Tools and
@@ -311,6 +312,7 @@ func (h *Handler) listConnections(w http.ResponseWriter, _ *http.Request) {
 						Connection:  conn.Name,
 						Tools:       tools,
 						HiddenTools: hidden,
+						Health:      conn.Health.Wire(),
 					})
 				}
 				continue

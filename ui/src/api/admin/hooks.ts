@@ -1431,6 +1431,15 @@ export function useEffectiveConnections() {
   return useQuery({
     queryKey: ["connection-instances", "effective"],
     queryFn: () => apiFetch<import("./types").EffectiveConnection[]>("/connection-instances/effective"),
+    // Poll so the gateway reachability badge reflects an upstream going
+    // down or recovering at runtime, matching the cadence of the adjacent
+    // OAuth-health badge (useConnectionsOAuthHealth). Without this the
+    // badge would be static after load (the query is otherwise only
+    // invalidated by connection create/delete), defeating its purpose of
+    // surfacing a dead upstream from the list. A background refetch does
+    // not clobber an in-progress edit: the editor holds its own form
+    // state and only reads the connection for dirty comparison.
+    refetchInterval: 10000,
   });
 }
 
