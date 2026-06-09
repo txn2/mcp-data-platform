@@ -18,6 +18,7 @@ import {
   useReindex,
   useDismissFailure,
   type IndexKindSummary,
+  type IndexCoverage,
   type IndexJob,
   type IndexFailedUnit,
   type IndexVerdict,
@@ -182,6 +183,17 @@ function VerdictBadge({ verdict }: { verdict: IndexVerdict }) {
   );
 }
 
+// coverageEmpty reports whether a kind genuinely has nothing to index: a
+// known-ratio kind whose expected and indexed are both zero, or an indexed-only
+// kind with nothing indexed. Such a kind must render one coherent "nothing to
+// index" state rather than three independent defaults that contradict each other
+// ("not yet indexed" vs "fully indexed" vs "Up to date").
+function coverageEmpty(cov?: IndexCoverage): boolean {
+  if (!cov) return false;
+  if (cov.expected_known) return cov.expected === 0 && cov.indexed === 0;
+  return cov.indexed === 0;
+}
+
 // coverageLine renders the vector-coverage family (how much is indexed),
 // labelled "Vectors" so it never reads as a job count. expected_known
 // distinguishes a real ratio from a continuously-syncing kind.
@@ -190,13 +202,15 @@ function CoverageLine({ summary }: { summary: IndexKindSummary }) {
   if (!cov) {
     return <span className="text-xs text-muted-foreground">Vectors: coverage n/a</span>;
   }
+  if (coverageEmpty(cov)) {
+    // Nothing to index. One coherent line; syncedText suppresses its footer so
+    // the card never pairs "nothing to index" with "fully indexed".
+    return <span className="text-xs text-muted-foreground">Vectors: nothing to index</span>;
+  }
   if (!cov.expected_known) {
     // No fixed denominator (e.g. tools, sized by the live registry). Once
     // anything is indexed it is in sync, so render a full bar to match the
-    // ratio-known kinds visually; an empty corpus shows no bar.
-    if (cov.indexed === 0) {
-      return <span className="text-xs text-muted-foreground">Vectors: not yet indexed</span>;
-    }
+    // ratio-known kinds visually (the empty case is handled above).
     return (
       <div className="space-y-1">
         <div className="flex items-center justify-between text-xs">
@@ -215,9 +229,7 @@ function CoverageLine({ summary }: { summary: IndexKindSummary }) {
       </div>
     );
   }
-  if (cov.expected === 0 && cov.indexed === 0) {
-    return <span className="text-xs text-muted-foreground">Vectors: not yet indexed</span>;
-  }
+  // expected_known with expected > 0 (the empty case is handled above).
   const pct = cov.expected > 0 ? Math.round((cov.indexed / cov.expected) * 100) : 100;
   return (
     <div className="space-y-1">
@@ -261,7 +273,9 @@ function nowText(summary: IndexKindSummary): string {
 // to report and the verdict already says it is up to date.
 function syncedText(summary: IndexKindSummary): string {
   if (!summary.last_activity) {
-    return "fully indexed";
+    // A kind with nothing to index has no "fully indexed" story to tell; saying
+    // so would contradict the "nothing to index" coverage line.
+    return coverageEmpty(summary.coverage) ? "" : "fully indexed";
   }
   return `last indexed ${relTime(summary.last_activity)}`;
 }

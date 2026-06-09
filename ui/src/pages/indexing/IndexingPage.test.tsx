@@ -197,6 +197,33 @@ describe("IndexingPage", () => {
     expect(screen.queryByText(/Units by last run/i)).not.toBeInTheDocument();
   });
 
+  it("renders a kind with nothing to index as one coherent empty state", () => {
+    summaryState = {
+      data: {
+        provider: summary.provider,
+        kinds: [
+          {
+            kind: "prompts",
+            verdict: "healthy",
+            pending: 0,
+            running: 0,
+            succeeded: 0,
+            failed: 0,
+            unresolved_failures: 0,
+            coverage: { indexed: 0, expected: 0, expected_known: true },
+          },
+        ],
+      },
+      isLoading: false,
+    };
+    render(<IndexingPage />);
+    // A kind with zero items renders a single coherent "nothing to index" line,
+    // never the contradictory "not yet indexed" + "fully indexed" pairing.
+    expect(screen.getByText(/nothing to index/i)).toBeInTheDocument();
+    expect(screen.queryByText(/not yet indexed/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/fully indexed/i)).not.toBeInTheDocument();
+  });
+
   it("renders failure triage from the failures endpoint with timestamps", () => {
     render(<IndexingPage />);
     expect(screen.getByText(/embed batch: provider timeout/i)).toBeInTheDocument();

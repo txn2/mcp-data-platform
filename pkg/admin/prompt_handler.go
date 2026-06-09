@@ -41,6 +41,9 @@ const (
 	promptPathID       = "id"
 	errMsgGetPrompt    = "failed to get prompt"
 	errMsgPromptNotErr = "prompt not found"
+	// errMsgSystemPromptReadOnly is returned when a caller tries to mutate a
+	// prompt ingested from server configuration (source=system).
+	errMsgSystemPromptReadOnly = "this prompt is defined in server configuration and is read-only"
 )
 
 // adminPromptCreateRequest is the request body for creating a prompt.
@@ -97,6 +100,10 @@ func (h *Handler) listPrompts(w http.ResponseWriter, r *http.Request) {
 	filter := prompt.ListFilter{
 		Scope:  q.Get("scope"),
 		Search: q.Get("search"),
+		// Ingested static prompts (source=system) are surfaced read-only via
+		// mergeSystemPrompts below (synthetic IDs); exclude the store rows so
+		// they are not shown as editable database prompts or double-counted.
+		ExcludeSource: prompt.SourceSystem,
 	}
 	if owner := q.Get("owner_email"); owner != "" {
 		filter.OwnerEmail = owner
@@ -326,6 +333,10 @@ func (h *Handler) updatePrompt(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errMsgPromptNotErr)
 		return
 	}
+	if existing.Source == prompt.SourceSystem {
+		writeError(w, http.StatusForbidden, errMsgSystemPromptReadOnly)
+		return
+	}
 
 	var req adminPromptUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -532,6 +543,10 @@ func (h *Handler) deletePrompt(w http.ResponseWriter, r *http.Request) {
 	}
 	if existing == nil {
 		writeError(w, http.StatusNotFound, errMsgPromptNotErr)
+		return
+	}
+	if existing.Source == prompt.SourceSystem {
+		writeError(w, http.StatusForbidden, errMsgSystemPromptReadOnly)
 		return
 	}
 

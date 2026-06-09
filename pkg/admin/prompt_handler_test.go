@@ -277,6 +277,32 @@ func TestDeletePrompt_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
+func TestUpdatePrompt_SystemRowReadOnly(t *testing.T) {
+	h, store, _ := newTestPromptHandler()
+	store.prompts["sys"] = &prompt.Prompt{ID: "uuid-sys", Name: "sys", Scope: prompt.ScopeGlobal, Source: prompt.SourceSystem, Content: "orig"}
+
+	newContent := "hacked"
+	bodyBytes, _ := json.Marshal(adminPromptUpdateRequest{Content: &newContent})
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/prompts/uuid-sys", bytes.NewReader(bodyBytes))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Equal(t, "orig", store.prompts["sys"].Content, "system prompt must be unchanged")
+}
+
+func TestDeletePrompt_SystemRowReadOnly(t *testing.T) {
+	h, store, _ := newTestPromptHandler()
+	store.prompts["sys"] = &prompt.Prompt{ID: "uuid-sys", Name: "sys", Scope: prompt.ScopeGlobal, Source: prompt.SourceSystem}
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/prompts/uuid-sys", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Contains(t, store.prompts, "sys", "system prompt must not be deleted")
+}
+
 func TestCreatePrompt_StoreError(t *testing.T) {
 	h, store, _ := newTestPromptHandler()
 	store.createErr = fmt.Errorf("db error")

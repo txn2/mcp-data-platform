@@ -307,6 +307,16 @@ func buildWhere(f prompt.ListFilter) (clause string, params []any) {
 		args = append(args, *f.ReviewRequested)
 		idx++
 	}
+	if f.Source != "" {
+		conds = append(conds, fmt.Sprintf("source = $%d", idx))
+		args = append(args, f.Source)
+		idx++
+	}
+	if f.ExcludeSource != "" {
+		conds = append(conds, fmt.Sprintf("source <> $%d", idx))
+		args = append(args, f.ExcludeSource)
+		idx++
+	}
 	if f.Search != "" {
 		conds = append(conds, fmt.Sprintf(
 			"(name ILIKE $%d OR display_name ILIKE $%d OR description ILIKE $%d)",

@@ -108,6 +108,12 @@ func (m *mockPlatformPromptStore) List(_ context.Context, f prompt.ListFilter) (
 		if f.OwnerEmail != "" && p.OwnerEmail != f.OwnerEmail {
 			continue
 		}
+		if f.Source != "" && p.Source != f.Source {
+			continue
+		}
+		if f.ExcludeSource != "" && p.Source == f.ExcludeSource {
+			continue
+		}
 		result = append(result, *p)
 	}
 	return result, nil

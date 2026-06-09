@@ -43,6 +43,11 @@ func (p *Platform) registerPlatformPrompts() {
 		p.registerPromptWithCategory(promptCfg, "custom")
 	}
 	p.registerWorkflowPrompts()
+	// Mirror the static prompts registered above into the store (as read-only
+	// system rows) so they are embedded and searchable (#593). Must run before
+	// registerDatabasePrompts so database prompts are not added to promptInfos
+	// and re-ingested as system rows.
+	p.ingestStaticPrompts(context.Background())
 	p.registerDatabasePrompts()
 }
 
@@ -383,11 +388,19 @@ func (p *Platform) registerDatabasePrompts() {
 		return
 	}
 
+	registered := 0
 	for i := range prompts {
+		// System rows are the ingested static prompts (#593): they are already
+		// served via AddPrompt and exist in the store only for indexing/search,
+		// so they must not be re-registered as database prompts.
+		if prompts[i].Source == prompt.SourceSystem {
+			continue
+		}
 		p.registerDatabasePrompt(&prompts[i])
+		registered++
 	}
-	if len(prompts) > 0 {
-		slog.Info("loaded prompts from database", "count", len(prompts))
+	if registered > 0 {
+		slog.Info("loaded prompts from database", "count", registered)
 	}
 }
 
@@ -521,6 +534,12 @@ func (p *Platform) listScopedDescriptors(ctx context.Context, filter prompt.List
 	}
 	out := make([]*mcp.Prompt, 0, len(prompts))
 	for i := range prompts {
+		// System rows (ingested static prompts, #593) are already served under
+		// their bare name via AddPrompt; skip them here so prompts/list does not
+		// show a duplicate global- entry.
+		if prompts[i].Source == prompt.SourceSystem {
+			continue
+		}
 		out = append(out, promptDescriptor(prefix+prompts[i].Name, &prompts[i]))
 	}
 	return out
@@ -622,7 +641,9 @@ func (p *Platform) getOwnedPersonalPrompt(ctx context.Context, email, bare strin
 // getGlobalPrompt renders the global prompt of the bare name.
 func (p *Platform) getGlobalPrompt(ctx context.Context, bare string, args map[string]string) (*mcp.GetPromptResult, bool) {
 	pr, err := p.promptStore.Get(ctx, bare)
-	if err != nil || pr == nil || !pr.Enabled || pr.Scope != prompt.ScopeGlobal {
+	// System rows are ingested static prompts already served under their bare
+	// name via AddPrompt; do not also serve them under the global- prefix.
+	if err != nil || pr == nil || !pr.Enabled || pr.Scope != prompt.ScopeGlobal || pr.Source == prompt.SourceSystem {
 		return nil, false
 	}
 	return p.renderPrompt(pr, args)
