@@ -25,7 +25,7 @@ const (
 // registerResourceTemplates registers all MCP resource templates.
 // Only called when resources.enabled is true.
 func (p *Platform) registerResourceTemplates() {
-	if !p.config.Resources.Enabled {
+	if !p.config.Resources.IsEnabled() {
 		return
 	}
 

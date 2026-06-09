@@ -601,14 +601,14 @@ icons:
 
 ## Resource Links Configuration
 
-DataHub search results and entity responses automatically include MCP resource links when resource templates are enabled. These links allow clients to navigate directly to related schema, glossary, and availability resources.
+DataHub search results and entity responses automatically include MCP resource links when resource templates are enabled. `resources.enabled` defaults to `true` (read-only template serving); set it to `false` to disable. These links allow clients to navigate directly to related schema, glossary, and availability resources.
 
 ```yaml
 resources:
-  enabled: true
+  enabled: true   # default: true; set false to disable
 ```
 
-When `resources.enabled: true`, DataHub tools include links to:
+When `resources.enabled` is on (the default), DataHub tools include links to:
 
 - `schema://{catalog}.{schema}/{table}` — table schema details
 - `glossary://{term}` — glossary term definitions

@@ -62,10 +62,10 @@ func buildPlatformConfig(e2eCfg *E2EConfig) *platform.Config {
 			Instance: "e2e",
 		},
 		Injection: platform.InjectionConfig{
-			TrinoSemanticEnrichment:  true,
-			DataHubQueryEnrichment:   true,
-			S3SemanticEnrichment:     true,
-			DataHubStorageEnrichment: true,
+			TrinoSemanticEnrichment:  new(true),
+			DataHubQueryEnrichment:   new(true),
+			S3SemanticEnrichment:     new(true),
+			DataHubStorageEnrichment: new(true),
 		},
 		Toolkits: map[string]any{
 			"trino": map[string]any{

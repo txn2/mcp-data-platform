@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -107,7 +108,67 @@ func applyEnrichment(
 
 	appendDiscoveryNoteIfNeeded(enrichedResult, pc, enricher.cfg.WorkflowTracker)
 
+	// Mirror every platform-added enrichment block into the structured result so
+	// MCP clients that render only structured output still receive the semantic
+	// context, memories, and discovery note (#571). The text blocks are kept for
+	// content-rendering clients.
+	mirrorEnrichmentToStructured(enrichedResult, beforeLen)
+
 	return enrichedResult, nil
+}
+
+// mirrorEnrichmentToStructured copies the JSON enrichment blocks the middleware
+// appended to result.Content (at indices >= fromIndex) into
+// result.StructuredContent, so a client that surfaces only structured output
+// still receives them. Each platform block is a JSON object with named top-level
+// keys (semantic_context, column_context, related_memories, discovery_note,
+// metadata_reference, ...), which merge cleanly. Resource links and non-JSON
+// blocks are skipped. Best-effort: any failure leaves the result unchanged.
+func mirrorEnrichmentToStructured(result *mcp.CallToolResult, fromIndex int) {
+	if result == nil || fromIndex < 0 || fromIndex >= len(result.Content) {
+		return
+	}
+	added := map[string]any{}
+	for _, c := range result.Content[fromIndex:] {
+		tc, ok := c.(*mcp.TextContent)
+		if !ok {
+			continue
+		}
+		var obj map[string]any
+		if err := json.Unmarshal([]byte(tc.Text), &obj); err != nil {
+			continue
+		}
+		maps.Copy(added, obj)
+	}
+	if len(added) == 0 {
+		return
+	}
+	base := structuredAsMap(result.StructuredContent)
+	maps.Copy(base, added)
+	result.StructuredContent = base
+}
+
+// structuredAsMap returns sc as a map[string]any: the value itself if already a
+// map, a JSON round-trip of a typed struct, or a fresh map when nil or not
+// convertible. The original typed structured value is replaced by this map so
+// the enrichment keys can be added without an OutputSchema constraint (the
+// composed trino tools register none).
+func structuredAsMap(sc any) map[string]any {
+	if sc == nil {
+		return map[string]any{}
+	}
+	if m, ok := sc.(map[string]any); ok {
+		return m
+	}
+	data, err := json.Marshal(sc)
+	if err != nil {
+		return map[string]any{}
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil || m == nil {
+		return map[string]any{}
+	}
+	return m
 }
 
 // appendDiscoveryNoteIfNeeded appends a soft discovery note to enriched results

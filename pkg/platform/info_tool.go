@@ -62,13 +62,19 @@ type KnowledgeApplyInfo struct {
 
 // buildFeatures constructs the Features struct from platform config.
 func (p *Platform) buildFeatures() Features {
+	// Enrichment is reported on only when both its flag is enabled (default-on)
+	// AND the provider that performs it is configured. Reporting it on without a
+	// provider would mislead an agent into expecting context the platform cannot
+	// produce. Trino/S3 enrichment draws on the semantic provider; DataHub query
+	// enrichment on the query provider; DataHub storage enrichment on storage.
 	f := Features{
-		SemanticEnrichment: p.config.Injection.TrinoSemanticEnrichment || p.config.Injection.S3SemanticEnrichment,
-		QueryEnrichment:    p.config.Injection.DataHubQueryEnrichment,
-		StorageEnrichment:  p.config.Injection.DataHubStorageEnrichment,
-		AuditLogging:       !isExplicitlyDisabled(p.config.Audit.Enabled),
-		KnowledgeCapture:   !isExplicitlyDisabled(p.config.Knowledge.Enabled),
-		ManagedResources:   p.resourceStore != nil,
+		SemanticEnrichment: p.semanticProvider != nil &&
+			(p.config.Injection.IsTrinoSemanticEnrichmentEnabled() || p.config.Injection.IsS3SemanticEnrichmentEnabled()),
+		QueryEnrichment:   p.queryProvider != nil && p.config.Injection.IsDataHubQueryEnrichmentEnabled(),
+		StorageEnrichment: p.storageProvider != nil && p.config.Injection.IsDataHubStorageEnrichmentEnabled(),
+		AuditLogging:      !isExplicitlyDisabled(p.config.Audit.Enabled),
+		KnowledgeCapture:  !isExplicitlyDisabled(p.config.Knowledge.Enabled),
+		ManagedResources:  p.resourceStore != nil,
 	}
 
 	if p.config.Knowledge.Apply.Enabled {

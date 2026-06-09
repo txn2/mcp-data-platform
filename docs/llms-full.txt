@@ -624,9 +624,9 @@ The `database` store requires `database.dsn`. Database-backed sessions survive r
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `trino_semantic_enrichment` | bool | false | Add DataHub context to Trino results |
-| `datahub_query_enrichment` | bool | false | Add Trino availability to DataHub results |
-| `s3_semantic_enrichment` | bool | false | Add DataHub context to S3 results |
+| `trino_semantic_enrichment` | bool | true | Add DataHub context to Trino results (default on; set false to disable) |
+| `datahub_query_enrichment` | bool | true | Add Trino availability to DataHub results (default on; set false to disable) |
+| `s3_semantic_enrichment` | bool | true | Add DataHub context to S3 results (default on; set false to disable) |
 | `unwrap_json` | bool | true | Auto-unwrap single-row VARCHAR-of-JSON results (e.g. from raw_query) |
 | `column_context_filtering` | bool | true | Limit column enrichment to SQL-referenced columns |
 | `search_schema_preview` | bool | true | Add bounded column-name+type preview to datahub_search query_context |
