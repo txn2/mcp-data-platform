@@ -21,7 +21,7 @@ require (
 	github.com/testcontainers/testcontainers-go v0.42.0
 	github.com/testcontainers/testcontainers-go/modules/ollama v0.42.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.42.0
-	github.com/txn2/mcp-datahub v1.8.1
+	github.com/txn2/mcp-datahub v1.9.0
 	github.com/txn2/mcp-s3 v1.3.0
 	github.com/txn2/mcp-trino v1.3.0
 	github.com/yosida95/uritemplate/v3 v3.0.2
