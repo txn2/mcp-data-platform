@@ -4,7 +4,7 @@ import { fileURLToPath } from "url";
 import fs from "fs";
 import { routes } from "./route-manifest";
 import { authenticate } from "./helpers/auth";
-import { setTheme, resetThemeTracking } from "./helpers/theme";
+import { applyTheme } from "./helpers/theme";
 import { waitForPageReady } from "./helpers/wait";
 import { loadBrandingConfig } from "./branding.config";
 
@@ -87,6 +87,10 @@ test.describe("Portal Screenshots", () => {
         test(name, async () => {
           const url = tab ? `${route.path}#${tab}` : route.path;
 
+          // Apply the theme BEFORE navigating so the page loads already in it
+          // (editors that read the theme only at mount initialize correctly).
+          await applyTheme(page, theme);
+
           if (route.clientNav) {
             await navigateClientSide(page, url);
           } else {
@@ -95,9 +99,6 @@ test.describe("Portal Screenshots", () => {
               .waitForSelector("nav", { timeout: 10_000 })
               .catch(() => {});
           }
-
-          resetThemeTracking();
-          await setTheme(page, theme);
 
           await waitForPageReady(page, route);
 

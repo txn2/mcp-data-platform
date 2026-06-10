@@ -5,7 +5,12 @@ export async function waitForPageReady(
   page: Page,
   route: ScreenshotRoute,
 ): Promise<void> {
-  await page.waitForLoadState("networkidle");
+  // Bounded: pages that poll on an interval (e.g. the Indexing dashboard polls
+  // every 5s) never reach a true network-idle, so this must time out and move
+  // on rather than block until the per-test timeout.
+  await page
+    .waitForLoadState("networkidle", { timeout: 10_000 })
+    .catch(() => {});
 
   if (route.waitFor) {
     await page
@@ -13,13 +18,21 @@ export async function waitForPageReady(
       .catch(() => {});
   }
 
-  await page
+  // Wait for transient spinners/skeletons to clear, but HARD-cap it: on pages
+  // with a legitimately persistent spinner (e.g. the Indexing dashboard's
+  // running-job indicator) that re-render on a poll interval, Playwright's
+  // own waitForFunction timeout is not honored reliably (observed 30s+ for a
+  // 10s cap, up to the full per-test timeout in a suite run). Racing it against
+  // a fixed timer guarantees we move on. The losing promise keeps a .catch so
+  // it cannot surface as an unhandled rejection.
+  const spinnersSettled = page
     .waitForFunction(
       () =>
         document.querySelectorAll(".animate-spin, .animate-pulse").length === 0,
-      { timeout: 10_000 },
+      { timeout: 5_000 },
     )
     .catch(() => {});
+  await Promise.race([spinnersSettled, page.waitForTimeout(3_000)]);
 
   if (route.waitForThumbnails) {
     await waitForThumbnails(page, route.waitForThumbnails);

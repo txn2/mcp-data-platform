@@ -96,37 +96,69 @@ The existing per-catalog embedding badges in the API Catalogs panel remain; this
 
 ## Tools
 
-### Overview
+The Tools page is a master-detail view. The list on the left groups every registered tool by connection (Trino, DataHub, S3, platform, and gateway-proxied MCP) with search filtering; selecting a tool opens its detail across five tabs.
 
-The Tools Overview tab shows all configured connections and a complete tool inventory.
+### Overview
 
 ![Tools Overview](../images/screenshots/light/admin-admin-tools-overview-light.webp#only-light)![Tools Overview](../images/screenshots/dark/admin-admin-tools-overview-dark.webp#only-dark)
 
-Each connection card displays the toolkit type (Trino, DataHub, S3), connection name, and the tools it provides. The Tool Inventory table below lists every registered tool with its description pulled from the MCP schema, visibility status, kind, and toolkit assignment.
+The Overview tab shows the selected tool's description (with an inline override editor), toolkit kind, connection, title, the JSON input schema, and per-persona access — which personas can call the tool and the rule that decided it.
 
-### Explore
+### Try It
 
-The Explore tab provides an interactive tool execution environment for testing and debugging.
+![Tools Try It](../images/screenshots/light/admin-admin-tools-tryit-light.webp#only-light)![Tools Try It](../images/screenshots/dark/admin-admin-tools-tryit-dark.webp#only-dark)
 
-![Tools Explore](../images/screenshots/light/admin-admin-tools-explore-light.webp#only-light)![Tools Explore](../images/screenshots/dark/admin-admin-tools-explore-dark.webp#only-dark)
+An interactive execution environment for the selected tool:
 
-Features:
-
-- **Tool browser** — Tools grouped by connection (Trino, DataHub, S3) with search filtering
-- **Dynamic parameter form** — Auto-generated from each tool's JSON schema with type-appropriate inputs (text areas for SQL, number fields for limits, dropdowns for enums)
+- **Dynamic parameter form** — Auto-generated from the tool's JSON schema with type-appropriate inputs (text areas for SQL, number fields for limits, dropdowns for enums)
 - **Result display** — Rendered markdown tables for structured data, with a Raw toggle for JSON output
-- **Semantic context** — Cross-injection enrichment shown below results: dataset descriptions, owners, tags, column metadata, glossary terms, and lineage sources
 - **Execution history** — Timestamped log of tool calls with duration, status, and replay capability
 
-## Audit Log
+### Activity
 
-### Overview
+![Tools Activity](../images/screenshots/light/admin-admin-tools-activity-light.webp#only-light)![Tools Activity](../images/screenshots/dark/admin-admin-tools-activity-dark.webp#only-dark)
 
-The Audit Overview tab provides platform-wide analytics across configurable time ranges.
+Aggregated call volume, success rate, and average duration for the selected tool over the recent window, with a deep link to the audit log filtered to this tool.
 
-![Audit Overview](../images/screenshots/light/admin-admin-audit-overview-light.webp#only-light)![Audit Overview](../images/screenshots/dark/admin-admin-audit-overview-dark.webp#only-dark)
+### Enrichment
 
-Includes the same summary cards, activity timeline, top tools, and top users charts as the Dashboard — focused specifically on audit data with additional performance percentiles and error tracking.
+![Tools Enrichment](../images/screenshots/light/admin-admin-tools-enrichment-light.webp#only-light)![Tools Enrichment](../images/screenshots/dark/admin-admin-tools-enrichment-dark.webp#only-dark)
+
+Shown for gateway-proxied (MCP) tools with a connection. Lists the cross-injection enrichment rules attached to the tool — each rule's predicate, action source and operation, merge strategy, and enabled state. This is where the platform's bidirectional context injection is configured per tool.
+
+### Visibility
+
+![Tools Visibility](../images/screenshots/light/admin-admin-tools-visibility-light.webp#only-light)![Tools Visibility](../images/screenshots/dark/admin-admin-tools-visibility-dark.webp#only-dark)
+
+Toggle the tool's membership in the platform-wide deny list, and preview whether a given persona can access it before committing the change.
+
+## Activity (Dashboard tabs)
+
+The admin Dashboard hosts the platform activity views as tabs: **MCP**, **API Gateway**, **Health**, **Indexing**, and **Events**. (Indexing is documented above.) Each works across configurable time ranges (1h, 6h, 24h, 7d).
+
+### MCP
+
+The MCP tab provides platform-wide analytics over MCP tool-call activity.
+
+![MCP Activity](../images/screenshots/light/admin-admin-audit-mcp-light.webp#only-light)![MCP Activity](../images/screenshots/dark/admin-admin-audit-mcp-dark.webp#only-dark)
+
+Includes summary cards, the activity timeline, and top tools / top users charts — focused on MCP tool calls with performance percentiles and error tracking.
+
+### API Gateway
+
+The API Gateway tab visualizes outbound REST gateway traffic proxied through the platform.
+
+![API Gateway Activity](../images/screenshots/light/admin-admin-audit-apigateway-light.webp#only-light)![API Gateway Activity](../images/screenshots/dark/admin-admin-audit-apigateway-dark.webp#only-dark)
+
+Includes the connection-to-operation traffic flow (Sankey), an inbound-vs-outbound health split by status category, and breakdowns by status class, method, and calling identity.
+
+### Health
+
+The Health tab reports per-node platform health scraped from Prometheus.
+
+![Health](../images/screenshots/light/admin-admin-audit-health-light.webp#only-light)![Health](../images/screenshots/dark/admin-admin-audit-health-dark.webp#only-dark)
+
+Per-node uptime, CPU, resident memory, heap, and goroutine counts across the platform fleet, with any missing metric rendered as a dash.
 
 ### Events
 

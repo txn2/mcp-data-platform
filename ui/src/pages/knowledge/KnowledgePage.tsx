@@ -26,14 +26,13 @@ import {
 
 const PER_PAGE = 20;
 
-type Tab = "overview" | "knowledge" | "memory" | "changesets" | "help";
+type Tab = "overview" | "knowledge" | "memory" | "changesets";
 
 const TAB_ITEMS: { key: Tab; label: string }[] = [
   { key: "overview", label: "Overview" },
   { key: "knowledge", label: "Knowledge Capture" },
   { key: "memory", label: "All Memory" },
   { key: "changesets", label: "Changesets" },
-  { key: "help", label: "Help" },
 ];
 
 const INSIGHT_CATEGORIES = [
@@ -137,7 +136,7 @@ function formatCategory(cat: string): string {
 
 export function KnowledgePage({ initialTab }: { initialTab?: string }) {
   const [tab, setTab] = useState<Tab>(
-    (["overview", "knowledge", "memory", "changesets", "help"].includes(
+    (["overview", "knowledge", "memory", "changesets"].includes(
       initialTab ?? "",
     )
       ? initialTab
@@ -167,7 +166,6 @@ export function KnowledgePage({ initialTab }: { initialTab?: string }) {
       {tab === "knowledge" && <KnowledgeCaptureTab />}
       {tab === "memory" && <AllMemoryTab />}
       {tab === "changesets" && <ChangesetsTab />}
-      {tab === "help" && <HelpTab />}
     </div>
   );
 }
@@ -1819,230 +1817,6 @@ function ChangesetDrawer({
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Help Tab
-// ---------------------------------------------------------------------------
-
-function HelpTab() {
-  return (
-    <div className="max-w-3xl space-y-8">
-      <section>
-        <h2 className="mb-2 text-lg font-semibold">The Memory System</h2>
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          Memory is the first-class system. Everything lives in memory records.
-          As users interact with AI agents, the platform accumulates knowledge
-          across sessions: corrections to data descriptions, user preferences,
-          domain context, business rules, and episodic observations about data
-          behavior.
-        </p>
-        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-          Active memories are automatically attached to toolkit responses so
-          agents have the right context without asking the same questions twice.
-          When the underlying data changes in DataHub, memories that reference
-          it are flagged as stale for review.
-        </p>
-      </section>
-
-      <section>
-        <h2 className="mb-2 text-lg font-semibold">Knowledge Capture</h2>
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          Knowledge capture is a governance workflow within memory. When a piece
-          of domain knowledge is important enough to be reviewed and potentially
-          written back to the DataHub catalog, it goes through the knowledge
-          capture pipeline.
-        </p>
-        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-          The pipeline works like this: an agent calls{" "}
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">
-            capture_insight
-          </code>{" "}
-          when a user shares something worth preserving. An admin reviews the
-          insight and approves or rejects it. Approved insights can then be
-          applied via{" "}
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">
-            apply_knowledge
-          </code>{" "}
-          to write changes back to DataHub as descriptions, tags, glossary
-          terms, or context documents.
-        </p>
-        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-          Knowledge is not limited to catalog metadata. It includes things
-          like &quot;we have two distinct selling seasons&quot; or
-          &quot;stores close at 9pm so after-hours data is stale.&quot; The
-          catalog write-back is just one possible outcome of the review process.
-        </p>
-      </section>
-
-      <section>
-        <h2 className="mb-2 text-lg font-semibold">
-          How Memory and Knowledge Relate
-        </h2>
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          Every insight is a memory record. Memory is the storage layer.
-          Knowledge capture is the review process that sits on top. An agent
-          remembers hundreds of things. A few of those are important enough
-          to put in the catalog. That is what knowledge capture is for.
-        </p>
-      </section>
-
-      <section>
-        <h2 className="mb-2 text-lg font-semibold">What You Can Do Here</h2>
-        <ul className="list-inside list-disc space-y-1 text-sm text-muted-foreground">
-          <li>
-            <strong>Overview</strong>: See combined statistics for both
-            knowledge capture and memory. A quick view of how much the platform
-            has learned and what needs attention.
-          </li>
-          <li>
-            <strong>Knowledge Capture</strong>: Browse, filter, and
-            review captured insights. Approve or reject them. Applied insights
-            become changesets.
-          </li>
-          <li>
-            <strong>All Memory</strong>: Browse every memory record
-            across all users and sessions. Filter by dimension, category,
-            status, or source. Archive records that are no longer useful.
-          </li>
-          <li>
-            <strong>Changesets</strong>: See the history of changes
-            applied to the DataHub catalog and roll back any that need to be
-            reverted.
-          </li>
-        </ul>
-      </section>
-
-      <section>
-        <h2 className="mb-2 text-lg font-semibold">Types of Knowledge</h2>
-        <div className="overflow-auto rounded-lg border">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b bg-muted/50">
-                <th className="px-3 py-2 text-left font-medium">Type</th>
-                <th className="px-3 py-2 text-left font-medium">Example</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-medium text-xs">Correction</td>
-                <td className="px-3 py-2 text-xs">
-                  &quot;The description says daily but this table is updated
-                  hourly&quot;
-                </td>
-              </tr>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-medium text-xs">
-                  Business Context
-                </td>
-                <td className="px-3 py-2 text-xs">
-                  &quot;Revenue excludes returns and store credits&quot;
-                </td>
-              </tr>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-medium text-xs">Data Quality</td>
-                <td className="px-3 py-2 text-xs">
-                  &quot;Store 47 has missing inventory data for Q3&quot;
-                </td>
-              </tr>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-medium text-xs">
-                  Usage Guidance
-                </td>
-                <td className="px-3 py-2 text-xs">
-                  &quot;Always filter by status=active for current
-                  inventory&quot;
-                </td>
-              </tr>
-              <tr className="border-b">
-                <td className="px-3 py-2 font-medium text-xs">Relationship</td>
-                <td className="px-3 py-2 text-xs">
-                  &quot;Join transactions with products on sku, not
-                  product_id&quot;
-                </td>
-              </tr>
-              <tr>
-                <td className="px-3 py-2 font-medium text-xs">Enhancement</td>
-                <td className="px-3 py-2 text-xs">
-                  &quot;This table should be tagged as PII-containing&quot;
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section>
-        <h2 className="mb-2 text-lg font-semibold">The Review Pipeline</h2>
-        <div className="space-y-2">
-          {[
-            {
-              status: "Pending",
-              detail: "A new insight arrives and awaits admin review.",
-            },
-            {
-              status: "Approved",
-              detail:
-                "Reviewed and confirmed as correct. Ready to apply to the catalog.",
-            },
-            {
-              status: "Applied",
-              detail:
-                "The change has been written to DataHub. A changeset tracks the before and after.",
-            },
-            {
-              status: "Rejected",
-              detail:
-                "Reviewed and determined not accurate or not useful. Preserved for the audit trail.",
-            },
-          ].map((step, i) => (
-            <div
-              key={step.status}
-              className="flex gap-3 rounded-lg border p-3"
-            >
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-                {i + 1}
-              </span>
-              <div>
-                <p className="text-sm font-medium">{step.status}</p>
-                <p className="text-xs text-muted-foreground">{step.detail}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section>
-        <h2 className="mb-2 text-lg font-semibold">Memory Dimensions</h2>
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          Memory records are organized by dimension, which describes what kind
-          of information they hold:
-        </p>
-        <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-muted-foreground">
-          <li>
-            <strong>Knowledge</strong>: Domain facts, business rules,
-            and data definitions.
-          </li>
-          <li>
-            <strong>Event</strong>: Observations about data changes or
-            incidents.
-          </li>
-          <li>
-            <strong>Entity</strong>: Information about specific datasets,
-            tables, or columns.
-          </li>
-          <li>
-            <strong>Relationship</strong>: How datasets connect to each
-            other (joins, lineage, dependencies).
-          </li>
-          <li>
-            <strong>Preference</strong>: User preferences for how data
-            should be queried or displayed.
-          </li>
-        </ul>
-      </section>
     </div>
   );
 }

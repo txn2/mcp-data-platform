@@ -16,8 +16,82 @@ function daysAgo(n: number): string {
 
 export const mockChangelog: ChangelogEntry[] = [
   {
+    version: "1.5.3",
+    date: daysAgo(0),
+    changes: [
+      {
+        type: "added",
+        description:
+          "Gateway connection health surfaced in the Connections UI with last-success and last-error indicators",
+      },
+      {
+        type: "fixed",
+        description:
+          "Indexing card now renders an explicit empty state instead of a blank panel when no jobs exist",
+      },
+    ],
+  },
+  {
+    version: "1.5.2",
+    date: daysAgo(2),
+    changes: [
+      {
+        type: "added",
+        description:
+          "Static prompts are now indexed and searchable alongside dynamic prompt resources",
+      },
+      {
+        type: "changed",
+        description:
+          "Semantic enrichment is default-on and folded directly into structured tool output",
+      },
+      {
+        type: "fixed",
+        description:
+          "Tool visibility changes propagate to the persona access preview without a page refresh",
+      },
+    ],
+  },
+  {
+    version: "1.5.1",
+    date: daysAgo(5),
+    changes: [
+      {
+        type: "added",
+        description:
+          "Per-connection cross-injection enrichment rules with predicate, action, and merge strategy editing",
+      },
+      {
+        type: "changed",
+        description:
+          "Tools page is now a master-detail view with overview, try-it, activity, enrichment, and visibility tabs",
+      },
+    ],
+  },
+  {
+    version: "1.5.0",
+    date: daysAgo(8),
+    changes: [
+      {
+        type: "added",
+        description:
+          "MCP gateway connections proxy upstream tool servers with health checks and OAuth pass-through",
+      },
+      {
+        type: "added",
+        description:
+          "Export-to-asset: stream Trino query results directly into a managed portal asset",
+      },
+      {
+        type: "changed",
+        description:
+          "Admin dashboard merges MCP, API Gateway, Health, Indexing, and Events into a single activity view",
+      },
+    ],
+  },
+  {
     version: "1.4.2",
-    date: daysAgo(3),
+    date: daysAgo(11),
     changes: [
       {
         type: "fixed",

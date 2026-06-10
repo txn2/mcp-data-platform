@@ -36,13 +36,13 @@ export const routes: ScreenshotRoute[] = [
     path: "/portal/collections/col-001",
     category: "user",
   },
-  // collection-edit excluded: requires section update handler that returns
-  // the full collection with resolved items, which the mock doesn't support yet.
-  // {
-  //   slug: "collection-edit",
-  //   path: "/portal/collections/col-001/edit",
-  //   category: "user",
-  // },
+  {
+    // Collection editor (drag-and-drop section/asset authoring). Rendering
+    // only needs the GET (sections + resolved items), which the mock provides.
+    slug: "collection-edit",
+    path: "/portal/collections/col-001/edit",
+    category: "user",
+  },
   {
     slug: "resources",
     path: "/portal/resources",
@@ -52,6 +52,19 @@ export const routes: ScreenshotRoute[] = [
       if (await tab.isVisible()) {
         await tab.click();
         await page.waitForTimeout(500);
+      }
+    },
+  },
+  {
+    // Resource upload modal.
+    slug: "resource-upload",
+    path: "/portal/resources",
+    category: "user",
+    beforeCapture: async (page) => {
+      const btn = page.locator("button:has-text('Upload Resource')").first();
+      if (await btn.isVisible()) {
+        await btn.click();
+        await page.waitForTimeout(600);
       }
     },
   },
@@ -66,9 +79,54 @@ export const routes: ScreenshotRoute[] = [
     category: "user",
   },
   {
+    // MyKnowledgePage uses state-only tabs (no URL hash); click into Memory.
+    slug: "my-knowledge-memory",
+    path: "/portal/my-knowledge",
+    category: "user",
+    beforeCapture: async (page) => {
+      const memoryTab = page.locator("text=Memory").first();
+      if (await memoryTab.isVisible()) {
+        await memoryTab.click();
+        await page.waitForTimeout(500);
+      }
+    },
+  },
+  {
     slug: "prompts",
     path: "/portal/prompts",
     category: "user",
+  },
+  {
+    // Personal prompt create form.
+    slug: "prompt-create",
+    path: "/portal/prompts",
+    category: "user",
+    beforeCapture: async (page) => {
+      const btn = page.locator("button:has-text('New Prompt')").first();
+      if (await btn.isVisible()) {
+        await btn.click();
+        await page.waitForTimeout(600);
+      }
+    },
+  },
+  {
+    // User-facing prompt viewer (/prompts/:id). prompt-010 is a personal prompt.
+    slug: "prompt-view",
+    path: "/portal/prompts/prompt-010",
+    category: "user",
+  },
+  {
+    // Share dialog (create public link + share with users) on an asset.
+    slug: "asset-share",
+    path: "/portal/assets/ast-001",
+    category: "user",
+    beforeCapture: async (page) => {
+      const btn = page.locator("button:has-text('Share')").first();
+      if (await btn.isVisible()) {
+        await btn.click();
+        await page.waitForTimeout(600);
+      }
+    },
   },
 
   // Asset viewer — one per content type
@@ -127,27 +185,46 @@ export const routes: ScreenshotRoute[] = [
     path: "/portal/admin/assets/ast-007",
     category: "admin",
   },
+  // ToolsPage is a master-detail view that keeps selection + active tab in URL
+  // *search params* (?selected=&tab=), not the hash. So each detail tab is its
+  // own route with the full query string baked into `path` (no `tabs` field).
+  // The detail tabs (overview/tryit/activity/visibility) render for any tool;
+  // enrichment only renders for gateway-proxied (mcp) tools, so it points at a
+  // gateway tool with cross-injection rules.
   {
-    slug: "admin-tools",
-    path: "/portal/admin/tools",
+    slug: "admin-tools-overview",
+    path: "/portal/admin/tools?selected=trino_query",
     category: "admin",
-    tabs: ["overview", "explore"],
-    beforeCapture: async (page) => {
-      const hash = new URL(page.url()).hash;
-      if (hash === "#explore") {
-        const toolItem = page.locator("text=Trino Query").first();
-        if (await toolItem.isVisible()) {
-          await toolItem.click();
-          await page.waitForTimeout(1000);
-        }
-      }
-    },
   },
   {
+    slug: "admin-tools-tryit",
+    path: "/portal/admin/tools?selected=trino_query&tab=tryit",
+    category: "admin",
+  },
+  {
+    slug: "admin-tools-activity",
+    path: "/portal/admin/tools?selected=trino_query&tab=activity",
+    category: "admin",
+  },
+  {
+    slug: "admin-tools-visibility",
+    path: "/portal/admin/tools?selected=trino_query&tab=visibility",
+    category: "admin",
+  },
+  {
+    slug: "admin-tools-enrichment",
+    path: "/portal/admin/tools?selected=crm_search_accounts&tab=enrichment",
+    category: "admin",
+  },
+  {
+    // AuditLogPage's real hash tabs are mcp/apigateway/health/indexing/events
+    // (there is no "overview" tab; the default is "mcp"). The "indexing" tab is
+    // where IndexingPage renders. Capturing all five keeps this in sync with the
+    // merged Dashboard activity view.
     slug: "admin-audit",
     path: "/portal/admin/audit",
     category: "admin",
-    tabs: ["overview", "events"],
+    tabs: ["mcp", "apigateway", "health", "indexing", "events"],
   },
   {
     slug: "admin-api-catalogs",
@@ -160,17 +237,54 @@ export const routes: ScreenshotRoute[] = [
     category: "admin",
     tabs: ["overview", "knowledge", "memory", "changesets"],
   },
-  // admin-description and admin-agent-instructions are intentionally
-  // excluded from screenshot capture (see excludedRoutes below) — the
-  // MarkdownEditor (CodeMirror) crashes in headless mode due to
-  // duplicate @codemirror/state instances. Re-enable once the portal
-  // fixes this. The excludedRoutes registration below is what keeps
-  // the route-sync test green: it documents the gap as intentional
-  // rather than masking it as a missing manifest entry.
+  // Config editors (CodeMirror MarkdownEditor). These were excluded over a
+  // duplicate-@codemirror/state crash in headless mode, now fixed via
+  // resolve.dedupe in vite.config.ts.
+  {
+    slug: "admin-description",
+    path: "/portal/admin/description",
+    category: "admin",
+  },
+  {
+    slug: "admin-agent-instructions",
+    path: "/portal/admin/agent-instructions",
+    category: "admin",
+  },
   {
     slug: "admin-connections",
     path: "/portal/admin/connections",
     category: "admin",
+  },
+  {
+    // Connection editor (edit form). Select a connection, then open Edit.
+    slug: "admin-connection-edit",
+    path: "/portal/admin/connections",
+    category: "admin",
+    beforeCapture: async (page) => {
+      const row = page.locator("text=acme-warehouse").first();
+      if (await row.isVisible()) {
+        await row.click();
+        await page.waitForTimeout(400);
+      }
+      const edit = page.locator("button:has-text('Edit')").first();
+      if (await edit.isVisible()) {
+        await edit.click();
+        await page.waitForTimeout(600);
+      }
+    },
+  },
+  {
+    // Connection create form (new gateway/Trino/S3 connection).
+    slug: "admin-connection-create",
+    path: "/portal/admin/connections",
+    category: "admin",
+    beforeCapture: async (page) => {
+      const add = page.locator("button:has-text('Add Connection')").first();
+      if (await add.isVisible()) {
+        await add.click();
+        await page.waitForTimeout(600);
+      }
+    },
   },
   {
     slug: "admin-personas",
@@ -209,6 +323,120 @@ export const routes: ScreenshotRoute[] = [
     path: "/portal/admin/changelog",
     category: "admin",
   },
+
+  // =========================================================================
+  // Editor / create forms — the rich authoring states behind the list views.
+  // =========================================================================
+  {
+    slug: "admin-persona-create",
+    path: "/portal/admin/personas",
+    category: "admin",
+    beforeCapture: async (page) => {
+      const btn = page.locator("button:has-text('New Persona')").first();
+      if (await btn.isVisible()) {
+        await btn.click();
+        await page.waitForTimeout(600);
+      }
+    },
+  },
+  {
+    slug: "admin-catalog-create",
+    path: "/portal/admin/api-catalogs",
+    category: "admin",
+    beforeCapture: async (page) => {
+      const btn = page.locator("button:has-text('New catalog')").first();
+      if (await btn.isVisible()) {
+        await btn.click();
+        await page.waitForTimeout(600);
+      }
+    },
+  },
+  {
+    slug: "admin-key-create",
+    path: "/portal/admin/keys",
+    category: "admin",
+    beforeCapture: async (page) => {
+      const btn = page.locator("button:has-text('Add Key')").first();
+      if (await btn.isVisible()) {
+        await btn.click();
+        await page.waitForTimeout(600);
+      }
+    },
+  },
+  {
+    slug: "admin-prompt-create",
+    path: "/portal/admin/prompts",
+    category: "admin",
+    beforeCapture: async (page) => {
+      const btn = page.locator("button:has-text('New Prompt')").first();
+      if (await btn.isVisible()) {
+        await btn.click();
+        await page.waitForTimeout(600);
+      }
+    },
+  },
+
+  // =========================================================================
+  // Drawer / detail-panel states (open via row click; no separate route).
+  // =========================================================================
+  {
+    slug: "admin-audit-event-detail",
+    path: "/portal/admin/audit#events",
+    category: "admin",
+    beforeCapture: async (page) => {
+      // The click may no-op when a drawer is already open from the prior theme
+      // (light/dark share one page and same-hash nav doesn't reload): the
+      // drawer's overlay covers the rows. That's fine — the open drawer is
+      // exactly what we want to capture, so swallow the click failure.
+      const row = page.locator("table tbody tr").first();
+      await row.click({ timeout: 2_000 }).catch(() => {});
+      await page.waitForTimeout(600);
+    },
+  },
+  {
+    slug: "admin-knowledge-insight-detail",
+    path: "/portal/admin/knowledge#knowledge",
+    category: "admin",
+    beforeCapture: async (page) => {
+      // The click may no-op when a drawer is already open from the prior theme
+      // (light/dark share one page and same-hash nav doesn't reload): the
+      // drawer's overlay covers the rows. That's fine — the open drawer is
+      // exactly what we want to capture, so swallow the click failure.
+      const row = page.locator("table tbody tr").first();
+      await row.click({ timeout: 2_000 }).catch(() => {});
+      await page.waitForTimeout(600);
+    },
+  },
+  {
+    slug: "admin-knowledge-memory-detail",
+    path: "/portal/admin/knowledge#memory",
+    category: "admin",
+    beforeCapture: async (page) => {
+      // The click may no-op when a drawer is already open from the prior theme
+      // (light/dark share one page and same-hash nav doesn't reload): the
+      // drawer's overlay covers the rows. That's fine — the open drawer is
+      // exactly what we want to capture, so swallow the click failure.
+      const row = page.locator("table tbody tr").first();
+      await row.click({ timeout: 2_000 }).catch(() => {});
+      await page.waitForTimeout(600);
+    },
+  },
+  {
+    slug: "admin-knowledge-changeset-detail",
+    path: "/portal/admin/knowledge#changesets",
+    category: "admin",
+    beforeCapture: async (page) => {
+      // Open the detail drawer only — do not click the rollback button, which
+      // triggers a window.confirm that would block headless capture.
+      // The click may no-op when a drawer is already open from the prior theme
+      // (light/dark share one page and same-hash nav doesn't reload): the
+      // drawer's overlay covers the rows. That's fine — the open drawer is
+      // exactly what we want to capture, so swallow the click failure.
+      const row = page.locator("table tbody tr").first();
+      await row.click({ timeout: 2_000 }).catch(() => {});
+      await page.waitForTimeout(600);
+    },
+  },
 ];
 
 /**
@@ -221,7 +449,6 @@ export const routes: ScreenshotRoute[] = [
  * key from this set AND add a normal entry to `routes` above.
  */
 export const excludedRoutes: ReadonlySet<string> = new Set([
-  // CodeMirror crash in headless mode (duplicate @codemirror/state instances).
-  "/admin/description",
-  "/admin/agent-instructions",
+  // No routes are currently excluded. Add a pageTitles key here (with a
+  // documented reason) only when a route genuinely cannot be captured.
 ]);

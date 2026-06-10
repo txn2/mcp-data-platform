@@ -36,6 +36,13 @@ export default defineConfig(({ mode }) => {
       alias: {
         "@": path.resolve(__dirname, "./src"),
       },
+      // CodeMirror's @codemirror/state enforces a single module instance at
+      // runtime: if two copies load (e.g. one from @uiw/react-codemirror and
+      // one from a lang-* package resolving a different version), it throws
+      // and the editor crashes. This surfaced in headless screenshot runs and
+      // forced the Description / Agent Instructions editors to be excluded.
+      // Deduping the core modules to one instance fixes the crash.
+      dedupe: ["@codemirror/state", "@codemirror/view"],
     },
     // mermaid 11.x lazy-loads diagram modules (flowDiagram, sequenceDiagram,
     // etc.) at runtime. Vite's dep optimizer tries to pre-bundle them but
