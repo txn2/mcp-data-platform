@@ -104,6 +104,17 @@ func ValidSharePermission(p string) bool {
 	return p == string(PermissionViewer) || p == string(PermissionEditor)
 }
 
+// ShareOrigin records how a share came to exist.
+type ShareOrigin string
+
+const (
+	// OriginExplicit is a share created deliberately by an owner/editor.
+	OriginExplicit ShareOrigin = "explicit"
+	// OriginPublicLinkLogin is a viewer share auto-created when a user signs
+	// in through a public link and had no prior share for the target.
+	OriginPublicLinkLogin ShareOrigin = "public_link_login"
+)
+
 // Share represents a share link for an asset, collection, or prompt.
 // Exactly one of AssetID, CollectionID, or PromptID is set.
 type Share struct {
@@ -123,6 +134,7 @@ type Share struct {
 	AccessCount      int             `json:"access_count" example:"3"`
 	LastAccessedAt   *time.Time      `json:"last_accessed_at,omitempty"`
 	CreatedAt        time.Time       `json:"created_at"`
+	Origin           ShareOrigin     `json:"origin,omitempty" example:"explicit"`
 }
 
 // SharedAsset combines an Asset with share metadata for "shared with me" results.

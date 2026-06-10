@@ -117,6 +117,10 @@ func (*mockAdminShareStore) GetUserAssetPermissionViaCollection(_ context.Contex
 	return "", fmt.Errorf("no collection share")
 }
 
+func (*mockAdminShareStore) GetActiveShareForTarget(_ context.Context, _, _, _, _ string) (*portal.Share, error) {
+	return nil, nil //nolint:nilnil // test mock: no shares
+}
+
 type mockAdminS3Client struct {
 	getData   []byte
 	getCT     string

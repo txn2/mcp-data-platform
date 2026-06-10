@@ -1,0 +1,430 @@
+package portal
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func newThreadStoreMock(t *testing.T) (*postgresThreadStore, sqlmock.Sqlmock) {
+	t.Helper()
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	return &postgresThreadStore{db: db}, mock
+}
+
+func TestThreadStoreCreateThread(t *testing.T) {
+	store, mock := newThreadStoreMock(t)
+	now := time.Now()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("INSERT INTO portal_threads").
+		WillReturnRows(sqlmock.NewRows([]string{"created_at", "updated_at"}).AddRow(now, now))
+	mock.ExpectExec("INSERT INTO portal_thread_events").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	thread := Thread{
+		ID: "thr_1", Kind: ThreadKindCorrection, TargetType: targetTypeAsset, AssetID: "asset_1",
+		AuthorID: "u1", AuthorEmail: "u1@example.com",
+	}
+	first := ThreadEvent{ID: "evt_1", ThreadID: "thr_1", EventType: EventTypeComment, AuthorID: "u1", AuthorEmail: "u1@example.com", Body: "wrong term"}
+
+	got, err := store.CreateThread(context.Background(), thread, first)
+	require.NoError(t, err)
+	assert.Equal(t, "thr_1", got.ID)
+	assert.Equal(t, now, got.CreatedAt)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestThreadStoreCreateThreadRollbackOnEventError(t *testing.T) {
+	store, mock := newThreadStoreMock(t)
+	now := time.Now()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("INSERT INTO portal_threads").
+		WillReturnRows(sqlmock.NewRows([]string{"created_at", "updated_at"}).AddRow(now, now))
+	mock.ExpectExec("INSERT INTO portal_thread_events").
+		WillReturnError(fmt.Errorf("boom"))
+	mock.ExpectRollback()
+
+	_, err := store.CreateThread(context.Background(), Thread{ID: "t", TargetType: targetTypeStandalone, AuthorID: "u", AuthorEmail: "u@x"}, ThreadEvent{ID: "e", ThreadID: "t", EventType: EventTypeComment, AuthorID: "u", AuthorEmail: "u@x"})
+	require.Error(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestThreadStoreListThreads(t *testing.T) {
+	store, mock := newThreadStoreMock(t)
+	now := time.Now()
+
+	mock.ExpectQuery("SELECT COUNT").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery("FROM portal_threads t").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "kind", "target_type", "asset_id", "collection_id", "prompt_id", "anchor", "target_version",
+			"title", "author_id", "author_email", "status", "requires_resolution", "validation_state", "insight_id",
+			"created_at", "updated_at", "deleted_at",
+			"event_count", "last_event_at", "last_event_type",
+		}).AddRow(
+			"thr_1", ThreadKindComment, targetTypeAsset, "asset_1", nil, nil, []byte(`{"type":"text_quote","exact":"x"}`), 3,
+			"title", "u1", "u1@example.com", ThreadStatusOpen, false, "none", nil,
+			now, now, nil,
+			2, now, EventTypeComment,
+		))
+
+	out, total, err := store.ListThreads(context.Background(), ThreadFilter{TargetType: targetTypeAsset, AssetID: "asset_1"})
+	require.NoError(t, err)
+	assert.Equal(t, 1, total)
+	require.Len(t, out, 1)
+	assert.Equal(t, 2, out[0].EventCount)
+	assert.Equal(t, EventTypeComment, out[0].LastEventType)
+	assert.Equal(t, 3, out[0].TargetVersion)
+	assert.JSONEq(t, `{"type":"text_quote","exact":"x"}`, string(out[0].Anchor))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestThreadStoreGetThread(t *testing.T) {
+	store, mock := newThreadStoreMock(t)
+	now := time.Now()
+
+	mock.ExpectQuery("FROM portal_threads WHERE id").
+		WithArgs("thr_1").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "kind", "target_type", "asset_id", "collection_id", "prompt_id", "anchor", "target_version",
+			"title", "author_id", "author_email", "status", "requires_resolution", "validation_state", "insight_id",
+			"created_at", "updated_at", "deleted_at",
+		}).AddRow(
+			"thr_1", ThreadKindQuestion, targetTypeStandalone, nil, nil, nil, nil, nil,
+			"", "u1", "u1@example.com", ThreadStatusOpen, false, "none", nil,
+			now, now, nil,
+		))
+
+	got, err := store.GetThread(context.Background(), "thr_1")
+	require.NoError(t, err)
+	assert.Equal(t, targetTypeStandalone, got.TargetType)
+	assert.Empty(t, got.AssetID)
+	assert.Nil(t, got.Anchor)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestThreadStoreListEvents(t *testing.T) {
+	store, mock := newThreadStoreMock(t)
+	now := time.Now()
+	rating := 5
+
+	mock.ExpectQuery("FROM portal_thread_events WHERE thread_id").
+		WithArgs("thr_1").
+		WillReturnRows(sqlmock.NewRows([]string{
+			"id", "thread_id", "event_type", "author_id", "author_email", "body", "rating", "parent_event_id", "metadata", "created_at",
+		}).AddRow("evt_1", "thr_1", EventTypeRating, "u1", "u1@example.com", "great", rating, nil, []byte(`{}`), now))
+
+	events, err := store.ListEvents(context.Background(), "thr_1")
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	require.NotNil(t, events[0].Rating)
+	assert.Equal(t, 5, *events[0].Rating)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestThreadStoreAppendEvent(t *testing.T) {
+	store, mock := newThreadStoreMock(t)
+
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO portal_thread_events").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE portal_threads SET updated_at").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	got, err := store.AppendEvent(context.Background(), ThreadEvent{ID: "evt_2", ThreadID: "thr_1", EventType: EventTypeComment, AuthorID: "u1", AuthorEmail: "u1@example.com", Body: "reply"})
+	require.NoError(t, err)
+	assert.Equal(t, "evt_2", got.ID)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestThreadStoreUpdateThreadWithStatusChange(t *testing.T) {
+	store, mock := newThreadStoreMock(t)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT status FROM portal_threads").
+		WithArgs("thr_1").
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow(ThreadStatusOpen))
+	mock.ExpectExec("UPDATE portal_threads").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO portal_thread_events").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	resolved := ThreadStatusResolved
+	err := store.UpdateThread(context.Background(), "thr_1", ThreadUpdate{Status: &resolved}, "u1", "u1@example.com")
+	require.NoError(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestThreadStoreUpdateThreadNoStatusChangeSkipsEvent(t *testing.T) {
+	store, mock := newThreadStoreMock(t)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT status FROM portal_threads").
+		WithArgs("thr_1").
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow(ThreadStatusOpen))
+	mock.ExpectExec("UPDATE portal_threads").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	rr := true
+	err := store.UpdateThread(context.Background(), "thr_1", ThreadUpdate{RequiresResolution: &rr}, "u1", "u1@example.com")
+	require.NoError(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestThreadStoreSoftDeleteThread(t *testing.T) {
+	store, mock := newThreadStoreMock(t)
+
+	mock.ExpectExec("UPDATE portal_threads SET deleted_at").
+		WithArgs(sqlmock.AnyArg(), "thr_1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	require.NoError(t, store.SoftDeleteThread(context.Background(), "thr_1"))
+
+	mock.ExpectExec("UPDATE portal_threads SET deleted_at").
+		WithArgs(sqlmock.AnyArg(), "missing").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	require.Error(t, store.SoftDeleteThread(context.Background(), "missing"))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestThreadStoreCreateThreadInsertError(t *testing.T) {
+	store, mock := newThreadStoreMock(t)
+	mock.ExpectBegin()
+	mock.ExpectQuery("INSERT INTO portal_threads").WillReturnError(fmt.Errorf("boom"))
+	mock.ExpectRollback()
+	_, err := store.CreateThread(context.Background(), Thread{ID: "t", TargetType: targetTypeStandalone, AuthorID: "u", AuthorEmail: "u@x"}, ThreadEvent{ID: "e", ThreadID: "t", EventType: EventTypeComment, AuthorID: "u", AuthorEmail: "u@x"})
+	require.Error(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestThreadStoreAppendEventRollbackOnTouchError(t *testing.T) {
+	store, mock := newThreadStoreMock(t)
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO portal_thread_events").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE portal_threads SET updated_at").WillReturnError(fmt.Errorf("boom"))
+	mock.ExpectRollback()
+	_, err := store.AppendEvent(context.Background(), ThreadEvent{ID: "e", ThreadID: "t", EventType: EventTypeComment, AuthorID: "u", AuthorEmail: "u@x"})
+	require.Error(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestThreadStoreUpdateThreadLoadError(t *testing.T) {
+	store, mock := newThreadStoreMock(t)
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT status FROM portal_threads").WithArgs("t").WillReturnError(sql.ErrNoRows)
+	mock.ExpectRollback()
+	s := ThreadStatusResolved
+	err := store.UpdateThread(context.Background(), "t", ThreadUpdate{Status: &s}, "u", "u@x")
+	require.Error(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestThreadStoreListThreadsCountError(t *testing.T) {
+	store, mock := newThreadStoreMock(t)
+	mock.ExpectQuery("SELECT COUNT").WillReturnError(fmt.Errorf("boom"))
+	_, _, err := store.ListThreads(context.Background(), ThreadFilter{TargetType: targetTypeStandalone})
+	require.Error(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestThreadStoreGetThreadError(t *testing.T) {
+	store, mock := newThreadStoreMock(t)
+	mock.ExpectQuery("FROM portal_threads WHERE id").WithArgs("missing").WillReturnError(sql.ErrNoRows)
+	_, err := store.GetThread(context.Background(), "missing")
+	require.Error(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestThreadStoreListEventsError(t *testing.T) {
+	store, mock := newThreadStoreMock(t)
+	mock.ExpectQuery("FROM portal_thread_events WHERE thread_id").WithArgs("t").WillReturnError(fmt.Errorf("boom"))
+	_, err := store.ListEvents(context.Background(), "t")
+	require.Error(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// --- pure helpers ---
+
+func TestStatusAndValidationDefaults(t *testing.T) {
+	assert.Equal(t, ThreadStatusOpen, statusOrDefault(""))
+	assert.Equal(t, ThreadStatusAnswered, statusOrDefault(ThreadStatusAnswered))
+	assert.Equal(t, "none", validationOrDefault(""))
+	assert.Equal(t, "validated", validationOrDefault("validated"))
+}
+
+func TestScopeFromFilterAndValidTarget(t *testing.T) {
+	for _, tt := range []struct {
+		f    ThreadFilter
+		want string
+		ok   bool
+	}{
+		{ThreadFilter{TargetType: targetTypeStandalone}, targetTypeStandalone, true},
+		{ThreadFilter{AssetID: "a"}, targetTypeAsset, true},
+		{ThreadFilter{CollectionID: "c"}, targetTypeCollection, true},
+		{ThreadFilter{PromptID: "p"}, targetTypePrompt, true},
+		{ThreadFilter{}, "", false},
+		{ThreadFilter{AssetID: "a", CollectionID: "c"}, "", false},
+	} {
+		got, ok := scopeFromFilter(tt.f)
+		assert.Equal(t, tt.ok, ok)
+		if ok {
+			assert.Equal(t, tt.want, got)
+		}
+	}
+
+	assert.True(t, validThreadTarget(targetTypeStandalone, "", "", ""))
+	assert.True(t, validThreadTarget(targetTypeAsset, "a", "", ""))
+	assert.True(t, validThreadTarget(targetTypeCollection, "", "c", ""))
+	assert.True(t, validThreadTarget(targetTypePrompt, "", "", "p"))
+	assert.False(t, validThreadTarget(targetTypeAsset, "", "", ""))
+	assert.False(t, validThreadTarget(targetTypeStandalone, "a", "", ""))
+	assert.False(t, validThreadTarget("bogus", "", "", ""))
+}
+
+func TestValidAppendEventType(t *testing.T) {
+	assert.True(t, validAppendEventType(EventTypeComment))
+	assert.True(t, validAppendEventType(EventTypeRating))
+	assert.False(t, validAppendEventType(EventTypeResolution))
+}
+
+func TestValidThreadValidationState(t *testing.T) {
+	for _, s := range []string{ValidationStateNone, ValidationStatePending, ValidationStateValidated, ValidationStateDisputed} {
+		assert.True(t, ValidThreadValidationState(s), s)
+	}
+	assert.False(t, ValidThreadValidationState("bogus"))
+}
+
+func TestValidThreadKind(t *testing.T) {
+	for _, k := range []string{ThreadKindComment, ThreadKindQuestion, ThreadKindCorrection, ThreadKindRating, ThreadKindApproval, ThreadKindRejection, ThreadKindSuggestion} {
+		assert.True(t, ValidThreadKind(k), k)
+	}
+	assert.False(t, ValidThreadKind("bogus"))
+}
+
+func TestValidThreadStatus(t *testing.T) {
+	for _, s := range []string{ThreadStatusOpen, ThreadStatusAnswered, ThreadStatusResolved, ThreadStatusWontFix, ThreadStatusAcknowledged} {
+		assert.True(t, ValidThreadStatus(s), s)
+	}
+	assert.False(t, ValidThreadStatus("bogus"))
+}
+
+func TestDeriveFirstEventType(t *testing.T) {
+	assert.Equal(t, EventTypeRating, deriveFirstEventType(ThreadKindRating))
+	assert.Equal(t, EventTypeApproval, deriveFirstEventType(ThreadKindApproval))
+	assert.Equal(t, EventTypeRejection, deriveFirstEventType(ThreadKindRejection))
+	assert.Equal(t, EventTypeComment, deriveFirstEventType(ThreadKindCorrection))
+	assert.Equal(t, EventTypeComment, deriveFirstEventType(ThreadKindQuestion))
+}
+
+func TestStatusChangeEventType(t *testing.T) {
+	assert.Equal(t, EventTypeResolution, statusChangeEventType(ThreadStatusResolved))
+	assert.Equal(t, EventTypeResolution, statusChangeEventType(ThreadStatusWontFix))
+	assert.Equal(t, EventTypeStatusChange, statusChangeEventType(ThreadStatusAnswered))
+}
+
+func TestStatusChangeMetadata(t *testing.T) {
+	var m map[string]string
+	require.NoError(t, json.Unmarshal(statusChangeMetadata("open", "resolved"), &m))
+	assert.Equal(t, "open", m["old_status"])
+	assert.Equal(t, "resolved", m["new_status"])
+}
+
+func TestThreadFilterEffectiveLimit(t *testing.T) {
+	assert.Equal(t, defaultThreadLimit, (&ThreadFilter{}).EffectiveLimit())
+	assert.Equal(t, 10, (&ThreadFilter{Limit: 10}).EffectiveLimit())
+	assert.Equal(t, maxThreadLimit, (&ThreadFilter{Limit: 9999}).EffectiveLimit())
+}
+
+func TestAliasedThreadColumns(t *testing.T) {
+	got := aliasedThreadColumns("t")
+	assert.Contains(t, got, "t.id")
+	assert.Contains(t, got, "t.deleted_at")
+}
+
+func TestNullHelpers(t *testing.T) {
+	assert.False(t, nullString("").Valid)
+	assert.True(t, nullString("x").Valid)
+	assert.False(t, nullInt(0).Valid)
+	assert.True(t, nullInt(3).Valid)
+	assert.False(t, nullIntPtr(nil).Valid)
+	n := 4
+	assert.True(t, nullIntPtr(&n).Valid)
+	assert.Nil(t, nullJSON(nil))
+	assert.NotNil(t, nullJSON(json.RawMessage(`{}`)))
+	assert.Equal(t, []byte("{}"), metadataOrEmpty(nil))
+	assert.Equal(t, []byte(`{"a":1}`), metadataOrEmpty(json.RawMessage(`{"a":1}`)))
+}
+
+func TestNewThreadID(t *testing.T) {
+	id := newThreadID("thr")
+	assert.Contains(t, id, "thr_")
+	assert.NotEqual(t, id, newThreadID("thr"))
+}
+
+func shareCols() []string {
+	return []string{
+		"id", "asset_id", "collection_id", "prompt_id", "token", "created_by", "shared_with_user_id", "shared_with_email",
+		"expires_at", "revoked", "hide_expiration", "notice_text", "access_count", "last_accessed_at", "created_at", "permission", "origin",
+	}
+}
+
+func TestGetActiveShareForTargetAsset(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	store := NewPostgresShareStore(db)
+
+	mock.ExpectQuery("FROM portal_shares").
+		WithArgs("asset_1", "u1", "u1@example.com").
+		WillReturnRows(sqlmock.NewRows(shareCols()).AddRow(
+			"s1", "asset_1", nil, nil, "tok", "owner@example.com", "u1", "u1@example.com",
+			nil, false, false, "", 0, nil, time.Now(), string(PermissionViewer), string(OriginPublicLinkLogin),
+		))
+
+	got, err := store.GetActiveShareForTarget(context.Background(), targetTypeAsset, "asset_1", "u1", "u1@example.com")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, OriginPublicLinkLogin, got.Origin)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestGetActiveShareForTargetNoRows(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	store := NewPostgresShareStore(db)
+
+	mock.ExpectQuery("FROM portal_shares").
+		WithArgs("col_1", "u1", "u1@example.com").
+		WillReturnError(sql.ErrNoRows)
+
+	got, err := store.GetActiveShareForTarget(context.Background(), targetTypeCollection, "col_1", "u1", "u1@example.com")
+	require.NoError(t, err)
+	assert.Nil(t, got)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestGetActiveShareForTargetUnsupportedType(t *testing.T) {
+	db, _, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	store := NewPostgresShareStore(db)
+
+	got, err := store.GetActiveShareForTarget(context.Background(), targetTypePrompt, "p1", "u1", "u1@example.com")
+	require.NoError(t, err)
+	assert.Nil(t, got)
+}
+
+func TestNoopShareStoreGetActiveShareForTarget(t *testing.T) {
+	got, err := (&noopShareStore{}).GetActiveShareForTarget(context.Background(), targetTypeAsset, "a", "u", "e")
+	require.NoError(t, err)
+	assert.Nil(t, got)
+}

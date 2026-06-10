@@ -2580,6 +2580,10 @@ definitions:
       notice_text:
         example: Proprietary & Confidential
         type: string
+      origin:
+        allOf:
+        - $ref: '#/definitions/portal.ShareOrigin'
+        example: explicit
       permission:
         allOf:
         - $ref: '#/definitions/portal.SharePermission'
@@ -2598,6 +2602,14 @@ definitions:
         example: tk_a1b2c3d4e5f6
         type: string
     type: object
+  portal.ShareOrigin:
+    enum:
+    - explicit
+    - public_link_login
+    type: string
+    x-enum-varnames:
+    - OriginExplicit
+    - OriginPublicLinkLogin
   portal.SharePermission:
     enum:
     - viewer
@@ -2644,6 +2656,87 @@ definitions:
         type: string
       shared_by:
         type: string
+    type: object
+  portal.Thread:
+    properties:
+      anchor:
+        type: object
+      asset_id:
+        type: string
+      author_email:
+        example: sme@example.com
+        type: string
+      author_id:
+        type: string
+      collection_id:
+        type: string
+      created_at:
+        type: string
+      deleted_at:
+        type: string
+      id:
+        example: thr_01HK7R8Z
+        type: string
+      insight_id:
+        type: string
+      kind:
+        example: correction
+        type: string
+      prompt_id:
+        type: string
+      requires_resolution:
+        type: boolean
+      status:
+        example: open
+        type: string
+      target_type:
+        example: asset
+        type: string
+      target_version:
+        type: integer
+      title:
+        type: string
+      updated_at:
+        type: string
+      validation_state:
+        example: none
+        type: string
+    type: object
+  portal.ThreadEvent:
+    properties:
+      author_email:
+        type: string
+      author_id:
+        type: string
+      body:
+        type: string
+      created_at:
+        type: string
+      event_type:
+        example: comment
+        type: string
+      id:
+        example: evt_01HK7R8Z
+        type: string
+      metadata:
+        type: object
+      parent_event_id:
+        type: string
+      rating:
+        type: integer
+      thread_id:
+        type: string
+    type: object
+  portal.appendEventRequest:
+    properties:
+      body:
+        type: string
+      event_type:
+        type: string
+      parent_event_id:
+        type: string
+      rating:
+        type: integer
     type: object
   portal.assetResponse:
     properties:
@@ -2760,6 +2853,31 @@ definitions:
         type: string
       shared_with_user_id:
         example: 550e8400-e29b-41d4-a716-446655440000
+        type: string
+    type: object
+  portal.createThreadRequest:
+    properties:
+      anchor:
+        type: object
+      asset_id:
+        type: string
+      body:
+        type: string
+      collection_id:
+        type: string
+      kind:
+        type: string
+      prompt_id:
+        type: string
+      rating:
+        type: integer
+      requires_resolution:
+        type: boolean
+      target_type:
+        type: string
+      target_version:
+        type: integer
+      title:
         type: string
     type: object
   portal.getCollectionResponse:
@@ -3012,6 +3130,15 @@ definitions:
         type: string
       name:
         example: Updated Collection Name
+        type: string
+    type: object
+  portal.updateThreadRequest:
+    properties:
+      requires_resolution:
+        type: boolean
+      status:
+        type: string
+      validation_state:
         type: string
     type: object
   prompt.Argument:
@@ -9188,6 +9315,322 @@ paths:
       summary: Revoke share
       tags:
       - Shares
+  /portal/threads:
+    get:
+      description: Lists feedback threads scoped to a single target (asset_id, collection_id,
+        prompt_id, or target_type=standalone). Standalone threads are visible to any
+        authenticated user; object threads require view access to the target.
+      parameters:
+      - description: Target type (use 'standalone' for the shared channel)
+        in: query
+        name: target_type
+        type: string
+      - description: Asset target id
+        in: query
+        name: asset_id
+        type: string
+      - description: Collection target id
+        in: query
+        name: collection_id
+        type: string
+      - description: Prompt target id
+        in: query
+        name: prompt_id
+        type: string
+      - description: Filter by kind
+        in: query
+        name: kind
+        type: string
+      - description: Filter by status
+        in: query
+        name: status
+        type: string
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      - description: Page offset
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.paginatedResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List feedback threads
+      tags:
+      - Feedback
+    post:
+      consumes:
+      - application/json
+      description: Opens a new feedback thread (and its first event) on an asset,
+        collection, prompt, or the standalone channel.
+      parameters:
+      - description: Thread to create
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/portal.createThreadRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/portal.Thread'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Create a feedback thread
+      tags:
+      - Feedback
+  /portal/threads/{id}:
+    delete:
+      description: Soft-deletes a thread. Allowed for the thread author, target owner,
+        or an admin.
+      parameters:
+      - description: Thread ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete a feedback thread
+      tags:
+      - Feedback
+    get:
+      parameters:
+      - description: Thread ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.Thread'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get a feedback thread
+      tags:
+      - Feedback
+    patch:
+      consumes:
+      - application/json
+      description: Changes a thread's status, requires_resolution, or validation_state.
+        A status change records a timeline event. Allowed for the thread author, target
+        owner/editor, or an admin.
+      parameters:
+      - description: Thread ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to update
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/portal.updateThreadRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.Thread'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update a feedback thread
+      tags:
+      - Feedback
+  /portal/threads/{id}/events:
+    get:
+      description: Returns a thread's event timeline (oldest first).
+      parameters:
+      - description: Thread ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              items:
+                $ref: '#/definitions/portal.ThreadEvent'
+              type: array
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List thread events
+      tags:
+      - Feedback
+    post:
+      consumes:
+      - application/json
+      description: Appends a conversational event (comment, rating, approval, rejection)
+        to a thread.
+      parameters:
+      - description: Thread ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Event to append
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/portal.appendEventRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/portal.ThreadEvent'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Add a thread event
+      tags:
+      - Feedback
   /resources:
     get:
       description: List managed resources visible to the caller, with optional filters.

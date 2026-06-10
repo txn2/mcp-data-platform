@@ -9,8 +9,11 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/txn2/mcp-data-platform/internal/contentviewer"
 )
@@ -127,6 +130,10 @@ const pathKeyToken = "token"
 // publicViewPathPrefix is the URL prefix for public share endpoints.
 const publicViewPathPrefix = "/portal/view/"
 
+// portalAppPath is the authenticated portal SPA root, where a signed-in viewer
+// can open the asset and leave feedback.
+const portalAppPath = "/portal/"
+
 // defaultLogoSVG is the MCP Data Platform logo used in the public viewer header
 // when no brand logo is configured. Matches the platform-info app's default icon.
 //
@@ -193,6 +200,10 @@ func (h *Handler) publicView(w http.ResponseWriter, r *http.Request) {
 			slog.Warn("public view: failed to increment access", "error", incErr, "share_id", share.ID) // #nosec G706 -- structured log, not user-facing
 		}
 	}()
+
+	// A signed-in viewer arriving through a public link gets a derived viewer
+	// share so the asset shows up in their portal and they can leave feedback.
+	h.maybeAutoPromoteViewer(r, promoteTarget{targetTypeAsset, share.AssetID, pad.Asset.OwnerID, share.CreatedBy})
 
 	h.renderAssetViewer(w, r, pad, share)
 }
@@ -281,7 +292,112 @@ func (h *Handler) renderAssetViewer(w http.ResponseWriter, r *http.Request, pad 
 		"Embedded":           r.URL.Query().Get("embedded") == "1",
 		"ShareURL":           shareURL,
 		"OGImageURL":         publicAssetOGImage(asset, share.Token, baseURL),
+		"SignedIn":           h.resolvePublicViewer(r) != nil,
+		"SignInURL":          signInToLeaveFeedbackURL(r),
+		"PortalURL":          portalAppPath,
 	})
+}
+
+// resolvePublicViewer returns the authenticated user behind a public request,
+// or nil if the request carries no valid session (anonymous viewer) or no
+// authenticator is configured. It never writes an HTTP error — the public
+// viewer stays anonymous-viewable.
+func (h *Handler) resolvePublicViewer(r *http.Request) *User {
+	if h.deps.Authenticator == nil {
+		return nil
+	}
+	user, err := h.deps.Authenticator.Authenticate(r)
+	if err != nil || user == nil {
+		return nil
+	}
+	return user
+}
+
+// signInToLeaveFeedbackURL builds the login URL that returns the viewer to the
+// current public page after authenticating, so the auto-promote runs on return.
+func signInToLeaveFeedbackURL(r *http.Request) string {
+	return "/portal/auth/login?return_to=" + url.QueryEscape(r.URL.Path)
+}
+
+// promoteTarget identifies the object a public-link viewer is being promoted
+// onto, plus the owner (who needs no share) and the original public-link
+// creator (recorded as the derived share's created_by).
+type promoteTarget struct {
+	targetType string
+	targetID   string
+	ownerID    string
+	createdBy  string
+}
+
+// maybeAutoPromoteViewer auto-promotes the request's signed-in viewer (if any)
+// to a derived viewer share for the target. No-op for anonymous viewers, so the
+// public viewer stays anonymous-viewable.
+func (h *Handler) maybeAutoPromoteViewer(r *http.Request, t promoteTarget) {
+	viewer := h.resolvePublicViewer(r)
+	if viewer == nil {
+		return
+	}
+	h.autoPromoteViewer(r.Context(), t, viewer)
+}
+
+// autoPromoteViewer grants a signed-in public-link viewer a derived viewer
+// share for the target so it appears in their portal and they can leave
+// feedback. It is idempotent (skips when any active share already exists) and
+// never downgrades — an existing editor is left untouched. The object owner
+// needs no share. Best-effort: failures are logged, never surfaced.
+func (h *Handler) autoPromoteViewer(ctx context.Context, t promoteTarget, user *User) {
+	if user == nil || h.deps.ShareStore == nil || t.targetID == "" {
+		return
+	}
+	if t.ownerID == user.UserID {
+		return // owner already has full access
+	}
+
+	existing, err := h.deps.ShareStore.GetActiveShareForTarget(ctx, t.targetType, t.targetID, user.UserID, user.Email)
+	if err != nil {
+		slog.Warn("auto-promote: lookup failed", logKeyError, err, "target", t.targetID) // #nosec G706 -- structured log
+		return
+	}
+	if existing != nil {
+		return // never downgrade an existing share
+	}
+
+	share, ok := derivedViewerShare(t, user)
+	if !ok {
+		return
+	}
+	if err := h.deps.ShareStore.Insert(ctx, share); err != nil {
+		slog.Warn("auto-promote: insert failed", logKeyError, err, "target", t.targetID) // #nosec G706 -- structured log
+	}
+}
+
+// derivedViewerShare builds a viewer share (origin=public_link_login) for the
+// given asset or collection target, or returns ok=false if a token can't be
+// generated or the target type is unsupported.
+func derivedViewerShare(t promoteTarget, user *User) (Share, bool) {
+	token, err := generateToken()
+	if err != nil {
+		slog.Warn("auto-promote: token generation failed", logKeyError, err) // #nosec G706 -- structured log
+		return Share{}, false
+	}
+	share := Share{
+		ID:               uuid.New().String(),
+		Token:            token,
+		CreatedBy:        t.createdBy,
+		SharedWithUserID: user.UserID,
+		SharedWithEmail:  user.Email,
+		Permission:       PermissionViewer,
+		Origin:           OriginPublicLinkLogin,
+	}
+	switch t.targetType {
+	case targetTypeAsset:
+		share.AssetID = t.targetID
+	case targetTypeCollection:
+		share.CollectionID = t.targetID
+	default:
+		return Share{}, false
+	}
+	return share, true
 }
 
 // validateShareAccess checks if a share is revoked or expired.
@@ -431,6 +547,8 @@ func (h *Handler) publicCollectionView(w http.ResponseWriter, r *http.Request, s
 			slog.Warn("public collection view: failed to increment access", "error", incErr, "share_id", share.ID) // #nosec G706 -- structured log, not user-facing
 		}
 	}()
+
+	h.maybeAutoPromoteViewer(r, promoteTarget{targetTypeCollection, share.CollectionID, coll.OwnerID, share.CreatedBy})
 
 	// Build asset lookup for items referenced in the collection.
 	assetIDs := collectAssetIDs(coll)

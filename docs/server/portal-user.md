@@ -144,6 +144,16 @@ Click any shared asset to open it in the viewer:
 
 ![Shared Asset](../images/screenshots/light/user-shared-asset-light.webp#only-light)![Shared Asset](../images/screenshots/dark/user-shared-asset-dark.webp#only-dark)
 
+## Feedback
+
+Feedback lets the people who review your work, including subject-matter experts and stakeholders who do not use an agent, leave structured corrections and questions on the things you share with them, instead of relaying that feedback over email.
+
+Feedback is organized into **threads**. A thread targets one asset, collection, or prompt, or it lives on a **standalone channel** for general feedback not tied to a single object. Each thread has a kind (comment, question, correction, rating, approval, rejection, or suggestion), a status (open, answered, resolved, won't fix, acknowledged), an optional `requires_resolution` flag, and a timeline of events (the opening message plus replies and status changes). A thread can be anchored to a specific selection within the target so a correction like "we don't use that term" stays pinned to the place it refers to, along with the version it was raised against. Standalone-channel threads are visible to every signed-in user; feedback on an asset, collection, or prompt is visible to people who can already view that object.
+
+### Leaving feedback through a public link
+
+When you share an asset or collection with a public link, an anonymous visitor can view it and sees a **Sign in to leave feedback** prompt. Signing in through that link, when the visitor has no prior share for the item, grants them a viewer share automatically so the item appears in their portal and they can leave feedback. An existing editor is never downgraded to a viewer by this flow.
+
 ## Knowledge & Memory
 
 The Knowledge & Memory page tracks what the platform has learned from your sessions. Knowledge items go through admin review before reaching the catalog. Memory records persist your corrections and preferences across sessions.

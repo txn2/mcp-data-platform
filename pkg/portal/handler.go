@@ -90,6 +90,7 @@ type Deps struct {
 	ShareStore         ShareStore
 	VersionStore       VersionStore
 	CollectionStore    CollectionStore
+	ThreadStore        ThreadStore
 	S3Client           S3Client
 	S3Bucket           string
 	PublicBaseURL      string
@@ -104,6 +105,10 @@ type Deps struct {
 	MemoryStore        MemoryReader
 	EmbeddingProvider  embedding.Provider
 	PersonaResolver    PersonaResolver
+	// Authenticator resolves a logged-in user from a public (unauthenticated)
+	// request so the public viewer can auto-promote a signed-in viewer to a
+	// derived share. Optional; nil disables auto-promote.
+	Authenticator *Authenticator
 	// Platform brand (far right of public viewer header)
 	BrandName    string // display name (default: "MCP Data Platform")
 	BrandLogoSVG string // inline SVG for header logo (empty = default icon)
@@ -200,6 +205,9 @@ func (h *Handler) registerRoutes() {
 
 	// Prompt routes
 	h.registerPromptRoutes()
+
+	// Feedback thread routes
+	h.registerThreadRoutes()
 
 	// Activity routes (user-scoped audit metrics)
 	if h.deps.AuditMetrics != nil {

@@ -9445,6 +9445,497 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/threads": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Lists feedback threads scoped to a single target (asset_id, collection_id, prompt_id, or target_type=standalone). Standalone threads are visible to any authenticated user; object threads require view access to the target.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Feedback"
+                ],
+                "summary": "List feedback threads",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Target type (use 'standalone' for the shared channel)",
+                        "name": "target_type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Asset target id",
+                        "name": "asset_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Collection target id",
+                        "name": "collection_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Prompt target id",
+                        "name": "prompt_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by kind",
+                        "name": "kind",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by status",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page size",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page offset",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.paginatedResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Opens a new feedback thread (and its first event) on an asset, collection, prompt, or the standalone channel.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Feedback"
+                ],
+                "summary": "Create a feedback thread",
+                "parameters": [
+                    {
+                        "description": "Thread to create",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/portal.createThreadRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/portal.Thread"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/threads/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Feedback"
+                ],
+                "summary": "Get a feedback thread",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Thread ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.Thread"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Soft-deletes a thread. Allowed for the thread author, target owner, or an admin.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Feedback"
+                ],
+                "summary": "Delete a feedback thread",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Thread ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Changes a thread's status, requires_resolution, or validation_state. A status change records a timeline event. Allowed for the thread author, target owner/editor, or an admin.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Feedback"
+                ],
+                "summary": "Update a feedback thread",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Thread ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Fields to update",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/portal.updateThreadRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.Thread"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/threads/{id}/events": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a thread's event timeline (oldest first).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Feedback"
+                ],
+                "summary": "List thread events",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Thread ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/definitions/portal.ThreadEvent"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Appends a conversational event (comment, rating, approval, rejection) to a thread.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Feedback"
+                ],
+                "summary": "Add a thread event",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Thread ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Event to append",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/portal.appendEventRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/portal.ThreadEvent"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/resources": {
             "get": {
                 "security": [
@@ -13339,6 +13830,14 @@ const docTemplate = `{
                     "type": "string",
                     "example": "Proprietary \u0026 Confidential"
                 },
+                "origin": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/portal.ShareOrigin"
+                        }
+                    ],
+                    "example": "explicit"
+                },
                 "permission": {
                     "allOf": [
                         {
@@ -13366,6 +13865,17 @@ const docTemplate = `{
                     "example": "tk_a1b2c3d4e5f6"
                 }
             }
+        },
+        "portal.ShareOrigin": {
+            "type": "string",
+            "enum": [
+                "explicit",
+                "public_link_login"
+            ],
+            "x-enum-varnames": [
+                "OriginExplicit",
+                "OriginPublicLinkLogin"
+            ]
         },
         "portal.SharePermission": {
             "type": "string",
@@ -13435,6 +13945,125 @@ const docTemplate = `{
                 },
                 "shared_by": {
                     "type": "string"
+                }
+            }
+        },
+        "portal.Thread": {
+            "type": "object",
+            "properties": {
+                "anchor": {
+                    "type": "object"
+                },
+                "asset_id": {
+                    "type": "string"
+                },
+                "author_email": {
+                    "type": "string",
+                    "example": "sme@example.com"
+                },
+                "author_id": {
+                    "type": "string"
+                },
+                "collection_id": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "deleted_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "thr_01HK7R8Z"
+                },
+                "insight_id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string",
+                    "example": "correction"
+                },
+                "prompt_id": {
+                    "type": "string"
+                },
+                "requires_resolution": {
+                    "type": "boolean"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "open"
+                },
+                "target_type": {
+                    "type": "string",
+                    "example": "asset"
+                },
+                "target_version": {
+                    "type": "integer"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "validation_state": {
+                    "type": "string",
+                    "example": "none"
+                }
+            }
+        },
+        "portal.ThreadEvent": {
+            "type": "object",
+            "properties": {
+                "author_email": {
+                    "type": "string"
+                },
+                "author_id": {
+                    "type": "string"
+                },
+                "body": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "event_type": {
+                    "type": "string",
+                    "example": "comment"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "evt_01HK7R8Z"
+                },
+                "metadata": {
+                    "type": "object"
+                },
+                "parent_event_id": {
+                    "type": "string"
+                },
+                "rating": {
+                    "type": "integer"
+                },
+                "thread_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "portal.appendEventRequest": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "event_type": {
+                    "type": "string"
+                },
+                "parent_event_id": {
+                    "type": "string"
+                },
+                "rating": {
+                    "type": "integer"
                 }
             }
         },
@@ -13600,6 +14229,44 @@ const docTemplate = `{
                 "shared_with_user_id": {
                     "type": "string",
                     "example": "550e8400-e29b-41d4-a716-446655440000"
+                }
+            }
+        },
+        "portal.createThreadRequest": {
+            "type": "object",
+            "properties": {
+                "anchor": {
+                    "type": "object"
+                },
+                "asset_id": {
+                    "type": "string"
+                },
+                "body": {
+                    "type": "string"
+                },
+                "collection_id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "prompt_id": {
+                    "type": "string"
+                },
+                "rating": {
+                    "type": "integer"
+                },
+                "requires_resolution": {
+                    "type": "boolean"
+                },
+                "target_type": {
+                    "type": "string"
+                },
+                "target_version": {
+                    "type": "integer"
+                },
+                "title": {
+                    "type": "string"
                 }
             }
         },
@@ -13965,6 +14632,20 @@ const docTemplate = `{
                 "name": {
                     "type": "string",
                     "example": "Updated Collection Name"
+                }
+            }
+        },
+        "portal.updateThreadRequest": {
+            "type": "object",
+            "properties": {
+                "requires_resolution": {
+                    "type": "boolean"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "validation_state": {
+                    "type": "string"
                 }
             }
         },
