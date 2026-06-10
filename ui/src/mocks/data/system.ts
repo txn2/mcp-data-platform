@@ -23,7 +23,7 @@ export const mockSystemInfo: SystemInfo = {
     admin: true,
     database: true,
   },
-  toolkit_count: 7,
+  toolkit_count: 8,
   persona_count: 6,
 };
 
@@ -55,6 +55,11 @@ export const mockTools: ToolInfo[] = [
   // acme-platform (platform) — platform utilities
   { name: "save_artifact", toolkit: "acme-platform", kind: "platform", connection: "acme-platform", hidden: false },
   { name: "capture_insight", toolkit: "acme-platform", kind: "platform", connection: "acme-platform", hidden: false },
+  // acme-crm-gateway (mcp) — gateway-proxied upstream MCP server. These tools
+  // carry semantic cross-injection rules (the platform's headline feature).
+  { name: "crm_search_accounts", toolkit: "acme-crm-gateway", kind: "mcp", connection: "acme-crm-gateway", hidden: false },
+  { name: "crm_get_account", toolkit: "acme-crm-gateway", kind: "mcp", connection: "acme-crm-gateway", hidden: false },
+  { name: "crm_list_opportunities", toolkit: "acme-crm-gateway", kind: "mcp", connection: "acme-crm-gateway", hidden: false },
 ];
 
 export const mockConnections: ConnectionInfo[] = [
@@ -106,5 +111,17 @@ export const mockConnections: ConnectionInfo[] = [
     connection: "acme-platform",
     tools: ["save_artifact", "capture_insight"],
     hidden_tools: [],
+  },
+  {
+    kind: "mcp",
+    name: "acme-crm-gateway",
+    connection: "acme-crm-gateway",
+    tools: ["crm_search_accounts", "crm_get_account", "crm_list_opportunities"],
+    hidden_tools: [],
+    health: {
+      reachable: true,
+      last_success: "2025-01-15T09:58:12Z",
+      last_error: "",
+    },
   },
 ];

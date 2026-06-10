@@ -81,12 +81,25 @@ export function promInstantFor(query: string): PromVectorResponse {
       { metric: { connection: "salesforce", operation_id: "getAccount" }, value: 5320 },
       { metric: { connection: "salesforce", operation_id: "createEvent" }, value: 2110 },
       { metric: { connection: "salesforce", operation_id: "updateLead" }, value: 1240 },
+      { metric: { connection: "salesforce", operation_id: "listOpportunities" }, value: 1880 },
       { metric: { connection: "stripe", operation_id: "listCharges" }, value: 4810 },
       { metric: { connection: "stripe", operation_id: "getCustomer" }, value: 2900 },
       { metric: { connection: "stripe", operation_id: "createRefund" }, value: 640 },
+      { metric: { connection: "stripe", operation_id: "listInvoices" }, value: 1530 },
+      { metric: { connection: "stripe", operation_id: "getBalance" }, value: 720 },
       { metric: { connection: "github", operation_id: "listRepos" }, value: 3120 },
       { metric: { connection: "github", operation_id: "getIssue" }, value: 1870 },
       { metric: { connection: "github", operation_id: "createComment" }, value: 410 },
+      { metric: { connection: "github", operation_id: "listPullRequests" }, value: 1340 },
+      { metric: { connection: "shopify", operation_id: "listOrders" }, value: 6210 },
+      { metric: { connection: "shopify", operation_id: "getProduct" }, value: 3480 },
+      { metric: { connection: "shopify", operation_id: "updateInventory" }, value: 1990 },
+      { metric: { connection: "shopify", operation_id: "listCustomers" }, value: 1120 },
+      { metric: { connection: "zendesk", operation_id: "listTickets" }, value: 2760 },
+      { metric: { connection: "zendesk", operation_id: "getTicket" }, value: 1810 },
+      { metric: { connection: "zendesk", operation_id: "addComment" }, value: 530 },
+      { metric: { connection: "hubspot", operation_id: "listDeals" }, value: 2240 },
+      { metric: { connection: "hubspot", operation_id: "getCompany" }, value: 1390 },
       { metric: { connection: "api-test-fixture", operation_id: "whoami" }, value: 2050 },
       { metric: { connection: "api-test-fixture", operation_id: "lorem" }, value: 980 },
     ]);
@@ -105,17 +118,27 @@ export function promInstantFor(query: string): PromVectorResponse {
   }
   if (query.includes("by (connection)")) {
     return vector([
-      { metric: { connection: "salesforce" }, value: 18432 },
-      { metric: { connection: "stripe" }, value: 9211 },
-      { metric: { connection: "github" }, value: 5400 },
+      { metric: { connection: "salesforce" }, value: 18971 },
+      { metric: { connection: "shopify" }, value: 12800 },
+      { metric: { connection: "stripe" }, value: 10600 },
+      { metric: { connection: "github" }, value: 6740 },
+      { metric: { connection: "zendesk" }, value: 5100 },
+      { metric: { connection: "hubspot" }, value: 3630 },
       { metric: { connection: "api-test-fixture" }, value: 4096 },
     ]);
   }
   if (query.includes("by (operation_id)")) {
     return vector([
-      { metric: { operation_id: "listContacts" }, value: 8123 },
+      { metric: { operation_id: "listContacts" }, value: 8421 },
+      { metric: { operation_id: "listOrders" }, value: 6210 },
       { metric: { operation_id: "getAccount" }, value: 5320 },
-      { metric: { operation_id: "createEvent" }, value: 2011 },
+      { metric: { operation_id: "listCharges" }, value: 4810 },
+      { metric: { operation_id: "getProduct" }, value: 3480 },
+      { metric: { operation_id: "listRepos" }, value: 3120 },
+      { metric: { operation_id: "getCustomer" }, value: 2900 },
+      { metric: { operation_id: "listTickets" }, value: 2760 },
+      { metric: { operation_id: "listDeals" }, value: 2240 },
+      { metric: { operation_id: "createEvent" }, value: 2110 },
     ]);
   }
   if (query.includes("by (status_class)")) {

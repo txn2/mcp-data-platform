@@ -4,9 +4,12 @@ import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const outputDir =
-  process.env["SCREENSHOT_OUTPUT_DIR"] ||
-  path.resolve(__dirname, "../../../docs/images/screenshots");
+// Playwright WIPES `outputDir` before every run. It must never point at the
+// screenshot destination, or a partial run (e.g. `-g <subset>`) deletes the
+// whole committed screenshot set. Screenshots are written independently by
+// screenshot.spec.ts to SCREENSHOT_OUTPUT_DIR (or docs/images/screenshots);
+// this dir only holds Playwright's own traces/attachments and is gitignored.
+const outputDir = path.resolve(__dirname, "../../test-results/screenshots");
 
 export default defineConfig({
   testDir: ".",

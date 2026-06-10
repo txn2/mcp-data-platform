@@ -307,6 +307,71 @@ export const mockToolSchemas: Record<string, ToolSchema> = {
       },
     },
   },
+  crm_search_accounts: {
+    name: "crm_search_accounts",
+    title: "Search Accounts",
+    kind: "mcp",
+    description:
+      "Search CRM accounts by name, industry, or region. Proxied from the upstream CRM MCP server; responses are enriched with DataHub catalog context.",
+    parameters: {
+      type: "object",
+      required: ["query"],
+      properties: {
+        query: {
+          type: "string",
+          description: "Free-text search across account names and domains",
+        },
+        industry: {
+          type: "string",
+          description: "Filter by industry",
+        },
+        limit: {
+          type: "integer",
+          description: "Maximum number of accounts to return",
+          default: 25,
+        },
+      },
+    },
+  },
+  crm_get_account: {
+    name: "crm_get_account",
+    title: "Get Account",
+    kind: "mcp",
+    description:
+      "Fetch a single CRM account by ID. Response includes Trino query availability so agents know how to drill into transactional data.",
+    parameters: {
+      type: "object",
+      required: ["account_id"],
+      properties: {
+        account_id: {
+          type: "string",
+          description: "The CRM account identifier",
+        },
+      },
+    },
+  },
+  crm_list_opportunities: {
+    name: "crm_list_opportunities",
+    title: "List Opportunities",
+    kind: "mcp",
+    description:
+      "List sales opportunities for an account. Each opportunity stage is resolved to its business glossary definition.",
+    parameters: {
+      type: "object",
+      required: ["account_id"],
+      properties: {
+        account_id: {
+          type: "string",
+          description: "The CRM account identifier",
+        },
+        stage: {
+          type: "string",
+          description: "Filter by sales stage",
+          enum: ["prospecting", "qualification", "proposal", "closed_won", "closed_lost"],
+        },
+      },
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------

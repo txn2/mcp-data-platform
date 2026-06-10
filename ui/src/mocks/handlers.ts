@@ -7,6 +7,8 @@ import type {
   Overview,
   PerformanceStats,
   TimeseriesBucket,
+  ToolDetail,
+  ToolPersonaAccess,
 } from "@/api/admin/types";
 import type { Share } from "@/api/portal/types";
 import { http, HttpResponse } from "msw";
@@ -15,6 +17,7 @@ import { mockInsights, mockChangesets } from "./data/knowledge";
 import { mockPersonas, mockPersonaDetails } from "./data/personas";
 import { mockSystemInfo, mockTools, mockConnections } from "./data/system";
 import { mockToolSchemas, generateMockResult } from "./data/tools";
+import { mockEnrichmentRules } from "./data/enrichment";
 import { mockAssets, mockShares, mockSharedWithMe } from "./data/assets";
 import { mockContent } from "./data/content";
 import { mockCollections, mockSharedCollections } from "./data/collections";
@@ -56,6 +59,73 @@ function filterByTimeRange(url: URL, events: AuditEvent[]): AuditEvent[] {
 function avg(nums: number[]): number {
   if (nums.length === 0) return 0;
   return nums.reduce((s, n) => s + n, 0) / nums.length;
+}
+
+// Deterministic string hash so tool activity figures are stable across reloads
+// (stable screenshots) yet vary per tool.
+function hashStr(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+// Synthesize the aggregated per-tool detail returned by GET /tools/:name.
+// Mirrors the Go handler that fuses tool metadata, per-persona access, recent
+// activity, and enrichment-rule counts into one payload for the Tools page.
+function buildToolDetail(name: string): ToolDetail | null {
+  const info = mockTools.find((t) => t.name === name);
+  if (!info) return null;
+  const schema = mockToolSchemas[name];
+  const h = hashStr(name);
+
+  const personas: ToolPersonaAccess[] = mockPersonas.map((p) => {
+    const detail = mockPersonaDetails[p.name];
+    const allowed =
+      detail?.tools.includes(`${name}:${info.connection}`) ?? false;
+    return {
+      persona: p.name,
+      allowed,
+      connection_allowed: true,
+      source: allowed ? "allow" : "deny",
+      matched_pattern: allowed
+        ? (detail?.allow_tools.find(
+            (pat) =>
+              pat === "*" ||
+              (pat.endsWith("*") && name.startsWith(pat.slice(0, -1))) ||
+              pat === name,
+          ) ?? "*")
+        : undefined,
+    };
+  });
+
+  const isGateway = info.kind === "mcp";
+  const ruleCount = isGateway
+    ? (mockEnrichmentRules[info.connection]?.length ?? 0)
+    : 0;
+
+  return {
+    name,
+    title: schema?.title,
+    description:
+      schema?.description ?? `Tool ${name} on connection ${info.connection}.`,
+    toolkit_kind: info.kind,
+    toolkit_name: info.toolkit,
+    connection: info.connection,
+    input_schema: schema?.parameters,
+    personas,
+    hidden_by_global_deny: info.hidden ?? false,
+    description_overridden: false,
+    activity: {
+      window_seconds: 86400,
+      call_count: 80 + (h % 5200),
+      success_rate: Math.min(0.999, 0.9 + ((h >> 4) % 100) / 1000),
+      avg_duration_ms: 25 + ((h >> 7) % 900),
+    },
+    enrichment_rule_count: ruleCount,
+  };
 }
 
 function percentile(sorted: number[], p: number): number {
@@ -826,6 +896,27 @@ export const handlers = [
         config: { region: "us-west-2", bucket: "acme-reports-prod" },
         updated_at: new Date(Date.now() - 10 * 86400000).toISOString(),
       },
+      {
+        kind: "mcp",
+        name: "acme-crm-gateway",
+        connection: "acme-crm-gateway",
+        description:
+          "Gateway-proxied CRM MCP server. Responses are auto-enriched with DataHub context and Trino query availability.",
+        source: "database",
+        tools: [
+          "crm_search_accounts",
+          "crm_get_account",
+          "crm_list_opportunities",
+        ],
+        config: { url: "https://crm-mcp.internal:9000", auth: "oauth2" },
+        created_by: "sarah.chen@example.com",
+        updated_at: new Date(Date.now() - 2 * 86400000).toISOString(),
+        health: {
+          reachable: true,
+          last_success: new Date(Date.now() - 90 * 1000).toISOString(),
+          last_error: "",
+        },
+      },
     ]);
   }),
 
@@ -1174,6 +1265,26 @@ export const handlers = [
 
     return HttpResponse.json(result);
   }),
+
+  // Aggregated per-tool detail for the Tools master-detail page. Registered
+  // AFTER /tools/schemas and /tools/call so the literal routes win the match.
+  http.get(`${ADMIN_BASE}/tools/:name`, ({ params }) => {
+    const name = decodeURIComponent(String(params["name"]));
+    const detail = buildToolDetail(name);
+    if (!detail) {
+      return HttpResponse.json({ error: "tool not found" }, { status: 404 });
+    }
+    return HttpResponse.json(detail);
+  }),
+
+  // Cross-injection enrichment rules for a gateway-proxied connection.
+  http.get(
+    `${ADMIN_BASE}/gateway/connections/:connection/enrichment-rules`,
+    ({ params }) => {
+      const connection = decodeURIComponent(String(params["connection"]));
+      return HttpResponse.json(mockEnrichmentRules[connection] ?? []);
+    },
+  ),
 
   // =========================================================================
   // Portal API
@@ -1744,6 +1855,13 @@ export const handlers = [
     const data = matches.map((p, i) => ({ prompt: p, score: 1 - i * 0.05 }));
     return HttpResponse.json({ data, total: data.length, limit: 20, offset: 0 });
   }),
+
+  // Prompts explicitly shared with the caller, and per-prompt share lists.
+  // The portal prompt viewer queries both on load; no shares are configured in
+  // the mock, so both return empty (a clean "not shared" state).
+  http.get(`${PORTAL_BASE}/shared-prompts`, () => HttpResponse.json([])),
+
+  http.get(`${PORTAL_BASE}/prompts/:id/shares`, () => HttpResponse.json([])),
 
   // =========================================================================
   // Admin — Prompts
