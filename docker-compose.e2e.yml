@@ -13,7 +13,9 @@
 services:
   # PostgreSQL for OAuth/Audit storage
   postgres:
-    image: postgres:16-alpine
+    # pgvector image: the platform's embedded migrations create the `vector`
+    # extension (000031+), so a plain postgres image fails platform startup.
+    image: pgvector/pgvector:pg16
     container_name: e2e-postgres
     environment:
       POSTGRES_USER: platform

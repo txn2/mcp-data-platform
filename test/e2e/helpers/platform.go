@@ -68,7 +68,12 @@ func buildPlatformConfig(e2eCfg *E2EConfig) *platform.Config {
 			DataHubStorageEnrichment: new(true),
 		},
 		Toolkits: map[string]any{
+			// enabled:true is required per kind: the registry loader skips any
+			// toolkit kind that does not set it (loader.LoadFromMap). Without
+			// this the trino/datahub/s3 toolkits load nothing and their tools
+			// never register on the assembled server.
 			"trino": map[string]any{
+				"enabled": true,
 				"instances": map[string]any{
 					"e2e": map[string]any{
 						"host":            e2eCfg.TrinoHost,
@@ -81,14 +86,22 @@ func buildPlatformConfig(e2eCfg *E2EConfig) *platform.Config {
 				},
 			},
 			"datahub": map[string]any{
+				"enabled": true,
 				"instances": map[string]any{
 					"e2e": map[string]any{
-						"url":   e2eCfg.DataHubURL,
-						"token": e2eCfg.DataHubToken,
+						"url": e2eCfg.DataHubURL,
+						// The datahub provider requires a non-empty token at
+						// construction. Default a placeholder so the assembled
+						// platform still builds when DataHub is not configured,
+						// letting Trino/S3 assertions run; enrichment assertions
+						// gate on real reachability and skip in that case. A real
+						// E2E_DATAHUB_TOKEN takes precedence for full runs.
+						"token": orDefault(e2eCfg.DataHubToken, "e2e-placeholder-token"),
 					},
 				},
 			},
 			"s3": map[string]any{
+				"enabled": true,
 				"instances": map[string]any{
 					"e2e": map[string]any{
 						"endpoint":          e2eCfg.S3Endpoint,
@@ -103,7 +116,35 @@ func buildPlatformConfig(e2eCfg *E2EConfig) *platform.Config {
 		Database: platform.DatabaseConfig{
 			DSN: e2eCfg.PostgresDSN,
 		},
+		// Allow an anonymous caller mapped to an allow-all admin persona so a
+		// test driving the assembled server over an in-process session is
+		// authorized. Personas are deny-by-default (DefaultPersona denies "*"),
+		// so without this every tool call through the real middleware chain
+		// would be rejected before reaching the handler. Tests that bypass the
+		// authorizer (calling the enrichment middleware directly) are unaffected.
+		Auth: platform.AuthConfig{
+			AllowAnonymous: true,
+		},
+		Personas: platform.PersonasConfig{
+			Definitions: map[string]platform.PersonaDef{
+				"admin": {
+					DisplayName: "E2E Admin",
+					Roles:       []string{"admin"},
+					Tools:       platform.ToolRulesDef{Allow: []string{"*"}},
+					Connections: platform.ConnectionRulesDef{Allow: []string{"*"}},
+				},
+			},
+			DefaultPersona: "admin",
+		},
 	}
+}
+
+// orDefault returns v when non-empty, otherwise def.
+func orDefault(v, def string) string {
+	if v == "" {
+		return def
+	}
+	return v
 }
 
 // Close closes the test platform.
@@ -142,9 +183,12 @@ func TestContext(timeout time.Duration) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), timeout)
 }
 
-// SkipIfDataHubUnavailable skips the test if DataHub is not available.
+// SkipIfDataHubUnavailable reports whether DataHub is not actually reachable, so
+// enrichment tests skip cleanly instead of failing when it is down. It probes
+// the real endpoint rather than only checking that a URL is configured
+// (IsDataHubAvailable is always true because the URL has a default).
 func SkipIfDataHubUnavailable(cfg *E2EConfig) bool {
-	return !cfg.IsDataHubAvailable()
+	return !DataHubReachable(cfg)
 }
 
 // MockMCPRequest implements mcp.Request for E2E testing.
