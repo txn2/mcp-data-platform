@@ -514,15 +514,15 @@ build-with-ui: frontend-build build
 
 E2E_COMPOSE := docker compose -f docker-compose.e2e.yml
 
-## e2e-up: Start E2E test environment (PostgreSQL, Trino, MinIO)
+## e2e-up: Start E2E test environment (PostgreSQL, Trino, SeaweedFS)
 e2e-up:
 	@echo "Starting E2E test environment..."
 	@echo "NOTE: For full E2E tests, also run 'datahub docker quickstart' separately"
-	$(E2E_COMPOSE) up -d postgres trino minio
+	$(E2E_COMPOSE) up -d postgres trino seaweedfs
 	@echo "Waiting for services to be healthy..."
 	@./scripts/wait-for-services.sh
 	@echo "Running setup containers..."
-	$(E2E_COMPOSE) up minio-setup trino-setup
+	$(E2E_COMPOSE) up seaweedfs-setup trino-setup
 	@echo "E2E environment is ready!"
 
 ## e2e-down: Stop E2E test environment
@@ -571,7 +571,7 @@ e2e-logs:
 ## e2e-clean: Remove all E2E artifacts and volumes
 e2e-clean: e2e-down
 	@echo "Cleaning E2E artifacts..."
-	@docker volume rm -f mcp-data-platform_postgres_data mcp-data-platform_minio_data 2>/dev/null || true
+	@docker volume rm -f mcp-data-platform_postgres_data mcp-data-platform_seaweedfs_data 2>/dev/null || true
 	@echo "E2E cleanup complete."
 
 # =============================================================================

@@ -262,7 +262,7 @@ func TestDataHubToS3Enrichment(t *testing.T) {
 				return
 			}
 
-			// Verify storage context is present (availability depends on MinIO connectivity)
+			// Verify storage context is present (availability depends on SeaweedFS connectivity)
 			sc := helpers.AssertHasStorageContext(t, result)
 			if sc == nil {
 				t.Error("expected storage_context to be present")

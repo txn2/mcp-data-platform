@@ -34,9 +34,11 @@ wait_for_service "PostgreSQL" \
 wait_for_service "Trino" \
     "docker exec e2e-trino trino --execute 'SELECT 1'"
 
-# Wait for MinIO
-wait_for_service "MinIO" \
-    "docker exec e2e-minio mc ready local 2>/dev/null || curl -sf http://localhost:9000/minio/health/live"
+# Wait for SeaweedFS (S3-compatible gateway on :9000). A plain connectivity
+# probe: the gateway answers with an HTTP status (200/403) once up, so a
+# successful connection — not a 2xx — is the readiness signal.
+wait_for_service "SeaweedFS (S3)" \
+    "curl -s -o /dev/null http://localhost:9000"
 
 # Wait for DataHub (if using datahub quickstart)
 if docker ps --format '{{.Names}}' | grep -q "datahub-gms"; then
