@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -300,6 +301,33 @@ func TestThreadCountsAdminUnfiltered(t *testing.T) {
 	var got map[string]int
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
 	assert.Equal(t, 1, got["asset_x"])
+}
+
+func TestThreadCountsTooManyIDs(t *testing.T) {
+	threads := &mockThreadStore{counts: map[string]int{}}
+	h := newThreadTestHandler(threads, &mockAssetStore{}, &mockShareStore{}, &User{UserID: "u1"})
+	ids := make([]string, maxThreadCountIDs+1)
+	for i := range ids {
+		ids[i] = "a"
+	}
+	w := doThreadReq(t, h, http.MethodGet, "/api/v1/portal/threads/counts?target_type=asset&ids="+strings.Join(ids, ","), nil)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Nil(t, threads.lastCountIDs, "oversized request must not reach the count query")
+}
+
+func TestThreadCountsNilAssetStore(t *testing.T) {
+	// A non-admin asset-count request with no AssetStore wired must not panic;
+	// ownedAssetIDs returns no owned ids, so the count query sees an empty set.
+	threads := &mockThreadStore{counts: map[string]int{}}
+	h := NewHandler(Deps{
+		ThreadStore: threads,
+		ShareStore:  &mockShareStore{},
+		AdminRoles:  []string{"admin"},
+		RateLimit:   RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
+	}, testAuthMiddleware(&User{UserID: "u1"}))
+	w := doThreadReq(t, h, http.MethodGet, "/api/v1/portal/threads/counts?target_type=asset&ids=a1,a2", nil)
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Empty(t, threads.lastCountIDs, "no AssetStore means no owned ids reach the count query")
 }
 
 func TestThreadCountsBadTargetType(t *testing.T) {

@@ -37,9 +37,11 @@ export function NewThreadForm({ target, availableAnchor, onCancel, onCreated }: 
   const [useAnchor, setUseAnchor] = useState(true);
   const create = useCreateThread();
 
-  // Text-quote anchoring is offered for asset targets when the user has a live
-  // selection inside the content. Other targets are object-level in this view.
-  const canAnchor = target.type === "asset" && !!availableAnchor;
+  // Text-quote anchoring is offered for asset and prompt targets (both render
+  // their content through the anchorable markdown/plain-text renderers) when
+  // the user has a live selection. Collections and standalone are object-level.
+  const canAnchor =
+    (target.type === "asset" || target.type === "prompt") && !!availableAnchor;
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();

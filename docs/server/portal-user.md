@@ -152,7 +152,7 @@ Feedback is organized into **threads**. A thread targets one asset, collection, 
 
 ### The feedback panel
 
-Open the **Feedback** button in an asset, collection, or prompt viewer to slide out the feedback panel. It lists the threads on that item with their kind, status, and activity, and a header counts how many are open and how many still need resolution. Selecting a text passage in a markdown or plain-text asset before opening **New** lets you anchor your feedback to that selection.
+Open the **Feedback** button in an asset, collection, or prompt viewer to slide out the feedback panel. It lists the threads on that item with their kind, status, and activity, and a header counts how many are open and how many still need resolution. Selecting a text passage in markdown or plain-text content (an asset or a prompt) before opening **New** lets you anchor your feedback to that selection.
 
 ![Asset feedback panel](../images/screenshots/light/user-asset-feedback-light.webp#only-light)![Asset feedback panel](../images/screenshots/dark/user-asset-feedback-dark.webp#only-dark)
 
