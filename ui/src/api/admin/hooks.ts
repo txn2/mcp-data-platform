@@ -715,7 +715,12 @@ export interface APICatalogSummary {
 export interface APICatalogSpec {
   spec_name: string;
   content?: string;
-  source_kind: "inline" | "upload" | "url";
+  // "embedded" specs are bundled from a connection's own toolkit and
+  // re-seeded at every startup (see pkg/toolkits/apigateway/catalog
+  // SourceEmbedded and seedAdminSelfConnection), so portal edits/deletes
+  // do not persist; the portal treats them as read-only. Keep this union
+  // in sync with the backend's source-kind constants.
+  source_kind: "inline" | "upload" | "url" | "embedded";
   source_url?: string;
   etag?: string;
   // Operator-set per-spec URL prefix applied at api_list_endpoints

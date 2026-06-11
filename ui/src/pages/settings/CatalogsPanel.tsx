@@ -6,6 +6,7 @@ import {
   Copy,
   FileText,
   Link as LinkIcon,
+  Package,
   Plus,
   RefreshCw,
   Trash2,
@@ -799,6 +800,9 @@ function SpecsManager({ catalogID, isReadOnly }: { catalogID: string; isReadOnly
           {specs.map((s) => {
             const status = statusByName[s.spec_name];
             const failed = status?.job_status === "failed";
+            // Embedded specs are re-seeded from their toolkit at startup, so
+            // edits/deletes here do not persist; present them as read-only.
+            const specReadOnly = isReadOnly || s.source_kind === "embedded";
             return (
               <li key={s.spec_name} className="flex items-center gap-3 px-3 py-2 text-sm">
                 <span className="flex-1 truncate font-mono">{s.spec_name}</span>
@@ -809,7 +813,7 @@ function SpecsManager({ catalogID, isReadOnly }: { catalogID: string; isReadOnly
                     fetched {new Date(s.last_fetched_at).toLocaleString()}
                   </span>
                 )}
-                {!isReadOnly && (
+                {!specReadOnly && (
                   <div className="flex gap-1">
                     {failed && (
                       <button
@@ -1087,12 +1091,16 @@ function CatalogEmbeddingHealthBanner({
   );
 }
 
-function SourceBadge({ kind, url }: { kind: APICatalogSpec["source_kind"]; url?: string }) {
-  const config = {
+export function SourceBadge({ kind, url }: { kind: APICatalogSpec["source_kind"]; url?: string }) {
+  const configs: Record<string, { icon: typeof FileText; label: string; tone: string }> = {
     inline: { icon: FileText, label: "inline", tone: "bg-muted text-muted-foreground" },
     upload: { icon: Upload, label: "upload", tone: "bg-blue-100 text-blue-900 dark:bg-blue-950/30 dark:text-blue-200" },
     url: { icon: LinkIcon, label: "URL", tone: "bg-green-100 text-green-900 dark:bg-green-950/30 dark:text-green-200" },
-  }[kind];
+    embedded: { icon: Package, label: "embedded", tone: "bg-purple-100 text-purple-900 dark:bg-purple-950/30 dark:text-purple-200" },
+  };
+  // Fall back to the raw kind for any value the backend adds later, so an
+  // unknown source_kind degrades to a plain badge instead of crashing the page.
+  const config = configs[kind] ?? { icon: FileText, label: kind || "unknown", tone: "bg-muted text-muted-foreground" };
   const Icon = config.icon;
   return (
     <span
