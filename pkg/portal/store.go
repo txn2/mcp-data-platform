@@ -4,11 +4,22 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/lib/pq"
+)
+
+// Target-type discriminators shared by shares and threads. Exactly one of the
+// object targets (asset/collection/prompt) is set on a polymorphic row; a
+// standalone thread has none.
+const (
+	targetTypeAsset      = "asset"
+	targetTypeCollection = "collection"
+	targetTypePrompt     = "prompt"
+	targetTypeStandalone = "standalone"
 )
 
 // psq is the PostgreSQL statement builder with dollar placeholders.
@@ -88,6 +99,7 @@ type ShareStore interface {
 	ListActiveShareSummaries(ctx context.Context, assetIDs []string) (map[string]ShareSummary, error)
 	ListActiveCollectionShareSummaries(ctx context.Context, collectionIDs []string) (map[string]ShareSummary, error)
 	GetUserAssetPermissionViaCollection(ctx context.Context, assetID, userID, email string) (SharePermission, error)
+	GetActiveShareForTarget(ctx context.Context, targetType, targetID, userID, email string) (*Share, error)
 	Revoke(ctx context.Context, id string) error
 	IncrementAccess(ctx context.Context, id string) error
 }
@@ -508,8 +520,8 @@ func NewPostgresShareStore(db *sql.DB) ShareStore {
 func (s *postgresShareStore) Insert(ctx context.Context, share Share) error { //nolint:revive // interface impl
 	query := `
 		INSERT INTO portal_shares
-		(id, asset_id, collection_id, prompt_id, token, created_by, expires_at, shared_with_user_id, shared_with_email, hide_expiration, notice_text, permission)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		(id, asset_id, collection_id, prompt_id, token, created_by, expires_at, shared_with_user_id, shared_with_email, hide_expiration, notice_text, permission, origin)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 	`
 
 	var assetID, collectionID, promptID sql.NullString
@@ -543,8 +555,13 @@ func (s *postgresShareStore) Insert(ctx context.Context, share Share) error { //
 		perm = PermissionViewer
 	}
 
+	origin := share.Origin
+	if origin == "" {
+		origin = OriginExplicit
+	}
+
 	_, err := s.db.ExecContext(ctx, query,
-		share.ID, assetID, collectionID, promptID, share.Token, share.CreatedBy, expiresAt, sharedWith, sharedEmail, share.HideExpiration, share.NoticeText, string(perm),
+		share.ID, assetID, collectionID, promptID, share.Token, share.CreatedBy, expiresAt, sharedWith, sharedEmail, share.HideExpiration, share.NoticeText, string(perm), string(origin),
 	)
 	if err != nil {
 		return fmt.Errorf("inserting share: %w", err)
@@ -555,7 +572,7 @@ func (s *postgresShareStore) Insert(ctx context.Context, share Share) error { //
 func (s *postgresShareStore) GetByID(ctx context.Context, id string) (*Share, error) { //nolint:revive // interface impl
 	query := `
 		SELECT id, asset_id, collection_id, prompt_id, token, created_by, shared_with_user_id, shared_with_email,
-		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission
+		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission, origin
 		FROM portal_shares WHERE id = $1
 	`
 	return s.scanShare(ctx, query, id)
@@ -564,7 +581,7 @@ func (s *postgresShareStore) GetByID(ctx context.Context, id string) (*Share, er
 func (s *postgresShareStore) GetByToken(ctx context.Context, token string) (*Share, error) { //nolint:revive // interface impl
 	query := `
 		SELECT id, asset_id, collection_id, prompt_id, token, created_by, shared_with_user_id, shared_with_email,
-		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission
+		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission, origin
 		FROM portal_shares WHERE token = $1
 	`
 	return s.scanShare(ctx, query, token)
@@ -573,7 +590,7 @@ func (s *postgresShareStore) GetByToken(ctx context.Context, token string) (*Sha
 func (s *postgresShareStore) ListByAsset(ctx context.Context, assetID string) ([]Share, error) { //nolint:revive // interface impl
 	query := `
 		SELECT id, asset_id, collection_id, prompt_id, token, created_by, shared_with_user_id, shared_with_email,
-		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission
+		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission, origin
 		FROM portal_shares WHERE asset_id = $1 ORDER BY created_at DESC
 	`
 	return s.listShares(ctx, query, assetID)
@@ -582,7 +599,7 @@ func (s *postgresShareStore) ListByAsset(ctx context.Context, assetID string) ([
 func (s *postgresShareStore) ListByCollection(ctx context.Context, collectionID string) ([]Share, error) { //nolint:revive // interface impl
 	query := `
 		SELECT id, asset_id, collection_id, prompt_id, token, created_by, shared_with_user_id, shared_with_email,
-		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission
+		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission, origin
 		FROM portal_shares WHERE collection_id = $1 ORDER BY created_at DESC
 	`
 	return s.listShares(ctx, query, collectionID)
@@ -591,7 +608,7 @@ func (s *postgresShareStore) ListByCollection(ctx context.Context, collectionID 
 func (s *postgresShareStore) ListByPrompt(ctx context.Context, promptID string) ([]Share, error) { //nolint:revive // interface impl
 	query := `
 		SELECT id, asset_id, collection_id, prompt_id, token, created_by, shared_with_user_id, shared_with_email,
-		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission
+		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission, origin
 		FROM portal_shares WHERE prompt_id = $1 ORDER BY created_at DESC
 	`
 	return s.listShares(ctx, query, promptID)
@@ -645,6 +662,45 @@ func (s *postgresShareStore) GetUserCollectionPermission(ctx context.Context, co
 		return "", fmt.Errorf("querying user collection permission: %w", err)
 	}
 	return SharePermission(perm), nil
+}
+
+// GetActiveShareForTarget returns the caller's most-permissive active
+// (non-revoked, unexpired) share for the given asset or collection target,
+// or nil if none exists. Used by the public-link auto-promote path to decide
+// whether to derive a viewer share — an existing editor must never be
+// downgraded, so editor shares sort first. targetType must be "asset" or
+// "collection"; any other value yields nil.
+func (s *postgresShareStore) GetActiveShareForTarget(ctx context.Context, targetType, targetID, userID, email string) (*Share, error) { //nolint:revive // interface impl
+	var column string
+	switch targetType {
+	case targetTypeAsset:
+		column = "asset_id"
+	case targetTypeCollection:
+		column = "collection_id"
+	default:
+		return nil, nil //nolint:nilnil // unsupported target type → no share
+	}
+
+	query := fmt.Sprintf(`
+		SELECT id, asset_id, collection_id, prompt_id, token, created_by, shared_with_user_id, shared_with_email,
+		       expires_at, revoked, hide_expiration, notice_text, access_count, last_accessed_at, created_at, permission, origin
+		FROM portal_shares
+		WHERE %s = $1
+		  AND revoked = FALSE
+		  AND (expires_at IS NULL OR expires_at > NOW())
+		  AND (($2 <> '' AND shared_with_user_id = $2) OR ($3 <> '' AND LOWER(shared_with_email) = LOWER($3)))
+		ORDER BY CASE permission WHEN 'editor' THEN 0 ELSE 1 END, created_at DESC
+		LIMIT 1
+	`, column)
+
+	share, err := s.scanShare(ctx, query, targetID, userID, email)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil //nolint:nilnil // no active share for this user/target
+	}
+	if err != nil {
+		return nil, err
+	}
+	return share, nil
 }
 
 func (s *postgresShareStore) listShares(ctx context.Context, query, id string) ([]Share, error) {
@@ -923,16 +979,16 @@ func (s *postgresShareStore) IncrementAccess(ctx context.Context, id string) err
 	return nil
 }
 
-func (s *postgresShareStore) scanShare(ctx context.Context, query, arg string) (*Share, error) {
+func (s *postgresShareStore) scanShare(ctx context.Context, query string, args ...any) (*Share, error) {
 	var share Share
 	var assetID, collectionID, promptID sql.NullString
 	var expiresAt, lastAccessed sql.NullTime
 	var sharedWith, sharedEmail sql.NullString
 
-	err := s.db.QueryRowContext(ctx, query, arg).Scan(
+	err := s.db.QueryRowContext(ctx, query, args...).Scan(
 		&share.ID, &assetID, &collectionID, &promptID, &share.Token, &share.CreatedBy,
 		&sharedWith, &sharedEmail, &expiresAt, &share.Revoked,
-		&share.HideExpiration, &share.NoticeText, &share.AccessCount, &lastAccessed, &share.CreatedAt, &share.Permission,
+		&share.HideExpiration, &share.NoticeText, &share.AccessCount, &lastAccessed, &share.CreatedAt, &share.Permission, &share.Origin,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("querying share: %w", err)
@@ -1050,6 +1106,10 @@ func (*noopShareStore) ListActiveCollectionShareSummaries(_ context.Context, _ [
 	return map[string]ShareSummary{}, nil
 }
 
+func (*noopShareStore) GetActiveShareForTarget(_ context.Context, _, _, _, _ string) (*Share, error) { //nolint:revive // interface impl
+	return nil, nil //nolint:nilnil // noop: no shares
+}
+
 func (*noopShareStore) GetUserAssetPermissionViaCollection(_ context.Context, _, _, _ string) (SharePermission, error) { //nolint:revive // interface impl
 	return "", nil
 }
@@ -1144,7 +1204,7 @@ func scanShareRow(rows *sql.Rows) (Share, error) {
 	if err := rows.Scan(
 		&share.ID, &assetID, &collectionID, &promptID, &share.Token, &share.CreatedBy,
 		&sharedWith, &sharedEmail, &expiresAt, &share.Revoked,
-		&share.HideExpiration, &share.NoticeText, &share.AccessCount, &lastAccessed, &share.CreatedAt, &share.Permission,
+		&share.HideExpiration, &share.NoticeText, &share.AccessCount, &lastAccessed, &share.CreatedAt, &share.Permission, &share.Origin,
 	); err != nil {
 		return share, fmt.Errorf("scanning share row: %w", err)
 	}
@@ -1357,4 +1417,5 @@ var (
 	_ ShareStore   = (*noopShareStore)(nil)
 	_ VersionStore = (*postgresVersionStore)(nil)
 	_ VersionStore = (*noopVersionStore)(nil)
+	_ ThreadStore  = (*postgresThreadStore)(nil)
 )

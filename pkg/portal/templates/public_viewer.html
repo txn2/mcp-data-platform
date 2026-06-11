@@ -184,6 +184,23 @@
             flex-shrink: 0;
             line-height: 1.4;
         }
+        .feedback-cta {
+            box-sizing: border-box;
+            font-size: 12px;
+            color: var(--text-muted);
+            text-align: center;
+            padding: 6px 24px;
+            border-bottom: 1px solid var(--page-border);
+            background: var(--bg-surface);
+            flex-shrink: 0;
+            line-height: 1.4;
+        }
+        .feedback-cta a {
+            color: var(--accent, #2563eb);
+            font-weight: 600;
+            text-decoration: none;
+        }
+        .feedback-cta a:hover { text-decoration: underline; }
         .content {
             box-sizing: border-box;
             width: 100%;
@@ -344,6 +361,13 @@
         {{if .NoticeText}}<span>{{.NoticeText}}</span>{{end}}
     </div>
     {{end}}
+    <div class="feedback-cta" id="feedback-cta">
+        {{if .SignedIn}}
+        <span>Want to leave feedback? <a href="{{.PortalURL}}">Open this in your portal</a>.</span>
+        {{else}}
+        <span><a href="{{.SignInURL}}">Sign in to leave feedback</a> on this asset.</span>
+        {{end}}
+    </div>
     {{end}}
     <div class="content">
         <style>{{.ContentViewerCSS}}</style>

@@ -85,6 +85,8 @@ type mockShareStore struct {
 	promptRefsErr  error
 	listByPrompt   []Share
 	listByPromptE  error
+	activeShare    *Share
+	activeShareErr error
 }
 
 func (m *mockShareStore) Insert(_ context.Context, s Share) error {
@@ -147,6 +149,10 @@ func (m *mockShareStore) GetUserAssetPermissionViaCollection(_ context.Context, 
 
 func (*mockShareStore) ListActiveCollectionShareSummaries(_ context.Context, _ []string) (map[string]ShareSummary, error) {
 	return map[string]ShareSummary{}, nil
+}
+
+func (m *mockShareStore) GetActiveShareForTarget(_ context.Context, _, _, _, _ string) (*Share, error) {
+	return m.activeShare, m.activeShareErr
 }
 
 type mockS3Client struct {
@@ -267,6 +273,10 @@ func (c *captureShareStore) ListActiveCollectionShareSummaries(ctx context.Conte
 
 func (c *captureShareStore) GetUserAssetPermissionViaCollection(ctx context.Context, assetID, userID, email string) (SharePermission, error) {
 	return c.inner.GetUserAssetPermissionViaCollection(ctx, assetID, userID, email)
+}
+
+func (c *captureShareStore) GetActiveShareForTarget(ctx context.Context, targetType, targetID, userID, email string) (*Share, error) {
+	return c.inner.GetActiveShareForTarget(ctx, targetType, targetID, userID, email)
 }
 
 // authMiddleware injects a User into the context for testing.
