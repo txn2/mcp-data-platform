@@ -22,6 +22,7 @@ import {
 import { useMyPrompts, useUpdateMyPrompt, useDeleteMyPrompt, useCreateAsset, useSharedPrompts } from "@/api/portal/hooks";
 import { useAuthStore } from "@/stores/auth";
 import { ShareDialog } from "@/components/ShareDialog";
+import { FeedbackButton } from "@/components/feedback/FeedbackButton";
 import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
@@ -353,6 +354,7 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
               {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
               {copied ? "Copied" : "Copy"}
             </button>
+            <FeedbackButton target={{ type: "prompt", id: prompt.id }} canModerate={isOwner} />
             <button
               onClick={handleSaveAsAsset}
               disabled={createAssetMutation.isPending}

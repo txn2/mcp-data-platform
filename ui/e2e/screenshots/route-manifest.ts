@@ -74,6 +74,41 @@ export const routes: ScreenshotRoute[] = [
     category: "user",
   },
   {
+    // Standalone feedback channel.
+    slug: "feedback",
+    path: "/portal/feedback",
+    category: "user",
+  },
+  {
+    // Per-asset feedback drawer, opened over the asset viewer.
+    slug: "asset-feedback",
+    path: "/portal/assets/ast-001",
+    category: "user",
+    beforeCapture: async (page) => {
+      // Scope to main so the toolbar button wins over the sidebar nav entry.
+      const btn = page.getByRole("main").getByRole("button", { name: /Feedback/ }).first();
+      if (await btn.isVisible()) {
+        await btn.click();
+        await page.waitForTimeout(500);
+      }
+    },
+  },
+  {
+    // Feedback thread detail (timeline + reply + moderation).
+    slug: "asset-feedback-detail",
+    path: "/portal/assets/ast-001",
+    category: "user",
+    beforeCapture: async (page) => {
+      const btn = page.getByRole("main").getByRole("button", { name: /Feedback/ }).first();
+      if (await btn.isVisible()) {
+        await btn.click();
+        const row = page.getByText("We don't use that term");
+        if (await row.isVisible()) await row.click();
+        await page.waitForTimeout(500);
+      }
+    },
+  },
+  {
     slug: "my-knowledge",
     path: "/portal/my-knowledge",
     category: "user",

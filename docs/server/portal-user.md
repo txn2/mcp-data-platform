@@ -150,6 +150,20 @@ Feedback lets the people who review your work, including subject-matter experts 
 
 Feedback is organized into **threads**. A thread targets one asset, collection, or prompt, or it lives on a **standalone channel** for general feedback not tied to a single object. Each thread has a kind (comment, question, correction, rating, approval, rejection, or suggestion), a status (open, answered, resolved, won't fix, acknowledged), an optional `requires_resolution` flag, and a timeline of events (the opening message plus replies and status changes). A thread can be anchored to a specific selection within the target so a correction like "we don't use that term" stays pinned to the place it refers to, along with the version it was raised against. Standalone-channel threads are visible to every signed-in user; feedback on an asset, collection, or prompt is visible to people who can already view that object.
 
+### The feedback panel
+
+Open the **Feedback** button in an asset, collection, or prompt viewer to slide out the feedback panel. It lists the threads on that item with their kind, status, and activity, and a header counts how many are open and how many still need resolution. Selecting a text passage in a markdown or plain-text asset before opening **New** lets you anchor your feedback to that selection.
+
+![Asset feedback panel](../images/screenshots/light/user-asset-feedback-light.webp#only-light)![Asset feedback panel](../images/screenshots/dark/user-asset-feedback-dark.webp#only-dark)
+
+Opening a thread shows its full timeline. Anyone can reply; the item's owner, an editor, or an admin can change the status (for example resolve it) or delete the thread. The status change is recorded on the timeline.
+
+![Feedback thread detail](../images/screenshots/light/user-asset-feedback-detail-light.webp#only-light)![Feedback thread detail](../images/screenshots/dark/user-asset-feedback-detail-dark.webp#only-dark)
+
+The **Feedback** page in the sidebar is the standalone channel for general feedback. The My Assets and Collections lists show an open-thread badge on items you own so you can see at a glance where feedback is waiting.
+
+![Feedback channel](../images/screenshots/light/user-feedback-light.webp#only-light)![Feedback channel](../images/screenshots/dark/user-feedback-dark.webp#only-dark)
+
 ### Leaving feedback through a public link
 
 When you share an asset or collection with a public link, an anonymous visitor can view it and sees a **Sign in to leave feedback** prompt. Signing in through that link, when the visitor has no prior share for the item, grants them a viewer share automatically so the item appears in their portal and they can leave feedback. An existing editor is never downgraded to a viewer by this flow.

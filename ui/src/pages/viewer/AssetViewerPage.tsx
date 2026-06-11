@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useAsset, useAssetContent, useUpdateAsset, useDeleteAsset, useUpdateAssetContent, useCopyAsset, useAssetVersions, useRevertVersion, useVersionContent } from "@/api/portal/hooks";
 import { AssetViewer } from "@/components/AssetViewer";
+import { FeedbackButton } from "@/components/feedback/FeedbackButton";
 
 interface Props {
   assetId: string;
@@ -49,6 +50,12 @@ export function AssetViewerPage({ assetId, onNavigate, onBack }: Props) {
       onSelectVersion={setSelectedVersion}
       versionContent={needsVersionContent ? versionContent : undefined}
       versionContentLoading={needsVersionContent ? versionContentLoading : false}
+      toolbarExtra={
+        <FeedbackButton
+          target={{ type: "asset", id: assetId, version: asset?.current_version }}
+          canModerate={isOwner || sharePermission === "editor"}
+        />
+      }
     />
   );
 }

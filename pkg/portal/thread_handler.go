@@ -15,6 +15,9 @@ const (
 	paramPromptID     = "prompt_id"
 	paramKind         = "kind"
 	paramStatus       = "status"
+	paramIDs          = "ids"
+
+	maxThreadCountIDs = 200
 
 	errThreadNotFound = "thread not found"
 	errThreadScope    = "specify target_type=standalone or exactly one of asset_id, collection_id, prompt_id"
@@ -28,6 +31,7 @@ func (h *Handler) registerThreadRoutes() {
 	}
 	h.mux.HandleFunc("GET /api/v1/portal/threads", h.listThreads)
 	h.mux.HandleFunc("POST /api/v1/portal/threads", h.createThread)
+	h.mux.HandleFunc("GET /api/v1/portal/threads/counts", h.threadCounts)
 	h.mux.HandleFunc("GET /api/v1/portal/threads/{id}", h.getThread)
 	h.mux.HandleFunc("PATCH /api/v1/portal/threads/{id}", h.updateThread)
 	h.mux.HandleFunc("DELETE /api/v1/portal/threads/{id}", h.deleteThread)
@@ -384,6 +388,113 @@ func (h *Handler) deleteThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": statusDeleted})
+}
+
+// threadCounts handles GET /api/v1/portal/threads/counts, returning the number
+// of open threads per target id for list-page badges. Results are scoped to the
+// caller: non-admins receive counts only for objects they own, so the endpoint
+// never discloses thread counts for objects the caller cannot see.
+//
+// @Summary      Count open threads per target
+// @Description  Returns a map of target id to open-thread count for list-page badges. target_type is asset or collection. Non-admins receive counts only for objects they own.
+// @Tags         Feedback
+// @Produce      json
+// @Param        target_type  query  string  true  "Target type (asset or collection)"
+// @Param        ids          query  string  true  "Comma-separated target ids (max 200)"
+// @Success      200  {object}  map[string]int
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/threads/counts [get]
+func (h *Handler) threadCounts(w http.ResponseWriter, r *http.Request) {
+	user := GetUser(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, errAuthRequired)
+		return
+	}
+	targetType := r.URL.Query().Get(paramTargetType)
+	if targetType != targetTypeAsset && targetType != targetTypeCollection {
+		writeError(w, http.StatusBadRequest, "target_type must be asset or collection")
+		return
+	}
+	ids := splitIDs(r.URL.Query().Get(paramIDs))
+	if len(ids) > maxThreadCountIDs {
+		ids = ids[:maxThreadCountIDs]
+	}
+	if !h.userIsAdmin(user) {
+		ids = h.filterOwnedTargets(r, targetType, ids, user)
+	}
+
+	counts, err := h.deps.ThreadStore.CountOpenByTargets(r.Context(), targetType, ids)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to count threads")
+		return
+	}
+	if counts == nil {
+		counts = map[string]int{}
+	}
+	writeJSON(w, http.StatusOK, counts)
+}
+
+// filterOwnedTargets returns the subset of ids the user owns. Assets are
+// resolved in one batch; collections are resolved per id (a user has few).
+func (h *Handler) filterOwnedTargets(r *http.Request, targetType string, ids []string, user *User) []string {
+	if len(ids) == 0 {
+		return ids
+	}
+	switch targetType {
+	case targetTypeAsset:
+		return h.ownedAssetIDs(r, ids, user)
+	case targetTypeCollection:
+		return h.ownedCollectionIDs(r, ids, user)
+	default:
+		return nil
+	}
+}
+
+func (h *Handler) ownedAssetIDs(r *http.Request, ids []string, user *User) []string {
+	assets, err := h.deps.AssetStore.GetByIDs(r.Context(), ids)
+	if err != nil {
+		return nil
+	}
+	owned := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if a, ok := assets[id]; ok && a != nil && a.DeletedAt == nil && a.OwnerID == user.UserID {
+			owned = append(owned, id)
+		}
+	}
+	return owned
+}
+
+func (h *Handler) ownedCollectionIDs(r *http.Request, ids []string, user *User) []string {
+	if h.deps.CollectionStore == nil {
+		return nil
+	}
+	owned := make([]string, 0, len(ids))
+	for _, id := range ids {
+		coll, err := h.deps.CollectionStore.Get(r.Context(), id)
+		if err == nil && coll.DeletedAt == nil && coll.OwnerID == user.UserID {
+			owned = append(owned, id)
+		}
+	}
+	return owned
+}
+
+// splitIDs splits a comma-separated id list, trimming blanks.
+func splitIDs(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // --- access helpers ---

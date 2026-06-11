@@ -10,6 +10,7 @@ import (
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 // Thread kinds. A kind is the human-facing classification of a feedback thread;
@@ -208,6 +209,10 @@ type ThreadStore interface {
 	UpdateThread(ctx context.Context, id string, u ThreadUpdate, actorID, actorEmail string) error
 	// SoftDeleteThread marks a thread deleted.
 	SoftDeleteThread(ctx context.Context, id string) error
+	// CountOpenByTargets returns, per target id, the number of open (non-deleted)
+	// threads. targetType must be asset/collection/prompt. Callers are
+	// responsible for restricting ids to those the requester may see.
+	CountOpenByTargets(ctx context.Context, targetType string, ids []string) (map[string]int, error)
 }
 
 // --- PostgreSQL ThreadStore ---
@@ -438,7 +443,57 @@ func (s *postgresThreadStore) SoftDeleteThread(ctx context.Context, id string) e
 	return nil
 }
 
+func (s *postgresThreadStore) CountOpenByTargets(ctx context.Context, targetType string, ids []string) (map[string]int, error) { //nolint:revive // interface impl
+	counts := make(map[string]int)
+	if len(ids) == 0 {
+		return counts, nil
+	}
+	column, err := targetColumn(targetType)
+	if err != nil {
+		return nil, err
+	}
+
+	// #nosec G201 -- column is from targetColumn(), a fixed asset_id/collection_id/prompt_id allowlist, never user input
+	query := fmt.Sprintf(`
+		SELECT %s, COUNT(*) FROM portal_threads
+		WHERE %s = ANY($1) AND status = $2 AND deleted_at IS NULL
+		GROUP BY %s
+	`, column, column, column)
+
+	rows, err := s.db.QueryContext(ctx, query, pq.Array(ids), ThreadStatusOpen)
+	if err != nil {
+		return nil, fmt.Errorf("counting open threads: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck // best-effort cleanup after read-only query
+
+	for rows.Next() {
+		var id string
+		var n int
+		if err := rows.Scan(&id, &n); err != nil {
+			return nil, fmt.Errorf("scanning count row: %w", err)
+		}
+		counts[id] = n
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating count rows: %w", err)
+	}
+	return counts, nil
+}
+
 // --- helpers ---
+
+func targetColumn(targetType string) (string, error) {
+	switch targetType {
+	case targetTypeAsset:
+		return "asset_id", nil
+	case targetTypeCollection:
+		return "collection_id", nil
+	case targetTypePrompt:
+		return "prompt_id", nil
+	default:
+		return "", fmt.Errorf("unsupported target type for counts: %q", targetType)
+	}
+}
 
 // applyThreadFilter appends the equality conditions common to list and count.
 func applyThreadFilter(qb sq.SelectBuilder, f ThreadFilter) sq.SelectBuilder {

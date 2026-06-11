@@ -19,6 +19,7 @@ import {
   Cable,
   KeyRound,
   MessageSquare,
+  MessageCircle,
   FileUp,
   BookOpen,
 } from "lucide-react";
@@ -41,6 +42,7 @@ const basePortalNavItems = [
   { path: "/activity", label: "Activity", icon: Activity },
   { path: "/", label: "Assets", icon: LayoutGrid },
   { path: "/collections", label: "Collections", icon: FolderOpen },
+  { path: "/feedback", label: "Feedback", icon: MessageCircle },
   { path: "/prompts", label: "Prompts", icon: MessageSquare },
   { path: "/resources", label: "Resources", icon: FileUp },
   { path: "/shared", label: "Shared With Me", icon: Share2 },

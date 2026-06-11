@@ -5,6 +5,7 @@ import { AuthImg } from "@/components/AuthImg";
 import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
 import { ShareDialog } from "@/components/ShareDialog";
 import { CollectionThumbnailGenerator } from "@/components/CollectionThumbnailQueue";
+import { FeedbackButton } from "@/components/feedback/FeedbackButton";
 
 type ThumbSize = "large" | "medium" | "small" | "none";
 
@@ -89,6 +90,10 @@ export function CollectionViewerPage({ collectionId, onNavigate, onBack }: Props
           Back
         </button>
         <div className="flex-1" />
+        <FeedbackButton
+          target={{ type: "collection", id: collectionId }}
+          canModerate={coll.is_owner}
+        />
         {coll.is_owner && (
           <>
             <button
