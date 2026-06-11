@@ -420,8 +420,12 @@ func (h *Handler) threadCounts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ids := splitIDs(r.URL.Query().Get(paramIDs))
+	// Reject (rather than silently truncate) an oversized id list: truncation
+	// would drop badges for owned items past the cap with no signal. The badge
+	// caller sends one page of ids, so hitting this means the client is wrong.
 	if len(ids) > maxThreadCountIDs {
-		ids = ids[:maxThreadCountIDs]
+		writeError(w, http.StatusBadRequest, "too many ids")
+		return
 	}
 	if !h.userIsAdmin(user) {
 		ids = h.filterOwnedTargets(r, targetType, ids, user)
@@ -455,6 +459,9 @@ func (h *Handler) filterOwnedTargets(r *http.Request, targetType string, ids []s
 }
 
 func (h *Handler) ownedAssetIDs(r *http.Request, ids []string, user *User) []string {
+	if h.deps.AssetStore == nil {
+		return nil
+	}
 	assets, err := h.deps.AssetStore.GetByIDs(r.Context(), ids)
 	if err != nil {
 		return nil

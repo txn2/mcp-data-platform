@@ -39,6 +39,10 @@ function eventSummary(e: ThreadEvent): string | null {
       return "approved";
     case "rejection":
       return "rejected";
+    case "validation_request":
+      return "requested validation";
+    case "validation_result":
+      return "recorded a validation result";
     case "insight_linked":
       return "linked an insight";
     case "changeset_linked":
@@ -91,7 +95,8 @@ export function ThreadDetail({ threadId, canModerate, onBack, onDeleted }: Props
         {mayModerate && (
           <button
             onClick={() => del.mutate(threadId, { onSuccess: onDeleted })}
-            className="ml-auto rounded p-1 text-destructive hover:bg-destructive/10"
+            disabled={del.isPending}
+            className="ml-auto rounded p-1 text-destructive hover:bg-destructive/10 disabled:opacity-50"
             aria-label="Delete thread"
             title="Delete"
           >
@@ -99,6 +104,9 @@ export function ThreadDetail({ threadId, canModerate, onBack, onDeleted }: Props
           </button>
         )}
       </div>
+      {del.isError && (
+        <p className="border-b px-3 py-1.5 text-xs text-destructive">Failed to delete this thread.</p>
+      )}
 
       {/* Title + meta */}
       <div className="border-b p-3">

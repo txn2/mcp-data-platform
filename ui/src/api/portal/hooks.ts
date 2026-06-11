@@ -905,10 +905,10 @@ export function useThreadCounts(
   const sorted = [...ids].sort();
   return useQuery({
     queryKey: ["thread-counts", targetType, sorted],
-    queryFn: () =>
-      apiFetch<ThreadCounts>(
-        `/threads/counts?target_type=${targetType}&ids=${sorted.join(",")}`,
-      ),
+    queryFn: () => {
+      const sp = new URLSearchParams({ target_type: targetType, ids: sorted.join(",") });
+      return apiFetch<ThreadCounts>(`/threads/counts?${sp.toString()}`);
+    },
     enabled: sorted.length > 0,
   });
 }

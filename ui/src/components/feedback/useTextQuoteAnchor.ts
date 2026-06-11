@@ -25,16 +25,19 @@ function buildTextQuote(): TextQuoteAnchor | null {
   const container = closestAnchorable(sel.anchorNode);
   if (!container || !closestAnchorable(sel.focusNode)) return null;
 
-  // prefix/suffix come from the first occurrence of the selected text. For a
-  // phrase that repeats in the container this may describe the wrong instance;
-  // the exact quote is still captured, and re-resolution/highlighting is a
-  // later enhancement, so first-match is acceptable here.
+  // Cap the quote first, then derive prefix/suffix relative to the *capped*
+  // quote so exact/prefix/suffix stay internally consistent even for long
+  // selections. prefix/suffix come from the first occurrence of the quote; for
+  // a phrase that repeats this may describe the wrong instance, but the exact
+  // quote is still captured and re-resolution/highlighting is a later
+  // enhancement, so first-match is acceptable here.
+  const quote = exact.slice(0, MAX_QUOTE);
   const full = container.textContent ?? "";
-  const idx = full.indexOf(exact);
-  const anchor: TextQuoteAnchor = { type: "text_quote", exact: exact.slice(0, MAX_QUOTE) };
+  const idx = full.indexOf(quote);
+  const anchor: TextQuoteAnchor = { type: "text_quote", exact: quote };
   if (idx >= 0) {
     const prefix = full.slice(Math.max(0, idx - CONTEXT_LEN), idx);
-    const suffix = full.slice(idx + exact.length, idx + exact.length + CONTEXT_LEN);
+    const suffix = full.slice(idx + quote.length, idx + quote.length + CONTEXT_LEN);
     if (prefix) anchor.prefix = prefix;
     if (suffix) anchor.suffix = suffix;
   }
