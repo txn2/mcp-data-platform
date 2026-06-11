@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Search, FolderOpen, Plus, LayoutGrid, List, Users, Globe } from "lucide-react";
-import { useCollections, useCreateCollection, useSearchCollections } from "@/api/portal/hooks";
+import { useCollections, useCreateCollection, useSearchCollections, useThreadCounts } from "@/api/portal/hooks";
+import { FeedbackCountBadge } from "@/components/feedback/FeedbackCountBadge";
 import { AuthImg } from "@/components/AuthImg";
 import { CollectionThumbnailQueue } from "@/components/CollectionThumbnailQueue";
 
@@ -42,6 +43,10 @@ export function CollectionsPage({ onNavigate }: Props) {
     ? (searchResults.data?.data ?? []).map((s) => s.collection)
     : (data?.data ?? []);
   const isLoadingList = searching ? searchResults.isLoading : isLoading;
+  const { data: threadCounts } = useThreadCounts(
+    "collection",
+    collections.map((c) => c.id),
+  );
 
   async function handleCreate() {
     if (createMutation.isPending) return;
@@ -150,6 +155,7 @@ export function CollectionsPage({ onNavigate }: Props) {
                     <span className="text-sm font-medium truncate flex-1">
                       {coll.name}
                     </span>
+                    <FeedbackCountBadge count={threadCounts?.[coll.id]} />
                   </div>
                   {coll.description && (
                     <p className="text-xs text-muted-foreground mb-2 line-clamp-2">
@@ -206,6 +212,7 @@ export function CollectionsPage({ onNavigate }: Props) {
                             <span className="text-xs text-muted-foreground truncate block">{coll.description}</span>
                           )}
                         </div>
+                        <FeedbackCountBadge count={threadCounts?.[coll.id]} />
                       </div>
                     </td>
                     <td className="px-4 py-2.5 max-w-0">

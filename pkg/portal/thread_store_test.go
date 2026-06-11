@@ -251,6 +251,42 @@ func TestThreadStoreListEventsError(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestThreadStoreCountOpenByTargets(t *testing.T) {
+	store, mock := newThreadStoreMock(t)
+
+	got, err := store.CountOpenByTargets(context.Background(), targetTypeAsset, nil)
+	require.NoError(t, err)
+	assert.Empty(t, got)
+
+	mock.ExpectQuery("FROM portal_threads").
+		WillReturnRows(sqlmock.NewRows([]string{"asset_id", "count"}).AddRow("asset_1", 2).AddRow("asset_2", 5))
+	got, err = store.CountOpenByTargets(context.Background(), targetTypeAsset, []string{"asset_1", "asset_2"})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]int{"asset_1": 2, "asset_2": 5}, got)
+
+	_, err = store.CountOpenByTargets(context.Background(), "bogus", []string{"x"})
+	require.Error(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestThreadStoreCountOpenByTargetsQueryError(t *testing.T) {
+	store, mock := newThreadStoreMock(t)
+	mock.ExpectQuery("FROM portal_threads").WillReturnError(fmt.Errorf("boom"))
+	_, err := store.CountOpenByTargets(context.Background(), targetTypeCollection, []string{"c"})
+	require.Error(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestTargetColumn(t *testing.T) {
+	for tt, col := range map[string]string{targetTypeAsset: "asset_id", targetTypeCollection: "collection_id", targetTypePrompt: "prompt_id"} {
+		got, err := targetColumn(tt)
+		require.NoError(t, err)
+		assert.Equal(t, col, got)
+	}
+	_, err := targetColumn(targetTypeStandalone)
+	assert.Error(t, err)
+}
+
 // --- pure helpers ---
 
 func TestStatusAndValidationDefaults(t *testing.T) {

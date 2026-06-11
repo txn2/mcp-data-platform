@@ -18,21 +18,24 @@ import (
 
 // mockThreadStore is a controllable ThreadStore for handler tests.
 type mockThreadStore struct {
-	created     *Thread
-	createErr   error
-	listResult  []ThreadWithMeta
-	listTotal   int
-	listErr     error
-	getResult   *Thread
-	getErr      error
-	events      []ThreadEvent
-	eventsErr   error
-	appended    *ThreadEvent
-	appendErr   error
-	updateErr   error
-	lastUpdate  *ThreadUpdate
-	deleteErr   error
-	lastCreated *Thread
+	created      *Thread
+	createErr    error
+	listResult   []ThreadWithMeta
+	listTotal    int
+	listErr      error
+	getResult    *Thread
+	getErr       error
+	events       []ThreadEvent
+	eventsErr    error
+	appended     *ThreadEvent
+	appendErr    error
+	updateErr    error
+	lastUpdate   *ThreadUpdate
+	deleteErr    error
+	counts       map[string]int
+	countErr     error
+	lastCountIDs []string
+	lastCreated  *Thread
 }
 
 func (m *mockThreadStore) CreateThread(_ context.Context, t Thread, _ ThreadEvent) (*Thread, error) {
@@ -74,6 +77,11 @@ func (m *mockThreadStore) UpdateThread(_ context.Context, _ string, u ThreadUpda
 }
 
 func (m *mockThreadStore) SoftDeleteThread(_ context.Context, _ string) error { return m.deleteErr }
+
+func (m *mockThreadStore) CountOpenByTargets(_ context.Context, _ string, ids []string) (map[string]int, error) {
+	m.lastCountIDs = ids
+	return m.counts, m.countErr
+}
 
 func newThreadTestHandler(threads *mockThreadStore, assets *mockAssetStore, shares *mockShareStore, user *User) *Handler {
 	return NewHandler(Deps{
@@ -261,6 +269,67 @@ func TestDeleteThreadByAuthor(t *testing.T) {
 	h := newThreadTestHandler(threads, &mockAssetStore{}, &mockShareStore{}, &User{UserID: "u1"})
 	w := doThreadReq(t, h, http.MethodDelete, "/api/v1/portal/threads/thr_1", nil)
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+// --- counts ---
+
+func TestThreadCountsOwnedAssets(t *testing.T) {
+	threads := &mockThreadStore{counts: map[string]int{"asset_1": 3}}
+	h := newThreadTestHandler(threads, &mockAssetStore{getAsset: &Asset{ID: "asset_1", OwnerID: "u1"}}, &mockShareStore{}, &User{UserID: "u1"})
+	w := doThreadReq(t, h, http.MethodGet, "/api/v1/portal/threads/counts?target_type=asset&ids=asset_1,asset_2", nil)
+	require.Equal(t, http.StatusOK, w.Code)
+	var got map[string]int
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.Equal(t, 3, got["asset_1"])
+}
+
+func TestThreadCountsFiltersUnownedAssets(t *testing.T) {
+	// Requested asset is owned by someone else → filtered out before counting.
+	threads := &mockThreadStore{counts: map[string]int{}}
+	h := newThreadTestHandler(threads, &mockAssetStore{getAsset: &Asset{ID: "asset_other", OwnerID: "someone"}}, &mockShareStore{}, &User{UserID: "u1"})
+	w := doThreadReq(t, h, http.MethodGet, "/api/v1/portal/threads/counts?target_type=asset&ids=asset_other", nil)
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Empty(t, threads.lastCountIDs, "unowned id must not reach the count query")
+}
+
+func TestThreadCountsAdminUnfiltered(t *testing.T) {
+	threads := &mockThreadStore{counts: map[string]int{"asset_x": 1}}
+	h := newThreadTestHandler(threads, &mockAssetStore{}, &mockShareStore{}, &User{UserID: "admin1", Roles: []string{"admin"}})
+	w := doThreadReq(t, h, http.MethodGet, "/api/v1/portal/threads/counts?target_type=asset&ids=asset_x", nil)
+	require.Equal(t, http.StatusOK, w.Code)
+	var got map[string]int
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.Equal(t, 1, got["asset_x"])
+}
+
+func TestThreadCountsBadTargetType(t *testing.T) {
+	h := newThreadTestHandler(&mockThreadStore{}, &mockAssetStore{}, &mockShareStore{}, &User{UserID: "u1"})
+	w := doThreadReq(t, h, http.MethodGet, "/api/v1/portal/threads/counts?target_type=prompt&ids=x", nil)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestThreadCountsStoreError(t *testing.T) {
+	threads := &mockThreadStore{countErr: assert.AnError}
+	h := newThreadTestHandler(threads, &mockAssetStore{}, &mockShareStore{}, &User{UserID: "admin1", Roles: []string{"admin"}})
+	w := doThreadReq(t, h, http.MethodGet, "/api/v1/portal/threads/counts?target_type=asset&ids=a", nil)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestThreadCountsRequiresAuth(t *testing.T) {
+	h := newThreadTestHandler(&mockThreadStore{}, &mockAssetStore{}, &mockShareStore{}, nil)
+	w := doThreadReq(t, h, http.MethodGet, "/api/v1/portal/threads/counts?target_type=asset&ids=a", nil)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestThreadCountsOwnedCollections(t *testing.T) {
+	threads := &mockThreadStore{counts: map[string]int{"col_1": 2}}
+	colls := &mockCollectionStore{getResult: &Collection{ID: "col_1", OwnerID: "u1"}}
+	h := newThreadHandlerFull(threads, &mockAssetStore{}, &mockShareStore{}, colls, nil, &User{UserID: "u1"})
+	w := doThreadReq(t, h, http.MethodGet, "/api/v1/portal/threads/counts?target_type=collection&ids=col_1", nil)
+	require.Equal(t, http.StatusOK, w.Code)
+	var got map[string]int
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.Equal(t, 2, got["col_1"])
 }
 
 // --- access via share (non-owner with viewer share can author) ---

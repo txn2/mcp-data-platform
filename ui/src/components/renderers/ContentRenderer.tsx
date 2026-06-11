@@ -31,7 +31,10 @@ export function ContentRenderer({ contentType, content, fileName }: Props) {
 
   // Fallback: plain text
   return (
-    <pre className="rounded-lg border bg-card p-6 text-sm overflow-auto whitespace-pre-wrap">
+    <pre
+      data-feedback-anchorable
+      className="rounded-lg border bg-card p-6 text-sm overflow-auto whitespace-pre-wrap"
+    >
       {content}
     </pre>
   );

@@ -15,6 +15,7 @@ import { CollectionsPage } from "@/pages/collections/CollectionsPage";
 import { CollectionViewerPage } from "@/pages/collections/CollectionViewerPage";
 import { CollectionEditorPage } from "@/pages/collections/CollectionEditorPage";
 import { ResourcesPage } from "@/pages/resources/ResourcesPage";
+import { FeedbackChannelPage } from "@/pages/feedback/FeedbackChannelPage";
 
 // Admin pages (admin only)
 import { AdminAssetsPage } from "@/pages/assets/AdminAssetsPage";
@@ -37,6 +38,7 @@ const pageTitles: Record<string, string> = {
   "/collections": "Collections",
   "/resources": "Resources",
   "/shared": "Shared With Me",
+  "/feedback": "Feedback",
   "/my-knowledge": "Knowledge & Memory",
   "/prompts": "Prompts",
   "/admin": "Dashboard",
@@ -262,6 +264,7 @@ export function AppShell() {
           {!isAdminRoute && route === "/shared" && (
             <SharedWithMePage onNavigate={navigate} />
           )}
+          {!isAdminRoute && route === "/feedback" && <FeedbackChannelPage />}
           {!isAdminRoute && route === "/my-knowledge" && <MyKnowledgePage />}
           {!isAdminRoute && route === "/prompts" && <MyPromptsPage onNavigate={navigate} />}
           {!isAdminRoute && promptViewMatch && (

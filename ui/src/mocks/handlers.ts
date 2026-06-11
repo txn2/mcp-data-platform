@@ -23,6 +23,7 @@ import { mockContent } from "./data/content";
 import { mockCollections, mockSharedCollections } from "./data/collections";
 import { mockAdminPrompts, mockPortalPrompts } from "./data/prompts";
 import { mockResources } from "./data/resources";
+import { mockThreads, mockThreadEvents } from "./data/feedback";
 import { mockAPIKeys } from "./data/keys";
 import {
   mockEffectiveConfig,
@@ -569,6 +570,13 @@ const portalShares: Record<string, Share[]> = JSON.parse(
   JSON.stringify(mockShares),
 );
 let shareCounter = 100;
+
+// Mutable feedback-thread state for the mock server.
+const portalThreads = JSON.parse(JSON.stringify(mockThreads)) as typeof mockThreads;
+const portalThreadEvents: Record<string, typeof mockThreadEvents[string]> = JSON.parse(
+  JSON.stringify(mockThreadEvents),
+);
+let threadCounter = 100;
 
 function parseDuration(s: string): number {
   const match = s.match(/^(\d+)(h|m|s)$/);
@@ -1529,6 +1537,139 @@ export const handlers = [
       }
     }
     return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+  }),
+
+  // --- Feedback threads (#601) ---
+  // /threads/counts is registered before /threads/:id so the static segment
+  // wins over the param.
+  http.get(`${PORTAL_BASE}/threads/counts`, ({ request }) => {
+    const url = new URL(request.url);
+    const targetType = url.searchParams.get("target_type");
+    const ids = (url.searchParams.get("ids") ?? "").split(",").filter(Boolean);
+    const counts: Record<string, number> = {};
+    for (const t of portalThreads) {
+      if (t.deleted_at || t.status !== "open") continue;
+      const tid = targetType === "collection" ? t.collection_id : t.asset_id;
+      if (tid && ids.includes(tid)) counts[tid] = (counts[tid] ?? 0) + 1;
+    }
+    return HttpResponse.json(counts);
+  }),
+
+  http.get(`${PORTAL_BASE}/threads`, ({ request }) => {
+    const url = new URL(request.url);
+    const q = url.searchParams;
+    const matches = portalThreads.filter((t) => {
+      if (t.deleted_at) return false;
+      if (q.get("target_type") === "standalone") return t.target_type === "standalone";
+      if (q.get("asset_id")) return t.asset_id === q.get("asset_id");
+      if (q.get("collection_id")) return t.collection_id === q.get("collection_id");
+      if (q.get("prompt_id")) return t.prompt_id === q.get("prompt_id");
+      return false;
+    });
+    const status = q.get("status");
+    const kind = q.get("kind");
+    const filtered = matches.filter(
+      (t) => (!status || t.status === status) && (!kind || t.kind === kind),
+    );
+    return HttpResponse.json({
+      data: filtered,
+      total: filtered.length,
+      limit: 50,
+      offset: 0,
+    });
+  }),
+
+  http.post(`${PORTAL_BASE}/threads`, async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    threadCounter++;
+    const id = `thr-mock-${threadCounter}`;
+    const now = new Date().toISOString();
+    const thread = {
+      id,
+      kind: body.kind,
+      target_type: body.target_type,
+      asset_id: body.asset_id,
+      collection_id: body.collection_id,
+      prompt_id: body.prompt_id,
+      anchor: body.anchor,
+      target_version: body.target_version,
+      title: body.title,
+      author_id: "sarah.chen@example.com",
+      author_email: "sarah.chen@example.com",
+      status: "open",
+      requires_resolution: body.requires_resolution === true,
+      validation_state: "none",
+      created_at: now,
+      updated_at: now,
+      event_count: 1,
+      last_event_at: now,
+      last_event_type: "comment",
+    } as (typeof portalThreads)[number];
+    portalThreads.unshift(thread);
+    portalThreadEvents[id] = [
+      {
+        id: `evt-${id}-1`,
+        thread_id: id,
+        event_type: "comment",
+        author_id: "sarah.chen@example.com",
+        author_email: "sarah.chen@example.com",
+        body: body.body as string,
+        rating: body.rating as number | undefined,
+        created_at: now,
+      },
+    ];
+    return HttpResponse.json(thread, { status: 201 });
+  }),
+
+  http.get(`${PORTAL_BASE}/threads/:id/events`, ({ params }) =>
+    HttpResponse.json({ data: portalThreadEvents[params.id as string] ?? [] }),
+  ),
+
+  http.post(`${PORTAL_BASE}/threads/:id/events`, async ({ params, request }) => {
+    const id = params.id as string;
+    const body = (await request.json()) as Record<string, unknown>;
+    const now = new Date().toISOString();
+    const evt = {
+      id: `evt-${id}-${(portalThreadEvents[id]?.length ?? 0) + 1}`,
+      thread_id: id,
+      event_type: (body.event_type as string) ?? "comment",
+      author_id: "sarah.chen@example.com",
+      author_email: "sarah.chen@example.com",
+      body: body.body as string | undefined,
+      rating: body.rating as number | undefined,
+      created_at: now,
+    } as (typeof portalThreadEvents)[string][number];
+    portalThreadEvents[id] = [...(portalThreadEvents[id] ?? []), evt];
+    const thread = portalThreads.find((t) => t.id === id);
+    if (thread) {
+      thread.event_count += 1;
+      thread.last_event_at = now;
+      thread.updated_at = now;
+    }
+    return HttpResponse.json(evt, { status: 201 });
+  }),
+
+  http.get(`${PORTAL_BASE}/threads/:id`, ({ params }) => {
+    const thread = portalThreads.find((t) => t.id === params.id && !t.deleted_at);
+    if (!thread) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    return HttpResponse.json(thread);
+  }),
+
+  http.patch(`${PORTAL_BASE}/threads/:id`, async ({ params, request }) => {
+    const thread = portalThreads.find((t) => t.id === params.id);
+    if (!thread) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    const body = (await request.json()) as Record<string, unknown>;
+    if (typeof body.status === "string") thread.status = body.status as typeof thread.status;
+    if (typeof body.requires_resolution === "boolean") thread.requires_resolution = body.requires_resolution;
+    thread.updated_at = new Date().toISOString();
+    return HttpResponse.json(thread);
+  }),
+
+  http.delete(`${PORTAL_BASE}/threads/:id`, ({ params }) => {
+    const thread = portalThreads.find((t) => t.id === params.id);
+    if (!thread) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    thread.deleted_at = new Date().toISOString();
+    return HttpResponse.json({ status: "deleted" });
   }),
 
   http.get(`${PORTAL_BASE}/shared-with-me`, ({ request }) => {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Search, FileText, Image, Code, File, Users, Globe, Table2, LayoutGrid, List, FolderOpen, Eye } from "lucide-react";
-import { useAssets, useSearchAssets } from "@/api/portal/hooks";
+import { useAssets, useSearchAssets, useThreadCounts } from "@/api/portal/hooks";
+import { FeedbackCountBadge } from "@/components/feedback/FeedbackCountBadge";
 import { formatBytes } from "@/lib/format";
 import { ThumbnailQueue } from "@/components/ThumbnailQueue";
 import { AuthImg } from "@/components/AuthImg";
@@ -77,6 +78,10 @@ export function MyAssetsPage({ onNavigate }: Props) {
     ? (searchResults.data?.data ?? []).map((s) => s.asset)
     : (data?.data ?? []);
   const isLoadingList = searching ? searchResults.isLoading : isLoading;
+  const { data: threadCounts } = useThreadCounts(
+    "asset",
+    assets.map((a) => a.id),
+  );
 
   return (
     <div className="space-y-4">
@@ -195,6 +200,7 @@ export function MyAssetsPage({ onNavigate }: Props) {
                     <span className="text-sm font-medium truncate flex-1">
                       {asset.name}
                     </span>
+                    <FeedbackCountBadge count={threadCounts?.[asset.id]} />
                   </div>
                   {asset.description && (
                     <p className="text-xs text-muted-foreground mb-2 line-clamp-2">
@@ -269,6 +275,7 @@ export function MyAssetsPage({ onNavigate }: Props) {
                             <span className="text-xs text-muted-foreground truncate block">{asset.description}</span>
                           )}
                         </div>
+                        <FeedbackCountBadge count={threadCounts?.[asset.id]} />
                       </div>
                     </td>
                     <td className="px-4 py-2.5">

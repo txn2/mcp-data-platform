@@ -24,6 +24,16 @@ import type {
   CollectionConfig,
   CollectionResponse,
   SharedCollection,
+  Thread,
+  ThreadWithMeta,
+  ThreadEvent,
+  ThreadKind,
+  ThreadStatus,
+  ThreadTargetType,
+  ThreadEventType,
+  ThreadAnchor,
+  ThreadCounts,
+  ValidationState,
 } from "./types";
 
 // --- Branding (unauthenticated) ---
@@ -826,5 +836,162 @@ export function useSearchMyMemories(
       apiFetch<PaginatedResponse<ScoredMemoryRecord>>(
         `/memory/records/search?${sp.toString()}`,
       ),
+  });
+}
+
+// --- Feedback threads (#601) ---
+
+export interface ThreadListFilter {
+  target_type?: ThreadTargetType;
+  asset_id?: string;
+  collection_id?: string;
+  prompt_id?: string;
+  kind?: ThreadKind;
+  status?: ThreadStatus;
+  limit?: number;
+  offset?: number;
+}
+
+function threadQuery(filter: ThreadListFilter): string {
+  const sp = new URLSearchParams();
+  for (const [k, v] of Object.entries(filter)) {
+    if (v !== undefined && v !== null && v !== "") sp.set(k, String(v));
+  }
+  const qs = sp.toString();
+  return qs ? `?${qs}` : "";
+}
+
+// A list filter is "scoped" once it targets a single object or the standalone
+// channel; until then the query is disabled (the backend requires a scope).
+function threadFilterScoped(filter: ThreadListFilter): boolean {
+  return (
+    filter.target_type === "standalone" ||
+    !!filter.asset_id ||
+    !!filter.collection_id ||
+    !!filter.prompt_id
+  );
+}
+
+export function useThreads(filter: ThreadListFilter) {
+  return useQuery({
+    queryKey: ["threads", filter],
+    queryFn: () =>
+      apiFetch<PaginatedResponse<ThreadWithMeta>>(`/threads${threadQuery(filter)}`),
+    enabled: threadFilterScoped(filter),
+  });
+}
+
+export function useThread(id: string) {
+  return useQuery({
+    queryKey: ["thread", id],
+    queryFn: () => apiFetch<Thread>(`/threads/${id}`),
+    enabled: !!id,
+  });
+}
+
+export function useThreadEvents(id: string) {
+  return useQuery({
+    queryKey: ["thread-events", id],
+    queryFn: () =>
+      apiFetch<{ data: ThreadEvent[] }>(`/threads/${id}/events`).then((r) => r.data),
+    enabled: !!id,
+  });
+}
+
+export function useThreadCounts(
+  targetType: "asset" | "collection",
+  ids: string[],
+) {
+  const sorted = [...ids].sort();
+  return useQuery({
+    queryKey: ["thread-counts", targetType, sorted],
+    queryFn: () =>
+      apiFetch<ThreadCounts>(
+        `/threads/counts?target_type=${targetType}&ids=${sorted.join(",")}`,
+      ),
+    enabled: sorted.length > 0,
+  });
+}
+
+export interface CreateThreadInput {
+  kind: ThreadKind;
+  target_type: ThreadTargetType;
+  asset_id?: string;
+  collection_id?: string;
+  prompt_id?: string;
+  anchor?: ThreadAnchor;
+  target_version?: number;
+  title?: string;
+  requires_resolution?: boolean;
+  body: string;
+  rating?: number;
+}
+
+// invalidateThreadQueries refreshes every thread-related cache key after a
+// mutation so lists, detail, timeline, and badges all reflect the change.
+function invalidateThreadQueries(qc: ReturnType<typeof useQueryClient>) {
+  void qc.invalidateQueries({ queryKey: ["threads"] });
+  void qc.invalidateQueries({ queryKey: ["thread"] });
+  void qc.invalidateQueries({ queryKey: ["thread-events"] });
+  void qc.invalidateQueries({ queryKey: ["thread-counts"] });
+}
+
+export function useCreateThread() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateThreadInput) =>
+      apiFetch<Thread>(`/threads`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    onSuccess: () => invalidateThreadQueries(qc),
+  });
+}
+
+export interface AppendThreadEventInput {
+  threadId: string;
+  event_type?: ThreadEventType;
+  body?: string;
+  rating?: number;
+  parent_event_id?: string;
+}
+
+export function useAppendThreadEvent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ threadId, ...body }: AppendThreadEventInput) =>
+      apiFetch<ThreadEvent>(`/threads/${threadId}/events`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => invalidateThreadQueries(qc),
+  });
+}
+
+export interface UpdateThreadInput {
+  id: string;
+  status?: ThreadStatus;
+  requires_resolution?: boolean;
+  validation_state?: ValidationState;
+}
+
+export function useUpdateThread() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...body }: UpdateThreadInput) =>
+      apiFetch<Thread>(`/threads/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => invalidateThreadQueries(qc),
+  });
+}
+
+export function useDeleteThread() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<{ status: string }>(`/threads/${id}`, { method: "DELETE" }),
+    onSuccess: () => invalidateThreadQueries(qc),
   });
 }

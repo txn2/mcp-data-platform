@@ -9,6 +9,7 @@ import { MyAssetsPage } from "./MyAssetsPage";
 vi.mock("@/api/portal/hooks", () => ({
   useAssets: vi.fn(),
   useSearchAssets: vi.fn(() => ({ data: undefined, isLoading: false })),
+  useThreadCounts: vi.fn(() => ({ data: {} })),
 }));
 
 import { useAssets, useSearchAssets } from "@/api/portal/hooks";

@@ -198,7 +198,10 @@ export function MarkdownRenderer({ content, bare }: { content: string | null | u
   if (!content) return null;
 
   return (
-    <div className={`prose prose-sm max-w-none dark:prose-invert [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 ${bare ? "" : "rounded-lg border bg-card p-6"}`}>
+    <div
+      data-feedback-anchorable
+      className={`prose prose-sm max-w-none dark:prose-invert [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 ${bare ? "" : "rounded-lg border bg-card p-6"}`}
+    >
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
         {content}
       </ReactMarkdown>
