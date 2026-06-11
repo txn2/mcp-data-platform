@@ -188,6 +188,7 @@ type Platform struct {
 	// Knowledge stores (exposed for admin API)
 	knowledgeInsightStore   knowledgekit.InsightStore
 	knowledgeChangesetStore knowledgekit.ChangesetStore
+	knowledgeToolkit        *knowledgekit.Toolkit
 	knowledgeDataHubWriter  knowledgekit.DataHubWriter
 
 	// Memory layer
@@ -353,6 +354,11 @@ func (p *Platform) initExtensions() error {
 	}
 	if err := p.initPortal(); err != nil {
 		return err
+	}
+	// Bridge the feedback thread store into capture_insight (Phase 2 / #602).
+	// Portal creates the thread store, so this is wired after both init.
+	if p.knowledgeToolkit != nil && p.portalThreadStore != nil {
+		p.knowledgeToolkit.SetThreadLinker(p.portalThreadStore)
 	}
 	if err := p.initManagedResources(); err != nil {
 		return err
@@ -1527,6 +1533,7 @@ func (p *Platform) initKnowledge() error {
 	if err != nil {
 		return fmt.Errorf("creating knowledge toolkit: %w", err)
 	}
+	p.knowledgeToolkit = tk
 
 	// Wire memory store for embedding generation on capture_insight.
 	if p.memoryStore != nil && p.embeddingProv != nil {
@@ -1642,6 +1649,7 @@ func (p *Platform) initPortal() error {
 		ShareStore:      p.portalShareStore,
 		VersionStore:    p.portalVersionStore,
 		CollectionStore: p.portalCollectionStore,
+		ThreadStore:     p.portalThreadStore,
 		S3Client:        s3Client,
 		S3Bucket:        p.config.Portal.S3Bucket,
 		S3Prefix:        p.config.Portal.S3Prefix,

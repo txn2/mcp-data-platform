@@ -157,14 +157,16 @@ type ThreadWithMeta struct {
 
 // ThreadFilter selects threads for listing.
 type ThreadFilter struct {
-	TargetType   string
-	AssetID      string
-	CollectionID string
-	PromptID     string
-	Kind         string
-	Status       string
-	Limit        int
-	Offset       int
+	TargetType         string
+	AssetID            string
+	CollectionID       string
+	PromptID           string
+	Kind               string
+	Status             string
+	RequiresResolution *bool
+	ValidationState    string
+	Limit              int
+	Offset             int
 }
 
 const (
@@ -209,6 +211,15 @@ type ThreadStore interface {
 	UpdateThread(ctx context.Context, id string, u ThreadUpdate, actorID, actorEmail string) error
 	// SoftDeleteThread marks a thread deleted.
 	SoftDeleteThread(ctx context.Context, id string) error
+	// LinkInsight links one or more threads to a captured insight: it sets
+	// insight_id, appends an insight_linked event, and transitions the thread to
+	// resolved, atomically per thread. Threads that are missing or already
+	// deleted are skipped. This is the bridge from feedback into the knowledge
+	// loop (Phase 2 / #602).
+	LinkInsight(ctx context.Context, threadIDs []string, insightID, actorID, actorEmail string) error
+	// RequestValidation moves a thread to validation_state=pending and records a
+	// validation_request event, atomically.
+	RequestValidation(ctx context.Context, id, actorID, actorEmail string) error
 	// CountOpenByTargets returns, per target id, the number of open (non-deleted)
 	// threads. targetType must be asset/collection/prompt. Callers are
 	// responsible for restricting ids to those the requester may see.
@@ -443,6 +454,95 @@ func (s *postgresThreadStore) SoftDeleteThread(ctx context.Context, id string) e
 	return nil
 }
 
+func (s *postgresThreadStore) LinkInsight(ctx context.Context, threadIDs []string, insightID, actorID, actorEmail string) error { //nolint:revive // interface impl
+	if len(threadIDs) == 0 || insightID == "" {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // commit below on success
+
+	for _, id := range threadIDs {
+		res, err := tx.ExecContext(ctx,
+			`UPDATE portal_threads SET insight_id = $1, status = $2, updated_at = NOW()
+			 WHERE id = $3 AND deleted_at IS NULL`,
+			insightID, ThreadStatusResolved, id)
+		if err != nil {
+			return fmt.Errorf("linking insight to thread %s: %w", id, err)
+		}
+		affected, err := res.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("checking rows affected: %w", err)
+		}
+		if affected == 0 {
+			continue // missing or deleted thread: skip
+		}
+		evt := ThreadEvent{
+			ID:          newThreadID("evt"),
+			ThreadID:    id,
+			EventType:   EventTypeInsightLinked,
+			AuthorID:    actorID,
+			AuthorEmail: actorEmail,
+			Metadata:    insightLinkedMetadata(insightID),
+		}
+		if err := insertEventTx(ctx, tx, evt); err != nil {
+			return err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
+func (s *postgresThreadStore) RequestValidation(ctx context.Context, id, actorID, actorEmail string) error { //nolint:revive // interface impl
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // commit below on success
+
+	res, err := tx.ExecContext(ctx,
+		`UPDATE portal_threads SET validation_state = $1, updated_at = NOW()
+		 WHERE id = $2 AND deleted_at IS NULL`,
+		ValidationStatePending, id)
+	if err != nil {
+		return fmt.Errorf("requesting validation: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("checking rows affected: %w", err)
+	}
+	if affected == 0 {
+		return fmt.Errorf("thread not found or already deleted: %s", id)
+	}
+
+	evt := ThreadEvent{
+		ID:          newThreadID("evt"),
+		ThreadID:    id,
+		EventType:   EventTypeValidationRequest,
+		AuthorID:    actorID,
+		AuthorEmail: actorEmail,
+	}
+	if err := insertEventTx(ctx, tx, evt); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
+// insightLinkedMetadata builds the JSON metadata for an insight_linked event.
+func insightLinkedMetadata(insightID string) json.RawMessage {
+	b, _ := json.Marshal(map[string]string{"insight_id": insightID}) //nolint:errcheck // map of strings cannot fail
+	return b
+}
+
 func (s *postgresThreadStore) CountOpenByTargets(ctx context.Context, targetType string, ids []string) (map[string]int, error) { //nolint:revive // interface impl
 	counts := make(map[string]int)
 	if len(ids) == 0 {
@@ -514,6 +614,12 @@ func applyThreadFilter(qb sq.SelectBuilder, f ThreadFilter) sq.SelectBuilder {
 	}
 	if f.Status != "" {
 		qb = qb.Where(sq.Eq{"t.status": f.Status})
+	}
+	if f.RequiresResolution != nil {
+		qb = qb.Where(sq.Eq{"t.requires_resolution": *f.RequiresResolution})
+	}
+	if f.ValidationState != "" {
+		qb = qb.Where(sq.Eq{"t.validation_state": f.ValidationState})
 	}
 	return qb
 }
@@ -678,6 +784,12 @@ var threadSelectColumns = strings.Join(threadColumnNames, ", ")
 // newThreadID returns a prefixed unique id (e.g. "thr_<uuid>", "evt_<uuid>").
 func newThreadID(prefix string) string {
 	return prefix + "_" + uuid.New().String()
+}
+
+// NewThreadEventID returns a unique id for a thread event. Exported so callers
+// outside the package (the portal toolkit) can mint event ids for AppendEvent.
+func NewThreadEventID() string {
+	return newThreadID("evt")
 }
 
 func statusOrDefault(status string) string {

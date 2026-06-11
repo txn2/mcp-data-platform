@@ -56,6 +56,14 @@ const (
 	actionSetSections      = "set_sections"
 	actionSearch           = "search"
 
+	// Feedback thread actions (Phase 2 / #602). No new tools: these extend the
+	// existing manage_artifact dispatch.
+	actionListThreads       = "list_threads"
+	actionGetThread         = "get_thread"
+	actionReplyThread       = "reply_thread"
+	actionResolveThread     = "resolve_thread"
+	actionRequestValidation = "request_validation"
+
 	// JSON field names used in MCP tool result payloads.
 	fieldAssetID = "asset_id"
 	fieldMessage = "message"
@@ -97,6 +105,15 @@ type manageArtifactInput struct {
 	// Query (search action) ranks the caller's assets by relevance to a
 	// free-text query instead of the substring Search filter.
 	Query string `json:"query,omitempty"`
+
+	// Feedback thread fields (Phase 2 / #602).
+	PromptID           string `json:"prompt_id,omitempty"`
+	TargetType         string `json:"target_type,omitempty"`
+	ThreadID           string `json:"thread_id,omitempty"`
+	Body               string `json:"body,omitempty"`
+	Status             string `json:"status,omitempty"`
+	ValidationState    string `json:"validation_state,omitempty"`
+	RequiresResolution *bool  `json:"requires_resolution,omitempty"`
 }
 
 // sectionInput defines a collection section in MCP tool input.
@@ -127,6 +144,7 @@ type Config struct {
 	ShareStore      portal.ShareStore
 	VersionStore    portal.VersionStore
 	CollectionStore portal.CollectionStore
+	ThreadStore     portal.ThreadStore
 	S3Client        portal.S3Client
 	S3Bucket        string
 	S3Prefix        string
@@ -146,6 +164,7 @@ type Toolkit struct {
 	shareStore      portal.ShareStore
 	versionStore    portal.VersionStore
 	collectionStore portal.CollectionStore
+	threadStore     portal.ThreadStore
 	s3Client        portal.S3Client
 	s3Bucket        string
 	s3Prefix        string
@@ -182,6 +201,7 @@ func New(cfg Config) *Toolkit {
 		shareStore:      shareStore,
 		versionStore:    versionStore,
 		collectionStore: collectionStore,
+		threadStore:     cfg.ThreadStore,
 		s3Client:        cfg.S3Client,
 		s3Bucket:        cfg.S3Bucket,
 		s3Prefix:        cfg.S3Prefix,
@@ -219,10 +239,13 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:  manageToolName,
 		Title: "Manage Artifact",
-		Description: "Manages saved artifacts and collections. " +
+		Description: "Manages saved artifacts, collections, and human feedback. " +
 			"Asset actions: list, get, update, delete, list_versions, revert, search. " +
 			"Collection actions: create_collection, list_collections, get_collection, " +
 			"update_collection, delete_collection, set_sections. " +
+			"Feedback actions: list_threads, get_thread, reply_thread, resolve_thread, " +
+			"request_validation (review and respond to feedback left on your artifacts; " +
+			"capture_insight thread_ids=[...] links a thread to the insight that resolves it). " +
 			"Note: 'list' returns full metadata including provenance for each asset. " +
 			"Use 'get' with a specific asset_id for content retrieval. " +
 			"Use 'search' with a 'query' to rank your assets by relevance (semantic + " +
@@ -413,6 +436,12 @@ func (t *Toolkit) buildActions() map[string]manageActionHandler {
 		actionDeleteCollection: t.handleDeleteCollection,
 		actionSetSections:      t.handleSetSections,
 		actionSearch:           t.handleSearch,
+
+		actionListThreads:       t.handleListThreads,
+		actionGetThread:         t.handleGetThread,
+		actionReplyThread:       t.handleReplyThread,
+		actionResolveThread:     t.handleResolveThread,
+		actionRequestValidation: t.handleRequestValidation,
 	}
 }
 
@@ -422,7 +451,8 @@ func (t *Toolkit) handleManageArtifact(ctx context.Context, _ *mcp.CallToolReque
 	if !ok {
 		return errorResult(fmt.Sprintf(
 			"invalid action %q: must be one of: list, get, update, delete, list_versions, revert, search, "+
-				"create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections",
+				"create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections, "+
+				"list_threads, get_thread, reply_thread, resolve_thread, request_validation",
 			input.Action)), nil, nil
 	}
 	return handler(ctx, input)

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
@@ -126,6 +127,10 @@ func applyChangesetFilter(qb sq.SelectBuilder, filter ChangesetFilter) sq.Select
 	}
 	if filter.RolledBack != nil {
 		qb = qb.Where(sq.Eq{"rolled_back": *filter.RolledBack})
+	}
+	if filter.SourceInsightID != "" {
+		// JSONB array containment: does source_insight_ids contain this id?
+		qb = qb.Where(sq.Expr("source_insight_ids @> ?::jsonb", strconv.Quote(filter.SourceInsightID)))
 	}
 	return qb
 }

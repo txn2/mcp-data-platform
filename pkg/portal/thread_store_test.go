@@ -287,6 +287,67 @@ func TestTargetColumn(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestThreadStoreLinkInsight(t *testing.T) {
+	store, mock := newThreadStoreMock(t)
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE portal_threads SET insight_id").
+		WithArgs("ins_1", ThreadStatusResolved, "thr_1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO portal_thread_events").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE portal_threads SET insight_id").
+		WithArgs("ins_1", ThreadStatusResolved, "thr_missing").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+
+	err := store.LinkInsight(context.Background(), []string{"thr_1", "thr_missing"}, "ins_1", "u1", "u1@example.com")
+	require.NoError(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestThreadStoreLinkInsightNoop(t *testing.T) {
+	store, _ := newThreadStoreMock(t)
+	require.NoError(t, store.LinkInsight(context.Background(), nil, "ins_1", "u", "e"))
+	require.NoError(t, store.LinkInsight(context.Background(), []string{"t"}, "", "u", "e"))
+}
+
+func TestThreadStoreRequestValidation(t *testing.T) {
+	store, mock := newThreadStoreMock(t)
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE portal_threads SET validation_state").
+		WithArgs(ValidationStatePending, "thr_1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO portal_thread_events").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	require.NoError(t, store.RequestValidation(context.Background(), "thr_1", "u1", "u1@example.com"))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestThreadStoreRequestValidationNotFound(t *testing.T) {
+	store, mock := newThreadStoreMock(t)
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE portal_threads SET validation_state").
+		WithArgs(ValidationStatePending, "missing").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectRollback()
+	require.Error(t, store.RequestValidation(context.Background(), "missing", "u1", "u1@example.com"))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestInsightLinkedMetadata(t *testing.T) {
+	var m map[string]string
+	require.NoError(t, json.Unmarshal(insightLinkedMetadata("ins_9"), &m))
+	assert.Equal(t, "ins_9", m["insight_id"])
+}
+
+func TestNewThreadEventID(t *testing.T) {
+	id := NewThreadEventID()
+	assert.Contains(t, id, "evt_")
+	assert.NotEqual(t, id, NewThreadEventID())
+}
+
 // --- pure helpers ---
 
 func TestStatusAndValidationDefaults(t *testing.T) {

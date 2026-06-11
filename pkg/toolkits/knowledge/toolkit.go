@@ -54,6 +54,10 @@ type captureInsightInput struct {
 	EntityURNs       []string          `json:"entity_urns,omitempty"`
 	RelatedColumns   []RelatedColumn   `json:"related_columns,omitempty"`
 	SuggestedActions []SuggestedAction `json:"suggested_actions,omitempty"`
+	// ThreadIDs links this insight back to the feedback thread(s) it resolves
+	// (Phase 2 / #602). Each linked thread gets insight_id set, an
+	// insight_linked event, and a transition to resolved. Optional.
+	ThreadIDs []string `json:"thread_ids,omitempty"`
 }
 
 // captureInsightOutput is the success response.
@@ -101,6 +105,31 @@ type Toolkit struct {
 	queryProvider    query.Provider
 
 	promptCreator PromptCreator
+
+	// threadLinker bridges captured insights back to feedback threads
+	// (Phase 2 / #602). Optional; nil disables thread linking.
+	threadLinker ThreadLinker
+}
+
+// ThreadLinker links a captured insight back to the feedback thread(s) it
+// resolved. Satisfied by the portal thread store; kept as a minimal interface
+// here so the knowledge toolkit does not depend on the portal package.
+type ThreadLinker interface {
+	LinkInsight(ctx context.Context, threadIDs []string, insightID, actorID, actorEmail string) error
+}
+
+// SetThreadLinker wires the feedback-thread bridge used by capture_insight.
+func (t *Toolkit) SetThreadLinker(tl ThreadLinker) {
+	t.threadLinker = tl
+}
+
+// insightActor extracts the actor id/email recorded on the insight_linked
+// thread event from the platform context.
+func insightActor(pc *middleware.PlatformContext) (actorID, actorEmail string) {
+	if pc == nil {
+		return "", ""
+	}
+	return pc.UserID, pc.UserEmail
 }
 
 // New creates a new knowledge toolkit.
@@ -282,6 +311,16 @@ func (t *Toolkit) handleCaptureInsight(ctx context.Context, _ *mcp.CallToolReque
 	// Persist
 	if err := t.store.Insert(ctx, insight); err != nil {
 		return errorResult("failed to save insight: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol: tool errors are returned in CallToolResult.IsError
+	}
+
+	// Bridge the insight back to any feedback threads it resolves (Phase 2).
+	// Best-effort: a thread-link failure must not fail the capture, since the
+	// insight is already persisted.
+	if t.threadLinker != nil && len(input.ThreadIDs) > 0 {
+		actorID, actorEmail := insightActor(pc)
+		if linkErr := t.threadLinker.LinkInsight(ctx, input.ThreadIDs, id, actorID, actorEmail); linkErr != nil {
+			slog.Warn("failed to link insight to threads", "id", id, "threads", input.ThreadIDs, "error", linkErr)
+		}
 	}
 
 	// Generate embedding for the memory record only when a real
