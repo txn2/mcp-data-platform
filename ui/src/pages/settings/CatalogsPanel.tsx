@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   BookOpen,
@@ -728,7 +728,7 @@ function CatalogEditor({
 // SpecsManager + SpecModal
 // ---------------------------------------------------------------------------
 
-function SpecsManager({ catalogID, isReadOnly }: { catalogID: string; isReadOnly: boolean }) {
+export function SpecsManager({ catalogID, isReadOnly }: { catalogID: string; isReadOnly: boolean }) {
   const [specs, setSpecs] = useState<APICatalogSpec[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshCounter, setRefreshCounter] = useState(0);
@@ -740,6 +740,129 @@ function SpecsManager({ catalogID, isReadOnly }: { catalogID: string; isReadOnly
   const refresh = useRefreshAPICatalogSpec();
   const manualRetry = useManualRetryEmbedding();
   const del = useDeleteAPICatalogSpec();
+  // Per-spec in-flight tracking. TanStack's mutation.isPending is a
+  // single bit shared across every spec row, so it cannot say "this
+  // row is the one mid-mutation". We track pending spec names locally
+  // so each row's button disables + changes label without affecting
+  // its siblings. The ref pair holds the synchronous truth: a rapid
+  // click that arrives before React commits the disabled state still
+  // hits the ref guard at the top of the handler and short-circuits,
+  // instead of firing a duplicate mutation against the same spec.
+  const inFlightRetryRef = useRef<Set<string>>(new Set());
+  const inFlightRefreshRef = useRef<Set<string>>(new Set());
+  const [pendingRetry, setPendingRetry] = useState<Set<string>>(new Set());
+  const [pendingRefresh, setPendingRefresh] = useState<Set<string>>(new Set());
+  // Inline status banner. Auto-clears after a short delay on success;
+  // stays until dismissed on error so the operator can read the
+  // failure (previously a failed retry/refresh was silent).
+  const [statusMessage, setStatusMessage] = useState<{
+    kind: "success" | "error";
+    text: string;
+  } | null>(null);
+  // The auto-clear timer is held in a ref so a newer action can cancel
+  // a still-pending clear before scheduling its own; otherwise an old
+  // success timer could clear a newer banner ahead of its window.
+  const statusTimerRef = useRef<number | null>(null);
+
+  const clearStatusTimer = useCallback(() => {
+    if (statusTimerRef.current !== null) {
+      window.clearTimeout(statusTimerRef.current);
+      statusTimerRef.current = null;
+    }
+  }, []);
+
+  const showStatus = useCallback(
+    (msg: { kind: "success" | "error"; text: string }, autoClearMs?: number) => {
+      clearStatusTimer();
+      setStatusMessage(msg);
+      if (autoClearMs !== undefined) {
+        statusTimerRef.current = window.setTimeout(() => {
+          setStatusMessage(null);
+          statusTimerRef.current = null;
+        }, autoClearMs);
+      }
+    },
+    [clearStatusTimer],
+  );
+
+  const dismissStatus = useCallback(() => {
+    clearStatusTimer();
+    setStatusMessage(null);
+  }, [clearStatusTimer]);
+
+  // Unmount cleanup: a timer that fires after the component is gone
+  // would setState on an unmounted component.
+  useEffect(() => clearStatusTimer, [clearStatusTimer]);
+
+  const handleRetry = (specName: string) => {
+    if (inFlightRetryRef.current.has(specName)) {
+      return; // synchronous debounce against rapid double-clicks
+    }
+    inFlightRetryRef.current.add(specName);
+    setPendingRetry(new Set(inFlightRetryRef.current));
+    dismissStatus();
+    manualRetry.mutate(
+      { catalogID, specName },
+      {
+        onSuccess: (data) => {
+          setRefreshCounter((n) => n + 1);
+          showStatus(
+            {
+              kind: "success",
+              text: data.created
+                ? `Re-embedding queued for "${specName}".`
+                : `"${specName}" is already queued for re-embedding.`,
+            },
+            4000,
+          );
+        },
+        onError: (err) => {
+          showStatus({
+            kind: "error",
+            text: `Retry "${specName}" failed: ${err.message}`,
+          });
+        },
+        onSettled: () => {
+          inFlightRetryRef.current.delete(specName);
+          setPendingRetry(new Set(inFlightRetryRef.current));
+        },
+      },
+    );
+  };
+
+  const handleRefresh = (specName: string) => {
+    if (inFlightRefreshRef.current.has(specName)) {
+      return; // synchronous debounce against rapid double-clicks
+    }
+    inFlightRefreshRef.current.add(specName);
+    setPendingRefresh(new Set(inFlightRefreshRef.current));
+    dismissStatus();
+    refresh.mutate(
+      { catalogID, specName },
+      {
+        onSuccess: () => {
+          setRefreshCounter((n) => n + 1);
+          showStatus(
+            {
+              kind: "success",
+              text: `Refreshed "${specName}" from upstream URL.`,
+            },
+            4000,
+          );
+        },
+        onError: (err) => {
+          showStatus({
+            kind: "error",
+            text: `Refresh "${specName}" failed: ${err.message}`,
+          });
+        },
+        onSettled: () => {
+          inFlightRefreshRef.current.delete(specName);
+          setPendingRefresh(new Set(inFlightRefreshRef.current));
+        },
+      },
+    );
+  };
   // The job-queue-backed embedding state polls every 5s while
   // the panel is mounted. The badge updates as the worker
   // progresses; the catalog header summary reflects pending /
@@ -789,6 +912,28 @@ function SpecsManager({ catalogID, isReadOnly }: { catalogID: string; isReadOnly
 
       {health && <CatalogEmbeddingHealthBanner health={health} />}
 
+      {statusMessage && (
+        <div
+          role={statusMessage.kind === "error" ? "alert" : "status"}
+          className={cn(
+            "flex items-start justify-between gap-3 rounded-md border px-3 py-2 text-xs",
+            statusMessage.kind === "success" &&
+              "border-emerald-500/30 bg-emerald-50 text-emerald-900 dark:bg-emerald-500/10 dark:text-emerald-200",
+            statusMessage.kind === "error" &&
+              "border-destructive/40 bg-destructive/10 text-destructive",
+          )}
+        >
+          <span>{statusMessage.text}</span>
+          <button
+            type="button"
+            onClick={dismissStatus}
+            className="text-xs underline-offset-2 hover:underline"
+          >
+            dismiss
+          </button>
+        </div>
+      )}
+
       {loading ? (
         <div className="text-sm text-muted-foreground">Loading…</div>
       ) : specs.length === 0 ? (
@@ -818,31 +963,25 @@ function SpecsManager({ catalogID, isReadOnly }: { catalogID: string; isReadOnly
                     {failed && (
                       <button
                         type="button"
-                        onClick={() =>
-                          manualRetry.mutate(
-                            { catalogID, specName: s.spec_name },
-                            { onSuccess: () => setRefreshCounter((n) => n + 1) },
-                          )
-                        }
+                        onClick={() => handleRetry(s.spec_name)}
+                        disabled={pendingRetry.has(s.spec_name)}
                         title={`Retry embedding (last error: ${status?.job_last_error ?? "unknown"})`}
-                        className="rounded px-2 py-1 text-xs text-destructive hover:bg-destructive/10"
+                        className="rounded px-2 py-1 text-xs text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-60"
                       >
-                        Retry
+                        {pendingRetry.has(s.spec_name) ? "Retrying…" : "Retry"}
                       </button>
                     )}
                     {s.source_kind === "url" && (
                       <button
                         type="button"
-                        onClick={() =>
-                          refresh.mutate(
-                            { catalogID, specName: s.spec_name },
-                            { onSuccess: () => setRefreshCounter((n) => n + 1) },
-                          )
-                        }
-                        title="Refresh from URL"
-                        className="rounded p-1 hover:bg-muted"
+                        onClick={() => handleRefresh(s.spec_name)}
+                        disabled={pendingRefresh.has(s.spec_name)}
+                        title={pendingRefresh.has(s.spec_name) ? "Refreshing…" : "Refresh from URL"}
+                        className="rounded p-1 hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
                       >
-                        <RefreshCw className="h-4 w-4" />
+                        <RefreshCw
+                          className={cn("h-4 w-4", pendingRefresh.has(s.spec_name) && "animate-spin")}
+                        />
                       </button>
                     )}
                     <button
