@@ -275,10 +275,10 @@ func (s *postgresThreadStore) ListThreads(ctx context.Context, filter ThreadFilt
 		) e ON TRUE`), filter).
 		Where(sq.Eq{"t.deleted_at": nil}).
 		OrderBy("t.updated_at DESC").
-		Limit(uint64(filter.EffectiveLimit())) //nolint:gosec // bounded by maxThreadLimit
+		Limit(uint64(filter.EffectiveLimit())) // #nosec G115 -- EffectiveLimit is clamped to [defaultThreadLimit, maxThreadLimit], always positive
 
 	if filter.Offset > 0 {
-		qb = qb.Offset(uint64(filter.Offset)) //nolint:gosec // non-negative
+		qb = qb.Offset(uint64(filter.Offset)) // #nosec G115 -- guarded by Offset > 0
 	}
 
 	query, args, err := qb.ToSql()
