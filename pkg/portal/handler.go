@@ -785,8 +785,13 @@ func (h *Handler) updateAsset(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, errAssetNotFound)
 		return
 	}
-	if asset.OwnerID != user.UserID {
-		writeError(w, http.StatusForbidden, "only the owner can update this asset")
+	if asset.DeletedAt != nil {
+		writeError(w, http.StatusGone, errAssetDeleted)
+		return
+	}
+	// Owner or an active editor share may update metadata, matching the content
+	// update path (updateAssetContent): an editor can edit a shared asset.
+	if !h.canEditAsset(w, r, id, asset, user) {
 		return
 	}
 
