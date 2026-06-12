@@ -3086,6 +3086,14 @@ definitions:
       type:
         type: string
     type: object
+  portal.respondValidationRequest:
+    properties:
+      reason:
+        type: string
+      result:
+        description: validated | disputed
+        type: string
+    type: object
   portal.setSectionsRequest:
     properties:
       sections:
@@ -3100,6 +3108,13 @@ definitions:
       share_url:
         example: https://platform.example.com/portal/view/abc123
         type: string
+    type: object
+  portal.signoffSummary:
+    properties:
+      signed_off:
+        type: integer
+      stakeholders:
+        type: integer
     type: object
   portal.statusResponse:
     properties:
@@ -7828,6 +7843,41 @@ paths:
       summary: Create asset share
       tags:
       - Shares
+  /portal/assets/{id}/signoff:
+    get:
+      description: Count of stakeholders who signed off (N) out of the total stakeholders
+        (M = owner + active share grantees).
+      parameters:
+      - description: Asset ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.signoffSummary'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Asset sign-off summary
+      tags:
+      - Feedback
   /portal/assets/{id}/thumbnail:
     get:
       description: Downloads the asset's PNG thumbnail image.
@@ -8530,6 +8580,41 @@ paths:
       summary: Create collection share
       tags:
       - Shares
+  /portal/collections/{id}/signoff:
+    get:
+      description: Count of stakeholders who signed off (N) out of the total stakeholders
+        (M = owner + active share grantees).
+      parameters:
+      - description: Collection ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.signoffSummary'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Collection sign-off summary
+      tags:
+      - Feedback
   /portal/collections/{id}/thumbnail:
     get:
       description: Downloads the collection's PNG thumbnail image.
@@ -9690,6 +9775,57 @@ paths:
       summary: Add a thread event
       tags:
       - Feedback
+  /portal/threads/{id}/validation:
+    post:
+      consumes:
+      - application/json
+      description: The feedback author marks a thread validated or disputed (with
+        an optional reason). Disputing re-opens the thread.
+      parameters:
+      - description: Thread ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Validation outcome
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/portal.respondValidationRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.Thread'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Respond to a validation request
+      tags:
+      - Feedback
   /portal/threads/counts:
     get:
       description: Returns a map of target id to open-thread count for list-page badges.
@@ -9731,6 +9867,56 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Count open threads per target
+      tags:
+      - Feedback
+  /portal/worklist/practitioner:
+    get:
+      description: Open, resolution-required feedback threads across every artifact
+        the caller owns or can edit.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.paginatedResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Practitioner worklist
+      tags:
+      - Feedback
+  /portal/worklist/sme:
+    get:
+      description: Threads awaiting the caller's validation (validation requests routed
+        back to the feedback author).
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.paginatedResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: SME validation worklist
       tags:
       - Feedback
   /resources:

@@ -1707,6 +1707,12 @@ Human feedback threads on portal artifacts connect to the knowledge loop: an age
 - **`manage_artifact` thread actions** (no new tools): `list_threads` (filter by target, status, `requires_resolution`, `validation_state`), `get_thread`, `reply_thread`, `resolve_thread`, `request_validation`. Scoped to artifacts the caller owns or can edit; admins see all; standalone threads are readable by any authenticated caller and moderated by the thread author or an admin.
 - **`GET /api/v1/portal/threads/{id}/chain`** returns a thread's resolved chain: its `insight_id` and the changesets that insight produced (each with `target_urn`, `change_type`, rollback state). The portal feedback panel renders this as a "Knowledge chain" section.
 
+### Validation & sign-off (Phase 3)
+
+- **Validation response**: after `request_validation` routes a request to the feedback author, that author confirms or disputes it via `manage_artifact action=respond_validation` (`validation_result` = `validated`|`disputed`, optional `validation_reason`) or `POST /api/v1/portal/threads/{id}/validation`. Both append a `validation_result` event and set `validation_state`; **disputing re-opens the thread**. Only the author (or an admin) may respond.
+- **Worklists**: `GET /api/v1/portal/worklist/practitioner` (open resolution-required threads across artifacts the caller owns/can edit) and `GET /api/v1/portal/worklist/sme` (threads awaiting the caller's validation).
+- **Sign-off**: `GET /api/v1/portal/assets/{id}/signoff` and `.../collections/{id}/signoff` return `signed_off` of `stakeholders` (N = distinct approvers; M = owner + active share grantees), rendered as "signed off by N of M".
+
 ## apply_knowledge Tool
 
 Admin-only tool for reviewing and applying captured insights. Requires the `admin` persona.

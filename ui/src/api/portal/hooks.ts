@@ -34,7 +34,7 @@ import type {
   ThreadAnchor,
   ThreadChain,
   ThreadCounts,
-  ValidationState,
+  SignoffSummary,
 } from "./types";
 
 // --- Branding (unauthenticated) ---
@@ -899,6 +899,55 @@ export function useThreadEvents(id: string) {
   });
 }
 
+// Worklists / inbox (#603). Practitioner = open resolution-required threads on
+// my artifacts; SME = threads awaiting my validation.
+export function usePractitionerWorklist(enabled = true) {
+  return useQuery({
+    queryKey: ["worklist", "practitioner"],
+    queryFn: () => apiFetch<PaginatedResponse<ThreadWithMeta>>(`/worklist/practitioner`),
+    enabled,
+  });
+}
+
+export function useSMEWorklist(enabled = true) {
+  return useQuery({
+    queryKey: ["worklist", "sme"],
+    queryFn: () => apiFetch<PaginatedResponse<ThreadWithMeta>>(`/worklist/sme`),
+    enabled,
+  });
+}
+
+// useSignoff fetches "signed off by N of M" for an asset or collection (#603).
+export function useSignoff(targetType: "assets" | "collections", id: string, enabled = true) {
+  return useQuery({
+    queryKey: ["signoff", targetType, id],
+    queryFn: () => apiFetch<SignoffSummary>(`/${targetType}/${id}/signoff`),
+    enabled: !!id && enabled,
+  });
+}
+
+// useRespondValidation lets the feedback author mark a thread validated/disputed
+// (#603). Disputing re-opens the thread server-side.
+export function useRespondValidation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      threadId,
+      result,
+      reason,
+    }: {
+      threadId: string;
+      result: "validated" | "disputed";
+      reason?: string;
+    }) =>
+      apiFetch<Thread>(`/threads/${threadId}/validation`, {
+        method: "POST",
+        body: JSON.stringify({ result, reason }),
+      }),
+    onSuccess: () => invalidateThreadQueries(qc),
+  });
+}
+
 // useThreadChain fetches the resolved thread -> insight -> changeset chain
 // (#602). Only enabled once a thread has been linked to an insight; an
 // unlinked thread has nothing to show and we avoid the round-trip.
@@ -984,7 +1033,8 @@ export interface UpdateThreadInput {
   id: string;
   status?: ThreadStatus;
   requires_resolution?: boolean;
-  validation_state?: ValidationState;
+  // validation_state is intentionally not settable via the generic update:
+  // validation transitions go through useRespondValidation (#603).
 }
 
 export function useUpdateThread() {

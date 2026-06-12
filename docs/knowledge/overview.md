@@ -207,6 +207,19 @@ Both fields are omitted entirely when `thread_ids` is not supplied, so a capture
 
 **Reading the chain.** `GET /api/v1/portal/threads/{id}/chain` returns the resolved chain for a thread: its `insight_id` and the changesets that insight produced (each with `target_urn`, `change_type`, and rollback state). The portal feedback panel renders this as a "Knowledge chain" section on a resolved thread.
 
+## Validation & Sign-off
+
+The loop closes with SME validation and worklists so nothing is dropped.
+
+**Validation response.** After `request_validation` routes a request to the feedback author, that author confirms or disputes it: `manage_artifact action=respond_validation` (with `validation_result` = `validated`|`disputed` and an optional `validation_reason`), or `POST /api/v1/portal/threads/{id}/validation` from the portal. Both record a `validation_result` event and set `validation_state`; **disputing re-opens the thread** so it returns to the practitioner worklist. Only the feedback author (or an admin) may respond.
+
+**Worklists / inbox.** Two self-scoped views:
+
+- `GET /api/v1/portal/worklist/practitioner` — open, resolution-required threads across every artifact the caller owns or can edit.
+- `GET /api/v1/portal/worklist/sme` — threads awaiting the caller's validation (validation requests routed back to them).
+
+**Sign-off aggregation.** `GET /api/v1/portal/assets/{id}/signoff` and `.../collections/{id}/signoff` return `signed_off` (N: distinct users who left an approval event on the artifact's threads) of `stakeholders` (M: the owner plus active share grantees). The portal renders this as "signed off by N of M".
+
 ## AI Agent Guidance
 
 The toolkit registers an MCP prompt called `knowledge_capture_guidance` that tells AI assistants when to capture insights. The prompt covers:

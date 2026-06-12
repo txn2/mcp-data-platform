@@ -130,6 +130,48 @@ func (t *Toolkit) handleRequestValidation(ctx context.Context, input manageArtif
 	return jsonResult(map[string]any{"thread_id": thread.ID, "validation_state": portal.ValidationStatePending})
 }
 
+// handleRespondValidation records the SME's answer to a validation request.
+// Unlike the other moderation actions, the responder is the original feedback
+// author (the SME the request was routed to), not the artifact owner.
+func (t *Toolkit) handleRespondValidation(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
+	if t.threadStore == nil {
+		return errorResult(threadsUnavail), nil, nil
+	}
+	if input.ThreadID == "" {
+		return errorResult("thread_id is required"), nil, nil
+	}
+	if input.ValidationResult != portal.ValidationStateValidated && input.ValidationResult != portal.ValidationStateDisputed {
+		return errorResult("validation_result must be 'validated' or 'disputed'"), nil, nil
+	}
+	thread, err := t.threadStore.GetThread(ctx, input.ThreadID)
+	if err != nil {
+		return errorResult("thread not found: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol: tool errors are returned in CallToolResult.IsError
+	}
+	if !t.callerIsThreadAuthor(ctx, thread) {
+		return errorResult("only the feedback author can respond to a validation request"), nil, nil
+	}
+	resp := portal.ValidationResponse{Result: input.ValidationResult, Reason: input.ValidationReason}
+	if err := t.threadStore.RespondValidation(ctx, thread.ID, resp, resolveOwnerID(ctx), resolveOwnerEmail(ctx)); err != nil {
+		return errorResult("failed to respond to validation: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol: tool errors are returned in CallToolResult.IsError
+	}
+	return jsonResult(map[string]any{"thread_id": thread.ID, "validation_state": input.ValidationResult})
+}
+
+// callerIsThreadAuthor reports whether the caller authored the thread (or is an
+// admin). Fails closed for the anonymous sentinel so an unauthenticated caller
+// cannot match an anonymously-authored thread.
+func (t *Toolkit) callerIsThreadAuthor(ctx context.Context, thread *portal.Thread) bool {
+	if t.isAdmin(ctx) {
+		return true
+	}
+	actorID := resolveOwnerID(ctx)
+	if actorID == anonymousUserName {
+		return false
+	}
+	return thread.AuthorID == actorID ||
+		(thread.AuthorEmail != "" && strings.EqualFold(thread.AuthorEmail, resolveOwnerEmail(ctx)))
+}
+
 // LinkInsight implements the knowledge ThreadLinker bridge with authorization.
 // capture_insight calls this with the thread_ids an insight resolves. The agent
 // surface must not be able to resolve a thread it could not resolve through

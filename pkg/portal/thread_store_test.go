@@ -404,6 +404,95 @@ func TestThreadStoreRequestValidation(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestThreadStoreRespondValidation(t *testing.T) {
+	t.Run("validated leaves status unchanged", func(t *testing.T) {
+		store, mock := newThreadStoreMock(t)
+		mock.ExpectBegin()
+		mock.ExpectExec("UPDATE portal_threads SET validation_state = \\$1, updated_at").
+			WithArgs(ValidationStateValidated, "thr_1", ValidationStatePending).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectExec("INSERT INTO portal_thread_events").WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectCommit()
+		err := store.RespondValidation(context.Background(), "thr_1",
+			ValidationResponse{Result: ValidationStateValidated}, "sme", "sme@example.com")
+		require.NoError(t, err)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("disputed re-opens the thread", func(t *testing.T) {
+		store, mock := newThreadStoreMock(t)
+		mock.ExpectBegin()
+		// Disputing sets validation_state AND status=open in the same update.
+		mock.ExpectExec("UPDATE portal_threads SET validation_state = \\$1, status = \\$2").
+			WithArgs(ValidationStateDisputed, ThreadStatusOpen, "thr_1", ValidationStatePending).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectExec("INSERT INTO portal_thread_events").WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectCommit()
+		err := store.RespondValidation(context.Background(), "thr_1",
+			ValidationResponse{Result: ValidationStateDisputed, Reason: "still wrong"}, "sme", "sme@example.com")
+		require.NoError(t, err)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		store, mock := newThreadStoreMock(t)
+		mock.ExpectBegin()
+		mock.ExpectExec("UPDATE portal_threads SET validation_state").
+			WithArgs(ValidationStateValidated, "missing", ValidationStatePending).
+			WillReturnResult(sqlmock.NewResult(0, 0))
+		mock.ExpectRollback()
+		err := store.RespondValidation(context.Background(), "missing",
+			ValidationResponse{Result: ValidationStateValidated}, "sme", "sme@example.com")
+		require.Error(t, err)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("begin error", func(t *testing.T) {
+		store, mock := newThreadStoreMock(t)
+		mock.ExpectBegin().WillReturnError(errors.New("begin boom"))
+		require.Error(t, store.RespondValidation(context.Background(), "t1",
+			ValidationResponse{Result: ValidationStateValidated}, "sme", "sme@example.com"))
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("commit error", func(t *testing.T) {
+		store, mock := newThreadStoreMock(t)
+		mock.ExpectBegin()
+		mock.ExpectExec("UPDATE portal_threads SET validation_state").
+			WithArgs(ValidationStateValidated, "t1", ValidationStatePending).
+			WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectExec("INSERT INTO portal_thread_events").WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectCommit().WillReturnError(errors.New("commit boom"))
+		require.Error(t, store.RespondValidation(context.Background(), "t1",
+			ValidationResponse{Result: ValidationStateValidated}, "sme", "sme@example.com"))
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+}
+
+func TestThreadStoreCountSignoffs(t *testing.T) {
+	store, mock := newThreadStoreMock(t)
+	mock.ExpectQuery("SELECT COUNT\\(DISTINCT e.author_id\\)").
+		WithArgs("asset_1", EventTypeApproval).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3))
+	n, err := store.CountSignoffs(context.Background(), "asset", "asset_1")
+	require.NoError(t, err)
+	assert.Equal(t, 3, n)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestThreadStoreCountSignoffsBadTarget(t *testing.T) {
+	store, _ := newThreadStoreMock(t)
+	_, err := store.CountSignoffs(context.Background(), "bogus", "x")
+	require.Error(t, err)
+}
+
+func TestValidationResultMetadata(t *testing.T) {
+	assert.JSONEq(t, `{"result":"validated"}`,
+		string(validationResultMetadata(ValidationResponse{Result: ValidationStateValidated})))
+	assert.JSONEq(t, `{"result":"disputed","reason":"no"}`,
+		string(validationResultMetadata(ValidationResponse{Result: ValidationStateDisputed, Reason: "no"})))
+}
+
 func TestThreadStoreRequestValidationNotFound(t *testing.T) {
 	store, mock := newThreadStoreMock(t)
 	mock.ExpectBegin()

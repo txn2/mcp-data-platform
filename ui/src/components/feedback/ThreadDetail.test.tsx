@@ -8,6 +8,7 @@ vi.mock("@/api/portal/hooks", () => ({
   useAppendThreadEvent: vi.fn(() => ({ mutate: vi.fn(), isPending: false, isError: false })),
   useUpdateThread: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useDeleteThread: vi.fn(() => ({ mutate: vi.fn(), isPending: false, isError: false })),
+  useRespondValidation: vi.fn(() => ({ mutate: vi.fn(), isPending: false, isError: false })),
 }));
 
 vi.mock("@/stores/auth", () => ({
@@ -15,11 +16,13 @@ vi.mock("@/stores/auth", () => ({
     sel({ user: { email: "viewer@example.com", is_admin: false } }),
 }));
 
+import { fireEvent } from "@testing-library/react";
 import { ThreadDetail } from "./ThreadDetail";
-import { useThread, useThreadChain } from "@/api/portal/hooks";
+import { useThread, useThreadChain, useRespondValidation } from "@/api/portal/hooks";
 
 const mockUseThread = vi.mocked(useThread);
 const mockUseThreadChain = vi.mocked(useThreadChain);
+const mockUseRespondValidation = vi.mocked(useRespondValidation);
 
 function baseThread(overrides: Record<string, unknown> = {}) {
   return {
@@ -86,5 +89,34 @@ describe("ThreadDetail knowledge chain", () => {
     render(<ThreadDetail threadId="t1" canModerate={false} onBack={() => {}} onDeleted={() => {}} />);
 
     expect(screen.getByText(/no catalog changes applied/i)).toBeInTheDocument();
+  });
+});
+
+describe("ThreadDetail validation control (#603)", () => {
+  it("lets the feedback author validate or dispute a pending request", () => {
+    const respond = vi.fn();
+    mockUseRespondValidation.mockReturnValue({ mutate: respond, isPending: false, isError: false } as never);
+    mockUseThreadChain.mockReturnValue({ data: undefined, isLoading: false } as never);
+    // Author matches the mocked auth user; validation is pending.
+    mockUseThread.mockReturnValue({
+      data: baseThread({ author_email: "viewer@example.com", validation_state: "pending" }),
+    } as never);
+
+    render(<ThreadDetail threadId="t1" canModerate={false} onBack={() => {}} onDeleted={() => {}} />);
+
+    expect(screen.getByText(/your validation was requested/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /validate/i }));
+    expect(respond).toHaveBeenCalledWith({ threadId: "t1", result: "validated", reason: undefined });
+  });
+
+  it("hides the control when the viewer is not the author", () => {
+    mockUseRespondValidation.mockReturnValue({ mutate: vi.fn(), isPending: false, isError: false } as never);
+    mockUseThreadChain.mockReturnValue({ data: undefined, isLoading: false } as never);
+    mockUseThread.mockReturnValue({
+      data: baseThread({ author_email: "someone-else@example.com", validation_state: "pending" }),
+    } as never);
+
+    render(<ThreadDetail threadId="t1" canModerate={false} onBack={() => {}} onDeleted={() => {}} />);
+    expect(screen.queryByText(/your validation was requested/i)).not.toBeInTheDocument();
   });
 });

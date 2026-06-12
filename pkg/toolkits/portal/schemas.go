@@ -43,7 +43,7 @@ var manageArtifactSchema = json.RawMessage(`{
   "properties": {
     "action": {
       "type": "string",
-      "description": "Action to perform. Asset actions: list, get, update, delete, list_versions, revert, search. Collection actions: create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections. Feedback actions: list_threads (scope by asset_id/collection_id/prompt_id or target_type=standalone; optional status/validation_state/requires_resolution filters), get_thread, reply_thread, resolve_thread, request_validation"
+      "description": "Action to perform. Asset actions: list, get, update, delete, list_versions, revert, search. Collection actions: create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections. Feedback actions: list_threads (scope by asset_id/collection_id/prompt_id or target_type=standalone; optional status/validation_state/requires_resolution filters), get_thread, reply_thread, resolve_thread, request_validation, respond_validation (the feedback author records validated/disputed via validation_result)"
     },
     "asset_id": {
       "type": "string",
@@ -156,6 +156,15 @@ var manageArtifactSchema = json.RawMessage(`{
     "requires_resolution": {
       "type": "boolean",
       "description": "Filter list_threads to threads that do (true) or do not (false) require resolution"
+    },
+    "validation_result": {
+      "type": "string",
+      "enum": ["validated", "disputed"],
+      "description": "For respond_validation: the SME's outcome on a validation request"
+    },
+    "validation_reason": {
+      "type": "string",
+      "description": "For respond_validation: optional reason, recorded on the validation_result event (useful when disputed)"
     }
   }
 }`)

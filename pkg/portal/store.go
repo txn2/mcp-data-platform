@@ -732,6 +732,7 @@ func (s *postgresShareStore) ListSharedWithUser(ctx context.Context, userID, ema
 		JOIN portal_assets pa ON ps.asset_id = pa.id
 		WHERE (ps.shared_with_user_id = $1 OR ($2 != '' AND LOWER(ps.shared_with_email) = LOWER($2)))
 		  AND ps.revoked = FALSE AND pa.deleted_at IS NULL
+		  AND (ps.expires_at IS NULL OR ps.expires_at > NOW())
 	`
 	var total int
 	if err := s.db.QueryRowContext(ctx, countQuery, userID, email).Scan(&total); err != nil { //nolint:gosec // query is a constant with parameterized placeholders
@@ -755,6 +756,7 @@ func (s *postgresShareStore) ListSharedWithUser(ctx context.Context, userID, ema
 		JOIN portal_assets pa ON ps.asset_id = pa.id
 		WHERE (ps.shared_with_user_id = $1 OR ($2 != '' AND LOWER(ps.shared_with_email) = LOWER($2)))
 		  AND ps.revoked = FALSE AND pa.deleted_at IS NULL
+		  AND (ps.expires_at IS NULL OR ps.expires_at > NOW())
 		ORDER BY ps.created_at DESC
 		LIMIT $3 OFFSET $4
 	`
@@ -841,6 +843,7 @@ func (s *postgresShareStore) ListSharedCollectionsWithUser(ctx context.Context, 
 		JOIN portal_collections pc ON ps.collection_id = pc.id
 		WHERE (ps.shared_with_user_id = $1 OR ($2 != '' AND LOWER(ps.shared_with_email) = LOWER($2)))
 		  AND ps.revoked = FALSE AND pc.deleted_at IS NULL
+		  AND (ps.expires_at IS NULL OR ps.expires_at > NOW())
 	`
 	var total int
 	if err := s.db.QueryRowContext(ctx, countQuery, userID, email).Scan(&total); err != nil { //nolint:gosec // constant query
@@ -862,6 +865,7 @@ func (s *postgresShareStore) ListSharedCollectionsWithUser(ctx context.Context, 
 		JOIN portal_collections pc ON ps.collection_id = pc.id
 		WHERE (ps.shared_with_user_id = $1 OR ($2 != '' AND LOWER(ps.shared_with_email) = LOWER($2)))
 		  AND ps.revoked = FALSE AND pc.deleted_at IS NULL
+		  AND (ps.expires_at IS NULL OR ps.expires_at > NOW())
 		ORDER BY ps.created_at DESC
 		LIMIT $3 OFFSET $4
 	`

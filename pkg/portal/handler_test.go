@@ -71,6 +71,8 @@ type mockShareStore struct {
 	getByTokenErr  error
 	listByAsset    []Share
 	listByAssetE   error
+	listByColl     []Share
+	listByCollE    error
 	sharedWithRes  []SharedAsset
 	sharedWithTot  int
 	sharedWithErr  error
@@ -117,8 +119,8 @@ func (m *mockShareStore) ListActiveShareSummaries(_ context.Context, _ []string)
 	return m.summaries, m.summariesErr
 }
 
-func (*mockShareStore) ListByCollection(_ context.Context, _ string) ([]Share, error) {
-	return nil, nil
+func (m *mockShareStore) ListByCollection(_ context.Context, _ string) ([]Share, error) {
+	return m.listByColl, m.listByCollE
 }
 
 func (m *mockShareStore) ListByPrompt(_ context.Context, _ string) ([]Share, error) {
