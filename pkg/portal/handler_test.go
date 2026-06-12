@@ -887,6 +887,42 @@ func TestUpdateAssetNotOwner(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, w.Code)
 }
 
+func TestUpdateAssetEditorShareAllowed(t *testing.T) {
+	// A non-owner with an active editor share may update metadata (#611).
+	asset := &Asset{ID: "a1", OwnerID: "other"}
+	shares := &mockShareStore{listByAsset: []Share{{SharedWithUserID: "u1", Permission: PermissionEditor}}}
+	h := newTestHandler(&mockAssetStore{getAsset: asset}, shares, &mockS3Client{}, &User{UserID: "u1"})
+
+	body := `{"name":"Edited by editor","description":"d","tags":["t"]}`
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestUpdateAssetViewerShareDenied(t *testing.T) {
+	// A viewer share is not enough to edit metadata.
+	asset := &Asset{ID: "a1", OwnerID: "other"}
+	shares := &mockShareStore{listByAsset: []Share{{SharedWithUserID: "u1", Permission: PermissionViewer}}}
+	h := newTestHandler(&mockAssetStore{getAsset: asset}, shares, &mockS3Client{}, &User{UserID: "u1"})
+
+	body := `{"name":"x"}`
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestUpdateAssetDeleted(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{ID: "a1", OwnerID: "u1", DeletedAt: &now}
+	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1", strings.NewReader(`{"name":"x"}`))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusGone, w.Code)
+}
+
 func TestUpdateAssetNotFound(t *testing.T) {
 	h := newTestHandler(
 		&mockAssetStore{getErr: fmt.Errorf("not found")},

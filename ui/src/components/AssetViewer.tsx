@@ -490,7 +490,7 @@ export function AssetViewer({
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-medium">Details</h3>
-                  {isOwner && (
+                  {(isOwner || isSharedEditor) && (
                     <button
                       type="button"
                       onClick={startEdit}
