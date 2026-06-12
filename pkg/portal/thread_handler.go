@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
 
 const (
@@ -36,6 +38,7 @@ func (h *Handler) registerThreadRoutes() {
 	h.mux.HandleFunc("PATCH /api/v1/portal/threads/{id}", h.updateThread)
 	h.mux.HandleFunc("DELETE /api/v1/portal/threads/{id}", h.deleteThread)
 	h.mux.HandleFunc("GET /api/v1/portal/threads/{id}/events", h.listThreadEvents)
+	h.mux.HandleFunc("GET /api/v1/portal/threads/{id}/chain", h.getThreadChain)
 	h.mux.HandleFunc("POST /api/v1/portal/threads/{id}/events", h.appendThreadEvent)
 }
 
@@ -255,6 +258,67 @@ func (h *Handler) listThreadEvents(w http.ResponseWriter, r *http.Request) {
 		events = []ThreadEvent{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": events})
+}
+
+// threadChainChangeset is the changeset view surfaced on a thread's chain.
+type threadChainChangeset struct {
+	ID         string    `json:"id"`
+	TargetURN  string    `json:"target_urn"`
+	ChangeType string    `json:"change_type"`
+	CreatedAt  time.Time `json:"created_at"`
+	RolledBack bool      `json:"rolled_back"`
+}
+
+// threadChainResponse is the resolved knowledge chain for a thread: the insight
+// it was captured into and the changeset(s) that applied that insight.
+type threadChainResponse struct {
+	ThreadID   string                 `json:"thread_id"`
+	InsightID  string                 `json:"insight_id,omitempty"`
+	Changesets []threadChainChangeset `json:"changesets"`
+}
+
+// getThreadChain handles GET /api/v1/portal/threads/{id}/chain.
+//
+// @Summary      Resolve a thread's knowledge chain
+// @Description  Returns the insight a thread was captured into and the changeset(s) that applied it (thread -> insight -> changeset -> target_urn).
+// @Tags         Feedback
+// @Produce      json
+// @Param        id  path  string  true  "Thread ID"
+// @Success      200  {object}  threadChainResponse
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/threads/{id}/chain [get]
+func (h *Handler) getThreadChain(w http.ResponseWriter, r *http.Request) {
+	_, thread := h.loadThreadForRead(w, r)
+	if thread == nil {
+		return
+	}
+	resp := threadChainResponse{
+		ThreadID:   thread.ID,
+		InsightID:  thread.InsightID,
+		Changesets: []threadChainChangeset{},
+	}
+	if thread.InsightID != "" && h.deps.ChangesetReader != nil {
+		changesets, _, err := h.deps.ChangesetReader.ListChangesets(r.Context(),
+			knowledge.ChangesetFilter{SourceInsightID: thread.InsightID})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to load changesets")
+			return
+		}
+		for _, cs := range changesets {
+			resp.Changesets = append(resp.Changesets, threadChainChangeset{
+				ID:         cs.ID,
+				TargetURN:  cs.TargetURN,
+				ChangeType: cs.ChangeType,
+				CreatedAt:  cs.CreatedAt,
+				RolledBack: cs.RolledBack,
+			})
+		}
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // appendThreadEvent handles POST /api/v1/portal/threads/{id}/events.

@@ -889,6 +889,9 @@ func wirePortalOptionalDeps(deps *portal.Deps, p *platform.Platform) {
 	if p.KnowledgeInsightStore() != nil {
 		deps.InsightStore = p.KnowledgeInsightStore()
 	}
+	if p.KnowledgeChangesetStore() != nil {
+		deps.ChangesetReader = p.KnowledgeChangesetStore()
+	}
 	if p.MemoryStore() != nil {
 		deps.MemoryStore = p.MemoryStore()
 	}

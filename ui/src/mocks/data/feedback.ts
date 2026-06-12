@@ -75,6 +75,26 @@ export const mockThreads: ThreadWithMeta[] = [
     last_event_at: "2026-06-05T08:30:00Z",
     last_event_type: "comment",
   },
+  // Resolved by a captured insight: demonstrates the thread -> insight ->
+  // changeset knowledge chain (#602). Resolved, so it does not add to open counts.
+  {
+    id: "thr-asset-3",
+    kind: "correction",
+    target_type: "asset",
+    asset_id: "ast-001",
+    title: "Churn is actually retention",
+    author_id: SME,
+    author_email: SME,
+    status: "resolved",
+    requires_resolution: true,
+    validation_state: "none",
+    insight_id: "ins_7f3a9b2c1d4e",
+    created_at: "2026-06-04T13:00:00Z",
+    updated_at: "2026-06-04T18:45:00Z",
+    event_count: 2,
+    last_event_at: "2026-06-04T18:45:00Z",
+    last_event_type: "insight_linked",
+  },
 ];
 
 export const mockThreadEvents: Record<string, ThreadEvent[]> = {
@@ -93,4 +113,29 @@ export const mockThreadEvents: Record<string, ThreadEvent[]> = {
   "thr-standalone-1": [
     { id: "evt-s1-1", thread_id: "thr-standalone-1", event_type: "comment", author_id: SME, author_email: SME, body: "The Monday refresh landed Tuesday again this week.", created_at: "2026-06-05T08:30:00Z" },
   ],
+  "thr-asset-3": [
+    { id: "evt-a3-1", thread_id: "thr-asset-3", event_type: "comment", author_id: SME, author_email: SME, body: "The 'churn' column measures monthly active retention, not churn.", created_at: "2026-06-04T13:00:00Z" },
+    { id: "evt-a3-2", thread_id: "thr-asset-3", event_type: "insight_linked", author_id: ME, author_email: ME, created_at: "2026-06-04T18:45:00Z" },
+  ],
+};
+
+// Resolved knowledge chains keyed by thread id (#602). Returned by
+// GET /threads/:id/chain; threads without an entry resolve to an empty chain.
+export const mockThreadChains: Record<
+  string,
+  { thread_id: string; insight_id?: string; changesets: { id: string; target_urn: string; change_type: string; created_at: string; rolled_back: boolean }[] }
+> = {
+  "thr-asset-3": {
+    thread_id: "thr-asset-3",
+    insight_id: "ins_7f3a9b2c1d4e",
+    changesets: [
+      {
+        id: "cs_9a8b7c6d5e4f",
+        target_urn: "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.churn,PROD)",
+        change_type: "update_description",
+        created_at: "2026-06-04T18:45:00Z",
+        rolled_back: false,
+      },
+    ],
+  },
 };

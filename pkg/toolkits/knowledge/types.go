@@ -385,13 +385,16 @@ type Changeset struct {
 
 // ChangesetFilter defines filtering criteria for listing changesets.
 type ChangesetFilter struct {
-	EntityURN  string
-	AppliedBy  string
-	Since      *time.Time
-	Until      *time.Time
-	RolledBack *bool
-	Limit      int
-	Offset     int
+	EntityURN string
+	AppliedBy string
+	// SourceInsightID filters to changesets whose source_insight_ids array
+	// contains this insight id (the thread -> insight -> changeset bridge).
+	SourceInsightID string
+	Since           *time.Time
+	Until           *time.Time
+	RolledBack      *bool
+	Limit           int
+	Offset          int
 }
 
 // EffectiveLimit returns the limit to use, applying defaults and caps.

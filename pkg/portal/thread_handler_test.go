@@ -19,24 +19,30 @@ import (
 
 // mockThreadStore is a controllable ThreadStore for handler tests.
 type mockThreadStore struct {
-	created      *Thread
-	createErr    error
-	listResult   []ThreadWithMeta
-	listTotal    int
-	listErr      error
-	getResult    *Thread
-	getErr       error
-	events       []ThreadEvent
-	eventsErr    error
-	appended     *ThreadEvent
-	appendErr    error
-	updateErr    error
-	lastUpdate   *ThreadUpdate
-	deleteErr    error
-	counts       map[string]int
-	countErr     error
-	lastCountIDs []string
-	lastCreated  *Thread
+	created           *Thread
+	createErr         error
+	listResult        []ThreadWithMeta
+	listTotal         int
+	listErr           error
+	getResult         *Thread
+	getErr            error
+	events            []ThreadEvent
+	eventsErr         error
+	appended          *ThreadEvent
+	appendErr         error
+	updateErr         error
+	lastUpdate        *ThreadUpdate
+	deleteErr         error
+	counts            map[string]int
+	countErr          error
+	lastCountIDs      []string
+	linkedThreadIDs   []string
+	linkedInsightID   string
+	linkedReturn      []string
+	linkErr           error
+	validatedThreadID string
+	validateErr       error
+	lastCreated       *Thread
 }
 
 func (m *mockThreadStore) CreateThread(_ context.Context, t Thread, _ ThreadEvent) (*Thread, error) {
@@ -82,6 +88,23 @@ func (m *mockThreadStore) SoftDeleteThread(_ context.Context, _ string) error { 
 func (m *mockThreadStore) CountOpenByTargets(_ context.Context, _ string, ids []string) (map[string]int, error) {
 	m.lastCountIDs = ids
 	return m.counts, m.countErr
+}
+
+func (m *mockThreadStore) LinkInsight(_ context.Context, threadIDs []string, insightID, _, _ string) ([]string, error) {
+	m.linkedThreadIDs = threadIDs
+	m.linkedInsightID = insightID
+	if m.linkErr != nil {
+		return nil, m.linkErr
+	}
+	if m.linkedReturn != nil {
+		return m.linkedReturn, nil
+	}
+	return threadIDs, nil
+}
+
+func (m *mockThreadStore) RequestValidation(_ context.Context, id, _, _ string) error {
+	m.validatedThreadID = id
+	return m.validateErr
 }
 
 func newThreadTestHandler(threads *mockThreadStore, assets *mockAssetStore, shares *mockShareStore, user *User) *Handler {

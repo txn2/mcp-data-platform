@@ -188,6 +188,7 @@ type Platform struct {
 	// Knowledge stores (exposed for admin API)
 	knowledgeInsightStore   knowledgekit.InsightStore
 	knowledgeChangesetStore knowledgekit.ChangesetStore
+	knowledgeToolkit        *knowledgekit.Toolkit
 	knowledgeDataHubWriter  knowledgekit.DataHubWriter
 
 	// Memory layer
@@ -219,6 +220,7 @@ type Platform struct {
 	portalVersionStore      portal.VersionStore
 	portalCollectionStore   portal.CollectionStore
 	portalThreadStore       portal.ThreadStore
+	portalToolkit           *portalkit.Toolkit
 	portalS3Client          portal.S3Client
 	provenanceTracker       *middleware.ProvenanceTracker
 	resolvedBrandLogoSVG    string // cached SVG from portal.logo or mcpapps config
@@ -353,6 +355,14 @@ func (p *Platform) initExtensions() error {
 	}
 	if err := p.initPortal(); err != nil {
 		return err
+	}
+	// Bridge feedback threads into capture_insight (Phase 2 / #602). The linker
+	// is the portal toolkit, not the raw thread store, so capture_insight's
+	// thread linking is gated by the same owns-or-edit access check as
+	// resolve_thread (the toolkit authorizes each thread before linking).
+	// Portal creates the toolkit, so this is wired after both init.
+	if p.knowledgeToolkit != nil && p.portalToolkit != nil {
+		p.knowledgeToolkit.SetThreadLinker(p.portalToolkit)
 	}
 	if err := p.initManagedResources(); err != nil {
 		return err
@@ -1527,6 +1537,7 @@ func (p *Platform) initKnowledge() error {
 	if err != nil {
 		return fmt.Errorf("creating knowledge toolkit: %w", err)
 	}
+	p.knowledgeToolkit = tk
 
 	// Wire memory store for embedding generation on capture_insight.
 	if p.memoryStore != nil && p.embeddingProv != nil {
@@ -1642,6 +1653,7 @@ func (p *Platform) initPortal() error {
 		ShareStore:      p.portalShareStore,
 		VersionStore:    p.portalVersionStore,
 		CollectionStore: p.portalCollectionStore,
+		ThreadStore:     p.portalThreadStore,
 		S3Client:        s3Client,
 		S3Bucket:        p.config.Portal.S3Bucket,
 		S3Prefix:        p.config.Portal.S3Prefix,
@@ -1649,6 +1661,7 @@ func (p *Platform) initPortal() error {
 		MaxContentSize:  p.config.Portal.MaxContentSize,
 		Embedder:        p.embeddingProv,
 	})
+	p.portalToolkit = tk
 
 	if err := p.toolkitRegistry.Register(tk); err != nil {
 		return fmt.Errorf("registering portal toolkit: %w", err)

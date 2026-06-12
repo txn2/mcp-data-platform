@@ -43,7 +43,7 @@ var manageArtifactSchema = json.RawMessage(`{
   "properties": {
     "action": {
       "type": "string",
-      "description": "Action to perform. Asset actions: list, get, update, delete, list_versions, revert, search. Collection actions: create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections"
+      "description": "Action to perform. Asset actions: list, get, update, delete, list_versions, revert, search. Collection actions: create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections. Feedback actions: list_threads (scope by asset_id/collection_id/prompt_id or target_type=standalone; optional status/validation_state/requires_resolution filters), get_thread, reply_thread, resolve_thread, request_validation"
     },
     "asset_id": {
       "type": "string",
@@ -128,6 +128,34 @@ var manageArtifactSchema = json.RawMessage(`{
           }
         }
       }
+    },
+    "prompt_id": {
+      "type": "string",
+      "description": "Prompt ID target for list_threads (feedback on a prompt)"
+    },
+    "target_type": {
+      "type": "string",
+      "description": "Thread target scope for list_threads. Use 'standalone' for general feedback not tied to an artifact"
+    },
+    "thread_id": {
+      "type": "string",
+      "description": "Feedback thread ID (required for get_thread, reply_thread, resolve_thread, request_validation)"
+    },
+    "body": {
+      "type": "string",
+      "description": "Reply text (required for reply_thread)"
+    },
+    "status": {
+      "type": "string",
+      "description": "Filter list_threads by thread status (open, answered, resolved, wont_fix, acknowledged)"
+    },
+    "validation_state": {
+      "type": "string",
+      "description": "Filter list_threads by validation state (none, pending, validated, disputed)"
+    },
+    "requires_resolution": {
+      "type": "boolean",
+      "description": "Filter list_threads to threads that do (true) or do not (false) require resolution"
     }
   }
 }`)

@@ -54,6 +54,10 @@ type captureInsightInput struct {
 	EntityURNs       []string          `json:"entity_urns,omitempty"`
 	RelatedColumns   []RelatedColumn   `json:"related_columns,omitempty"`
 	SuggestedActions []SuggestedAction `json:"suggested_actions,omitempty"`
+	// ThreadIDs links this insight back to the feedback thread(s) it resolves
+	// (Phase 2 / #602). Each linked thread gets insight_id set, an
+	// insight_linked event, and a transition to resolved. Optional.
+	ThreadIDs []string `json:"thread_ids,omitempty"`
 }
 
 // captureInsightOutput is the success response.
@@ -61,6 +65,11 @@ type captureInsightOutput struct {
 	InsightID string `json:"insight_id"`
 	Status    string `json:"status"`
 	Message   string `json:"message"`
+	// LinkedThreadCount / UnlinkedThreadIDs report the outcome of the optional
+	// thread_ids bridge (Phase 2 / #602). Both are omitted when no thread_ids
+	// were supplied, so a capture without thread_ids is byte-for-byte unchanged.
+	LinkedThreadCount int      `json:"linked_thread_count,omitempty"`
+	UnlinkedThreadIDs []string `json:"unlinked_thread_ids,omitempty"`
 }
 
 // applyKnowledgeInput defines the input schema for the apply_knowledge tool.
@@ -101,6 +110,31 @@ type Toolkit struct {
 	queryProvider    query.Provider
 
 	promptCreator PromptCreator
+
+	// threadLinker bridges captured insights back to feedback threads
+	// (Phase 2 / #602). Optional; nil disables thread linking.
+	threadLinker ThreadLinker
+}
+
+// ThreadLinker links a captured insight back to the feedback thread(s) it
+// resolved. Satisfied by the portal thread store; kept as a minimal interface
+// here so the knowledge toolkit does not depend on the portal package.
+type ThreadLinker interface {
+	LinkInsight(ctx context.Context, threadIDs []string, insightID, actorID, actorEmail string) ([]string, error)
+}
+
+// SetThreadLinker wires the feedback-thread bridge used by capture_insight.
+func (t *Toolkit) SetThreadLinker(tl ThreadLinker) {
+	t.threadLinker = tl
+}
+
+// insightActor extracts the actor id/email recorded on the insight_linked
+// thread event from the platform context.
+func insightActor(pc *middleware.PlatformContext) (actorID, actorEmail string) {
+	if pc == nil {
+		return "", ""
+	}
+	return pc.UserID, pc.UserEmail
 }
 
 // New creates a new knowledge toolkit.
@@ -284,6 +318,27 @@ func (t *Toolkit) handleCaptureInsight(ctx context.Context, _ *mcp.CallToolReque
 		return errorResult("failed to save insight: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol: tool errors are returned in CallToolResult.IsError
 	}
 
+	// Bridge the insight back to any feedback threads it resolves (Phase 2).
+	// Best-effort: a thread-link failure must not fail the capture, since the
+	// insight is already persisted. The result reports which thread_ids actually
+	// linked so the agent can tell when a supplied id matched nothing.
+	linkedThreadCount := 0
+	var unlinkedThreadIDs []string
+	if t.threadLinker != nil && len(input.ThreadIDs) > 0 {
+		actorID, actorEmail := insightActor(pc)
+		linked, linkErr := t.threadLinker.LinkInsight(ctx, input.ThreadIDs, id, actorID, actorEmail)
+		if linkErr != nil {
+			slog.Warn("failed to link insight to threads", "id", id, "threads", input.ThreadIDs, "error", linkErr)
+			unlinkedThreadIDs = input.ThreadIDs
+		} else {
+			linkedThreadCount = len(linked)
+			unlinkedThreadIDs = missingFrom(input.ThreadIDs, linked)
+		}
+	} else if len(input.ThreadIDs) > 0 {
+		// thread_ids supplied but no linker wired: nothing linked.
+		unlinkedThreadIDs = input.ThreadIDs
+	}
+
 	// Generate embedding for the memory record only when a real
 	// provider is configured. Persisting a zero vector from the noop
 	// placeholder would falsely claim the row is semantically indexed
@@ -300,7 +355,25 @@ func (t *Toolkit) handleCaptureInsight(ctx context.Context, _ *mcp.CallToolReque
 	}
 
 	// Return success
-	return successResult(id)
+	return successResult(id, linkedThreadCount, unlinkedThreadIDs)
+}
+
+// missingFrom returns the entries of want that are not present in got.
+func missingFrom(want, got []string) []string {
+	if len(want) == 0 {
+		return nil
+	}
+	present := make(map[string]struct{}, len(got))
+	for _, g := range got {
+		present[g] = struct{}{}
+	}
+	var missing []string
+	for _, w := range want {
+		if _, ok := present[w]; !ok {
+			missing = append(missing, w)
+		}
+	}
+	return missing
 }
 
 // handleApplyKnowledge dispatches to the appropriate action handler.
@@ -1054,12 +1127,16 @@ func errorResult(msg string) *mcp.CallToolResult {
 	}
 }
 
-// successResult creates a success CallToolResult.
-func successResult(insightID string) (*mcp.CallToolResult, any, error) {
+// successResult creates a success CallToolResult. linkedThreadCount and
+// unlinkedThreadIDs report the optional thread_ids bridge outcome; both are
+// zero/nil (and omitted from the JSON) for a capture without thread_ids.
+func successResult(insightID string, linkedThreadCount int, unlinkedThreadIDs []string) (*mcp.CallToolResult, any, error) {
 	output := captureInsightOutput{
-		InsightID: insightID,
-		Status:    StatusPending,
-		Message:   "Insight captured. It will be reviewed by a data catalog administrator.",
+		InsightID:         insightID,
+		Status:            StatusPending,
+		Message:           "Insight captured. It will be reviewed by a data catalog administrator.",
+		LinkedThreadCount: linkedThreadCount,
+		UnlinkedThreadIDs: unlinkedThreadIDs,
 	}
 
 	data, err := json.Marshal(output)

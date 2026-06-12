@@ -58,6 +58,12 @@ type InsightReader interface {
 	Stats(ctx context.Context, filter knowledge.InsightFilter) (*knowledge.InsightStats, error)
 }
 
+// ChangesetReader provides read access to knowledge changesets, used to surface
+// the thread -> insight -> changeset chain on a feedback thread (Phase 2).
+type ChangesetReader interface {
+	ListChangesets(ctx context.Context, filter knowledge.ChangesetFilter) ([]knowledge.Changeset, int, error)
+}
+
 // MemoryReader provides read-only access to user memory records. The
 // search methods back the portal's per-user "my knowledge" search: both
 // queries are scoped to the caller via CreatedBy server-side, so a user
@@ -102,6 +108,7 @@ type Deps struct {
 	PromptInfoProvider PromptInfoProvider
 	AuditMetrics       AuditMetrics
 	InsightStore       InsightReader
+	ChangesetReader    ChangesetReader
 	MemoryStore        MemoryReader
 	EmbeddingProvider  embedding.Provider
 	PersonaResolver    PersonaResolver

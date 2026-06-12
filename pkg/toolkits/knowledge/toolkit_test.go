@@ -1140,7 +1140,7 @@ func TestErrorResult(t *testing.T) {
 }
 
 func TestSuccessResult(t *testing.T) {
-	result, _, err := successResult("abc123")
+	result, _, err := successResult("abc123", 0, nil)
 	require.Nil(t, err)
 	require.False(t, result.IsError)
 	require.NotEmpty(t, result.Content)

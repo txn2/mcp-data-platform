@@ -23,7 +23,7 @@ import { mockContent } from "./data/content";
 import { mockCollections, mockSharedCollections } from "./data/collections";
 import { mockAdminPrompts, mockPortalPrompts } from "./data/prompts";
 import { mockResources } from "./data/resources";
-import { mockThreads, mockThreadEvents } from "./data/feedback";
+import { mockThreads, mockThreadEvents, mockThreadChains } from "./data/feedback";
 import { mockAPIKeys } from "./data/keys";
 import {
   mockEffectiveConfig,
@@ -1624,6 +1624,15 @@ export const handlers = [
   http.get(`${PORTAL_BASE}/threads/:id/events`, ({ params }) =>
     HttpResponse.json({ data: portalThreadEvents[params.id as string] ?? [] }),
   ),
+
+  // Resolved knowledge chain for a thread (#602). Registered before
+  // /threads/:id so the static /chain segment is not swallowed.
+  http.get(`${PORTAL_BASE}/threads/:id/chain`, ({ params }) => {
+    const id = params.id as string;
+    return HttpResponse.json(
+      mockThreadChains[id] ?? { thread_id: id, insight_id: "", changesets: [] },
+    );
+  }),
 
   http.post(`${PORTAL_BASE}/threads/:id/events`, async ({ params, request }) => {
     const id = params.id as string;

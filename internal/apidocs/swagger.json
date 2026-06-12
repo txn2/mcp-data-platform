@@ -9857,6 +9857,61 @@
                 }
             }
         },
+        "/portal/threads/{id}/chain": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the insight a thread was captured into and the changeset(s) that applied it (thread -> insight -> changeset -> target_urn).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Feedback"
+                ],
+                "summary": "Resolve a thread's knowledge chain",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Thread ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.threadChainResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/threads/{id}/events": {
             "get": {
                 "security": [
@@ -14655,6 +14710,43 @@
                 "status": {
                     "type": "string",
                     "example": "updated"
+                }
+            }
+        },
+        "portal.threadChainChangeset": {
+            "type": "object",
+            "properties": {
+                "change_type": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "rolled_back": {
+                    "type": "boolean"
+                },
+                "target_urn": {
+                    "type": "string"
+                }
+            }
+        },
+        "portal.threadChainResponse": {
+            "type": "object",
+            "properties": {
+                "changesets": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portal.threadChainChangeset"
+                    }
+                },
+                "insight_id": {
+                    "type": "string"
+                },
+                "thread_id": {
+                    "type": "string"
                 }
             }
         },

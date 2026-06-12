@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -285,6 +286,145 @@ func TestTargetColumn(t *testing.T) {
 	}
 	_, err := targetColumn(targetTypeStandalone)
 	assert.Error(t, err)
+}
+
+func TestThreadStoreLinkInsight(t *testing.T) {
+	store, mock := newThreadStoreMock(t)
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE portal_threads SET insight_id").
+		WithArgs("ins_1", ThreadStatusResolved, "thr_1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO portal_thread_events").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("UPDATE portal_threads SET insight_id").
+		WithArgs("ins_1", ThreadStatusResolved, "thr_missing").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectCommit()
+
+	linked, err := store.LinkInsight(context.Background(), []string{"thr_1", "thr_missing"}, "ins_1", "u1", "u1@example.com")
+	require.NoError(t, err)
+	// thr_1 linked (1 row affected); thr_missing skipped (0 rows affected).
+	assert.Equal(t, []string{"thr_1"}, linked)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestThreadStoreLinkInsightNoop(t *testing.T) {
+	store, _ := newThreadStoreMock(t)
+	linked, err := store.LinkInsight(context.Background(), nil, "ins_1", "u", "e")
+	require.NoError(t, err)
+	assert.Nil(t, linked)
+	linked, err = store.LinkInsight(context.Background(), []string{"t"}, "", "u", "e")
+	require.NoError(t, err)
+	assert.Nil(t, linked)
+}
+
+func TestThreadStoreLinkInsightErrors(t *testing.T) {
+	t.Run("begin error", func(t *testing.T) {
+		store, mock := newThreadStoreMock(t)
+		mock.ExpectBegin().WillReturnError(errors.New("begin boom"))
+		_, err := store.LinkInsight(context.Background(), []string{"t1"}, "ins_1", "u", "e")
+		require.Error(t, err)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("update exec error", func(t *testing.T) {
+		store, mock := newThreadStoreMock(t)
+		mock.ExpectBegin()
+		mock.ExpectExec("UPDATE portal_threads SET insight_id").
+			WithArgs("ins_1", ThreadStatusResolved, "t1").
+			WillReturnError(errors.New("exec boom"))
+		mock.ExpectRollback()
+		_, err := store.LinkInsight(context.Background(), []string{"t1"}, "ins_1", "u", "e")
+		require.Error(t, err)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("commit error", func(t *testing.T) {
+		store, mock := newThreadStoreMock(t)
+		mock.ExpectBegin()
+		mock.ExpectExec("UPDATE portal_threads SET insight_id").
+			WithArgs("ins_1", ThreadStatusResolved, "t1").
+			WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectExec("INSERT INTO portal_thread_events").WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectCommit().WillReturnError(errors.New("commit boom"))
+		_, err := store.LinkInsight(context.Background(), []string{"t1"}, "ins_1", "u", "e")
+		require.Error(t, err)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+}
+
+func TestThreadStoreLinkInsightDeduplicates(t *testing.T) {
+	store, mock := newThreadStoreMock(t)
+	mock.ExpectBegin()
+	// A repeated id must produce exactly ONE update + one event, not two.
+	mock.ExpectExec("UPDATE portal_threads SET insight_id").
+		WithArgs("ins_1", ThreadStatusResolved, "thr_1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO portal_thread_events").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	linked, err := store.LinkInsight(context.Background(), []string{"thr_1", "thr_1"}, "ins_1", "u1", "u1@example.com")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"thr_1"}, linked)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestThreadStoreRequestValidationErrors(t *testing.T) {
+	t.Run("begin error", func(t *testing.T) {
+		store, mock := newThreadStoreMock(t)
+		mock.ExpectBegin().WillReturnError(errors.New("begin boom"))
+		require.Error(t, store.RequestValidation(context.Background(), "t1", "u", "e"))
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("commit error", func(t *testing.T) {
+		store, mock := newThreadStoreMock(t)
+		mock.ExpectBegin()
+		mock.ExpectExec("UPDATE portal_threads SET validation_state").
+			WithArgs(ValidationStatePending, "t1").
+			WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectExec("INSERT INTO portal_thread_events").WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectCommit().WillReturnError(errors.New("commit boom"))
+		require.Error(t, store.RequestValidation(context.Background(), "t1", "u", "e"))
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+}
+
+func TestThreadStoreRequestValidation(t *testing.T) {
+	store, mock := newThreadStoreMock(t)
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE portal_threads SET validation_state").
+		WithArgs(ValidationStatePending, "thr_1").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO portal_thread_events").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	require.NoError(t, store.RequestValidation(context.Background(), "thr_1", "u1", "u1@example.com"))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestThreadStoreRequestValidationNotFound(t *testing.T) {
+	store, mock := newThreadStoreMock(t)
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE portal_threads SET validation_state").
+		WithArgs(ValidationStatePending, "missing").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectRollback()
+	require.Error(t, store.RequestValidation(context.Background(), "missing", "u1", "u1@example.com"))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestInsightLinkedMetadata(t *testing.T) {
+	var m map[string]string
+	require.NoError(t, json.Unmarshal(insightLinkedMetadata("ins_9"), &m))
+	assert.Equal(t, "ins_9", m["insight_id"])
+}
+
+func TestNewThreadEventID(t *testing.T) {
+	id := NewThreadEventID()
+	assert.Contains(t, id, "evt_")
+	assert.NotEqual(t, id, NewThreadEventID())
 }
 
 // --- pure helpers ---
