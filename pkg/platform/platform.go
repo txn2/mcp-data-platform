@@ -220,6 +220,7 @@ type Platform struct {
 	portalVersionStore      portal.VersionStore
 	portalCollectionStore   portal.CollectionStore
 	portalThreadStore       portal.ThreadStore
+	portalToolkit           *portalkit.Toolkit
 	portalS3Client          portal.S3Client
 	provenanceTracker       *middleware.ProvenanceTracker
 	resolvedBrandLogoSVG    string // cached SVG from portal.logo or mcpapps config
@@ -355,10 +356,13 @@ func (p *Platform) initExtensions() error {
 	if err := p.initPortal(); err != nil {
 		return err
 	}
-	// Bridge the feedback thread store into capture_insight (Phase 2 / #602).
-	// Portal creates the thread store, so this is wired after both init.
-	if p.knowledgeToolkit != nil && p.portalThreadStore != nil {
-		p.knowledgeToolkit.SetThreadLinker(p.portalThreadStore)
+	// Bridge feedback threads into capture_insight (Phase 2 / #602). The linker
+	// is the portal toolkit, not the raw thread store, so capture_insight's
+	// thread linking is gated by the same owns-or-edit access check as
+	// resolve_thread (the toolkit authorizes each thread before linking).
+	// Portal creates the toolkit, so this is wired after both init.
+	if p.knowledgeToolkit != nil && p.portalToolkit != nil {
+		p.knowledgeToolkit.SetThreadLinker(p.portalToolkit)
 	}
 	if err := p.initManagedResources(); err != nil {
 		return err
@@ -1657,6 +1661,7 @@ func (p *Platform) initPortal() error {
 		MaxContentSize:  p.config.Portal.MaxContentSize,
 		Embedder:        p.embeddingProv,
 	})
+	p.portalToolkit = tk
 
 	if err := p.toolkitRegistry.Register(tk); err != nil {
 		return fmt.Errorf("registering portal toolkit: %w", err)

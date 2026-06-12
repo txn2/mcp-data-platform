@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { ArrowLeft, Trash2, Quote } from "lucide-react";
+import { ArrowLeft, Trash2, Quote, GitBranch } from "lucide-react";
 import {
   useThread,
   useThreadEvents,
+  useThreadChain,
   useAppendThreadEvent,
   useUpdateThread,
   useDeleteThread,
@@ -50,6 +51,49 @@ function eventSummary(e: ThreadEvent): string | null {
     default:
       return null;
   }
+}
+
+// KnowledgeChainPanel surfaces the thread -> insight -> changeset chain (#602):
+// once a thread is resolved by a captured insight, show the insight and any
+// knowledge changesets that insight produced (the applied data-catalog edits).
+function KnowledgeChainPanel({ threadId, insightId }: { threadId: string; insightId: string }) {
+  const { data: chain, isLoading } = useThreadChain(threadId, true);
+  return (
+    <div className="border-b bg-muted/30 p-3">
+      <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        <GitBranch className="h-3.5 w-3.5" /> Knowledge chain
+      </div>
+      <p className="text-xs">
+        Resolved by insight{" "}
+        <code className="rounded bg-muted px-1 font-mono" title={insightId}>
+          {insightId.length > 14 ? `${insightId.slice(0, 14)}…` : insightId}
+        </code>
+      </p>
+      {isLoading && <p className="mt-1 text-xs text-muted-foreground">Loading applied changes…</p>}
+      {chain && chain.changesets.length === 0 && (
+        <p className="mt-1 text-xs text-muted-foreground">No catalog changes applied from this insight yet.</p>
+      )}
+      {chain && chain.changesets.length > 0 && (
+        <ul className="mt-1.5 space-y-1">
+          {chain.changesets.map((cs) => (
+            <li key={cs.id} className="flex items-start gap-1.5 text-xs">
+              <span className="shrink-0 rounded bg-primary/10 px-1 py-0.5 font-medium text-primary">
+                {cs.change_type}
+              </span>
+              <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground" title={cs.target_urn}>
+                {cs.target_urn}
+              </span>
+              {cs.rolled_back && (
+                <span className="shrink-0 rounded bg-amber-500/10 px-1 py-0.5 text-amber-700 dark:text-amber-300">
+                  rolled back
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 export function ThreadDetail({ threadId, canModerate, onBack, onDeleted }: Props) {
@@ -123,6 +167,11 @@ export function ThreadDetail({ threadId, canModerate, onBack, onDeleted }: Props
           </p>
         )}
       </div>
+
+      {/* Knowledge chain (shown once the thread is linked to a captured insight) */}
+      {thread.insight_id && (
+        <KnowledgeChainPanel threadId={threadId} insightId={thread.insight_id} />
+      )}
 
       {/* Timeline */}
       <div className="flex-1 space-y-3 overflow-auto p-3">

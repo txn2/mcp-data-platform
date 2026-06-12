@@ -372,6 +372,25 @@ export interface ThreadEvent {
 // Open-thread counts keyed by target id (for list-page badges).
 export type ThreadCounts = Record<string, number>;
 
+// A changeset in a thread's resolved knowledge chain (#602).
+export interface ThreadChainChangeset {
+  id: string;
+  target_urn: string;
+  change_type: string;
+  created_at: string;
+  rolled_back: boolean;
+}
+
+// The resolved thread -> insight -> changeset chain returned by
+// GET /portal/threads/{id}/chain. insight_id is empty until the thread is
+// linked to a captured insight; changesets are the applied knowledge sourced
+// from that insight.
+export interface ThreadChain {
+  thread_id: string;
+  insight_id?: string;
+  changesets: ThreadChainChangeset[];
+}
+
 // The discriminated target a feedback panel operates on. Mirrors ShareDialog's
 // target union so one panel serves asset/collection/prompt and the standalone
 // channel.

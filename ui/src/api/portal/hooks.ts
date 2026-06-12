@@ -32,6 +32,7 @@ import type {
   ThreadTargetType,
   ThreadEventType,
   ThreadAnchor,
+  ThreadChain,
   ThreadCounts,
   ValidationState,
 } from "./types";
@@ -895,6 +896,17 @@ export function useThreadEvents(id: string) {
     queryFn: () =>
       apiFetch<{ data: ThreadEvent[] }>(`/threads/${id}/events`).then((r) => r.data),
     enabled: !!id,
+  });
+}
+
+// useThreadChain fetches the resolved thread -> insight -> changeset chain
+// (#602). Only enabled once a thread has been linked to an insight; an
+// unlinked thread has nothing to show and we avoid the round-trip.
+export function useThreadChain(id: string, hasInsight: boolean) {
+  return useQuery({
+    queryKey: ["thread-chain", id],
+    queryFn: () => apiFetch<ThreadChain>(`/threads/${id}/chain`),
+    enabled: !!id && hasInsight,
   });
 }
 

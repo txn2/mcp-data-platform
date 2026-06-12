@@ -1673,6 +1673,7 @@ Records domain knowledge shared during a session.
 | `entity_urns` | array | No | DataHub URNs this insight relates to (max 10) |
 | `related_columns` | array | No | Columns related to this insight (max 20) |
 | `suggested_actions` | array | No | Proposed catalog changes (max 5) |
+| `thread_ids` | array | No | Feedback thread IDs this insight resolves; each is linked (insight_id set, `insight_linked` event, status `resolved`) |
 
 **Suggested action types:** `update_description`, `add_tag`, `remove_tag`, `add_glossary_term`, `flag_quality_issue`, `add_documentation`, `add_curated_query`, `set_structured_property`, `remove_structured_property`, `raise_incident`, `resolve_incident`, `add_context_document`, `update_context_document`, `remove_context_document`
 
@@ -1694,7 +1695,17 @@ Records domain knowledge shared during a session.
 }
 ```
 
+When `thread_ids` is supplied, the response also includes `linked_thread_count` and `unlinked_thread_ids` (the IDs that matched no open thread, or that the caller is not authorized to resolve); both are omitted when `thread_ids` is absent. Linking is gated by the same owns-or-edit check as `resolve_thread` (it is not a back door around the access model), is best-effort, and never fails the capture.
+
 The tool also registers an MCP prompt `knowledge_capture_guidance` that provides AI agents with guidance on when to capture insights.
+
+## Feedback Bridge
+
+Human feedback threads on portal artifacts connect to the knowledge loop: an agent resolves a thread by capturing the insight it represents, and the chain stays visible end to end (**thread → insight → changeset → `target_urn`**).
+
+- **`capture_insight` `thread_ids`** links threads to the captured insight (see above).
+- **`manage_artifact` thread actions** (no new tools): `list_threads` (filter by target, status, `requires_resolution`, `validation_state`), `get_thread`, `reply_thread`, `resolve_thread`, `request_validation`. Scoped to artifacts the caller owns or can edit; admins see all; standalone threads are readable by any authenticated caller and moderated by the thread author or an admin.
+- **`GET /api/v1/portal/threads/{id}/chain`** returns a thread's resolved chain: its `insight_id` and the changesets that insight produced (each with `target_urn`, `change_type`, rollback state). The portal feedback panel renders this as a "Knowledge chain" section.
 
 ## apply_knowledge Tool
 

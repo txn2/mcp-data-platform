@@ -38,6 +38,7 @@ type mockThreadStore struct {
 	lastCountIDs      []string
 	linkedThreadIDs   []string
 	linkedInsightID   string
+	linkedReturn      []string
 	linkErr           error
 	validatedThreadID string
 	validateErr       error
@@ -89,10 +90,16 @@ func (m *mockThreadStore) CountOpenByTargets(_ context.Context, _ string, ids []
 	return m.counts, m.countErr
 }
 
-func (m *mockThreadStore) LinkInsight(_ context.Context, threadIDs []string, insightID, _, _ string) error {
+func (m *mockThreadStore) LinkInsight(_ context.Context, threadIDs []string, insightID, _, _ string) ([]string, error) {
 	m.linkedThreadIDs = threadIDs
 	m.linkedInsightID = insightID
-	return m.linkErr
+	if m.linkErr != nil {
+		return nil, m.linkErr
+	}
+	if m.linkedReturn != nil {
+		return m.linkedReturn, nil
+	}
+	return threadIDs, nil
 }
 
 func (m *mockThreadStore) RequestValidation(_ context.Context, id, _, _ string) error {
