@@ -40,6 +40,11 @@ func (h *Handler) registerThreadRoutes() {
 	h.mux.HandleFunc("GET /api/v1/portal/threads/{id}/events", h.listThreadEvents)
 	h.mux.HandleFunc("GET /api/v1/portal/threads/{id}/chain", h.getThreadChain)
 	h.mux.HandleFunc("POST /api/v1/portal/threads/{id}/events", h.appendThreadEvent)
+	h.mux.HandleFunc("GET /api/v1/portal/worklist/practitioner", h.practitionerWorklist)
+	h.mux.HandleFunc("GET /api/v1/portal/worklist/sme", h.smeWorklist)
+	h.mux.HandleFunc("GET /api/v1/portal/assets/{id}/signoff", h.assetSignoff)
+	h.mux.HandleFunc("GET /api/v1/portal/collections/{id}/signoff", h.collectionSignoff)
+	h.mux.HandleFunc("POST /api/v1/portal/threads/{id}/validation", h.respondValidation)
 }
 
 // --- request/response types ---
@@ -409,8 +414,13 @@ func (h *Handler) updateThread(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid status")
 		return
 	}
-	if req.ValidationState != nil && !ValidThreadValidationState(*req.ValidationState) {
-		writeError(w, http.StatusBadRequest, "invalid validation_state")
+	// validation_state is owned by the validation lifecycle (#603): it carries an
+	// author-only gate, a validation_result event, and re-open-on-dispute. The
+	// generic moderator PATCH must not set it directly, or an owner/editor who is
+	// not the feedback author could self-validate with none of those invariants.
+	if req.ValidationState != nil {
+		writeError(w, http.StatusBadRequest,
+			"validation_state cannot be set here; use POST /api/v1/portal/threads/{id}/validation")
 		return
 	}
 

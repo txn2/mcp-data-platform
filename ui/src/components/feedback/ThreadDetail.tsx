@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { ArrowLeft, Trash2, Quote, GitBranch } from "lucide-react";
+import { ArrowLeft, Trash2, Quote, GitBranch, CheckCircle2, XCircle } from "lucide-react";
 import {
   useThread,
   useThreadEvents,
   useThreadChain,
   useAppendThreadEvent,
   useUpdateThread,
+  useRespondValidation,
   useDeleteThread,
 } from "@/api/portal/hooks";
 import type { ThreadEvent, ThreadStatus } from "@/api/portal/types";
@@ -102,11 +103,16 @@ export function ThreadDetail({ threadId, canModerate, onBack, onDeleted }: Props
   const append = useAppendThreadEvent();
   const update = useUpdateThread();
   const del = useDeleteThread();
+  const respondValidation = useRespondValidation();
   const me = useAuthStore((s) => s.user);
   const [reply, setReply] = useState("");
+  const [disputeReason, setDisputeReason] = useState("");
 
   const isAuthor = !!me?.email && thread?.author_email === me.email;
   const mayModerate = canModerate || !!me?.is_admin || isAuthor;
+
+  const respond = (result: "validated" | "disputed") =>
+    respondValidation.mutate({ threadId, result, reason: result === "disputed" ? disputeReason.trim() : undefined });
 
   const postReply = (e: React.FormEvent) => {
     e.preventDefault();
@@ -171,6 +177,44 @@ export function ThreadDetail({ threadId, canModerate, onBack, onDeleted }: Props
       {/* Knowledge chain (shown once the thread is linked to a captured insight) */}
       {thread.insight_id && (
         <KnowledgeChainPanel threadId={threadId} insightId={thread.insight_id} />
+      )}
+
+      {/* Validation request: the feedback author confirms or disputes (#603) */}
+      {thread.validation_state === "pending" && isAuthor && (
+        <div className="border-b bg-amber-500/10 p-3">
+          <p className="mb-2 text-xs font-medium text-amber-700 dark:text-amber-300">
+            Your validation was requested: is this resolved correctly?
+          </p>
+          <textarea
+            value={disputeReason}
+            onChange={(e) => setDisputeReason(e.target.value)}
+            rows={2}
+            placeholder="Reason (required to dispute)…"
+            className="w-full resize-y rounded-md border bg-background px-2 py-1.5 text-xs"
+          />
+          <div className="mt-2 flex gap-2">
+            <button
+              type="button"
+              onClick={() => respond("validated")}
+              disabled={respondValidation.isPending}
+              className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" /> Validate
+            </button>
+            <button
+              type="button"
+              onClick={() => respond("disputed")}
+              disabled={respondValidation.isPending || !disputeReason.trim()}
+              className="inline-flex items-center gap-1 rounded-md border border-destructive/40 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
+              title={!disputeReason.trim() ? "Add a reason to dispute" : "Dispute and re-open"}
+            >
+              <XCircle className="h-3.5 w-3.5" /> Dispute
+            </button>
+          </div>
+          {respondValidation.isError && (
+            <p className="mt-1 text-xs text-destructive">Failed to record your response.</p>
+          )}
+        </div>
       )}
 
       {/* Timeline */}

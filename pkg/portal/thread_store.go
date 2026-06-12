@@ -165,8 +165,21 @@ type ThreadFilter struct {
 	Status             string
 	RequiresResolution *bool
 	ValidationState    string
-	Limit              int
-	Offset             int
+	// AuthorID / AuthorEmail restrict to threads opened by this user (used by the
+	// SME "awaiting my validation" worklist). When both are set the match is an
+	// OR (id or case-insensitive email), matching how respond-permission resolves
+	// the author, so a thread answerable by the caller cannot be missing from
+	// their worklist.
+	AuthorID    string
+	AuthorEmail string
+	// TargetAssetIDs / TargetCollectionIDs restrict to threads on any of the
+	// given assets OR collections (used by the practitioner worklist, which
+	// spans every artifact the caller owns or can edit). When either is set the
+	// match is an OR across the two target types.
+	TargetAssetIDs      []string
+	TargetCollectionIDs []string
+	Limit               int
+	Offset              int
 }
 
 const (
@@ -176,9 +189,10 @@ const (
 
 // Shared literals (kept as constants to satisfy the no-magic-string lint).
 const (
-	errBeginTx  = "begin tx: %w"
-	errCommitTx = "commit: %w"
-	eventIDKind = "evt" // newThreadID prefix for event ids
+	errBeginTx      = "begin tx: %w"
+	errCommitTx     = "commit: %w"
+	errRowsAffected = "checking rows affected: %w"
+	eventIDKind     = "evt" // newThreadID prefix for event ids
 )
 
 // EffectiveLimit returns the clamped page size, applying the default when unset.
@@ -229,10 +243,16 @@ type ThreadStore interface {
 	// RequestValidation moves a thread to validation_state=pending and records a
 	// validation_request event, atomically.
 	RequestValidation(ctx context.Context, id, actorID, actorEmail string) error
+	// RespondValidation records an SME's validation outcome (validated/disputed),
+	// appends a validation_result event, and re-opens the thread when disputed.
+	RespondValidation(ctx context.Context, id string, resp ValidationResponse, actorID, actorEmail string) error
 	// CountOpenByTargets returns, per target id, the number of open (non-deleted)
 	// threads. targetType must be asset/collection/prompt. Callers are
 	// responsible for restricting ids to those the requester may see.
 	CountOpenByTargets(ctx context.Context, targetType string, ids []string) (map[string]int, error)
+	// CountSignoffs returns the number of distinct users who left an approval
+	// (signoff) event on any thread targeting the given asset/collection.
+	CountSignoffs(ctx context.Context, targetType, targetID string) (int, error)
 }
 
 // --- PostgreSQL ThreadStore ---
@@ -455,7 +475,7 @@ func (s *postgresThreadStore) SoftDeleteThread(ctx context.Context, id string) e
 	}
 	affected, err := res.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("checking rows affected: %w", err)
+		return fmt.Errorf(errRowsAffected, err)
 	}
 	if affected == 0 {
 		return fmt.Errorf("thread not found or already deleted: %s", id)
@@ -513,7 +533,7 @@ func linkInsightToThreadTx(ctx context.Context, tx *sql.Tx, id, insightID string
 	}
 	affected, err := res.RowsAffected()
 	if err != nil {
-		return false, fmt.Errorf("checking rows affected: %w", err)
+		return false, fmt.Errorf(errRowsAffected, err)
 	}
 	if affected == 0 {
 		return false, nil // missing or deleted thread: skip
@@ -548,7 +568,7 @@ func (s *postgresThreadStore) RequestValidation(ctx context.Context, id, actorID
 	}
 	affected, err := res.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("checking rows affected: %w", err)
+		return fmt.Errorf(errRowsAffected, err)
 	}
 	if affected == 0 {
 		return fmt.Errorf("thread not found or already deleted: %s", id)
@@ -569,6 +589,81 @@ func (s *postgresThreadStore) RequestValidation(ctx context.Context, id, actorID
 		return fmt.Errorf(errCommitTx, err)
 	}
 	return nil
+}
+
+// ValidationResponse is an SME's answer to a validation request (Phase 3 / #603).
+type ValidationResponse struct {
+	Result string // ValidationStateValidated or ValidationStateDisputed
+	Reason string // optional; recorded on the validation_result event
+}
+
+// RespondValidation records an SME's validation outcome on a thread: it sets
+// validation_state to validated/disputed, appends a validation_result event
+// (carrying the result and reason), and — when disputed — re-opens the thread so
+// it returns to the practitioner's worklist. All in one transaction.
+func (s *postgresThreadStore) RespondValidation(ctx context.Context, id string, resp ValidationResponse, actorID, actorEmail string) error { //nolint:revive // interface impl
+	// Defense in depth: the column has no DB CHECK, so reject any result other
+	// than the two terminal outcomes before it reaches validation_state.
+	if resp.Result != ValidationStateValidated && resp.Result != ValidationStateDisputed {
+		return fmt.Errorf("invalid validation result: %q", resp.Result)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf(errBeginTx, err)
+	}
+	defer tx.Rollback() //nolint:errcheck // commit below on success
+
+	// The thread must be awaiting validation: a response only answers a prior
+	// request, so the state machine is request(pending) -> respond. The
+	// validation_state = 'pending' precondition enforces it atomically (so an
+	// author cannot "dispute" — and thereby re-open — a thread no one asked to
+	// validate). Disputing re-opens the thread (#603); validating leaves status.
+	query := `UPDATE portal_threads SET validation_state = $1, updated_at = NOW()
+	          WHERE id = $2 AND deleted_at IS NULL AND validation_state = $3`
+	args := []any{resp.Result, id, ValidationStatePending}
+	if resp.Result == ValidationStateDisputed {
+		query = `UPDATE portal_threads SET validation_state = $1, status = $2, updated_at = NOW()
+		         WHERE id = $3 AND deleted_at IS NULL AND validation_state = $4`
+		args = []any{resp.Result, ThreadStatusOpen, id, ValidationStatePending}
+	}
+	res, err := tx.ExecContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("responding to validation: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf(errRowsAffected, err)
+	}
+	if affected == 0 {
+		return fmt.Errorf("thread not found or not awaiting validation: %s", id)
+	}
+
+	evt := ThreadEvent{
+		ID:          newThreadID(eventIDKind),
+		ThreadID:    id,
+		EventType:   EventTypeValidationResult,
+		AuthorID:    actorID,
+		AuthorEmail: actorEmail,
+		Metadata:    validationResultMetadata(resp),
+	}
+	if err := insertEventTx(ctx, tx, evt); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf(errCommitTx, err)
+	}
+	return nil
+}
+
+// validationResultMetadata builds the JSON metadata for a validation_result event.
+func validationResultMetadata(resp ValidationResponse) json.RawMessage {
+	m := map[string]string{"result": resp.Result}
+	if resp.Reason != "" {
+		m["reason"] = resp.Reason
+	}
+	b, _ := json.Marshal(m) //nolint:errcheck // map of strings cannot fail
+	return b
 }
 
 // insightLinkedMetadata builds the JSON metadata for an insight_linked event.
@@ -614,6 +709,28 @@ func (s *postgresThreadStore) CountOpenByTargets(ctx context.Context, targetType
 	return counts, nil
 }
 
+// CountSignoffs returns the number of distinct users who left an approval
+// (signoff) event on any thread targeting the given asset/collection (Phase 3 /
+// #603). This is the "N" in "signed off by N of M stakeholders".
+func (s *postgresThreadStore) CountSignoffs(ctx context.Context, targetType, targetID string) (int, error) { //nolint:revive // interface impl
+	column, err := targetColumn(targetType)
+	if err != nil {
+		return 0, err
+	}
+	// #nosec G201 -- column is from targetColumn(), a fixed asset_id/collection_id/prompt_id allowlist, never user input
+	query := fmt.Sprintf(`
+		SELECT COUNT(DISTINCT e.author_id)
+		FROM portal_thread_events e
+		JOIN portal_threads t ON t.id = e.thread_id
+		WHERE t.%s = $1 AND t.deleted_at IS NULL AND e.event_type = $2
+	`, column)
+	var n int
+	if err := s.db.QueryRowContext(ctx, query, targetID, EventTypeApproval).Scan(&n); err != nil {
+		return 0, fmt.Errorf("counting signoffs: %w", err)
+	}
+	return n, nil
+}
+
 // --- helpers ---
 
 func targetColumn(targetType string) (string, error) {
@@ -654,6 +771,27 @@ func applyThreadFilter(qb sq.SelectBuilder, f ThreadFilter) sq.SelectBuilder {
 	}
 	if f.ValidationState != "" {
 		qb = qb.Where(sq.Eq{"t.validation_state": f.ValidationState})
+	}
+	switch {
+	case f.AuthorID != "" && f.AuthorEmail != "":
+		qb = qb.Where(sq.Or{
+			sq.Eq{"t.author_id": f.AuthorID},
+			sq.Expr("LOWER(t.author_email) = LOWER(?)", f.AuthorEmail),
+		})
+	case f.AuthorID != "":
+		qb = qb.Where(sq.Eq{"t.author_id": f.AuthorID})
+	case f.AuthorEmail != "":
+		qb = qb.Where(sq.Expr("LOWER(t.author_email) = LOWER(?)", f.AuthorEmail))
+	}
+	if len(f.TargetAssetIDs) > 0 || len(f.TargetCollectionIDs) > 0 {
+		or := sq.Or{}
+		if len(f.TargetAssetIDs) > 0 {
+			or = append(or, sq.Eq{"t.asset_id": f.TargetAssetIDs})
+		}
+		if len(f.TargetCollectionIDs) > 0 {
+			or = append(or, sq.Eq{"t.collection_id": f.TargetCollectionIDs})
+		}
+		qb = qb.Where(or)
 	}
 	return qb
 }

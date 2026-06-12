@@ -63,6 +63,7 @@ const (
 	actionReplyThread       = "reply_thread"
 	actionResolveThread     = "resolve_thread"
 	actionRequestValidation = "request_validation"
+	actionRespondValidation = "respond_validation"
 
 	// JSON field names used in MCP tool result payloads.
 	fieldAssetID = "asset_id"
@@ -114,6 +115,8 @@ type manageArtifactInput struct {
 	Status             string `json:"status,omitempty"`
 	ValidationState    string `json:"validation_state,omitempty"`
 	RequiresResolution *bool  `json:"requires_resolution,omitempty"`
+	ValidationResult   string `json:"validation_result,omitempty"`
+	ValidationReason   string `json:"validation_reason,omitempty"`
 }
 
 // sectionInput defines a collection section in MCP tool input.
@@ -244,7 +247,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"Collection actions: create_collection, list_collections, get_collection, " +
 			"update_collection, delete_collection, set_sections. " +
 			"Feedback actions: list_threads, get_thread, reply_thread, resolve_thread, " +
-			"request_validation (review and respond to feedback left on your artifacts; " +
+			"request_validation, respond_validation (review and respond to feedback left on your artifacts; " +
 			"capture_insight thread_ids=[...] links a thread to the insight that resolves it). " +
 			"Note: 'list' returns full metadata including provenance for each asset. " +
 			"Use 'get' with a specific asset_id for content retrieval. " +
@@ -442,6 +445,7 @@ func (t *Toolkit) buildActions() map[string]manageActionHandler {
 		actionReplyThread:       t.handleReplyThread,
 		actionResolveThread:     t.handleResolveThread,
 		actionRequestValidation: t.handleRequestValidation,
+		actionRespondValidation: t.handleRespondValidation,
 	}
 }
 
@@ -452,7 +456,7 @@ func (t *Toolkit) handleManageArtifact(ctx context.Context, _ *mcp.CallToolReque
 		return errorResult(fmt.Sprintf(
 			"invalid action %q: must be one of: list, get, update, delete, list_versions, revert, search, "+
 				"create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections, "+
-				"list_threads, get_thread, reply_thread, resolve_thread, request_validation",
+				"list_threads, get_thread, reply_thread, resolve_thread, request_validation, respond_validation",
 			input.Action)), nil, nil
 	}
 	return handler(ctx, input)

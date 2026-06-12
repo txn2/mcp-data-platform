@@ -37,8 +37,10 @@ type fakeThreadStore struct {
 	lastUpdate *portal.ThreadUpdate
 	updateErr  error
 
-	validatedID string
-	validateErr error
+	validatedID     string
+	validateErr     error
+	respondedResult string
+	respondErr      error
 }
 
 func (*fakeThreadStore) CreateThread(_ context.Context, t portal.Thread, _ portal.ThreadEvent) (*portal.Thread, error) {
@@ -84,9 +86,16 @@ func (f *fakeThreadStore) RequestValidation(_ context.Context, id, _, _ string) 
 	return f.validateErr
 }
 
+func (f *fakeThreadStore) RespondValidation(_ context.Context, _ string, resp portal.ValidationResponse, _, _ string) error {
+	f.respondedResult = resp.Result
+	return f.respondErr
+}
+
 func (*fakeThreadStore) CountOpenByTargets(_ context.Context, _ string, _ []string) (map[string]int, error) {
 	return nil, nil //nolint:nilnil // test stub
 }
+
+func (*fakeThreadStore) CountSignoffs(_ context.Context, _, _ string) (int, error) { return 0, nil }
 
 var _ portal.ThreadStore = (*fakeThreadStore)(nil)
 
@@ -445,6 +454,77 @@ func TestHandleRequestValidation(t *testing.T) {
 		fts := &fakeThreadStore{getResult: thread, validateErr: errors.New("boom")}
 		tk := threadToolkit(t, fts, nil)
 		res, _, _ := tk.handleRequestValidation(ownerCtx(), manageArtifactInput{ThreadID: "t1"})
+		assert.True(t, res.IsError)
+	})
+}
+
+// --- handleRespondValidation -------------------------------------------------
+
+func TestHandleRespondValidation(t *testing.T) {
+	// The responder is the thread author (the SME the request was routed to).
+	authored := &portal.Thread{ID: "t1", TargetType: "asset", AssetID: "asset_1", AuthorID: ownerID, AuthorEmail: ownerEmail}
+
+	t.Run("author validates", func(t *testing.T) {
+		fts := &fakeThreadStore{getResult: authored}
+		tk := threadToolkit(t, fts, nil)
+		res, _, err := tk.handleRespondValidation(ownerCtx(), manageArtifactInput{ThreadID: "t1", ValidationResult: "validated"})
+		require.NoError(t, err)
+		assert.False(t, res.IsError)
+		assert.Equal(t, "validated", fts.respondedResult)
+		assert.Equal(t, "validated", decodeResult(t, res)["validation_state"])
+	})
+
+	t.Run("author disputes with reason", func(t *testing.T) {
+		fts := &fakeThreadStore{getResult: authored}
+		tk := threadToolkit(t, fts, nil)
+		res, _, _ := tk.handleRespondValidation(ownerCtx(),
+			manageArtifactInput{ThreadID: "t1", ValidationResult: "disputed", ValidationReason: "still wrong"})
+		assert.False(t, res.IsError)
+		assert.Equal(t, "disputed", fts.respondedResult)
+	})
+
+	t.Run("admin can respond", func(t *testing.T) {
+		tk := threadToolkit(t, &fakeThreadStore{getResult: authored}, nil)
+		res, _, _ := tk.handleRespondValidation(adminCtx(), manageArtifactInput{ThreadID: "t1", ValidationResult: "validated"})
+		assert.False(t, res.IsError)
+	})
+
+	t.Run("non-author denied", func(t *testing.T) {
+		tk := threadToolkit(t, &fakeThreadStore{getResult: authored}, nil)
+		res, _, _ := tk.handleRespondValidation(strangerCtx(), manageArtifactInput{ThreadID: "t1", ValidationResult: "validated"})
+		assert.True(t, res.IsError)
+		assert.Contains(t, decodeResult(t, res)["error"], "only the feedback author")
+	})
+
+	t.Run("invalid validation_result", func(t *testing.T) {
+		tk := threadToolkit(t, &fakeThreadStore{getResult: authored}, nil)
+		res, _, _ := tk.handleRespondValidation(ownerCtx(), manageArtifactInput{ThreadID: "t1", ValidationResult: "maybe"})
+		assert.True(t, res.IsError)
+		assert.Contains(t, decodeResult(t, res)["error"], "must be 'validated' or 'disputed'")
+	})
+
+	t.Run("missing thread_id", func(t *testing.T) {
+		tk := threadToolkit(t, &fakeThreadStore{}, nil)
+		res, _, _ := tk.handleRespondValidation(ownerCtx(), manageArtifactInput{ValidationResult: "validated"})
+		assert.True(t, res.IsError)
+	})
+
+	t.Run("thread not found", func(t *testing.T) {
+		tk := threadToolkit(t, &fakeThreadStore{getErr: errors.New("nope")}, nil)
+		res, _, _ := tk.handleRespondValidation(ownerCtx(), manageArtifactInput{ThreadID: "t1", ValidationResult: "validated"})
+		assert.True(t, res.IsError)
+	})
+
+	t.Run("store error", func(t *testing.T) {
+		tk := threadToolkit(t, &fakeThreadStore{getResult: authored, respondErr: errors.New("boom")}, nil)
+		res, _, _ := tk.handleRespondValidation(ownerCtx(), manageArtifactInput{ThreadID: "t1", ValidationResult: "validated"})
+		assert.True(t, res.IsError)
+	})
+
+	t.Run("anonymous caller cannot respond", func(t *testing.T) {
+		anonAuthored := &portal.Thread{ID: "t1", TargetType: "asset", AssetID: "asset_1", AuthorID: "anonymous"}
+		tk := threadToolkit(t, &fakeThreadStore{getResult: anonAuthored}, nil)
+		res, _, _ := tk.handleRespondValidation(context.Background(), manageArtifactInput{ThreadID: "t1", ValidationResult: "validated"})
 		assert.True(t, res.IsError)
 	})
 }

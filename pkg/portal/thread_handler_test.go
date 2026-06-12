@@ -24,6 +24,7 @@ type mockThreadStore struct {
 	listResult        []ThreadWithMeta
 	listTotal         int
 	listErr           error
+	lastListFilter    ThreadFilter
 	getResult         *Thread
 	getErr            error
 	events            []ThreadEvent
@@ -42,6 +43,11 @@ type mockThreadStore struct {
 	linkErr           error
 	validatedThreadID string
 	validateErr       error
+	respondedThreadID string
+	respondedResult   string
+	respondErr        error
+	signoffCount      int
+	signoffErr        error
 	lastCreated       *Thread
 }
 
@@ -56,7 +62,8 @@ func (m *mockThreadStore) CreateThread(_ context.Context, t Thread, _ ThreadEven
 	return &t, nil
 }
 
-func (m *mockThreadStore) ListThreads(_ context.Context, _ ThreadFilter) ([]ThreadWithMeta, int, error) {
+func (m *mockThreadStore) ListThreads(_ context.Context, f ThreadFilter) ([]ThreadWithMeta, int, error) {
+	m.lastListFilter = f
 	return m.listResult, m.listTotal, m.listErr
 }
 
@@ -90,6 +97,10 @@ func (m *mockThreadStore) CountOpenByTargets(_ context.Context, _ string, ids []
 	return m.counts, m.countErr
 }
 
+func (m *mockThreadStore) CountSignoffs(_ context.Context, _, _ string) (int, error) {
+	return m.signoffCount, m.signoffErr
+}
+
 func (m *mockThreadStore) LinkInsight(_ context.Context, threadIDs []string, insightID, _, _ string) ([]string, error) {
 	m.linkedThreadIDs = threadIDs
 	m.linkedInsightID = insightID
@@ -105,6 +116,12 @@ func (m *mockThreadStore) LinkInsight(_ context.Context, threadIDs []string, ins
 func (m *mockThreadStore) RequestValidation(_ context.Context, id, _, _ string) error {
 	m.validatedThreadID = id
 	return m.validateErr
+}
+
+func (m *mockThreadStore) RespondValidation(_ context.Context, id string, resp ValidationResponse, _, _ string) error {
+	m.respondedThreadID = id
+	m.respondedResult = resp.Result
+	return m.respondErr
 }
 
 func newThreadTestHandler(threads *mockThreadStore, assets *mockAssetStore, shares *mockShareStore, user *User) *Handler {
@@ -269,6 +286,17 @@ func TestUpdateThreadInvalidStatus(t *testing.T) {
 	bogus := "bogus"
 	w := doThreadReq(t, h, http.MethodPatch, "/api/v1/portal/threads/thr_1", updateThreadRequest{Status: &bogus})
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestUpdateThreadRejectsValidationState(t *testing.T) {
+	// The generic moderator PATCH must not set validation_state; that bypasses
+	// the author-only validation gate, the validation_result event, and re-open.
+	threads := &mockThreadStore{getResult: &Thread{ID: "thr_1", TargetType: targetTypeStandalone, AuthorID: "u1"}}
+	h := newThreadTestHandler(threads, &mockAssetStore{}, &mockShareStore{}, &User{UserID: "u1"})
+	vs := ValidationStateValidated
+	w := doThreadReq(t, h, http.MethodPatch, "/api/v1/portal/threads/thr_1", updateThreadRequest{ValidationState: &vs})
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Nil(t, threads.lastUpdate) // never reached the store
 }
 
 func TestUpdateThreadNonModeratorDenied(t *testing.T) {

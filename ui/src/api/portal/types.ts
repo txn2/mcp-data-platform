@@ -372,6 +372,12 @@ export interface ThreadEvent {
 // Open-thread counts keyed by target id (for list-page badges).
 export type ThreadCounts = Record<string, number>;
 
+// Sign-off aggregation for an artifact (#603): N signed off of M stakeholders.
+export interface SignoffSummary {
+  signed_off: number;
+  stakeholders: number;
+}
+
 // A changeset in a thread's resolved knowledge chain (#602).
 export interface ThreadChainChangeset {
   id: string;

@@ -1634,6 +1634,32 @@ export const handlers = [
     );
   }),
 
+  // Worklists / inbox (#603).
+  http.get(`${PORTAL_BASE}/worklist/practitioner`, () => {
+    const data = portalThreads.filter((t) => t.status === "open" && t.requires_resolution && !t.deleted_at);
+    return HttpResponse.json({ data, total: data.length, limit: 50, offset: 0 });
+  }),
+  http.get(`${PORTAL_BASE}/worklist/sme`, () => {
+    const data = portalThreads.filter((t) => t.validation_state === "pending" && !t.deleted_at);
+    return HttpResponse.json({ data, total: data.length, limit: 50, offset: 0 });
+  }),
+
+  // Sign-off aggregation (#603).
+  http.get(`${PORTAL_BASE}/assets/:id/signoff`, () => HttpResponse.json({ signed_off: 1, stakeholders: 3 })),
+  http.get(`${PORTAL_BASE}/collections/:id/signoff`, () => HttpResponse.json({ signed_off: 2, stakeholders: 2 })),
+
+  // Validation response (#603): the author validates/disputes; dispute re-opens.
+  http.post(`${PORTAL_BASE}/threads/:id/validation`, async ({ params, request }) => {
+    const id = params.id as string;
+    const body = (await request.json()) as { result: string; reason?: string };
+    const thread = portalThreads.find((t) => t.id === id);
+    if (!thread) return HttpResponse.json({ detail: "Not found" }, { status: 404 });
+    thread.validation_state = body.result as typeof thread.validation_state;
+    if (body.result === "disputed") thread.status = "open";
+    thread.updated_at = new Date().toISOString();
+    return HttpResponse.json(thread);
+  }),
+
   http.post(`${PORTAL_BASE}/threads/:id/events`, async ({ params, request }) => {
     const id = params.id as string;
     const body = (await request.json()) as Record<string, unknown>;
