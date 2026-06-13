@@ -797,3 +797,33 @@ export interface ToolVisibilityResponse {
   hidden: boolean;
   deny: string[];
 }
+
+// --- Known-users directory (#614) ---
+
+export interface DirectoryUser {
+  email: string;
+  first_name: string;
+  last_name: string;
+  source: string; // "auth" | "admin"
+  confirmed: boolean;
+  added_by?: string;
+  last_seen_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UserListResponse {
+  users: DirectoryUser[];
+  total: number;
+}
+
+export interface UserCreateRequest {
+  email: string;
+  first_name?: string;
+  last_name?: string;
+}
+
+export interface UserUpdateRequest {
+  first_name?: string;
+  last_name?: string;
+}

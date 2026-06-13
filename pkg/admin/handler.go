@@ -29,6 +29,7 @@ import (
 	apicatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalogindex"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
+	"github.com/txn2/mcp-data-platform/pkg/user"
 )
 
 // AuditQuerier queries audit events.
@@ -135,12 +136,15 @@ type Deps struct {
 	ToolkitsConfig      map[string]any
 	PersonaStore        platform.PersonaStore
 	APIKeyStore         platform.APIKeyStore
-	PromptStore         prompt.Store
-	PromptRegistrar     PromptRegistrar
-	PromptInfoProvider  PromptInfoProvider
-	FilePersonaNames    map[string]bool
-	EnrichmentStore     EnrichmentStore
-	EnrichmentEngine    EnrichmentEngine
+	// UserStore is the known-users directory (#614). nil disables the
+	// /api/v1/admin/users routes (no database configured).
+	UserStore          user.Store
+	PromptStore        prompt.Store
+	PromptRegistrar    PromptRegistrar
+	PromptInfoProvider PromptInfoProvider
+	FilePersonaNames   map[string]bool
+	EnrichmentStore    EnrichmentStore
+	EnrichmentEngine   EnrichmentEngine
 	// PKCEStore holds in-flight authorization_code+PKCE state. When nil,
 	// the handler falls back to a process-singleton in-memory store
 	// (single-replica only). Set this to a PostgresPKCEStore for HA
@@ -377,6 +381,7 @@ func (h *Handler) registerRoutes() {
 	h.registerConfigRoutes()
 	h.registerPersonaRoutes()
 	h.registerAuthKeyRoutes()
+	h.registerUserRoutes()
 	h.registerAssetRoutes()
 	h.registerConnectionRoutes()
 	h.registerCatalogRoutes()

@@ -805,6 +805,102 @@ Deletes an API key. Only available in `database` config mode.
 }
 ```
 
+## User Endpoints
+
+The known-users directory (#614) records people (first name, last name, email)
+so the portal share picker can resolve and suggest names. It is not an
+authorization layer and grants no access. Endpoints require a database;
+without one they are not registered. Anyone who authenticates is upserted into
+the directory automatically (admin-entered names take precedence — a sign-in
+only fills blank name fields). Write endpoints require `database` config mode.
+
+The portal exposes a read-only list of the same directory to any authenticated
+user at `GET /api/v1/portal/users` (the share picker), returning only email and
+name fields.
+
+### List Users
+
+```
+GET /api/v1/admin/users
+```
+
+Returns directory users. Optional query params: `q` (case-insensitive match on
+email or name), `limit`, `offset`.
+
+**Response:**
+
+```json
+{
+  "users": [
+    {
+      "email": "marcus.johnson@example.com",
+      "first_name": "Marcus",
+      "last_name": "Johnson",
+      "source": "auth",
+      "confirmed": true,
+      "last_seen_at": "2026-06-12T14:30:00Z",
+      "created_at": "2026-06-01T09:00:00Z",
+      "updated_at": "2026-06-12T14:30:00Z"
+    },
+    {
+      "email": "dana.lee@example.com",
+      "first_name": "Dana",
+      "last_name": "Lee",
+      "source": "admin",
+      "confirmed": false,
+      "added_by": "admin@example.com",
+      "created_at": "2026-06-10T11:00:00Z",
+      "updated_at": "2026-06-10T11:00:00Z"
+    }
+  ],
+  "total": 2
+}
+```
+
+`source` is `auth` (recorded from a real session) or `admin` (pre-added).
+`confirmed` is `true` once the person has been seen via a real authenticated
+session.
+
+### Add User
+
+```
+POST /api/v1/admin/users
+```
+
+Pre-adds a person by email so they are selectable for sharing before they have
+ever signed in. Only available in `database` config mode.
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `email` | string | yes | Email address (normalized to lowercase) |
+| `first_name` | string | no | First name |
+| `last_name` | string | no | Last name |
+
+**Status Codes:** `201 Created`, `400 Bad Request`, `409 Conflict` (email exists)
+
+### Update User
+
+```
+PUT /api/v1/admin/users/{email}
+```
+
+Edits a person's first and/or last name. Omitted fields are left unchanged.
+Only available in `database` config mode.
+
+**Status Codes:** `200 OK`, `400 Bad Request`, `404 Not Found`
+
+### Delete User
+
+```
+DELETE /api/v1/admin/users/{email}
+```
+
+Removes a directory entry. Only available in `database` config mode.
+
+**Status Codes:** `200 OK`, `404 Not Found`
+
 ## Audit Endpoints
 
 Audit endpoints require `audit.enabled: true` and a configured database. Without a database, endpoints return `409 Conflict`. See [Audit Logging](audit.md) for the audit system overview.

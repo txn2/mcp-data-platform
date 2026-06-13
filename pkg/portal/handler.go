@@ -23,6 +23,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
+	userdir "github.com/txn2/mcp-data-platform/pkg/user"
 )
 
 // Common error messages, path value keys, and query parameter names.
@@ -112,6 +113,11 @@ type Deps struct {
 	MemoryStore        MemoryReader
 	EmbeddingProvider  embedding.Provider
 	PersonaResolver    PersonaResolver
+	// UserDirectory is the known-users directory (#614), read by the share
+	// picker so users can pick a teammate instead of typing an email. nil
+	// disables the /api/v1/portal/users endpoint (no database); the share
+	// dialog then falls back to free-typed email only.
+	UserDirectory userdir.Store
 	// Authenticator resolves a logged-in user from a public (unauthenticated)
 	// request so the public viewer can auto-promote a signed-in viewer to a
 	// derived share. Optional; nil disables auto-promote.
@@ -168,6 +174,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) registerRoutes() {
 	// Authenticated routes
 	h.mux.HandleFunc("GET /api/v1/portal/me", h.getMe)
+	// Known-users directory for the share picker (#614). Readable by any
+	// authenticated user so they can pick a teammate to share with.
+	if h.deps.UserDirectory != nil {
+		h.mux.HandleFunc("GET /api/v1/portal/users", h.listDirectoryUsers)
+	}
 	h.mux.HandleFunc("GET /api/v1/portal/assets", h.listAssets)
 	// Relevance search is registered only when the wired asset store supports it
 	// (pgvector-backed deployments); see AssetSearcher.
