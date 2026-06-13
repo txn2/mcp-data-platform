@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/txn2/mcp-data-platform/pkg/user"
 )
 
 // DefaultPortalPath is the default redirect path for the portal UI.
@@ -74,6 +76,12 @@ type FlowConfig struct {
 	// HTTPClient is used for OIDC discovery and token exchange.
 	// If nil, http.DefaultClient is used.
 	HTTPClient *http.Client
+
+	// OnLogin, if set, is called after a successful login with the person's
+	// email and name derived from the id_token. It records browser-session
+	// (portal/admin SPA) users in the known-users directory (#614). It must be
+	// non-blocking and best-effort — login must never depend on it.
+	OnLogin func(email, firstName, lastName string)
 }
 
 // oidcEndpoints holds discovered OIDC provider endpoints.
@@ -349,6 +357,15 @@ func (f *Flow) completeLogin(ctx context.Context, w http.ResponseWriter, code, v
 	}
 
 	SetCookie(w, &f.cfg.Cookie, sessionToken)
+
+	// Record the person in the known-users directory (#614). This is the only
+	// hook that sees browser-session (portal/admin SPA) logins, since those
+	// authenticate via the cookie on later requests and never pass through the
+	// token authenticator. Best-effort: the observer is non-blocking and must
+	// not affect login.
+	if f.cfg.OnLogin != nil {
+		f.cfg.OnLogin(claims.Email, claims.FirstName, claims.LastName)
+	}
 	return nil
 }
 
@@ -511,11 +528,22 @@ func (f *Flow) parseIDToken(idToken string) (*SessionClaims, error) {
 
 	roles := f.extractRoles(claims)
 
+	first, last := extractName(claims)
+
 	return &SessionClaims{
-		UserID: sub,
-		Email:  email,
-		Roles:  roles,
+		UserID:    sub,
+		Email:     email,
+		Roles:     roles,
+		FirstName: first,
+		LastName:  last,
 	}, nil
+}
+
+// extractName pulls a first and last name from id_token claims, delegating to
+// the shared pkg/user derivation so the browser-session login path and the
+// token auth path agree on how a name is split.
+func extractName(claims map[string]any) (first, last string) {
+	return user.NameFromClaims(claims, "")
 }
 
 // validateIssuer checks that the id_token iss claim matches the configured issuer.

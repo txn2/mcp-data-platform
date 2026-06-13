@@ -404,6 +404,25 @@ Features:
 - **Delete** — Available for database-managed keys only; file keys are read-only
 - **Source badges** — Same file/database/both system as Connections
 
+## Users
+
+The Users page manages the known-users directory: a record of people (first
+name, last name, email) used to make sharing easier. It is not an
+authorization layer and grants no access; it only gives the share picker names
+to resolve and suggest.
+
+Features:
+
+- **User table** — Name, email, status badge, and last-seen date
+- **Status badge** — **Active** (green) for someone seen via a real sign-in, or **Invited** (amber) for someone an admin pre-added who has not logged in yet
+- **+ Add User** — Pre-add a person by email (with optional first and last name) so they are selectable for sharing before they have ever signed in
+- **Edit** — Change a person's first and last name. Admin-entered names take precedence: a later sign-in only fills blank name fields, it never overwrites a name an admin set
+- **Search** — Filter the directory by name or email
+- **Auto-recording** — Anyone who authenticates (OIDC/OAuth) is upserted into the directory automatically with the name from their token claims; API-key and anonymous sessions are not recorded
+
+Requires a database. Without one the directory is disabled and the share
+dialog falls back to free-typed email only.
+
 ## Change Log
 
 The Change Log page provides an audit trail of all configuration changes made via the admin UI.

@@ -1627,3 +1627,60 @@ export function useArchiveMemory() {
     },
   });
 }
+
+// --- Known-users directory (#614) ---
+
+export function useDirectoryUsers(q?: string) {
+  const query = q ? `?q=${encodeURIComponent(q)}` : "";
+  return useQuery({
+    queryKey: ["users", q ?? ""],
+    queryFn: () =>
+      apiFetch<import("./types").UserListResponse>(`/users${query}`),
+  });
+}
+
+export function useCreateUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: import("./types").UserCreateRequest) =>
+      apiFetch<import("./types").DirectoryUser>("/users", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["users"] });
+    },
+  });
+}
+
+export function useUpdateUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      email,
+      ...body
+    }: { email: string } & import("./types").UserUpdateRequest) =>
+      apiFetch<import("./types").DirectoryUser>(
+        `/users/${encodeURIComponent(email)}`,
+        { method: "PUT", body: JSON.stringify(body) },
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["users"] });
+    },
+  });
+}
+
+export function useDeleteUser() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (email: string) =>
+      apiFetchRaw(`/users/${encodeURIComponent(email)}`, {
+        method: "DELETE",
+      }).then((res) => {
+        if (!res.ok) throw new Error("Failed to delete");
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["users"] });
+    },
+  });
+}

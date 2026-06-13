@@ -6157,6 +6157,252 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/users": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns known users (people seen via authentication or pre-added by an admin) for sharing.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "List directory users",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Case-insensitive match on email or name",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Results per page (default: 100)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset for pagination (default: 0)",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/admin.userListResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Pre-adds a person by email so they are selectable for sharing before they have logged in. Only available in database config mode.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Add a directory user",
+                "parameters": [
+                    {
+                        "description": "User to add",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/admin.userCreateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/admin.userSummary"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/users/{email}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Get directory user",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User email",
+                        "name": "email",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/admin.userSummary"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Edit a directory user's name",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User email",
+                        "name": "email",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Fields to update",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/admin.userUpdateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/admin.userSummary"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Remove a directory user",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User email",
+                        "name": "email",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/admin.statusResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/activity/breakdown": {
             "get": {
                 "security": [
@@ -10245,6 +10491,66 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/users": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the known-users directory so a user can pick a teammate to share with. Includes admin-added people who have not logged in yet (confirmed=false). Any authenticated user may call this.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "User"
+                ],
+                "summary": "List known users for the share picker",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Case-insensitive match on email or name",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Results per page (default: 50, max: 100)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Offset for pagination (default: 0)",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.directoryUsersResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/worklist/practitioner": {
             "get": {
                 "security": [
@@ -12645,6 +12951,89 @@ const docTemplate = `{
                 }
             }
         },
+        "admin.userCreateRequest": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string",
+                    "example": "marcus.johnson@example.com"
+                },
+                "first_name": {
+                    "type": "string",
+                    "example": "Marcus"
+                },
+                "last_name": {
+                    "type": "string",
+                    "example": "Johnson"
+                }
+            }
+        },
+        "admin.userListResponse": {
+            "type": "object",
+            "properties": {
+                "total": {
+                    "type": "integer",
+                    "example": 42
+                },
+                "users": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/admin.userSummary"
+                    }
+                }
+            }
+        },
+        "admin.userSummary": {
+            "type": "object",
+            "properties": {
+                "added_by": {
+                    "type": "string",
+                    "example": "admin@example.com"
+                },
+                "confirmed": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string",
+                    "example": "marcus.johnson@example.com"
+                },
+                "first_name": {
+                    "type": "string",
+                    "example": "Marcus"
+                },
+                "last_name": {
+                    "type": "string",
+                    "example": "Johnson"
+                },
+                "last_seen_at": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string",
+                    "example": "auth"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "admin.userUpdateRequest": {
+            "type": "object",
+            "properties": {
+                "first_name": {
+                    "type": "string",
+                    "example": "Marcus"
+                },
+                "last_name": {
+                    "type": "string",
+                    "example": "Johnson"
+                }
+            }
+        },
         "audit.BreakdownEntry": {
             "type": "object",
             "properties": {
@@ -14656,6 +15045,42 @@ const docTemplate = `{
                 },
                 "title": {
                     "type": "string"
+                }
+            }
+        },
+        "portal.directoryUser": {
+            "type": "object",
+            "properties": {
+                "confirmed": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "email": {
+                    "type": "string",
+                    "example": "marcus.johnson@example.com"
+                },
+                "first_name": {
+                    "type": "string",
+                    "example": "Marcus"
+                },
+                "last_name": {
+                    "type": "string",
+                    "example": "Johnson"
+                }
+            }
+        },
+        "portal.directoryUsersResponse": {
+            "type": "object",
+            "properties": {
+                "total": {
+                    "type": "integer",
+                    "example": 42
+                },
+                "users": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portal.directoryUser"
+                    }
                 }
             }
         },

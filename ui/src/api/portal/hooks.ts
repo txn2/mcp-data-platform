@@ -1057,3 +1057,15 @@ export function useDeleteThread() {
     onSuccess: () => invalidateThreadQueries(qc),
   });
 }
+
+// --- Known-users directory for the share picker (#614) ---
+
+export function useDirectoryUsers(q: string, enabled = true) {
+  const query = q ? `?q=${encodeURIComponent(q)}` : "";
+  return useQuery({
+    queryKey: ["portal", "directory-users", q],
+    queryFn: () =>
+      apiFetch<import("./types").DirectoryUsersResponse>(`/users${query}`),
+    enabled,
+  });
+}

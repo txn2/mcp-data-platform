@@ -68,6 +68,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/tools/toolsindex"
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
+	"github.com/txn2/mcp-data-platform/pkg/user"
 )
 
 // providerNoop is the provider name for no-op (disabled) providers.
@@ -237,6 +238,11 @@ type Platform struct {
 	resourceStore    resource.Store
 	resourceS3Client resource.S3Client
 
+	// Known-users directory (#614). userStore is nil without a database;
+	// userDirectory wraps it with throttled async upserts on authentication.
+	userStore     user.Store
+	userDirectory *user.Directory
+
 	// Prompt store + metadata collected during registration
 	promptStore   prompt.Store
 	promptInfosMu sync.RWMutex
@@ -340,6 +346,7 @@ func (p *Platform) initDataInfra(opts *Options) error {
 	p.initPersonaStore()
 	p.initAPIKeyStore()
 	p.initPromptStore()
+	p.initUserStore()
 	return p.initConfigStore()
 }
 
@@ -1145,6 +1152,14 @@ func (p *Platform) initAuth(opts *Options) error {
 		p.authenticator = authenticator
 	}
 
+	// Record every authenticated person in the known-users directory (#614).
+	// Wrapping the authenticator catches all auth paths (MCP, portal, admin)
+	// at their single Authenticate() chokepoint. The observer is best-effort
+	// and asynchronous, so it never blocks or fails authentication.
+	if p.userDirectory != nil {
+		p.authenticator = auth.NewObservingAuthenticator(p.authenticator, p.observeAuthenticatedUser)
+	}
+
 	if opts.Authorizer != nil {
 		p.authorizer = opts.Authorizer
 	} else {
@@ -1195,6 +1210,10 @@ func (p *Platform) initBrowserSession() error {
 		Cookie:             cookieCfg,
 		PostLoginRedirect:  browsersession.DefaultPortalPath,
 		PostLogoutRedirect: p.config.Portal.PublicBaseURL + browsersession.DefaultPortalPath,
+		// Record portal/admin SPA users in the known-users directory (#614) at
+		// login. The token authenticator's ObservingAuthenticator wrapper never
+		// sees these users, since they authenticate via the session cookie.
+		OnLogin: p.observeBrowserLogin,
 	}
 
 	flow, err := browsersession.NewFlow(context.Background(), flowCfg)

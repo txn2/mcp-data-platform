@@ -129,6 +129,7 @@ func (a *OIDCAuthenticator) Authenticate(ctx context.Context) (*middleware.UserI
 	return &middleware.UserInfo{
 		UserID:   uc.UserID,
 		Email:    uc.Email,
+		Name:     uc.Name,
 		Claims:   uc.Claims,
 		Roles:    uc.Roles,
 		AuthType: authTypeOIDC,

@@ -111,7 +111,7 @@ Click any asset card to open it in the asset viewer:
 Collections use the same sharing system as individual assets:
 
 - **Public links** — Time-limited anonymous access via token URL
-- **User shares** — Share with specific email addresses with Viewer or Editor permission
+- **User shares** — Share with specific email addresses with Viewer or Editor permission. The email field suggests known teammates as you type (name + email, with an "Invited" badge for people an admin pre-added who have not signed in yet); you can still type any email that is not in the directory
 - **Share management** — View active shares, copy public links, revoke access
 
 ## Resources

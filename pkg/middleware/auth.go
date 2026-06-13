@@ -26,6 +26,7 @@ type ToolkitLookup interface {
 type UserInfo struct {
 	UserID   string
 	Email    string
+	Name     string // display name from claims (empty for API keys); may be a full name
 	Claims   map[string]any
 	Roles    []string
 	AuthType string // "oidc", "apikey", etc.

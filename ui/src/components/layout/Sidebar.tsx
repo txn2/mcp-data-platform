@@ -22,6 +22,7 @@ import {
   MessageCircle,
   FileUp,
   BookOpen,
+  Contact,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
 import { useThemeStore } from "@/stores/theme";
@@ -71,6 +72,7 @@ const adminNavItems: NavItem[] = [
   { path: "/admin/prompts", label: "Prompts", icon: MessageSquare },
   { path: "/admin/resources", label: "Resources", icon: FileUp },
   { path: "/admin/tools", label: "Tools", icon: Wrench },
+  { path: "/admin/users", label: "Users", icon: Contact },
 ];
 
 export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse, mobile, onClose }: Props) {
