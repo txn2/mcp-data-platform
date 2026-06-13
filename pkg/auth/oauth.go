@@ -91,12 +91,14 @@ func (a *OAuthJWTAuthenticator) Authenticate(ctx context.Context) (*middleware.U
 		}
 	}
 
-	// Also try to get email from nested claims
+	// Also try to get email and display name from nested claims
 	email, _ := userClaims["email"].(string)
+	name, _ := userClaims["name"].(string)
 
 	return &middleware.UserInfo{
 		UserID:   userID,
 		Email:    email,
+		Name:     name,
 		Claims:   userClaims,
 		Roles:    roles,
 		AuthType: "oauth",

@@ -278,6 +278,83 @@ func TestCallbackHandler(t *testing.T) {
 	}
 }
 
+func TestCallbackHandlerObservesLogin(t *testing.T) {
+	claims := map[string]any{
+		"sub":         "user-42",
+		"email":       "user@example.com",
+		"given_name":  "Marcus",
+		"family_name": "Johnson",
+	}
+	srv := mockOIDCProvider(t, claims)
+	defer srv.Close()
+
+	cfg := testFlowConfig(srv.URL)
+	cfg.HTTPClient = srv.Client()
+
+	var gotEmail, gotFirst, gotLast string
+	cfg.OnLogin = func(email, first, last string) {
+		gotEmail, gotFirst, gotLast = email, first, last
+	}
+
+	flow, err := NewFlow(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("NewFlow: %v", err)
+	}
+
+	loginReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/portal/auth/login", http.NoBody)
+	loginW := httptest.NewRecorder()
+	flow.LoginHandler(loginW, loginReq)
+	loginResp := loginW.Result()
+	loc, _ := url.Parse(loginResp.Header.Get("Location"))
+	state := loc.Query().Get("state")
+
+	var stateCookie *http.Cookie
+	for _, c := range loginResp.Cookies() {
+		if c.Name == stateCookieName {
+			stateCookie = c
+		}
+	}
+	if stateCookie == nil {
+		t.Fatal("no state cookie from login")
+	}
+
+	callbackReq := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/portal/auth/callback?code=auth-code&state="+state, http.NoBody)
+	callbackReq.AddCookie(stateCookie)
+	callbackW := httptest.NewRecorder()
+	flow.CallbackHandler(callbackW, callbackReq)
+
+	if callbackW.Result().StatusCode != http.StatusFound {
+		t.Fatalf("status = %d, want %d", callbackW.Result().StatusCode, http.StatusFound)
+	}
+	if gotEmail != "user@example.com" || gotFirst != "Marcus" || gotLast != "Johnson" {
+		t.Errorf("OnLogin got (%q, %q, %q), want (user@example.com, Marcus, Johnson)", gotEmail, gotFirst, gotLast)
+	}
+}
+
+func TestExtractName(t *testing.T) {
+	tests := []struct {
+		name        string
+		claims      map[string]any
+		first, last string
+	}{
+		{"given/family", map[string]any{"given_name": "Marcus", "family_name": "Johnson"}, "Marcus", "Johnson"},
+		{"full name two parts", map[string]any{"name": "Dana Lee"}, "Dana", "Lee"},
+		{"full name one part", map[string]any{"name": "Cher"}, "Cher", ""},
+		{"full name three parts", map[string]any{"name": "Mary Jane Watson"}, "Mary", "Jane Watson"},
+		{"empty", map[string]any{}, "", ""},
+		{"given only", map[string]any{"given_name": "Marcus"}, "Marcus", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			first, last := extractName(tt.claims)
+			if first != tt.first || last != tt.last {
+				t.Errorf("got (%q, %q), want (%q, %q)", first, last, tt.first, tt.last)
+			}
+		})
+	}
+}
+
 func TestCallbackHandlerErrorParam(t *testing.T) {
 	srv := mockOIDCProvider(t, nil)
 	defer srv.Close()

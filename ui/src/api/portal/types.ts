@@ -405,3 +405,17 @@ export type FeedbackTarget =
   | { type: "collection"; id: string }
   | { type: "prompt"; id: string }
   | { type: "standalone" };
+
+// --- Known-users directory for the share picker (#614) ---
+
+export interface DirectoryUser {
+  email: string;
+  first_name?: string;
+  last_name?: string;
+  confirmed: boolean;
+}
+
+export interface DirectoryUsersResponse {
+  users: DirectoryUser[];
+  total: number;
+}

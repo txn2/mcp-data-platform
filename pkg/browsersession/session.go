@@ -23,6 +23,14 @@ type SessionClaims struct {
 	Email   string   `json:"email,omitempty"`
 	Roles   []string `json:"roles"`
 	IDToken string   `json:"idt,omitempty"` // raw id_token for logout id_token_hint
+
+	// FirstName and LastName are derived from the id_token at login and used to
+	// record the person in the known-users directory (#614). They are NOT
+	// persisted in the session cookie (json:"-"); they exist only in-memory for
+	// the duration of the callback, so the cookie stays small and these are
+	// absent on subsequent cookie-authenticated requests.
+	FirstName string `json:"-"`
+	LastName  string `json:"-"`
 }
 
 // CookieConfig controls session cookie behavior.

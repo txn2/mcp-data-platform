@@ -170,6 +170,8 @@ A built-in web dashboard for monitoring, auditing, and managing the platform. En
 
 **Tools** — Master-detail surface for the full tool inventory. Search and group by connection or kind; drill into any tool to see its routing, persona allow/deny matrix, 24h audit aggregate, and cross-enrichment rules. Edit the per-tool description override, run the tool inline with auto-generated forms, and toggle global visibility (`tools.deny`) without leaving the page.
 
+**Users** — A known-users directory (first name, last name, email) that makes sharing easier. It is not an authorization layer and grants no access. Anyone who signs in via OIDC/OAuth is recorded automatically with the name from their token claims; admins can pre-add people by email so they are selectable for sharing before they have ever logged in (shown with an "Invited" status until their first sign-in). The portal share dialog suggests these known teammates as you type while still accepting any free-typed email. Requires a database.
+
 See the [Admin Portal documentation](https://mcp-data-platform.txn2.com/server/admin-portal/) for the complete visual guide.
 
 ---

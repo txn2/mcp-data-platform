@@ -3,6 +3,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { X, Link, Trash2, Check, Copy, ChevronDown, ChevronRight } from "lucide-react";
 import { useShares, useCreateShare, useRevokeShare, useCollectionShares, useCreateCollectionShare, usePromptShares, useCreatePromptShare } from "@/api/portal/hooks";
 import type { SharePermission } from "@/api/portal/types";
+import { UserPicker } from "@/components/UserPicker";
 
 export type ShareTarget =
   | { type: "asset"; id: string }
@@ -184,13 +185,7 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
           <div className="mb-4">
             <h3 className="text-sm font-medium mb-2">Share with User</h3>
             <div className="flex gap-2">
-              <input
-                type="email"
-                placeholder="Email address"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="flex-1 rounded-md border bg-background px-3 py-1.5 text-sm outline-none ring-ring focus:ring-2"
-              />
+              <UserPicker value={email} onChange={setEmail} />
               <select
                 value={permission}
                 onChange={(e) => setPermission(e.target.value as SharePermission)}

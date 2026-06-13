@@ -2061,6 +2061,9 @@ Split-pane layout. Left: persona list with display name, slug, roles, tool count
 ## API Keys
 Key table with name, source badge, email, description, roles, expiration, actions. Add Key form (name, email, roles, expiration preset). Plaintext shown once at creation. Expired keys shown dimmed with badge.
 
+## Users
+Known-users directory (#614): a record of people (first name, last name, email) used to make sharing easier. Not an authorization layer and grants no access. Table with name, email, status badge (Active = seen via a real sign-in; Invited = admin pre-added, not yet logged in), and last-seen date. Add User form (email + optional first/last) pre-adds someone before they sign in. Edit changes the name; admin-entered names take precedence, so a later sign-in only fills blank name fields. Search by name or email. Anyone who authenticates via OIDC/OAuth is auto-recorded with the name from their token claims (API-key and anonymous sessions are not). Requires a database; without one the directory is disabled and the share dialog falls back to free-typed email only.
+
 ## Change Log
 Audit trail of configuration changes. Config key, action (set), timestamp.
 
@@ -2350,6 +2353,15 @@ Cross-kind embedding-index health for every `index_jobs` consumer; backs the adm
 - `GET /auth/keys` — List API keys (values never exposed)
 - `POST /auth/keys` — Generate new API key (database config mode only, key shown once)
 - `DELETE /auth/keys/{name}` — Delete API key (database config mode only)
+
+## User Endpoints
+
+Known-users directory (#614): people (first name, last name, email) for the share picker. Not an authorization layer. Requires a database; endpoints unregistered without one. Anyone who authenticates is auto-upserted (admin-entered names take precedence; a sign-in only fills blank name fields). Write endpoints require database config mode. The portal exposes the same directory read-only to any authenticated user at `GET /api/v1/portal/users` (email + name only) for the share picker.
+
+- `GET /admin/users` — List directory users (optional `q`, `limit`, `offset`)
+- `POST /admin/users` — Pre-add a person by email (database config mode only, 409 if email exists)
+- `PUT /admin/users/{email}` — Edit first/last name (database config mode only)
+- `DELETE /admin/users/{email}` — Remove a directory entry (database config mode only)
 
 ## Connection Instance Endpoints
 

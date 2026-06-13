@@ -898,6 +898,9 @@ func wirePortalOptionalDeps(deps *portal.Deps, p *platform.Platform) {
 	if ep := p.EmbeddingProvider(); ep != nil {
 		deps.EmbeddingProvider = ep
 	}
+	if us := p.UserStore(); us != nil {
+		deps.UserDirectory = us
+	}
 	if pr := p.PersonaRegistry(); pr != nil {
 		tr := p.ToolkitRegistry()
 		deps.PersonaResolver = buildPersonaResolver(pr, tr)
@@ -965,6 +968,7 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 		ToolkitsConfig:     p.Config().Toolkits,
 		PersonaStore:       p.PersonaStore(),
 		APIKeyStore:        p.APIKeyStore(),
+		UserStore:          p.UserStore(),
 		PromptStore:        p.PromptStore(),
 		PromptRegistrar:    p,
 		PromptInfoProvider: p,
