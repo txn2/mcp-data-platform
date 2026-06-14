@@ -2,8 +2,6 @@ package portal
 
 import (
 	"context"
-	"fmt"
-	"log/slog"
 	"net/http"
 )
 
@@ -99,94 +97,28 @@ func (h *Handler) writeWorklist(w http.ResponseWriter, r *http.Request, filter T
 
 // ownedOrEditableTargets returns the ids of every asset and collection the user
 // owns or holds an active editor share on (the worklist's "I can act on it"
-// scope). The feedback activity feed reuses gatherAssetIDs/gatherCollectionIDs
-// with keepAnyShare for its broader "I can view it" scope.
+// scope). Delegates to the shared gather helpers; the activity feed uses the
+// same helpers with KeepAnyShare for its broader "I can view it" scope.
 func (h *Handler) ownedOrEditableTargets(ctx context.Context, user *User) (assetIDs, collIDs []string, err error) {
-	assetIDs, err = h.gatherAssetIDs(ctx, user, keepEditorShare)
+	g := h.targetGatherer(user)
+	assetIDs, err = g.AssetIDs(ctx, KeepEditorShares)
 	if err != nil {
 		return nil, nil, err
 	}
-	collIDs, err = h.gatherCollectionIDs(ctx, user, keepEditorShare)
+	collIDs, err = g.CollectionIDs(ctx, KeepEditorShares)
 	if err != nil {
 		return nil, nil, err
 	}
 	return assetIDs, collIDs, nil
 }
 
-// keepEditorShare keeps only editor-permission shares (worklist scope).
-func keepEditorShare(p SharePermission) bool { return p == PermissionEditor }
-
-// keepAnyShare keeps shares at any permission (activity-feed view scope).
-func keepAnyShare(SharePermission) bool { return true }
-
-// gatherAssetIDs returns the assets the user owns plus the shared assets whose
-// permission satisfies keepShare. The keepShare predicate is the only
-// difference between the worklist (editor) and the activity feed (any) scopes.
-func (h *Handler) gatherAssetIDs(ctx context.Context, user *User, keepShare func(SharePermission) bool) ([]string, error) {
-	var ids []string
-	if h.deps.AssetStore != nil {
-		owned, total, err := h.deps.AssetStore.List(ctx, AssetFilter{OwnerID: user.UserID, Limit: worklistTargetCap})
-		if err != nil {
-			return nil, fmt.Errorf("listing owned assets: %w", err)
-		}
-		warnIfTruncated(total, "owned assets", user.UserID)
-		for _, a := range owned {
-			ids = append(ids, a.ID)
-		}
-	}
-	if h.deps.ShareStore != nil {
-		shared, total, err := h.deps.ShareStore.ListSharedWithUser(ctx, user.UserID, user.Email, worklistTargetCap, 0)
-		if err != nil {
-			return nil, fmt.Errorf("listing shared assets: %w", err)
-		}
-		warnIfTruncated(total, "shared assets", user.UserID)
-		for _, s := range shared {
-			if keepShare(s.Permission) {
-				ids = append(ids, s.Asset.ID)
-			}
-		}
-	}
-	return ids, nil
-}
-
-// gatherCollectionIDs returns the collections the user owns plus the shared
-// collections whose permission satisfies keepShare.
-func (h *Handler) gatherCollectionIDs(ctx context.Context, user *User, keepShare func(SharePermission) bool) ([]string, error) {
-	var ids []string
-	if h.deps.CollectionStore != nil {
-		owned, total, err := h.deps.CollectionStore.List(ctx, CollectionFilter{OwnerID: user.UserID, Limit: worklistTargetCap})
-		if err != nil {
-			return nil, fmt.Errorf("listing owned collections: %w", err)
-		}
-		warnIfTruncated(total, "owned collections", user.UserID)
-		for _, c := range owned {
-			ids = append(ids, c.ID)
-		}
-	}
-	if h.deps.ShareStore != nil {
-		shared, total, err := h.deps.ShareStore.ListSharedCollectionsWithUser(ctx, user.UserID, user.Email, worklistTargetCap, 0)
-		if err != nil {
-			return nil, fmt.Errorf("listing shared collections: %w", err)
-		}
-		warnIfTruncated(total, "shared collections", user.UserID)
-		for _, s := range shared {
-			if keepShare(s.Permission) {
-				ids = append(ids, s.Collection.ID)
-			}
-		}
-	}
-	return ids, nil
-}
-
-// worklistTargetCap bounds how many owned/shared artifacts the worklist gathers.
-const worklistTargetCap = 1000
-
-// warnIfTruncated logs when a user's owned/shared set exceeds the worklist cap,
-// so the silent omission of artifacts past the cap is at least observable to
-// operators (the worklist's purpose is that no feedback is dropped).
-func warnIfTruncated(total int, kind, userID string) {
-	if total > worklistTargetCap {
-		slog.Warn("worklist target set truncated; some artifacts are omitted",
-			"kind", kind, "user", userID, "total", total, "cap", worklistTargetCap)
+// targetGatherer builds a TargetGatherer from the handler's stores for the user.
+func (h *Handler) targetGatherer(user *User) TargetGatherer {
+	return TargetGatherer{
+		Assets:      h.deps.AssetStore,
+		Collections: h.deps.CollectionStore,
+		Shares:      h.deps.ShareStore,
+		UserID:      user.UserID,
+		Email:       user.Email,
 	}
 }

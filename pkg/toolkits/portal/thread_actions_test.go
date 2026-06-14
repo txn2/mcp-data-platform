@@ -20,10 +20,11 @@ import (
 // fakeThreadStore implements portal.ThreadStore with configurable returns and
 // captured inputs for the manage_artifact thread actions.
 type fakeThreadStore struct {
-	listResult []portal.ThreadWithMeta
-	listTotal  int
-	listErr    error
-	lastFilter portal.ThreadFilter
+	listResult  []portal.ThreadWithMeta
+	listTotal   int
+	listErr     error
+	lastFilter  portal.ThreadFilter
+	listFilters []portal.ThreadFilter // every filter passed to ListThreads, in order
 
 	getResult *portal.Thread
 	getErr    error
@@ -49,6 +50,7 @@ func (*fakeThreadStore) CreateThread(_ context.Context, t portal.Thread, _ porta
 
 func (f *fakeThreadStore) ListThreads(_ context.Context, filter portal.ThreadFilter) ([]portal.ThreadWithMeta, int, error) {
 	f.lastFilter = filter
+	f.listFilters = append(f.listFilters, filter)
 	return f.listResult, f.listTotal, f.listErr
 }
 
@@ -160,6 +162,15 @@ func (*fakeShareStore) IncrementAccess(_ context.Context, _ string) error { retu
 
 var _ portal.ShareStore = (*fakeShareStore)(nil)
 
+// errShareStore fails the shared-asset lookup so the pending gather errors.
+type errShareStore struct{ fakeShareStore }
+
+func (*errShareStore) ListSharedWithUser(_ context.Context, _, _ string, _, _ int) ([]portal.SharedAsset, int, error) {
+	return nil, 0, errors.New("share boom")
+}
+
+var _ portal.ShareStore = (*errShareStore)(nil)
+
 // --- helpers ----------------------------------------------------------------
 
 const (
@@ -215,17 +226,17 @@ func decodeResult(t *testing.T, res *mcp.CallToolResult) map[string]any {
 func TestThreadScopeFromInput(t *testing.T) {
 	tests := []struct {
 		name   string
-		input  manageArtifactInput
+		input  manageFeedbackInput
 		want   string
 		wantOK bool
 	}{
-		{"standalone no ids", manageArtifactInput{TargetType: "standalone"}, "standalone", true},
-		{"standalone with asset id", manageArtifactInput{TargetType: "standalone", AssetID: "a"}, "standalone", false},
-		{"asset only", manageArtifactInput{AssetID: "a"}, "asset", true},
-		{"collection only", manageArtifactInput{CollectionID: "c"}, "collection", true},
-		{"prompt only", manageArtifactInput{PromptID: "p"}, "prompt", true},
-		{"no ids, not standalone", manageArtifactInput{}, "", false},
-		{"two ids", manageArtifactInput{AssetID: "a", CollectionID: "c"}, "", false},
+		{"standalone no ids", manageFeedbackInput{TargetType: "standalone"}, "standalone", true},
+		{"standalone with asset id", manageFeedbackInput{TargetType: "standalone", AssetID: "a"}, "standalone", false},
+		{"asset only", manageFeedbackInput{AssetID: "a"}, "asset", true},
+		{"collection only", manageFeedbackInput{CollectionID: "c"}, "collection", true},
+		{"prompt only", manageFeedbackInput{PromptID: "p"}, "prompt", true},
+		{"no ids, not standalone", manageFeedbackInput{}, "", false},
+		{"two ids", manageFeedbackInput{AssetID: "a", CollectionID: "c"}, "", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -249,21 +260,67 @@ func TestCountNonEmpty(t *testing.T) {
 func TestHandleListThreads(t *testing.T) {
 	t.Run("store unavailable", func(t *testing.T) {
 		tk := New(Config{Name: "test", S3Bucket: "b"}) // no ThreadStore
-		res, _, err := tk.handleListThreads(ownerCtx(), manageArtifactInput{AssetID: "asset_1"})
+		res, _, err := tk.handleListThreads(ownerCtx(), manageFeedbackInput{AssetID: "asset_1"})
 		require.NoError(t, err)
 		assert.True(t, res.IsError)
 		assert.Contains(t, decodeResult(t, res)["error"], "not available")
 	})
 
-	t.Run("scope error", func(t *testing.T) {
-		tk := threadToolkit(t, &fakeThreadStore{}, nil)
-		res, _, _ := tk.handleListThreads(ownerCtx(), manageArtifactInput{})
+	t.Run("no target lists pending across everything", func(t *testing.T) {
+		fts := &fakeThreadStore{
+			listTotal:  3,
+			listResult: []portal.ThreadWithMeta{{Thread: portal.Thread{ID: "thr_1"}}},
+		}
+		tk := threadToolkit(t, fts, nil)
+		res, _, err := tk.handleListThreads(ownerCtx(), manageFeedbackInput{})
+		require.NoError(t, err)
+		assert.False(t, res.IsError)
+		// First ListThreads call is the pending query: my owned/editable artifacts
+		// + the general channel, unresolved, excluding my own threads.
+		require.GreaterOrEqual(t, len(fts.listFilters), 1)
+		pf := fts.listFilters[0]
+		assert.True(t, pf.IncludeStandalone)
+		assert.True(t, pf.Unresolved)
+		assert.Equal(t, ownerID, pf.ExcludeAuthorID)
+		assert.Equal(t, ownerEmail, pf.ExcludeAuthorEmail)
+		assert.Contains(t, pf.TargetAssetIDs, "asset_1")
+		assert.Contains(t, pf.TargetCollectionIDs, "collection_1")
+		// Second call is the awaiting-my-validation query.
+		require.Len(t, fts.listFilters, 2)
+		assert.Equal(t, portal.ValidationStatePending, fts.listFilters[1].ValidationState)
+		assert.Equal(t, ownerID, fts.listFilters[1].AuthorID)
+
+		body := decodeResult(t, res)
+		assert.Contains(t, body, "pending")
+		assert.Contains(t, body, "awaiting_my_validation")
+	})
+
+	t.Run("no target, anonymous skips validation queue", func(t *testing.T) {
+		fts := &fakeThreadStore{}
+		tk := threadToolkit(t, fts, nil)
+		res, _, _ := tk.handleListThreads(context.Background(), manageFeedbackInput{})
+		assert.False(t, res.IsError)
+		// Anonymous: pending query runs, but the validation queue is skipped.
+		assert.Len(t, fts.listFilters, 1)
+	})
+
+	t.Run("no target, gather error", func(t *testing.T) {
+		tk := threadToolkit(t, &fakeThreadStore{}, &errShareStore{})
+		res, _, _ := tk.handleListThreads(ownerCtx(), manageFeedbackInput{})
 		assert.True(t, res.IsError)
+		assert.Contains(t, decodeResult(t, res)["error"], "gather")
+	})
+
+	t.Run("no target, pending store error", func(t *testing.T) {
+		tk := threadToolkit(t, &fakeThreadStore{listErr: errors.New("boom")}, nil)
+		res, _, _ := tk.handleListThreads(ownerCtx(), manageFeedbackInput{})
+		assert.True(t, res.IsError)
+		assert.Contains(t, decodeResult(t, res)["error"], "pending feedback")
 	})
 
 	t.Run("access denied for non-owner non-editor", func(t *testing.T) {
 		tk := threadToolkit(t, &fakeThreadStore{}, nil)
-		res, _, _ := tk.handleListThreads(strangerCtx(), manageArtifactInput{AssetID: "asset_1"})
+		res, _, _ := tk.handleListThreads(strangerCtx(), manageFeedbackInput{AssetID: "asset_1"})
 		assert.True(t, res.IsError)
 		assert.Contains(t, decodeResult(t, res)["error"], "own or can edit")
 	})
@@ -272,7 +329,7 @@ func TestHandleListThreads(t *testing.T) {
 		fts := &fakeThreadStore{listTotal: 2}
 		tk := threadToolkit(t, fts, nil)
 		req := true
-		res, _, err := tk.handleListThreads(ownerCtx(), manageArtifactInput{
+		res, _, err := tk.handleListThreads(ownerCtx(), manageFeedbackInput{
 			AssetID: "asset_1", RequiresResolution: &req, ValidationState: "pending",
 		})
 		require.NoError(t, err)
@@ -287,37 +344,37 @@ func TestHandleListThreads(t *testing.T) {
 	t.Run("editor share grants access", func(t *testing.T) {
 		shares := &fakeShareStore{assetShare: &portal.Share{Permission: portal.PermissionEditor}}
 		tk := threadToolkit(t, &fakeThreadStore{}, shares)
-		res, _, _ := tk.handleListThreads(strangerCtx(), manageArtifactInput{AssetID: "asset_1"})
+		res, _, _ := tk.handleListThreads(strangerCtx(), manageFeedbackInput{AssetID: "asset_1"})
 		assert.False(t, res.IsError)
 	})
 
 	t.Run("admin sees any target", func(t *testing.T) {
 		tk := threadToolkit(t, &fakeThreadStore{}, nil)
-		res, _, _ := tk.handleListThreads(adminCtx(), manageArtifactInput{AssetID: "asset_1"})
+		res, _, _ := tk.handleListThreads(adminCtx(), manageFeedbackInput{AssetID: "asset_1"})
 		assert.False(t, res.IsError)
 	})
 
 	t.Run("store error", func(t *testing.T) {
 		tk := threadToolkit(t, &fakeThreadStore{listErr: errors.New("boom")}, nil)
-		res, _, _ := tk.handleListThreads(ownerCtx(), manageArtifactInput{AssetID: "asset_1"})
+		res, _, _ := tk.handleListThreads(ownerCtx(), manageFeedbackInput{AssetID: "asset_1"})
 		assert.True(t, res.IsError)
 	})
 
 	t.Run("standalone scope open to any authed caller", func(t *testing.T) {
 		tk := threadToolkit(t, &fakeThreadStore{}, nil)
-		res, _, _ := tk.handleListThreads(strangerCtx(), manageArtifactInput{TargetType: "standalone"})
+		res, _, _ := tk.handleListThreads(strangerCtx(), manageFeedbackInput{TargetType: "standalone"})
 		assert.False(t, res.IsError)
 	})
 
 	t.Run("collection owner lists", func(t *testing.T) {
 		tk := threadToolkit(t, &fakeThreadStore{}, nil)
-		res, _, _ := tk.handleListThreads(ownerCtx(), manageArtifactInput{CollectionID: "collection_1"})
+		res, _, _ := tk.handleListThreads(ownerCtx(), manageFeedbackInput{CollectionID: "collection_1"})
 		assert.False(t, res.IsError)
 	})
 
 	t.Run("prompt scope denied for non-admin", func(t *testing.T) {
 		tk := threadToolkit(t, &fakeThreadStore{}, nil)
-		res, _, _ := tk.handleListThreads(ownerCtx(), manageArtifactInput{PromptID: "p1"})
+		res, _, _ := tk.handleListThreads(ownerCtx(), manageFeedbackInput{PromptID: "p1"})
 		assert.True(t, res.IsError)
 	})
 }
@@ -327,21 +384,21 @@ func TestHandleListThreads(t *testing.T) {
 func TestHandleGetThread(t *testing.T) {
 	t.Run("missing thread_id", func(t *testing.T) {
 		tk := threadToolkit(t, &fakeThreadStore{}, nil)
-		res, _, _ := tk.handleGetThread(ownerCtx(), manageArtifactInput{})
+		res, _, _ := tk.handleGetThread(ownerCtx(), manageFeedbackInput{})
 		assert.True(t, res.IsError)
 		assert.Contains(t, decodeResult(t, res)["error"], "thread_id is required")
 	})
 
 	t.Run("not found", func(t *testing.T) {
 		tk := threadToolkit(t, &fakeThreadStore{getErr: errors.New("nope")}, nil)
-		res, _, _ := tk.handleGetThread(ownerCtx(), manageArtifactInput{ThreadID: "t1"})
+		res, _, _ := tk.handleGetThread(ownerCtx(), manageFeedbackInput{ThreadID: "t1"})
 		assert.True(t, res.IsError)
 	})
 
 	t.Run("access denied", func(t *testing.T) {
 		fts := &fakeThreadStore{getResult: &portal.Thread{ID: "t1", TargetType: "asset", AssetID: "asset_1"}}
 		tk := threadToolkit(t, fts, nil)
-		res, _, _ := tk.handleGetThread(strangerCtx(), manageArtifactInput{ThreadID: "t1"})
+		res, _, _ := tk.handleGetThread(strangerCtx(), manageFeedbackInput{ThreadID: "t1"})
 		assert.True(t, res.IsError)
 		assert.Contains(t, decodeResult(t, res)["error"], "own or can edit")
 	})
@@ -352,7 +409,7 @@ func TestHandleGetThread(t *testing.T) {
 			events:    []portal.ThreadEvent{{ID: "evt_1", EventType: portal.EventTypeComment}},
 		}
 		tk := threadToolkit(t, fts, nil)
-		res, _, err := tk.handleGetThread(ownerCtx(), manageArtifactInput{ThreadID: "t1"})
+		res, _, err := tk.handleGetThread(ownerCtx(), manageFeedbackInput{ThreadID: "t1"})
 		require.NoError(t, err)
 		assert.False(t, res.IsError)
 		m := decodeResult(t, res)
@@ -366,7 +423,7 @@ func TestHandleGetThread(t *testing.T) {
 			eventsErr: errors.New("boom"),
 		}
 		tk := threadToolkit(t, fts, nil)
-		res, _, _ := tk.handleGetThread(ownerCtx(), manageArtifactInput{ThreadID: "t1"})
+		res, _, _ := tk.handleGetThread(ownerCtx(), manageFeedbackInput{ThreadID: "t1"})
 		assert.True(t, res.IsError)
 	})
 }
@@ -378,7 +435,7 @@ func TestHandleReplyThread(t *testing.T) {
 
 	t.Run("empty body", func(t *testing.T) {
 		tk := threadToolkit(t, &fakeThreadStore{getResult: thread}, nil)
-		res, _, _ := tk.handleReplyThread(ownerCtx(), manageArtifactInput{ThreadID: "t1", Body: "  "})
+		res, _, _ := tk.handleReplyThread(ownerCtx(), manageFeedbackInput{ThreadID: "t1", Body: "  "})
 		assert.True(t, res.IsError)
 		assert.Contains(t, decodeResult(t, res)["error"], "body is required")
 	})
@@ -386,7 +443,7 @@ func TestHandleReplyThread(t *testing.T) {
 	t.Run("success appends a comment", func(t *testing.T) {
 		fts := &fakeThreadStore{getResult: thread}
 		tk := threadToolkit(t, fts, nil)
-		res, _, err := tk.handleReplyThread(ownerCtx(), manageArtifactInput{ThreadID: "t1", Body: "looks good"})
+		res, _, err := tk.handleReplyThread(ownerCtx(), manageFeedbackInput{ThreadID: "t1", Body: "looks good"})
 		require.NoError(t, err)
 		assert.False(t, res.IsError)
 	})
@@ -394,7 +451,7 @@ func TestHandleReplyThread(t *testing.T) {
 	t.Run("append error", func(t *testing.T) {
 		fts := &fakeThreadStore{getResult: thread, appendErr: errors.New("boom")}
 		tk := threadToolkit(t, fts, nil)
-		res, _, _ := tk.handleReplyThread(ownerCtx(), manageArtifactInput{ThreadID: "t1", Body: "x"})
+		res, _, _ := tk.handleReplyThread(ownerCtx(), manageFeedbackInput{ThreadID: "t1", Body: "x"})
 		assert.True(t, res.IsError)
 	})
 }
@@ -407,7 +464,7 @@ func TestHandleResolveThread(t *testing.T) {
 	t.Run("owner resolves", func(t *testing.T) {
 		fts := &fakeThreadStore{getResult: thread}
 		tk := threadToolkit(t, fts, nil)
-		res, _, err := tk.handleResolveThread(ownerCtx(), manageArtifactInput{ThreadID: "t1"})
+		res, _, err := tk.handleResolveThread(ownerCtx(), manageFeedbackInput{ThreadID: "t1"})
 		require.NoError(t, err)
 		assert.False(t, res.IsError)
 		require.NotNil(t, fts.lastUpdate)
@@ -418,21 +475,21 @@ func TestHandleResolveThread(t *testing.T) {
 	t.Run("update error", func(t *testing.T) {
 		fts := &fakeThreadStore{getResult: thread, updateErr: errors.New("boom")}
 		tk := threadToolkit(t, fts, nil)
-		res, _, _ := tk.handleResolveThread(ownerCtx(), manageArtifactInput{ThreadID: "t1"})
+		res, _, _ := tk.handleResolveThread(ownerCtx(), manageFeedbackInput{ThreadID: "t1"})
 		assert.True(t, res.IsError)
 	})
 
 	t.Run("standalone non-author denied", func(t *testing.T) {
 		standalone := &portal.Thread{ID: "t2", TargetType: "standalone", AuthorID: ownerID, AuthorEmail: ownerEmail}
 		tk := threadToolkit(t, &fakeThreadStore{getResult: standalone}, nil)
-		res, _, _ := tk.handleResolveThread(strangerCtx(), manageArtifactInput{ThreadID: "t2"})
+		res, _, _ := tk.handleResolveThread(strangerCtx(), manageFeedbackInput{ThreadID: "t2"})
 		assert.True(t, res.IsError)
 	})
 
 	t.Run("standalone author allowed", func(t *testing.T) {
 		standalone := &portal.Thread{ID: "t2", TargetType: "standalone", AuthorID: ownerID, AuthorEmail: ownerEmail}
 		tk := threadToolkit(t, &fakeThreadStore{getResult: standalone}, nil)
-		res, _, _ := tk.handleResolveThread(ownerCtx(), manageArtifactInput{ThreadID: "t2"})
+		res, _, _ := tk.handleResolveThread(ownerCtx(), manageFeedbackInput{ThreadID: "t2"})
 		assert.False(t, res.IsError)
 	})
 }
@@ -443,7 +500,7 @@ func TestHandleRequestValidation(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		fts := &fakeThreadStore{getResult: thread}
 		tk := threadToolkit(t, fts, nil)
-		res, _, err := tk.handleRequestValidation(ownerCtx(), manageArtifactInput{ThreadID: "t1"})
+		res, _, err := tk.handleRequestValidation(ownerCtx(), manageFeedbackInput{ThreadID: "t1"})
 		require.NoError(t, err)
 		assert.False(t, res.IsError)
 		assert.Equal(t, "t1", fts.validatedID)
@@ -453,7 +510,7 @@ func TestHandleRequestValidation(t *testing.T) {
 	t.Run("store error", func(t *testing.T) {
 		fts := &fakeThreadStore{getResult: thread, validateErr: errors.New("boom")}
 		tk := threadToolkit(t, fts, nil)
-		res, _, _ := tk.handleRequestValidation(ownerCtx(), manageArtifactInput{ThreadID: "t1"})
+		res, _, _ := tk.handleRequestValidation(ownerCtx(), manageFeedbackInput{ThreadID: "t1"})
 		assert.True(t, res.IsError)
 	})
 }
@@ -467,7 +524,7 @@ func TestHandleRespondValidation(t *testing.T) {
 	t.Run("author validates", func(t *testing.T) {
 		fts := &fakeThreadStore{getResult: authored}
 		tk := threadToolkit(t, fts, nil)
-		res, _, err := tk.handleRespondValidation(ownerCtx(), manageArtifactInput{ThreadID: "t1", ValidationResult: "validated"})
+		res, _, err := tk.handleRespondValidation(ownerCtx(), manageFeedbackInput{ThreadID: "t1", ValidationResult: "validated"})
 		require.NoError(t, err)
 		assert.False(t, res.IsError)
 		assert.Equal(t, "validated", fts.respondedResult)
@@ -478,53 +535,53 @@ func TestHandleRespondValidation(t *testing.T) {
 		fts := &fakeThreadStore{getResult: authored}
 		tk := threadToolkit(t, fts, nil)
 		res, _, _ := tk.handleRespondValidation(ownerCtx(),
-			manageArtifactInput{ThreadID: "t1", ValidationResult: "disputed", ValidationReason: "still wrong"})
+			manageFeedbackInput{ThreadID: "t1", ValidationResult: "disputed", ValidationReason: "still wrong"})
 		assert.False(t, res.IsError)
 		assert.Equal(t, "disputed", fts.respondedResult)
 	})
 
 	t.Run("admin can respond", func(t *testing.T) {
 		tk := threadToolkit(t, &fakeThreadStore{getResult: authored}, nil)
-		res, _, _ := tk.handleRespondValidation(adminCtx(), manageArtifactInput{ThreadID: "t1", ValidationResult: "validated"})
+		res, _, _ := tk.handleRespondValidation(adminCtx(), manageFeedbackInput{ThreadID: "t1", ValidationResult: "validated"})
 		assert.False(t, res.IsError)
 	})
 
 	t.Run("non-author denied", func(t *testing.T) {
 		tk := threadToolkit(t, &fakeThreadStore{getResult: authored}, nil)
-		res, _, _ := tk.handleRespondValidation(strangerCtx(), manageArtifactInput{ThreadID: "t1", ValidationResult: "validated"})
+		res, _, _ := tk.handleRespondValidation(strangerCtx(), manageFeedbackInput{ThreadID: "t1", ValidationResult: "validated"})
 		assert.True(t, res.IsError)
 		assert.Contains(t, decodeResult(t, res)["error"], "only the feedback author")
 	})
 
 	t.Run("invalid validation_result", func(t *testing.T) {
 		tk := threadToolkit(t, &fakeThreadStore{getResult: authored}, nil)
-		res, _, _ := tk.handleRespondValidation(ownerCtx(), manageArtifactInput{ThreadID: "t1", ValidationResult: "maybe"})
+		res, _, _ := tk.handleRespondValidation(ownerCtx(), manageFeedbackInput{ThreadID: "t1", ValidationResult: "maybe"})
 		assert.True(t, res.IsError)
 		assert.Contains(t, decodeResult(t, res)["error"], "must be 'validated' or 'disputed'")
 	})
 
 	t.Run("missing thread_id", func(t *testing.T) {
 		tk := threadToolkit(t, &fakeThreadStore{}, nil)
-		res, _, _ := tk.handleRespondValidation(ownerCtx(), manageArtifactInput{ValidationResult: "validated"})
+		res, _, _ := tk.handleRespondValidation(ownerCtx(), manageFeedbackInput{ValidationResult: "validated"})
 		assert.True(t, res.IsError)
 	})
 
 	t.Run("thread not found", func(t *testing.T) {
 		tk := threadToolkit(t, &fakeThreadStore{getErr: errors.New("nope")}, nil)
-		res, _, _ := tk.handleRespondValidation(ownerCtx(), manageArtifactInput{ThreadID: "t1", ValidationResult: "validated"})
+		res, _, _ := tk.handleRespondValidation(ownerCtx(), manageFeedbackInput{ThreadID: "t1", ValidationResult: "validated"})
 		assert.True(t, res.IsError)
 	})
 
 	t.Run("store error", func(t *testing.T) {
 		tk := threadToolkit(t, &fakeThreadStore{getResult: authored, respondErr: errors.New("boom")}, nil)
-		res, _, _ := tk.handleRespondValidation(ownerCtx(), manageArtifactInput{ThreadID: "t1", ValidationResult: "validated"})
+		res, _, _ := tk.handleRespondValidation(ownerCtx(), manageFeedbackInput{ThreadID: "t1", ValidationResult: "validated"})
 		assert.True(t, res.IsError)
 	})
 
 	t.Run("anonymous caller cannot respond", func(t *testing.T) {
 		anonAuthored := &portal.Thread{ID: "t1", TargetType: "asset", AssetID: "asset_1", AuthorID: "anonymous"}
 		tk := threadToolkit(t, &fakeThreadStore{getResult: anonAuthored}, nil)
-		res, _, _ := tk.handleRespondValidation(context.Background(), manageArtifactInput{ThreadID: "t1", ValidationResult: "validated"})
+		res, _, _ := tk.handleRespondValidation(context.Background(), manageFeedbackInput{ThreadID: "t1", ValidationResult: "validated"})
 		assert.True(t, res.IsError)
 	})
 }
@@ -594,7 +651,7 @@ func TestThreadAccessModel(t *testing.T) {
 	t.Run("collection owner allowed", func(t *testing.T) {
 		thread := &portal.Thread{ID: "t1", TargetType: "collection", CollectionID: "collection_1"}
 		tk := threadToolkit(t, &fakeThreadStore{getResult: thread}, nil)
-		res, _, _ := tk.handleResolveThread(ownerCtx(), manageArtifactInput{ThreadID: "t1"})
+		res, _, _ := tk.handleResolveThread(ownerCtx(), manageFeedbackInput{ThreadID: "t1"})
 		assert.False(t, res.IsError)
 	})
 
@@ -602,14 +659,14 @@ func TestThreadAccessModel(t *testing.T) {
 		thread := &portal.Thread{ID: "t1", TargetType: "collection", CollectionID: "collection_1"}
 		shares := &fakeShareStore{collPerm: portal.PermissionEditor}
 		tk := threadToolkit(t, &fakeThreadStore{getResult: thread}, shares)
-		res, _, _ := tk.handleResolveThread(strangerCtx(), manageArtifactInput{ThreadID: "t1"})
+		res, _, _ := tk.handleResolveThread(strangerCtx(), manageFeedbackInput{ThreadID: "t1"})
 		assert.False(t, res.IsError)
 	})
 
 	t.Run("collection stranger denied", func(t *testing.T) {
 		thread := &portal.Thread{ID: "t1", TargetType: "collection", CollectionID: "collection_1"}
 		tk := threadToolkit(t, &fakeThreadStore{getResult: thread}, nil)
-		res, _, _ := tk.handleResolveThread(strangerCtx(), manageArtifactInput{ThreadID: "t1"})
+		res, _, _ := tk.handleResolveThread(strangerCtx(), manageFeedbackInput{ThreadID: "t1"})
 		assert.True(t, res.IsError)
 	})
 
@@ -617,10 +674,10 @@ func TestThreadAccessModel(t *testing.T) {
 		thread := &portal.Thread{ID: "t1", TargetType: "prompt", PromptID: "p1"}
 		tk := threadToolkit(t, &fakeThreadStore{getResult: thread}, nil)
 		// owner of an unrelated asset is not admin: denied.
-		res, _, _ := tk.handleGetThread(ownerCtx(), manageArtifactInput{ThreadID: "t1"})
+		res, _, _ := tk.handleGetThread(ownerCtx(), manageFeedbackInput{ThreadID: "t1"})
 		assert.True(t, res.IsError)
 		// admin: allowed.
-		res, _, _ = tk.handleGetThread(adminCtx(), manageArtifactInput{ThreadID: "t1"})
+		res, _, _ = tk.handleGetThread(adminCtx(), manageFeedbackInput{ThreadID: "t1"})
 		assert.False(t, res.IsError)
 	})
 
@@ -653,14 +710,14 @@ func TestThreadAccessModel(t *testing.T) {
 		tk := threadToolkit(t, &fakeThreadStore{getResult: standalone}, nil)
 		// context.Background() carries no PlatformContext, so resolveOwnerID is the
 		// "anonymous" sentinel; the guard must fail closed despite the id matching.
-		res, _, _ := tk.handleResolveThread(context.Background(), manageArtifactInput{ThreadID: "t1"})
+		res, _, _ := tk.handleResolveThread(context.Background(), manageFeedbackInput{ThreadID: "t1"})
 		assert.True(t, res.IsError)
 	})
 
 	t.Run("standalone non-moderate readable by anyone", func(t *testing.T) {
 		thread := &portal.Thread{ID: "t1", TargetType: "standalone", AuthorID: ownerID}
 		tk := threadToolkit(t, &fakeThreadStore{getResult: thread, events: []portal.ThreadEvent{}}, nil)
-		res, _, _ := tk.handleGetThread(strangerCtx(), manageArtifactInput{ThreadID: "t1"})
+		res, _, _ := tk.handleGetThread(strangerCtx(), manageFeedbackInput{ThreadID: "t1"})
 		assert.False(t, res.IsError)
 	})
 }

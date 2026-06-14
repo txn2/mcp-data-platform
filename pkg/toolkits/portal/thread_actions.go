@@ -37,9 +37,14 @@ const (
 	threadsUnavail = "feedback threads are not available"
 )
 
-func (t *Toolkit) handleListThreads(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
+func (t *Toolkit) handleListThreads(ctx context.Context, input manageFeedbackInput) (*mcp.CallToolResult, any, error) {
 	if t.threadStore == nil {
 		return errorResult(threadsUnavail), nil, nil
+	}
+	// No target at all: return the caller's pending feedback across everything
+	// (the discovery entry point — "review any pending feedback").
+	if !hasThreadTarget(input) {
+		return t.handleListPendingFeedback(ctx, input)
 	}
 	targetType, ok := threadScopeFromInput(input)
 	if !ok {
@@ -69,7 +74,96 @@ func (t *Toolkit) handleListThreads(ctx context.Context, input manageArtifactInp
 	return jsonResult(map[string]any{"threads": threads, fieldTotal: total})
 }
 
-func (t *Toolkit) handleGetThread(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
+// hasThreadTarget reports whether the input scopes feedback to a single target
+// (an object id or target_type). When false, list returns the cross-artifact
+// pending feed.
+func hasThreadTarget(input manageFeedbackInput) bool {
+	return input.TargetType != "" || input.AssetID != "" ||
+		input.CollectionID != "" || input.PromptID != ""
+}
+
+// handleListPendingFeedback returns the caller's pending feedback across every
+// artifact they own or can edit AND the shared general channel: unresolved
+// threads they did not author, plus threads awaiting their validation. This is
+// the agent's entry point for "review and act on any pending feedback".
+func (t *Toolkit) handleListPendingFeedback(ctx context.Context, input manageFeedbackInput) (*mcp.CallToolResult, any, error) {
+	uid, email := resolveOwnerID(ctx), resolveOwnerEmail(ctx)
+
+	g := portal.TargetGatherer{
+		Assets:      t.assetStore,
+		Collections: t.collectionStore,
+		Shares:      t.shareStore,
+		UserID:      uid,
+		Email:       email,
+	}
+	assetIDs, err := g.AssetIDs(ctx, portal.KeepEditorShares)
+	if err != nil {
+		return errorResult("failed to gather your artifacts: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+	}
+	collIDs, err := g.CollectionIDs(ctx, portal.KeepEditorShares)
+	if err != nil {
+		return errorResult("failed to gather your artifacts: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+	}
+
+	filter := portal.ThreadFilter{
+		TargetAssetIDs:      assetIDs,
+		TargetCollectionIDs: collIDs,
+		IncludeStandalone:   true,
+		Unresolved:          true,
+		Limit:               input.Limit,
+		Offset:              input.Offset,
+	}
+	// Exclude the caller's own threads so they are not surfaced as feedback
+	// awaiting their action. Skip for an unauthenticated caller: excluding the
+	// "anonymous" sentinel would drop genuinely anonymous general-channel posts.
+	if uid != anonymousUserName {
+		filter.ExcludeAuthorID = uid
+		filter.ExcludeAuthorEmail = email
+	}
+
+	pending, pendingTotal, err := t.threadStore.ListThreads(ctx, filter)
+	if err != nil {
+		return errorResult("failed to list pending feedback: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+	}
+
+	awaiting, awaitingTotal := t.awaitingMyValidation(ctx, uid, email)
+
+	return jsonResult(map[string]any{
+		"pending":                   normalizeThreads(pending),
+		"pending_total":             pendingTotal,
+		"awaiting_my_validation":    normalizeThreads(awaiting),
+		"awaiting_validation_total": awaitingTotal,
+	})
+}
+
+// awaitingMyValidation returns threads where the caller is the author and a
+// validation request is pending (the SME queue), plus the true total (which may
+// exceed the returned page). Returns nil for an unauthenticated caller so the
+// anonymous sentinel never matches.
+func (t *Toolkit) awaitingMyValidation(ctx context.Context, uid, email string) (threads []portal.ThreadWithMeta, total int) {
+	if uid == anonymousUserName {
+		return nil, 0
+	}
+	threads, total, err := t.threadStore.ListThreads(ctx, portal.ThreadFilter{
+		AuthorID:        uid,
+		AuthorEmail:     email,
+		ValidationState: portal.ValidationStatePending,
+	})
+	if err != nil {
+		return nil, 0
+	}
+	return threads, total
+}
+
+// normalizeThreads converts a nil slice to an empty one for stable JSON output.
+func normalizeThreads(threads []portal.ThreadWithMeta) []portal.ThreadWithMeta {
+	if threads == nil {
+		return []portal.ThreadWithMeta{}
+	}
+	return threads
+}
+
+func (t *Toolkit) handleGetThread(ctx context.Context, input manageFeedbackInput) (*mcp.CallToolResult, any, error) {
 	thread, errRes := t.loadThread(ctx, input.ThreadID, false)
 	if errRes != nil {
 		return errRes, nil, nil
@@ -84,9 +178,9 @@ func (t *Toolkit) handleGetThread(ctx context.Context, input manageArtifactInput
 	return jsonResult(map[string]any{"thread": thread, "events": events})
 }
 
-func (t *Toolkit) handleReplyThread(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
+func (t *Toolkit) handleReplyThread(ctx context.Context, input manageFeedbackInput) (*mcp.CallToolResult, any, error) {
 	if strings.TrimSpace(input.Body) == "" {
-		return errorResult("body is required for reply_thread"), nil, nil
+		return errorResult("body is required for the reply action"), nil, nil
 	}
 	thread, errRes := t.loadThread(ctx, input.ThreadID, false)
 	if errRes != nil {
@@ -106,7 +200,7 @@ func (t *Toolkit) handleReplyThread(ctx context.Context, input manageArtifactInp
 	return jsonResult(evt)
 }
 
-func (t *Toolkit) handleResolveThread(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
+func (t *Toolkit) handleResolveThread(ctx context.Context, input manageFeedbackInput) (*mcp.CallToolResult, any, error) {
 	thread, errRes := t.loadThread(ctx, input.ThreadID, true)
 	if errRes != nil {
 		return errRes, nil, nil
@@ -119,7 +213,7 @@ func (t *Toolkit) handleResolveThread(ctx context.Context, input manageArtifactI
 	return jsonResult(map[string]any{"thread_id": thread.ID, "status": resolved})
 }
 
-func (t *Toolkit) handleRequestValidation(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
+func (t *Toolkit) handleRequestValidation(ctx context.Context, input manageFeedbackInput) (*mcp.CallToolResult, any, error) {
 	thread, errRes := t.loadThread(ctx, input.ThreadID, true)
 	if errRes != nil {
 		return errRes, nil, nil
@@ -133,7 +227,7 @@ func (t *Toolkit) handleRequestValidation(ctx context.Context, input manageArtif
 // handleRespondValidation records the SME's answer to a validation request.
 // Unlike the other moderation actions, the responder is the original feedback
 // author (the SME the request was routed to), not the artifact owner.
-func (t *Toolkit) handleRespondValidation(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
+func (t *Toolkit) handleRespondValidation(ctx context.Context, input manageFeedbackInput) (*mcp.CallToolResult, any, error) {
 	if t.threadStore == nil {
 		return errorResult(threadsUnavail), nil, nil
 	}
@@ -325,7 +419,7 @@ func (t *Toolkit) canEditCollection(ctx context.Context, id string) bool {
 }
 
 // threadScopeFromInput resolves the single target scope for list_threads.
-func threadScopeFromInput(input manageArtifactInput) (string, bool) {
+func threadScopeFromInput(input manageFeedbackInput) (string, bool) {
 	n := countNonEmpty(input.AssetID, input.CollectionID, input.PromptID)
 	if input.TargetType == threadTargetStandalone {
 		return threadTargetStandalone, n == 0

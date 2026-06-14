@@ -181,8 +181,19 @@ type ThreadFilter struct {
 	TargetAssetIDs      []string
 	TargetCollectionIDs []string
 	TargetPromptIDs     []string
-	Limit               int
-	Offset              int
+	// IncludeStandalone adds standalone-channel threads to the target-id OR group
+	// (used by the agent feedback feed, which spans the caller's artifacts AND the
+	// shared general channel). On its own it matches all standalone threads.
+	IncludeStandalone bool
+	// Unresolved restricts to threads in a non-terminal status (anything other
+	// than resolved or wont_fix), i.e. feedback that still needs attention.
+	Unresolved bool
+	// ExcludeAuthorID / ExcludeAuthorEmail drop threads opened by this user, so a
+	// caller's own threads are not surfaced as feedback awaiting their action.
+	ExcludeAuthorID    string
+	ExcludeAuthorEmail string
+	Limit              int
+	Offset             int
 }
 
 const (
@@ -775,9 +786,26 @@ func applyThreadFilter(qb sq.SelectBuilder, f ThreadFilter) sq.SelectBuilder {
 	if f.ValidationState != "" {
 		qb = qb.Where(sq.Eq{"t.validation_state": f.ValidationState})
 	}
+	if f.Unresolved {
+		qb = qb.Where(sq.NotEq{"t.status": []string{ThreadStatusResolved, ThreadStatusWontFix}})
+	}
 	qb = applyThreadAuthorFilter(qb, f)
+	qb = applyThreadAuthorExcludeFilter(qb, f)
 	if or := threadTargetIDsCond(f); or != nil {
 		qb = qb.Where(or)
+	}
+	return qb
+}
+
+// applyThreadAuthorExcludeFilter drops threads opened by the excluded user (by
+// id or case-insensitive email), so the agent feed never lists the caller's own
+// threads as feedback awaiting their action.
+func applyThreadAuthorExcludeFilter(qb sq.SelectBuilder, f ThreadFilter) sq.SelectBuilder {
+	if f.ExcludeAuthorID != "" {
+		qb = qb.Where(sq.NotEq{"t.author_id": f.ExcludeAuthorID})
+	}
+	if f.ExcludeAuthorEmail != "" {
+		qb = qb.Where(sq.Expr("LOWER(t.author_email) <> LOWER(?)", f.ExcludeAuthorEmail))
 	}
 	return qb
 }
@@ -805,7 +833,8 @@ func applyThreadAuthorFilter(qb sq.SelectBuilder, f ThreadFilter) sq.SelectBuild
 // given asset, collection, or prompt ids (used by the worklist and the activity
 // feed, which span many targets). Returns nil when no id set is populated.
 func threadTargetIDsCond(f ThreadFilter) sq.Sqlizer {
-	if len(f.TargetAssetIDs) == 0 && len(f.TargetCollectionIDs) == 0 && len(f.TargetPromptIDs) == 0 {
+	if len(f.TargetAssetIDs) == 0 && len(f.TargetCollectionIDs) == 0 &&
+		len(f.TargetPromptIDs) == 0 && !f.IncludeStandalone {
 		return nil
 	}
 	or := sq.Or{}
@@ -817,6 +846,9 @@ func threadTargetIDsCond(f ThreadFilter) sq.Sqlizer {
 	}
 	if len(f.TargetPromptIDs) > 0 {
 		or = append(or, sq.Eq{"t.prompt_id": f.TargetPromptIDs})
+	}
+	if f.IncludeStandalone {
+		or = append(or, sq.Eq{"t.target_type": targetTypeStandalone})
 	}
 	return or
 }

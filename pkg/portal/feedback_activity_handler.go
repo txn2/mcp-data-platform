@@ -103,10 +103,11 @@ func (t activityTargets) empty() bool {
 func (h *Handler) viewableActivityTargets(ctx context.Context, user *User) (activityTargets, error) {
 	var t activityTargets
 	var err error
-	if t.assetIDs, err = h.gatherAssetIDs(ctx, user, keepAnyShare); err != nil {
+	g := h.targetGatherer(user)
+	if t.assetIDs, err = g.AssetIDs(ctx, KeepAnyShare); err != nil {
 		return activityTargets{}, err
 	}
-	if t.collIDs, err = h.gatherCollectionIDs(ctx, user, keepAnyShare); err != nil {
+	if t.collIDs, err = g.CollectionIDs(ctx, KeepAnyShare); err != nil {
 		return activityTargets{}, err
 	}
 	if t.promptIDs, err = h.viewablePromptIDs(ctx, user); err != nil {

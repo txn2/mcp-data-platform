@@ -55,7 +55,7 @@ func TestNew(t *testing.T) {
 	assert.Equal(t, "portal", tk.Kind())
 	assert.Equal(t, "test", tk.Name())
 	assert.Equal(t, "", tk.Connection())
-	assert.Equal(t, []string{saveToolName, manageToolName}, tk.Tools())
+	assert.Equal(t, []string{saveToolName, manageToolName, feedbackToolName}, tk.Tools())
 	assert.NoError(t, tk.Close())
 }
 
@@ -519,6 +519,8 @@ func (s *inMemoryAssetStore) GetByIdempotencyKey(_ context.Context, ownerID, key
 func TestRegisterTools(t *testing.T) {
 	tk := New(Config{Name: "test", S3Bucket: "bucket"})
 
+	// AddTool validates each tool's input schema, so a bad manageFeedbackSchema
+	// would panic here.
 	server := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "0.0.1"}, nil)
 	tk.RegisterTools(server)
 
@@ -526,6 +528,7 @@ func TestRegisterTools(t *testing.T) {
 	tools := tk.Tools()
 	assert.Contains(t, tools, saveToolName)
 	assert.Contains(t, tools, manageToolName)
+	assert.Contains(t, tools, feedbackToolName)
 }
 
 func TestSetProviders(t *testing.T) {

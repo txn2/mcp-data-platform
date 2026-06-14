@@ -22,8 +22,9 @@ import (
 )
 
 const (
-	saveToolName   = "save_artifact"
-	manageToolName = "manage_artifact"
+	saveToolName     = "save_artifact"
+	manageToolName   = "manage_artifact"
+	feedbackToolName = "manage_feedback"
 
 	// Prompt names registered by the portal toolkit.
 	saveAssetPromptName  = "save-this-as-an-asset"
@@ -56,14 +57,14 @@ const (
 	actionSetSections      = "set_sections"
 	actionSearch           = "search"
 
-	// Feedback thread actions (Phase 2 / #602). No new tools: these extend the
-	// existing manage_artifact dispatch.
-	actionListThreads       = "list_threads"
-	actionGetThread         = "get_thread"
-	actionReplyThread       = "reply_thread"
-	actionResolveThread     = "resolve_thread"
-	actionRequestValidation = "request_validation"
-	actionRespondValidation = "respond_validation"
+	// manage_feedback action names (#618). Feedback is its own tool so agents can
+	// discover it by name; these are the values of its "action" field.
+	fbActionList              = "list"
+	fbActionGet               = "get"
+	fbActionReply             = "reply"
+	fbActionResolve           = "resolve"
+	fbActionRequestValidation = "request_validation"
+	fbActionRespondValidation = "respond_validation"
 
 	// JSON field names used in MCP tool result payloads.
 	fieldAssetID = "asset_id"
@@ -106,17 +107,29 @@ type manageArtifactInput struct {
 	// Query (search action) ranks the caller's assets by relevance to a
 	// free-text query instead of the substring Search filter.
 	Query string `json:"query,omitempty"`
+}
 
-	// Feedback thread fields (Phase 2 / #602).
-	PromptID           string `json:"prompt_id,omitempty"`
-	TargetType         string `json:"target_type,omitempty"`
-	ThreadID           string `json:"thread_id,omitempty"`
-	Body               string `json:"body,omitempty"`
+// manageFeedbackInput defines the input for manage_feedback (#618).
+type manageFeedbackInput struct {
+	Action       string `json:"action"`
+	AssetID      string `json:"asset_id,omitempty"`
+	CollectionID string `json:"collection_id,omitempty"`
+	PromptID     string `json:"prompt_id,omitempty"`
+	TargetType   string `json:"target_type,omitempty"`
+	ThreadID     string `json:"thread_id,omitempty"`
+	Body         string `json:"body,omitempty"`
+
+	// Filters for a targeted list.
 	Status             string `json:"status,omitempty"`
 	ValidationState    string `json:"validation_state,omitempty"`
 	RequiresResolution *bool  `json:"requires_resolution,omitempty"`
-	ValidationResult   string `json:"validation_result,omitempty"`
-	ValidationReason   string `json:"validation_reason,omitempty"`
+
+	// respond_validation outcome.
+	ValidationResult string `json:"validation_result,omitempty"`
+	ValidationReason string `json:"validation_reason,omitempty"`
+
+	Limit  int `json:"limit,omitempty"`
+	Offset int `json:"offset,omitempty"`
 }
 
 // sectionInput defines a collection section in MCP tool input.
@@ -175,6 +188,7 @@ type Toolkit struct {
 	maxContentSize  int
 	embedder        embedding.Provider
 	actions         map[string]manageActionHandler
+	feedbackActions map[string]feedbackActionHandler
 
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
@@ -213,6 +227,7 @@ func New(cfg Config) *Toolkit {
 		embedder:        cfg.Embedder,
 	}
 	tk.actions = tk.buildActions()
+	tk.feedbackActions = tk.buildFeedbackActions()
 	return tk
 }
 
@@ -242,19 +257,31 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:  manageToolName,
 		Title: "Manage Artifact",
-		Description: "Manages saved artifacts, collections, and human feedback. " +
+		Description: "Manages saved artifacts and collections. " +
 			"Asset actions: list, get, update, delete, list_versions, revert, search. " +
 			"Collection actions: create_collection, list_collections, get_collection, " +
 			"update_collection, delete_collection, set_sections. " +
-			"Feedback actions: list_threads, get_thread, reply_thread, resolve_thread, " +
-			"request_validation, respond_validation (review and respond to feedback left on your artifacts; " +
-			"capture_insight thread_ids=[...] links a thread to the insight that resolves it). " +
 			"Note: 'list' returns full metadata including provenance for each asset. " +
 			"Use 'get' with a specific asset_id for content retrieval. " +
 			"Use 'search' with a 'query' to rank your assets by relevance (semantic + " +
-			"keyword) instead of paging the whole list.",
+			"keyword) instead of paging the whole list. " +
+			"Human feedback on artifacts is handled by the separate manage_feedback tool.",
 		InputSchema: manageArtifactSchema,
 	}, t.handleManageArtifact)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:  feedbackToolName,
+		Title: "Manage Feedback",
+		Description: "Reviews and responds to human feedback on your work. " +
+			"Call action=list with NO target to get all pending feedback across the assets and collections you own " +
+			"or can edit AND the shared general channel (newest first, excluding your own threads, plus any " +
+			"awaiting your validation) — use this to 'review and act on any pending feedback'. " +
+			"Call action=list with an asset_id/collection_id/prompt_id (or target_type=standalone) to scope to one target. " +
+			"Other actions: get (a thread + its timeline), reply (post a comment), resolve (mark resolved), " +
+			"request_validation, respond_validation (the thread author records validated/disputed via validation_result). " +
+			"capture_insight thread_ids=[...] folds a thread into the knowledge loop and resolves it.",
+		InputSchema: manageFeedbackSchema,
+	}, t.handleManageFeedback)
 
 	t.registerPrompts(s)
 }
@@ -327,7 +354,7 @@ const showAssetsPromptContent = `List my saved assets and artifacts.
 
 // Tools returns the list of tool names provided by this toolkit.
 func (*Toolkit) Tools() []string {
-	return []string{saveToolName, manageToolName}
+	return []string{saveToolName, manageToolName, feedbackToolName}
 }
 
 // SetSemanticProvider sets the semantic metadata provider.
@@ -423,6 +450,20 @@ func (t *Toolkit) handleSaveArtifact(ctx context.Context, _ *mcp.CallToolRequest
 // manageActionHandler is a function that handles a manage_artifact action.
 type manageActionHandler func(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error)
 
+// feedbackActionHandler is a function that handles a manage_feedback action.
+type feedbackActionHandler func(ctx context.Context, input manageFeedbackInput) (*mcp.CallToolResult, any, error)
+
+// handleManageFeedback dispatches to the appropriate manage_feedback action.
+func (t *Toolkit) handleManageFeedback(ctx context.Context, _ *mcp.CallToolRequest, input manageFeedbackInput) (*mcp.CallToolResult, any, error) {
+	handler, ok := t.feedbackActions[input.Action]
+	if !ok {
+		return errorResult(fmt.Sprintf(
+			"invalid action %q: must be one of: list, get, reply, resolve, request_validation, respond_validation",
+			input.Action)), nil, nil
+	}
+	return handler(ctx, input)
+}
+
 // buildActions constructs the action dispatch table, called once during New().
 func (t *Toolkit) buildActions() map[string]manageActionHandler {
 	return map[string]manageActionHandler{
@@ -439,13 +480,18 @@ func (t *Toolkit) buildActions() map[string]manageActionHandler {
 		actionDeleteCollection: t.handleDeleteCollection,
 		actionSetSections:      t.handleSetSections,
 		actionSearch:           t.handleSearch,
+	}
+}
 
-		actionListThreads:       t.handleListThreads,
-		actionGetThread:         t.handleGetThread,
-		actionReplyThread:       t.handleReplyThread,
-		actionResolveThread:     t.handleResolveThread,
-		actionRequestValidation: t.handleRequestValidation,
-		actionRespondValidation: t.handleRespondValidation,
+// buildFeedbackActions constructs the manage_feedback dispatch table (#618).
+func (t *Toolkit) buildFeedbackActions() map[string]feedbackActionHandler {
+	return map[string]feedbackActionHandler{
+		fbActionList:              t.handleListThreads,
+		fbActionGet:               t.handleGetThread,
+		fbActionReply:             t.handleReplyThread,
+		fbActionResolve:           t.handleResolveThread,
+		fbActionRequestValidation: t.handleRequestValidation,
+		fbActionRespondValidation: t.handleRespondValidation,
 	}
 }
 
@@ -455,8 +501,7 @@ func (t *Toolkit) handleManageArtifact(ctx context.Context, _ *mcp.CallToolReque
 	if !ok {
 		return errorResult(fmt.Sprintf(
 			"invalid action %q: must be one of: list, get, update, delete, list_versions, revert, search, "+
-				"create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections, "+
-				"list_threads, get_thread, reply_thread, resolve_thread, request_validation, respond_validation",
+				"create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections",
 			input.Action)), nil, nil
 	}
 	return handler(ctx, input)
