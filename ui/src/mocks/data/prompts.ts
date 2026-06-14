@@ -546,3 +546,69 @@ export const mockPortalPrompts: { personal: Prompt[]; available: Prompt[] } = {
   personal: personalPrompts,
   available: availablePrompts,
 };
+
+// ---------------------------------------------------------------------------
+// Prompts shared directly with the current user (surfaced on the Prompts page
+// "Shared" tab). These are runnable as `shared-<name>`.
+// ---------------------------------------------------------------------------
+
+export interface MockSharedPrompt {
+  prompt: Prompt;
+  share_id: string;
+  shared_by: string;
+  shared_at: string;
+  permission: "viewer" | "editor";
+}
+
+export const mockSharedPrompts: MockSharedPrompt[] = [
+  {
+    prompt: {
+      id: "prompt-shared-001",
+      name: "regional-deep-dive",
+      display_name: "Regional Deep Dive",
+      description: "Carol's template for a single-region performance breakdown.",
+      content:
+        "Produce a deep-dive performance report for region {{region}} over the last quarter, covering revenue, top stores, and notable anomalies.",
+      arguments: [{ name: "region", description: "Region to analyze", required: true }],
+      category: "analysis",
+      scope: "personal",
+      personas: [],
+      tags: ["regional", "analysis"],
+      status: "approved",
+      owner_email: "carol@example.com",
+      source: "user",
+      enabled: true,
+      created_at: daysAgo(20),
+      updated_at: daysAgo(5),
+    },
+    share_id: "psh-001",
+    shared_by: "carol@example.com",
+    shared_at: daysAgo(4),
+    permission: "viewer",
+  },
+  {
+    prompt: {
+      id: "prompt-shared-002",
+      name: "pipeline-health-brief",
+      display_name: "Pipeline Health Brief",
+      description: "Dave's daily data-pipeline health summary template.",
+      content:
+        "Summarize the health of all data pipelines for the last 24 hours: failures, latency outliers, and freshness gaps. Flag anything needing attention.",
+      arguments: [],
+      category: "operations",
+      scope: "personal",
+      personas: [],
+      tags: ["pipeline", "monitoring"],
+      status: "approved",
+      owner_email: "dave@example.com",
+      source: "user",
+      enabled: true,
+      created_at: daysAgo(30),
+      updated_at: daysAgo(2),
+    },
+    share_id: "psh-002",
+    shared_by: "dave@example.com",
+    shared_at: daysAgo(1),
+    permission: "editor",
+  },
+];

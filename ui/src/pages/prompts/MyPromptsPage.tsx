@@ -12,8 +12,10 @@ import {
   ChevronUp,
   ChevronsUpDown,
 } from "lucide-react";
-import { useMyPrompts, useCreateMyPrompt, useSearchMyPrompts } from "@/api/portal/hooks";
+import { useMyPrompts, useCreateMyPrompt, useSearchMyPrompts, useSharedPrompts } from "@/api/portal/hooks";
+import type { SharedPromptItem } from "@/api/portal/hooks";
 import type { Prompt } from "@/api/admin/types";
+import { SharePermissionBadge } from "@/components/SharePermissionBadge";
 import { cn } from "@/lib/utils";
 import { extractPromptArguments } from "./promptArguments";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
@@ -53,7 +55,7 @@ function ScopeBadge({ scope }: { scope: string }) {
   );
 }
 
-type Tab = "personal" | "available";
+type Tab = "personal" | "available" | "shared";
 type SortKey = "name" | "scope" | "description" | "category";
 type SortDir = "asc" | "desc";
 
@@ -104,14 +106,27 @@ export function MyPromptsPage({ onNavigate }: Props) {
   }, [search]);
 
   const { data, isLoading } = useMyPrompts();
+  const { data: sharedPrompts = [], isLoading: sharedLoading } = useSharedPrompts();
   const createMutation = useCreateMyPrompt();
   const searching = debouncedSearch.trim().length > 0;
-  const searchResults = useSearchMyPrompts(debouncedSearch);
+  // Semantic ranking covers personal/available scopes; on the Shared tab the
+  // search box filters the shared list client-side instead.
+  const searchResults = useSearchMyPrompts(tab === "shared" ? "" : debouncedSearch);
 
   const personal = data?.personal ?? [];
   const available = data?.available ?? [];
   const items = tab === "personal" ? personal : available;
   const isPersonalTab = tab === "personal";
+  const isSharedTab = tab === "shared";
+
+  const filteredSharedPrompts = sharedPrompts.filter((s) => {
+    const q = debouncedSearch.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      (s.prompt.display_name || s.prompt.name || "").toLowerCase().includes(q) ||
+      (s.prompt.description || "").toLowerCase().includes(q)
+    );
+  });
 
   const handleSort = useCallback((key: SortKey) => {
     setSortBy((prev) => {
@@ -239,6 +254,12 @@ export function MyPromptsPage({ onNavigate }: Props) {
           >
             Available ({available.length})
           </button>
+          <button
+            onClick={() => { setTab("shared"); setMutationError(null); }}
+            className={cn("px-3 py-1.5 text-sm font-medium rounded-md", tab === "shared" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground")}
+          >
+            Shared ({sharedPrompts.length})
+          </button>
         </div>
         <div className="relative max-w-md flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -353,12 +374,21 @@ export function MyPromptsPage({ onNavigate }: Props) {
 
       {/* Relevance hint (search mode): results are ranked by similarity across
           every scope the caller can see, so the active tab does not bound them. */}
-      {searching && (
+      {searching && !isSharedTab && (
         <p className="text-xs text-muted-foreground">
           Ranked by relevance to &ldquo;{debouncedSearch.trim()}&rdquo; across all prompts you can see.
         </p>
       )}
 
+      {/* Shared tab: prompts others shared with the current user. */}
+      {isSharedTab ? (
+        <SharedPromptsTable
+          items={filteredSharedPrompts}
+          isLoading={sharedLoading}
+          onOpen={(id) => onNavigate(`/prompts/${id}`)}
+        />
+      ) : (
+      <>
       {/* Table */}
       {listLoading ? (
         <div className="flex items-center justify-center py-12 text-muted-foreground">{searching ? "Searching..." : "Loading..."}</div>
@@ -416,6 +446,77 @@ export function MyPromptsPage({ onNavigate }: Props) {
           </table>
         </div>
       )}
+      </>
+      )}
+    </div>
+  );
+}
+
+function SharedPromptsTable({
+  items,
+  isLoading,
+  onOpen,
+}: {
+  items: SharedPromptItem[];
+  isLoading: boolean;
+  onOpen: (id: string) => void;
+}) {
+  if (isLoading) {
+    return <div className="flex items-center justify-center py-12 text-muted-foreground">Loading...</div>;
+  }
+  if (items.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+        <MessageSquare className="h-12 w-12 mb-2 opacity-30" />
+        <p className="text-sm font-medium">No shared prompts</p>
+        <p className="text-xs mt-1">
+          Prompts others share with you will appear here, runnable as <code>shared-&lt;name&gt;</code>.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-lg border bg-card overflow-hidden">
+      <table className="w-full text-sm table-fixed">
+        <thead>
+          <tr className="border-b bg-muted/50">
+            <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[40%]">Name</th>
+            <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[25%]">Shared By</th>
+            <th className="px-4 py-2.5 text-center font-medium text-muted-foreground w-[12%]">Access</th>
+            <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-[12%]">Shared</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item) => (
+            <tr
+              key={item.share_id}
+              onClick={() => onOpen(item.prompt.id)}
+              className="border-b last:border-0 cursor-pointer transition-colors hover:bg-accent/50"
+            >
+              <td className="px-4 py-2.5 max-w-0">
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <span className="font-medium truncate block">{item.prompt.display_name || item.prompt.name}</span>
+                    {item.prompt.description && (
+                      <span className="text-xs text-muted-foreground truncate block">{item.prompt.description}</span>
+                    )}
+                  </div>
+                </div>
+              </td>
+              <td className="px-4 py-2.5 max-w-0">
+                <span className="text-muted-foreground truncate block">{item.shared_by}</span>
+              </td>
+              <td className="px-4 py-2.5 text-center">
+                <SharePermissionBadge permission={item.permission} />
+              </td>
+              <td className="px-4 py-2.5 text-muted-foreground">
+                {new Date(item.shared_at).toLocaleDateString()}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

@@ -21,7 +21,7 @@ import { mockEnrichmentRules } from "./data/enrichment";
 import { mockAssets, mockShares, mockSharedWithMe } from "./data/assets";
 import { mockContent } from "./data/content";
 import { mockCollections, mockSharedCollections } from "./data/collections";
-import { mockAdminPrompts, mockPortalPrompts } from "./data/prompts";
+import { mockAdminPrompts, mockPortalPrompts, mockSharedPrompts } from "./data/prompts";
 import { mockResources } from "./data/resources";
 import { mockThreads, mockThreadEvents, mockThreadChains } from "./data/feedback";
 import { mockAPIKeys } from "./data/keys";
@@ -2035,7 +2035,7 @@ export const handlers = [
   // Prompts explicitly shared with the caller, and per-prompt share lists.
   // The portal prompt viewer queries both on load; no shares are configured in
   // the mock, so both return empty (a clean "not shared" state).
-  http.get(`${PORTAL_BASE}/shared-prompts`, () => HttpResponse.json([])),
+  http.get(`${PORTAL_BASE}/shared-prompts`, () => HttpResponse.json(mockSharedPrompts)),
 
   http.get(`${PORTAL_BASE}/prompts/:id/shares`, () => HttpResponse.json([])),
 

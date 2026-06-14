@@ -7,11 +7,9 @@ import {
   Users,
   LogOut,
   LayoutGrid,
-  Share2,
   ChevronsLeft,
   ChevronsRight,
   Activity,
-  FolderOpen,
   FileText,
   Bot,
   Clock,
@@ -42,11 +40,9 @@ interface Props {
 const basePortalNavItems = [
   { path: "/activity", label: "Activity", icon: Activity },
   { path: "/", label: "Assets", icon: LayoutGrid },
-  { path: "/collections", label: "Collections", icon: FolderOpen },
   { path: "/feedback", label: "Feedback", icon: MessageCircle },
   { path: "/prompts", label: "Prompts", icon: MessageSquare },
   { path: "/resources", label: "Resources", icon: FileUp },
-  { path: "/shared", label: "Shared With Me", icon: Share2 },
 ];
 
 interface NavItem {
@@ -127,7 +123,18 @@ export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse, 
   function isActive(itemPath: string) {
     // Hash-based sub-routes (e.g. /admin/settings#description) — compare against full path including hash.
     if (itemPath.includes("#")) return currentPath === itemPath;
-    if (itemPath === "/" || itemPath === "/shared" || itemPath === "/admin" || itemPath === "/activity" || itemPath === "/my-knowledge" || itemPath === "/prompts") return route === itemPath;
+    // Assets now also covers the Collections sub-tab and the asset/collection
+    // viewer routes, since Collections lives under Assets.
+    if (itemPath === "/") {
+      return (
+        route === "/" ||
+        route === "/collections" ||
+        route.startsWith("/collections/") ||
+        route.startsWith("/assets/") ||
+        route.startsWith("/shared/assets/")
+      );
+    }
+    if (itemPath === "/admin" || itemPath === "/activity" || itemPath === "/my-knowledge" || itemPath === "/prompts") return route === itemPath;
     return route === itemPath || route.startsWith(itemPath + "/");
   }
 

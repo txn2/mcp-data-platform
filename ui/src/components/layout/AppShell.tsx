@@ -6,7 +6,6 @@ import { useAuthStore } from "@/stores/auth";
 // Portal pages (everyone)
 import { ActivityPage } from "@/pages/activity/ActivityPage";
 import { MyAssetsPage } from "@/pages/assets/MyAssetsPage";
-import { SharedWithMePage } from "@/pages/shared/SharedWithMePage";
 import { MyKnowledgePage } from "@/pages/knowledge/MyKnowledgePage";
 import { MyPromptsPage } from "@/pages/prompts/MyPromptsPage";
 import { PromptViewerPage } from "@/pages/prompts/PromptViewerPage";
@@ -38,7 +37,6 @@ const pageTitles: Record<string, string> = {
   "/": "Assets",
   "/collections": "Collections",
   "/resources": "Resources",
-  "/shared": "Shared With Me",
   "/feedback": "Feedback",
   "/my-knowledge": "Knowledge & Memory",
   "/prompts": "Prompts",
@@ -169,6 +167,12 @@ export function AppShell() {
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
+  // "Shared With Me" was folded into the Assets scope filter. Redirect the
+  // retired bare route so existing bookmarks land on the Assets page.
+  useEffect(() => {
+    if (currentPath.split("#")[0] === "/shared") navigate("/");
+  }, [currentPath, navigate]);
+
   const hashIdx = currentPath.indexOf("#");
   const route = hashIdx >= 0 ? currentPath.slice(0, hashIdx) : currentPath;
   const initialTab = hashIdx >= 0 ? currentPath.slice(hashIdx + 1) : undefined;
@@ -263,9 +267,6 @@ export function AppShell() {
           {!isAdminRoute && route === "/resources" && (
             <ResourcesPage onNavigate={navigate} />
           )}
-          {!isAdminRoute && route === "/shared" && (
-            <SharedWithMePage onNavigate={navigate} />
-          )}
           {!isAdminRoute && route === "/feedback" && <FeedbackChannelPage />}
           {!isAdminRoute && route === "/my-knowledge" && <MyKnowledgePage />}
           {!isAdminRoute && route === "/prompts" && <MyPromptsPage onNavigate={navigate} />}
@@ -280,7 +281,7 @@ export function AppShell() {
             <AssetViewerPage assetId={collectionAssetMatch[2]!} onNavigate={navigate} onBack={() => navigate(`/collections/${collectionAssetMatch[1]!}`)} />
           )}
           {sharedAssetMatch && (
-            <AssetViewerPage assetId={sharedAssetMatch[1]!} onNavigate={navigate} onBack={() => navigate("/shared")} />
+            <AssetViewerPage assetId={sharedAssetMatch[1]!} onNavigate={navigate} onBack={() => navigate("/")} />
           )}
           {assetMatch && (
             <AssetViewerPage assetId={assetMatch[1]!} onNavigate={navigate} onBack={() => navigate("/")} />

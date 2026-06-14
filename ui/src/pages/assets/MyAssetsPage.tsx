@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import { Search, FileText, Image, Code, File, Users, Globe, Table2, LayoutGrid, List, FolderOpen, Eye } from "lucide-react";
-import { useAssets, useSearchAssets, useThreadCounts } from "@/api/portal/hooks";
+import { useAssets, useSearchAssets, useSharedWithMe, useThreadCounts } from "@/api/portal/hooks";
+import type { Asset, SharePermission } from "@/api/portal/types";
 import { FeedbackCountBadge } from "@/components/feedback/FeedbackCountBadge";
+import { AssetsTabs } from "@/components/AssetsTabs";
+import { ScopeFilter, getStoredScope, storeScope, type Scope } from "@/components/ScopeFilter";
+import { SharePermissionBadge } from "@/components/SharePermissionBadge";
 import { formatBytes } from "@/lib/format";
 import { ThumbnailQueue } from "@/components/ThumbnailQueue";
 import { AuthImg } from "@/components/AuthImg";
@@ -27,6 +31,19 @@ interface Props {
   onNavigate: (path: string) => void;
 }
 
+/** Share metadata attached to an asset that was shared with the current user. */
+interface ShareMeta {
+  shared_by: string;
+  permission: SharePermission;
+  shared_at: string;
+}
+
+/** An asset for display, optionally carrying share-with-me metadata. */
+interface DisplayAsset {
+  asset: Asset;
+  share?: ShareMeta;
+}
+
 function contentTypeIcon(ct: string) {
   const lower = ct.toLowerCase();
   if (lower.includes("csv")) return Table2;
@@ -47,6 +64,7 @@ function contentTypeBadgeColor(ct: string) {
 }
 
 export function MyAssetsPage({ onNavigate }: Props) {
+  const [scope, setScope] = useState<Scope>(getStoredScope);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [contentType, setContentType] = useState("");
@@ -59,25 +77,71 @@ export function MyAssetsPage({ onNavigate }: Props) {
     localStorage.setItem(VIEW_STORAGE_KEY, mode);
   }
 
+  function changeScope(next: Scope) {
+    setScope(next);
+    storeScope(next);
+  }
+
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300);
     return () => clearTimeout(t);
   }, [search]);
   const searching = debouncedSearch.trim().length > 0;
+  // Semantic ranking only covers the caller's own assets; in shared/all scopes
+  // the search box falls back to client-side name/description matching.
+  const semanticSearch = searching && scope === "mine";
 
+  // Mine: server-side content_type/tag filters apply (browse) plus a relevance
+  // endpoint when searching. Shared/all filter client-side over the merged set.
   const { data, isLoading } = useAssets({
-    content_type: contentType || undefined,
-    tag: tag || undefined,
+    content_type: scope === "mine" ? contentType || undefined : undefined,
+    tag: scope === "mine" ? tag || undefined : undefined,
   });
-  // Relevance search ranks the caller's own assets by semantic + keyword
-  // similarity server-side; the content-type / tag selects apply to browse mode
-  // only (the ranked endpoint scopes by owner alone).
-  const searchResults = useSearchAssets(debouncedSearch);
+  const searchResults = useSearchAssets(semanticSearch ? debouncedSearch : "");
+  const { data: sharedData, isLoading: sharedLoading } = useSharedWithMe();
 
-  const assets = searching
+  const mineAssets: Asset[] = semanticSearch
     ? (searchResults.data?.data ?? []).map((s) => s.asset)
     : (data?.data ?? []);
-  const isLoadingList = searching ? searchResults.isLoading : isLoading;
+  const sharedItems: DisplayAsset[] = (sharedData?.data ?? []).map((s) => ({
+    asset: s.asset,
+    share: { shared_by: s.shared_by, permission: s.permission, shared_at: s.shared_at },
+  }));
+
+  let items: DisplayAsset[];
+  if (scope === "mine") {
+    items = mineAssets.map((asset) => ({ asset }));
+  } else if (scope === "shared") {
+    items = sharedItems;
+  } else {
+    const mineIds = new Set(mineAssets.map((a) => a.id));
+    items = [
+      ...mineAssets.map((asset) => ({ asset })),
+      ...sharedItems.filter((s) => !mineIds.has(s.asset.id)),
+    ];
+  }
+
+  // Client-side filtering for shared/all scopes (the mine scope is already
+  // filtered/ranked server-side).
+  function matchesClientFilters(a: Asset): boolean {
+    const q = debouncedSearch.trim().toLowerCase();
+    if (q && !(a.name?.toLowerCase().includes(q) || a.description?.toLowerCase().includes(q))) return false;
+    if (contentType && a.content_type !== contentType) return false;
+    if (tag && !(a.tags ?? []).some((t) => t.toLowerCase().includes(tag.toLowerCase()))) return false;
+    return true;
+  }
+  const displayItems = scope === "mine" ? items : items.filter((it) => matchesClientFilters(it.asset));
+
+  const isLoadingList =
+    scope === "mine"
+      ? semanticSearch
+        ? searchResults.isLoading
+        : isLoading
+      : scope === "shared"
+        ? sharedLoading
+        : isLoading || sharedLoading;
+
+  const assets = displayItems.map((it) => it.asset);
   const { data: threadCounts } = useThreadCounts(
     "asset",
     assets.map((a) => a.id),
@@ -85,15 +149,18 @@ export function MyAssetsPage({ onNavigate }: Props) {
 
   return (
     <div className="space-y-4">
+      <AssetsTabs active="assets" onNavigate={onNavigate} />
+
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
+        <ScopeFilter value={scope} onChange={changeScope} />
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search assets by meaning..."
+            placeholder={scope === "mine" ? "Search assets by meaning..." : "Search assets..."}
             className="w-full rounded-md border bg-background pl-9 pr-3 py-2 text-sm outline-none ring-ring focus:ring-2"
           />
         </div>
@@ -137,31 +204,13 @@ export function MyAssetsPage({ onNavigate }: Props) {
       {/* Results */}
       {isLoadingList ? (
         <div className="flex items-center justify-center py-12 text-muted-foreground">
-          {searching ? "Searching..." : "Loading..."}
+          {semanticSearch ? "Searching..." : "Loading..."}
         </div>
-      ) : searching && assets.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-          <Search className="h-12 w-12 mb-2 opacity-30" />
-          <p className="text-sm font-medium">No assets match &ldquo;{debouncedSearch.trim()}&rdquo;</p>
-        </div>
-      ) : assets.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-          <File className="h-12 w-12 mb-2 opacity-30" />
-          <p className="text-sm font-medium">No assets yet</p>
-          <div className="mt-3 max-w-md text-center space-y-2">
-            <p className="text-xs">
-              Assets are interactive dashboards, visualizations, and documents
-              created during your conversations.
-            </p>
-            <p className="text-xs">
-              Try asking your assistant to <em>"create an interactive dashboard"</em> or{" "}
-              <em>"save this as an asset"</em> to get started.
-            </p>
-          </div>
-        </div>
+      ) : displayItems.length === 0 ? (
+        <EmptyState scope={scope} searching={searching} query={debouncedSearch.trim()} />
       ) : viewMode === "grid" ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {assets.map((asset) => {
+          {displayItems.map(({ asset, share }) => {
             const Icon = contentTypeIcon(asset.content_type);
             const summary = data?.share_summaries?.[asset.id];
             return (
@@ -185,7 +234,7 @@ export function MyAssetsPage({ onNavigate }: Props) {
                   )}
                 </div>
                 <div className="p-4 w-full">
-                  {summary && (summary.has_user_share || summary.has_public_link) && (
+                  {!share && summary && (summary.has_user_share || summary.has_public_link) && (
                     <div className="absolute top-2 right-2 flex gap-1 bg-background/80 rounded-full px-1.5 py-0.5">
                       {summary.has_user_share && (
                         <span title="Shared with users"><Users className="h-3.5 w-3.5 text-muted-foreground" /></span>
@@ -232,9 +281,15 @@ export function MyAssetsPage({ onNavigate }: Props) {
                       ))}
                     </div>
                   )}
+                  {share && (
+                    <div className="flex items-center gap-1.5 mb-2 text-xs text-muted-foreground">
+                      <span className="truncate">Shared by {share.shared_by}</span>
+                      <SharePermissionBadge permission={share.permission} />
+                    </div>
+                  )}
                   <div className="flex items-center justify-between w-full text-xs text-muted-foreground">
                     <span>{formatBytes(asset.size_bytes)}</span>
-                    <span>{new Date(asset.created_at).toLocaleDateString()}</span>
+                    <span>{new Date(share ? share.shared_at : asset.created_at).toLocaleDateString()}</span>
                   </div>
                 </div>
               </button>
@@ -257,7 +312,7 @@ export function MyAssetsPage({ onNavigate }: Props) {
               </tr>
             </thead>
             <tbody>
-              {assets.map((asset) => {
+              {displayItems.map(({ asset, share }) => {
                 const Icon = contentTypeIcon(asset.content_type);
                 const summary = data?.share_summaries?.[asset.id];
                 return (
@@ -271,9 +326,11 @@ export function MyAssetsPage({ onNavigate }: Props) {
                         <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
                         <div className="min-w-0 flex-1">
                           <span className="font-medium truncate block">{asset.name}</span>
-                          {asset.description && (
+                          {share ? (
+                            <span className="text-xs text-muted-foreground truncate block">Shared by {share.shared_by}</span>
+                          ) : asset.description ? (
                             <span className="text-xs text-muted-foreground truncate block">{asset.description}</span>
-                          )}
+                          ) : null}
                         </div>
                         <FeedbackCountBadge count={threadCounts?.[asset.id]} />
                       </div>
@@ -323,16 +380,22 @@ export function MyAssetsPage({ onNavigate }: Props) {
                     </td>
                     <td className="px-4 py-2.5">
                       <div className="flex justify-center gap-1.5">
-                        {summary?.has_user_share && (
-                          <span title="Shared with users"><Users className="h-3.5 w-3.5 text-muted-foreground" /></span>
-                        )}
-                        {summary?.has_public_link && (
-                          <span title="Has public link"><Globe className="h-3.5 w-3.5 text-muted-foreground" /></span>
+                        {share ? (
+                          <SharePermissionBadge permission={share.permission} />
+                        ) : (
+                          <>
+                            {summary?.has_user_share && (
+                              <span title="Shared with users"><Users className="h-3.5 w-3.5 text-muted-foreground" /></span>
+                            )}
+                            {summary?.has_public_link && (
+                              <span title="Has public link"><Globe className="h-3.5 w-3.5 text-muted-foreground" /></span>
+                            )}
+                          </>
                         )}
                       </div>
                     </td>
                     <td className="px-4 py-2.5 text-muted-foreground">
-                      {new Date(asset.created_at).toLocaleDateString()}
+                      {new Date(share ? share.shared_at : asset.created_at).toLocaleDateString()}
                     </td>
                     <td className="px-2 py-2.5">
                       <button
@@ -351,16 +414,22 @@ export function MyAssetsPage({ onNavigate }: Props) {
         </div>
       )}
 
-      {searching ? (
+      {scope === "mine" && semanticSearch ? (
         assets.length > 0 && (
           <p className="text-xs text-muted-foreground text-center">
             Ranked by relevance to &ldquo;{debouncedSearch.trim()}&rdquo; across your assets.
           </p>
         )
-      ) : (
+      ) : scope === "mine" ? (
         data && data.total > data.limit && (
           <p className="text-sm text-muted-foreground text-center">
             Showing {assets.length} of {data.total} assets
+          </p>
+        )
+      ) : (
+        displayItems.length > 0 && (
+          <p className="text-sm text-muted-foreground text-center">
+            Showing {displayItems.length} {scope === "shared" ? "shared " : ""}asset{displayItems.length === 1 ? "" : "s"}
           </p>
         )
       )}
@@ -376,6 +445,50 @@ export function MyAssetsPage({ onNavigate }: Props) {
           onClose={() => setPreviewing(null)}
         />
       )}
+    </div>
+  );
+}
+
+function EmptyState({ scope, searching, query }: { scope: Scope; searching: boolean; query: string }) {
+  if (searching) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+        <Search className="h-12 w-12 mb-2 opacity-30" />
+        <p className="text-sm font-medium">No assets match &ldquo;{query}&rdquo;</p>
+      </div>
+    );
+  }
+  if (scope === "shared") {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+        <Users className="h-12 w-12 mb-2 opacity-30" />
+        <p className="text-sm font-medium">No shared assets</p>
+        <p className="text-xs mt-1">Assets others share with you will appear here.</p>
+      </div>
+    );
+  }
+  if (scope === "all") {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+        <File className="h-12 w-12 mb-2 opacity-30" />
+        <p className="text-sm font-medium">No assets</p>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+      <File className="h-12 w-12 mb-2 opacity-30" />
+      <p className="text-sm font-medium">No assets yet</p>
+      <div className="mt-3 max-w-md text-center space-y-2">
+        <p className="text-xs">
+          Assets are interactive dashboards, visualizations, and documents
+          created during your conversations.
+        </p>
+        <p className="text-xs">
+          Try asking your assistant to <em>"create an interactive dashboard"</em> or{" "}
+          <em>"save this as an asset"</em> to get started.
+        </p>
+      </div>
     </div>
   );
 }

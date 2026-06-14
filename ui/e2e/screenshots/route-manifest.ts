@@ -69,11 +69,6 @@ export const routes: ScreenshotRoute[] = [
     },
   },
   {
-    slug: "shared",
-    path: "/portal/shared",
-    category: "user",
-  },
-  {
     // Standalone feedback channel.
     slug: "feedback",
     path: "/portal/feedback",
@@ -191,8 +186,9 @@ export const routes: ScreenshotRoute[] = [
     category: "user",
   },
   {
+    // Asset shared with the current user — opens in the standard viewer.
     slug: "shared-asset",
-    path: "/portal/shared/assets/ast-ext-001",
+    path: "/portal/assets/ast-ext-001",
     category: "user",
   },
   {
@@ -351,6 +347,11 @@ export const routes: ScreenshotRoute[] = [
   {
     slug: "admin-keys",
     path: "/portal/admin/keys",
+    category: "admin",
+  },
+  {
+    slug: "admin-users",
+    path: "/portal/admin/users",
     category: "admin",
   },
   {
