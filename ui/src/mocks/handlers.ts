@@ -1644,6 +1644,33 @@ export const handlers = [
     return HttpResponse.json({ data, total: data.length, limit: 50, offset: 0 });
   }),
 
+  // Feedback activity feed (#617): threads across the caller's assets,
+  // collections, and prompts (not standalone), most recent first, each row
+  // enriched with the target's display label so the feed can link back.
+  http.get(`${PORTAL_BASE}/feedback/activity`, () => {
+    const labels: Record<string, string> = {
+      "ast-001": "Q4 Revenue Dashboard",
+      "col-001": "Q4 Performance Review",
+    };
+    const data = portalThreads
+      .filter((t) => !t.deleted_at && t.target_type !== "standalone")
+      .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+      .map((t) => ({
+        ...t,
+        target_label:
+          labels[t.asset_id ?? t.collection_id ?? t.prompt_id ?? ""] ??
+          (t.target_type === "asset" ? "Asset" : t.target_type === "collection" ? "Collection" : "Prompt"),
+      }));
+    return HttpResponse.json({ data, total: data.length, limit: 50, offset: 0 });
+  }),
+
+  // Asset version history. Mocked (empty) so the asset viewer never falls
+  // through to the real backend, which 401s and would trip the global
+  // session-expiry logout in apiFetch mid-test.
+  http.get(`${PORTAL_BASE}/assets/:id/versions`, () =>
+    HttpResponse.json({ data: [], total: 0, limit: 50, offset: 0 }),
+  ),
+
   // Sign-off aggregation (#603).
   http.get(`${PORTAL_BASE}/assets/:id/signoff`, () => HttpResponse.json({ signed_off: 1, stakeholders: 3 })),
   http.get(`${PORTAL_BASE}/collections/:id/signoff`, () => HttpResponse.json({ signed_off: 2, stakeholders: 2 })),

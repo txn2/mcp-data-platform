@@ -69,12 +69,64 @@ test.describe("Feedback panel", () => {
     ]);
   });
 
-  test("standalone channel page lists general feedback", async ({ page }) => {
+});
+
+// The redesigned Feedback hub page (#617): full-width, with a Recent activity
+// feed, a Worklist, and the General standalone channel under tabs.
+test.describe("Feedback hub page", () => {
+  test("Recent tab lists activity across my items", async ({ page }) => {
     await authenticate(page);
     await page.goto("/portal/feedback");
-    await expect(
-      page.getByText("General feedback and suggestions, visible to everyone"),
-    ).toBeVisible();
+    await expect(page.getByText(/Feedback across everything you can access/)).toBeVisible();
+    // Recent is the default tab: rows carry the target's display label and title.
+    await expect(page.getByText("Q4 Revenue Dashboard").first()).toBeVisible();
+    await expect(page.getByText("We don't use that term")).toBeVisible();
+    await expect(page.getByText("Add a glossary section")).toBeVisible();
+  });
+
+  test("opens a thread in the slide-over with a link back to the item", async ({ page }) => {
+    await authenticate(page);
+    await page.goto("/portal/feedback");
+    await page.getByText("We don't use that term").click();
+    await expect(page.getByRole("button", { name: /Go to asset/i })).toBeVisible();
+  });
+
+  test("navigates to the target item from the activity row", async ({ page }) => {
+    await authenticate(page);
+    await page.goto("/portal/feedback");
+    await page.getByText("Add a glossary section").click();
+    await page.getByRole("button", { name: /Go to collection/i }).click();
+    await expect(page).toHaveURL(/\/collections\/col-001/);
+  });
+
+  test("General tab shows the standalone channel", async ({ page }) => {
+    await authenticate(page);
+    await page.goto("/portal/feedback");
+    await page.getByRole("button", { name: /General/ }).click();
     await expect(page.getByText("Quarterly data refresh is one day late")).toBeVisible();
+  });
+
+  test("Worklist tab shows the needs-resolution and validation sub-tabs", async ({ page }) => {
+    await authenticate(page);
+    await page.goto("/portal/feedback");
+    await page.getByRole("button", { name: /Worklist/ }).click();
+    await expect(page.getByRole("button", { name: /Needs resolution/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Awaiting my validation/ })).toBeVisible();
+  });
+
+  test("New feedback button posts to the General channel", async ({ page }) => {
+    await authenticate(page);
+    await page.goto("/portal/feedback");
+    await page.getByRole("button", { name: /New feedback/ }).click();
+    await expect(page.getByText(/Posting to the General channel/)).toBeVisible();
+
+    await page.getByPlaceholder("Describe your feedback").fill("Please add a data dictionary.");
+    const [resp] = await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/threads") && r.request().method() === "POST"),
+      page.getByRole("button", { name: /Post feedback/ }).click(),
+    ]);
+    expect(resp.status()).toBe(201);
+    // Lands on the General tab with the posted thread open in the slide-over.
+    await expect(page.getByText("Please add a data dictionary.")).toBeVisible();
   });
 });

@@ -50,8 +50,8 @@ export function UsersPanel() {
   return (
     <div className="flex h-[calc(100vh-8rem)] flex-col overflow-hidden rounded-lg border bg-card">
       {/* Header */}
-      <div className="flex items-center justify-between border-b px-5 py-3">
-        <div>
+      <div className="flex items-start justify-between gap-4 border-b px-5 py-3">
+        <div className="min-w-0">
           <h3 className="text-sm font-semibold leading-none">Users</h3>
           <p className="mt-1 text-xs text-muted-foreground">
             People known to the platform, for sharing assets and prompts. Anyone who signs in is

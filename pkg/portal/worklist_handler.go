@@ -98,20 +98,31 @@ func (h *Handler) writeWorklist(w http.ResponseWriter, r *http.Request, filter T
 }
 
 // ownedOrEditableTargets returns the ids of every asset and collection the user
-// owns or holds an active editor share on.
+// owns or holds an active editor share on (the worklist's "I can act on it"
+// scope). The feedback activity feed reuses gatherAssetIDs/gatherCollectionIDs
+// with keepAnyShare for its broader "I can view it" scope.
 func (h *Handler) ownedOrEditableTargets(ctx context.Context, user *User) (assetIDs, collIDs []string, err error) {
-	assetIDs, err = h.ownedOrEditableAssetIDs(ctx, user)
+	assetIDs, err = h.gatherAssetIDs(ctx, user, keepEditorShare)
 	if err != nil {
 		return nil, nil, err
 	}
-	collIDs, err = h.ownedOrEditableCollectionIDs(ctx, user)
+	collIDs, err = h.gatherCollectionIDs(ctx, user, keepEditorShare)
 	if err != nil {
 		return nil, nil, err
 	}
 	return assetIDs, collIDs, nil
 }
 
-func (h *Handler) ownedOrEditableAssetIDs(ctx context.Context, user *User) ([]string, error) {
+// keepEditorShare keeps only editor-permission shares (worklist scope).
+func keepEditorShare(p SharePermission) bool { return p == PermissionEditor }
+
+// keepAnyShare keeps shares at any permission (activity-feed view scope).
+func keepAnyShare(SharePermission) bool { return true }
+
+// gatherAssetIDs returns the assets the user owns plus the shared assets whose
+// permission satisfies keepShare. The keepShare predicate is the only
+// difference between the worklist (editor) and the activity feed (any) scopes.
+func (h *Handler) gatherAssetIDs(ctx context.Context, user *User, keepShare func(SharePermission) bool) ([]string, error) {
 	var ids []string
 	if h.deps.AssetStore != nil {
 		owned, total, err := h.deps.AssetStore.List(ctx, AssetFilter{OwnerID: user.UserID, Limit: worklistTargetCap})
@@ -130,7 +141,7 @@ func (h *Handler) ownedOrEditableAssetIDs(ctx context.Context, user *User) ([]st
 		}
 		warnIfTruncated(total, "shared assets", user.UserID)
 		for _, s := range shared {
-			if s.Permission == PermissionEditor {
+			if keepShare(s.Permission) {
 				ids = append(ids, s.Asset.ID)
 			}
 		}
@@ -138,7 +149,9 @@ func (h *Handler) ownedOrEditableAssetIDs(ctx context.Context, user *User) ([]st
 	return ids, nil
 }
 
-func (h *Handler) ownedOrEditableCollectionIDs(ctx context.Context, user *User) ([]string, error) {
+// gatherCollectionIDs returns the collections the user owns plus the shared
+// collections whose permission satisfies keepShare.
+func (h *Handler) gatherCollectionIDs(ctx context.Context, user *User, keepShare func(SharePermission) bool) ([]string, error) {
 	var ids []string
 	if h.deps.CollectionStore != nil {
 		owned, total, err := h.deps.CollectionStore.List(ctx, CollectionFilter{OwnerID: user.UserID, Limit: worklistTargetCap})
@@ -157,7 +170,7 @@ func (h *Handler) ownedOrEditableCollectionIDs(ctx context.Context, user *User) 
 		}
 		warnIfTruncated(total, "shared collections", user.UserID)
 		for _, s := range shared {
-			if s.Permission == PermissionEditor {
+			if keepShare(s.Permission) {
 				ids = append(ids, s.Collection.ID)
 			}
 		}

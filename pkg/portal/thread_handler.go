@@ -40,6 +40,7 @@ func (h *Handler) registerThreadRoutes() {
 	h.mux.HandleFunc("GET /api/v1/portal/threads/{id}/events", h.listThreadEvents)
 	h.mux.HandleFunc("GET /api/v1/portal/threads/{id}/chain", h.getThreadChain)
 	h.mux.HandleFunc("POST /api/v1/portal/threads/{id}/events", h.appendThreadEvent)
+	h.mux.HandleFunc("GET /api/v1/portal/feedback/activity", h.feedbackActivity)
 	h.mux.HandleFunc("GET /api/v1/portal/worklist/practitioner", h.practitionerWorklist)
 	h.mux.HandleFunc("GET /api/v1/portal/worklist/sme", h.smeWorklist)
 	h.mux.HandleFunc("GET /api/v1/portal/assets/{id}/signoff", h.assetSignoff)

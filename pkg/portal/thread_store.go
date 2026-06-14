@@ -172,12 +172,15 @@ type ThreadFilter struct {
 	// their worklist.
 	AuthorID    string
 	AuthorEmail string
-	// TargetAssetIDs / TargetCollectionIDs restrict to threads on any of the
-	// given assets OR collections (used by the practitioner worklist, which
-	// spans every artifact the caller owns or can edit). When either is set the
-	// match is an OR across the two target types.
+	// TargetAssetIDs / TargetCollectionIDs / TargetPromptIDs restrict to threads
+	// on any of the given assets, collections, OR prompts. The practitioner
+	// worklist sets assets+collections (artifacts the caller owns or can edit);
+	// the feedback activity feed sets all three (every artifact the caller can
+	// view). When any is set the match is an OR across the populated target
+	// types.
 	TargetAssetIDs      []string
 	TargetCollectionIDs []string
+	TargetPromptIDs     []string
 	Limit               int
 	Offset              int
 }
@@ -772,28 +775,50 @@ func applyThreadFilter(qb sq.SelectBuilder, f ThreadFilter) sq.SelectBuilder {
 	if f.ValidationState != "" {
 		qb = qb.Where(sq.Eq{"t.validation_state": f.ValidationState})
 	}
+	qb = applyThreadAuthorFilter(qb, f)
+	if or := threadTargetIDsCond(f); or != nil {
+		qb = qb.Where(or)
+	}
+	return qb
+}
+
+// applyThreadAuthorFilter restricts to threads opened by the caller. When both
+// id and email are set the match is an OR (id or case-insensitive email),
+// matching how respond-permission resolves the author.
+func applyThreadAuthorFilter(qb sq.SelectBuilder, f ThreadFilter) sq.SelectBuilder {
 	switch {
 	case f.AuthorID != "" && f.AuthorEmail != "":
-		qb = qb.Where(sq.Or{
+		return qb.Where(sq.Or{
 			sq.Eq{"t.author_id": f.AuthorID},
 			sq.Expr("LOWER(t.author_email) = LOWER(?)", f.AuthorEmail),
 		})
 	case f.AuthorID != "":
-		qb = qb.Where(sq.Eq{"t.author_id": f.AuthorID})
+		return qb.Where(sq.Eq{"t.author_id": f.AuthorID})
 	case f.AuthorEmail != "":
-		qb = qb.Where(sq.Expr("LOWER(t.author_email) = LOWER(?)", f.AuthorEmail))
+		return qb.Where(sq.Expr("LOWER(t.author_email) = LOWER(?)", f.AuthorEmail))
+	default:
+		return qb
 	}
-	if len(f.TargetAssetIDs) > 0 || len(f.TargetCollectionIDs) > 0 {
-		or := sq.Or{}
-		if len(f.TargetAssetIDs) > 0 {
-			or = append(or, sq.Eq{"t.asset_id": f.TargetAssetIDs})
-		}
-		if len(f.TargetCollectionIDs) > 0 {
-			or = append(or, sq.Eq{"t.collection_id": f.TargetCollectionIDs})
-		}
-		qb = qb.Where(or)
+}
+
+// threadTargetIDsCond builds the OR condition matching threads on any of the
+// given asset, collection, or prompt ids (used by the worklist and the activity
+// feed, which span many targets). Returns nil when no id set is populated.
+func threadTargetIDsCond(f ThreadFilter) sq.Sqlizer {
+	if len(f.TargetAssetIDs) == 0 && len(f.TargetCollectionIDs) == 0 && len(f.TargetPromptIDs) == 0 {
+		return nil
 	}
-	return qb
+	or := sq.Or{}
+	if len(f.TargetAssetIDs) > 0 {
+		or = append(or, sq.Eq{"t.asset_id": f.TargetAssetIDs})
+	}
+	if len(f.TargetCollectionIDs) > 0 {
+		or = append(or, sq.Eq{"t.collection_id": f.TargetCollectionIDs})
+	}
+	if len(f.TargetPromptIDs) > 0 {
+		or = append(or, sq.Eq{"t.prompt_id": f.TargetPromptIDs})
+	}
+	return or
 }
 
 // threadUpdateSetMap builds the squirrel SET map for an UpdateThread, always

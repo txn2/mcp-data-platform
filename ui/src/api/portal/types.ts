@@ -356,6 +356,13 @@ export interface ThreadWithMeta extends Thread {
   last_event_type?: ThreadEventType;
 }
 
+// An activity-feed row (#617): a thread enriched with the display label of the
+// asset, collection, or prompt it lives on, so the feed can link back to the
+// item without a per-row lookup.
+export interface ThreadActivityItem extends ThreadWithMeta {
+  target_label: string;
+}
+
 export interface ThreadEvent {
   id: string;
   thread_id: string;
