@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import { Search, FolderOpen, Plus, LayoutGrid, List, Users, Globe } from "lucide-react";
-import { useCollections, useCreateCollection, useSearchCollections, useThreadCounts } from "@/api/portal/hooks";
+import { useCollections, useCreateCollection, useSearchCollections, useSharedCollections, useThreadCounts } from "@/api/portal/hooks";
+import type { Collection, SharePermission } from "@/api/portal/types";
 import { FeedbackCountBadge } from "@/components/feedback/FeedbackCountBadge";
+import { AssetsTabs } from "@/components/AssetsTabs";
+import { ScopeFilter, getStoredScope, storeScope, type Scope } from "@/components/ScopeFilter";
+import { SharePermissionBadge } from "@/components/SharePermissionBadge";
 import { AuthImg } from "@/components/AuthImg";
 import { CollectionThumbnailQueue } from "@/components/CollectionThumbnailQueue";
 
@@ -17,7 +21,19 @@ interface Props {
   onNavigate: (path: string) => void;
 }
 
+interface ShareMeta {
+  shared_by: string;
+  permission: SharePermission;
+  shared_at: string;
+}
+
+interface DisplayCollection {
+  collection: Collection;
+  share?: ShareMeta;
+}
+
 export function CollectionsPage({ onNavigate }: Props) {
+  const [scope, setScope] = useState<Scope>(getStoredScope);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>(getStoredViewMode);
@@ -27,22 +43,67 @@ export function CollectionsPage({ onNavigate }: Props) {
     localStorage.setItem(VIEW_STORAGE_KEY, mode);
   }
 
+  function changeScope(next: Scope) {
+    setScope(next);
+    storeScope(next);
+  }
+
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300);
     return () => clearTimeout(t);
   }, [search]);
   const searching = debouncedSearch.trim().length > 0;
+  // Relevance ranking only covers the caller's own collections; shared/all
+  // scopes fall back to client-side matching.
+  const semanticSearch = searching && scope === "mine";
 
   const { data, isLoading } = useCollections();
-  // Relevance search ranks the caller's own collections by semantic + keyword
-  // similarity (matching name, description, and section text) server-side.
-  const searchResults = useSearchCollections(debouncedSearch);
+  const searchResults = useSearchCollections(semanticSearch ? debouncedSearch : "");
+  const { data: sharedData, isLoading: sharedLoading } = useSharedCollections();
   const createMutation = useCreateCollection();
 
-  const collections = searching
+  const mineCollections: Collection[] = semanticSearch
     ? (searchResults.data?.data ?? []).map((s) => s.collection)
     : (data?.data ?? []);
-  const isLoadingList = searching ? searchResults.isLoading : isLoading;
+  const sharedItems: DisplayCollection[] = (sharedData?.data ?? []).map((s) => ({
+    collection: s.collection,
+    share: { shared_by: s.shared_by, permission: s.permission, shared_at: s.shared_at },
+  }));
+
+  let items: DisplayCollection[];
+  if (scope === "mine") {
+    items = mineCollections.map((collection) => ({ collection }));
+  } else if (scope === "shared") {
+    items = sharedItems;
+  } else {
+    const mineIds = new Set(mineCollections.map((c) => c.id));
+    items = [
+      ...mineCollections.map((collection) => ({ collection })),
+      ...sharedItems.filter((s) => !mineIds.has(s.collection.id)),
+    ];
+  }
+
+  function matchesClientFilters(c: Collection): boolean {
+    const q = debouncedSearch.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      (c.name?.toLowerCase().includes(q) ?? false) ||
+      (c.description?.toLowerCase().includes(q) ?? false) ||
+      (c.asset_tags ?? []).some((t) => t.toLowerCase().includes(q))
+    );
+  }
+  const displayItems = scope === "mine" ? items : items.filter((it) => matchesClientFilters(it.collection));
+
+  const isLoadingList =
+    scope === "mine"
+      ? semanticSearch
+        ? searchResults.isLoading
+        : isLoading
+      : scope === "shared"
+        ? sharedLoading
+        : isLoading || sharedLoading;
+
+  const collections = displayItems.map((it) => it.collection);
   const { data: threadCounts } = useThreadCounts(
     "collection",
     collections.map((c) => c.id),
@@ -58,26 +119,31 @@ export function CollectionsPage({ onNavigate }: Props) {
 
   return (
     <div className="space-y-4">
+      <AssetsTabs active="collections" onNavigate={onNavigate} />
+
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
+        <ScopeFilter value={scope} onChange={changeScope} />
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search collections by meaning..."
+            placeholder={scope === "mine" ? "Search collections by meaning..." : "Search collections..."}
             className="w-full rounded-md border bg-background pl-9 pr-3 py-2 text-sm outline-none ring-ring focus:ring-2"
           />
         </div>
-        <button
-          onClick={() => void handleCreate()}
-          disabled={createMutation.isPending}
-          className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-        >
-          <Plus className="h-4 w-4" />
-          {createMutation.isPending ? "Creating..." : "New Collection"}
-        </button>
+        {scope !== "shared" && (
+          <button
+            onClick={() => void handleCreate()}
+            disabled={createMutation.isPending}
+            className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          >
+            <Plus className="h-4 w-4" />
+            {createMutation.isPending ? "Creating..." : "New Collection"}
+          </button>
+        )}
         <div className="flex gap-0.5 rounded-md border p-0.5">
           <button
             onClick={() => toggleViewMode("grid")}
@@ -99,24 +165,13 @@ export function CollectionsPage({ onNavigate }: Props) {
       {/* Results */}
       {isLoadingList ? (
         <div className="flex items-center justify-center py-12 text-muted-foreground">
-          {searching ? "Searching..." : "Loading..."}
+          {semanticSearch ? "Searching..." : "Loading..."}
         </div>
-      ) : searching && collections.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-          <Search className="h-12 w-12 mb-2 opacity-30" />
-          <p className="text-sm font-medium">No collections match &ldquo;{debouncedSearch.trim()}&rdquo;</p>
-        </div>
-      ) : collections.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-          <FolderOpen className="h-12 w-12 mb-2 opacity-30" />
-          <p className="text-sm font-medium">No collections yet</p>
-          <p className="text-xs mt-1">
-            Create a collection to organize your assets into curated groups.
-          </p>
-        </div>
+      ) : displayItems.length === 0 ? (
+        <EmptyState scope={scope} searching={searching} query={debouncedSearch.trim()} />
       ) : viewMode === "grid" ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {collections.map((coll) => {
+          {displayItems.map(({ collection: coll, share }) => {
             const summary = data?.share_summaries?.[coll.id];
             const tags = coll.asset_tags ?? [];
             return (
@@ -140,7 +195,7 @@ export function CollectionsPage({ onNavigate }: Props) {
                   )}
                 </div>
                 <div className="p-4 w-full">
-                  {summary && (summary.has_user_share || summary.has_public_link) && (
+                  {!share && summary && (summary.has_user_share || summary.has_public_link) && (
                     <div className="absolute top-2 right-2 flex gap-1 bg-background/80 rounded-full px-1.5 py-0.5">
                       {summary.has_user_share && (
                         <span title="Shared with users"><Users className="h-3.5 w-3.5 text-muted-foreground" /></span>
@@ -174,8 +229,14 @@ export function CollectionsPage({ onNavigate }: Props) {
                       )}
                     </div>
                   )}
+                  {share && (
+                    <div className="flex items-center gap-1.5 mb-2 text-xs text-muted-foreground">
+                      <span className="truncate">Shared by {share.shared_by}</span>
+                      <SharePermissionBadge permission={share.permission} />
+                    </div>
+                  )}
                   <div className="flex items-center justify-between w-full text-xs text-muted-foreground">
-                    <span>{new Date(coll.created_at).toLocaleDateString()}</span>
+                    <span>{new Date(share ? share.shared_at : coll.created_at).toLocaleDateString()}</span>
                   </div>
                 </div>
               </button>
@@ -194,7 +255,7 @@ export function CollectionsPage({ onNavigate }: Props) {
               </tr>
             </thead>
             <tbody>
-              {collections.map((coll) => {
+              {displayItems.map(({ collection: coll, share }) => {
                 const summary = data?.share_summaries?.[coll.id];
                 const tags = coll.asset_tags ?? [];
                 return (
@@ -208,9 +269,11 @@ export function CollectionsPage({ onNavigate }: Props) {
                         <FolderOpen className="h-4 w-4 text-muted-foreground shrink-0" />
                         <div className="min-w-0 flex-1">
                           <span className="font-medium truncate block">{coll.name}</span>
-                          {coll.description && (
+                          {share ? (
+                            <span className="text-xs text-muted-foreground truncate block">Shared by {share.shared_by}</span>
+                          ) : coll.description ? (
                             <span className="text-xs text-muted-foreground truncate block">{coll.description}</span>
-                          )}
+                          ) : null}
                         </div>
                         <FeedbackCountBadge count={threadCounts?.[coll.id]} />
                       </div>
@@ -229,16 +292,22 @@ export function CollectionsPage({ onNavigate }: Props) {
                     </td>
                     <td className="px-4 py-2.5">
                       <div className="flex justify-center gap-1.5">
-                        {summary?.has_user_share && (
-                          <span title="Shared with users"><Users className="h-3.5 w-3.5 text-muted-foreground" /></span>
-                        )}
-                        {summary?.has_public_link && (
-                          <span title="Has public link"><Globe className="h-3.5 w-3.5 text-muted-foreground" /></span>
+                        {share ? (
+                          <SharePermissionBadge permission={share.permission} />
+                        ) : (
+                          <>
+                            {summary?.has_user_share && (
+                              <span title="Shared with users"><Users className="h-3.5 w-3.5 text-muted-foreground" /></span>
+                            )}
+                            {summary?.has_public_link && (
+                              <span title="Has public link"><Globe className="h-3.5 w-3.5 text-muted-foreground" /></span>
+                            )}
+                          </>
                         )}
                       </div>
                     </td>
                     <td className="px-4 py-2.5 text-muted-foreground">
-                      {new Date(coll.created_at).toLocaleDateString()}
+                      {new Date(share ? share.shared_at : coll.created_at).toLocaleDateString()}
                     </td>
                   </tr>
                 );
@@ -248,21 +317,56 @@ export function CollectionsPage({ onNavigate }: Props) {
         </div>
       )}
 
-      {searching ? (
+      {scope === "mine" && semanticSearch ? (
         collections.length > 0 && (
           <p className="text-xs text-muted-foreground text-center">
             Ranked by relevance to &ldquo;{debouncedSearch.trim()}&rdquo; across your collections.
           </p>
         )
-      ) : (
+      ) : scope === "mine" ? (
         data && data.total > data.limit && (
           <p className="text-sm text-muted-foreground text-center">
             Showing {collections.length} of {data.total} collections
           </p>
         )
+      ) : (
+        displayItems.length > 0 && (
+          <p className="text-sm text-muted-foreground text-center">
+            Showing {displayItems.length} {scope === "shared" ? "shared " : ""}collection{displayItems.length === 1 ? "" : "s"}
+          </p>
+        )
       )}
 
       <CollectionThumbnailQueue collections={collections} />
+    </div>
+  );
+}
+
+function EmptyState({ scope, searching, query }: { scope: Scope; searching: boolean; query: string }) {
+  if (searching) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+        <Search className="h-12 w-12 mb-2 opacity-30" />
+        <p className="text-sm font-medium">No collections match &ldquo;{query}&rdquo;</p>
+      </div>
+    );
+  }
+  if (scope === "shared") {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+        <Users className="h-12 w-12 mb-2 opacity-30" />
+        <p className="text-sm font-medium">No shared collections</p>
+        <p className="text-xs mt-1">Collections others share with you will appear here.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+      <FolderOpen className="h-12 w-12 mb-2 opacity-30" />
+      <p className="text-sm font-medium">No collections yet</p>
+      <p className="text-xs mt-1">
+        Create a collection to organize your assets into curated groups.
+      </p>
     </div>
   );
 }
