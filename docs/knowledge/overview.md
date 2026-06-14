@@ -194,7 +194,7 @@ The source field is optional when calling `capture_insight`. When omitted, it de
 
 Human feedback threads (left on portal artifacts via `manage_artifact`) connect to the knowledge loop, so an agent can resolve a thread by capturing the insight it represents and the chain stays visible end to end: **thread → insight → changeset → `target_urn`**.
 
-**Resolving a thread into an insight.** `capture_insight` accepts an optional `thread_ids` array. When supplied, each named thread has its `insight_id` set, an `insight_linked` event appended to its timeline, and its status moved to `resolved`. Linking is **authorized with the same owns-or-edit check as `resolve_thread`**: a thread the caller could not resolve via `manage_artifact` (one on an artifact they neither own nor can edit) is refused and reported as unlinked, so `capture_insight` is not a back door around the access model. The call is best-effort (a link failure never fails the capture) and the result reports the outcome so the agent can detect a mistyped, unauthorized, or already-resolved thread:
+**Resolving a thread into an insight.** `capture_insight` accepts an optional `thread_ids` array. When supplied, each named thread has its `insight_id` set, an `insight_linked` event appended to its timeline, and its status moved to `resolved`. Linking is **authorized with the same owns-or-edit check as `manage_feedback resolve`**: a thread the caller could not resolve (one on an artifact they neither own nor can edit) is refused and reported as unlinked, so `capture_insight` is not a back door around the access model. The call is best-effort (a link failure never fails the capture) and the result reports the outcome so the agent can detect a mistyped, unauthorized, or already-resolved thread:
 
 | Field | Meaning |
 |-------|---------|
@@ -203,7 +203,7 @@ Human feedback threads (left on portal artifacts via `manage_artifact`) connect 
 
 Both fields are omitted entirely when `thread_ids` is not supplied, so a capture without threads is unchanged.
 
-**Working threads from the agent.** `manage_artifact` gains thread actions (no new tools): `list_threads` (filter by target, status, `requires_resolution`, `validation_state`), `get_thread`, `reply_thread`, `resolve_thread`, and `request_validation`. These are scoped to artifacts the caller **owns or can edit** (admins see all; standalone threads are readable by any authenticated caller and moderated by the thread author or an admin).
+**Working threads from the agent.** The dedicated `manage_feedback` tool gives agents a discoverable home for feedback: `list` (with no target = all pending feedback across the assets and collections the caller owns or can edit AND the general channel, unresolved, excluding their own threads, plus any awaiting their validation; with a target = threads on that one asset/collection/prompt, filterable by status, `requires_resolution`, `validation_state`), `get`, `reply`, `resolve`, `request_validation`, and `respond_validation`. These are scoped to artifacts the caller **owns or can edit** (admins see all; standalone/general threads are readable by any authenticated caller and moderated by the thread author or an admin). Calling `list` with no target is the "review and act on any pending feedback" entry point.
 
 **Reading the chain.** `GET /api/v1/portal/threads/{id}/chain` returns the resolved chain for a thread: its `insight_id` and the changesets that insight produced (each with `target_urn`, `change_type`, and rollback state). The portal feedback panel renders this as a "Knowledge chain" section on a resolved thread.
 
@@ -211,7 +211,7 @@ Both fields are omitted entirely when `thread_ids` is not supplied, so a capture
 
 The loop closes with SME validation and worklists so nothing is dropped.
 
-**Validation response.** After `request_validation` routes a request to the feedback author, that author confirms or disputes it: `manage_artifact action=respond_validation` (with `validation_result` = `validated`|`disputed` and an optional `validation_reason`), or `POST /api/v1/portal/threads/{id}/validation` from the portal. Both record a `validation_result` event and set `validation_state`; **disputing re-opens the thread** so it returns to the practitioner worklist. Only the feedback author (or an admin) may respond.
+**Validation response.** After `request_validation` routes a request to the feedback author, that author confirms or disputes it: `manage_feedback action=respond_validation` (with `validation_result` = `validated`|`disputed` and an optional `validation_reason`), or `POST /api/v1/portal/threads/{id}/validation` from the portal. Both record a `validation_result` event and set `validation_state`; **disputing re-opens the thread** so it returns to the practitioner worklist. Only the feedback author (or an admin) may respond.
 
 **Worklists / inbox.** Two self-scoped views:
 

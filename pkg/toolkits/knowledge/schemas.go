@@ -84,7 +84,7 @@ var captureInsightSchema = json.RawMessage(`{
     },
     "thread_ids": {
       "type": "array",
-      "description": "IDs of feedback thread(s) this insight resolves. Each linked thread is marked resolved, records an insight_linked event, and carries this insight's id. Obtain thread IDs from manage_artifact action=list_threads.",
+      "description": "IDs of feedback thread(s) this insight resolves. Each linked thread is marked resolved, records an insight_linked event, and carries this insight's id. Obtain thread IDs from manage_feedback action=list.",
       "items": {"type": "string"},
       "maxItems": 50
     }

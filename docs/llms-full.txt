@@ -352,7 +352,7 @@ When `workflow.require_discovery_before_query` is disabled (default), the platfo
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `portal.enabled` | bool | `false` | Enable portal toolkit and save_artifact/manage_artifact tools |
+| `portal.enabled` | bool | `false` | Enable portal toolkit and save_artifact/manage_artifact/manage_feedback tools |
 | `portal.s3_connection` | string | - | Name of the S3 toolkit instance for artifact storage |
 | `portal.s3_bucket` | string | `portal-assets` | S3 bucket for artifact content |
 | `portal.s3_prefix` | string | `artifacts/` | Key prefix within the bucket |
@@ -1487,7 +1487,7 @@ Response includes asset_id, portal_url (if public_base_url configured), provenan
 
 ### manage_artifact
 
-List, retrieve, update, delete, or relevance-search saved artifacts. Ownership enforced — users can only modify or find their own artifacts.
+List, retrieve, update, delete, or relevance-search saved artifacts (and manage collections). Ownership enforced — users can only modify or find their own artifacts. Human feedback on artifacts is handled by the separate `manage_feedback` tool.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
@@ -1695,7 +1695,7 @@ Records domain knowledge shared during a session.
 }
 ```
 
-When `thread_ids` is supplied, the response also includes `linked_thread_count` and `unlinked_thread_ids` (the IDs that matched no open thread, or that the caller is not authorized to resolve); both are omitted when `thread_ids` is absent. Linking is gated by the same owns-or-edit check as `resolve_thread` (it is not a back door around the access model), is best-effort, and never fails the capture.
+When `thread_ids` is supplied, the response also includes `linked_thread_count` and `unlinked_thread_ids` (the IDs that matched no open thread, or that the caller is not authorized to resolve); both are omitted when `thread_ids` is absent. Linking is gated by the same owns-or-edit check as `manage_feedback resolve` (it is not a back door around the access model), is best-effort, and never fails the capture.
 
 The tool also registers an MCP prompt `knowledge_capture_guidance` that provides AI agents with guidance on when to capture insights.
 
@@ -1704,12 +1704,12 @@ The tool also registers an MCP prompt `knowledge_capture_guidance` that provides
 Human feedback threads on portal artifacts connect to the knowledge loop: an agent resolves a thread by capturing the insight it represents, and the chain stays visible end to end (**thread → insight → changeset → `target_urn`**).
 
 - **`capture_insight` `thread_ids`** links threads to the captured insight (see above).
-- **`manage_artifact` thread actions** (no new tools): `list_threads` (filter by target, status, `requires_resolution`, `validation_state`), `get_thread`, `reply_thread`, `resolve_thread`, `request_validation`. Scoped to artifacts the caller owns or can edit; admins see all; standalone threads are readable by any authenticated caller and moderated by the thread author or an admin.
+- **`manage_feedback` tool** (the dedicated, discoverable home for agent feedback): `list`, `get`, `reply`, `resolve`, `request_validation`, `respond_validation`. **`list` with no target is the cross-artifact entry point** — it returns the caller's pending feedback across the assets and collections they own or can edit AND the shared general channel (unresolved threads they did not author, plus any awaiting their validation), so an agent can "review and act on any pending feedback" in one call; `list` with an `asset_id`/`collection_id`/`prompt_id` or `target_type=standalone` scopes to one target (filter by status, `requires_resolution`, `validation_state`). Scoped to artifacts the caller owns or can edit; admins see all; standalone/general threads are readable by any authenticated caller and resolved by the thread author or an admin. (These six actions previously lived on `manage_artifact`; they were moved to `manage_feedback` so agents discover feedback by tool name.)
 - **`GET /api/v1/portal/threads/{id}/chain`** returns a thread's resolved chain: its `insight_id` and the changesets that insight produced (each with `target_urn`, `change_type`, rollback state). The portal feedback panel renders this as a "Knowledge chain" section.
 
 ### Validation & sign-off (Phase 3)
 
-- **Validation response**: after `request_validation` routes a request to the feedback author, that author confirms or disputes it via `manage_artifact action=respond_validation` (`validation_result` = `validated`|`disputed`, optional `validation_reason`) or `POST /api/v1/portal/threads/{id}/validation`. Both append a `validation_result` event and set `validation_state`; **disputing re-opens the thread**. Only the author (or an admin) may respond.
+- **Validation response**: after `request_validation` routes a request to the feedback author, that author confirms or disputes it via `manage_feedback action=respond_validation` (`validation_result` = `validated`|`disputed`, optional `validation_reason`) or `POST /api/v1/portal/threads/{id}/validation`. Both append a `validation_result` event and set `validation_state`; **disputing re-opens the thread**. Only the author (or an admin) may respond.
 - **Worklists**: `GET /api/v1/portal/worklist/practitioner` (open resolution-required threads across artifacts the caller owns/can edit) and `GET /api/v1/portal/worklist/sme` (threads awaiting the caller's validation).
 - **Activity feed**: `GET /api/v1/portal/feedback/activity` returns every feedback thread across the assets, collections, and prompts the caller can view (owned or shared, any permission), most recent activity first, each row enriched with the target's display label (`target_label`) so the client links straight back to the item. It is scoped server-side to the caller's reachable set and never discloses feedback on items they cannot see; global-prompt threads the caller did not author are excluded so the feed stays personal. With no push-notification system, this feed (plus a sidebar badge counting the caller's open worklist) is how a user discovers new feedback.
 - **Sign-off**: `GET /api/v1/portal/assets/{id}/signoff` and `.../collections/{id}/signoff` return `signed_off` of `stakeholders` (N = distinct approvers; M = owner + active share grantees), rendered as "signed off by N of M".

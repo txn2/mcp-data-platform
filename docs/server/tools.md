@@ -47,7 +47,8 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | Memory | `memory_manage` | Create, update, forget, list memories (opt-in per persona) |
 | Memory | `memory_recall` | Multi-strategy memory retrieval (entity, semantic, lexical, graph, auto) |
 | Portal | `save_artifact` | Save an AI-generated artifact (JSX, HTML, SVG, etc.) |
-| Portal | `manage_artifact` | List, get, update, delete, or relevance-search saved artifacts |
+| Portal | `manage_artifact` | List, get, update, delete, or relevance-search saved artifacts and collections |
+| Portal | `manage_feedback` | Review and respond to human feedback (list pending across everything, get, reply, resolve, request/respond validation) |
 | Platform | `platform_find_tools` | Find the most relevant tools for a natural-language task, ranked by semantic similarity (persona-scoped) |
 
 ---
@@ -739,6 +740,38 @@ List, retrieve, update, or delete saved artifacts. All mutations enforce ownersh
 - **update**: Change name, description, tags, or replace content
 - **delete**: Soft-delete an artifact
 - **search**: Rank the caller's own assets by relevance to `query`. Uses the same hybrid (vector + lexical) ranking as the prompt and Knowledge & Memory search: weighted hybrid when an embedding provider is configured, automatic lexical-only fallback otherwise. Returns each match with a `score` and reports `ranking` (`hybrid` or `lexical`). Scoped server-side to the caller's own assets by `owner_id` — the same ownership key the asset library and update/delete checks use, so search returns exactly what you see in the library — and fails closed when the caller has no identity, so a user can never find an asset they cannot view.
+
+---
+
+### manage_feedback
+
+Review and respond to human feedback on your work. Feedback is its own tool (rather than actions on `manage_artifact`) so an agent discovers it by name. Threads live on an asset, collection, or prompt, or on the shared general channel.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `action` | string | Yes | - | list, get, reply, resolve, request_validation, respond_validation |
+| `asset_id` / `collection_id` / `prompt_id` | string | No | - | Scope a `list` to one artifact |
+| `target_type` | string | No | - | `standalone` scopes a `list` to the general channel |
+| `thread_id` | string | Conditional | - | Required for get, reply, resolve, request_validation, respond_validation |
+| `body` | string | Conditional | - | Reply text (required for reply) |
+| `status` / `validation_state` / `requires_resolution` | - | No | - | Filters for a targeted `list` |
+| `validation_result` | string | Conditional | - | `validated` or `disputed` (required for respond_validation) |
+| `validation_reason` | string | No | - | Optional reason recorded on the validation event |
+| `limit` / `offset` | integer | No | 50 | Pagination |
+
+**Actions:**
+
+- **list (no target)**: The entry point for "review and act on any pending feedback." Returns the caller's pending feedback across **the assets and collections they own or can edit AND the shared general channel** — unresolved threads they did not author — plus any threads awaiting their validation. Newest first. (Prompt-thread feedback is reached by targeting the prompt with `prompt_id`, admin-only; it is not part of the no-target feed.)
+- **list (with a target)**: Threads on one asset/collection/prompt or the standalone channel, filterable by status / validation_state / requires_resolution.
+- **get**: One thread plus its full event timeline.
+- **reply**: Append a comment to a thread.
+- **resolve**: Mark a thread resolved.
+- **request_validation**: Route a validation request to the thread author.
+- **respond_validation**: The thread author (or an admin) records `validated`/`disputed`; disputing re-opens the thread.
+
+**Access:** scoped to artifacts the caller owns or can edit (admins see all). General-channel threads are readable and replyable by any authenticated caller, and resolved only by the thread author or an admin. `capture_insight thread_ids=[...]` folds a thread into the knowledge loop and resolves it, gated by the same owns-or-edit check.
 
 ---
 
