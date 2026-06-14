@@ -14,7 +14,7 @@ import { CollectionsPage } from "@/pages/collections/CollectionsPage";
 import { CollectionViewerPage } from "@/pages/collections/CollectionViewerPage";
 import { CollectionEditorPage } from "@/pages/collections/CollectionEditorPage";
 import { ResourcesPage } from "@/pages/resources/ResourcesPage";
-import { FeedbackChannelPage } from "@/pages/feedback/FeedbackChannelPage";
+import { FeedbackPage } from "@/pages/feedback/FeedbackPage";
 
 // Admin pages (admin only)
 import { AdminAssetsPage } from "@/pages/assets/AdminAssetsPage";
@@ -267,7 +267,7 @@ export function AppShell() {
           {!isAdminRoute && route === "/resources" && (
             <ResourcesPage onNavigate={navigate} />
           )}
-          {!isAdminRoute && route === "/feedback" && <FeedbackChannelPage />}
+          {!isAdminRoute && route === "/feedback" && <FeedbackPage onNavigate={navigate} />}
           {!isAdminRoute && route === "/my-knowledge" && <MyKnowledgePage />}
           {!isAdminRoute && route === "/prompts" && <MyPromptsPage onNavigate={navigate} />}
           {!isAdminRoute && promptViewMatch && (

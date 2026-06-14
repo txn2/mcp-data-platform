@@ -26,6 +26,7 @@ import type {
   SharedCollection,
   Thread,
   ThreadWithMeta,
+  ThreadActivityItem,
   ThreadEvent,
   ThreadKind,
   ThreadStatus,
@@ -917,6 +918,17 @@ export function useSMEWorklist(enabled = true) {
   });
 }
 
+// useFeedbackActivity fetches the unified feed (#617): every feedback thread on
+// an asset, collection, or prompt the caller can view, most recent first. With
+// no push notifications, this is how a user discovers new feedback on their work.
+export function useFeedbackActivity(enabled = true) {
+  return useQuery({
+    queryKey: ["feedback", "activity"],
+    queryFn: () => apiFetch<PaginatedResponse<ThreadActivityItem>>(`/feedback/activity`),
+    enabled,
+  });
+}
+
 // useSignoff fetches "signed off by N of M" for an asset or collection (#603).
 export function useSignoff(targetType: "assets" | "collections", id: string, enabled = true) {
   return useQuery({
@@ -995,6 +1007,10 @@ function invalidateThreadQueries(qc: ReturnType<typeof useQueryClient>) {
   void qc.invalidateQueries({ queryKey: ["thread"] });
   void qc.invalidateQueries({ queryKey: ["thread-events"] });
   void qc.invalidateQueries({ queryKey: ["thread-counts"] });
+  // The activity feed and worklists (#617) are cross-artifact thread views, so a
+  // create/reply/status change must refresh them too, not just the scoped lists.
+  void qc.invalidateQueries({ queryKey: ["feedback"] });
+  void qc.invalidateQueries({ queryKey: ["worklist"] });
 }
 
 export function useCreateThread() {

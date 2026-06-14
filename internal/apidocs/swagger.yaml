@@ -8992,6 +8992,43 @@ paths:
       summary: Search my collections
       tags:
       - Collections
+  /portal/feedback/activity:
+    get:
+      description: Lists feedback threads across every asset, collection, and prompt
+        the caller can view (owned or shared), most recent activity first. Each row
+        carries the target's display label so the client can link back to it. Scoped
+        server-side to the caller's accessible items, so it never discloses feedback
+        on items the caller cannot see.
+      parameters:
+      - description: Page size
+        in: query
+        name: limit
+        type: integer
+      - description: Page offset
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.paginatedResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Feedback activity feed
+      tags:
+      - Feedback
   /portal/knowledge/insights:
     get:
       description: Returns paginated insights captured by the current user.

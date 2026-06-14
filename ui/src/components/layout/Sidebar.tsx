@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
 import { useThemeStore } from "@/stores/theme";
-import { useBranding } from "@/api/portal/hooks";
+import { useBranding, usePractitionerWorklist, useSMEWorklist } from "@/api/portal/hooks";
 
 interface Props {
   currentPath: string;
@@ -83,6 +83,13 @@ export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse, 
     onNavigate(path);
     if (mobile && onClose) onClose();
   };
+
+  // Feedback notification cue (#617): with no push notifications, badge the
+  // Feedback nav item with open work that needs the user (resolution + their
+  // validation), so they notice without opening the page.
+  const practitionerWorklist = usePractitionerWorklist();
+  const smeWorklist = useSMEWorklist();
+  const feedbackBadge = (practitionerWorklist.data?.total ?? 0) + (smeWorklist.data?.total ?? 0);
 
   const portalNavItems = hasKnowledge
     ? [
@@ -179,7 +186,7 @@ export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse, 
             onClick={() => handleNavigate(item.path)}
             title={effectiveCollapsed ? item.label : undefined}
             className={cn(
-              "flex w-full items-center rounded-md text-sm font-medium transition-colors",
+              "relative flex w-full items-center rounded-md text-sm font-medium transition-colors",
               effectiveCollapsed ? "justify-center px-2 py-2" : "gap-3 px-3 py-2",
               isActive(item.path)
                 ? "bg-primary/10 text-primary"
@@ -187,7 +194,15 @@ export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse, 
             )}
           >
             <item.icon className="h-4 w-4 shrink-0" />
-            {!effectiveCollapsed && item.label}
+            {!effectiveCollapsed && <span className="flex-1 text-left">{item.label}</span>}
+            {item.path === "/feedback" && feedbackBadge > 0 &&
+              (effectiveCollapsed ? (
+                <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-primary" aria-label={`${feedbackBadge} feedback items need you`} />
+              ) : (
+                <span className="rounded-full bg-primary/15 px-1.5 text-[11px] font-semibold text-primary">
+                  {feedbackBadge}
+                </span>
+              ))}
           </button>
         ))}
 
