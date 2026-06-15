@@ -170,6 +170,12 @@ type OllamaEmbedConfig struct {
 	URL     string        `yaml:"url"`
 	Model   string        `yaml:"model"`
 	Timeout time.Duration `yaml:"timeout"`
+	// MaxInputBytes caps the byte length of each text sent to Ollama.
+	// Zero selects embedding.DefaultMaxInputBytes. Raise it only when
+	// running an embedding model with a larger context than
+	// nomic-embed-text's 2048 tokens. See embedding.DefaultMaxInputBytes
+	// and #623.
+	MaxInputBytes int `yaml:"max_input_bytes"`
 }
 
 // StalenessConfig configures the memory staleness watcher.

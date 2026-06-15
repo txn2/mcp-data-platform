@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 )
 
 // OllamaConfig configures the Ollama embedding provider.
@@ -17,10 +18,29 @@ type OllamaConfig struct {
 	URL     string
 	Model   string
 	Timeout time.Duration
+	// MaxInputBytes caps the byte length of each text sent to Ollama.
+	// Zero or negative selects DefaultMaxInputBytes. See that constant
+	// for why the platform bounds input itself rather than trusting
+	// Ollama's truncate flag.
+	MaxInputBytes int
 }
 
 // maxErrorBodyBytes is the maximum number of bytes read from an error response body.
 const maxErrorBodyBytes = 4096
+
+// DefaultMaxInputBytes bounds the byte length of each text the provider
+// sends to Ollama. The platform must cap input itself rather than rely
+// on Ollama's truncate flag, which is unreliable: against Ollama 0.18.0
+// + nomic-embed-text at a 2048-token context, real content that exceeds
+// the context returns HTTP 400 "the input length exceeds the context
+// length" EVEN with truncate:true, because Ollama's Go-layer truncation
+// and the runner's tokenizer disagree on the token count for some
+// content. Plain prose embeds at ~3.4 chars/token, so the ~2048-token
+// boundary sits near 7000 bytes; 6000 leaves margin for tokenizer drift
+// and denser content (code, JSON specs). Operators running a larger-
+// context model can raise this via config. The cap only trims the text
+// that is embedded; the full content is still stored. See #623.
+const DefaultMaxInputBytes = 6000
 
 // ollamaProvider generates embeddings via the Ollama API.
 //
@@ -36,6 +56,7 @@ type ollamaProvider struct {
 	url              string
 	model            string
 	dim              int
+	maxInputBytes    int
 	batchUnsupported atomic.Bool
 }
 
@@ -50,19 +71,27 @@ func NewOllamaProvider(cfg OllamaConfig) Provider {
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = DefaultTimeout * time.Second
 	}
+	if cfg.MaxInputBytes <= 0 {
+		cfg.MaxInputBytes = DefaultMaxInputBytes
+	}
 
 	return &ollamaProvider{
-		client: &http.Client{Timeout: cfg.Timeout},
-		url:    cfg.URL,
-		model:  cfg.Model,
-		dim:    DefaultDimension,
+		client:        &http.Client{Timeout: cfg.Timeout},
+		url:           cfg.URL,
+		model:         cfg.Model,
+		dim:           DefaultDimension,
+		maxInputBytes: cfg.MaxInputBytes,
 	}
 }
 
 // ollamaRequest is the JSON body sent to Ollama's /api/embeddings endpoint.
+// Truncate is always true so Ollama trims any residual overflow; the
+// provider also caps input itself because that flag is not sufficient
+// on its own (see DefaultMaxInputBytes).
 type ollamaRequest struct {
-	Model  string `json:"model"`
-	Prompt string `json:"prompt"`
+	Model    string `json:"model"`
+	Prompt   string `json:"prompt"`
+	Truncate bool   `json:"truncate"`
 }
 
 // ollamaResponse is the JSON body returned from Ollama's /api/embeddings endpoint.
@@ -77,8 +106,9 @@ type ollamaResponse struct {
 // form so a one-element batch and an N-element batch take the same
 // code path.
 type ollamaBatchRequest struct {
-	Model string   `json:"model"`
-	Input []string `json:"input"`
+	Model    string   `json:"model"`
+	Input    []string `json:"input"`
+	Truncate bool     `json:"truncate"`
 }
 
 // ollamaBatchResponse is the JSON body returned from Ollama's batch
@@ -88,11 +118,33 @@ type ollamaBatchResponse struct {
 	Embeddings [][]float64 `json:"embeddings"`
 }
 
+// capForEmbedding truncates s to at most maxBytes bytes, backing off to
+// the nearest UTF-8 rune boundary so a multi-byte rune is never split.
+// It reports whether truncation occurred. A non-positive maxBytes (or an
+// input already within budget) returns s unchanged.
+func capForEmbedding(s string, maxBytes int) (string, bool) {
+	if maxBytes <= 0 || len(s) <= maxBytes {
+		return s, false
+	}
+	cut := maxBytes
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut], true
+}
+
 // Embed generates an embedding for a single text input.
 func (o *ollamaProvider) Embed(ctx context.Context, text string) ([]float32, error) {
+	text, truncated := capForEmbedding(text, o.maxInputBytes)
+	if truncated {
+		slog.Warn("ollama: embedding input truncated to fit the input budget; embedded text is trimmed (stored content is unaffected)",
+			"max_bytes", o.maxInputBytes, "model", o.model,
+		)
+	}
 	body, err := json.Marshal(ollamaRequest{
-		Model:  o.model,
-		Prompt: text,
+		Model:    o.model,
+		Prompt:   text,
+		Truncate: true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("marshaling request: %w", err)
@@ -129,9 +181,11 @@ func (o *ollamaProvider) Embed(ctx context.Context, text string) ([]float32, err
 // back to N sequential /api/embeddings calls and records the
 // fallback so subsequent batches skip the batch attempt.
 //
-// The fallback path matches the prior (pre-fix) behavior exactly so
-// older Ollama deployments keep working unmodified; the win is that
-// modern deployments stop paying N round-trips per batch.
+// The fallback path keeps the same N-sequential-call shape as before
+// the batch endpoint existed, so older Ollama deployments keep working;
+// the win is that modern deployments stop paying N round-trips per batch.
+// Both paths apply the same input cap and truncate flag (see Embed and
+// embedBatchOnce), so the fallback is not a bypass for the #623 fix.
 func (o *ollamaProvider) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
 	if len(texts) == 0 {
 		return nil, nil
@@ -154,7 +208,16 @@ func (o *ollamaProvider) EmbedBatch(ctx context.Context, texts []string) ([][]fl
 // endpoint is unavailable on this server (caller should fall back),
 // and (nil, false, err) for any other failure.
 func (o *ollamaProvider) embedBatchOnce(ctx context.Context, texts []string) (results [][]float32, fallback bool, err error) {
-	body, err := json.Marshal(ollamaBatchRequest{Model: o.model, Input: texts})
+	capped := make([]string, len(texts))
+	truncatedCount := 0
+	for i, t := range texts {
+		c, truncated := capForEmbedding(t, o.maxInputBytes)
+		capped[i] = c
+		if truncated {
+			truncatedCount++
+		}
+	}
+	body, err := json.Marshal(ollamaBatchRequest{Model: o.model, Input: capped, Truncate: true})
 	if err != nil {
 		return nil, false, fmt.Errorf("marshaling batch request: %w", err)
 	}
@@ -176,6 +239,13 @@ func (o *ollamaProvider) embedBatchOnce(ctx context.Context, texts []string) (re
 			"url", o.url, "model", o.model,
 		)
 		return nil, true, nil
+	}
+	// Warn only once we know we are not falling back: the sequential
+	// path warns per item itself, so warning here too would double-log.
+	if truncatedCount > 0 {
+		slog.Warn("ollama: embedding inputs truncated to fit the input budget; embedded text is trimmed (stored content is unaffected)",
+			"truncated", truncatedCount, "batch_size", len(texts), "max_bytes", o.maxInputBytes, "model", o.model,
+		)
 	}
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))

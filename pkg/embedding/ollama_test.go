@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -353,4 +355,112 @@ func TestOllamaProvider_Model(t *testing.T) {
 	p, ok := prov.(*ollamaProvider)
 	require.True(t, ok)
 	assert.Equal(t, "my-model", p.Model())
+}
+
+// TestNewOllamaProvider_MaxInputBytes verifies the default cap is applied
+// when unset (or non-positive) and that an explicit value is honored.
+func TestNewOllamaProvider_MaxInputBytes(t *testing.T) {
+	t.Parallel()
+
+	def, ok := NewOllamaProvider(OllamaConfig{}).(*ollamaProvider)
+	require.True(t, ok)
+	assert.Equal(t, DefaultMaxInputBytes, def.maxInputBytes)
+
+	zeroed, ok := NewOllamaProvider(OllamaConfig{MaxInputBytes: -10}).(*ollamaProvider)
+	require.True(t, ok)
+	assert.Equal(t, DefaultMaxInputBytes, zeroed.maxInputBytes, "non-positive selects default")
+
+	custom, ok := NewOllamaProvider(OllamaConfig{MaxInputBytes: 24000}).(*ollamaProvider)
+	require.True(t, ok)
+	assert.Equal(t, 24000, custom.maxInputBytes)
+}
+
+func TestCapForEmbedding(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		in        string
+		maxBytes  int
+		wantBytes int
+		wantTrunc bool
+	}{
+		{name: "within budget", in: "hello", maxBytes: 100, wantBytes: 5, wantTrunc: false},
+		{name: "exactly at budget", in: "hello", maxBytes: 5, wantBytes: 5, wantTrunc: false},
+		{name: "over budget", in: "hello world", maxBytes: 5, wantBytes: 5, wantTrunc: true},
+		{name: "disabled with zero", in: "hello world", maxBytes: 0, wantBytes: 11, wantTrunc: false},
+		{name: "disabled with negative", in: "hello world", maxBytes: -1, wantBytes: 11, wantTrunc: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, trunc := capForEmbedding(tt.in, tt.maxBytes)
+			assert.Equal(t, tt.wantTrunc, trunc)
+			assert.Len(t, got, tt.wantBytes)
+		})
+	}
+}
+
+// TestCapForEmbedding_UTF8Boundary ensures truncation never splits a
+// multi-byte rune: the result stays valid UTF-8 and within the budget.
+func TestCapForEmbedding_UTF8Boundary(t *testing.T) {
+	t.Parallel()
+
+	// "世" is 3 bytes each; a 7-byte budget lands mid-rune (2 full runes
+	// = 6 bytes, the 3rd straddles 7..9).
+	in := "世世世"
+	got, trunc := capForEmbedding(in, 7)
+	assert.True(t, trunc)
+	assert.True(t, utf8.ValidString(got), "truncation must not split a rune")
+	assert.LessOrEqual(t, len(got), 7)
+	assert.Equal(t, "世世", got)
+}
+
+// TestOllamaProvider_Embed_CapsInputAndSetsTruncate proves the single
+// /api/embeddings path caps oversized input before the request and sets
+// truncate:true. This is the #623 fix: the platform bounds input itself
+// rather than trusting Ollama's (unreliable) truncate flag.
+func TestOllamaProvider_Embed_CapsInputAndSetsTruncate(t *testing.T) {
+	t.Parallel()
+
+	var got ollamaRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&got))
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(ollamaResponse{Embedding: []float64{0.1}}))
+	}))
+	defer srv.Close()
+
+	p := NewOllamaProvider(OllamaConfig{URL: srv.URL, Model: "m", MaxInputBytes: 10})
+	oversized := strings.Repeat("a", 100)
+	_, err := p.Embed(context.Background(), oversized)
+	require.NoError(t, err)
+
+	assert.Len(t, got.Prompt, 10, "input must be capped to MaxInputBytes before sending")
+	assert.True(t, got.Truncate, "truncate must be set true")
+}
+
+// TestOllamaProvider_EmbedBatch_CapsInputsAndSetsTruncate proves the
+// batch /api/embed path caps every oversized input and sets truncate:true.
+func TestOllamaProvider_EmbedBatch_CapsInputsAndSetsTruncate(t *testing.T) {
+	t.Parallel()
+
+	var got ollamaBatchRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&got))
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(ollamaBatchResponse{
+			Embeddings: [][]float64{{0.1}, {0.2}},
+		}))
+	}))
+	defer srv.Close()
+
+	p := NewOllamaProvider(OllamaConfig{URL: srv.URL, Model: "m", MaxInputBytes: 10})
+	_, err := p.EmbedBatch(context.Background(), []string{strings.Repeat("a", 100), "short"})
+	require.NoError(t, err)
+
+	require.Len(t, got.Input, 2)
+	assert.Len(t, got.Input[0], 10, "oversized input must be capped")
+	assert.Equal(t, "short", got.Input[1], "within-budget input must be untouched")
+	assert.True(t, got.Truncate, "truncate must be set true")
 }

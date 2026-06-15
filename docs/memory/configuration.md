@@ -15,6 +15,7 @@ memory:
       url: "http://localhost:11434"
       model: "nomic-embed-text"
       timeout: 30s
+      max_input_bytes: 6000     # cap per-text input before embedding (0 = default 6000)
   staleness:
     enabled: true
     interval: 15m             # How often to check for stale memories
@@ -28,6 +29,7 @@ memory:
 | `embedding.ollama.url` | string | `http://localhost:11434` | Ollama API base URL |
 | `embedding.ollama.model` | string | `nomic-embed-text` | Ollama model name (768-dim) |
 | `embedding.ollama.timeout` | duration | `30s` | HTTP timeout for embedding API calls |
+| `embedding.ollama.max_input_bytes` | int | `6000` | Cap on the byte length of each text sent to Ollama. The platform truncates input itself (on a UTF-8 boundary) because Ollama's `truncate` flag is unreliable: content exceeding the model's context can return `400 the input length exceeds the context length` even with `truncate:true`. The default sits below `nomic-embed-text`'s ~2048-token boundary with margin. Raise it only for a larger-context model. Only the embedded text is trimmed; stored content is unaffected. |
 | `staleness.enabled` | bool | `false` | Enable background staleness watcher |
 | `staleness.interval` | duration | `15m` | Interval between staleness check cycles |
 | `staleness.batch_size` | int | `50` | Number of records to check per cycle |

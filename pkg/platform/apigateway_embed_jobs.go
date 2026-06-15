@@ -43,9 +43,10 @@ func (p *Platform) workerEmbedder() embedding.Provider {
 		timeout = defaultEmbedJobsTimeout
 	}
 	return embedding.NewOllamaProvider(embedding.OllamaConfig{
-		URL:     p.config.Memory.Embedding.Ollama.URL,
-		Model:   p.config.Memory.Embedding.Ollama.Model,
-		Timeout: timeout,
+		URL:           p.config.Memory.Embedding.Ollama.URL,
+		Model:         p.config.Memory.Embedding.Ollama.Model,
+		Timeout:       timeout,
+		MaxInputBytes: p.config.Memory.Embedding.Ollama.MaxInputBytes,
 	})
 }
 
