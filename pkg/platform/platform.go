@@ -390,9 +390,10 @@ func (p *Platform) initMemory() error {
 	switch p.config.Memory.Embedding.Provider {
 	case "ollama":
 		p.embeddingProv = embedding.NewOllamaProvider(embedding.OllamaConfig{
-			URL:     p.config.Memory.Embedding.Ollama.URL,
-			Model:   p.config.Memory.Embedding.Ollama.Model,
-			Timeout: p.config.Memory.Embedding.Ollama.Timeout,
+			URL:           p.config.Memory.Embedding.Ollama.URL,
+			Model:         p.config.Memory.Embedding.Ollama.Model,
+			Timeout:       p.config.Memory.Embedding.Ollama.Timeout,
+			MaxInputBytes: p.config.Memory.Embedding.Ollama.MaxInputBytes,
 		})
 	default:
 		// No embedder configured. The platform still boots so Trino,
