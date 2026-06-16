@@ -135,15 +135,18 @@ export function buildJsxThumbnailHtml(content: string): string {
     /\bReactDOM\s*\.\s*render\s*\(/.test(content);
 
   const componentName = findComponentName(content);
+  // Mount helpers use collision-proof namespaced aliases so an artifact that
+  // already imports React (preserved by Sucrase's automatic runtime) does not
+  // produce "Identifier 'React' has already been declared". See JsxRenderer.
   const mountSection = hasMountCode
     ? transformed
-    : `import React from 'react';
-import { createRoot } from 'react-dom/client';
+    : `import * as __artifactReact from 'react';
+import { createRoot as __artifactCreateRoot } from 'react-dom/client';
 
 ${transformed}
 
 try {
-  ${componentName ? `createRoot(document.getElementById('root')).render(React.createElement(${componentName}));` : ""}
+  ${componentName ? `__artifactCreateRoot(document.getElementById('root')).render(__artifactReact.createElement(${componentName}));` : ""}
 } catch(e) {
   document.getElementById('root').textContent = e.message;
 }`;

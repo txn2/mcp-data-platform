@@ -106,24 +106,31 @@ function showError(text, tag, style) {
   root.appendChild(el);
 }`;
 
-export function JsxRenderer({ content }: { content: string }) {
-  const blobUrl = useMemo(() => {
-    let transformed: string;
-    try {
-      transformed = escapeScriptClose(transformJsx(content));
-    } catch (e) {
-      // If Sucrase fails, show the error in the iframe via textContent (safe).
-      const errMsg =
-        e instanceof Error ? e.message : "JSX transform failed";
-      const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body><pre id="e" style="${ERROR_STYLE}"></pre>
+/**
+ * Build the full iframe HTML document for a JSX artifact.
+ *
+ * Mount helpers are imported under collision-proof namespaced aliases
+ * (`__artifactReact`, `__artifactCreateRoot`) rather than the bare `React` /
+ * `createRoot` identifiers. Sucrase's automatic JSX runtime preserves the
+ * artifact's own imports, so injecting a bare `import React from 'react'`
+ * would clash with an artifact that already imports React and produce
+ * `SyntaxError: Identifier 'React' has already been declared`.
+ */
+export function buildJsxIframeHtml(content: string): string {
+  let transformed: string;
+  try {
+    transformed = escapeScriptClose(transformJsx(content));
+  } catch (e) {
+    // If Sucrase fails, show the error in the iframe via textContent (safe).
+    const errMsg = e instanceof Error ? e.message : "JSX transform failed";
+    return `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body><pre id="e" style="${ERROR_STYLE}"></pre>
 <script>document.getElementById('e').textContent=${JSON.stringify(errMsg)};</script></body></html>`;
-      return URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
-    }
+  }
 
-    if (hasMountCode(content)) {
-      // Self-mounting path: content has its own createRoot/render call.
-      // Inject transformed code with import map so bare specifiers resolve.
-      const html = `<!DOCTYPE html>
+  if (hasMountCode(content)) {
+    // Self-mounting path: content has its own createRoot/render call.
+    // Inject transformed code with import map so bare specifiers resolve.
+    return `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
@@ -148,16 +155,15 @@ ${transformed}
   </script>
 </body>
 </html>`;
-      return URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
-    }
+  }
 
-    // Auto-mount path: detect component name and render it.
-    const componentName = findComponentName(content);
-    const mountCall = componentName
-      ? `createRoot(document.getElementById('root')).render(React.createElement(${componentName}));`
-      : `showError('No component found. Use export default function MyComponent() {...}', 'p', 'color:#f59e0b;padding:16px;font-family:system-ui');`;
+  // Auto-mount path: detect component name and render it.
+  const componentName = findComponentName(content);
+  const mountCall = componentName
+    ? `__artifactCreateRoot(document.getElementById('root')).render(__artifactReact.createElement(${componentName}));`
+    : `showError('No component found. Use export default function MyComponent() {...}', 'p', 'color:#f59e0b;padding:16px;font-family:system-ui');`;
 
-    const html = `<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
@@ -171,8 +177,8 @@ ${transformed}
 <body>
   <div id="root"></div>
   <script type="module">
-import React from 'react';
-import { createRoot } from 'react-dom/client';
+import * as __artifactReact from 'react';
+import { createRoot as __artifactCreateRoot } from 'react-dom/client';
 
 ${SHOW_ERROR_FN}
 window.onerror = function(msg, src, line, col, err) {
@@ -192,7 +198,14 @@ try {
   </script>
 </body>
 </html>`;
-    return URL.createObjectURL(new Blob([html], { type: "text/html;charset=utf-8" }));
+}
+
+export function JsxRenderer({ content }: { content: string }) {
+  const blobUrl = useMemo(() => {
+    const html = buildJsxIframeHtml(content);
+    return URL.createObjectURL(
+      new Blob([html], { type: "text/html;charset=utf-8" }),
+    );
   }, [content]);
 
   useEffect(() => {
