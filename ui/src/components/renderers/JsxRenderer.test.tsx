@@ -2,10 +2,16 @@ import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { render } from "@testing-library/react";
 import {
   JsxRenderer,
+  buildJsxIframeHtml,
   transformJsx,
   findComponentName,
   escapeScriptClose,
 } from "./JsxRenderer";
+
+// Count top-level `import React` default-binding declarations. The namespaced
+// alias `import * as __artifactReact` must NOT match.
+const countReactDefaultImports = (html: string): number =>
+  (html.match(/import\s+React\b/g) ?? []).length;
 
 // jsdom does not implement URL.createObjectURL; provide a stub.
 let originalCreateObjectURL: typeof URL.createObjectURL;
@@ -127,6 +133,50 @@ describe("JsxRenderer", () => {
       <JsxRenderer content="function App() { return <div>Hello</div>; }" />,
     );
     expect(URL.createObjectURL).toHaveBeenCalled();
+  });
+});
+
+describe("buildJsxIframeHtml: duplicate React declaration (issue #625)", () => {
+  it("does not inject a second React import when artifact already imports React", () => {
+    // The artifact imports React and does not self-mount, so it takes the
+    // auto-mount path. Before the fix this produced two `import React` lines
+    // and a "Identifier 'React' has already been declared" SyntaxError.
+    const code = `import React from 'react';
+export default function App() { return <div>Hello</div>; }`;
+    const html = buildJsxIframeHtml(code);
+    // Only the artifact's own React import remains; the injected helper uses a
+    // namespaced alias that does not collide.
+    expect(countReactDefaultImports(html)).toBe(1);
+    expect(html).toContain("import * as __artifactReact from 'react'");
+    expect(html).toContain("__artifactReact.createElement(App)");
+  });
+
+  it("injects no bare React import when artifact does not import React", () => {
+    const code = `export default function App() { return <div>Hi</div>; }`;
+    const html = buildJsxIframeHtml(code);
+    expect(countReactDefaultImports(html)).toBe(0);
+    expect(html).toContain(
+      "import { createRoot as __artifactCreateRoot } from 'react-dom/client'",
+    );
+    expect(html).toContain("__artifactCreateRoot(document.getElementById('root'))");
+  });
+
+  it("leaves self-mounting artifacts untouched (no injected helpers)", () => {
+    const code = `import React from 'react';
+import { createRoot } from 'react-dom/client';
+function App() { return <div>Hello</div>; }
+createRoot(document.getElementById('root')).render(<App />);`;
+    const html = buildJsxIframeHtml(code);
+    // Only the artifact's own React import; no namespaced helper injection.
+    expect(countReactDefaultImports(html)).toBe(1);
+    expect(html).not.toContain("__artifactReact");
+    expect(html).not.toContain("__artifactCreateRoot");
+  });
+
+  it("returns a transform-error document for invalid syntax", () => {
+    const html = buildJsxIframeHtml("function {{{");
+    expect(html).toContain("<pre id=\"e\"");
+    expect(html).not.toContain("__artifactReact");
   });
 });
 
