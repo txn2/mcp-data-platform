@@ -1436,15 +1436,24 @@ export const handlers = [
     if (!asset) {
       return HttpResponse.json({ detail: "Not found" }, { status: 404 });
     }
+    const variant = new URL(request.url).searchParams.get("variant");
     const buffer = await request.arrayBuffer();
-    thumbnailStore.set(asset.id, buffer);
-    asset.thumbnail_s3_key = `thumbnails/${asset.id}.png`;
+    if (variant === "dark") {
+      thumbnailStore.set(`${asset.id}:dark`, buffer);
+      asset.thumbnail_dark_s3_key = `thumbnails/${asset.id}_dark.png`;
+    } else {
+      thumbnailStore.set(asset.id, buffer);
+      asset.thumbnail_s3_key = `thumbnails/${asset.id}.png`;
+    }
     return new HttpResponse(null, { status: 204 });
   }),
 
-  http.get(`${PORTAL_BASE}/assets/:id/thumbnail`, ({ params }) => {
+  http.get(`${PORTAL_BASE}/assets/:id/thumbnail`, ({ params, request }) => {
     const id = params.id as string;
-    const buffer = thumbnailStore.get(id);
+    const variant = new URL(request.url).searchParams.get("variant");
+    // Dark variant falls back to the light buffer when none was captured.
+    const buffer =
+      variant === "dark" ? (thumbnailStore.get(`${id}:dark`) ?? thumbnailStore.get(id)) : thumbnailStore.get(id);
     if (buffer) {
       return new HttpResponse(buffer, {
         headers: { "Content-Type": "image/png" },

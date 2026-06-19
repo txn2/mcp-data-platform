@@ -32,6 +32,7 @@ Features:
 - **Filters** — Content type dropdown (HTML, JSX, SVG, Markdown, CSV) and tag filter
 - **View toggle** — Switch between grid (card thumbnails) and table view; preference persisted to localStorage
 - **Grid cards** — 4:3 thumbnail previews with content type icon, tags, collection badges, file size, and sharing indicators
+- **Theme-aware thumbnails** — Markdown and CSV previews are captured in both light and dark variants, and the grid shows the one matching your active theme. Self-themed content (HTML, JSX, SVG) carries its own colors, so a single preview is used in both modes. Public shares always use the light variant.
 - **Table rows** — Sortable columns for name, type, tags, collections, size, sharing, and creation date
 
 ### Asset Viewer

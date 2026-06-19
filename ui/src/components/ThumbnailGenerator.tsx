@@ -15,6 +15,8 @@ import {
   buildJsxThumbnailHtml,
   captureIframe,
   uploadThumbnail,
+  isThemeable,
+  type ThumbnailVariant,
 } from "@/lib/thumbnail";
 
 interface Props {
@@ -159,8 +161,148 @@ function IframeCapture({
   );
 }
 
+/** Color tokens for one thumbnail color scheme. */
+interface ProseTokens {
+  bg: string;
+  fg: string;
+  codeBg: string;
+  border: string;
+  blockquoteBorder: string;
+  muted: string;
+  link: string;
+  thBg: string;
+  evenRow: string;
+}
+
+interface Scheme {
+  variant: ThumbnailVariant;
+  mermaidTheme: "default" | "dark";
+  tokens: ProseTokens;
+}
+
+const LIGHT_SCHEME: Scheme = {
+  variant: "light",
+  mermaidTheme: "default",
+  tokens: {
+    bg: "#ffffff",
+    fg: "#111827",
+    codeBg: "#f3f4f6",
+    border: "#d1d5db",
+    blockquoteBorder: "#d1d5db",
+    muted: "#6b7280",
+    link: "#2563eb",
+    thBg: "#f1f5f9",
+    evenRow: "#f8fafc",
+  },
+};
+
+// Dark tokens mirror the portal's shadcn dark palette (card #020817,
+// foreground #f8fafc) so the captured thumbnail blends into the dark card.
+const DARK_SCHEME: Scheme = {
+  variant: "dark",
+  mermaidTheme: "dark",
+  tokens: {
+    bg: "#020817",
+    fg: "#f8fafc",
+    codeBg: "#1e293b",
+    border: "#334155",
+    blockquoteBorder: "#475569",
+    muted: "#94a3b8",
+    link: "#60a5fa",
+    thBg: "#1e293b",
+    evenRow: "#0f172a",
+  },
+};
+
+function markdownProseCss(t: ProseTokens): string {
+  return `
+    .thumb-prose h1 { font-size: 1.5em; font-weight: 700; margin: 0.5em 0 0.25em; }
+    .thumb-prose h2 { font-size: 1.25em; font-weight: 600; margin: 0.5em 0 0.25em; }
+    .thumb-prose h3 { font-size: 1.1em; font-weight: 600; margin: 0.4em 0 0.2em; }
+    .thumb-prose p { margin: 0.4em 0; }
+    .thumb-prose ul, .thumb-prose ol { padding-left: 1.5em; margin: 0.4em 0; }
+    .thumb-prose code { background: ${t.codeBg}; padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.9em; }
+    .thumb-prose pre { background: ${t.codeBg}; padding: 0.5em; border-radius: 4px; overflow: auto; margin: 0.4em 0; }
+    .thumb-prose blockquote { border-left: 3px solid ${t.blockquoteBorder}; padding-left: 0.75em; margin: 0.4em 0; color: ${t.muted}; }
+    .thumb-prose a { color: ${t.link}; text-decoration: underline; }
+    .thumb-prose table { border-collapse: collapse; margin: 0.4em 0; }
+    .thumb-prose th, .thumb-prose td { border: 1px solid ${t.border}; padding: 0.25em 0.5em; font-size: 0.9em; }
+  `;
+}
+
+function csvProseCss(t: ProseTokens): string {
+  return `
+    .thumb-prose table { border-collapse: collapse; margin: 0.4em 0; width: 100%; }
+    .thumb-prose th, .thumb-prose td { border: 1px solid ${t.border}; padding: 0.25em 0.5em; font-size: 0.85em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; }
+    .thumb-prose th { background: ${t.thBg}; font-weight: 600; }
+    .thumb-prose tr:nth-child(even) { background: ${t.evenRow}; }
+  `;
+}
+
+const SETTLE_SELECTOR = "p, h1, h2, h3, li, pre, blockquote, table, svg";
+
+/** Resolves once the container has rendered capturable content. */
+function waitForContent(container: HTMLElement): Promise<void> {
+  return new Promise<void>((resolve) => {
+    if (container.querySelector(SETTLE_SELECTOR)) {
+      resolve();
+      return;
+    }
+    const observer = new MutationObserver(() => {
+      if (container.querySelector(SETTLE_SELECTOR)) {
+        observer.disconnect();
+        resolve();
+      }
+    });
+    observer.observe(container, { childList: true, subtree: true });
+  });
+}
+
+/** Replaces mermaid code blocks in a container with rendered SVG in the given theme. */
+async function renderMermaidIn(
+  container: HTMLElement,
+  theme: "default" | "dark",
+  idPrefix: string,
+): Promise<void> {
+  const blocks = container.querySelectorAll<HTMLElement>("code.language-mermaid");
+  if (blocks.length === 0) return;
+  mermaid.initialize({ startOnLoad: false, theme, fontFamily: "system-ui, sans-serif" });
+  for (let i = 0; i < blocks.length; i++) {
+    const codeEl = blocks[i]!;
+    const preEl = codeEl.parentElement;
+    if (!preEl || preEl.tagName !== "PRE") continue;
+    try {
+      const { svg } = await mermaid.render(`${idPrefix}-${i}`, codeEl.textContent || "");
+      const wrapper = document.createElement("div");
+      wrapper.innerHTML = svg;
+      wrapper.style.display = "flex";
+      wrapper.style.justifyContent = "center";
+      wrapper.style.margin = "0.5em 0";
+      preEl.replaceWith(wrapper);
+    } catch {
+      // Leave as code block on failure
+    }
+  }
+}
+
+/** Captures a container to a PNG blob on the given background color. */
+async function captureContainer(container: HTMLElement, bg: string): Promise<Blob> {
+  const canvas = await html2canvas(container, {
+    width: THUMB_WIDTH,
+    height: THUMB_HEIGHT,
+    scale: 1,
+    logging: false,
+    backgroundColor: bg,
+  });
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob returned null"))), "image/png");
+  });
+}
+
 /**
- * Captures same-origin DOM content (Markdown/SVG) using html2canvas.
+ * Captures same-origin DOM content (Markdown/CSV/SVG) using html2canvas.
+ * Themeable types (markdown, CSV) are captured twice (light + dark) and uploaded
+ * to their respective variants; SVG carries its own colors and is captured once.
  */
 function DomCapture({
   assetId,
@@ -175,11 +317,18 @@ function DomCapture({
   onCaptured?: () => void;
   onFailed?: () => void;
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const containerRefs = useRef<(HTMLDivElement | null)[]>([]);
   const capturedRef = useRef(false);
 
-  const isSvg = contentType.toLowerCase().includes("svg");
-  const isCsvThumb = contentType.toLowerCase().includes("csv");
+  const ct = contentType.toLowerCase();
+  const isSvg = ct.includes("svg");
+  const isCsvThumb = ct.includes("csv");
+
+  // Themeable types capture both schemes; single-theme types capture light only.
+  const schemes = useMemo<Scheme[]>(
+    () => (isThemeable(contentType) ? [LIGHT_SCHEME, DARK_SCHEME] : [LIGHT_SCHEME]),
+    [contentType],
+  );
 
   const csvTable = useMemo(() => {
     if (!isCsvThumb) return null;
@@ -199,75 +348,28 @@ function DomCapture({
   );
 
   const doCapture = useCallback(async () => {
-    if (capturedRef.current || !containerRef.current) return;
+    if (capturedRef.current) return;
     capturedRef.current = true;
     try {
-      const canvas = await html2canvas(containerRef.current, {
-        width: THUMB_WIDTH,
-        height: THUMB_HEIGHT,
-        scale: 1,
-        logging: false,
-      });
-      const blob = await new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob returned null"))), "image/png");
-      });
-      await uploadThumbnail(assetId, blob);
+      for (let i = 0; i < schemes.length; i++) {
+        const container = containerRefs.current[i];
+        const scheme = schemes[i];
+        if (!container || !scheme) continue;
+        await waitForContent(container);
+        await renderMermaidIn(container, scheme.mermaidTheme, `thumb-mermaid-${scheme.variant}`);
+        // Let layout settle after mermaid SVGs are inserted
+        await new Promise((r) => requestAnimationFrame(r));
+        const blob = await captureContainer(container, scheme.tokens.bg);
+        await uploadThumbnail(assetId, blob, scheme.variant);
+      }
       onCaptured?.();
     } catch {
       onFailed?.();
     }
-  }, [assetId, onCaptured, onFailed]);
+  }, [assetId, schemes, onCaptured, onFailed]);
 
   useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    // Capture as non-null for the async closure (TS can't narrow across await).
-    const container: HTMLDivElement = el;
-
-    async function renderMermaidAndCapture() {
-      // Wait for ReactMarkdown to render child nodes
-      await new Promise<void>((resolve) => {
-        if (container.querySelector("p, h1, h2, h3, li, pre, blockquote, table, svg")) {
-          resolve();
-          return;
-        }
-        const observer = new MutationObserver(() => {
-          if (container.querySelector("p, h1, h2, h3, li, pre, blockquote, table, svg")) {
-            observer.disconnect();
-            resolve();
-          }
-        });
-        observer.observe(container, { childList: true, subtree: true });
-      });
-
-      // Render mermaid code blocks if present
-      const mermaidBlocks = container.querySelectorAll<HTMLElement>("code.language-mermaid");
-      if (mermaidBlocks.length > 0) {
-        mermaid.initialize({ startOnLoad: false, theme: "default", fontFamily: "system-ui, sans-serif" });
-        for (let i = 0; i < mermaidBlocks.length; i++) {
-          const codeEl = mermaidBlocks[i]!;
-          const preEl = codeEl.parentElement;
-          if (!preEl || preEl.tagName !== "PRE") continue;
-          try {
-            const { svg } = await mermaid.render(`thumb-mermaid-${i}`, codeEl.textContent || "");
-            const wrapper = document.createElement("div");
-            wrapper.innerHTML = svg;
-            wrapper.style.display = "flex";
-            wrapper.style.justifyContent = "center";
-            wrapper.style.margin = "0.5em 0";
-            preEl.replaceWith(wrapper);
-          } catch {
-            // Leave as code block on failure
-          }
-        }
-      }
-
-      // Let layout settle after mermaid SVGs are inserted
-      await new Promise((r) => requestAnimationFrame(r));
-      void doCapture();
-    }
-
-    void renderMermaidAndCapture();
+    void doCapture();
   }, [doCapture]);
 
   // Timeout: if capture hasn't completed, give up
@@ -282,80 +384,66 @@ function DomCapture({
   }, [onFailed]);
 
   return (
-    <div
-      ref={containerRef}
-      style={{
-        position: "fixed",
-        left: -9999,
-        top: -9999,
-        width: THUMB_WIDTH,
-        height: THUMB_HEIGHT,
-        overflow: "hidden",
-        pointerEvents: "none",
-        background: "white",
-        color: "black",
-        fontSize: 12,
-        padding: 16,
-        lineHeight: 1.6,
-        fontFamily: "system-ui, -apple-system, sans-serif",
-      }}
-      aria-hidden="true"
-    >
-      {isCsvThumb && csvTable ? (
-        <div>
-          <style>{`
-            .thumb-prose table { border-collapse: collapse; margin: 0.4em 0; width: 100%; }
-            .thumb-prose th, .thumb-prose td { border: 1px solid #d1d5db; padding: 0.25em 0.5em; font-size: 0.85em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; }
-            .thumb-prose th { background: #f1f5f9; font-weight: 600; }
-            .thumb-prose tr:nth-child(even) { background: #f8fafc; }
-          `}</style>
-          <div className="thumb-prose">
-            <table>
-              <thead>
-                <tr>
-                  {csvTable.cols.map((col) => (
-                    <th key={col}>{col}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {csvTable.rows.map((row, i) => (
-                  <tr key={i}>
-                    {csvTable.cols.map((col) => (
-                      <td key={col}>{String(row[col] ?? "")}</td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : isSvg ? (
-        <div dangerouslySetInnerHTML={{ __html: sanitizedSvg }} />
-      ) : (
+    <>
+      {schemes.map((scheme, i) => (
         <div
-          style={{
-            maxWidth: "none",
+          key={scheme.variant}
+          ref={(el) => {
+            containerRefs.current[i] = el;
           }}
+          style={{
+            position: "fixed",
+            left: -9999,
+            top: -9999,
+            width: THUMB_WIDTH,
+            height: THUMB_HEIGHT,
+            overflow: "hidden",
+            pointerEvents: "none",
+            background: scheme.tokens.bg,
+            color: scheme.tokens.fg,
+            fontSize: 12,
+            padding: 16,
+            lineHeight: 1.6,
+            fontFamily: "system-ui, -apple-system, sans-serif",
+          }}
+          aria-hidden="true"
         >
-          <style>{`
-            .thumb-prose h1 { font-size: 1.5em; font-weight: 700; margin: 0.5em 0 0.25em; }
-            .thumb-prose h2 { font-size: 1.25em; font-weight: 600; margin: 0.5em 0 0.25em; }
-            .thumb-prose h3 { font-size: 1.1em; font-weight: 600; margin: 0.4em 0 0.2em; }
-            .thumb-prose p { margin: 0.4em 0; }
-            .thumb-prose ul, .thumb-prose ol { padding-left: 1.5em; margin: 0.4em 0; }
-            .thumb-prose code { background: #f3f4f6; padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.9em; }
-            .thumb-prose pre { background: #f3f4f6; padding: 0.5em; border-radius: 4px; overflow: auto; margin: 0.4em 0; }
-            .thumb-prose blockquote { border-left: 3px solid #d1d5db; padding-left: 0.75em; margin: 0.4em 0; color: #6b7280; }
-            .thumb-prose a { color: #2563eb; text-decoration: underline; }
-            .thumb-prose table { border-collapse: collapse; margin: 0.4em 0; }
-            .thumb-prose th, .thumb-prose td { border: 1px solid #d1d5db; padding: 0.25em 0.5em; font-size: 0.9em; }
-          `}</style>
-          <div className="thumb-prose">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
-          </div>
+          {isCsvThumb && csvTable ? (
+            <div>
+              <style>{csvProseCss(scheme.tokens)}</style>
+              <div className="thumb-prose">
+                <table>
+                  <thead>
+                    <tr>
+                      {csvTable.cols.map((col) => (
+                        <th key={col}>{col}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {csvTable.rows.map((row, ri) => (
+                      <tr key={ri}>
+                        {csvTable.cols.map((col) => (
+                          <td key={col}>{String(row[col] ?? "")}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : isSvg ? (
+            <div dangerouslySetInnerHTML={{ __html: sanitizedSvg }} />
+          ) : (
+            <div style={{ maxWidth: "none" }}>
+              <style>{markdownProseCss(scheme.tokens)}</style>
+              <div className="thumb-prose">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+              </div>
+            </div>
+          )}
         </div>
-      )}
-    </div>
+      ))}
+    </>
   );
 }

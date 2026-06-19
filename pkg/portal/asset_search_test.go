@@ -15,7 +15,7 @@ import (
 // assetSearchColumns / assetScanDest order. sqlmock scans positionally.
 var assetSearchCols = []string{
 	"id", "owner_id", "owner_email", "name", "description", "content_type",
-	"s3_bucket", "s3_key", "thumbnail_s3_key", "size_bytes", "tags", "provenance",
+	"s3_bucket", "s3_key", "thumbnail_s3_key", "thumbnail_dark_s3_key", "size_bytes", "tags", "provenance",
 	"session_id", "current_version", "created_at", "updated_at", "deleted_at", "idempotency_key",
 }
 
@@ -23,7 +23,7 @@ func addAssetRow(rows *sqlmock.Rows, id, name string, extra ...driverValueList) 
 	now := time.Now()
 	base := []driver.Value{
 		id, "u1", "alice@example.com", name, "desc", "text/html",
-		"bucket", "key", "", int64(10), []byte(`["t"]`), []byte(`{}`),
+		"bucket", "key", "", "", int64(10), []byte(`["t"]`), []byte(`{}`),
 		"", 1, now, now, nil, "",
 	}
 	for _, e := range extra {
@@ -166,7 +166,7 @@ func TestSearchAssets_HybridScanError(t *testing.T) {
 	now := time.Now()
 	rows := sqlmock.NewRows(append(append([]string{}, assetSearchCols...), "vec_score", "lex_match")).
 		AddRow("a-1", "u1", "alice@example.com", "n", "d", "text/html",
-			"b", "k", "", int64(1), []byte("not json"), []byte(`{}`),
+			"b", "k", "", "", int64(1), []byte("not json"), []byte(`{}`),
 			"", 1, now, now, nil, "", 0.5, true)
 	mock.ExpectQuery("UNION ALL").WillReturnRows(rows)
 

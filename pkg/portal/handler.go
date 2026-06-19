@@ -600,8 +600,9 @@ func (h *Handler) updateAssetContent(w http.ResponseWriter, r *http.Request) {
 // @Tags         Assets
 // @Accept       png
 // @Produce      json
-// @Param        id    path  string  true  "Asset ID"
-// @Param        body  body  []byte  true  "PNG image data"
+// @Param        id       path   string  true   "Asset ID"
+// @Param        variant  query  string  false  "Thumbnail variant"  Enums(light, dark)
+// @Param        body     body   []byte  true   "PNG image data"
 // @Success      200  {object}  statusResponse
 // @Failure      400  {object}  problemDetail
 // @Failure      401  {object}  problemDetail
@@ -641,7 +642,12 @@ func (h *Handler) uploadThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	thumbKey := DeriveThumbnailKey(asset.S3Key)
+	variant, ok := parseThumbnailVariant(w, r)
+	if !ok {
+		return
+	}
+
+	thumbKey := DeriveThumbnailKeyVariant(asset.S3Key, variant)
 	if err := h.deps.S3Client.PutObject(r.Context(), asset.S3Bucket, thumbKey, data, mimeTypePNG); err != nil {
 		writeError(w, http.StatusServiceUnavailable, "failed to upload thumbnail")
 		return
@@ -649,6 +655,9 @@ func (h *Handler) uploadThumbnail(w http.ResponseWriter, r *http.Request) {
 
 	id := r.PathValue(pathKeyID)
 	updates := AssetUpdate{ThumbnailS3Key: &thumbKey}
+	if variant == thumbnailVariantDark {
+		updates = AssetUpdate{ThumbnailDarkS3Key: &thumbKey}
+	}
 	if err := h.deps.AssetStore.Update(r.Context(), id, updates); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update asset metadata")
 		return
@@ -689,10 +698,12 @@ func (h *Handler) requireOwnedAsset(w http.ResponseWriter, r *http.Request) (*As
 // getThumbnail handles GET /api/v1/portal/assets/{id}/thumbnail.
 //
 // @Summary      Get asset thumbnail
-// @Description  Downloads the asset's PNG thumbnail image.
+// @Description  Downloads the asset's PNG thumbnail image. The dark variant
+// @Description  falls back to the light/default thumbnail when none was captured.
 // @Tags         Assets
 // @Produce      png
-// @Param        id  path  string  true  "Asset ID"
+// @Param        id       path   string  true   "Asset ID"
+// @Param        variant  query  string  false  "Thumbnail variant"  Enums(light, dark)
 // @Success      200  {file}  binary
 // @Failure      401  {object}  problemDetail
 // @Failure      403  {object}  problemDetail
@@ -726,7 +737,13 @@ func (h *Handler) getThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if asset.ThumbnailS3Key == "" {
+	variant, ok := parseThumbnailVariant(w, r)
+	if !ok {
+		return
+	}
+
+	thumbKey := resolveThumbnailKey(asset, variant)
+	if thumbKey == "" {
 		writeError(w, http.StatusNotFound, "no thumbnail available")
 		return
 	}
@@ -736,7 +753,7 @@ func (h *Handler) getThumbnail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data, _, err := h.deps.S3Client.GetObject(r.Context(), asset.S3Bucket, asset.ThumbnailS3Key)
+	data, _, err := h.deps.S3Client.GetObject(r.Context(), asset.S3Bucket, thumbKey)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to retrieve thumbnail")
 		return
@@ -749,13 +766,61 @@ func (h *Handler) getThumbnail(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(data) // #nosec G705 -- content served as image/png, not rendered as HTML
 }
 
-// DeriveThumbnailKey replaces the filename in an S3 key with "thumbnail.png".
+// Thumbnail variant identifiers and the S3 filenames they map to. Light is the
+// default/shared variant (used by single-theme content and public shares); dark
+// is captured only for content rendered on a forced background (markdown, CSV).
+const (
+	thumbnailVariantLight  = "light"
+	thumbnailVariantDark   = "dark"
+	thumbnailLightFilename = "thumbnail.png"
+	thumbnailDarkFilename  = "thumbnail_dark.png"
+)
+
+// parseThumbnailVariant reads the optional ?variant= query parameter. An empty
+// value defaults to light. Any value other than "light" or "dark" is rejected
+// with 400. Returns the normalized variant and true on success; on failure it
+// writes the error response and returns false.
+func parseThumbnailVariant(w http.ResponseWriter, r *http.Request) (string, bool) {
+	switch r.URL.Query().Get("variant") {
+	case "", thumbnailVariantLight:
+		return thumbnailVariantLight, true
+	case thumbnailVariantDark:
+		return thumbnailVariantDark, true
+	default:
+		writeError(w, http.StatusBadRequest, "variant must be 'light' or 'dark'")
+		return "", false
+	}
+}
+
+// resolveThumbnailKey returns the stored S3 key to serve for the requested
+// variant. The dark variant falls back to the light/default key when no dark
+// variant has been captured (built-in-theme types only ever store light).
+func resolveThumbnailKey(asset *Asset, variant string) string {
+	if variant == thumbnailVariantDark && asset.ThumbnailDarkS3Key != "" {
+		return asset.ThumbnailDarkS3Key
+	}
+	return asset.ThumbnailS3Key
+}
+
+// DeriveThumbnailKey replaces the filename in an S3 key with "thumbnail.png"
+// (the light/default variant).
 func DeriveThumbnailKey(s3Key string) string {
+	return DeriveThumbnailKeyVariant(s3Key, thumbnailVariantLight)
+}
+
+// DeriveThumbnailKeyVariant replaces the filename in an S3 key with the
+// thumbnail filename for the given variant ("dark" -> thumbnail_dark.png,
+// anything else -> thumbnail.png).
+func DeriveThumbnailKeyVariant(s3Key, variant string) string {
+	filename := thumbnailLightFilename
+	if variant == thumbnailVariantDark {
+		filename = thumbnailDarkFilename
+	}
 	idx := strings.LastIndex(s3Key, "/")
 	if idx < 0 {
-		return "thumbnail.png"
+		return filename
 	}
-	return s3Key[:idx+1] + "thumbnail.png"
+	return s3Key[:idx+1] + filename
 }
 
 // updateAssetRequest is the request body for updating an asset.

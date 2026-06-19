@@ -16,7 +16,7 @@ var _ AssetSearcher = (*postgresAssetStore)(nil)
 // assetScanDest order so the scan cannot drift from the query. It matches the
 // list-path projection (queryAssets) plus the COALESCE on idempotency_key.
 const assetSearchColumns = `id, owner_id, owner_email, name, description, content_type, ` +
-	`s3_bucket, s3_key, thumbnail_s3_key, size_bytes, tags, provenance, session_id, ` +
+	`s3_bucket, s3_key, thumbnail_s3_key, thumbnail_dark_s3_key, size_bytes, tags, provenance, session_id, ` +
 	`current_version, created_at, updated_at, deleted_at, COALESCE(idempotency_key, '')`
 
 // assetFTSExpr is the full-text expression the lexical arm matches and ranks

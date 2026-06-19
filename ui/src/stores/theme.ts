@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { create } from "zustand";
 
 type Theme = "light" | "dark" | "system";
@@ -46,6 +47,26 @@ if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
       applyTheme("system");
     }
   });
+}
+
+/**
+ * useResolvedDark returns whether dark mode is currently active, resolving the
+ * "system" setting against the OS preference and re-rendering when either the
+ * stored theme or the OS preference changes.
+ */
+export function useResolvedDark(): boolean {
+  const theme = useThemeStore((s) => s.theme);
+  const [systemDark, setSystemDark] = useState(prefersDark);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = () => setSystemDark(mq.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+
+  return theme === "dark" || (theme === "system" && systemDark);
 }
 
 export const useThemeStore = create<ThemeState>((set) => ({
