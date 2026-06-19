@@ -45,6 +45,7 @@ export interface Branding {
   version: string;
   portal_title: string;
   portal_tagline?: string;
+  oidc_button_label?: string;
   portal_logo: string;
   portal_logo_light: string;
   portal_logo_dark: string;

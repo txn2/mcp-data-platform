@@ -196,8 +196,11 @@ const LIGHT_SCHEME: Scheme = {
   },
 };
 
-// Dark tokens mirror the portal's shadcn dark palette (card #020817,
-// foreground #f8fafc) so the captured thumbnail blends into the dark card.
+// Dark tokens mirror the portal's shadcn dark palette so the captured thumbnail
+// blends into the dark card. html2canvas needs concrete colors (it cannot
+// resolve CSS custom properties off-DOM), so these are hardcoded; keep them in
+// sync with the `.dark` block in src/index.css (--card -> #020817,
+// --card-foreground -> #f8fafc, --border/--muted/...) if that palette changes.
 const DARK_SCHEME: Scheme = {
   variant: "dark",
   mermaidTheme: "dark",
@@ -214,6 +217,14 @@ const DARK_SCHEME: Scheme = {
   },
 };
 
+// tableBaseCss is the table border/spacing shared by the markdown and CSV prose
+// variants; each adds its own cell sizing on top.
+function tableBaseCss(t: ProseTokens): string {
+  return `
+    .thumb-prose table { border-collapse: collapse; margin: 0.4em 0; }
+    .thumb-prose th, .thumb-prose td { border: 1px solid ${t.border}; padding: 0.25em 0.5em; }`;
+}
+
 function markdownProseCss(t: ProseTokens): string {
   return `
     .thumb-prose h1 { font-size: 1.5em; font-weight: 700; margin: 0.5em 0 0.25em; }
@@ -225,15 +236,16 @@ function markdownProseCss(t: ProseTokens): string {
     .thumb-prose pre { background: ${t.codeBg}; padding: 0.5em; border-radius: 4px; overflow: auto; margin: 0.4em 0; }
     .thumb-prose blockquote { border-left: 3px solid ${t.blockquoteBorder}; padding-left: 0.75em; margin: 0.4em 0; color: ${t.muted}; }
     .thumb-prose a { color: ${t.link}; text-decoration: underline; }
-    .thumb-prose table { border-collapse: collapse; margin: 0.4em 0; }
-    .thumb-prose th, .thumb-prose td { border: 1px solid ${t.border}; padding: 0.25em 0.5em; font-size: 0.9em; }
+    ${tableBaseCss(t)}
+    .thumb-prose th, .thumb-prose td { font-size: 0.9em; }
   `;
 }
 
 function csvProseCss(t: ProseTokens): string {
   return `
-    .thumb-prose table { border-collapse: collapse; margin: 0.4em 0; width: 100%; }
-    .thumb-prose th, .thumb-prose td { border: 1px solid ${t.border}; padding: 0.25em 0.5em; font-size: 0.85em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; }
+    ${tableBaseCss(t)}
+    .thumb-prose table { width: 100%; }
+    .thumb-prose th, .thumb-prose td { font-size: 0.85em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; }
     .thumb-prose th { background: ${t.thBg}; font-weight: 600; }
     .thumb-prose tr:nth-child(even) { background: ${t.evenRow}; }
   `;
@@ -350,20 +362,30 @@ function DomCapture({
   const doCapture = useCallback(async () => {
     if (capturedRef.current) return;
     capturedRef.current = true;
-    try {
-      for (let i = 0; i < schemes.length; i++) {
-        const container = containerRefs.current[i];
-        const scheme = schemes[i];
-        if (!container || !scheme) continue;
+    // Capture each variant independently so a failure on one (e.g. the dark
+    // pass throwing in html2canvas) does not discard a variant that already
+    // uploaded. Report success if ANY variant landed, so the queue invalidates
+    // and shows what we have; a still-missing variant is re-queued on next load.
+    let anySucceeded = false;
+    for (let i = 0; i < schemes.length; i++) {
+      const container = containerRefs.current[i];
+      const scheme = schemes[i];
+      if (!container || !scheme) continue;
+      try {
         await waitForContent(container);
         await renderMermaidIn(container, scheme.mermaidTheme, `thumb-mermaid-${scheme.variant}`);
         // Let layout settle after mermaid SVGs are inserted
         await new Promise((r) => requestAnimationFrame(r));
         const blob = await captureContainer(container, scheme.tokens.bg);
         await uploadThumbnail(assetId, blob, scheme.variant);
+        anySucceeded = true;
+      } catch {
+        // Skip this variant; other variants and a later retry can still fill it.
       }
+    }
+    if (anySucceeded) {
       onCaptured?.();
-    } catch {
+    } else {
       onFailed?.();
     }
   }, [assetId, schemes, onCaptured, onFailed]);

@@ -131,6 +131,7 @@ func TestGetPublicBranding(t *testing.T) {
 		cfg := testConfig()
 		cfg.Server.Name = "acme-platform"
 		cfg.Portal.Title = "ACME Admin"
+		cfg.Portal.OIDCButtonLabel = "Sign in with ACME Keycloak"
 		cfg.Portal.Logo = "https://cdn.example.com/acme-logo.svg"
 		cfg.Portal.LogoLight = "https://cdn.example.com/acme-light.svg"
 		cfg.Portal.LogoDark = "https://cdn.example.com/acme-dark.svg"
@@ -147,6 +148,7 @@ func TestGetPublicBranding(t *testing.T) {
 		assert.Equal(t, "acme-platform", body.Name)
 		assert.NotEmpty(t, body.Version)
 		assert.Equal(t, "ACME Admin", body.PortalTitle)
+		assert.Equal(t, "Sign in with ACME Keycloak", body.OIDCButtonLabel)
 		assert.Equal(t, "https://cdn.example.com/acme-logo.svg", body.PortalLogo)
 		assert.Equal(t, "https://cdn.example.com/acme-light.svg", body.PortalLogoLight)
 		assert.Equal(t, "https://cdn.example.com/acme-dark.svg", body.PortalLogoDark)

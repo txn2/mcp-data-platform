@@ -609,6 +609,7 @@ export const handlers = [
       name: mockSystemInfo.name,
       version: mockSystemInfo.version,
       portal_title: mockSystemInfo.portal_title,
+      oidc_button_label: "", // empty -> portal falls back to the default "Sign in with OIDC"
       portal_logo: mockSystemInfo.portal_logo,
       portal_logo_light: mockSystemInfo.portal_logo_light,
       portal_logo_dark: mockSystemInfo.portal_logo_dark,

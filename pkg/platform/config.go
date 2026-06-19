@@ -194,20 +194,21 @@ const (
 // PortalConfig configures the asset portal for saving AI-generated artifacts.
 // Enabled by default when a database is available. Set enabled: false to disable.
 type PortalConfig struct {
-	Enabled        *bool                 `yaml:"enabled"`
-	Title          string                `yaml:"title"`            // sidebar/branding title (default: "MCP Data Platform")
-	Tagline        string                `yaml:"tagline"`          // login-screen subtitle (default: "Sign in to access the platform.")
-	Logo           string                `yaml:"logo"`             // URL to logo (fallback for both themes)
-	LogoLight      string                `yaml:"logo_light"`       // URL to logo for light theme
-	LogoDark       string                `yaml:"logo_dark"`        // URL to logo for dark theme
-	S3Connection   string                `yaml:"s3_connection"`    // name of the S3 toolkit instance to use
-	S3Bucket       string                `yaml:"s3_bucket"`        // bucket for artifact storage (default: "portal-assets")
-	S3Prefix       string                `yaml:"s3_prefix"`        // key prefix within the bucket (default: "artifacts/")
-	PublicBaseURL  string                `yaml:"public_base_url"`  // base URL for portal links (e.g., "https://portal.example.com")
-	MaxContentSize int                   `yaml:"max_content_size"` // max artifact size in bytes (default: 10MB)
-	Implementor    ImplementorConfig     `yaml:"implementor"`      // optional implementor brand (far-left header zone)
-	RateLimit      PortalRateLimitConfig `yaml:"rate_limit"`
-	Export         PortalExportConfig    `yaml:"export"` // trino_export configuration
+	Enabled         *bool                 `yaml:"enabled"`
+	Title           string                `yaml:"title"`             // sidebar/branding title (default: "MCP Data Platform")
+	Tagline         string                `yaml:"tagline"`           // login-screen subtitle (default: "Sign in to access the platform.")
+	OIDCButtonLabel string                `yaml:"oidc_button_label"` // login-screen SSO button text (default: "Sign in with OIDC")
+	Logo            string                `yaml:"logo"`              // URL to logo (fallback for both themes)
+	LogoLight       string                `yaml:"logo_light"`        // URL to logo for light theme
+	LogoDark        string                `yaml:"logo_dark"`         // URL to logo for dark theme
+	S3Connection    string                `yaml:"s3_connection"`     // name of the S3 toolkit instance to use
+	S3Bucket        string                `yaml:"s3_bucket"`         // bucket for artifact storage (default: "portal-assets")
+	S3Prefix        string                `yaml:"s3_prefix"`         // key prefix within the bucket (default: "artifacts/")
+	PublicBaseURL   string                `yaml:"public_base_url"`   // base URL for portal links (e.g., "https://portal.example.com")
+	MaxContentSize  int                   `yaml:"max_content_size"`  // max artifact size in bytes (default: 10MB)
+	Implementor     ImplementorConfig     `yaml:"implementor"`       // optional implementor brand (far-left header zone)
+	RateLimit       PortalRateLimitConfig `yaml:"rate_limit"`
+	Export          PortalExportConfig    `yaml:"export"` // trino_export configuration
 }
 
 // PortalExportConfig configures the trino_export tool.

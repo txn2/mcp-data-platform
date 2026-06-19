@@ -160,15 +160,6 @@ export interface SharedCollection {
   permission: SharePermission;
 }
 
-export interface Branding {
-  name: string;
-  version: string;
-  portal_title: string;
-  portal_logo: string;
-  portal_logo_light: string;
-  portal_logo_dark: string;
-}
-
 // Activity types (user-scoped audit metrics)
 export interface ActivityOverview {
   total_calls: number;
