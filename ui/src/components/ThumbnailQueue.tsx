@@ -22,6 +22,13 @@ export function ThumbnailQueue({ assets }: Props) {
   const [queue, setQueue] = useState<Asset[]>([]);
   const [current, setCurrent] = useState<{ asset: Asset; content: string } | null>(null);
   const processedRef = useRef(new Set<string>());
+  // Set when a capture uploads during the current drain cycle. We refresh the
+  // asset list exactly once when the queue goes idle, rather than after every
+  // capture: a per-capture invalidation refetched the list and re-rendered the
+  // grid on each thumbnail, which tore down and re-requested every <img> (and
+  // aborted in-flight loads) so thumbnails never settled. Batching collapses a
+  // backfill of N thumbnails into a single refetch.
+  const dirtyRef = useRef(false);
 
   // Build the queue of assets needing thumbnails, excluding already-processed
   // ones. A themeable asset (markdown/CSV) needs capture until BOTH the light
@@ -68,14 +75,26 @@ export function ThumbnailQueue({ assets }: Props) {
   }, []);
 
   const handleCaptured = useCallback(() => {
-    void qc.invalidateQueries({ queryKey: ["assets"] });
-    advance();
-  }, [qc, advance]);
-
-  const handleFailed = useCallback(() => {
-    // Move on to the next asset without invalidating
+    // Defer the asset-list refresh to the drain effect below so a batch of
+    // captures triggers a single refetch instead of one per capture.
+    dirtyRef.current = true;
     advance();
   }, [advance]);
+
+  const handleFailed = useCallback(() => {
+    // Move on to the next asset without marking dirty.
+    advance();
+  }, [advance]);
+
+  // Refresh the asset list once, when the queue has fully drained and at least
+  // one capture uploaded. This flips the freshly captured assets from the
+  // placeholder icon to their thumbnail in a single grid re-render.
+  useEffect(() => {
+    if (!current && queue.length === 0 && dirtyRef.current) {
+      dirtyRef.current = false;
+      void qc.invalidateQueries({ queryKey: ["assets"] });
+    }
+  }, [current, queue.length, qc]);
 
   if (!current) return null;
 

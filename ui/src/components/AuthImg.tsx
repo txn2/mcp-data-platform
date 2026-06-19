@@ -11,5 +11,8 @@ type Props = Omit<React.ImgHTMLAttributes<HTMLImageElement>, "src"> & {
 export function AuthImg({ src, ...props }: Props) {
   const resolvedSrc = useAuthSrc(src);
   if (!resolvedSrc) return null;
-  return <img src={resolvedSrc} {...props} />;
+  // Default to lazy/async so off-screen grid thumbnails don't all fetch and
+  // decode on mount (a full grid otherwise loads every thumbnail at once).
+  // Defaults come before the spread so callers can still override them.
+  return <img loading="lazy" decoding="async" src={resolvedSrc} {...props} />;
 }
