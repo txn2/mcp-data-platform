@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { apiFetchRaw } from "@/api/portal/client";
 import type { Asset } from "@/api/portal/types";
-import { isThumbnailSupported } from "@/lib/thumbnail";
+import { isThumbnailSupported, isThemeable } from "@/lib/thumbnail";
 import { ThumbnailGenerator } from "./ThumbnailGenerator";
 
 interface Props {
@@ -23,14 +23,18 @@ export function ThumbnailQueue({ assets }: Props) {
   const [current, setCurrent] = useState<{ asset: Asset; content: string } | null>(null);
   const processedRef = useRef(new Set<string>());
 
-  // Build the queue of assets needing thumbnails, excluding already-processed ones
+  // Build the queue of assets needing thumbnails, excluding already-processed
+  // ones. A themeable asset (markdown/CSV) needs capture until BOTH the light
+  // and dark variants exist; single-theme types need only the light variant.
   useEffect(() => {
-    const needsThumbnail = assets.filter(
-      (a) =>
-        !a.thumbnail_s3_key &&
-        isThumbnailSupported(a.content_type) &&
-        !processedRef.current.has(a.id),
-    );
+    const needsThumbnail = assets.filter((a) => {
+      if (!isThumbnailSupported(a.content_type) || processedRef.current.has(a.id)) {
+        return false;
+      }
+      const missingLight = !a.thumbnail_s3_key;
+      const missingDark = isThemeable(a.content_type) && !a.thumbnail_dark_s3_key;
+      return missingLight || missingDark;
+    });
     setQueue(needsThumbnail);
     setCurrent(null);
   }, [assets]);

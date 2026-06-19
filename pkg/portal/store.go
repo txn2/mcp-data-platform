@@ -160,7 +160,7 @@ func (s *postgresAssetStore) Insert(ctx context.Context, asset Asset) error { //
 func (s *postgresAssetStore) Get(ctx context.Context, id string) (*Asset, error) { //nolint:revive // interface impl
 	query := `
 		SELECT id, owner_id, owner_email, name, description, content_type, s3_bucket, s3_key,
-		       thumbnail_s3_key, size_bytes, tags, provenance, session_id, current_version,
+		       thumbnail_s3_key, thumbnail_dark_s3_key, size_bytes, tags, provenance, session_id, current_version,
 		       created_at, updated_at, deleted_at, COALESCE(idempotency_key, '')
 		FROM portal_assets WHERE id = $1
 	`
@@ -170,7 +170,7 @@ func (s *postgresAssetStore) Get(ctx context.Context, id string) (*Asset, error)
 
 	err := s.db.QueryRowContext(ctx, query, id).Scan(
 		&asset.ID, &asset.OwnerID, &asset.OwnerEmail, &asset.Name, &asset.Description,
-		&asset.ContentType, &asset.S3Bucket, &asset.S3Key, &asset.ThumbnailS3Key, &asset.SizeBytes,
+		&asset.ContentType, &asset.S3Bucket, &asset.S3Key, &asset.ThumbnailS3Key, &asset.ThumbnailDarkS3Key, &asset.SizeBytes,
 		&tags, &prov, &asset.SessionID, &asset.CurrentVersion, &asset.CreatedAt, &asset.UpdatedAt, &deletedAt,
 		&asset.IdempotencyKey,
 	)
@@ -192,7 +192,7 @@ func (s *postgresAssetStore) Get(ctx context.Context, id string) (*Asset, error)
 func (s *postgresAssetStore) GetByIdempotencyKey(ctx context.Context, ownerID, key string) (*Asset, error) { //nolint:revive // interface impl
 	query := `
 		SELECT id, owner_id, owner_email, name, description, content_type, s3_bucket, s3_key,
-		       thumbnail_s3_key, size_bytes, tags, provenance, session_id, current_version,
+		       thumbnail_s3_key, thumbnail_dark_s3_key, size_bytes, tags, provenance, session_id, current_version,
 		       created_at, updated_at, deleted_at, COALESCE(idempotency_key, '')
 		FROM portal_assets
 		WHERE owner_id = $1 AND idempotency_key = $2 AND deleted_at IS NULL
@@ -203,7 +203,7 @@ func (s *postgresAssetStore) GetByIdempotencyKey(ctx context.Context, ownerID, k
 
 	err := s.db.QueryRowContext(ctx, query, ownerID, key).Scan(
 		&asset.ID, &asset.OwnerID, &asset.OwnerEmail, &asset.Name, &asset.Description,
-		&asset.ContentType, &asset.S3Bucket, &asset.S3Key, &asset.ThumbnailS3Key, &asset.SizeBytes,
+		&asset.ContentType, &asset.S3Bucket, &asset.S3Key, &asset.ThumbnailS3Key, &asset.ThumbnailDarkS3Key, &asset.SizeBytes,
 		&tags, &prov, &asset.SessionID, &asset.CurrentVersion, &asset.CreatedAt, &asset.UpdatedAt, &deletedAt,
 		&asset.IdempotencyKey,
 	)
@@ -229,7 +229,7 @@ func (s *postgresAssetStore) GetByIDs(ctx context.Context, ids []string) (map[st
 
 	query := `
 		SELECT id, owner_id, owner_email, name, description, content_type, s3_bucket, s3_key,
-		       thumbnail_s3_key, size_bytes, tags, provenance, session_id, current_version,
+		       thumbnail_s3_key, thumbnail_dark_s3_key, size_bytes, tags, provenance, session_id, current_version,
 		       created_at, updated_at, deleted_at, COALESCE(idempotency_key, '')
 		FROM portal_assets WHERE id = ANY($1) AND deleted_at IS NULL
 	`
@@ -247,7 +247,7 @@ func (s *postgresAssetStore) GetByIDs(ctx context.Context, ids []string) (map[st
 
 		if err := rows.Scan(
 			&asset.ID, &asset.OwnerID, &asset.OwnerEmail, &asset.Name, &asset.Description,
-			&asset.ContentType, &asset.S3Bucket, &asset.S3Key, &asset.ThumbnailS3Key, &asset.SizeBytes,
+			&asset.ContentType, &asset.S3Bucket, &asset.S3Key, &asset.ThumbnailS3Key, &asset.ThumbnailDarkS3Key, &asset.SizeBytes,
 			&tags, &prov, &asset.SessionID, &asset.CurrentVersion, &asset.CreatedAt, &asset.UpdatedAt, &deletedAt,
 			&asset.IdempotencyKey,
 		); err != nil {
@@ -309,7 +309,7 @@ func (s *postgresAssetStore) queryAssets(ctx context.Context, filter AssetFilter
 	limit := filter.EffectiveLimit()
 	selectQB := applyAssetFilter(psq.Select(
 		"id", "owner_id", "owner_email", "name", "description", "content_type", "s3_bucket", "s3_key",
-		"thumbnail_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version",
+		"thumbnail_s3_key", "thumbnail_dark_s3_key", "size_bytes", "tags", "provenance", "session_id", "current_version",
 		"created_at", "updated_at", "deleted_at", "COALESCE(idempotency_key, '')",
 	).From("portal_assets"), filter).
 		Where("deleted_at IS NULL").
@@ -430,6 +430,34 @@ func (s *postgresAssetStore) Update(ctx context.Context, id string, updates Asse
 	return nil
 }
 
+// applyScalarUpdates sets the non-indexed scalar columns (content type, storage
+// keys, size, and the light/dark thumbnail keys) that do not affect the search
+// embedding. Returns the builder and whether any column was set.
+func applyScalarUpdates(qb sq.UpdateBuilder, updates AssetUpdate) (sq.UpdateBuilder, bool) {
+	changed := false
+	if updates.ContentType != "" {
+		qb = qb.Set("content_type", updates.ContentType)
+		changed = true
+	}
+	if updates.S3Key != "" {
+		qb = qb.Set("s3_key", updates.S3Key)
+		changed = true
+	}
+	if updates.HasContent {
+		qb = qb.Set("size_bytes", updates.SizeBytes)
+		changed = true
+	}
+	if updates.ThumbnailS3Key != nil {
+		qb = qb.Set("thumbnail_s3_key", *updates.ThumbnailS3Key)
+		changed = true
+	}
+	if updates.ThumbnailDarkS3Key != nil {
+		qb = qb.Set("thumbnail_dark_s3_key", *updates.ThumbnailDarkS3Key)
+		changed = true
+	}
+	return qb, changed
+}
+
 func applyUpdateFields(qb sq.UpdateBuilder, updates AssetUpdate) (sq.UpdateBuilder, error) {
 	hasUpdates := false
 	indexedChanged := false
@@ -452,20 +480,9 @@ func applyUpdateFields(qb sq.UpdateBuilder, updates AssetUpdate) (sq.UpdateBuild
 		hasUpdates = true
 		indexedChanged = true
 	}
-	if updates.ContentType != "" {
-		qb = qb.Set("content_type", updates.ContentType)
-		hasUpdates = true
-	}
-	if updates.S3Key != "" {
-		qb = qb.Set("s3_key", updates.S3Key)
-		hasUpdates = true
-	}
-	if updates.HasContent {
-		qb = qb.Set("size_bytes", updates.SizeBytes)
-		hasUpdates = true
-	}
-	if updates.ThumbnailS3Key != nil {
-		qb = qb.Set("thumbnail_s3_key", *updates.ThumbnailS3Key)
+	var scalarChanged bool
+	qb, scalarChanged = applyScalarUpdates(qb, updates)
+	if scalarChanged {
 		hasUpdates = true
 	}
 	if !hasUpdates {
@@ -748,7 +765,7 @@ func (s *postgresShareStore) ListSharedWithUser(ctx context.Context, userID, ema
 
 	selectQuery := `
 		SELECT pa.id, pa.owner_id, pa.owner_email, pa.name, pa.description, pa.content_type,
-		       pa.s3_bucket, pa.s3_key, pa.thumbnail_s3_key, pa.size_bytes, pa.tags, pa.provenance,
+		       pa.s3_bucket, pa.s3_key, pa.thumbnail_s3_key, pa.thumbnail_dark_s3_key, pa.size_bytes, pa.tags, pa.provenance,
 		       pa.session_id, pa.current_version, pa.created_at, pa.updated_at, pa.deleted_at,
 		       COALESCE(pa.idempotency_key, ''),
 		       ps.id, COALESCE(NULLIF(pa.owner_email, ''), ps.created_by), ps.created_at, ps.permission
@@ -775,7 +792,7 @@ func (s *postgresShareStore) ListSharedWithUser(ctx context.Context, userID, ema
 
 		if err := rows.Scan(
 			&sa.Asset.ID, &sa.Asset.OwnerID, &sa.Asset.OwnerEmail, &sa.Asset.Name, &sa.Asset.Description,
-			&sa.Asset.ContentType, &sa.Asset.S3Bucket, &sa.Asset.S3Key, &sa.Asset.ThumbnailS3Key, &sa.Asset.SizeBytes,
+			&sa.Asset.ContentType, &sa.Asset.S3Bucket, &sa.Asset.S3Key, &sa.Asset.ThumbnailS3Key, &sa.Asset.ThumbnailDarkS3Key, &sa.Asset.SizeBytes,
 			&tags, &prov, &sa.Asset.SessionID, &sa.Asset.CurrentVersion,
 			&sa.Asset.CreatedAt, &sa.Asset.UpdatedAt, &deletedAt, &sa.Asset.IdempotencyKey,
 			&sa.ShareID, &sa.SharedBy, &sa.SharedAt, &sa.Permission,
@@ -1169,7 +1186,7 @@ func applyAssetFilter(qb sq.SelectBuilder, filter AssetFilter) sq.SelectBuilder 
 func assetScanDest(a *Asset, tags, prov *[]byte, deletedAt *sql.NullTime) []any {
 	return []any{
 		&a.ID, &a.OwnerID, &a.OwnerEmail, &a.Name, &a.Description,
-		&a.ContentType, &a.S3Bucket, &a.S3Key, &a.ThumbnailS3Key, &a.SizeBytes,
+		&a.ContentType, &a.S3Bucket, &a.S3Key, &a.ThumbnailS3Key, &a.ThumbnailDarkS3Key, &a.SizeBytes,
 		tags, prov, &a.SessionID, &a.CurrentVersion, &a.CreatedAt, &a.UpdatedAt, deletedAt,
 		&a.IdempotencyKey,
 	}
@@ -1280,7 +1297,7 @@ func (s *postgresVersionStore) CreateVersion(ctx context.Context, version AssetV
 
 	updateQuery := `
 		UPDATE portal_assets
-		SET current_version = $1, s3_key = $2, content_type = $3, size_bytes = $4, thumbnail_s3_key = '', updated_at = NOW()
+		SET current_version = $1, s3_key = $2, content_type = $3, size_bytes = $4, thumbnail_s3_key = '', thumbnail_dark_s3_key = '', updated_at = NOW()
 		WHERE id = $5
 	`
 	_, err = tx.ExecContext(ctx, updateQuery,

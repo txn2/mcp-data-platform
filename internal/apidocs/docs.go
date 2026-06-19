@@ -7469,7 +7469,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Downloads the asset's PNG thumbnail image.",
+                "description": "Downloads the asset's PNG thumbnail image. The dark variant\nfalls back to the light/default thumbnail when none was captured.",
                 "produces": [
                     "image/png"
                 ],
@@ -7484,6 +7484,16 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "enum": [
+                            "light",
+                            "dark"
+                        ],
+                        "type": "string",
+                        "description": "Thumbnail variant",
+                        "name": "variant",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -7558,6 +7568,16 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "enum": [
+                            "light",
+                            "dark"
+                        ],
+                        "type": "string",
+                        "description": "Thumbnail variant",
+                        "name": "variant",
+                        "in": "query"
                     },
                     {
                         "description": "PNG image data",
@@ -14386,6 +14406,11 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "thumbnail_dark_s3_key": {
+                    "description": "ThumbnailDarkS3Key holds the dark-mode thumbnail variant. Only populated\nfor content types rendered on a forced background (markdown, CSV); types\nwith a built-in theme (HTML, JSX, SVG) reuse ThumbnailS3Key in both modes.\nEmpty means callers should fall back to ThumbnailS3Key.",
+                    "type": "string",
+                    "example": "assets/01HK7R8Z/thumbnail_dark.png"
+                },
                 "thumbnail_s3_key": {
                     "type": "string",
                     "example": "assets/01HK7R8Z/thumb.png"
@@ -14982,6 +15007,11 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "thumbnail_dark_s3_key": {
+                    "description": "ThumbnailDarkS3Key holds the dark-mode thumbnail variant. Only populated\nfor content types rendered on a forced background (markdown, CSV); types\nwith a built-in theme (HTML, JSX, SVG) reuse ThumbnailS3Key in both modes.\nEmpty means callers should fall back to ThumbnailS3Key.",
+                    "type": "string",
+                    "example": "assets/01HK7R8Z/thumbnail_dark.png"
                 },
                 "thumbnail_s3_key": {
                     "type": "string",

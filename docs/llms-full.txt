@@ -383,6 +383,8 @@ Branding fields have moved to the `portal:` section:
 |-------|------|---------|-------------|
 | `portal.enabled` | bool | `false` | Enable portal SPA frontend and artifact API |
 | `portal.title` | string | `MCP Data Platform` | Sidebar/branding title text |
+| `portal.tagline` | string | `Sign in to access the platform.` | Login-screen subtitle text |
+| `portal.oidc_button_label` | string | `Sign in with OIDC` | Login-screen SSO button text (e.g. "Sign in with ACME Keycloak") |
 | `portal.logo` | string | `""` | Logo URL (fallback for both themes) |
 | `portal.logo_light` | string | `""` | Logo URL for light theme |
 | `portal.logo_dark` | string | `""` | Logo URL for dark theme |
@@ -3073,7 +3075,7 @@ into a polished experience, and saved assets gained preview thumbnails and full
 version history so nothing is ever lost.
 
 - **A polished sharing experience.** A large investment in the public viewer: dark mode, expiration notices, sharing by email with permission levels, "save to my assets," view counts, and branded headers on shared links.
-- **Preview thumbnails and version history.** Saved assets get automatic preview thumbnails and full version history, including the ability to revert to an earlier version.
+- **Preview thumbnails and version history.** Saved assets get automatic preview thumbnails and full version history, including the ability to revert to an earlier version. Markdown and CSV previews are captured in both light and dark variants so the asset grid matches the active theme; self-themed content (HTML, JSX, SVG) uses a single preview in both modes, and public shares always use the light variant.
 - **One-click prompt workflows.** A reusable prompt system with categories and workflow prompts.
 - **Spreadsheet exports.** Save and download results as CSV.
 

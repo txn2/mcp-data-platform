@@ -77,11 +77,21 @@ export async function captureIframe(iframe: HTMLIFrameElement): Promise<Blob> {
 }
 
 
+/** Thumbnail color-scheme variant. Light is the default/shared variant. */
+export type ThumbnailVariant = "light" | "dark";
+
 /**
- * Upload a PNG thumbnail blob for an asset.
+ * Upload a PNG thumbnail blob for an asset. The optional variant selects the
+ * color scheme; "dark" is only captured for themeable content types (see
+ * isThemeable). Defaults to the light/shared variant.
  */
-export async function uploadThumbnail(assetId: string, blob: Blob): Promise<void> {
-  const res = await apiFetchRaw(`/assets/${assetId}/thumbnail`, {
+export async function uploadThumbnail(
+  assetId: string,
+  blob: Blob,
+  variant: ThumbnailVariant = "light",
+): Promise<void> {
+  const query = variant === "dark" ? "?variant=dark" : "";
+  const res = await apiFetchRaw(`/assets/${assetId}/thumbnail${query}`, {
     method: "PUT",
     headers: { "Content-Type": "image/png" },
     body: blob,
@@ -164,7 +174,7 @@ setTimeout(function() {
   <script type="importmap">${importMap}</script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: system-ui, sans-serif; padding: 16px; }
+    body { font-family: system-ui, sans-serif; }
   </style>
 </head>
 <body>
@@ -194,4 +204,15 @@ ${mountSection}
 export function isThumbnailSupported(contentType: string): boolean {
   const ct = contentType.toLowerCase();
   return ct.includes("html") || ct.includes("jsx") || ct.includes("svg") || ct.includes("markdown") || ct.includes("csv");
+}
+
+/**
+ * Returns true if the content type is rendered on a forced (non-themed)
+ * background and therefore needs a separate dark-mode thumbnail. HTML, JSX, and
+ * SVG carry their own colors, so they reuse the single light/default thumbnail
+ * in both modes.
+ */
+export function isThemeable(contentType: string): boolean {
+  const ct = contentType.toLowerCase();
+  return ct.includes("markdown") || ct.includes("csv");
 }

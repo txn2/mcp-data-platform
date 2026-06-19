@@ -15,6 +15,9 @@ export interface Asset {
   s3_bucket: string;
   s3_key: string;
   thumbnail_s3_key?: string;
+  // Dark-mode thumbnail variant. Only present for themeable content types
+  // (markdown, CSV); other types reuse thumbnail_s3_key in both modes.
+  thumbnail_dark_s3_key?: string;
   size_bytes: number;
   tags: string[];
   provenance: Provenance;
@@ -155,15 +158,6 @@ export interface SharedCollection {
   shared_by: string;
   shared_at: string;
   permission: SharePermission;
-}
-
-export interface Branding {
-  name: string;
-  version: string;
-  portal_title: string;
-  portal_logo: string;
-  portal_logo_light: string;
-  portal_logo_dark: string;
 }
 
 // Activity types (user-scoped audit metrics)

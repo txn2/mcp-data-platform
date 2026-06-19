@@ -650,6 +650,8 @@ The asset portal persists AI-generated artifacts (JSX dashboards, HTML reports, 
 portal:
   enabled: true
   title: "ACME Data Platform"                    # Sidebar/branding title
+  tagline: "Sign in to access your data."        # Login-screen subtitle
+  oidc_button_label: "Sign in with ACME Keycloak" # Login-screen SSO button text
   logo: https://example.com/logo.svg             # Logo URL (fallback for both themes)
   logo_light: https://example.com/logo-light.svg # Logo for light theme
   logo_dark: https://example.com/logo-dark.svg   # Logo for dark theme
@@ -674,6 +676,8 @@ portal:
 |--------|------|---------|-------------|
 | `portal.enabled` | bool | `false` | Enable the portal SPA frontend and artifact API |
 | `portal.title` | string | `MCP Data Platform` | Sidebar/branding title text |
+| `portal.tagline` | string | `Sign in to access the platform.` | Login-screen subtitle text |
+| `portal.oidc_button_label` | string | `Sign in with OIDC` | Login-screen SSO button text (set to a name your users recognize, e.g. "Sign in with ACME Keycloak") |
 | `portal.logo` | string | `""` | URL to logo image (used for both themes if no theme-specific logo is set) |
 | `portal.logo_light` | string | `""` | URL to logo for light theme (overrides `logo`) |
 | `portal.logo_dark` | string | `""` | URL to logo for dark theme (overrides `logo`) |

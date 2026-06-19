@@ -2443,6 +2443,14 @@ definitions:
         items:
           type: string
         type: array
+      thumbnail_dark_s3_key:
+        description: |-
+          ThumbnailDarkS3Key holds the dark-mode thumbnail variant. Only populated
+          for content types rendered on a forced background (markdown, CSV); types
+          with a built-in theme (HTML, JSX, SVG) reuse ThumbnailS3Key in both modes.
+          Empty means callers should fall back to ThumbnailS3Key.
+        example: assets/01HK7R8Z/thumbnail_dark.png
+        type: string
       thumbnail_s3_key:
         example: assets/01HK7R8Z/thumb.png
         type: string
@@ -2855,6 +2863,14 @@ definitions:
         items:
           type: string
         type: array
+      thumbnail_dark_s3_key:
+        description: |-
+          ThumbnailDarkS3Key holds the dark-mode thumbnail variant. Only populated
+          for content types rendered on a forced background (markdown, CSV); types
+          with a built-in theme (HTML, JSX, SVG) reuse ThumbnailS3Key in both modes.
+          Empty means callers should fall back to ThumbnailS3Key.
+        example: assets/01HK7R8Z/thumbnail_dark.png
+        type: string
       thumbnail_s3_key:
         example: assets/01HK7R8Z/thumb.png
         type: string
@@ -8115,12 +8131,21 @@ paths:
       - Feedback
   /portal/assets/{id}/thumbnail:
     get:
-      description: Downloads the asset's PNG thumbnail image.
+      description: |-
+        Downloads the asset's PNG thumbnail image. The dark variant
+        falls back to the light/default thumbnail when none was captured.
       parameters:
       - description: Asset ID
         in: path
         name: id
         required: true
+        type: string
+      - description: Thumbnail variant
+        enum:
+        - light
+        - dark
+        in: query
+        name: variant
         type: string
       produces:
       - image/png
@@ -8168,6 +8193,13 @@ paths:
         in: path
         name: id
         required: true
+        type: string
+      - description: Thumbnail variant
+        enum:
+        - light
+        - dark
+        in: query
+        name: variant
         type: string
       - description: PNG image data
         in: body

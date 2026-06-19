@@ -1,5 +1,9 @@
-import { describe, it, expect } from "vitest";
-import { buildJsxThumbnailHtml, injectCaptureScript } from "./thumbnail";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+const { fetchRaw } = vi.hoisted(() => ({ fetchRaw: vi.fn() }));
+vi.mock("@/api/portal/client", () => ({ apiFetchRaw: fetchRaw }));
+
+import { buildJsxThumbnailHtml, injectCaptureScript, isThemeable, uploadThumbnail } from "./thumbnail";
 
 // Count top-level `import React` default-binding declarations. The namespaced
 // alias `import * as __artifactReact` must NOT match.
@@ -56,5 +60,43 @@ describe("injectCaptureScript", () => {
     const out = injectCaptureScript(html);
     expect(out.startsWith(html)).toBe(true);
     expect(out).toContain("thumbnail-ready");
+  });
+});
+
+describe("isThemeable", () => {
+  it("is true for content rendered on a forced background", () => {
+    expect(isThemeable("text/markdown")).toBe(true);
+    expect(isThemeable("text/csv")).toBe(true);
+    expect(isThemeable("TEXT/MARKDOWN")).toBe(true);
+  });
+
+  it("is false for self-themed content types", () => {
+    for (const ct of ["text/html", "text/jsx", "image/svg+xml", "image/png"]) {
+      expect(isThemeable(ct)).toBe(false);
+    }
+  });
+});
+
+describe("uploadThumbnail", () => {
+  beforeEach(() => {
+    fetchRaw.mockReset();
+    fetchRaw.mockResolvedValue({ ok: true });
+  });
+
+  it("uploads the light variant with no query param by default", async () => {
+    await uploadThumbnail("ast-1", new Blob(["x"]));
+    expect(fetchRaw).toHaveBeenCalledTimes(1);
+    expect(fetchRaw.mock.calls[0]![0]).toBe("/assets/ast-1/thumbnail");
+    expect(fetchRaw.mock.calls[0]![1]).toMatchObject({ method: "PUT" });
+  });
+
+  it("appends ?variant=dark for the dark variant", async () => {
+    await uploadThumbnail("ast-1", new Blob(["x"]), "dark");
+    expect(fetchRaw.mock.calls[0]![0]).toBe("/assets/ast-1/thumbnail?variant=dark");
+  });
+
+  it("throws when the upload response is not ok", async () => {
+    fetchRaw.mockResolvedValue({ ok: false });
+    await expect(uploadThumbnail("ast-1", new Blob(["x"]))).rejects.toThrow("Failed to upload thumbnail");
   });
 });

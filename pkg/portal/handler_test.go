@@ -23,14 +23,15 @@ import (
 // --- Mock stores for handler tests ---
 
 type mockAssetStore struct {
-	insertErr error
-	getAsset  *Asset
-	getErr    error
-	listRes   []Asset
-	listTotal int
-	listErr   error
-	updateErr error
-	deleteErr error
+	insertErr  error
+	getAsset   *Asset
+	getErr     error
+	listRes    []Asset
+	listTotal  int
+	listErr    error
+	updateErr  error
+	deleteErr  error
+	lastUpdate *AssetUpdate // captures the most recent Update payload
 }
 
 func (m *mockAssetStore) Insert(_ context.Context, _ Asset) error { return m.insertErr }
@@ -58,7 +59,8 @@ func (m *mockAssetStore) List(_ context.Context, _ AssetFilter) ([]Asset, int, e
 	return m.listRes, m.listTotal, m.listErr
 }
 
-func (m *mockAssetStore) Update(_ context.Context, _ string, _ AssetUpdate) error {
+func (m *mockAssetStore) Update(_ context.Context, _ string, u AssetUpdate) error {
+	m.lastUpdate = &u
 	return m.updateErr
 }
 func (m *mockAssetStore) SoftDelete(_ context.Context, _ string) error { return m.deleteErr }
@@ -163,9 +165,12 @@ type mockS3Client struct {
 	getErr    error
 	putErr    error
 	deleteErr error
+	putKey    string // captures the key of the most recent PutObject
+	getKey    string // captures the key of the most recent GetObject
 }
 
-func (m *mockS3Client) PutObject(_ context.Context, _, _ string, _ []byte, _ string) error {
+func (m *mockS3Client) PutObject(_ context.Context, _, key string, _ []byte, _ string) error {
+	m.putKey = key
 	return m.putErr
 }
 
@@ -174,7 +179,8 @@ func (m *mockS3Client) PutObjectStream(_ context.Context, _, _ string, body io.R
 	return n, m.putErr
 }
 
-func (m *mockS3Client) GetObject(_ context.Context, _, _ string) (body []byte, contentType string, err error) {
+func (m *mockS3Client) GetObject(_ context.Context, _, key string) (body []byte, contentType string, err error) {
+	m.getKey = key
 	return m.getData, m.getCT, m.getErr
 }
 func (m *mockS3Client) DeleteObject(_ context.Context, _, _ string) error { return m.deleteErr }
@@ -2552,6 +2558,25 @@ func TestDeriveThumbnailKey(t *testing.T) {
 	}
 }
 
+func TestDeriveThumbnailKeyVariant(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		variant string
+		want    string
+	}{
+		{"light prefixed", "portal/u1/a1/content.html", "light", "portal/u1/a1/thumbnail.png"},
+		{"dark prefixed", "portal/u1/a1/content.html", "dark", "portal/u1/a1/thumbnail_dark.png"},
+		{"dark no prefix", "content.html", "dark", "thumbnail_dark.png"},
+		{"unknown variant defaults to light", "a/b/c.md", "weird", "a/b/thumbnail.png"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, DeriveThumbnailKeyVariant(tt.input, tt.variant))
+		})
+	}
+}
+
 // --- uploadThumbnail ---
 
 func TestUploadThumbnailSuccess(t *testing.T) {
@@ -2570,6 +2595,48 @@ func TestUploadThumbnailSuccess(t *testing.T) {
 	h.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "portal/u1/a1/thumbnail.png", s3.putKey, "light upload writes the default key")
+}
+
+func TestUploadThumbnailDarkVariant(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", Name: "Test", S3Bucket: "b", S3Key: "portal/u1/a1/content.md",
+		ContentType: "text/markdown", Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	s3 := &mockS3Client{}
+	store := &mockAssetStore{getAsset: asset}
+	h := newTestHandler(store, &mockShareStore{}, s3, &User{UserID: "u1"})
+
+	body := strings.NewReader(strings.Repeat("x", 100))
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/thumbnail?variant=dark", body)
+	req.Header.Set("Content-Type", "image/png")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "portal/u1/a1/thumbnail_dark.png", s3.putKey, "dark upload writes the dark key")
+	require.NotNil(t, store.lastUpdate)
+	require.NotNil(t, store.lastUpdate.ThumbnailDarkS3Key)
+	assert.Equal(t, "portal/u1/a1/thumbnail_dark.png", *store.lastUpdate.ThumbnailDarkS3Key)
+	assert.Nil(t, store.lastUpdate.ThumbnailS3Key, "dark upload must not touch the light key")
+}
+
+func TestUploadThumbnailInvalidVariant(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b", S3Key: "portal/u1/a1/content.md",
+		Tags: []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, &mockS3Client{}, &User{UserID: "u1"})
+
+	body := strings.NewReader(strings.Repeat("x", 100))
+	req := httptest.NewRequestWithContext(context.Background(), "PUT", "/api/v1/portal/assets/a1/thumbnail?variant=sepia", body)
+	req.Header.Set("Content-Type", "image/png")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 func TestUploadThumbnailUnauth(t *testing.T) {
@@ -2748,6 +2815,45 @@ func TestGetThumbnailSuccess(t *testing.T) {
 	assert.Equal(t, "image/png", w.Header().Get("Content-Type"))
 	assert.Equal(t, "private, max-age=3600", w.Header().Get("Cache-Control"))
 	assert.Equal(t, "PNG-DATA", w.Body.String())
+}
+
+func TestGetThumbnailDarkVariant(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b",
+		ThumbnailS3Key:     "portal/u1/a1/thumbnail.png",
+		ThumbnailDarkS3Key: "portal/u1/a1/thumbnail_dark.png",
+		Tags:               []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	s3 := &mockS3Client{getData: []byte("DARK-PNG"), getCT: "image/png"}
+	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, s3, &User{UserID: "u1"})
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/thumbnail?variant=dark", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "portal/u1/a1/thumbnail_dark.png", s3.getKey, "dark request serves the dark key")
+}
+
+func TestGetThumbnailDarkFallsBackToLight(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{
+		ID: "a1", OwnerID: "u1", S3Bucket: "b",
+		ThumbnailS3Key:     "portal/u1/a1/thumbnail.png",
+		ThumbnailDarkS3Key: "", // no dark variant captured
+		Tags:               []string{}, Provenance: Provenance{}, CreatedAt: now, UpdatedAt: now,
+	}
+	s3 := &mockS3Client{getData: []byte("LIGHT-PNG"), getCT: "image/png"}
+	h := newTestHandler(&mockAssetStore{getAsset: asset}, &mockShareStore{}, s3, &User{UserID: "u1"})
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1/thumbnail?variant=dark", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "portal/u1/a1/thumbnail.png", s3.getKey, "dark request falls back to the light key when no dark exists")
+	assert.Equal(t, "LIGHT-PNG", w.Body.String())
 }
 
 func TestGetThumbnailNoThumbnail(t *testing.T) {

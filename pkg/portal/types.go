@@ -22,25 +22,30 @@ type AssetCollectionRef struct {
 
 // Asset represents a persisted AI-generated artifact.
 type Asset struct {
-	ID             string               `json:"id" example:"asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"`
-	OwnerID        string               `json:"owner_id" example:"550e8400-e29b-41d4-a716-446655440000"`
-	OwnerEmail     string               `json:"owner_email" example:"alice@example.com"`
-	Name           string               `json:"name" example:"Q4 Revenue Dashboard"`
-	Description    string               `json:"description,omitempty" example:"Interactive revenue breakdown by region"`
-	ContentType    string               `json:"content_type" example:"text/html"`
-	S3Bucket       string               `json:"s3_bucket" example:"portal-assets"`
-	S3Key          string               `json:"s3_key" example:"assets/01HK7R8Z/content.html"`
-	ThumbnailS3Key string               `json:"thumbnail_s3_key,omitempty" example:"assets/01HK7R8Z/thumb.png"`
-	SizeBytes      int64                `json:"size_bytes" example:"4200"`
-	Tags           []string             `json:"tags"`
-	Provenance     Provenance           `json:"provenance"`
-	SessionID      string               `json:"session_id,omitempty" example:"sess_abc123"`
-	IdempotencyKey string               `json:"idempotency_key,omitempty" example:"export-2026-04-18-abc123"`
-	CurrentVersion int                  `json:"current_version" example:"1"`
-	Collections    []AssetCollectionRef `json:"collections,omitempty"`
-	CreatedAt      time.Time            `json:"created_at"`
-	UpdatedAt      time.Time            `json:"updated_at"`
-	DeletedAt      *time.Time           `json:"deleted_at,omitempty"`
+	ID             string `json:"id" example:"asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"`
+	OwnerID        string `json:"owner_id" example:"550e8400-e29b-41d4-a716-446655440000"`
+	OwnerEmail     string `json:"owner_email" example:"alice@example.com"`
+	Name           string `json:"name" example:"Q4 Revenue Dashboard"`
+	Description    string `json:"description,omitempty" example:"Interactive revenue breakdown by region"`
+	ContentType    string `json:"content_type" example:"text/html"`
+	S3Bucket       string `json:"s3_bucket" example:"portal-assets"`
+	S3Key          string `json:"s3_key" example:"assets/01HK7R8Z/content.html"`
+	ThumbnailS3Key string `json:"thumbnail_s3_key,omitempty" example:"assets/01HK7R8Z/thumb.png"`
+	// ThumbnailDarkS3Key holds the dark-mode thumbnail variant. Only populated
+	// for content types rendered on a forced background (markdown, CSV); types
+	// with a built-in theme (HTML, JSX, SVG) reuse ThumbnailS3Key in both modes.
+	// Empty means callers should fall back to ThumbnailS3Key.
+	ThumbnailDarkS3Key string               `json:"thumbnail_dark_s3_key,omitempty" example:"assets/01HK7R8Z/thumbnail_dark.png"`
+	SizeBytes          int64                `json:"size_bytes" example:"4200"`
+	Tags               []string             `json:"tags"`
+	Provenance         Provenance           `json:"provenance"`
+	SessionID          string               `json:"session_id,omitempty" example:"sess_abc123"`
+	IdempotencyKey     string               `json:"idempotency_key,omitempty" example:"export-2026-04-18-abc123"`
+	CurrentVersion     int                  `json:"current_version" example:"1"`
+	Collections        []AssetCollectionRef `json:"collections,omitempty"`
+	CreatedAt          time.Time            `json:"created_at"`
+	UpdatedAt          time.Time            `json:"updated_at"`
+	DeletedAt          *time.Time           `json:"deleted_at,omitempty"`
 }
 
 // AssetVersion records a single version of an asset's content.
@@ -193,14 +198,15 @@ func (f *AssetFilter) EffectiveLimit() int {
 // AssetUpdate holds mutable fields for updating an asset.
 // Pointer fields distinguish "no change" (nil) from "clear to empty" (pointer to "").
 type AssetUpdate struct {
-	Name           *string  `json:"name,omitempty"`
-	Description    *string  `json:"description,omitempty"`
-	Tags           []string `json:"tags,omitempty"`
-	ContentType    string   `json:"content_type,omitempty"`
-	S3Key          string   `json:"s3_key,omitempty"`
-	SizeBytes      int64    `json:"size_bytes,omitempty"`
-	ThumbnailS3Key *string  `json:"thumbnail_s3_key,omitempty"`
-	HasContent     bool     `json:"-"` // set when content replacement provides SizeBytes (even if 0)
+	Name               *string  `json:"name,omitempty"`
+	Description        *string  `json:"description,omitempty"`
+	Tags               []string `json:"tags,omitempty"`
+	ContentType        string   `json:"content_type,omitempty"`
+	S3Key              string   `json:"s3_key,omitempty"`
+	SizeBytes          int64    `json:"size_bytes,omitempty"`
+	ThumbnailS3Key     *string  `json:"thumbnail_s3_key,omitempty"`
+	ThumbnailDarkS3Key *string  `json:"thumbnail_dark_s3_key,omitempty"`
+	HasContent         bool     `json:"-"` // set when content replacement provides SizeBytes (even if 0)
 }
 
 // maxNameLength is the maximum length for asset names.

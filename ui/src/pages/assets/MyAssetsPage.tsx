@@ -10,6 +10,7 @@ import { formatBytes } from "@/lib/format";
 import { ThumbnailQueue } from "@/components/ThumbnailQueue";
 import { AuthImg } from "@/components/AuthImg";
 import { AssetPreviewModal } from "@/components/AssetPreviewModal";
+import { useResolvedDark } from "@/stores/theme";
 
 const VIEW_STORAGE_KEY = "asset-view-mode";
 type ViewMode = "grid" | "table";
@@ -64,6 +65,7 @@ function contentTypeBadgeColor(ct: string) {
 }
 
 export function MyAssetsPage({ onNavigate }: Props) {
+  const isDark = useResolvedDark();
   const [scope, setScope] = useState<Scope>(getStoredScope);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -223,7 +225,9 @@ export function MyAssetsPage({ onNavigate }: Props) {
                 <div className="w-full aspect-[4/3] bg-muted">
                   {asset.thumbnail_s3_key ? (
                     <AuthImg
-                      src={`/api/v1/portal/assets/${asset.id}/thumbnail`}
+                      src={`/api/v1/portal/assets/${asset.id}/thumbnail${
+                        isDark && asset.thumbnail_dark_s3_key ? "?variant=dark" : ""
+                      }`}
                       alt=""
                       className="w-full h-full object-cover object-top"
                     />

@@ -1,11 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useAuthStore } from "@/stores/auth";
-import { useThemeStore } from "@/stores/theme";
+import { useResolvedDark } from "@/stores/theme";
 import { useBranding } from "@/api/portal/hooks";
 import { LogIn } from "lucide-react";
 
 const DEFAULT_PORTAL_TITLE = "MCP Data Platform";
 const DEFAULT_PORTAL_TAGLINE = "Sign in to access the platform.";
+const DEFAULT_OIDC_BUTTON_LABEL = "Sign in with OIDC";
 
 const AUTH_ERROR_MESSAGES: Record<string, string> = {
   access_denied: "Access was denied by the identity provider.",
@@ -50,28 +51,11 @@ export function LoginForm() {
   const loginOIDC = useAuthStore((s) => s.loginOIDC);
   const { data: branding } = useBranding();
 
-  const theme = useThemeStore((s) => s.theme);
-  const [isDark, setIsDark] = useState(
-    () =>
-      theme === "dark" ||
-      (theme === "system" &&
-        typeof window !== "undefined" &&
-        window.matchMedia("(prefers-color-scheme: dark)").matches),
-  );
-  useEffect(() => {
-    if (theme !== "system") {
-      setIsDark(theme === "dark");
-      return;
-    }
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const update = () => setIsDark(mq.matches);
-    update();
-    mq.addEventListener("change", update);
-    return () => mq.removeEventListener("change", update);
-  }, [theme]);
+  const isDark = useResolvedDark();
 
   const portalTitle = branding?.portal_title || DEFAULT_PORTAL_TITLE;
   const portalTagline = branding?.portal_tagline || DEFAULT_PORTAL_TAGLINE;
+  const oidcButtonLabel = branding?.oidc_button_label || DEFAULT_OIDC_BUTTON_LABEL;
   const portalLogo = resolveLogo(branding ?? undefined, isDark);
   const oidcEnabled = branding?.oidc_enabled ?? false;
 
@@ -137,7 +121,7 @@ export function LoginForm() {
             className="mb-3 flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
           >
             <LogIn className="h-4 w-4" />
-            Sign in with OIDC
+            {oidcButtonLabel}
           </button>
         )}
 

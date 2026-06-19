@@ -92,6 +92,7 @@ type publicBrandingResponse struct {
 	Version         string `json:"version" example:"1.55.11"`
 	PortalTitle     string `json:"portal_title" example:"ACME Data Platform"`
 	PortalTagline   string `json:"portal_tagline" example:"Sign in to access your data."`
+	OIDCButtonLabel string `json:"oidc_button_label" example:"Sign in with ACME Keycloak"`
 	PortalLogo      string `json:"portal_logo" example:"https://example.com/logo.svg"`
 	PortalLogoLight string `json:"portal_logo_light" example:"https://example.com/logo-light.svg"`
 	PortalLogoDark  string `json:"portal_logo_dark" example:"https://example.com/logo-dark.svg"`
@@ -108,6 +109,7 @@ func (h *Handler) getPublicBranding(w http.ResponseWriter, _ *http.Request) {
 		resp.Name = h.deps.Config.Server.Name
 		resp.PortalTitle = h.deps.Config.Portal.Title
 		resp.PortalTagline = h.deps.Config.Portal.Tagline
+		resp.OIDCButtonLabel = h.deps.Config.Portal.OIDCButtonLabel
 		resp.PortalLogo = h.deps.Config.Portal.Logo
 		resp.PortalLogoLight = h.deps.Config.Portal.LogoLight
 		resp.PortalLogoDark = h.deps.Config.Portal.LogoDark
