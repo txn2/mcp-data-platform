@@ -200,6 +200,58 @@ go tool cover -html=coverage.out
 go test -race ./pkg/platform/...
 ```
 
+## Structural maintainability gates
+
+The `gocyclo`, `gocognit`, `nestif`, and `revive` rules all evaluate code
+*inside* a single function or file. They keep individual functions simple but
+say nothing about how packages relate to each other. Three additional gates
+police structure rather than per-function complexity, so the codebase stays
+maintainable as features accrete. Each was landed green against the tree at the
+time and is meant to be **ratcheted tighter in follow-up PRs**, never relaxed to
+make a violation pass.
+
+### 1. Import boundaries (`depguard`)
+
+The Go compiler forbids import cycles but not layering violations. `depguard`
+(configured in `.golangci.yml` under `linters.settings.depguard`) declares which
+packages may import which. The current rules, derived from the real import graph:
+
+- **`admin-is-a-leaf`** — `pkg/admin` is the top composition layer, wired in only
+  by `cmd/`. Nothing lower in the stack (toolkits, providers, middleware,
+  `pkg/platform`) may import it. A toolkit that imports `pkg/admin` fails lint.
+- **`toolkits-do-not-import-platform`** — toolkits sit below the platform facade
+  (`pkg/platform` composes toolkits, never the reverse), so a toolkit importing
+  `pkg/platform` is rejected.
+
+To tighten: add a rule (or a `deny` entry) for the next boundary you want to
+lock down, confirm `golangci-lint run --enable-only depguard ./...` is still
+green, then commit. To verify the gate bites, temporarily add a denied import
+and run the same command.
+
+### 2. Cross-file duplication (`dupl`)
+
+`dupl` flags copy-pasted blocks across files (threshold 150 tokens, the
+permissive upstream default). This mechanically enforces our shared-abstraction
+principle: per-kind forking ("Mirror of X, kept separate") is a code smell. CI
+runs `only-new-issues`, so the handful of pre-existing clones are grandfathered
+and only **new** duplication fails the gate. Ratchet the threshold down in a
+follow-up once existing clones are consolidated. Test files are exempt
+(table-driven and arrange-act-assert structure legitimately repeats).
+
+### 3. Package-size budget (`TestPackageSizeBudget`)
+
+Every per-function gate is satisfied by a god-package built from a hundred
+small, low-complexity functions. `TestPackageSizeBudget` (in
+`package_budget_test.go`) caps the size of a package as a whole: no package under
+`pkg/` may exceed **13,000 non-generated LOC** or **35 non-generated files**.
+Generated files (those carrying a `Code generated ... DO NOT EDIT.` marker) are
+excluded so embedded specs do not masquerade as hand-written code.
+
+The budgets sit just above today's largest package (`pkg/admin`, ~12.1k LOC, 27
+files). They are **ceilings to ratchet down**, not numbers to raise: if a package
+hits the budget, decompose it into cohesive sub-packages rather than bumping the
+constant. Run it with `go test -run TestPackageSizeBudget .`.
+
 ## Security
 
 - Never commit secrets or credentials
