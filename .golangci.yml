@@ -35,6 +35,7 @@ linters:
     - revive             # Fast, extensible linter (AI guardrails)
     - gocyclo            # Cyclomatic complexity
     - gocognit           # Cognitive complexity
+    - dupl               # Cross-file copy-paste duplication (structural gate, #594)
     - nakedret           # Naked returns in long functions
     - prealloc           # Slice preallocation suggestions
     - predeclared        # Shadowing predeclared identifiers
@@ -45,6 +46,9 @@ linters:
     - errorlint          # Error wrapping issues
     - wrapcheck          # Ensure errors from external packages are wrapped
     - thelper            # Test helper issues
+
+    # ===== Architecture =====
+    - depguard           # Import-boundary / layering enforcement (structural gate, #594)
 
     # ===== Security =====
     - gosec              # Security issues (OWASP)
@@ -88,6 +92,49 @@ linters:
 
     nestif:
       min-complexity: 5
+
+    # dupl flags cross-file copy-paste (structural gate, #594). The
+    # threshold is in tokens; 150 is the upstream default and a
+    # deliberately permissive starting point. CI runs only-new-issues,
+    # so the handful of pre-existing clones are grandfathered and only
+    # NEW duplication fails the gate. Ratchet the threshold DOWN in a
+    # follow-up once the existing clones are consolidated.
+    dupl:
+      threshold: 150
+
+    # depguard enforces module-import boundaries that the Go compiler
+    # does not (it only forbids cycles, not layering violations). The
+    # rules below are derived from the CURRENT import graph so they are
+    # green on day one; tighten them in follow-ups. See CONTRIBUTING.md
+    # ("Structural maintainability gates") for the rationale and how to
+    # adjust. list-mode lax = everything is allowed except the denials.
+    depguard:
+      rules:
+        # pkg/admin is the top composition leaf: it wires handlers onto
+        # the assembled platform and is imported ONLY by cmd/. Nothing
+        # lower in the stack (toolkits, providers, middleware, platform)
+        # may reach up into it. A toolkit importing pkg/admin fails here.
+        admin-is-a-leaf:
+          list-mode: lax
+          files:
+            - "**/*.go"
+            - "!**/*_test.go"
+            - "!**/cmd/**"
+          deny:
+            - pkg: github.com/txn2/mcp-data-platform/pkg/admin
+              desc: "pkg/admin is a top-level composition leaf wired only by cmd/; lower layers must not import it (see CONTRIBUTING.md)."
+        # Toolkits sit BELOW the platform facade: platform composes
+        # toolkits, never the reverse. A toolkit importing pkg/platform
+        # would invert the dependency and create the kind of fan-out the
+        # gate exists to stop.
+        toolkits-do-not-import-platform:
+          list-mode: lax
+          files:
+            - "**/pkg/toolkits/**"
+            - "!**/*_test.go"
+          deny:
+            - pkg: github.com/txn2/mcp-data-platform/pkg/platform
+              desc: "toolkits are a lower layer than pkg/platform; importing it inverts the toolkit->platform layering (see CONTRIBUTING.md)."
 
     gocritic:
       enabled-tags:
@@ -331,6 +378,13 @@ linters:
         linters:
           - gocognit
           - gocyclo
+
+      # Test files legitimately repeat fixture/setup blocks; dupl on test
+      # bodies would punish standard table-driven and arrange-act-assert
+      # structure. Production duplication is still gated.
+      - path: _test\.go
+        linters:
+          - dupl
 
       - path: _test\.go
         linters:
