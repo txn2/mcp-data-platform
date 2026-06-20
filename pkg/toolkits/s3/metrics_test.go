@@ -99,11 +99,20 @@ func TestSetMetrics_InstallsMiddleware(t *testing.T) {
 	}
 }
 
-// TestSetMetrics_DisabledS3 confirms a disabled recorder is a no-op.
-func TestSetMetrics_DisabledS3(t *testing.T) {
+// TestSetMetrics_NilRecorderStillInstallsMiddleware covers the tracing-only
+// contract: the platform calls SetMetrics only when metrics OR tracing is
+// enabled, so even with a nil (disabled-metrics) recorder the middleware
+// must still be installed — otherwise a tracing-only deployment would emit
+// no S3 spans. The recorder itself stays nil (metric records are no-ops),
+// but the toolkit is rebuilt with the observability middleware present.
+func TestSetMetrics_NilRecorderStillInstallsMiddleware(t *testing.T) {
 	tk := newTestToolkit(t)
+	before := tk.s3Toolkit
 	tk.SetMetrics(nil)
 	if tk.metrics != nil {
-		t.Error("SetMetrics(nil) must not store a recorder")
+		t.Error("SetMetrics(nil) must not store a (non-nil) recorder")
+	}
+	if tk.s3Toolkit == before {
+		t.Error("SetMetrics(nil) must rebuild the toolkit with the observability middleware so tracing-only deployments emit S3 spans")
 	}
 }

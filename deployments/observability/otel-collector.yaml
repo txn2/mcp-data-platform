@@ -1,0 +1,67 @@
+# Example OpenTelemetry Collector configuration for mcp-data-platform traces.
+#
+# The platform exports spans over OTLP/gRPC when OTEL_TRACES_ENABLED=true and
+# OTEL_EXPORTER_OTLP_ENDPOINT points at this collector (default port 4317).
+# This config shows the recommended posture: accept OTLP, apply TAIL-BASED
+# sampling here (keep 100% of error and slow traces regardless of the app's
+# head-sampling ratio), and forward to a trace backend (Tempo or Jaeger).
+#
+# Mount this as a ConfigMap and run the contrib collector image. The platform
+# itself needs no redeploy when you tune sampling — that is the whole reason
+# tail sampling lives in the collector, not the app.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mcp-data-platform-otel-collector
+  labels:
+    app.kubernetes.io/name: mcp-data-platform
+    app.kubernetes.io/component: observability
+data:
+  collector.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+
+    processors:
+      # Bound memory under load.
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 80
+        spike_limit_percentage: 20
+      batch:
+        timeout: 5s
+      # Tail-based sampling: decide AFTER a trace is complete so we can keep
+      # every error and every slow trace, and only down-sample the fast,
+      # successful majority. The platform's head sampler
+      # (OTEL_TRACES_SAMPLER_ARG) thins normal traffic before it ever reaches
+      # here; this layer guarantees the interesting traces survive.
+      tail_sampling:
+        decision_wait: 10s
+        policies:
+          - name: keep-errors
+            type: status_code
+            status_code: { status_codes: [ERROR] }
+          - name: keep-slow
+            type: latency
+            latency: { threshold_ms: 2000 }
+          - name: sample-the-rest
+            type: probabilistic
+            probabilistic: { sampling_percentage: 10 }
+
+    exporters:
+      # Point at your trace backend. Tempo and Jaeger both speak OTLP.
+      otlp/tempo:
+        endpoint: tempo:4317
+        tls:
+          insecure: true
+      # debug:  # uncomment to print spans to the collector log while testing
+      #   verbosity: normal
+
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, tail_sampling, batch]
+          exporters: [otlp/tempo]

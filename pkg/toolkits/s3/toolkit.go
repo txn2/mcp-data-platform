@@ -76,7 +76,7 @@ func New(name string, cfg Config) (*Toolkit, error) {
 		return nil, err
 	}
 
-	s3Toolkit := createToolkit(client, cfg, nil)
+	s3Toolkit := createToolkit(client, cfg, nil, false)
 
 	return &Toolkit{
 		name:      name,
@@ -131,12 +131,16 @@ func createClient(cfg Config) (*s3client.Client, error) {
 }
 
 // createToolkit creates the mcp-s3 toolkit with appropriate options. When
-// metrics is enabled, a metrics middleware is installed so every S3 tool
-// execution records an s3_operations observation; it must be present before
-// the toolkit registers its handlers (see Toolkit.SetMetrics).
-func createToolkit(client *s3client.Client, cfg Config, metrics *observability.Metrics) *s3tools.Toolkit {
+// withObservability is set, the observability middleware is installed so
+// every S3 tool execution records an s3_operations metric (nil-safe when
+// metrics is disabled) AND emits a span (a no-op outside an active trace);
+// it must be present before the toolkit registers its handlers (see
+// Toolkit.SetMetrics). The caller gates installation on metrics-OR-tracing,
+// so a tracing-only deployment (metrics nil) still gets S3 spans — gating
+// here on metrics.Enabled() would silently drop them.
+func createToolkit(client *s3client.Client, cfg Config, metrics *observability.Metrics, withObservability bool) *s3tools.Toolkit {
 	var opts []s3tools.Option
-	if metrics.Enabled() {
+	if withObservability {
 		opts = append(opts, s3tools.WithMiddleware(newMetricsMiddleware(metrics)))
 	}
 	opts = append(opts, s3tools.WithReadOnly(cfg.ReadOnly))

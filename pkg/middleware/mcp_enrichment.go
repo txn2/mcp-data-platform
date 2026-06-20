@@ -7,7 +7,10 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
+	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	"github.com/txn2/mcp-data-platform/pkg/storage"
@@ -75,7 +78,24 @@ func enrichToolResult(ctx context.Context, enricher *semanticEnricher, req mcp.R
 	pc.ToolkitKind = toolkitKind
 	pc.ToolName = toolName
 
-	return applyEnrichment(ctx, enricher, req, callResult, pc)
+	// Trace the cross-service enrichment fan-out — the original
+	// motivation for tracing (issue #428). ChildSpan is a no-op unless
+	// this call is already within a sampled trace, so it costs a single
+	// span-context check when tracing is off.
+	ctx, span := observability.ChildSpan(ctx, "enrichment",
+		trace.WithAttributes(
+			attribute.String(spanAttrToolkitKind, toolkitKind),
+			attribute.String(spanAttrTool, toolName),
+		))
+	defer span.End()
+
+	res, err := applyEnrichment(ctx, enricher, req, callResult, pc)
+	span.SetAttributes(
+		attribute.Bool(spanAttrEnrichApplied, pc.EnrichmentApplied),
+		attribute.String(spanAttrEnrichMode, pc.EnrichmentMode),
+		attribute.String("enrichment.match_kind", pc.EnrichmentMatchKind),
+	)
+	return res, err
 }
 
 // discoveryNoteMessage is the soft note appended to enriched results when the

@@ -125,13 +125,22 @@ func TestQueryKind(t *testing.T) {
 	}
 }
 
-// TestSetMetrics_DisabledTrino confirms SetMetrics(nil) leaves the client unwrapped.
-func TestSetMetrics_DisabledTrino(t *testing.T) {
+// TestSetMetrics_NilRecorderTransparent confirms the new contract:
+// SetMetrics installs the instrumenting decorator unconditionally (the
+// platform gates the CALL on metrics-or-tracing via observabilityEnabled),
+// and with a nil/disabled recorder and no active trace the decorator is
+// behaviorally transparent — it delegates to the underlying client,
+// records nothing (nil-safe), and emits no span (ChildSpan no-op).
+func TestSetMetrics_NilRecorderTransparent(t *testing.T) {
 	adapter, _ := NewWithClient(Config{ConnectionName: "test"}, &mockTrinoClient{})
 	before := adapter.client
 	adapter.SetMetrics(nil)
-	if adapter.client != before {
-		t.Error("SetMetrics(nil) must not wrap the client")
+	if adapter.client == before {
+		t.Fatal("SetMetrics now wraps unconditionally; gating moved to the platform call site")
+	}
+	// The wrapped client must still delegate without panicking on a nil recorder.
+	if _, err := adapter.client.ListCatalogs(context.Background()); err != nil {
+		t.Errorf("wrapped client delegate failed: %v", err)
 	}
 }
 
