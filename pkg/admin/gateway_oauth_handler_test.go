@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
+	"github.com/txn2/mcp-data-platform/pkg/pkcestore"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
@@ -52,7 +53,7 @@ func gatewayOAuthHandlerWithToolkit(t *testing.T, store ConnectionStore) (*Handl
 	tk.SetConnOAuthStore(tokenStore)
 	t.Cleanup(func() { _ = tk.Close() })
 
-	pkceStore := NewMemoryPKCEStore()
+	pkceStore := pkcestore.NewMemoryStore()
 	t.Cleanup(func() { _ = pkceStore.Close() })
 
 	reg := &mockToolkitRegistry{rawToolkits: []registry.Toolkit{tk}}
@@ -507,9 +508,9 @@ func TestExchangeAuthorizationCode_OversizeBodyDetected(t *testing.T) {
 		ClientID:     "id",
 		ClientSecret: "sec",
 	}
-	pending := &PKCEState{
-		codeVerifier: "v-x",
-		redirectURI:  "https://platform.example.com/cb",
+	pending := &pkcestore.State{
+		CodeVerifier: "v-x",
+		RedirectURI:  "https://platform.example.com/cb",
 	}
 
 	_, err := exchangeAuthorizationCode(context.Background(), cfg, pending, "code-x")
@@ -550,9 +551,9 @@ func TestExchangeAuthorizationCode_DoesNotFollowRedirects(t *testing.T) {
 		ClientID:     "id",
 		ClientSecret: "sec",
 	}
-	pending := &PKCEState{
-		codeVerifier: "v-x",
-		redirectURI:  "https://platform.example.com/cb",
+	pending := &pkcestore.State{
+		CodeVerifier: "v-x",
+		RedirectURI:  "https://platform.example.com/cb",
 	}
 
 	_, err := exchangeAuthorizationCode(context.Background(), cfg, pending, "code-x")

@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/pkg/pkcestore"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
 )
@@ -33,44 +34,15 @@ var oauthErrorPageTemplate = template.Must(template.New("oauth-error").Parse(
 <p><a href="/portal/admin/connections">Return to admin</a></p>
 </body></html>`))
 
-// pkceTTL is how long an in-progress oauth-start hold-state remains
-// valid before the operator must restart the flow. Salesforce and
-// most providers complete the redirect in seconds; 10 minutes is a
-// generous window that survives slow MFA prompts.
-const pkceTTL = 10 * time.Minute
-
 // schemeHTTP is the URL scheme used when the request is not TLS-terminated
 // and no X-Forwarded-Proto header is present.
 const schemeHTTP = "http"
-
-// PKCEState is the server-side hold for one pending OAuth flow. Maps
-// the random state token to the data the callback handler needs.
-//
-// Exported so the PKCEStore interface (MemoryPKCEStore /
-// PostgresPKCEStore) can carry pointers to it across implementations
-// without revive flagging the methods as exported-but-returning-
-// unexported. Fields stay package-private; consumers from outside
-// admin should not need to introspect a state in flight.
-type PKCEState struct {
-	// kind is the connection kind ("mcp" or "api") so the unified
-	// /oauth/callback handler can dispatch the per-kind config parser
-	// and post-auth side effects. Empty in legacy rows pre-dating
-	// migration 000039 — those rows are MCP gateway flows by
-	// construction (only kind that used this table at the time).
-	kind         string
-	connection   string
-	codeVerifier string
-	startedBy    string
-	createdAt    time.Time
-	returnURL    string
-	redirectURI  string
-}
 
 // pkceStoreFor returns the handler's injected PKCE store. The store is
 // required: oauth-start fails 503 with "OAuth not available" when nil
 // (e.g. when a Handler is built without wiring a store). main.go and
 // the test helpers always inject one — this guard catches misuse.
-func (h *Handler) pkceStoreFor() PKCEStore {
+func (h *Handler) pkceStoreFor() pkcestore.Store {
 	return h.deps.PKCEStore
 }
 
@@ -141,13 +113,13 @@ func (h *Handler) startGatewayOAuth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	startedBy := authorEmailOrID(r.Context())
-	if err := store.Put(r.Context(), state, &PKCEState{
-		connection:   name,
-		codeVerifier: verifier,
-		startedBy:    startedBy,
-		createdAt:    time.Now(),
-		returnURL:    body.ReturnURL,
-		redirectURI:  redirectURI,
+	if err := store.Put(r.Context(), state, &pkcestore.State{
+		Connection:   name,
+		CodeVerifier: verifier,
+		StartedBy:    startedBy,
+		CreatedAt:    time.Now(),
+		ReturnURL:    body.ReturnURL,
+		RedirectURI:  redirectURI,
 	}); err != nil {
 		slog.Error("oauth-start: failed to persist pkce state",
 			logKeyName, name,
@@ -168,13 +140,13 @@ func (h *Handler) startGatewayOAuth(w http.ResponseWriter, r *http.Request) {
 		logKeyRedirectURI, redirectURI,
 		"authorization_url_host", gatewaykit.URLHost(cfg.OAuth.AuthorizationURL),
 		"return_url", body.ReturnURL,
-		"ttl", pkceTTL)
+		"ttl", pkcestore.TTL)
 
 	writeJSON(w, http.StatusOK, startGatewayOAuthResponse{
 		AuthorizationURL: authURL,
 		State:            state,
 		RedirectURI:      redirectURI,
-		ExpiresAt:        time.Now().Add(pkceTTL).UTC().Format(time.RFC3339),
+		ExpiresAt:        time.Now().Add(pkcestore.TTL).UTC().Format(time.RFC3339),
 	})
 }
 
@@ -316,7 +288,7 @@ func (h *Handler) gatewayOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	pending, err := store.Take(r.Context(), state)
 	if err != nil {
-		if errors.Is(err, ErrPKCEStateNotFound) {
+		if errors.Is(err, pkcestore.ErrStateNotFound) {
 			slog.Warn("oauth-callback: PKCE state not found (expired or unknown)",
 				logKeyStatePrefix, statePrefix)
 			writeOAuthError(w, "OAuth state expired or unknown — please retry from the admin UI")
@@ -328,15 +300,15 @@ func (h *Handler) gatewayOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Info("oauth-callback: PKCE state retrieved",
-		logKeyName, pending.connection,
-		logKeyStartedBy, pending.startedBy,
+		logKeyName, pending.Connection,
+		logKeyStartedBy, pending.StartedBy,
 		logKeyStatePrefix, statePrefix,
-		"age", time.Since(pending.createdAt))
+		"age", time.Since(pending.CreatedAt))
 
 	if errCode := q.Get("error"); errCode != "" {
 		errDesc := q.Get("error_description")
 		slog.Warn("oauth-callback: IdP returned error",
-			logKeyName, pending.connection,
+			logKeyName, pending.Connection,
 			"idp_error", errCode,
 			"idp_error_description", errDesc)
 		writeOAuthError(w, fmt.Sprintf("upstream returned %s: %s", errCode, errDesc))
@@ -345,15 +317,15 @@ func (h *Handler) gatewayOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	code := q.Get("code")
 	if code == "" {
 		slog.Warn("oauth-callback: missing code parameter",
-			logKeyName, pending.connection)
+			logKeyName, pending.Connection)
 		writeOAuthError(w, "missing code parameter")
 		return
 	}
 
 	if err := h.completeOAuthExchange(r.Context(), pending, code); err != nil {
 		slog.Error("oauth-callback: token exchange failed",
-			logKeyName, pending.connection,
-			logKeyStartedBy, pending.startedBy,
+			logKeyName, pending.Connection,
+			logKeyStartedBy, pending.StartedBy,
 			logKeyDuration, time.Since(start),
 			logKeyError, err)
 		writeOAuthError(w, "token exchange failed: "+err.Error())
@@ -367,22 +339,22 @@ func (h *Handler) gatewayOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	// because the destination cannot reach an external host; we use it
 	// for the small "<a href>Found</a>" body it writes, which gives
 	// non-browser HTTP clients (curl, scripts) a useful response body.
-	dest := safeReturnURL(pending.returnURL)
-	if pending.returnURL != "" && dest != pending.returnURL {
+	dest := safeReturnURL(pending.ReturnURL)
+	if pending.ReturnURL != "" && dest != pending.ReturnURL {
 		// Log the rewrite explicitly so security forensics can spot
 		// open-redirect probes that came in via the OAuth flow. Without
 		// this, the rewrite is invisible — operators can't tell whether
 		// the user provided a strange returnURL or whether the platform
 		// reset it for safety.
 		slog.Warn("oauth-callback: returnURL rewritten by safeReturnURL guard",
-			logKeyName, pending.connection,
-			logKeyStartedBy, pending.startedBy,
-			"requested_return_url", pending.returnURL,
+			logKeyName, pending.Connection,
+			logKeyStartedBy, pending.StartedBy,
+			"requested_return_url", pending.ReturnURL,
 			"rewritten_to", dest)
 	}
 	slog.Info("oauth-callback: success — tokens persisted, redirecting",
-		logKeyName, pending.connection,
-		logKeyStartedBy, pending.startedBy,
+		logKeyName, pending.Connection,
+		logKeyStartedBy, pending.StartedBy,
 		logKeyDuration, time.Since(start),
 		"dest", dest)
 	// #nosec G710 -- safeReturnURL has already constrained dest to a
@@ -427,8 +399,8 @@ func safeReturnURL(raw string) string {
 // hands them to the gateway toolkit. The toolkit re-adds the connection
 // so the previously "needs reauth" entry becomes live with its
 // discovered tools registered on the MCP server.
-func (h *Handler) completeOAuthExchange(ctx context.Context, pending *PKCEState, code string) error {
-	inst, err := h.deps.ConnectionStore.Get(ctx, gatewaykit.Kind, pending.connection)
+func (h *Handler) completeOAuthExchange(ctx context.Context, pending *pkcestore.State, code string) error {
+	inst, err := h.deps.ConnectionStore.Get(ctx, gatewaykit.Kind, pending.Connection)
 	if err != nil {
 		return fmt.Errorf("load connection: %w", err)
 	}
@@ -489,15 +461,15 @@ var codeExchangeClient = &http.Client{
 // exchangeAuthorizationCode POSTs the code + PKCE verifier to the
 // upstream's token endpoint and returns the parsed response.
 func exchangeAuthorizationCode(ctx context.Context, oc gatewaykit.OAuthConfig,
-	pending *PKCEState, code string,
+	pending *pkcestore.State, code string,
 ) (*authCodeTokenResponse, error) {
 	form := url.Values{}
 	form.Set("grant_type", gatewaykit.OAuthGrantAuthorizationCode)
 	form.Set("code", code)
 	form.Set("client_id", oc.ClientID)
 	form.Set("client_secret", oc.ClientSecret)
-	form.Set("redirect_uri", pending.redirectURI)
-	form.Set("code_verifier", pending.codeVerifier)
+	form.Set("redirect_uri", pending.RedirectURI)
+	form.Set("code_verifier", pending.CodeVerifier)
 
 	// #nosec G107 G704 -- TokenURL is operator-authored connection config.
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, oc.TokenURL,
@@ -518,7 +490,7 @@ func exchangeAuthorizationCode(ctx context.Context, oc gatewaykit.OAuthConfig,
 		gatewaykit.LogKeyTokenURLHost, tokenHost,
 		gatewaykit.LogKeyGrantType, gatewaykit.OAuthGrantAuthorizationCode,
 		"client_id", oc.ClientID,
-		logKeyRedirectURI, pending.redirectURI)
+		logKeyRedirectURI, pending.RedirectURI)
 	resp, err := codeExchangeClient.Do(req)
 	if err != nil {
 		slog.Error("oauth-exchange: token request transport error",
@@ -601,26 +573,26 @@ func exchangeAuthorizationCode(ctx context.Context, oc gatewaykit.OAuthConfig,
 // persistOAuthTokens hands the freshly-exchanged tokens to the live
 // gateway toolkit. Re-creates the connection placeholder when missing
 // (e.g. after a platform restart between oauth-start and callback).
-func (h *Handler) persistOAuthTokens(ctx context.Context, pending *PKCEState,
+func (h *Handler) persistOAuthTokens(ctx context.Context, pending *pkcestore.State,
 	connConfig map[string]any, tr *authCodeTokenResponse,
 ) error {
 	tk := h.findGatewayToolkit()
 	if tk == nil {
 		return errors.New("gateway toolkit is not registered")
 	}
-	if !tk.HasConnection(pending.connection) {
-		if addErr := tk.AddConnection(pending.connection, connConfig); addErr != nil {
+	if !tk.HasConnection(pending.Connection) {
+		if addErr := tk.AddConnection(pending.Connection, connConfig); addErr != nil {
 			return fmt.Errorf("seed connection placeholder: %w", addErr)
 		}
 	}
 	if err := tk.IngestOAuthToken(ctx, gatewaykit.IngestOAuthTokenInput{
-		Name:             pending.connection,
+		Name:             pending.Connection,
 		AccessToken:      tr.AccessToken,
 		RefreshToken:     tr.RefreshToken,
 		ExpiresIn:        tr.ExpiresIn,
 		RefreshExpiresIn: tr.RefreshExpiresIn,
 		Scope:            tr.Scope,
-		AuthenticatedBy:  pending.startedBy,
+		AuthenticatedBy:  pending.StartedBy,
 	}); err != nil {
 		return fmt.Errorf("ingest oauth token: %w", err)
 	}

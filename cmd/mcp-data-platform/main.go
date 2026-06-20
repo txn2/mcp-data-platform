@@ -32,6 +32,7 @@ import (
 	httpauth "github.com/txn2/mcp-data-platform/pkg/http"
 	"github.com/txn2/mcp-data-platform/pkg/observability/proxy"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
+	"github.com/txn2/mcp-data-platform/pkg/pkcestore"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
@@ -990,9 +991,9 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 	// configured. otherwise an in-memory store with a background GC
 	// goroutine is wired here — single-replica only.
 	if db := p.DB(); db != nil {
-		deps.PKCEStore = admin.NewPostgresPKCEStore(db, p.RestEncryptor())
+		deps.PKCEStore = pkcestore.NewPostgresStore(db, p.RestEncryptor())
 	} else {
-		deps.PKCEStore = admin.NewMemoryPKCEStore()
+		deps.PKCEStore = pkcestore.NewMemoryStore()
 	}
 
 	// Wire the unified OAuth flow: shared connoauth.Store plus one

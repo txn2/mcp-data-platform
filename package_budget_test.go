@@ -35,13 +35,15 @@ import (
 
 const (
 	// maxPackageLOC caps non-generated, non-test lines per package under
-	// pkg/. The largest package today (pkg/admin) is ~12.1k LOC; this
-	// ceiling leaves headroom so the gate is green now, then ratchets down.
-	maxPackageLOC = 13000
+	// pkg/. After the pkcestore extraction (#636) the largest packages are
+	// pkg/admin (~11.7k LOC) and pkg/platform (~11.5k); this ceiling sits
+	// just above them so the gate stays green, and ratchets down further as
+	// those packages are decomposed.
+	maxPackageLOC = 11800
 
 	// maxPackageFiles caps non-generated, non-test .go files per package
-	// under pkg/. The largest today (pkg/middleware, pkg/admin) hold 27
-	// files; this ceiling leaves headroom and pressures decomposition.
+	// under pkg/. The largest today (pkg/middleware) holds 27 files; this
+	// ceiling leaves headroom and pressures decomposition.
 	maxPackageFiles = 35
 )
 

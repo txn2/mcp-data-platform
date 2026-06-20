@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
+	"github.com/txn2/mcp-data-platform/pkg/pkcestore"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 )
@@ -75,13 +76,13 @@ func (h *Handler) startAPIGatewayOAuth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	startedBy := authorEmailOrID(r.Context())
-	if err := store.Put(r.Context(), state, &PKCEState{
-		connection:   name,
-		codeVerifier: verifier,
-		startedBy:    startedBy,
-		createdAt:    time.Now(),
-		returnURL:    body.ReturnURL,
-		redirectURI:  redirectURI,
+	if err := store.Put(r.Context(), state, &pkcestore.State{
+		Connection:   name,
+		CodeVerifier: verifier,
+		StartedBy:    startedBy,
+		CreatedAt:    time.Now(),
+		ReturnURL:    body.ReturnURL,
+		RedirectURI:  redirectURI,
 	}); err != nil {
 		slog.Error("api-gateway oauth-start: failed to persist pkce state",
 			logKeyName, name, logKeyStartedBy, startedBy, logKeyError, err)
@@ -92,7 +93,7 @@ func (h *Handler) startAPIGatewayOAuth(w http.ResponseWriter, r *http.Request) {
 		AuthorizationURL: authURL,
 		State:            state,
 		RedirectURI:      redirectURI,
-		ExpiresAt:        time.Now().Add(pkceTTL).UTC().Format(time.RFC3339),
+		ExpiresAt:        time.Now().Add(pkcestore.TTL).UTC().Format(time.RFC3339),
 	})
 }
 
@@ -126,12 +127,12 @@ func (h *Handler) apiGatewayOAuthCallback(w http.ResponseWriter, r *http.Request
 	// (or someone with admin-session XSRF) could register
 	// `return_url: "https://evil.example/x"` via oauth-start and the
 	// IdP redirect would bounce the operator's browser there.
-	dest := safeReturnURL(pending.returnURL)
-	if pending.returnURL != "" && dest != pending.returnURL {
+	dest := safeReturnURL(pending.ReturnURL)
+	if pending.ReturnURL != "" && dest != pending.ReturnURL {
 		slog.Warn("api-gateway oauth-callback: returnURL rewritten by safeReturnURL guard",
-			logKeyName, pending.connection,
-			logKeyStartedBy, pending.startedBy,
-			"requested_return_url", pending.returnURL,
+			logKeyName, pending.Connection,
+			logKeyStartedBy, pending.StartedBy,
+			"requested_return_url", pending.ReturnURL,
 			"rewritten_to", dest)
 	}
 	// #nosec G710 -- safeReturnURL has already constrained dest to a
@@ -144,7 +145,7 @@ func (h *Handler) apiGatewayOAuthCallback(w http.ResponseWriter, r *http.Request
 // takeAPIGatewayCallbackState validates state, looks up the PKCE
 // store, and consumes the pending entry. Returns nil and writes the
 // HTML error page on any failure (so the caller can return early).
-func (h *Handler) takeAPIGatewayCallbackState(w http.ResponseWriter, r *http.Request) *PKCEState {
+func (h *Handler) takeAPIGatewayCallbackState(w http.ResponseWriter, r *http.Request) *pkcestore.State {
 	state := r.URL.Query().Get("state")
 	if state == "" {
 		writeOAuthError(w, "missing state parameter")
@@ -168,7 +169,7 @@ func (h *Handler) takeAPIGatewayCallbackState(w http.ResponseWriter, r *http.Req
 // validateAPIGatewayCallbackQuery handles the upstream-error and
 // missing-code cases. Returns false (and writes the HTML error page)
 // when the callback should not proceed past this point.
-func validateAPIGatewayCallbackQuery(w http.ResponseWriter, q url.Values, pending *PKCEState) bool {
+func validateAPIGatewayCallbackQuery(w http.ResponseWriter, q url.Values, pending *pkcestore.State) bool {
 	if oauthErr := q.Get("error"); oauthErr != "" {
 		// Upstream signaled an error. Echo at warning level — the
 		// description is operator-supplied so it's safe to surface
@@ -180,7 +181,7 @@ func validateAPIGatewayCallbackQuery(w http.ResponseWriter, q url.Values, pendin
 		// it under `code` would mislead any SIEM rule grepping for
 		// authorization-code reuse.
 		slog.Warn("api-gateway oauth-callback: upstream error",
-			logKeyName, pending.connection, "idp_error", oauthErr,
+			logKeyName, pending.Connection, "idp_error", oauthErr,
 			"idp_error_description", q.Get("error_description"))
 		writeOAuthError(w, "upstream OAuth error: "+oauthErr)
 		return false
@@ -196,8 +197,8 @@ func validateAPIGatewayCallbackQuery(w http.ResponseWriter, q url.Values, pendin
 // exchange → token-persist sequence. Returns false (and writes the
 // HTML error page) on any sub-step failure; the caller should not
 // proceed to the redirect when this returns false.
-func (h *Handler) completeAPIGatewayCallback(w http.ResponseWriter, r *http.Request, code string, pending *PKCEState) bool {
-	inst, err := h.deps.ConnectionStore.Get(r.Context(), apigatewaykit.Kind, pending.connection)
+func (h *Handler) completeAPIGatewayCallback(w http.ResponseWriter, r *http.Request, code string, pending *pkcestore.State) bool {
+	inst, err := h.deps.ConnectionStore.Get(r.Context(), apigatewaykit.Kind, pending.Connection)
 	if err != nil {
 		writeOAuthError(w, "connection not found")
 		return false
@@ -207,10 +208,10 @@ func (h *Handler) completeAPIGatewayCallback(w http.ResponseWriter, r *http.Requ
 		writeOAuthError(w, "connection config invalid")
 		return false
 	}
-	tok, err := exchangeAPIGatewayCode(r.Context(), cfg.OAuth2, code, pending.codeVerifier, pending.redirectURI)
+	tok, err := exchangeAPIGatewayCode(r.Context(), cfg.OAuth2, code, pending.CodeVerifier, pending.RedirectURI)
 	if err != nil {
 		slog.Warn("api-gateway oauth-callback: token exchange failed",
-			logKeyName, pending.connection, logKeyError, err)
+			logKeyName, pending.Connection, logKeyError, err)
 		writeOAuthError(w, "token exchange failed")
 		return false
 	}
@@ -219,18 +220,18 @@ func (h *Handler) completeAPIGatewayCallback(w http.ResponseWriter, r *http.Requ
 		return false
 	}
 	persisted := connoauth.PersistedToken{
-		Key:              connoauth.Key{Kind: connoauth.KindAPI, Name: pending.connection},
+		Key:              connoauth.Key{Kind: connoauth.KindAPI, Name: pending.Connection},
 		AccessToken:      tok.AccessToken,
 		RefreshToken:     tok.RefreshToken,
 		ExpiresAt:        tok.Expiry,
 		RefreshExpiresAt: tok.RefreshExpiresAt,
 		Scope:            tok.Scope,
-		AuthenticatedBy:  pending.startedBy,
+		AuthenticatedBy:  pending.StartedBy,
 		AuthenticatedAt:  time.Now(),
 	}
 	if err := h.deps.ConnOAuthStore.Set(r.Context(), persisted); err != nil {
 		slog.Error("api-gateway oauth-callback: persist token failed",
-			logKeyName, pending.connection, logKeyError, err)
+			logKeyName, pending.Connection, logKeyError, err)
 		writeOAuthError(w, "failed to persist token")
 		return false
 	}

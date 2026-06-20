@@ -243,14 +243,17 @@ follow-up once existing clones are consolidated. Test files are exempt
 Every per-function gate is satisfied by a god-package built from a hundred
 small, low-complexity functions. `TestPackageSizeBudget` (in
 `package_budget_test.go`) caps the size of a package as a whole: no package under
-`pkg/` may exceed **13,000 non-generated LOC** or **35 non-generated files**.
+`pkg/` may exceed **11,800 non-generated LOC** or **35 non-generated files**.
 Generated files (those carrying a `Code generated ... DO NOT EDIT.` marker) are
 excluded so embedded specs do not masquerade as hand-written code.
 
-The budgets sit just above today's largest package (`pkg/admin`, ~12.1k LOC, 27
-files). They are **ceilings to ratchet down**, not numbers to raise: if a package
-hits the budget, decompose it into cohesive sub-packages rather than bumping the
-constant. Run it with `go test -run TestPackageSizeBudget .`.
+The LOC budget sits just above today's largest packages (`pkg/admin` and
+`pkg/platform`, both ~11.5–11.8k LOC). It is a **ceiling to ratchet down**, not a
+number to raise: if a package hits the budget, decompose it into cohesive
+sub-packages rather than bumping the constant. The budget started at 13,000 and
+was ratcheted to 11,800 after `pkg/pkcestore` was extracted from `pkg/admin`
+(#636); further ratchets drive the decomposition of `admin` and `platform`. Run
+it with `go test -run TestPackageSizeBudget .`.
 
 ## Security
 

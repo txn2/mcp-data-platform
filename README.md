@@ -416,6 +416,7 @@ resources:
 | `pkg/platform` | Main platform facade and configuration |
 | `pkg/auth` | OIDC and API key authentication |
 | `pkg/oauth` | OAuth 2.1 server with DCR and PKCE |
+| `pkg/pkcestore` | In-flight PKCE state store for outbound OAuth (in-memory + PostgreSQL) |
 | `pkg/persona` | Role-based personas and tool filtering |
 | `pkg/semantic` | Semantic metadata provider abstraction |
 | `pkg/query` | Query execution provider abstraction |

@@ -22,6 +22,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
+	"github.com/txn2/mcp-data-platform/pkg/pkcestore"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
@@ -147,10 +148,10 @@ type Deps struct {
 	EnrichmentEngine   EnrichmentEngine
 	// PKCEStore holds in-flight authorization_code+PKCE state. When nil,
 	// the handler falls back to a process-singleton in-memory store
-	// (single-replica only). Set this to a PostgresPKCEStore for HA
+	// (single-replica only). Set this to a pkcestore.PostgresStore for HA
 	// deployments where oauth-start and the callback may land on
 	// different replicas.
-	PKCEStore PKCEStore
+	PKCEStore pkcestore.Store
 	// ConnOAuthStore persists OAuth tokens for every connection kind
 	// in one shared table (migration 000039's connection_oauth_tokens).
 	// The unified connection OAuth handler reads and writes through
