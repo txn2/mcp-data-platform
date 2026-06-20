@@ -134,7 +134,36 @@ func (p *Platform) initObservability() error {
 	if m != nil {
 		slog.Info("observability: metrics recorder enabled", "listen", cfg.ListenAddr)
 	}
+
+	// Tracing is a separate, independently-gated subsystem (off by
+	// default; needs an OTLP collector). NewTracer installs the global
+	// OTel TracerProvider when enabled so toolkit adapters and the
+	// tracing middleware emit nested spans without an injected handle.
+	tcfg := observability.TracingConfigFromEnv()
+	tr, err := observability.NewTracer(tcfg)
+	if err != nil {
+		return fmt.Errorf("observability tracing: %w", err)
+	}
+	p.tracer = tr
+	if tr != nil {
+		slog.Info("observability: tracing enabled", "endpoint", tcfg.Endpoint, "sampler_ratio", tcfg.SamplerArg)
+	}
 	return nil
+}
+
+// Tracer exposes the platform's OTel tracer. Returns nil when tracing
+// is disabled; the type is nil-safe so callers can Start spans
+// unconditionally.
+func (p *Platform) Tracer() *observability.Tracer { return p.tracer }
+
+// observabilityEnabled reports whether EITHER metrics or tracing is
+// active. It gates installation of the toolkit/provider instrumenting
+// decorators, which serve both subsystems (a nil-safe metric record plus
+// a no-op-when-untraced child span). When both are off the decorators are
+// not installed and upstream calls run undecorated, preserving the
+// zero-overhead default.
+func (p *Platform) observabilityEnabled() bool {
+	return p.metrics.Enabled() || p.tracer.Enabled()
 }
 
 // Metrics exposes the platform's observability recorder. Returns nil
@@ -198,9 +227,11 @@ type metricsAware interface {
 // handlers: the S3 toolkit installs an mcp-s3 middleware in SetMetrics that is
 // only effective if present at registration time. apigateway also implements
 // SetMetrics; wiring it here as well is idempotent (see WireAPIGatewayMetrics).
-// No-op when metrics are disabled.
+// Runs when metrics OR tracing is enabled so toolkits that emit spans (S3)
+// are instrumented for tracing-only deployments; each toolkit's SetMetrics
+// decides what it installs given the (possibly disabled) recorder.
 func (p *Platform) WireToolkitMetrics() {
-	if !p.metrics.Enabled() {
+	if !p.observabilityEnabled() {
 		return
 	}
 	for _, tk := range p.toolkitRegistry.All() {

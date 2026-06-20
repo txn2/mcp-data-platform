@@ -71,17 +71,27 @@ func toolCallAttrs(pc *PlatformContext, result mcp.Result, err error) observabil
 		persona = pc.PersonaName
 	}
 
-	isToolError, errCategory := false, ""
-	if callResult, ok := result.(*mcp.CallToolResult); ok && callResult != nil && callResult.IsError {
-		isToolError = true
-		if getErr := callResult.GetError(); getErr != nil {
-			errCategory = ErrorCategory(getErr)
-		}
-	}
+	isToolError, errCategory := toolResultErrorInfo(result)
 	return observability.ToolCallAttrs{
 		Tool:           tool,
 		ToolkitKind:    toolkitKind,
 		Persona:        persona,
 		StatusCategory: observability.ClassifyToolCallResult(err, isToolError, errCategory),
 	}
+}
+
+// toolResultErrorInfo reports whether an MCP result is a tool-level error
+// and, if so, its category (from the error's CategorizedError, when
+// present). Shared by the metrics and tracing middleware so both classify
+// a tool failure identically. A non-CallToolResult or a success result
+// yields (false, "").
+func toolResultErrorInfo(result mcp.Result) (isToolError bool, category string) {
+	callResult, ok := result.(*mcp.CallToolResult)
+	if !ok || callResult == nil || !callResult.IsError {
+		return false, ""
+	}
+	if getErr := callResult.GetError(); getErr != nil {
+		return true, ErrorCategory(getErr)
+	}
+	return true, ""
 }

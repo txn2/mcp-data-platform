@@ -115,16 +115,23 @@ func TestInstrumentedClient_RecordsErrorStatus(t *testing.T) {
 	}
 }
 
-// TestSetMetrics_Disabled is a no-op: the client is not wrapped, so behavior is
-// unchanged and no panic occurs.
-func TestSetMetrics_Disabled(t *testing.T) {
+// TestSetMetrics_NilRecorderTransparent confirms the new contract:
+// SetMetrics installs the instrumenting decorator unconditionally (the
+// platform gates the CALL on metrics-or-tracing), and with a nil/disabled
+// recorder and no active trace the decorator is behaviorally transparent —
+// it delegates, records nothing (nil-safe), and emits no span.
+func TestSetMetrics_NilRecorderTransparent(t *testing.T) {
 	adapter, err := NewWithClient(Config{Platform: "trino"}, &mockDataHubClient{})
 	if err != nil {
 		t.Fatalf("NewWithClient: %v", err)
 	}
 	before := adapter.client
 	adapter.SetMetrics(nil) // disabled recorder
-	if adapter.client != before {
-		t.Error("SetMetrics(nil) must not wrap the client")
+	if adapter.client == before {
+		t.Fatal("SetMetrics now wraps unconditionally; gating moved to the platform call site")
+	}
+	// The wrapped client must still delegate without panicking on a nil recorder.
+	if _, err := adapter.client.GetEntity(context.Background(), "urn:li:dataset:(x)"); err != nil {
+		t.Errorf("wrapped client delegate failed: %v", err)
 	}
 }

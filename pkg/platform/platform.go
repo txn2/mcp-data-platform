@@ -257,6 +257,12 @@ type Platform struct {
 	metrics         *observability.Metrics
 	metricsListener *observability.Listener
 
+	// tracer owns the OTel TracerProvider for distributed tracing. Nil
+	// when tracing is disabled (default). nil-safe; NewTracer also
+	// installs the global TracerProvider so toolkit adapters create
+	// child spans via otel.Tracer without an injected reference.
+	tracer *observability.Tracer
+
 	// apiMemBudget is the process-wide in-flight memory budget shared by
 	// every api gateway toolkit's buffered tools (issue #535). Created
 	// once by WireAPIGatewayMemBudget and injected into each toolkit so
@@ -2430,6 +2436,19 @@ func (p *Platform) finalizeSetup() {
 		)
 	}
 
+	// 4.6. Tracing - opens the per-tool-call OTel span that becomes the
+	// parent of every downstream adapter span (Trino/DataHub/S3/OAuth/
+	// enrichment) via context propagation, so one tool call is one flame
+	// graph. Like Metrics it reads PlatformContext and so sits INNER to
+	// MCPToolCallMiddleware and OUTER to the handler. Safe to register
+	// unconditionally: the middleware short-circuits on a nil/disabled
+	// tracer.
+	if p.tracer.Enabled() {
+		p.mcpServer.AddReceivingMiddleware(
+			middleware.MCPTracingMiddleware(p.tracer),
+		)
+	}
+
 	// 5. Session gate - blocks non-exempt tools until platform_info is called.
 	// Inner to Auth/Authz so PlatformContext is available; outer to Audit so
 	// gated calls don't produce audit events.
@@ -2766,9 +2785,12 @@ func (p *Platform) createSemanticProvider() (semantic.Provider, error) {
 			return nil, fmt.Errorf("creating datahub semantic provider: %w", err)
 		}
 
-		// Instrument before the cache wrap so DataHub request metrics are
-		// recorded on the underlying client, not skipped by cache hits.
-		adapter.SetMetrics(p.metrics)
+		// Instrument before the cache wrap so DataHub request metrics and
+		// spans are recorded on the underlying client, not skipped by
+		// cache hits. Installed only when metrics or tracing is on.
+		if p.observabilityEnabled() {
+			adapter.SetMetrics(p.metrics)
+		}
 
 		// Wrap with caching if enabled
 		if p.config.Semantic.Cache.Enabled {
@@ -2816,7 +2838,9 @@ func (p *Platform) createQueryProvider() (query.Provider, error) {
 		if err != nil {
 			return nil, fmt.Errorf("creating trino query provider: %w", err)
 		}
-		adapter.SetMetrics(p.metrics)
+		if p.observabilityEnabled() {
+			adapter.SetMetrics(p.metrics)
+		}
 		return adapter, nil
 
 	case providerNoop, "":
@@ -3722,17 +3746,21 @@ func (p *Platform) Close() error {
 }
 
 // closeMetricsLayer stops the /metrics listener and flushes the OTel
-// MeterProvider. The listener stop is bounded by a short timeout so a
-// stuck scraper cannot delay platform shutdown; the meter provider
-// flush is best-effort. Both calls are nil-safe.
+// MeterProvider and (when enabled) the TracerProvider so buffered spans
+// are exported before exit. The listener stop is bounded by a short
+// timeout so a stuck scraper cannot delay platform shutdown; the
+// provider flushes are best-effort. All calls are nil-safe.
 func (p *Platform) closeMetricsLayer(errs *[]error) {
-	if p.metricsListener == nil && p.metrics == nil {
+	if p.metricsListener == nil && p.metrics == nil && p.tracer == nil {
 		return
 	}
 	slog.Debug("shutdown: stopping metrics layer")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := p.ShutdownMetricsListener(ctx); err != nil {
+		*errs = append(*errs, err)
+	}
+	if err := p.tracer.Shutdown(ctx); err != nil {
 		*errs = append(*errs, err)
 	}
 }

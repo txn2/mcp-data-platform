@@ -9,6 +9,7 @@ every file applies standalone with `kubectl apply -f`.
 | `pod-annotations.yaml` | Example Deployment patch enabling the metrics listener and the `prometheus.io/*` scrape annotations. |
 | `recording-rules.yaml` | ConfigMap with starter recording rules (pre-computed p95s and error rates). |
 | `alert-rules.yaml` | ConfigMap with starter alert rules (5xx rate, latency regression, auth spike, DB pool saturation, target down). |
+| `otel-collector.yaml` | Example OpenTelemetry Collector config for OTLP traces: OTLP receiver, tail sampling (keep errors and >2s traces), OTLP export to Tempo. |
 
 ## 1. Make the pods scrapable
 
