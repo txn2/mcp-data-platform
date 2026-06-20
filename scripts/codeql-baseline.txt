@@ -30,5 +30,7 @@ go/log-injection cmd/dev-mcp-mock/main.go:178
 # addresses here would break legitimate connections. CodeQL began
 # tracing this pre-existing exchange only after OAuth parsing was routed
 # through the shared connoauth.ParseConfig, which widened the generic
-# taint surface; the runtime behavior is unchanged.
-go/request-forgery pkg/admin/gateway_oauth_handler.go:522
+# taint surface; the runtime behavior is unchanged. The line moved from
+# 522 to 494 when the PKCE store (PKCEState struct + pkceTTL const) was
+# extracted to pkg/pkcestore (#636); same sink, same exchange, unchanged.
+go/request-forgery pkg/admin/gateway_oauth_handler.go:494

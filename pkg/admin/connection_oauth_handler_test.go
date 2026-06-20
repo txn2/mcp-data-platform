@@ -18,6 +18,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
+	"github.com/txn2/mcp-data-platform/pkg/pkcestore"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
 
@@ -63,7 +64,7 @@ func (f *fakeOAuthKindHandler) AfterConnect(_ context.Context, name string, _ ma
 // per test.
 func newOAuthTestHandler(t *testing.T, connStore *mockConnectionStore, kinds OAuthKindHandlers) (*Handler, connoauth.Store) {
 	t.Helper()
-	pkce := NewMemoryPKCEStore()
+	pkce := pkcestore.NewMemoryStore()
 	t.Cleanup(func() { _ = pkce.Close() })
 	store := connoauth.NewMemoryStore()
 	h := NewHandler(Deps{
@@ -577,7 +578,7 @@ func TestConnectionsOAuthHealth_PopulatesIDPErrorCode(t *testing.T) {
 		Config:          testConfig(),
 		ConnectionStore: connStore,
 		ConfigStore:     &mockConfigStore{mode: "database"},
-		PKCEStore:       NewMemoryPKCEStore(),
+		PKCEStore:       pkcestore.NewMemoryStore(),
 		ConnOAuthStore:  tokenStore,
 		AuthEvents:      writer,
 		AuthEventStore:  eventStore,
@@ -644,7 +645,7 @@ func TestConnectionsOAuthHealth_RecentSuccessClearsErrorCode(t *testing.T) {
 		Config:          testConfig(),
 		ConnectionStore: connStore,
 		ConfigStore:     &mockConfigStore{mode: "database"},
-		PKCEStore:       NewMemoryPKCEStore(),
+		PKCEStore:       pkcestore.NewMemoryStore(),
 		ConnOAuthStore:  tokenStore,
 		AuthEvents:      writer,
 		AuthEventStore:  eventStore,
@@ -740,7 +741,7 @@ func TestConnectionsOAuthHealth_ReconnectClearsErrorCode(t *testing.T) {
 		Config:          testConfig(),
 		ConnectionStore: connStore,
 		ConfigStore:     &mockConfigStore{mode: "database"},
-		PKCEStore:       NewMemoryPKCEStore(),
+		PKCEStore:       pkcestore.NewMemoryStore(),
 		ConnOAuthStore:  tokenStore,
 		AuthEvents:      writer,
 		AuthEventStore:  eventStore,

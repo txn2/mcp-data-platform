@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
+	"github.com/txn2/mcp-data-platform/pkg/pkcestore"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
@@ -50,7 +51,7 @@ func apiGatewayOAuthHandlerWithToolkit(t *testing.T, store ConnectionStore) (*Ha
 	tk.SetConnOAuthStore(tokenStore)
 	t.Cleanup(func() { _ = tk.Close() })
 
-	pkceStore := NewMemoryPKCEStore()
+	pkceStore := pkcestore.NewMemoryStore()
 	t.Cleanup(func() { _ = pkceStore.Close() })
 
 	reg := &mockToolkitRegistry{rawToolkits: []registry.Toolkit{tk}}

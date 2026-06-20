@@ -554,7 +554,7 @@ const authEventsRetention = 90 * 24 * time.Hour
 // as connection credentials.
 //
 // Exported so consumers like main.go can pass it to constructors
-// (e.g., admin.NewPostgresPKCEStore) without importing internal
+// (e.g., pkcestore.NewPostgresStore) without importing internal
 // platform types.
 type RestFieldEncryptor struct {
 	enc *FieldEncryptor
@@ -940,8 +940,8 @@ func (p *Platform) WireGatewayBroadcaster() {
 }
 
 // DB returns the platform's database handle, or nil when running
-// without a database. Exposed so admin sub-packages can build their
-// own DB-backed stores (e.g., PostgresPKCEStore for multi-replica
+// without a database. Exposed so consumers can build their own
+// DB-backed stores (e.g., pkcestore.PostgresStore for multi-replica
 // OAuth) without needing platform-side wiring per store.
 func (p *Platform) DB() *sql.DB {
 	return p.db

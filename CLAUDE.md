@@ -173,6 +173,10 @@ mcp-data-platform/
 │   │   ├── storage.go             # Storage interface
 │   │   └── postgres/
 │   │       └── store.go           # PostgreSQL implementation
+│   ├── pkcestore/                 # In-flight PKCE state for outbound OAuth
+│   │   ├── store.go               # Store interface + State type
+│   │   ├── memory.go              # In-memory implementation (single-replica)
+│   │   └── postgres.go            # PostgreSQL implementation (multi-replica)
 │   ├── persona/                   # Persona system
 │   │   ├── persona.go             # Persona definition
 │   │   ├── registry.go            # PersonaRegistry

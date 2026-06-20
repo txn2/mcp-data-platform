@@ -13,6 +13,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
+	"github.com/txn2/mcp-data-platform/pkg/pkcestore"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
 
@@ -118,14 +119,14 @@ func (h *Handler) startConnectionOAuth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	startedBy := authorEmailOrID(r.Context())
-	if err := store.Put(r.Context(), state, &PKCEState{
-		kind:         kind,
-		connection:   name,
-		codeVerifier: verifier,
-		startedBy:    startedBy,
-		createdAt:    time.Now(),
-		returnURL:    body.ReturnURL,
-		redirectURI:  redirectURI,
+	if err := store.Put(r.Context(), state, &pkcestore.State{
+		Kind:         kind,
+		Connection:   name,
+		CodeVerifier: verifier,
+		StartedBy:    startedBy,
+		CreatedAt:    time.Now(),
+		ReturnURL:    body.ReturnURL,
+		RedirectURI:  redirectURI,
 	}); err != nil {
 		slog.Error("oauth-start: failed to persist pkce state",
 			logKeyKind, kind, logKeyName, name, logKeyStartedBy, startedBy, logKeyError, err)
@@ -141,14 +142,14 @@ func (h *Handler) startConnectionOAuth(w http.ResponseWriter, r *http.Request) {
 		logKeyRedirectURI, redirectURI,
 		"authorization_url_host", urlHostForLog(cfg.AuthorizationURL),
 		"return_url", body.ReturnURL,
-		"ttl", pkceTTL)
+		"ttl", pkcestore.TTL)
 	h.deps.AuthEvents.ConnectStarted(r.Context(), kind, name, startedBy, cfg.TokenURL, body.ReturnURL)
 
 	writeJSON(w, http.StatusOK, startConnectionOAuthResponse{
 		AuthorizationURL: authURL,
 		State:            state,
 		RedirectURI:      redirectURI,
-		ExpiresAt:        time.Now().Add(pkceTTL).UTC().Format(time.RFC3339),
+		ExpiresAt:        time.Now().Add(pkcestore.TTL).UTC().Format(time.RFC3339),
 	})
 }
 
@@ -525,7 +526,7 @@ func (h *Handler) connectionOAuthCallback(w http.ResponseWriter, r *http.Request
 	q := r.URL.Query()
 	if errCode := q.Get("error"); errCode != "" {
 		slog.Warn("oauth-callback: IdP returned error",
-			logKeyKind, pending.kind, logKeyName, pending.connection,
+			logKeyKind, pending.Kind, logKeyName, pending.Connection,
 			"idp_error", errCode, "idp_error_description", q.Get("error_description"))
 		writeOAuthError(w, fmt.Sprintf("upstream returned %s: %s", errCode, q.Get("error_description")))
 		return
@@ -537,21 +538,21 @@ func (h *Handler) connectionOAuthCallback(w http.ResponseWriter, r *http.Request
 	}
 	if err := h.completeConnectionOAuthExchange(r.Context(), pending, code); err != nil {
 		slog.Error("oauth-callback: exchange failed",
-			logKeyKind, pending.kind, logKeyName, pending.connection,
-			logKeyStartedBy, pending.startedBy, logKeyDuration, time.Since(start),
+			logKeyKind, pending.Kind, logKeyName, pending.Connection,
+			logKeyStartedBy, pending.StartedBy, logKeyDuration, time.Since(start),
 			logKeyError, err)
 		writeOAuthError(w, "token exchange failed: "+err.Error())
 		return
 	}
-	dest := safeReturnURL(pending.returnURL)
-	if pending.returnURL != "" && dest != pending.returnURL {
+	dest := safeReturnURL(pending.ReturnURL)
+	if pending.ReturnURL != "" && dest != pending.ReturnURL {
 		slog.Warn("oauth-callback: returnURL rewritten by safeReturnURL guard",
-			logKeyKind, pending.kind, logKeyName, pending.connection,
-			"requested_return_url", pending.returnURL, "rewritten_to", dest)
+			logKeyKind, pending.Kind, logKeyName, pending.Connection,
+			"requested_return_url", pending.ReturnURL, "rewritten_to", dest)
 	}
 	slog.Info("oauth-callback: success — tokens persisted",
-		logKeyKind, pending.kind, logKeyName, pending.connection,
-		logKeyStartedBy, pending.startedBy,
+		logKeyKind, pending.Kind, logKeyName, pending.Connection,
+		logKeyStartedBy, pending.StartedBy,
 		logKeyDuration, time.Since(start), "dest", dest)
 	// #nosec G710 -- safeReturnURL has already constrained dest to a
 	// same-origin relative path or the constant fallback.
@@ -564,7 +565,7 @@ func (h *Handler) connectionOAuthCallback(w http.ResponseWriter, r *http.Request
 // migration 000039's connection_kind column (those rows belong to
 // the MCP gateway by construction — only kind that used this table
 // before 000039).
-func (h *Handler) takeConnectionPKCEState(w http.ResponseWriter, r *http.Request) *PKCEState {
+func (h *Handler) takeConnectionPKCEState(w http.ResponseWriter, r *http.Request) *pkcestore.State {
 	state := r.URL.Query().Get("state")
 	if state == "" {
 		writeOAuthError(w, "missing state parameter")
@@ -580,10 +581,10 @@ func (h *Handler) takeConnectionPKCEState(w http.ResponseWriter, r *http.Request
 		writeOAuthError(w, "OAuth state expired or unknown — please retry from the admin UI")
 		return nil
 	}
-	if pending.kind == "" {
+	if pending.Kind == "" {
 		// Pre-migration-000039 row (legacy MCP-only flow). Set the
 		// default so downstream dispatch has a known kind.
-		pending.kind = connectionKindMCP
+		pending.Kind = connectionKindMCP
 	}
 	return pending
 }
@@ -591,12 +592,12 @@ func (h *Handler) takeConnectionPKCEState(w http.ResponseWriter, r *http.Request
 // completeConnectionOAuthExchange runs the token exchange, persists
 // the result via connoauth.Store, and invokes the per-kind
 // AfterConnect hook so the connection becomes immediately usable.
-func (h *Handler) completeConnectionOAuthExchange(ctx context.Context, pending *PKCEState, code string) error {
-	handler, ok := h.deps.OAuthKinds[pending.kind]
+func (h *Handler) completeConnectionOAuthExchange(ctx context.Context, pending *pkcestore.State, code string) error {
+	handler, ok := h.deps.OAuthKinds[pending.Kind]
 	if !ok {
-		return fmt.Errorf("unsupported connection kind: %s", pending.kind)
+		return fmt.Errorf("unsupported connection kind: %s", pending.Kind)
 	}
-	inst, err := h.deps.ConnectionStore.Get(ctx, pending.kind, pending.connection)
+	inst, err := h.deps.ConnectionStore.Get(ctx, pending.Kind, pending.Connection)
 	if err != nil {
 		return fmt.Errorf("load connection: %w", err)
 	}
@@ -607,21 +608,21 @@ func (h *Handler) completeConnectionOAuthExchange(ctx context.Context, pending *
 	result, err := connoauth.Exchange(ctx, connoauth.ExchangeInput{
 		Config:       cfg,
 		Code:         code,
-		CodeVerifier: pending.codeVerifier,
-		RedirectURI:  pending.redirectURI,
+		CodeVerifier: pending.CodeVerifier,
+		RedirectURI:  pending.RedirectURI,
 	})
 	if err != nil {
 		return fmt.Errorf("connoauth exchange: %w", err)
 	}
 	now := time.Now()
 	persistErr := h.deps.ConnOAuthStore.Set(ctx, connoauth.PersistedToken{
-		Key:              connoauth.Key{Kind: pending.kind, Name: pending.connection},
+		Key:              connoauth.Key{Kind: pending.Kind, Name: pending.Connection},
 		AccessToken:      result.AccessToken,
 		RefreshToken:     result.RefreshToken,
 		ExpiresAt:        result.ExpiresAt,
 		RefreshExpiresAt: result.RefreshExpiresAt,
 		Scope:            result.Scope,
-		AuthenticatedBy:  pending.startedBy,
+		AuthenticatedBy:  pending.StartedBy,
 		AuthenticatedAt:  now,
 	})
 	if persistErr != nil {
@@ -631,14 +632,14 @@ func (h *Handler) completeConnectionOAuthExchange(ctx context.Context, pending *
 		// Connect with no idea why it doesn't stick.
 		return fmt.Errorf("persist token: %w", persistErr)
 	}
-	h.deps.AuthEvents.ConnectCompleted(ctx, pending.kind, pending.connection, pending.startedBy,
+	h.deps.AuthEvents.ConnectCompleted(ctx, pending.Kind, pending.Connection, pending.StartedBy,
 		cfg.TokenURL, authevents.ConnectCompletedDetail{
 			Scope:            result.Scope,
 			ExpiresAt:        result.ExpiresAt,
 			RefreshExpiresAt: result.RefreshExpiresAt,
 			HasRefreshToken:  result.RefreshToken != "",
 		})
-	if err := handler.AfterConnect(ctx, pending.connection, inst.Config); err != nil {
+	if err := handler.AfterConnect(ctx, pending.Connection, inst.Config); err != nil {
 		// Log but do not fail the Connect — the token IS persisted;
 		// the post-auth side effect (e.g., MCP gateway tool
 		// registration) can be retried by the toolkit's normal
@@ -646,7 +647,7 @@ func (h *Handler) completeConnectionOAuthExchange(ctx context.Context, pending *
 		// the operator to repeat the browser flow even though the
 		// credential is good.
 		slog.Warn("oauth-callback: AfterConnect hook failed (token persisted, side effect deferred)",
-			logKeyKind, pending.kind, logKeyName, pending.connection, logKeyError, err)
+			logKeyKind, pending.Kind, logKeyName, pending.Connection, logKeyError, err)
 	}
 	return nil
 }
