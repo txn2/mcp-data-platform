@@ -42,10 +42,9 @@ flowchart LR
     end
 ```
 
-- **`capture_insight`** records domain knowledge during sessions. Available to all personas when enabled. Creates insights with status `pending`.
-- **`recall_insight`** searches the calling user's captured insights by relevance (hybrid semantic + lexical, lexical-only fallback). Registered when the memory layer is enabled. Lets the agent find what was already learned instead of re-asking. See [recall_insight](../server/tools.md#recall_insight).
+- **`knowledge_search`** is the one way to search: one query fans across the caller's memory, captured insights, the technical catalog, prompts, and saved assets, returning a single fused, source-tagged, per-user-scoped ranked list. It replaces the former `recall_insight`, `memory_recall`, and `datahub_search` (relevance) tools. See [knowledge_search](../server/tools.md#knowledge_search).
+- **`capture_insight`** records domain knowledge during sessions. Available to all personas when enabled. Creates insights with status `pending`. (To read insights back, use `knowledge_search`.)
 - **`apply_knowledge`** is an admin-only tool for reviewing, approving, synthesizing, and applying insights to DataHub.
-- **`knowledge_search`** is the unified read path: one query fans across the caller's personal memory, captured insights, and saved assets, returning a single fused, source-tagged, per-user-scoped ranked list. See [knowledge_search](../server/tools.md#knowledge_search).
 - **[Admin REST API](admin-api.md)** provides HTTP endpoints for managing insights and changesets outside the MCP protocol.
 
 ## Insight Categories

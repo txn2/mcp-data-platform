@@ -27,10 +27,13 @@ import "context"
 type Scope int
 
 const (
-	// ScopeShared marks a provider whose records are visible to all callers
-	// (the technical catalog, reviewed-and-shared knowledge). A shared
-	// provider is queried for every request, with or without a caller
-	// identity.
+	// ScopeShared marks a provider that is queried for every request, with or
+	// without a caller identity, because it can always return at least some
+	// content visible to everyone (the technical catalog, global prompts). A
+	// shared provider may still use the caller identity to widen what it
+	// returns (a prompt provider adds the caller's persona/personal prompts to
+	// the global ones); "shared" means "always queried", not "ignores the
+	// caller". It must never return another caller's private records.
 	ScopeShared Scope = iota
 
 	// ScopePerUser marks a provider whose records belong to individual
@@ -66,6 +69,11 @@ type Caller struct {
 	// Email is the caller's canonical identity, the owner key for memory
 	// and insights.
 	Email string
+	// Persona is the caller's resolved persona. It scopes entity-keyed memory
+	// lookups and selects which persona-scoped prompts are visible. It is not a
+	// security boundary on its own (per-user records are scoped by Email/UserID);
+	// it narrows persona-targeted content.
+	Persona string
 }
 
 // Anonymous reports whether the caller carries no identity at all. The Router
@@ -74,16 +82,26 @@ func (c Caller) Anonymous() bool {
 	return c.UserID == "" && c.Email == ""
 }
 
-// Query is one knowledge search. Intent is the natural-language text to match.
-// Embedding is the query vector the Router computes once and shares across
-// providers; it is nil when no embedder is configured, which selects
-// lexical-only ranking. Caller carries the identity per-user providers scope
-// on. Limit caps results per provider before fusion.
+// Query is one knowledge search. It carries two complementary ways to match,
+// and a provider uses whichever it supports:
+//
+//   - Intent is natural-language text matched by relevance. Embedding is the
+//     query vector the Router computes once from Intent and shares across
+//     providers; nil selects lexical-only ranking.
+//   - EntityURNs is an exact, entity-keyed lookup: return knowledge linked to
+//     these DataHub URNs (memory uses this, optionally expanded along lineage).
+//
+// At least one of Intent or EntityURNs is set. Status optionally filters by
+// lifecycle/review state where a provider tracks one (insight review status).
+// Caller carries the identity per-user providers scope on. Limit caps results
+// per provider before fusion.
 type Query struct {
-	Intent    string
-	Embedding []float32
-	Caller    Caller
-	Limit     int
+	Intent     string
+	Embedding  []float32
+	EntityURNs []string
+	Status     string
+	Caller     Caller
+	Limit      int
 }
 
 // Hit is one knowledge record matched by a provider. Score is the provider's
@@ -93,16 +111,23 @@ type Query struct {
 // within its source (memory id, insight id, asset id) so a caller can fetch the
 // full record.
 //
-// The Hit shape is intentionally minimal in PR1. Temporal validity
-// (valid_from/valid_until) and a live-vs-captured freshness flag are part of
-// the eventual contract (#632) but are deferred until a provider populates
-// them (the technical catalog is "live", the wiki carries season windows);
-// adding them now would be unexercised fields. See the #632 implementation log.
+// The optional fields carry what the specialized search tools returned, so
+// folding them into one knowledge_search loses nothing: Status is a review or
+// lifecycle state (insight pending/approved/...), EntityURNs are the linked
+// catalog entities (provenance), and Dimension is the memory dimension or
+// category. They are omitted when a source does not populate them.
+//
+// Temporal validity (valid_from/valid_until) and a live-vs-captured freshness
+// flag remain deferred until a provider populates them (the wiki carries season
+// windows); adding them now would be unexercised fields.
 type Hit struct {
-	Text   string  `json:"text"`
-	Source string  `json:"source"`
-	Ref    string  `json:"ref"`
-	Score  float64 `json:"score"`
+	Text       string   `json:"text"`
+	Source     string   `json:"source"`
+	Ref        string   `json:"ref"`
+	Score      float64  `json:"score"`
+	Status     string   `json:"status,omitempty"`
+	EntityURNs []string `json:"entity_urns,omitempty"`
+	Dimension  string   `json:"dimension,omitempty"`
 }
 
 // Provider is one searchable knowledge store behind the Router. Name is the

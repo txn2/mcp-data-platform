@@ -25,11 +25,16 @@ const toolName = "knowledge_search"
 
 // searchInput is the deserialized knowledge_search input. Intent is the
 // natural-language description of what the caller wants; Context is optional
-// surrounding detail folded into the same query to sharpen ranking.
+// surrounding detail folded into the same query to sharpen ranking. EntityURNs
+// is an exact, entity-keyed lookup (memory linked to those datasets, expanded
+// along lineage). Status optionally filters by review state. At least one of
+// intent or entity_urns must be set.
 type searchInput struct {
-	Intent  string `json:"intent"`
-	Context string `json:"context,omitempty"`
-	Limit   int    `json:"limit,omitempty"`
+	Intent     string   `json:"intent,omitempty"`
+	Context    string   `json:"context,omitempty"`
+	EntityURNs []string `json:"entity_urns,omitempty"`
+	Status     string   `json:"status,omitempty"`
+	Limit      int      `json:"limit,omitempty"`
 }
 
 // searchOutput is the knowledge_search response: the fused hits, their count,
@@ -45,17 +50,24 @@ type searchOutput struct {
 // searchSchema is the JSON Schema for the knowledge_search tool input.
 var searchSchema = json.RawMessage(`{
   "type": "object",
-  "required": ["intent"],
   "additionalProperties": false,
   "properties": {
     "intent": {
       "type": "string",
-      "description": "Natural-language description of the knowledge you are looking for, across captured memory, insights, and saved assets. Ranked by semantic relevance (hybrid vector + lexical) when an embedding provider is configured, and by lexical relevance otherwise.",
-      "minLength": 1
+      "description": "Natural-language description of the knowledge you are looking for, across your memory, captured insights, the technical catalog, saved assets, and prompts. Ranked by semantic relevance (hybrid vector + lexical) when an embedding provider is configured, and by lexical relevance otherwise. Provide intent, entity_urns, or both."
     },
     "context": {
       "type": "string",
-      "description": "Optional surrounding context (the task, table, or question at hand) folded into the query to sharpen relevance."
+      "description": "Optional surrounding context (the task, table, or question at hand) folded into the intent to sharpen relevance."
+    },
+    "entity_urns": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Exact entity-keyed lookup: return your memory linked to these DataHub URNs, expanded along lineage. Use when you have specific datasets in hand rather than a natural-language question."
+    },
+    "status": {
+      "type": "string",
+      "description": "Optional filter by insight review status (pending, approved, rejected, applied, superseded, rolled_back)."
     },
     "limit": {
       "type": "integer",
@@ -89,11 +101,13 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:  toolName,
 		Title: "Search Knowledge",
-		Description: "Search all platform knowledge from one place: your captured memory, " +
-			"reviewed insights, and saved assets, ranked together by relevance. " +
-			"Call this to find what is already known before re-asking the user or re-deriving it, " +
-			"for example 'how do we calculate churn' or 'what did we learn about the orders table'. " +
-			"Each result is tagged with its source. Personal results are scoped to you.",
+		Description: "The one way to search. Call this FIRST to find what is already known before " +
+			"re-asking the user or re-deriving anything. One query fans across all knowledge: your " +
+			"memory, captured insights, the technical catalog (DataHub), saved assets, and prompts, " +
+			"ranked together by relevance and each result tagged with its source. " +
+			"For example 'how do we calculate churn' or 'what did we learn about the orders table'. " +
+			"Pass entity_urns instead of (or with) intent to pull what you know about specific datasets. " +
+			"Personal results are scoped to you.",
 		InputSchema: searchSchema,
 	}, t.handleSearch)
 }
@@ -113,20 +127,24 @@ func (*Toolkit) Close() error { return nil }
 
 // handleSearch runs a knowledge_search call. It resolves the caller identity
 // from the platform context (per-user providers scope on it), folds any context
-// into the intent, and returns the router's fused, source-tagged hits.
+// into the intent, and returns the router's fused, source-tagged hits. The
+// query may be text (intent), entity-keyed (entity_urns), or both.
 func (t *Toolkit) handleSearch(ctx context.Context, _ *mcp.CallToolRequest, input searchInput) (*mcp.CallToolResult, any, error) {
-	intent := strings.TrimSpace(input.Intent)
-	if intent == "" {
-		return errorResult("intent is required for knowledge_search"), nil, nil
-	}
-
-	caller := callerFromContext(ctx)
-	searchText := intent
+	searchText := strings.TrimSpace(input.Intent)
 	if c := strings.TrimSpace(input.Context); c != "" {
-		searchText += "\n" + c
+		searchText = strings.TrimSpace(searchText + "\n" + c)
+	}
+	if searchText == "" && len(input.EntityURNs) == 0 {
+		return errorResult("knowledge_search requires intent or entity_urns"), nil, nil
 	}
 
-	res, err := t.router.Search(ctx, searchText, caller, input.Limit)
+	res, err := t.router.Search(ctx, knowledge.Query{
+		Intent:     searchText,
+		EntityURNs: input.EntityURNs,
+		Status:     strings.TrimSpace(input.Status),
+		Caller:     callerFromContext(ctx),
+		Limit:      input.Limit,
+	})
 	if err != nil {
 		return errorResult("knowledge search failed: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol: tool errors are returned in CallToolResult.IsError
 	}
@@ -150,7 +168,7 @@ func callerFromContext(ctx context.Context) knowledge.Caller {
 	if pc == nil {
 		return knowledge.Caller{}
 	}
-	return knowledge.Caller{UserID: pc.UserID, Email: pc.UserEmail}
+	return knowledge.Caller{UserID: pc.UserID, Email: pc.UserEmail, Persona: pc.PersonaName}
 }
 
 // errorResult creates an error CallToolResult.

@@ -1291,17 +1291,7 @@ List configured Trino connections. No parameters.
 
 ## DataHub Tools
 
-### datahub_search
-
-Search for entities in the catalog.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `query` | string | Yes | - | Search query |
-| `type` | string | No | - | Entity type: dataset, dashboard, chart, dataflow |
-| `platform` | string | No | - | Platform filter: trino, snowflake, s3 |
-| `limit` | integer | No | 10 | Maximum results |
-| `connection` | string | No | first configured | DataHub connection name |
+Catalog relevance search moved to the unified `knowledge_search` tool (see Knowledge Tools); the DataHub toolkit retains `datahub_browse` for structured navigation (platform/domain/tag/entity-type) and the entity-detail tools below.
 
 ### datahub_get_entity
 
@@ -1418,29 +1408,21 @@ Captured insights are owned by the user's email (`memory_records.created_by`), t
 
 ### knowledge_search
 
-Search all platform knowledge from one place. The agent issues one query and the platform fans it across every available knowledge source, normalizes each source's relevance scores onto a common scale, fuses them into one ranked list, and tags each hit with its source. Registered whenever at least one knowledge source is available.
+The one way to search. One query fans across every available knowledge source, normalizes each source's relevance scores onto a common scale, fuses them into one ranked list, and tags each hit with its source. It replaces the former `recall_insight`, `memory_recall`, and `datahub_search` (relevance) tools so the agent never chooses which search to run; structured catalog navigation stays in `datahub_browse`. Registered whenever at least one knowledge source is available.
 
-Providers in this release: the caller's personal memory (non-knowledge dimensions; captured/remembered knowledge surfaces via the insights provider, so a record is never double-listed), captured insights, and saved assets. Every provider is per-user, scoped server-side to the caller (memory and insights by email `created_by`/`captured_by`, assets by `owner_id`), and fails closed when its scope key is absent, so a search never surfaces another user's private records. An anonymous caller receives no results rather than an unscoped search.
+Sources federated: the caller's personal memory (non-knowledge dimensions; captured/remembered knowledge surfaces via the insights provider, so a record is never double-listed), captured insights, the technical catalog (DataHub, when configured), prompts, and saved assets. Memory, insights, and assets are per-user, scoped server-side to the caller (memory and insights by email `created_by`/`captured_by`, assets by `owner_id`) and fail closed when their scope key is absent; the catalog and global prompts are shared. A search never surfaces another user's private records; an anonymous caller still sees shared sources but no per-user data.
+
+A query may be text (`intent`), entity-keyed (`entity_urns`), or both. The entity path returns the caller's memory linked to those DataHub URNs, expanded along lineage (the former memory_recall entity/graph strategies).
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `intent` | string | Yes | - | Natural-language description of the knowledge sought |
-| `context` | string | No | - | Optional surrounding context, folded into the query to sharpen relevance |
+| `intent` | string | Conditional | - | Natural-language description of the knowledge sought; provide intent, entity_urns, or both |
+| `context` | string | No | - | Optional surrounding context, folded into the intent to sharpen relevance |
+| `entity_urns` | array | Conditional | - | Exact entity-keyed lookup: the caller's memory linked to these DataHub URNs, lineage-expanded |
+| `status` | string | No | - | Optional filter by insight review status (pending, approved, rejected, applied, superseded, rolled_back) |
 | `limit` | integer | No | 10 | Maximum results (max 50) |
 
-Ranking is hybrid (semantic vector + lexical) when an embedding provider is configured, falling back to lexical-only otherwise, the same hybrid-vs-lexical decision `recall_insight` and `memory_recall` make. The response carries `ranking` (`hybrid` or `lexical`), `count`, and a `hits` array pairing each matched `text` with its `source` (provenance), a `ref` (the record id within that source), and a fused relevance `score`.
-
-### recall_insight
-
-Search the calling user's captured insights by relevance to a natural-language query. Registered only when the memory layer is enabled (insights are knowledge-dimension `memory_records`). Results are scoped server-side to the caller's own insights (`created_by` = the caller's email), the same owner key as `capture_insight` and the portal Knowledge search, and the tool fails closed when the caller has no email.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `query` | string | Yes | - | Natural-language description of the knowledge sought |
-| `status` | string | No | - | Filter by review status: pending, approved, rejected, applied, superseded, rolled_back |
-| `limit` | integer | No | 20 | Maximum results (max 100) |
-
-Ranking is hybrid (semantic vector + lexical) when an embedding provider is configured, falling back to lexical-only when no embedder is configured, the embedder errors, or it returns a zero vector. The response carries `ranking` (`hybrid` or `lexical`), `count`, and an `insights` array pairing each insight (with its status and related entity URNs) with a relevance `score`. This reuses the same search primitives and hybrid-vs-lexical decision as `memory_recall` and the portal Knowledge search, so all three rank the same way.
+Ranking is hybrid (semantic vector + lexical) when an embedding provider is configured, falling back to lexical-only otherwise; an entity-only query reports ranking `entity`. The response carries `ranking`, `count`, and a `hits` array pairing each matched `text` with its `source` (provenance), a `ref` (record id within that source), a fused relevance `score`, and where present the hit's `status` (insight review state), `entity_urns`, and `dimension`.
 
 ### apply_knowledge
 
@@ -1477,19 +1459,11 @@ CRUD operations for memory records. Commands: `remember` (create with optional e
 | `entity_urns` | array | No | DataHub URNs (max 10) |
 | `metadata` | object | No | Arbitrary metadata |
 
-### memory_recall
+### Reading memory back
 
-Multi-strategy retrieval. Strategies: `entity` (URN lookup), `semantic` (hybrid vector+lexical ranking with automatic lexical-only fallback when the embedder is unavailable), `lexical` (forced full-text keyword match), `graph` (lineage traversal), `auto` (combined).
+Reading memory back moved to the unified `knowledge_search` tool (see Knowledge Tools): relevance ranking, entity-keyed lookup, and DataHub lineage/graph traversal are all served there. The memory toolkit retains `memory_manage` for the write path.
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `query` | string | Yes | Natural language query (used by semantic, lexical, auto) |
-| `strategy` | string | No | entity, semantic, lexical, graph, auto (default: auto) |
-| `entity_urns` | array | No | DataHub URNs for entity/graph |
-| `include_stale` | bool | No | Include stale memories |
-| `limit` | int | No | Max results (default 10, max 50) |
-
-The `semantic` strategy fuses embedding cosine similarity with a lexical full-text match signal, blended as `0.6 * semantic + 0.4 * lexical`, which improves recall on identifier-heavy content (entity URNs, column names, error codes) over pure vector search. The vector arm uses an `hnsw` ANN index on `memory_records.embedding`; the lexical arm a GIN index on `to_tsvector('english', content)`. When no embedding provider is available, `semantic` degrades to lexical-only instead of erroring and labels the response: `ranking: "lexical"`, `degraded: true`, and a `note`. Lexical also surfaces rows whose embedding is NULL (saved during an outage). Every response carries a `ranking` field (`hybrid`, `lexical`, `entity`, `graph`).
+The ranking it uses fuses embedding cosine similarity with a lexical full-text match signal, blended as `0.6 * semantic + 0.4 * lexical`, which improves recall on identifier-heavy content (entity URNs, column names, error codes) over pure vector search. The vector arm uses an `hnsw` ANN index on `memory_records.embedding`; the lexical arm a GIN index on `to_tsvector('english', content)`. When no embedding provider is available it degrades to lexical-only instead of erroring, which also surfaces rows whose embedding is NULL (saved during an outage).
 
 Memory registers as a consumer of the shared index-jobs framework (`source_kind = memory`). The synchronous embed-on-write is preserved so a just-saved memory stays immediately recallable; a periodic reconciler backfills embeddings that were missed during an embedder outage (`embedding IS NULL`) or invalidated by a provider model swap (`embedding_model` differs from the current model), and the `memory` kind appears on the admin Indexing dashboard with an indexed/expected coverage ratio. Migration `000054_memory_hybrid_search` adds the `embedding_model` and `embedding_text_hash` breadcrumb columns plus the hnsw and GIN indexes.
 
@@ -1646,12 +1620,11 @@ Every organization has tribal knowledge about its data that lives in the heads o
 
 ## How It Works
 
-The system has four MCP tools and an Admin REST API:
+The system has three MCP tools and an Admin REST API:
 
-- `capture_insight`: Records domain knowledge during sessions. Available to all personas when enabled. Creates insights with status `pending`.
-- `recall_insight`: Searches the calling user's captured insights by relevance (hybrid semantic + lexical, lexical-only fallback). Registered when the memory layer is enabled. Lets the agent reuse prior knowledge instead of re-asking.
+- `knowledge_search`: The one way to search, fanning one query (text and/or entity_urns) across the caller's memory, captured insights, the technical catalog, prompts, and saved assets, returning a single fused, source-tagged, per-user-scoped ranked list. Replaces the former `recall_insight`, `memory_recall`, and `datahub_search` (relevance) tools.
+- `capture_insight`: Records domain knowledge during sessions. Available to all personas when enabled. Creates insights with status `pending`. (To read insights back, use `knowledge_search`.)
 - `apply_knowledge`: Admin-only tool for reviewing, approving, synthesizing, applying, and rolling back insights to DataHub. Actions: `bulk_review`, `review`, `synthesize`, `apply`, `approve`, `reject`, `rollback`, `list_changesets`.
-- `knowledge_search`: Unified read path fanning one query across the caller's personal memory, captured insights, and saved assets, returning a single fused, source-tagged, per-user-scoped ranked list. Registered whenever at least one knowledge source is available.
 - Admin REST API: HTTP endpoints for managing insights and changesets outside the MCP protocol.
 
 ## Configuration

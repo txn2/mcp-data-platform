@@ -27,7 +27,6 @@ const (
 	// a subset crosses goconst's literal-repetition threshold — keeping
 	// the Tools() list uniformly constant-driven avoids a visually mixed
 	// list of constants and bare strings.
-	toolSearch          = "datahub_search"
 	toolGetEntity       = "datahub_get_entity"
 	toolGetSchema       = "datahub_get_schema"
 	toolGetLineage      = "datahub_get_lineage"
@@ -218,9 +217,10 @@ func (t *Toolkit) Connection() string {
 }
 
 // datahubReadTools lists the read-only DataHub tools registered by the platform.
-// This excludes datahub_list_connections (replaced by the unified list_connections).
+// This excludes datahub_list_connections (replaced by the unified list_connections)
+// and datahub_search (its relevance role is folded into the unified
+// knowledge_search; structured catalog navigation stays in datahub_browse).
 var datahubReadTools = []dhtools.ToolName{
-	dhtools.ToolSearch,
 	dhtools.ToolGetEntity,
 	dhtools.ToolGetSchema,
 	dhtools.ToolGetLineage,
@@ -245,7 +245,6 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 // Tools returns the list of tool names that would be provided by this toolkit.
 func (t *Toolkit) Tools() []string {
 	tools := []string{
-		toolSearch,
 		toolGetEntity,
 		toolGetSchema,
 		toolGetLineage,

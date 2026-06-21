@@ -71,38 +71,3 @@ var memoryManageSchema = json.RawMessage(`{
     }
   }
 }`)
-
-// memoryRecallSchema is the JSON Schema for the memory_recall tool input.
-//
-//nolint:gochecknoglobals // MCP tool schema must be a package-level var
-var memoryRecallSchema = json.RawMessage(`{
-  "type": "object",
-  "required": ["query"],
-  "properties": {
-    "query": {
-      "type": "string",
-      "description": "Natural language query. Used by 'semantic', 'lexical', and 'auto' strategies."
-    },
-    "strategy": {
-      "type": "string",
-      "description": "Retrieval strategy: entity, semantic, lexical, graph, auto. Defaults to 'auto'. 'semantic' ranks by hybrid vector+lexical fusion (better on exact identifiers than pure vector) and falls back to lexical-only when no embedding provider is available; 'lexical' forces full-text keyword matching with no embedding call. When results are lexical-only the response sets degraded=true with a note."
-    },
-    "entity_urns": {
-      "type": "array",
-      "items": {"type": "string"},
-      "description": "DataHub URNs for 'entity' and 'graph' strategies."
-    },
-    "dimension": {
-      "type": "string",
-      "description": "Filter by LOCOMO dimension."
-    },
-    "include_stale": {
-      "type": "boolean",
-      "description": "Include stale memories in results. Defaults to false."
-    },
-    "limit": {
-      "type": "integer",
-      "description": "Maximum results (default 10, max 50)."
-    }
-  }
-}`)

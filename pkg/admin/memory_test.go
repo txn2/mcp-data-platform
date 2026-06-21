@@ -100,7 +100,7 @@ func (m *mockMemoryStore) LexicalSearch(_ context.Context, _ memory.LexicalQuery
 	return nil, m.vectorErr
 }
 
-func (m *mockMemoryStore) EntityLookup(_ context.Context, _, _ string) ([]memory.Record, error) {
+func (m *mockMemoryStore) EntityLookup(_ context.Context, _, _, _ string) ([]memory.Record, error) {
 	return nil, m.entityErr
 }
 

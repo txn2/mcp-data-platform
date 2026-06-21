@@ -68,7 +68,7 @@ func TestNoopStore_LexicalSearch(t *testing.T) {
 
 func TestNoopStore_EntityLookup(t *testing.T) {
 	store := NewNoopStore()
-	records, err := store.EntityLookup(context.Background(), "urn:li:dataset:foo", "analyst")
+	records, err := store.EntityLookup(context.Background(), "urn:li:dataset:foo", "analyst", "")
 	assert.NoError(t, err)
 	assert.Nil(t, records)
 }

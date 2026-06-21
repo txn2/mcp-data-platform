@@ -600,7 +600,7 @@ func collectScoredRows(rows *sql.Rows, minScore float64) ([]ScoredRecord, error)
 }
 
 // EntityLookup returns active memories linked to a DataHub URN.
-func (s *postgresStore) EntityLookup(ctx context.Context, urn, persona string) ([]Record, error) {
+func (s *postgresStore) EntityLookup(ctx context.Context, urn, persona, createdBy string) ([]Record, error) {
 	urnJSON, err := json.Marshal([]string{urn})
 	if err != nil {
 		return nil, fmt.Errorf("marshaling entity URN filter: %w", err)
@@ -615,6 +615,12 @@ func (s *postgresStore) EntityLookup(ctx context.Context, urn, persona string) (
 
 	if persona != "" {
 		qb = qb.Where(sq.Eq{colPersona: persona})
+	}
+	// createdBy is the per-user scope: a knowledge_search entity lookup passes
+	// the caller's email so it cannot surface another user's entity-linked
+	// memories. Empty leaves the lookup persona-scoped (the enrichment path).
+	if createdBy != "" {
+		qb = qb.Where(sq.Eq{colCreatedBy: createdBy})
 	}
 
 	query, args, err := qb.ToSql()

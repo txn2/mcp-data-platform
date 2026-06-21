@@ -15,7 +15,7 @@ func TestSessionWorkflowTracker_RecordDiscovery(t *testing.T) {
 	assert.False(t, tracker.HasPerformedDiscovery("s1"))
 	assert.Equal(t, 0, tracker.DiscoveryToolCount("s1"))
 
-	tracker.RecordToolCall("s1", "datahub_search")
+	tracker.RecordToolCall("s1", "knowledge_search")
 	assert.True(t, tracker.HasPerformedDiscovery("s1"))
 	assert.Equal(t, 1, tracker.DiscoveryToolCount("s1"))
 
@@ -43,7 +43,7 @@ func TestSessionWorkflowTracker_WarningResetOnDiscovery(t *testing.T) {
 	assert.Equal(t, 3, tracker.WarningCount("s1"))
 
 	// Discovery resets warning count
-	tracker.RecordToolCall("s1", "datahub_search")
+	tracker.RecordToolCall("s1", "knowledge_search")
 	assert.Equal(t, 0, tracker.WarningCount("s1"))
 }
 
@@ -83,7 +83,7 @@ func TestSessionWorkflowTracker_CustomTools(t *testing.T) {
 func TestSessionWorkflowTracker_SessionIsolation(t *testing.T) {
 	tracker := NewSessionWorkflowTracker(nil, nil, 30*time.Minute)
 
-	tracker.RecordToolCall("s1", "datahub_search")
+	tracker.RecordToolCall("s1", "knowledge_search")
 	assert.True(t, tracker.HasPerformedDiscovery("s1"))
 	assert.False(t, tracker.HasPerformedDiscovery("s2"), "sessions should be isolated")
 }
@@ -98,7 +98,7 @@ func TestSessionWorkflowTracker_ConcurrentAccess(t *testing.T) {
 			defer wg.Done()
 			sid := "session-concurrent"
 			if n%2 == 0 {
-				tracker.RecordToolCall(sid, "datahub_search")
+				tracker.RecordToolCall(sid, "knowledge_search")
 			} else {
 				tracker.RecordToolCall(sid, "trino_query")
 				tracker.IncrementWarningCount(sid)
@@ -116,7 +116,7 @@ func TestSessionWorkflowTracker_ConcurrentAccess(t *testing.T) {
 func TestSessionWorkflowTracker_Cleanup(t *testing.T) {
 	tracker := NewSessionWorkflowTracker(nil, nil, 50*time.Millisecond)
 
-	tracker.RecordToolCall("s-expire", "datahub_search")
+	tracker.RecordToolCall("s-expire", "knowledge_search")
 	require.True(t, tracker.HasPerformedDiscovery("s-expire"))
 
 	// Wait for the session to expire
@@ -132,7 +132,7 @@ func TestSessionWorkflowTracker_StartCleanupAndStop(t *testing.T) {
 	tracker := NewSessionWorkflowTracker(nil, nil, 10*time.Millisecond)
 	tracker.StartCleanup(10 * time.Millisecond)
 
-	tracker.RecordToolCall("s-bg", "datahub_search")
+	tracker.RecordToolCall("s-bg", "knowledge_search")
 
 	// Give cleanup time to run
 	time.Sleep(50 * time.Millisecond)
@@ -146,7 +146,7 @@ func TestSessionWorkflowTracker_StartCleanupAndStop(t *testing.T) {
 
 func TestDefaultDiscoveryTools(t *testing.T) {
 	// Verify all datahub_* tools are in the default list
-	assert.Contains(t, DefaultDiscoveryTools, "datahub_search")
+	assert.Contains(t, DefaultDiscoveryTools, "knowledge_search")
 	assert.Contains(t, DefaultDiscoveryTools, "datahub_get_entity")
 	assert.Contains(t, DefaultDiscoveryTools, "datahub_get_schema")
 	assert.Contains(t, DefaultDiscoveryTools, "datahub_get_lineage")

@@ -155,9 +155,10 @@ func (p *Platform) buildInfoToolDescription() string {
 		base += fmt.Sprintf(" (%s)", strings.Join(p.config.Server.Tags, ", "))
 	}
 	return base + ", including its purpose, available toolkits, and enabled features. " +
-		"This tool MUST be called before any other tool (datahub_search, trino_query, " +
-		"trino_describe_table, s3_list_objects, etc.). Skipping it causes incorrect query " +
-		"routing, operational rule violations, and degraded output quality."
+		"This tool MUST be called before any other tool (knowledge_search, trino_query, " +
+		"trino_describe_table, s3_list_objects, etc.). Then call knowledge_search, the one way to " +
+		"search, to reuse what is already known before re-asking the user or re-deriving it. " +
+		"Skipping these causes incorrect query routing, operational rule violations, and degraded output quality."
 }
 
 // collectToolkits returns the list of enabled toolkit names and any

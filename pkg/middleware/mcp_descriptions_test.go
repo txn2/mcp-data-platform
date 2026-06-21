@@ -105,7 +105,7 @@ func TestMergedDescriptionOverrides(t *testing.T) {
 		merged := MergedDescriptionOverrides(nil)
 		assert.Contains(t, merged, "trino_query")
 		assert.Contains(t, merged, "trino_execute")
-		assert.Contains(t, merged["trino_query"], "datahub_search")
+		assert.Contains(t, merged["trino_query"], "knowledge_search")
 	})
 
 	t.Run("config overrides win", func(t *testing.T) {
@@ -114,7 +114,7 @@ func TestMergedDescriptionOverrides(t *testing.T) {
 		})
 		assert.Equal(t, "custom description", merged["trino_query"])
 		// trino_execute still has default
-		assert.Contains(t, merged["trino_execute"], "datahub_search")
+		assert.Contains(t, merged["trino_execute"], "knowledge_search")
 	})
 
 	t.Run("config adds new overrides", func(t *testing.T) {

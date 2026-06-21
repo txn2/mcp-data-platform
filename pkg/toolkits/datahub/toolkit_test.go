@@ -289,7 +289,6 @@ func TestToolkit_Tools(t *testing.T) {
 	}
 
 	expectedTools := []string{
-		"datahub_search",
 		"datahub_get_entity",
 		"datahub_get_schema",
 		"datahub_get_lineage",
@@ -321,7 +320,6 @@ func TestToolkit_Tools_ReadOnly(t *testing.T) {
 	tools := tk.Tools()
 
 	expectedReadTools := []string{
-		"datahub_search",
 		"datahub_get_entity",
 		"datahub_get_schema",
 		"datahub_get_lineage",

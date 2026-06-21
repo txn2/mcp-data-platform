@@ -48,7 +48,7 @@ func TestRouter_PerUserSkippedForAnonymousCaller(t *testing.T) {
 	perUser := &fakeProvider{name: "peruser", scope: ScopePerUser, hits: []Hit{{Source: "peruser", Ref: "p1", Score: 1}}}
 	r := NewRouter(nil, shared, perUser)
 
-	res, err := r.Search(context.Background(), "anything", Caller{}, 0)
+	res, err := r.Search(context.Background(), Query{Intent: "anything"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestRouter_PerUserQueriedWithIdentity(t *testing.T) {
 	r := NewRouter(nil, perUser)
 
 	caller := Caller{UserID: "uuid-1", Email: "a@example.com"}
-	_, err := r.Search(context.Background(), "anything", caller, 0)
+	_, err := r.Search(context.Background(), Query{Intent: "anything", Caller: caller})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestRouter_PerUserQueriedWithIdentity(t *testing.T) {
 func TestRouter_LexicalWhenNoEmbedder(t *testing.T) {
 	p := &fakeProvider{name: "p", scope: ScopeShared}
 	r := NewRouter(nil, p)
-	res, err := r.Search(context.Background(), "q", Caller{}, 0)
+	res, err := r.Search(context.Background(), Query{Intent: "q"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestRouter_HybridWithEmbedder(t *testing.T) {
 	var got Query
 	p := &captureProvider{scope: ScopeShared, sink: &got}
 	r := NewRouter(fakeEmbedder{}, p)
-	res, err := r.Search(context.Background(), "q", Caller{}, 0)
+	res, err := r.Search(context.Background(), Query{Intent: "q"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestRouter_AllProvidersErrorReturnsError(t *testing.T) {
 	p2 := &fakeProvider{name: "p2", scope: ScopeShared, err: boom}
 	r := NewRouter(nil, p1, p2)
 
-	_, err := r.Search(context.Background(), "q", Caller{}, 0)
+	_, err := r.Search(context.Background(), Query{Intent: "q"})
 	if err == nil {
 		t.Fatal("expected error when every queried provider fails")
 	}
@@ -138,7 +138,7 @@ func TestRouter_PartialErrorTolerated(t *testing.T) {
 	bad := &fakeProvider{name: "bad", scope: ScopeShared, err: errors.New("down")}
 	r := NewRouter(nil, good, bad)
 
-	res, err := r.Search(context.Background(), "q", Caller{}, 0)
+	res, err := r.Search(context.Background(), Query{Intent: "q"})
 	if err != nil {
 		t.Fatalf("a single provider failure must not fail the search: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestRouter_LimitCapsResults(t *testing.T) {
 	p := &fakeProvider{name: "p", scope: ScopeShared, hits: hits}
 	r := NewRouter(nil, p)
 
-	res, err := r.Search(context.Background(), "q", Caller{}, 3)
+	res, err := r.Search(context.Background(), Query{Intent: "q", Limit: 3})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
