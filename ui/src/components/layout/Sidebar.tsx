@@ -75,7 +75,7 @@ export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse, 
   const logout = useAuthStore((s) => s.logout);
   const isAdmin = useAuthStore((s) => s.isAdmin());
   const userTools = useAuthStore((s) => s.user?.tools);
-  const hasKnowledge = (userTools?.includes("capture_insight") || userTools?.includes("memory_manage")) ?? false;
+  const hasKnowledge = (userTools?.includes("memory_capture") || userTools?.includes("memory_manage")) ?? false;
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
   // On mobile, close the sidebar after navigating.

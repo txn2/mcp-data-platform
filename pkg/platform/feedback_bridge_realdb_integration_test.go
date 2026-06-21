@@ -29,6 +29,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
+	memorykit "github.com/txn2/mcp-data-platform/pkg/toolkits/memory"
 	portalkit "github.com/txn2/mcp-data-platform/pkg/toolkits/portal"
 )
 
@@ -41,9 +42,9 @@ func TestRealDB_FeedbackBridge_CaptureLinksThreadAndChain(t *testing.T) {
 	// Real stores.
 	assetStore := portal.NewPostgresAssetStore(db)
 	threadStore := portal.NewPostgresThreadStore(db)
-	// Production always backs insights with the memory store (migration 000031
-	// drops knowledge_insights); mirror that exactly so we exercise the real path.
-	insightStore := knowledgekit.NewMemoryInsightAdapter(memory.NewPostgresStore(db))
+	// memory_capture (#633) writes directly to the memory store; reviewed
+	// sink-classes carry the pending-insight overlay apply_knowledge reads.
+	memStore := memory.NewPostgresStore(db)
 	csStore := knowledgekit.NewPostgresChangesetStore(db)
 
 	// Seed an asset and a feedback thread on it.
@@ -93,7 +94,7 @@ func TestRealDB_FeedbackBridge_CaptureLinksThreadAndChain(t *testing.T) {
 		ShareStore:      portal.NewNoopShareStore(),
 		CollectionStore: portal.NewNoopCollectionStore(),
 	})
-	tk, err := knowledgekit.New("test", insightStore)
+	tk, err := memorykit.New("test", memStore, nil)
 	require.NoError(t, err)
 	tk.SetThreadLinker(portalTk)
 
@@ -119,24 +120,26 @@ func TestRealDB_FeedbackBridge_CaptureLinksThreadAndChain(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = clientSess.Close() }()
 
-	// Call capture_insight with thread_ids through the real protocol path.
+	// Call memory_capture with thread_ids through the real protocol path. A
+	// reviewed sink-class (schema_entity) produces a pending insight and bridges
+	// the feedback threads.
 	callRes, err := clientSess.CallTool(ctx, &mcp.CallToolParams{
-		Name: "capture_insight",
+		Name: "memory_capture",
 		Arguments: map[string]any{
-			"category":     "data_quality",
-			"insight_text": "The churn column actually measures monthly active retention.",
+			"type":    "schema_entity",
+			"content": "The churn column actually measures monthly active retention.",
 			// Includes a thread on an asset the caller does NOT own: the bridge
 			// must link only the owned one and report the other as unlinked.
 			"thread_ids": []string{"thr_bridge", "thr_other"},
 		},
 	})
 	require.NoError(t, err)
-	require.False(t, callRes.IsError, "capture_insight failed: %+v", callRes.Content)
+	require.False(t, callRes.IsError, "memory_capture failed: %+v", callRes.Content)
 
 	tc, ok := callRes.Content[0].(*mcp.TextContent)
 	require.True(t, ok)
 	var out struct {
-		InsightID         string   `json:"insight_id"`
+		InsightID         string   `json:"id"`
 		LinkedThreadCount int      `json:"linked_thread_count"`
 		UnlinkedThreadIDs []string `json:"unlinked_thread_ids"`
 	}

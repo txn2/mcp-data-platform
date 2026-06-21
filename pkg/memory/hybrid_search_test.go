@@ -19,7 +19,7 @@ var hybridColumns = append(append([]string{}, memorySelectColumns...), "vec_scor
 func addHybridRow(rows *sqlmock.Rows, id string, vecScore float64, lexMatch bool) {
 	now := time.Now()
 	rows.AddRow(
-		id, now, now, "user@example.com", "analyst", DimensionKnowledge,
+		id, now, now, "user@example.com", "analyst", DimensionKnowledge, "schema_entity",
 		"content for "+id, CategoryBusinessCtx, ConfidenceMedium, SourceUser,
 		[]byte("[]"), []byte("[]"), []byte("{}"),
 		StatusActive, nil, nil, nil,
@@ -248,7 +248,7 @@ func TestHybridSearch_ScanError(t *testing.T) {
 
 	now := time.Now()
 	rows := sqlmock.NewRows(hybridColumns).AddRow(
-		"bad", now, now, "u", "analyst", DimensionKnowledge,
+		"bad", now, now, "u", "analyst", DimensionKnowledge, "schema_entity",
 		"c", CategoryBusinessCtx, ConfidenceMedium, SourceUser,
 		[]byte("[]"), []byte("[]"), []byte("{}"),
 		StatusActive, nil, nil, nil,
@@ -298,7 +298,7 @@ func addLexicalRow(rows *sqlmock.Rows, id string, embedding bool, score float64)
 	// NULL embedding in production, where lexical still surfaces them.
 	_ = embedding
 	rows.AddRow(
-		id, now, now, "user@example.com", "analyst", DimensionKnowledge,
+		id, now, now, "user@example.com", "analyst", DimensionKnowledge, "schema_entity",
 		"content for "+id, CategoryBusinessCtx, ConfidenceMedium, SourceUser,
 		[]byte("[]"), []byte("[]"), []byte("{}"),
 		StatusActive, nil, nil, nil,

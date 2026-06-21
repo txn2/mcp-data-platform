@@ -31,6 +31,7 @@ const (
 	colEntityURNs     = "entity_urns"
 	colCreatedAt      = "created_at"
 	colDimension      = "dimension"
+	colSinkClass      = "sink_class"
 	colConfidence     = "confidence"
 	colMetadata       = "metadata"
 	colPersona        = "persona"
@@ -74,12 +75,12 @@ func (s *postgresStore) Insert(ctx context.Context, record Record) error {
 	}
 
 	columns := []string{
-		"id", colCreatedBy, colPersona, colDimension,
+		"id", colCreatedBy, colPersona, colDimension, colSinkClass,
 		colContent, colCategory, colConfidence, colSource,
 		colEntityURNs, colRelatedColumns, colMetadata, colStatus,
 	}
 	values := []any{
-		record.ID, record.CreatedBy, record.Persona, record.Dimension,
+		record.ID, record.CreatedBy, record.Persona, record.Dimension, record.SinkClass,
 		record.Content, record.Category, record.Confidence, record.Source,
 		entityURNs, relatedCols, metadata, record.Status,
 	}
@@ -335,7 +336,7 @@ func (s *postgresStore) VectorSearch(ctx context.Context, query VectorQuery) ([]
 // single constant so the column order stays in lockstep with the
 // scanScoredRow / scanHybridRow scanners that read it. The vector,
 // lexical, and fused scores are appended per query, after these columns.
-const rawRecordCols = "id, created_at, updated_at, created_by, persona, dimension, " +
+const rawRecordCols = "id, created_at, updated_at, created_by, persona, dimension, sink_class, " +
 	"content, category, confidence, source, " +
 	"entity_urns, related_columns, metadata, " +
 	"status, stale_reason, stale_at, last_verified"
@@ -770,7 +771,7 @@ func applyFilter(qb sq.SelectBuilder, filter Filter) sq.SelectBuilder {
 // recordColumns returns the column list for memory record queries.
 func recordColumns() []string {
 	return []string{
-		"id", colCreatedAt, "updated_at", colCreatedBy, colPersona, colDimension,
+		"id", colCreatedAt, "updated_at", colCreatedBy, colPersona, colDimension, colSinkClass,
 		colContent, colCategory, colConfidence, colSource,
 		colEntityURNs, colRelatedColumns, colMetadata,
 		colStatus, "stale_reason", "stale_at", "last_verified",
@@ -781,11 +782,11 @@ func recordColumns() []string {
 func scanRecord(row *sql.Row) (*Record, error) {
 	var r Record
 	var entityURNs, relatedCols, metadata []byte
-	var staleReason sql.NullString
+	var sinkClass, staleReason sql.NullString
 	var staleAt, lastVerified sql.NullTime
 
 	err := row.Scan(
-		&r.ID, &r.CreatedAt, &r.UpdatedAt, &r.CreatedBy, &r.Persona, &r.Dimension,
+		&r.ID, &r.CreatedAt, &r.UpdatedAt, &r.CreatedBy, &r.Persona, &r.Dimension, &sinkClass,
 		&r.Content, &r.Category, &r.Confidence, &r.Source,
 		&entityURNs, &relatedCols, &metadata,
 		&r.Status, &staleReason, &staleAt, &lastVerified,
@@ -798,6 +799,7 @@ func scanRecord(row *sql.Row) (*Record, error) {
 		return nil, err
 	}
 
+	r.SinkClass = sinkClass.String
 	applyNullables(&r, staleReason, staleAt, lastVerified)
 	return &r, nil
 }
@@ -806,11 +808,11 @@ func scanRecord(row *sql.Row) (*Record, error) {
 func scanRecordRow(rows *sql.Rows) (*Record, error) {
 	var r Record
 	var entityURNs, relatedCols, metadata []byte
-	var staleReason sql.NullString
+	var sinkClass, staleReason sql.NullString
 	var staleAt, lastVerified sql.NullTime
 
 	err := rows.Scan(
-		&r.ID, &r.CreatedAt, &r.UpdatedAt, &r.CreatedBy, &r.Persona, &r.Dimension,
+		&r.ID, &r.CreatedAt, &r.UpdatedAt, &r.CreatedBy, &r.Persona, &r.Dimension, &sinkClass,
 		&r.Content, &r.Category, &r.Confidence, &r.Source,
 		&entityURNs, &relatedCols, &metadata,
 		&r.Status, &staleReason, &staleAt, &lastVerified,
@@ -823,6 +825,7 @@ func scanRecordRow(rows *sql.Rows) (*Record, error) {
 		return nil, err
 	}
 
+	r.SinkClass = sinkClass.String
 	applyNullables(&r, staleReason, staleAt, lastVerified)
 	return &r, nil
 }
@@ -831,12 +834,12 @@ func scanRecordRow(rows *sql.Rows) (*Record, error) {
 func scanScoredRow(rows *sql.Rows) (*Record, float64, error) {
 	var r Record
 	var entityURNs, relatedCols, metadata []byte
-	var staleReason sql.NullString
+	var sinkClass, staleReason sql.NullString
 	var staleAt, lastVerified sql.NullTime
 	var score float64
 
 	err := rows.Scan(
-		&r.ID, &r.CreatedAt, &r.UpdatedAt, &r.CreatedBy, &r.Persona, &r.Dimension,
+		&r.ID, &r.CreatedAt, &r.UpdatedAt, &r.CreatedBy, &r.Persona, &r.Dimension, &sinkClass,
 		&r.Content, &r.Category, &r.Confidence, &r.Source,
 		&entityURNs, &relatedCols, &metadata,
 		&r.Status, &staleReason, &staleAt, &lastVerified,
@@ -850,23 +853,24 @@ func scanScoredRow(rows *sql.Rows) (*Record, float64, error) {
 		return nil, 0, err
 	}
 
+	r.SinkClass = sinkClass.String
 	applyNullables(&r, staleReason, staleAt, lastVerified)
 	return &r, score, nil
 }
 
 // scanHybridRow scans a row with appended vec_score and lex_match
-// columns (the HybridSearch arms) into a candidate. The 17 record
+// columns (the HybridSearch arms) into a candidate. The 18 record
 // columns must match rawRecordCols in order.
 func scanHybridRow(rows *sql.Rows) (*hybridCandidate, error) {
 	var r Record
 	var entityURNs, relatedCols, metadata []byte
-	var staleReason sql.NullString
+	var sinkClass, staleReason sql.NullString
 	var staleAt, lastVerified sql.NullTime
 	var vecScore float64
 	var lexMatch bool
 
 	err := rows.Scan(
-		&r.ID, &r.CreatedAt, &r.UpdatedAt, &r.CreatedBy, &r.Persona, &r.Dimension,
+		&r.ID, &r.CreatedAt, &r.UpdatedAt, &r.CreatedBy, &r.Persona, &r.Dimension, &sinkClass,
 		&r.Content, &r.Category, &r.Confidence, &r.Source,
 		&entityURNs, &relatedCols, &metadata,
 		&r.Status, &staleReason, &staleAt, &lastVerified,
@@ -880,6 +884,7 @@ func scanHybridRow(rows *sql.Rows) (*hybridCandidate, error) {
 		return nil, err
 	}
 
+	r.SinkClass = sinkClass.String
 	applyNullables(&r, staleReason, staleAt, lastVerified)
 	return &hybridCandidate{record: r, vecScore: vecScore, lexMatch: lexMatch}, nil
 }

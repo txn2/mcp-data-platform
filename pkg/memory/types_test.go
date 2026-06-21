@@ -260,3 +260,68 @@ func TestFilter_EffectiveLimit(t *testing.T) {
 		})
 	}
 }
+
+// --- sink-class helpers (#633) ---
+
+func TestSinkClassDimension(t *testing.T) {
+	cases := map[string]string{
+		SinkPersonalPreference: DimensionPreference,
+		SinkEpisodicEvent:      DimensionEvent,
+		SinkBusinessKnowledge:  DimensionKnowledge,
+		SinkSchemaEntity:       DimensionKnowledge,
+		SinkOperationalRule:    DimensionKnowledge,
+	}
+	for sc, want := range cases {
+		if got := SinkClassDimension(sc); got != want {
+			t.Errorf("SinkClassDimension(%q) = %q, want %q", sc, got, want)
+		}
+	}
+}
+
+func TestSinkClassIsLive(t *testing.T) {
+	if !SinkClassIsLive(SinkPersonalPreference) || !SinkClassIsLive(SinkEpisodicEvent) {
+		t.Error("personal_preference and episodic_event must be live")
+	}
+	for _, sc := range []string{SinkBusinessKnowledge, SinkSchemaEntity, SinkOperationalRule} {
+		if SinkClassIsLive(sc) {
+			t.Errorf("%q must be reviewed, not live", sc)
+		}
+	}
+}
+
+func TestValidateSinkClass(t *testing.T) {
+	for _, sc := range []string{
+		SinkPersonalPreference, SinkEpisodicEvent, SinkBusinessKnowledge, SinkSchemaEntity, SinkOperationalRule,
+	} {
+		if err := ValidateSinkClass(sc); err != nil {
+			t.Errorf("ValidateSinkClass(%q) = %v, want nil", sc, err)
+		}
+	}
+	if err := ValidateSinkClass(""); err == nil {
+		t.Error("empty sink_class should be invalid")
+	}
+	if err := ValidateSinkClass("bogus"); err == nil {
+		t.Error("bogus sink_class should be invalid")
+	}
+}
+
+func TestDeriveSinkClass(t *testing.T) {
+	cases := []struct {
+		dim     string
+		hasURNs bool
+		want    string
+	}{
+		{DimensionPreference, false, SinkPersonalPreference},
+		{DimensionEvent, false, SinkEpisodicEvent},
+		{DimensionEntity, false, SinkSchemaEntity},
+		{DimensionRelationship, false, SinkBusinessKnowledge},
+		{DimensionKnowledge, true, SinkSchemaEntity},
+		{DimensionKnowledge, false, SinkBusinessKnowledge},
+		{"unknown", false, SinkBusinessKnowledge},
+	}
+	for _, c := range cases {
+		if got := DeriveSinkClass(c.dim, c.hasURNs); got != c.want {
+			t.Errorf("DeriveSinkClass(%q, %v) = %q, want %q", c.dim, c.hasURNs, got, c.want)
+		}
+	}
+}

@@ -12379,7 +12379,7 @@ const docTemplate = `{
                         "type": "string"
                     },
                     "example": [
-                        "capture_insight"
+                        "trino_execute"
                     ]
                 },
                 "description": {
@@ -14065,6 +14065,11 @@ const docTemplate = `{
                     "type": "string",
                     "example": "sess_abc123"
                 },
+                "sink_class": {
+                    "description": "SinkClass is the #633 organizing axis carried onto the backing memory\nrecord so the unified write path and apply_knowledge sink router can\nroute by it. Empty for insights captured before #633.",
+                    "type": "string",
+                    "example": "schema_entity"
+                },
                 "source": {
                     "type": "string",
                     "example": "user"
@@ -14254,6 +14259,11 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/memory.RelatedColumn"
                     }
+                },
+                "sink_class": {
+                    "description": "SinkClass is the #633 organizing axis (personal_preference,\nbusiness_knowledge, schema_entity, operational_rule, episodic_event). It\ndrives routing in the unified write path. Empty on rows captured before\nthe axis existed; DeriveSinkClass reconstructs it from Dimension on read.",
+                    "type": "string",
+                    "example": "schema_entity"
                 },
                 "source": {
                     "type": "string",

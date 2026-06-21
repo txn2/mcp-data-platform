@@ -893,7 +893,7 @@ definitions:
         type: array
       deny_tools:
         example:
-        - capture_insight
+        - trino_execute
         items:
           type: string
         type: array
@@ -2196,6 +2196,13 @@ definitions:
       session_id:
         example: sess_abc123
         type: string
+      sink_class:
+        description: |-
+          SinkClass is the #633 organizing axis carried onto the backing memory
+          record so the unified write path and apply_knowledge sink router can
+          route by it. Empty for insights captured before #633.
+        example: schema_entity
+        type: string
       source:
         example: user
         type: string
@@ -2334,6 +2341,14 @@ definitions:
         items:
           $ref: '#/definitions/memory.RelatedColumn'
         type: array
+      sink_class:
+        description: |-
+          SinkClass is the #633 organizing axis (personal_preference,
+          business_knowledge, schema_entity, operational_rule, episodic_event). It
+          drives routing in the unified write path. Empty on rows captured before
+          the axis existed; DeriveSinkClass reconstructs it from Dimension on read.
+        example: schema_entity
+        type: string
       source:
         example: user
         type: string

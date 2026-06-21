@@ -19,7 +19,7 @@ import (
 // record columns followed by the per-arm vec_score and lex_match signals.
 // sqlmock scans positionally, so only the count/order matter.
 var hybridSearchColumns = []string{
-	"id", "created_at", "updated_at", "created_by", "persona", "dimension",
+	"id", "created_at", "updated_at", "created_by", "persona", "dimension", "sink_class",
 	"content", "category", "confidence", "source",
 	"entity_urns", "related_columns", "metadata",
 	"status", "stale_reason", "stale_at", "last_verified",
@@ -29,7 +29,7 @@ var hybridSearchColumns = []string{
 func addHybridSearchRow(rows *sqlmock.Rows, id, createdBy string, vecScore float64) {
 	now := time.Now()
 	rows.AddRow(
-		id, now, now, createdBy, "analyst", memory.DimensionKnowledge,
+		id, now, now, createdBy, "analyst", memory.DimensionKnowledge, "business_knowledge",
 		"content for "+id, "business_context", "high", "user",
 		[]byte("[]"), []byte("[]"), []byte("{}"),
 		"active", nil, nil, nil,

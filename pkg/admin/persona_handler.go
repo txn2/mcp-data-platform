@@ -58,7 +58,7 @@ type personaDetail struct {
 	Roles            []string              `json:"roles" example:"data_engineer"`
 	Priority         int                   `json:"priority" example:"10"`
 	AllowTools       []string              `json:"allow_tools" example:"trino_*,datahub_*,s3_*"`
-	DenyTools        []string              `json:"deny_tools" example:"capture_insight"`
+	DenyTools        []string              `json:"deny_tools" example:"trino_execute"`
 	AllowConnections []string              `json:"allow_connections,omitempty"`
 	DenyConnections  []string              `json:"deny_connections,omitempty"`
 	Tools            []string              `json:"tools" example:"trino_query,trino_describe_table,datahub_search"`

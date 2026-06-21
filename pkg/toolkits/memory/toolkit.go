@@ -1,4 +1,5 @@
-// Package memory provides the memory_manage and memory_recall MCP tools.
+// Package memory provides the memory_manage and memory_capture MCP tools.
+// Recall (reading memory back) is served by the unified knowledge_search tool.
 package memory
 
 import (
@@ -20,6 +21,9 @@ type Toolkit struct {
 	name     string
 	store    memstore.Store
 	embedder embedding.Provider
+	// threadLinker and recallChecker power memory_capture (#633); both optional.
+	threadLinker  ThreadLinker
+	recallChecker RecallChecker
 }
 
 // New creates a new memory toolkit.
@@ -53,21 +57,31 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:  manageToolName,
 		Title: "Memory Manage",
-		Description: "Store and manage persistent memory across sessions. " +
-			"Use 'remember' PROACTIVELY during sessions to record: user corrections, preferences, " +
-			"business context, data quality observations, and anything the user would not want to repeat next time. " +
-			"Do not wait to be asked. If the user tells you something about their data, their workflow, " +
-			"or how they want results presented, remember it. " +
-			"Commands: remember (create), update, forget (archive), list, review_stale. " +
-			"Dimensions: knowledge, event, entity, relationship, preference. " +
+		Description: "Manage the lifecycle of EXISTING persistent memory. " +
+			"Commands: update, forget (archive), list, review_stale. " +
+			"To CREATE memory or knowledge, use memory_capture (call it proactively to record corrections, " +
+			"preferences, business context, and data-quality observations). " +
 			"To find memory back, use knowledge_search.",
 		InputSchema: memoryManageSchema,
 	}, t.handleManage)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:  memoryCaptureToolName,
+		Title: "Capture Knowledge",
+		Description: "Record knowledge so it is never lost or re-derived. Call this PROACTIVELY whenever you " +
+			"learn something worth keeping; do not wait to be asked. Choose the sink-class via `type`: " +
+			"personal_preference and episodic_event are live for you immediately; business_knowledge, " +
+			"schema_entity (with entity_urns), and operational_rule are reviewed before promotion to a shared " +
+			"catalog. Examples: 'stores close at 9pm' -> business_knowledge; 'the amount column excludes returns' " +
+			"-> schema_entity. Capture is recall-first: a restatement of something already known supersedes it " +
+			"instead of duplicating.",
+		InputSchema: memoryCaptureSchema,
+	}, t.handleMemoryCapture)
 }
 
 // Tools returns the list of tool names.
 func (*Toolkit) Tools() []string {
-	return []string{manageToolName}
+	return []string{manageToolName, memoryCaptureToolName}
 }
 
 // SetSemanticProvider is a no-op: recall (which used lineage) moved to

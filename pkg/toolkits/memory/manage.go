@@ -22,7 +22,6 @@ const idLength = 16
 // switch, the help map, and any audit/log statements all reference
 // the same literal — and goconst doesn't flag the repeats.
 const (
-	cmdRemember    = "remember"
 	cmdUpdate      = "update"
 	cmdForget      = "forget"
 	cmdList        = "list"
@@ -31,11 +30,11 @@ const (
 	fieldMessage = "message"
 )
 
-// handleManage dispatches memory_manage commands.
+// handleManage dispatches memory_manage commands. Creating memory moved to the
+// memory_capture tool (#633); this tool manages the lifecycle of existing
+// records.
 func (t *Toolkit) handleManage(ctx context.Context, _ *mcp.CallToolRequest, input manageInput) (*mcp.CallToolResult, any, error) {
 	switch input.Command {
-	case cmdRemember:
-		return t.handleRemember(ctx, input)
 	case cmdUpdate:
 		return t.handleUpdate(ctx, input)
 	case cmdForget:
@@ -47,31 +46,8 @@ func (t *Toolkit) handleManage(ctx context.Context, _ *mcp.CallToolRequest, inpu
 	case "":
 		return helpResult(), nil, nil
 	default:
-		return errorResult(fmt.Sprintf("unknown command %q: use remember, update, forget, list, or review_stale", input.Command)), nil, nil
+		return errorResult(fmt.Sprintf("unknown command %q: use update, forget, list, or review_stale (create with memory_capture)", input.Command)), nil, nil
 	}
-}
-
-// validateRememberInput checks all required fields for remember command.
-func validateRememberInput(input manageInput) error {
-	if err := memstore.ValidateContent(input.Content); err != nil {
-		return fmt.Errorf("content: %w", err)
-	}
-	if err := memstore.ValidateDimension(input.Dimension); err != nil {
-		return fmt.Errorf("dimension: %w", err)
-	}
-	if err := memstore.ValidateCategory(input.Category); err != nil {
-		return fmt.Errorf("category: %w", err)
-	}
-	if err := memstore.ValidateConfidence(input.Confidence); err != nil {
-		return fmt.Errorf("confidence: %w", err)
-	}
-	if err := memstore.ValidateSource(input.Source); err != nil {
-		return fmt.Errorf("source: %w", err)
-	}
-	if err := memstore.ValidateEntityURNs(input.EntityURNs); err != nil {
-		return fmt.Errorf("entity_urns: %w", err)
-	}
-	return nil
 }
 
 // embeddingBreadcrumbs returns the model identifier and content hash
@@ -88,68 +64,6 @@ func (t *Toolkit) embeddingBreadcrumbs(emb []float32, content string) (model str
 	}
 	sum := sha256.Sum256([]byte(content))
 	return embedding.ModelName(t.embedder), sum[:]
-}
-
-// handleRemember creates a new memory record.
-func (t *Toolkit) handleRemember(ctx context.Context, input manageInput) (*mcp.CallToolResult, any, error) {
-	if err := validateRememberInput(input); err != nil {
-		return errorResult(err.Error()), nil, nil
-	}
-
-	pc := middleware.GetPlatformContext(ctx)
-	id, err := generateID()
-	if err != nil {
-		return errorResult("failed to generate ID"), nil, nil //nolint:nilerr // MCP protocol
-	}
-
-	// Generate embedding when a real provider is configured. Skip the
-	// call against the noop placeholder so we persist Embedding: nil
-	// instead of a zero vector, symmetric with the recall-side guard
-	// at recall.go:127 that refuses to query against zero vectors
-	// (#429).
-	var emb []float32
-	if embedding.IsConfigured(t.embedder) {
-		emb, err = t.embedder.Embed(ctx, input.Content)
-		if err != nil {
-			slog.Warn("embedding generation failed, storing without embedding", "error", err)
-			emb = nil
-		}
-	}
-	embModel, embHash := t.embeddingBreadcrumbs(emb, input.Content)
-
-	record := memstore.Record{
-		ID:                id,
-		CreatedBy:         pc.UserEmail,
-		Persona:           pc.PersonaName,
-		Dimension:         memstore.NormalizeDimension(input.Dimension),
-		Content:           input.Content,
-		Category:          memstore.NormalizeCategory(input.Category),
-		Confidence:        memstore.NormalizeConfidence(input.Confidence),
-		Source:            memstore.NormalizeSource(input.Source),
-		EntityURNs:        input.EntityURNs,
-		Embedding:         emb,
-		EmbeddingModel:    embModel,
-		EmbeddingTextHash: embHash,
-		Metadata:          input.Metadata,
-		Status:            memstore.StatusActive,
-	}
-
-	if record.Metadata == nil {
-		record.Metadata = make(map[string]any)
-	}
-	if pc.SessionID != "" {
-		record.Metadata["session_id"] = pc.SessionID
-	}
-
-	if err := t.store.Insert(ctx, record); err != nil {
-		return errorResult("failed to save memory: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
-	}
-
-	return jsonResult(map[string]any{
-		"id":         id,
-		"status":     "active",
-		fieldMessage: "Memory recorded successfully.",
-	}), nil, nil
 }
 
 // handleUpdate modifies an existing memory record.
@@ -301,7 +215,6 @@ func (t *Toolkit) handleReviewStale(ctx context.Context, input manageInput) (*mc
 func helpResult() *mcp.CallToolResult {
 	return jsonResult(map[string]any{
 		"commands": map[string]string{
-			cmdRemember:    "Create a new memory (requires content)",
 			cmdUpdate:      "Update an existing memory (requires id)",
 			cmdForget:      "Archive a memory (requires id)",
 			cmdList:        "List memories with optional filters",

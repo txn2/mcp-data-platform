@@ -255,6 +255,10 @@ type Insight struct {
 	RelatedColumns   []RelatedColumn   `json:"related_columns"`
 	SuggestedActions []SuggestedAction `json:"suggested_actions"`
 	Status           string            `json:"status" example:"pending"`
+	// SinkClass is the #633 organizing axis carried onto the backing memory
+	// record so the unified write path and apply_knowledge sink router can
+	// route by it. Empty for insights captured before #633.
+	SinkClass string `json:"sink_class,omitempty" example:"schema_entity"`
 
 	// Lifecycle fields (populated by migrations 000007 and 000008)
 	ReviewedBy   string     `json:"reviewed_by,omitempty" example:"admin@example.com"`

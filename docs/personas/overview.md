@@ -226,7 +226,7 @@ personas:
         allow:
           - "trino_*"
           - "datahub_*"
-          - "capture_insight"       # Can capture knowledge
+          - "memory_capture"        # Can capture knowledge
         deny:
           - "apply_knowledge"       # Cannot apply changes
 
@@ -243,7 +243,7 @@ personas:
         allow:
           - "trino_*"
         deny:
-          - "capture_insight"       # Automated processes should not capture
+          - "memory_capture"        # Automated processes should not capture
           - "apply_knowledge"
 ```
 
