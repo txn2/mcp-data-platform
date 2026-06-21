@@ -116,7 +116,7 @@ func (m *mockStore) LexicalSearch(_ context.Context, q memstore.LexicalQuery) ([
 	return m.lexicalResults, nil
 }
 
-func (m *mockStore) EntityLookup(_ context.Context, _, _ string) ([]memstore.Record, error) {
+func (m *mockStore) EntityLookup(_ context.Context, _, _, _ string) ([]memstore.Record, error) {
 	if m.entityErr != nil {
 		return nil, m.entityErr
 	}

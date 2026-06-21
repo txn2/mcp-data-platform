@@ -48,7 +48,7 @@ func (*noopStore) LexicalSearch(_ context.Context, _ LexicalQuery) ([]ScoredReco
 }
 
 // EntityLookup returns an empty slice.
-func (*noopStore) EntityLookup(_ context.Context, _, _ string) ([]Record, error) {
+func (*noopStore) EntityLookup(_ context.Context, _, _, _ string) ([]Record, error) {
 	return nil, nil
 }
 

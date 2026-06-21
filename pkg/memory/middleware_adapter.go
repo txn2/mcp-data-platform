@@ -43,7 +43,7 @@ func (a *MiddlewareAdapter) RecallForEntities(ctx context.Context, urns []string
 	var snippets []Snippet
 
 	for _, urn := range urns {
-		records, err := a.store.EntityLookup(ctx, urn, persona)
+		records, err := a.store.EntityLookup(ctx, urn, persona, "")
 		if err != nil {
 			return nil, fmt.Errorf("entity lookup for %s: %w", urn, err)
 		}

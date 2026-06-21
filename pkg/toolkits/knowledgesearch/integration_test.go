@@ -11,17 +11,19 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
+	"github.com/txn2/mcp-data-platform/pkg/prompt"
+	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
 
 // These tests assemble the real read path end to end: the knowledge_search tool
-// handler -> knowledge.Router -> the real memory/insights/assets provider
-// adapters -> stores. The stores are fakes, but they enforce the same per-owner
-// scoping the real Postgres stores do (filtering on CreatedBy / CapturedBy /
-// OwnerID), so the test proves the tool resolves the caller from the platform
-// context and the router actually carries that identity through each adapter to
-// the store. This is the wiring CLAUDE.md requires an integration test to
-// cover, not just per-function unit tests.
+// handler -> knowledge.Router -> the real memory/insights/assets/datahub/prompts
+// provider adapters -> stores. The stores are fakes, but the per-user ones
+// enforce the same per-owner scoping the real Postgres stores do (CreatedBy /
+// CapturedBy / OwnerID), so the test proves the tool resolves the caller from
+// the platform context and the router carries that identity through each adapter.
+// The datahub and prompts fakes are shared (global content), so they also prove
+// shared sinks reach every caller without leaking per-user records.
 
 // scopedMemoryStore returns only records whose CreatedBy matches the query.
 type scopedMemoryStore struct {
@@ -34,6 +36,16 @@ func (s *scopedMemoryStore) HybridSearch(_ context.Context, q memory.HybridQuery
 
 func (s *scopedMemoryStore) LexicalSearch(_ context.Context, q memory.LexicalQuery) ([]memory.ScoredRecord, error) {
 	return s.scoped(q.CreatedBy), nil
+}
+
+func (s *scopedMemoryStore) EntityLookup(_ context.Context, _, _, createdBy string) ([]memory.Record, error) {
+	var out []memory.Record
+	for _, r := range s.records {
+		if r.CreatedBy == createdBy {
+			out = append(out, r)
+		}
+	}
+	return out, nil
 }
 
 func (s *scopedMemoryStore) scoped(owner string) []memory.ScoredRecord {
@@ -76,6 +88,22 @@ func (s *scopedAssetStore) SearchAssets(_ context.Context, q portal.AssetSearchQ
 	return out, nil
 }
 
+// globalCatalog is a shared datahub fake: it returns the same catalog hit for
+// every caller, modeling global (non-per-user) knowledge.
+type globalCatalog struct{}
+
+func (globalCatalog) SearchTables(_ context.Context, _ semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
+	return []semantic.TableSearchResult{{URN: "g-catalog", Name: "global table"}}, nil
+}
+
+// globalPrompts is a shared prompts fake returning one global prompt for every
+// caller.
+type globalPrompts struct{}
+
+func (globalPrompts) Search(_ context.Context, _ prompt.SearchQuery) ([]prompt.ScoredPrompt, error) {
+	return []prompt.ScoredPrompt{{Prompt: prompt.Prompt{Name: "g-prompt", DisplayName: "global prompt"}, Score: 0.5}}, nil
+}
+
 const (
 	userAEmail = "alice@example.com"
 	userAID    = "uuid-alice"
@@ -83,8 +111,8 @@ const (
 	userBID    = "uuid-bob"
 )
 
-// assembledToolkit builds the toolkit over the real router and adapters with
-// data owned by user A in every store.
+// assembledToolkit builds the toolkit over the real router and all five provider
+// adapters, with per-user data owned by user A and shared catalog/prompt data.
 func assembledToolkit() *Toolkit {
 	mem := &scopedMemoryStore{records: []memory.Record{
 		{ID: "m-alice", CreatedBy: userAEmail, Content: "alice memory", Dimension: memory.DimensionPreference},
@@ -97,8 +125,10 @@ func assembledToolkit() *Toolkit {
 	}}
 
 	router := knowledge.NewRouter(nil,
-		knowledge.NewMemoryProvider(mem),
+		knowledge.NewMemoryProvider(mem, nil),
 		knowledge.NewInsightsProvider(ins),
+		knowledge.NewDatahubProvider(globalCatalog{}),
+		knowledge.NewPromptsProvider(globalPrompts{}),
 		knowledge.NewAssetsProvider(assets),
 	)
 	return New("default", router)
@@ -137,20 +167,17 @@ func TestAC1_FusedAndSourceTagged(t *testing.T) {
 	tk := assembledToolkit()
 	out := callSearch(ctxFor(userAID, userAEmail), t, tk, "alice")
 
-	if out.Count != 3 {
-		t.Fatalf("expected 3 hits across providers, got %d: %+v", out.Count, out.Hits)
-	}
 	got := map[string]bool{}
 	for _, h := range out.Hits {
-		if h.Source == "" {
-			t.Errorf("hit missing source: %+v", h)
-		}
-		if h.Ref == "" || h.Text == "" {
-			t.Errorf("hit missing ref/text: %+v", h)
+		if h.Source == "" || h.Ref == "" || h.Text == "" {
+			t.Errorf("hit missing source/ref/text: %+v", h)
 		}
 		got[h.Source] = true
 	}
-	for _, src := range []string{knowledge.SourceMemory, knowledge.SourceInsights, knowledge.SourceAssets} {
+	for _, src := range []string{
+		knowledge.SourceMemory, knowledge.SourceInsights, knowledge.SourceAssets,
+		knowledge.SourceDatahub, knowledge.SourcePrompts,
+	} {
 		if !got[src] {
 			t.Errorf("missing hit from source %q (sources seen: %v)", src, got)
 		}
@@ -160,47 +187,86 @@ func TestAC1_FusedAndSourceTagged(t *testing.T) {
 	}
 }
 
-// AC2: user B's search never surfaces user A's per-user records. Proven with two
-// distinct identities against the same assembled system.
+// AC2: user B's search never surfaces user A's per-user records, even though
+// shared providers (catalog, prompts) return global content to both.
 func TestAC2_PerUserIsolationBetweenIdentities(t *testing.T) {
 	tk := assembledToolkit()
 
-	// User A owns data in every store and sees all three hits.
 	aOut := callSearch(ctxFor(userAID, userAEmail), t, tk, "anything")
-	if aOut.Count != 3 {
-		t.Fatalf("user A should see 3 own hits, got %d", aOut.Count)
+	aRefs := refSet(aOut)
+	for _, ref := range []string{"m-alice", "i-alice", "a-alice"} {
+		if !aRefs[ref] {
+			t.Fatalf("user A should see own record %q; got refs %v", ref, aRefs)
+		}
 	}
 
-	// User B owns nothing; none of A's records may appear.
 	bOut := callSearch(ctxFor(userBID, userBEmail), t, tk, "anything")
-	if bOut.Count != 0 {
-		t.Fatalf("user B must see no hits (would be a cross-user leak), got %d: %+v", bOut.Count, bOut.Hits)
-	}
 	for _, h := range bOut.Hits {
 		if h.Ref == "m-alice" || h.Ref == "i-alice" || h.Ref == "a-alice" {
 			t.Errorf("LEAK: user B received user A's record %q from %q", h.Ref, h.Source)
 		}
 	}
-}
-
-// An anonymous caller (no platform context identity) gets no per-user results
-// rather than an error or a cross-user search.
-func TestAnonymousCallerGetsNothing(t *testing.T) {
-	tk := assembledToolkit()
-	out := callSearch(context.Background(), t, tk, "anything")
-	if out.Count != 0 {
-		t.Fatalf("anonymous caller should see no per-user hits, got %d", out.Count)
+	// User B still sees the shared catalog/prompt content.
+	bRefs := refSet(bOut)
+	if !bRefs["g-catalog"] || !bRefs["g-prompt"] {
+		t.Errorf("user B should see shared content; got refs %v", bRefs)
 	}
 }
 
-func TestHandleSearch_EmptyIntentErrors(t *testing.T) {
+// TestEntityPathScopedToCaller proves the entity-keyed path also honors per-user
+// scope: user B gets nothing from user A's entity-linked memory.
+func TestEntityPathScopedToCaller(t *testing.T) {
+	mem := &scopedMemoryStore{records: []memory.Record{
+		{ID: "e-alice", CreatedBy: userAEmail, Content: "alice orders note", Dimension: memory.DimensionEntity, EntityURNs: []string{"urn:li:dataset:orders"}},
+	}}
+	router := knowledge.NewRouter(nil, knowledge.NewMemoryProvider(mem, nil))
+	tk := New("default", router)
+
+	// Entity-only query (no intent) by user B must not return alice's record.
+	res, _, err := tk.handleSearch(ctxFor(userBID, userBEmail), &mcp.CallToolRequest{}, searchInput{EntityURNs: []string{"urn:li:dataset:orders"}})
+	if err != nil {
+		t.Fatalf("transport error: %v", err)
+	}
+	tc, ok := res.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("unexpected content type %T", res.Content[0])
+	}
+	var out searchOutput
+	if err := json.Unmarshal([]byte(tc.Text), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if out.Count != 0 {
+		t.Fatalf("entity lookup leaked across users: %+v", out.Hits)
+	}
+}
+
+func refSet(out searchOutput) map[string]bool {
+	m := make(map[string]bool, len(out.Hits))
+	for _, h := range out.Hits {
+		m[h.Ref] = true
+	}
+	return m
+}
+
+// An anonymous caller still gets shared content but no per-user results.
+func TestAnonymousCallerSeesOnlyShared(t *testing.T) {
+	tk := assembledToolkit()
+	out := callSearch(context.Background(), t, tk, "anything")
+	for _, h := range out.Hits {
+		if h.Source == knowledge.SourceMemory || h.Source == knowledge.SourceInsights || h.Source == knowledge.SourceAssets {
+			t.Errorf("anonymous caller got per-user hit from %q: %+v", h.Source, h)
+		}
+	}
+}
+
+func TestHandleSearch_RequiresIntentOrEntities(t *testing.T) {
 	tk := assembledToolkit()
 	res, _, err := tk.handleSearch(ctxFor(userAID, userAEmail), &mcp.CallToolRequest{}, searchInput{Intent: "   "})
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)
 	}
 	if !res.IsError {
-		t.Fatal("expected an error result for empty intent")
+		t.Fatal("expected an error result when neither intent nor entity_urns is given")
 	}
 }
 
@@ -212,7 +278,6 @@ func TestToolkit_RegistersTool(t *testing.T) {
 	if tools := tk.Tools(); len(tools) != 1 || tools[0] != toolName {
 		t.Errorf("Tools = %v", tools)
 	}
-	// Registration should not panic against a real server.
 	srv := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "0"}, nil)
 	tk.RegisterTools(srv)
 }

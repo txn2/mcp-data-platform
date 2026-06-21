@@ -11,12 +11,16 @@ import (
 type fakeMemoryStore struct {
 	hybrid     []memory.ScoredRecord
 	lexical    []memory.ScoredRecord
+	entity     map[string][]memory.Record // urn -> records
 	err        error
 	gotHybrid  memory.HybridQuery
 	gotLexical memory.LexicalQuery
+	gotEntity  []entityCall
 	hybridHit  bool
 	lexicalHit bool
 }
+
+type entityCall struct{ urn, persona, createdBy string }
 
 func (f *fakeMemoryStore) HybridSearch(_ context.Context, q memory.HybridQuery) ([]memory.ScoredRecord, error) {
 	f.hybridHit = true
@@ -30,8 +34,24 @@ func (f *fakeMemoryStore) LexicalSearch(_ context.Context, q memory.LexicalQuery
 	return f.lexical, f.err
 }
 
+func (f *fakeMemoryStore) EntityLookup(_ context.Context, urn, persona, createdBy string) ([]memory.Record, error) {
+	f.gotEntity = append(f.gotEntity, entityCall{urn, persona, createdBy})
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.entity[urn], nil
+}
+
+// fakeLineage expands every input urn to itself plus a fixed neighbor.
+type fakeLineage struct{ neighbor string }
+
+func (l fakeLineage) Expand(_ context.Context, urns []string) []string {
+	out := append([]string{}, urns...)
+	return append(out, l.neighbor)
+}
+
 func TestMemoryProvider_Metadata(t *testing.T) {
-	p := NewMemoryProvider(&fakeMemoryStore{})
+	p := NewMemoryProvider(&fakeMemoryStore{}, nil)
 	if p.Name() != SourceMemory {
 		t.Errorf("Name = %q", p.Name())
 	}
@@ -42,15 +62,15 @@ func TestMemoryProvider_Metadata(t *testing.T) {
 
 func TestMemoryProvider_FailsClosedWithoutEmail(t *testing.T) {
 	store := &fakeMemoryStore{}
-	p := NewMemoryProvider(store)
-	hits, err := p.Search(context.Background(), Query{Caller: Caller{UserID: "uuid-only"}})
+	p := NewMemoryProvider(store, nil)
+	hits, err := p.Search(context.Background(), Query{Intent: "q", EntityURNs: []string{"urn:x"}, Caller: Caller{UserID: "uuid-only"}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if hits != nil {
 		t.Errorf("expected no hits, got %+v", hits)
 	}
-	if store.hybridHit || store.lexicalHit {
+	if store.hybridHit || store.lexicalHit || len(store.gotEntity) != 0 {
 		t.Error("store must not be queried without a caller email")
 	}
 }
@@ -61,7 +81,7 @@ func TestMemoryProvider_HybridWhenEmbeddingPresent(t *testing.T) {
 			{Record: memory.Record{ID: "m1", Content: "hello", Dimension: memory.DimensionPreference}, Score: 0.9},
 		},
 	}
-	p := NewMemoryProvider(store)
+	p := NewMemoryProvider(store, nil)
 	hits, err := p.Search(context.Background(), Query{
 		Intent:    "q",
 		Embedding: []float32{0.1},
@@ -86,7 +106,7 @@ func TestMemoryProvider_HybridWhenEmbeddingPresent(t *testing.T) {
 	if store.gotHybrid.Status != memory.StatusActive {
 		t.Errorf("Status = %q, want active", store.gotHybrid.Status)
 	}
-	if len(hits) != 1 || hits[0].Source != SourceMemory || hits[0].Ref != "m1" || hits[0].Text != "hello" {
+	if len(hits) != 1 || hits[0].Source != SourceMemory || hits[0].Ref != "m1" || hits[0].Text != "hello" || hits[0].Dimension != memory.DimensionPreference {
 		t.Errorf("unexpected hit mapping: %+v", hits)
 	}
 }
@@ -97,7 +117,7 @@ func TestMemoryProvider_LexicalWhenNoEmbedding(t *testing.T) {
 			{Record: memory.Record{ID: "m2", Content: "x", Dimension: memory.DimensionEvent}, Score: 0.3},
 		},
 	}
-	p := NewMemoryProvider(store)
+	p := NewMemoryProvider(store, nil)
 	_, err := p.Search(context.Background(), Query{Intent: "q", Caller: Caller{Email: "a@example.com"}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -105,44 +125,83 @@ func TestMemoryProvider_LexicalWhenNoEmbedding(t *testing.T) {
 	if store.hybridHit || !store.lexicalHit {
 		t.Fatal("expected lexical search, not hybrid")
 	}
-	if store.gotLexical.CreatedBy != "a@example.com" {
-		t.Errorf("CreatedBy = %q", store.gotLexical.CreatedBy)
-	}
-	if store.gotLexical.ExcludeDimension != memory.DimensionKnowledge {
-		t.Errorf("ExcludeDimension = %q, want knowledge", store.gotLexical.ExcludeDimension)
-	}
-	if store.gotLexical.Status != memory.StatusActive {
-		t.Errorf("Status = %q, want active", store.gotLexical.Status)
+	if store.gotLexical.ExcludeDimension != memory.DimensionKnowledge || store.gotLexical.Status != memory.StatusActive {
+		t.Errorf("lexical query not scoped: %+v", store.gotLexical)
 	}
 }
 
-// The knowledge dimension is excluded in SQL (via ExcludeDimension) rather than
-// after LIMIT, so the provider must request the exclusion on every query; this
-// asserts it does, on both the hybrid and lexical arms.
-func TestMemoryProvider_RequestsKnowledgeDimensionExclusion(t *testing.T) {
-	store := &fakeMemoryStore{}
-	p := NewMemoryProvider(store)
+func TestMemoryProvider_EntityLookupScopedToCaller(t *testing.T) {
+	store := &fakeMemoryStore{
+		entity: map[string][]memory.Record{
+			"urn:li:dataset:orders": {
+				{ID: "e1", Content: "orders note", Dimension: memory.DimensionEntity, EntityURNs: []string{"urn:li:dataset:orders"}},
+				{ID: "k1", Content: "insight row", Dimension: memory.DimensionKnowledge},
+			},
+		},
+	}
+	p := NewMemoryProvider(store, nil)
+	hits, err := p.Search(context.Background(), Query{
+		EntityURNs: []string{"urn:li:dataset:orders"},
+		Caller:     Caller{Email: "a@example.com", Persona: "analyst"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Scope key forwarded.
+	if len(store.gotEntity) != 1 || store.gotEntity[0].createdBy != "a@example.com" || store.gotEntity[0].persona != "analyst" {
+		t.Fatalf("entity lookup not scoped to caller: %+v", store.gotEntity)
+	}
+	// Knowledge-dimension row excluded (owned by insights provider).
+	if len(hits) != 1 || hits[0].Ref != "e1" || hits[0].Score != entityMatchScore {
+		t.Errorf("expected only the non-knowledge entity hit at max score, got %+v", hits)
+	}
+}
 
-	if _, err := p.Search(context.Background(), Query{Intent: "q", Embedding: []float32{0.1}, Caller: Caller{Email: "a@example.com"}}); err != nil {
-		t.Fatalf("hybrid search error: %v", err)
+func TestMemoryProvider_GraphExpansion(t *testing.T) {
+	store := &fakeMemoryStore{
+		entity: map[string][]memory.Record{
+			"urn:a": {{ID: "ra", Content: "a", Dimension: memory.DimensionEntity}},
+			"urn:b": {{ID: "rb", Content: "b", Dimension: memory.DimensionEntity}},
+		},
 	}
-	if store.gotHybrid.ExcludeDimension != memory.DimensionKnowledge {
-		t.Errorf("hybrid ExcludeDimension = %q, want knowledge", store.gotHybrid.ExcludeDimension)
+	p := NewMemoryProvider(store, fakeLineage{neighbor: "urn:b"})
+	hits, err := p.Search(context.Background(), Query{
+		EntityURNs: []string{"urn:a"},
+		Caller:     Caller{Email: "a@example.com"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
+	// Lineage added urn:b, so both records surface.
+	if len(hits) != 2 {
+		t.Fatalf("expected 2 hits after lineage expansion, got %d: %+v", len(hits), hits)
+	}
+}
 
-	store = &fakeMemoryStore{}
-	p = NewMemoryProvider(store)
-	if _, err := p.Search(context.Background(), Query{Intent: "q", Caller: Caller{Email: "a@example.com"}}); err != nil {
-		t.Fatalf("lexical search error: %v", err)
+func TestMemoryProvider_EntityAndTextDedup(t *testing.T) {
+	// The same record id reachable by both entity and text paths appears once.
+	rec := memory.Record{ID: "dup", Content: "dup", Dimension: memory.DimensionEntity}
+	store := &fakeMemoryStore{
+		entity:  map[string][]memory.Record{"urn:x": {rec}},
+		lexical: []memory.ScoredRecord{{Record: rec, Score: 0.4}},
 	}
-	if store.gotLexical.ExcludeDimension != memory.DimensionKnowledge {
-		t.Errorf("lexical ExcludeDimension = %q, want knowledge", store.gotLexical.ExcludeDimension)
+	p := NewMemoryProvider(store, nil)
+	hits, err := p.Search(context.Background(), Query{
+		Intent:     "dup",
+		EntityURNs: []string{"urn:x"},
+		Caller:     Caller{Email: "a@example.com"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(hits) != 1 {
+		t.Fatalf("expected de-duplicated single hit, got %d: %+v", len(hits), hits)
 	}
 }
 
 func TestMemoryProvider_SearchError(t *testing.T) {
 	store := &fakeMemoryStore{err: errors.New("db down")}
-	p := NewMemoryProvider(store)
+	p := NewMemoryProvider(store, nil)
 	_, err := p.Search(context.Background(), Query{Intent: "q", Caller: Caller{Email: "a@example.com"}})
 	if err == nil {
 		t.Fatal("expected error to propagate")

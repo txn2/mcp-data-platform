@@ -45,10 +45,14 @@ func (*InsightsProvider) Name() string { return SourceInsights }
 // sharing is deferred.
 func (*InsightsProvider) Scope() Scope { return ScopePerUser }
 
-// Search returns the caller's captured insights ranked by relevance. It fails
-// closed on a missing caller email rather than searching across all users.
+// Search returns the caller's captured insights ranked by relevance to the
+// intent, optionally filtered by review status. Each hit carries the insight's
+// review status and linked entity URNs as provenance. It responds to the text
+// (Intent) path only; entity-keyed lookup is served by the memory provider, so
+// a query with no intent yields nothing here. It fails closed on a missing
+// caller email rather than searching across all users.
 func (p *InsightsProvider) Search(ctx context.Context, q Query) ([]Hit, error) {
-	if q.Caller.Email == "" {
+	if q.Caller.Email == "" || q.Intent == "" {
 		return nil, nil
 	}
 
@@ -56,6 +60,7 @@ func (p *InsightsProvider) Search(ctx context.Context, q Query) ([]Hit, error) {
 		QueryText:  q.Intent,
 		Embedding:  q.Embedding,
 		CapturedBy: q.Caller.Email,
+		Status:     q.Status,
 		Limit:      q.Limit,
 	})
 	if err != nil {
@@ -65,10 +70,12 @@ func (p *InsightsProvider) Search(ctx context.Context, q Query) ([]Hit, error) {
 	hits := make([]Hit, 0, len(scored))
 	for i := range scored {
 		hits = append(hits, Hit{
-			Text:   scored[i].Insight.InsightText,
-			Source: SourceInsights,
-			Ref:    scored[i].Insight.ID,
-			Score:  scored[i].Score,
+			Text:       scored[i].Insight.InsightText,
+			Source:     SourceInsights,
+			Ref:        scored[i].Insight.ID,
+			Score:      scored[i].Score,
+			Status:     scored[i].Insight.Status,
+			EntityURNs: scored[i].Insight.EntityURNs,
 		})
 	}
 	return hits, nil

@@ -17,7 +17,7 @@ type mockStore struct {
 	entityLookupFn func(ctx context.Context, urn, persona string) ([]Record, error)
 }
 
-func (m *mockStore) EntityLookup(ctx context.Context, urn, persona string) ([]Record, error) {
+func (m *mockStore) EntityLookup(ctx context.Context, urn, persona, _ string) ([]Record, error) {
 	if m.entityLookupFn != nil {
 		return m.entityLookupFn(ctx, urn, persona)
 	}

@@ -1605,12 +1605,29 @@ func (p *Platform) initKnowledgeSearch() error {
 	var providers []knowledge.Provider
 
 	if p.memoryStore != nil {
-		providers = append(providers, knowledge.NewMemoryProvider(p.memoryStore))
+		// The lineage expander widens the entity path along DataHub lineage
+		// (the old memory_recall graph strategy); nil when no real catalog is
+		// configured, leaving a plain entity lookup.
+		var lineage knowledge.LineageExpander
+		if p.config.Semantic.Provider == kindDataHub && p.semanticProvider != nil {
+			lineage = &knowledgeLineageExpander{semantic: p.semanticProvider}
+		}
+		providers = append(providers, knowledge.NewMemoryProvider(p.memoryStore, lineage))
 	}
 	// Insights are searchable only through the memory-backed adapter; the
 	// legacy SQL store and the noop store do not implement InsightSearcher.
 	if s, ok := p.knowledgeInsightStore.(knowledgekit.InsightSearcher); ok {
 		providers = append(providers, knowledge.NewInsightsProvider(s))
+	}
+	// The technical catalog is a knowledge sink only when a real DataHub
+	// semantic provider is configured (the noop fallback would add an
+	// always-empty provider).
+	if p.config.Semantic.Provider == kindDataHub && p.semanticProvider != nil {
+		providers = append(providers, knowledge.NewDatahubProvider(p.semanticProvider))
+	}
+	// Prompts are searchable through the postgres prompt store.
+	if s, ok := p.promptStore.(prompt.Searcher); ok {
+		providers = append(providers, knowledge.NewPromptsProvider(s))
 	}
 	// Assets are searchable only through the postgres asset store.
 	if s, ok := p.portalAssetStore.(portal.AssetSearcher); ok {
@@ -1629,6 +1646,44 @@ func (p *Platform) initKnowledgeSearch() error {
 
 	slog.Info("knowledge search enabled", "providers", len(providers))
 	return nil
+}
+
+// knowledgeLineageExpander widens a set of entity URNs along one hop of DataHub
+// lineage for the knowledge_search entity path, mirroring the memory toolkit's
+// lineage collection. It is the seam that carries the old memory_recall "graph"
+// strategy into the unified search verb.
+type knowledgeLineageExpander struct {
+	semantic semantic.Provider
+}
+
+// Expand returns the input URNs plus their one-hop upstream and downstream
+// lineage neighbors. Lookups that fail (unparseable URN, lineage error) are
+// skipped, so expansion never fails the search; the original URNs are always
+// returned.
+func (e *knowledgeLineageExpander) Expand(ctx context.Context, urns []string) []string {
+	related := make(map[string]bool)
+	for _, urn := range urns {
+		related[urn] = true
+		table, err := memory.ParseURNToTable(urn)
+		if err != nil {
+			continue
+		}
+		// nosemgrep: semgrep.unbounded-make-slice-capacity -- fixed 2-element literal, not user input
+		for _, dir := range []semantic.LineageDirection{semantic.LineageUpstream, semantic.LineageDownstream} {
+			lineage, err := e.semantic.GetLineage(ctx, table, dir, 1)
+			if err != nil || lineage == nil {
+				continue
+			}
+			for _, entity := range lineage.Entities {
+				related[entity.URN] = true
+			}
+		}
+	}
+	out := make([]string, 0, len(related))
+	for u := range related {
+		out = append(out, u)
+	}
+	return out
 }
 
 // configureKnowledgeApply sets up the apply_knowledge tool dependencies if enabled.
