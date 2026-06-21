@@ -37,6 +37,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/database/migrate"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
+	"github.com/txn2/mcp-data-platform/pkg/knowledge"
 	"github.com/txn2/mcp-data-platform/pkg/mcpapps"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -63,6 +64,7 @@ import (
 	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
+	knowledgesearchkit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledgesearch"
 	memorykit "github.com/txn2/mcp-data-platform/pkg/toolkits/memory"
 	portalkit "github.com/txn2/mcp-data-platform/pkg/toolkits/portal"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/tools/toolsindex"
@@ -376,6 +378,11 @@ func (p *Platform) initExtensions() error {
 	// Portal creates the toolkit, so this is wired after both init.
 	if p.knowledgeToolkit != nil && p.portalToolkit != nil {
 		p.knowledgeToolkit.SetThreadLinker(p.portalToolkit)
+	}
+	// Unified knowledge read path (#632). Federates the stores initialized
+	// above (memory, insights, assets), so it must run after them.
+	if err := p.initKnowledgeSearch(); err != nil {
+		return err
 	}
 	if err := p.initManagedResources(); err != nil {
 		return err
@@ -1585,6 +1592,42 @@ func (p *Platform) initKnowledge() error {
 	}
 
 	slog.Info("knowledge capture enabled")
+	return nil
+}
+
+// initKnowledgeSearch wires the unified knowledge read path (#632): one
+// knowledge_search tool over a router that federates the per-user stores
+// initialized earlier in initExtensions. Each provider registers only when its
+// backing store exists, so the tool appears whenever at least one knowledge
+// source is available and is skipped entirely on a store-less (no-database)
+// deployment.
+func (p *Platform) initKnowledgeSearch() error {
+	var providers []knowledge.Provider
+
+	if p.memoryStore != nil {
+		providers = append(providers, knowledge.NewMemoryProvider(p.memoryStore))
+	}
+	// Insights are searchable only through the memory-backed adapter; the
+	// legacy SQL store and the noop store do not implement InsightSearcher.
+	if s, ok := p.knowledgeInsightStore.(knowledgekit.InsightSearcher); ok {
+		providers = append(providers, knowledge.NewInsightsProvider(s))
+	}
+	// Assets are searchable only through the postgres asset store.
+	if s, ok := p.portalAssetStore.(portal.AssetSearcher); ok {
+		providers = append(providers, knowledge.NewAssetsProvider(s))
+	}
+
+	if len(providers) == 0 {
+		return nil
+	}
+
+	router := knowledge.NewRouter(p.embeddingProv, providers...)
+	tk := knowledgesearchkit.New(instanceDefault, router)
+	if err := p.toolkitRegistry.Register(tk); err != nil {
+		return fmt.Errorf("registering knowledge_search toolkit: %w", err)
+	}
+
+	slog.Info("knowledge search enabled", "providers", len(providers))
 	return nil
 }
 

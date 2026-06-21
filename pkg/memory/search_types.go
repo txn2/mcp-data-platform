@@ -29,8 +29,14 @@ type HybridQuery struct {
 	Limit     int
 	CreatedBy string
 	Dimension string
-	Persona   string
-	Status    string
+	// ExcludeDimension drops rows of one dimension from the results. It is
+	// the complement of Dimension (which restricts to one): the unified
+	// knowledge search excludes the knowledge dimension here because those
+	// rows are served by the insights provider, and excluding them in SQL
+	// (rather than after LIMIT) keeps the result count honest.
+	ExcludeDimension string
+	Persona          string
+	Status           string
 }
 
 // LexicalQuery defines parameters for lexical-only recall, used as the
@@ -44,8 +50,10 @@ type LexicalQuery struct {
 	Limit     int
 	CreatedBy string
 	Dimension string
-	Persona   string
-	Status    string
+	// ExcludeDimension drops rows of one dimension; see HybridQuery.
+	ExcludeDimension string
+	Persona          string
+	Status           string
 }
 
 // ScoredRecord pairs a memory record with a similarity score.
