@@ -5,7 +5,7 @@ description: Capture domain knowledge shared during AI sessions and write it bac
 # Knowledge Capture
 
 !!! tip "Memory Layer"
-    Knowledge capture is part of the broader [Memory Layer](../memory/overview.md). Insights captured via `capture_insight` are stored in `memory_records` (the unified memory table) and can be recalled, enriched, and promoted to durable DataHub knowledge via `apply_knowledge`.
+    Knowledge capture lives in the [Memory Layer](../memory/overview.md) and is performed by the `memory_capture` tool (memory toolkit). It therefore requires the memory layer to be enabled: memory defaults on when a database is configured, and setting `memory.enabled: false` disables capture. Insights captured via `memory_capture` are stored in `memory_records` (the unified memory table) and can be recalled, enriched, and promoted to durable DataHub knowledge via `apply_knowledge`.
 
 ## The Problem
 
@@ -22,7 +22,7 @@ The system has three components: two MCP tools and an Admin REST API.
 ```mermaid
 flowchart LR
     subgraph "During AI Session"
-        A[User shares<br/>domain knowledge] --> B[capture_insight<br/>tool]
+        A[User shares<br/>domain knowledge] --> B[memory_capture<br/>tool]
     end
 
     subgraph "PostgreSQL + pgvector"
@@ -42,8 +42,8 @@ flowchart LR
     end
 ```
 
-- **`knowledge_search`** is the one way to search: one query fans across the caller's memory, captured insights, the technical catalog, prompts, and saved assets, returning a single fused, source-tagged, per-user-scoped ranked list. It replaces the former `recall_insight`, `memory_recall`, and `datahub_search` (relevance) tools. See [knowledge_search](../server/tools.md#knowledge_search).
-- **`capture_insight`** records domain knowledge during sessions. Available to all personas when enabled. Creates insights with status `pending`. (To read insights back, use `knowledge_search`.)
+- **`knowledge_search`** is the one way to search: one query fans across the caller's memory, captured insights, the technical catalog, prompts, and saved assets, returning a single fused, source-tagged, per-user-scoped ranked list. See [knowledge_search](../server/tools.md#knowledge_search).
+- **`memory_capture`** (memory toolkit) records domain knowledge during sessions. Available to all personas when enabled. Reviewed sink-classes (`business_knowledge`, `schema_entity`, `operational_rule`) create insights with status `pending`. (To read knowledge back, use `knowledge_search`.)
 - **`apply_knowledge`** is an admin-only tool for reviewing, approving, synthesizing, and applying insights to DataHub.
 - **[Admin REST API](admin-api.md)** provides HTTP endpoints for managing insights and changesets outside the MCP protocol.
 
@@ -66,7 +66,7 @@ Insights have these statuses:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> pending: capture_insight
+    [*] --> pending: memory_capture
     pending --> approved: admin approves
     pending --> rejected: admin rejects
     pending --> superseded: newer insight replaces
@@ -97,7 +97,7 @@ sequenceDiagram
     participant DH as DataHub
 
     Analyst->>AI: "The amount column is actually gross margin"
-    AI->>MCP: capture_insight(category: correction, ...)
+    AI->>MCP: memory_capture(type: schema_entity, ...)
     MCP->>PG: INSERT knowledge_insights (status: pending)
     MCP-->>AI: insight_id: a1b2c3...
 
@@ -135,13 +135,13 @@ knowledge:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `knowledge.enabled` | bool | `false` | Enable the knowledge capture toolkit and `capture_insight` tool |
+| `knowledge.enabled` | bool | `false` | Enable the knowledge review and write-back toolkit (`apply_knowledge`). Knowledge capture lives in the memory toolkit (`memory_capture`) and is enabled with the memory layer, not this flag |
 | `knowledge.apply.enabled` | bool | `false` | Enable the `apply_knowledge` tool for admin review and catalog write-back |
 | `knowledge.apply.datahub_connection` | string | - | DataHub instance name for write-back operations |
 | `knowledge.apply.require_confirmation` | bool | `false` | When true, the `apply` action requires `confirm: true` in the request |
 
 !!! note "Prerequisites"
-    Knowledge capture requires `database.dsn` to be configured for PostgreSQL storage. The `apply_knowledge` tool requires the admin persona.
+    Knowledge capture requires `database.dsn` to be configured for PostgreSQL storage. Because capture now lives in the memory toolkit (`memory_capture`), it also requires the memory layer enabled. Memory defaults on when a database is configured; setting `memory.enabled: false` disables capture. The `apply_knowledge` tool requires the admin persona.
 
 ## Persona Integration
 
@@ -157,7 +157,7 @@ personas:
         allow:
           - "trino_*"
           - "datahub_*"
-          - "capture_insight"       # Can capture knowledge
+          - "memory_capture"        # Can capture knowledge
         deny:
           - "apply_knowledge"       # Cannot apply changes
 
@@ -174,7 +174,7 @@ personas:
         allow:
           - "trino_*"
         deny:
-          - "capture_insight"       # Automated processes should not capture
+          - "memory_capture"        # Automated processes should not capture
           - "apply_knowledge"
 ```
 
@@ -188,13 +188,13 @@ Insights track where the knowledge came from via the `source` field:
 | `agent_discovery` | Knowledge the AI agent figured out independently | Agent samples data and discovers a column contains ISO country codes |
 | `enrichment_gap` | Metadata gap flagged for admin attention | Table has no description and the agent cannot determine its purpose from the data |
 
-The source field is optional when calling `capture_insight`. When omitted, it defaults to `user`.
+The source field is optional when calling `memory_capture`. When omitted, it defaults to `user`.
 
 ## Feedback Bridge
 
 Human feedback threads (left on portal artifacts via `manage_artifact`) connect to the knowledge loop, so an agent can resolve a thread by capturing the insight it represents and the chain stays visible end to end: **thread → insight → changeset → `target_urn`**.
 
-**Resolving a thread into an insight.** `capture_insight` accepts an optional `thread_ids` array. When supplied, each named thread has its `insight_id` set, an `insight_linked` event appended to its timeline, and its status moved to `resolved`. Linking is **authorized with the same owns-or-edit check as `manage_feedback resolve`**: a thread the caller could not resolve (one on an artifact they neither own nor can edit) is refused and reported as unlinked, so `capture_insight` is not a back door around the access model. The call is best-effort (a link failure never fails the capture) and the result reports the outcome so the agent can detect a mistyped, unauthorized, or already-resolved thread:
+**Resolving a thread into an insight.** `memory_capture` accepts an optional `thread_ids` array. When supplied, each named thread has its `insight_id` set, an `insight_linked` event appended to its timeline, and its status moved to `resolved`. Linking is **authorized with the same owns-or-edit check as `manage_feedback resolve`**: a thread the caller could not resolve (one on an artifact they neither own nor can edit) is refused and reported as unlinked, so `memory_capture` is not a back door around the access model. The call is best-effort (a link failure never fails the capture) and the result reports the outcome so the agent can detect a mistyped, unauthorized, or already-resolved thread:
 
 | Field | Meaning |
 |-------|---------|

@@ -300,7 +300,7 @@ sequenceDiagram
     Analyst->>AI: That's gross margin before returns,<br/>not revenue like the name suggests
 
     Note over AI,Platform: Capture
-    AI->>Platform: capture_insight(<br/>category: correction,<br/>source: user,<br/>entity_urns: [urn:li:dataset:...orders...],<br/>insight_text: "amount column is gross margin<br/>before returns, not revenue",<br/>confidence: high,<br/>suggested_actions: [{<br/>  action_type: update_description,<br/>  target: amount,<br/>  detail: "Gross margin before returns"<br/>}])
+    AI->>Platform: memory_capture(<br/>type: schema_entity,<br/>source: user,<br/>entity_urns: [urn:li:dataset:...orders...],<br/>content: "amount column is gross margin<br/>before returns, not revenue",<br/>confidence: high,<br/>suggested_actions: [{<br/>  action_type: update_description,<br/>  target: amount,<br/>  detail: "Gross margin before returns"<br/>}])
     Platform->>DB: INSERT (status: pending)
     Platform-->>AI: Insight captured: a1b2c3
 

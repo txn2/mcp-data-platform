@@ -13,8 +13,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/txn2/mcp-datahub/pkg/types"
 
-	"github.com/txn2/mcp-data-platform/pkg/embedding"
-	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/query"
@@ -29,9 +27,6 @@ type PromptCreator interface {
 }
 
 const (
-	// toolName is the MCP tool name for capturing insights.
-	toolName = "capture_insight"
-
 	// applyToolName is the MCP tool name for applying knowledge.
 	applyToolName = "apply_knowledge"
 
@@ -44,33 +39,6 @@ const (
 	// userPromptName is the user-facing prompt for capturing knowledge.
 	userPromptName = "capture-this-as-knowledge"
 )
-
-// captureInsightInput defines the input schema for the capture_insight tool.
-type captureInsightInput struct {
-	Category         string            `json:"category"`
-	InsightText      string            `json:"insight_text"`
-	Confidence       string            `json:"confidence,omitempty"`
-	Source           string            `json:"source,omitempty"`
-	EntityURNs       []string          `json:"entity_urns,omitempty"`
-	RelatedColumns   []RelatedColumn   `json:"related_columns,omitempty"`
-	SuggestedActions []SuggestedAction `json:"suggested_actions,omitempty"`
-	// ThreadIDs links this insight back to the feedback thread(s) it resolves
-	// (Phase 2 / #602). Each linked thread gets insight_id set, an
-	// insight_linked event, and a transition to resolved. Optional.
-	ThreadIDs []string `json:"thread_ids,omitempty"`
-}
-
-// captureInsightOutput is the success response.
-type captureInsightOutput struct {
-	InsightID string `json:"insight_id"`
-	Status    string `json:"status"`
-	Message   string `json:"message"`
-	// LinkedThreadCount / UnlinkedThreadIDs report the outcome of the optional
-	// thread_ids bridge (Phase 2 / #602). Both are omitted when no thread_ids
-	// were supplied, so a capture without thread_ids is byte-for-byte unchanged.
-	LinkedThreadCount int      `json:"linked_thread_count,omitempty"`
-	UnlinkedThreadIDs []string `json:"unlinked_thread_ids,omitempty"`
-}
 
 // applyKnowledgeInput defines the input schema for the apply_knowledge tool.
 type applyKnowledgeInput struct {
@@ -97,10 +65,6 @@ type Toolkit struct {
 	name  string
 	store InsightStore
 
-	// Memory layer: when set, capture_insight writes to memory store.
-	memoryStore memory.Store
-	embedder    embedding.Provider
-
 	applyEnabled        bool
 	requireConfirmation bool
 	changesetStore      ChangesetStore
@@ -110,31 +74,6 @@ type Toolkit struct {
 	queryProvider    query.Provider
 
 	promptCreator PromptCreator
-
-	// threadLinker bridges captured insights back to feedback threads
-	// (Phase 2 / #602). Optional; nil disables thread linking.
-	threadLinker ThreadLinker
-}
-
-// ThreadLinker links a captured insight back to the feedback thread(s) it
-// resolved. Satisfied by the portal thread store; kept as a minimal interface
-// here so the knowledge toolkit does not depend on the portal package.
-type ThreadLinker interface {
-	LinkInsight(ctx context.Context, threadIDs []string, insightID, actorID, actorEmail string) ([]string, error)
-}
-
-// SetThreadLinker wires the feedback-thread bridge used by capture_insight.
-func (t *Toolkit) SetThreadLinker(tl ThreadLinker) {
-	t.threadLinker = tl
-}
-
-// insightActor extracts the actor id/email recorded on the insight_linked
-// thread event from the platform context.
-func insightActor(pc *middleware.PlatformContext) (actorID, actorEmail string) {
-	if pc == nil {
-		return "", ""
-	}
-	return pc.UserID, pc.UserEmail
 }
 
 // New creates a new knowledge toolkit.
@@ -171,13 +110,6 @@ func (t *Toolkit) SetPromptCreator(pc PromptCreator) {
 	t.promptCreator = pc
 }
 
-// SetMemoryStore configures the memory store for unified memory writes.
-// When set, capture_insight writes directly to the memory store with embeddings.
-func (t *Toolkit) SetMemoryStore(ms memory.Store, emb embedding.Provider) {
-	t.memoryStore = ms
-	t.embedder = emb
-}
-
 // Kind returns the toolkit kind.
 func (*Toolkit) Kind() string {
 	return "knowledge"
@@ -193,23 +125,11 @@ func (*Toolkit) Connection() string {
 	return ""
 }
 
-// RegisterTools registers the capture_insight tool with the MCP server.
+// RegisterTools registers the knowledge toolkit's tools. Capture moved to the
+// memory toolkit's memory_capture verb (#633) and reading is knowledge_search;
+// this toolkit owns admin promotion (apply_knowledge) and the capture-guidance
+// prompts.
 func (t *Toolkit) RegisterTools(s *mcp.Server) {
-	mcp.AddTool(s, &mcp.Tool{
-		Name:  toolName,
-		Title: "Capture Insight",
-		Description: "Capture domain knowledge for admin review and catalog improvement. " +
-			"Call this PROACTIVELY whenever you encounter knowledge worth preserving. Do not wait to be asked. " +
-			"Capture when: the user corrects a description or assumption about data; " +
-			"the user explains business context (seasonal patterns, operating hours, calculation rules); " +
-			"the user shares data quality observations; " +
-			"you discover something yourself by querying (set source to 'agent_discovery'); " +
-			"you notice missing or outdated metadata (set source to 'enrichment_gap'). " +
-			"If the user says something like 'stores close at 9pm' or 'that column excludes returns', capture it immediately. " +
-			"Defaults to source 'user' for user-provided knowledge.",
-		InputSchema: captureInsightSchema,
-	}, t.handleCaptureInsight)
-
 	if t.applyEnabled {
 		mcp.AddTool(s, &mcp.Tool{
 			Name:  applyToolName,
@@ -255,7 +175,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 
 // Tools returns the list of tool names provided by this toolkit.
 func (t *Toolkit) Tools() []string {
-	tools := []string{toolName}
+	var tools []string
 	if t.applyEnabled {
 		tools = append(tools, applyToolName)
 	}
@@ -275,88 +195,6 @@ func (t *Toolkit) SetQueryProvider(provider query.Provider) {
 // Close releases resources.
 func (*Toolkit) Close() error {
 	return nil
-}
-
-// handleCaptureInsight handles the capture_insight tool call.
-func (t *Toolkit) handleCaptureInsight(ctx context.Context, _ *mcp.CallToolRequest, input captureInsightInput) (*mcp.CallToolResult, any, error) {
-	// Validate all inputs
-	if err := validateInput(input); err != nil {
-		return errorResult(err.Error()), nil, nil //nolint:nilerr // MCP protocol: tool errors are returned in CallToolResult.IsError
-	}
-
-	// Read context from PlatformContext (injected by auth middleware)
-	pc := middleware.GetPlatformContext(ctx)
-
-	// Generate unique ID
-	id, err := generateID()
-	if err != nil {
-		return errorResult("internal error generating insight ID"), nil, nil //nolint:nilerr // MCP protocol: tool errors are returned in CallToolResult.IsError
-	}
-
-	// Build the insight
-	insight := buildInsight(id, pc, input)
-
-	// Persist
-	if err := t.store.Insert(ctx, insight); err != nil {
-		return errorResult("failed to save insight: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol: tool errors are returned in CallToolResult.IsError
-	}
-
-	// Bridge the insight back to any feedback threads it resolves (Phase 2).
-	// Best-effort: a thread-link failure must not fail the capture, since the
-	// insight is already persisted. The result reports which thread_ids actually
-	// linked so the agent can tell when a supplied id matched nothing.
-	linkedThreadCount := 0
-	var unlinkedThreadIDs []string
-	if t.threadLinker != nil && len(input.ThreadIDs) > 0 {
-		actorID, actorEmail := insightActor(pc)
-		linked, linkErr := t.threadLinker.LinkInsight(ctx, input.ThreadIDs, id, actorID, actorEmail)
-		if linkErr != nil {
-			slog.Warn("failed to link insight to threads", "id", id, "threads", input.ThreadIDs, "error", linkErr)
-			unlinkedThreadIDs = input.ThreadIDs
-		} else {
-			linkedThreadCount = len(linked)
-			unlinkedThreadIDs = missingFrom(input.ThreadIDs, linked)
-		}
-	} else if len(input.ThreadIDs) > 0 {
-		// thread_ids supplied but no linker wired: nothing linked.
-		unlinkedThreadIDs = input.ThreadIDs
-	}
-
-	// Generate embedding for the memory record only when a real
-	// provider is configured. Persisting a zero vector from the noop
-	// placeholder would falsely claim the row is semantically indexed
-	// and the recall side would later refuse to query it (#429).
-	if embedding.IsConfigured(t.embedder) && t.memoryStore != nil {
-		emb, err := t.embedder.Embed(ctx, insight.InsightText)
-		if err != nil {
-			slog.Warn("embedding generation failed for insight", "id", id, "error", err)
-		} else {
-			if updateErr := t.memoryStore.Update(ctx, id, memory.RecordUpdate{Embedding: emb}); updateErr != nil {
-				slog.Warn("failed to update embedding for insight", "id", id, "error", updateErr)
-			}
-		}
-	}
-
-	// Return success
-	return successResult(id, linkedThreadCount, unlinkedThreadIDs)
-}
-
-// missingFrom returns the entries of want that are not present in got.
-func missingFrom(want, got []string) []string {
-	if len(want) == 0 {
-		return nil
-	}
-	present := make(map[string]struct{}, len(got))
-	for _, g := range got {
-		present[g] = struct{}{}
-	}
-	var missing []string
-	for _, w := range want {
-		if _, ok := present[w]; !ok {
-			missing = append(missing, w)
-		}
-	}
-	return missing
 }
 
 // handleApplyKnowledge dispatches to the appropriate action handler.
@@ -1029,68 +867,6 @@ func (t *Toolkit) handleApproveReject(ctx context.Context, input applyKnowledgeI
 	return jsonResult(result)
 }
 
-// validateInput validates all input fields.
-func validateInput(input captureInsightInput) error {
-	if err := ValidateCategory(input.Category); err != nil {
-		return err
-	}
-	if err := ValidateInsightText(input.InsightText); err != nil {
-		return err
-	}
-	if err := ValidateConfidence(input.Confidence); err != nil {
-		return err
-	}
-	if err := ValidateSource(input.Source); err != nil {
-		return err
-	}
-	if err := ValidateEntityURNs(input.EntityURNs); err != nil {
-		return err
-	}
-	if err := ValidateRelatedColumns(input.RelatedColumns); err != nil {
-		return err
-	}
-	return ValidateSuggestedActions(input.SuggestedActions)
-}
-
-// buildInsight constructs an Insight from the validated input and platform context.
-func buildInsight(id string, pc *middleware.PlatformContext, input captureInsightInput) Insight {
-	insight := Insight{
-		ID:               id,
-		Source:           NormalizeSource(input.Source),
-		Category:         input.Category,
-		InsightText:      input.InsightText,
-		Confidence:       NormalizeConfidence(input.Confidence),
-		EntityURNs:       input.EntityURNs,
-		RelatedColumns:   input.RelatedColumns,
-		SuggestedActions: input.SuggestedActions,
-		Status:           StatusPending,
-	}
-
-	// Ensure slices are non-nil for JSON serialization
-	if insight.EntityURNs == nil {
-		insight.EntityURNs = []string{}
-	}
-	if insight.RelatedColumns == nil {
-		insight.RelatedColumns = []RelatedColumn{}
-	}
-	if insight.SuggestedActions == nil {
-		insight.SuggestedActions = []SuggestedAction{}
-	}
-
-	// Inject context from PlatformContext. Ownership is keyed on the user's
-	// email, the canonical identity for memory_records.created_by (see the
-	// 000031 migration). memory_manage writes the same key, so insights and
-	// memories for one person share an owner and the portal can scope both
-	// with a single identity.
-	if pc != nil {
-		insight.SessionID = pc.SessionID
-		insight.CapturedBy = pc.UserEmail
-		insight.Persona = pc.PersonaName
-	}
-
-	return insight
-}
-
 // generateID generates a cryptographically random hex ID.
 func generateID() (string, error) {
 	b := make([]byte, idLength)
@@ -1108,30 +884,6 @@ func errorResult(msg string) *mcp.CallToolResult {
 		},
 		IsError: true,
 	}
-}
-
-// successResult creates a success CallToolResult. linkedThreadCount and
-// unlinkedThreadIDs report the optional thread_ids bridge outcome; both are
-// zero/nil (and omitted from the JSON) for a capture without thread_ids.
-func successResult(insightID string, linkedThreadCount int, unlinkedThreadIDs []string) (*mcp.CallToolResult, any, error) {
-	output := captureInsightOutput{
-		InsightID:         insightID,
-		Status:            StatusPending,
-		Message:           "Insight captured. It will be reviewed by a data catalog administrator.",
-		LinkedThreadCount: linkedThreadCount,
-		UnlinkedThreadIDs: unlinkedThreadIDs,
-	}
-
-	data, err := json.Marshal(output)
-	if err != nil {
-		return errorResult("internal error marshaling response"), nil, nil //nolint:nilerr // MCP protocol: tool errors are returned in CallToolResult.IsError
-	}
-
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			&mcp.TextContent{Text: string(data)},
-		},
-	}, nil, nil
 }
 
 // jsonResult marshals a value to JSON and returns it as a CallToolResult.
@@ -1279,13 +1031,13 @@ const knowledgeCapturePrompt = `## Knowledge Capture Guidance
 
 You should capture knowledge automatically during normal conversation. Do not wait for the user to say "capture this" or "remember that." When someone tells you a fact about their data, that is knowledge. Record it.
 
-Use capture_insight for domain knowledge that should be reviewed by an admin and potentially written into the catalog. Use memory_manage(command='remember') for preferences, corrections, and context that should persist across sessions but does not need admin review.
+Use memory_capture to record everything; choose the sink-class via its 'type'. business_knowledge, schema_entity, and operational_rule are reviewed by an admin before promotion to the catalog. personal_preference and episodic_event are live for you immediately and need no review.
 
 The goal: if a user tells you something important in one session, no user should ever have to tell the platform the same thing again.
 
 ### When to Capture an Insight
 
-Use the capture_insight tool when the user shares domain knowledge that would improve the data catalog. Look for these signals:
+Use memory_capture (type: schema_entity or business_knowledge) when the user shares domain knowledge that would improve the data catalog. Look for these signals:
 
 **Corrections**: The user corrects a column description, table purpose, or data interpretation.
 Example: "That column isn't actually revenue, it's gross margin before returns."

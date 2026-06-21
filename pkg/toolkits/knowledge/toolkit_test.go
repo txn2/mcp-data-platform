@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -15,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/txn2/mcp-datahub/pkg/types"
 
-	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
 
@@ -418,9 +416,9 @@ func TestToolkit_Tools_WithoutApply(t *testing.T) {
 	tk, err := New(testName, nil)
 	require.NoError(t, err)
 
-	tools := tk.Tools()
-	assert.Contains(t, tools, "capture_insight")
-	assert.NotContains(t, tools, "apply_knowledge")
+	// Capture moved to the memory toolkit (#633); without apply enabled the
+	// knowledge toolkit registers no MCP tools (only guidance prompts).
+	assert.Empty(t, tk.Tools())
 }
 
 func TestToolkit_Tools_WithApply(t *testing.T) {
@@ -428,10 +426,7 @@ func TestToolkit_Tools_WithApply(t *testing.T) {
 	require.NoError(t, err)
 	tk.SetApplyConfig(ApplyConfig{Enabled: true}, nil, nil)
 
-	tools := tk.Tools()
-	assert.Contains(t, tools, "capture_insight")
-	assert.Contains(t, tools, "apply_knowledge")
-	assert.Len(t, tools, 2)
+	assert.Equal(t, []string{"apply_knowledge"}, tk.Tools())
 }
 
 func TestToolkit_RegisterTools_WithoutApply(t *testing.T) {
@@ -440,8 +435,8 @@ func TestToolkit_RegisterTools_WithoutApply(t *testing.T) {
 
 	s := mcp.NewServer(&mcp.Implementation{Name: testName, Version: testVersion}, nil)
 	tk.RegisterTools(s)
-	// Should not panic; only capture_insight registered.
-	assert.Len(t, tk.Tools(), 1)
+	// No MCP tools without apply (capture moved to the memory toolkit).
+	assert.Empty(t, tk.Tools())
 }
 
 func TestToolkit_RegisterTools_WithApply(t *testing.T) {
@@ -451,7 +446,7 @@ func TestToolkit_RegisterTools_WithApply(t *testing.T) {
 
 	s := mcp.NewServer(&mcp.Implementation{Name: testName, Version: testVersion}, nil)
 	tk.RegisterTools(s)
-	assert.Len(t, tk.Tools(), 2)
+	assert.Len(t, tk.Tools(), 1)
 }
 
 // ---------------------------------------------------------------------------
@@ -524,482 +519,6 @@ func TestSetApplyConfig_WithDeps(t *testing.T) {
 // AC-14: Context injection from PlatformContext
 // ---------------------------------------------------------------------------
 
-func TestHandleCaptureInsight_ContextInjection(t *testing.T) {
-	spy := &fullSpyStore{}
-	tk, err := New(testName, spy)
-	require.NoError(t, err)
-
-	ctx := ctxWithUser("user-456", "sess-123", testPersona)
-
-	input := captureInsightInput{
-		Category:    testCategory,
-		InsightText: "The column name is misleading",
-	}
-
-	result, _, callErr := tk.handleCaptureInsight(ctx, nil, input)
-	require.Nil(t, callErr)
-	require.False(t, result.IsError)
-	require.Len(t, spy.Insights, 1)
-
-	insight := spy.Insights[0]
-	assert.Equal(t, "sess-123", insight.SessionID)
-	assert.Equal(t, "user-456", insight.CapturedBy)
-	assert.Equal(t, testPersona, insight.Persona)
-}
-
-func TestHandleCaptureInsight_NoPlatformContext(t *testing.T) {
-	spy := &fullSpyStore{}
-	tk, err := New(testName, spy)
-	require.NoError(t, err)
-
-	input := captureInsightInput{
-		Category:    testCategory,
-		InsightText: "The column name is misleading",
-	}
-
-	result, _, callErr := tk.handleCaptureInsight(context.Background(), nil, input)
-	require.Nil(t, callErr)
-	require.False(t, result.IsError)
-	require.Len(t, spy.Insights, 1)
-
-	insight := spy.Insights[0]
-	assert.Equal(t, "", insight.SessionID)
-	assert.Equal(t, "", insight.CapturedBy)
-	assert.Equal(t, "", insight.Persona)
-}
-
-// ---------------------------------------------------------------------------
-// capture_insight: all fields populated
-// ---------------------------------------------------------------------------
-
-func TestHandleCaptureInsight_AllFieldsPopulated(t *testing.T) {
-	spy := &fullSpyStore{}
-	tk, err := New(testName, spy)
-	require.NoError(t, err)
-
-	ctx := ctxWithUser("user-1", "sess-1", "admin")
-
-	input := captureInsightInput{
-		Category:    "business_context",
-		InsightText: "MRR excludes trial accounts",
-		Confidence:  "high",
-		EntityURNs:  []string{"urn:li:dataset:foo"},
-		RelatedColumns: []RelatedColumn{
-			{URN: "urn:li:dataset:foo", Column: "mrr", Relevance: "primary"},
-		},
-		SuggestedActions: []SuggestedAction{
-			{ActionType: "update_description", Target: "urn:li:dataset:foo", Detail: "Add MRR exclusion note"},
-		},
-	}
-
-	result, _, callErr := tk.handleCaptureInsight(ctx, nil, input)
-	require.Nil(t, callErr)
-	require.False(t, result.IsError)
-	require.Len(t, spy.Insights, 1)
-
-	insight := spy.Insights[0]
-	assert.NotEmpty(t, insight.ID)
-	assert.Equal(t, "sess-1", insight.SessionID)
-	assert.Equal(t, "user-1", insight.CapturedBy)
-	assert.Equal(t, "admin", insight.Persona)
-	assert.Equal(t, "business_context", insight.Category)
-	assert.Equal(t, "MRR excludes trial accounts", insight.InsightText)
-	assert.Equal(t, "high", insight.Confidence)
-	assert.Equal(t, []string{"urn:li:dataset:foo"}, insight.EntityURNs)
-	assert.Len(t, insight.RelatedColumns, 1)
-	assert.Len(t, insight.SuggestedActions, 1)
-	assert.Equal(t, testStatusVal, insight.Status)
-}
-
-// TestHandleCaptureInsight_NoopEmbedderSkipsMemoryUpdate proves the
-// write-path guard on the knowledge capture path: when the embedder
-// is the noop placeholder, capture_insight MUST NOT call memoryStore.
-// Update with a zero vector (#429).
-func TestHandleCaptureInsight_NoopEmbedderSkipsMemoryUpdate(t *testing.T) {
-	spy := &fullSpyStore{}
-	tk, err := New(testName, spy)
-	require.NoError(t, err)
-	memStore := &mockMemoryStore{}
-	tk.SetMemoryStore(memStore, embedding.NewNoopProvider(768))
-
-	ctx := ctxWithUser("user-1", "sess-1", "admin")
-	result, _, callErr := tk.handleCaptureInsight(ctx, nil, captureInsightInput{
-		Category:    "business_context",
-		InsightText: "MRR excludes trial accounts",
-		Confidence:  "high",
-	})
-	require.Nil(t, callErr)
-	require.False(t, result.IsError)
-	assert.False(t, memStore.updateCalled,
-		"noop embedder must skip the embedding-update call entirely")
-}
-
-// ---------------------------------------------------------------------------
-// capture_insight: unique IDs
-// ---------------------------------------------------------------------------
-
-func TestHandleCaptureInsight_UniqueIDs(t *testing.T) {
-	spy := &fullSpyStore{}
-	tk, err := New(testName, spy)
-	require.NoError(t, err)
-
-	input := captureInsightInput{
-		Category:    testCategory,
-		InsightText: "First insight text here",
-	}
-
-	result1, _, err1 := tk.handleCaptureInsight(context.Background(), nil, input)
-	require.Nil(t, err1)
-	require.False(t, result1.IsError)
-
-	input.InsightText = "Second insight text here"
-	result2, _, err2 := tk.handleCaptureInsight(context.Background(), nil, input)
-	require.Nil(t, err2)
-	require.False(t, result2.IsError)
-
-	require.Len(t, spy.Insights, 2)
-	assert.NotEmpty(t, spy.Insights[0].ID)
-	assert.NotEmpty(t, spy.Insights[1].ID)
-	assert.NotEqual(t, spy.Insights[0].ID, spy.Insights[1].ID)
-}
-
-// ---------------------------------------------------------------------------
-// capture_insight: success response format
-// ---------------------------------------------------------------------------
-
-func TestHandleCaptureInsight_SuccessResponse(t *testing.T) {
-	spy := &fullSpyStore{}
-	tk, err := New(testName, spy)
-	require.NoError(t, err)
-
-	input := captureInsightInput{
-		Category:    "data_quality",
-		InsightText: "Timestamps before March 2024 are in UTC",
-	}
-
-	result, _, callErr := tk.handleCaptureInsight(context.Background(), nil, input)
-	require.Nil(t, callErr)
-	require.False(t, result.IsError)
-	require.NotEmpty(t, result.Content)
-
-	tc, ok := result.Content[0].(*mcp.TextContent)
-	require.True(t, ok, "expected *mcp.TextContent")
-
-	var output captureInsightOutput
-	require.NoError(t, json.Unmarshal([]byte(tc.Text), &output))
-
-	assert.NotEmpty(t, output.InsightID)
-	assert.Equal(t, testStatusVal, output.Status)
-	assert.NotEmpty(t, output.Message)
-	assert.Contains(t, output.Message, "reviewed")
-}
-
-// ---------------------------------------------------------------------------
-// capture_insight: validation errors
-// ---------------------------------------------------------------------------
-
-func TestHandleCaptureInsight_ValidationError(t *testing.T) {
-	spy := &fullSpyStore{}
-	tk, err := New(testName, spy)
-	require.NoError(t, err)
-
-	tests := []struct {
-		name  string
-		input captureInsightInput
-	}{
-		{
-			name:  "missing category",
-			input: captureInsightInput{InsightText: testInsightText},
-		},
-		{
-			name:  "invalid category",
-			input: captureInsightInput{Category: "invalid", InsightText: testInsightText},
-		},
-		{
-			name:  "missing insight_text",
-			input: captureInsightInput{Category: testCategory},
-		},
-		{
-			name:  "short insight_text",
-			input: captureInsightInput{Category: testCategory, InsightText: "short"},
-		},
-		{
-			name:  "invalid confidence",
-			input: captureInsightInput{Category: testCategory, InsightText: testInsightText, Confidence: "ultra"},
-		},
-		{
-			name:  "invalid source",
-			input: captureInsightInput{Category: testCategory, InsightText: testInsightText, Source: "automated"},
-		},
-		{
-			name:  "too many entity_urns",
-			input: captureInsightInput{Category: testCategory, InsightText: testInsightText, EntityURNs: make([]string, 11)},
-		},
-		{
-			name:  "too many related_columns",
-			input: captureInsightInput{Category: testCategory, InsightText: testInsightText, RelatedColumns: make([]RelatedColumn, 21)},
-		},
-		{
-			name: "too many suggested_actions",
-			input: captureInsightInput{
-				Category:    testCategory,
-				InsightText: testInsightText,
-				SuggestedActions: []SuggestedAction{
-					{ActionType: testActionAddTag},
-					{ActionType: testActionAddTag},
-					{ActionType: testActionAddTag},
-					{ActionType: testActionAddTag},
-					{ActionType: testActionAddTag},
-					{ActionType: testActionAddTag},
-				},
-			},
-		},
-		{
-			name: "invalid action_type",
-			input: captureInsightInput{
-				Category:    testCategory,
-				InsightText: testInsightText,
-				SuggestedActions: []SuggestedAction{
-					{ActionType: "delete_tag"},
-				},
-			},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			spy.Insights = nil // Reset
-
-			result, _, callErr := tk.handleCaptureInsight(context.Background(), nil, tc.input)
-			require.Nil(t, callErr) // Go error is nil; MCP error is in result
-			assert.True(t, result.IsError)
-
-			// Store must NOT be called on validation error
-			assert.Empty(t, spy.Insights, "store.Insert should not be called on validation error")
-		})
-	}
-}
-
-func TestHandleCaptureInsight_StoreError(t *testing.T) {
-	spy := &fullSpyStore{InsertErr: errors.New("db connection lost")}
-	tk, err := New(testName, spy)
-	require.NoError(t, err)
-
-	input := captureInsightInput{
-		Category:    testCategory,
-		InsightText: "This is a valid insight text",
-	}
-
-	result, _, callErr := tk.handleCaptureInsight(context.Background(), nil, input)
-	require.Nil(t, callErr)
-	assert.True(t, result.IsError)
-}
-
-// ---------------------------------------------------------------------------
-// capture_insight: confidence defaults
-// ---------------------------------------------------------------------------
-
-func TestHandleCaptureInsight_ConfidenceDefaults(t *testing.T) {
-	spy := &fullSpyStore{}
-	tk, err := New(testName, spy)
-	require.NoError(t, err)
-
-	input := captureInsightInput{
-		Category:    testCategory,
-		InsightText: "Insight without confidence specified",
-	}
-
-	result, _, callErr := tk.handleCaptureInsight(context.Background(), nil, input)
-	require.Nil(t, callErr)
-	require.False(t, result.IsError)
-	require.Len(t, spy.Insights, 1)
-	assert.Equal(t, testConfidence, spy.Insights[0].Confidence)
-}
-
-// ---------------------------------------------------------------------------
-// capture_insight: source field
-// ---------------------------------------------------------------------------
-
-func TestHandleCaptureInsight_SourceDefaults(t *testing.T) {
-	spy := &fullSpyStore{}
-	tk, err := New(testName, spy)
-	require.NoError(t, err)
-
-	input := captureInsightInput{
-		Category:    testCategory,
-		InsightText: "Insight without source specified",
-	}
-
-	result, _, callErr := tk.handleCaptureInsight(context.Background(), nil, input)
-	require.Nil(t, callErr)
-	require.False(t, result.IsError)
-	require.Len(t, spy.Insights, 1)
-	assert.Equal(t, "user", spy.Insights[0].Source)
-}
-
-func TestHandleCaptureInsight_ExplicitSource(t *testing.T) {
-	spy := &fullSpyStore{}
-	tk, err := New(testName, spy)
-	require.NoError(t, err)
-
-	tests := []struct {
-		name   string
-		source string
-	}{
-		{name: "user", source: "user"},
-		{name: "agent_discovery", source: "agent_discovery"},
-		{name: "enrichment_gap", source: "enrichment_gap"},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			spy.Insights = nil
-			input := captureInsightInput{
-				Category:    testCategory,
-				InsightText: "Insight with explicit source",
-				Source:      tc.source,
-			}
-			result, _, callErr := tk.handleCaptureInsight(context.Background(), nil, input)
-			require.Nil(t, callErr)
-			require.False(t, result.IsError)
-			require.Len(t, spy.Insights, 1)
-			assert.Equal(t, tc.source, spy.Insights[0].Source)
-		})
-	}
-}
-
-func TestHandleCaptureInsight_InvalidSource(t *testing.T) {
-	spy := &fullSpyStore{}
-	tk, err := New(testName, spy)
-	require.NoError(t, err)
-
-	input := captureInsightInput{
-		Category:    testCategory,
-		InsightText: "Insight with invalid source",
-		Source:      "system",
-	}
-
-	result, _, callErr := tk.handleCaptureInsight(context.Background(), nil, input)
-	require.Nil(t, callErr)
-	assert.True(t, result.IsError)
-	assert.Empty(t, spy.Insights, "store.Insert should not be called on validation error")
-}
-
-// ---------------------------------------------------------------------------
-// capture_insight: nil slice normalization
-// ---------------------------------------------------------------------------
-
-func TestHandleCaptureInsight_NilSlicesNormalized(t *testing.T) {
-	spy := &fullSpyStore{}
-	tk, err := New(testName, spy)
-	require.NoError(t, err)
-
-	input := captureInsightInput{
-		Category:    testCategory,
-		InsightText: "Insight with no optional arrays",
-	}
-
-	result, _, callErr := tk.handleCaptureInsight(context.Background(), nil, input)
-	require.Nil(t, callErr)
-	require.False(t, result.IsError)
-	require.Len(t, spy.Insights, 1)
-
-	insight := spy.Insights[0]
-	assert.NotNil(t, insight.EntityURNs)
-	assert.NotNil(t, insight.RelatedColumns)
-	assert.NotNil(t, insight.SuggestedActions)
-}
-
-// ---------------------------------------------------------------------------
-// AC-2: Category validation (table-driven)
-// ---------------------------------------------------------------------------
-
-func TestHandleCaptureInsight_CategoryValidation(t *testing.T) {
-	validCats := []string{
-		"correction", "business_context", "data_quality",
-		"usage_guidance", "relationship", "enhancement",
-	}
-	invalidCats := []string{
-		"", "invalid", "CORRECTION", "business-context",
-	}
-
-	spy := &fullSpyStore{}
-	tk, err := New(testName, spy)
-	require.NoError(t, err)
-
-	for _, cat := range validCats {
-		t.Run("valid_"+cat, func(t *testing.T) {
-			spy.Insights = nil
-			input := captureInsightInput{
-				Category:    cat,
-				InsightText: "A valid insight for testing",
-			}
-			result, _, callErr := tk.handleCaptureInsight(context.Background(), nil, input)
-			require.Nil(t, callErr)
-			assert.False(t, result.IsError, "category %q should be accepted", cat)
-		})
-	}
-
-	for _, cat := range invalidCats {
-		t.Run("invalid_"+cat, func(t *testing.T) {
-			spy.Insights = nil
-			input := captureInsightInput{
-				Category:    cat,
-				InsightText: "A valid insight for testing",
-			}
-			result, _, callErr := tk.handleCaptureInsight(context.Background(), nil, input)
-			require.Nil(t, callErr)
-			assert.True(t, result.IsError, "category %q should be rejected", cat)
-			assert.Empty(t, spy.Insights)
-		})
-	}
-}
-
-// ---------------------------------------------------------------------------
-// InsightText validation
-// ---------------------------------------------------------------------------
-
-func TestHandleCaptureInsight_InsightTextValidation(t *testing.T) {
-	spy := &fullSpyStore{}
-	tk, err := New(testName, spy)
-	require.NoError(t, err)
-
-	tests := []struct {
-		name    string
-		text    string
-		wantErr bool
-	}{
-		{name: "empty text", text: "", wantErr: true},
-		{name: "too short", text: "short", wantErr: true},
-		{name: "minimum", text: "1234567890", wantErr: false},
-		{name: "normal", text: "This is a reasonably long insight text", wantErr: false},
-		{name: "max length", text: strings.Repeat("a", MaxInsightTextLen), wantErr: false},
-		{name: "over max", text: strings.Repeat("a", MaxInsightTextLen+1), wantErr: true},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			spy.Insights = nil
-			input := captureInsightInput{
-				Category:    testCategory,
-				InsightText: tc.text,
-			}
-			result, _, callErr := tk.handleCaptureInsight(context.Background(), nil, input)
-			require.Nil(t, callErr)
-			if tc.wantErr {
-				assert.True(t, result.IsError)
-				assert.Empty(t, spy.Insights)
-			} else {
-				assert.False(t, result.IsError)
-			}
-		})
-	}
-}
-
-// ---------------------------------------------------------------------------
-// ID generation
-// ---------------------------------------------------------------------------
-
 func TestGenerateID(t *testing.T) {
 	id, err := generateID()
 	require.NoError(t, err)
@@ -1022,7 +541,7 @@ func TestToolkit_RegistersPrompt(t *testing.T) {
 	assert.NotEmpty(t, knowledgeCapturePrompt)
 	assert.Contains(t, knowledgeCapturePrompt, "When to Capture")
 	assert.Contains(t, knowledgeCapturePrompt, "When NOT to Capture")
-	assert.Contains(t, knowledgeCapturePrompt, "capture_insight")
+	assert.Contains(t, knowledgeCapturePrompt, "memory_capture")
 	assert.Contains(t, knowledgeCapturePrompt, "Agent-Discovered Insights")
 	assert.Contains(t, knowledgeCapturePrompt, "agent_discovery")
 	assert.Contains(t, knowledgeCapturePrompt, "enrichment_gap")
@@ -1033,102 +552,6 @@ func TestToolkit_RegistersPrompt(t *testing.T) {
 // validateInput
 // ---------------------------------------------------------------------------
 
-func TestValidateInput(t *testing.T) {
-	t.Run("valid minimal input", func(t *testing.T) {
-		input := captureInsightInput{
-			Category:    testCategory,
-			InsightText: "A valid insight text",
-		}
-		assert.NoError(t, validateInput(input))
-	})
-
-	t.Run("valid full input", func(t *testing.T) {
-		input := captureInsightInput{
-			Category:    "business_context",
-			InsightText: "A valid insight text",
-			Confidence:  "high",
-			EntityURNs:  []string{"urn:li:dataset:foo"},
-			RelatedColumns: []RelatedColumn{
-				{URN: "urn:li:dataset:foo", Column: "col1", Relevance: "primary"},
-			},
-			SuggestedActions: []SuggestedAction{
-				{ActionType: testActionAddTag, Target: "tgt", Detail: "d"},
-			},
-		}
-		assert.NoError(t, validateInput(input))
-	})
-}
-
-// ---------------------------------------------------------------------------
-// buildInsight
-// ---------------------------------------------------------------------------
-
-func TestBuildInsight(t *testing.T) {
-	pc := &middleware.PlatformContext{
-		SessionID:   "s1",
-		UserID:      "u1",
-		UserEmail:   "u1@example.com",
-		PersonaName: testPersona,
-	}
-
-	input := captureInsightInput{
-		Category:    testCategory,
-		InsightText: "A valid insight text",
-		Confidence:  "",
-	}
-
-	insight := buildInsight("id-1", pc, input)
-	assert.Equal(t, "id-1", insight.ID)
-	assert.Equal(t, "s1", insight.SessionID)
-	// Ownership is keyed on email, not the OIDC subject (issue #515).
-	assert.Equal(t, "u1@example.com", insight.CapturedBy)
-	assert.Equal(t, testPersona, insight.Persona)
-	assert.Equal(t, "user", insight.Source)             // Default when empty
-	assert.Equal(t, testConfidence, insight.Confidence) // Default
-	assert.Equal(t, testStatusVal, insight.Status)
-	assert.NotNil(t, insight.EntityURNs)
-	assert.NotNil(t, insight.RelatedColumns)
-	assert.NotNil(t, insight.SuggestedActions)
-}
-
-func TestBuildInsight_ExplicitSource(t *testing.T) {
-	input := captureInsightInput{
-		Category:    testCategory,
-		InsightText: "Discovered via sampling",
-		Source:      "agent_discovery",
-	}
-
-	insight := buildInsight("id-3", nil, input)
-	assert.Equal(t, "agent_discovery", insight.Source)
-}
-
-func TestBuildInsight_EnrichmentGapSource(t *testing.T) {
-	input := captureInsightInput{
-		Category:    testCategory,
-		InsightText: "Table has no description",
-		Source:      "enrichment_gap",
-	}
-
-	insight := buildInsight("id-4", nil, input)
-	assert.Equal(t, "enrichment_gap", insight.Source)
-}
-
-func TestBuildInsight_NilContext(t *testing.T) {
-	input := captureInsightInput{
-		Category:    testCategory,
-		InsightText: "A valid insight text",
-	}
-
-	insight := buildInsight("id-2", nil, input)
-	assert.Equal(t, "", insight.SessionID)
-	assert.Equal(t, "", insight.CapturedBy)
-	assert.Equal(t, "", insight.Persona)
-}
-
-// ---------------------------------------------------------------------------
-// errorResult / successResult / jsonResult
-// ---------------------------------------------------------------------------
-
 func TestErrorResult(t *testing.T) {
 	result := errorResult("something went wrong")
 	assert.True(t, result.IsError)
@@ -1137,21 +560,6 @@ func TestErrorResult(t *testing.T) {
 	tc, ok := result.Content[0].(*mcp.TextContent)
 	require.True(t, ok, "expected *mcp.TextContent")
 	assert.Contains(t, tc.Text, "something went wrong")
-}
-
-func TestSuccessResult(t *testing.T) {
-	result, _, err := successResult("abc123", 0, nil)
-	require.Nil(t, err)
-	require.False(t, result.IsError)
-	require.NotEmpty(t, result.Content)
-
-	tc, ok := result.Content[0].(*mcp.TextContent)
-	require.True(t, ok, "expected *mcp.TextContent")
-
-	var output captureInsightOutput
-	require.NoError(t, json.Unmarshal([]byte(tc.Text), &output))
-	assert.Equal(t, "abc123", output.InsightID)
-	assert.Equal(t, testStatusVal, output.Status)
 }
 
 func TestJsonResult(t *testing.T) {

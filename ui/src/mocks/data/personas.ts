@@ -55,10 +55,10 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
     roles: ["data_engineer"],
     priority: 10,
     allow_tools: ["trino_*", "datahub_*", "s3_*", "save_artifact"],
-    deny_tools: ["capture_insight"],
+    deny_tools: ["memory_capture"],
     tools: resolveTools(
       ["trino_*", "datahub_*", "s3_*", "save_artifact"],
-      ["capture_insight"],
+      ["memory_capture"],
     ),
     context: {
       description_prefix:
@@ -80,7 +80,7 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
       "datahub_get_entity",
       "s3_list_objects",
       "save_artifact",
-      "capture_insight",
+      "memory_capture",
     ],
     deny_tools: ["trino_explain", "datahub_get_lineage", "s3_get_object"],
     tools: resolveTools(
@@ -91,7 +91,7 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
         "datahub_get_entity",
         "s3_list_objects",
         "save_artifact",
-        "capture_insight",
+        "memory_capture",
       ],
       ["trino_explain", "datahub_get_lineage", "s3_get_object"],
     ),
@@ -154,7 +154,7 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
       "s3_list_objects",
       "s3_get_object",
       "s3_list_buckets",
-      "capture_insight",
+      "memory_capture",
     ],
     tools: resolveTools(
       ["trino_query", "save_artifact"],
@@ -170,7 +170,7 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
         "s3_list_objects",
         "s3_get_object",
         "s3_list_buckets",
-        "capture_insight",
+        "memory_capture",
       ],
     ),
     context: {
@@ -190,7 +190,7 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
       "trino_query",
       "datahub_search",
       "save_artifact",
-      "capture_insight",
+      "memory_capture",
     ],
     deny_tools: [
       "trino_explain",
@@ -203,7 +203,7 @@ export const mockPersonaDetails: Record<string, PersonaDetail> = {
         "trino_query",
         "datahub_search",
         "save_artifact",
-        "capture_insight",
+        "memory_capture",
       ],
       [
         "trino_explain",

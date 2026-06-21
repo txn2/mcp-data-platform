@@ -858,7 +858,7 @@ knowledge:
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `knowledge.enabled` | bool | `false` | Enable the knowledge capture toolkit and `capture_insight` tool |
+| `knowledge.enabled` | bool | `false` | Enable the knowledge review and write-back toolkit (`apply_knowledge`). Knowledge capture lives in the memory toolkit (`memory_capture`) and is enabled with the memory layer, not this flag |
 | `knowledge.apply.enabled` | bool | `false` | Enable the `apply_knowledge` tool for admin review and catalog write-back |
 | `knowledge.apply.datahub_connection` | string | - | DataHub instance name for write-back operations |
 | `knowledge.apply.require_confirmation` | bool | `false` | When true, the `apply` action requires `confirm: true` in the request |
@@ -929,7 +929,7 @@ tools:
   allow:
     - "trino_*"
     - "datahub_*"
-    - "capture_insight"
+    - "memory_capture"
   deny:
     - "*_delete_*"
 

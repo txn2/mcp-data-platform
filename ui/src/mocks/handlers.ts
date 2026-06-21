@@ -642,7 +642,7 @@ export const handlers = [
         "s3_list_objects",
         "s3_get_object",
         "s3_list_buckets",
-        "capture_insight",
+        "memory_capture",
         "apply_knowledge",
         "save_artifact",
         "manage_artifact",

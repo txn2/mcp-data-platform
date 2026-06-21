@@ -15,6 +15,7 @@ import (
 // memorySelectColumns lists the SELECT column names for memory records in scan order.
 var memorySelectColumns = []string{
 	"id", "created_at", "updated_at", "created_by", "persona", "dimension",
+	"sink_class",
 	"content", "category", "confidence", "source",
 	"entity_urns", "related_columns", "metadata",
 	"status", "stale_reason", "stale_at", "last_verified",
@@ -26,6 +27,7 @@ func newTestRecord() Record {
 		CreatedBy:  "user-abc",
 		Persona:    "analyst",
 		Dimension:  DimensionKnowledge,
+		SinkClass:  SinkSchemaEntity,
 		Content:    "This column represents monthly revenue.",
 		Category:   CategoryBusinessCtx,
 		Confidence: ConfidenceHigh,
@@ -51,7 +53,7 @@ func TestPostgresStore_Insert(t *testing.T) {
 
 	mock.ExpectExec("INSERT INTO memory_records").
 		WithArgs(
-			record.ID, record.CreatedBy, record.Persona, record.Dimension,
+			record.ID, record.CreatedBy, record.Persona, record.Dimension, record.SinkClass,
 			record.Content, record.Category, record.Confidence, record.Source,
 			sqlmock.AnyArg(), // entity_urns JSON
 			sqlmock.AnyArg(), // related_columns JSON
@@ -78,7 +80,7 @@ func TestPostgresStore_Insert_WithEmbedding(t *testing.T) {
 
 	mock.ExpectExec("INSERT INTO memory_records").
 		WithArgs(
-			record.ID, record.CreatedBy, record.Persona, record.Dimension,
+			record.ID, record.CreatedBy, record.Persona, record.Dimension, record.SinkClass,
 			record.Content, record.Category, record.Confidence, record.Source,
 			sqlmock.AnyArg(), // entity_urns JSON
 			sqlmock.AnyArg(), // related_columns JSON
@@ -107,7 +109,7 @@ func TestPostgresStore_Insert_DBError(t *testing.T) {
 		WithArgs(
 			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
 			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
-			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
+			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(),
 		).
 		WillReturnError(errors.New("connection refused"))
 
@@ -128,7 +130,7 @@ func TestPostgresStore_Get(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 
 	rows := sqlmock.NewRows(memorySelectColumns).AddRow(
-		"mem-001", now, now, "user-abc", "analyst", DimensionKnowledge,
+		"mem-001", now, now, "user-abc", "analyst", DimensionKnowledge, "schema_entity",
 		"This is content about tables.", CategoryBusinessCtx, ConfidenceHigh, SourceUser,
 		`["urn:li:dataset:foo"]`,
 		`[{"urn":"urn:li:dataset:foo","column":"col1","relevance":"primary"}]`,
@@ -316,7 +318,7 @@ func TestPostgresStore_List_WithFilters(t *testing.T) {
 
 	// Select query.
 	rows := sqlmock.NewRows(memorySelectColumns).AddRow(
-		"mem-001", now, now, "user-abc", "analyst", DimensionKnowledge,
+		"mem-001", now, now, "user-abc", "analyst", DimensionKnowledge, "schema_entity",
 		"Memory content here.", CategoryBusinessCtx, ConfidenceHigh, SourceUser,
 		`[]`, `[]`, `{}`,
 		StatusActive, nil, nil, nil,
@@ -369,7 +371,7 @@ func TestPostgresStore_List_Pagination(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(50)) //nolint:revive // test value
 
 	rows := sqlmock.NewRows(memorySelectColumns).AddRow(
-		"mem-010", now, now, "user-abc", "analyst", DimensionKnowledge,
+		"mem-010", now, now, "user-abc", "analyst", DimensionKnowledge, "schema_entity",
 		"Paginated record content.", CategoryGeneral, ConfidenceMedium, SourceUser,
 		`[]`, `[]`, `{}`,
 		StatusActive, nil, nil, nil,
@@ -400,7 +402,7 @@ func TestPostgresStore_EntityLookup_WithPersona(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 
 	rows := sqlmock.NewRows(memorySelectColumns).AddRow(
-		"mem-001", now, now, "user-abc", "analyst", DimensionKnowledge,
+		"mem-001", now, now, "user-abc", "analyst", DimensionKnowledge, "schema_entity",
 		"Entity lookup result.", CategoryBusinessCtx, ConfidenceHigh, SourceUser,
 		`["urn:li:dataset:foo"]`, `[]`, `{}`,
 		StatusActive, nil, nil, nil,

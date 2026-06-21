@@ -990,19 +990,19 @@ Copy an object. Only available when `read_only: false`.
 
 For the full governance workflow, see [Knowledge Capture](../knowledge/overview.md).
 
-### capture_insight
+### memory_capture
 
-Record domain knowledge shared during a session. Available to all personas when `knowledge.enabled: true`.
+Record domain knowledge shared during a session (memory toolkit). Available to all personas when the memory layer is enabled (memory defaults on when a database is configured; `memory.enabled: false` disables capture).
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `category` | string | Yes | - | One of: `correction`, `business_context`, `data_quality`, `usage_guidance`, `relationship`, `enhancement` |
-| `insight_text` | string | Yes | - | The knowledge to record (10-4000 characters) |
+| `type` | string | Yes | - | Sink-class. Live: `personal_preference`, `episodic_event`. Reviewed (creates a pending insight): `business_knowledge`, `schema_entity`, `operational_rule` |
+| `content` | string | Yes | - | The knowledge to record (10-4000 characters) |
 | `confidence` | string | No | `medium` | Confidence level: `high`, `medium`, `low` |
-| `entity_urns` | array | No | `[]` | DataHub URNs this insight relates to (max 10) |
-| `related_columns` | array | No | `[]` | Columns related to this insight (max 20) |
+| `entity_urns` | array | No | `[]` | DataHub URNs this knowledge relates to (max 10) |
+| `related_columns` | array | No | `[]` | Columns related to this knowledge (max 20) |
 | `suggested_actions` | array | No | `[]` | Proposed catalog changes (max 5) |
 
 **Suggested Action Schema:**

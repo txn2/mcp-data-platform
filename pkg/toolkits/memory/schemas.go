@@ -10,11 +10,11 @@ var memoryManageSchema = json.RawMessage(`{
   "properties": {
     "command": {
       "type": "string",
-      "description": "Operation: remember, update, forget, list, review_stale. Call without a command to see available commands."
+      "description": "Operation: update, forget, list, review_stale. Call without a command to see available commands. To CREATE memory or knowledge, use memory_capture."
     },
     "content": {
       "type": "string",
-      "description": "Memory content text. Required for 'remember'. Min 10, max 4000 characters. Supports markdown: use backticks for column/table names, bullet lists for multi-point observations, code blocks for SQL."
+      "description": "Replacement memory content for 'update'. Min 10, max 4000 characters. Supports markdown: use backticks for column/table names, bullet lists for multi-point observations, code blocks for SQL."
     },
     "id": {
       "type": "string",
@@ -31,15 +31,6 @@ var memoryManageSchema = json.RawMessage(`{
     "confidence": {
       "type": "string",
       "description": "Confidence level: high, medium, low. Defaults to 'medium'."
-    },
-    "source": {
-      "type": "string",
-      "description": "Source: user, agent_discovery, enrichment_gap, automation, lineage_event. Defaults to 'user'."
-    },
-    "entity_urns": {
-      "type": "array",
-      "items": {"type": "string"},
-      "description": "DataHub entity URNs this memory relates to. Max 10."
     },
     "metadata": {
       "type": "object",

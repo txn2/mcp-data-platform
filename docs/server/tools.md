@@ -41,9 +41,9 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | S3 | `s3_delete_object` | Delete object (if not read-only) |
 | S3 | `s3_copy_object` | Copy object (if not read-only) |
 | Knowledge | `knowledge_search` | The one way to search: fused relevance + entity lookup across memory, insights, catalog, prompts, and assets |
-| Knowledge | `capture_insight` | Record domain knowledge |
-| Knowledge | `apply_knowledge` | Review and apply insights to catalog (admin-only) |
-| Memory | `memory_manage` | Create, update, forget, list memories (opt-in per persona) |
+| Memory | `memory_capture` | The one way to record knowledge: sink-class routed, recall-first |
+| Knowledge | `apply_knowledge` | Review and promote reviewed captures to the catalog (admin-only) |
+| Memory | `memory_manage` | Manage existing memories: update, forget, list, review_stale (opt-in per persona) |
 | Portal | `save_artifact` | Save an AI-generated artifact (JSX, HTML, SVG, etc.) |
 | Portal | `manage_artifact` | List, get, update, delete, or relevance-search saved artifacts and collections |
 | Portal | `manage_feedback` | Review and respond to human feedback (list pending across everything, get, reply, resolve, request/respond validation) |
@@ -546,30 +546,30 @@ Copy an object. Only available when `read_only: false`.
 !!! tip "Full Documentation"
     For the complete knowledge capture workflow including governance, lifecycle, and configuration, see [Knowledge Capture](../knowledge/overview.md).
 
-### capture_insight
+### memory_capture
 
-Record domain knowledge shared during a session. Available to all personas when `knowledge.enabled: true`.
+The one way to record knowledge. The `type` (sink-class) is the single organizing axis and drives routing: `personal_preference` and `episodic_event` are live for the capturer immediately; `business_knowledge`, `schema_entity`, and `operational_rule` are recorded as **pending** and reviewed before promotion to a shared catalog via `apply_knowledge`. Lives in the memory toolkit so creating memory never requires the knowledge toolkit.
+
+Capture is **recall-first**: before writing, it runs a similarity check over the caller's own memory and, on a near-duplicate, supersedes the prior record instead of appending. `schema_entity` carries `entity_urns` and optional `suggested_actions` (the catalog-change payload `apply_knowledge` later applies).
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `category` | string | Yes | - | correction, business_context, data_quality, usage_guidance, relationship, enhancement |
-| `insight_text` | string | Yes | - | Knowledge to record (10-4000 chars) |
+| `type` | string | Yes | - | Sink-class: personal_preference, episodic_event (both live), business_knowledge, schema_entity, operational_rule (reviewed) |
+| `content` | string | Yes | - | Knowledge to record (10-4000 chars) |
+| `entity_urns` | array | No | [] | Related DataHub entity URNs (schema_entity); max 10 |
+| `suggested_actions` | array | No | [] | Proposed catalog changes for apply_knowledge (schema_entity) |
 | `confidence` | string | No | medium | high, medium, low |
 | `source` | string | No | user | user, agent_discovery, enrichment_gap |
-| `entity_urns` | array | No | [] | Related DataHub entity URNs (max 10) |
-| `related_columns` | array | No | [] | Related columns (max 20) |
-| `suggested_actions` | array | No | [] | Proposed catalog changes (max 5). Action types: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query, set_structured_property, remove_structured_property, raise_incident, resolve_incident, add_context_document, update_context_document, remove_context_document |
+| `thread_ids` | array | No | [] | Feedback threads this capture resolves |
 
 ---
 
 ### knowledge_search
 
 The one way to search. One query fans across every knowledge source, fuses the
-results onto a common relevance scale, and tags each hit with its source. It
-replaces the former `recall_insight`, `memory_recall`, and `datahub_search`
-(relevance) tools, so the agent never has to choose which search to run.
+results onto a common relevance scale, and tags each hit with its source. It is the single relevance search, so the agent never has to choose which search to run.
 Structured catalog navigation (platform/domain/tag/entity-type filters) stays in
 `datahub_browse`.
 
@@ -656,12 +656,11 @@ For `add_curated_query`, `query_sql` (required) and `query_description` (optiona
 
 ### memory_manage
 
-Manages persistent agent/analyst memory. Opt-in per persona (requires `memory_*` in `tools.allow`). Requires `memory.enabled: true`.
+Manages the lifecycle of existing persistent memory. Create new memory with `memory_capture`. Opt-in per persona (requires `memory_*` in `tools.allow`). Requires `memory.enabled: true`.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `command` | string | No | Operation: `remember`, `update`, `forget`, `list`, `review_stale`. Omit for help. |
-| `content` | string | For `remember` | Memory content (10-4000 chars) |
+| `command` | string | No | Operation: `update`, `forget`, `list`, `review_stale`. Omit for help. (Create with `memory_capture`.) |
 | `id` | string | For `update`, `forget` | Memory record ID |
 | `dimension` | string | No | LOCOMO dimension: `knowledge`, `event`, `entity`, `relationship`, `preference` |
 | `category` | string | No | Category: `correction`, `business_context`, `data_quality`, `usage_guidance`, `relationship`, `enhancement`, `general` |
@@ -765,7 +764,7 @@ Review and respond to human feedback on your work. Feedback is its own tool (rat
 - **request_validation**: Route a validation request to the thread author.
 - **respond_validation**: The thread author (or an admin) records `validated`/`disputed`; disputing re-opens the thread.
 
-**Access:** scoped to artifacts the caller owns or can edit (admins see all). General-channel threads are readable and replyable by any authenticated caller, and resolved only by the thread author or an admin. `capture_insight thread_ids=[...]` folds a thread into the knowledge loop and resolves it, gated by the same owns-or-edit check.
+**Access:** scoped to artifacts the caller owns or can edit (admins see all). General-channel threads are readable and replyable by any authenticated caller, and resolved only by the thread author or an admin. `memory_capture thread_ids=[...]` folds a thread into the knowledge loop and resolves it, gated by the same owns-or-edit check.
 
 ---
 

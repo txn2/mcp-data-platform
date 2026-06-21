@@ -279,7 +279,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"Call action=list with an asset_id/collection_id/prompt_id (or target_type=standalone) to scope to one target. " +
 			"Other actions: get (a thread + its timeline), reply (post a comment), resolve (mark resolved), " +
 			"request_validation, respond_validation (the thread author records validated/disputed via validation_result). " +
-			"capture_insight thread_ids=[...] folds a thread into the knowledge loop and resolves it.",
+			"memory_capture thread_ids=[...] folds a thread into the knowledge loop and resolves it.",
 		InputSchema: manageFeedbackSchema,
 	}, t.handleManageFeedback)
 

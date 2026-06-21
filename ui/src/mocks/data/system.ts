@@ -54,7 +54,7 @@ export const mockTools: ToolInfo[] = [
   { name: "s3_get_object", toolkit: "acme-reports", kind: "s3", connection: "acme-reports", hidden: false },
   // acme-platform (platform) — platform utilities
   { name: "save_artifact", toolkit: "acme-platform", kind: "platform", connection: "acme-platform", hidden: false },
-  { name: "capture_insight", toolkit: "acme-platform", kind: "platform", connection: "acme-platform", hidden: false },
+  { name: "memory_capture", toolkit: "acme-platform", kind: "platform", connection: "acme-platform", hidden: false },
   // acme-crm-gateway (mcp) — gateway-proxied upstream MCP server. These tools
   // carry semantic cross-injection rules (the platform's headline feature).
   { name: "crm_search_accounts", toolkit: "acme-crm-gateway", kind: "mcp", connection: "acme-crm-gateway", hidden: false },
@@ -109,7 +109,7 @@ export const mockConnections: ConnectionInfo[] = [
     kind: "platform",
     name: "acme-platform",
     connection: "acme-platform",
-    tools: ["save_artifact", "capture_insight"],
+    tools: ["save_artifact", "memory_capture"],
     hidden_tools: [],
   },
   {

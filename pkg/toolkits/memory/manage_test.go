@@ -49,6 +49,8 @@ type mockStore struct {
 	deletedIDs      []string
 	updatedID       string
 	updatedFields   memstore.RecordUpdate
+	supersededOld   string
+	supersededNew   string
 }
 
 func (m *mockStore) Insert(_ context.Context, record memstore.Record) error {
@@ -131,8 +133,12 @@ func (m *mockStore) MarkVerified(_ context.Context, _ []string) error {
 	return m.markVerifiedErr
 }
 
-func (m *mockStore) Supersede(_ context.Context, _, _ string) error {
-	return m.supersedeErr
+func (m *mockStore) Supersede(_ context.Context, oldID, newID string) error {
+	if m.supersedeErr != nil {
+		return m.supersedeErr
+	}
+	m.supersededOld, m.supersededNew = oldID, newID
+	return nil
 }
 
 // Verify interface compliance.
@@ -262,25 +268,15 @@ func TestHandleManage_Dispatch(t *testing.T) {
 func TestHandleManage_RoutesToCorrectHandler(t *testing.T) {
 	t.Parallel()
 
-	// remember routes correctly (needs valid content)
 	store := &mockStore{}
 	tk := newTestToolkit(store, nil)
 	ctx := ctxWithPC("user@example.com", "analyst")
 
-	result, _, err := tk.handleManage(ctx, nil, manageInput{
-		Command: "remember",
-		Content: "This is valid content for testing memory storage",
-	})
+	// list routes correctly (creation is handled by memory_capture, #633)
+	result, _, err := tk.handleManage(ctx, nil, manageInput{Command: "list"})
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
 	data := extractJSON(t, result)
-	assert.Contains(t, data, "id")
-
-	// list routes correctly
-	result, _, err = tk.handleManage(ctx, nil, manageInput{Command: "list"})
-	require.NoError(t, err)
-	assert.False(t, result.IsError)
-	data = extractJSON(t, result)
 	assert.Contains(t, data, "records")
 
 	// review_stale routes correctly
@@ -292,73 +288,6 @@ func TestHandleManage_RoutesToCorrectHandler(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// handleRemember tests
-// ---------------------------------------------------------------------------
-
-func TestHandleRemember_Valid(t *testing.T) {
-	t.Parallel()
-
-	store := &mockStore{}
-	embedder := &mockEmbedder{embedResult: []float32{0.1, 0.2}}
-	tk := newTestToolkit(store, embedder)
-	ctx := ctxWithPC("user@example.com", "analyst")
-
-	result, _, err := tk.handleManage(ctx, nil, manageInput{
-		Command:    "remember",
-		Content:    "This is a valid memory content for testing",
-		Dimension:  "knowledge",
-		Category:   "correction",
-		Confidence: "high",
-		Source:     "user",
-	})
-	require.NoError(t, err)
-	assert.False(t, result.IsError)
-
-	data := extractJSON(t, result)
-	assert.NotEmpty(t, data["id"])
-	assert.Equal(t, "active", data["status"])
-
-	require.Len(t, store.insertedRecords, 1)
-	rec := store.insertedRecords[0]
-	assert.Equal(t, "user@example.com", rec.CreatedBy)
-	assert.Equal(t, "analyst", rec.Persona)
-	assert.Equal(t, "knowledge", rec.Dimension)
-	assert.Equal(t, "correction", rec.Category)
-	assert.Equal(t, "high", rec.Confidence)
-	assert.Equal(t, "user", rec.Source)
-	assert.Equal(t, []float32{0.1, 0.2}, rec.Embedding)
-	assert.Equal(t, "sess-123", rec.Metadata["session_id"])
-}
-
-// TestHandleRemember_StampsEmbeddingBreadcrumbs proves the synchronous
-// write path records the provider model and the SHA-256 of the content
-// alongside the vector, so the indexjobs memory reconciler does not flag
-// a healthy row as a gap and the worker's text-hash dedup can skip it.
-func TestHandleRemember_StampsEmbeddingBreadcrumbs(t *testing.T) {
-	t.Parallel()
-
-	store := &mockStore{}
-	embedder := &mockEmbedder{embedResult: []float32{0.1, 0.2}, model: "nomic-embed-text"}
-	tk := newTestToolkit(store, embedder)
-	ctx := ctxWithPC("user@example.com", "analyst")
-
-	const content = "orders_fact is partitioned by event_day"
-	result, _, err := tk.handleManage(ctx, nil, manageInput{
-		Command: "remember",
-		Content: content,
-	})
-	require.NoError(t, err)
-	assert.False(t, result.IsError)
-
-	require.Len(t, store.insertedRecords, 1)
-	rec := store.insertedRecords[0]
-	assert.Equal(t, "nomic-embed-text", rec.EmbeddingModel)
-	want := sha256.Sum256([]byte(content))
-	assert.Equal(t, want[:], rec.EmbeddingTextHash)
-}
-
-// TestHandleUpdate_StampsEmbeddingBreadcrumbs proves a content change on
-// update re-stamps the model and content hash with the new vector.
 func TestHandleUpdate_StampsEmbeddingBreadcrumbs(t *testing.T) {
 	t.Parallel()
 
@@ -389,174 +318,6 @@ func TestHandleUpdate_StampsEmbeddingBreadcrumbs(t *testing.T) {
 // method MUST NOT be called (otherwise we'd persist a zero vector
 // that the recall-side check at recall.go:127 would later refuse
 // to query).
-func TestHandleRemember_NoopEmbedderSkipsEmbed(t *testing.T) {
-	t.Parallel()
-
-	store := &mockStore{}
-	// Use the real noop provider so the kind/IsConfigured check
-	// exercises the production code path, not a test fake.
-	tk := newTestToolkit(store, embedding.NewNoopProvider(768))
-	ctx := ctxWithPC("user@example.com", "analyst")
-
-	result, _, err := tk.handleManage(ctx, nil, manageInput{
-		Command:    "remember",
-		Content:    "Valid content that is long enough for tests",
-		Dimension:  "knowledge",
-		Category:   "correction",
-		Confidence: "high",
-		Source:     "user",
-	})
-	require.NoError(t, err)
-	assert.False(t, result.IsError)
-
-	require.Len(t, store.insertedRecords, 1)
-	rec := store.insertedRecords[0]
-	assert.Nil(t, rec.Embedding, "noop embedder must not produce a stored vector")
-}
-
-func TestHandleRemember_MissingContent(t *testing.T) {
-	t.Parallel()
-
-	tk := newTestToolkit(&mockStore{}, nil)
-	ctx := ctxWithPC("user@example.com", "analyst")
-
-	result, _, err := tk.handleManage(ctx, nil, manageInput{
-		Command: "remember",
-		Content: "",
-	})
-	require.NoError(t, err)
-	assert.True(t, result.IsError)
-	data := extractJSON(t, result)
-	assert.Contains(t, data["error"], "content")
-}
-
-func TestHandleRemember_InvalidDimension(t *testing.T) {
-	t.Parallel()
-
-	tk := newTestToolkit(&mockStore{}, nil)
-	ctx := ctxWithPC("user@example.com", "analyst")
-
-	result, _, err := tk.handleManage(ctx, nil, manageInput{
-		Command:   "remember",
-		Content:   "Valid content that is long enough for tests",
-		Dimension: "invalid_dimension",
-	})
-	require.NoError(t, err)
-	assert.True(t, result.IsError)
-	data := extractJSON(t, result)
-	assert.Contains(t, data["error"], "dimension")
-}
-
-func TestHandleRemember_InvalidCategory(t *testing.T) {
-	t.Parallel()
-
-	tk := newTestToolkit(&mockStore{}, nil)
-	ctx := ctxWithPC("user@example.com", "analyst")
-
-	result, _, err := tk.handleManage(ctx, nil, manageInput{
-		Command:  "remember",
-		Content:  "Valid content that is long enough for tests",
-		Category: "bad_category",
-	})
-	require.NoError(t, err)
-	assert.True(t, result.IsError)
-	data := extractJSON(t, result)
-	assert.Contains(t, data["error"], "category")
-}
-
-func TestHandleRemember_InvalidConfidence(t *testing.T) {
-	t.Parallel()
-
-	tk := newTestToolkit(&mockStore{}, nil)
-	ctx := ctxWithPC("user@example.com", "analyst")
-
-	result, _, err := tk.handleManage(ctx, nil, manageInput{
-		Command:    "remember",
-		Content:    "Valid content that is long enough for tests",
-		Confidence: "maybe",
-	})
-	require.NoError(t, err)
-	assert.True(t, result.IsError)
-	data := extractJSON(t, result)
-	assert.Contains(t, data["error"], "confidence")
-}
-
-func TestHandleRemember_InvalidSource(t *testing.T) {
-	t.Parallel()
-
-	tk := newTestToolkit(&mockStore{}, nil)
-	ctx := ctxWithPC("user@example.com", "analyst")
-
-	result, _, err := tk.handleManage(ctx, nil, manageInput{
-		Command: "remember",
-		Content: "Valid content that is long enough for tests",
-		Source:  "invalid_source",
-	})
-	require.NoError(t, err)
-	assert.True(t, result.IsError)
-	data := extractJSON(t, result)
-	assert.Contains(t, data["error"], "source")
-}
-
-func TestHandleRemember_EmbeddingFailure_Graceful(t *testing.T) {
-	t.Parallel()
-
-	store := &mockStore{}
-	embedder := &mockEmbedder{embedErr: errors.New("ollama down")}
-	tk := newTestToolkit(store, embedder)
-	ctx := ctxWithPC("user@example.com", "analyst")
-
-	result, _, err := tk.handleManage(ctx, nil, manageInput{
-		Command: "remember",
-		Content: "Valid content that is long enough for tests",
-	})
-	require.NoError(t, err)
-	assert.False(t, result.IsError, "embedding failure should be graceful")
-
-	require.Len(t, store.insertedRecords, 1)
-	assert.Nil(t, store.insertedRecords[0].Embedding, "embedding should be nil on failure")
-}
-
-func TestHandleRemember_StoreInsertError(t *testing.T) {
-	t.Parallel()
-
-	store := &mockStore{insertErr: errors.New("db connection lost")}
-	tk := newTestToolkit(store, nil)
-	ctx := ctxWithPC("user@example.com", "analyst")
-
-	result, _, err := tk.handleManage(ctx, nil, manageInput{
-		Command: "remember",
-		Content: "Valid content that is long enough for tests",
-	})
-	require.NoError(t, err)
-	assert.True(t, result.IsError)
-	data := extractJSON(t, result)
-	assert.Contains(t, data["error"], "failed to save memory")
-}
-
-func TestHandleRemember_NilMetadata_InitializedWithSessionID(t *testing.T) {
-	t.Parallel()
-
-	store := &mockStore{}
-	tk := newTestToolkit(store, nil)
-	ctx := ctxWithPC("user@example.com", "analyst")
-
-	result, _, err := tk.handleManage(ctx, nil, manageInput{
-		Command: "remember",
-		Content: "Valid content that is long enough for tests",
-	})
-	require.NoError(t, err)
-	assert.False(t, result.IsError)
-
-	require.Len(t, store.insertedRecords, 1)
-	assert.NotNil(t, store.insertedRecords[0].Metadata)
-	assert.Equal(t, "sess-123", store.insertedRecords[0].Metadata["session_id"])
-}
-
-// ---------------------------------------------------------------------------
-// handleUpdate tests
-// ---------------------------------------------------------------------------
-
 func TestHandleUpdate_Valid(t *testing.T) {
 	t.Parallel()
 
@@ -889,85 +650,6 @@ func TestHandleReviewStale_StoreError(t *testing.T) {
 // validateRememberInput tests
 // ---------------------------------------------------------------------------
 
-func TestValidateRememberInput_AllPaths(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name    string
-		input   manageInput
-		wantErr string
-	}{
-		{
-			name:    "empty content",
-			input:   manageInput{Content: ""},
-			wantErr: "content",
-		},
-		{
-			name:    "too short content",
-			input:   manageInput{Content: "short"},
-			wantErr: "content",
-		},
-		{
-			name:    "invalid dimension",
-			input:   manageInput{Content: "Valid content that is long enough for tests", Dimension: "bogus"},
-			wantErr: "dimension",
-		},
-		{
-			name:    "invalid category",
-			input:   manageInput{Content: "Valid content that is long enough for tests", Category: "bogus"},
-			wantErr: "category",
-		},
-		{
-			name:    "invalid confidence",
-			input:   manageInput{Content: "Valid content that is long enough for tests", Confidence: "bogus"},
-			wantErr: "confidence",
-		},
-		{
-			name:    "invalid source",
-			input:   manageInput{Content: "Valid content that is long enough for tests", Source: "bogus"},
-			wantErr: "source",
-		},
-		{
-			name: "too many entity URNs",
-			input: manageInput{
-				Content:    "Valid content that is long enough for tests",
-				EntityURNs: make([]string, memstore.MaxEntityURNs+1),
-			},
-			wantErr: "entity_urns",
-		},
-		{
-			name:    "valid input with all defaults",
-			input:   manageInput{Content: "Valid content that is long enough for tests"},
-			wantErr: "",
-		},
-		{
-			name: "valid input with all fields",
-			input: manageInput{
-				Content:    "Valid content that is long enough for tests",
-				Dimension:  "knowledge",
-				Category:   "correction",
-				Confidence: "high",
-				Source:     "user",
-				EntityURNs: []string{"urn:li:dataset:test"},
-			},
-			wantErr: "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			err := validateRememberInput(tt.input)
-			if tt.wantErr == "" {
-				assert.NoError(t, err)
-			} else {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.wantErr)
-			}
-		})
-	}
-}
-
 // ---------------------------------------------------------------------------
 // verifyOwnership tests
 // ---------------------------------------------------------------------------
@@ -1110,7 +792,7 @@ func TestHelpResult(t *testing.T) {
 	data := extractJSON(t, result)
 	commands, ok := data["commands"].(map[string]any)
 	require.True(t, ok)
-	assert.Contains(t, commands, "remember")
+	assert.NotContains(t, commands, "remember")
 	assert.Contains(t, commands, "update")
 	assert.Contains(t, commands, "forget")
 	assert.Contains(t, commands, "list")

@@ -39,7 +39,7 @@ memory:
 
 ## Persona Configuration
 
-Memory tools (`memory_manage`, `memory_recall`) are opt-in. Add `memory_*` to a persona's `tools.allow` list:
+Memory tools (`memory_capture`, `memory_manage`) are opt-in. Add `memory_*` to a persona's `tools.allow` list (reading memory back is served by `knowledge_search`):
 
 ```yaml
 personas:
@@ -56,7 +56,7 @@ personas:
 
 The memory layer generates 768-dimensional embeddings for semantic search using [Ollama](https://ollama.ai/) with the `nomic-embed-text` model.
 
-When Ollama is unavailable, memory records are stored without embeddings and a warning is logged. Semantic recall (`memory_recall` with `semantic` or `auto` strategy) requires embeddings to function. Entity and graph recall strategies work without embeddings.
+When Ollama is unavailable, memory records are stored without embeddings and a warning is logged. Semantic recall (via `knowledge_search`) requires embeddings to function; entity lookup and graph traversal work without embeddings.
 
 ### Unconfigured State
 

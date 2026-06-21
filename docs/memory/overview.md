@@ -15,8 +15,8 @@ The memory layer stores everything agents accumulate across sessions in a single
 ```mermaid
 flowchart TB
     subgraph "During AI Session"
-        A[Agent discovers knowledge] --> B{memory_manage<br/>command: remember}
-        C[User shares context] --> D[capture_insight]
+        A[Agent discovers knowledge] --> B[memory_capture]
+        C[User shares context] --> D[memory_capture]
     end
 
     subgraph "PostgreSQL + pgvector"
@@ -30,7 +30,7 @@ flowchart TB
     end
 
     subgraph "Explicit Recall"
-        H[memory_recall] --> E
+        H[knowledge_search] --> E
     end
 
     subgraph "Admin Curation"
@@ -59,29 +59,31 @@ Memories are classified by LOCOMO dimension for structured retrieval:
 
 ## Tools
 
+### memory_capture
+
+The one way to create a memory record. Routed by `type` (sink-class): `personal_preference` and `episodic_event` are live for the capturer immediately; `business_knowledge`, `schema_entity`, and `operational_rule` are recorded as pending insights reviewed via `apply_knowledge`.
+
 ### memory_manage
 
-CRUD operations for memory records. Opt-in per persona (requires `memory_*` in `tools.allow`).
+Lifecycle operations for existing memory records. Opt-in per persona (requires `memory_*` in `tools.allow`).
 
 | Command | Purpose |
 |---------|---------|
-| `remember` | Create a new memory with optional embedding |
 | `update` | Revise content, category, tags on an existing record |
 | `forget` | Soft-delete (archive) a memory |
 | `list` | Query memories with filters, persona-scoped by default |
 | `review_stale` | List memories flagged as stale by the lineage watcher |
 
-### memory_recall
+### Recall (via knowledge_search)
 
-Multi-strategy retrieval for when cross-enrichment is not enough.
+Reading memory back is served by the unified `knowledge_search` tool, which federates memory alongside insights, the catalog, prompts, and assets. Within the memory source it draws on several retrieval methods:
 
-| Strategy | Method | LOCOMO Dimension |
-|----------|--------|-----------------|
-| `entity` | Direct URN lookup | Single-hop recall |
-| `semantic` | Hybrid vector + lexical ranking via pgvector, with automatic lexical-only fallback when the embedder is unavailable | Open-domain recall |
-| `lexical` | Forced Postgres full-text keyword match (no embedding call) | Exact-term recall |
-| `graph` | DataHub lineage traversal + entity lookup | Multi-hop reasoning |
-| `auto` (default) | Runs semantic (hybrid/lexical) + graph in parallel, deduplicates | All dimensions |
+| Method | How | LOCOMO Dimension |
+|--------|-----|-----------------|
+| Entity lookup | Direct URN match | Single-hop recall |
+| Semantic | Hybrid vector + lexical ranking via pgvector, with automatic lexical-only fallback when the embedder is unavailable | Open-domain recall |
+| Lexical | Postgres full-text keyword match (no embedding call) | Exact-term recall |
+| Graph | DataHub lineage traversal + entity lookup | Multi-hop reasoning |
 
 #### Hybrid ranking
 
@@ -113,9 +115,9 @@ Memory is a consumer of the shared index-jobs framework (`source_kind = memory`)
 
 The write path stamps `embedding_model` and `embedding_text_hash` (SHA-256 of the content) alongside each vector, so a healthy row is never flagged as a gap and the worker's text-hash dedup skips re-embedding unchanged content.
 
-### capture_insight (existing, refactored)
+### memory_capture (knowledge sink-classes)
 
-Now writes to `memory_records` instead of the legacy `knowledge_insights` table. Creates memory records with insight-specific metadata (suggested_actions, related_columns). Generates embeddings via Ollama when available.
+Writes memory records to `memory_records` with insight-specific metadata (suggested_actions, related_columns). Generates embeddings via Ollama when available.
 
 Ownership is keyed on the user's **email** (`created_by`), the same key `memory_manage` uses and the one the portal scopes by, so a person's insights and memories share an owner and both appear under their **My Knowledge** view. Insights captured before this was unified were keyed on the OIDC subject; the `000056_knowledge_owner_email_backfill` migration rewrites those rows to the email last seen for that subject in `audit_logs` (stashing the original in `metadata.legacy_created_by` so it is reversible). Rows with no audit mapping are left unchanged.
 
@@ -127,7 +129,7 @@ Reads from `memory_records` via an adapter. Promotes curated memories into durab
 
 The existing bidirectional enrichment middleware automatically attaches relevant memories to toolkit responses. When a Trino query, DataHub lookup, or S3 operation returns results containing DataHub URNs, the middleware recalls memories linked to those entities and appends them as a `memory_context` content block.
 
-No explicit `memory_recall` call is needed for this — it happens transparently on every enriched tool response.
+No explicit recall call is needed for this; it happens transparently on every enriched tool response.
 
 ## Staleness Detection
 
@@ -139,4 +141,6 @@ When a memory is updated or superseded, the correction chain is tracked in `meta
 
 ## Relationship to Knowledge Capture
 
-Memory is the universal store. An insight (captured via `capture_insight`) is a subtype of memory — a memory that may carry proposed catalog changes. But knowledge is broader than catalog mutations. Domain context like "we have two selling seasons" is institutional knowledge that does not map to a DataHub tag or description update. The `apply_knowledge` tool is where differentiation happens: it reviews memories and promotes the appropriate ones into durable DataHub entities.
+Memory is the universal store. An insight (captured via `memory_capture` with a reviewed sink-class) is a subtype of memory: one that may carry proposed catalog changes. But knowledge is broader than catalog mutations. Domain context like "we have two selling seasons" is institutional knowledge that does not map to a DataHub tag or description update. The `apply_knowledge` tool is where differentiation happens: it reviews memories and promotes the appropriate ones into durable DataHub entities.
+
+Because knowledge capture now lives in the memory toolkit (`memory_capture`), it requires the memory layer to be enabled. Memory defaults on when a database is configured; setting `memory.enabled: false` disables capture entirely.

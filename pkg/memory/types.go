@@ -24,6 +24,94 @@ var validDimensions = map[string]bool{
 	DimensionPreference:   true,
 }
 
+// Sink-class values (#633): the single organizing axis for the unified
+// memory_capture write path. Each maps to a dimension and a review/promotion
+// policy. personal_preference and episodic_event stay as live memory;
+// business_knowledge, schema_entity, and operational_rule are reviewed and
+// promotable to a canonical sink (DataHub for schema_entity; wiki/rules
+// deferred).
+const (
+	SinkPersonalPreference = "personal_preference"
+	SinkBusinessKnowledge  = "business_knowledge"
+	SinkSchemaEntity       = "schema_entity"
+	SinkOperationalRule    = "operational_rule"
+	SinkEpisodicEvent      = "episodic_event"
+)
+
+// validSinkClasses is the set of accepted sink-class values.
+var validSinkClasses = map[string]bool{
+	SinkPersonalPreference: true,
+	SinkBusinessKnowledge:  true,
+	SinkSchemaEntity:       true,
+	SinkOperationalRule:    true,
+	SinkEpisodicEvent:      true,
+}
+
+// SinkClassDimension returns the LOCOMO dimension a sink-class is stored under.
+// The three reviewed classes all live in the knowledge dimension; preference
+// and event have their own.
+func SinkClassDimension(sinkClass string) string {
+	switch sinkClass {
+	case SinkPersonalPreference:
+		return DimensionPreference
+	case SinkEpisodicEvent:
+		return DimensionEvent
+	default:
+		return DimensionKnowledge
+	}
+}
+
+// SinkClassIsLive reports whether a sink-class is live-for-the-capturer on
+// write (no review). personal_preference and episodic_event are personal and
+// live immediately; the rest are reviewed before promotion to a shared sink.
+func SinkClassIsLive(sinkClass string) bool {
+	return sinkClass == SinkPersonalPreference || sinkClass == SinkEpisodicEvent
+}
+
+// ValidateSinkClass checks whether a sink-class value is valid.
+func ValidateSinkClass(s string) error {
+	if !validSinkClasses[s] {
+		return fmt.Errorf("invalid sink_class %q: must be one of: personal_preference, business_knowledge, schema_entity, operational_rule, episodic_event", s)
+	}
+	return nil
+}
+
+// DeriveSinkClass infers the sink-class of a pre-#633 record from its dimension
+// and whether it carries entity URNs, matching the 000069 backfill so reads are
+// consistent for rows captured before the column existed.
+func DeriveSinkClass(dimension string, hasEntityURNs bool) string {
+	switch dimension {
+	case DimensionPreference:
+		return SinkPersonalPreference
+	case DimensionEvent:
+		return SinkEpisodicEvent
+	case DimensionEntity:
+		return SinkSchemaEntity
+	case DimensionRelationship:
+		return SinkBusinessKnowledge
+	case DimensionKnowledge:
+		if hasEntityURNs {
+			return SinkSchemaEntity
+		}
+		return SinkBusinessKnowledge
+	default:
+		return SinkBusinessKnowledge
+	}
+}
+
+// Insight-overlay metadata keys and the pending status value (#296/#633). A
+// knowledge-dimension memory record carries insight review state and catalog
+// proposals in its metadata, so the knowledge toolkit's apply_knowledge reads it
+// as an insight while the memory toolkit's memory_capture writes it directly,
+// without either toolkit importing the other. These string values are the single
+// source of truth for that convention.
+const (
+	MetaKeyInsightStatus    = "insight_status"
+	MetaKeySuggestedActions = "suggested_actions"
+	MetaKeySessionID        = "session_id"
+	InsightStatusPending    = "pending"
+)
+
 // Status values for memory records.
 const (
 	StatusActive     = "active"
@@ -107,12 +195,17 @@ const (
 
 // Record represents a single memory record.
 type Record struct {
-	ID             string          `json:"id" example:"mem_a1b2c3d4e5f6"`
-	CreatedAt      time.Time       `json:"created_at" example:"2026-03-18T08:11:08Z"`
-	UpdatedAt      time.Time       `json:"updated_at" example:"2026-03-18T08:11:08Z"`
-	CreatedBy      string          `json:"created_by" example:"sarah.chen@example.com"`
-	Persona        string          `json:"persona" example:"admin"`
-	Dimension      string          `json:"dimension" example:"knowledge"`
+	ID        string    `json:"id" example:"mem_a1b2c3d4e5f6"`
+	CreatedAt time.Time `json:"created_at" example:"2026-03-18T08:11:08Z"`
+	UpdatedAt time.Time `json:"updated_at" example:"2026-03-18T08:11:08Z"`
+	CreatedBy string    `json:"created_by" example:"sarah.chen@example.com"`
+	Persona   string    `json:"persona" example:"admin"`
+	Dimension string    `json:"dimension" example:"knowledge"`
+	// SinkClass is the #633 organizing axis (personal_preference,
+	// business_knowledge, schema_entity, operational_rule, episodic_event). It
+	// drives routing in the unified write path. Empty on rows captured before
+	// the axis existed; DeriveSinkClass reconstructs it from Dimension on read.
+	SinkClass      string          `json:"sink_class,omitempty" example:"schema_entity"`
 	Content        string          `json:"content" example:"The daily_sales table in the retail schema is partitioned by date."`
 	Category       string          `json:"category" example:"business_context"`
 	Confidence     string          `json:"confidence" example:"high"`

@@ -192,6 +192,7 @@ type Platform struct {
 	knowledgeInsightStore   knowledgekit.InsightStore
 	knowledgeChangesetStore knowledgekit.ChangesetStore
 	knowledgeToolkit        *knowledgekit.Toolkit
+	memoryToolkit           *memorykit.Toolkit
 	knowledgeDataHubWriter  knowledgekit.DataHubWriter
 
 	// Memory layer
@@ -371,13 +372,13 @@ func (p *Platform) initExtensions() error {
 	if err := p.initPortal(); err != nil {
 		return err
 	}
-	// Bridge feedback threads into capture_insight (Phase 2 / #602). The linker
-	// is the portal toolkit, not the raw thread store, so capture_insight's
-	// thread linking is gated by the same owns-or-edit access check as
-	// resolve_thread (the toolkit authorizes each thread before linking).
-	// Portal creates the toolkit, so this is wired after both init.
-	if p.knowledgeToolkit != nil && p.portalToolkit != nil {
-		p.knowledgeToolkit.SetThreadLinker(p.portalToolkit)
+	// Bridge feedback threads into memory_capture (#602/#633). The linker is the
+	// portal toolkit, not the raw thread store, so thread linking is gated by the
+	// same owns-or-edit access check as resolve_thread (the toolkit authorizes
+	// each thread before linking). Portal creates the toolkit, so this is wired
+	// after both init.
+	if p.memoryToolkit != nil && p.portalToolkit != nil {
+		p.memoryToolkit.SetThreadLinker(p.portalToolkit)
 	}
 	// Unified knowledge read path (#632). Federates the stores initialized
 	// above (memory, insights, assets), so it must run after them.
@@ -427,6 +428,13 @@ func (p *Platform) initMemory() error {
 	if err != nil {
 		return fmt.Errorf("creating memory toolkit: %w", err)
 	}
+	p.memoryToolkit = tk
+	// Recall-first for memory_capture (#633): supersede a near-duplicate instead
+	// of appending. Uses a raw hybrid similarity over the caller's own memory
+	// (not the normalized knowledge_search fusion, whose per-provider min-max
+	// scores are not thresholdable). Nil-safe: with no real embedder the check
+	// yields no match and capture simply appends.
+	tk.SetRecallChecker(&memoryRecallChecker{store: p.memoryStore})
 	if err := p.toolkitRegistry.Register(tk); err != nil {
 		return fmt.Errorf("registering memory toolkit: %w", err)
 	}
@@ -1548,6 +1556,70 @@ func (p *Platform) initSessionGate() {
 	)
 }
 
+// recallCandidateK is how many nearest neighbors the recall-first check fetches
+// before applying the entity-URN gate. Small: a true restatement scores near the
+// top, so a handful of candidates is enough to find the right-entity match even
+// when an unrelated note about another table edges slightly higher on text alone.
+const recallCandidateK = 5
+
+// memoryRecallChecker implements memorykit.RecallChecker by running a raw cosine
+// (vector-only) similarity search over the caller's own memory and returning the
+// best match that also shares an entity URN with the candidate (when it has any).
+// It uses VectorSearch's raw cosine (not the knowledge_search router's min-max
+// normalization, nor the fused hybrid score) so MinScore reads as a true cosine.
+// The candidate embedding is supplied by the caller (memory_capture reuses the
+// vector it already computed), so this type needs no embedder of its own.
+type memoryRecallChecker struct {
+	store memory.Store
+}
+
+// ExistingMatch returns the caller's best-matching memory id and cosine score, or
+// ("", 0) when there is no precomputed embedding, no caller, or nothing clears
+// MinScore and the entity-URN gate. The caller (memory_capture) precomputes the
+// embedding and runs this BEFORE inserting the new row, so a capture never
+// matches itself.
+func (c *memoryRecallChecker) ExistingMatch(ctx context.Context, q memorykit.RecallQuery) (id string, score float64, err error) {
+	if q.CallerEmail == "" || c.store == nil || len(q.Embedding) == 0 {
+		return "", 0, nil
+	}
+	res, err := c.store.VectorSearch(ctx, memory.VectorQuery{
+		Embedding: q.Embedding,
+		CreatedBy: q.CallerEmail,
+		MinScore:  q.MinScore,
+		Limit:     recallCandidateK,
+	})
+	if err != nil {
+		return "", 0, fmt.Errorf("recall-first similarity: %w", err)
+	}
+	// Results are sorted by descending similarity. Take the best one that clears
+	// the threshold and, when the candidate concerns specific entities, shares an
+	// entity URN — so knowledge about table A never supersedes knowledge about B.
+	for i := range res {
+		if res[i].Score < q.MinScore {
+			break
+		}
+		if len(q.EntityURNs) > 0 && !sharesAny(res[i].Record.EntityURNs, q.EntityURNs) {
+			continue
+		}
+		return res[i].Record.ID, res[i].Score, nil
+	}
+	return "", 0, nil
+}
+
+// sharesAny reports whether a and b have at least one element in common.
+func sharesAny(a, b []string) bool {
+	set := make(map[string]struct{}, len(a))
+	for _, x := range a {
+		set[x] = struct{}{}
+	}
+	for _, y := range b {
+		if _, ok := set[y]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 // initKnowledge initializes the knowledge capture toolkit if enabled.
 // Knowledge tools require database persistence — without a database the
 // toolkit is not registered and its tools won't appear in tools/list.
@@ -1571,11 +1643,6 @@ func (p *Platform) initKnowledge() error {
 		return fmt.Errorf("creating knowledge toolkit: %w", err)
 	}
 	p.knowledgeToolkit = tk
-
-	// Wire memory store for embedding generation on capture_insight.
-	if p.memoryStore != nil && p.embeddingProv != nil {
-		tk.SetMemoryStore(p.memoryStore, p.embeddingProv)
-	}
 
 	// Configure apply_knowledge tool if enabled.
 	if err := p.configureKnowledgeApply(tk); err != nil {

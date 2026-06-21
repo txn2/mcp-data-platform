@@ -10,9 +10,11 @@ import (
 
 // Metadata keys used when round-tripping insights through memory.Record.Metadata.
 const (
-	metaKeyReviewedBy    = "reviewed_by"
-	metaKeyReviewNotes   = "review_notes"
-	metaKeyInsightStatus = "insight_status"
+	metaKeyReviewedBy  = "reviewed_by"
+	metaKeyReviewNotes = "review_notes"
+	// metaKeyInsightStatus is the shared insight-overlay key (see pkg/memory),
+	// so memory_capture and this adapter agree on where review state lives.
+	metaKeyInsightStatus = memory.MetaKeyInsightStatus
 	metaKeyChangesetRef  = "changeset_ref"
 )
 
@@ -346,11 +348,17 @@ func insightToRecord(insight Insight) memory.Record {
 		}
 	}
 
+	sinkClass := insight.SinkClass
+	if sinkClass == "" {
+		sinkClass = memory.DeriveSinkClass(memory.DimensionKnowledge, len(insight.EntityURNs) > 0)
+	}
+
 	return memory.Record{
 		ID:             insight.ID,
 		CreatedBy:      insight.CapturedBy,
 		Persona:        insight.Persona,
 		Dimension:      memory.DimensionKnowledge,
+		SinkClass:      sinkClass,
 		Content:        insight.InsightText,
 		Category:       insight.Category,
 		Confidence:     insight.Confidence,
@@ -360,6 +368,20 @@ func insightToRecord(insight Insight) memory.Record {
 		Metadata:       metadata,
 		Status:         mapInsightStatusToMemory(insight.Status),
 	}
+}
+
+// sinkClassOrDerived returns the record's stored sink_class, or derives it from
+// the dimension and entity URNs when the column is empty (rows captured before
+// #633 added the column; the migration backfills most, this covers any straggler).
+func sinkClassOrDerived(record memory.Record) string {
+	if record.SinkClass != "" {
+		return record.SinkClass
+	}
+	dim := record.Dimension
+	if dim == "" {
+		dim = memory.DimensionKnowledge
+	}
+	return memory.DeriveSinkClass(dim, len(record.EntityURNs) > 0)
 }
 
 // recordToInsight converts a memory.Record to an Insight.
@@ -375,6 +397,9 @@ func recordToInsight(record memory.Record) Insight {
 		Confidence:  record.Confidence,
 		EntityURNs:  record.EntityURNs,
 		Status:      resolveInsightStatus(record),
+		// Derive the sink-class for rows captured before the column existed
+		// (pre-#633 NULL/empty), so callers always see a populated class.
+		SinkClass: sinkClassOrDerived(record),
 	}
 
 	// Extract RelatedColumns.

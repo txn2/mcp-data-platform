@@ -384,7 +384,7 @@ The Personas page manages role-based tool access rules and context overrides usi
 **Right pane** — Selected persona detail showing:
 
 - **Metadata** — Priority, resolved tools count, and assigned roles
-- **Tool Access Rules** — Allow patterns (green badges, e.g., `trino_*`, `datahub_*`) and deny patterns (red badges, e.g., `capture_insight`)
+- **Tool Access Rules** — Allow patterns (green badges, e.g., `trino_*`, `datahub_*`) and deny patterns (red badges, e.g., `memory_capture`)
 - **Resolved Tools** — Expandable list of the actual tools this persona can access
 - **Context Overrides** — Description prefix and agent instructions suffix that customize AI behavior for this persona
 
