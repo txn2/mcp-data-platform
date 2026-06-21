@@ -219,7 +219,7 @@ func (t *Toolkit) Connection() string {
 // datahubReadTools lists the read-only DataHub tools registered by the platform.
 // This excludes datahub_list_connections (replaced by the unified list_connections)
 // and datahub_search (its relevance role is folded into the unified
-// knowledge_search; structured catalog navigation stays in datahub_browse).
+// search; structured catalog navigation stays in datahub_browse).
 var datahubReadTools = []dhtools.ToolName{
 	dhtools.ToolGetEntity,
 	dhtools.ToolGetSchema,

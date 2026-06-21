@@ -126,7 +126,7 @@ func (*Toolkit) Connection() string {
 }
 
 // RegisterTools registers the knowledge toolkit's tools. Capture moved to the
-// memory toolkit's memory_capture verb (#633) and reading is knowledge_search;
+// memory toolkit's memory_capture verb (#633) and reading is search;
 // this toolkit owns admin promotion (apply_knowledge) and the capture-guidance
 // prompts.
 func (t *Toolkit) RegisterTools(s *mcp.Server) {
@@ -167,7 +167,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		}, t.handleApplyKnowledge)
 	}
 
-	// Insight recall is served by the unified knowledge_search tool (#632);
+	// Insight recall is served by the unified search tool (#632);
 	// this toolkit no longer registers a separate recall_insight tool.
 
 	t.registerPrompt(s)

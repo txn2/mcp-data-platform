@@ -617,7 +617,7 @@ func (s *postgresStore) EntityLookup(ctx context.Context, urn, persona, createdB
 	if persona != "" {
 		qb = qb.Where(sq.Eq{colPersona: persona})
 	}
-	// createdBy is the per-user scope: a knowledge_search entity lookup passes
+	// createdBy is the per-user scope: a search entity lookup passes
 	// the caller's email so it cannot surface another user's entity-linked
 	// memories. Empty leaves the lookup persona-scoped (the enrichment path).
 	if createdBy != "" {

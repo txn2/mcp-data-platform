@@ -200,6 +200,126 @@ func wordVec(word string, dim int) []float32 {
 // with an empty query is the original v1 behavior — return all
 // operations capped at limit. Adding semantic ranking must not
 // silently change defaults.
+// TestSearchOperations_EmptyQueryReturnsNil proves the federation seam ignores
+// an empty query (no semantic signal to rank on).
+func TestSearchOperations_EmptyQueryReturnsNil(t *testing.T) {
+	tk := New("primary")
+	tk.connections = map[string]*conn{"api": {
+		cfg:        Config{ConnectionName: "api"},
+		operations: []OperationSummary{{OperationID: "a", Method: "GET", Path: "/a"}},
+	}}
+	if got := tk.SearchOperations(context.Background(), "   ", 10); got != nil {
+		t.Errorf("empty query should return nil, got %+v", got)
+	}
+}
+
+// TestSearchOperations_LexicalFallbackScoresAndTags proves SearchOperations
+// returns connection-tagged, scored operations across the toolkit's connections
+// when no embeddings are indexed (the lexical-fallback path).
+func TestSearchOperations_LexicalFallbackScoresAndTags(t *testing.T) {
+	tk := New("primary") // no embedder -> lexical fallback
+	tk.connections = map[string]*conn{"shop": {
+		cfg: Config{ConnectionName: "shop"},
+		operations: []OperationSummary{
+			{OperationID: "list-orders", Method: "GET", Path: "/orders", Summary: "List orders"},
+			{OperationID: "get-user", Method: "GET", Path: "/users/{id}", Summary: "Fetch user"},
+		},
+	}}
+	got := tk.SearchOperations(context.Background(), "orders", 10)
+	if len(got) == 0 {
+		t.Fatal("expected lexical-matched operations")
+	}
+	for _, r := range got {
+		if r.Connection != "shop" {
+			t.Errorf("operation not tagged with its connection: %+v", r)
+		}
+		if r.Score <= 0 {
+			t.Errorf("operation should carry a positive positional score: %+v", r)
+		}
+	}
+	if got[0].Operation.OperationID != "list-orders" {
+		t.Errorf("expected list-orders to match query 'orders', got %q", got[0].Operation.OperationID)
+	}
+}
+
+// TestSearchOperations_RoutePolicyScopesResults is the per-source scope test for
+// the endpoints corpus: a route policy that denies an operation must keep it out
+// of SearchOperations, fail-closed, exactly as it would for api_list_endpoints.
+func TestSearchOperations_RoutePolicyScopesResults(t *testing.T) {
+	tk := New("primary")
+	tk.connections = map[string]*conn{"shop": {
+		cfg: Config{ConnectionName: "shop"},
+		operations: []OperationSummary{
+			{OperationID: "list-orders", Method: "GET", Path: "/orders", Summary: "List orders"},
+			{OperationID: "delete-order", Method: "DELETE", Path: "/orders/{id}", Summary: "Delete order"},
+		},
+	}}
+	// Deny the destructive operation; allow the rest.
+	tk.SetRoutePolicy(routePolicyFunc(func(_ context.Context, _, method, _ string) (bool, string) {
+		if method == "DELETE" {
+			return false, "denied"
+		}
+		return true, ""
+	}))
+
+	got := tk.SearchOperations(context.Background(), "orders", 10)
+	for _, r := range got {
+		if r.Operation.Method == "DELETE" {
+			t.Errorf("LEAK: route policy denied DELETE /orders/{id} but search returned it: %+v", r)
+		}
+	}
+	if len(got) == 0 {
+		t.Error("the allowed operation should still be returned")
+	}
+}
+
+// TestScoreWithoutVector_HybridCreditsLexical proves an operation with no
+// persisted embedding still earns its lexical component under hybrid ranking
+// (rather than being floored to 0), while pure-semantic mode scores it 0
+// because it has no semantic signal.
+func TestScoreWithoutVector_HybridCreditsLexical(t *testing.T) {
+	op := OperationSummary{OperationID: "list-orders", Method: "GET", Path: "/orders", Summary: "List orders"}
+	// Query matches the op lexically ("orders" is a substring of the path).
+	if got := scoreWithoutVector(RankingHybrid, "orders", op); got <= 0 {
+		t.Errorf("hybrid score for an unembedded but lexically-matching op should be > 0, got %v", got)
+	}
+	// A non-matching query earns nothing even in hybrid.
+	if got := scoreWithoutVector(RankingHybrid, "completely unrelated", op); got != 0 {
+		t.Errorf("hybrid score for an unembedded non-matching op should be 0, got %v", got)
+	}
+	// Pure semantic has no signal without a vector.
+	if got := scoreWithoutVector(RankingSemantic, "orders", op); got != 0 {
+		t.Errorf("semantic score without a vector should be 0, got %v", got)
+	}
+}
+
+// TestScoreOperations_UnembeddedLexicalMatchBeatsUnrelatedEmbedded proves the
+// fix end to end: in hybrid mode an unembedded operation that matches the query
+// lexically ranks above an embedded but unrelated operation, instead of being
+// floored to 0 below it.
+func TestScoreOperations_UnembeddedLexicalMatchBeatsUnrelatedEmbedded(t *testing.T) {
+	matching := OperationSummary{OperationID: "list-orders", Method: "GET", Path: "/orders", Summary: "List orders"}
+	unrelated := OperationSummary{OperationID: "get-weather", Method: "GET", Path: "/weather", Summary: "Weather"}
+	c := &conn{
+		operations: []OperationSummary{matching, unrelated},
+		embedVectors: map[embedKey][]float32{
+			// Only the unrelated op is indexed; the matching op has no vector.
+			// Its vector is orthogonal to the query, so cosine ~0 (semantic ~0.5).
+			{Spec: "", OperationID: "get-weather"}: {0, 1, 0},
+		},
+	}
+	queryVec := []float32{1, 0, 0}
+	scored := scoreOperations(c, c.operations, "orders", queryVec, RankingHybrid)
+	byID := map[string]float64{}
+	for _, s := range scored {
+		byID[s.op.OperationID] = s.score
+	}
+	if byID["list-orders"] <= byID["get-weather"] {
+		t.Errorf("unembedded lexical match (%.3f) should outrank unrelated embedded op (%.3f)",
+			byID["list-orders"], byID["get-weather"])
+	}
+}
+
 func TestRankWithMode_LexicalEmptyQueryReturnsAll(t *testing.T) {
 	tk := New("primary")
 	c := &conn{operations: []OperationSummary{

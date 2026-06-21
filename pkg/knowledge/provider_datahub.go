@@ -21,7 +21,7 @@ type tableSearcher interface {
 // DatahubProvider exposes the technical catalog (DataHub) to the router as a
 // relevance search. It is shared: the catalog is global, so it is queried for
 // every request and needs no caller identity. This folds datahub_search's
-// relevance role into knowledge_search; structured catalog navigation
+// relevance role into search; structured catalog navigation
 // (platform/domain/tag/entity-type filters) stays in datahub_browse.
 //
 // DataHub ranks results but does not return a numeric score, so the provider

@@ -1808,7 +1808,7 @@ func TestMiddlewareChain_ToolVisibility(t *testing.T) {
 	}, nil)
 
 	// Register 4 tools across 3 toolkits
-	for _, name := range []string{chainTestTrinoQuery, chainTestDescribeTable, "knowledge_search", "s3_list_objects"} {
+	for _, name := range []string{chainTestTrinoQuery, chainTestDescribeTable, "search", "s3_list_objects"} {
 		server.AddTool(&mcp.Tool{
 			Name:        name,
 			Description: "Test tool " + name,
@@ -1859,7 +1859,7 @@ func TestMiddlewareChain_ToolVisibility_DenyOnly(t *testing.T) {
 		Version: "v0.0.1",
 	}, nil)
 
-	for _, name := range []string{chainTestTrinoQuery, "knowledge_search", "s3_delete_object", "s3_list_objects"} {
+	for _, name := range []string{chainTestTrinoQuery, "search", "s3_delete_object", "s3_list_objects"} {
 		server.AddTool(&mcp.Tool{
 			Name:        name,
 			Description: "Test tool " + name,
@@ -1909,7 +1909,7 @@ func TestMiddlewareChain_ToolVisibility_NoPatterns(t *testing.T) {
 		Version: "v0.0.1",
 	}, nil)
 
-	toolNames := []string{chainTestTrinoQuery, "knowledge_search", "s3_list_objects"}
+	toolNames := []string{chainTestTrinoQuery, "search", "s3_list_objects"}
 	for _, name := range toolNames {
 		server.AddTool(&mcp.Tool{
 			Name:        name,
@@ -1990,10 +1990,10 @@ func TestWorkflowGating_NoDiscovery(t *testing.T) {
 	if len(result.Content) < 2 {
 		t.Fatalf("expected at least 2 content items (warning + data), got %d", len(result.Content))
 	}
-	assertContentContainsText(t, result, "knowledge_search")
+	assertContentContainsText(t, result, "search")
 }
 
-// TestWorkflowGating_WithDiscovery verifies that calling knowledge_search
+// TestWorkflowGating_WithDiscovery verifies that calling search
 // then trino_query produces no warning.
 func TestWorkflowGating_WithDiscovery(t *testing.T) {
 	tracker := middleware.NewSessionWorkflowTracker(nil, nil, 30*time.Minute)
@@ -2005,7 +2005,7 @@ func TestWorkflowGating_WithDiscovery(t *testing.T) {
 	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "v0.0.1"}, nil)
 
 	server.AddTool(&mcp.Tool{
-		Name:        "knowledge_search",
+		Name:        "search",
 		Description: "Search",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"}}}`),
 	}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -2039,11 +2039,11 @@ func TestWorkflowGating_WithDiscovery(t *testing.T) {
 
 	// First call discovery
 	_, err = session.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "knowledge_search",
+		Name:      "search",
 		Arguments: map[string]any{"query": "orders"},
 	})
 	if err != nil {
-		t.Fatalf("calling knowledge_search: %v", err)
+		t.Fatalf("calling search: %v", err)
 	}
 
 	// Then query — should have NO warning
@@ -2132,7 +2132,7 @@ func TestDescriptionOverrides_ToolsList(t *testing.T) {
 	})
 
 	server.AddTool(&mcp.Tool{
-		Name:        "knowledge_search",
+		Name:        "search",
 		Description: "Search DataHub",
 		InputSchema: json.RawMessage(`{"type":"object"}`),
 	}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -2157,8 +2157,8 @@ func TestDescriptionOverrides_ToolsList(t *testing.T) {
 
 	for _, tool := range listResult.Tools {
 		if tool.Name == chainTestTrinoQuery {
-			if !strings.Contains(tool.Description, "knowledge_search") {
-				t.Errorf("trino_query description should mention knowledge_search, got: %s", tool.Description)
+			if !strings.Contains(tool.Description, "search") {
+				t.Errorf("trino_query description should mention search, got: %s", tool.Description)
 			}
 			if tool.Description == "Original description" {
 				t.Error("trino_query description should have been overridden")
@@ -2208,7 +2208,7 @@ func TestWorkflowGating_BackwardCompat(t *testing.T) {
 	}
 
 	// Should have the static hint
-	assertContentContainsText(t, result, "knowledge_search")
+	assertContentContainsText(t, result, "search")
 }
 
 // TestMiddlewareChain_AwareHandler_ProvenanceSessionID verifies that session

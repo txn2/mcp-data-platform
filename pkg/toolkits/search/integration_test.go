@@ -1,4 +1,4 @@
-package knowledgesearch
+package search
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
 
-// These tests assemble the real read path end to end: the knowledge_search tool
+// These tests assemble the real read path end to end: the search tool
 // handler -> knowledge.Router -> the real memory/insights/assets/datahub/prompts
 // provider adapters -> stores. The stores are fakes, but the per-user ones
 // enforce the same per-owner scoping the real Postgres stores do (CreatedBy /
@@ -154,6 +154,16 @@ func callSearch(ctx context.Context, t *testing.T, tk *Toolkit, intent string) s
 	return out
 }
 
+// hitsOf flattens the grouped display set into one slice, for assertions that
+// only care about which hits surfaced rather than their grouping.
+func hitsOf(out searchOutput) []knowledge.Hit {
+	var hits []knowledge.Hit
+	for _, g := range out.Groups {
+		hits = append(hits, g.Hits...)
+	}
+	return hits
+}
+
 func ctxFor(userID, email string) context.Context {
 	return middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
 		UserID:    userID,
@@ -161,14 +171,14 @@ func ctxFor(userID, email string) context.Context {
 	})
 }
 
-// AC1: a single knowledge_search returns fused results from every provider,
-// each tagged with its source.
+// AC1: a single search returns results from every provider, grouped and each
+// tagged with its source.
 func TestAC1_FusedAndSourceTagged(t *testing.T) {
 	tk := assembledToolkit()
 	out := callSearch(ctxFor(userAID, userAEmail), t, tk, "alice")
 
 	got := map[string]bool{}
-	for _, h := range out.Hits {
+	for _, h := range hitsOf(out) {
 		if h.Source == "" || h.Ref == "" || h.Text == "" {
 			t.Errorf("hit missing source/ref/text: %+v", h)
 		}
@@ -201,7 +211,7 @@ func TestAC2_PerUserIsolationBetweenIdentities(t *testing.T) {
 	}
 
 	bOut := callSearch(ctxFor(userBID, userBEmail), t, tk, "anything")
-	for _, h := range bOut.Hits {
+	for _, h := range hitsOf(bOut) {
 		if h.Ref == "m-alice" || h.Ref == "i-alice" || h.Ref == "a-alice" {
 			t.Errorf("LEAK: user B received user A's record %q from %q", h.Ref, h.Source)
 		}
@@ -236,13 +246,14 @@ func TestEntityPathScopedToCaller(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 	if out.Count != 0 {
-		t.Fatalf("entity lookup leaked across users: %+v", out.Hits)
+		t.Fatalf("entity lookup leaked across users: %+v", hitsOf(out))
 	}
 }
 
 func refSet(out searchOutput) map[string]bool {
-	m := make(map[string]bool, len(out.Hits))
-	for _, h := range out.Hits {
+	hits := hitsOf(out)
+	m := make(map[string]bool, len(hits))
+	for _, h := range hits {
 		m[h.Ref] = true
 	}
 	return m
@@ -252,9 +263,81 @@ func refSet(out searchOutput) map[string]bool {
 func TestAnonymousCallerSeesOnlyShared(t *testing.T) {
 	tk := assembledToolkit()
 	out := callSearch(context.Background(), t, tk, "anything")
-	for _, h := range out.Hits {
+	for _, h := range hitsOf(out) {
 		if h.Source == knowledge.SourceMemory || h.Source == knowledge.SourceInsights || h.Source == knowledge.SourceAssets {
 			t.Errorf("anonymous caller got per-user hit from %q: %+v", h.Source, h)
+		}
+	}
+}
+
+// stubConnLister is a knowledge.ConnectionLister for the grouped-output test.
+type stubConnLister struct{}
+
+func (stubConnLister) Connections() []knowledge.ConnectionInfo {
+	return []knowledge.ConnectionInfo{
+		{Name: "warehouse", Kind: "trino", Description: "analytics orders tables"},
+		{Name: "stripe", Kind: "api", Description: "payments"},
+	}
+}
+
+// TestGroupedOutputAndCoverage proves the tool surfaces results grouped by
+// source with a coverage summary (the anti-tunnel contract): a query that
+// matches both the catalog and a connection produces a group and a coverage
+// entry for each, and Count equals the total shown.
+func TestGroupedOutputAndCoverage(t *testing.T) {
+	router := knowledge.NewRouter(nil,
+		knowledge.NewDatahubProvider(globalCatalog{}),
+		knowledge.NewConnectionsProvider(stubConnLister{}),
+	)
+	tk := New("default", router)
+	out := callSearch(context.Background(), t, tk, "orders")
+
+	sources := map[string]bool{}
+	shown := 0
+	for _, g := range out.Groups {
+		sources[g.Source] = true
+		shown += len(g.Hits)
+	}
+	if !sources[knowledge.SourceDatahub] || !sources[knowledge.SourceConnections] {
+		t.Errorf("expected datahub and connections groups, got %v", sources)
+	}
+	if out.Count != shown {
+		t.Errorf("Count %d != total hits shown %d", out.Count, shown)
+	}
+	if len(out.Coverage) == 0 {
+		t.Fatal("coverage summary must be populated")
+	}
+	for _, c := range out.Coverage {
+		if c.Matched < c.Shown {
+			t.Errorf("coverage matched (%d) must be >= shown (%d) for %q", c.Matched, c.Shown, c.Source)
+		}
+	}
+}
+
+// TestSourcesNarrowsThroughTool proves the sources filter reaches the router
+// from the tool input.
+func TestSourcesNarrowsThroughTool(t *testing.T) {
+	router := knowledge.NewRouter(nil,
+		knowledge.NewDatahubProvider(globalCatalog{}),
+		knowledge.NewConnectionsProvider(stubConnLister{}),
+	)
+	tk := New("default", router)
+	res, _, err := tk.handleSearch(context.Background(), &mcp.CallToolRequest{},
+		searchInput{Intent: "orders", Sources: []string{knowledge.SourceConnections}})
+	if err != nil {
+		t.Fatalf("transport error: %v", err)
+	}
+	tc, ok := res.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("unexpected content type %T", res.Content[0])
+	}
+	var out searchOutput
+	if err := json.Unmarshal([]byte(tc.Text), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, g := range out.Groups {
+		if g.Source == knowledge.SourceDatahub {
+			t.Errorf("sources=[connections] should exclude datahub, got group %q", g.Source)
 		}
 	}
 }
@@ -272,7 +355,7 @@ func TestHandleSearch_RequiresIntentOrEntities(t *testing.T) {
 
 func TestToolkit_RegistersTool(t *testing.T) {
 	tk := assembledToolkit()
-	if tk.Kind() != "knowledge_search" {
+	if tk.Kind() != "search" {
 		t.Errorf("Kind = %q", tk.Kind())
 	}
 	if tools := tk.Tools(); len(tools) != 1 || tools[0] != toolName {

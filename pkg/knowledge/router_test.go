@@ -43,6 +43,16 @@ func (fakeEmbedder) EmbedBatch(_ context.Context, texts []string) ([][]float32, 
 func (fakeEmbedder) Dimension() int { return 3 }
 func (fakeEmbedder) Kind() string   { return "fake" }
 
+// flatHits flattens a router result's grouped display set into one slice, for
+// tests that only care about which hits surfaced rather than their grouping.
+func flatHits(res Result) []Hit {
+	var hits []Hit
+	for _, g := range res.Groups {
+		hits = append(hits, g.Hits...)
+	}
+	return hits
+}
+
 func TestRouter_PerUserSkippedForAnonymousCaller(t *testing.T) {
 	shared := &fakeProvider{name: "shared", scope: ScopeShared, hits: []Hit{{Source: "shared", Ref: "s1", Score: 1}}}
 	perUser := &fakeProvider{name: "peruser", scope: ScopePerUser, hits: []Hit{{Source: "peruser", Ref: "p1", Score: 1}}}
@@ -58,8 +68,61 @@ func TestRouter_PerUserSkippedForAnonymousCaller(t *testing.T) {
 	if perUser.called {
 		t.Error("per-user provider must NOT be queried for an anonymous caller")
 	}
-	if len(res.Hits) != 1 || res.Hits[0].Source != "shared" {
-		t.Errorf("expected only the shared hit, got %+v", res.Hits)
+	if hits := flatHits(res); len(hits) != 1 || hits[0].Source != "shared" {
+		t.Errorf("expected only the shared hit, got %+v", hits)
+	}
+}
+
+func TestRouter_SourcesNarrowsButNeverWidens(t *testing.T) {
+	datahub := &fakeProvider{name: "datahub", scope: ScopeShared, hits: []Hit{{Source: "datahub", Ref: "d1", Score: 1}}}
+	memory := &fakeProvider{name: "memory", scope: ScopePerUser, hits: []Hit{{Source: "memory", Ref: "m1", Score: 1}}}
+	r := NewRouter(nil, datahub, memory)
+
+	// Narrow to datahub only: memory is skipped even though the caller has identity.
+	caller := Caller{Email: "a@example.com"}
+	res, err := r.Search(context.Background(), Query{Intent: "q", Caller: caller, Sources: []string{"datahub"}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !datahub.called {
+		t.Error("datahub should be queried when named in sources")
+	}
+	if memory.called {
+		t.Error("memory must NOT be queried when sources narrows to datahub")
+	}
+	if hits := flatHits(res); len(hits) != 1 || hits[0].Source != "datahub" {
+		t.Errorf("expected only datahub, got %+v", hits)
+	}
+}
+
+func TestRouter_SourcesCannotWidenPastScope(t *testing.T) {
+	// An anonymous caller naming a per-user source must still get nothing from
+	// it: sources narrows, it never opts past the scope gate.
+	memory := &fakeProvider{name: "memory", scope: ScopePerUser, hits: []Hit{{Source: "memory", Ref: "m1", Score: 1}}}
+	r := NewRouter(nil, memory)
+	res, err := r.Search(context.Background(), Query{Intent: "q", Sources: []string{"memory"}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if memory.called {
+		t.Error("per-user provider must not be queried for an anonymous caller even when named in sources")
+	}
+	if hits := flatHits(res); len(hits) != 0 {
+		t.Errorf("expected no hits, got %+v", hits)
+	}
+}
+
+func TestRouter_BlankSourcesQueriesEverything(t *testing.T) {
+	a := &fakeProvider{name: "a", scope: ScopeShared, hits: []Hit{{Source: "a", Ref: "a1", Score: 1}}}
+	b := &fakeProvider{name: "b", scope: ScopeShared, hits: []Hit{{Source: "b", Ref: "b1", Score: 1}}}
+	r := NewRouter(nil, a, b)
+	// A sources slice of only blanks collapses to "no narrowing".
+	_, err := r.Search(context.Background(), Query{Intent: "q", Sources: []string{"  ", ""}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !a.called || !b.called {
+		t.Error("blank-only sources should query every provider")
 	}
 }
 
@@ -142,8 +205,8 @@ func TestRouter_PartialErrorTolerated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a single provider failure must not fail the search: %v", err)
 	}
-	if len(res.Hits) != 1 || res.Hits[0].Source != "good" {
-		t.Errorf("expected the healthy provider's hit, got %+v", res.Hits)
+	if hits := flatHits(res); len(hits) != 1 || hits[0].Source != "good" {
+		t.Errorf("expected the healthy provider's hit, got %+v", hits)
 	}
 }
 
@@ -159,8 +222,8 @@ func TestRouter_LimitCapsResults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(res.Hits) != 3 {
-		t.Errorf("len = %d, want 3 (limit)", len(res.Hits))
+	if hits := flatHits(res); len(hits) != 3 {
+		t.Errorf("len = %d, want 3 (limit)", len(hits))
 	}
 }
 

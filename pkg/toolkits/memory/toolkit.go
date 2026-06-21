@@ -1,5 +1,5 @@
 // Package memory provides the memory_manage and memory_capture MCP tools.
-// Recall (reading memory back) is served by the unified knowledge_search tool.
+// Recall (reading memory back) is served by the unified search tool.
 package memory
 
 import (
@@ -15,7 +15,7 @@ import (
 const manageToolName = "memory_manage"
 
 // Toolkit implements the memory management toolkit. Recall is handled by the
-// unified knowledge_search tool (#632); this toolkit owns only the memory_manage
+// unified search tool (#632); this toolkit owns only the memory_manage
 // write path.
 type Toolkit struct {
 	name     string
@@ -52,7 +52,7 @@ func (t *Toolkit) Name() string { return t.name }
 func (*Toolkit) Connection() string { return "" }
 
 // RegisterTools registers memory_manage with the MCP server. Recall moved to
-// the unified knowledge_search tool (#632).
+// the unified search tool (#632).
 func (t *Toolkit) RegisterTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:  manageToolName,
@@ -61,7 +61,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"Commands: update, forget (archive), list, review_stale. " +
 			"To CREATE memory or knowledge, use memory_capture (call it proactively to record corrections, " +
 			"preferences, business context, and data-quality observations). " +
-			"To find memory back, use knowledge_search.",
+			"To find memory back, use search.",
 		InputSchema: memoryManageSchema,
 	}, t.handleManage)
 
@@ -85,7 +85,7 @@ func (*Toolkit) Tools() []string {
 }
 
 // SetSemanticProvider is a no-op: recall (which used lineage) moved to
-// knowledge_search, so the memory toolkit no longer needs the semantic provider.
+// search, so the memory toolkit no longer needs the semantic provider.
 func (*Toolkit) SetSemanticProvider(_ semantic.Provider) {}
 
 // SetQueryProvider is a no-op; memory toolkit does not use query execution.

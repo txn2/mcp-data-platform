@@ -13,7 +13,7 @@
 // never surface one user's private records to another.
 //
 // The same Router is exposed two ways from one code path: as the
-// knowledge_search agent tool (pull), and later as a retriever wired into the
+// search agent tool (pull), and later as a retriever wired into the
 // enrichment middleware (push). PR1 (#632) builds the pull path with the
 // memory, insights, and assets providers; the technical catalog (datahub) and
 // prompt providers, and push injection, land in follow-up PRs.
@@ -93,8 +93,14 @@ func (c Caller) Anonymous() bool {
 //
 // At least one of Intent or EntityURNs is set. Status optionally filters by
 // lifecycle/review state where a provider tracks one (insight review status).
-// Caller carries the identity per-user providers scope on. Limit caps results
-// per provider before fusion.
+// Caller carries the identity per-user providers scope on. Limit caps the
+// candidate list each provider returns before the allocator builds the balanced
+// display set.
+//
+// Sources optionally narrows the federation to a subset of provider names
+// (e.g. ["datahub"]). It only narrows: an empty Sources queries every provider
+// the caller can access, and a name in Sources never opts a caller into a
+// provider their scope would otherwise exclude.
 type Query struct {
 	Intent     string
 	Embedding  []float32
@@ -102,6 +108,7 @@ type Query struct {
 	Status     string
 	Caller     Caller
 	Limit      int
+	Sources    []string
 }
 
 // Hit is one knowledge record matched by a provider. Score is the provider's
@@ -112,7 +119,7 @@ type Query struct {
 // full record.
 //
 // The optional fields carry what the specialized search tools returned, so
-// folding them into one knowledge_search loses nothing: Status is a review or
+// folding them into one search loses nothing: Status is a review or
 // lifecycle state (insight pending/approved/...), EntityURNs are the linked
 // catalog entities (provenance), and Dimension is the memory dimension or
 // category. They are omitted when a source does not populate them.

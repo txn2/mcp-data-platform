@@ -6,10 +6,10 @@ import (
 )
 
 // DefaultDiscoveryTools lists the tool names that count as discovery before a
-// query. knowledge_search is the unified search entry point; the remaining
+// query. search is the universal discovery entry point; the remaining
 // datahub_* tools are structured catalog navigation that also counts.
 var DefaultDiscoveryTools = []string{
-	toolNameKnowledgeSearch,
+	toolNameSearch,
 	toolNameDatahubGetEntity,
 	"datahub_get_schema",
 	"datahub_get_lineage",
