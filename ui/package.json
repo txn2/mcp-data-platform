@@ -89,5 +89,12 @@
     "workerDirectory": [
       "public"
     ]
+  },
+  "overrides": {
+    "js-yaml": "^4.2.0",
+    "ws": "^8.21.0",
+    "@typescript-eslint/typescript-estree": {
+      "brace-expansion": "^5.0.6"
+    }
   }
 }
