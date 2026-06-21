@@ -387,12 +387,12 @@ func TestAppendDiscoveryNoteIfNeeded(t *testing.T) {
 		tc, ok := result.Content[1].(*mcp.TextContent)
 		require.True(t, ok)
 		assert.Contains(t, tc.Text, "discovery_note")
-		assert.Contains(t, tc.Text, "datahub_search")
+		assert.Contains(t, tc.Text, "knowledge_search")
 	})
 
 	t.Run("discovery done skips note", func(t *testing.T) {
 		tracker := NewSessionWorkflowTracker(nil, nil, 30*time.Minute)
-		tracker.RecordToolCall("s1", "datahub_search")
+		tracker.RecordToolCall("s1", "knowledge_search")
 
 		pc := NewPlatformContext("req")
 		pc.SessionID = "s1"

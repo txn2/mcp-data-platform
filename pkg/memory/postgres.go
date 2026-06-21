@@ -309,7 +309,9 @@ func (s *postgresStore) VectorSearch(ctx context.Context, query VectorQuery) ([]
 	// Build SQL manually to avoid squirrel placeholder collision with the
 	// vector parameter ($1) used in the ORDER BY and SELECT expressions.
 	// Optional scope predicates start at $2 (only $1=vector is fixed).
-	filterClause, filterArgs := scopeFilters(query.CreatedBy, query.Dimension, query.Persona, query.Status, 2)
+	filterClause, filterArgs := scopeFilters(scope{
+		createdBy: query.CreatedBy, dimension: query.Dimension, persona: query.Persona, status: query.Status,
+	}, 2)
 	args := append([]any{pgvector.NewVector(query.Embedding)}, filterArgs...)
 
 	where := "WHERE embedding IS NOT NULL" + archivedExclusion(query.Status) + filterClause
@@ -388,23 +390,30 @@ func archivedExclusion(status string) string {
 	return ""
 }
 
-// scopeFilters builds the optional created_by/dimension/persona/status
-// predicates shared by the search arms, parameterized from startIdx.
-// Returns the clause (prefixed with " AND " when non-empty) and the
-// matching args so the caller can append them after the fixed
-// query/vector parameters. created_by comes first because per-user
-// scoping is the portal's security boundary (a user must not be able to
-// search another user's records); the args slice is appended in the same
-// order the placeholders are emitted.
-func scopeFilters(createdBy, dimension, persona, status string, startIdx int) (clause string, args []any) {
+// scope holds the optional predicates shared by the search arms. created_by is
+// the portal's per-user security boundary; excludeDimension is the negative
+// complement of dimension (drop one rather than restrict to one).
+type scope struct {
+	createdBy        string
+	dimension        string
+	persona          string
+	status           string
+	excludeDimension string
+}
+
+// scopeFilters builds the optional scope predicates, parameterized from
+// startIdx. It returns the clause (prefixed with " AND " when non-empty) and
+// the matching args, appended in the same order the placeholders are emitted so
+// the caller can bind them after the fixed query/vector parameters.
+func scopeFilters(s scope, startIdx int) (clause string, args []any) {
 	idx := startIdx
 	for _, f := range []struct {
 		col, val string
 	}{
-		{colCreatedBy, createdBy},
-		{colDimension, dimension},
-		{colPersona, persona},
-		{colStatus, status},
+		{colCreatedBy, s.createdBy},
+		{colDimension, s.dimension},
+		{colPersona, s.persona},
+		{colStatus, s.status},
 	} {
 		if f.val == "" {
 			continue
@@ -412,6 +421,10 @@ func scopeFilters(createdBy, dimension, persona, status string, startIdx int) (c
 		clause += fmt.Sprintf(" AND %s = $%d", f.col, idx)
 		args = append(args, f.val)
 		idx++
+	}
+	if s.excludeDimension != "" {
+		clause += fmt.Sprintf(" AND %s <> $%d", colDimension, idx)
+		args = append(args, s.excludeDimension)
 	}
 	return clause, args
 }
@@ -427,7 +440,10 @@ func scopeFilters(createdBy, dimension, persona, status string, startIdx int) (c
 // union is deduped by id (keeping the higher fused score) and sorted.
 func (s *postgresStore) HybridSearch(ctx context.Context, query HybridQuery) ([]ScoredRecord, error) {
 	limit := clampStoreLimit(query.Limit)
-	filterClause, filterArgs := scopeFilters(query.CreatedBy, query.Dimension, query.Persona, query.Status, hybridFilterStartParam)
+	filterClause, filterArgs := scopeFilters(scope{
+		createdBy: query.CreatedBy, dimension: query.Dimension, persona: query.Persona,
+		status: query.Status, excludeDimension: query.ExcludeDimension,
+	}, hybridFilterStartParam)
 	archived := archivedExclusion(query.Status)
 	args := make([]any, 0, 2+len(filterArgs))
 	args = append(args, pgvector.NewVector(query.Embedding), query.QueryText)
@@ -472,7 +488,10 @@ func (s *postgresStore) HybridSearch(ctx context.Context, query HybridQuery) ([]
 // as the other arms.
 func (s *postgresStore) LexicalSearch(ctx context.Context, query LexicalQuery) ([]ScoredRecord, error) {
 	limit := clampStoreLimit(query.Limit)
-	filterClause, filterArgs := scopeFilters(query.CreatedBy, query.Dimension, query.Persona, query.Status, lexicalFilterStartParam)
+	filterClause, filterArgs := scopeFilters(scope{
+		createdBy: query.CreatedBy, dimension: query.Dimension, persona: query.Persona,
+		status: query.Status, excludeDimension: query.ExcludeDimension,
+	}, lexicalFilterStartParam)
 	args := make([]any, 0, 1+len(filterArgs))
 	args = append(args, query.QueryText)
 	args = append(args, filterArgs...)
@@ -581,7 +600,7 @@ func collectScoredRows(rows *sql.Rows, minScore float64) ([]ScoredRecord, error)
 }
 
 // EntityLookup returns active memories linked to a DataHub URN.
-func (s *postgresStore) EntityLookup(ctx context.Context, urn, persona string) ([]Record, error) {
+func (s *postgresStore) EntityLookup(ctx context.Context, urn, persona, createdBy string) ([]Record, error) {
 	urnJSON, err := json.Marshal([]string{urn})
 	if err != nil {
 		return nil, fmt.Errorf("marshaling entity URN filter: %w", err)
@@ -596,6 +615,12 @@ func (s *postgresStore) EntityLookup(ctx context.Context, urn, persona string) (
 
 	if persona != "" {
 		qb = qb.Where(sq.Eq{colPersona: persona})
+	}
+	// createdBy is the per-user scope: a knowledge_search entity lookup passes
+	// the caller's email so it cannot surface another user's entity-linked
+	// memories. Empty leaves the lookup persona-scoped (the enrichment path).
+	if createdBy != "" {
+		qb = qb.Where(sq.Eq{colCreatedBy: createdBy})
 	}
 
 	query, args, err := qb.ToSql()

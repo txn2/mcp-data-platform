@@ -100,8 +100,8 @@ func enrichToolResult(ctx context.Context, enricher *semanticEnricher, req mcp.R
 
 // discoveryNoteMessage is the soft note appended to enriched results when the
 // session has not yet performed DataHub discovery.
-const discoveryNoteMessage = "Note: No DataHub discovery has been performed in this session yet. " +
-	"Call datahub_search to understand the business context, ownership, and data quality " +
+const discoveryNoteMessage = "Note: No discovery has been performed in this session yet. " +
+	"Call knowledge_search to understand the business context, ownership, and data quality " +
 	"of the tables you are querying."
 
 // applyEnrichment enriches the result and tracks whether enrichment was applied on the PlatformContext.

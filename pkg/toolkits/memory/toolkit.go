@@ -11,17 +11,15 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
 
-const (
-	manageToolName = "memory_manage"
-	recallToolName = "memory_recall"
-)
+const manageToolName = "memory_manage"
 
-// Toolkit implements the memory management toolkit.
+// Toolkit implements the memory management toolkit. Recall is handled by the
+// unified knowledge_search tool (#632); this toolkit owns only the memory_manage
+// write path.
 type Toolkit struct {
-	name             string
-	store            memstore.Store
-	embedder         embedding.Provider
-	semanticProvider semantic.Provider
+	name     string
+	store    memstore.Store
+	embedder embedding.Provider
 }
 
 // New creates a new memory toolkit.
@@ -49,7 +47,8 @@ func (t *Toolkit) Name() string { return t.name }
 // Connection returns the connection name for audit logging.
 func (*Toolkit) Connection() string { return "" }
 
-// RegisterTools registers memory_manage and memory_recall with the MCP server.
+// RegisterTools registers memory_manage with the MCP server. Recall moved to
+// the unified knowledge_search tool (#632).
 func (t *Toolkit) RegisterTools(s *mcp.Server) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:  manageToolName,
@@ -60,30 +59,20 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"Do not wait to be asked. If the user tells you something about their data, their workflow, " +
 			"or how they want results presented, remember it. " +
 			"Commands: remember (create), update, forget (archive), list, review_stale. " +
-			"Dimensions: knowledge, event, entity, relationship, preference.",
+			"Dimensions: knowledge, event, entity, relationship, preference. " +
+			"To find memory back, use knowledge_search.",
 		InputSchema: memoryManageSchema,
 	}, t.handleManage)
-
-	mcp.AddTool(s, &mcp.Tool{
-		Name:  recallToolName,
-		Title: "Memory Recall",
-		Description: "Retrieves relevant memories using multi-strategy search. Strategies: entity (URN lookup), " +
-			"semantic (hybrid vector+lexical ranking, with automatic lexical-only fallback when the embedder is " +
-			"unavailable), lexical (forced full-text keyword match), graph (DataHub lineage traversal), auto (combined). " +
-			"Use when you need context from prior sessions that isn't automatically injected.",
-		InputSchema: memoryRecallSchema,
-	}, t.handleRecall)
 }
 
 // Tools returns the list of tool names.
 func (*Toolkit) Tools() []string {
-	return []string{manageToolName, recallToolName}
+	return []string{manageToolName}
 }
 
-// SetSemanticProvider sets the semantic metadata provider for graph traversal.
-func (t *Toolkit) SetSemanticProvider(provider semantic.Provider) {
-	t.semanticProvider = provider
-}
+// SetSemanticProvider is a no-op: recall (which used lineage) moved to
+// knowledge_search, so the memory toolkit no longer needs the semantic provider.
+func (*Toolkit) SetSemanticProvider(_ semantic.Provider) {}
 
 // SetQueryProvider is a no-op; memory toolkit does not use query execution.
 func (*Toolkit) SetQueryProvider(_ query.Provider) {}

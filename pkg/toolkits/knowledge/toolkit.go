@@ -247,22 +247,8 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		}, t.handleApplyKnowledge)
 	}
 
-	// recall_insight registers only when the wired store supports relevance
-	// search (the memory-backed adapter). The legacy SQL store and the noop
-	// store do not, so they get no non-functional route.
-	if _, ok := t.store.(InsightSearcher); ok {
-		mcp.AddTool(s, &mcp.Tool{
-			Name:  recallToolName,
-			Title: "Recall Insight",
-			Description: "Search previously captured domain knowledge (insights) by relevance. " +
-				"Call this to find what was already learned before re-asking the user or re-deriving it: " +
-				"for example 'what do we know about churn calculation' or 'seasonal patterns in store traffic'. " +
-				"Returns the calling user's own captured insights ranked by relevance, each with its review status, " +
-				"related entity URNs, and a relevance score. Results are scoped to the caller's captured knowledge. " +
-				"Ranking is hybrid (semantic + lexical) when an embedding provider is configured, lexical-only otherwise.",
-			InputSchema: recallInsightSchema,
-		}, t.handleRecallInsight)
-	}
+	// Insight recall is served by the unified knowledge_search tool (#632);
+	// this toolkit no longer registers a separate recall_insight tool.
 
 	t.registerPrompt(s)
 }
@@ -272,9 +258,6 @@ func (t *Toolkit) Tools() []string {
 	tools := []string{toolName}
 	if t.applyEnabled {
 		tools = append(tools, applyToolName)
-	}
-	if _, ok := t.store.(InsightSearcher); ok {
-		tools = append(tools, recallToolName)
 	}
 	return tools
 }

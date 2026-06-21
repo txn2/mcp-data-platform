@@ -86,7 +86,7 @@ func (m *mockMemoryStore) LexicalSearch(_ context.Context, q memory.LexicalQuery
 	return m.searchResult, m.searchErr
 }
 
-func (*mockMemoryStore) EntityLookup(_ context.Context, _, _ string) ([]memory.Record, error) {
+func (*mockMemoryStore) EntityLookup(_ context.Context, _, _, _ string) ([]memory.Record, error) {
 	return nil, nil //nolint:nilnil // mock returns nil for both
 }
 

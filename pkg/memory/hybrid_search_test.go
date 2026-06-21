@@ -189,6 +189,35 @@ func TestHybridSearch_CreatedByAndDimensionFilters(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+// TestHybridSearch_ExcludeDimension verifies the negative dimension predicate
+// (dimension <> $N) is emitted and bound after the positive scope filters, so
+// the unified knowledge search can drop the knowledge dimension in SQL rather
+// than after LIMIT. With only created_by set, the binding order is
+// created_by=$3, dimension<>$4.
+func TestHybridSearch_ExcludeDimension(t *testing.T) {
+	t.Parallel()
+
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresStore(db)
+
+	mock.ExpectQuery("dimension <> ").
+		WithArgs(sqlmock.AnyArg(), "orders", "user@example.com", DimensionKnowledge).
+		WillReturnRows(sqlmock.NewRows(hybridColumns))
+
+	_, err = store.HybridSearch(context.Background(), HybridQuery{
+		Embedding:        []float32{0.1},
+		QueryText:        "orders",
+		CreatedBy:        "user@example.com",
+		ExcludeDimension: DimensionKnowledge,
+		Limit:            10,
+	})
+	require.NoError(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestHybridSearch_QueryError(t *testing.T) {
 	t.Parallel()
 

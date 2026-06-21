@@ -37,6 +37,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/database/migrate"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
+	"github.com/txn2/mcp-data-platform/pkg/knowledge"
 	"github.com/txn2/mcp-data-platform/pkg/mcpapps"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -63,6 +64,7 @@ import (
 	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
+	knowledgesearchkit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledgesearch"
 	memorykit "github.com/txn2/mcp-data-platform/pkg/toolkits/memory"
 	portalkit "github.com/txn2/mcp-data-platform/pkg/toolkits/portal"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/tools/toolsindex"
@@ -376,6 +378,11 @@ func (p *Platform) initExtensions() error {
 	// Portal creates the toolkit, so this is wired after both init.
 	if p.knowledgeToolkit != nil && p.portalToolkit != nil {
 		p.knowledgeToolkit.SetThreadLinker(p.portalToolkit)
+	}
+	// Unified knowledge read path (#632). Federates the stores initialized
+	// above (memory, insights, assets), so it must run after them.
+	if err := p.initKnowledgeSearch(); err != nil {
+		return err
 	}
 	if err := p.initManagedResources(); err != nil {
 		return err
@@ -1586,6 +1593,97 @@ func (p *Platform) initKnowledge() error {
 
 	slog.Info("knowledge capture enabled")
 	return nil
+}
+
+// initKnowledgeSearch wires the unified knowledge read path (#632): one
+// knowledge_search tool over a router that federates the per-user stores
+// initialized earlier in initExtensions. Each provider registers only when its
+// backing store exists, so the tool appears whenever at least one knowledge
+// source is available and is skipped entirely on a store-less (no-database)
+// deployment.
+func (p *Platform) initKnowledgeSearch() error {
+	var providers []knowledge.Provider
+
+	if p.memoryStore != nil {
+		// The lineage expander widens the entity path along DataHub lineage
+		// (the old memory_recall graph strategy); nil when no real catalog is
+		// configured, leaving a plain entity lookup.
+		var lineage knowledge.LineageExpander
+		if p.config.Semantic.Provider == kindDataHub && p.semanticProvider != nil {
+			lineage = &knowledgeLineageExpander{semantic: p.semanticProvider}
+		}
+		providers = append(providers, knowledge.NewMemoryProvider(p.memoryStore, lineage))
+	}
+	// Insights are searchable only through the memory-backed adapter; the
+	// legacy SQL store and the noop store do not implement InsightSearcher.
+	if s, ok := p.knowledgeInsightStore.(knowledgekit.InsightSearcher); ok {
+		providers = append(providers, knowledge.NewInsightsProvider(s))
+	}
+	// The technical catalog is a knowledge sink only when a real DataHub
+	// semantic provider is configured (the noop fallback would add an
+	// always-empty provider).
+	if p.config.Semantic.Provider == kindDataHub && p.semanticProvider != nil {
+		providers = append(providers, knowledge.NewDatahubProvider(p.semanticProvider))
+	}
+	// Prompts are searchable through the postgres prompt store.
+	if s, ok := p.promptStore.(prompt.Searcher); ok {
+		providers = append(providers, knowledge.NewPromptsProvider(s))
+	}
+	// Assets are searchable only through the postgres asset store.
+	if s, ok := p.portalAssetStore.(portal.AssetSearcher); ok {
+		providers = append(providers, knowledge.NewAssetsProvider(s))
+	}
+
+	if len(providers) == 0 {
+		return nil
+	}
+
+	router := knowledge.NewRouter(p.embeddingProv, providers...)
+	tk := knowledgesearchkit.New(instanceDefault, router)
+	if err := p.toolkitRegistry.Register(tk); err != nil {
+		return fmt.Errorf("registering knowledge_search toolkit: %w", err)
+	}
+
+	slog.Info("knowledge search enabled", "providers", len(providers))
+	return nil
+}
+
+// knowledgeLineageExpander widens a set of entity URNs along one hop of DataHub
+// lineage for the knowledge_search entity path, mirroring the memory toolkit's
+// lineage collection. It is the seam that carries the old memory_recall "graph"
+// strategy into the unified search verb.
+type knowledgeLineageExpander struct {
+	semantic semantic.Provider
+}
+
+// Expand returns the input URNs plus their one-hop upstream and downstream
+// lineage neighbors. Lookups that fail (unparseable URN, lineage error) are
+// skipped, so expansion never fails the search; the original URNs are always
+// returned.
+func (e *knowledgeLineageExpander) Expand(ctx context.Context, urns []string) []string {
+	related := make(map[string]bool)
+	for _, urn := range urns {
+		related[urn] = true
+		table, err := memory.ParseURNToTable(urn)
+		if err != nil {
+			continue
+		}
+		// nosemgrep: semgrep.unbounded-make-slice-capacity -- fixed 2-element literal, not user input
+		for _, dir := range []semantic.LineageDirection{semantic.LineageUpstream, semantic.LineageDownstream} {
+			lineage, err := e.semantic.GetLineage(ctx, table, dir, 1)
+			if err != nil || lineage == nil {
+				continue
+			}
+			for _, entity := range lineage.Entities {
+				related[entity.URN] = true
+			}
+		}
+	}
+	out := make([]string, 0, len(related))
+	for u := range related {
+		out = append(out, u)
+	}
+	return out
 }
 
 // configureKnowledgeApply sets up the apply_knowledge tool dependencies if enabled.

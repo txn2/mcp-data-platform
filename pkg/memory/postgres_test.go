@@ -414,7 +414,7 @@ func TestPostgresStore_EntityLookup_WithPersona(t *testing.T) {
 		).
 		WillReturnRows(rows)
 
-	records, err := store.EntityLookup(context.Background(), "urn:li:dataset:foo", "analyst")
+	records, err := store.EntityLookup(context.Background(), "urn:li:dataset:foo", "analyst", "")
 	require.NoError(t, err)
 	assert.Len(t, records, 1)
 	assert.Equal(t, "mem-001", records[0].ID)
@@ -435,7 +435,7 @@ func TestPostgresStore_EntityLookup_WithoutPersona(t *testing.T) {
 		).
 		WillReturnRows(sqlmock.NewRows(memorySelectColumns))
 
-	records, err := store.EntityLookup(context.Background(), "urn:li:dataset:bar", "")
+	records, err := store.EntityLookup(context.Background(), "urn:li:dataset:bar", "", "")
 	require.NoError(t, err)
 	assert.Empty(t, records)
 	assert.NoError(t, mock.ExpectationsWereMet())
