@@ -44,6 +44,7 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | Knowledge | `capture_insight` | Record domain knowledge |
 | Knowledge | `recall_insight` | Relevance search over your captured insights (semantic + lexical) |
 | Knowledge | `apply_knowledge` | Review and apply insights to catalog (admin-only) |
+| Knowledge | `knowledge_search` | Unified relevance search across your memory, insights, and saved assets |
 | Memory | `memory_manage` | Create, update, forget, list memories (opt-in per persona) |
 | Memory | `memory_recall` | Multi-strategy memory retrieval (entity, semantic, lexical, graph, auto) |
 | Portal | `save_artifact` | Save an AI-generated artifact (JSX, HTML, SVG, etc.) |
@@ -578,6 +579,24 @@ Record domain knowledge shared during a session. Available to all personas when 
 | `entity_urns` | array | No | [] | Related DataHub entity URNs (max 10) |
 | `related_columns` | array | No | [] | Related columns (max 20) |
 | `suggested_actions` | array | No | [] | Proposed catalog changes (max 5). Action types: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query, set_structured_property, remove_structured_property, raise_incident, resolve_incident, add_context_document, update_context_document, remove_context_document |
+
+---
+
+### knowledge_search
+
+Search all platform knowledge from one place. Instead of choosing between `recall_insight`, `memory_recall`, and the artifact search, the agent issues one query and the platform fans it across every available knowledge source, fuses the results into a single ranked list, and tags each hit with its source. Registered whenever at least one knowledge source is available (memory, insights, or saved assets).
+
+The providers in this release are the caller's personal memory (the non-knowledge dimensions; captured/remembered knowledge surfaces through the insights provider), captured insights, and saved assets. Each is per-user: results are scoped server-side to the caller, so a search never surfaces another user's private records. A caller with no identity receives no results rather than an unscoped search.
+
+Ranking is hybrid (semantic vector + lexical) when an embedding provider is configured, and lexical-only otherwise, the same hybrid-vs-lexical decision `recall_insight` and `memory_recall` make. The response carries a `ranking` field (`hybrid` or `lexical`), a `count`, and a `hits` array where each entry pairs the matched `text` with its `source` (provenance), a `ref` (the record id within that source), and a fused relevance `score`.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `intent` | string | Yes | - | Natural-language description of the knowledge you are looking for |
+| `context` | string | No | - | Optional surrounding context (the task, table, or question at hand), folded into the query to sharpen relevance |
+| `limit` | integer | No | 10 | Maximum results (max 50) |
 
 ---
 
