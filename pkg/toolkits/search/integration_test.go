@@ -3,6 +3,7 @@ package search
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -38,10 +39,12 @@ func (s *scopedMemoryStore) LexicalSearch(_ context.Context, q memory.LexicalQue
 	return s.scoped(q.CreatedBy), nil
 }
 
-func (s *scopedMemoryStore) EntityLookup(_ context.Context, _, _, createdBy string) ([]memory.Record, error) {
+func (s *scopedMemoryStore) EntityLookup(_ context.Context, urn, _, createdBy string) ([]memory.Record, error) {
 	var out []memory.Record
 	for _, r := range s.records {
-		if r.CreatedBy == createdBy {
+		// slices.Contains mirrors the entity_urns JSONB containment the real
+		// stores filter on.
+		if r.CreatedBy == createdBy && slices.Contains(r.EntityURNs, urn) {
 			out = append(out, r)
 		}
 	}
@@ -73,6 +76,22 @@ func (s *scopedInsightStore) Search(_ context.Context, q knowledgekit.InsightSea
 	return out, nil
 }
 
+// List is the entity-keyed path: insights owned by the caller and linked to the
+// requested URN, mirroring the real adapter's owner + entity_urns filter.
+func (s *scopedInsightStore) List(_ context.Context, f knowledgekit.InsightFilter) ([]knowledgekit.Insight, int, error) {
+	var out []knowledgekit.Insight
+	for _, in := range s.insights {
+		if in.CapturedBy != f.CapturedBy {
+			continue
+		}
+		if f.EntityURN != "" && !slices.Contains(in.EntityURNs, f.EntityURN) {
+			continue
+		}
+		out = append(out, in)
+	}
+	return out, len(out), nil
+}
+
 // scopedAssetStore returns only assets whose OwnerID matches the query.
 type scopedAssetStore struct {
 	assets []portal.Asset
@@ -94,6 +113,19 @@ type globalCatalog struct{}
 
 func (globalCatalog) SearchTables(_ context.Context, _ semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
 	return []semantic.TableSearchResult{{URN: "g-catalog", Name: "global table"}}, nil
+}
+
+// GetTableContext is the entity-keyed path: it resolves only the known demo
+// dataset, returning an empty (URN-less) context for any other table so a
+// non-existent URN yields no catalog hit.
+func (globalCatalog) GetTableContext(_ context.Context, table semantic.TableIdentifier) (*semantic.TableContext, error) {
+	if table.Table != "os_acme_transactions" {
+		return &semantic.TableContext{}, nil
+	}
+	return &semantic.TableContext{
+		URN:         "urn:li:dataset:(urn:li:dataPlatform:trino," + table.String() + ",PROD)",
+		Description: "acme transactions catalog entry",
+	}, nil
 }
 
 // globalPrompts is a shared prompts fake returning one global prompt for every
@@ -124,8 +156,8 @@ func assembledToolkit() *Toolkit {
 		{ID: "a-alice", OwnerID: userAID, Name: "alice asset"},
 	}}
 
-	router := knowledge.NewRouter(nil,
-		knowledge.NewMemoryProvider(mem, nil),
+	router := knowledge.NewRouter(nil, nil,
+		knowledge.NewMemoryProvider(mem),
 		knowledge.NewInsightsProvider(ins),
 		knowledge.NewDatahubProvider(globalCatalog{}),
 		knowledge.NewPromptsProvider(globalPrompts{}),
@@ -229,7 +261,7 @@ func TestEntityPathScopedToCaller(t *testing.T) {
 	mem := &scopedMemoryStore{records: []memory.Record{
 		{ID: "e-alice", CreatedBy: userAEmail, Content: "alice orders note", Dimension: memory.DimensionEntity, EntityURNs: []string{"urn:li:dataset:orders"}},
 	}}
-	router := knowledge.NewRouter(nil, knowledge.NewMemoryProvider(mem, nil))
+	router := knowledge.NewRouter(nil, nil, knowledge.NewMemoryProvider(mem))
 	tk := New("default", router)
 
 	// Entity-only query (no intent) by user B must not return alice's record.
@@ -247,6 +279,86 @@ func TestEntityPathScopedToCaller(t *testing.T) {
 	}
 	if out.Count != 0 {
 		t.Fatalf("entity lookup leaked across users: %+v", hitsOf(out))
+	}
+}
+
+// callEntitySearch runs an entity-only search (no intent) and decodes the output.
+func callEntitySearch(ctx context.Context, t *testing.T, tk *Toolkit, urns []string) searchOutput {
+	t.Helper()
+	res, _, err := tk.handleSearch(ctx, &mcp.CallToolRequest{}, searchInput{EntityURNs: urns})
+	if err != nil {
+		t.Fatalf("transport error: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("tool reported error: %v", res.Content)
+	}
+	tc, ok := res.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("unexpected content type %T", res.Content[0])
+	}
+	var out searchOutput
+	if err := json.Unmarshal([]byte(tc.Text), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return out
+}
+
+// TestEntityFanoutUnionsAllSources is the issue #654 acceptance test: an
+// entity-only search over an exact dataset URN must fan out across every
+// entity-keyed source, returning the catalog entity, the URN-linked insights,
+// and the URN-linked memory grouped by source, rather than the old near-empty
+// result.
+func TestEntityFanoutUnionsAllSources(t *testing.T) {
+	const urn = "urn:li:dataset:(urn:li:dataPlatform:trino,opensearch.default.os_acme_transactions,PROD)"
+	mem := &scopedMemoryStore{records: []memory.Record{
+		{ID: "m1", CreatedBy: userAEmail, Content: "alice note", Dimension: memory.DimensionEntity, EntityURNs: []string{urn}},
+	}}
+	ins := &scopedInsightStore{insights: []knowledgekit.Insight{
+		{ID: "i1", CapturedBy: userAEmail, InsightText: "amount is gross margin", Status: knowledgekit.StatusApproved, EntityURNs: []string{urn}},
+	}}
+	router := knowledge.NewRouter(nil, nil,
+		knowledge.NewMemoryProvider(mem),
+		knowledge.NewInsightsProvider(ins),
+		knowledge.NewDatahubProvider(globalCatalog{}),
+	)
+	tk := New("default", router)
+
+	out := callEntitySearch(ctxFor(userAID, userAEmail), t, tk, []string{urn})
+	if out.Ranking != "entity" {
+		t.Errorf("ranking = %q, want entity", out.Ranking)
+	}
+	bySource := map[string]bool{}
+	for _, h := range hitsOf(out) {
+		bySource[h.Source] = true
+	}
+	for _, src := range []string{knowledge.SourceMemory, knowledge.SourceInsights, knowledge.SourceDatahub} {
+		if !bySource[src] {
+			t.Errorf("entity fanout missing %q; sources seen: %v", src, bySource)
+		}
+	}
+}
+
+// TestEntityFanoutNonexistentURNReturnsZero proves a URN that no source has
+// linked content for returns nothing (no false matches), acceptance criterion 4.
+func TestEntityFanoutNonexistentURNReturnsZero(t *testing.T) {
+	const linked = "urn:li:dataset:(urn:li:dataPlatform:trino,opensearch.default.os_acme_transactions,PROD)"
+	const missing = "urn:li:dataset:(urn:li:dataPlatform:trino,opensearch.default.nope,PROD)"
+	mem := &scopedMemoryStore{records: []memory.Record{
+		{ID: "m1", CreatedBy: userAEmail, Content: "alice note", Dimension: memory.DimensionEntity, EntityURNs: []string{linked}},
+	}}
+	ins := &scopedInsightStore{insights: []knowledgekit.Insight{
+		{ID: "i1", CapturedBy: userAEmail, InsightText: "linked", Status: knowledgekit.StatusApproved, EntityURNs: []string{linked}},
+	}}
+	router := knowledge.NewRouter(nil, nil,
+		knowledge.NewMemoryProvider(mem),
+		knowledge.NewInsightsProvider(ins),
+		knowledge.NewDatahubProvider(globalCatalog{}),
+	)
+	tk := New("default", router)
+
+	out := callEntitySearch(ctxFor(userAID, userAEmail), t, tk, []string{missing})
+	if out.Count != 0 {
+		t.Fatalf("non-existent URN produced false matches: %+v", hitsOf(out))
 	}
 }
 
@@ -285,7 +397,7 @@ func (stubConnLister) Connections() []knowledge.ConnectionInfo {
 // matches both the catalog and a connection produces a group and a coverage
 // entry for each, and Count equals the total shown.
 func TestGroupedOutputAndCoverage(t *testing.T) {
-	router := knowledge.NewRouter(nil,
+	router := knowledge.NewRouter(nil, nil,
 		knowledge.NewDatahubProvider(globalCatalog{}),
 		knowledge.NewConnectionsProvider(stubConnLister{}),
 	)
@@ -317,7 +429,7 @@ func TestGroupedOutputAndCoverage(t *testing.T) {
 // TestSourcesNarrowsThroughTool proves the sources filter reaches the router
 // from the tool input.
 func TestSourcesNarrowsThroughTool(t *testing.T) {
-	router := knowledge.NewRouter(nil,
+	router := knowledge.NewRouter(nil, nil,
 		knowledge.NewDatahubProvider(globalCatalog{}),
 		knowledge.NewConnectionsProvider(stubConnLister{}),
 	)

@@ -125,6 +125,17 @@ type InsightSearcher interface {
 	Search(ctx context.Context, q InsightSearchQuery) ([]ScoredInsight, error)
 }
 
+// SearchableInsightStore is an InsightStore that also supports relevance
+// search. Only the memory-backed adapter satisfies it; the legacy SQL store and
+// the noop store implement InsightStore but not InsightSearcher. The unified
+// search wiring asserts the wired store against this so the insights search
+// provider gets both the entity-keyed lookup (List, filtered by EntityURN) and
+// the relevance search (Search) from one value.
+type SearchableInsightStore interface {
+	InsightStore
+	InsightSearcher
+}
+
 // Search returns the caller's knowledge-dimension insights ranked by
 // relevance to the query. It delegates to the shared memory search
 // primitives (HybridSearch when an embedding is supplied, LexicalSearch

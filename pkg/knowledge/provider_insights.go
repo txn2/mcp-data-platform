@@ -10,17 +10,19 @@ import (
 // SourceInsights is the provenance label for insight-provider hits.
 const SourceInsights = "insights"
 
-// insightSearcher is the relevance-search capability of the insight store. It
-// matches knowledgekit.InsightSearcher; declared locally so the provider
+// insightSource is the slice of the insight store the provider needs: the
+// relevance search (text path) plus the entity-keyed list (entity path). It
+// matches knowledgekit.SearchableInsightStore; declared locally so the provider
 // depends on the capability and tests can supply a fake.
-type insightSearcher interface {
+type insightSource interface {
 	Search(ctx context.Context, q knowledgekit.InsightSearchQuery) ([]knowledgekit.ScoredInsight, error)
+	List(ctx context.Context, filter knowledgekit.InsightFilter) ([]knowledgekit.Insight, int, error)
 }
 
 // InsightsProvider exposes captured domain knowledge (insights) to the router.
 //
 // Insights are knowledge-dimension memory rows owned by the caller
-// (insight.captured_by == caller email). The underlying searcher scopes to that
+// (insight.captured_by == caller email). The underlying store scopes to that
 // owner and to the knowledge dimension, so this provider covers exactly the
 // records the MemoryProvider skips.
 //
@@ -30,12 +32,13 @@ type insightSearcher interface {
 // PR1 keeps this provider per-user. Promoting reviewed insights to ScopeShared
 // is deferred to the write-path/review work (#633).
 type InsightsProvider struct {
-	searcher insightSearcher
+	store insightSource
 }
 
-// NewInsightsProvider builds the insights provider over an insight searcher.
-func NewInsightsProvider(searcher insightSearcher) *InsightsProvider {
-	return &InsightsProvider{searcher: searcher}
+// NewInsightsProvider builds the insights provider over a searchable insight
+// store.
+func NewInsightsProvider(store insightSource) *InsightsProvider {
+	return &InsightsProvider{store: store}
 }
 
 // Name returns the provenance label.
@@ -45,18 +48,81 @@ func (*InsightsProvider) Name() string { return SourceInsights }
 // sharing is deferred.
 func (*InsightsProvider) Scope() Scope { return ScopePerUser }
 
-// Search returns the caller's captured insights ranked by relevance to the
-// intent, optionally filtered by review status. Each hit carries the insight's
-// review status and linked entity URNs as provenance. It responds to the text
-// (Intent) path only; entity-keyed lookup is served by the memory provider, so
-// a query with no intent yields nothing here. It fails closed on a missing
-// caller email rather than searching across all users.
+// Search returns the caller's captured insights. It serves both query shapes:
+// an exact entity-keyed lookup on EntityURNs (insights linked to the requested
+// datasets, lineage-expanded by the Router) and a relevance search on Intent.
+// Results from both paths are merged and de-duplicated by insight id. Each hit
+// carries the insight's review status and linked entity URNs as provenance. It
+// fails closed on a missing caller email rather than searching across all users.
 func (p *InsightsProvider) Search(ctx context.Context, q Query) ([]Hit, error) {
-	if q.Caller.Email == "" || q.Intent == "" {
+	if q.Caller.Email == "" {
 		return nil, nil
 	}
 
-	scored, err := p.searcher.Search(ctx, knowledgekit.InsightSearchQuery{
+	var hits []Hit
+	seen := make(map[string]bool)
+
+	entityHits, err := p.searchByEntity(ctx, q, seen)
+	if err != nil {
+		return nil, err
+	}
+	hits = append(hits, entityHits...)
+
+	textHits, err := p.searchByText(ctx, q, seen)
+	if err != nil {
+		return nil, err
+	}
+	hits = append(hits, textHits...)
+
+	return hits, nil
+}
+
+// searchByEntity returns the caller's insights linked to the query's entity URNs
+// (already lineage-expanded by the Router). It reuses the entity-keyed List path
+// that memory_manage(filter_entity_urn=...) relies on, scoped to the caller's
+// email and the knowledge dimension by the store. Already-seen insights are
+// skipped; when no explicit status was requested, rejected/superseded/rolled-back
+// insights are dropped so a "what do we know" lookup never surfaces retracted
+// knowledge.
+func (p *InsightsProvider) searchByEntity(ctx context.Context, q Query, seen map[string]bool) ([]Hit, error) {
+	if len(q.EntityURNs) == 0 {
+		return nil, nil
+	}
+
+	var hits []Hit
+	for _, urn := range q.EntityURNs {
+		insights, _, err := p.store.List(ctx, knowledgekit.InsightFilter{
+			EntityURN:  urn,
+			CapturedBy: q.Caller.Email,
+			Status:     q.Status,
+			Limit:      q.Limit,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("insight entity lookup: %w", err)
+		}
+		for i := range insights {
+			if seen[insights[i].ID] {
+				continue
+			}
+			if q.Status == "" && !isLiveInsightStatus(insights[i].Status) {
+				continue
+			}
+			seen[insights[i].ID] = true
+			hits = append(hits, insightHit(insights[i], entityMatchScore))
+		}
+	}
+	return hits, nil
+}
+
+// searchByText returns the caller's insights ranked by relevance to the intent,
+// optionally filtered by review status. Already-seen insights (recalled on the
+// entity path) are skipped. A query with no intent yields nothing here.
+func (p *InsightsProvider) searchByText(ctx context.Context, q Query, seen map[string]bool) ([]Hit, error) {
+	if q.Intent == "" {
+		return nil, nil
+	}
+
+	scored, err := p.store.Search(ctx, knowledgekit.InsightSearchQuery{
 		QueryText:  q.Intent,
 		Embedding:  q.Embedding,
 		CapturedBy: q.Caller.Email,
@@ -69,14 +135,36 @@ func (p *InsightsProvider) Search(ctx context.Context, q Query) ([]Hit, error) {
 
 	hits := make([]Hit, 0, len(scored))
 	for i := range scored {
-		hits = append(hits, Hit{
-			Text:       scored[i].Insight.InsightText,
-			Source:     SourceInsights,
-			Ref:        scored[i].Insight.ID,
-			Score:      scored[i].Score,
-			Status:     scored[i].Insight.Status,
-			EntityURNs: scored[i].Insight.EntityURNs,
-		})
+		if seen[scored[i].Insight.ID] {
+			continue
+		}
+		seen[scored[i].Insight.ID] = true
+		hits = append(hits, insightHit(scored[i].Insight, scored[i].Score))
 	}
 	return hits, nil
+}
+
+// insightHit maps an insight to a knowledge hit, carrying its review status and
+// linked entity URNs as provenance.
+func insightHit(in knowledgekit.Insight, score float64) Hit {
+	return Hit{
+		Text:       in.InsightText,
+		Source:     SourceInsights,
+		Ref:        in.ID,
+		Score:      score,
+		Status:     in.Status,
+		EntityURNs: in.EntityURNs,
+	}
+}
+
+// isLiveInsightStatus reports whether an insight status represents knowledge
+// still in force. Rejected, superseded, and rolled-back insights are retracted
+// and must not surface on the unfiltered entity path.
+func isLiveInsightStatus(status string) bool {
+	switch status {
+	case knowledgekit.StatusRejected, knowledgekit.StatusSuperseded, knowledgekit.StatusRolledBack:
+		return false
+	default:
+		return true
+	}
 }

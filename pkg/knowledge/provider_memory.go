@@ -26,22 +26,14 @@ type memorySearcher interface {
 	EntityLookup(ctx context.Context, urn, persona, createdBy string) ([]memory.Record, error)
 }
 
-// LineageExpander optionally widens a set of entity URNs along lineage so an
-// entity-keyed lookup also recalls knowledge about upstream and downstream
-// datasets (the old memory_recall "graph" strategy). Implemented by an adapter
-// over the semantic provider; a nil expander disables expansion, leaving a
-// plain entity lookup.
-type LineageExpander interface {
-	Expand(ctx context.Context, urns []string) []string
-}
-
 // MemoryProvider exposes a caller's personal memory to the knowledge router.
 //
 // It is per-user: results are restricted to records the caller owns
 // (memory_records.created_by == caller email), the same identity the portal's
 // "my knowledge" search scopes on. It serves two query shapes: relevance search
-// on Intent, and an exact entity-keyed lookup on EntityURNs (optionally widened
-// along lineage when a LineageExpander is wired).
+// on Intent, and an exact entity-keyed lookup on EntityURNs. Lineage expansion
+// of the entity URNs is the Router's responsibility (so it runs once for every
+// entity-keyed provider), so this provider takes the URN set as given.
 //
 // It deliberately omits the knowledge dimension on both paths. Captured
 // insights and remembered knowledge are knowledge-dimension memory rows owned
@@ -49,14 +41,12 @@ type LineageExpander interface {
 // record. This provider covers the caller's non-knowledge memory (preferences,
 // events, entities, relationships).
 type MemoryProvider struct {
-	store   memorySearcher
-	lineage LineageExpander
+	store memorySearcher
 }
 
-// NewMemoryProvider builds the memory provider over a memory store. lineage is
-// optional; when nil, entity lookups are not expanded along lineage.
-func NewMemoryProvider(store memorySearcher, lineage LineageExpander) *MemoryProvider {
-	return &MemoryProvider{store: store, lineage: lineage}
+// NewMemoryProvider builds the memory provider over a memory store.
+func NewMemoryProvider(store memorySearcher) *MemoryProvider {
+	return &MemoryProvider{store: store}
 }
 
 // Name returns the provenance label.
@@ -95,20 +85,16 @@ func (p *MemoryProvider) Search(ctx context.Context, q Query) ([]Hit, error) {
 	return hits, nil
 }
 
-// searchByEntity recalls the caller's memory linked to the query's entity URNs,
-// widened along lineage when an expander is configured. Knowledge-dimension and
-// already-seen records are skipped.
+// searchByEntity recalls the caller's memory linked to the query's entity URNs
+// (already lineage-expanded by the Router when an expander is configured).
+// Knowledge-dimension and already-seen records are skipped.
 func (p *MemoryProvider) searchByEntity(ctx context.Context, q Query, seen map[string]bool) ([]Hit, error) {
 	if len(q.EntityURNs) == 0 {
 		return nil, nil
 	}
-	urns := q.EntityURNs
-	if p.lineage != nil {
-		urns = p.lineage.Expand(ctx, urns)
-	}
 
 	var hits []Hit
-	for _, urn := range urns {
+	for _, urn := range q.EntityURNs {
 		records, err := p.store.EntityLookup(ctx, urn, q.Caller.Persona, q.Caller.Email)
 		if err != nil {
 			return nil, fmt.Errorf("memory entity lookup: %w", err)

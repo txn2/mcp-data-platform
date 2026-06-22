@@ -1412,13 +1412,13 @@ The universal, topology-free discovery entry point (renamed from `knowledge_sear
 
 Corpus (everything the persona can access): the technical catalog (DataHub, when configured), the caller's personal memory (non-knowledge dimensions; captured/remembered knowledge surfaces via the insights provider, so a record is never double-listed), captured insights, saved assets, prompts, API endpoints (aggregated across every API gateway connection, reusing `api_list_endpoints`'s per-connection semantic/hybrid ranking, each gateway applying its own route policy fail-closed), and connections. API endpoints and connections are in the default corpus, not behind an opt-in. Memory, insights, and assets are per-user, scoped server-side to the caller (memory and insights by email `created_by`/`captured_by`, assets by `owner_id`) and fail closed when their scope key is absent; the catalog, prompts, endpoints, and connections are shared. A search never surfaces another user's private records or a route a persona could not invoke; an anonymous caller still sees shared sources but no per-user data.
 
-A query may be text (`intent`), entity-keyed (`entity_urns`), or both. The entity path returns the caller's memory linked to those DataHub URNs, expanded along lineage.
+A query may be text (`intent`), entity-keyed (`entity_urns`), or both. The entity path unions every source linked to those DataHub URNs (the catalog entity, URN-linked insights, and the caller's URN-linked memory), expanded along lineage; per-user scope and the catalog's access rules still apply to each source.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `intent` | string | Conditional | - | Natural-language description of what is sought; provide intent, entity_urns, or both |
 | `context` | string | No | - | Optional surrounding context, folded into the intent to sharpen relevance |
-| `entity_urns` | array | Conditional | - | Exact entity-keyed lookup: the caller's memory linked to these DataHub URNs, lineage-expanded |
+| `entity_urns` | array | Conditional | - | Exact entity-keyed lookup: everything linked to these DataHub URNs (catalog entity, URN-linked insights, the caller's URN-linked memory), lineage-expanded |
 | `status` | string | No | - | Optional filter by insight review status (pending, approved, rejected, applied, superseded, rolled_back) |
 | `sources` | array | No | - | Narrow to named sources (datahub, memory, insights, assets, prompts, endpoints, connections); only narrows, never opts past scope |
 | `limit` | integer | No | 10 | Total results to display across all sources (max 50) |

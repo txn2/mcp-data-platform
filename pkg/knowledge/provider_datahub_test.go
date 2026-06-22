@@ -8,17 +8,40 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
 
+// a valid trino dataset URN and the dotted table name memory.ParseURNToTable
+// derives from it.
+const (
+	testDatasetURN   = "urn:li:dataset:(urn:li:dataPlatform:trino,opensearch.default.os_acme_transactions,PROD)"
+	testDatasetTable = "opensearch.default.os_acme_transactions"
+)
+
+// fakeTableSearcher is a tableSearcher stub recording the text-search filter and
+// the entity table identifiers it was asked for.
 type fakeTableSearcher struct {
-	results []semantic.TableSearchResult
-	err     error
-	got     semantic.SearchFilter
-	called  bool
+	// text path
+	results      []semantic.TableSearchResult
+	searchErr    error
+	got          semantic.SearchFilter
+	searchCalled bool
+
+	// entity path
+	byTable   map[string]*semantic.TableContext // table.String() -> context
+	ctxErr    error
+	gotTables []semantic.TableIdentifier
 }
 
 func (f *fakeTableSearcher) SearchTables(_ context.Context, filter semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
-	f.called = true
+	f.searchCalled = true
 	f.got = filter
-	return f.results, f.err
+	return f.results, f.searchErr
+}
+
+func (f *fakeTableSearcher) GetTableContext(_ context.Context, table semantic.TableIdentifier) (*semantic.TableContext, error) {
+	f.gotTables = append(f.gotTables, table)
+	if f.ctxErr != nil {
+		return nil, f.ctxErr
+	}
+	return f.byTable[table.String()], nil
 }
 
 func TestDatahubProvider_Metadata(t *testing.T) {
@@ -31,19 +54,19 @@ func TestDatahubProvider_Metadata(t *testing.T) {
 	}
 }
 
-func TestDatahubProvider_NoIntentSkips(t *testing.T) {
+func TestDatahubProvider_NoIntentNoEntitySkips(t *testing.T) {
 	s := &fakeTableSearcher{}
 	p := NewDatahubProvider(s)
-	hits, err := p.Search(context.Background(), Query{EntityURNs: []string{"urn:x"}})
+	hits, err := p.Search(context.Background(), Query{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if hits != nil || s.called {
-		t.Error("datahub provider should not run without an intent")
+	if hits != nil || s.searchCalled {
+		t.Error("datahub provider should do nothing with neither intent nor entity urns")
 	}
 }
 
-func TestDatahubProvider_MapsAndRanks(t *testing.T) {
+func TestDatahubProvider_TextMapsAndRanks(t *testing.T) {
 	s := &fakeTableSearcher{
 		results: []semantic.TableSearchResult{
 			{URN: "urn:li:dataset:orders", Name: "orders", Description: "order facts"},
@@ -61,7 +84,6 @@ func TestDatahubProvider_MapsAndRanks(t *testing.T) {
 	if len(hits) != 2 {
 		t.Fatalf("len = %d, want 2", len(hits))
 	}
-	// First result ranks above the second (positional score).
 	if hits[0].Score <= hits[1].Score {
 		t.Errorf("expected descending positional score, got %v then %v", hits[0].Score, hits[1].Score)
 	}
@@ -71,17 +93,138 @@ func TestDatahubProvider_MapsAndRanks(t *testing.T) {
 	if len(hits[0].EntityURNs) != 1 || hits[0].EntityURNs[0] != "urn:li:dataset:orders" {
 		t.Errorf("hit[0] entity urns = %+v", hits[0].EntityURNs)
 	}
-	// No-description result renders as just the name.
 	if hits[1].Text != "returns" {
 		t.Errorf("hit[1] text = %q, want %q", hits[1].Text, "returns")
 	}
 }
 
-func TestDatahubProvider_SearchError(t *testing.T) {
-	p := NewDatahubProvider(&fakeTableSearcher{err: errors.New("boom")})
+func TestDatahubProvider_TextSearchError(t *testing.T) {
+	p := NewDatahubProvider(&fakeTableSearcher{searchErr: errors.New("boom")})
 	_, err := p.Search(context.Background(), Query{Intent: "q"})
 	if err == nil {
 		t.Fatal("expected error to propagate")
+	}
+}
+
+func TestDatahubProvider_EntityLookupReturnsCatalogEntity(t *testing.T) {
+	s := &fakeTableSearcher{
+		byTable: map[string]*semantic.TableContext{
+			testDatasetTable: {URN: testDatasetURN, Description: "acme transactions"},
+		},
+	}
+	p := NewDatahubProvider(s)
+	hits, err := p.Search(context.Background(), Query{EntityURNs: []string{testDatasetURN}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if s.searchCalled {
+		t.Error("text search must not run for an entity-only query")
+	}
+	if len(s.gotTables) != 1 || s.gotTables[0].String() != testDatasetTable {
+		t.Fatalf("entity lookup parsed wrong table: %+v", s.gotTables)
+	}
+	if len(hits) != 1 || hits[0].Source != SourceDatahub || hits[0].Ref != testDatasetURN || hits[0].Score != entityMatchScore {
+		t.Fatalf("unexpected entity hit: %+v", hits)
+	}
+	if hits[0].Text != testDatasetTable+"\nacme transactions" {
+		t.Errorf("hit text = %q", hits[0].Text)
+	}
+	if len(hits[0].EntityURNs) != 1 || hits[0].EntityURNs[0] != testDatasetURN {
+		t.Errorf("hit entity urns = %+v", hits[0].EntityURNs)
+	}
+}
+
+func TestDatahubProvider_EntityLookupNoDescriptionUsesName(t *testing.T) {
+	s := &fakeTableSearcher{
+		byTable: map[string]*semantic.TableContext{
+			testDatasetTable: {URN: testDatasetURN},
+		},
+	}
+	p := NewDatahubProvider(s)
+	hits, err := p.Search(context.Background(), Query{EntityURNs: []string{testDatasetURN}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(hits) != 1 || hits[0].Text != testDatasetTable {
+		t.Errorf("expected the dotted table name as text, got %+v", hits)
+	}
+}
+
+func TestDatahubProvider_EntityLookupMissReturnsNothing(t *testing.T) {
+	// A valid URN the catalog cannot resolve (nil context) yields no hit, so a
+	// non-existent URN never produces a false match.
+	s := &fakeTableSearcher{byTable: map[string]*semantic.TableContext{}}
+	p := NewDatahubProvider(s)
+	hits, err := p.Search(context.Background(), Query{EntityURNs: []string{testDatasetURN}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(hits) != 0 {
+		t.Errorf("expected no hits for an unresolved URN, got %+v", hits)
+	}
+}
+
+func TestDatahubProvider_EntityLookupEmptyURNContextSkipped(t *testing.T) {
+	// A context with no URN (phantom entity) is not a real match.
+	s := &fakeTableSearcher{
+		byTable: map[string]*semantic.TableContext{testDatasetTable: {Description: "ghost"}},
+	}
+	p := NewDatahubProvider(s)
+	hits, err := p.Search(context.Background(), Query{EntityURNs: []string{testDatasetURN}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(hits) != 0 {
+		t.Errorf("expected no hits for an empty-URN context, got %+v", hits)
+	}
+}
+
+func TestDatahubProvider_EntityLookupSkipsUnparseableURN(t *testing.T) {
+	s := &fakeTableSearcher{}
+	p := NewDatahubProvider(s)
+	hits, err := p.Search(context.Background(), Query{EntityURNs: []string{"urn:not-a-dataset"}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(hits) != 0 || len(s.gotTables) != 0 {
+		t.Errorf("an unparseable URN must be skipped without a catalog call: hits=%+v tables=%+v", hits, s.gotTables)
+	}
+}
+
+func TestDatahubProvider_EntityLookupToleratesCatalogError(t *testing.T) {
+	// A catalog error on the entity path is skipped (the URN set is probed
+	// across many lineage neighbors), not surfaced as a provider failure.
+	s := &fakeTableSearcher{ctxErr: errors.New("datahub down")}
+	p := NewDatahubProvider(s)
+	hits, err := p.Search(context.Background(), Query{EntityURNs: []string{testDatasetURN}})
+	if err != nil {
+		t.Fatalf("entity-path catalog error must not fail the provider: %v", err)
+	}
+	if len(hits) != 0 {
+		t.Errorf("expected no hits, got %+v", hits)
+	}
+}
+
+func TestDatahubProvider_EntityAndTextDedupByURN(t *testing.T) {
+	s := &fakeTableSearcher{
+		byTable: map[string]*semantic.TableContext{
+			testDatasetTable: {URN: testDatasetURN, Description: "acme transactions"},
+		},
+		results: []semantic.TableSearchResult{
+			{URN: testDatasetURN, Name: "os_acme_transactions"},
+		},
+	}
+	p := NewDatahubProvider(s)
+	hits, err := p.Search(context.Background(), Query{Intent: "transactions", EntityURNs: []string{testDatasetURN}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(hits) != 1 {
+		t.Fatalf("expected the URN de-duplicated to a single hit, got %d: %+v", len(hits), hits)
+	}
+	// The entity path won; the text path skipped the already-seen URN.
+	if hits[0].Score != entityMatchScore {
+		t.Errorf("expected entity-path hit to win, got score %v", hits[0].Score)
 	}
 }
 
