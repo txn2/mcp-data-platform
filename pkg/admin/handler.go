@@ -473,6 +473,7 @@ func (h *Handler) registerConfigRoutes() {
 	}
 	h.mux.HandleFunc("GET /api/v1/admin/config/mode", h.configMode)
 	h.mux.HandleFunc("GET /api/v1/admin/config/export", h.exportConfig)
+	h.mux.HandleFunc("GET /api/v1/admin/config/agent-instructions-baseline", h.getAgentInstructionsBaseline)
 	if h.deps.ConfigStore != nil {
 		h.mux.HandleFunc("GET /api/v1/admin/config/effective", h.listEffectiveConfig)
 		h.mux.HandleFunc("GET /api/v1/admin/config/entries", h.listConfigEntries)

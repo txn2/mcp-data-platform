@@ -2570,6 +2570,34 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/config/agent-instructions-baseline": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the platform-owned instruction baseline (#646) for this deployment — the \"how to operate\" guidance composed beneath the admin's agent_instructions. It names only tools registered on this platform, so admins can see what the platform already covers and write business context rather than restating the operating model.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Config"
+                ],
+                "summary": "Get agent-instruction baseline",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/admin.agentInstructionsBaselineResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/config/changelog": {
             "get": {
                 "security": [
@@ -11448,6 +11476,14 @@ const docTemplate = `{
                 "total": {
                     "type": "integer",
                     "example": 3
+                }
+            }
+        },
+        "admin.agentInstructionsBaselineResponse": {
+            "type": "object",
+            "properties": {
+                "baseline": {
+                    "type": "string"
                 }
             }
         },

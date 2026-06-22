@@ -22,6 +22,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
+	"github.com/txn2/mcp-data-platform/pkg/platform/instructions"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
@@ -2419,8 +2420,8 @@ func TestPlatformInfo_WithTags(t *testing.T) {
 	}
 	defer func() { _ = p.Close() }()
 
-	// Verify tags appear in the tool description (L59)
-	desc := p.buildInfoToolDescription()
+	// Verify tags appear in the tool description (built from the wired config).
+	desc := instructions.InfoToolDescription(p.config.Server.Name, defaultServerName, p.config.Server.Tags)
 	if !containsSubstr(desc, "fireworks") {
 		t.Errorf("description %q does not contain tag 'fireworks'", desc)
 	}

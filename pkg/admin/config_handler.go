@@ -13,6 +13,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/configstore"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
+	"github.com/txn2/mcp-data-platform/pkg/platform/instructions"
 )
 
 // defaultChangelogLimit is the maximum number of changelog entries to return.
@@ -318,6 +319,33 @@ func (h *Handler) listEffectiveConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, result)
+}
+
+// agentInstructionsBaselineResponse is the body for
+// GET /api/v1/admin/config/agent-instructions-baseline.
+type agentInstructionsBaselineResponse struct {
+	Baseline string `json:"baseline"`
+}
+
+// getAgentInstructionsBaseline handles
+// GET /api/v1/admin/config/agent-instructions-baseline.
+//
+// @Summary      Get agent-instruction baseline
+// @Description  Returns the platform-owned instruction baseline (#646) for this deployment — the "how to operate" guidance composed beneath the admin's agent_instructions. It names only tools registered on this platform, so admins can see what the platform already covers and write business context rather than restating the operating model.
+// @Tags         Config
+// @Produce      json
+// @Success      200  {object}  agentInstructionsBaselineResponse
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/config/agent-instructions-baseline [get]
+func (h *Handler) getAgentInstructionsBaseline(w http.ResponseWriter, _ *http.Request) {
+	var tools []string
+	if h.deps.ToolkitRegistry != nil {
+		tools = h.deps.ToolkitRegistry.AllTools()
+	}
+	writeJSON(w, http.StatusOK, agentInstructionsBaselineResponse{
+		Baseline: instructions.Build(tools),
+	})
 }
 
 // --- Config Entry CRUD ---
