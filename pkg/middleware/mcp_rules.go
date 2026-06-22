@@ -13,14 +13,14 @@ import (
 
 // DefaultWarningMessage is the default message prepended to query results
 // when no discovery has been performed in the session.
-const DefaultWarningMessage = "⚠️ REQUIRED: You must call knowledge_search first to discover the table's " +
+const DefaultWarningMessage = "⚠️ REQUIRED: You must call search first to discover the table's " +
 	"business context (descriptions, owners, tags, glossary terms, prior insights) before running queries. " +
 	"This ensures you understand the data semantics and any access restrictions."
 
 // DefaultEscalationMessage is the default message after repeated warnings.
 // The placeholder {count} is replaced with the current warning count.
-const DefaultEscalationMessage = "🚫 MANDATORY — knowledge_search has not been called yet ({count} queries without discovery). " +
-	"Call knowledge_search NOW before issuing any more SQL. " +
+const DefaultEscalationMessage = "🚫 MANDATORY — search has not been called yet ({count} queries without discovery). " +
+	"Call search NOW before issuing any more SQL. " +
 	"Querying without understanding the data context risks incorrect results and policy violations."
 
 // RuleEnforcementConfig configures the rule enforcement middleware.
@@ -113,7 +113,7 @@ func collectRuleHints(pc *PlatformContext, cfg RuleEnforcementConfig) []string {
 	// Static fallback path: use the old RequireDataHubCheck rule
 	if cfg.Engine != nil && cfg.Engine.ShouldRequireDataHubCheck() && isQueryTool(pc.ToolName) {
 		hints = append(hints,
-			"💡 Tip: Consider using knowledge_search or datahub_get_entity first "+
+			"💡 Tip: Consider using search or datahub_get_entity first "+
 				"to understand the data context before querying.")
 	}
 

@@ -42,8 +42,8 @@ flowchart LR
     end
 ```
 
-- **`knowledge_search`** is the one way to search: one query fans across the caller's memory, captured insights, the technical catalog, prompts, and saved assets, returning a single fused, source-tagged, per-user-scoped ranked list. See [knowledge_search](../server/tools.md#knowledge_search).
-- **`memory_capture`** (memory toolkit) records domain knowledge during sessions. Available to all personas when enabled. Reviewed sink-classes (`business_knowledge`, `schema_entity`, `operational_rule`) create insights with status `pending`. (To read knowledge back, use `knowledge_search`.)
+- **`search`** is the universal, topology-free discovery entry point: one query fans across the technical catalog, the caller's memory, captured insights, saved assets, prompts, API endpoints, and connections, returning a balanced, grouped-by-source, per-user-scoped result set with a coverage summary. See [search](../server/tools.md#search).
+- **`memory_capture`** (memory toolkit) records domain knowledge during sessions. Available to all personas when enabled. Reviewed sink-classes (`business_knowledge`, `schema_entity`, `operational_rule`) create insights with status `pending`. (To read knowledge back, use `search`.)
 - **`apply_knowledge`** is an admin-only tool for reviewing, approving, synthesizing, and applying insights to DataHub.
 - **[Admin REST API](admin-api.md)** provides HTTP endpoints for managing insights and changesets outside the MCP protocol.
 

@@ -32,7 +32,7 @@ type Store interface {
 
 	// EntityLookup returns active memories linked to a DataHub URN. persona
 	// narrows to one persona when set; createdBy narrows to one owner (the
-	// per-user scope for knowledge_search) when set. Either may be empty.
+	// per-user scope for search) when set. Either may be empty.
 	EntityLookup(ctx context.Context, urn, persona, createdBy string) ([]Record, error)
 
 	// MarkStale flags memory records as stale with a reason.

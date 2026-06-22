@@ -1291,7 +1291,7 @@ List configured Trino connections. No parameters.
 
 ## DataHub Tools
 
-Catalog relevance search moved to the unified `knowledge_search` tool (see Knowledge Tools); the DataHub toolkit retains `datahub_browse` for structured navigation (platform/domain/tag/entity-type) and the entity-detail tools below.
+Catalog relevance search moved to the universal `search` tool (see Knowledge Tools); the DataHub toolkit retains `datahub_browse` for structured navigation (platform/domain/tag/entity-type) and the entity-detail tools below.
 
 ### datahub_get_entity
 
@@ -1404,25 +1404,26 @@ The one way to record knowledge, in the memory toolkit. The `type` (sink-class) 
 | `source` | string | No | user | user, agent_discovery, enrichment_gap |
 | `thread_ids` | array | No | [] | Feedback threads this capture resolves |
 
-Captures are owned by the user's email (`memory_records.created_by`), the same key `memory_manage`, knowledge_search, and the portal use, so a person's knowledge and memory appear together under their **My Knowledge** view. The sink-class is stored on `memory_records.sink_class` (derived from the record's dimension when absent).
+Captures are owned by the user's email (`memory_records.created_by`), the same key `memory_manage`, search, and the portal use, so a person's knowledge and memory appear together under their **My Knowledge** view. The sink-class is stored on `memory_records.sink_class` (derived from the record's dimension when absent).
 
-### knowledge_search
+### search
 
-The one way to search. One query fans across every available knowledge source, normalizes each source's relevance scores onto a common scale, fuses them into one ranked list, and tags each hit with its source. It is the single relevance search, so the agent never chooses which search to run; structured catalog navigation stays in `datahub_browse`. Registered whenever at least one knowledge source is available.
+The universal, topology-free discovery entry point (renamed from `knowledge_search` in #645; corpus widened to API endpoints and connections). Call it FIRST. One query fans across every searchable source the caller can access and returns results grouped by source with a coverage summary, so the agent sees the shape of the answer space instead of tunneling into the first tool that comes to mind. Structured catalog navigation stays in `datahub_browse`; the scoped API drill-down stays in `api_list_endpoints`. Registered whenever at least one source is available.
 
-Sources federated: the caller's personal memory (non-knowledge dimensions; captured/remembered knowledge surfaces via the insights provider, so a record is never double-listed), captured insights, the technical catalog (DataHub, when configured), prompts, and saved assets. Memory, insights, and assets are per-user, scoped server-side to the caller (memory and insights by email `created_by`/`captured_by`, assets by `owner_id`) and fail closed when their scope key is absent; the catalog and global prompts are shared. A search never surfaces another user's private records; an anonymous caller still sees shared sources but no per-user data.
+Corpus (everything the persona can access): the technical catalog (DataHub, when configured), the caller's personal memory (non-knowledge dimensions; captured/remembered knowledge surfaces via the insights provider, so a record is never double-listed), captured insights, saved assets, prompts, API endpoints (aggregated across every API gateway connection, reusing `api_list_endpoints`'s per-connection semantic/hybrid ranking, each gateway applying its own route policy fail-closed), and connections. API endpoints and connections are in the default corpus, not behind an opt-in. Memory, insights, and assets are per-user, scoped server-side to the caller (memory and insights by email `created_by`/`captured_by`, assets by `owner_id`) and fail closed when their scope key is absent; the catalog, prompts, endpoints, and connections are shared. A search never surfaces another user's private records or a route a persona could not invoke; an anonymous caller still sees shared sources but no per-user data.
 
 A query may be text (`intent`), entity-keyed (`entity_urns`), or both. The entity path returns the caller's memory linked to those DataHub URNs, expanded along lineage.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `intent` | string | Conditional | - | Natural-language description of the knowledge sought; provide intent, entity_urns, or both |
+| `intent` | string | Conditional | - | Natural-language description of what is sought; provide intent, entity_urns, or both |
 | `context` | string | No | - | Optional surrounding context, folded into the intent to sharpen relevance |
 | `entity_urns` | array | Conditional | - | Exact entity-keyed lookup: the caller's memory linked to these DataHub URNs, lineage-expanded |
 | `status` | string | No | - | Optional filter by insight review status (pending, approved, rejected, applied, superseded, rolled_back) |
-| `limit` | integer | No | 10 | Maximum results (max 50) |
+| `sources` | array | No | - | Narrow to named sources (datahub, memory, insights, assets, prompts, endpoints, connections); only narrows, never opts past scope |
+| `limit` | integer | No | 10 | Total results to display across all sources (max 50) |
 
-Ranking is hybrid (semantic vector + lexical) when an embedding provider is configured, falling back to lexical-only otherwise; an entity-only query reports ranking `entity`. The response carries `ranking`, `count`, and a `hits` array pairing each matched `text` with its `source` (provenance), a `ref` (record id within that source), a fused relevance `score`, and where present the hit's `status` (insight review state), `entity_urns`, and `dimension`.
+The display set is balanced rather than a flat relevance list: a total budget with a per-source floor (every matching source stays visible), a per-source ceiling (none runs away), and redistribution of unused budget to sources with more relevant hits. Ranking is hybrid (semantic vector + lexical) when an embedding provider is configured, falling back to lexical-only otherwise; an entity-only query reports ranking `entity`. The response carries `ranking`, `count` (total shown), a `groups` array (`{source, hits[]}` where each hit pairs the matched `text` with its `source`, a `ref` (record id within that source), a relevance `score`, and where present `status`, `entity_urns`, and `dimension`), and a `coverage` array (`{source, matched, shown}`) reporting how many matched beyond what is displayed (the anti-tunnel signal).
 
 ### apply_knowledge
 
@@ -1460,7 +1461,7 @@ Lifecycle operations for existing memory records; create new records with `memor
 
 ### Reading memory back
 
-Reading memory back moved to the unified `knowledge_search` tool (see Knowledge Tools): relevance ranking, entity-keyed lookup, and DataHub lineage/graph traversal are all served there. The memory toolkit retains `memory_manage` for the write path.
+Reading memory back moved to the universal `search` tool (see Knowledge Tools): relevance ranking, entity-keyed lookup, and DataHub lineage/graph traversal are all served there. The memory toolkit retains `memory_manage` for the write path.
 
 The ranking it uses fuses embedding cosine similarity with a lexical full-text match signal, blended as `0.6 * semantic + 0.4 * lexical`, which improves recall on identifier-heavy content (entity URNs, column names, error codes) over pure vector search. The vector arm uses an `hnsw` ANN index on `memory_records.embedding`; the lexical arm a GIN index on `to_tsvector('english', content)`. When no embedding provider is available it degrades to lexical-only instead of erroring, which also surfaces rows whose embedding is NULL (saved during an outage).
 
@@ -1621,8 +1622,8 @@ Every organization has tribal knowledge about its data that lives in the heads o
 
 The system has three MCP tools and an Admin REST API:
 
-- `knowledge_search`: The one way to search, fanning one query (text and/or entity_urns) across the caller's memory, captured insights, the technical catalog, prompts, and saved assets, returning a single fused, source-tagged, per-user-scoped ranked list.
-- `memory_capture`: The one way to record knowledge (memory toolkit). Routed by sink-class; reviewed classes create insights with status `pending`. (To read knowledge back, use `knowledge_search`.)
+- `search`: The universal, topology-free discovery entry point, fanning one query (text and/or entity_urns) across the technical catalog, the caller's memory, captured insights, saved assets, prompts, API endpoints, and connections, returning a balanced, grouped-by-source, per-user-scoped result set with a coverage summary.
+- `memory_capture`: The one way to record knowledge (memory toolkit). Routed by sink-class; reviewed classes create insights with status `pending`. (To read knowledge back, use `search`.)
 - `apply_knowledge`: Admin-only tool for reviewing, approving, synthesizing, applying, and rolling back insights to DataHub. Actions: `bulk_review`, `review`, `synthesize`, `apply`, `approve`, `reject`, `rollback`, `list_changesets`.
 - Admin REST API: HTTP endpoints for managing insights and changesets outside the MCP protocol.
 

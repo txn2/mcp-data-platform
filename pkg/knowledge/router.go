@@ -22,19 +22,30 @@ const (
 const (
 	defaultLimit = 10
 	maxLimit     = 50
+
+	// candidateLimitPerSource is how many ranked candidates each provider
+	// returns to the allocator, independent of the display budget. It is
+	// larger than a typical display budget so the allocator has material to
+	// balance across sources and so coverage counts ("14 datasets matched")
+	// are meaningful beyond the few that are shown. Matched counts are capped
+	// at this value.
+	candidateLimitPerSource = 25
 )
 
-// Result is one knowledge search response: the fused, ranked hits and the
-// ranking mode used to produce them.
+// Result is one knowledge search response: the balanced, grouped-by-source
+// display set, the coverage summary (per-source matched vs shown counts so the
+// agent sees breadth beyond what is displayed), and the ranking mode used to
+// produce it.
 type Result struct {
-	Hits    []Hit
-	Ranking string
+	Groups   []SourceGroup
+	Coverage []SourceCoverage
+	Ranking  string
 }
 
 // Router fans one query across every registered provider, normalizes each
 // provider's local relevance scores onto a common scale, fuses them into one
 // ranked list, and enforces per-user scope. It is the single read path behind
-// both the knowledge_search tool and (later) push injection, so the scope and
+// both the search tool and (later) push injection, so the scope and
 // fusion rules live here once rather than in each surface.
 type Router struct {
 	embedder  embedding.Provider
@@ -52,6 +63,25 @@ func NewRouter(embedder embedding.Provider, providers ...Provider) *Router {
 // Providers returns the registered providers, for introspection and wiring
 // checks.
 func (r *Router) Providers() []Provider { return r.providers }
+
+// sourceSet builds a lookup of the requested source names, trimming and
+// lower-casing each, or returns nil when no narrowing was requested (the
+// default: query every accessible provider). A set with only blank entries
+// also collapses to nil so an all-empty Sources does not silently match
+// nothing.
+func sourceSet(sources []string) map[string]bool {
+	set := make(map[string]bool, len(sources))
+	for _, s := range sources {
+		s = strings.ToLower(strings.TrimSpace(s))
+		if s != "" {
+			set[s] = true
+		}
+	}
+	if len(set) == 0 {
+		return nil
+	}
+	return set
+}
 
 // clampLimit constrains the per-provider result limit to valid bounds.
 func clampLimit(limit int) int {
@@ -77,7 +107,11 @@ func clampLimit(limit int) int {
 // down condition is not reported as an empty-but-successful result.
 func (r *Router) Search(ctx context.Context, q Query) (Result, error) {
 	q.Intent = strings.TrimSpace(q.Intent)
-	q.Limit = clampLimit(q.Limit)
+	// The caller's limit is the display budget for the balanced set; each
+	// provider returns a deeper candidate list so the allocator can balance
+	// and so coverage counts mean something beyond what is shown.
+	displayBudget := clampLimit(q.Limit)
+	q.Limit = candidateLimitPerSource
 
 	ranking := rankingEntity
 	if q.Intent != "" {
@@ -97,11 +131,8 @@ func (r *Router) Search(ctx context.Context, q Query) (Result, error) {
 		return Result{Ranking: ranking}, fmt.Errorf("all knowledge providers failed: %w", errors.Join(errs...))
 	}
 
-	fused := normalizeAndFuse(perProvider)
-	if len(fused) > q.Limit {
-		fused = fused[:q.Limit]
-	}
-	return Result{Hits: fused, Ranking: ranking}, nil
+	groups, coverage := allocate(perProvider, displayBudget)
+	return Result{Groups: groups, Coverage: coverage, Ranking: ranking}, nil
 }
 
 // fanOut queries every applicable provider with the prepared query, returning
@@ -110,7 +141,15 @@ func (r *Router) Search(ctx context.Context, q Query) (Result, error) {
 // default, not an error); a provider error is logged and collected so a single
 // unhealthy store does not blank the search.
 func (r *Router) fanOut(ctx context.Context, q Query) (perProvider [][]Hit, attempted int, errs []error) {
+	allowed := sourceSet(q.Sources)
 	for _, p := range r.providers {
+		// Sources narrows the federation; it never widens it. A name absent
+		// from a non-empty Sources set is skipped, but membership still has to
+		// clear the per-user scope check below, so narrowing can never opt a
+		// caller into a provider their identity does not grant.
+		if allowed != nil && !allowed[p.Name()] {
+			continue
+		}
 		if p.Scope() == ScopePerUser && q.Caller.Anonymous() {
 			continue
 		}

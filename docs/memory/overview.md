@@ -30,7 +30,7 @@ flowchart TB
     end
 
     subgraph "Explicit Recall"
-        H[knowledge_search] --> E
+        H[search] --> E
     end
 
     subgraph "Admin Curation"
@@ -74,9 +74,9 @@ Lifecycle operations for existing memory records. Opt-in per persona (requires `
 | `list` | Query memories with filters, persona-scoped by default |
 | `review_stale` | List memories flagged as stale by the lineage watcher |
 
-### Recall (via knowledge_search)
+### Recall (via search)
 
-Reading memory back is served by the unified `knowledge_search` tool, which federates memory alongside insights, the catalog, prompts, and assets. Within the memory source it draws on several retrieval methods:
+Reading memory back is served by the universal `search` tool, which federates memory alongside insights, the catalog, prompts, assets, API endpoints, and connections. Within the memory source it draws on several retrieval methods:
 
 | Method | How | LOCOMO Dimension |
 |--------|-----|-----------------|

@@ -194,7 +194,7 @@ Two tabs:
 
 See [Knowledge Capture](../knowledge/overview.md) and [Memory Layer](../memory/overview.md) for how these are created during sessions.
 
-The search box mirrors the `knowledge_search` tool: it ranks semantically when an embedding provider is configured and degrades to lexical search otherwise, so search always returns results even without embeddings.
+The search box mirrors the `search` tool: it ranks semantically when an embedding provider is configured and degrades to lexical search otherwise, so search always returns results even without embeddings.
 
 ## Prompts
 

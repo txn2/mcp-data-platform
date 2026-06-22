@@ -110,7 +110,7 @@ func TestMCPRuleEnforcementMiddleware_StaticFallback(t *testing.T) {
 				require.GreaterOrEqual(t, len(callResult.Content), 2, "expected hint prepended")
 				textContent, ok := callResult.Content[0].(*mcp.TextContent)
 				require.True(t, ok)
-				assert.Contains(t, textContent.Text, "knowledge_search")
+				assert.Contains(t, textContent.Text, "search")
 			}
 		})
 	}
@@ -144,12 +144,12 @@ func TestMCPRuleEnforcementMiddleware_SessionAware(t *testing.T) {
 		require.GreaterOrEqual(t, len(callResult.Content), 2)
 		textContent, ok := callResult.Content[0].(*mcp.TextContent)
 		require.True(t, ok)
-		assert.Contains(t, textContent.Text, "knowledge_search")
+		assert.Contains(t, textContent.Text, "search")
 	})
 
 	t.Run("query after discovery gets no warning", func(t *testing.T) {
 		tracker := NewSessionWorkflowTracker(nil, nil, 30*time.Minute)
-		tracker.RecordToolCall("s1", "knowledge_search")
+		tracker.RecordToolCall("s1", "search")
 
 		cfg := RuleEnforcementConfig{
 			WorkflowTracker: tracker,
@@ -250,7 +250,7 @@ func TestMCPRuleEnforcementMiddleware_SessionAware(t *testing.T) {
 		require.GreaterOrEqual(t, len(callResult.Content), 2)
 		textContent, ok := callResult.Content[0].(*mcp.TextContent)
 		require.True(t, ok)
-		assert.Contains(t, textContent.Text, "knowledge_search")
+		assert.Contains(t, textContent.Text, "search")
 	})
 
 	t.Run("custom warning message", func(t *testing.T) {

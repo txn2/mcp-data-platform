@@ -40,7 +40,7 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | S3 | `s3_put_object` | Upload object (if not read-only) |
 | S3 | `s3_delete_object` | Delete object (if not read-only) |
 | S3 | `s3_copy_object` | Copy object (if not read-only) |
-| Knowledge | `knowledge_search` | The one way to search: fused relevance + entity lookup across memory, insights, catalog, prompts, and assets |
+| Knowledge | `search` | The one way to discover: balanced, grouped-by-source results across catalog, memory, insights, assets, prompts, API endpoints, and connections |
 | Memory | `memory_capture` | The one way to record knowledge: sink-class routed, recall-first |
 | Knowledge | `apply_knowledge` | Review and promote reviewed captures to the catalog (admin-only) |
 | Memory | `memory_manage` | Manage existing memories: update, forget, list, review_stale (opt-in per persona) |
@@ -197,9 +197,9 @@ List all configured Trino connections.
 
 ## DataHub Tools
 
-!!! note "Catalog search moved to `knowledge_search`"
-    Relevance search over the catalog is now part of the unified
-    [`knowledge_search`](#knowledge_search) tool. The DataHub toolkit retains
+!!! note "Catalog search moved to `search`"
+    Relevance search over the catalog is now part of the universal
+    [`search`](#search) tool. The DataHub toolkit retains
     `datahub_browse` for structured navigation (platform/domain/tag/entity-type)
     and the entity-detail tools below.
 
@@ -566,38 +566,58 @@ Capture is **recall-first**: before writing, it runs a similarity check over the
 
 ---
 
-### knowledge_search
+### search
 
-The one way to search. One query fans across every knowledge source, fuses the
-results onto a common relevance scale, and tags each hit with its source. It is the single relevance search, so the agent never has to choose which search to run.
+The universal, topology-free discovery entry point. Call it FIRST: one query
+fans across every searchable source the caller can access and returns results
+**grouped by source** with a **coverage summary**, so the agent sees the shape of
+the answer space instead of tunneling into the first tool that comes to mind.
 Structured catalog navigation (platform/domain/tag/entity-type filters) stays in
-`datahub_browse`.
+`datahub_browse`; the scoped API drill-down stays in `api_list_endpoints`.
 
-Sources federated: the caller's personal memory (non-knowledge dimensions;
-captured/remembered knowledge surfaces through insights), captured insights, the
-technical catalog (DataHub, when configured), prompts, and saved assets. Memory,
-insights, and assets are per-user, scoped server-side to the caller, so a search
-never surfaces another user's private records; the catalog and global prompts are
-shared. A caller with no identity still sees shared sources but no per-user data.
+!!! note "`knowledge_search` was renamed to `search`"
+    The `#632` read-path tool `knowledge_search` was renamed to `search` in
+    `#645` and its corpus widened to include API endpoints and connections.
+
+**Corpus (everything the persona can access):** the technical catalog (DataHub,
+when configured), the caller's personal memory, captured insights, saved assets,
+prompts, API endpoints (aggregated across every API gateway connection, reusing
+the per-connection semantic ranking of `api_list_endpoints`), and connections.
+Memory, insights, and assets are per-user, scoped server-side to the caller, so a
+search never surfaces another user's private records; the catalog, prompts,
+endpoints (each gateway applies its own route policy), and connections are shared.
+A caller with no identity still sees shared sources but no per-user data. API
+endpoints and connections are in the default corpus, not behind an opt-in.
+
+**Balanced result set.** Rather than one flat relevance list (which lets one
+strong source dominate), the display set is built from a total budget with a
+per-source floor (so every matching source stays visible), a per-source ceiling
+(so none runs away), and redistribution of unused budget to the sources with more
+relevant hits. Every response also carries a `coverage` summary of per-source
+`matched` vs `shown` counts, so the agent learns where the answer space lives even
+when only the top few of each source are displayed. Hits are navigational
+snippets (title, `ref`, short context line, `source`); the agent drills in with
+the scoped tool (`trino_query`, `api_invoke_endpoint`, `datahub_get_entity`).
 
 A query may be text (`intent`), entity-keyed (`entity_urns`, returning your
 memory linked to those datasets and their lineage neighbors), or both. Ranking is
 hybrid (semantic vector + lexical) when an embedding provider is configured and
 lexical-only otherwise; an entity-only query reports ranking `entity`. The
-response carries a `ranking` field, a `count`, and a `hits` array where each
-entry pairs the matched `text` with its `source` (provenance), a `ref` (the
-record id within that source), a fused relevance `score`, and, where present, the
-hit's `status` (insight review state), `entity_urns`, and `dimension`.
+response carries a `ranking` field, a `count` (total hits shown), a `groups`
+array (each `{source, hits[]}` where every hit pairs the matched `text` with its
+`source`, a `ref`, a relevance `score`, and where present `status`, `entity_urns`,
+and `dimension`), and a `coverage` array (`{source, matched, shown}`).
 
 **Parameters:**
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `intent` | string | Conditional | - | Natural-language description of the knowledge you are looking for. Provide `intent`, `entity_urns`, or both |
+| `intent` | string | Conditional | - | Natural-language description of what you are looking for. Provide `intent`, `entity_urns`, or both |
 | `context` | string | No | - | Optional surrounding context, folded into the intent to sharpen relevance |
 | `entity_urns` | array | Conditional | - | Exact entity-keyed lookup: your memory linked to these DataHub URNs, expanded along lineage |
 | `status` | string | No | - | Optional filter by insight review status (pending, approved, rejected, applied, superseded, rolled_back) |
-| `limit` | integer | No | 10 | Maximum results (max 50) |
+| `sources` | array | No | - | Narrow the search to named sources (`datahub`, `memory`, `insights`, `assets`, `prompts`, `endpoints`, `connections`). Only narrows; never opts into a source the persona could not otherwise access |
+| `limit` | integer | No | 10 | Total results to display across all sources (max 50) |
 
 ---
 
@@ -672,9 +692,9 @@ Manages the lifecycle of existing persistent memory. Create new memory with `mem
 | `limit` | int | No | Page size for `list` (default 20, max 100) |
 | `offset` | int | No | Pagination offset for `list` |
 
-!!! note "Memory recall moved to `knowledge_search`"
+!!! note "Memory recall moved to `search`"
     Reading memory back (relevance, entity lookup, and lineage/graph traversal)
-    is now part of the unified [`knowledge_search`](#knowledge_search) tool. The
+    is now part of the universal [`search`](#search) tool. The
     memory toolkit retains `memory_manage` for the write path.
 
 ---

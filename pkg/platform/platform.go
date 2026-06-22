@@ -38,6 +38,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/knowledge"
+	"github.com/txn2/mcp-data-platform/pkg/knowledge/federation"
 	"github.com/txn2/mcp-data-platform/pkg/mcpapps"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -64,9 +65,9 @@ import (
 	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
-	knowledgesearchkit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledgesearch"
 	memorykit "github.com/txn2/mcp-data-platform/pkg/toolkits/memory"
 	portalkit "github.com/txn2/mcp-data-platform/pkg/toolkits/portal"
+	searchkit "github.com/txn2/mcp-data-platform/pkg/toolkits/search"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/tools/toolsindex"
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
@@ -382,7 +383,7 @@ func (p *Platform) initExtensions() error {
 	}
 	// Unified knowledge read path (#632). Federates the stores initialized
 	// above (memory, insights, assets), so it must run after them.
-	if err := p.initKnowledgeSearch(); err != nil {
+	if err := p.initSearch(); err != nil {
 		return err
 	}
 	if err := p.initManagedResources(); err != nil {
@@ -431,7 +432,7 @@ func (p *Platform) initMemory() error {
 	p.memoryToolkit = tk
 	// Recall-first for memory_capture (#633): supersede a near-duplicate instead
 	// of appending. Uses a raw hybrid similarity over the caller's own memory
-	// (not the normalized knowledge_search fusion, whose per-provider min-max
+	// (not the normalized search fusion, whose per-provider min-max
 	// scores are not thresholdable). Nil-safe: with no real embedder the check
 	// yields no match and capture simply appends.
 	tk.SetRecallChecker(&memoryRecallChecker{store: p.memoryStore})
@@ -1565,7 +1566,7 @@ const recallCandidateK = 5
 // memoryRecallChecker implements memorykit.RecallChecker by running a raw cosine
 // (vector-only) similarity search over the caller's own memory and returning the
 // best match that also shares an entity URN with the candidate (when it has any).
-// It uses VectorSearch's raw cosine (not the knowledge_search router's min-max
+// It uses VectorSearch's raw cosine (not the search router's min-max
 // normalization, nor the fused hybrid score) so MinScore reads as a true cosine.
 // The candidate embedding is supplied by the caller (memory_capture reuses the
 // vector it already computed), so this type needs no embedder of its own.
@@ -1662,13 +1663,35 @@ func (p *Platform) initKnowledge() error {
 	return nil
 }
 
-// initKnowledgeSearch wires the unified knowledge read path (#632): one
-// knowledge_search tool over a router that federates the per-user stores
-// initialized earlier in initExtensions. Each provider registers only when its
-// backing store exists, so the tool appears whenever at least one knowledge
-// source is available and is skipped entirely on a store-less (no-database)
-// deployment.
-func (p *Platform) initKnowledgeSearch() error {
+// initSearch wires the universal, topology-free discovery entry point (#645):
+// one search tool over a router that federates every searchable source the
+// caller can access — the per-user stores initialized in initExtensions plus
+// the technical catalog, prompts, API endpoints, and connections. Each provider
+// registers only when its backing source exists, so the tool appears whenever
+// at least one source is available and is skipped entirely on a store-less
+// (no-database) deployment with no catalog, endpoints, or connections.
+func (p *Platform) initSearch() error {
+	providers := p.storeSearchProviders()
+	providers = p.appendFederationSearchProviders(providers)
+
+	if len(providers) == 0 {
+		return nil
+	}
+
+	router := knowledge.NewRouter(p.embeddingProv, providers...)
+	tk := searchkit.New(instanceDefault, router)
+	if err := p.toolkitRegistry.Register(tk); err != nil {
+		return fmt.Errorf("registering search toolkit: %w", err)
+	}
+
+	slog.Info("search enabled", "providers", len(providers))
+	return nil
+}
+
+// storeSearchProviders builds the store-backed search providers (memory,
+// insights, technical catalog, prompts, assets), each registered only when its
+// backing store exists so the no-database deployment adds none of them.
+func (p *Platform) storeSearchProviders() []knowledge.Provider {
 	var providers []knowledge.Provider
 
 	if p.memoryStore != nil {
@@ -1700,23 +1723,34 @@ func (p *Platform) initKnowledgeSearch() error {
 	if s, ok := p.portalAssetStore.(portal.AssetSearcher); ok {
 		providers = append(providers, knowledge.NewAssetsProvider(s))
 	}
+	return providers
+}
 
-	if len(providers) == 0 {
-		return nil
+// appendFederationSearchProviders adds the registry-federated search sources
+// (API endpoints and connections) to the store-backed providers. Both are in
+// the default corpus (#645): an agent should discover a relevant endpoint or
+// connection from one query without first knowing a gateway exists.
+func (p *Platform) appendFederationSearchProviders(providers []knowledge.Provider) []knowledge.Provider {
+	// API endpoints aggregate the per-connection semantic ranking of every API
+	// gateway toolkit.
+	if searchers := federation.EndpointSearchers(p.toolkitRegistry); len(searchers) > 0 {
+		providers = append(providers, knowledge.NewEndpointsProvider(searchers...))
 	}
-
-	router := knowledge.NewRouter(p.embeddingProv, providers...)
-	tk := knowledgesearchkit.New(instanceDefault, router)
-	if err := p.toolkitRegistry.Register(tk); err != nil {
-		return fmt.Errorf("registering knowledge_search toolkit: %w", err)
+	// Connections are the same set list_connections enumerates, surfaced by
+	// relevance. Added whenever search will exist at all — when any other source
+	// is present, or when at least one connection exists at startup — but never on
+	// its own on a bare deployment with no other source and no connection, so such
+	// a deployment still registers no search tool. The lister stays live, so once
+	// registered, connections added later through the admin API are searchable.
+	connLister := federation.NewConnectionLister(p.toolkitRegistry)
+	if len(providers) > 0 || len(connLister.Connections()) > 0 {
+		providers = append(providers, knowledge.NewConnectionsProvider(connLister))
 	}
-
-	slog.Info("knowledge search enabled", "providers", len(providers))
-	return nil
+	return providers
 }
 
 // knowledgeLineageExpander widens a set of entity URNs along one hop of DataHub
-// lineage for the knowledge_search entity path, mirroring the memory toolkit's
+// lineage for the search entity path, mirroring the memory toolkit's
 // lineage collection. It is the seam that carries the old memory_recall "graph"
 // strategy into the unified search verb.
 type knowledgeLineageExpander struct {

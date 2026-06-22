@@ -153,6 +153,105 @@ func rankWithMode(ctx context.Context, r rankRequest) (ranked []OperationSummary
 	return capSlice(out, r.limit), ""
 }
 
+// RankedOperation is one operation matched by SearchOperations, tagged with the
+// connection it belongs to and its relevance score under the ranking mode that
+// produced it (hybrid cosine when the connection has indexed embeddings, a
+// descending positional score from the lexical fallback otherwise). The score is
+// comparable within a connection. Across connections the comparison is
+// best-effort: when one connection is indexed (cosine scores) and another falls
+// back to lexical (positional scores), the two scales differ, so a lexical
+// connection's top op can sort above an indexed connection's top op. The
+// federated search allocator bounds the impact — endpoints get a floored,
+// ceilinged slice of the budget regardless of this intra-group ordering — but it
+// does not eliminate it; indexing every API connection's catalog keeps the
+// endpoints group on one (semantic) scale.
+type RankedOperation struct {
+	Connection string
+	Operation  OperationSummary
+	Score      float64
+}
+
+// SearchOperations ranks operations across every connection on this toolkit
+// against a free-form query and returns up to perConnLimit per connection, each
+// tagged with its connection name and relevance score. It is the federation
+// seam behind the universal search tool's endpoints group: the same hybrid
+// ranking api_list_endpoints exposes, aggregated across connections instead of
+// scoped to one.
+//
+// Per-connection route policy is applied first (ctx-scoped), so the result
+// never includes an operation the caller's persona could not invoke. That is
+// the per-source access scope for the endpoints corpus, enforced fail-closed by
+// the same filter api_list_endpoints uses; a search that federates endpoints
+// cannot leak a route a scoped api_list_endpoints call would have hidden.
+func (t *Toolkit) SearchOperations(ctx context.Context, query string, perConnLimit int) []RankedOperation {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil
+	}
+	if perConnLimit <= 0 {
+		perConnLimit = defaultListEndpointsLimit
+	}
+	t.mu.RLock()
+	policy := t.routePolicy
+	conns := make([]*conn, 0, len(t.connections))
+	for _, c := range t.connections {
+		conns = append(conns, c)
+	}
+	t.mu.RUnlock()
+
+	var out []RankedOperation
+	for _, c := range conns {
+		out = append(out, t.searchConn(ctx, policy, c, query, perConnLimit)...)
+	}
+	return out
+}
+
+// searchConn ranks one connection's policy-visible operations against the query
+// and returns them tagged with the connection name. It mirrors rankWithMode's
+// hybrid path but always emits a score (positional in the lexical-fallback
+// case) so the aggregate carries a relevance signal into the search allocator.
+func (t *Toolkit) searchConn(ctx context.Context, policy RoutePolicy, c *conn, query string, limit int) []RankedOperation {
+	visible := filterByRoutePolicy(ctx, policy, c.cfg.ConnectionName, c.operations)
+	if len(visible) == 0 {
+		return nil
+	}
+	queryVec, err := t.queryVectorFor(ctx, c, query)
+	if err != nil {
+		ranked := rankOperations(visible, query, limit)
+		out := make([]RankedOperation, len(ranked))
+		for i, op := range ranked {
+			out[i] = RankedOperation{Connection: c.cfg.ConnectionName, Operation: op, Score: positionalScore(i, len(ranked))}
+		}
+		return out
+	}
+	scored := scoreOperations(c, visible, query, queryVec, RankingHybrid)
+	sort.SliceStable(scored, func(i, j int) bool { return scored[i].score > scored[j].score })
+	scored = capScored(scored, limit)
+	out := make([]RankedOperation, len(scored))
+	for i, s := range scored {
+		out[i] = RankedOperation{Connection: c.cfg.ConnectionName, Operation: s.op, Score: s.score}
+	}
+	return out
+}
+
+// positionalScore maps a 0-based rank into a descending score in (0,1] so the
+// lexical fallback still carries order into the federated allocator: the
+// top-ranked operation scores highest. n is the number of ranked operations.
+func positionalScore(i, n int) float64 {
+	if n <= 0 {
+		return 0
+	}
+	return float64(n-i) / float64(n)
+}
+
+// capScored trims a scored slice to at most limit entries.
+func capScored(scored []scoredOp, limit int) []scoredOp {
+	if limit > 0 && len(scored) > limit {
+		return scored[:limit]
+	}
+	return scored
+}
+
 // queryVectorFor returns the query's embedding vector or a non-nil
 // error describing why semantic ranking cannot proceed for this
 // call. Error returns drive the lexical fallback in rankWithMode
@@ -205,22 +304,35 @@ func checkEmbeddingsReady(c *conn) error {
 	return nil
 }
 
-// scoreOperations builds the per-op score slice. Operations whose
-// embedding cannot be located in the connection's index get a 0
-// score — won't rank above anything with positive similarity but
-// won't be silently dropped either.
+// scoreOperations builds the per-op score slice. An operation whose embedding
+// cannot be located in the connection's index has no semantic signal, so it is
+// scored without a vector: under hybrid ranking it still earns its lexical
+// component, so an exact path/summary match is not buried under unrelated ops
+// that happen to have a tiny positive cosine.
 func scoreOperations(c *conn, ops []OperationSummary, query string, queryVec []float32, mode RankingMode) []scoredOp {
 	scored := make([]scoredOp, 0, len(ops))
 	for _, op := range ops {
 		vec, ok := c.embedVectors[embedKey{Spec: op.Spec, OperationID: op.OperationID}]
 		if !ok {
-			scored = append(scored, scoredOp{op: op, score: 0})
+			scored = append(scored, scoredOp{op: op, score: scoreWithoutVector(mode, query, op)})
 			continue
 		}
 		score := scoreFor(mode, query, op, queryVec, vec)
 		scored = append(scored, scoredOp{op: op, score: score})
 	}
 	return scored
+}
+
+// scoreWithoutVector scores an operation that has no persisted embedding. There
+// is no semantic signal, so pure-semantic mode scores 0; hybrid still credits
+// the lexical component (the (1-α) term of the blend), so an exact lexical match
+// on an unembedded operation outranks unrelated operations with a small positive
+// cosine rather than being floored below them.
+func scoreWithoutVector(mode RankingMode, query string, op OperationSummary) float64 {
+	if mode == RankingSemantic {
+		return 0
+	}
+	return (1 - hybridSemanticWeight) * lexicalScore(op, query)
 }
 
 // scoredOp pairs an operation with its rank score so we can sort

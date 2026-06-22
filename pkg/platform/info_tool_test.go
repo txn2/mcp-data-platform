@@ -323,7 +323,7 @@ func TestBuildInfoToolDescription(t *testing.T) {
 				Name: "mcp-data-platform",
 			},
 			wantContains: []string{
-				"knowledge_search",
+				"search",
 				"trino_query",
 				"trino_describe_table",
 				"s3_list_objects",

@@ -1,4 +1,4 @@
-package knowledgesearch
+package search
 
 import (
 	"context"
