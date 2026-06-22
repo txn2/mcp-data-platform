@@ -4,14 +4,22 @@ package platform
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
+	personapkg "github.com/txn2/mcp-data-platform/pkg/persona"
+	"github.com/txn2/mcp-data-platform/pkg/platform/instructions"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 )
+
+// resourcesDiscoverabilityNote is the runtime note appended to agent
+// instructions when managed resources are enabled, pointing the agent at the
+// MCP resources primitive for uploaded reference material.
+const resourcesDiscoverabilityNote = "Uploaded resources (samples, playbooks, templates, references) " +
+	"are available via the MCP resources primitive. Call resources/list to discover " +
+	"what reference material has been uploaded. Use these resources when the task " +
+	"involves user-provided context, examples, formatting specifications, or reference data."
 
 // Info contains information about the platform deployment.
 type Info struct {
@@ -126,39 +134,11 @@ const platformInfoTitle = "Platform Info"
 func (p *Platform) registerInfoTool() {
 	mcp.AddTool(p.mcpServer, &mcp.Tool{
 		Name:        defaultInitTool,
-		Title:       p.buildInfoToolTitle(),
-		Description: p.buildInfoToolDescription(),
+		Title:       instructions.InfoToolTitle(p.config.Server.Name, defaultServerName, platformInfoTitle),
+		Description: instructions.InfoToolDescription(p.config.Server.Name, defaultServerName, p.config.Server.Tags),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, _ platformInfoInput) (*mcp.CallToolResult, any, error) {
 		return p.handleInfo(ctx, req)
 	})
-}
-
-// buildInfoToolTitle returns a human-readable display name for the platform_info tool.
-// When server.name is set to a custom value, it is used as the title so that
-// Claude Desktop shows e.g. "ACME Data Platform" instead of "platform_info".
-func (p *Platform) buildInfoToolTitle() string {
-	if p.config.Server.Name != "" && p.config.Server.Name != defaultServerName {
-		return p.config.Server.Name
-	}
-	return platformInfoTitle
-}
-
-// buildInfoToolDescription builds a dynamic tool description based on configuration.
-func (p *Platform) buildInfoToolDescription() string {
-	base := "MANDATORY first call in every session. "
-	if p.config.Server.Name != "" && p.config.Server.Name != defaultServerName {
-		base += fmt.Sprintf("Get information about %s", p.config.Server.Name)
-	} else {
-		base += "Get information about this MCP data platform"
-	}
-	if len(p.config.Server.Tags) > 0 {
-		base += fmt.Sprintf(" (%s)", strings.Join(p.config.Server.Tags, ", "))
-	}
-	return base + ", including its purpose, available toolkits, and enabled features. " +
-		"This tool MUST be called before any other tool (search, trino_query, " +
-		"trino_describe_table, s3_list_objects, etc.). Then call search, the one way to " +
-		"discover, to reuse what is already known before re-asking the user or re-deriving it. " +
-		"Skipping these causes incorrect query routing, operational rule violations, and degraded output quality."
 }
 
 // collectToolkits returns the list of enabled toolkit names and any
@@ -199,23 +179,31 @@ func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp
 	// fall back to the configured default.
 	persona := p.resolveCallerPersona(ctx)
 
-	// Apply persona-specific context overrides to description and instructions.
+	// Apply the persona description override; the persona's agent-instruction
+	// tuning is applied to the admin layer inside ComposeForCaller below.
 	description := p.config.Server.Description
-	agentInstructions := p.config.Server.AgentInstructions
+	var caller *personapkg.Persona
 	if persona != nil {
 		if full, ok := p.personaRegistry.Get(persona.Name); ok {
+			caller = full
 			description = full.ApplyDescription(description)
-			agentInstructions = full.ApplyAgentInstructions(agentInstructions)
 		}
 	}
 
-	// Append resources discoverability nudge when managed resources are initialized.
+	// Compose the full instruction stack: the platform baseline (gated to the
+	// tools this caller may reach) beneath the admin business context, with the
+	// resources nudge appended as a runtime note when managed resources exist.
+	var notes []string
 	if p.resourceStore != nil {
-		agentInstructions += "\n\nUploaded resources (samples, playbooks, templates, references) " +
-			"are available via the MCP resources primitive. Call resources/list to discover " +
-			"what reference material has been uploaded. Use these resources when the task " +
-			"involves user-provided context, examples, formatting specifications, or reference data."
+		notes = append(notes, resourcesDiscoverabilityNote)
 	}
+	agentInstructions := instructions.ComposeForCaller(
+		p.config.Server.AgentInstructions,
+		p.toolkitRegistry.AllTools(),
+		caller,
+		p.personaRegistry,
+		notes...,
+	)
 
 	reg := DefaultRegistry()
 	info := Info{
