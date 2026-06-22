@@ -1432,6 +1432,19 @@ export function useEffectiveConfig() {
   });
 }
 
+// useAgentInstructionsBaseline fetches the platform-owned instruction baseline
+// (#646): the "how to operate" guidance composed beneath the admin's
+// agent_instructions, naming only tools this deployment exposes.
+export function useAgentInstructionsBaseline() {
+  return useQuery({
+    queryKey: ["config", "agent-instructions-baseline"],
+    queryFn: () =>
+      apiFetch<import("./types").AgentInstructionsBaseline>(
+        "/config/agent-instructions-baseline",
+      ),
+  });
+}
+
 export function useEffectiveConnections() {
   return useQuery({
     queryKey: ["connection-instances", "effective"],

@@ -17,6 +17,45 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
 
+func TestGetAgentInstructionsBaseline(t *testing.T) {
+	t.Run("returns baseline naming registered tools", func(t *testing.T) {
+		reg := &mockToolkitRegistry{allResult: []mockToolkit{{tools: []string{"search", "memory_capture", "trino_query"}}}}
+		h := NewHandler(Deps{ToolkitRegistry: reg}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/config/agent-instructions-baseline", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		var resp agentInstructionsBaselineResponse
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+		assert.Contains(t, resp.Baseline, "`search`")
+		assert.Contains(t, resp.Baseline, "`memory_capture`")
+	})
+
+	t.Run("empty baseline when no baseline tools registered", func(t *testing.T) {
+		reg := &mockToolkitRegistry{allResult: []mockToolkit{{tools: []string{"trino_query"}}}}
+		h := NewHandler(Deps{ToolkitRegistry: reg}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/config/agent-instructions-baseline", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		var resp agentInstructionsBaselineResponse
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+		assert.Empty(t, resp.Baseline)
+	})
+
+	t.Run("does not panic with nil registry", func(t *testing.T) {
+		h := NewHandler(Deps{}, nil)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/config/agent-instructions-baseline", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		require.Equal(t, http.StatusOK, w.Code)
+	})
+}
+
 func TestGetConfig(t *testing.T) {
 	t.Run("returns redacted config", func(t *testing.T) {
 		cfg := &platform.Config{

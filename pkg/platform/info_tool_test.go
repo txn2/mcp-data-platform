@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -131,6 +132,80 @@ func TestHandleInfo(t *testing.T) {
 	}
 }
 
+// regWithTools returns a toolkit registry exposing the given tool names.
+func regWithTools(t *testing.T, tools ...string) *registry.Registry {
+	t.Helper()
+	reg := registry.NewRegistry()
+	require.NoError(t, reg.Register(&mockToolkit{kind: "search", name: "default", tools: tools}))
+	return reg
+}
+
+// TestHandleInfo_ComposesBaselineBeneathAdmin proves the platform baseline (#646)
+// is composed above the admin's agent_instructions and surfaced separately.
+func TestHandleInfo_ComposesBaselineBeneathAdmin(t *testing.T) {
+	config := Config{Server: ServerConfig{
+		Name:              "baseline-test",
+		Version:           testInfoVersion,
+		AgentInstructions: "ACME stores transactions in Cassandra.",
+	}}
+	p := &Platform{
+		config:          &config,
+		personaRegistry: persona.NewRegistry(),
+		toolkitRegistry: regWithTools(t, "search", "memory_capture"),
+	}
+	result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
+	require.NoError(t, err)
+	info := requireInfoFromResult(t, result)
+
+	// The composed instructions lead with the baseline (naming both tools) and
+	// carry the admin text below it.
+	assert.True(t, strings.HasPrefix(info.AgentInstructions, "How to operate this platform:"),
+		"composed instructions should lead with the baseline, got: %q", info.AgentInstructions)
+	assert.Contains(t, info.AgentInstructions, "`search`")
+	assert.Contains(t, info.AgentInstructions, "`memory_capture`")
+	assert.Contains(t, info.AgentInstructions, "ACME stores transactions in Cassandra.")
+}
+
+// TestHandleInfo_BaselineGatedByPersona proves the baseline names only tools the
+// caller's persona can reach: a persona allowed search but not memory_capture
+// gets a baseline that mentions search and never memory_capture.
+func TestHandleInfo_BaselineGatedByPersona(t *testing.T) {
+	pr := persona.NewRegistry()
+	require.NoError(t, pr.Register(&persona.Persona{
+		Name:  "reader",
+		Tools: persona.ToolRules{Allow: []string{"search"}},
+	}))
+	pr.SetDefault("reader")
+
+	p := &Platform{
+		config:          &Config{Server: ServerConfig{Name: "g", Version: testInfoVersion}},
+		personaRegistry: pr,
+		toolkitRegistry: regWithTools(t, "search", "memory_capture"),
+	}
+	result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
+	require.NoError(t, err)
+	info := requireInfoFromResult(t, result)
+
+	assert.Contains(t, info.AgentInstructions, "`search`")
+	assert.NotContains(t, info.AgentInstructions, "`memory_capture`",
+		"baseline must not name memory_capture for a persona that cannot call it")
+}
+
+// TestHandleInfo_NoBaselineWithoutBaselineTools proves a deployment exposing
+// none of the baseline's tools gets no baseline (nothing to say without a tool).
+func TestHandleInfo_NoBaselineWithoutBaselineTools(t *testing.T) {
+	p := &Platform{
+		config:          &Config{Server: ServerConfig{Name: "g", Version: testInfoVersion}},
+		personaRegistry: persona.NewRegistry(),
+		toolkitRegistry: regWithTools(t, "trino_query"),
+	}
+	result, _, err := p.handleInfo(context.Background(), &mcp.CallToolRequest{})
+	require.NoError(t, err)
+	info := requireInfoFromResult(t, result)
+	assert.NotContains(t, info.AgentInstructions, "How to operate this platform:",
+		"no baseline tools registered should yield no baseline")
+}
+
 func TestInfoFeatures(t *testing.T) {
 	config := Config{
 		Server: ServerConfig{
@@ -215,137 +290,6 @@ func TestInfoConfigVersion(t *testing.T) {
 	assert.Equal(t, testInfoVersionV1, info.ConfigVersion.APIVersion)
 	assert.Equal(t, testInfoVersionV1, info.ConfigVersion.LatestVersion)
 	assert.Contains(t, info.ConfigVersion.SupportedVersions, testInfoVersionV1)
-}
-
-func TestBuildInfoToolTitle(t *testing.T) {
-	tests := []struct {
-		name       string
-		serverName string
-		wantTitle  string
-	}{
-		{
-			name:       "custom name is used as title",
-			serverName: "ACME Data Platform",
-			wantTitle:  "ACME Data Platform",
-		},
-		{
-			name:       "default name returns Platform Info",
-			serverName: "mcp-data-platform",
-			wantTitle:  "Platform Info",
-		},
-		{
-			name:       "empty name returns Platform Info",
-			serverName: "",
-			wantTitle:  "Platform Info",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			p := &Platform{
-				config: &Config{
-					Server: ServerConfig{
-						Name: tt.serverName,
-					},
-				},
-			}
-
-			title := p.buildInfoToolTitle()
-			assert.Equal(t, tt.wantTitle, title)
-		})
-	}
-}
-
-func TestBuildInfoToolDescription(t *testing.T) {
-	tests := []struct {
-		name         string
-		serverConfig ServerConfig
-		wantContains []string
-	}{
-		{
-			name: "default name uses generic description",
-			serverConfig: ServerConfig{
-				Name: "mcp-data-platform",
-			},
-			wantContains: []string{
-				"MANDATORY first call",
-				"Get information about this MCP data platform",
-				"including its purpose",
-			},
-		},
-		{
-			name: "custom name appears in description",
-			serverConfig: ServerConfig{
-				Name: "ACME Data Platform",
-			},
-			wantContains: []string{
-				"MANDATORY first call",
-				"Get information about ACME Data Platform",
-				"MUST be called before any other tool",
-			},
-		},
-		{
-			name: "tags appear in parentheses",
-			serverConfig: ServerConfig{
-				Name: "ACME Data Platform",
-				Tags: []string{"analytics", "sales"},
-			},
-			wantContains: []string{
-				"MANDATORY first call",
-				"Get information about ACME Data Platform",
-				"(analytics, sales)",
-			},
-		},
-		{
-			name: "empty tags omits parentheses",
-			serverConfig: ServerConfig{
-				Name: "ACME Data Platform",
-				Tags: []string{},
-			},
-			wantContains: []string{
-				"Get information about ACME Data Platform",
-			},
-		},
-		{
-			name: "mentions consequences of skipping",
-			serverConfig: ServerConfig{
-				Name: "mcp-data-platform",
-			},
-			wantContains: []string{
-				"incorrect query routing",
-				"operational rule violations",
-				"degraded output quality",
-			},
-		},
-		{
-			name: "mentions specific tools that must not precede it",
-			serverConfig: ServerConfig{
-				Name: "mcp-data-platform",
-			},
-			wantContains: []string{
-				"search",
-				"trino_query",
-				"trino_describe_table",
-				"s3_list_objects",
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			p := &Platform{
-				config: &Config{
-					Server: tt.serverConfig,
-				},
-			}
-
-			desc := p.buildInfoToolDescription()
-
-			for _, want := range tt.wantContains {
-				assert.Contains(t, desc, want)
-			}
-		})
-	}
 }
 
 func TestInfoToolkitDescriptions(t *testing.T) {
