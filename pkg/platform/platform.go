@@ -1678,7 +1678,16 @@ func (p *Platform) initSearch() error {
 		return nil
 	}
 
-	router := knowledge.NewRouter(p.embeddingProv, providers...)
+	// The lineage expander widens the entity path along DataHub lineage (the old
+	// memory_recall graph strategy) once per search, shared across every
+	// entity-keyed provider; nil when no real catalog is configured, leaving a
+	// plain entity lookup.
+	var lineage knowledge.LineageExpander
+	if p.config.Semantic.Provider == kindDataHub && p.semanticProvider != nil {
+		lineage = &knowledgeLineageExpander{semantic: p.semanticProvider}
+	}
+
+	router := knowledge.NewRouter(p.embeddingProv, lineage, providers...)
 	tk := searchkit.New(instanceDefault, router)
 	if err := p.toolkitRegistry.Register(tk); err != nil {
 		return fmt.Errorf("registering search toolkit: %w", err)
@@ -1695,18 +1704,15 @@ func (p *Platform) storeSearchProviders() []knowledge.Provider {
 	var providers []knowledge.Provider
 
 	if p.memoryStore != nil {
-		// The lineage expander widens the entity path along DataHub lineage
-		// (the old memory_recall graph strategy); nil when no real catalog is
-		// configured, leaving a plain entity lookup.
-		var lineage knowledge.LineageExpander
-		if p.config.Semantic.Provider == kindDataHub && p.semanticProvider != nil {
-			lineage = &knowledgeLineageExpander{semantic: p.semanticProvider}
-		}
-		providers = append(providers, knowledge.NewMemoryProvider(p.memoryStore, lineage))
+		// Lineage expansion of the entity path is the router's job (it runs once
+		// for every entity-keyed provider), so the memory provider takes the URN
+		// set as given.
+		providers = append(providers, knowledge.NewMemoryProvider(p.memoryStore))
 	}
-	// Insights are searchable only through the memory-backed adapter; the
-	// legacy SQL store and the noop store do not implement InsightSearcher.
-	if s, ok := p.knowledgeInsightStore.(knowledgekit.InsightSearcher); ok {
+	// Insights are searchable only through the memory-backed adapter; the legacy
+	// SQL store and the noop store do not implement InsightSearcher (and so are
+	// not SearchableInsightStores).
+	if s, ok := p.knowledgeInsightStore.(knowledgekit.SearchableInsightStore); ok {
 		providers = append(providers, knowledge.NewInsightsProvider(s))
 	}
 	// The technical catalog is a knowledge sink only when a real DataHub

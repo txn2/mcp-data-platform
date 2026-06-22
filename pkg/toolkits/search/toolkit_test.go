@@ -11,7 +11,7 @@ import (
 )
 
 func TestToolkit_TrivialAccessors(t *testing.T) {
-	tk := New("inst", knowledge.NewRouter(nil))
+	tk := New("inst", knowledge.NewRouter(nil, nil))
 	if tk.Name() != "inst" {
 		t.Errorf("Name = %q", tk.Name())
 	}
@@ -37,7 +37,7 @@ func (erroringProvider) Search(context.Context, knowledge.Query) ([]knowledge.Hi
 }
 
 func TestHandleSearch_RouterErrorBecomesToolError(t *testing.T) {
-	tk := New("inst", knowledge.NewRouter(nil, erroringProvider{}))
+	tk := New("inst", knowledge.NewRouter(nil, nil, erroringProvider{}))
 	res, _, err := tk.handleSearch(context.Background(), &mcp.CallToolRequest{}, searchInput{Intent: "q"})
 	if err != nil {
 		t.Fatalf("unexpected transport error: %v", err)

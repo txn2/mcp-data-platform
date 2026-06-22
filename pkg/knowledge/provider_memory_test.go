@@ -42,16 +42,8 @@ func (f *fakeMemoryStore) EntityLookup(_ context.Context, urn, persona, createdB
 	return f.entity[urn], nil
 }
 
-// fakeLineage expands every input urn to itself plus a fixed neighbor.
-type fakeLineage struct{ neighbor string }
-
-func (l fakeLineage) Expand(_ context.Context, urns []string) []string {
-	out := append([]string{}, urns...)
-	return append(out, l.neighbor)
-}
-
 func TestMemoryProvider_Metadata(t *testing.T) {
-	p := NewMemoryProvider(&fakeMemoryStore{}, nil)
+	p := NewMemoryProvider(&fakeMemoryStore{})
 	if p.Name() != SourceMemory {
 		t.Errorf("Name = %q", p.Name())
 	}
@@ -62,7 +54,7 @@ func TestMemoryProvider_Metadata(t *testing.T) {
 
 func TestMemoryProvider_FailsClosedWithoutEmail(t *testing.T) {
 	store := &fakeMemoryStore{}
-	p := NewMemoryProvider(store, nil)
+	p := NewMemoryProvider(store)
 	hits, err := p.Search(context.Background(), Query{Intent: "q", EntityURNs: []string{"urn:x"}, Caller: Caller{UserID: "uuid-only"}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -81,7 +73,7 @@ func TestMemoryProvider_HybridWhenEmbeddingPresent(t *testing.T) {
 			{Record: memory.Record{ID: "m1", Content: "hello", Dimension: memory.DimensionPreference}, Score: 0.9},
 		},
 	}
-	p := NewMemoryProvider(store, nil)
+	p := NewMemoryProvider(store)
 	hits, err := p.Search(context.Background(), Query{
 		Intent:    "q",
 		Embedding: []float32{0.1},
@@ -117,7 +109,7 @@ func TestMemoryProvider_LexicalWhenNoEmbedding(t *testing.T) {
 			{Record: memory.Record{ID: "m2", Content: "x", Dimension: memory.DimensionEvent}, Score: 0.3},
 		},
 	}
-	p := NewMemoryProvider(store, nil)
+	p := NewMemoryProvider(store)
 	_, err := p.Search(context.Background(), Query{Intent: "q", Caller: Caller{Email: "a@example.com"}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -139,7 +131,7 @@ func TestMemoryProvider_EntityLookupScopedToCaller(t *testing.T) {
 			},
 		},
 	}
-	p := NewMemoryProvider(store, nil)
+	p := NewMemoryProvider(store)
 	hits, err := p.Search(context.Background(), Query{
 		EntityURNs: []string{"urn:li:dataset:orders"},
 		Caller:     Caller{Email: "a@example.com", Persona: "analyst"},
@@ -157,24 +149,25 @@ func TestMemoryProvider_EntityLookupScopedToCaller(t *testing.T) {
 	}
 }
 
-func TestMemoryProvider_GraphExpansion(t *testing.T) {
+func TestMemoryProvider_LooksUpEveryEntityURN(t *testing.T) {
+	// The router hands the provider the already lineage-expanded URN set; the
+	// provider looks each up and unions the records.
 	store := &fakeMemoryStore{
 		entity: map[string][]memory.Record{
 			"urn:a": {{ID: "ra", Content: "a", Dimension: memory.DimensionEntity}},
 			"urn:b": {{ID: "rb", Content: "b", Dimension: memory.DimensionEntity}},
 		},
 	}
-	p := NewMemoryProvider(store, fakeLineage{neighbor: "urn:b"})
+	p := NewMemoryProvider(store)
 	hits, err := p.Search(context.Background(), Query{
-		EntityURNs: []string{"urn:a"},
+		EntityURNs: []string{"urn:a", "urn:b"},
 		Caller:     Caller{Email: "a@example.com"},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Lineage added urn:b, so both records surface.
 	if len(hits) != 2 {
-		t.Fatalf("expected 2 hits after lineage expansion, got %d: %+v", len(hits), hits)
+		t.Fatalf("expected 2 hits across both URNs, got %d: %+v", len(hits), hits)
 	}
 }
 
@@ -185,7 +178,7 @@ func TestMemoryProvider_EntityAndTextDedup(t *testing.T) {
 		entity:  map[string][]memory.Record{"urn:x": {rec}},
 		lexical: []memory.ScoredRecord{{Record: rec, Score: 0.4}},
 	}
-	p := NewMemoryProvider(store, nil)
+	p := NewMemoryProvider(store)
 	hits, err := p.Search(context.Background(), Query{
 		Intent:     "dup",
 		EntityURNs: []string{"urn:x"},
@@ -201,7 +194,7 @@ func TestMemoryProvider_EntityAndTextDedup(t *testing.T) {
 
 func TestMemoryProvider_SearchError(t *testing.T) {
 	store := &fakeMemoryStore{err: errors.New("db down")}
-	p := NewMemoryProvider(store, nil)
+	p := NewMemoryProvider(store)
 	_, err := p.Search(context.Background(), Query{Intent: "q", Caller: Caller{Email: "a@example.com"}})
 	if err == nil {
 		t.Fatal("expected error to propagate")

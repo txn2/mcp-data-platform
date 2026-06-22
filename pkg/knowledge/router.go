@@ -42,6 +42,20 @@ type Result struct {
 	Ranking  string
 }
 
+// LineageExpander optionally widens a set of entity URNs along lineage so an
+// entity-keyed lookup also recalls knowledge about upstream and downstream
+// datasets (the old memory_recall "graph" strategy). Implemented by an adapter
+// over the semantic provider; a nil expander disables expansion, leaving a
+// plain entity lookup.
+//
+// It lives on the Router, not on any single provider, so the expansion runs
+// once per search and every entity-keyed provider (memory, insights, the
+// technical catalog) sees the same widened URN set, the same way the query
+// embedding is computed once and shared.
+type LineageExpander interface {
+	Expand(ctx context.Context, urns []string) []string
+}
+
 // Router fans one query across every registered provider, normalizes each
 // provider's local relevance scores onto a common scale, fuses them into one
 // ranked list, and enforces per-user scope. It is the single read path behind
@@ -49,15 +63,17 @@ type Result struct {
 // fusion rules live here once rather than in each surface.
 type Router struct {
 	embedder  embedding.Provider
+	lineage   LineageExpander
 	providers []Provider
 }
 
-// NewRouter builds a router over an embedder and a set of providers. The
-// embedder may be nil or the noop placeholder; the router then ranks
-// lexically. Provider order does not affect ranking (scores are fused), only
+// NewRouter builds a router over an embedder, an optional lineage expander, and
+// a set of providers. The embedder may be nil or the noop placeholder; the
+// router then ranks lexically. lineage may be nil, leaving entity-keyed lookups
+// unexpanded. Provider order does not affect ranking (scores are fused), only
 // the deterministic tie-break.
-func NewRouter(embedder embedding.Provider, providers ...Provider) *Router {
-	return &Router{embedder: embedder, providers: providers}
+func NewRouter(embedder embedding.Provider, lineage LineageExpander, providers ...Provider) *Router {
+	return &Router{embedder: embedder, lineage: lineage, providers: providers}
 }
 
 // Providers returns the registered providers, for introspection and wiring
@@ -121,6 +137,13 @@ func (r *Router) Search(ctx context.Context, q Query) (Result, error) {
 		} else {
 			ranking = rankingLexical
 		}
+	}
+
+	// Widen the entity-keyed lookup along lineage once, so every entity-keyed
+	// provider fans out over the same upstream/downstream neighbors rather than
+	// each re-expanding (which would re-hit the catalog lineage API per source).
+	if len(q.EntityURNs) > 0 && r.lineage != nil {
+		q.EntityURNs = r.lineage.Expand(ctx, q.EntityURNs)
 	}
 
 	perProvider, attempted, errs := r.fanOut(ctx, q)

@@ -56,7 +56,7 @@ func flatHits(res Result) []Hit {
 func TestRouter_PerUserSkippedForAnonymousCaller(t *testing.T) {
 	shared := &fakeProvider{name: "shared", scope: ScopeShared, hits: []Hit{{Source: "shared", Ref: "s1", Score: 1}}}
 	perUser := &fakeProvider{name: "peruser", scope: ScopePerUser, hits: []Hit{{Source: "peruser", Ref: "p1", Score: 1}}}
-	r := NewRouter(nil, shared, perUser)
+	r := NewRouter(nil, nil, shared, perUser)
 
 	res, err := r.Search(context.Background(), Query{Intent: "anything"})
 	if err != nil {
@@ -76,7 +76,7 @@ func TestRouter_PerUserSkippedForAnonymousCaller(t *testing.T) {
 func TestRouter_SourcesNarrowsButNeverWidens(t *testing.T) {
 	datahub := &fakeProvider{name: "datahub", scope: ScopeShared, hits: []Hit{{Source: "datahub", Ref: "d1", Score: 1}}}
 	memory := &fakeProvider{name: "memory", scope: ScopePerUser, hits: []Hit{{Source: "memory", Ref: "m1", Score: 1}}}
-	r := NewRouter(nil, datahub, memory)
+	r := NewRouter(nil, nil, datahub, memory)
 
 	// Narrow to datahub only: memory is skipped even though the caller has identity.
 	caller := Caller{Email: "a@example.com"}
@@ -99,7 +99,7 @@ func TestRouter_SourcesCannotWidenPastScope(t *testing.T) {
 	// An anonymous caller naming a per-user source must still get nothing from
 	// it: sources narrows, it never opts past the scope gate.
 	memory := &fakeProvider{name: "memory", scope: ScopePerUser, hits: []Hit{{Source: "memory", Ref: "m1", Score: 1}}}
-	r := NewRouter(nil, memory)
+	r := NewRouter(nil, nil, memory)
 	res, err := r.Search(context.Background(), Query{Intent: "q", Sources: []string{"memory"}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -115,7 +115,7 @@ func TestRouter_SourcesCannotWidenPastScope(t *testing.T) {
 func TestRouter_BlankSourcesQueriesEverything(t *testing.T) {
 	a := &fakeProvider{name: "a", scope: ScopeShared, hits: []Hit{{Source: "a", Ref: "a1", Score: 1}}}
 	b := &fakeProvider{name: "b", scope: ScopeShared, hits: []Hit{{Source: "b", Ref: "b1", Score: 1}}}
-	r := NewRouter(nil, a, b)
+	r := NewRouter(nil, nil, a, b)
 	// A sources slice of only blanks collapses to "no narrowing".
 	_, err := r.Search(context.Background(), Query{Intent: "q", Sources: []string{"  ", ""}})
 	if err != nil {
@@ -128,7 +128,7 @@ func TestRouter_BlankSourcesQueriesEverything(t *testing.T) {
 
 func TestRouter_PerUserQueriedWithIdentity(t *testing.T) {
 	perUser := &fakeProvider{name: "peruser", scope: ScopePerUser, hits: []Hit{{Source: "peruser", Ref: "p1", Score: 1}}}
-	r := NewRouter(nil, perUser)
+	r := NewRouter(nil, nil, perUser)
 
 	caller := Caller{UserID: "uuid-1", Email: "a@example.com"}
 	_, err := r.Search(context.Background(), Query{Intent: "anything", Caller: caller})
@@ -145,7 +145,7 @@ func TestRouter_PerUserQueriedWithIdentity(t *testing.T) {
 
 func TestRouter_LexicalWhenNoEmbedder(t *testing.T) {
 	p := &fakeProvider{name: "p", scope: ScopeShared}
-	r := NewRouter(nil, p)
+	r := NewRouter(nil, nil, p)
 	res, err := r.Search(context.Background(), Query{Intent: "q"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -158,7 +158,7 @@ func TestRouter_LexicalWhenNoEmbedder(t *testing.T) {
 func TestRouter_HybridWithEmbedder(t *testing.T) {
 	var got Query
 	p := &captureProvider{scope: ScopeShared, sink: &got}
-	r := NewRouter(fakeEmbedder{}, p)
+	r := NewRouter(fakeEmbedder{}, nil, p)
 	res, err := r.Search(context.Background(), Query{Intent: "q"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -184,11 +184,48 @@ func (c captureProvider) Search(_ context.Context, q Query) ([]Hit, error) {
 	return nil, nil
 }
 
+// fakeLineage expands every input urn to itself plus a fixed neighbor.
+type fakeLineage struct{ neighbor string }
+
+func (l fakeLineage) Expand(_ context.Context, urns []string) []string {
+	return append(append([]string{}, urns...), l.neighbor)
+}
+
+func TestRouter_LineageExpandsEntityURNsForAllProviders(t *testing.T) {
+	var got1, got2 Query
+	p1 := &captureProvider{scope: ScopeShared, sink: &got1}
+	p2 := &captureProvider{scope: ScopeShared, sink: &got2}
+	r := NewRouter(nil, fakeLineage{neighbor: "urn:b"}, p1, p2)
+
+	if _, err := r.Search(context.Background(), Query{EntityURNs: []string{"urn:a"}}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Expansion runs once on the router and every provider sees the widened set,
+	// so providers never each re-hit the lineage API.
+	for i, got := range []Query{got1, got2} {
+		if len(got.EntityURNs) != 2 {
+			t.Fatalf("provider %d got %d urns, want 2 (expanded): %+v", i, len(got.EntityURNs), got.EntityURNs)
+		}
+	}
+}
+
+func TestRouter_NoLineageLeavesEntityURNsUnchanged(t *testing.T) {
+	var got Query
+	p := &captureProvider{scope: ScopeShared, sink: &got}
+	r := NewRouter(nil, nil, p)
+	if _, err := r.Search(context.Background(), Query{EntityURNs: []string{"urn:a"}}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got.EntityURNs) != 1 || got.EntityURNs[0] != "urn:a" {
+		t.Errorf("entity urns = %+v, want unchanged [urn:a]", got.EntityURNs)
+	}
+}
+
 func TestRouter_AllProvidersErrorReturnsError(t *testing.T) {
 	boom := errors.New("boom")
 	p1 := &fakeProvider{name: "p1", scope: ScopeShared, err: boom}
 	p2 := &fakeProvider{name: "p2", scope: ScopeShared, err: boom}
-	r := NewRouter(nil, p1, p2)
+	r := NewRouter(nil, nil, p1, p2)
 
 	_, err := r.Search(context.Background(), Query{Intent: "q"})
 	if err == nil {
@@ -199,7 +236,7 @@ func TestRouter_AllProvidersErrorReturnsError(t *testing.T) {
 func TestRouter_PartialErrorTolerated(t *testing.T) {
 	good := &fakeProvider{name: "good", scope: ScopeShared, hits: []Hit{{Source: "good", Ref: "g1", Score: 1}}}
 	bad := &fakeProvider{name: "bad", scope: ScopeShared, err: errors.New("down")}
-	r := NewRouter(nil, good, bad)
+	r := NewRouter(nil, nil, good, bad)
 
 	res, err := r.Search(context.Background(), Query{Intent: "q"})
 	if err != nil {
@@ -216,7 +253,7 @@ func TestRouter_LimitCapsResults(t *testing.T) {
 		hits[i] = Hit{Source: "p", Ref: string(rune('a' + i)), Score: float64(i)}
 	}
 	p := &fakeProvider{name: "p", scope: ScopeShared, hits: hits}
-	r := NewRouter(nil, p)
+	r := NewRouter(nil, nil, p)
 
 	res, err := r.Search(context.Background(), Query{Intent: "q", Limit: 3})
 	if err != nil {
@@ -246,7 +283,7 @@ func TestClampLimit(t *testing.T) {
 
 func TestRouter_Providers(t *testing.T) {
 	p := &fakeProvider{name: "p", scope: ScopeShared}
-	r := NewRouter(nil, p)
+	r := NewRouter(nil, nil, p)
 	if got := r.Providers(); len(got) != 1 || got[0] != p {
 		t.Errorf("Providers() = %+v, want [p]", got)
 	}

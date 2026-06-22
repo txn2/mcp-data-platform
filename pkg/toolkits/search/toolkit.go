@@ -29,8 +29,9 @@ const toolName = "search"
 // searchInput is the deserialized search input. Intent is the natural-language
 // description of what the caller wants; Context is optional surrounding detail
 // folded into the same query to sharpen ranking. EntityURNs is an exact,
-// entity-keyed lookup (memory linked to those datasets, expanded along
-// lineage). Status optionally filters by review state. Sources optionally
+// entity-keyed lookup that unions every source linked to those datasets (the
+// catalog entity, URN-linked insights, and URN-linked memory), expanded along
+// lineage. Status optionally filters by review state. Sources optionally
 // narrows the federation to named sources (it only narrows; it never opts into
 // a source the persona could not otherwise access). At least one of intent or
 // entity_urns must be set.
@@ -71,7 +72,7 @@ var searchSchema = json.RawMessage(`{
     "entity_urns": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Exact entity-keyed lookup: return your memory linked to these DataHub URNs, expanded along lineage. Use when you have specific datasets in hand rather than a natural-language question."
+      "description": "Exact entity-keyed lookup: return everything linked to these DataHub URNs (the catalog entity, insights about it, and your memory linked to it), expanded along lineage. Use when you have specific datasets in hand rather than a natural-language question."
     },
     "status": {
       "type": "string",

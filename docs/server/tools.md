@@ -599,8 +599,9 @@ when only the top few of each source are displayed. Hits are navigational
 snippets (title, `ref`, short context line, `source`); the agent drills in with
 the scoped tool (`trino_query`, `api_invoke_endpoint`, `datahub_get_entity`).
 
-A query may be text (`intent`), entity-keyed (`entity_urns`, returning your
-memory linked to those datasets and their lineage neighbors), or both. Ranking is
+A query may be text (`intent`), entity-keyed (`entity_urns`, returning every
+source linked to those datasets and their lineage neighbors: the catalog entity,
+URN-linked insights, and your URN-linked memory), or both. Ranking is
 hybrid (semantic vector + lexical) when an embedding provider is configured and
 lexical-only otherwise; an entity-only query reports ranking `entity`. The
 response carries a `ranking` field, a `count` (total hits shown), a `groups`
@@ -614,7 +615,7 @@ and `dimension`), and a `coverage` array (`{source, matched, shown}`).
 |-----------|------|----------|---------|-------------|
 | `intent` | string | Conditional | - | Natural-language description of what you are looking for. Provide `intent`, `entity_urns`, or both |
 | `context` | string | No | - | Optional surrounding context, folded into the intent to sharpen relevance |
-| `entity_urns` | array | Conditional | - | Exact entity-keyed lookup: your memory linked to these DataHub URNs, expanded along lineage |
+| `entity_urns` | array | Conditional | - | Exact entity-keyed lookup: everything linked to these DataHub URNs (the catalog entity, insights about it, and your memory linked to it), expanded along lineage |
 | `status` | string | No | - | Optional filter by insight review status (pending, approved, rejected, applied, superseded, rolled_back) |
 | `sources` | array | No | - | Narrow the search to named sources (`datahub`, `memory`, `insights`, `assets`, `prompts`, `endpoints`, `connections`). Only narrows; never opts into a source the persona could not otherwise access |
 | `limit` | integer | No | 10 | Total results to display across all sources (max 50) |
