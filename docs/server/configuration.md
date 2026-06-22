@@ -297,9 +297,25 @@ When a database is available (`database.dsn` is set), the platform uses a granul
 | Key | Description |
 |-----|-------------|
 | `server.description` | Platform description shown in `platform-overview` prompt and `platform_info` tool |
-| `server.agent_instructions` | Custom instructions appended to agent system prompts |
+| `server.agent_instructions` | Business/deployment context layered beneath the platform-owned instruction baseline (see below) |
 
 Only whitelisted keys can be set via the admin API. Attempting to set a non-whitelisted key returns `400 Bad Request`.
+
+### Agent instruction composition
+
+The instructions an agent receives via `platform_info` are composed in layers:
+
+```
+[platform baseline]          platform-owned, versioned with the release, always present:
+                             how to operate (search-first / topology discovery, capture
+                             proactively). Names only tools the caller's persona can reach.
+  + server.agent_instructions   admin: business/deployment context (which backends hold what,
+                                 data origins, domain rules)
+  + persona suffix/override      persona tuning (override replaces the admin layer only)
+  + runtime notes                e.g. the uploaded-resources hint
+```
+
+The platform baseline is non-overridable and updates automatically when the platform is upgraded, so the operating model never has to be re-authored per deployment. A persona's `agent_instructions_override` replaces the admin layer only; the baseline is always present. Because the baseline names a tool (`search`, `memory_capture`) only when that tool is registered and the persona is allowed to call it, it never points an agent at a tool it cannot use. The agent receives the baseline as part of the composed `agent_instructions` in the `platform_info` response; admins can see the baseline on its own read-only in the portal's Agent Instructions screen and via `GET /api/v1/admin/config/agent-instructions-baseline`.
 
 ```yaml
 config_store:
@@ -632,8 +648,8 @@ personas:
 | `definitions.<name>.tools.deny` | array | `[]` | Denied tool patterns |
 | `definitions.<name>.context.description_prefix` | string | - | Prepended to platform description |
 | `definitions.<name>.context.description_override` | string | - | Replaces platform description entirely |
-| `definitions.<name>.context.agent_instructions_suffix` | string | - | Appended to platform agent instructions |
-| `definitions.<name>.context.agent_instructions_override` | string | - | Replaces platform agent instructions entirely |
+| `definitions.<name>.context.agent_instructions_suffix` | string | - | Appended to the admin `agent_instructions` layer |
+| `definitions.<name>.context.agent_instructions_override` | string | - | Replaces the admin `agent_instructions` layer only; the platform baseline is always present |
 | `default_persona` | string | - | Persona for users without role match |
 
 !!! warning "Default-Deny Security"
