@@ -319,7 +319,7 @@ export function AppShell() {
                 <ConfigEditorPage configKey="server.description" label="Description" description="Platform identity visible to MCP clients" />
               )}
               {route === "/admin/agent-instructions" && (
-                <ConfigEditorPage configKey="server.agent_instructions" label="Agent Instructions" description="Guidance for AI agents using this platform" />
+                <ConfigEditorPage configKey="server.agent_instructions" label="Agent Instructions" description="Guidance for AI agents using this platform" showPlatformBaseline />
               )}
               {route === "/admin/api-catalogs" && <CatalogsPanel />}
               {route === "/admin/connections" && <ConnectionsPanel />}

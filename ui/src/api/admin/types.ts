@@ -436,6 +436,13 @@ export interface EffectiveConfigEntry {
   updated_at?: string;
 }
 
+// AgentInstructionsBaseline is the platform-owned "how to operate" instruction
+// baseline (#646) composed beneath the admin's agent_instructions. It names only
+// tools this deployment exposes, so admins see what is already covered.
+export interface AgentInstructionsBaseline {
+  baseline: string;
+}
+
 // ---------------------------------------------------------------------------
 // Connection Instances (DB-managed)
 // ---------------------------------------------------------------------------
