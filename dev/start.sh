@@ -43,6 +43,37 @@ info() {
   echo -e "  ${CYAN}…${NC} $1"
 }
 
+# port_conflict_msg prints a precise, actionable message identifying what holds
+# $port. The old advice ("Run 'make dev-down'") is wrong and destructive when a
+# NON-dev container (e.g. a leftover e2e stack) squats the port: dev-down wipes
+# the dev volumes yet never frees a port it does not own. So name the actual
+# holder and suggest the surgical command instead. Docker Desktop publishes
+# container ports via com.docker.backend, so the host lsof PID is rarely useful;
+# resolve the owning container first, then fall back to a genuine host process.
+port_conflict_msg() {
+  local port="$1"
+  local container pid comm
+  container=$(docker ps --filter "publish=$port" --format '{{.Names}}' 2>/dev/null | head -1)
+  if [ -n "$container" ]; then
+    case "$container" in
+      acme-dev-*)
+        echo "Port $port is held by dev container '$container'. Run 'make dev-down' (removes dev volumes) or free just this port with: docker stop $container"
+        ;;
+      *)
+        echo "Port $port is held by NON-dev container '$container' -- 'make dev-down' will NOT free it (and would wipe your dev volumes). Stop it with: docker stop $container"
+        ;;
+    esac
+    return
+  fi
+  pid=$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null | head -1)
+  if [ -n "$pid" ]; then
+    comm=$(ps -p "$pid" -o comm= 2>/dev/null | xargs)
+    echo "Port $port is held by host process '${comm:-unknown}' (PID $pid). Stop it with: kill $pid"
+    return
+  fi
+  echo "Port $port is already in use; could not identify the holder. Inspect with: lsof -i :$port"
+}
+
 # ─── Pre-flight checks ──────────────────────────────────────────────
 
 echo -e "${BOLD}Pre-flight checks${NC}"
@@ -73,7 +104,7 @@ ok "UI dependencies ready"
 # fixture, 9464 = platform /metrics scrape endpoint, 11434 = ollama embedder)
 for port in 5432 8080 5173 9000 9090 9091 9180 9181 9281 9282 9464 11434; do
   if lsof -i ":$port" -sTCP:LISTEN > /dev/null 2>&1; then
-    fail "Port $port is already in use. Run 'make dev-down' or stop the conflicting process."
+    fail "$(port_conflict_msg "$port")"
   fi
 done
 ok "Ports 5432, 8080, 5173, 9000, 9090, 9091, 9180, 9181, 9281, 9282, 9464, 11434 are free"
