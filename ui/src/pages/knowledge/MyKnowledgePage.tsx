@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   useMyInsights,
   useMyInsightStats,
@@ -13,6 +13,8 @@ import type { Insight, MemoryRecord } from "@/api/portal/types";
 import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
 import { CollapsibleMarkdown } from "@/components/renderers/CollapsibleMarkdown";
 import { formatEntityUrn } from "@/lib/formatEntityUrn";
+import { useDebounced } from "@/lib/useDebounced";
+import { SINK_CLASSES, sinkClassLabel } from "@/lib/sinkClass";
 
 const STATUS_BADGES: Record<string, { label: string; cls: string }> = {
   pending: {
@@ -59,29 +61,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   general: "General",
 };
 
-const DIMENSION_LABELS: Record<string, string> = {
-  knowledge: "Knowledge",
-  event: "Event",
-  entity: "Entity",
-  relationship: "Relationship",
-  preference: "Preference",
-};
-
 const PAGE_SIZE = 20;
-
-type Tab = "knowledge" | "memory";
-
-// useDebounced returns value after it has stopped changing for delayMs,
-// so typing in a search box issues one request after the user pauses
-// rather than one per keystroke.
-function useDebounced<T>(value: T, delayMs: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(value), delayMs);
-    return () => clearTimeout(t);
-  }, [value, delayMs]);
-  return debounced;
-}
 
 // SearchBox is a controlled text input with a leading search icon, shared
 // by the Knowledge and Memory tabs.
@@ -168,9 +148,11 @@ function MemoryCard({ record }: { record: MemoryRecord }) {
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2">
           <BadgeLabel status={record.status} />
-          <span className="text-xs text-muted-foreground">
-            {DIMENSION_LABELS[record.dimension] ?? record.dimension}
-          </span>
+          {sinkClassLabel(record.sink_class) && (
+            <span className="text-xs text-muted-foreground">
+              {sinkClassLabel(record.sink_class)}
+            </span>
+          )}
           <span className="text-xs text-muted-foreground">
             {CATEGORY_LABELS[record.category] ?? record.category}
           </span>
@@ -205,52 +187,15 @@ function MemoryCard({ record }: { record: MemoryRecord }) {
   );
 }
 
-export function MyKnowledgePage() {
-  const [tab, setTab] = useState<Tab>("knowledge");
-
-  return (
-    <div className="space-y-6">
-      <p className="text-sm text-muted-foreground mb-6">
-        What the platform learned from your sessions. Knowledge items go through
-        admin review before they reach the catalog. Memory records persist your
-        corrections and preferences so you do not have to repeat yourself.
-      </p>
-
-      {/* Tab bar */}
-      <div className="flex gap-1 border-b">
-        <button
-          onClick={() => setTab("knowledge")}
-          className={`px-4 py-2 text-sm font-medium transition-colors ${
-            tab === "knowledge"
-              ? "border-b-2 border-primary text-primary"
-              : "text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          Knowledge
-        </button>
-        <button
-          onClick={() => setTab("memory")}
-          className={`px-4 py-2 text-sm font-medium transition-colors ${
-            tab === "memory"
-              ? "border-b-2 border-primary text-primary"
-              : "text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          Memory
-        </button>
-      </div>
-
-      {tab === "knowledge" && <MyKnowledgeSection />}
-      {tab === "memory" && <MyMemorySection />}
-    </div>
-  );
-}
+// The former MyKnowledgePage tab wrapper was folded into KnowledgeHub (#661);
+// the Insights and Memory tabs there compose MyKnowledgeSection and
+// MyMemorySection directly, so the standalone two-tab page is no longer routed.
 
 // ---------------------------------------------------------------------------
 // Knowledge Section
 // ---------------------------------------------------------------------------
 
-function MyKnowledgeSection() {
+export function MyKnowledgeSection() {
   const [statusFilter, setStatusFilter] = useState("");
   const [offset, setOffset] = useState(0);
   const [searchInput, setSearchInput] = useState("");
@@ -347,12 +292,13 @@ function MyKnowledgeSection() {
               here for review.
             </p>
             <p className="text-xs">
-              Try telling your assistant something like{" "}
+              Try telling your agent something like{" "}
               <em>&quot;the revenue column excludes returns&quot;</em> or{" "}
               <em>&quot;this table is refreshed weekly&quot;</em>.
             </p>
             <p className="text-xs">
-              Approved insights improve the data catalog for everyone.
+              Reviewed insights can be promoted into your team&apos;s shared
+              knowledge.
             </p>
           </div>
         </div>
@@ -397,9 +343,9 @@ function MyKnowledgeSection() {
 // Memory Section
 // ---------------------------------------------------------------------------
 
-function MyMemorySection() {
+export function MyMemorySection() {
   const [statusFilter, setStatusFilter] = useState("");
-  const [dimensionFilter, setDimensionFilter] = useState("");
+  const [sinkClassFilter, setSinkClassFilter] = useState("");
   const [offset, setOffset] = useState(0);
   const [searchInput, setSearchInput] = useState("");
   const search = useDebounced(searchInput, 300);
@@ -408,14 +354,14 @@ function MyMemorySection() {
   const stats = useMyMemoryStats();
   const memories = useMyMemories({
     status: statusFilter || undefined,
-    dimension: dimensionFilter || undefined,
+    sinkClass: sinkClassFilter || undefined,
     limit: PAGE_SIZE,
     offset,
   });
-  // Search refines by the active status and dimension filters.
+  // Relevance search refines by status only; the sink_class browse filter
+  // applies to the list view (the search endpoint ranks by text + status).
   const searchResults = useSearchMyMemories(search, {
     status: statusFilter || undefined,
-    dimension: dimensionFilter || undefined,
     limit: PAGE_SIZE,
   });
   const s = stats.data;
@@ -434,14 +380,7 @@ function MyMemorySection() {
     { value: "archived", label: "Archived" },
   ];
 
-  const dimensionFilters = [
-    { value: "", label: "All Dimensions" },
-    { value: "knowledge", label: "Knowledge" },
-    { value: "event", label: "Event" },
-    { value: "entity", label: "Entity" },
-    { value: "relationship", label: "Relationship" },
-    { value: "preference", label: "Preference" },
-  ];
+  const sinkClassFilters = [{ value: "", label: "All classes" }, ...SINK_CLASSES];
 
   return (
     <>
@@ -450,10 +389,7 @@ function MyMemorySection() {
         <StatCard label="Total Memories" value={s?.total ?? 0} />
         <StatCard label="Active" value={s?.by_status?.active ?? 0} />
         <StatCard label="Stale" value={s?.by_status?.stale ?? 0} />
-        <StatCard
-          label="Dimensions"
-          value={s?.by_dimension ? Object.keys(s.by_dimension).length : 0}
-        />
+        <StatCard label="Archived" value={s?.by_status?.archived ?? 0} />
       </div>
 
       {/* Search + Filters */}
@@ -482,14 +418,19 @@ function MyMemorySection() {
           ))}
         </div>
         <select
-          value={dimensionFilter}
+          value={sinkClassFilter}
           onChange={(e) => {
-            setDimensionFilter(e.target.value);
+            setSinkClassFilter(e.target.value);
             setOffset(0);
           }}
-          className="rounded-md border bg-background px-3 py-1.5 text-sm outline-none ring-ring focus:ring-2"
+          // The class filter applies to the browse list; relevance search ranks
+          // by text and status only, so disable it while searching to avoid
+          // implying it narrows the results.
+          disabled={searching}
+          className="rounded-md border bg-background px-3 py-1.5 text-sm outline-none ring-ring focus:ring-2 disabled:opacity-50"
+          aria-label="Filter by class"
         >
-          {dimensionFilters.map((f) => (
+          {sinkClassFilters.map((f) => (
             <option key={f.value} value={f.value}>
               {f.label}
             </option>

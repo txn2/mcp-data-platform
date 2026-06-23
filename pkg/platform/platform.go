@@ -196,6 +196,10 @@ type Platform struct {
 	knowledgeToolkit        *knowledgekit.Toolkit
 	memoryToolkit           *memorykit.Toolkit
 	knowledgeDataHubWriter  knowledgekit.DataHubWriter
+	// knowledgeRouter is the unified search federation built in initSearch. It
+	// backs both the MCP search tool and the portal's GET /search REST endpoint;
+	// nil on a store-less deployment with no searchable source.
+	knowledgeRouter *knowledge.Router
 
 	// Memory layer
 	memoryStore      memory.Store
@@ -1690,6 +1694,7 @@ func (p *Platform) initSearch() error {
 	}
 
 	router := knowledge.NewRouter(p.embeddingProv, lineage, providers...)
+	p.knowledgeRouter = router
 	tk := searchkit.New(instanceDefault, router)
 	if err := p.toolkitRegistry.Register(tk); err != nil {
 		return fmt.Errorf("registering search toolkit: %w", err)
@@ -3582,6 +3587,14 @@ func (p *Platform) PortalKnowledgePageStore() knowledgepage.Store {
 // PortalS3Client returns the portal S3 client, or nil if portal is disabled.
 func (p *Platform) PortalS3Client() portal.S3Client {
 	return p.portalS3Client
+}
+
+// KnowledgeRouter returns the unified search federation, or nil when no
+// searchable source is configured. The portal's GET /api/v1/portal/search REST
+// endpoint wraps it so the browser surfaces the same grouped, scope-enforced
+// results as the MCP search tool.
+func (p *Platform) KnowledgeRouter() *knowledge.Router {
+	return p.knowledgeRouter
 }
 
 // BrandLogoSVG returns the resolved brand logo SVG content (from portal.logo

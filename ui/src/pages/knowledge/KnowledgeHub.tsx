@@ -1,0 +1,650 @@
+import { useCallback, useEffect, useState } from "react";
+import {
+  Search,
+  Database,
+  Lightbulb,
+  BookOpen,
+  ChevronRight,
+  X,
+} from "lucide-react";
+import { useSearch } from "@/api/portal/hooks";
+import { useInsightStats } from "@/api/admin/hooks";
+import { useAuthStore } from "@/stores/auth";
+import type { SearchHit } from "@/api/portal/types";
+import { formatEntityUrn } from "@/lib/formatEntityUrn";
+import { useDebounced } from "@/lib/useDebounced";
+import { FilterChip } from "@/components/FilterChip";
+import { KnowledgePagesPage } from "@/pages/knowledge-pages/KnowledgePagesPage";
+import {
+  MyKnowledgeSection,
+  MyMemorySection,
+} from "@/pages/knowledge/MyKnowledgePage";
+import {
+  KnowledgeCaptureTab,
+  ChangesetsTab,
+} from "@/pages/knowledge/KnowledgePage";
+
+type Tab = "knowledge" | "insights" | "memory";
+
+const TABS: { key: Tab; label: string }[] = [
+  { key: "knowledge", label: "Knowledge" },
+  { key: "insights", label: "Insights" },
+  { key: "memory", label: "Memory" },
+];
+
+// The Knowledge tab is itself split into sub-tabs so federated search, the page
+// browse, and changesets each get their own space and explanation rather than
+// stacking on one screen.
+type KnowledgeSubTab = "search" | "pages" | "changesets";
+
+// The Insights tab splits your own captured insights from the reviewer queue.
+type InsightSubTab = "mine" | "review";
+
+function normalizeTab(raw?: string): Tab {
+  return raw === "insights" || raw === "memory" ? raw : "knowledge";
+}
+
+// Human labels for the federated sources the unified search returns, so the
+// grouped result set reads in product language rather than provider keys.
+const SOURCE_LABELS: Record<string, string> = {
+  datahub: "Catalog (DataHub)",
+  knowledge_pages: "Knowledge pages",
+  memory: "Memory",
+  insights: "Insights",
+  assets: "Assets",
+  prompts: "Prompts",
+  endpoints: "API endpoints",
+  connections: "Connections",
+};
+
+function sourceLabel(source: string): string {
+  return SOURCE_LABELS[source] ?? source;
+}
+
+// LifecycleHeader teaches the Memory to Insight to Knowledge model so a
+// first-time reader can state what each is and how one becomes the next. The
+// stages render left to right even though the tabs lead with the payoff.
+function LifecycleHeader() {
+  const stages = [
+    { icon: Database, title: "Memory", caption: "captured automatically" },
+    { icon: Lightbulb, title: "Insight", caption: "proposed for review" },
+    { icon: BookOpen, title: "Knowledge", caption: "promoted, shared, canonical" },
+  ];
+  return (
+    <div className="rounded-lg border bg-card p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        {stages.map((s, i) => (
+          <div key={s.title} className="flex items-center gap-2">
+            <div className="flex items-center gap-2 rounded-md bg-muted/60 px-3 py-1.5">
+              <s.icon className="h-4 w-4 text-primary" />
+              <div className="leading-tight">
+                <div className="text-sm font-medium">{s.title}</div>
+                <div className="text-[11px] text-muted-foreground">{s.caption}</div>
+              </div>
+            </div>
+            {i < stages.length - 1 && (
+              <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+            )}
+          </div>
+        ))}
+      </div>
+      <p className="mt-3 text-sm text-muted-foreground">
+        Everything the platform learns is a <strong>Memory</strong>. Most
+        memories are personal or operational and stay yours. When a memory
+        asserts something true about the business or the data that others would
+        benefit from, it becomes an <strong>Insight</strong>, a proposal awaiting
+        review. Whoever holds the <code className="text-xs">apply_knowledge</code>{" "}
+        capability reviews insights and promotes the good ones into{" "}
+        <strong>Knowledge</strong>: shared, trusted, and canonical. Business and
+        domain facts become knowledge pages; technical and entity facts go to the
+        DataHub catalog. This is the substrate your agents draw on; it is surfaced
+        here so you can audit, review, give feedback, and use it as a shared
+        knowledgebase.
+      </p>
+    </div>
+  );
+}
+
+// Sources the hub can open to a detail surface, and the action label. Sources
+// absent here (datahub, endpoints, connections) have no portal viewer, so their
+// drawer shows metadata only.
+const OPEN_ACTIONS: Record<string, string> = {
+  assets: "Open asset",
+  prompts: "Open prompt",
+  knowledge_pages: "Open page",
+  memory: "View in Memory",
+  insights: "View in Insights",
+};
+
+function HitRow({ hit, onClick }: { hit: SearchHit; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-start gap-2 rounded-md border bg-card p-3 text-left transition-colors hover:border-primary/40 hover:bg-muted/40"
+    >
+      <div className="min-w-0 flex-1 space-y-1">
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-sm">{hit.text}</p>
+          {hit.status && (
+            <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+              {hit.status}
+            </span>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+          <span className="max-w-[18rem] truncate font-mono" title={hit.ref}>
+            {hit.ref}
+          </span>
+          {(hit.entity_urns ?? []).slice(0, 2).map((urn) => (
+            <span key={urn} title={urn} className="rounded bg-muted px-1.5 py-0.5 font-mono">
+              {formatEntityUrn(urn)}
+            </span>
+          ))}
+        </div>
+      </div>
+      <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+    </button>
+  );
+}
+
+// HitDetailDrawer shows a result's metadata in a right slide-over and, when the
+// source has a portal surface, a button to open the full item.
+function HitDetailDrawer({
+  hit,
+  onClose,
+  onOpen,
+}: {
+  hit: SearchHit;
+  onClose: () => void;
+  onOpen: (hit: SearchHit) => void;
+}) {
+  const openLabel = OPEN_ACTIONS[hit.source];
+  // Escape closes the drawer, so a keyboard user is not trapped after opening it
+  // from a result row.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-black/40" onClick={onClose} />
+      <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col border-l bg-card shadow-xl">
+        <div className="flex items-center justify-between border-b px-4 py-3">
+          <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {sourceLabel(hit.source)}
+          </span>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="rounded p-1 text-muted-foreground hover:bg-muted"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="flex-1 space-y-4 overflow-auto p-4">
+          <h3 className="text-base font-semibold">{hit.text}</h3>
+          <dl className="space-y-3 text-sm">
+            <div>
+              <dt className="text-xs text-muted-foreground">Reference</dt>
+              <dd className="break-all font-mono text-xs">{hit.ref}</dd>
+            </div>
+            {hit.status && (
+              <div>
+                <dt className="text-xs text-muted-foreground">Status</dt>
+                <dd>{hit.status}</dd>
+              </div>
+            )}
+            {hit.dimension && (
+              <div>
+                <dt className="text-xs text-muted-foreground">Category</dt>
+                <dd>{hit.dimension}</dd>
+              </div>
+            )}
+            {(hit.entity_urns?.length ?? 0) > 0 && (
+              <div>
+                <dt className="text-xs text-muted-foreground">Linked entities</dt>
+                <dd className="flex flex-wrap gap-1">
+                  {hit.entity_urns!.map((urn) => (
+                    <span
+                      key={urn}
+                      title={urn}
+                      className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs"
+                    >
+                      {formatEntityUrn(urn)}
+                    </span>
+                  ))}
+                </dd>
+              </div>
+            )}
+          </dl>
+          {!openLabel && (
+            <p className="text-xs text-muted-foreground">
+              {hit.source === "datahub"
+                ? "This knowledge lives on the entity in the DataHub catalog."
+                : "This result does not have a detail page in the portal."}
+            </p>
+          )}
+        </div>
+        {openLabel && (
+          <div className="border-t p-4">
+            <button
+              onClick={() => onOpen(hit)}
+              className="inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
+            >
+              {openLabel}
+            </button>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+// UnifiedSearch fans one query across every source the caller can access and
+// renders the result grouped by source with a coverage summary, a source
+// filter, and a detail drawer per result.
+function UnifiedSearch({ onOpen }: { onOpen: (hit: SearchHit) => void }) {
+  const [input, setInput] = useState("");
+  const [selectedSource, setSelectedSource] = useState("");
+  const [allSources, setAllSources] = useState<string[]>([]);
+  const [selectedHit, setSelectedHit] = useState<SearchHit | null>(null);
+  const query = useDebounced(input, 300);
+  const active = query.trim().length > 0;
+  const { data, isLoading, isError } = useSearch(query, {
+    sources: selectedSource ? [selectedSource] : undefined,
+  });
+
+  // A new query starts unfiltered and rebuilds its own source facet, so chips
+  // never leak from a previous, unrelated query. (data is undefined while the
+  // new query loads, so the accumulation effect below cannot re-add stale
+  // sources before fresh results arrive.)
+  useEffect(() => {
+    setSelectedSource("");
+    setAllSources([]);
+  }, [query]);
+
+  // Remember the full source set from this query's unfiltered results so the
+  // filter chips do not collapse to just the selected source when a filter is
+  // applied (filtered coverage reports only the selected source).
+  useEffect(() => {
+    if (selectedSource === "" && data?.coverage) {
+      setAllSources((prev) => {
+        const merged = new Set(prev);
+        for (const c of data.coverage) merged.add(c.source);
+        return [...merged];
+      });
+    }
+  }, [data, selectedSource]);
+
+  const coverageFor = (source: string) =>
+    data?.coverage.find((c) => c.source === source);
+
+  return (
+    <div className="space-y-4">
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <input
+          type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="Search all knowledge: catalog, knowledge pages, memory, insights, assets, prompts..."
+          className="w-full rounded-md border bg-background pl-9 pr-3 py-2 text-sm outline-none ring-ring focus:ring-2"
+          aria-label="Search all knowledge"
+        />
+      </div>
+
+      {active && allSources.length > 1 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <FilterChip
+            label="All sources"
+            active={selectedSource === ""}
+            onClick={() => setSelectedSource("")}
+          />
+          {allSources.map((s) => (
+            <FilterChip
+              key={s}
+              label={sourceLabel(s)}
+              active={selectedSource === s}
+              onClick={() => setSelectedSource(s)}
+            />
+          ))}
+        </div>
+      )}
+
+      {active && (
+        <div className="space-y-4">
+          {isLoading && (
+            <p className="text-sm text-muted-foreground">Searching...</p>
+          )}
+          {isError && (
+            <p className="text-sm text-muted-foreground">
+              Search is unavailable right now.
+            </p>
+          )}
+          {data && data.count === 0 && (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              Nothing matched &quot;{query.trim()}&quot;.
+            </p>
+          )}
+          {data?.groups.map((group) => {
+            const cov = coverageFor(group.source);
+            return (
+              <div key={group.source} className="space-y-2">
+                <div className="flex items-baseline justify-between">
+                  <h3 className="text-sm font-semibold">{sourceLabel(group.source)}</h3>
+                  {cov && cov.matched > cov.shown && (
+                    <span className="text-[11px] text-muted-foreground">
+                      {cov.shown} of {cov.matched} shown
+                    </span>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  {group.hits.map((hit) => (
+                    <HitRow
+                      key={`${hit.source}:${hit.ref}`}
+                      hit={hit}
+                      onClick={() => setSelectedHit(hit)}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {selectedHit && (
+        <HitDetailDrawer
+          hit={selectedHit}
+          onClose={() => setSelectedHit(null)}
+          onOpen={(h) => {
+            setSelectedHit(null);
+            onOpen(h);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// SubTabBar renders the secondary navigation inside the Knowledge and Insights
+// tabs as a segmented (pill) control, visually subordinate to the primary
+// underline tabs above it so the two levels read as a hierarchy rather than two
+// identical bars. An optional badge surfaces a count (e.g. pending reviews).
+function SubTabBar<T extends string>({
+  tabs,
+  active,
+  onSelect,
+}: {
+  tabs: { key: T; label: string; badge?: number }[];
+  active: T;
+  onSelect: (key: T) => void;
+}) {
+  return (
+    <div className="inline-flex flex-wrap items-center gap-1 rounded-lg border bg-muted/40 p-1">
+      {tabs.map((t) => {
+        const isActive = active === t.key;
+        return (
+          <button
+            key={t.key}
+            onClick={() => onSelect(t.key)}
+            className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+              isActive
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {t.label}
+            {t.badge != null && t.badge > 0 && (
+              <span
+                className={`rounded-full px-1.5 text-[11px] font-semibold ${
+                  isActive
+                    ? "bg-primary/15 text-primary"
+                    : "bg-muted-foreground/15 text-muted-foreground"
+                }`}
+              >
+                {t.badge}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * KnowledgeHub is the single home for the Memory to Insight to Knowledge
+ * lifecycle (#661). It merges the former /knowledge-pages, /my-knowledge, and
+ * /admin/knowledge surfaces into three capability-gated tabs:
+ *
+ *   - Knowledge (default): three sub-tabs - Search All (federated search),
+ *     Knowledge Pages (browse internal pages), and Changesets (apply audit,
+ *     reviewer-only).
+ *   - Insights: your captured insights, and for apply_knowledge holders the
+ *     full review queue and changesets.
+ *   - Memory: your raw memory substrate classified by sink_class, and for
+ *     apply_knowledge holders every user's memory.
+ *
+ * Review and promote affordances gate on the apply_knowledge capability, never
+ * on an admin role.
+ */
+export function KnowledgeHub({
+  initialTab,
+  onNavigate,
+}: {
+  initialTab?: string;
+  onNavigate?: (path: string) => void;
+}) {
+  const [tab, setTab] = useState<Tab>(() => normalizeTab(initialTab));
+  const [knowledgeSub, setKnowledgeSub] = useState<KnowledgeSubTab>("search");
+  const [insightSub, setInsightSub] = useState<InsightSubTab>("mine");
+  // A bump-counter request so clicking the same knowledge-page result twice
+  // still re-opens it (the object identity changes each time).
+  const [pageRequest, setPageRequest] = useState<{ id: string; n: number } | null>(
+    null,
+  );
+  // Cleared once KnowledgePagesPage has opened the requested page, so the
+  // request does not re-fire and force the page detail open when the user later
+  // returns to the Knowledge Pages sub-tab (which remounts the component).
+  const clearPageRequest = useCallback(() => setPageRequest(null), []);
+  // Review and promote affordances gate on the apply_knowledge capability (not
+  // an admin role), or admin. This mirrors the REST handler's userHasToolAccess:
+  // the capability grants non-admins, and admins are allowed too since the tool
+  // may be unregistered on a deployment.
+  const canApply = useAuthStore(
+    (s) => (s.user?.tools?.includes("apply_knowledge") ?? false) || s.isAdmin(),
+  );
+  const isAdmin = useAuthStore((s) => s.isAdmin());
+
+  // Pending-review cue: the team-wide pending count comes from the admin-scoped
+  // insight-stats endpoint, so the fetch is gated on isAdmin to avoid a 401 poll
+  // for a non-admin reviewer (whose team queue is, today, also admin-gated; see
+  // #662). The badge shows the count to admins; other users see no number.
+  const insightStats = useInsightStats({ enabled: isAdmin });
+  const pendingReviews = isAdmin ? (insightStats.data?.total_pending ?? 0) : 0;
+
+  // Knowledge sub-tabs. Changesets is reviewer-only (it is the apply audit).
+  const knowledgeSubTabs: {
+    key: KnowledgeSubTab;
+    label: string;
+    description: string;
+  }[] = [
+    {
+      key: "search",
+      label: "Search All",
+      description:
+        "The same discovery your agent uses to find what the platform already knows, surfaced here for you to audit, review, and reference. One query fans across every source it can access (the DataHub catalog, knowledge pages, memory, captured insights, saved assets, prompts, API endpoints, and connections), grouped by source. It ranks semantically when an embedding provider is configured and falls back to keyword search otherwise.",
+    },
+    {
+      key: "pages",
+      label: "Knowledge Pages",
+      description:
+        "Canonical business and domain knowledge, written as markdown and stored in the portal. Pages are one of the two knowledge sinks; technical and entity knowledge lives in the DataHub catalog instead (reach it from Search All). Holders of apply_knowledge can create, edit, and remove pages.",
+    },
+    ...(canApply
+      ? [
+          {
+            key: "changesets" as const,
+            label: "Changesets",
+            description:
+              "The record of insights promoted into knowledge: the catalog and knowledge-page changes applied when your agent runs apply_knowledge. Roll back a changeset to undo its writes.",
+          },
+        ]
+      : []),
+  ];
+  const activeSub = knowledgeSubTabs.some((s) => s.key === knowledgeSub)
+    ? knowledgeSub
+    : "search";
+  const activeSubMeta = knowledgeSubTabs.find((s) => s.key === activeSub)!;
+
+  // Insights sub-tabs. The review queue is reviewer-only and carries the
+  // pending-review count.
+  const insightSubTabs: {
+    key: InsightSubTab;
+    label: string;
+    description: string;
+    badge?: number;
+  }[] = [
+    {
+      key: "mine",
+      label: "My Insights",
+      description:
+        "The insights captured from your sessions, with their review status. An insight is a memory worth sharing with your team; it stays a proposal until it is reviewed and promoted into knowledge.",
+    },
+    ...(canApply
+      ? [
+          {
+            key: "review" as const,
+            label: "Review queue",
+            badge: pendingReviews,
+            description:
+              "Your account has permission to let your agent Apply Knowledge, which promotes your team's insights into team-wide, durable knowledge (knowledge pages and the DataHub catalog). Review what your team has captured: approve the insights worth promoting and reject the rest, so when you ask your agent to apply knowledge it works from a curated set.",
+          },
+        ]
+      : []),
+  ];
+  const activeInsightSub = insightSubTabs.some((s) => s.key === insightSub)
+    ? insightSub
+    : "mine";
+  const insightSubMeta = insightSubTabs.find((s) => s.key === activeInsightSub)!;
+
+  // Reflect the active tab in the URL hash so the view is deep-linkable and
+  // survives a refresh, without forcing a full navigation.
+  const selectTab = (next: Tab) => {
+    setTab(next);
+    window.history.replaceState(null, "", `#${next}`);
+  };
+
+  // Open a search result in its native surface: assets and prompts deep-link to
+  // their portal viewers; knowledge pages open in the Knowledge Pages sub-tab;
+  // memory and insights switch to their tabs. Catalog/endpoint/connection hits
+  // have no portal viewer (the drawer shows their metadata only).
+  const openHit = (hit: SearchHit) => {
+    switch (hit.source) {
+      case "assets":
+        onNavigate?.(`/assets/${hit.ref}`);
+        break;
+      case "prompts":
+        onNavigate?.(`/prompts/${hit.ref}`);
+        break;
+      case "knowledge_pages":
+        setKnowledgeSub("pages");
+        setPageRequest((r) => ({ id: hit.ref, n: (r?.n ?? 0) + 1 }));
+        break;
+      case "memory":
+        selectTab("memory");
+        break;
+      case "insights":
+        selectTab("insights");
+        break;
+      default:
+        break;
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <LifecycleHeader />
+
+      {/* Tab bar */}
+      <div className="flex gap-1 border-b">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => selectTab(t.key)}
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors ${
+              tab === t.key
+                ? "border-b-2 border-primary text-primary"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {t.label}
+            {t.key === "insights" && pendingReviews > 0 && (
+              <span
+                className="rounded-full bg-primary/15 px-1.5 text-[11px] font-semibold text-primary"
+                aria-label={`${pendingReviews} insights awaiting review`}
+              >
+                {pendingReviews}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {tab === "knowledge" && (
+        <div className="space-y-4">
+          <SubTabBar
+            tabs={knowledgeSubTabs}
+            active={activeSub}
+            onSelect={setKnowledgeSub}
+          />
+          <p className="text-sm text-muted-foreground">
+            {activeSubMeta.description}
+          </p>
+
+          {activeSub === "search" && <UnifiedSearch onOpen={openHit} />}
+          {activeSub === "pages" && (
+            <KnowledgePagesPage
+              openPage={pageRequest ?? undefined}
+              onPageOpened={clearPageRequest}
+            />
+          )}
+          {/* Changesets live under Knowledge (the promoted layer), not Insights:
+              a changeset is created only at apply time and records what was
+              written, so it belongs with the knowledge it produced. */}
+          {activeSub === "changesets" && <ChangesetsTab />}
+        </div>
+      )}
+
+      {tab === "insights" && (
+        <div className="space-y-4">
+          <SubTabBar
+            tabs={insightSubTabs}
+            active={activeInsightSub}
+            onSelect={setInsightSub}
+          />
+          <p className="text-sm text-muted-foreground">
+            {insightSubMeta.description}
+          </p>
+
+          {activeInsightSub === "mine" && <MyKnowledgeSection />}
+          {activeInsightSub === "review" && <KnowledgeCaptureTab />}
+        </div>
+      )}
+
+      {tab === "memory" && (
+        <div className="space-y-6">
+          {/* Memory is personal. The only memory that crosses to other users is
+              an insight (reviewed in the Insights tab), so this tab is scoped to
+              the caller's own records. */}
+          <MyMemorySection />
+        </div>
+      )}
+    </div>
+  );
+}

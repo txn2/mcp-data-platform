@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { BookOpen, Search, Plus, Pencil, Trash2, ArrowLeft, History, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Search, Plus, Pencil, Trash2, ArrowLeft, History, X } from "lucide-react";
 import {
   useKnowledgePages,
   useSearchKnowledgePages,
@@ -13,6 +13,8 @@ import type { KnowledgePage, KnowledgePageInput } from "@/api/portal/types";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
 import { useAuthStore } from "@/stores/auth";
+import { parseTags } from "@/lib/tags";
+import { FilterChip } from "@/components/FilterChip";
 
 type Mode = { view: "list" } | { view: "page"; id: string } | { view: "edit"; id: string } | { view: "create" };
 
@@ -22,9 +24,34 @@ type Mode = { view: "list" } | { view: "page"; id: string } | { view: "edit"; id
  * personas with apply_knowledge access (admins). It reuses the shared
  * MarkdownEditor and MarkdownRenderer.
  */
-export function KnowledgePagesPage() {
+export function KnowledgePagesPage({
+  openPage,
+  onPageOpened,
+}: {
+  // A request from the Knowledge hub's search to open a specific page in detail
+  // view. The bump counter makes re-opening the same page re-fire the effect.
+  openPage?: { id: string; n: number };
+  // Called once the request has been consumed so the parent can clear it,
+  // preventing a stale request from re-opening the page on the next remount.
+  onPageOpened?: () => void;
+} = {}) {
   const [mode, setMode] = useState<Mode>({ view: "list" });
-  const canEdit = useAuthStore((s) => s.isAdmin());
+
+  useEffect(() => {
+    if (openPage) {
+      setMode({ view: "page", id: openPage.id });
+      onPageOpened?.();
+    }
+  }, [openPage, onPageOpened]);
+
+  // Create/edit/remove gates on the apply_knowledge capability (a tool-access
+  // gate, not an admin-role gate), or admin. This mirrors the REST handler's
+  // userHasToolAccess (pkg/portal/knowledge_page_handler.go): the capability
+  // grants non-admins, and admins are allowed too since apply_knowledge may be
+  // unregistered on a deployment (#661).
+  const canEdit = useAuthStore(
+    (s) => (s.user?.tools?.includes("apply_knowledge") ?? false) || s.isAdmin(),
+  );
 
   if (mode.view === "create") {
     return <KnowledgePageForm key="create" onDone={(id) => setMode(id ? { view: "page", id } : { view: "list" })} />;
@@ -47,24 +74,78 @@ export function KnowledgePagesPage() {
   return <KnowledgePageList canEdit={canEdit} onOpen={(id) => setMode({ view: "page", id })} onCreate={() => setMode({ view: "create" })} />;
 }
 
+function PageCard({ page, onOpen }: { page: KnowledgePage; onOpen: (id: string) => void }) {
+  return (
+    <button
+      onClick={() => onOpen(page.id)}
+      className="flex h-full w-full flex-col rounded-lg border border-border bg-card p-4 text-left transition hover:border-primary/50 hover:shadow-sm"
+    >
+      <span className="font-medium text-foreground">{page.title}</span>
+      {page.summary && (
+        <span className="mt-1 line-clamp-3 text-sm text-muted-foreground">{page.summary}</span>
+      )}
+      {page.tags.length > 0 && (
+        <span className="mt-3 flex flex-wrap gap-1">
+          {page.tags.map((t) => (
+            <span key={t} className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+              {t}
+            </span>
+          ))}
+        </span>
+      )}
+      <span className="mt-auto pt-3 text-[11px] text-muted-foreground">
+        Updated {new Date(page.updated_at).toLocaleDateString()}
+        {page.updated_by ? ` by ${page.updated_by}` : ""}
+      </span>
+    </button>
+  );
+}
+
 function KnowledgePageList({ canEdit, onOpen, onCreate }: { canEdit: boolean; onOpen: (id: string) => void; onCreate: () => void }) {
   const [query, setQuery] = useState("");
+  const [tag, setTag] = useState("");
   const trimmed = query.trim();
-  const list = useKnowledgePages(undefined);
+  // A high limit so the tag facet and counts reflect the whole knowledgebase,
+  // not just the first page of results.
+  const list = useKnowledgePages({ limit: 200 });
   const search = useSearchKnowledgePages(trimmed, { limit: 25 });
+  const searching = trimmed.length > 0;
 
-  const pages: KnowledgePage[] = trimmed
+  const allPages = useMemo(() => list.data?.pages ?? [], [list.data]);
+  const total = list.data?.total ?? allPages.length;
+
+  // Tag facet (tag -> count), most-used first, derived from the loaded pages.
+  const tagCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const p of allPages) for (const t of p.tags) m.set(t, (m.get(t) ?? 0) + 1);
+    return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  }, [allPages]);
+
+  // Browse list: filter by the selected tag, newest first.
+  const browsePages = useMemo(() => {
+    const filtered = tag ? allPages.filter((p) => p.tags.includes(tag)) : allPages;
+    return [...filtered].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+  }, [allPages, tag]);
+
+  const pages: KnowledgePage[] = searching
     ? (search.data ?? []).map((s) => s.page)
-    : (list.data?.pages ?? []);
-  const loading = trimmed ? search.isLoading : list.isLoading;
+    : browsePages;
+  const loading = searching ? search.isLoading : list.isLoading;
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-2 text-lg font-semibold text-foreground">
-          <BookOpen className="h-5 w-5 text-primary" />
-          Knowledge Pages
-        </div>
+      {/* Count + create */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-muted-foreground">
+          <span className="font-semibold text-foreground">{total}</span>{" "}
+          {total === 1 ? "knowledge page" : "knowledge pages"}
+          {!searching && tag && (
+            <>
+              {" "}
+              tagged <span className="font-medium text-foreground">{tag}</span>
+            </>
+          )}
+        </p>
         {canEdit && (
           <button
             onClick={onCreate}
@@ -85,7 +166,23 @@ function KnowledgePageList({ canEdit, onOpen, onCreate }: { canEdit: boolean; on
         />
       </div>
 
-      {(trimmed ? search.isError : list.isError) ? (
+      {/* Tag browse (browse mode only) */}
+      {!searching && tagCounts.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <FilterChip label="All" active={tag === ""} onClick={() => setTag("")} />
+          {tagCounts.map(([t, c]) => (
+            <FilterChip
+              key={t}
+              label={t}
+              count={c}
+              active={tag === t}
+              onClick={() => setTag(tag === t ? "" : t)}
+            />
+          ))}
+        </div>
+      )}
+
+      {(searching ? search.isError : list.isError) ? (
         <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
           Failed to load knowledge pages. Please try again.
         </p>
@@ -93,8 +190,12 @@ function KnowledgePageList({ canEdit, onOpen, onCreate }: { canEdit: boolean; on
         <p className="text-sm text-muted-foreground">Loading...</p>
       ) : pages.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
-          {trimmed ? "No knowledge pages match your search." : "No knowledge pages yet."}
-          {canEdit && !trimmed && (
+          {searching
+            ? "No knowledge pages match your search."
+            : tag
+              ? `No pages tagged "${tag}".`
+              : "No knowledge pages yet."}
+          {canEdit && !searching && !tag && (
             <div className="mt-3">
               <button onClick={onCreate} className="text-primary hover:underline">
                 Create the first page
@@ -103,28 +204,20 @@ function KnowledgePageList({ canEdit, onOpen, onCreate }: { canEdit: boolean; on
           )}
         </div>
       ) : (
-        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {pages.map((p) => (
-            <li key={p.id}>
-              <button
-                onClick={() => onOpen(p.id)}
-                className="flex h-full w-full flex-col rounded-lg border border-border bg-card p-4 text-left transition hover:border-primary/50 hover:shadow-sm"
-              >
-                <span className="font-medium text-foreground">{p.title}</span>
-                {p.summary && <span className="mt-1 line-clamp-3 text-sm text-muted-foreground">{p.summary}</span>}
-                {p.tags.length > 0 && (
-                  <span className="mt-3 flex flex-wrap gap-1">
-                    {p.tags.map((t) => (
-                      <span key={t} className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                        {t}
-                      </span>
-                    ))}
-                  </span>
-                )}
-              </button>
-            </li>
-          ))}
-        </ul>
+        <>
+          {!searching && (
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              {tag ? `Tagged ${tag}` : "Recently updated"}
+            </p>
+          )}
+          <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {pages.map((p) => (
+              <li key={p.id}>
+                <PageCard page={p} onOpen={onOpen} />
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </div>
   );
@@ -282,10 +375,9 @@ function KnowledgePageForm({ id, onDone }: { id?: string; onDone: (id: string | 
       title: title.trim(),
       summary: summary.trim(),
       body,
-      tags: tags
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean),
+      // Canonical normalization (trim, lowercase, de-dup) so the tag facet does
+      // not fragment on case/duplicate variants.
+      tags: parseTags(tags),
     };
     const onErr = (e: unknown) => setError(e instanceof Error ? e.message : "Save failed.");
     if (id) {

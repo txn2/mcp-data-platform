@@ -140,7 +140,11 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		mcp.AddTool(s, &mcp.Tool{
 			Name:  applyToolName,
 			Title: "Apply Knowledge",
-			Description: "Reviews, synthesizes, applies, and rolls back captured insights to the data catalog. Admin-only. " +
+			Description: "The review gate for captured insights. Holding this tool is the capability that grants " +
+				"insight review and promotion: you review the insights other users capture and promote the good ones into " +
+				"shared, canonical knowledge. Business and domain facts become internal knowledge pages; technical and entity " +
+				"facts are applied to the DataHub catalog. Access is granted per persona by tool visibility, not by an admin role. " +
+				"Reviews, synthesizes, applies, and rolls back captured insights. " +
 				"Actions: bulk_review, review, synthesize, apply, approve, reject, rollback, list_changesets. " +
 				"rollback (changeset_id required, confirm required) reverts the aspects a prior apply changed, back to their before-image: " +
 				"it removes tags/glossary terms/documentation links the apply added (leaving any that pre-existed) and restores the prior description. " +

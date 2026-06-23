@@ -4867,359 +4867,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/admin/memory/records": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns paginated memory records with optional filtering.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Memory"
-                ],
-                "summary": "List memory records",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Filter by persona",
-                        "name": "persona",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Filter by dimension",
-                        "name": "dimension",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Filter by category",
-                        "name": "category",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Filter by status",
-                        "name": "status",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Filter by source",
-                        "name": "source",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Filter by entity URN",
-                        "name": "entity_urn",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Filter by creator",
-                        "name": "created_by",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Records after this time (RFC 3339)",
-                        "name": "since",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Records before this time (RFC 3339)",
-                        "name": "until",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Page number, 1-based (default: 1)",
-                        "name": "page",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Results per page (default: 20)",
-                        "name": "per_page",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/admin.memoryListResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
-                        }
-                    }
-                }
-            }
-        },
-        "/admin/memory/records/stats": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns aggregated memory record statistics by dimension, category, and status.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Memory"
-                ],
-                "summary": "Get memory record stats",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Filter by persona",
-                        "name": "persona",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Filter by dimension",
-                        "name": "dimension",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Filter by category",
-                        "name": "category",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Filter by status",
-                        "name": "status",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Filter by source",
-                        "name": "source",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Filter by entity URN",
-                        "name": "entity_urn",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Filter by creator",
-                        "name": "created_by",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Records after this time (RFC 3339)",
-                        "name": "since",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "Records before this time (RFC 3339)",
-                        "name": "until",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/admin.memoryStatsResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
-                        }
-                    }
-                }
-            }
-        },
-        "/admin/memory/records/{id}": {
-            "get": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Returns a single memory record by ID.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Memory"
-                ],
-                "summary": "Get memory record",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Record ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/memory.Record"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
-                        }
-                    }
-                }
-            },
-            "put": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Update content, category, confidence, dimension, or metadata on a record.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Memory"
-                ],
-                "summary": "Update memory record",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Record ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "Fields to update",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/admin.memoryUpdateRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/admin.statusResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict",
-                        "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "security": [
-                    {
-                        "ApiKeyAuth": []
-                    },
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Soft-deletes a memory record by setting its status to archived.",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Memory"
-                ],
-                "summary": "Archive memory record",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Record ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/admin.statusResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
-                        }
-                    }
-                }
-            }
-        },
         "/admin/oauth/callback": {
             "get": {
                 "description": "Public endpoint hit by the upstream OAuth provider after the operator authenticates. Exchanges the code for tokens and stores them. Renders an HTML page on error so a stranded browser tab still gives a useful message.",
@@ -9697,6 +9344,84 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/search": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "One query fans across every source the caller can access (catalog, knowledge pages, memory, insights, assets, prompts, endpoints, connections), grouped by source and scope-enforced.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Knowledge"
+                ],
+                "summary": "Unified knowledge search",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Natural-language intent",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Entity-keyed lookup (repeatable)",
+                        "name": "entity_urns",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Insight review status filter",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Narrow to specific sources (repeatable)",
+                        "name": "sources",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Display budget across all sources",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.searchResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/shared-collections": {
             "get": {
                 "security": [
@@ -12217,81 +11942,6 @@ const docTemplate = `{
                 }
             }
         },
-        "admin.memoryListResponse": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/memory.Record"
-                    }
-                },
-                "page": {
-                    "type": "integer",
-                    "example": 1
-                },
-                "per_page": {
-                    "type": "integer",
-                    "example": 20
-                },
-                "total": {
-                    "type": "integer",
-                    "example": 20
-                }
-            }
-        },
-        "admin.memoryStatsResponse": {
-            "type": "object",
-            "properties": {
-                "by_category": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "integer"
-                    }
-                },
-                "by_dimension": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "integer"
-                    }
-                },
-                "by_status": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "integer"
-                    }
-                },
-                "total": {
-                    "type": "integer",
-                    "example": 20
-                }
-            }
-        },
-        "admin.memoryUpdateRequest": {
-            "type": "object",
-            "properties": {
-                "category": {
-                    "type": "string",
-                    "example": "business_context"
-                },
-                "confidence": {
-                    "type": "string",
-                    "example": "high"
-                },
-                "content": {
-                    "type": "string",
-                    "example": "The daily_sales table in the retail schema is partitioned by date."
-                },
-                "dimension": {
-                    "type": "string",
-                    "example": "knowledge"
-                },
-                "metadata": {
-                    "type": "object",
-                    "additionalProperties": {}
-                }
-            }
-        },
         "admin.personaContextDetail": {
             "type": "object",
             "properties": {
@@ -14226,118 +13876,6 @@ const docTemplate = `{
                 }
             }
         },
-        "memory.Record": {
-            "type": "object",
-            "properties": {
-                "category": {
-                    "type": "string",
-                    "example": "business_context"
-                },
-                "confidence": {
-                    "type": "string",
-                    "example": "high"
-                },
-                "content": {
-                    "type": "string",
-                    "example": "The daily_sales table in the retail schema is partitioned by date."
-                },
-                "created_at": {
-                    "type": "string",
-                    "example": "2026-03-18T08:11:08Z"
-                },
-                "created_by": {
-                    "type": "string",
-                    "example": "sarah.chen@example.com"
-                },
-                "dimension": {
-                    "type": "string",
-                    "example": "knowledge"
-                },
-                "embedding": {
-                    "type": "array",
-                    "items": {
-                        "type": "number"
-                    }
-                },
-                "embedding_model": {
-                    "description": "EmbeddingModel records the provider model that produced Embedding\n(e.g. \"nomic-embed-text\"); EmbeddingTextHash is the SHA-256 of the\ncontent fed to the embedder. They are the breadcrumbs the indexjobs\nmemory consumer uses to dedup re-embeds and detect model-swap gaps.\nThe synchronous write path stamps both when the embedder is healthy;\nthey are empty/nil on rows embedded before the column existed or\nsaved during an embedder outage (the reconciler later backfills).",
-                    "type": "string"
-                },
-                "embedding_text_hash": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                },
-                "entity_urns": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "id": {
-                    "type": "string",
-                    "example": "mem_a1b2c3d4e5f6"
-                },
-                "last_verified": {
-                    "type": "string"
-                },
-                "metadata": {
-                    "type": "object",
-                    "additionalProperties": {}
-                },
-                "persona": {
-                    "type": "string",
-                    "example": "admin"
-                },
-                "related_columns": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/memory.RelatedColumn"
-                    }
-                },
-                "sink_class": {
-                    "description": "SinkClass is the #633 organizing axis (personal_preference,\nbusiness_knowledge, schema_entity, operational_rule, episodic_event). It\ndrives routing in the unified write path. Empty on rows captured before\nthe axis existed; DeriveSinkClass reconstructs it from Dimension on read.",
-                    "type": "string",
-                    "example": "schema_entity"
-                },
-                "source": {
-                    "type": "string",
-                    "example": "user"
-                },
-                "stale_at": {
-                    "type": "string"
-                },
-                "stale_reason": {
-                    "type": "string"
-                },
-                "status": {
-                    "type": "string",
-                    "example": "active"
-                },
-                "updated_at": {
-                    "type": "string",
-                    "example": "2026-03-18T08:11:08Z"
-                }
-            }
-        },
-        "memory.RelatedColumn": {
-            "type": "object",
-            "properties": {
-                "column": {
-                    "type": "string",
-                    "example": "amount"
-                },
-                "relevance": {
-                    "type": "string",
-                    "example": "direct"
-                },
-                "urn": {
-                    "type": "string",
-                    "example": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)"
-                }
-            }
-        },
         "persona.AccessSource": {
             "type": "string",
             "enum": [
@@ -14691,6 +14229,63 @@ const docTemplate = `{
                 "tool_name": {
                     "type": "string",
                     "example": "trino_query"
+                }
+            }
+        },
+        "portal.SearchCoverage": {
+            "type": "object",
+            "properties": {
+                "matched": {
+                    "type": "integer"
+                },
+                "shown": {
+                    "type": "integer"
+                },
+                "source": {
+                    "type": "string"
+                }
+            }
+        },
+        "portal.SearchGroup": {
+            "type": "object",
+            "properties": {
+                "hits": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portal.SearchHit"
+                    }
+                },
+                "source": {
+                    "type": "string"
+                }
+            }
+        },
+        "portal.SearchHit": {
+            "type": "object",
+            "properties": {
+                "dimension": {
+                    "type": "string"
+                },
+                "entity_urns": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "ref": {
+                    "type": "string"
+                },
+                "score": {
+                    "type": "number"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "text": {
+                    "type": "string"
                 }
             }
         },
@@ -15519,6 +15114,29 @@ const docTemplate = `{
                 },
                 "result": {
                     "description": "validated | disputed",
+                    "type": "string"
+                }
+            }
+        },
+        "portal.searchResponse": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "coverage": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portal.SearchCoverage"
+                    }
+                },
+                "groups": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portal.SearchGroup"
+                    }
+                },
+                "ranking": {
                     "type": "string"
                 }
             }

@@ -104,22 +104,21 @@ export const routes: ScreenshotRoute[] = [
     },
   },
   {
-    slug: "my-knowledge",
-    path: "/portal/my-knowledge",
+    // KnowledgeHub (#661): one /knowledge route, three hash-driven tabs.
+    slug: "knowledge",
+    path: "/portal/knowledge",
+    category: "user",
+    tabs: ["knowledge", "insights", "memory"],
+  },
+  {
+    slug: "knowledge-insights",
+    path: "/portal/knowledge#insights",
     category: "user",
   },
   {
-    // MyKnowledgePage uses state-only tabs (no URL hash); click into Memory.
-    slug: "my-knowledge-memory",
-    path: "/portal/my-knowledge",
+    slug: "knowledge-memory",
+    path: "/portal/knowledge#memory",
     category: "user",
-    beforeCapture: async (page) => {
-      const memoryTab = page.locator("text=Memory").first();
-      if (await memoryTab.isVisible()) {
-        await memoryTab.click();
-        await page.waitForTimeout(500);
-      }
-    },
   },
   {
     slug: "prompts",
@@ -261,12 +260,6 @@ export const routes: ScreenshotRoute[] = [
     slug: "admin-api-catalogs",
     path: "/portal/admin/api-catalogs",
     category: "admin",
-  },
-  {
-    slug: "admin-knowledge",
-    path: "/portal/admin/knowledge",
-    category: "admin",
-    tabs: ["overview", "knowledge", "memory", "changesets"],
   },
   // Config editors (CodeMirror MarkdownEditor). These were excluded over a
   // duplicate-@codemirror/state crash in headless mode, now fixed via
@@ -430,40 +423,10 @@ export const routes: ScreenshotRoute[] = [
     },
   },
   {
-    slug: "admin-knowledge-insight-detail",
-    path: "/portal/admin/knowledge#knowledge",
+    slug: "knowledge-insight-detail",
+    path: "/portal/knowledge#insights",
     category: "admin",
     beforeCapture: async (page) => {
-      // The click may no-op when a drawer is already open from the prior theme
-      // (light/dark share one page and same-hash nav doesn't reload): the
-      // drawer's overlay covers the rows. That's fine — the open drawer is
-      // exactly what we want to capture, so swallow the click failure.
-      const row = page.locator("table tbody tr").first();
-      await row.click({ timeout: 2_000 }).catch(() => {});
-      await page.waitForTimeout(600);
-    },
-  },
-  {
-    slug: "admin-knowledge-memory-detail",
-    path: "/portal/admin/knowledge#memory",
-    category: "admin",
-    beforeCapture: async (page) => {
-      // The click may no-op when a drawer is already open from the prior theme
-      // (light/dark share one page and same-hash nav doesn't reload): the
-      // drawer's overlay covers the rows. That's fine — the open drawer is
-      // exactly what we want to capture, so swallow the click failure.
-      const row = page.locator("table tbody tr").first();
-      await row.click({ timeout: 2_000 }).catch(() => {});
-      await page.waitForTimeout(600);
-    },
-  },
-  {
-    slug: "admin-knowledge-changeset-detail",
-    path: "/portal/admin/knowledge#changesets",
-    category: "admin",
-    beforeCapture: async (page) => {
-      // Open the detail drawer only — do not click the rollback button, which
-      // triggers a window.confirm that would block headless capture.
       // The click may no-op when a drawer is already open from the prior theme
       // (light/dark share one page and same-hash nav doesn't reload): the
       // drawer's overlay covers the rows. That's fine — the open drawer is

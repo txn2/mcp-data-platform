@@ -338,6 +338,41 @@ func TestPostgresStore_List_WithFilters(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestPostgresStore_List_SinkClassFilter(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresStore(db)
+	now := time.Now().Truncate(time.Second)
+
+	// The sink_class predicate must reach SQL as a bound arg, so business_knowledge
+	// memories are not collapsed with schema_entity (both share the knowledge dim).
+	mock.ExpectQuery("SELECT COUNT.+sink_class").
+		WithArgs(SinkBusinessKnowledge).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	rows := sqlmock.NewRows(memorySelectColumns).AddRow(
+		"mem-bk", now, now, "user-abc", "analyst", DimensionKnowledge, SinkBusinessKnowledge,
+		"Loyalty points are not revenue.", CategoryBusinessCtx, ConfidenceHigh, SourceUser,
+		`[]`, `[]`, `{}`,
+		StatusActive, nil, nil, nil,
+	)
+	mock.ExpectQuery("SELECT .+ FROM memory_records WHERE sink_class").
+		WithArgs(SinkBusinessKnowledge).
+		WillReturnRows(rows)
+
+	records, total, err := store.List(context.Background(), Filter{
+		SinkClass: SinkBusinessKnowledge,
+		Limit:     10,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, total)
+	require.Len(t, records, 1)
+	assert.Equal(t, SinkBusinessKnowledge, records[0].SinkClass)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestPostgresStore_List_EmptyResult(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)

@@ -238,6 +238,10 @@ export interface MemoryRecord {
   created_by: string;
   persona: string;
   dimension: string;
+  // sink_class is the #633 lifecycle axis (personal_preference, episodic_event,
+  // business_knowledge, operational_rule, schema_entity). It is what the Memory
+  // view classifies by; dimension is the legacy axis kept only for back-compat.
+  sink_class?: string;
   content: string;
   category: string;
   confidence: string;
@@ -475,4 +479,40 @@ export interface KnowledgePageInput {
   body?: string;
   tags?: string[];
   change_summary?: string;
+}
+
+// --- Unified knowledge search (GET /api/v1/portal/search, #661) ---
+
+// SearchHit is one navigational pointer returned by the unified search. The
+// shape mirrors the MCP search tool's hit so the portal and agent surfaces agree.
+export interface SearchHit {
+  text: string;
+  source: string;
+  ref: string;
+  score: number;
+  status?: string;
+  entity_urns?: string[];
+  dimension?: string;
+}
+
+// SearchGroup is one source's slice of the balanced display set.
+export interface SearchGroup {
+  source: string;
+  hits: SearchHit[];
+}
+
+// SearchCoverage reports, per source, how many records matched vs how many are
+// shown, so breadth beyond the display set stays visible.
+export interface SearchCoverage {
+  source: string;
+  matched: number;
+  shown: number;
+}
+
+// SearchResponse is the GET /api/v1/portal/search envelope.
+export interface SearchResponse {
+  groups: SearchGroup[];
+  coverage: SearchCoverage[];
+  count: number;
+  ranking: string;
 }

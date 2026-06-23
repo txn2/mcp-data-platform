@@ -178,56 +178,16 @@ Features:
     - **Transport** — HTTP or stdio, request/response sizes, content block count
     - **Parameters** — Full request parameters as JSON
 
-## Knowledge & Memory
+## Knowledge & Memory (review and promotion)
 
-### Overview
+The separate admin Knowledge & Memory page was merged into the unified **Knowledge** page in the user portal (see [Portal User Guide](portal-user.md#knowledge)). Review and promotion gate on the `apply_knowledge` capability, not an admin role: whoever holds the tool sees the review surfaces inside the Knowledge page, whether or not they are an admin.
 
-The Knowledge & Memory Overview provides insight and memory statistics with distribution charts.
+Inside the Knowledge page, `apply_knowledge` holders get:
 
-![Knowledge Overview](../images/screenshots/light/admin-admin-knowledge-overview-light.webp#only-light)![Knowledge Overview](../images/screenshots/dark/admin-admin-knowledge-overview-dark.webp#only-dark)
+- **Review queue** (Insights tab) - All captured insights across users, with status/category/confidence filters and an insight detail drawer (full metadata, entity URNs, suggested actions, related columns, review notes, approve/reject actions). A pending-review count is badged on the sidebar Knowledge item and the Insights tab.
+- **Changesets** (Knowledge tab) - The record of insights promoted into knowledge: the target DataHub URN or knowledge page, change type, who applied it, and status, with rollback to revert applied changes. They sit with the promoted knowledge rather than with the unpromoted insights in the review pipeline.
 
-The overview includes:
-
-- **Knowledge Capture cards** — Total insights, pending review, approved, applied, rejected, and approval rate
-- **Insight Status Distribution** — Donut chart showing insight lifecycle states (pending, approved, applied, rejected, rolled back, superseded)
-- **Memory cards** — Total memories, active, stale, and dimensions count
-- **Memory Status Distribution** — Donut chart of memory states
-- **Memory by Dimension** — Distribution across LOCOMO dimensions (knowledge, event, entity, relationship, preference)
-
-### Knowledge Capture
-
-The Knowledge Capture tab lists all captured insights with filtering and admin review actions.
-
-![Knowledge Capture](../images/screenshots/light/admin-admin-knowledge-knowledge-light.webp#only-light)![Knowledge Capture](../images/screenshots/dark/admin-admin-knowledge-knowledge-dark.webp#only-dark)
-
-Features:
-
-- **Summary cards** — Pending review, total insights, top category, and applied count
-- **Filters** — Status, category, and confidence dropdowns
-- **Sortable table** — Created at, captured by, category, confidence, insight text, and status
-- **Status badges** — Color-coded: pending (amber), approved (green), applied (green), rejected (red), rolled back (red), superseded (gray)
-- **Insight detail drawer** — Click any row to see full metadata, entity URNs, suggested actions, related columns, review notes, and approve/reject buttons
-
-### All Memory
-
-The All Memory tab shows every memory record across all users and sessions.
-
-![All Memory](../images/screenshots/light/admin-admin-knowledge-memory-light.webp#only-light)![All Memory](../images/screenshots/dark/admin-admin-knowledge-memory-dark.webp#only-dark)
-
-Features:
-
-- **Summary cards** — Total, active, stale, and archived counts
-- **Filters** — Dimension, category, status, and source dropdowns
-- **Sortable table** — Created, user, persona, dimension, category, content preview, status, and confidence
-- **Memory detail drawer** — Full content (rendered as markdown), entity URNs, metadata, stale reason, and archive action
-
-### Changesets
-
-The Changesets tab tracks catalog changes that resulted from approved knowledge.
-
-![Changesets](../images/screenshots/light/admin-admin-knowledge-changesets-light.webp#only-light)![Changesets](../images/screenshots/dark/admin-admin-knowledge-changesets-dark.webp#only-dark)
-
-Each changeset records what was changed, the target DataHub URN, the change type (e.g., Update Column Description), who applied it, and its status. Changesets support rollback to revert applied catalog changes.
+The Memory tab is personal to each user; there is no all-user memory view, because the only memory that crosses between users is an insight (handled in the review queue above).
 
 ## Assets (Admin)
 
