@@ -661,16 +661,27 @@ reconciler re-embeds the new content.
 
 ### apply_knowledge
 
-Review, synthesize, and apply captured insights to the data catalog. Admin-only. Requires `knowledge.apply.enabled: true`.
+Review, synthesize, and apply captured insights to their canonical home. Admin-only. Requires `knowledge.apply.enabled: true`.
+
+`apply_knowledge` is the **sink router** (#633): the `apply` action's `sink` decides where a capture is promoted.
+
+- **`sink: datahub`** (default) applies the `changes` to a catalog entity (`entity_urn`).
+- **`sink: knowledge_page`** promotes a `business_knowledge` or `operational_rule` capture to a canonical portal **knowledge page**, found-or-created by `page.slug` (so repeated promotions on the same slug consolidate into one living page). `schema_entity` insights go to DataHub; promoting one through the page sink is rejected.
+
+Both sinks record a **changeset** (page promotions use `target_urn = "kp:<slug>"`) listed by `list_changesets` and reversible by `rollback`. Rolling back a page promotion soft-deletes a newly created page or restores a prior version, and is refused if the page was edited after the promotion.
+
+`operational_rule` is stored as a knowledge page like `business_knowledge` (it is non-DataHub canonical knowledge); active enforcement of operational rules via the rules engine is tracked separately.
 
 **Parameters:**
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `action` | string | Yes | bulk_review, review, synthesize, apply, approve, reject, rollback, list_changesets |
-| `entity_urn` | string | Conditional | Required for review, synthesize, apply, list_changesets |
-| `insight_ids` | array | Conditional | Required for approve, reject |
-| `changes` | array | Conditional | Required for apply |
+| `sink` | string | No | apply target: `datahub` (default) or `knowledge_page` |
+| `entity_urn` | string | Conditional | Required for review, synthesize, list_changesets, and apply with `sink=datahub` |
+| `page` | object | Conditional | `{slug, title, body, summary?, tags?}` for apply with `sink=knowledge_page` |
+| `insight_ids` | array | Conditional | Source insights; required for approve, reject. Their sink-class must match the chosen sink |
+| `changes` | array | Conditional | Required for apply with `sink=datahub` |
 | `changeset_id` | string | Conditional | Required for rollback |
 | `confirm` | bool | No | Required when `require_confirmation` is true (apply and rollback) |
 | `review_notes` | string | No | Notes for approve/reject actions |

@@ -1427,14 +1427,16 @@ The display set is balanced rather than a flat relevance list: a total budget wi
 
 ### apply_knowledge
 
-Review, synthesize, and apply captured insights to the data catalog. Admin-only. Requires `knowledge.apply.enabled: true`.
+The sink router (#633). Review, synthesize, and promote captured insights to their canonical home. Admin-only. Requires `knowledge.apply.enabled: true`. The `apply` action's `sink` selects the target: `datahub` (default) applies `changes` to a catalog entity; `knowledge_page` promotes a `business_knowledge`/`operational_rule` capture to a canonical portal knowledge page, found-or-created by `page.slug`. schema_entity goes to DataHub; the page sink rejects it. Both record a changeset (page promotions target `kp:<slug>`) reversible via rollback (a page rollback soft-deletes a new page or restores a prior version, refused if the page was edited since). operational_rule is stored as a page like business_knowledge; active rules-engine enforcement is a separate follow-up.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `action` | string | Yes | bulk_review, review, synthesize, apply, approve, reject, rollback, list_changesets |
-| `entity_urn` | string | Conditional | Required for review, synthesize, apply, list_changesets |
-| `insight_ids` | array | Conditional | Required for approve, reject; optional for synthesize, apply |
-| `changes` | array | Conditional | Required for apply |
+| `sink` | string | No | apply target: datahub (default) or knowledge_page |
+| `entity_urn` | string | Conditional | Required for review, synthesize, list_changesets, and apply with sink=datahub |
+| `page` | object | Conditional | {slug, title, body, summary?, tags?} for apply with sink=knowledge_page |
+| `insight_ids` | array | Conditional | Source insights; required for approve, reject. Sink-class must match the chosen sink |
+| `changes` | array | Conditional | Required for apply with sink=datahub |
 | `changeset_id` | string | Conditional | Required for rollback |
 | `confirm` | bool | No | Required when `require_confirmation` is true (apply and rollback) |
 | `review_notes` | string | No | Notes for approve/reject actions |
@@ -1624,7 +1626,7 @@ The system has three MCP tools and an Admin REST API:
 
 - `search`: The universal, topology-free discovery entry point, fanning one query (text and/or entity_urns) across the technical catalog, the caller's memory, captured insights, saved assets, prompts, API endpoints, and connections, returning a balanced, grouped-by-source, per-user-scoped result set with a coverage summary.
 - `memory_capture`: The one way to record knowledge (memory toolkit). Routed by sink-class; reviewed classes create insights with status `pending`. (To read knowledge back, use `search`.)
-- `apply_knowledge`: Admin-only tool for reviewing, approving, synthesizing, applying, and rolling back insights to DataHub. Actions: `bulk_review`, `review`, `synthesize`, `apply`, `approve`, `reject`, `rollback`, `list_changesets`.
+- `apply_knowledge`: Admin-only sink router for reviewing, approving, synthesizing, applying, and rolling back insights. `apply` promotes by `sink`: `datahub` (schema_entity → catalog) or `knowledge_page` (business_knowledge/operational_rule → a canonical portal knowledge page, found-or-created by slug). Both record reversible changesets. Actions: `bulk_review`, `review`, `synthesize`, `apply`, `approve`, `reject`, `rollback`, `list_changesets`.
 - Admin REST API: HTTP endpoints for managing insights and changesets outside the MCP protocol.
 
 ## Configuration

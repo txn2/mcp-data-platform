@@ -15,7 +15,7 @@ import (
 
 func TestNewHandler(t *testing.T) {
 	t.Run("creates handler with knowledge handler", func(t *testing.T) {
-		kh := NewKnowledgeHandler(nil, nil, nil)
+		kh := NewKnowledgeHandler(nil, nil, nil, nil)
 		h := NewHandler(Deps{Knowledge: kh}, nil)
 		require.NotNil(t, h)
 		assert.NotNil(t, h.mux)
@@ -45,7 +45,7 @@ func TestHandler_RoutesRegistered(t *testing.T) {
 	csStore := &mockChangesetStore{
 		listResult: []mockChangesetListResult{{changesets: nil, total: 0, err: nil}},
 	}
-	kh := NewKnowledgeHandler(store, csStore, nil)
+	kh := NewKnowledgeHandler(store, csStore, nil, nil)
 	h := NewHandler(Deps{Knowledge: kh}, nil)
 
 	routes := []struct {
@@ -100,7 +100,7 @@ func TestHandler_ServeHTTP_WithoutAuthMiddleware(t *testing.T) {
 	store := &mockInsightStore{
 		listResult: []mockListResult{{insights: nil, total: 0, err: nil}},
 	}
-	kh := NewKnowledgeHandler(store, &mockChangesetStore{}, nil)
+	kh := NewKnowledgeHandler(store, &mockChangesetStore{}, nil, nil)
 	h := NewHandler(Deps{Knowledge: kh}, nil)
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/knowledge/insights", http.NoBody)
@@ -114,7 +114,7 @@ func TestHandler_ServeHTTP_WithAuthMiddleware(t *testing.T) {
 	store := &mockInsightStore{
 		listResult: []mockListResult{{insights: nil, total: 0, err: nil}},
 	}
-	kh := NewKnowledgeHandler(store, &mockChangesetStore{}, nil)
+	kh := NewKnowledgeHandler(store, &mockChangesetStore{}, nil, nil)
 
 	t.Run("auth middleware blocks request", func(t *testing.T) {
 		authMiddle := func(_ http.Handler) http.Handler {

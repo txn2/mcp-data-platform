@@ -1783,6 +1783,15 @@ func (p *Platform) configureKnowledgeApply(tk *knowledgekit.Toolkit) error {
 		RequireConfirmation: p.config.Knowledge.Apply.RequireConfirmation,
 	}, csStore, writer)
 
+	// #633 Goal 3: let apply promote business_knowledge/operational_rule captures
+	// to canonical knowledge pages. Built directly from the DB (not
+	// p.portalKnowledgePageStore) because initKnowledge runs before initPortal, so
+	// that field is not yet set here; apply requires the DB the changeset store
+	// already uses.
+	if p.db != nil {
+		tk.SetPageWriter(knowledgepage.NewPostgresStore(p.db))
+	}
+
 	slog.Info("knowledge apply enabled",
 		"datahub_connection", p.config.Knowledge.Apply.DataHubConnection,
 		"require_confirmation", p.config.Knowledge.Apply.RequireConfirmation,

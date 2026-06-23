@@ -18,18 +18,23 @@ type KnowledgeHandler struct {
 	insightStore   knowledge.InsightStore
 	changesetStore knowledge.ChangesetStore
 	datahubWriter  knowledge.DataHubWriter
+	pageReverter   knowledge.PageReverter
 }
 
-// NewKnowledgeHandler creates a new knowledge admin handler.
+// NewKnowledgeHandler creates a new knowledge admin handler. pageReverter may be
+// nil when knowledge pages are unavailable; rolling back a page promotion then
+// returns a clear "not configured" error rather than mis-reverting.
 func NewKnowledgeHandler(
 	insightStore knowledge.InsightStore,
 	changesetStore knowledge.ChangesetStore,
 	writer knowledge.DataHubWriter,
+	pageReverter knowledge.PageReverter,
 ) *KnowledgeHandler {
 	return &KnowledgeHandler{
 		insightStore:   insightStore,
 		changesetStore: changesetStore,
 		datahubWriter:  writer,
+		pageReverter:   pageReverter,
 	}
 }
 
@@ -352,7 +357,7 @@ func (h *KnowledgeHandler) RollbackChangeset(w http.ResponseWriter, r *http.Requ
 		rolledBackBy = user.UserID
 	}
 
-	deps := knowledge.RollbackDeps{Writer: h.datahubWriter, Changesets: h.changesetStore, Insights: h.insightStore}
+	deps := knowledge.RollbackDeps{Writer: h.datahubWriter, Changesets: h.changesetStore, Insights: h.insightStore, Pages: h.pageReverter}
 	result, err := knowledge.RevertChangeset(r.Context(), deps, cs, rolledBackBy)
 	if err != nil {
 		writeRollbackError(w, err)
@@ -366,11 +371,14 @@ func (h *KnowledgeHandler) RollbackChangeset(w http.ResponseWriter, r *http.Requ
 func writeRollbackError(w http.ResponseWriter, err error) {
 	var unrevertible *knowledge.UnrevertibleError
 	var conflict *knowledge.RollbackConflictError
+	var pageEdited *knowledge.PageEditedError
 	switch {
 	case errors.Is(err, knowledge.ErrChangesetAlreadyRolledBack):
 		writeError(w, http.StatusConflict, "changeset already rolled back")
 	case errors.As(err, &conflict):
 		writeError(w, http.StatusConflict, conflict.Error())
+	case errors.As(err, &pageEdited):
+		writeError(w, http.StatusConflict, pageEdited.Error())
 	case errors.As(err, &unrevertible):
 		writeError(w, http.StatusUnprocessableEntity, unrevertible.Error())
 	default:

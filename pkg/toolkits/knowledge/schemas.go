@@ -65,6 +65,21 @@ var applyKnowledgeSchema = json.RawMessage(`{
     "review_notes": {
       "type": "string",
       "description": "Notes for approve/reject actions"
+    },
+    "sink": {
+      "type": "string",
+      "description": "Apply target for the apply action: 'datahub' (default) applies the 'changes' to the catalog entity; 'knowledge_page' promotes a business_knowledge or operational_rule capture to a canonical portal knowledge page using the 'page' object. schema_entity insights go to datahub; business_knowledge and operational_rule go to a knowledge page."
+    },
+    "page": {
+      "type": "object",
+      "description": "Curated page payload for sink=knowledge_page. The page is found-or-created by slug (so repeated promotions on the same slug consolidate into one living page), and the promotion is recorded as a changeset that can be rolled back.",
+      "properties": {
+        "slug": {"type": "string", "description": "Stable topic slug; find-or-create key (required)"},
+        "title": {"type": "string", "description": "Page title (required)"},
+        "summary": {"type": "string", "description": "One-line summary (optional)"},
+        "body": {"type": "string", "description": "Markdown body (required)"},
+        "tags": {"type": "array", "items": {"type": "string"}, "description": "Tags; the origin sink-class is added automatically so operational rules stay filterable"}
+      }
     }
   }
 }`)
