@@ -7,6 +7,7 @@ import { useAuthStore } from "@/stores/auth";
 import { ActivityPage } from "@/pages/activity/ActivityPage";
 import { MyAssetsPage } from "@/pages/assets/MyAssetsPage";
 import { MyKnowledgePage } from "@/pages/knowledge/MyKnowledgePage";
+import { KnowledgePagesPage } from "@/pages/knowledge-pages/KnowledgePagesPage";
 import { MyPromptsPage } from "@/pages/prompts/MyPromptsPage";
 import { PromptViewerPage } from "@/pages/prompts/PromptViewerPage";
 import { AssetViewerPage } from "@/pages/viewer/AssetViewerPage";
@@ -268,6 +269,7 @@ export function AppShell() {
             <ResourcesPage onNavigate={navigate} />
           )}
           {!isAdminRoute && route === "/feedback" && <FeedbackPage onNavigate={navigate} />}
+          {!isAdminRoute && route === "/knowledge-pages" && <KnowledgePagesPage />}
           {!isAdminRoute && route === "/my-knowledge" && <MyKnowledgePage />}
           {!isAdminRoute && route === "/prompts" && <MyPromptsPage onNavigate={navigate} />}
           {!isAdminRoute && promptViewMatch && (

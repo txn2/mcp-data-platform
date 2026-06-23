@@ -36,6 +36,11 @@ import type {
   ThreadChain,
   ThreadCounts,
   SignoffSummary,
+  KnowledgePage,
+  KnowledgePageInput,
+  KnowledgePageListResponse,
+  KnowledgePageVersionsResponse,
+  ScoredKnowledgePage,
 } from "./types";
 
 // --- Branding (unauthenticated) ---
@@ -1084,5 +1089,88 @@ export function useDirectoryUsers(q: string, enabled = true) {
     queryFn: () =>
       apiFetch<import("./types").DirectoryUsersResponse>(`/users${query}`),
     enabled,
+  });
+}
+
+// --- Knowledge pages (#633) ---
+
+export function useKnowledgePages(params?: { tag?: string; q?: string; limit?: number; offset?: number }) {
+  const search = new URLSearchParams();
+  if (params?.tag) search.set("tag", params.tag);
+  if (params?.q) search.set("q", params.q);
+  if (params?.limit) search.set("limit", String(params.limit));
+  if (params?.offset) search.set("offset", String(params.offset));
+  const qs = search.toString();
+  return useQuery({
+    queryKey: ["knowledge-pages", params],
+    queryFn: () => apiFetch<KnowledgePageListResponse>(`/knowledge-pages${qs ? `?${qs}` : ""}`),
+  });
+}
+
+export function useKnowledgePage(id: string | null) {
+  return useQuery({
+    queryKey: ["knowledge-page", id],
+    queryFn: () => apiFetch<KnowledgePage>(`/knowledge-pages/${id}`),
+    enabled: !!id,
+  });
+}
+
+export function useSearchKnowledgePages(query: string, params?: { limit?: number }) {
+  const q = query.trim();
+  const search = new URLSearchParams({ q });
+  if (params?.limit) search.set("limit", String(params.limit));
+  return useQuery({
+    queryKey: ["search-knowledge-pages", q, params],
+    queryFn: () => apiFetch<ScoredKnowledgePage[]>(`/knowledge-pages/search?${search.toString()}`),
+    enabled: q.length > 0,
+  });
+}
+
+export function useKnowledgePageVersions(id: string | null) {
+  return useQuery({
+    queryKey: ["knowledge-page-versions", id],
+    queryFn: () => apiFetch<KnowledgePageVersionsResponse>(`/knowledge-pages/${id}/versions`),
+    enabled: !!id,
+  });
+}
+
+export function useCreateKnowledgePage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: KnowledgePageInput) =>
+      apiFetch<KnowledgePage>(`/knowledge-pages`, { method: "POST", body: JSON.stringify(input) }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["knowledge-pages"] });
+    },
+  });
+}
+
+export function useUpdateKnowledgePage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: KnowledgePageInput }) =>
+      apiFetch<KnowledgePage>(`/knowledge-pages/${id}`, { method: "PUT", body: JSON.stringify(input) }),
+    onSuccess: (_data, vars) => {
+      void qc.invalidateQueries({ queryKey: ["knowledge-pages"] });
+      void qc.invalidateQueries({ queryKey: ["knowledge-page", vars.id] });
+      void qc.invalidateQueries({ queryKey: ["knowledge-page-versions", vars.id] });
+    },
+  });
+}
+
+export function useDeleteKnowledgePage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      // apiFetchRaw does not throw on non-2xx, so check explicitly: a failed
+      // delete must reject (not silently fire onSuccess and look deleted).
+      const res = await apiFetchRaw(`/knowledge-pages/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        throw new Error(`Delete failed (${res.status})`);
+      }
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["knowledge-pages"] });
+    },
   });
 }

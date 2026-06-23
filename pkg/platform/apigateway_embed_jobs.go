@@ -11,6 +11,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/memory/memoryindex"
 	"github.com/txn2/mcp-data-platform/pkg/portal/assetindex"
 	"github.com/txn2/mcp-data-platform/pkg/portal/collectionindex"
+	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepageindex"
 	"github.com/txn2/mcp-data-platform/pkg/prompt/promptindex"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
@@ -247,6 +248,11 @@ func (p *Platform) registerIndexConsumers(reg *indexjobs.Registry, store *indexj
 			collectionindex.NewSink(collStore, embedding.ModelName(p.embeddingProv)),
 		); err != nil {
 			slog.Error("index jobs: portal collections registration failed", logKeyError, err)
+		}
+	}
+	if p.portalKnowledgePageStore != nil {
+		if err := knowledgepageindex.RegisterConsumer(reg, p.db, embedding.ModelName(p.embeddingProv)); err != nil {
+			slog.Error("index jobs: portal knowledge pages registration failed", logKeyError, err)
 		}
 	}
 }

@@ -580,12 +580,14 @@ Structured catalog navigation (platform/domain/tag/entity-type filters) stays in
     `#645` and its corpus widened to include API endpoints and connections.
 
 **Corpus (everything the persona can access):** the technical catalog (DataHub,
-when configured), the caller's personal memory, captured insights, saved assets,
-prompts, API endpoints (aggregated across every API gateway connection, reusing
-the per-connection semantic ranking of `api_list_endpoints`), and connections.
-Memory, insights, and assets are per-user, scoped server-side to the caller, so a
-search never surfaces another user's private records; the catalog, prompts,
-endpoints (each gateway applies its own route policy), and connections are shared.
+when configured), canonical knowledge pages (the internal-knowledge home for
+business/domain ontology, searched over their full markdown content), the caller's
+personal memory, captured insights, saved assets, prompts, API endpoints
+(aggregated across every API gateway connection, reusing the per-connection
+semantic ranking of `api_list_endpoints`), and connections. Memory, insights, and
+assets are per-user, scoped server-side to the caller, so a search never surfaces
+another user's private records; the catalog, knowledge pages, prompts, endpoints
+(each gateway applies its own route policy), and connections are shared.
 A caller with no identity still sees shared sources but no per-user data. API
 endpoints and connections are in the default corpus, not behind an opt-in.
 
@@ -617,8 +619,43 @@ and `dimension`), and a `coverage` array (`{source, matched, shown}`).
 | `context` | string | No | - | Optional surrounding context, folded into the intent to sharpen relevance |
 | `entity_urns` | array | Conditional | - | Exact entity-keyed lookup: everything linked to these DataHub URNs (the catalog entity, insights about it, and your memory linked to it), expanded along lineage |
 | `status` | string | No | - | Optional filter by insight review status (pending, approved, rejected, applied, superseded, rolled_back) |
-| `sources` | array | No | - | Narrow the search to named sources (`datahub`, `memory`, `insights`, `assets`, `prompts`, `endpoints`, `connections`). Only narrows; never opts into a source the persona could not otherwise access |
+| `sources` | array | No | - | Narrow the search to named sources (`datahub`, `knowledge_pages`, `memory`, `insights`, `assets`, `prompts`, `endpoints`, `connections`). Only narrows; never opts into a source the persona could not otherwise access |
 | `limit` | integer | No | 10 | Total results to display across all sources (max 50) |
+
+---
+
+### Knowledge pages (canonical business/domain knowledge)
+
+Knowledge pages are the platform's **canonical** store for business and domain
+knowledge (the internal-knowledge sibling of DataHub), authored as markdown in the
+portal. The provisional "draft" of knowledge is the memory/insight inbox; a page,
+once it exists, is canonical. They are a distinct, **org-shared** entity (not
+owner-scoped portal assets): the markdown body is stored inline in Postgres so
+page **content** is semantically searchable, and pages surface in the unified
+`search` tool under the `knowledge_pages` source. Threads/feedback attach to a
+page (`target_type=asset` reuse is planned; native attach lands with the threads
+phase).
+
+**Governance:** every authenticated user can read pages; create/edit/remove is
+gated to personas with `apply_knowledge` access (the same authorization that lets
+a persona apply everyone's captured insights), so no separate curator role is
+introduced.
+
+**REST API** (`/api/v1/portal/knowledge-pages`), mounted with the portal handler:
+
+| Method | Path | Access | Description |
+|--------|------|--------|-------------|
+| GET | `/knowledge-pages` | any user | List pages (filter by `tag`, `q`, paginated) |
+| GET | `/knowledge-pages/search?q=` | any user | Relevance search over page content (hybrid when an embedding provider is configured) |
+| GET | `/knowledge-pages/{id}` | any user | Get a page |
+| GET | `/knowledge-pages/{id}/versions` | any user | List version history |
+| POST | `/knowledge-pages` | apply_knowledge | Create a page |
+| PUT | `/knowledge-pages/{id}` | apply_knowledge | Edit a page (snapshots a new version) |
+| DELETE | `/knowledge-pages/{id}` | apply_knowledge | Soft-delete a page |
+
+Embeddings are produced off the request path by the shared `indexjobs` reconciler
+(`source_kind=portal-knowledge-pages`); an edit clears the page's vector so the
+reconciler re-embeds the new content.
 
 ---
 

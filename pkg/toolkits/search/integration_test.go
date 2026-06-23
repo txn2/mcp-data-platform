@@ -12,6 +12,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
+	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
@@ -136,6 +137,14 @@ func (globalPrompts) Search(_ context.Context, _ prompt.SearchQuery) ([]prompt.S
 	return []prompt.ScoredPrompt{{Prompt: prompt.Prompt{Name: "g-prompt", DisplayName: "global prompt"}, Score: 0.5}}, nil
 }
 
+// globalKnowledgePages is a shared knowledge-page fake returning one canonical
+// page for every caller, modeling org-shared (non-per-user) knowledge.
+type globalKnowledgePages struct{}
+
+func (globalKnowledgePages) Search(_ context.Context, _ knowledgepage.SearchQuery) ([]knowledgepage.ScoredPage, error) {
+	return []knowledgepage.ScoredPage{{Page: knowledgepage.Page{ID: "g-page", Title: "global page"}, Score: 0.5}}, nil
+}
+
 const (
 	userAEmail = "alice@example.com"
 	userAID    = "uuid-alice"
@@ -162,6 +171,7 @@ func assembledToolkit() *Toolkit {
 		knowledge.NewDatahubProvider(globalCatalog{}),
 		knowledge.NewPromptsProvider(globalPrompts{}),
 		knowledge.NewAssetsProvider(assets),
+		knowledge.NewKnowledgePagesProvider(globalKnowledgePages{}),
 	)
 	return New("default", router)
 }
@@ -218,7 +228,7 @@ func TestAC1_FusedAndSourceTagged(t *testing.T) {
 	}
 	for _, src := range []string{
 		knowledge.SourceMemory, knowledge.SourceInsights, knowledge.SourceAssets,
-		knowledge.SourceDatahub, knowledge.SourcePrompts,
+		knowledge.SourceDatahub, knowledge.SourcePrompts, knowledge.SourceKnowledgePages,
 	} {
 		if !got[src] {
 			t.Errorf("missing hit from source %q (sources seen: %v)", src, got)
@@ -248,9 +258,9 @@ func TestAC2_PerUserIsolationBetweenIdentities(t *testing.T) {
 			t.Errorf("LEAK: user B received user A's record %q from %q", h.Ref, h.Source)
 		}
 	}
-	// User B still sees the shared catalog/prompt content.
+	// User B still sees the shared catalog/prompt/knowledge-page content.
 	bRefs := refSet(bOut)
-	if !bRefs["g-catalog"] || !bRefs["g-prompt"] {
+	if !bRefs["g-catalog"] || !bRefs["g-prompt"] || !bRefs["g-page"] {
 		t.Errorf("user B should see shared content; got refs %v", bRefs)
 	}
 }
