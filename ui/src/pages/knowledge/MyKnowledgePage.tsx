@@ -292,12 +292,13 @@ export function MyKnowledgeSection() {
               here for review.
             </p>
             <p className="text-xs">
-              Try telling your assistant something like{" "}
+              Try telling your agent something like{" "}
               <em>&quot;the revenue column excludes returns&quot;</em> or{" "}
               <em>&quot;this table is refreshed weekly&quot;</em>.
             </p>
             <p className="text-xs">
-              Approved insights improve the data catalog for everyone.
+              Reviewed insights can be promoted into your team&apos;s shared
+              knowledge.
             </p>
           </div>
         </div>

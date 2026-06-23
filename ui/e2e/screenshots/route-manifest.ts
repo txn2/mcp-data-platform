@@ -436,20 +436,6 @@ export const routes: ScreenshotRoute[] = [
       await page.waitForTimeout(600);
     },
   },
-  {
-    slug: "knowledge-memory-detail",
-    path: "/portal/knowledge#memory",
-    category: "admin",
-    beforeCapture: async (page) => {
-      // The click may no-op when a drawer is already open from the prior theme
-      // (light/dark share one page and same-hash nav doesn't reload): the
-      // drawer's overlay covers the rows. That's fine — the open drawer is
-      // exactly what we want to capture, so swallow the click failure.
-      const row = page.locator("table tbody tr").first();
-      await row.click({ timeout: 2_000 }).catch(() => {});
-      await page.waitForTimeout(600);
-    },
-  },
 ];
 
 /**

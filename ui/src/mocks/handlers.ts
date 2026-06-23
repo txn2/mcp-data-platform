@@ -33,8 +33,6 @@ import {
 } from "./data/config";
 
 import {
-  mockMemoryRecords,
-  mockMemoryStats,
   mockPortalMemoryRecords,
   mockPortalMemoryStats,
 } from "./data/memory";
@@ -2248,47 +2246,6 @@ export const handlers = [
   }),
 
   // =========================================================================
-  // Admin — Memory
-  // =========================================================================
-
-  http.get(`${ADMIN_BASE}/memory/records`, ({ request }) => {
-    const url = new URL(request.url);
-    const page = parseInt(url.searchParams.get("page") ?? "1", 10);
-    const perPage = parseInt(url.searchParams.get("per_page") ?? "20", 10);
-    const persona = url.searchParams.get("persona");
-    const dimension = url.searchParams.get("dimension");
-    const category = url.searchParams.get("category");
-    const status = url.searchParams.get("status");
-    const source = url.searchParams.get("source");
-    const createdBy = url.searchParams.get("created_by");
-    const entityUrn = url.searchParams.get("entity_urn");
-
-    let filtered = [...mockMemoryRecords];
-    if (persona) filtered = filtered.filter((r) => r.persona === persona);
-    if (dimension) filtered = filtered.filter((r) => r.dimension === dimension);
-    if (category) filtered = filtered.filter((r) => r.category === category);
-    if (status) filtered = filtered.filter((r) => r.status === status);
-    if (source) filtered = filtered.filter((r) => r.source === source);
-    if (createdBy)
-      filtered = filtered.filter((r) => r.created_by === createdBy);
-    if (entityUrn)
-      filtered = filtered.filter((r) => r.entity_urns.includes(entityUrn));
-
-    const start = (page - 1) * perPage;
-    const data = filtered.slice(start, start + perPage);
-    return HttpResponse.json({
-      data,
-      total: filtered.length,
-      page,
-      per_page: perPage,
-    });
-  }),
-
-  http.get(`${ADMIN_BASE}/memory/records/stats`, () => {
-    return HttpResponse.json(mockMemoryStats);
-  }),
-
-  // =========================================================================
   // Portal — Memory
   // =========================================================================
 
@@ -2318,5 +2275,126 @@ export const handlers = [
 
   http.get(`${PORTAL_BASE}/memory/records/stats`, () => {
     return HttpResponse.json(mockPortalMemoryStats);
+  }),
+
+  // =========================================================================
+  // Portal - Unified knowledge search (#661)
+  // =========================================================================
+
+  http.get(`${PORTAL_BASE}/search`, ({ request }) => {
+    const url = new URL(request.url);
+    const q = (url.searchParams.get("q") ?? "").trim();
+    const sources = url.searchParams.getAll("sources");
+    if (!q && url.searchParams.getAll("entity_urns").length === 0) {
+      return HttpResponse.json(
+        { error: "q or entity_urns is required" },
+        { status: 400 },
+      );
+    }
+    const groups = [
+      {
+        source: "datahub",
+        hits: [
+          {
+            text: `daily_sales (matches "${q}")`,
+            source: "datahub",
+            ref: "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.daily_sales,PROD)",
+            score: 0.94,
+            entity_urns: [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.daily_sales,PROD)",
+            ],
+            dimension: "dataset",
+          },
+          {
+            text: "retail_locations",
+            source: "datahub",
+            ref: "urn:li:dataset:(urn:li:dataPlatform:trino,hive.ref.retail_locations,PROD)",
+            score: 0.71,
+            entity_urns: [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,hive.ref.retail_locations,PROD)",
+            ],
+          },
+        ],
+      },
+      {
+        // Refs are real mock page ids (kp-seed-*) so "Open page" resolves.
+        source: "knowledge_pages",
+        hits: [
+          {
+            text: "Revenue Definition",
+            source: "knowledge_pages",
+            ref: "kp-seed-2",
+            score: 0.88,
+          },
+          {
+            text: "Fiscal Calendar",
+            source: "knowledge_pages",
+            ref: "kp-seed-1",
+            score: 0.61,
+          },
+        ],
+      },
+      {
+        source: "insights",
+        hits: [
+          {
+            text: "Loyalty points are not recognized as revenue.",
+            source: "insights",
+            ref: "ins_loyalty_points",
+            score: 0.78,
+            status: "pending",
+            entity_urns: [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.daily_sales,PROD)",
+            ],
+          },
+        ],
+      },
+      {
+        source: "memory",
+        hits: [
+          {
+            text: "The revenue column excludes returns.",
+            source: "memory",
+            ref: "mem_revenue_returns",
+            score: 0.66,
+            dimension: "business_knowledge",
+          },
+        ],
+      },
+      {
+        // Real mock asset id so "Open asset" resolves.
+        source: "assets",
+        hits: [
+          {
+            text: "Q3 Revenue Dashboard",
+            source: "assets",
+            ref: "ast-001",
+            score: 0.64,
+          },
+        ],
+      },
+      {
+        // Real mock prompt id so "Open prompt" resolves.
+        source: "prompts",
+        hits: [
+          {
+            text: "Churn cohort analysis",
+            source: "prompts",
+            ref: "prompt-001",
+            score: 0.6,
+          },
+        ],
+      },
+    ];
+    const filtered = sources.length
+      ? groups.filter((g) => sources.includes(g.source))
+      : groups;
+    const coverage = filtered.map((g) => ({
+      source: g.source,
+      matched: g.hits.length + 4,
+      shown: g.hits.length,
+    }));
+    const count = filtered.reduce((n, g) => n + g.hits.length, 0);
+    return HttpResponse.json({ groups: filtered, coverage, count, ranking: "hybrid" });
   }),
 ];

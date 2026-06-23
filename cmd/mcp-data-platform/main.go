@@ -1076,10 +1076,6 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 		)
 	}
 
-	if p.MemoryStore() != nil {
-		deps.Memory = admin.NewMemoryHandler(p.MemoryStore())
-	}
-
 	if p.APIKeyAuthenticator() != nil {
 		deps.APIKeyManager = p.APIKeyAuthenticator()
 	}

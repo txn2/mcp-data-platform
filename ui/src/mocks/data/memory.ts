@@ -1,4 +1,4 @@
-import type { MemoryRecord, MemoryStats } from "@/api/admin/types";
+import type { MemoryRecord, MemoryStats } from "@/api/portal/types";
 
 const now = new Date();
 function daysAgo(n: number): string {
@@ -526,29 +526,6 @@ export const mockMemoryRecords: MemoryRecord[] = [
     stale_at: daysAgo(1),
   },
 ];
-
-export const mockMemoryStats: MemoryStats = {
-  total: 20,
-  by_dimension: {
-    data_knowledge: 6,
-    query_patterns: 4,
-    business_context: 4,
-    user_preferences: 2,
-    table_relationships: 4,
-  },
-  by_category: {
-    correction: 5,
-    enhancement: 4,
-    usage_guidance: 5,
-    relationship: 2,
-    business_context: 4,
-  },
-  by_status: {
-    active: 17,
-    stale: 1,
-    superseded: 2,
-  },
-};
 
 export const mockPortalMemoryRecords: MemoryRecord[] = [
   mockMemoryRecords[2]!,

@@ -278,7 +278,7 @@ export function AppShell() {
           )}
           {!isAdminRoute && route === "/feedback" && <FeedbackPage onNavigate={navigate} />}
           {!isAdminRoute && route === "/knowledge" && (
-            <KnowledgeHub key={currentPath} initialTab={initialTab} />
+            <KnowledgeHub key={currentPath} initialTab={initialTab} onNavigate={navigate} />
           )}
           {!isAdminRoute && route === "/prompts" && <MyPromptsPage onNavigate={navigate} />}
           {!isAdminRoute && promptViewMatch && (

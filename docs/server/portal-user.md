@@ -181,17 +181,20 @@ The page has three tabs. Review and promote affordances appear only when your pe
 
 - **Unified search** - One query fans across every source you can access (the DataHub catalog, canonical knowledge pages, your memory, captured insights, saved assets, prompts, API endpoints, and connections) and returns results grouped by source with a coverage summary. It is the same federation behind the `search` tool, exposed over `GET /api/v1/portal/search`. It ranks semantically when an embedding provider is configured and degrades to lexical search otherwise
 - **Browse** - With the search box empty, the tab browses the canonical knowledge pages. Personas with `apply_knowledge` can create, edit, and remove pages
+- **Changesets** (`apply_knowledge` holders) - The record of insights promoted into knowledge: the catalog and knowledge-page changes applied when your agent runs `apply_knowledge`, with rollback to undo a changeset's writes. They live here, with the promoted knowledge, rather than with the unpromoted insights in the review pipeline
 
 ### Insights
 
+The review pipeline for insights, which are the only memories that cross between users. A pending-review count is badged on the sidebar Knowledge item and the Insights tab so reviewers notice work without opening it.
+
 - **Your insights** - The insights captured from your sessions, with status (pending, approved, applied, rejected) and relevance search
-- **Review queue** (`apply_knowledge` holders) - Every user's captured insights, with approve and reject actions that promote an insight into knowledge
-- **Changesets** (`apply_knowledge` holders) - Catalog changes applied from approved knowledge, with rollback
+- **Review queue** (`apply_knowledge` holders) - Every user's captured insights. Approving and rejecting curates which insights are worth promoting; the actual promotion into durable knowledge happens when you ask your agent to run `apply_knowledge`, whose synthesize step gathers the approved insights and writes business and domain facts to knowledge pages and technical and entity facts to the DataHub catalog
 
 ### Memory
 
+Memory is personal: this tab is scoped to your own records. The only memory that crosses to other users is an insight, reviewed in the Insights tab.
+
 - **Your memory** - The raw substrate captured from your sessions, classified by lifecycle **class** (`sink_class`): Preference, Event, Business knowledge, Operational rule, and Schema/entity. The class is why something is "just memory" versus a candidate for promotion
-- **All memory** (`apply_knowledge` holders) - Every user's memory records, filterable by class
 
 The former Knowledge Pages, Knowledge & Memory, and admin Knowledge & Memory routes now redirect into this one page.
 

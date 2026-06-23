@@ -184,9 +184,10 @@ The separate admin Knowledge & Memory page was merged into the unified **Knowled
 
 Inside the Knowledge page, `apply_knowledge` holders get:
 
-- **Review queue** (Insights tab) - All captured insights across users, with status/category/confidence filters and an insight detail drawer (full metadata, entity URNs, suggested actions, related columns, review notes, approve/reject actions).
-- **Changesets** (Insights tab) - Catalog changes that resulted from approved knowledge: the target DataHub URN, change type, who applied it, and status, with rollback to revert applied changes.
-- **All Memory** (Memory tab) - Every memory record across all users, filterable by lifecycle class (`sink_class`: Preference, Event, Business knowledge, Operational rule, Schema/entity), category, status, and source, with a detail drawer (full markdown content, entity URNs, metadata, stale reason, archive action).
+- **Review queue** (Insights tab) - All captured insights across users, with status/category/confidence filters and an insight detail drawer (full metadata, entity URNs, suggested actions, related columns, review notes, approve/reject actions). A pending-review count is badged on the sidebar Knowledge item and the Insights tab.
+- **Changesets** (Knowledge tab) - The record of insights promoted into knowledge: the target DataHub URN or knowledge page, change type, who applied it, and status, with rollback to revert applied changes. They sit with the promoted knowledge rather than with the unpromoted insights in the review pipeline.
+
+The Memory tab is personal to each user; there is no all-user memory view, because the only memory that crosses between users is an insight (handled in the review queue above).
 
 ## Assets (Admin)
 

@@ -24,6 +24,7 @@ import {
 import { useAuthStore } from "@/stores/auth";
 import { useThemeStore } from "@/stores/theme";
 import { useBranding, usePractitionerWorklist, useSMEWorklist } from "@/api/portal/hooks";
+import { useInsightStats } from "@/api/admin/hooks";
 
 interface Props {
   currentPath: string;
@@ -89,6 +90,12 @@ export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse, 
   const practitionerWorklist = usePractitionerWorklist();
   const smeWorklist = useSMEWorklist();
   const feedbackBadge = (practitionerWorklist.data?.total ?? 0) + (smeWorklist.data?.total ?? 0);
+
+  // Insights awaiting review, badged on the Knowledge item so a reviewer notices
+  // without opening the page. The team-wide count is admin-scoped, so the fetch
+  // is gated on isAdmin to avoid a 401 poll for a non-admin reviewer (see #662).
+  const insightStats = useInsightStats({ enabled: isAdmin });
+  const knowledgeBadge = isAdmin ? (insightStats.data?.total_pending ?? 0) : 0;
 
   const portalNavItems = basePortalNavItems;
   const { data: branding } = useBranding();
@@ -195,6 +202,14 @@ export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse, 
               ) : (
                 <span className="rounded-full bg-primary/15 px-1.5 text-[11px] font-semibold text-primary">
                   {feedbackBadge}
+                </span>
+              ))}
+            {item.path === "/knowledge" && knowledgeBadge > 0 &&
+              (effectiveCollapsed ? (
+                <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-primary" aria-label={`${knowledgeBadge} insights awaiting review`} />
+              ) : (
+                <span className="rounded-full bg-primary/15 px-1.5 text-[11px] font-semibold text-primary">
+                  {knowledgeBadge}
                 </span>
               ))}
           </button>
