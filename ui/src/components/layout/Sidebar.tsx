@@ -41,6 +41,7 @@ const basePortalNavItems = [
   { path: "/activity", label: "Activity", icon: Activity },
   { path: "/", label: "Assets", icon: LayoutGrid },
   { path: "/feedback", label: "Feedback", icon: MessageCircle },
+  { path: "/knowledge-pages", label: "Knowledge Pages", icon: BookOpen },
   { path: "/prompts", label: "Prompts", icon: MessageSquare },
   { path: "/resources", label: "Resources", icon: FileUp },
 ];

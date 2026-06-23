@@ -63,7 +63,7 @@ var searchSchema = json.RawMessage(`{
   "properties": {
     "intent": {
       "type": "string",
-      "description": "Natural-language description of what you are looking for, across every source you can access: the technical catalog (DataHub), your memory, captured insights, saved assets, prompts, API endpoints, and connections. Ranked by relevance and grouped by source. Provide intent, entity_urns, or both."
+      "description": "Natural-language description of what you are looking for, across every source you can access: the technical catalog (DataHub), canonical knowledge pages (business/domain ontology), your memory, captured insights, saved assets, prompts, API endpoints, and connections. Ranked by relevance and grouped by source. Provide intent, entity_urns, or both."
     },
     "context": {
       "type": "string",
@@ -81,7 +81,7 @@ var searchSchema = json.RawMessage(`{
     "sources": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Optional: narrow the search to specific sources (e.g. [\"datahub\"], [\"memory\",\"endpoints\"]). Omit to search every source you can access. This only narrows results; it never opts you into a source your access would otherwise exclude. Known sources: datahub, memory, insights, assets, prompts, endpoints, connections."
+      "description": "Optional: narrow the search to specific sources (e.g. [\"datahub\"], [\"memory\",\"endpoints\"]). Omit to search every source you can access. This only narrows results; it never opts you into a source your access would otherwise exclude. Known sources: datahub, knowledge_pages, memory, insights, assets, prompts, endpoints, connections."
     },
     "limit": {
       "type": "integer",

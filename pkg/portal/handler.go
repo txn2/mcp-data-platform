@@ -22,6 +22,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
+	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 	userdir "github.com/txn2/mcp-data-platform/pkg/user"
 )
@@ -98,6 +99,7 @@ type Deps struct {
 	VersionStore       VersionStore
 	CollectionStore    CollectionStore
 	ThreadStore        ThreadStore
+	KnowledgePageStore knowledgepage.Store
 	S3Client           S3Client
 	S3Bucket           string
 	PublicBaseURL      string
@@ -223,6 +225,9 @@ func (h *Handler) registerRoutes() {
 
 	// Prompt routes
 	h.registerPromptRoutes()
+
+	// Knowledge page routes (canonical business/domain knowledge)
+	h.registerKnowledgePageRoutes()
 
 	// Feedback thread routes
 	h.registerThreadRoutes()

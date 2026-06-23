@@ -19,6 +19,7 @@ import { mockSystemInfo, mockTools, mockConnections } from "./data/system";
 import { mockToolSchemas, generateMockResult } from "./data/tools";
 import { mockEnrichmentRules } from "./data/enrichment";
 import { mockAssets, mockShares, mockSharedWithMe } from "./data/assets";
+import { mockKnowledgePages } from "./data/knowledgePages";
 import { mockContent } from "./data/content";
 import { mockCollections, mockSharedCollections } from "./data/collections";
 import { mockAdminPrompts, mockPortalPrompts, mockSharedPrompts } from "./data/prompts";
@@ -649,6 +650,81 @@ export const handlers = [
       ],
     }),
   ),
+
+  // --- Knowledge pages (#633) ---
+  http.get(`${PORTAL_BASE}/knowledge-pages`, ({ request }) => {
+    const q = new URL(request.url).searchParams.get("q")?.toLowerCase() ?? "";
+    const pages = mockKnowledgePages.filter(
+      (p) => !p.deleted_at && (!q || p.title.toLowerCase().includes(q)),
+    );
+    return HttpResponse.json({ pages, total: pages.length });
+  }),
+  http.get(`${PORTAL_BASE}/knowledge-pages/search`, ({ request }) => {
+    const q = new URL(request.url).searchParams.get("q")?.toLowerCase() ?? "";
+    const scored = mockKnowledgePages
+      .filter((p) => !p.deleted_at && (p.title.toLowerCase().includes(q) || p.body.toLowerCase().includes(q)))
+      .map((page) => ({ page, score: 0.9 }));
+    return HttpResponse.json(scored);
+  }),
+  http.get(`${PORTAL_BASE}/knowledge-pages/:id/versions`, ({ params }) => {
+    const page = mockKnowledgePages.find((p) => p.id === params.id);
+    const versions = page
+      ? [
+          {
+            id: `${page.id}-v${page.current_version}`,
+            page_id: page.id,
+            version: page.current_version,
+            title: page.title,
+            summary: page.summary,
+            body: page.body,
+            tags: page.tags,
+            created_by: page.updated_by,
+            change_summary: "edit",
+            created_at: page.updated_at,
+          },
+        ]
+      : [];
+    return HttpResponse.json({ versions, total: versions.length });
+  }),
+  http.get(`${PORTAL_BASE}/knowledge-pages/:id`, ({ params }) => {
+    const page = mockKnowledgePages.find((p) => p.id === params.id && !p.deleted_at);
+    return page ? HttpResponse.json(page) : new HttpResponse(null, { status: 404 });
+  }),
+  http.post(`${PORTAL_BASE}/knowledge-pages`, async ({ request }) => {
+    const reqBody = (await request.json()) as Record<string, unknown>;
+    const now = new Date().toISOString();
+    const page = {
+      id: `kp-${mockKnowledgePages.length + 1}`,
+      title: String(reqBody.title ?? ""),
+      summary: String(reqBody.summary ?? ""),
+      body: String(reqBody.body ?? ""),
+      tags: (reqBody.tags as string[]) ?? [],
+      created_by: "sarah.chen@example.com",
+      updated_by: "sarah.chen@example.com",
+      current_version: 1,
+      created_at: now,
+      updated_at: now,
+    };
+    mockKnowledgePages.push(page);
+    return HttpResponse.json(page, { status: 201 });
+  }),
+  http.put(`${PORTAL_BASE}/knowledge-pages/:id`, async ({ params, request }) => {
+    const reqBody = (await request.json()) as Record<string, unknown>;
+    const page = mockKnowledgePages.find((p) => p.id === params.id);
+    if (!page) return new HttpResponse(null, { status: 404 });
+    page.title = String(reqBody.title ?? page.title);
+    page.summary = String(reqBody.summary ?? page.summary);
+    page.body = String(reqBody.body ?? page.body);
+    page.tags = (reqBody.tags as string[]) ?? page.tags;
+    page.current_version += 1;
+    page.updated_at = new Date().toISOString();
+    return HttpResponse.json(page);
+  }),
+  http.delete(`${PORTAL_BASE}/knowledge-pages/:id`, ({ params }) => {
+    const page = mockKnowledgePages.find((p) => p.id === params.id);
+    if (page) page.deleted_at = new Date().toISOString();
+    return new HttpResponse(null, { status: 204 });
+  }),
 
   // =========================================================================
   // Admin API

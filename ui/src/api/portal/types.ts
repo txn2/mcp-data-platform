@@ -420,3 +420,59 @@ export interface DirectoryUsersResponse {
   users: DirectoryUser[];
   total: number;
 }
+
+// --- Knowledge pages (#633) ---
+
+export interface KnowledgePage {
+  id: string;
+  slug?: string;
+  title: string;
+  summary?: string;
+  body: string;
+  tags: string[];
+  created_by?: string;
+  created_email?: string;
+  updated_by?: string;
+  current_version: number;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string;
+}
+
+export interface KnowledgePageVersion {
+  id: string;
+  page_id: string;
+  version: number;
+  title: string;
+  summary?: string;
+  body: string;
+  tags: string[];
+  created_by?: string;
+  change_summary?: string;
+  created_at: string;
+}
+
+export interface KnowledgePageListResponse {
+  pages: KnowledgePage[];
+  total: number;
+}
+
+export interface ScoredKnowledgePage {
+  page: KnowledgePage;
+  score: number;
+}
+
+export interface KnowledgePageVersionsResponse {
+  versions: KnowledgePageVersion[];
+  total: number;
+}
+
+/** Create/update payload for a knowledge page. */
+export interface KnowledgePageInput {
+  slug?: string;
+  title: string;
+  summary?: string;
+  body?: string;
+  tags?: string[];
+  change_summary?: string;
+}

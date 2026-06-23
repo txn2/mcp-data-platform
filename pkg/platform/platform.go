@@ -47,6 +47,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
+	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	promptpostgres "github.com/txn2/mcp-data-platform/pkg/prompt/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/query"
@@ -220,17 +221,18 @@ type Platform struct {
 	toolsIndexStore           *toolsindex.Store
 
 	// Portal stores (exposed for REST API in Phase 3)
-	portalAssetStore        portal.AssetStore
-	portalShareStore        portal.ShareStore
-	portalVersionStore      portal.VersionStore
-	portalCollectionStore   portal.CollectionStore
-	portalThreadStore       portal.ThreadStore
-	portalToolkit           *portalkit.Toolkit
-	portalS3Client          portal.S3Client
-	provenanceTracker       *middleware.ProvenanceTracker
-	resolvedBrandLogoSVG    string // cached SVG from portal.logo or mcpapps config
-	resolvedBrandURL        string // cached brand_url from mcpapps platform-info config
-	resolvedImplementorLogo string // cached SVG fetched from portal.implementor.logo
+	portalAssetStore         portal.AssetStore
+	portalShareStore         portal.ShareStore
+	portalVersionStore       portal.VersionStore
+	portalCollectionStore    portal.CollectionStore
+	portalThreadStore        portal.ThreadStore
+	portalKnowledgePageStore knowledgepage.Store
+	portalToolkit            *portalkit.Toolkit
+	portalS3Client           portal.S3Client
+	provenanceTracker        *middleware.ProvenanceTracker
+	resolvedBrandLogoSVG     string // cached SVG from portal.logo or mcpapps config
+	resolvedBrandURL         string // cached brand_url from mcpapps platform-info config
+	resolvedImplementorLogo  string // cached SVG fetched from portal.implementor.logo
 
 	// Workflow gating
 	workflowTracker *middleware.SessionWorkflowTracker
@@ -1684,7 +1686,7 @@ func (p *Platform) initSearch() error {
 	// plain entity lookup.
 	var lineage knowledge.LineageExpander
 	if p.config.Semantic.Provider == kindDataHub && p.semanticProvider != nil {
-		lineage = &knowledgeLineageExpander{semantic: p.semanticProvider}
+		lineage = knowledge.NewLineageExpander(p.semanticProvider)
 	}
 
 	router := knowledge.NewRouter(p.embeddingProv, lineage, providers...)
@@ -1721,6 +1723,11 @@ func (p *Platform) storeSearchProviders() []knowledge.Provider {
 	if p.config.Semantic.Provider == kindDataHub && p.semanticProvider != nil {
 		providers = append(providers, knowledge.NewDatahubProvider(p.semanticProvider))
 	}
+	// Canonical knowledge pages (the internal-knowledge home for business
+	// ontology) are shared and searchable over their full content.
+	if s, ok := p.portalKnowledgePageStore.(knowledgepage.Searcher); ok {
+		providers = append(providers, knowledge.NewKnowledgePagesProvider(s))
+	}
 	// Prompts are searchable through the postgres prompt store.
 	if s, ok := p.promptStore.(prompt.Searcher); ok {
 		providers = append(providers, knowledge.NewPromptsProvider(s))
@@ -1753,44 +1760,6 @@ func (p *Platform) appendFederationSearchProviders(providers []knowledge.Provide
 		providers = append(providers, knowledge.NewConnectionsProvider(connLister))
 	}
 	return providers
-}
-
-// knowledgeLineageExpander widens a set of entity URNs along one hop of DataHub
-// lineage for the search entity path, mirroring the memory toolkit's
-// lineage collection. It is the seam that carries the old memory_recall "graph"
-// strategy into the unified search verb.
-type knowledgeLineageExpander struct {
-	semantic semantic.Provider
-}
-
-// Expand returns the input URNs plus their one-hop upstream and downstream
-// lineage neighbors. Lookups that fail (unparseable URN, lineage error) are
-// skipped, so expansion never fails the search; the original URNs are always
-// returned.
-func (e *knowledgeLineageExpander) Expand(ctx context.Context, urns []string) []string {
-	related := make(map[string]bool)
-	for _, urn := range urns {
-		related[urn] = true
-		table, err := memory.ParseURNToTable(urn)
-		if err != nil {
-			continue
-		}
-		// nosemgrep: semgrep.unbounded-make-slice-capacity -- fixed 2-element literal, not user input
-		for _, dir := range []semantic.LineageDirection{semantic.LineageUpstream, semantic.LineageDownstream} {
-			lineage, err := e.semantic.GetLineage(ctx, table, dir, 1)
-			if err != nil || lineage == nil {
-				continue
-			}
-			for _, entity := range lineage.Entities {
-				related[entity.URN] = true
-			}
-		}
-	}
-	out := make([]string, 0, len(related))
-	for u := range related {
-		out = append(out, u)
-	}
-	return out
 }
 
 // configureKnowledgeApply sets up the apply_knowledge tool dependencies if enabled.
@@ -1860,6 +1829,7 @@ func (p *Platform) initPortal() error {
 	p.portalVersionStore = portal.NewPostgresVersionStore(p.db)
 	p.portalCollectionStore = portal.NewPostgresCollectionStore(p.db)
 	p.portalThreadStore = portal.NewPostgresThreadStore(p.db)
+	p.portalKnowledgePageStore = knowledgepage.NewPostgresStore(p.db)
 
 	// Create S3 client from referenced S3 connection
 	var s3Client portal.S3Client
@@ -3592,6 +3562,12 @@ func (p *Platform) PortalCollectionStore() portal.CollectionStore {
 // PortalThreadStore returns the portal feedback thread store, or nil if portal is disabled.
 func (p *Platform) PortalThreadStore() portal.ThreadStore {
 	return p.portalThreadStore
+}
+
+// PortalKnowledgePageStore returns the canonical knowledge-page store, or nil
+// when the portal is disabled.
+func (p *Platform) PortalKnowledgePageStore() knowledgepage.Store {
+	return p.portalKnowledgePageStore
 }
 
 // PortalS3Client returns the portal S3 client, or nil if portal is disabled.
