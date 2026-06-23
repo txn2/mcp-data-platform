@@ -1567,6 +1567,7 @@ interface MemoryRecordsParams {
   perPage?: number;
   persona?: string;
   dimension?: string;
+  sinkClass?: string;
   category?: string;
   status?: string;
   source?: string;
@@ -1580,6 +1581,7 @@ export function useMemoryRecords(params: MemoryRecordsParams = {}) {
   if (params.perPage) searchParams.set("per_page", String(params.perPage));
   if (params.persona) searchParams.set("persona", params.persona);
   if (params.dimension) searchParams.set("dimension", params.dimension);
+  if (params.sinkClass) searchParams.set("sink_class", params.sinkClass);
   if (params.category) searchParams.set("category", params.category);
   if (params.status) searchParams.set("status", params.status);
   if (params.source) searchParams.set("source", params.source);

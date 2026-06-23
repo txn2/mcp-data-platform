@@ -8,7 +8,11 @@ import { authenticate } from "../screenshots/helpers/auth";
 
 async function gotoKnowledgePages(page: Page): Promise<void> {
   await authenticate(page);
-  await page.goto("/portal/knowledge-pages");
+  // #661: the canonical knowledge pages now browse under the Knowledge tab of
+  // the unified /knowledge hub (the standalone /knowledge-pages route redirects
+  // here). With the unified search box empty, the page list and its own
+  // content-search box render below.
+  await page.goto("/portal/knowledge#knowledge");
   await expect(page.getByPlaceholder("Search knowledge by content...")).toBeVisible();
 }
 

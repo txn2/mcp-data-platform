@@ -253,6 +253,7 @@ func parseMemoryFilter(r *http.Request) memory.Filter {
 	filter := memory.Filter{
 		Persona:   q.Get("persona"),
 		Dimension: q.Get("dimension"),
+		SinkClass: q.Get("sink_class"),
 		Category:  q.Get("category"),
 		Status:    q.Get("status"),
 		Source:    q.Get("source"),

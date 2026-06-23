@@ -9691,6 +9691,84 @@
                 }
             }
         },
+        "/portal/search": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "One query fans across every source the caller can access (catalog, knowledge pages, memory, insights, assets, prompts, endpoints, connections), grouped by source and scope-enforced.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Knowledge"
+                ],
+                "summary": "Unified knowledge search",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Natural-language intent",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Entity-keyed lookup (repeatable)",
+                        "name": "entity_urns",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Insight review status filter",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Narrow to specific sources (repeatable)",
+                        "name": "sources",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Display budget across all sources",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.searchResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/shared-collections": {
             "get": {
                 "security": [
@@ -14688,6 +14766,63 @@
                 }
             }
         },
+        "portal.SearchCoverage": {
+            "type": "object",
+            "properties": {
+                "matched": {
+                    "type": "integer"
+                },
+                "shown": {
+                    "type": "integer"
+                },
+                "source": {
+                    "type": "string"
+                }
+            }
+        },
+        "portal.SearchGroup": {
+            "type": "object",
+            "properties": {
+                "hits": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portal.SearchHit"
+                    }
+                },
+                "source": {
+                    "type": "string"
+                }
+            }
+        },
+        "portal.SearchHit": {
+            "type": "object",
+            "properties": {
+                "dimension": {
+                    "type": "string"
+                },
+                "entity_urns": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "ref": {
+                    "type": "string"
+                },
+                "score": {
+                    "type": "number"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "text": {
+                    "type": "string"
+                }
+            }
+        },
         "portal.Share": {
             "type": "object",
             "properties": {
@@ -15513,6 +15648,29 @@
                 },
                 "result": {
                     "description": "validated | disputed",
+                    "type": "string"
+                }
+            }
+        },
+        "portal.searchResponse": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "coverage": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portal.SearchCoverage"
+                    }
+                },
+                "groups": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portal.SearchGroup"
+                    }
+                },
+                "ranking": {
                     "type": "string"
                 }
             }

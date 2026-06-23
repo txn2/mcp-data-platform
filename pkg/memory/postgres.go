@@ -746,6 +746,9 @@ func applyFilter(qb sq.SelectBuilder, filter Filter) sq.SelectBuilder {
 	if filter.Dimension != "" {
 		qb = qb.Where(sq.Eq{colDimension: filter.Dimension})
 	}
+	if filter.SinkClass != "" {
+		qb = qb.Where(sq.Eq{colSinkClass: filter.SinkClass})
+	}
 	if filter.Category != "" {
 		qb = qb.Where(sq.Eq{colCategory: filter.Category})
 	}

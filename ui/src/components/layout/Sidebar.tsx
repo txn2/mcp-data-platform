@@ -3,7 +3,6 @@ import { cn } from "@/lib/utils";
 import {
   Home,
   Wrench,
-  Lightbulb,
   Users,
   LogOut,
   LayoutGrid,
@@ -35,15 +34,17 @@ interface Props {
   onClose?: () => void;
 }
 
-// Alphabetized by label (case-insensitive). Activity is pinned at the
-// top because it's the home / landing view; everything else sorts.
+// Fixed order (#661): Assets, Prompts, Resources, Feedback, Knowledge,
+// Activity. Knowledge is the single home for the Memory -> Insight -> Knowledge
+// lifecycle (the former Knowledge Pages, Knowledge & Memory surfaces). Activity
+// sits last as the audit/landing view.
 const basePortalNavItems = [
-  { path: "/activity", label: "Activity", icon: Activity },
   { path: "/", label: "Assets", icon: LayoutGrid },
-  { path: "/feedback", label: "Feedback", icon: MessageCircle },
-  { path: "/knowledge-pages", label: "Knowledge Pages", icon: BookOpen },
   { path: "/prompts", label: "Prompts", icon: MessageSquare },
   { path: "/resources", label: "Resources", icon: FileUp },
+  { path: "/feedback", label: "Feedback", icon: MessageCircle },
+  { path: "/knowledge", label: "Knowledge", icon: BookOpen },
+  { path: "/activity", label: "Activity", icon: Activity },
 ];
 
 interface NavItem {
@@ -64,7 +65,6 @@ const adminNavItems: NavItem[] = [
   { path: "/admin/connections", label: "Connections", icon: Cable },
   { path: "/admin/description", label: "Description", icon: FileText },
   { path: "/admin/keys", label: "Keys", icon: KeyRound },
-  { path: "/admin/knowledge", label: "Knowledge & Memory", icon: Lightbulb },
   { path: "/admin/personas", label: "Personas", icon: Users },
   { path: "/admin/prompts", label: "Prompts", icon: MessageSquare },
   { path: "/admin/resources", label: "Resources", icon: FileUp },
@@ -75,8 +75,6 @@ const adminNavItems: NavItem[] = [
 export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse, mobile, onClose }: Props) {
   const logout = useAuthStore((s) => s.logout);
   const isAdmin = useAuthStore((s) => s.isAdmin());
-  const userTools = useAuthStore((s) => s.user?.tools);
-  const hasKnowledge = (userTools?.includes("memory_capture") || userTools?.includes("memory_manage")) ?? false;
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
   // On mobile, close the sidebar after navigating.
@@ -92,12 +90,7 @@ export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse, 
   const smeWorklist = useSMEWorklist();
   const feedbackBadge = (practitionerWorklist.data?.total ?? 0) + (smeWorklist.data?.total ?? 0);
 
-  const portalNavItems = hasKnowledge
-    ? [
-        ...basePortalNavItems,
-        { path: "/my-knowledge", label: "Knowledge & Memory", icon: Lightbulb },
-      ]
-    : basePortalNavItems;
+  const portalNavItems = basePortalNavItems;
   const { data: branding } = useBranding();
   const theme = useThemeStore((s) => s.theme);
   const isDark =
@@ -142,7 +135,7 @@ export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse, 
         route.startsWith("/shared/assets/")
       );
     }
-    if (itemPath === "/admin" || itemPath === "/activity" || itemPath === "/my-knowledge" || itemPath === "/prompts") return route === itemPath;
+    if (itemPath === "/admin" || itemPath === "/activity" || itemPath === "/knowledge" || itemPath === "/prompts") return route === itemPath;
     return route === itemPath || route.startsWith(itemPath + "/");
   }
 

@@ -69,7 +69,7 @@ func (h *Handler) createKnowledgePage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, errAuthRequired)
 		return
 	}
-	if !h.userIsAdmin(user) {
+	if !h.userHasApplyKnowledge(user) {
 		writeError(w, http.StatusForbidden, errKnowledgePageForbidden)
 		return
 	}
@@ -193,7 +193,7 @@ func (h *Handler) updateKnowledgePage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, errAuthRequired)
 		return
 	}
-	if !h.userIsAdmin(user) {
+	if !h.userHasApplyKnowledge(user) {
 		writeError(w, http.StatusForbidden, errKnowledgePageForbidden)
 		return
 	}
@@ -246,7 +246,7 @@ func (h *Handler) deleteKnowledgePage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, errAuthRequired)
 		return
 	}
-	if !h.userIsAdmin(user) {
+	if !h.userHasApplyKnowledge(user) {
 		writeError(w, http.StatusForbidden, errKnowledgePageForbidden)
 		return
 	}

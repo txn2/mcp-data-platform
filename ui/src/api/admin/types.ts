@@ -718,6 +718,8 @@ export interface MemoryRecord {
   created_by: string;
   persona: string;
   dimension: string;
+  // sink_class is the #633 lifecycle axis the Memory view classifies by.
+  sink_class?: string;
   content: string;
   category: string;
   confidence: string;

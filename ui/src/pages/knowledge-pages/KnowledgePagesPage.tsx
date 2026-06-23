@@ -24,7 +24,14 @@ type Mode = { view: "list" } | { view: "page"; id: string } | { view: "edit"; id
  */
 export function KnowledgePagesPage() {
   const [mode, setMode] = useState<Mode>({ view: "list" });
-  const canEdit = useAuthStore((s) => s.isAdmin());
+  // Create/edit/remove gates on the apply_knowledge capability (a tool-access
+  // gate, not an admin-role gate), or admin. This mirrors the REST handler's
+  // userHasToolAccess (pkg/portal/knowledge_page_handler.go): the capability
+  // grants non-admins, and admins are allowed too since apply_knowledge may be
+  // unregistered on a deployment (#661).
+  const canEdit = useAuthStore(
+    (s) => (s.user?.tools?.includes("apply_knowledge") ?? false) || s.isAdmin(),
+  );
 
   if (mode.view === "create") {
     return <KnowledgePageForm key="create" onDone={(id) => setMode(id ? { view: "page", id } : { view: "list" })} />;

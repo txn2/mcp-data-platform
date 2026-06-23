@@ -16,24 +16,9 @@ import type { Insight, Changeset, MemoryRecord } from "@/api/admin/types";
 import { formatUser } from "@/lib/formatUser";
 import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
 import { CollapsibleMarkdown } from "@/components/renderers/CollapsibleMarkdown";
-import {
-  PieChart,
-  Pie,
-  Cell,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts";
+import { SINK_CLASSES, sinkClassLabel } from "@/lib/sinkClass";
 
 const PER_PAGE = 20;
-
-type Tab = "overview" | "knowledge" | "memory" | "changesets";
-
-const TAB_ITEMS: { key: Tab; label: string }[] = [
-  { key: "overview", label: "Overview" },
-  { key: "knowledge", label: "Knowledge Capture" },
-  { key: "memory", label: "All Memory" },
-  { key: "changesets", label: "Changesets" },
-];
 
 const INSIGHT_CATEGORIES = [
   "correction",
@@ -53,14 +38,6 @@ const INSIGHT_STATUSES = [
   "applied",
   "superseded",
   "rolled_back",
-];
-
-const MEMORY_DIMENSIONS = [
-  "knowledge",
-  "event",
-  "entity",
-  "relationship",
-  "preference",
 ];
 
 const MEMORY_CATEGORIES = [
@@ -134,385 +111,11 @@ function formatCategory(cat: string): string {
   return cat.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-export function KnowledgePage({ initialTab }: { initialTab?: string }) {
-  const [tab, setTab] = useState<Tab>(
-    (["overview", "knowledge", "memory", "changesets"].includes(
-      initialTab ?? "",
-    )
-      ? initialTab
-      : "overview") as Tab,
-  );
-
-  return (
-    <div className="space-y-4">
-      {/* Tab bar */}
-      <div className="flex gap-1 border-b">
-        {TAB_ITEMS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
-              tab === t.key
-                ? "border-b-2 border-primary text-primary"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {tab === "overview" && <OverviewTab />}
-      {tab === "knowledge" && <KnowledgeCaptureTab />}
-      {tab === "memory" && <AllMemoryTab />}
-      {tab === "changesets" && <ChangesetsTab />}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Overview Tab
-// ---------------------------------------------------------------------------
-
-const INSIGHT_STATUS_COLORS: Record<string, string> = {
-  pending: "hsl(45, 93%, 47%)",
-  approved: "hsl(142, 76%, 36%)",
-  rejected: "hsl(0, 84%, 60%)",
-  applied: "hsl(142, 76%, 46%)",
-  superseded: "hsl(220, 9%, 46%)",
-  rolled_back: "hsl(0, 72%, 51%)",
-};
-
-const MEMORY_STATUS_COLORS: Record<string, string> = {
-  active: "hsl(142, 76%, 36%)",
-  stale: "hsl(45, 93%, 47%)",
-  superseded: "hsl(220, 9%, 46%)",
-  archived: "hsl(0, 84%, 60%)",
-};
-
-const DIMENSION_COLORS: Record<string, string> = {
-  knowledge: "hsl(221, 83%, 53%)",
-  event: "hsl(262, 83%, 58%)",
-  entity: "hsl(330, 81%, 60%)",
-  relationship: "hsl(24, 94%, 50%)",
-  preference: "hsl(142, 76%, 36%)",
-};
-
-function OverviewTab() {
-  const { data: insightStats } = useInsightStats();
-  const { data: memoryStats } = useMemoryStats();
-
-  const totalInsights = useMemo(() => {
-    if (!insightStats?.by_status) return 0;
-    return Object.values(insightStats.by_status).reduce((s, n) => s + n, 0);
-  }, [insightStats]);
-
-  const approvalRate = useMemo(() => {
-    if (!insightStats?.by_status) return null;
-    const approved =
-      (insightStats.by_status["approved"] ?? 0) +
-      (insightStats.by_status["applied"] ?? 0);
-    const reviewed = approved + (insightStats.by_status["rejected"] ?? 0);
-    if (reviewed === 0) return null;
-    return ((approved / reviewed) * 100).toFixed(0);
-  }, [insightStats]);
-
-  const insightStatusData = useMemo(() => {
-    if (!insightStats?.by_status) return [];
-    return Object.entries(insightStats.by_status).map(([name, value]) => ({
-      name: formatCategory(name),
-      value,
-      key: name,
-    }));
-  }, [insightStats]);
-
-  const memoryStatusData = useMemo(() => {
-    if (!memoryStats?.by_status) return [];
-    return Object.entries(memoryStats.by_status).map(([name, value]) => ({
-      name: formatCategory(name),
-      value,
-      key: name,
-    }));
-  }, [memoryStats]);
-
-  const dimensionData = useMemo(() => {
-    if (!memoryStats?.by_dimension) return [];
-    return Object.entries(memoryStats.by_dimension).map(([name, value]) => ({
-      name: formatCategory(name),
-      value,
-      key: name,
-    }));
-  }, [memoryStats]);
-
-  return (
-    <div className="space-y-6">
-      <p className="text-sm text-muted-foreground mb-6">
-        Agents remember what happens during sessions. Corrections, business
-        rules, preferences, and context accumulate here instead of disappearing
-        when a session ends. Knowledge capture is the review process where admins
-        decide which observations belong in the DataHub catalog.
-      </p>
-
-      {/* Knowledge stats */}
-      <h2 className="text-sm font-medium">Knowledge Capture</h2>
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
-        <StatCard label="Total Insights" value={totalInsights} />
-        <StatCard
-          label="Pending Review"
-          value={insightStats?.total_pending ?? "-"}
-          className={
-            insightStats && insightStats.total_pending > 0
-              ? "border-yellow-200"
-              : undefined
-          }
-        />
-        <StatCard
-          label="Approved"
-          value={insightStats?.by_status?.["approved"] ?? "-"}
-        />
-        <StatCard
-          label="Applied"
-          value={insightStats?.by_status?.["applied"] ?? "-"}
-        />
-        <StatCard
-          label="Rejected"
-          value={insightStats?.by_status?.["rejected"] ?? "-"}
-        />
-        <StatCard
-          label="Approval Rate"
-          value={approvalRate ? `${approvalRate}%` : "-"}
-        />
-      </div>
-
-      {/* Insight Status chart */}
-      <div className="rounded-lg border bg-card p-4">
-        <h2 className="mb-3 text-sm font-medium">
-          Insight Status Distribution
-        </h2>
-        {insightStatusData.length > 0 ? (
-          <div className="flex items-center gap-4">
-            <ResponsiveContainer width="50%" height={200}>
-              <PieChart>
-                <Pie
-                  data={insightStatusData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={50}
-                  outerRadius={80}
-                  dataKey="value"
-                  nameKey="name"
-                >
-                  {insightStatusData.map((entry) => (
-                    <Cell
-                      key={entry.key}
-                      fill={
-                        INSIGHT_STATUS_COLORS[entry.key] ??
-                        "hsl(220, 9%, 46%)"
-                      }
-                    />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "hsl(var(--card))",
-                    border: "1px solid hsl(var(--border))",
-                    borderRadius: "0.375rem",
-                    fontSize: "0.75rem",
-                  }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="space-y-2">
-              {insightStatusData.map((entry) => (
-                <div
-                  key={entry.key}
-                  className="flex items-center gap-2 text-xs"
-                >
-                  <span
-                    className="inline-block h-3 w-3 rounded-full"
-                    style={{
-                      backgroundColor:
-                        INSIGHT_STATUS_COLORS[entry.key] ??
-                        "hsl(220, 9%, 46%)",
-                    }}
-                  />
-                  <span className="text-muted-foreground">{entry.name}</span>
-                  <span className="font-medium">{entry.value}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <div className="flex h-[200px] items-center justify-center text-sm text-muted-foreground">
-            No data
-          </div>
-        )}
-      </div>
-
-      {/* Memory stats */}
-      <h2 className="text-sm font-medium">Memory</h2>
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <StatCard label="Total Memories" value={memoryStats?.total ?? "-"} />
-        <StatCard
-          label="Active"
-          value={memoryStats?.by_status?.["active"] ?? "-"}
-        />
-        <StatCard
-          label="Stale"
-          value={memoryStats?.by_status?.["stale"] ?? "-"}
-          className={
-            memoryStats && (memoryStats.by_status?.["stale"] ?? 0) > 0
-              ? "border-yellow-200"
-              : undefined
-          }
-        />
-        <StatCard
-          label="Dimensions"
-          value={
-            memoryStats?.by_dimension
-              ? Object.keys(memoryStats.by_dimension).length
-              : "-"
-          }
-        />
-      </div>
-
-      {/* Memory charts: Status + Dimension */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Memory Status */}
-        <div className="rounded-lg border bg-card p-4">
-          <h2 className="mb-3 text-sm font-medium">
-            Memory Status Distribution
-          </h2>
-          {memoryStatusData.length > 0 ? (
-            <div className="flex items-center gap-4">
-              <ResponsiveContainer width="50%" height={200}>
-                <PieChart>
-                  <Pie
-                    data={memoryStatusData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={80}
-                    dataKey="value"
-                    nameKey="name"
-                  >
-                    {memoryStatusData.map((entry) => (
-                      <Cell
-                        key={entry.key}
-                        fill={
-                          MEMORY_STATUS_COLORS[entry.key] ??
-                          "hsl(220, 9%, 46%)"
-                        }
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "hsl(var(--card))",
-                      border: "1px solid hsl(var(--border))",
-                      borderRadius: "0.375rem",
-                      fontSize: "0.75rem",
-                    }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="space-y-2">
-                {memoryStatusData.map((entry) => (
-                  <div
-                    key={entry.key}
-                    className="flex items-center gap-2 text-xs"
-                  >
-                    <span
-                      className="inline-block h-3 w-3 rounded-full"
-                      style={{
-                        backgroundColor:
-                          MEMORY_STATUS_COLORS[entry.key] ??
-                          "hsl(220, 9%, 46%)",
-                      }}
-                    />
-                    <span className="text-muted-foreground">{entry.name}</span>
-                    <span className="font-medium">{entry.value}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="flex h-[200px] items-center justify-center text-sm text-muted-foreground">
-              No data
-            </div>
-          )}
-        </div>
-
-        {/* Dimension Distribution */}
-        <div className="rounded-lg border bg-card p-4">
-          <h2 className="mb-3 text-sm font-medium">Memory by Dimension</h2>
-          {dimensionData.length > 0 ? (
-            <div className="flex items-center gap-4">
-              <ResponsiveContainer width="50%" height={200}>
-                <PieChart>
-                  <Pie
-                    data={dimensionData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={50}
-                    outerRadius={80}
-                    dataKey="value"
-                    nameKey="name"
-                  >
-                    {dimensionData.map((entry) => (
-                      <Cell
-                        key={entry.key}
-                        fill={
-                          DIMENSION_COLORS[entry.key] ?? "hsl(220, 9%, 46%)"
-                        }
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "hsl(var(--card))",
-                      border: "1px solid hsl(var(--border))",
-                      borderRadius: "0.375rem",
-                      fontSize: "0.75rem",
-                    }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="space-y-2">
-                {dimensionData.map((entry) => (
-                  <div
-                    key={entry.key}
-                    className="flex items-center gap-2 text-xs"
-                  >
-                    <span
-                      className="inline-block h-3 w-3 rounded-full"
-                      style={{
-                        backgroundColor:
-                          DIMENSION_COLORS[entry.key] ?? "hsl(220, 9%, 46%)",
-                      }}
-                    />
-                    <span className="text-muted-foreground">{entry.name}</span>
-                    <span className="font-medium">{entry.value}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="flex h-[200px] items-center justify-center text-sm text-muted-foreground">
-              No data
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Knowledge Capture Tab
 // ---------------------------------------------------------------------------
 
-function KnowledgeCaptureTab() {
+export function KnowledgeCaptureTab() {
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
@@ -1031,9 +634,9 @@ function InsightDrawer({
 // All Memory Tab
 // ---------------------------------------------------------------------------
 
-function AllMemoryTab() {
+export function AllMemoryTab() {
   const [page, setPage] = useState(1);
-  const [dimensionFilter, setDimensionFilter] = useState("");
+  const [sinkClassFilter, setSinkClassFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [personaFilter, setPersonaFilter] = useState("");
@@ -1048,7 +651,7 @@ function AllMemoryTab() {
     () => ({
       page,
       perPage: PER_PAGE,
-      dimension: dimensionFilter || undefined,
+      sinkClass: sinkClassFilter || undefined,
       category: categoryFilter || undefined,
       status: statusFilter || undefined,
       persona: personaFilter || undefined,
@@ -1056,7 +659,7 @@ function AllMemoryTab() {
     }),
     [
       page,
-      dimensionFilter,
+      sinkClassFilter,
       categoryFilter,
       statusFilter,
       personaFilter,
@@ -1102,17 +705,18 @@ function AllMemoryTab() {
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
         <select
-          value={dimensionFilter}
+          value={sinkClassFilter}
           onChange={(e) => {
-            setDimensionFilter(e.target.value);
+            setSinkClassFilter(e.target.value);
             setPage(1);
           }}
           className="rounded-md border bg-background px-3 py-1.5 text-sm outline-none ring-ring focus:ring-2"
+          aria-label="Filter by class"
         >
-          <option value="">All Dimensions</option>
-          {MEMORY_DIMENSIONS.map((d) => (
-            <option key={d} value={d}>
-              {formatCategory(d)}
+          <option value="">All classes</option>
+          {SINK_CLASSES.map((c) => (
+            <option key={c.value} value={c.value}>
+              {c.label}
             </option>
           ))}
         </select>
@@ -1182,7 +786,7 @@ function AllMemoryTab() {
               <th className="px-3 py-2 text-left font-medium">Created</th>
               <th className="px-3 py-2 text-left font-medium">User</th>
               <th className="px-3 py-2 text-left font-medium">Persona</th>
-              <th className="px-3 py-2 text-left font-medium">Dimension</th>
+              <th className="px-3 py-2 text-left font-medium">Class</th>
               <th className="px-3 py-2 text-left font-medium">Category</th>
               <th className="px-3 py-2 text-left font-medium">Content</th>
               <th className="px-3 py-2 text-center font-medium">Status</th>
@@ -1214,7 +818,7 @@ function AllMemoryTab() {
                 </td>
                 <td className="px-3 py-2 text-xs">{record.persona}</td>
                 <td className="px-3 py-2 text-xs">
-                  {formatCategory(record.dimension)}
+                  {sinkClassLabel(record.sink_class)}
                 </td>
                 <td className="px-3 py-2 text-xs">
                   {formatCategory(record.category)}
@@ -1347,8 +951,8 @@ function MemoryDrawer({
               <p>{record.persona}</p>
             </div>
             <div>
-              <p className="text-xs text-muted-foreground">Dimension</p>
-              <p>{formatCategory(record.dimension)}</p>
+              <p className="text-xs text-muted-foreground">Class</p>
+              <p>{sinkClassLabel(record.sink_class)}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Category</p>
@@ -1498,7 +1102,7 @@ function MemoryDrawer({
 // Changesets Tab
 // ---------------------------------------------------------------------------
 
-function ChangesetsTab() {
+export function ChangesetsTab() {
   const [page, setPage] = useState(1);
   const [entityUrnFilter, setEntityUrnFilter] = useState("");
   const [rolledBackFilter, setRolledBackFilter] = useState("");

@@ -169,32 +169,33 @@ The **Feedback** page in the sidebar is the standalone channel for general feedb
 
 When you share an asset or collection with a public link, an anonymous visitor can view it and sees a **Sign in to leave feedback** prompt. Signing in through that link, when the visitor has no prior share for the item, grants them a viewer share automatically so the item appears in their portal and they can leave feedback. An existing editor is never downgraded to a viewer by this flow.
 
-## Knowledge & Memory
+## Knowledge
 
-The Knowledge & Memory page tracks what the platform has learned from your sessions. Knowledge items go through admin review before reaching the catalog. Memory records persist your corrections and preferences across sessions.
+The Knowledge page is the single home for the **Memory to Insight to Knowledge** lifecycle. A short header teaches the model so a first-time reader can state what each stage is and how one becomes the next:
 
-![My Knowledge](../images/screenshots/light/user-my-knowledge-light.webp#only-light)![My Knowledge](../images/screenshots/dark/user-my-knowledge-dark.webp#only-dark)
+> Everything the platform learns is a **Memory**. Most memories are personal or operational and stay yours. When a memory asserts something true about the business or the data that others would benefit from, it becomes an **Insight**, a proposal awaiting review. Whoever holds the `apply_knowledge` capability reviews insights and promotes the good ones into **Knowledge**: shared, trusted, and canonical. Business and domain facts become knowledge pages; technical and entity facts go to the DataHub catalog.
 
-Two tabs:
+The page has three tabs. Review and promote affordances appear only when your persona grants the `apply_knowledge` tool (a capability check, not an admin role).
 
-### Knowledge
+### Knowledge (default)
 
-- **Summary cards** — Total insights, pending, approved, and applied counts
-- **Search** — Free-text search ranks your insights by relevance to the query. With an embedding provider configured it uses hybrid (semantic + lexical) ranking; without one it falls back to lexical search. Results respect the active status filter, and search is always scoped to your own insights
-- **Status filters** — All, Pending, Approved, Applied, Rejected
-- **Insight cards** — Category badge, status badge, creation date, insight text (rendered as markdown), linked entity URNs, and review notes
-- **Pagination** — 20 items per page (browse mode; search returns a ranked top-K)
+- **Unified search** - One query fans across every source you can access (the DataHub catalog, canonical knowledge pages, your memory, captured insights, saved assets, prompts, API endpoints, and connections) and returns results grouped by source with a coverage summary. It is the same federation behind the `search` tool, exposed over `GET /api/v1/portal/search`. It ranks semantically when an embedding provider is configured and degrades to lexical search otherwise
+- **Browse** - With the search box empty, the tab browses the canonical knowledge pages. Personas with `apply_knowledge` can create, edit, and remove pages
+
+### Insights
+
+- **Your insights** - The insights captured from your sessions, with status (pending, approved, applied, rejected) and relevance search
+- **Review queue** (`apply_knowledge` holders) - Every user's captured insights, with approve and reject actions that promote an insight into knowledge
+- **Changesets** (`apply_knowledge` holders) - Catalog changes applied from approved knowledge, with rollback
 
 ### Memory
 
-- **Summary cards** — Total memories, active, stale, and dimension count
-- **Search** — Free-text search ranks your memory records by relevance, using hybrid (semantic + lexical) ranking when an embedding provider is configured and lexical search otherwise. Results respect the active status and dimension filters, and search is always scoped to your own records
-- **Filters** — Status (All, Active, Stale, Archived) and dimension dropdown
-- **Memory cards** — Dimension, category, status, content (rendered as markdown), entity URN links, and stale reason if applicable
+- **Your memory** - The raw substrate captured from your sessions, classified by lifecycle **class** (`sink_class`): Preference, Event, Business knowledge, Operational rule, and Schema/entity. The class is why something is "just memory" versus a candidate for promotion
+- **All memory** (`apply_knowledge` holders) - Every user's memory records, filterable by class
+
+The former Knowledge Pages, Knowledge & Memory, and admin Knowledge & Memory routes now redirect into this one page.
 
 See [Knowledge Capture](../knowledge/overview.md) and [Memory Layer](../memory/overview.md) for how these are created during sessions.
-
-The search box mirrors the `search` tool: it ranks semantically when an embedding provider is configured and degrades to lexical search otherwise, so search always returns results even without embeddings.
 
 ## Prompts
 

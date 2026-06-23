@@ -2638,6 +2638,43 @@ definitions:
         example: trino_query
         type: string
     type: object
+  portal.SearchCoverage:
+    properties:
+      matched:
+        type: integer
+      shown:
+        type: integer
+      source:
+        type: string
+    type: object
+  portal.SearchGroup:
+    properties:
+      hits:
+        items:
+          $ref: '#/definitions/portal.SearchHit'
+        type: array
+      source:
+        type: string
+    type: object
+  portal.SearchHit:
+    properties:
+      dimension:
+        type: string
+      entity_urns:
+        items:
+          type: string
+        type: array
+      ref:
+        type: string
+      score:
+        type: number
+      source:
+        type: string
+      status:
+        type: string
+      text:
+        type: string
+    type: object
   portal.Share:
     properties:
       access_count:
@@ -3211,6 +3248,21 @@ definitions:
         type: string
       result:
         description: validated | disputed
+        type: string
+    type: object
+  portal.searchResponse:
+    properties:
+      count:
+        type: integer
+      coverage:
+        items:
+          $ref: '#/definitions/portal.SearchCoverage'
+        type: array
+      groups:
+        items:
+          $ref: '#/definitions/portal.SearchGroup'
+        type: array
+      ranking:
         type: string
     type: object
   portal.setSectionsRequest:
@@ -9640,6 +9692,57 @@ paths:
       summary: Search my prompts
       tags:
       - Prompts
+  /portal/search:
+    get:
+      description: One query fans across every source the caller can access (catalog,
+        knowledge pages, memory, insights, assets, prompts, endpoints, connections),
+        grouped by source and scope-enforced.
+      parameters:
+      - description: Natural-language intent
+        in: query
+        name: q
+        type: string
+      - description: Entity-keyed lookup (repeatable)
+        in: query
+        name: entity_urns
+        type: string
+      - description: Insight review status filter
+        in: query
+        name: status
+        type: string
+      - description: Narrow to specific sources (repeatable)
+        in: query
+        name: sources
+        type: string
+      - description: Display budget across all sources
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.searchResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Unified knowledge search
+      tags:
+      - Knowledge
   /portal/shared-collections:
     get:
       description: Returns paginated collections that other users have shared with

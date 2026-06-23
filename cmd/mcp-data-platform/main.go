@@ -30,6 +30,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/gatewayhttp"
 	"github.com/txn2/mcp-data-platform/pkg/health"
 	httpauth "github.com/txn2/mcp-data-platform/pkg/http"
+	"github.com/txn2/mcp-data-platform/pkg/knowledge"
 	"github.com/txn2/mcp-data-platform/pkg/observability/proxy"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/pkcestore"
@@ -907,6 +908,55 @@ func wirePortalOptionalDeps(deps *portal.Deps, p *platform.Platform) {
 		tr := p.ToolkitRegistry()
 		deps.PersonaResolver = buildPersonaResolver(pr, tr)
 	}
+	if router := p.KnowledgeRouter(); router != nil {
+		deps.SearchRouter = portalSearchAdapter{router: router}
+	}
+}
+
+// portalSearchAdapter bridges the portal's GET /search endpoint to the unified
+// knowledge router. It lives in main (not pkg/portal) because pkg/knowledge
+// already imports pkg/portal for the asset and knowledge-page stores; the
+// adapter maps the portal-local search types to and from the knowledge types so
+// neither package needs to import the other.
+type portalSearchAdapter struct {
+	router *knowledge.Router
+}
+
+// Search forwards a portal search to the knowledge router, mapping the request
+// and response across the two type sets. No ranking or scope logic is added: the
+// router owns identity scoping, fusion, and allocation.
+func (a portalSearchAdapter) Search(ctx context.Context, q portal.SearchQuery) (portal.SearchResult, error) {
+	res, err := a.router.Search(ctx, knowledge.Query{
+		Intent:     q.Intent,
+		EntityURNs: q.EntityURNs,
+		Status:     q.Status,
+		Sources:    q.Sources,
+		Caller:     knowledge.Caller{UserID: q.Caller.UserID, Email: q.Caller.Email, Persona: q.Caller.Persona},
+		Limit:      q.Limit,
+	})
+	if err != nil {
+		return portal.SearchResult{}, fmt.Errorf("knowledge search: %w", err)
+	}
+	out := portal.SearchResult{Ranking: res.Ranking}
+	for _, g := range res.Groups {
+		hits := make([]portal.SearchHit, 0, len(g.Hits))
+		for _, hit := range g.Hits {
+			hits = append(hits, portal.SearchHit{
+				Text:       hit.Text,
+				Source:     hit.Source,
+				Ref:        hit.Ref,
+				Score:      hit.Score,
+				Status:     hit.Status,
+				EntityURNs: hit.EntityURNs,
+				Dimension:  hit.Dimension,
+			})
+		}
+		out.Groups = append(out.Groups, portal.SearchGroup{Source: g.Source, Hits: hits})
+	}
+	for _, c := range res.Coverage {
+		out.Coverage = append(out.Coverage, portal.SearchCoverage{Source: c.Source, Matched: c.Matched, Shown: c.Shown})
+	}
+	return out, nil
 }
 
 // buildPersonaResolver creates a portal.PersonaResolver from the persona and toolkit registries.

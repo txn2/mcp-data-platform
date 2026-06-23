@@ -6,8 +6,7 @@ import { useAuthStore } from "@/stores/auth";
 // Portal pages (everyone)
 import { ActivityPage } from "@/pages/activity/ActivityPage";
 import { MyAssetsPage } from "@/pages/assets/MyAssetsPage";
-import { MyKnowledgePage } from "@/pages/knowledge/MyKnowledgePage";
-import { KnowledgePagesPage } from "@/pages/knowledge-pages/KnowledgePagesPage";
+import { KnowledgeHub } from "@/pages/knowledge/KnowledgeHub";
 import { MyPromptsPage } from "@/pages/prompts/MyPromptsPage";
 import { PromptViewerPage } from "@/pages/prompts/PromptViewerPage";
 import { AssetViewerPage } from "@/pages/viewer/AssetViewerPage";
@@ -22,7 +21,6 @@ import { AdminAssetsPage } from "@/pages/assets/AdminAssetsPage";
 import { AdminAssetViewerPage } from "@/pages/viewer/AdminAssetViewerPage";
 import { ToolsPage } from "@/pages/tools/ToolsPage";
 import { AuditLogPage } from "@/pages/audit/AuditLogPage";
-import { KnowledgePage } from "@/pages/knowledge/KnowledgePage";
 import { ConfigEditorPage } from "@/pages/settings/ConfigEditorPage";
 import { CatalogsPanel } from "@/pages/settings/CatalogsPanel";
 import { ConnectionsPanel } from "@/pages/settings/ConnectionsPanel";
@@ -39,13 +37,12 @@ const pageTitles: Record<string, string> = {
   "/collections": "Collections",
   "/resources": "Resources",
   "/feedback": "Feedback",
-  "/my-knowledge": "Knowledge & Memory",
+  "/knowledge": "Knowledge",
   "/prompts": "Prompts",
   "/admin": "Dashboard",
   "/admin/assets": "Assets",
   "/admin/tools": "Tools",
   "/admin/audit": "Dashboard",
-  "/admin/knowledge": "Knowledge & Memory",
   "/admin/description": "Description",
   "/admin/agent-instructions": "Agent Instructions",
   "/admin/api-catalogs": "API Catalogs",
@@ -174,6 +171,17 @@ export function AppShell() {
     if (currentPath.split("#")[0] === "/shared") navigate("/");
   }, [currentPath, navigate]);
 
+  // Knowledge/Memory IA unification (#661): the former /knowledge-pages,
+  // /my-knowledge, and /admin/knowledge surfaces merged into one /knowledge
+  // hub with three tabs. Redirect the retired routes to the matching tab so
+  // existing bookmarks and links keep working.
+  useEffect(() => {
+    const base = currentPath.split("#")[0];
+    if (base === "/knowledge-pages") navigate("/knowledge#knowledge");
+    else if (base === "/my-knowledge") navigate("/knowledge#insights");
+    else if (base === "/admin/knowledge") navigate("/knowledge#insights");
+  }, [currentPath, navigate]);
+
   const hashIdx = currentPath.indexOf("#");
   const route = hashIdx >= 0 ? currentPath.slice(0, hashIdx) : currentPath;
   const initialTab = hashIdx >= 0 ? currentPath.slice(hashIdx + 1) : undefined;
@@ -269,8 +277,9 @@ export function AppShell() {
             <ResourcesPage onNavigate={navigate} />
           )}
           {!isAdminRoute && route === "/feedback" && <FeedbackPage onNavigate={navigate} />}
-          {!isAdminRoute && route === "/knowledge-pages" && <KnowledgePagesPage />}
-          {!isAdminRoute && route === "/my-knowledge" && <MyKnowledgePage />}
+          {!isAdminRoute && route === "/knowledge" && (
+            <KnowledgeHub key={currentPath} initialTab={initialTab} />
+          )}
           {!isAdminRoute && route === "/prompts" && <MyPromptsPage onNavigate={navigate} />}
           {!isAdminRoute && promptViewMatch && (
             <PromptViewerPage
@@ -313,9 +322,6 @@ export function AppShell() {
               )}
               {route === "/admin/tools" && (
                 <ToolsPage key={currentPath} initialTab={initialTab} />
-              )}
-              {route === "/admin/knowledge" && (
-                <KnowledgePage key={currentPath} initialTab={initialTab} />
               )}
               {route === "/admin/description" && (
                 <ConfigEditorPage configKey="server.description" label="Description" description="Platform identity visible to MCP clients" />

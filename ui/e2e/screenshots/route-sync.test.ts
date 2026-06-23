@@ -75,9 +75,9 @@ describe("route manifest sync", () => {
         routePath: "/portal/admin/audit",
       },
       {
-        file: "../../src/pages/knowledge/KnowledgePage.tsx",
+        file: "../../src/pages/knowledge/KnowledgeHub.tsx",
         typeName: "Tab",
-        routePath: "/portal/admin/knowledge",
+        routePath: "/portal/knowledge",
       },
     ];
 

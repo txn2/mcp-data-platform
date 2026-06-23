@@ -41,6 +41,7 @@ import type {
   KnowledgePageListResponse,
   KnowledgePageVersionsResponse,
   ScoredKnowledgePage,
+  SearchResponse,
 } from "./types";
 
 // --- Branding (unauthenticated) ---
@@ -793,6 +794,7 @@ export function useDeleteMyPrompt() {
 
 export function useMyMemories(params?: {
   dimension?: string;
+  sinkClass?: string;
   category?: string;
   status?: string;
   source?: string;
@@ -801,6 +803,7 @@ export function useMyMemories(params?: {
 }) {
   const sp = new URLSearchParams();
   if (params?.dimension) sp.set("dimension", params.dimension);
+  if (params?.sinkClass) sp.set("sink_class", params.sinkClass);
   if (params?.category) sp.set("category", params.category);
   if (params?.status) sp.set("status", params.status);
   if (params?.source) sp.set("source", params.source);
@@ -844,6 +847,34 @@ export function useSearchMyMemories(
       apiFetch<PaginatedResponse<ScoredMemoryRecord>>(
         `/memory/records/search?${sp.toString()}`,
       ),
+  });
+}
+
+// --- Unified knowledge search (#661) ---
+
+// useSearch fans one query across every source the caller can access (internal
+// knowledge pages, the DataHub catalog, memory, insights, assets, prompts,
+// endpoints, connections), returning results grouped by source with a coverage
+// summary. It is the REST surface over the same router behind the MCP search
+// tool. Disabled (no request) until query or entityUrns is non-empty, so an
+// empty query falls back to the page's browse experience.
+export function useSearch(
+  query: string,
+  params?: { entityUrns?: string[]; sources?: string[]; status?: string; limit?: number },
+) {
+  const q = query.trim();
+  const sp = new URLSearchParams();
+  if (q) sp.set("q", q);
+  for (const urn of params?.entityUrns ?? []) sp.append("entity_urns", urn);
+  for (const src of params?.sources ?? []) sp.append("sources", src);
+  if (params?.status) sp.set("status", params.status);
+  if (params?.limit) sp.set("limit", String(params.limit));
+
+  const hasEntityURNs = (params?.entityUrns?.length ?? 0) > 0;
+  return useQuery({
+    queryKey: ["unified-search", q, params],
+    enabled: q.length > 0 || hasEntityURNs,
+    queryFn: () => apiFetch<SearchResponse>(`/search?${sp.toString()}`),
   });
 }
 

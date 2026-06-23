@@ -115,6 +115,10 @@ type Deps struct {
 	MemoryStore        MemoryReader
 	EmbeddingProvider  embedding.Provider
 	PersonaResolver    PersonaResolver
+	// SearchRouter backs GET /api/v1/portal/search, the REST surface over the
+	// unified knowledge federation. nil disables the endpoint (no searchable
+	// source configured).
+	SearchRouter SearchRouter
 	// UserDirectory is the known-users directory (#614), read by the share
 	// picker so users can pick a teammate instead of typing an email. nil
 	// disables the /api/v1/portal/users endpoint (no database); the share
@@ -228,6 +232,9 @@ func (h *Handler) registerRoutes() {
 
 	// Knowledge page routes (canonical business/domain knowledge)
 	h.registerKnowledgePageRoutes()
+
+	// Unified knowledge search (one query across every source the caller can access)
+	h.registerSearchRoutes()
 
 	// Feedback thread routes
 	h.registerThreadRoutes()
@@ -1776,6 +1783,7 @@ func (h *Handler) listMyMemories(w http.ResponseWriter, r *http.Request) {
 	filter := memory.Filter{
 		CreatedBy: user.Email,
 		Dimension: q.Get("dimension"),
+		SinkClass: q.Get("sink_class"),
 		Category:  q.Get("category"),
 		Status:    q.Get("status"),
 		Source:    q.Get("source"),

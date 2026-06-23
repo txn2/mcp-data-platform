@@ -241,6 +241,12 @@ type Filter struct {
 	CreatedBy string
 	Persona   string
 	Dimension string
+	// SinkClass filters on the #633 organizing axis (personal_preference,
+	// business_knowledge, schema_entity, operational_rule, episodic_event). It is
+	// the lifecycle axis the portal Memory view browses by; unlike Dimension, it
+	// distinguishes the three reviewable knowledge-dimension classes from one
+	// another.
+	SinkClass string
 	Category  string
 	Status    string
 	Source    string
