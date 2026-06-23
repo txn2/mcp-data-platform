@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useMemo } from "react";
+import { useEffect, useRef, useCallback, useMemo, useId } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import Papa from "papaparse";
@@ -219,35 +219,42 @@ const DARK_SCHEME: Scheme = {
 
 // tableBaseCss is the table border/spacing shared by the markdown and CSV prose
 // variants; each adds its own cell sizing on top.
-function tableBaseCss(t: ProseTokens): string {
+//
+// All prose CSS is scoped to a caller-supplied `scope` class rather than a
+// shared `.thumb-prose`. The light and dark scheme containers are mounted into
+// the document at the same time, so a shared global selector would let the
+// later-rendered scheme's colors win for BOTH captures (the dark code/cell
+// backgrounds bled into the light thumbnail, rendering inline code as near-black
+// boxes). A unique scope per scheme keeps each capture's styles isolated.
+function tableBaseCss(t: ProseTokens, scope: string): string {
   return `
-    .thumb-prose table { border-collapse: collapse; margin: 0.4em 0; }
-    .thumb-prose th, .thumb-prose td { border: 1px solid ${t.border}; padding: 0.25em 0.5em; }`;
+    .${scope} table { border-collapse: collapse; margin: 0.4em 0; }
+    .${scope} th, .${scope} td { border: 1px solid ${t.border}; padding: 0.25em 0.5em; }`;
 }
 
-function markdownProseCss(t: ProseTokens): string {
+function markdownProseCss(t: ProseTokens, scope: string): string {
   return `
-    .thumb-prose h1 { font-size: 1.5em; font-weight: 700; margin: 0.5em 0 0.25em; }
-    .thumb-prose h2 { font-size: 1.25em; font-weight: 600; margin: 0.5em 0 0.25em; }
-    .thumb-prose h3 { font-size: 1.1em; font-weight: 600; margin: 0.4em 0 0.2em; }
-    .thumb-prose p { margin: 0.4em 0; }
-    .thumb-prose ul, .thumb-prose ol { padding-left: 1.5em; margin: 0.4em 0; }
-    .thumb-prose code { background: ${t.codeBg}; padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.9em; }
-    .thumb-prose pre { background: ${t.codeBg}; padding: 0.5em; border-radius: 4px; overflow: auto; margin: 0.4em 0; }
-    .thumb-prose blockquote { border-left: 3px solid ${t.blockquoteBorder}; padding-left: 0.75em; margin: 0.4em 0; color: ${t.muted}; }
-    .thumb-prose a { color: ${t.link}; text-decoration: underline; }
-    ${tableBaseCss(t)}
-    .thumb-prose th, .thumb-prose td { font-size: 0.9em; }
+    .${scope} h1 { font-size: 1.5em; font-weight: 700; margin: 0.5em 0 0.25em; }
+    .${scope} h2 { font-size: 1.25em; font-weight: 600; margin: 0.5em 0 0.25em; }
+    .${scope} h3 { font-size: 1.1em; font-weight: 600; margin: 0.4em 0 0.2em; }
+    .${scope} p { margin: 0.4em 0; }
+    .${scope} ul, .${scope} ol { padding-left: 1.5em; margin: 0.4em 0; }
+    .${scope} code { background: ${t.codeBg}; padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.9em; }
+    .${scope} pre { background: ${t.codeBg}; padding: 0.5em; border-radius: 4px; overflow: auto; margin: 0.4em 0; }
+    .${scope} blockquote { border-left: 3px solid ${t.blockquoteBorder}; padding-left: 0.75em; margin: 0.4em 0; color: ${t.muted}; }
+    .${scope} a { color: ${t.link}; text-decoration: underline; }
+    ${tableBaseCss(t, scope)}
+    .${scope} th, .${scope} td { font-size: 0.9em; }
   `;
 }
 
-function csvProseCss(t: ProseTokens): string {
+function csvProseCss(t: ProseTokens, scope: string): string {
   return `
-    ${tableBaseCss(t)}
-    .thumb-prose table { width: 100%; }
-    .thumb-prose th, .thumb-prose td { font-size: 0.85em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; }
-    .thumb-prose th { background: ${t.thBg}; font-weight: 600; }
-    .thumb-prose tr:nth-child(even) { background: ${t.evenRow}; }
+    ${tableBaseCss(t, scope)}
+    .${scope} table { width: 100%; }
+    .${scope} th, .${scope} td { font-size: 0.85em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; }
+    .${scope} th { background: ${t.thBg}; font-weight: 600; }
+    .${scope} tr:nth-child(even) { background: ${t.evenRow}; }
   `;
 }
 
@@ -332,6 +339,13 @@ function DomCapture({
   const containerRefs = useRef<(HTMLDivElement | null)[]>([]);
   const capturedRef = useRef(false);
 
+  // Per-instance prefix for the prose scope class. Combined with the scheme
+  // variant below, this isolates each capture's injected CSS so neither the
+  // light/dark pair nor concurrently-mounted generators for other assets can
+  // clobber each other's colors. useId() can contain ":" which is invalid in a
+  // class name, so strip it.
+  const scopeBase = `tg-${useId().replace(/:/g, "")}`;
+
   const ct = contentType.toLowerCase();
   const isSvg = ct.includes("svg");
   const isCsvThumb = ct.includes("csv");
@@ -407,7 +421,9 @@ function DomCapture({
 
   return (
     <>
-      {schemes.map((scheme, i) => (
+      {schemes.map((scheme, i) => {
+        const scope = `${scopeBase}-${scheme.variant}`;
+        return (
         <div
           key={scheme.variant}
           ref={(el) => {
@@ -432,8 +448,8 @@ function DomCapture({
         >
           {isCsvThumb && csvTable ? (
             <div>
-              <style>{csvProseCss(scheme.tokens)}</style>
-              <div className="thumb-prose">
+              <style>{csvProseCss(scheme.tokens, scope)}</style>
+              <div className={scope}>
                 <table>
                   <thead>
                     <tr>
@@ -458,14 +474,15 @@ function DomCapture({
             <div dangerouslySetInnerHTML={{ __html: sanitizedSvg }} />
           ) : (
             <div style={{ maxWidth: "none" }}>
-              <style>{markdownProseCss(scheme.tokens)}</style>
-              <div className="thumb-prose">
+              <style>{markdownProseCss(scheme.tokens, scope)}</style>
+              <div className={scope}>
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
               </div>
             </div>
           )}
         </div>
-      ))}
+        );
+      })}
     </>
   );
 }
