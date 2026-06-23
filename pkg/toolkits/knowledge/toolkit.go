@@ -47,6 +47,11 @@ type applyKnowledgeInput struct {
 	InsightIDs []string      `json:"insight_ids,omitempty"`
 	Changes    []ApplyChange `json:"changes,omitempty"`
 	Confirm    bool          `json:"confirm,omitempty"`
+	// Sink selects the apply target: "" / "datahub" (default) applies DataHub
+	// changes; "knowledge_page" promotes a capture to a canonical knowledge page.
+	Sink string `json:"sink,omitempty"`
+	// Page is the curated page payload for sink=knowledge_page (#633 Goal 3).
+	Page *pagePromotionInput `json:"page,omitempty"`
 	// For approve/reject actions
 	ReviewNotes string `json:"review_notes,omitempty"`
 	// ChangesetID is the target changeset for the rollback action.
@@ -69,6 +74,7 @@ type Toolkit struct {
 	requireConfirmation bool
 	changesetStore      ChangesetStore
 	datahubWriter       DataHubWriter
+	pageWriter          pageWriter
 
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
@@ -384,6 +390,17 @@ func buildProposedChanges(insights []Insight, meta *EntityMetadata) []ProposedCh
 
 // handleApply writes changes to DataHub and records a changeset.
 func (t *Toolkit) handleApply(ctx context.Context, input applyKnowledgeInput) (*mcp.CallToolResult, any, error) {
+	// Sink router (#633 Goal 3): non-DataHub canonical knowledge promotes to a
+	// portal knowledge page; schema_entity continues to DataHub (default).
+	switch input.Sink {
+	case "", sinkDataHub:
+		// fall through to the DataHub path below
+	case sinkKnowledgePage:
+		return t.promoteToPage(ctx, input)
+	default:
+		return errorResult("unknown sink: " + input.Sink + " (valid: datahub, knowledge_page)"), nil, nil
+	}
+
 	if input.EntityURN == "" {
 		return errorResult("entity_urn is required for apply action"), nil, nil
 	}

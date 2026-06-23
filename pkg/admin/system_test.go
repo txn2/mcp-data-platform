@@ -48,7 +48,7 @@ func TestGetSystemInfo(t *testing.T) {
 		pReg := &mockPersonaRegistry{
 			allResult: testPersonas("analyst", "admin"),
 		}
-		kh := NewKnowledgeHandler(nil, nil, nil)
+		kh := NewKnowledgeHandler(nil, nil, nil, nil)
 		aq := &mockAuditQuerier{}
 
 		h := NewHandler(Deps{

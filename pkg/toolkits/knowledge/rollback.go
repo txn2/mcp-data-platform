@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 )
 
 // ErrChangesetAlreadyRolledBack is returned when a rollback targets a changeset
@@ -72,6 +74,12 @@ type RollbackDeps struct {
 	Writer     DataHubWriter
 	Changesets ChangesetStore
 	Insights   InsightStore
+	// Pages reverts knowledge-page promotions (target "kp:<slug>"). Optional; a
+	// nil Pages makes a page-changeset rollback return a clear "not configured"
+	// error rather than mis-routing through the DataHub inverse-op path.
+	// PageReverter and PageEditedError live in page_sink.go with the rest of the
+	// page-sink machinery.
+	Pages PageReverter
 }
 
 // RevertChangeset reverts the DataHub aspects mutated by a changeset back to
@@ -85,6 +93,13 @@ type RollbackDeps struct {
 func RevertChangeset(ctx context.Context, deps RollbackDeps, cs *Changeset, rolledBackBy string) (*RollbackResult, error) {
 	if cs.RolledBack {
 		return nil, ErrChangesetAlreadyRolledBack
+	}
+
+	// Knowledge-page promotions (target "kp:<slug>") revert via the page sink,
+	// not the DataHub inverse-op path. Shared here so both the apply_knowledge
+	// tool and the admin REST endpoint route page changesets correctly.
+	if strings.HasPrefix(cs.TargetURN, pageTargetPrefix) {
+		return revertPageChangeset(ctx, deps, cs, rolledBackBy)
 	}
 
 	changes := parseRecordedChanges(cs.NewValue)
@@ -312,4 +327,71 @@ func stringSetField(m map[string]any, key string) map[string]bool {
 		}
 	}
 	return out
+}
+
+// revertPageChangeset reverts a knowledge-page promotion: a create_page is
+// soft-deleted, an update_page is restored to its before-image (a new version).
+// It refuses (PageEditedError) if the page was edited after the promotion, so a
+// rollback never clobbers a later human edit. Pure: returns a RollbackResult and
+// typed errors so the apply_knowledge tool and the admin REST endpoint present
+// failures uniformly (see writeRollbackError / rollbackErrorResult).
+func revertPageChangeset(ctx context.Context, deps RollbackDeps, cs *Changeset, rolledBackBy string) (*RollbackResult, error) {
+	if deps.Pages == nil {
+		return nil, fmt.Errorf("knowledge-page rollback is not configured on this deployment")
+	}
+	slug := strings.TrimPrefix(cs.TargetURN, pageTargetPrefix)
+	page, err := deps.Pages.GetBySlug(ctx, slug)
+	if errors.Is(err, knowledgepage.ErrNotFound) {
+		return nil, fmt.Errorf("knowledge page no longer exists: %s", slug)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("looking up knowledge page: %w", err)
+	}
+	if produced := intFromMap(cs.NewValue, pageFieldVersion); page.CurrentVersion != produced {
+		return nil, &PageEditedError{Slug: slug, CurrentVersion: page.CurrentVersion, ChangesetVersion: produced}
+	}
+
+	reverted, err := applyPageRevert(ctx, deps.Pages, cs, page, rolledBackBy)
+	if err != nil {
+		return nil, err
+	}
+
+	rolledBackInsights := rollbackInsights(ctx, deps.Insights, cs.SourceInsightIDs, rolledBackBy)
+	if err := deps.Changesets.RollbackChangeset(ctx, cs.ID, rolledBackBy); err != nil {
+		return nil, fmt.Errorf("reverted the page but recording the rollback failed: %w", err)
+	}
+	return &RollbackResult{
+		ChangesetID:        cs.ID,
+		TargetURN:          cs.TargetURN,
+		RevertedChanges:    []string{reverted},
+		InsightsRolledBack: rolledBackInsights,
+		RolledBackBy:       rolledBackBy,
+	}, nil
+}
+
+// applyPageRevert performs the inverse page operation for a promotion changeset:
+// soft-delete a created page or restore an updated page's before-image. Returns a
+// human-readable summary of what it reverted.
+func applyPageRevert(ctx context.Context, pages PageReverter, cs *Changeset, page *knowledgepage.Page, rolledBackBy string) (string, error) {
+	switch cs.ChangeType {
+	case changeCreatePage:
+		if err := pages.SoftDelete(ctx, page.ID); err != nil {
+			return "", fmt.Errorf("deleting knowledge page: %w", err)
+		}
+		return "deleted page " + page.Slug, nil
+	case changeUpdatePage:
+		title := stringField(cs.PreviousValue, pageFieldTitle)
+		summary := stringField(cs.PreviousValue, pageFieldSummary)
+		body := stringField(cs.PreviousValue, pageFieldBody)
+		tags := strsFromMap(cs.PreviousValue, pageFieldTags)
+		if err := pages.Update(ctx, page.ID, knowledgepage.Update{
+			Title: &title, Summary: &summary, Body: &body, Tags: &tags,
+			UpdatedBy: rolledBackBy, ChangeSummary: "rollback of changeset " + cs.ID,
+		}); err != nil {
+			return "", fmt.Errorf("restoring knowledge page: %w", err)
+		}
+		return "restored page " + page.Slug, nil
+	default:
+		return "", fmt.Errorf("unknown page change type: %s", cs.ChangeType)
+	}
 }

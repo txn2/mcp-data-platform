@@ -585,7 +585,7 @@ func TestHandler_IntegrationWithAuth(t *testing.T) {
 	csStore := &mockChangesetStore{
 		listResult: []mockChangesetListResult{{changesets: nil, total: 0, err: nil}},
 	}
-	kh := NewKnowledgeHandler(store, csStore, nil)
+	kh := NewKnowledgeHandler(store, csStore, nil, nil)
 
 	apiAuth := &APIKeyAuthenticator{
 		Keys: map[string]User{
