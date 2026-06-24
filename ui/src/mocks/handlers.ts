@@ -1633,7 +1633,12 @@ export const handlers = [
     const counts: Record<string, number> = {};
     for (const t of portalThreads) {
       if (t.deleted_at || t.status !== "open") continue;
-      const tid = targetType === "collection" ? t.collection_id : t.asset_id;
+      const tid =
+        targetType === "collection"
+          ? t.collection_id
+          : targetType === "knowledge_page"
+            ? t.knowledge_page_id
+            : t.asset_id;
       if (tid && ids.includes(tid)) counts[tid] = (counts[tid] ?? 0) + 1;
     }
     return HttpResponse.json(counts);
@@ -1648,6 +1653,8 @@ export const handlers = [
       if (q.get("asset_id")) return t.asset_id === q.get("asset_id");
       if (q.get("collection_id")) return t.collection_id === q.get("collection_id");
       if (q.get("prompt_id")) return t.prompt_id === q.get("prompt_id");
+      if (q.get("knowledge_page_id"))
+        return t.knowledge_page_id === q.get("knowledge_page_id");
       return false;
     });
     const status = q.get("status");
@@ -1675,6 +1682,7 @@ export const handlers = [
       asset_id: body.asset_id,
       collection_id: body.collection_id,
       prompt_id: body.prompt_id,
+      knowledge_page_id: body.knowledge_page_id,
       anchor: body.anchor,
       target_version: body.target_version,
       title: body.title,
@@ -1703,6 +1711,32 @@ export const handlers = [
       },
     ];
     return HttpResponse.json(thread, { status: 201 });
+  }),
+
+  // Capture a feedback thread as a reviewable insight (#662): mark the thread
+  // resolved + linked, append an insight_linked event, and report the new id.
+  http.post(`${PORTAL_BASE}/threads/:id/insight`, async ({ params, request }) => {
+    const id = params.id as string;
+    const thread = portalThreads.find((t) => t.id === id && !t.deleted_at);
+    if (!thread) return HttpResponse.json({ error: "not found" }, { status: 404 });
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const insightId = `mem-mock-${++threadCounter}`;
+    thread.insight_id = insightId;
+    thread.status = "resolved";
+    thread.updated_at = new Date().toISOString();
+    (portalThreadEvents[id] ??= []).push({
+      id: `evt-${id}-insight`,
+      thread_id: id,
+      event_type: "insight_linked",
+      author_id: "sarah.chen@example.com",
+      author_email: "sarah.chen@example.com",
+      metadata: { insight_id: insightId },
+      created_at: thread.updated_at,
+    });
+    return HttpResponse.json(
+      { insight_id: insightId, status: "pending", linked: true, sink_class: body.sink_class ?? "business_knowledge" },
+      { status: 201 },
+    );
   }),
 
   http.get(`${PORTAL_BASE}/threads/:id/events`, ({ params }) =>

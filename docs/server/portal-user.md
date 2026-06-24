@@ -149,17 +149,21 @@ Click any shared asset to open it in the viewer:
 
 Feedback lets the people who review your work, including subject-matter experts and stakeholders who do not use an agent, leave structured corrections and questions on the things you share with them, instead of relaying that feedback over email.
 
-Feedback is organized into **threads**. A thread targets one asset, collection, or prompt, or it lives on a **standalone channel** for general feedback not tied to a single object. Each thread has a kind (comment, question, correction, rating, approval, rejection, or suggestion), a status (open, answered, resolved, won't fix, acknowledged), an optional `requires_resolution` flag, and a timeline of events (the opening message plus replies and status changes). A thread can be anchored to a specific selection within the target so a correction like "we don't use that term" stays pinned to the place it refers to, along with the version it was raised against. Standalone-channel threads are visible to every signed-in user; feedback on an asset, collection, or prompt is visible to people who can already view that object.
+Feedback is organized into **threads**. A thread targets one asset, collection, prompt, or knowledge page, or it lives on a **standalone channel** for general feedback not tied to a single object. Each thread has a kind (comment, question, correction, rating, approval, rejection, or suggestion), a status (open, answered, resolved, won't fix, acknowledged), an optional `requires_resolution` flag, and a timeline of events (the opening message plus replies and status changes). A thread can be anchored to a specific selection within the target so a correction like "we don't use that term" stays pinned to the place it refers to, along with the version it was raised against. Standalone-channel threads are visible to every signed-in user; feedback on an asset, collection, or prompt is visible to people who can already view that object; knowledge pages are org-shared, so any signed-in user can read and add feedback on them.
 
 ### The feedback panel
 
-Open the **Feedback** button in an asset, collection, or prompt viewer to slide out the feedback panel. It lists the threads on that item with their kind, status, and activity, and a header counts how many are open and how many still need resolution. Selecting a text passage in markdown or plain-text content (an asset or a prompt) before opening **New** lets you anchor your feedback to that selection.
+Open the **Feedback** button in an asset, collection, prompt, or knowledge-page viewer to slide out the feedback panel. It lists the threads on that item with their kind, status, and activity, and a header counts how many are open and how many still need resolution. Selecting a text passage in markdown or plain-text content (an asset, a prompt, or a knowledge page) before opening **New** lets you anchor your feedback to that selection. In the Knowledge hub, each knowledge-page card shows an open-thread badge so you can see where feedback is waiting.
 
 ![Asset feedback panel](../images/screenshots/light/user-asset-feedback-light.webp#only-light)![Asset feedback panel](../images/screenshots/dark/user-asset-feedback-dark.webp#only-dark)
 
 Opening a thread shows its full timeline. Anyone can reply; the item's owner, an editor, or an admin can change the status (for example resolve it) or delete the thread. The status change is recorded on the timeline.
 
 ![Feedback thread detail](../images/screenshots/light/user-asset-feedback-detail-light.webp#only-light)![Feedback thread detail](../images/screenshots/dark/user-asset-feedback-detail-dark.webp#only-dark)
+
+### Turning feedback into knowledge
+
+A correction or suggestion is only useful if it can change something. When you have **apply_knowledge** access, an unresolved correction or suggestion thread shows a **Capture as insight** action in its detail view. Capturing it creates a pending insight from the thread (its title and first comment) that enters the review queue alongside insights captured by agents, and resolves the thread with a link to that insight. From there the normal apply_knowledge review and promote/apply pipeline takes over: once the insight is promoted to a knowledge page or applied to the catalog, the thread's knowledge chain shows the resulting change, closing the loop for both the reviewer and the person who raised the feedback. This is how feedback on any content becomes durable, reviewed knowledge rather than a dead-end comment.
 
 The **Feedback** page in the sidebar is the standalone channel for general feedback. The My Assets and Collections lists show an open-thread badge on items you own so you can see at a glance where feedback is waiting.
 

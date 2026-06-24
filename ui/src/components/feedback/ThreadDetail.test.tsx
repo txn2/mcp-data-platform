@@ -9,6 +9,7 @@ vi.mock("@/api/portal/hooks", () => ({
   useUpdateThread: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useDeleteThread: vi.fn(() => ({ mutate: vi.fn(), isPending: false, isError: false })),
   useRespondValidation: vi.fn(() => ({ mutate: vi.fn(), isPending: false, isError: false })),
+  useCaptureThreadInsight: vi.fn(() => ({ mutate: vi.fn(), isPending: false, isError: false })),
 }));
 
 vi.mock("@/stores/auth", () => ({

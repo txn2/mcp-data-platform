@@ -9732,7 +9732,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Opens a new feedback thread (and its first event) on an asset, collection, prompt, or the standalone channel.",
+                "description": "Opens a new feedback thread (and its first event) on an asset, collection, prompt, knowledge page, or the standalone channel.",
                 "consumes": [
                     "application/json"
                 ],
@@ -10204,6 +10204,84 @@ const docTemplate = `{
                         "description": "Created",
                         "schema": {
                             "$ref": "#/definitions/portal.ThreadEvent"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/threads/{id}/insight": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a pending insight from a feedback thread and links the thread to it. Requires apply_knowledge access.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Feedback"
+                ],
+                "summary": "Capture a feedback thread as an insight",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Thread id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Optional overrides",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/portal.captureInsightRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/portal.captureInsightResponse"
                         }
                     },
                     "400": {
@@ -14482,6 +14560,9 @@ const docTemplate = `{
                     "type": "string",
                     "example": "correction"
                 },
+                "knowledge_page_id": {
+                    "type": "string"
+                },
                 "prompt_id": {
                     "type": "string"
                 },
@@ -14663,6 +14744,43 @@ const docTemplate = `{
                 }
             }
         },
+        "portal.captureInsightRequest": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string"
+                },
+                "confidence": {
+                    "type": "string"
+                },
+                "content": {
+                    "type": "string"
+                },
+                "entity_urns": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "sink_class": {
+                    "type": "string"
+                }
+            }
+        },
+        "portal.captureInsightResponse": {
+            "type": "object",
+            "properties": {
+                "insight_id": {
+                    "type": "string"
+                },
+                "linked": {
+                    "type": "boolean"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
         "portal.createAssetRequest": {
             "type": "object",
             "properties": {
@@ -14751,6 +14869,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "kind": {
+                    "type": "string"
+                },
+                "knowledge_page_id": {
                     "type": "string"
                 },
                 "prompt_id": {

@@ -1,4 +1,4 @@
-package portal
+package threads
 
 import (
 	"context"
@@ -69,12 +69,12 @@ func TestThreadStoreListThreads(t *testing.T) {
 	mock.ExpectQuery("SELECT COUNT").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectQuery("FROM portal_threads t").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "kind", "target_type", "asset_id", "collection_id", "prompt_id", "anchor", "target_version",
+			"id", "kind", "target_type", "asset_id", "collection_id", "prompt_id", "knowledge_page_id", "anchor", "target_version",
 			"title", "author_id", "author_email", "status", "requires_resolution", "validation_state", "insight_id",
 			"created_at", "updated_at", "deleted_at",
 			"event_count", "last_event_at", "last_event_type",
 		}).AddRow(
-			"thr_1", ThreadKindComment, targetTypeAsset, "asset_1", nil, nil, []byte(`{"type":"text_quote","exact":"x"}`), 3,
+			"thr_1", ThreadKindComment, targetTypeAsset, "asset_1", nil, nil, nil, []byte(`{"type":"text_quote","exact":"x"}`), 3,
 			"title", "u1", "u1@example.com", ThreadStatusOpen, false, "none", nil,
 			now, now, nil,
 			2, now, EventTypeComment,
@@ -98,11 +98,11 @@ func TestThreadStoreGetThread(t *testing.T) {
 	mock.ExpectQuery("FROM portal_threads WHERE id").
 		WithArgs("thr_1").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "kind", "target_type", "asset_id", "collection_id", "prompt_id", "anchor", "target_version",
+			"id", "kind", "target_type", "asset_id", "collection_id", "prompt_id", "knowledge_page_id", "anchor", "target_version",
 			"title", "author_id", "author_email", "status", "requires_resolution", "validation_state", "insight_id",
 			"created_at", "updated_at", "deleted_at",
 		}).AddRow(
-			"thr_1", ThreadKindQuestion, targetTypeStandalone, nil, nil, nil, nil, nil,
+			"thr_1", ThreadKindQuestion, targetTypeStandalone, nil, nil, nil, nil, nil, nil,
 			"", "u1", "u1@example.com", ThreadStatusOpen, false, "none", nil,
 			now, now, nil,
 		))
@@ -525,41 +525,6 @@ func TestStatusAndValidationDefaults(t *testing.T) {
 	assert.Equal(t, "validated", validationOrDefault("validated"))
 }
 
-func TestScopeFromFilterAndValidTarget(t *testing.T) {
-	for _, tt := range []struct {
-		f    ThreadFilter
-		want string
-		ok   bool
-	}{
-		{ThreadFilter{TargetType: targetTypeStandalone}, targetTypeStandalone, true},
-		{ThreadFilter{AssetID: "a"}, targetTypeAsset, true},
-		{ThreadFilter{CollectionID: "c"}, targetTypeCollection, true},
-		{ThreadFilter{PromptID: "p"}, targetTypePrompt, true},
-		{ThreadFilter{}, "", false},
-		{ThreadFilter{AssetID: "a", CollectionID: "c"}, "", false},
-	} {
-		got, ok := scopeFromFilter(tt.f)
-		assert.Equal(t, tt.ok, ok)
-		if ok {
-			assert.Equal(t, tt.want, got)
-		}
-	}
-
-	assert.True(t, validThreadTarget(targetTypeStandalone, "", "", ""))
-	assert.True(t, validThreadTarget(targetTypeAsset, "a", "", ""))
-	assert.True(t, validThreadTarget(targetTypeCollection, "", "c", ""))
-	assert.True(t, validThreadTarget(targetTypePrompt, "", "", "p"))
-	assert.False(t, validThreadTarget(targetTypeAsset, "", "", ""))
-	assert.False(t, validThreadTarget(targetTypeStandalone, "a", "", ""))
-	assert.False(t, validThreadTarget("bogus", "", "", ""))
-}
-
-func TestValidAppendEventType(t *testing.T) {
-	assert.True(t, validAppendEventType(EventTypeComment))
-	assert.True(t, validAppendEventType(EventTypeRating))
-	assert.False(t, validAppendEventType(EventTypeResolution))
-}
-
 func TestValidThreadValidationState(t *testing.T) {
 	for _, s := range []string{ValidationStateNone, ValidationStatePending, ValidationStateValidated, ValidationStateDisputed} {
 		assert.True(t, ValidThreadValidationState(s), s)
@@ -582,11 +547,11 @@ func TestValidThreadStatus(t *testing.T) {
 }
 
 func TestDeriveFirstEventType(t *testing.T) {
-	assert.Equal(t, EventTypeRating, deriveFirstEventType(ThreadKindRating))
-	assert.Equal(t, EventTypeApproval, deriveFirstEventType(ThreadKindApproval))
-	assert.Equal(t, EventTypeRejection, deriveFirstEventType(ThreadKindRejection))
-	assert.Equal(t, EventTypeComment, deriveFirstEventType(ThreadKindCorrection))
-	assert.Equal(t, EventTypeComment, deriveFirstEventType(ThreadKindQuestion))
+	assert.Equal(t, EventTypeRating, DeriveFirstEventType(ThreadKindRating))
+	assert.Equal(t, EventTypeApproval, DeriveFirstEventType(ThreadKindApproval))
+	assert.Equal(t, EventTypeRejection, DeriveFirstEventType(ThreadKindRejection))
+	assert.Equal(t, EventTypeComment, DeriveFirstEventType(ThreadKindCorrection))
+	assert.Equal(t, EventTypeComment, DeriveFirstEventType(ThreadKindQuestion))
 }
 
 func TestStatusChangeEventType(t *testing.T) {
@@ -629,67 +594,7 @@ func TestNullHelpers(t *testing.T) {
 }
 
 func TestNewThreadID(t *testing.T) {
-	id := newThreadID("thr")
+	id := NewThreadID("thr")
 	assert.Contains(t, id, "thr_")
-	assert.NotEqual(t, id, newThreadID("thr"))
-}
-
-func shareCols() []string {
-	return []string{
-		"id", "asset_id", "collection_id", "prompt_id", "token", "created_by", "shared_with_user_id", "shared_with_email",
-		"expires_at", "revoked", "hide_expiration", "notice_text", "access_count", "last_accessed_at", "created_at", "permission", "origin",
-	}
-}
-
-func TestGetActiveShareForTargetAsset(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	store := NewPostgresShareStore(db)
-
-	mock.ExpectQuery("FROM portal_shares").
-		WithArgs("asset_1", "u1", "u1@example.com").
-		WillReturnRows(sqlmock.NewRows(shareCols()).AddRow(
-			"s1", "asset_1", nil, nil, "tok", "owner@example.com", "u1", "u1@example.com",
-			nil, false, false, "", 0, nil, time.Now(), string(PermissionViewer), string(OriginPublicLinkLogin),
-		))
-
-	got, err := store.GetActiveShareForTarget(context.Background(), targetTypeAsset, "asset_1", "u1", "u1@example.com")
-	require.NoError(t, err)
-	require.NotNil(t, got)
-	assert.Equal(t, OriginPublicLinkLogin, got.Origin)
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestGetActiveShareForTargetNoRows(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	store := NewPostgresShareStore(db)
-
-	mock.ExpectQuery("FROM portal_shares").
-		WithArgs("col_1", "u1", "u1@example.com").
-		WillReturnError(sql.ErrNoRows)
-
-	got, err := store.GetActiveShareForTarget(context.Background(), targetTypeCollection, "col_1", "u1", "u1@example.com")
-	require.NoError(t, err)
-	assert.Nil(t, got)
-	assert.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestGetActiveShareForTargetUnsupportedType(t *testing.T) {
-	db, _, err := sqlmock.New()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	store := NewPostgresShareStore(db)
-
-	got, err := store.GetActiveShareForTarget(context.Background(), targetTypePrompt, "p1", "u1", "u1@example.com")
-	require.NoError(t, err)
-	assert.Nil(t, got)
-}
-
-func TestNoopShareStoreGetActiveShareForTarget(t *testing.T) {
-	got, err := (&noopShareStore{}).GetActiveShareForTarget(context.Background(), targetTypeAsset, "a", "u", "e")
-	require.NoError(t, err)
-	assert.Nil(t, got)
+	assert.NotEqual(t, id, NewThreadID("thr"))
 }

@@ -289,7 +289,12 @@ export type ThreadKind =
   | "rejection"
   | "suggestion";
 
-export type ThreadTargetType = "asset" | "collection" | "prompt" | "standalone";
+export type ThreadTargetType =
+  | "asset"
+  | "collection"
+  | "prompt"
+  | "knowledge_page"
+  | "standalone";
 
 export type ThreadStatus =
   | "open"
@@ -333,6 +338,7 @@ export interface Thread {
   asset_id?: string;
   collection_id?: string;
   prompt_id?: string;
+  knowledge_page_id?: string;
   anchor?: ThreadAnchor;
   target_version?: number;
   title?: string;
@@ -409,6 +415,7 @@ export type FeedbackTarget =
   | { type: "asset"; id: string; version?: number }
   | { type: "collection"; id: string }
   | { type: "prompt"; id: string }
+  | { type: "knowledge_page"; id: string }
   | { type: "standalone" };
 
 // --- Known-users directory for the share picker (#614) ---

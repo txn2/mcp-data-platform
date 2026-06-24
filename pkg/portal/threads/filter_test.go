@@ -1,4 +1,4 @@
-package portal
+package threads
 
 import (
 	"strings"

@@ -11,6 +11,8 @@ export function filterForTarget(target: FeedbackTarget): ThreadListFilter {
       return { collection_id: target.id };
     case "prompt":
       return { prompt_id: target.id };
+    case "knowledge_page":
+      return { knowledge_page_id: target.id };
     case "standalone":
       return { target_type: "standalone" };
   }
@@ -25,6 +27,8 @@ export function targetLabel(target: FeedbackTarget): string {
       return "Collection feedback";
     case "prompt":
       return "Prompt feedback";
+    case "knowledge_page":
+      return "Knowledge page feedback";
     case "standalone":
       return "Feedback";
   }

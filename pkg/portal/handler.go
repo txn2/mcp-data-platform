@@ -76,6 +76,14 @@ type MemoryReader interface {
 	LexicalSearch(ctx context.Context, q memory.LexicalQuery) ([]memory.ScoredRecord, error)
 }
 
+// MemoryWriter inserts memory records. It backs #662's "capture feedback as an
+// insight" path: a reviewer turns a feedback thread into a pending,
+// knowledge-dimension memory_record that enters the apply_knowledge review
+// queue. The full memory.Store satisfies it; the portal only needs Insert.
+type MemoryWriter interface {
+	Insert(ctx context.Context, record memory.Record) error
+}
+
 // InsightSearcher is the optional relevance-search capability of the insight
 // store, declared canonically in the knowledge package next to its query and
 // result types. The knowledge-search route (and the recall_insight tool) are
@@ -113,6 +121,7 @@ type Deps struct {
 	InsightStore       InsightReader
 	ChangesetReader    ChangesetReader
 	MemoryStore        MemoryReader
+	MemoryWriter       MemoryWriter
 	EmbeddingProvider  embedding.Provider
 	PersonaResolver    PersonaResolver
 	// SearchRouter backs GET /api/v1/portal/search, the REST surface over the
@@ -238,6 +247,9 @@ func (h *Handler) registerRoutes() {
 
 	// Feedback thread routes
 	h.registerThreadRoutes()
+
+	// Capture feedback as a reviewable insight (#662)
+	h.registerFeedbackInsightRoutes()
 
 	// Activity routes (user-scoped audit metrics)
 	if h.deps.AuditMetrics != nil {

@@ -1,4 +1,4 @@
-import { FileText, FolderOpen, Sparkles, Megaphone } from "lucide-react";
+import { FileText, FolderOpen, Sparkles, BookOpen, Megaphone } from "lucide-react";
 import type { ThreadTargetType } from "@/api/portal/types";
 
 // targetRoute maps a thread's target to a portal route, an icon, and a type
@@ -17,6 +17,7 @@ export interface TargetRef {
   asset_id?: string;
   collection_id?: string;
   prompt_id?: string;
+  knowledge_page_id?: string;
 }
 
 export function targetMeta(t: TargetRef): TargetMeta {
@@ -31,6 +32,10 @@ export function targetMeta(t: TargetRef): TargetMeta {
       };
     case "prompt":
       return { route: t.prompt_id ? `/prompts/${t.prompt_id}` : null, label: "Prompt", Icon: Sparkles };
+    case "knowledge_page":
+      // Pages open in-app within the Knowledge hub (no per-page URL); link to the
+      // Knowledge tab as the coarse destination.
+      return { route: "/knowledge#knowledge", label: "Knowledge page", Icon: BookOpen };
     default:
       return { route: null, label: "Channel", Icon: Megaphone };
   }

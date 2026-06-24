@@ -95,6 +95,25 @@ export const mockThreads: ThreadWithMeta[] = [
     last_event_at: "2026-06-04T18:45:00Z",
     last_event_type: "insight_linked",
   },
+  // Open correction on a knowledge page (#662): drives the page-card badge and
+  // the "Capture as insight" reviewer affordance.
+  {
+    id: "thr-kp-1",
+    kind: "correction",
+    target_type: "knowledge_page",
+    knowledge_page_id: "kp-seed-2",
+    title: "Fiscal year start is wrong",
+    author_id: SME,
+    author_email: SME,
+    status: "open",
+    requires_resolution: false,
+    validation_state: "none",
+    created_at: "2026-06-20T10:15:00Z",
+    updated_at: "2026-06-20T10:15:00Z",
+    event_count: 1,
+    last_event_at: "2026-06-20T10:15:00Z",
+    last_event_type: "comment",
+  },
 ];
 
 export const mockThreadEvents: Record<string, ThreadEvent[]> = {
@@ -116,6 +135,9 @@ export const mockThreadEvents: Record<string, ThreadEvent[]> = {
   "thr-asset-3": [
     { id: "evt-a3-1", thread_id: "thr-asset-3", event_type: "comment", author_id: SME, author_email: SME, body: "The 'churn' column measures monthly active retention, not churn.", created_at: "2026-06-04T13:00:00Z" },
     { id: "evt-a3-2", thread_id: "thr-asset-3", event_type: "insight_linked", author_id: ME, author_email: ME, created_at: "2026-06-04T18:45:00Z" },
+  ],
+  "thr-kp-1": [
+    { id: "evt-kp1-1", thread_id: "thr-kp-1", event_type: "comment", author_id: SME, author_email: SME, body: "This page says the fiscal year starts in January, but it starts in February.", created_at: "2026-06-20T10:15:00Z" },
   ],
 };
 
