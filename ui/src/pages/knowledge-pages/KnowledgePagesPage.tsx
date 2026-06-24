@@ -4,6 +4,7 @@ import {
   useKnowledgePages,
   useSearchKnowledgePages,
   useKnowledgePage,
+  useResolveRefs,
   useKnowledgePageVersions,
   useCreateKnowledgePage,
   useUpdateKnowledgePage,
@@ -13,6 +14,7 @@ import {
 import type { KnowledgePage, KnowledgePageInput } from "@/api/portal/types";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
+import { extractRefUrns } from "@/lib/entityRefs";
 import { FeedbackButton } from "@/components/feedback/FeedbackButton";
 import { useAuthStore } from "@/stores/auth";
 import { parseTags } from "@/lib/tags";
@@ -275,6 +277,9 @@ function KnowledgePageDetail({
   const { data: page, isLoading, isError } = useKnowledgePage(id);
   const del = useDeleteKnowledgePage();
   const [showHistory, setShowHistory] = useState(false);
+  // Resolve the body's inline entity references to display names for the chips (#664).
+  const refUrns = useMemo(() => extractRefUrns(page?.body ?? ""), [page?.body]);
+  const { data: resolvedRefs } = useResolveRefs(refUrns);
 
   if (isLoading) return <p className="text-sm text-muted-foreground">Loading...</p>;
   if (isError || !page) return <p className="text-sm text-destructive">Knowledge page not found.</p>;
@@ -335,7 +340,7 @@ function KnowledgePageDetail({
         className="prose prose-sm max-w-none rounded-lg border border-border bg-card p-6 dark:prose-invert"
         data-feedback-anchorable
       >
-        <MarkdownRenderer content={page.body} />
+        <MarkdownRenderer content={page.body} refs={resolvedRefs} />
       </article>
     </div>
   );

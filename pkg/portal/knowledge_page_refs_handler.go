@@ -1,11 +1,14 @@
 package portal
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 )
@@ -133,6 +136,140 @@ func (h *Handler) setKnowledgePageRefs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, knowledgePageRefsResponse{Refs: entityRefViews(updated)})
 }
 
+// resolveRefsRequest carries the serialized URNs the renderer wants resolved.
+type resolveRefsRequest struct {
+	URNs []string `json:"urns"`
+}
+
+// resolvedRef is a reference enriched with a display label and existence, so the
+// renderer can show a named chip (greyed when the target is gone) instead of a
+// bare URN. The frontend builds its own link from type + the URN.
+type resolvedRef struct {
+	URN    string `json:"urn"`
+	Type   string `json:"type"`
+	Label  string `json:"label"`
+	Exists bool   `json:"exists"`
+}
+
+// resolveRefsResponse is the resolve envelope.
+type resolveRefsResponse struct {
+	Refs []resolvedRef `json:"refs"`
+}
+
+// resolveKnowledgePageRefs handles POST /api/v1/portal/knowledge-pages/refs/resolve.
+//
+// @Summary      Resolve entity references to display labels
+// @Description  Resolves a batch of serialized reference URNs (mcp:/urn:li:) to a display label, type, and whether the target still exists, so the renderer can show named chips.
+// @Tags         Knowledge
+// @Accept       json
+// @Produce      json
+// @Param        body  body  resolveRefsRequest  true  "URNs to resolve"
+// @Success      200  {object}  resolveRefsResponse
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/knowledge-pages/refs/resolve [post]
+func (h *Handler) resolveKnowledgePageRefs(w http.ResponseWriter, r *http.Request) {
+	user := GetUser(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, errAuthRequired)
+		return
+	}
+	var req resolveRefsRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, maxEntityRefsBodyBytes)).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, errInvalidRequestBody)
+		return
+	}
+	if len(req.URNs) > maxEntityRefsPerPage {
+		writeError(w, http.StatusBadRequest, "too many references")
+		return
+	}
+	out := make([]resolvedRef, 0, len(req.URNs))
+	for _, s := range req.URNs {
+		ref, err := knowledgepage.ParseEntityRef(s)
+		if err != nil {
+			out = append(out, resolvedRef{URN: s, Label: s, Exists: false})
+			continue
+		}
+		out = append(out, h.resolveRef(r.Context(), user, s, ref))
+	}
+	writeJSON(w, http.StatusOK, resolveRefsResponse{Refs: out})
+}
+
+// resolveRef resolves a single reference to a display label. Knowledge pages are
+// org-shared so their title and existence are resolved for any reader. Asset and
+// collection names are only revealed to their owner, and their existence is never
+// revealed, so the endpoint cannot enumerate names or existence across the share
+// boundary (share-aware, page-scoped resolution is a later phase). Connection,
+// prompt, and DataHub labels derive from the URN itself.
+func (h *Handler) resolveRef(ctx context.Context, user *User, urn string, ref knowledgepage.EntityRef) resolvedRef {
+	out := resolvedRef{URN: urn, Type: ref.TargetType, Label: urn, Exists: true}
+	switch ref.TargetType {
+	case knowledgepage.RefTargetAsset:
+		out.Label = h.resolveOwnedAssetLabel(ctx, user, ref.AssetID)
+	case knowledgepage.RefTargetCollection:
+		out.Label = h.resolveOwnedCollectionLabel(ctx, user, ref.CollectionID)
+	case knowledgepage.RefTargetKnowledgePage:
+		out.Label, out.Exists = h.resolvePageLabel(ctx, ref.RefPageID)
+	case knowledgepage.RefTargetConnection:
+		out.Label = ref.ConnectionName + " (" + ref.ConnectionKind + ")"
+	case knowledgepage.RefTargetPrompt:
+		out.Label = ref.PromptID
+	case knowledgepage.RefTargetDataHub:
+		out.Label = datahubLabel(ref.EntityURN)
+	}
+	return out
+}
+
+// resolveOwnedAssetLabel returns the asset's name only when the requesting user
+// owns it; otherwise the id is returned and existence is not signaled, so the
+// endpoint cannot leak names or confirm existence of assets the user cannot view.
+func (h *Handler) resolveOwnedAssetLabel(ctx context.Context, user *User, id string) string {
+	if h.deps.AssetStore == nil {
+		return id
+	}
+	if a, err := h.deps.AssetStore.Get(ctx, id); err == nil && a.OwnerID == user.UserID {
+		return a.Name
+	}
+	return id
+}
+
+// resolveOwnedCollectionLabel returns the collection's name only when the user owns it.
+func (h *Handler) resolveOwnedCollectionLabel(ctx context.Context, user *User, id string) string {
+	if h.deps.CollectionStore == nil {
+		return id
+	}
+	if c, err := h.deps.CollectionStore.Get(ctx, id); err == nil && c.OwnerID == user.UserID {
+		return c.Name
+	}
+	return id
+}
+
+// resolvePageLabel returns a knowledge page's title and existence.
+func (h *Handler) resolvePageLabel(ctx context.Context, id string) (string, bool) {
+	if p, err := h.deps.KnowledgePageStore.Get(ctx, id); err == nil {
+		return p.Title, true
+	}
+	return id, false
+}
+
+// datahubLabel extracts a readable name from a DataHub URN: the dataset name from
+// urn:li:dataset:(<platform>,<name>,<env>), or the last colon-segment otherwise.
+func datahubLabel(urn string) string {
+	if rest, ok := strings.CutPrefix(urn, "urn:li:dataset:("); ok {
+		inner := strings.TrimSuffix(rest, ")")
+		parts := strings.Split(inner, ",")
+		if len(parts) >= 2 {
+			return parts[1]
+		}
+	}
+	if i := strings.LastIndex(urn, ":"); i >= 0 && i < len(urn)-1 {
+		return urn[i+1:]
+	}
+	return urn
+}
+
 // knowledgePageExists verifies the page is live, writing a 404 (or 500) on
 // failure. It returns true only when the page exists and is not deleted.
 func (h *Handler) knowledgePageExists(w http.ResponseWriter, r *http.Request, id string) bool {
@@ -161,6 +298,19 @@ func parseEntityRefs(urns []string, createdBy string) ([]knowledgepage.EntityRef
 		refs = append(refs, ref)
 	}
 	return refs, nil
+}
+
+// reconcileInlineRefs replaces a page's source=inline references with those
+// mentioned in its body, leaving promoted and manual references untouched. It is
+// best-effort: a failure (for example an inline reference to an entity that no
+// longer exists) is logged but does not fail the page write, since the body
+// itself is valid. Called after every create/update that writes the body.
+func (h *Handler) reconcileInlineRefs(ctx context.Context, pageID, body string) {
+	refs := knowledgepage.ScanBodyRefs(body)
+	if err := h.deps.KnowledgePageStore.ReplaceEntityRefsBySource(ctx, pageID, knowledgepage.RefSourceInline, refs); err != nil {
+		slog.WarnContext(ctx, "reconcile inline knowledge-page references failed",
+			"page_id", pageID, "error", err)
+	}
 }
 
 func entityRefViews(refs []knowledgepage.EntityRef) []entityRefView {

@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiFetchRaw } from "./client";
+import type { ResolvedRef } from "@/lib/entityRefs";
 import type {
   Asset,
   AssetVersion,
@@ -1247,6 +1248,31 @@ export function useDeleteKnowledgePage() {
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["knowledge-pages"] });
+    },
+  });
+}
+
+/**
+ * useResolveRefs resolves a batch of entity-reference URNs (mcp:/urn:li:) to
+ * display labels and existence for inline knowledge-page chips (#664). Returns a
+ * Map keyed by URN. Disabled when there are no references.
+ */
+export function useResolveRefs(urns: string[]) {
+  // Stable key independent of order/duplication so identical ref sets share a cache entry.
+  const key = Array.from(new Set(urns)).sort().join("\n");
+  return useQuery({
+    queryKey: ["knowledge-page-refs-resolve", key],
+    queryFn: () =>
+      apiFetch<{ refs: ResolvedRef[] }>("/knowledge-pages/refs/resolve", {
+        method: "POST",
+        body: JSON.stringify({ urns }),
+      }),
+    enabled: urns.length > 0,
+    staleTime: 60_000,
+    select: (data): Map<string, ResolvedRef> => {
+      const map = new Map<string, ResolvedRef>();
+      for (const r of data.refs) map.set(r.urn, r);
+      return map;
     },
   });
 }
