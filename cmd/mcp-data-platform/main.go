@@ -59,6 +59,16 @@ const (
 	transportHTTP        = "http"
 )
 
+// logKeyError is the structured-log key for an error value.
+const logKeyError = "error"
+
+// sessionDrainSettle is how long in-flight requests are given to finish before
+// live MCP sessions are closed on shutdown (#675). Long-lived SSE and streamable
+// streams never go idle, so until the sessions are closed the agent stays on the
+// old build; closing them drops the stream so Claude Code auto-reconnects to the
+// new build. A var so tests can lower it; capped at the grace period at use.
+var sessionDrainSettle = 3 * time.Second
+
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "migrate-config" {
 		if err := runMigrateConfig(os.Args[2:]); err != nil {
@@ -175,12 +185,12 @@ func closeServer(result *serverResult) {
 		// another replica reclaims it.
 		stopCtx, cancel := context.WithTimeout(context.Background(), lifecycleStopTimeout)
 		if err := result.platform.Stop(stopCtx); err != nil {
-			slog.Error("shutdown: platform stop error", "error", err)
+			slog.Error("shutdown: platform stop error", logKeyError, err)
 		}
 		cancel()
 
 		if err := result.platform.Close(); err != nil {
-			slog.Error("shutdown: platform close error", "error", err)
+			slog.Error("shutdown: platform close error", logKeyError, err)
 		}
 	}
 	slog.Info("shutdown: complete")
@@ -265,6 +275,9 @@ type httpConfig struct {
 	tlsKeyFile    string
 	streamableCfg platform.StreamableConfig
 	shutdownCfg   platform.ShutdownConfig
+	// mcpServer is closed-out on shutdown so connected agents reconnect to the new
+	// build (#675). Carried on the config so listenAndServe stays within its arg budget.
+	mcpServer *mcp.Server
 }
 
 func extractHTTPConfig(p *platform.Platform) httpConfig {
@@ -419,6 +432,7 @@ func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Pla
 	rootHandler := buildRootHandler(mcpServer, p, hcfg)
 	mountRootHandler(mux, rootHandler, hcfg, rmURL)
 
+	hcfg.mcpServer = mcpServer
 	return listenAndServe(ctx, opts.address, corsMiddleware(mux), hcfg, hc)
 }
 
@@ -500,15 +514,8 @@ func listenAndServe(ctx context.Context, addr string, handler http.Handler, hcfg
 			time.Sleep(preDelay)
 		}
 
-		// Drain in-flight requests.
 		slog.Info("shutdown: draining HTTP connections", "grace_period", gracePeriod)
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), gracePeriod)
-		defer cancel()
-		if err := server.Shutdown(shutdownCtx); err != nil {
-			slog.Error("shutdown: HTTP drain error", "error", err)
-		} else {
-			slog.Info("shutdown: HTTP server stopped")
-		}
+		drainHTTPServer(server, hcfg.mcpServer, gracePeriod)
 	}()
 
 	// Mark ready just before we start accepting connections.
@@ -529,6 +536,77 @@ func listenAndServe(ctx context.Context, addr string, handler http.Handler, hcfg
 		return fmt.Errorf("listening on %s: %w", addr, err)
 	}
 	return nil
+}
+
+// drainHTTPServer gracefully drains the HTTP server, then closes lingering MCP
+// sessions so connected agents reconnect to the new build (#675). Long-lived
+// SSE/streamable streams never go idle, so server.Shutdown does not complete until
+// its grace deadline and the agent stays on the old build the whole time. It runs
+// concurrently: in-flight requests get a brief settle, then the sessions are closed
+// to drop those streams and trigger client auto-reconnect.
+func drainHTTPServer(server *http.Server, mcpServer *mcp.Server, gracePeriod time.Duration) {
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), gracePeriod)
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() { done <- server.Shutdown(shutdownCtx) }()
+
+	settle := min(sessionDrainSettle, gracePeriod)
+	select {
+	case err := <-done:
+		logHTTPDrainResult(err)
+	case <-time.After(settle):
+		closeMCPSessions(shutdownCtx, mcpServer)
+		logHTTPDrainResult(<-done)
+	}
+}
+
+// closeMCPSessions closes every live MCP session so connected clients drop their
+// stale connection and reconnect to the new build (#675). Claude Code auto-reconnects
+// HTTP/SSE servers and re-handshakes (fresh tools/list); Claude Desktop requires an
+// app restart.
+//
+// ServerSession.Close is graceful: an idle session's long-lived SSE/streamable stream
+// drops immediately, but a session with an in-flight tool call blocks until that call
+// returns, and that wait is not bounded by the HTTP grace period. So the closes run in
+// a goroutine bounded by ctx (the shutdown deadline): if they do not all finish in
+// time, we return and let process exit drop the remaining connections rather than hang
+// past terminationGracePeriodSeconds and risk a SIGKILL mid-call.
+func closeMCPSessions(ctx context.Context, mcpServer *mcp.Server) {
+	if mcpServer == nil {
+		return
+	}
+	var sessions []*mcp.ServerSession
+	for s := range mcpServer.Sessions() {
+		sessions = append(sessions, s)
+	}
+	if len(sessions) == 0 {
+		return
+	}
+
+	closed := make(chan struct{})
+	go func() {
+		for _, s := range sessions {
+			_ = s.Close() // returns once the session's in-flight requests finish
+		}
+		close(closed)
+	}()
+
+	select {
+	case <-closed:
+		slog.Info("shutdown: closed live MCP sessions so clients reconnect to the new build", "count", len(sessions))
+	case <-ctx.Done():
+		slog.Warn("shutdown: MCP session close did not finish before the grace deadline; process exit will drop remaining connections", "count", len(sessions))
+	}
+}
+
+// logHTTPDrainResult records the outcome of the HTTP server drain.
+func logHTTPDrainResult(err error) {
+	if err != nil {
+		slog.Error("shutdown: HTTP drain error", logKeyError, err)
+		return
+	}
+	slog.Info("shutdown: HTTP server stopped")
 }
 
 // stdioMarker is the conventional marker for stdin/stdout in CLI tools.

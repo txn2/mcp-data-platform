@@ -1,15 +1,18 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -346,6 +349,198 @@ func TestListenAndServe_GracefulShutdown(t *testing.T) {
 
 	if hc.IsReady() {
 		t.Error("health checker should not be ready after shutdown")
+	}
+}
+
+func listenLocal(t *testing.T) net.Listener {
+	t.Helper()
+	var lc net.ListenConfig
+	ln, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	return ln
+}
+
+func sessionCount(s *mcp.Server) int {
+	n := 0
+	for range s.Sessions() {
+		n++
+	}
+	return n
+}
+
+// mcpServerWithLiveSession returns an MCP server with one connected client session
+// and a cleanup that closes both ends.
+func mcpServerWithLiveSession(t *testing.T) *mcp.Server {
+	t.Helper()
+	srv := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "1.0"}, nil)
+	ctx := context.Background()
+	c1, c2 := mcp.NewInMemoryTransports()
+	serverSess, err := srv.Connect(ctx, c1, nil)
+	if err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+	t.Cleanup(func() { _ = serverSess.Close() })
+	client := mcp.NewClient(&mcp.Implementation{Name: "c", Version: "1.0"}, nil)
+	clientSess, err := client.Connect(ctx, c2, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	t.Cleanup(func() { _ = clientSess.Close() })
+	return srv
+}
+
+func TestCloseMCPSessions(t *testing.T) {
+	closeMCPSessions(context.Background(), nil) // nil server is a no-op
+
+	srv := mcpServerWithLiveSession(t)
+	if got := sessionCount(srv); got != 1 {
+		t.Fatalf("expected 1 live session before close, got %d", got)
+	}
+
+	closeMCPSessions(context.Background(), srv)
+
+	deadline := time.After(2 * time.Second)
+	for sessionCount(srv) != 0 {
+		select {
+		case <-deadline:
+			t.Fatalf("session not closed: %d remain", sessionCount(srv))
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
+// TestCloseMCPSessions_BoundedByContext proves the close does not hang past the
+// grace deadline when a session has a long-running in-flight tool call (Close is
+// graceful and blocks on that call). With a short context it must return promptly.
+func TestCloseMCPSessions_BoundedByContext(t *testing.T) {
+	srv := mcp.NewServer(&mcp.Implementation{Name: "t", Version: "1.0"}, nil)
+	callStarted := make(chan struct{})
+	releaseCall := make(chan struct{})
+	var once sync.Once
+	mcp.AddTool(srv, &mcp.Tool{Name: "slow"}, func(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+		once.Do(func() { close(callStarted) })
+		<-releaseCall
+		return &mcp.CallToolResult{}, nil, nil
+	})
+
+	ctx := context.Background()
+	c1, c2 := mcp.NewInMemoryTransports()
+	serverSess, err := srv.Connect(ctx, c1, nil)
+	if err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+	defer func() { _ = serverSess.Close() }()
+	client := mcp.NewClient(&mcp.Implementation{Name: "c", Version: "1.0"}, nil)
+	clientSess, err := client.Connect(ctx, c2, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	defer func() { _ = clientSess.Close() }()
+
+	// Fire a tool call that hangs, so the session has an in-flight request.
+	go func() { _, _ = clientSess.CallTool(ctx, &mcp.CallToolParams{Name: "slow"}) }()
+	<-callStarted
+	defer close(releaseCall)
+
+	// closeMCPSessions must respect the short deadline rather than block on the call.
+	deadlineCtx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+	returned := make(chan struct{})
+	go func() { closeMCPSessions(deadlineCtx, srv); close(returned) }()
+	select {
+	case <-returned:
+	case <-time.After(2 * time.Second):
+		t.Fatal("closeMCPSessions hung past the context deadline on an in-flight call")
+	}
+}
+
+func TestLogHTTPDrainResult(t *testing.T) {
+	var buf bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(old)
+
+	logHTTPDrainResult(nil)
+	logHTTPDrainResult(fmt.Errorf("drain boom"))
+
+	out := buf.String()
+	if !strings.Contains(out, "HTTP server stopped") {
+		t.Error("success outcome should be logged")
+	}
+	if !strings.Contains(out, "drain boom") {
+		t.Error("drain error should be logged")
+	}
+}
+
+// TestDrainHTTPServer_ClosesSessionsAfterSettle proves the #675 settle branch: an
+// in-flight request keeps server.Shutdown from completing within the settle window,
+// so live MCP sessions are closed to release the long-lived streams and let
+// connected agents reconnect to the new build.
+func TestDrainHTTPServer_ClosesSessionsAfterSettle(t *testing.T) {
+	orig := sessionDrainSettle
+	sessionDrainSettle = 20 * time.Millisecond
+	defer func() { sessionDrainSettle = orig }()
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	ln := listenLocal(t)
+	srv := &http.Server{
+		ReadHeaderTimeout: time.Second,
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			once.Do(func() { close(started) })
+			<-release
+			w.WriteHeader(http.StatusOK)
+		}),
+	}
+	go func() { _ = srv.Serve(ln) }()
+
+	// In-flight request that hangs, so server.Shutdown blocks past the settle window.
+	go func() {
+		req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://"+ln.Addr().String(), http.NoBody)
+		if resp, gErr := http.DefaultClient.Do(req); gErr == nil {
+			_ = resp.Body.Close()
+		}
+	}()
+	<-started
+
+	srvMCP := mcpServerWithLiveSession(t)
+	if got := sessionCount(srvMCP); got != 1 {
+		t.Fatalf("expected 1 live session, got %d", got)
+	}
+
+	drained := make(chan struct{})
+	go func() { drainHTTPServer(srv, srvMCP, 2*time.Second); close(drained) }()
+
+	time.Sleep(80 * time.Millisecond) // exceed the settle window so sessions are closed
+	close(release)                    // let the hung request finish so Shutdown completes
+
+	select {
+	case <-drained:
+	case <-time.After(3 * time.Second):
+		t.Fatal("drainHTTPServer did not return")
+	}
+	if got := sessionCount(srvMCP); got != 0 {
+		t.Errorf("settle branch should have closed live MCP sessions, got %d", got)
+	}
+}
+
+// TestDrainHTTPServer_CompletesWhenIdle covers the no-in-flight path (Shutdown
+// returns immediately) and the grace-shorter-than-settle clamp.
+func TestDrainHTTPServer_CompletesWhenIdle(t *testing.T) {
+	ln := listenLocal(t)
+	srv := &http.Server{ReadHeaderTimeout: time.Second, Handler: http.NewServeMux()}
+	go func() { _ = srv.Serve(ln) }()
+	time.Sleep(20 * time.Millisecond)
+
+	done := make(chan struct{})
+	go func() { drainHTTPServer(srv, nil, 50*time.Millisecond); close(done) }() // grace < default settle
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("drainHTTPServer did not return for an idle server")
 	}
 }
 
