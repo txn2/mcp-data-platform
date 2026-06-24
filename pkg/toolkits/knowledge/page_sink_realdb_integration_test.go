@@ -33,13 +33,16 @@ func TestPageSink_RealDB_PromoteAndRollback(t *testing.T) {
 
 	ctx := ctxWithUser("admin@example.com", "sess", "admin")
 
-	// Capture a business_knowledge insight (the provisional inbox draft).
+	// Capture a business_knowledge insight (the provisional inbox draft). It
+	// carries a DataHub reference that must survive promotion onto the page (#664).
+	const refURN = "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)"
 	require.NoError(t, insightStore.Insert(ctx, Insight{
 		ID:          "ins-bk-1",
 		CapturedBy:  "alice@example.com",
 		InsightText: "Our fiscal year starts in February.",
 		SinkClass:   memory.SinkBusinessKnowledge,
 		Status:      StatusPending,
+		EntityURNs:  []string{refURN},
 	}))
 
 	// Promote it to a canonical knowledge page.
@@ -64,6 +67,15 @@ func TestPageSink_RealDB_PromoteAndRollback(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Fiscal Calendar", page.Title)
 	assert.Contains(t, page.Tags, memory.SinkBusinessKnowledge)
+
+	// The insight's DataHub reference was carried onto the page (#664), against
+	// the real table with its CHECK, FK, and unique-index constraints.
+	refs, err := pageStore.ListEntityRefs(ctx, page.ID)
+	require.NoError(t, err)
+	require.Len(t, refs, 1)
+	assert.Equal(t, knowledgepage.RefTargetDataHub, refs[0].TargetType)
+	assert.Equal(t, refURN, refs[0].EntityURN)
+	assert.Equal(t, knowledgepage.RefSourcePromoted, refs[0].Source)
 
 	// Changeset recorded with the kp: target.
 	cs, err := csStore.GetChangeset(ctx, changesetID)

@@ -27,14 +27,15 @@ const (
 // 000008), so a page promotion records "kp:<slug>" and shares the same changeset
 // store / list / rollback surface as DataHub changesets.
 const (
-	pageTargetPrefix = "kp:"
-	changeCreatePage = "create_page"
-	changeUpdatePage = "update_page"
-	pageFieldTitle   = "title"
-	pageFieldSummary = "summary"
-	pageFieldBody    = "body"
-	pageFieldTags    = "tags"
-	pageFieldVersion = "version"
+	pageTargetPrefix    = "kp:"
+	changeCreatePage    = "create_page"
+	changeUpdatePage    = "update_page"
+	pageFieldTitle      = "title"
+	pageFieldSummary    = "summary"
+	pageFieldBody       = "body"
+	pageFieldTags       = "tags"
+	pageFieldVersion    = "version"
+	pageFieldEntityURNs = "entity_urns"
 )
 
 // Knowledge-page promotion validation bounds. These MUST match the portal REST
@@ -57,6 +58,10 @@ type pageWriter interface {
 	Insert(ctx context.Context, page knowledgepage.Page) error
 	Update(ctx context.Context, id string, updates knowledgepage.Update) error
 	SoftDelete(ctx context.Context, id string) error
+	// Entity references (#664): carry a promoted insight's references onto the page.
+	ListEntityRefs(ctx context.Context, pageID string) ([]knowledgepage.EntityRef, error)
+	AddEntityRefs(ctx context.Context, pageID string, refs []knowledgepage.EntityRef) error
+	ReplaceEntityRefs(ctx context.Context, pageID string, refs []knowledgepage.EntityRef) error
 }
 
 // PageReverter is the slice of the knowledge-page store a rollback needs: look up
@@ -68,6 +73,8 @@ type PageReverter interface {
 	GetBySlug(ctx context.Context, slug string) (*knowledgepage.Page, error)
 	Update(ctx context.Context, id string, updates knowledgepage.Update) error
 	SoftDelete(ctx context.Context, id string) error
+	// Entity references (#664): restore the page's references on rollback.
+	ReplaceEntityRefs(ctx context.Context, pageID string, refs []knowledgepage.EntityRef) error
 }
 
 // PageEditedError is returned when a knowledge-page promotion cannot be rolled
@@ -132,8 +139,10 @@ func (t *Toolkit) promoteToPage(ctx context.Context, input applyKnowledgeInput) 
 		return errorResult(msg), nil, nil
 	}
 
-	// Mis-routing guard: every source insight must be page-class.
-	originClass, err := t.validatePageInsightClasses(ctx, input.InsightIDs)
+	// Mis-routing guard: every source insight must be page-class. This also
+	// collects the references the source insights carried, so they survive
+	// promotion onto the page instead of being dropped (#664).
+	originClass, entityURNs, err := t.validatePageInsightClasses(ctx, input.InsightIDs)
 	if err != nil {
 		return errorResult(err.Error()), nil, nil //nolint:nilerr // MCP protocol
 	}
@@ -148,7 +157,7 @@ func (t *Toolkit) promoteToPage(ctx context.Context, input applyKnowledgeInput) 
 
 	appliedBy := userIDFromContext(ctx)
 	tags := tagsWithOrigin(page.Tags, originClass)
-	prom, err := t.applyPagePromotion(ctx, *page, tags, appliedBy)
+	prom, err := t.applyPagePromotion(ctx, *page, tags, appliedBy, entityURNs)
 	if err != nil {
 		return errorResult(err.Error()), nil, nil //nolint:nilerr // MCP protocol
 	}
@@ -165,9 +174,19 @@ type pagePromotion struct {
 	next       map[string]any
 }
 
-// applyPagePromotion find-or-creates the page by slug and returns the before/after
-// images for the changeset.
-func (t *Toolkit) applyPagePromotion(ctx context.Context, page pagePromotionInput, tags []string, appliedBy string) (*pagePromotion, error) {
+// applyPagePromotion find-or-creates the page by slug, carries the source
+// insights' references onto it (union), and returns the before/after images for
+// the changeset. entityURNs are the DataHub references gathered from the source
+// insights (#664).
+//
+// Atomicity: the page write, the reference write, and the changeset record are
+// separate operations (the page and changeset already were before #664; the
+// reference write joins that sequence). A failure between them can leave the
+// page written while the promotion reports failure. The reference write uses
+// ON CONFLICT DO NOTHING, so it is idempotent and a retry is safe; a single
+// cross-store transaction spanning the page, references, and changeset is a
+// broader change tracked separately.
+func (t *Toolkit) applyPagePromotion(ctx context.Context, page pagePromotionInput, tags []string, appliedBy string, entityURNs []string) (*pagePromotion, error) {
 	existing, err := t.pageWriter.GetBySlug(ctx, page.Slug)
 	switch {
 	case err == nil:
@@ -175,7 +194,11 @@ func (t *Toolkit) applyPagePromotion(ctx context.Context, page pagePromotionInpu
 		// changeset records the prior content regardless of whether the store
 		// returns a shared row pointer.
 		producedVersion := existing.CurrentVersion + 1
-		prev := pageImage(existing.Title, existing.Summary, existing.Body, existing.Tags, existing.CurrentVersion)
+		prevURNs, err := t.pageEntityURNs(ctx, existing.ID)
+		if err != nil {
+			return nil, err
+		}
+		prev := pageImageWithRefs(pageSnapshot{existing.Title, existing.Summary, existing.Body, existing.Tags, existing.CurrentVersion, prevURNs})
 		// Update the existing page (consolidation): a new version is produced.
 		if uErr := t.pageWriter.Update(ctx, existing.ID, knowledgepage.Update{
 			Title: &page.Title, Summary: &page.Summary, Body: &page.Body, Tags: &tags,
@@ -183,10 +206,14 @@ func (t *Toolkit) applyPagePromotion(ctx context.Context, page pagePromotionInpu
 		}); uErr != nil {
 			return nil, fmt.Errorf("updating knowledge page: %w", uErr)
 		}
+		nextURNs, err := t.addPageEntityRefs(ctx, existing.ID, entityURNs, appliedBy)
+		if err != nil {
+			return nil, err
+		}
 		return &pagePromotion{
 			pageID: existing.ID, slug: page.Slug, changeType: changeUpdatePage,
 			prev: prev,
-			next: pageImage(page.Title, page.Summary, page.Body, tags, producedVersion),
+			next: pageImageWithRefs(pageSnapshot{page.Title, page.Summary, page.Body, tags, producedVersion, nextURNs}),
 		}, nil
 	case errors.Is(err, knowledgepage.ErrNotFound):
 		id := knowledgepage.NewID()
@@ -196,14 +223,62 @@ func (t *Toolkit) applyPagePromotion(ctx context.Context, page pagePromotionInpu
 		}); iErr != nil {
 			return nil, fmt.Errorf("creating knowledge page: %w", iErr)
 		}
+		nextURNs, err := t.addPageEntityRefs(ctx, id, entityURNs, appliedBy)
+		if err != nil {
+			return nil, err
+		}
 		return &pagePromotion{
 			pageID: id, slug: page.Slug, changeType: changeCreatePage,
-			prev: map[string]any{},
-			next: pageImage(page.Title, page.Summary, page.Body, tags, 1),
+			prev: pageImageWithRefs(pageSnapshot{}),
+			next: pageImageWithRefs(pageSnapshot{title: page.Title, summary: page.Summary, body: page.Body, tags: tags, version: 1, entityURNs: nextURNs}),
 		}, nil
 	default:
 		return nil, fmt.Errorf("looking up knowledge page by slug: %w", err)
 	}
+}
+
+// pageEntityURNs returns the page's current DataHub reference URNs (Phase 0 only
+// writes DataHub references, so the changeset snapshot tracks those).
+func (t *Toolkit) pageEntityURNs(ctx context.Context, pageID string) ([]string, error) {
+	refs, err := t.pageWriter.ListEntityRefs(ctx, pageID)
+	if err != nil {
+		return nil, fmt.Errorf("listing page references: %w", err)
+	}
+	var urns []string
+	for _, r := range refs {
+		if r.TargetType == knowledgepage.RefTargetDataHub && r.EntityURN != "" {
+			urns = append(urns, r.EntityURN)
+		}
+	}
+	return urns, nil
+}
+
+// addPageEntityRefs unions the given DataHub URNs onto the page as promoted
+// references and returns the page's full DataHub URN set afterward (for the
+// changeset after-image).
+func (t *Toolkit) addPageEntityRefs(ctx context.Context, pageID string, entityURNs []string, appliedBy string) ([]string, error) {
+	if len(entityURNs) > 0 {
+		refs := dataHubRefs(entityURNs)
+		for i := range refs {
+			refs[i].CreatedBy = appliedBy
+		}
+		if err := t.pageWriter.AddEntityRefs(ctx, pageID, refs); err != nil {
+			return nil, fmt.Errorf("adding page references: %w", err)
+		}
+	}
+	return t.pageEntityURNs(ctx, pageID)
+}
+
+// dataHubRefs builds promoted DataHub references from a list of URNs.
+func dataHubRefs(urns []string) []knowledgepage.EntityRef {
+	refs := make([]knowledgepage.EntityRef, 0, len(urns))
+	for _, urn := range urns {
+		if urn == "" {
+			continue
+		}
+		refs = append(refs, knowledgepage.DataHubRef(urn, knowledgepage.RefSourcePromoted))
+	}
+	return refs
 }
 
 // recordPageChangesetAndMarkApplied records the promotion changeset (target
@@ -255,19 +330,31 @@ func (t *Toolkit) recordPageChangesetAndMarkApplied(ctx context.Context, input a
 // validatePageInsightClasses fetches each insight and rejects any whose sink-class
 // does not belong to the knowledge-page sink, returning the common origin class
 // for tagging. Empty insight_ids is allowed (a curator authoring a page directly).
-func (t *Toolkit) validatePageInsightClasses(ctx context.Context, insightIDs []string) (string, error) {
-	origin := ""
+func (t *Toolkit) validatePageInsightClasses(ctx context.Context, insightIDs []string) (origin string, entityURNs []string, err error) {
+	seen := map[string]struct{}{}
 	for _, id := range insightIDs {
-		ins, err := t.store.Get(ctx, id)
-		if err != nil {
-			return "", fmt.Errorf("insight %s not found", id)
+		ins, gErr := t.store.Get(ctx, id)
+		if gErr != nil {
+			return "", nil, fmt.Errorf("insight %s not found", id)
 		}
 		if !pageSinkClasses[ins.SinkClass] {
-			return "", fmt.Errorf("insight %s is sink-class %q, which is not promoted to a knowledge page (schema_entity goes to DataHub)", id, ins.SinkClass)
+			return "", nil, fmt.Errorf("insight %s is sink-class %q, which is not promoted to a knowledge page (schema_entity goes to DataHub)", id, ins.SinkClass)
 		}
 		origin = ins.SinkClass
+		// Collect the references the insight carried so they survive promotion
+		// onto the page (#664). De-duped across all source insights.
+		for _, urn := range ins.EntityURNs {
+			if urn == "" {
+				continue
+			}
+			if _, dup := seen[urn]; dup {
+				continue
+			}
+			seen[urn] = struct{}{}
+			entityURNs = append(entityURNs, urn)
+		}
 	}
-	return origin, nil
+	return origin, entityURNs, nil
 }
 
 // validatePagePromotion checks the caller-supplied page payload.
@@ -348,13 +435,25 @@ func strsFromMap(m map[string]any, key string) []string {
 	return out
 }
 
-// pageImage renders a page before/after snapshot for a changeset value.
-func pageImage(title, summary, body string, tags []string, version int) map[string]any {
+// pageSnapshot is the page state captured in a changeset before/after image.
+type pageSnapshot struct {
+	title, summary, body string
+	tags                 []string
+	version              int
+	entityURNs           []string
+}
+
+// pageImageWithRefs renders a page before/after snapshot for a changeset value,
+// including the page's DataHub reference URNs so a rollback can restore them
+// (#664). Phase 0 only writes DataHub references; when the picker and inline
+// references land, this snapshot will need to carry the full typed ref set.
+func pageImageWithRefs(s pageSnapshot) map[string]any {
 	return map[string]any{
-		pageFieldTitle:   title,
-		pageFieldSummary: summary,
-		pageFieldBody:    body,
-		pageFieldTags:    tags,
-		pageFieldVersion: version,
+		pageFieldTitle:      s.title,
+		pageFieldSummary:    s.summary,
+		pageFieldBody:       s.body,
+		pageFieldTags:       s.tags,
+		pageFieldVersion:    s.version,
+		pageFieldEntityURNs: s.entityURNs,
 	}
 }

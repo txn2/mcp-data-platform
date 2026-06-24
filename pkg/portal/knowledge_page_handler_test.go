@@ -84,6 +84,18 @@ func (m *mockKnowledgePageStore) Search(_ context.Context, _ knowledgepage.Searc
 	return m.scored, nil
 }
 
+func (*mockKnowledgePageStore) ListEntityRefs(_ context.Context, _ string) ([]knowledgepage.EntityRef, error) {
+	return nil, nil
+}
+
+func (*mockKnowledgePageStore) AddEntityRefs(_ context.Context, _ string, _ []knowledgepage.EntityRef) error {
+	return nil
+}
+
+func (*mockKnowledgePageStore) ReplaceEntityRefs(_ context.Context, _ string, _ []knowledgepage.EntityRef) error {
+	return nil
+}
+
 var (
 	kpAdmin  = &User{UserID: "admin-1", Email: "admin@example.com", Roles: []string{"admin"}}
 	kpViewer = &User{UserID: "viewer-1", Email: "viewer@example.com", Roles: []string{"analyst"}}

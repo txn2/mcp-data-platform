@@ -19,7 +19,8 @@ var errKP = errors.New("kp boom")
 
 // fakePageWriter is an in-memory pageWriter for sink-router tests.
 type fakePageWriter struct {
-	pages     map[string]*knowledgepage.Page // slug -> page
+	pages     map[string]*knowledgepage.Page       // slug -> page
+	refs      map[string][]knowledgepage.EntityRef // pageID -> refs
 	inserted  []string
 	updated   []string
 	deleted   []string
@@ -29,7 +30,37 @@ type fakePageWriter struct {
 }
 
 func newFakePageWriter() *fakePageWriter {
-	return &fakePageWriter{pages: map[string]*knowledgepage.Page{}}
+	return &fakePageWriter{pages: map[string]*knowledgepage.Page{}, refs: map[string][]knowledgepage.EntityRef{}}
+}
+
+// fakeRefKey mirrors the store's per-target uniqueness for the in-memory union.
+func fakeRefKey(r knowledgepage.EntityRef) string {
+	return r.TargetType + "|" + r.AssetID + "|" + r.PromptID + "|" + r.CollectionID + "|" +
+		r.RefPageID + "|" + r.ConnectionKind + "/" + r.ConnectionName + "|" + r.EntityURN
+}
+
+func (f *fakePageWriter) ListEntityRefs(_ context.Context, pageID string) ([]knowledgepage.EntityRef, error) {
+	return f.refs[pageID], nil
+}
+
+func (f *fakePageWriter) AddEntityRefs(_ context.Context, pageID string, refs []knowledgepage.EntityRef) error {
+	seen := map[string]bool{}
+	for _, e := range f.refs[pageID] {
+		seen[fakeRefKey(e)] = true
+	}
+	for _, r := range refs {
+		if seen[fakeRefKey(r)] {
+			continue
+		}
+		f.refs[pageID] = append(f.refs[pageID], r)
+		seen[fakeRefKey(r)] = true
+	}
+	return nil
+}
+
+func (f *fakePageWriter) ReplaceEntityRefs(_ context.Context, pageID string, refs []knowledgepage.EntityRef) error {
+	f.refs[pageID] = append([]knowledgepage.EntityRef{}, refs...)
+	return nil
 }
 
 func (f *fakePageWriter) GetBySlug(_ context.Context, slug string) (*knowledgepage.Page, error) {
@@ -78,6 +109,53 @@ func (f *fakePageWriter) Update(_ context.Context, id string, u knowledgepage.Up
 func (f *fakePageWriter) SoftDelete(_ context.Context, id string) error {
 	f.deleted = append(f.deleted, id)
 	return nil
+}
+
+func refURNs(refs []knowledgepage.EntityRef) []string {
+	urns := make([]string, 0, len(refs))
+	for _, r := range refs {
+		urns = append(urns, r.EntityURN)
+	}
+	return urns
+}
+
+// TestPromoteToPage_CarriesAndUnionsInsightRefs proves #664's core: a promoted
+// insight's entity_urns land on the page as promoted DataHub references, survive
+// into the changeset after-image, and union (no duplicates) across promotions.
+func TestPromoteToPage_CarriesAndUnionsInsightRefs(t *testing.T) {
+	urnA := "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.a,PROD)"
+	urnB := "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.b,PROD)"
+	store := &fullSpyStore{Insights: []Insight{
+		{ID: "i1", SinkClass: memory.SinkBusinessKnowledge, EntityURNs: []string{urnA}},
+		{ID: "i2", SinkClass: memory.SinkBusinessKnowledge, EntityURNs: []string{urnA, urnB}},
+	}}
+	cs := &spyChangesetStore{}
+	pw := newFakePageWriter()
+	tk := newApplyToolkit(t, store, cs, &spyWriter{})
+	tk.SetPageWriter(pw)
+
+	// First promotion creates the page carrying urnA.
+	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, applyPageInput([]string{"i1"}))
+	require.NoError(t, err)
+	require.False(t, res.IsError, "unexpected error result")
+	page := pw.pages["seasons"]
+	require.NotNil(t, page)
+	require.Len(t, pw.refs[page.ID], 1)
+	assert.Equal(t, urnA, pw.refs[page.ID][0].EntityURN)
+	assert.Equal(t, knowledgepage.RefTargetDataHub, pw.refs[page.ID][0].TargetType)
+	assert.Equal(t, knowledgepage.RefSourcePromoted, pw.refs[page.ID][0].Source)
+
+	// Second promotion to the same slug unions urnB; urnA is not duplicated.
+	res2, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, applyPageInput([]string{"i2"}))
+	require.NoError(t, err)
+	require.False(t, res2.IsError, "unexpected error result")
+	assert.ElementsMatch(t, []string{urnA, urnB}, refURNs(pw.refs[page.ID]))
+
+	// The changeset after-image carries the page's full URN set.
+	require.Len(t, cs.Changesets, 2)
+	gotURNs, ok := cs.Changesets[1].NewValue[pageFieldEntityURNs].([]string)
+	require.True(t, ok, "after-image should carry entity_urns as []string")
+	assert.ElementsMatch(t, []string{urnA, urnB}, gotURNs)
 }
 
 func applyPageInput(insightIDs []string) applyKnowledgeInput {
@@ -242,6 +320,34 @@ func TestRevertPageChangeset_UpdateRestores(t *testing.T) {
 	assert.Contains(t, pw.updated, "kp1")
 	assert.Equal(t, "Old", pw.pages["seasons"].Title)
 	assert.True(t, csStore.Changesets[0].RolledBack)
+}
+
+// TestRevertPageChangeset_RestoresRefs proves a page rollback restores the prior
+// reference set from the changeset previous-value (#664).
+func TestRevertPageChangeset_RestoresRefs(t *testing.T) {
+	urnA := "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.a,PROD)"
+	urnB := "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.b,PROD)"
+	prev := map[string]any{
+		pageFieldTitle: "Old", pageFieldBody: "old body", pageFieldSummary: "", pageFieldTags: []any{},
+		pageFieldEntityURNs: []any{urnA}, // []any mirrors a JSONB-decoded changeset value
+	}
+	cs := pageChangeset("seasons", changeUpdatePage, 4, prev)
+	pw := newFakePageWriter()
+	pw.pages["seasons"] = &knowledgepage.Page{ID: "kp1", Slug: "seasons", Title: "New", CurrentVersion: 4}
+	// The page currently has both URNs (urnB was added by the promotion being reverted).
+	pw.refs["kp1"] = []knowledgepage.EntityRef{
+		knowledgepage.DataHubRef(urnA, knowledgepage.RefSourcePromoted),
+		knowledgepage.DataHubRef(urnB, knowledgepage.RefSourcePromoted),
+	}
+	csStore := &spyChangesetStore{Changesets: []Changeset{cs}}
+	tk := newApplyToolkit(t, &fullSpyStore{}, csStore, &spyWriter{})
+	tk.SetPageWriter(pw)
+
+	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{},
+		applyKnowledgeInput{Action: actionRollback, ChangesetID: "cs1", Confirm: true})
+	require.NoError(t, err)
+	require.False(t, res.IsError)
+	assert.ElementsMatch(t, []string{urnA}, refURNs(pw.refs["kp1"]), "rollback should restore the prior ref set")
 }
 
 func TestRevertPageChangeset_ConflictRefused(t *testing.T) {
