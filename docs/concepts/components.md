@@ -10,7 +10,7 @@ Modern data platforms need three things:
 2. **Access** - How do I query it?
 3. **Storage** - Where does it live?
 
-mcp-data-platform uses DataHub for meaning, Trino for access, and S3 for storage. Cross-injection wires them together so responses from one include context from the others.
+mcp-data-platform uses DataHub for meaning, Trino for access, and S3 for storage. Cross-enrichment wires them together so responses from one include context from the others.
 
 ---
 
@@ -180,7 +180,7 @@ See [Gateway Toolkit](../server/gateway.md) for the full reference.
 | **Trino** | "What's in this table?" | Doesn't know business context |
 | **S3** | "What files exist?" | Just storage, no meaning |
 
-### Cross-injection fills the gaps
+### Cross-enrichment fills the gaps
 
 **Trino + DataHub Cross-Enrichment**:
 
@@ -295,7 +295,7 @@ The platform acts as a bridge, intercepting requests and responses to inject con
 
     Detailed examples of how Trino and DataHub enrich each other's responses.
 
-    [:octicons-arrow-right-24: Cross-injection overview](../cross-enrichment/overview.md)
+    [:octicons-arrow-right-24: Cross-enrichment overview](../cross-enrichment/overview.md)
 
 -   :material-server: **Deploy the Server**
 

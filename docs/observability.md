@@ -55,7 +55,7 @@ duration histogram, to keep the bucket series from multiplying by identity.
 ### Trino (query provider)
 
 Recorded for the Trino queries and catalog/metadata calls the query provider
-makes (cross-injection enrichment). User-facing `trino_query` tool calls are
+makes (cross-enrichment enrichment). User-facing `trino_query` tool calls are
 also counted by `mcp_tool_calls_total{toolkit_kind="trino"}`.
 
 | Metric | Type | Labels |

@@ -24,7 +24,7 @@ type Registry struct {
 	// Aggregate factory functions by kind (multi-instance → single toolkit)
 	aggregateFactories map[string]AggregateToolkitFactory
 
-	// Providers for cross-injection
+	// Providers for cross-enrichment
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
 }

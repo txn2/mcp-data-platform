@@ -77,9 +77,9 @@ func (p *Platform) buildFeatures() Features {
 	// enrichment on the query provider; DataHub storage enrichment on storage.
 	f := Features{
 		SemanticEnrichment: p.semanticProvider != nil &&
-			(p.config.Injection.IsTrinoSemanticEnrichmentEnabled() || p.config.Injection.IsS3SemanticEnrichmentEnabled()),
-		QueryEnrichment:   p.queryProvider != nil && p.config.Injection.IsDataHubQueryEnrichmentEnabled(),
-		StorageEnrichment: p.storageProvider != nil && p.config.Injection.IsDataHubStorageEnrichmentEnabled(),
+			(p.config.Enrichment.IsTrinoSemanticEnrichmentEnabled() || p.config.Enrichment.IsS3SemanticEnrichmentEnabled()),
+		QueryEnrichment:   p.queryProvider != nil && p.config.Enrichment.IsDataHubQueryEnrichmentEnabled(),
+		StorageEnrichment: p.storageProvider != nil && p.config.Enrichment.IsDataHubStorageEnrichmentEnabled(),
 		AuditLogging:      !isExplicitlyDisabled(p.config.Audit.Enabled),
 		KnowledgeCapture:  !isExplicitlyDisabled(p.config.Knowledge.Enabled),
 		ManagedResources:  p.resourceStore != nil,

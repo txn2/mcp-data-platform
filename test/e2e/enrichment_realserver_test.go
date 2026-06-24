@@ -3,7 +3,7 @@
 package e2e
 
 // End-to-end enrichment + documented-parameter assertions through the REAL
-// assembled server. Unlike cross_injection_test.go (which mocks the tool result
+// assembled server. Unlike cross_enrichment_test.go (which mocks the tool result
 // and exercises only the enrichment middleware), this drives an in-process MCP
 // session against the platform's own mcp.Server, so the real trino_describe_table
 // / datahub_search handlers run the real query -> URN -> enrichment path the way

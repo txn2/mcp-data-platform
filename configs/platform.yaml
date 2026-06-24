@@ -273,10 +273,10 @@ query:
     #   warehouse: rdbms      # DataHub "warehouse" → Trino "rdbms"
     #   datalake: iceberg     # DataHub "datalake" → Trino "iceberg"
 
-# Cross-injection. The four enrichment flags default to true (the platform's
+# Cross-enrichment. The four enrichment flags default to true (the platform's
 # core differentiator is on by default; each is read-only and no-ops without its
 # provider). Set a flag to false to disable that direction.
-injection:
+enrichment:
   # trino_semantic_enrichment: true     # Default: true
   # datahub_query_enrichment: true      # Default: true
   # s3_semantic_enrichment: true        # Default: true

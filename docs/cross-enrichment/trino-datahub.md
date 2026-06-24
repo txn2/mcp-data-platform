@@ -120,7 +120,7 @@ The resolved table identifier is used to look up DataHub metadata.
 Enable Trino semantic enrichment:
 
 ```yaml
-injection:
+enrichment:
   trino_semantic_enrichment: true
   column_context_filtering: true     # Only include SQL-referenced columns (default)
 

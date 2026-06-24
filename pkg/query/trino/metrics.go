@@ -15,7 +15,7 @@ import (
 
 // query_kind labels for Trino metadata operations (issue #461). SQL queries use
 // the SQL verb (see queryKind); the catalog/metadata calls the provider makes
-// during cross-injection use these fixed kinds so trino_queries reflects all
+// during cross-enrichment use these fixed kinds so trino_queries reflects all
 // Trino traffic the query provider generates, not just COUNT estimates.
 const (
 	kindListCatalogs = "list_catalogs"

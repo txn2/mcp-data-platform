@@ -1,10 +1,10 @@
 # E2E Testing for MCP Data Platform
 
-This directory contains end-to-end tests for validating the cross-injection functionality of the MCP Data Platform.
+This directory contains end-to-end tests for validating the cross-enrichment functionality of the MCP Data Platform.
 
 ## Overview
 
-The E2E tests validate four cross-injection paths:
+The E2E tests validate four cross-enrichment paths:
 
 | Path | Source Tool | Target Provider | Enrichment Key |
 |------|-------------|-----------------|----------------|
@@ -76,7 +76,7 @@ The test environment includes:
 ```
 test/e2e/
 ├── README.md                    # This file
-├── cross_injection_test.go      # Main E2E test file
+├── cross_enrichment_test.go      # Main E2E test file
 ├── helpers/                     # Test utilities
 │   ├── config.go                # E2E configuration
 │   ├── wait.go                  # Service readiness checks

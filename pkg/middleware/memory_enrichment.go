@@ -21,12 +21,12 @@ const urnPrefixLen = 7
 // maxURNLength is the maximum reasonable length for a DataHub URN string.
 const maxURNLength = 500
 
-// MemoryProvider retrieves relevant memories for cross-injection into toolkit responses.
+// MemoryProvider retrieves relevant memories for cross-enrichment into toolkit responses.
 type MemoryProvider interface {
 	RecallForEntities(ctx context.Context, urns []string, persona string, limit int) ([]MemorySnippet, error)
 }
 
-// MemorySnippet is a lightweight memory representation for cross-injection.
+// MemorySnippet is a lightweight memory representation for cross-enrichment.
 type MemorySnippet struct {
 	ID         string    `json:"id"`
 	Content    string    `json:"content"`

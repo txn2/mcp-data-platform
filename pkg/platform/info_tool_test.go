@@ -59,7 +59,7 @@ func TestHandleInfo(t *testing.T) {
 					"trino":   map[string]any{},
 					"datahub": map[string]any{},
 				},
-				Injection: InjectionConfig{
+				Enrichment: EnrichmentConfig{
 					TrinoSemanticEnrichment: new(true),
 					DataHubQueryEnrichment:  new(true),
 				},
@@ -212,7 +212,7 @@ func TestInfoFeatures(t *testing.T) {
 			Name:    "feature-test",
 			Version: testInfoVersion,
 		},
-		Injection: InjectionConfig{
+		Enrichment: EnrichmentConfig{
 			TrinoSemanticEnrichment:  new(true),
 			DataHubQueryEnrichment:   new(true),
 			S3SemanticEnrichment:     new(false),

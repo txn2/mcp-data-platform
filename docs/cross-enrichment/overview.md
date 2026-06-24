@@ -321,7 +321,7 @@ Enable cross-enrichment in your configuration:
 
 ```yaml
 # Enable/disable specific enrichment paths
-injection:
+enrichment:
   trino_semantic_enrichment: true   # Trino results get DataHub context
   datahub_query_enrichment: true    # DataHub results show Trino availability
   datahub_storage_enrichment: true  # DataHub results show S3 availability
@@ -356,7 +356,7 @@ storage:
 If you only have DataHub:
 
 ```yaml
-injection:
+enrichment:
   trino_semantic_enrichment: false
   datahub_query_enrichment: false
   s3_semantic_enrichment: false
@@ -374,7 +374,7 @@ toolkits:
 Complete configuration with all services:
 
 ```yaml
-injection:
+enrichment:
   trino_semantic_enrichment: true
   datahub_query_enrichment: true
   datahub_storage_enrichment: true
@@ -592,7 +592,7 @@ Repeat calls return the raw tool result with no enrichment appended.
 ### Configuration
 
 ```yaml
-injection:
+enrichment:
   trino_semantic_enrichment: true
   column_context_filtering: true    # Only include SQL-referenced columns (default)
   session_dedup:

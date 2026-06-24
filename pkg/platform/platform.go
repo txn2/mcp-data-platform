@@ -446,7 +446,7 @@ func (p *Platform) initMemory() error {
 		return fmt.Errorf("registering memory toolkit: %w", err)
 	}
 
-	// 4. Create middleware adapter for cross-injection.
+	// 4. Create middleware adapter for cross-enrichment.
 	p.memoryAdapter = &memoryMiddlewareBridge{store: p.memoryStore}
 
 	// 5. Start staleness watcher if configured.
@@ -1145,7 +1145,7 @@ func (p *Platform) initRegistries(opts *Options) error {
 		registry.RegisterBuiltinFactories(p.toolkitRegistry)
 	}
 
-	// Inject providers for cross-injection
+	// Inject providers for cross-enrichment
 	p.toolkitRegistry.SetSemanticProvider(p.semanticProvider)
 	p.toolkitRegistry.SetQueryProvider(p.queryProvider)
 
@@ -2555,7 +2555,7 @@ func (p *Platform) finalizeSetup() {
 	// 0. Unwrap JSON default (innermost) — injects unwrap_json=true into trino_query
 	// and trino_execute arguments so single-row VARCHAR-of-JSON results are returned
 	// as parsed objects. Must be innermost so the modified arguments reach the handler.
-	if p.config.Injection.IsUnwrapJSONEnabled() {
+	if p.config.Enrichment.IsUnwrapJSONEnabled() {
 		p.mcpServer.AddReceivingMiddleware(middleware.MCPUnwrapJSONMiddleware())
 	}
 
@@ -2862,10 +2862,10 @@ func (p *Platform) buildServerCapabilities() *mcp.ServerCapabilities {
 
 // addEnrichmentMiddleware adds the semantic enrichment middleware if any injection is configured.
 func (p *Platform) addEnrichmentMiddleware() {
-	needsEnrichment := p.config.Injection.IsTrinoSemanticEnrichmentEnabled() ||
-		p.config.Injection.IsDataHubQueryEnrichmentEnabled() ||
-		p.config.Injection.IsS3SemanticEnrichmentEnabled() ||
-		p.config.Injection.IsDataHubStorageEnrichmentEnabled()
+	needsEnrichment := p.config.Enrichment.IsTrinoSemanticEnrichmentEnabled() ||
+		p.config.Enrichment.IsDataHubQueryEnrichmentEnabled() ||
+		p.config.Enrichment.IsS3SemanticEnrichmentEnabled() ||
+		p.config.Enrichment.IsDataHubStorageEnrichmentEnabled()
 
 	if !needsEnrichment {
 		return
@@ -2892,16 +2892,16 @@ func (p *Platform) addEnrichmentMiddleware() {
 // optional session dedup cache setup.
 func (p *Platform) buildEnrichmentConfig() middleware.EnrichmentConfig {
 	cfg := middleware.EnrichmentConfig{
-		EnrichTrinoResults:          p.config.Injection.IsTrinoSemanticEnrichmentEnabled(),
-		EnrichDataHubResults:        p.config.Injection.IsDataHubQueryEnrichmentEnabled(),
-		EnrichS3Results:             p.config.Injection.IsS3SemanticEnrichmentEnabled(),
-		EnrichDataHubStorageResults: p.config.Injection.IsDataHubStorageEnrichmentEnabled(),
+		EnrichTrinoResults:          p.config.Enrichment.IsTrinoSemanticEnrichmentEnabled(),
+		EnrichDataHubResults:        p.config.Enrichment.IsDataHubQueryEnrichmentEnabled(),
+		EnrichS3Results:             p.config.Enrichment.IsS3SemanticEnrichmentEnabled(),
+		EnrichDataHubStorageResults: p.config.Enrichment.IsDataHubStorageEnrichmentEnabled(),
 		ResourceLinksEnabled:        p.config.Resources.IsEnabled(),
-		ColumnContextFiltering:      p.config.Injection.IsColumnContextFilteringEnabled(),
-		SearchSchemaPreview:         p.config.Injection.IsSearchSchemaPreviewEnabled(),
-		SchemaPreviewMaxColumns:     p.config.Injection.EffectiveSchemaPreviewMaxColumns(),
-		SemanticFallbackEnabled:     p.config.Injection.IsSemanticFallbackEnabled(),
-		SemanticFallbackTopK:        p.config.Injection.EffectiveSemanticFallbackTopK(),
+		ColumnContextFiltering:      p.config.Enrichment.IsColumnContextFilteringEnabled(),
+		SearchSchemaPreview:         p.config.Enrichment.IsSearchSchemaPreviewEnabled(),
+		SchemaPreviewMaxColumns:     p.config.Enrichment.EffectiveSchemaPreviewMaxColumns(),
+		SemanticFallbackEnabled:     p.config.Enrichment.IsSemanticFallbackEnabled(),
+		SemanticFallbackTopK:        p.config.Enrichment.EffectiveSemanticFallbackTopK(),
 	}
 
 	// Wire connection source map lookups as closures to avoid import cycles.
@@ -2923,19 +2923,19 @@ func (p *Platform) buildEnrichmentConfig() middleware.EnrichmentConfig {
 		}
 	}
 
-	if p.config.Injection.SessionDedup.IsEnabled() {
+	if p.config.Enrichment.SessionDedup.IsEnabled() {
 		p.sessionCache = middleware.NewSessionEnrichmentCache(
-			p.config.Injection.SessionDedup.EntryTTL,
-			p.config.Injection.SessionDedup.SessionTimeout,
+			p.config.Enrichment.SessionDedup.EntryTTL,
+			p.config.Enrichment.SessionDedup.SessionTimeout,
 		)
 		p.sessionCache.StartCleanup(1 * time.Minute)
 		cfg.SessionCache = p.sessionCache
-		cfg.DedupMode = middleware.DedupMode(p.config.Injection.SessionDedup.EffectiveMode())
+		cfg.DedupMode = middleware.DedupMode(p.config.Enrichment.SessionDedup.EffectiveMode())
 
 		slog.Info("session metadata dedup enabled",
-			"mode", p.config.Injection.SessionDedup.EffectiveMode(),
-			"entry_ttl", p.config.Injection.SessionDedup.EntryTTL,
-			"session_timeout", p.config.Injection.SessionDedup.SessionTimeout,
+			"mode", p.config.Enrichment.SessionDedup.EffectiveMode(),
+			"entry_ttl", p.config.Enrichment.SessionDedup.EntryTTL,
+			"session_timeout", p.config.Enrichment.SessionDedup.SessionTimeout,
 		)
 
 		// Restore dedup state from session store (if available)
@@ -3022,7 +3022,7 @@ func (p *Platform) createQueryProvider() (query.Provider, error) {
 			ReadOnly:          trinoCfg.ReadOnly,
 			ConnectionName:    trinoCfg.ConnectionName,
 			CatalogMapping:    p.config.Query.URNMapping.CatalogMapping,
-			EstimateRowCounts: p.config.Injection.EstimateRowCounts,
+			EstimateRowCounts: p.config.Enrichment.EstimateRowCounts,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("creating trino query provider: %w", err)

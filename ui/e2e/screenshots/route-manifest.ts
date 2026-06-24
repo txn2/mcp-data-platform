@@ -220,7 +220,7 @@ export const routes: ScreenshotRoute[] = [
   // own route with the full query string baked into `path` (no `tabs` field).
   // The detail tabs (overview/tryit/activity/visibility) render for any tool;
   // enrichment only renders for gateway-proxied (mcp) tools, so it points at a
-  // gateway tool with cross-injection rules.
+  // gateway tool with cross-enrichment rules.
   {
     slug: "admin-tools-overview",
     path: "/portal/admin/tools?selected=trino_query",
