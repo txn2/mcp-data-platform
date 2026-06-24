@@ -58,6 +58,9 @@ type AuditMetrics interface {
 type InsightReader interface {
 	List(ctx context.Context, filter knowledge.InsightFilter) ([]knowledge.Insight, int, error)
 	Stats(ctx context.Context, filter knowledge.InsightFilter) (*knowledge.InsightStats, error)
+	// Get returns a single insight by id, used to surface a knowledge page's
+	// source-insight lineage (#678). A drained or deleted insight returns an error.
+	Get(ctx context.Context, id string) (*knowledge.Insight, error)
 }
 
 // ChangesetReader provides read access to knowledge changesets, used to surface

@@ -26,6 +26,11 @@ const (
 // Page changeset markers. The changeset target_urn is free-form text (migration
 // 000008), so a page promotion records "kp:<slug>" and shares the same changeset
 // store / list / rollback surface as DataHub changesets.
+// PageTargetURN is the changeset target_urn for a knowledge page, keyed by slug.
+// Exported so other packages (the portal lineage endpoint) reference the same
+// format instead of duplicating the "kp:" prefix.
+func PageTargetURN(slug string) string { return pageTargetPrefix + slug }
+
 const (
 	pageTargetPrefix    = "kp:"
 	changeCreatePage    = "create_page"
@@ -212,6 +217,12 @@ func (t *Toolkit) applyPagePromotion(ctx context.Context, page pagePromotionInpu
 		if err != nil {
 			return nil, err
 		}
+		// Reconcile the body's inline references (#678): a page promoted through
+		// apply_knowledge gets the same source=inline refs the portal save path
+		// derives, so inline mcp:/urn: links in the body become references.
+		if err := t.reconcileInlineRefs(ctx, existing.ID, page.Body); err != nil {
+			return nil, err
+		}
 		return &pagePromotion{
 			pageID: existing.ID, slug: page.Slug, changeType: changeUpdatePage,
 			prev: prev,
@@ -227,6 +238,9 @@ func (t *Toolkit) applyPagePromotion(ctx context.Context, page pagePromotionInpu
 		}
 		nextURNs, err := t.addPageEntityRefs(ctx, id, entityURNs, appliedBy)
 		if err != nil {
+			return nil, err
+		}
+		if err := t.reconcileInlineRefs(ctx, id, page.Body); err != nil {
 			return nil, err
 		}
 		return &pagePromotion{
@@ -269,6 +283,19 @@ func (t *Toolkit) addPageEntityRefs(ctx context.Context, pageID string, entityUR
 		}
 	}
 	return t.pageEntityURNs(ctx, pageID)
+}
+
+// reconcileInlineRefs scans a page body for inline mcp:/urn: references and
+// replaces the page's source=inline references to match, identical to the portal
+// save path (#678). Promoted and manual references are untouched. This makes a page
+// authored or promoted through apply_knowledge capture the references in its body,
+// not just the ones carried from the source insight.
+func (t *Toolkit) reconcileInlineRefs(ctx context.Context, pageID, body string) error {
+	inline := knowledgepage.ScanBodyRefs(body)
+	if err := t.pageWriter.ReplaceEntityRefsBySource(ctx, pageID, knowledgepage.RefSourceInline, inline); err != nil {
+		return fmt.Errorf("reconciling inline page references: %w", err)
+	}
+	return nil
 }
 
 // promotedRefsFromURNs parses serialized reference URNs (any type: a urn:li:

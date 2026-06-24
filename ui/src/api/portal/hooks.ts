@@ -1299,6 +1299,37 @@ export function useKnowledgePageRefs(id: string) {
   });
 }
 
+export interface LineageInsight {
+  id: string;
+  text: string;
+  category: string;
+  status: string;
+  confidence: string;
+  captured_by: string;
+}
+
+export interface LineageChangeset {
+  id: string;
+  change_type: string;
+  created_at: string;
+  rolled_back: boolean;
+  source_insight_ids: string[];
+}
+
+export interface KnowledgePageLineage {
+  insights: LineageInsight[];
+  changesets: LineageChangeset[];
+}
+
+/** useKnowledgePageLineage returns the insights a page was synthesized from (#678). */
+export function useKnowledgePageLineage(id: string) {
+  return useQuery({
+    queryKey: ["knowledge-page-lineage", id],
+    queryFn: () => apiFetch<KnowledgePageLineage>(`/knowledge-pages/${id}/lineage`),
+    enabled: !!id,
+  });
+}
+
 /**
  * useSetKnowledgePageRefs replaces a page's manual references with the given URNs
  * (promoted/inline refs are preserved server-side). Requires apply_knowledge.

@@ -56,8 +56,11 @@ export interface ResolvedRef {
 // Mirrors the backend refTokenRe: at most one level of parentheses, which covers
 // every reference form. Parenthesized alternatives come first so a connection or
 // DataHub token is matched whole rather than truncated at an enclosing paren.
-const REF_TOKEN_RE =
-  /mcp:[a-z_]+:\([^)]*\)|mcp:[a-z_]+:[A-Za-z0-9_.-]+|urn:[a-z]+:[A-Za-z0-9]+:\([^)]*\)|urn:[a-z]+:[^\s)\]>]+/g;
+// Exported as a source string so other modules (the markdown renderer) build a
+// fresh RegExp from the same pattern rather than copying it.
+export const REF_TOKEN_SOURCE =
+  "mcp:[a-z_]+:\\([^)]*\\)|mcp:[a-z_]+:[A-Za-z0-9_.-]+|urn:[a-z]+:[A-Za-z0-9]+:\\([^)]*\\)|urn:[a-z]+:[^\\s)\\]>]+";
+const REF_TOKEN_RE = new RegExp(REF_TOKEN_SOURCE, "g");
 
 // Fenced code blocks and inline code spans are stripped before scanning so a URN
 // shown as a documentation example is not treated as a reference (mirrors the

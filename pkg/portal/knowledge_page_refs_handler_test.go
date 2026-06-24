@@ -12,6 +12,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
 
 type refsResp struct {
@@ -235,6 +236,92 @@ func TestResolveKnowledgePageRefs_Unauthenticated(t *testing.T) {
 	h := newKnowledgePageHandler(&mockKnowledgePageStore{}, nil)
 	w := doKP(h, "POST", "/api/v1/portal/knowledge-pages/refs/resolve", `{"urns":[]}`)
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestKnowledgePageLineage(t *testing.T) {
+	kp := &mockKnowledgePageStore{page: &knowledgepage.Page{ID: "kp1", Slug: "seasons"}}
+	cr := &mockChangesetReader{changesets: []knowledge.Changeset{
+		// i3 is referenced but missing from the insight store (drained); it is skipped.
+		{ID: "cs1", TargetURN: "kp:seasons", ChangeType: "create_knowledge_page", SourceInsightIDs: []string{"i1", "i2", "i3"}},
+		{ID: "cs2", TargetURN: "kp:seasons", ChangeType: "update_knowledge_page", SourceInsightIDs: []string{"i2"}},
+	}}
+	is := &mockInsightStore{getResult: map[string]*knowledge.Insight{
+		"i1": {ID: "i1", InsightText: "Summer is May to Oct", Status: "applied", Category: "business_context"},
+		"i2": {ID: "i2", InsightText: "Winter is Nov to Apr", Status: "applied"},
+	}}
+	deps := Deps{
+		KnowledgePageStore: kp, ChangesetReader: cr, InsightStore: is,
+		AdminRoles: []string{"admin"}, RateLimit: RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
+	}
+	h := NewHandler(deps, testAuthMiddleware(kpAdmin))
+	w := doKP(h, "GET", "/api/v1/portal/knowledge-pages/kp1/lineage", "")
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var resp knowledgePageLineageResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Len(t, resp.Changesets, 2, "both promotions appear in lineage")
+	require.Len(t, resp.Insights, 2, "i2 deduped across changesets; the drained i3 is skipped")
+	gotIDs := []string{resp.Insights[0].ID, resp.Insights[1].ID}
+	assert.ElementsMatch(t, []string{"i1", "i2"}, gotIDs)
+	// The changeset query must target this page (kp:<slug>), or lineage silently empties.
+	assert.Equal(t, "kp:seasons", cr.gotFilter.EntityURN)
+}
+
+func TestKnowledgePageLineage_RequiresApplyKnowledge(t *testing.T) {
+	deps := Deps{
+		KnowledgePageStore: &mockKnowledgePageStore{page: &knowledgepage.Page{ID: "kp1", Slug: "s"}},
+		ChangesetReader:    &mockChangesetReader{},
+		AdminRoles:         []string{"admin"},
+		RateLimit:          RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
+	}
+	// kpViewer holds no apply_knowledge, so the raw insight lineage is forbidden.
+	h := NewHandler(deps, testAuthMiddleware(kpViewer))
+	w := doKP(h, "GET", "/api/v1/portal/knowledge-pages/kp1/lineage", "")
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestKnowledgePageLineage_NoChangesetReader(t *testing.T) {
+	deps := Deps{
+		KnowledgePageStore: &mockKnowledgePageStore{page: &knowledgepage.Page{ID: "kp1", Slug: "s"}},
+		AdminRoles:         []string{"admin"},
+		RateLimit:          RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
+	}
+	h := NewHandler(deps, testAuthMiddleware(kpAdmin))
+	w := doKP(h, "GET", "/api/v1/portal/knowledge-pages/kp1/lineage", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp knowledgePageLineageResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Empty(t, resp.Insights)
+	assert.Empty(t, resp.Changesets)
+}
+
+func TestKnowledgePageLineage_NotFound(t *testing.T) {
+	deps := Deps{
+		KnowledgePageStore: &mockKnowledgePageStore{}, // nil page -> ErrNotFound
+		AdminRoles:         []string{"admin"},
+		RateLimit:          RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
+	}
+	h := NewHandler(deps, testAuthMiddleware(kpAdmin))
+	w := doKP(h, "GET", "/api/v1/portal/knowledge-pages/missing/lineage", "")
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestKnowledgePageLineage_Unauthenticated(t *testing.T) {
+	h := newKnowledgePageHandler(&mockKnowledgePageStore{page: &knowledgepage.Page{ID: "kp1", Slug: "s"}}, nil)
+	w := doKP(h, "GET", "/api/v1/portal/knowledge-pages/kp1/lineage", "")
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestKnowledgePageLineage_ChangesetError(t *testing.T) {
+	deps := Deps{
+		KnowledgePageStore: &mockKnowledgePageStore{page: &knowledgepage.Page{ID: "kp1", Slug: "s"}},
+		ChangesetReader:    &mockChangesetReader{err: errors.New("boom")},
+		AdminRoles:         []string{"admin"},
+		RateLimit:          RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
+	}
+	h := NewHandler(deps, testAuthMiddleware(kpAdmin))
+	w := doKP(h, "GET", "/api/v1/portal/knowledge-pages/kp1/lineage", "")
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
 func TestResolveKnowledgePageRefs_WithStores(t *testing.T) {

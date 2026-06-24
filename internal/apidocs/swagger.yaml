@@ -2980,12 +2980,53 @@ definitions:
       updated_at:
         type: string
     type: object
+  portal.knowledgePageLineageResponse:
+    properties:
+      changesets:
+        items:
+          $ref: '#/definitions/portal.lineageChangeset'
+        type: array
+      insights:
+        items:
+          $ref: '#/definitions/portal.lineageInsight'
+        type: array
+    type: object
   portal.knowledgePageRefsResponse:
     properties:
       refs:
         items:
           $ref: '#/definitions/portal.resolvedRefView'
         type: array
+    type: object
+  portal.lineageChangeset:
+    properties:
+      change_type:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: string
+      rolled_back:
+        type: boolean
+      source_insight_ids:
+        items:
+          type: string
+        type: array
+    type: object
+  portal.lineageInsight:
+    properties:
+      captured_by:
+        type: string
+      category:
+        type: string
+      confidence:
+        type: string
+      id:
+        type: string
+      status:
+        type: string
+      text:
+        type: string
     type: object
   portal.listCollectionsResponse:
     properties:
@@ -8888,6 +8929,38 @@ paths:
       summary: Feedback activity feed
       tags:
       - Feedback
+  /portal/knowledge-pages/{id}/lineage:
+    get:
+      description: Returns the insights the page was synthesized from and the promotion
+        changesets that produced it (#678), so a reviewer can trace canonical knowledge
+        back to the captured insights.
+      parameters:
+      - description: Knowledge page id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.knowledgePageLineageResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: A knowledge page's source-insight lineage
+      tags:
+      - Knowledge
   /portal/knowledge-pages/{id}/refs:
     get:
       description: Returns the entities the page references (assets, prompts, collections,

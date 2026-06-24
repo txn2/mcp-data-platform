@@ -9,9 +9,15 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
+
+// maxLineageChangesets caps how many promotion changesets a page's lineage query
+// reads. A page accrues one changeset per promotion, far below this bound.
+const maxLineageChangesets = 200
 
 // maxEntityRefsPerPage caps how many references a single set request may carry,
 // so a malformed or hostile payload cannot fan out unbounded inserts.
@@ -89,6 +95,133 @@ func (h *Handler) listKnowledgePageRefs(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	writeJSON(w, http.StatusOK, knowledgePageRefsResponse{Refs: h.resolveAndFilterRefs(r, user, refs)})
+}
+
+// lineageInsight is a source insight that contributed to a knowledge page.
+type lineageInsight struct {
+	ID         string `json:"id"`
+	Text       string `json:"text"`
+	Category   string `json:"category"`
+	Status     string `json:"status"`
+	Confidence string `json:"confidence"`
+	CapturedBy string `json:"captured_by"`
+}
+
+// lineageChangeset is one promotion (apply_knowledge) that produced the page.
+type lineageChangeset struct {
+	ID               string    `json:"id"`
+	ChangeType       string    `json:"change_type"`
+	CreatedAt        time.Time `json:"created_at"`
+	RolledBack       bool      `json:"rolled_back"`
+	SourceInsightIDs []string  `json:"source_insight_ids"`
+}
+
+// knowledgePageLineageResponse is the lineage envelope: the insights a page was
+// synthesized from, and the promotion changesets that produced it.
+type knowledgePageLineageResponse struct {
+	Insights   []lineageInsight   `json:"insights"`
+	Changesets []lineageChangeset `json:"changesets"`
+}
+
+// knowledgePageLineage handles GET /api/v1/portal/knowledge-pages/{id}/lineage.
+//
+// @Summary      A knowledge page's source-insight lineage
+// @Description  Returns the insights the page was synthesized from and the promotion changesets that produced it (#678), so a reviewer can trace canonical knowledge back to the captured insights.
+// @Tags         Knowledge
+// @Produce      json
+// @Param        id  path  string  true  "Knowledge page id"
+// @Success      200  {object}  knowledgePageLineageResponse
+// @Failure      401  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/knowledge-pages/{id}/lineage [get]
+func (h *Handler) knowledgePageLineage(w http.ResponseWriter, r *http.Request) {
+	user := GetUser(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, errAuthRequired)
+		return
+	}
+	// Lineage exposes the raw source-insight text and the capturer's identity, which
+	// are reviewer-facing source material, not org-shared page content. Gate it to
+	// apply_knowledge holders (the same gate as editing a page), not every viewer.
+	if !h.userHasApplyKnowledge(user) {
+		writeError(w, http.StatusForbidden, errKnowledgePageForbidden)
+		return
+	}
+	if h.deps.KnowledgePageStore == nil {
+		writeError(w, http.StatusNotFound, "knowledge pages are not enabled")
+		return
+	}
+	id := r.PathValue(kpIDParam)
+	page, err := h.deps.KnowledgePageStore.Get(r.Context(), id)
+	if errors.Is(err, knowledgepage.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "knowledge page not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load knowledge page")
+		return
+	}
+
+	resp := knowledgePageLineageResponse{Insights: []lineageInsight{}, Changesets: []lineageChangeset{}}
+	if h.deps.ChangesetReader == nil {
+		writeJSON(w, http.StatusOK, resp)
+		return
+	}
+	changesets, _, err := h.deps.ChangesetReader.ListChangesets(r.Context(),
+		knowledge.ChangesetFilter{EntityURN: knowledge.PageTargetURN(page.Slug), Limit: maxLineageChangesets})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load page lineage")
+		return
+	}
+
+	var insightIDs []string
+	resp.Changesets, insightIDs = lineageFromChangesets(changesets)
+	resp.Insights = h.loadLineageInsights(r.Context(), insightIDs)
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// lineageFromChangesets maps changesets to lineage entries and returns the
+// de-duplicated source-insight ids across them (first-seen order).
+func lineageFromChangesets(changesets []knowledge.Changeset) (entries []lineageChangeset, insightIDs []string) {
+	entries = make([]lineageChangeset, 0, len(changesets))
+	seen := make(map[string]struct{})
+	insightIDs = make([]string, 0)
+	for _, cs := range changesets {
+		entries = append(entries, lineageChangeset{
+			ID: cs.ID, ChangeType: cs.ChangeType, CreatedAt: cs.CreatedAt,
+			RolledBack: cs.RolledBack, SourceInsightIDs: cs.SourceInsightIDs,
+		})
+		for _, iid := range cs.SourceInsightIDs {
+			if _, dup := seen[iid]; dup {
+				continue
+			}
+			seen[iid] = struct{}{}
+			insightIDs = append(insightIDs, iid)
+		}
+	}
+	return entries, insightIDs
+}
+
+// loadLineageInsights fetches each source insight; drained or deleted ones are
+// skipped rather than failing the request.
+func (h *Handler) loadLineageInsights(ctx context.Context, ids []string) []lineageInsight {
+	out := make([]lineageInsight, 0, len(ids))
+	if h.deps.InsightStore == nil {
+		return out
+	}
+	for _, iid := range ids {
+		ins, err := h.deps.InsightStore.Get(ctx, iid)
+		if err != nil || ins == nil {
+			continue
+		}
+		out = append(out, lineageInsight{
+			ID: ins.ID, Text: ins.InsightText, Category: ins.Category,
+			Status: ins.Status, Confidence: ins.Confidence, CapturedBy: ins.CapturedBy,
+		})
+	}
+	return out
 }
 
 // setKnowledgePageRefs handles PUT /api/v1/portal/knowledge-pages/{id}/refs.

@@ -8608,6 +8608,55 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/knowledge-pages/{id}/lineage": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the insights the page was synthesized from and the promotion changesets that produced it (#678), so a reviewer can trace canonical knowledge back to the captured insights.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Knowledge"
+                ],
+                "summary": "A knowledge page's source-insight lineage",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Knowledge page id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.knowledgePageLineageResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/knowledge-pages/{id}/refs": {
             "get": {
                 "security": [
@@ -15248,6 +15297,23 @@ const docTemplate = `{
                 }
             }
         },
+        "portal.knowledgePageLineageResponse": {
+            "type": "object",
+            "properties": {
+                "changesets": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portal.lineageChangeset"
+                    }
+                },
+                "insights": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portal.lineageInsight"
+                    }
+                }
+            }
+        },
         "portal.knowledgePageRefsResponse": {
             "type": "object",
             "properties": {
@@ -15256,6 +15322,52 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/portal.resolvedRefView"
                     }
+                }
+            }
+        },
+        "portal.lineageChangeset": {
+            "type": "object",
+            "properties": {
+                "change_type": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "rolled_back": {
+                    "type": "boolean"
+                },
+                "source_insight_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "portal.lineageInsight": {
+            "type": "object",
+            "properties": {
+                "captured_by": {
+                    "type": "string"
+                },
+                "category": {
+                    "type": "string"
+                },
+                "confidence": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "text": {
+                    "type": "string"
                 }
             }
         },

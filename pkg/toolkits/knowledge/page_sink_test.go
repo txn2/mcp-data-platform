@@ -19,14 +19,16 @@ var errKP = errors.New("kp boom")
 
 // fakePageWriter is an in-memory pageWriter for sink-router tests.
 type fakePageWriter struct {
-	pages     map[string]*knowledgepage.Page       // slug -> page
-	refs      map[string][]knowledgepage.EntityRef // pageID -> refs
-	inserted  []string
-	updated   []string
-	deleted   []string
-	insertErr error
-	updateErr error
-	getErr    error
+	pages            map[string]*knowledgepage.Page       // slug -> page
+	refs             map[string][]knowledgepage.EntityRef // pageID -> refs
+	inserted         []string
+	updated          []string
+	deleted          []string
+	insertErr        error
+	updateErr        error
+	getErr           error
+	replaceBySrcErr  error // errors any ReplaceEntityRefsBySource call
+	replaceInlineErr error // errors only the source=inline replace
 }
 
 func newFakePageWriter() *fakePageWriter {
@@ -64,6 +66,12 @@ func (f *fakePageWriter) ReplaceEntityRefs(_ context.Context, pageID string, ref
 }
 
 func (f *fakePageWriter) ReplaceEntityRefsBySource(_ context.Context, pageID, source string, refs []knowledgepage.EntityRef) error {
+	if f.replaceBySrcErr != nil {
+		return f.replaceBySrcErr
+	}
+	if source == knowledgepage.RefSourceInline && f.replaceInlineErr != nil {
+		return f.replaceInlineErr
+	}
 	kept := f.refs[pageID][:0:0]
 	for _, r := range f.refs[pageID] {
 		if r.Source != source {
@@ -205,6 +213,93 @@ func TestPromoteToPage_CarriesMixedInsightRefTypes(t *testing.T) {
 		"mcp:asset:asset-1",
 		dataset,
 	}, urns, "the insight's connection, asset, and dataset references all carry onto the page")
+}
+
+// TestPromoteToPage_ReconcilesInlineBodyRefs proves #678: a page promoted via
+// apply_knowledge gets the inline references in its own body reconciled as
+// source=inline, not only the references carried from the source insight.
+func TestPromoteToPage_ReconcilesInlineBodyRefs(t *testing.T) {
+	// The source insight carries no references of its own.
+	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
+	pw := newFakePageWriter()
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk.SetPageWriter(pw)
+
+	input := applyKnowledgeInput{
+		Action: actionApply, Sink: sinkKnowledgePage, InsightIDs: []string{"i1"},
+		Page: &pagePromotionInput{
+			Slug:  "guide",
+			Title: "Guide",
+			Body:  "See [the warehouse](mcp:connection:(trino,acme)) and the [dashboard](mcp:asset:asset-1).",
+		},
+	}
+	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, input)
+	require.NoError(t, err)
+	require.False(t, res.IsError, "unexpected error result")
+	page := pw.pages["guide"]
+	require.NotNil(t, page)
+
+	urns := make([]string, 0, len(pw.refs[page.ID]))
+	for _, r := range pw.refs[page.ID] {
+		assert.Equal(t, knowledgepage.RefSourceInline, r.Source, "body references are source=inline")
+		urns = append(urns, r.URN())
+	}
+	assert.ElementsMatch(t, []string{"mcp:connection:(trino,acme)", "mcp:asset:asset-1"}, urns,
+		"inline references in the promoted page body must be reconciled onto the page")
+}
+
+// TestPromoteToPage_InlineReconcileError surfaces a failure in the inline-ref
+// reconcile during promotion as an error result rather than silently dropping refs.
+func TestPromoteToPage_InlineReconcileError(t *testing.T) {
+	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
+	pw := newFakePageWriter()
+	pw.replaceBySrcErr = errors.New("inline reconcile boom")
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk.SetPageWriter(pw)
+
+	input := applyKnowledgeInput{
+		Action: actionApply, Sink: sinkKnowledgePage, InsightIDs: []string{"i1"},
+		Page: &pagePromotionInput{Slug: "guide", Title: "Guide", Body: "[a](mcp:asset:asset-1)"},
+	}
+	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, input)
+	require.NoError(t, err)
+	assert.True(t, res.IsError, "an inline reconcile failure should surface as an error result")
+}
+
+// TestPromoteToPage_InlineReconcileError_Update covers the inline-reconcile error
+// on the update branch (an existing page promoted to the same slug).
+func TestPromoteToPage_InlineReconcileError_Update(t *testing.T) {
+	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
+	pw := newFakePageWriter()
+	pw.pages["seasons"] = &knowledgepage.Page{ID: "kp1", Slug: "seasons", CurrentVersion: 1}
+	pw.replaceBySrcErr = errKP
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk.SetPageWriter(pw)
+
+	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, applyPageInput([]string{"i1"}))
+	require.NoError(t, err)
+	assert.True(t, res.IsError, "an inline reconcile failure on update should surface as an error result")
+}
+
+// TestRevertPageChangeset_InlineReconcileError covers the inline-reconcile error on
+// the rollback path (the promoted restore succeeds, the inline restore fails).
+func TestRevertPageChangeset_InlineReconcileError(t *testing.T) {
+	prev := map[string]any{
+		pageFieldTitle: "Old", pageFieldBody: "old body", pageFieldSummary: "", pageFieldTags: []any{},
+		pageFieldEntityURNs: []any{},
+	}
+	cs := pageChangeset("seasons", changeUpdatePage, 4, prev)
+	pw := newFakePageWriter()
+	pw.pages["seasons"] = &knowledgepage.Page{ID: "kp1", Slug: "seasons", CurrentVersion: 4}
+	pw.replaceInlineErr = errKP // promoted restore succeeds, inline restore fails
+	csStore := &spyChangesetStore{Changesets: []Changeset{cs}}
+	tk := newApplyToolkit(t, &fullSpyStore{}, csStore, &spyWriter{})
+	tk.SetPageWriter(pw)
+
+	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{},
+		applyKnowledgeInput{Action: actionRollback, ChangesetID: "cs1", Confirm: true})
+	require.NoError(t, err)
+	assert.True(t, res.IsError, "an inline reconcile failure on rollback should surface as an error result")
 }
 
 func applyPageInput(insightIDs []string) applyKnowledgeInput {

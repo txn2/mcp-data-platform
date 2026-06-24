@@ -397,6 +397,12 @@ func applyPageRevert(ctx context.Context, pages PageReverter, cs *Changeset, pag
 			promotedRefsFromURNs(strsFromMap(cs.PreviousValue, pageFieldEntityURNs))); err != nil {
 			return "", fmt.Errorf("restoring knowledge page references: %w", err)
 		}
+		// Re-derive the inline references from the restored body (#678) so they stay
+		// consistent with the body after a rollback; manual refs are untouched.
+		if err := pages.ReplaceEntityRefsBySource(ctx, page.ID, knowledgepage.RefSourceInline,
+			knowledgepage.ScanBodyRefs(body)); err != nil {
+			return "", fmt.Errorf("restoring inline knowledge page references: %w", err)
+		}
 		return "restored page " + page.Slug, nil
 	default:
 		return "", fmt.Errorf("unknown page change type: %s", cs.ChangeType)

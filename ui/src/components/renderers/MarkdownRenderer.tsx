@@ -5,7 +5,49 @@ import type { Components } from "react-markdown";
 import mermaid from "mermaid";
 import DOMPurify from "dompurify";
 import { EntityChip } from "@/components/knowledge/EntityChip";
-import { isRefUrn, type ResolvedRef } from "@/lib/entityRefs";
+import { isRefUrn, REF_TOKEN_SOURCE, type ResolvedRef } from "@/lib/entityRefs";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type MdNode = { type?: string; value?: string; url?: string; children?: any[] };
+
+function splitRefTokens(value: string): MdNode[] {
+  const re = new RegExp(REF_TOKEN_SOURCE, "g");
+  const out: MdNode[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(value)) !== null) {
+    if (m.index > last) out.push({ type: "text", value: value.slice(last, m.index) });
+    out.push({ type: "link", url: m[0], children: [{ type: "text", value: m[0] }] });
+    last = m.index + m[0].length;
+  }
+  if (last === 0) return [{ type: "text", value }];
+  if (last < value.length) out.push({ type: "text", value: value.slice(last) });
+  return out;
+}
+
+function walkRefs(node: MdNode): void {
+  if (!Array.isArray(node.children)) return;
+  const next: MdNode[] = [];
+  for (const child of node.children) {
+    if (child.type === "text" && typeof child.value === "string") {
+      next.push(...splitRefTokens(child.value));
+    } else {
+      // Do not descend into links (already a chip) or code (literal).
+      if (child.type !== "link" && child.type !== "code" && child.type !== "inlineCode") {
+        walkRefs(child);
+      }
+      next.push(child);
+    }
+  }
+  node.children = next;
+}
+
+// remarkEntityRefs converts bare mcp:/urn: tokens in text into link nodes so they
+// render as entity chips via the `a` override, even when the author wrote a bare
+// token rather than a markdown link (#678).
+function remarkEntityRefs() {
+  return (tree: MdNode) => walkRefs(tree);
+}
 
 // DOMPurify's default FORBID_CONTENTS strips the children of `foreignObject`
 // (among others). We reuse that default list but drop `foreignobject` so the
@@ -236,7 +278,7 @@ export function MarkdownRenderer({
       className={`prose prose-sm max-w-none dark:prose-invert [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 ${bare ? "" : "rounded-lg border bg-card p-6"}`}
     >
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkEntityRefs]}
         components={components}
         // Preserve entity-reference URNs (mcp:/urn:) so the `a` override can chip
         // them; everything else keeps react-markdown's default URL sanitization.
