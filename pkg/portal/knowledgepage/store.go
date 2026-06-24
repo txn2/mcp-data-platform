@@ -94,6 +94,7 @@ type Store interface {
 	ListEntityRefs(ctx context.Context, pageID string) ([]EntityRef, error)
 	AddEntityRefs(ctx context.Context, pageID string, refs []EntityRef) error
 	ReplaceEntityRefs(ctx context.Context, pageID string, refs []EntityRef) error
+	ReplaceEntityRefsBySource(ctx context.Context, pageID, source string, refs []EntityRef) error
 }
 
 // ErrNotFound is returned when a page id/slug does not resolve to a

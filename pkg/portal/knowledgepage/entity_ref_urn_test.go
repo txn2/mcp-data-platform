@@ -1,0 +1,62 @@
+package knowledgepage
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestEntityRef_URNRoundTrip(t *testing.T) {
+	cases := []struct {
+		name string
+		ref  EntityRef
+		urn  string
+	}{
+		{"asset", EntityRef{TargetType: RefTargetAsset, AssetID: "asset-001"}, "mcp:asset:asset-001"},
+		{"prompt", EntityRef{TargetType: RefTargetPrompt, PromptID: "11111111-1111-1111-1111-111111111111"}, "mcp:prompt:11111111-1111-1111-1111-111111111111"},
+		{"collection", EntityRef{TargetType: RefTargetCollection, CollectionID: "coll-001"}, "mcp:collection:coll-001"},
+		{"page", EntityRef{TargetType: RefTargetKnowledgePage, RefPageID: "kp-2"}, "mcp:knowledge_page:kp-2"},
+		{"connection", EntityRef{TargetType: RefTargetConnection, ConnectionKind: "trino", ConnectionName: "warehouse"}, "mcp:connection:(trino,warehouse)"},
+		{"datahub", EntityRef{TargetType: RefTargetDataHub, EntityURN: "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)"}, "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			assert.Equal(t, c.urn, c.ref.URN(), "serialize")
+			got, err := ParseEntityRef(c.urn)
+			require.NoError(t, err, "parse")
+			assert.Equal(t, c.ref, got, "round-trip")
+		})
+	}
+}
+
+func TestEntityRef_URN_UnknownType(t *testing.T) {
+	assert.Empty(t, EntityRef{TargetType: "bogus"}.URN())
+}
+
+func TestParseEntityRef_Errors(t *testing.T) {
+	for _, s := range []string{
+		"",
+		"asset-001",                   // no scheme
+		"mcp:",                        // no type/id
+		"mcp:asset",                   // no id
+		"mcp:asset:",                  // empty id
+		"mcp:bogus:x",                 // unknown type
+		"mcp:prompt:not-a-uuid",       // prompt id must be a UUID
+		"mcp:connection:trino,wh",     // missing parens
+		"mcp:connection:(trino)",      // missing name
+		"mcp:connection:(,warehouse)", // empty kind
+	} {
+		_, err := ParseEntityRef(s)
+		assert.Error(t, err, "want error for %q", s)
+	}
+}
+
+// TestParseEntityRef_ExternalPassthrough checks any urn: prefix is treated as an
+// external (DataHub) reference and stored verbatim.
+func TestParseEntityRef_ExternalPassthrough(t *testing.T) {
+	ref, err := ParseEntityRef("  urn:li:glossaryTerm:revenue  ")
+	require.NoError(t, err)
+	assert.Equal(t, RefTargetDataHub, ref.TargetType)
+	assert.Equal(t, "urn:li:glossaryTerm:revenue", ref.EntityURN)
+}

@@ -2921,6 +2921,37 @@ definitions:
           $ref: '#/definitions/portal.directoryUser'
         type: array
     type: object
+  portal.entityRefView:
+    properties:
+      asset_id:
+        type: string
+      collection_id:
+        type: string
+      connection_kind:
+        type: string
+      connection_name:
+        type: string
+      created_at:
+        type: string
+      created_by:
+        type: string
+      entity_urn:
+        type: string
+      id:
+        type: string
+      page_id:
+        type: string
+      prompt_id:
+        type: string
+      ref_page_id:
+        type: string
+      source:
+        type: string
+      target_type:
+        type: string
+      urn:
+        type: string
+    type: object
   portal.getCollectionResponse:
     properties:
       asset_tags:
@@ -2963,6 +2994,13 @@ definitions:
         type: string
       updated_at:
         type: string
+    type: object
+  portal.knowledgePageRefsResponse:
+    properties:
+      refs:
+        items:
+          $ref: '#/definitions/portal.entityRefView'
+        type: array
     type: object
   portal.listCollectionsResponse:
     properties:
@@ -3149,6 +3187,13 @@ definitions:
         type: array
       ranking:
         type: string
+    type: object
+  portal.setEntityRefsRequest:
+    properties:
+      refs:
+        items:
+          type: string
+        type: array
     type: object
   portal.setSectionsRequest:
     properties:
@@ -8814,6 +8859,88 @@ paths:
       summary: Feedback activity feed
       tags:
       - Feedback
+  /portal/knowledge-pages/{id}/refs:
+    get:
+      description: Returns the entities the page references (assets, prompts, collections,
+        connections, DataHub URNs, and other pages), each with its serialized URN.
+      parameters:
+      - description: Knowledge page id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.knowledgePageRefsResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List a knowledge page's entity references
+      tags:
+      - Knowledge
+    put:
+      consumes:
+      - application/json
+      description: Replaces the page's manually-authored references with the given
+        set (parsed from serialized URNs). References carried from promotion (source=promoted)
+        are preserved. Requires apply_knowledge access.
+      parameters:
+      - description: Knowledge page id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: References to set
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/portal.setEntityRefsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.knowledgePageRefsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Set a knowledge page's manual entity references
+      tags:
+      - Knowledge
   /portal/knowledge/insights:
     get:
       description: Returns paginated insights captured by the current user.

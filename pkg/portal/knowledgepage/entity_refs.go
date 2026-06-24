@@ -3,11 +3,21 @@ package knowledgepage
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
+
+// ErrRefTargetNotFound is returned when a reference points at an internal entity
+// (asset, prompt, collection, page, connection) that does not exist, so the
+// foreign key rejects it. Callers map it to a client error rather than a 500.
+var ErrRefTargetNotFound = errors.New("entity reference target does not exist")
+
+// pgForeignKeyViolation is the PostgreSQL SQLSTATE for a foreign-key violation.
+const pgForeignKeyViolation = "23503"
 
 // Entity-reference target types. Exactly one target is set on a reference row:
 // an internal entity by foreign key, or an external DataHub URN.
@@ -150,19 +160,42 @@ func refConflictTarget(targetType string) string {
 // ReplaceEntityRefs sets a page's references to exactly the given set (clearing
 // the rest), used to restore the prior references when a promotion is rolled back.
 func (s *postgresStore) ReplaceEntityRefs(ctx context.Context, pageID string, refs []EntityRef) error { //nolint:revive // interface impl
+	return s.replaceRefs(ctx, pageID, "", refs)
+}
+
+// ReplaceEntityRefsBySource sets the page's references of one source (for example
+// the "manual" ones authored through the picker) to exactly the given set, while
+// references of other sources (promoted, inline) are left untouched.
+func (s *postgresStore) ReplaceEntityRefsBySource(ctx context.Context, pageID, source string, refs []EntityRef) error { //nolint:revive // interface impl
+	return s.replaceRefs(ctx, pageID, source, refs)
+}
+
+// replaceRefs clears the page's references (all, or only the given source when
+// non-empty) and inserts refs, in one transaction. The inserted rows are stamped
+// with source when provided.
+func (s *postgresStore) replaceRefs(ctx context.Context, pageID, source string, refs []EntityRef) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback() //nolint:errcheck // commit below on success
 
-	if _, err := tx.ExecContext(ctx, `DELETE FROM knowledge_page_entity_refs WHERE page_id = $1`, pageID); err != nil {
+	del := `DELETE FROM knowledge_page_entity_refs WHERE page_id = $1`
+	args := []any{pageID}
+	if source != "" {
+		del += ` AND source = $2`
+		args = append(args, source)
+	}
+	if _, err := tx.ExecContext(ctx, del, args...); err != nil {
 		return fmt.Errorf("clearing entity refs: %w", err)
 	}
 	seen := make(map[string]struct{}, len(refs))
 	for _, ref := range refs {
 		if _, dup := seen[ref.identity()]; dup {
 			continue
+		}
+		if source != "" {
+			ref.Source = source
 		}
 		if err := insertEntityRef(ctx, tx, pageID, ref); err != nil {
 			return err
@@ -206,6 +239,10 @@ func insertEntityRef(ctx context.Context, e execer, pageID string, ref EntityRef
 		source, ref.CreatedBy,
 	)
 	if err != nil {
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && string(pqErr.Code) == pgForeignKeyViolation {
+			return fmt.Errorf("reference %q: %w", ref.identity(), ErrRefTargetNotFound)
+		}
 		return fmt.Errorf("inserting entity ref: %w", err)
 	}
 	return nil
