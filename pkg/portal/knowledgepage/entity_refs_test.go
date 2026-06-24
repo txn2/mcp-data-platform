@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -127,6 +128,40 @@ func TestEntityRefIdentity(t *testing.T) {
 	assert.NotEqual(t,
 		EntityRef{TargetType: RefTargetAsset, AssetID: "a"}.identity(),
 		EntityRef{TargetType: RefTargetPrompt, PromptID: "a"}.identity())
+}
+
+func TestStore_ReplaceEntityRefsBySource(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+	store := NewPostgresStore(db)
+
+	mock.ExpectBegin()
+	mock.ExpectExec("DELETE FROM knowledge_page_entity_refs WHERE page_id = .* AND source = ").
+		WithArgs("kp1", "manual").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	// The ref is stamped with the given source on insert.
+	mock.ExpectExec("INSERT INTO knowledge_page_entity_refs").
+		WithArgs(sqlmock.AnyArg(), "kp1", "asset", "asset-001", sqlmock.AnyArg(), sqlmock.AnyArg(),
+			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "manual", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	err = store.ReplaceEntityRefsBySource(context.Background(), "kp1", RefSourceManual,
+		[]EntityRef{{TargetType: RefTargetAsset, AssetID: "asset-001"}})
+	require.NoError(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestStore_AddEntityRefs_ForeignKeyViolation(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+	mock.ExpectExec("INSERT INTO knowledge_page_entity_refs").
+		WillReturnError(&pq.Error{Code: "23503"})
+	err = NewPostgresStore(db).AddEntityRefs(context.Background(), "kp1",
+		[]EntityRef{{TargetType: RefTargetAsset, AssetID: "ghost"}})
+	require.ErrorIs(t, err, ErrRefTargetNotFound)
 }
 
 func TestRefConflictTarget(t *testing.T) {

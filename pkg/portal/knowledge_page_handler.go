@@ -44,6 +44,9 @@ func (h *Handler) registerKnowledgePageRoutes() {
 	h.mux.HandleFunc("PUT /api/v1/portal/knowledge-pages/{id}", h.updateKnowledgePage)
 	h.mux.HandleFunc("DELETE /api/v1/portal/knowledge-pages/{id}", h.deleteKnowledgePage)
 	h.mux.HandleFunc("GET /api/v1/portal/knowledge-pages/{id}/versions", h.listKnowledgePageVersions)
+	// Entity references (#664): the entities a page provides knowledge about.
+	h.mux.HandleFunc("GET /api/v1/portal/knowledge-pages/{id}/refs", h.listKnowledgePageRefs)
+	h.mux.HandleFunc("PUT /api/v1/portal/knowledge-pages/{id}/refs", h.setKnowledgePageRefs)
 }
 
 // knowledgePageRequest is the create/update payload.

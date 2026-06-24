@@ -8499,6 +8499,132 @@
                 }
             }
         },
+        "/portal/knowledge-pages/{id}/refs": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the entities the page references (assets, prompts, collections, connections, DataHub URNs, and other pages), each with its serialized URN.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Knowledge"
+                ],
+                "summary": "List a knowledge page's entity references",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Knowledge page id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.knowledgePageRefsResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Replaces the page's manually-authored references with the given set (parsed from serialized URNs). References carried from promotion (source=promoted) are preserved. Requires apply_knowledge access.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Knowledge"
+                ],
+                "summary": "Set a knowledge page's manual entity references",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Knowledge page id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "References to set",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/portal.setEntityRefsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.knowledgePageRefsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "422": {
+                        "description": "Unprocessable Entity",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/knowledge/insights": {
             "get": {
                 "security": [
@@ -14924,6 +15050,53 @@
                 }
             }
         },
+        "portal.entityRefView": {
+            "type": "object",
+            "properties": {
+                "asset_id": {
+                    "type": "string"
+                },
+                "collection_id": {
+                    "type": "string"
+                },
+                "connection_kind": {
+                    "type": "string"
+                },
+                "connection_name": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "entity_urn": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "page_id": {
+                    "type": "string"
+                },
+                "prompt_id": {
+                    "type": "string"
+                },
+                "ref_page_id": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "target_type": {
+                    "type": "string"
+                },
+                "urn": {
+                    "type": "string"
+                }
+            }
+        },
         "portal.getCollectionResponse": {
             "type": "object",
             "properties": {
@@ -14985,6 +15158,17 @@
                 },
                 "updated_at": {
                     "type": "string"
+                }
+            }
+        },
+        "portal.knowledgePageRefsResponse": {
+            "type": "object",
+            "properties": {
+                "refs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portal.entityRefView"
+                    }
                 }
             }
         },
@@ -15253,6 +15437,17 @@
                 },
                 "ranking": {
                     "type": "string"
+                }
+            }
+        },
+        "portal.setEntityRefsRequest": {
+            "type": "object",
+            "properties": {
+                "refs": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },

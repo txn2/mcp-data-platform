@@ -31,6 +31,9 @@ type mockKnowledgePageStore struct {
 	inserted *knowledgepage.Page
 	updated  *knowledgepage.Update
 	deleted  string
+
+	refs    []knowledgepage.EntityRef
+	refsErr error
 }
 
 func (m *mockKnowledgePageStore) Insert(_ context.Context, p knowledgepage.Page) error {
@@ -84,15 +87,41 @@ func (m *mockKnowledgePageStore) Search(_ context.Context, _ knowledgepage.Searc
 	return m.scored, nil
 }
 
-func (*mockKnowledgePageStore) ListEntityRefs(_ context.Context, _ string) ([]knowledgepage.EntityRef, error) {
-	return nil, nil
+func (m *mockKnowledgePageStore) ListEntityRefs(_ context.Context, _ string) ([]knowledgepage.EntityRef, error) {
+	return m.refs, m.refsErr
 }
 
-func (*mockKnowledgePageStore) AddEntityRefs(_ context.Context, _ string, _ []knowledgepage.EntityRef) error {
+func (m *mockKnowledgePageStore) AddEntityRefs(_ context.Context, _ string, refs []knowledgepage.EntityRef) error {
+	if m.refsErr != nil {
+		return m.refsErr
+	}
+	m.refs = append(m.refs, refs...)
 	return nil
 }
 
-func (*mockKnowledgePageStore) ReplaceEntityRefs(_ context.Context, _ string, _ []knowledgepage.EntityRef) error {
+func (m *mockKnowledgePageStore) ReplaceEntityRefs(_ context.Context, _ string, refs []knowledgepage.EntityRef) error {
+	if m.refsErr != nil {
+		return m.refsErr
+	}
+	m.refs = append([]knowledgepage.EntityRef{}, refs...)
+	return nil
+}
+
+func (m *mockKnowledgePageStore) ReplaceEntityRefsBySource(_ context.Context, _, source string, refs []knowledgepage.EntityRef) error {
+	if m.refsErr != nil {
+		return m.refsErr
+	}
+	kept := m.refs[:0:0]
+	for _, r := range m.refs {
+		if r.Source != source {
+			kept = append(kept, r)
+		}
+	}
+	for _, r := range refs {
+		r.Source = source
+		kept = append(kept, r)
+	}
+	m.refs = kept
 	return nil
 }
 
