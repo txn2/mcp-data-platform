@@ -693,6 +693,50 @@ requirements:
 
 ---
 
+## Upgrades and connected agents
+
+The platform ships frequently, and each upgrade can change the tool contract (new
+tools, new parameters, updated descriptions). How a connected agent picks up the new
+contract depends on its client, because MCP delivers a changed tool list in-band only
+on a live session; a binary upgrade is a new process, so the agent must reconnect to
+re-handshake (`initialize` + `tools/list`) against the new build.
+
+### What the server does on shutdown
+
+On `SIGTERM` (a rolling deploy), the server:
+
+1. Marks readiness draining so the load balancer stops routing new connections, then
+   waits `server.shutdown.pre_shutdown_delay` for deregistration.
+2. Drains in-flight HTTP requests, and after a short settle **closes live MCP
+   sessions**. Long-lived SSE and streamable-HTTP streams never go idle on their own,
+   so until the session is closed the agent stays on the old build. Closing it drops
+   the stream so the client reconnects to a new pod and re-fetches the tool list. The
+   close is graceful: an idle session drops immediately, a session with an in-flight
+   tool call is allowed to finish, bounded by the grace period (after which process
+   exit drops what remains).
+
+Relevant settings under `server.shutdown` are `pre_shutdown_delay` and
+`grace_period`; size them so the full sequence fits inside the pod's
+`terminationGracePeriodSeconds`.
+
+### Per-client behavior
+
+| Client | On upgrade |
+| --- | --- |
+| **Claude Code** | Automatic. It honors `notifications/tools/list_changed` and auto-reconnects HTTP/SSE servers (exponential backoff). When the old session is closed it reconnects to the new build and re-fetches the tool list with no user action. |
+| **Claude Desktop** | Requires a full app restart to pick up a changed tool list; it has no in-session refresh or reconnect action today. |
+| **claude.ai managed web connector** | Caches the tool schema at the connector level; a connector re-sync (remove and re-add, or the workspace refresh) is needed to pick up changes. |
+
+### Keep upgrades safe
+
+Because a client may still be running on a cached contract briefly after a deploy,
+keep tool/schema changes **additive**: adding a new optional parameter or a new tool
+is safe (a cached client simply does not see it until it refreshes). Renaming or
+removing a parameter, or removing a tool, breaks a client mid-session; deprecate
+across a release before removing.
+
+---
+
 ## Monitoring Setup
 
 ### Prometheus ServiceMonitor
