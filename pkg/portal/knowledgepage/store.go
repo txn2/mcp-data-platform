@@ -90,6 +90,10 @@ type Store interface {
 	SoftDelete(ctx context.Context, id string) error
 	ListVersions(ctx context.Context, pageID string, limit, offset int) ([]Version, int, error)
 	GetVersion(ctx context.Context, pageID string, version int) (*Version, error)
+	// Entity references (#664): the entities a page provides knowledge about.
+	ListEntityRefs(ctx context.Context, pageID string) ([]EntityRef, error)
+	AddEntityRefs(ctx context.Context, pageID string, refs []EntityRef) error
+	ReplaceEntityRefs(ctx context.Context, pageID string, refs []EntityRef) error
 }
 
 // ErrNotFound is returned when a page id/slug does not resolve to a
