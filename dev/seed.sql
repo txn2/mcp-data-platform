@@ -869,3 +869,260 @@ ON CONFLICT DO NOTHING;
 UPDATE prompts
    SET status = 'approved', approved_at = NOW(), approved_by = 'admin@acme.example.com'
  WHERE source = 'operator' AND status = 'draft';
+
+-- Knowledge pages (#634, migration 000070): canonical business/domain knowledge.
+-- The dev seed previously created every content type EXCEPT these, so the
+-- Knowledge hub's "Knowledge Pages" tab came up empty against the real backend.
+-- Mirrors the MSW seed (ui/src/mocks/data/knowledgePages.ts) so the live dev
+-- environment and the mock environment show the same pages. Embeddings are left
+-- NULL; the indexer/reconciler fills them, and content search falls back to
+-- lexical until then. Idempotent.
+INSERT INTO portal_knowledge_pages
+  (id, slug, title, summary, body, tags, created_by, created_email, updated_by, current_version, created_at, updated_at)
+VALUES
+  ('kp-seed-1', 'fiscal-calendar', 'Fiscal Calendar', 'How the company defines fiscal quarters.',
+   $md$# Fiscal Calendar
+
+Our fiscal year starts in **February**.
+
+- Q1: February - April
+- Q2: May - July
+- Q3: August - October
+- Q4: November - January
+$md$,
+   '["finance","calendar"]'::jsonb, 'sarah.chen@example.com', 'sarah.chen@example.com', 'sarah.chen@example.com', 2, '2026-06-01T10:00:00Z', '2026-06-10T12:00:00Z'),
+
+  ('kp-seed-2', 'revenue-definition', 'Revenue Definition', 'What the amount column means.',
+   $md$# Revenue Definition
+
+The `amount` column is **gross margin before returns**, not gross revenue. Use `net_revenue` for top-line reporting.
+$md$,
+   '["finance","metrics"]'::jsonb, 'sarah.chen@example.com', 'sarah.chen@example.com', 'sarah.chen@example.com', 1, '2026-06-05T09:00:00Z', '2026-06-18T14:30:00Z'),
+
+  ('kp-seed-3', 'customer-pii-handling', 'Customer PII Handling', 'Which columns are personal data and how to treat them.',
+   $md$# Customer PII Handling
+
+`email`, `phone`, and `address` are **PII**. Never join them into shared marts without masking. See the governance policy before exporting.
+$md$,
+   '["governance","pii"]'::jsonb, 'marcus.webb@example.com', 'marcus.webb@example.com', 'marcus.webb@example.com', 3, '2026-05-20T08:00:00Z', '2026-06-20T16:00:00Z'),
+
+  ('kp-seed-4', 'daily-sales-table-guide', 'daily_sales Table Guide', 'Grain, partitioning, and known gotchas for daily_sales.',
+   $md$# daily_sales
+
+One row per **store per day**. Partitioned by `date`. Backfills land 2 days late; do not trust the last 48 hours for finals.
+$md$,
+   '["data-quality","retail"]'::jsonb, 'sarah.chen@example.com', 'sarah.chen@example.com', 'priya.nair@example.com', 4, '2026-04-12T11:00:00Z', '2026-06-22T09:15:00Z'),
+
+  ('kp-seed-5', 'returns-and-refunds', 'Returns and Refunds Logic', 'How returns net against revenue and where they land.',
+   $md$# Returns and Refunds
+
+Returns post to `refunds` with a negative `amount` and a `reason_code`. They net against revenue in the reporting layer, not at ingest.
+$md$,
+   '["finance","metrics","data-quality"]'::jsonb, 'marcus.webb@example.com', 'marcus.webb@example.com', 'marcus.webb@example.com', 2, '2026-05-02T13:00:00Z', '2026-06-12T10:45:00Z'),
+
+  ('kp-seed-6', 'store-hours-reference', 'Store Hours Reference', 'Standard and holiday operating hours by region.',
+   $md$# Store Hours
+
+Stores open **09:00 local**. Holiday hours override the default; see the `store_calendar` dimension for exceptions.
+$md$,
+   '["retail","calendar"]'::jsonb, 'priya.nair@example.com', 'priya.nair@example.com', 'priya.nair@example.com', 1, '2026-06-08T15:00:00Z', '2026-06-08T15:00:00Z'),
+
+  ('kp-seed-7', 'data-onboarding-checklist', 'Data Onboarding Checklist', 'What a new dataset needs before it is trusted.',
+   $md$# Onboarding Checklist
+
+1. Owner assigned
+2. PII classified
+3. Freshness SLA set
+4. Description and tags applied
+5. Sample query reviewed
+$md$,
+   '["onboarding","governance"]'::jsonb, 'marcus.webb@example.com', 'marcus.webb@example.com', 'sarah.chen@example.com', 5, '2026-03-30T09:30:00Z', '2026-06-21T11:20:00Z'),
+
+  ('kp-seed-8', 'lineage-and-freshness-slas', 'Lineage and Freshness SLAs', 'Upstream sources and how fresh each mart is expected to be.',
+   $md$# Lineage and Freshness
+
+`daily_sales` -> `sales_mart` -> `exec_dashboard`. SLA: marts refresh by **06:00 UTC**. Page the on-call if `exec_dashboard` is stale past 08:00.
+$md$,
+   '["lineage","sla","data-quality"]'::jsonb, 'priya.nair@example.com', 'priya.nair@example.com', 'priya.nair@example.com', 2, '2026-05-15T07:00:00Z', '2026-06-19T08:00:00Z')
+ON CONFLICT (id) DO NOTHING;
+
+-- ============================================================================
+-- Live memory for the dev admin (admin@example.com == acme-dev-key-2024).
+-- The Memory tab is self-scoped (created_by = caller email), so these must be
+-- owned by admin@example.com to populate it. dimension 'preference' ->
+-- personal_preference, 'event' -> episodic_event; these are LIVE memory (no
+-- insight_status overlay), distinct from the reviewable insights below.
+-- ============================================================================
+INSERT INTO memory_records
+  (id, created_by, persona, dimension, sink_class, category, content, confidence, source,
+   entity_urns, related_columns, metadata, status, created_at, updated_at, last_verified)
+VALUES
+  ('mem-live-01', 'admin@example.com', 'admin', 'preference', 'personal_preference', 'usage_guidance',
+   'Default query results to GROUP BY district_id rather than individual stores unless a specific store is named.',
+   'high', 'user', '[]'::jsonb, '[]'::jsonb, '{}'::jsonb, 'active',
+   NOW() - interval '14 days', NOW() - interval '14 days', NOW() - interval '2 days'),
+  ('mem-live-02', 'admin@example.com', 'admin', 'preference', 'personal_preference', 'usage_guidance',
+   'Prefer ISO date formatting (YYYY-MM-DD) and UTC in all exported reports.',
+   'high', 'user', '[]'::jsonb, '[]'::jsonb, '{}'::jsonb, 'active',
+   NOW() - interval '12 days', NOW() - interval '12 days', NULL),
+  ('mem-live-03', 'admin@example.com', 'admin', 'preference', 'personal_preference', 'enhancement',
+   'When summarizing revenue, lead with net_revenue and show gross only on request.',
+   'medium', 'user', '[]'::jsonb, '[]'::jsonb, '{}'::jsonb, 'active',
+   NOW() - interval '9 days', NOW() - interval '9 days', NULL),
+  ('mem-live-04', 'admin@example.com', 'admin', 'preference', 'personal_preference', 'usage_guidance',
+   'Keep SQL examples to <= 20 lines and prefer CTEs over nested subqueries for readability.',
+   'medium', 'user', '[]'::jsonb, '[]'::jsonb, '{}'::jsonb, 'active',
+   NOW() - interval '7 days', NOW() - interval '7 days', NULL),
+  ('mem-live-05', 'admin@example.com', 'admin', 'event', 'episodic_event', 'business_context',
+   'On 2026-06-10 finance confirmed daily_sales.amount excludes returns; flagged for a knowledge page.',
+   'high', 'agent_discovery', '["urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)"]'::jsonb,
+   '[]'::jsonb, '{}'::jsonb, 'active',
+   NOW() - interval '13 days', NOW() - interval '13 days', NULL),
+  ('mem-live-06', 'admin@example.com', 'admin', 'event', 'episodic_event', 'data_quality',
+   'Ran a backfill of warehouse_transfers facility_id on 2026-06-15; legacy WH-NNN rows now mapped.',
+   'medium', 'agent_discovery', '[]'::jsonb, '[]'::jsonb, '{}'::jsonb, 'active',
+   NOW() - interval '8 days', NOW() - interval '8 days', NULL),
+  ('mem-live-07', 'admin@example.com', 'admin', 'event', 'episodic_event', 'usage_guidance',
+   'Investigated a slow exec_dashboard refresh on 2026-06-19; root cause was a stale sales_mart partition.',
+   'medium', 'agent_discovery', '[]'::jsonb, '[]'::jsonb, '{}'::jsonb, 'active',
+   NOW() - interval '4 days', NOW() - interval '4 days', NULL),
+  ('mem-live-08', 'admin@example.com', 'admin', 'preference', 'personal_preference', 'enhancement',
+   'Surface open feedback counts before drilling into a knowledge page so review work is visible first.',
+   'low', 'user', '[]'::jsonb, '[]'::jsonb, '{}'::jsonb, 'active',
+   NOW() - interval '3 days', NOW() - interval '3 days', NULL)
+ON CONFLICT (id) DO NOTHING;
+
+-- ============================================================================
+-- Additional reviewable insights. The existing ins-001..008 are captured by
+-- other users (the cross-user Review queue). These add admin-owned insights so
+-- the "My Insights" tab is non-empty, plus a spread of insight_status
+-- (pending / approved / applied) and sink classes for status-filter screenshots.
+-- ============================================================================
+INSERT INTO memory_records
+  (id, created_by, persona, dimension, sink_class, category, content, confidence, source,
+   entity_urns, related_columns, metadata, status, created_at, updated_at, last_verified)
+VALUES
+  ('ins-admin-01', 'admin@example.com', 'admin', 'knowledge', 'business_knowledge', 'business_context',
+   'Customer loyalty tiers were renamed in Q3 FY2024: Bronze/Silver/Gold -> Explorer/Enthusiast/Champion.',
+   'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending'), 'active',
+   NOW() - interval '3 days', NOW() - interval '3 days', NULL),
+  ('ins-admin-02', 'admin@example.com', 'admin', 'knowledge', 'business_knowledge', 'correction',
+   'The fiscal year starts in February, not January; align all YoY comparisons to the fiscal calendar.',
+   'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending'), 'active',
+   NOW() - interval '2 days', NOW() - interval '2 days', NULL),
+  ('ins-admin-03', 'admin@example.com', 'admin', 'knowledge', 'schema_entity', 'data_quality',
+   'daily_sales is one row per store per day, partitioned by date; backfills land ~2 days late.',
+   'high', 'user', '["urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)"]'::jsonb,
+   '[{"urn": "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)", "column": "date", "relevance": "partition_key"}]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active',
+   NOW() - interval '6 days', NOW() - interval '4 days', NULL),
+  ('ins-admin-04', 'admin@example.com', 'admin', 'knowledge', 'operational_rule', 'usage_guidance',
+   'Never query the regional_performance view during its 02:00-02:30 UTC nightly refresh window.',
+   'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active',
+   NOW() - interval '7 days', NOW() - interval '5 days', NULL),
+  ('ins-admin-05', 'admin@example.com', 'admin', 'knowledge', 'business_knowledge', 'business_context',
+   'Returns net against revenue in the reporting layer, not at ingest; they post to refunds with a negative amount.',
+   'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'applied', 'reviewed_by', 'admin@example.com',
+                      'applied_by', 'admin@example.com', 'changeset_ref', 'cs-seed-01'), 'active',
+   NOW() - interval '10 days', NOW() - interval '6 days', NULL),
+  ('ins-admin-06', 'admin@example.com', 'admin', 'knowledge', 'schema_entity', 'correction',
+   'customer_segments is a Type-2 SCD; filter is_current = true for the latest segment assignment.',
+   'high', 'user', '["urn:li:dataset:(urn:li:dataPlatform:trino,retail.customer_segments,PROD)"]'::jsonb,
+   '[]'::jsonb,
+   jsonb_build_object('insight_status', 'applied', 'reviewed_by', 'admin@example.com',
+                      'applied_by', 'admin@example.com', 'changeset_ref', 'cs-seed-02'), 'active',
+   NOW() - interval '11 days', NOW() - interval '8 days', NULL)
+ON CONFLICT (id) DO NOTHING;
+
+-- ============================================================================
+-- Feedback threads (#600/#662). The dev seed had none, so the Feedback hub,
+-- worklists, per-item badges, and the knowledge-page feedback panel were all
+-- empty against the real backend. Threads target seeded assets (asset-001..006),
+-- collections (coll-001..003), knowledge pages (kp-seed-*), and the standalone
+-- channel; one is resolved and linked to a captured insight to exercise the
+-- thread -> insight knowledge chain. author_id mirrors the email (no FK).
+-- ============================================================================
+INSERT INTO portal_threads
+  (id, kind, target_type, asset_id, collection_id, prompt_id, knowledge_page_id, anchor, target_version,
+   title, author_id, author_email, status, requires_resolution, validation_state, insight_id, created_at, updated_at)
+VALUES
+  ('thr-seed-01', 'correction', 'asset', 'asset-001', NULL, NULL, NULL,
+   '{"type":"text_quote","exact":"monthly active users"}'::jsonb, 1,
+   'We do not use that term', 'dana.sme@example.com', 'dana.sme@example.com', 'open', TRUE, 'none', NULL,
+   NOW() - interval '6 days', NOW() - interval '5 days'),
+  ('thr-seed-02', 'question', 'asset', 'asset-002', NULL, NULL, NULL, NULL, NULL,
+   'Which source feeds the revenue column?', 'admin@example.com', 'admin@example.com', 'answered', FALSE, 'none', NULL,
+   NOW() - interval '7 days', NOW() - interval '6 days'),
+  ('thr-seed-03', 'rating', 'asset', 'asset-003', NULL, NULL, NULL, NULL, NULL,
+   'Clear and useful', 'rachel.thompson@example.com', 'rachel.thompson@example.com', 'resolved', FALSE, 'none', NULL,
+   NOW() - interval '9 days', NOW() - interval '8 days'),
+  ('thr-seed-04', 'suggestion', 'collection', NULL, 'coll-001', NULL, NULL, NULL, NULL,
+   'Add a glossary section up front', 'dana.sme@example.com', 'dana.sme@example.com', 'open', FALSE, 'none', NULL,
+   NOW() - interval '5 days', NOW() - interval '5 days'),
+  ('thr-seed-05', 'comment', 'collection', NULL, 'coll-002', NULL, NULL, NULL, NULL,
+   'The ordering of sections could follow the analysis flow', 'admin@example.com', 'admin@example.com', 'open', FALSE, 'none', NULL,
+   NOW() - interval '4 days', NOW() - interval '4 days'),
+  ('thr-seed-06', 'correction', 'knowledge_page', NULL, NULL, NULL, 'kp-seed-1',
+   '{"type":"text_quote","exact":"fiscal year starts in"}'::jsonb, NULL,
+   'Fiscal year start is wrong', 'dana.sme@example.com', 'dana.sme@example.com', 'open', FALSE, 'none', NULL,
+   NOW() - interval '3 days', NOW() - interval '3 days'),
+  ('thr-seed-07', 'question', 'knowledge_page', NULL, NULL, NULL, 'kp-seed-3', NULL, NULL,
+   'Does this cover phone numbers in the events stream?', 'rachel.thompson@example.com', 'rachel.thompson@example.com', 'open', FALSE, 'none', NULL,
+   NOW() - interval '2 days', NOW() - interval '2 days'),
+  ('thr-seed-08', 'correction', 'knowledge_page', NULL, NULL, NULL, 'kp-seed-2', NULL, NULL,
+   'Net vs gross needs a concrete example', 'dana.sme@example.com', 'dana.sme@example.com', 'resolved', TRUE, 'none', 'ins-admin-05',
+   NOW() - interval '8 days', NOW() - interval '4 days'),
+  ('thr-seed-09', 'approval', 'asset', 'asset-004', NULL, NULL, NULL, NULL, NULL,
+   'Signed off for the Q4 review', 'david.park@example.com', 'david.park@example.com', 'resolved', FALSE, 'none', NULL,
+   NOW() - interval '10 days', NOW() - interval '9 days'),
+  ('thr-seed-10', 'comment', 'standalone', NULL, NULL, NULL, NULL, NULL, NULL,
+   'The Monday refresh landed Tuesday again this week', 'dana.sme@example.com', 'dana.sme@example.com', 'open', FALSE, 'none', NULL,
+   NOW() - interval '5 days', NOW() - interval '5 days'),
+  ('thr-seed-11', 'question', 'standalone', NULL, NULL, NULL, NULL, NULL, NULL,
+   'Where do I request a new catalog connection?', 'rachel.thompson@example.com', 'rachel.thompson@example.com', 'answered', FALSE, 'none', NULL,
+   NOW() - interval '6 days', NOW() - interval '5 days'),
+  ('thr-seed-12', 'suggestion', 'asset', 'asset-005', NULL, NULL, NULL, NULL, NULL,
+   'A short caption would help non-analysts', 'admin@example.com', 'admin@example.com', 'open', FALSE, 'none', NULL,
+   NOW() - interval '1 day', NOW() - interval '1 day')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO portal_thread_events
+  (id, thread_id, event_type, author_id, author_email, body, rating, parent_event_id, metadata, created_at)
+VALUES
+  ('evt-seed-01a', 'thr-seed-01', 'comment', 'dana.sme@example.com', 'dana.sme@example.com',
+   'We call these active practitioners, not monthly active users.', NULL, NULL, '{}'::jsonb, NOW() - interval '6 days'),
+  ('evt-seed-01b', 'thr-seed-01', 'comment', 'admin@example.com', 'admin@example.com',
+   'Good catch, updating the dashboard copy.', NULL, NULL, '{}'::jsonb, NOW() - interval '5 days'),
+  ('evt-seed-02a', 'thr-seed-02', 'comment', 'admin@example.com', 'admin@example.com',
+   'Which source feeds the revenue column?', NULL, NULL, '{}'::jsonb, NOW() - interval '7 days'),
+  ('evt-seed-02b', 'thr-seed-02', 'comment', 'marcus.johnson@example.com', 'marcus.johnson@example.com',
+   'It is the finance mart, refreshed nightly.', NULL, NULL, '{}'::jsonb, NOW() - interval '6 days'),
+  ('evt-seed-03a', 'thr-seed-03', 'rating', 'rachel.thompson@example.com', 'rachel.thompson@example.com',
+   'Clear and useful', 5, NULL, '{}'::jsonb, NOW() - interval '9 days'),
+  ('evt-seed-04a', 'thr-seed-04', 'comment', 'dana.sme@example.com', 'dana.sme@example.com',
+   'A glossary up front would help new readers.', NULL, NULL, '{}'::jsonb, NOW() - interval '5 days'),
+  ('evt-seed-05a', 'thr-seed-05', 'comment', 'admin@example.com', 'admin@example.com',
+   'The ordering of sections could follow the analysis flow.', NULL, NULL, '{}'::jsonb, NOW() - interval '4 days'),
+  ('evt-seed-06a', 'thr-seed-06', 'comment', 'dana.sme@example.com', 'dana.sme@example.com',
+   'This page says the fiscal year starts in January, but it starts in February.', NULL, NULL, '{}'::jsonb, NOW() - interval '3 days'),
+  ('evt-seed-07a', 'thr-seed-07', 'comment', 'rachel.thompson@example.com', 'rachel.thompson@example.com',
+   'Does the PII guidance cover phone numbers landing in the events stream?', NULL, NULL, '{}'::jsonb, NOW() - interval '2 days'),
+  ('evt-seed-08a', 'thr-seed-08', 'comment', 'dana.sme@example.com', 'dana.sme@example.com',
+   'Net vs gross is ambiguous without a concrete example.', NULL, NULL, '{}'::jsonb, NOW() - interval '8 days'),
+  ('evt-seed-08b', 'thr-seed-08', 'insight_linked', 'admin@example.com', 'admin@example.com',
+   NULL, NULL, NULL, jsonb_build_object('insight_id', 'ins-admin-05'), NOW() - interval '4 days'),
+  ('evt-seed-09a', 'thr-seed-09', 'approval', 'david.park@example.com', 'david.park@example.com',
+   'Signed off for the Q4 review.', NULL, NULL, '{}'::jsonb, NOW() - interval '10 days'),
+  ('evt-seed-10a', 'thr-seed-10', 'comment', 'dana.sme@example.com', 'dana.sme@example.com',
+   'The Monday refresh landed Tuesday again this week.', NULL, NULL, '{}'::jsonb, NOW() - interval '5 days'),
+  ('evt-seed-11a', 'thr-seed-11', 'comment', 'rachel.thompson@example.com', 'rachel.thompson@example.com',
+   'Where do I request a new catalog connection?', NULL, NULL, '{}'::jsonb, NOW() - interval '6 days'),
+  ('evt-seed-11b', 'thr-seed-11', 'comment', 'admin@example.com', 'admin@example.com',
+   'Open a request from Connections > New, or ask an admin.', NULL, NULL, '{}'::jsonb, NOW() - interval '5 days'),
+  ('evt-seed-12a', 'thr-seed-12', 'comment', 'admin@example.com', 'admin@example.com',
+   'A short caption would help non-analysts read this at a glance.', NULL, NULL, '{}'::jsonb, NOW() - interval '1 day')
+ON CONFLICT (id) DO NOTHING;
