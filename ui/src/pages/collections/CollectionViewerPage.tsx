@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ArrowLeft, Pencil, Share2, Trash2, AlertTriangle, FileText, Image, Code, File, Table2 } from "lucide-react";
 import { useCollection, useDeleteCollection, useUpdateCollectionConfig } from "@/api/portal/hooks";
+import { KnowledgeBacklinks } from "@/components/knowledge/KnowledgeBacklinks";
 import { AuthImg } from "@/components/AuthImg";
 import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
 import { ShareDialog } from "@/components/ShareDialog";
@@ -145,6 +146,8 @@ export function CollectionViewerPage({ collectionId, onNavigate, onBack }: Props
           </div>
         )}
       </div>
+
+      <KnowledgeBacklinks urn={`mcp:collection:${collectionId}`} onNavigate={onNavigate} />
 
       {/* Sections */}
       {coll.sections.map((section) => (

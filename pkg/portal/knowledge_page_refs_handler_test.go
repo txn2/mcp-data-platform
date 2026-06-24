@@ -189,6 +189,48 @@ func TestResolveKnowledgePageRefs_PageNotFound(t *testing.T) {
 	assert.Equal(t, "gone", resp.Refs[0].Label)
 }
 
+type backlinksResp struct {
+	Pages []knowledgepage.PageRef `json:"pages"`
+}
+
+func TestKnowledgePageBacklinks(t *testing.T) {
+	pages := []knowledgepage.PageRef{{ID: "kp1", Slug: "fiscal", Title: "Fiscal Calendar"}}
+
+	t.Run("returns referencing pages for an accessible entity", func(t *testing.T) {
+		store := &mockKnowledgePageStore{referencingPages: pages}
+		h := newKnowledgePageHandler(store, kpViewer)
+		w := doKP(h, "GET", "/api/v1/portal/knowledge-pages/backlinks?urn=urn:li:dataset:x", "")
+		require.Equal(t, http.StatusOK, w.Code)
+		var resp backlinksResp
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+		require.Len(t, resp.Pages, 1)
+		assert.Equal(t, "Fiscal Calendar", resp.Pages[0].Title)
+	})
+
+	t.Run("inaccessible entity returns no backlinks", func(t *testing.T) {
+		// No AssetStore -> the asset is inaccessible, so its back-references are hidden.
+		store := &mockKnowledgePageStore{referencingPages: pages}
+		h := newKnowledgePageHandler(store, kpViewer)
+		w := doKP(h, "GET", "/api/v1/portal/knowledge-pages/backlinks?urn=mcp:asset:secret", "")
+		require.Equal(t, http.StatusOK, w.Code)
+		var resp backlinksResp
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+		assert.Empty(t, resp.Pages)
+	})
+
+	t.Run("bad urn is 400", func(t *testing.T) {
+		h := newKnowledgePageHandler(&mockKnowledgePageStore{}, kpViewer)
+		w := doKP(h, "GET", "/api/v1/portal/knowledge-pages/backlinks?urn=garbage", "")
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("unauthenticated", func(t *testing.T) {
+		h := newKnowledgePageHandler(&mockKnowledgePageStore{}, nil)
+		w := doKP(h, "GET", "/api/v1/portal/knowledge-pages/backlinks?urn=urn:li:dataset:x", "")
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
+	})
+}
+
 func TestResolveKnowledgePageRefs_Unauthenticated(t *testing.T) {
 	h := newKnowledgePageHandler(&mockKnowledgePageStore{}, nil)
 	w := doKP(h, "POST", "/api/v1/portal/knowledge-pages/refs/resolve", `{"urns":[]}`)

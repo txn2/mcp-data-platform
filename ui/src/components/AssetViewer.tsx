@@ -3,6 +3,7 @@ import { ArrowLeft, Share2, Pencil, Trash2, Download, ChevronRight, ChevronLeft,
 import { useQueryClient } from "@tanstack/react-query";
 import type { Asset, AssetVersion, SharePermission } from "@/api/portal/types";
 import { ContentRenderer } from "@/components/renderers/ContentRenderer";
+import { KnowledgeBacklinks } from "@/components/knowledge/KnowledgeBacklinks";
 import { ProvenancePanel } from "@/components/ProvenancePanel";
 import { VersionHistoryPanel } from "@/components/VersionHistoryPanel";
 import { ShareDialog } from "@/components/ShareDialog";
@@ -288,6 +289,8 @@ export function AssetViewer({
             {sidebarOpen ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
           </button>
         </div>
+
+        <KnowledgeBacklinks urn={`mcp:asset:${asset.id}`} onNavigate={onNavigate} />
 
         {/* View mode toggle + version dropdown + save button */}
         <div className="flex items-center gap-2">

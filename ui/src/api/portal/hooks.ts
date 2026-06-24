@@ -1318,3 +1318,26 @@ export function useSetKnowledgePageRefs(id: string) {
     },
   });
 }
+
+/** KnowledgeBacklink is a knowledge page that references an entity (reverse lookup). */
+export interface KnowledgeBacklink {
+  id: string;
+  slug: string;
+  title: string;
+}
+
+/**
+ * useKnowledgeBacklinks lists the knowledge pages that reference an entity (#664
+ * Phase 4), so an entity view can surface "N knowledge pages reference this". The
+ * server returns nothing for an entity the viewer cannot access.
+ */
+export function useKnowledgeBacklinks(urn: string | undefined) {
+  return useQuery({
+    queryKey: ["knowledge-backlinks", urn],
+    queryFn: () =>
+      apiFetch<{ pages: KnowledgeBacklink[] }>(
+        `/knowledge-pages/backlinks?urn=${encodeURIComponent(urn ?? "")}`,
+      ),
+    enabled: !!urn,
+  });
+}

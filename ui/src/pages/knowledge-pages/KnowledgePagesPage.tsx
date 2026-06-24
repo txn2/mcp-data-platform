@@ -17,6 +17,7 @@ import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
 import { extractRefUrns } from "@/lib/entityRefs";
 import { RelatedPanel } from "@/components/knowledge/RelatedPanel";
 import { RefPicker } from "@/components/knowledge/RefPicker";
+import { KnowledgeBacklinks } from "@/components/knowledge/KnowledgeBacklinks";
 import { FeedbackButton } from "@/components/feedback/FeedbackButton";
 import { useAuthStore } from "@/stores/auth";
 import { parseTags } from "@/lib/tags";
@@ -346,6 +347,7 @@ function KnowledgePageDetail({
       </article>
 
       <RelatedPanel pageId={id} />
+      <KnowledgeBacklinks urn={`mcp:knowledge_page:${id}`} />
       {canEdit && <RefPicker pageId={id} />}
     </div>
   );

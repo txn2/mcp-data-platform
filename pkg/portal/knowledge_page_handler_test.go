@@ -34,6 +34,13 @@ type mockKnowledgePageStore struct {
 
 	refs    []knowledgepage.EntityRef
 	refsErr error
+
+	referencingPages []knowledgepage.PageRef
+	referencingErr   error
+}
+
+func (m *mockKnowledgePageStore) ListPagesReferencing(_ context.Context, _ knowledgepage.EntityRef) ([]knowledgepage.PageRef, error) {
+	return m.referencingPages, m.referencingErr
 }
 
 func (m *mockKnowledgePageStore) Insert(_ context.Context, p knowledgepage.Page) error {
