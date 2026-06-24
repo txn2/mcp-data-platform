@@ -98,12 +98,24 @@ describe("MarkdownRenderer entity chips", () => {
 
   it("renders the server-resolved label when provided", () => {
     const refs = new Map<string, ResolvedRef>([
-      ["mcp:asset:asset-001", { urn: "mcp:asset:asset-001", type: "asset", label: "Q4 Dashboard", exists: true }],
+      ["mcp:asset:asset-001", { urn: "mcp:asset:asset-001", type: "asset", label: "Q4 Dashboard", exists: true, accessible: true }],
     ]);
     const { container } = render(
       <MarkdownRenderer content="[x](mcp:asset:asset-001)" refs={refs} />,
     );
     expect(container.textContent).toContain("Q4 Dashboard");
+  });
+
+  it("renders an inaccessible ref as plain link text, not a chip", () => {
+    const refs = new Map<string, ResolvedRef>([
+      ["mcp:asset:secret", { urn: "mcp:asset:secret", type: "asset", label: "mcp:asset:secret", exists: false, accessible: false }],
+    ]);
+    const { container } = render(
+      <MarkdownRenderer content="see [the dashboard](mcp:asset:secret)" refs={refs} />,
+    );
+    expect(container.textContent).toContain("the dashboard");
+    expect(container.textContent).not.toContain("mcp:asset:secret");
+    expect(container.querySelector("span.not-prose")).toBeNull();
   });
 
   it("leaves ordinary links untouched", () => {

@@ -22,16 +22,36 @@ const maxEntityRefsPerPage = 100
 // are well under this; the cap is the memory backstop.
 const maxEntityRefsBodyBytes = 64 << 10
 
-// entityRefView is a page reference enriched with its serialized URN form, the
-// projection the agent, the UI, and search use to address the entity.
-type entityRefView struct {
-	knowledgepage.EntityRef
-	URN string `json:"urn"`
+// resolvedRefView is a page reference with its resolved display label and source,
+// returned by the GET/PUT refs endpoints. References the viewer cannot access are
+// omitted entirely, so a viewer never receives the id of an inaccessible entity.
+type resolvedRefView struct {
+	URN    string `json:"urn"`
+	Type   string `json:"type"`
+	Label  string `json:"label"`
+	Exists bool   `json:"exists"`
+	Source string `json:"source"`
 }
 
 // knowledgePageRefsResponse is the GET/PUT refs envelope.
 type knowledgePageRefsResponse struct {
-	Refs []entityRefView `json:"refs"`
+	Refs []resolvedRefView `json:"refs"`
+}
+
+// resolveAndFilterRefs resolves each stored reference and drops the ones the
+// viewer cannot access, so the list and set endpoints never expose the id of an
+// inaccessible entity (the same access model the renderer and the agent apply).
+func (h *Handler) resolveAndFilterRefs(r *http.Request, user *User, refs []knowledgepage.EntityRef) []resolvedRefView {
+	out := make([]resolvedRefView, 0, len(refs))
+	for _, ref := range refs {
+		urn := ref.URN()
+		rr := h.resolveRef(r, user, urn, ref)
+		if !rr.Accessible {
+			continue
+		}
+		out = append(out, resolvedRefView{URN: urn, Type: rr.Type, Label: rr.Label, Exists: rr.Exists, Source: ref.Source})
+	}
+	return out
 }
 
 // setEntityRefsRequest carries the page's manual references as serialized URN
@@ -54,7 +74,8 @@ type setEntityRefsRequest struct {
 // @Security     BearerAuth
 // @Router       /portal/knowledge-pages/{id}/refs [get]
 func (h *Handler) listKnowledgePageRefs(w http.ResponseWriter, r *http.Request) {
-	if GetUser(r.Context()) == nil {
+	user := GetUser(r.Context())
+	if user == nil {
 		writeError(w, http.StatusUnauthorized, errAuthRequired)
 		return
 	}
@@ -67,7 +88,7 @@ func (h *Handler) listKnowledgePageRefs(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "failed to list page references")
 		return
 	}
-	writeJSON(w, http.StatusOK, knowledgePageRefsResponse{Refs: entityRefViews(refs)})
+	writeJSON(w, http.StatusOK, knowledgePageRefsResponse{Refs: h.resolveAndFilterRefs(r, user, refs)})
 }
 
 // setKnowledgePageRefs handles PUT /api/v1/portal/knowledge-pages/{id}/refs.
@@ -133,7 +154,7 @@ func (h *Handler) setKnowledgePageRefs(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to list page references")
 		return
 	}
-	writeJSON(w, http.StatusOK, knowledgePageRefsResponse{Refs: entityRefViews(updated)})
+	writeJSON(w, http.StatusOK, knowledgePageRefsResponse{Refs: h.resolveAndFilterRefs(r, user, updated)})
 }
 
 // resolveRefsRequest carries the serialized URNs the renderer wants resolved.
@@ -149,6 +170,10 @@ type resolvedRef struct {
 	Type   string `json:"type"`
 	Label  string `json:"label"`
 	Exists bool   `json:"exists"`
+	// Accessible is false when the viewer may not access the target (or it is
+	// unknown/missing). The renderer hides such references rather than showing a
+	// confusing id, consistent with what the agent may see over MCP.
+	Accessible bool `json:"accessible"`
 }
 
 // resolveRefsResponse is the resolve envelope.
@@ -189,69 +214,93 @@ func (h *Handler) resolveKnowledgePageRefs(w http.ResponseWriter, r *http.Reques
 	for _, s := range req.URNs {
 		ref, err := knowledgepage.ParseEntityRef(s)
 		if err != nil {
-			out = append(out, resolvedRef{URN: s, Label: s, Exists: false})
+			out = append(out, resolvedRef{URN: s, Label: s, Exists: false, Accessible: false})
 			continue
 		}
-		out = append(out, h.resolveRef(r.Context(), user, s, ref))
+		out = append(out, h.resolveRef(r, user, s, ref))
 	}
 	writeJSON(w, http.StatusOK, resolveRefsResponse{Refs: out})
 }
 
-// resolveRef resolves a single reference to a display label. Knowledge pages are
-// org-shared so their title and existence are resolved for any reader. Asset and
-// collection names are only revealed to their owner, and their existence is never
-// revealed, so the endpoint cannot enumerate names or existence across the share
-// boundary (share-aware, page-scoped resolution is a later phase). Connection,
-// prompt, and DataHub labels derive from the URN itself.
-func (h *Handler) resolveRef(ctx context.Context, user *User, urn string, ref knowledgepage.EntityRef) resolvedRef {
-	out := resolvedRef{URN: urn, Type: ref.TargetType, Label: urn, Exists: true}
+// resolveRef resolves a single reference to a display label, existence, and
+// accessibility. Access-gated targets (asset, collection, prompt) resolve only
+// when the user may view them; otherwise they are reported inaccessible, and
+// because not-found and not-permitted both yield Accessible=false the endpoint
+// cannot enumerate names or existence across the share boundary. Knowledge pages
+// are org-shared (title resolved for any reader; a missing page is a broken
+// reference). Connection and DataHub labels derive from the URN itself and are
+// shown as platform/catalog context.
+func (h *Handler) resolveRef(r *http.Request, user *User, urn string, ref knowledgepage.EntityRef) resolvedRef {
+	out := resolvedRef{URN: urn, Type: ref.TargetType, Label: urn, Exists: true, Accessible: true}
 	switch ref.TargetType {
 	case knowledgepage.RefTargetAsset:
-		out.Label = h.resolveOwnedAssetLabel(ctx, user, ref.AssetID)
+		h.resolveAssetRef(r, user, ref.AssetID, &out)
 	case knowledgepage.RefTargetCollection:
-		out.Label = h.resolveOwnedCollectionLabel(ctx, user, ref.CollectionID)
+		h.resolveCollectionRef(r, user, ref.CollectionID, &out)
+	case knowledgepage.RefTargetPrompt:
+		h.resolvePromptRef(r, user, ref.PromptID, &out)
 	case knowledgepage.RefTargetKnowledgePage:
-		out.Label, out.Exists = h.resolvePageLabel(ctx, ref.RefPageID)
+		h.resolvePageRef(r.Context(), ref.RefPageID, &out)
 	case knowledgepage.RefTargetConnection:
 		out.Label = ref.ConnectionName + " (" + ref.ConnectionKind + ")"
-	case knowledgepage.RefTargetPrompt:
-		out.Label = ref.PromptID
 	case knowledgepage.RefTargetDataHub:
 		out.Label = datahubLabel(ref.EntityURN)
 	}
 	return out
 }
 
-// resolveOwnedAssetLabel returns the asset's name only when the requesting user
-// owns it; otherwise the id is returned and existence is not signaled, so the
-// endpoint cannot leak names or confirm existence of assets the user cannot view.
-func (h *Handler) resolveOwnedAssetLabel(ctx context.Context, user *User, id string) string {
+// resolveAssetRef sets the asset's name when the user may view it; a not-found or
+// not-viewable asset is marked inaccessible (uniformly, so existence is not
+// revealed). A missing AssetStore means access cannot be verified, so hide it.
+func (h *Handler) resolveAssetRef(r *http.Request, user *User, id string, out *resolvedRef) {
 	if h.deps.AssetStore == nil {
-		return id
+		out.Accessible = false
+		return
 	}
-	if a, err := h.deps.AssetStore.Get(ctx, id); err == nil && a.OwnerID == user.UserID {
-		return a.Name
+	a, err := h.deps.AssetStore.Get(r.Context(), id)
+	if err != nil || a == nil || !h.userCanViewAsset(r, id, a, user) {
+		out.Accessible = false
+		return
 	}
-	return id
+	out.Label = a.Name
 }
 
-// resolveOwnedCollectionLabel returns the collection's name only when the user owns it.
-func (h *Handler) resolveOwnedCollectionLabel(ctx context.Context, user *User, id string) string {
+// resolveCollectionRef sets the collection's name when the user may view it.
+func (h *Handler) resolveCollectionRef(r *http.Request, user *User, id string, out *resolvedRef) {
 	if h.deps.CollectionStore == nil {
-		return id
+		out.Accessible = false
+		return
 	}
-	if c, err := h.deps.CollectionStore.Get(ctx, id); err == nil && c.OwnerID == user.UserID {
-		return c.Name
+	c, err := h.deps.CollectionStore.Get(r.Context(), id)
+	if err != nil || c == nil || !h.userCanViewCollection(r, c, user) {
+		out.Accessible = false
+		return
 	}
-	return id
+	out.Label = c.Name
 }
 
-// resolvePageLabel returns a knowledge page's title and existence.
-func (h *Handler) resolvePageLabel(ctx context.Context, id string) (string, bool) {
-	if p, err := h.deps.KnowledgePageStore.Get(ctx, id); err == nil {
-		return p.Title, true
+// resolvePromptRef sets the prompt's name when the user may view it.
+func (h *Handler) resolvePromptRef(r *http.Request, user *User, id string, out *resolvedRef) {
+	if h.deps.PromptStore == nil {
+		out.Accessible = false
+		return
 	}
-	return id, false
+	p, err := h.deps.PromptStore.GetByID(r.Context(), id)
+	if err != nil || p == nil || !h.userCanViewPrompt(r, user, p) {
+		out.Accessible = false
+		return
+	}
+	out.Label = p.Name
+}
+
+// resolvePageRef sets a knowledge page's title; a missing page is a broken
+// reference (pages are org-shared, so this is not an access concern).
+func (h *Handler) resolvePageRef(ctx context.Context, id string, out *resolvedRef) {
+	if p, err := h.deps.KnowledgePageStore.Get(ctx, id); err == nil {
+		out.Label = p.Title
+		return
+	}
+	out.Label, out.Exists = id, false
 }
 
 // datahubLabel extracts a readable name from a DataHub URN: the dataset name from
@@ -311,12 +360,4 @@ func (h *Handler) reconcileInlineRefs(ctx context.Context, pageID, body string) 
 		slog.WarnContext(ctx, "reconcile inline knowledge-page references failed",
 			"page_id", pageID, "error", err)
 	}
-}
-
-func entityRefViews(refs []knowledgepage.EntityRef) []entityRefView {
-	views := make([]entityRefView, 0, len(refs))
-	for _, ref := range refs {
-		views = append(views, entityRefView{EntityRef: ref, URN: ref.URN()})
-	}
-	return views
 }

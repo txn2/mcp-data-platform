@@ -235,6 +235,15 @@ func (h *Handler) collectionSharePermission(r *http.Request, collectionID string
 	return perm
 }
 
+// userCanViewCollection reports whether the user may view the collection (owner or
+// any share), without writing an HTTP response.
+func (h *Handler) userCanViewCollection(r *http.Request, c *Collection, user *User) bool {
+	if c.OwnerID == user.UserID {
+		return true
+	}
+	return h.collectionSharePermission(r, c.ID, user) != ""
+}
+
 // --- Update Collection ---
 
 type updateCollectionRequest struct {

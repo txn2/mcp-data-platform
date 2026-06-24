@@ -15110,53 +15110,6 @@ const docTemplate = `{
                 }
             }
         },
-        "portal.entityRefView": {
-            "type": "object",
-            "properties": {
-                "asset_id": {
-                    "type": "string"
-                },
-                "collection_id": {
-                    "type": "string"
-                },
-                "connection_kind": {
-                    "type": "string"
-                },
-                "connection_name": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "created_by": {
-                    "type": "string"
-                },
-                "entity_urn": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "page_id": {
-                    "type": "string"
-                },
-                "prompt_id": {
-                    "type": "string"
-                },
-                "ref_page_id": {
-                    "type": "string"
-                },
-                "source": {
-                    "type": "string"
-                },
-                "target_type": {
-                    "type": "string"
-                },
-                "urn": {
-                    "type": "string"
-                }
-            }
-        },
         "portal.getCollectionResponse": {
             "type": "object",
             "properties": {
@@ -15227,7 +15180,7 @@ const docTemplate = `{
                 "refs": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/portal.entityRefView"
+                        "$ref": "#/definitions/portal.resolvedRefView"
                     }
                 }
             }
@@ -15490,10 +15443,34 @@ const docTemplate = `{
         "portal.resolvedRef": {
             "type": "object",
             "properties": {
+                "accessible": {
+                    "description": "Accessible is false when the viewer may not access the target (or it is\nunknown/missing). The renderer hides such references rather than showing a\nconfusing id, consistent with what the agent may see over MCP.",
+                    "type": "boolean"
+                },
                 "exists": {
                     "type": "boolean"
                 },
                 "label": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "urn": {
+                    "type": "string"
+                }
+            }
+        },
+        "portal.resolvedRefView": {
+            "type": "object",
+            "properties": {
+                "exists": {
+                    "type": "boolean"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "source": {
                     "type": "string"
                 },
                 "type": {
