@@ -169,10 +169,12 @@ export function MarkdownRenderer({
   content,
   bare,
   refs,
+  onNavigate,
 }: {
   content: string | null | undefined;
   bare?: boolean;
   refs?: Map<string, ResolvedRef>;
+  onNavigate?: (path: string) => void;
 }) {
   const components: Components = {
     // Render mcp:/urn: links as entity chips; ordinary links are unchanged.
@@ -186,7 +188,7 @@ export function MarkdownRenderer({
           if (resolved && !resolved.accessible) {
             return <>{children}</>;
           }
-          return <EntityChip urn={href as string} resolved={resolved} />;
+          return <EntityChip urn={href as string} resolved={resolved} onNavigate={onNavigate} />;
         }
         return (
           <a href={href} {...rest}>
@@ -194,7 +196,7 @@ export function MarkdownRenderer({
           </a>
         );
       },
-      [refs],
+      [refs, onNavigate],
     ),
     code: useCallback(
       // react-markdown passes `node` (hast AST) — destructure it out so it

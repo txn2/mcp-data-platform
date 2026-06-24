@@ -390,9 +390,11 @@ func applyPageRevert(ctx context.Context, pages PageReverter, cs *Changeset, pag
 		}); err != nil {
 			return "", fmt.Errorf("restoring knowledge page: %w", err)
 		}
-		// Restore the page's references to the prior set (#664). Phase 0 snapshots
-		// DataHub references; rebuild them from the previous-value URNs.
-		if err := pages.ReplaceEntityRefs(ctx, page.ID, dataHubRefs(strsFromMap(cs.PreviousValue, pageFieldEntityURNs))); err != nil {
+		// Restore the page's promoted references to the prior set (#664), scoped to
+		// source=promoted so manual and inline references survive the rollback. The
+		// previous-value URNs are serialized references of any type.
+		if err := pages.ReplaceEntityRefsBySource(ctx, page.ID, knowledgepage.RefSourcePromoted,
+			promotedRefsFromURNs(strsFromMap(cs.PreviousValue, pageFieldEntityURNs))); err != nil {
 			return "", fmt.Errorf("restoring knowledge page references: %w", err)
 		}
 		return "restored page " + page.Slug, nil

@@ -54,7 +54,7 @@ function useTypeSearch(type: PickableRefType, query: string): Candidate[] {
  * types and add one. Promoted and inline references are preserved by the
  * server-side source-scoped replace.
  */
-export function RefPicker({ pageId }: { pageId: string }) {
+export function RefPicker({ pageId, onNavigate }: { pageId: string; onNavigate?: (path: string) => void }) {
   const { data } = useKnowledgePageRefs(pageId);
   const setRefs = useSetKnowledgePageRefs(pageId);
   const manual = useMemo<PageEntityRef[]>(
@@ -86,6 +86,7 @@ export function RefPicker({ pageId }: { pageId: string }) {
               <EntityChip
                 urn={ref.urn}
                 resolved={{ urn: ref.urn, type: ref.type, label: ref.label, exists: ref.exists, accessible: true }}
+                onNavigate={onNavigate}
               />
               <button
                 type="button"

@@ -695,6 +695,7 @@ export function KnowledgeHub({
             <KnowledgePagesPage
               openPage={pageRequest ?? undefined}
               onPageOpened={clearPageRequest}
+              onNavigate={onNavigate}
             />
           )}
           {/* Changesets live under Knowledge (the promoted layer), not Insights:

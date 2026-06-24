@@ -121,7 +121,8 @@ func TestBackfillPageRefs(t *testing.T) {
 		"kp:fiscal": {{TargetURN: "kp:fiscal", ChangeType: changeCreatePage, SourceInsightIDs: []string{"ins-1"}}},
 	}}
 	insightStore := &fullSpyStore{Insights: []Insight{
-		{ID: "ins-1", EntityURNs: []string{"urn:li:dataset:promoted-x"}},
+		// A duplicate and an empty URN exercise the de-dup/skip path.
+		{ID: "ins-1", EntityURNs: []string{"urn:li:dataset:promoted-x", "urn:li:dataset:promoted-x", ""}},
 	}}
 	tk := newApplyToolkit(t, insightStore, csStore, &spyWriter{})
 

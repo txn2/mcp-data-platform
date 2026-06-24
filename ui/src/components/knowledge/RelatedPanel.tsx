@@ -17,7 +17,7 @@ const TYPE_LABELS: Record<string, string> = {
  * The list is already access-filtered and resolved by the server, so it only
  * contains references the viewer can reach, each with its display label.
  */
-export function RelatedPanel({ pageId }: { pageId: string }) {
+export function RelatedPanel({ pageId, onNavigate }: { pageId: string; onNavigate?: (path: string) => void }) {
   const { data } = useKnowledgePageRefs(pageId);
   const refs = useMemo(() => data?.refs ?? [], [data]);
 
@@ -48,6 +48,7 @@ export function RelatedPanel({ pageId }: { pageId: string }) {
                   key={ref.urn}
                   urn={ref.urn}
                   resolved={{ urn: ref.urn, type: ref.type, label: ref.label, exists: ref.exists, accessible: true }}
+                  onNavigate={onNavigate}
                 />
               ))}
             </div>

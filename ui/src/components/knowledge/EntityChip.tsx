@@ -1,6 +1,6 @@
-import { FileText, MessageSquareText, FolderOpen, BookOpen, Plug, Database, Link2 } from "lucide-react";
+import { FileText, MessageSquareText, FolderOpen, BookOpen, Plug, Database, Link2, Unlink } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { parseRef, type ResolvedRef, type RefType } from "@/lib/entityRefs";
+import { parseRef, entityHref, type ResolvedRef, type RefType } from "@/lib/entityRefs";
 
 const TYPE_ICONS: Record<RefType, LucideIcon> = {
   asset: FileText,
@@ -13,30 +13,65 @@ const TYPE_ICONS: Record<RefType, LucideIcon> = {
 };
 
 /**
- * EntityChip renders an inline reference (mcp:/urn:li:) from a knowledge-page body
- * as a typed chip: a type icon plus the entity's display name. When the server has
- * resolved the reference, the real name is shown and a missing target is greyed out
- * and struck through; before resolution (or app-wide, without a resolver) it falls
- * back to the name derived from the URN itself.
+ * EntityChip renders an entity reference (mcp:/urn:li:) as a typed chip: a type
+ * icon plus the entity's display name. When the server has resolved the reference
+ * it shows the real name; before resolution (or without a resolver) it falls back
+ * to the name derived from the URN.
+ *
+ * - A reference to a deleted entity (resolved.exists === false) renders as a
+ *   broken-reference chip (struck through, broken-link icon) and is never a link.
+ * - Otherwise, if the entity has an in-app route and an onNavigate handler is
+ *   provided, the chip deep-links to it; else it is a plain styled chip.
  */
-export function EntityChip({ urn, resolved }: { urn: string; resolved?: ResolvedRef }) {
+export function EntityChip({
+  urn,
+  resolved,
+  onNavigate,
+}: {
+  urn: string;
+  resolved?: ResolvedRef;
+  onNavigate?: (path: string) => void;
+}) {
   const parsed = parseRef(urn);
   const type = (resolved?.type ?? parsed?.type ?? "unknown") as RefType;
-  const Icon = TYPE_ICONS[type] ?? Link2;
   const label = resolved?.label ?? parsed?.fallbackLabel ?? urn;
-  const missing = resolved ? !resolved.exists : false;
+  const broken = resolved ? !resolved.exists : false;
+  const Icon = broken ? Unlink : (TYPE_ICONS[type] ?? Link2);
 
-  return (
-    <span
-      title={urn}
-      className={`not-prose mx-0.5 inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 align-baseline text-xs font-medium no-underline ${
-        missing
-          ? "border-border bg-muted text-muted-foreground line-through"
-          : "border-primary/20 bg-primary/10 text-primary"
-      }`}
-    >
+  const base =
+    "not-prose mx-0.5 inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 align-baseline text-xs font-medium no-underline";
+  const tone = broken
+    ? "border-border bg-muted text-muted-foreground line-through"
+    : "border-primary/20 bg-primary/10 text-primary";
+
+  const inner = (
+    <>
       <Icon className="h-3 w-3 shrink-0" aria-hidden />
       <span>{label}</span>
+    </>
+  );
+
+  // A live (non-broken) reference deep-links when it has a route and a navigator.
+  const href = broken ? null : parsed && onNavigate ? entityHref(parsed.type, parsed.id) : null;
+  if (href && onNavigate) {
+    return (
+      <a
+        href={href}
+        title={urn}
+        onClick={(e) => {
+          e.preventDefault();
+          onNavigate(href);
+        }}
+        className={`${base} ${tone} cursor-pointer hover:bg-primary/20`}
+      >
+        {inner}
+      </a>
+    );
+  }
+
+  return (
+    <span title={broken ? `${urn} (no longer exists)` : urn} className={`${base} ${tone}`}>
+      {inner}
     </span>
   );
 }

@@ -63,6 +63,21 @@ func (f *fakePageWriter) ReplaceEntityRefs(_ context.Context, pageID string, ref
 	return nil
 }
 
+func (f *fakePageWriter) ReplaceEntityRefsBySource(_ context.Context, pageID, source string, refs []knowledgepage.EntityRef) error {
+	kept := f.refs[pageID][:0:0]
+	for _, r := range f.refs[pageID] {
+		if r.Source != source {
+			kept = append(kept, r)
+		}
+	}
+	for _, r := range refs {
+		r.Source = source
+		kept = append(kept, r)
+	}
+	f.refs[pageID] = kept
+	return nil
+}
+
 func (f *fakePageWriter) GetBySlug(_ context.Context, slug string) (*knowledgepage.Page, error) {
 	if f.getErr != nil {
 		return nil, f.getErr
@@ -156,6 +171,40 @@ func TestPromoteToPage_CarriesAndUnionsInsightRefs(t *testing.T) {
 	gotURNs, ok := cs.Changesets[1].NewValue[pageFieldEntityURNs].([]string)
 	require.True(t, ok, "after-image should carry entity_urns as []string")
 	assert.ElementsMatch(t, []string{urnA, urnB}, gotURNs)
+}
+
+// TestPromoteToPage_CarriesMixedInsightRefTypes proves acceptance criterion 1:
+// an insight whose references mix types (a dataset via entity_urns, a connection
+// and an asset mentioned inline in its text) carries all of them onto the page as
+// promoted references — not just the DataHub URN.
+func TestPromoteToPage_CarriesMixedInsightRefTypes(t *testing.T) {
+	dataset := "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.x,PROD)"
+	store := &fullSpyStore{Insights: []Insight{{
+		ID:          "i1",
+		SinkClass:   memory.SinkBusinessKnowledge,
+		InsightText: "Quarterly sales live in [warehouse](mcp:connection:(trino,warehouse)) and the [dashboard](mcp:asset:asset-1).",
+		EntityURNs:  []string{dataset},
+	}}}
+	pw := newFakePageWriter()
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk.SetPageWriter(pw)
+
+	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, applyPageInput([]string{"i1"}))
+	require.NoError(t, err)
+	require.False(t, res.IsError, "unexpected error result")
+	page := pw.pages["seasons"]
+	require.NotNil(t, page)
+
+	urns := make([]string, 0, len(pw.refs[page.ID]))
+	for _, r := range pw.refs[page.ID] {
+		assert.Equal(t, knowledgepage.RefSourcePromoted, r.Source)
+		urns = append(urns, r.URN())
+	}
+	assert.ElementsMatch(t, []string{
+		"mcp:connection:(trino,warehouse)",
+		"mcp:asset:asset-1",
+		dataset,
+	}, urns, "the insight's connection, asset, and dataset references all carry onto the page")
 }
 
 func applyPageInput(insightIDs []string) applyKnowledgeInput {
@@ -334,10 +383,12 @@ func TestRevertPageChangeset_RestoresRefs(t *testing.T) {
 	cs := pageChangeset("seasons", changeUpdatePage, 4, prev)
 	pw := newFakePageWriter()
 	pw.pages["seasons"] = &knowledgepage.Page{ID: "kp1", Slug: "seasons", Title: "New", CurrentVersion: 4}
-	// The page currently has both URNs (urnB was added by the promotion being reverted).
+	// The page has both promoted URNs (urnB was added by the promotion being
+	// reverted) AND a manually-picked asset ref that must survive the rollback.
 	pw.refs["kp1"] = []knowledgepage.EntityRef{
 		knowledgepage.DataHubRef(urnA, knowledgepage.RefSourcePromoted),
 		knowledgepage.DataHubRef(urnB, knowledgepage.RefSourcePromoted),
+		{TargetType: knowledgepage.RefTargetAsset, AssetID: "kept-asset", Source: knowledgepage.RefSourceManual},
 	}
 	csStore := &spyChangesetStore{Changesets: []Changeset{cs}}
 	tk := newApplyToolkit(t, &fullSpyStore{}, csStore, &spyWriter{})
@@ -347,7 +398,13 @@ func TestRevertPageChangeset_RestoresRefs(t *testing.T) {
 		applyKnowledgeInput{Action: actionRollback, ChangesetID: "cs1", Confirm: true})
 	require.NoError(t, err)
 	require.False(t, res.IsError)
-	assert.ElementsMatch(t, []string{urnA}, refURNs(pw.refs["kp1"]), "rollback should restore the prior ref set")
+	// Promoted refs revert to the prior set (urnB dropped); the manual ref survives.
+	got := make([]string, 0, len(pw.refs["kp1"]))
+	for _, r := range pw.refs["kp1"] {
+		got = append(got, r.URN())
+	}
+	assert.ElementsMatch(t, []string{urnA, "mcp:asset:kept-asset"}, got,
+		"rollback restores promoted refs to the prior set and leaves manual refs intact")
 }
 
 func TestRevertPageChangeset_ConflictRefused(t *testing.T) {
