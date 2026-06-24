@@ -36,6 +36,10 @@ const (
 	// promptName is the MCP prompt name for knowledge capture guidance.
 	promptName = "knowledge_capture_guidance"
 
+	// applyPromptName is the MCP prompt name for the review-and-apply guidance:
+	// how to synthesize insights into durable knowledge (DataHub or knowledge pages).
+	applyPromptName = "knowledge_apply_guidance"
+
 	// userPromptName is the user-facing prompt for capturing knowledge.
 	userPromptName = "capture-this-as-knowledge"
 )
@@ -140,11 +144,23 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		mcp.AddTool(s, &mcp.Tool{
 			Name:  applyToolName,
 			Title: "Apply Knowledge",
-			Description: "The review gate for captured insights. Holding this tool is the capability that grants " +
-				"insight review and promotion: you review the insights other users capture and promote the good ones into " +
-				"shared, canonical knowledge. Business and domain facts become internal knowledge pages; technical and entity " +
-				"facts are applied to the DataHub catalog. Access is granted per persona by tool visibility, not by an admin role. " +
-				"Reviews, synthesizes, applies, and rolls back captured insights. " +
+			Description: "The review-and-apply gate of the knowledge loop. (The name is historical; read it as 'review and apply knowledge'.) " +
+				"The loop: users and agents capture memories with memory_capture; durable ones become insights pending review " +
+				"(business_knowledge, schema_entity, operational_rule); holding this tool you review those insights and turn the good ones into " +
+				"durable, shared, canonical KNOWLEDGE that every future session recalls via search, so no one re-teaches the same fact. " +
+				"Knowledge has two homes: a DataHub entity when the fact is tied to a catalog dataset or column, or a canonical knowledge page " +
+				"(sink=knowledge_page) when it is business or domain knowledge not tied to one entity (for example seasonal date ranges or company vocabulary). " +
+				"Be an expert reviewer, not a mechanical one: " +
+				"(1) discover existing knowledge first by searching DataHub and knowledge pages for the topic, so every decision is update-vs-create, never blind-create; " +
+				"(2) compare each insight against what exists (new, a refinement, a correction, or already covered); " +
+				"(3) synthesize: merge related insights into one coherent statement and resolve contradictions, rather than writing one artifact per raw insight; " +
+				"(4) route: entity-tied facts update the DataHub entity (description, tags, glossary, curated queries); business or domain knowledge promotes to a knowledge page " +
+				"via sink=knowledge_page with a 'page' object, found-or-created by slug so repeat promotions consolidate and references accumulate; " +
+				"(5) update in place over duplicating, and create only when genuinely new; " +
+				"(6) mark insights applied, rejected, or superseded. " +
+				"Access is granted per persona by tool visibility, not by an admin role. " +
+				"Sinks for the apply action: sink='datahub' (default) applies 'changes' to entity_urn; sink='knowledge_page' promotes a business_knowledge or operational_rule " +
+				"insight to a page using the 'page' object {slug,title,summary,body,tags} and 'insight_ids'. " +
 				"Actions: bulk_review, review, synthesize, apply, approve, reject, rollback, list_changesets. " +
 				"rollback (changeset_id required, confirm required) reverts the aspects a prior apply changed, back to their before-image: " +
 				"it removes tags/glossary terms/documentation links the apply added (leaving any that pre-existed) and restores the prior description. " +
@@ -939,6 +955,20 @@ func (*Toolkit) registerPrompt(s *mcp.Server) {
 	})
 
 	s.AddPrompt(&mcp.Prompt{
+		Name:        applyPromptName,
+		Description: "How to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)",
+	}, func(_ context.Context, _ *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+		return &mcp.GetPromptResult{
+			Messages: []*mcp.PromptMessage{
+				{
+					Role:    promptRoleUser,
+					Content: &mcp.TextContent{Text: knowledgeApplyPrompt},
+				},
+			},
+		}, nil
+	})
+
+	s.AddPrompt(&mcp.Prompt{
 		Name:        userPromptName,
 		Description: "Record insights from this conversation for data catalog improvement",
 	}, func(_ context.Context, _ *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
@@ -963,6 +993,12 @@ func (*Toolkit) PromptInfos() []registry.PromptInfo {
 			Content:     knowledgeCapturePrompt,
 		},
 		{
+			Name:        applyPromptName,
+			Description: "How to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)",
+			Category:    "toolkit",
+			Content:     knowledgeApplyPrompt,
+		},
+		{
 			Name:        userPromptName,
 			Description: "Record insights from this conversation for data catalog improvement",
 			Category:    "toolkit",
@@ -977,6 +1013,39 @@ const captureKnowledgePromptContent = `Capture the key insights from this conver
 2. Identify which datasets and columns the insights relate to
 3. Record each insight with appropriate categorization and confidence level
 4. Suggest any catalog improvements (updated descriptions, new tags, glossary terms)`
+
+// knowledgeApplyPrompt teaches the holder of apply_knowledge the memory -> insight
+// -> knowledge loop and how to be an expert reviewer: discover existing knowledge,
+// compare, synthesize, route to DataHub or a knowledge page, update-or-create, and
+// mark insights applied. It is registered as the knowledge_apply_guidance prompt.
+const knowledgeApplyPrompt = `## Reviewing Insights into Durable Knowledge
+
+You hold apply_knowledge, the review-and-apply gate of the platform's knowledge loop. (The tool name is historical; read it as "review and apply knowledge.") Turning raw insights into correct, non-duplicated, durable knowledge is one of the platform's essential functions. Do it as an expert editor, not a mechanical promoter.
+
+### The loop, and why knowledge matters
+
+- **Memory**: transient or personal working context (personal_preference, episodic_event), live immediately and scoped to one user.
+- **Insight**: a durable *candidate* fact captured for review (business_knowledge, schema_entity, operational_rule), pending until you review it.
+- **Knowledge**: reviewed, durable, shared, canonical truth. It lives in DataHub when tied to a catalog entity, or in a knowledge page when it is business or domain knowledge not tied to one entity. Knowledge is what every future session recalls via search, so no user ever has to teach the same fact twice and every answer is grounded in established truth.
+
+Always discover before you apply: search existing memory, insights, and knowledge first.
+
+### The expert review workflow
+
+1. **Discover existing knowledge.** For each pending insight, search DataHub and knowledge pages for the topic. The decision is always update-vs-create, never blind-create.
+2. **Compare.** Is the insight new, a refinement, a correction, or already covered or superseded? Reject or supersede what is redundant or wrong.
+3. **Synthesize.** Merge related insights into one coherent statement and resolve contradictions. Do not produce one page or one description per raw insight.
+4. **Route to the right home.**
+   - Tied to a catalog entity (dataset, column, dashboard): apply to DataHub with sink=datahub, using update_description, add_tag, add_glossary_term, add_curated_query, and so on, against the entity_urn.
+   - Business or domain knowledge not tied to one entity (vocabulary, seasons, policies, cross-cutting context): promote to a knowledge page with sink=knowledge_page and a 'page' object {slug, title, summary, body, tags}. The page is found-or-created by slug, so promoting more insights to the same slug consolidates one living page and accumulates its entity references.
+5. **Update in place over duplicating.** Consolidate onto the existing canonical home; create only when genuinely new.
+6. **Close the loop.** Mark insights applied, rejected, or superseded with review notes, so the queue reflects reality.
+
+### Routing examples
+
+- "The amount column excludes returns" applies to DataHub: update_description on that dataset column.
+- "We run Summer (May-Oct) and Winter (Nov-Apr) seasons for planning" becomes a knowledge page (sink=knowledge_page), for example slug retail-seasons.
+- Three insights all about discount vocabulary become one knowledge page synthesized from all three, not three pages.`
 
 // Helper functions
 

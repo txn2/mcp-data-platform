@@ -449,6 +449,43 @@ func TestToolkit_RegisterTools_WithApply(t *testing.T) {
 	assert.Len(t, tk.Tools(), 1)
 }
 
+// TestApplyKnowledgeDescription_TeachesLoopAndSink asserts the agent-facing
+// apply_knowledge description (#674) teaches the review/synthesis workflow and
+// references the knowledge-page sink, so a fresh agent can discover the capability
+// from the contract rather than only from the JSON schema.
+func TestApplyKnowledgeDescription_TeachesLoopAndSink(t *testing.T) {
+	tk, err := New(testName, nil)
+	require.NoError(t, err)
+	tk.SetApplyConfig(ApplyConfig{Enabled: true}, nil, nil)
+
+	s := mcp.NewServer(&mcp.Implementation{Name: testName, Version: testVersion}, nil)
+	tk.RegisterTools(s)
+
+	ctx := context.Background()
+	t1, t2 := mcp.NewInMemoryTransports()
+	serverSess, err := s.Connect(ctx, t1, nil)
+	require.NoError(t, err)
+	defer func() { _ = serverSess.Close() }()
+	client := mcp.NewClient(&mcp.Implementation{Name: "c", Version: "1.0"}, nil)
+	clientSess, err := client.Connect(ctx, t2, nil)
+	require.NoError(t, err)
+	defer func() { _ = clientSess.Close() }()
+
+	list, err := clientSess.ListTools(ctx, &mcp.ListToolsParams{})
+	require.NoError(t, err)
+	var desc string
+	for _, tool := range list.Tools {
+		if tool.Name == applyToolName {
+			desc = tool.Description
+		}
+	}
+	require.NotEmpty(t, desc, "apply_knowledge tool not advertised")
+	// It must teach the loop, the expert workflow, and the page sink mechanism.
+	for _, want := range []string{"knowledge loop", "synthesize", "sink=knowledge_page", "'page' object", "update-vs-create"} {
+		assert.Contains(t, desc, want, "apply_knowledge description should teach %q", want)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Toolkit interface compliance
 // ---------------------------------------------------------------------------
@@ -2514,15 +2551,22 @@ func TestHandleApply_MixedChangesRejectsBeforeExecution(t *testing.T) {
 func TestPromptInfos(t *testing.T) {
 	tk := &Toolkit{}
 	infos := tk.PromptInfos()
-	require.Len(t, infos, 2)
+	require.Len(t, infos, 3)
 
 	assert.Equal(t, promptName, infos[0].Name)
 	assert.NotEmpty(t, infos[0].Description)
 	assert.Equal(t, "toolkit", infos[0].Category)
 
-	assert.Equal(t, userPromptName, infos[1].Name)
+	assert.Equal(t, applyPromptName, infos[1].Name)
 	assert.NotEmpty(t, infos[1].Description)
 	assert.Equal(t, "toolkit", infos[1].Category)
+	// The apply guidance must teach the loop and the route to a knowledge page.
+	assert.Contains(t, infos[1].Content, "knowledge_page")
+	assert.Contains(t, infos[1].Content, "Synthesize")
+
+	assert.Equal(t, userPromptName, infos[2].Name)
+	assert.NotEmpty(t, infos[2].Description)
+	assert.Equal(t, "toolkit", infos[2].Category)
 }
 
 func TestRegisterPrompts(t *testing.T) {
@@ -2545,17 +2589,18 @@ func TestRegisterPrompts(t *testing.T) {
 	// List prompts
 	listResp, err := clientSess.ListPrompts(ctx, &mcp.ListPromptsParams{})
 	require.NoError(t, err)
-	require.Len(t, listResp.Prompts, 2)
+	require.Len(t, listResp.Prompts, 3)
 
 	names := make(map[string]bool)
 	for _, p := range listResp.Prompts {
 		names[p.Name] = true
 	}
 	assert.True(t, names[promptName])
+	assert.True(t, names[applyPromptName])
 	assert.True(t, names[userPromptName])
 
 	// Get each prompt and verify content
-	for _, name := range []string{promptName, userPromptName} {
+	for _, name := range []string{promptName, applyPromptName, userPromptName} {
 		resp, err := clientSess.GetPrompt(ctx, &mcp.GetPromptParams{Name: name})
 		require.NoError(t, err, "prompt %s", name)
 		require.Len(t, resp.Messages, 1)
