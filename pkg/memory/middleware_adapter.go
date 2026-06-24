@@ -9,7 +9,7 @@ import (
 // defaultRecallLimit is the default number of memory snippets returned per entity recall.
 const defaultRecallLimit = 5
 
-// Snippet is a lightweight memory representation for cross-injection.
+// Snippet is a lightweight memory representation for cross-enrichment.
 type Snippet struct {
 	ID         string    `json:"id"`
 	Content    string    `json:"content"`
@@ -19,7 +19,7 @@ type Snippet struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
-// MiddlewareAdapter implements memory recall for the cross-injection middleware.
+// MiddlewareAdapter implements memory recall for the cross-enrichment middleware.
 type MiddlewareAdapter struct {
 	store Store
 }

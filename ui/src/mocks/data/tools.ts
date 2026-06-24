@@ -425,7 +425,7 @@ function textResult(text: string, duration: number, enrichmentBlocks?: string[])
 }
 
 // ---------------------------------------------------------------------------
-// Enrichment blocks — cross-service context injected by middleware
+// Enrichment blocks — cross-service context added by middleware
 // ---------------------------------------------------------------------------
 
 /** Trino → DataHub: semantic context appended to Trino query/describe results */

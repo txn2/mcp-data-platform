@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"maps"
 	"os"
+	"reflect"
 	"regexp"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/txn2/mcp-data-platform/pkg/platform/dedup"
 	datahubsemantic "github.com/txn2/mcp-data-platform/pkg/semantic/datahub"
 )
 
@@ -88,36 +90,41 @@ type ConfigStoreConfig struct {
 
 // Config holds the complete platform configuration.
 type Config struct {
-	APIVersion    string              `yaml:"apiVersion"`
-	ConfigStore   ConfigStoreConfig   `yaml:"config_store"`
-	Server        ServerConfig        `yaml:"server"`
-	Auth          AuthConfig          `yaml:"auth"`
-	OAuth         OAuthConfig         `yaml:"oauth"`
-	Database      DatabaseConfig      `yaml:"database"`
-	Personas      PersonasConfig      `yaml:"personas"`
-	Toolkits      map[string]any      `yaml:"toolkits"`
-	Tools         ToolsConfig         `yaml:"tools"`
-	Semantic      SemanticConfig      `yaml:"semantic"`
-	Query         QueryConfig         `yaml:"query"`
-	Storage       StorageConfig       `yaml:"storage"`
-	Injection     InjectionConfig     `yaml:"injection"`
-	Tuning        TuningConfig        `yaml:"tuning"`
-	Audit         AuditConfig         `yaml:"audit"`
-	MCPApps       MCPAppsConfig       `yaml:"mcpapps"`
-	Sessions      SessionsConfig      `yaml:"sessions"`
-	Knowledge     KnowledgeConfig     `yaml:"knowledge"`
-	Memory        MemoryConfig        `yaml:"memory"`
-	Portal        PortalConfig        `yaml:"portal"`
-	Admin         AdminConfig         `yaml:"admin"`
-	Resources     ResourcesConfig     `yaml:"resources"`
-	Progress      ProgressConfig      `yaml:"progress"`
-	ClientLogging ClientLoggingConfig `yaml:"client_logging"`
-	Icons         IconsConfig         `yaml:"icons"`
-	Elicitation   ElicitationConfig   `yaml:"elicitation"`
-	Workflow      WorkflowConfig      `yaml:"workflow"`
-	SessionGate   SessionGateConfig   `yaml:"session_gate"`
-	APIGateway    APIGatewayConfig    `yaml:"apigateway"`
-	Observability ObservabilityConfig `yaml:"observability"`
+	APIVersion  string            `yaml:"apiVersion"`
+	ConfigStore ConfigStoreConfig `yaml:"config_store"`
+	Server      ServerConfig      `yaml:"server"`
+	Auth        AuthConfig        `yaml:"auth"`
+	OAuth       OAuthConfig       `yaml:"oauth"`
+	Database    DatabaseConfig    `yaml:"database"`
+	Personas    PersonasConfig    `yaml:"personas"`
+	Toolkits    map[string]any    `yaml:"toolkits"`
+	Tools       ToolsConfig       `yaml:"tools"`
+	Semantic    SemanticConfig    `yaml:"semantic"`
+	Query       QueryConfig       `yaml:"query"`
+	Storage     StorageConfig     `yaml:"storage"`
+	Enrichment  EnrichmentConfig  `yaml:"enrichment"`
+	Tuning      TuningConfig      `yaml:"tuning"`
+
+	// EnrichmentDeprecated accepts the legacy "injection" key so configs written
+	// before the rename to "enrichment" still load. applyEnrichmentCompat folds it
+	// onto Enrichment and warns. Remove in a future apiVersion.
+	EnrichmentDeprecated *EnrichmentConfig   `yaml:"injection"`
+	Audit                AuditConfig         `yaml:"audit"`
+	MCPApps              MCPAppsConfig       `yaml:"mcpapps"`
+	Sessions             SessionsConfig      `yaml:"sessions"`
+	Knowledge            KnowledgeConfig     `yaml:"knowledge"`
+	Memory               MemoryConfig        `yaml:"memory"`
+	Portal               PortalConfig        `yaml:"portal"`
+	Admin                AdminConfig         `yaml:"admin"`
+	Resources            ResourcesConfig     `yaml:"resources"`
+	Progress             ProgressConfig      `yaml:"progress"`
+	ClientLogging        ClientLoggingConfig `yaml:"client_logging"`
+	Icons                IconsConfig         `yaml:"icons"`
+	Elicitation          ElicitationConfig   `yaml:"elicitation"`
+	Workflow             WorkflowConfig      `yaml:"workflow"`
+	SessionGate          SessionGateConfig   `yaml:"session_gate"`
+	APIGateway           APIGatewayConfig    `yaml:"apigateway"`
+	Observability        ObservabilityConfig `yaml:"observability"`
 
 	// runtimeMu guards fields that can be mutated at runtime via the admin
 	// API (Tools.DescriptionOverrides, Tools.Deny). Other fields are
@@ -473,9 +480,9 @@ type StorageConfig struct {
 	Instance string `yaml:"instance"`
 }
 
-// InjectionConfig configures cross-injection.
-type InjectionConfig struct {
-	// The four cross-injection flags default to true (nil = enabled). They are
+// EnrichmentConfig configures cross-enrichment.
+type EnrichmentConfig struct {
+	// The four cross-enrichment flags default to true (nil = enabled). They are
 	// the platform's core differentiator and are read-only: each no-ops safely
 	// when its provider (semantic / query / storage) is absent, so defaulting on
 	// is safe and removes the need to opt every deployment into enrichment. Set
@@ -529,7 +536,7 @@ type InjectionConfig struct {
 
 // IsUnwrapJSONEnabled returns whether unwrap_json defaults to true,
 // defaulting to true when not explicitly set.
-func (c *InjectionConfig) IsUnwrapJSONEnabled() bool {
+func (c *EnrichmentConfig) IsUnwrapJSONEnabled() bool {
 	if c.UnwrapJSON == nil {
 		return true
 	}
@@ -538,7 +545,7 @@ func (c *InjectionConfig) IsUnwrapJSONEnabled() bool {
 
 // IsColumnContextFilteringEnabled returns whether column context filtering
 // is enabled, defaulting to true when not explicitly set.
-func (c *InjectionConfig) IsColumnContextFilteringEnabled() bool {
+func (c *EnrichmentConfig) IsColumnContextFilteringEnabled() bool {
 	if c.ColumnContextFiltering == nil {
 		return true
 	}
@@ -548,25 +555,25 @@ func (c *InjectionConfig) IsColumnContextFilteringEnabled() bool {
 // IsTrinoSemanticEnrichmentEnabled reports whether Trino results are enriched
 // with semantic context, defaulting to true when not explicitly set. The
 // enrichment no-ops when no semantic provider is configured.
-func (c *InjectionConfig) IsTrinoSemanticEnrichmentEnabled() bool {
+func (c *EnrichmentConfig) IsTrinoSemanticEnrichmentEnabled() bool {
 	return c.TrinoSemanticEnrichment == nil || *c.TrinoSemanticEnrichment
 }
 
 // IsDataHubQueryEnrichmentEnabled reports whether DataHub results are enriched
 // with query/availability context, defaulting to true when not explicitly set.
-func (c *InjectionConfig) IsDataHubQueryEnrichmentEnabled() bool {
+func (c *EnrichmentConfig) IsDataHubQueryEnrichmentEnabled() bool {
 	return c.DataHubQueryEnrichment == nil || *c.DataHubQueryEnrichment
 }
 
 // IsS3SemanticEnrichmentEnabled reports whether S3 results are enriched with
 // semantic context, defaulting to true when not explicitly set.
-func (c *InjectionConfig) IsS3SemanticEnrichmentEnabled() bool {
+func (c *EnrichmentConfig) IsS3SemanticEnrichmentEnabled() bool {
 	return c.S3SemanticEnrichment == nil || *c.S3SemanticEnrichment
 }
 
 // IsDataHubStorageEnrichmentEnabled reports whether DataHub results are enriched
 // with storage context, defaulting to true when not explicitly set.
-func (c *InjectionConfig) IsDataHubStorageEnrichmentEnabled() bool {
+func (c *EnrichmentConfig) IsDataHubStorageEnrichmentEnabled() bool {
 	return c.DataHubStorageEnrichment == nil || *c.DataHubStorageEnrichment
 }
 
@@ -575,7 +582,7 @@ const defaultSchemaPreviewMaxColumns = 15
 
 // IsSearchSchemaPreviewEnabled returns whether search schema preview
 // is enabled, defaulting to true when not explicitly set.
-func (c *InjectionConfig) IsSearchSchemaPreviewEnabled() bool {
+func (c *EnrichmentConfig) IsSearchSchemaPreviewEnabled() bool {
 	if c.SearchSchemaPreview == nil {
 		return true
 	}
@@ -584,7 +591,7 @@ func (c *InjectionConfig) IsSearchSchemaPreviewEnabled() bool {
 
 // EffectiveSchemaPreviewMaxColumns returns the configured max columns
 // for schema preview, defaulting to 15 when not explicitly set.
-func (c *InjectionConfig) EffectiveSchemaPreviewMaxColumns() int {
+func (c *EnrichmentConfig) EffectiveSchemaPreviewMaxColumns() int {
 	if c.SchemaPreviewMaxColumns == nil {
 		return defaultSchemaPreviewMaxColumns
 	}
@@ -603,7 +610,7 @@ const maxSemanticFallbackTopK = 10
 // IsSemanticFallbackEnabled returns whether the issue #444 fallback
 // is enabled. Defaults to false; operators opt in explicitly because
 // similarity matches are heuristic and may surface false positives.
-func (c *InjectionConfig) IsSemanticFallbackEnabled() bool {
+func (c *EnrichmentConfig) IsSemanticFallbackEnabled() bool {
 	if c.SemanticFallback == nil {
 		return false
 	}
@@ -614,7 +621,7 @@ func (c *InjectionConfig) IsSemanticFallbackEnabled() bool {
 // semantic fallback, clamped to [1, maxSemanticFallbackTopK]. Returns
 // defaultSemanticFallbackTopK when unset; clamps to bounds when set
 // outside the valid range.
-func (c *InjectionConfig) EffectiveSemanticFallbackTopK() int {
+func (c *EnrichmentConfig) EffectiveSemanticFallbackTopK() int {
 	if c.SemanticFallbackTopK == nil {
 		return defaultSemanticFallbackTopK
 	}
@@ -628,39 +635,10 @@ func (c *InjectionConfig) EffectiveSemanticFallbackTopK() int {
 	return k
 }
 
-// SessionDedupConfig configures session-level metadata deduplication.
-type SessionDedupConfig struct {
-	// Enabled controls whether session dedup is active. Defaults to true.
-	Enabled *bool `yaml:"enabled"`
-
-	// Mode controls what is sent for previously-enriched tables.
-	// Values: "reference" (default), "summary", "none".
-	Mode string `yaml:"mode"`
-
-	// EntryTTL is how long a table's enrichment is considered fresh.
-	// Defaults to the semantic cache TTL (typically 5m).
-	EntryTTL time.Duration `yaml:"entry_ttl"`
-
-	// SessionTimeout is how long an idle session persists before cleanup.
-	// Defaults to the server's streamable session timeout (typically 30m).
-	SessionTimeout time.Duration `yaml:"session_timeout"`
-}
-
-// IsEnabled returns whether session dedup is enabled, defaulting to true.
-func (c *SessionDedupConfig) IsEnabled() bool {
-	if c.Enabled == nil {
-		return true
-	}
-	return *c.Enabled
-}
-
-// EffectiveMode returns the dedup mode, defaulting to "reference".
-func (c *SessionDedupConfig) EffectiveMode() string {
-	if c.Mode == "" {
-		return "reference"
-	}
-	return c.Mode
-}
+// SessionDedupConfig configures session-level metadata deduplication. It lives in
+// the dedup sub-package (extracted to keep pkg/platform under its size budget);
+// the alias keeps the platform.SessionDedupConfig name stable for callers.
+type SessionDedupConfig = dedup.Config
 
 // TuningConfig configures AI tuning.
 type TuningConfig struct {
@@ -1188,6 +1166,7 @@ func expandEnvVars(s string) string {
 
 // applyDefaults applies default values to the config.
 func applyDefaults(cfg *Config) {
+	applyEnrichmentCompat(cfg)
 	applyServerDefaults(cfg)
 	applyServiceDefaults(cfg)
 	applySessionDedupDefaults(cfg)
@@ -1198,6 +1177,19 @@ func applyDefaults(cfg *Config) {
 	applyElicitationDefaults(cfg)
 	applyWorkflowDefaults(cfg)
 	applySessionGateDefaults(cfg)
+}
+
+// applyEnrichmentCompat folds the deprecated "injection" config key onto the
+// canonical Enrichment field. The new "enrichment" key wins when both are set.
+func applyEnrichmentCompat(cfg *Config) {
+	if cfg.EnrichmentDeprecated == nil {
+		return
+	}
+	slog.Warn("config key 'injection' is deprecated; rename it to 'enrichment'")
+	if reflect.ValueOf(cfg.Enrichment).IsZero() {
+		cfg.Enrichment = *cfg.EnrichmentDeprecated
+	}
+	cfg.EnrichmentDeprecated = nil
 }
 
 // applyPortalDefaults sets defaults for portal config.
@@ -1295,11 +1287,11 @@ func applyServiceDefaults(cfg *Config) {
 
 // applySessionDedupDefaults sets session dedup defaults from related config values.
 func applySessionDedupDefaults(cfg *Config) {
-	if cfg.Injection.SessionDedup.EntryTTL == 0 {
-		cfg.Injection.SessionDedup.EntryTTL = cfg.Semantic.Cache.TTL
+	if cfg.Enrichment.SessionDedup.EntryTTL == 0 {
+		cfg.Enrichment.SessionDedup.EntryTTL = cfg.Semantic.Cache.TTL
 	}
-	if cfg.Injection.SessionDedup.SessionTimeout == 0 {
-		cfg.Injection.SessionDedup.SessionTimeout = cfg.Server.Streamable.SessionTimeout
+	if cfg.Enrichment.SessionDedup.SessionTimeout == 0 {
+		cfg.Enrichment.SessionDedup.SessionTimeout = cfg.Server.Streamable.SessionTimeout
 	}
 }
 

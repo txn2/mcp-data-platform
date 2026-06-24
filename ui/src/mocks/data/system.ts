@@ -56,7 +56,7 @@ export const mockTools: ToolInfo[] = [
   { name: "save_artifact", toolkit: "acme-platform", kind: "platform", connection: "acme-platform", hidden: false },
   { name: "memory_capture", toolkit: "acme-platform", kind: "platform", connection: "acme-platform", hidden: false },
   // acme-crm-gateway (mcp) — gateway-proxied upstream MCP server. These tools
-  // carry semantic cross-injection rules (the platform's headline feature).
+  // carry semantic cross-enrichment rules (the platform's headline feature).
   { name: "crm_search_accounts", toolkit: "acme-crm-gateway", kind: "mcp", connection: "acme-crm-gateway", hidden: false },
   { name: "crm_get_account", toolkit: "acme-crm-gateway", kind: "mcp", connection: "acme-crm-gateway", hidden: false },
   { name: "crm_list_opportunities", toolkit: "acme-crm-gateway", kind: "mcp", connection: "acme-crm-gateway", hidden: false },

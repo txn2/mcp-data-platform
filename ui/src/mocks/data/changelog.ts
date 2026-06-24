@@ -59,7 +59,7 @@ export const mockChangelog: ChangelogEntry[] = [
       {
         type: "added",
         description:
-          "Per-connection cross-injection enrichment rules with predicate, action, and merge strategy editing",
+          "Per-connection cross-enrichment enrichment rules with predicate, action, and merge strategy editing",
       },
       {
         type: "changed",

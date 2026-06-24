@@ -232,7 +232,7 @@ func TestApplyDefaults(t *testing.T) {
 	if cfg.Server.Shutdown.PreShutdownDelay != cfgTestDefaultPreDelay {
 		t.Errorf("Server.Shutdown.PreShutdownDelay = %v, want %v", cfg.Server.Shutdown.PreShutdownDelay, cfgTestDefaultPreDelay)
 	}
-	if cfg.Injection.EstimateRowCounts {
+	if cfg.Enrichment.EstimateRowCounts {
 		t.Error("Injection.EstimateRowCounts should default to false")
 	}
 	if cfg.SessionGate.InitTool != defaultInitTool {
@@ -572,10 +572,10 @@ func TestConfigTypes_PersonaDef(t *testing.T) {
 	}
 }
 
-func TestConfigTypes_InjectionConfig(t *testing.T) {
-	// The four cross-injection flags default to enabled when unset (#571): an
+func TestConfigTypes_EnrichmentConfig(t *testing.T) {
+	// The four cross-enrichment flags default to enabled when unset (#571): an
 	// operator should not have to opt every deployment into the core feature.
-	var def InjectionConfig
+	var def EnrichmentConfig
 	if !def.IsTrinoSemanticEnrichmentEnabled() {
 		t.Error("TrinoSemanticEnrichment should default enabled")
 	}
@@ -590,7 +590,7 @@ func TestConfigTypes_InjectionConfig(t *testing.T) {
 	}
 
 	// An explicit false disables.
-	off := InjectionConfig{TrinoSemanticEnrichment: new(false)}
+	off := EnrichmentConfig{TrinoSemanticEnrichment: new(false)}
 	if off.IsTrinoSemanticEnrichmentEnabled() {
 		t.Error("explicit false should disable TrinoSemanticEnrichment")
 	}
@@ -852,17 +852,17 @@ func TestApplyDefaults_SessionDedupDefaults(t *testing.T) {
 	applyDefaults(cfg)
 
 	// Session dedup should inherit from semantic cache TTL and streamable session timeout
-	if cfg.Injection.SessionDedup.EntryTTL != cfgTestDefaultCacheTTL {
-		t.Errorf("SessionDedup.EntryTTL = %v, want %v", cfg.Injection.SessionDedup.EntryTTL, cfgTestDefaultCacheTTL)
+	if cfg.Enrichment.SessionDedup.EntryTTL != cfgTestDefaultCacheTTL {
+		t.Errorf("SessionDedup.EntryTTL = %v, want %v", cfg.Enrichment.SessionDedup.EntryTTL, cfgTestDefaultCacheTTL)
 	}
-	if cfg.Injection.SessionDedup.SessionTimeout != cfgTestDefaultSessTTL {
-		t.Errorf("SessionDedup.SessionTimeout = %v, want %v", cfg.Injection.SessionDedup.SessionTimeout, cfgTestDefaultSessTTL)
+	if cfg.Enrichment.SessionDedup.SessionTimeout != cfgTestDefaultSessTTL {
+		t.Errorf("SessionDedup.SessionTimeout = %v, want %v", cfg.Enrichment.SessionDedup.SessionTimeout, cfgTestDefaultSessTTL)
 	}
 }
 
 func TestApplyDefaults_SessionDedupPreservesExisting(t *testing.T) {
 	cfg := &Config{
-		Injection: InjectionConfig{
+		Enrichment: EnrichmentConfig{
 			SessionDedup: SessionDedupConfig{
 				EntryTTL:       cfgTestEntryTTL10m,
 				SessionTimeout: cfgTestSessTO60m,
@@ -871,11 +871,47 @@ func TestApplyDefaults_SessionDedupPreservesExisting(t *testing.T) {
 	}
 	applyDefaults(cfg)
 
-	if cfg.Injection.SessionDedup.EntryTTL != cfgTestEntryTTL10m {
-		t.Errorf("SessionDedup.EntryTTL = %v, want %v (should preserve)", cfg.Injection.SessionDedup.EntryTTL, cfgTestEntryTTL10m)
+	if cfg.Enrichment.SessionDedup.EntryTTL != cfgTestEntryTTL10m {
+		t.Errorf("SessionDedup.EntryTTL = %v, want %v (should preserve)", cfg.Enrichment.SessionDedup.EntryTTL, cfgTestEntryTTL10m)
 	}
-	if cfg.Injection.SessionDedup.SessionTimeout != cfgTestSessTO60m {
-		t.Errorf("SessionDedup.SessionTimeout = %v, want %v (should preserve)", cfg.Injection.SessionDedup.SessionTimeout, cfgTestSessTO60m)
+	if cfg.Enrichment.SessionDedup.SessionTimeout != cfgTestSessTO60m {
+		t.Errorf("SessionDedup.SessionTimeout = %v, want %v (should preserve)", cfg.Enrichment.SessionDedup.SessionTimeout, cfgTestSessTO60m)
+	}
+}
+
+func TestLoadConfig_DeprecatedInjectionKey(t *testing.T) {
+	// A config written before the rename uses the legacy "injection" key; it must
+	// still load, folding onto the canonical Enrichment field.
+	cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+injection:
+  trino_semantic_enrichment: false
+  semantic_fallback: true
+`)
+	if cfg.Enrichment.IsTrinoSemanticEnrichmentEnabled() {
+		t.Error("legacy injection key did not disable trino_semantic_enrichment")
+	}
+	if !cfg.Enrichment.IsSemanticFallbackEnabled() {
+		t.Error("legacy injection key did not enable semantic_fallback")
+	}
+	if cfg.EnrichmentDeprecated != nil {
+		t.Error("EnrichmentDeprecated should be cleared after compat fold")
+	}
+}
+
+func TestLoadConfig_EnrichmentKeyWinsOverInjection(t *testing.T) {
+	// When both keys are present the canonical "enrichment" key wins.
+	cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+enrichment:
+  trino_semantic_enrichment: true
+injection:
+  trino_semantic_enrichment: false
+`)
+	if !cfg.Enrichment.IsTrinoSemanticEnrichmentEnabled() {
+		t.Error("enrichment key should win over the deprecated injection key")
 	}
 }
 
@@ -883,7 +919,7 @@ func TestLoadConfig_SessionDedupFromYAML(t *testing.T) {
 	cfg := loadTestConfig(t, `
 server:
   name: test-platform
-injection:
+enrichment:
   trino_semantic_enrichment: true
   session_dedup:
     enabled: false
@@ -891,17 +927,17 @@ injection:
     entry_ttl: 10m
     session_timeout: 1h
 `)
-	if cfg.Injection.SessionDedup.IsEnabled() {
+	if cfg.Enrichment.SessionDedup.IsEnabled() {
 		t.Error("SessionDedup.IsEnabled() = true, want false")
 	}
-	if cfg.Injection.SessionDedup.EffectiveMode() != "summary" {
-		t.Errorf("SessionDedup.EffectiveMode() = %q, want %q", cfg.Injection.SessionDedup.EffectiveMode(), "summary")
+	if cfg.Enrichment.SessionDedup.EffectiveMode() != "summary" {
+		t.Errorf("SessionDedup.EffectiveMode() = %q, want %q", cfg.Enrichment.SessionDedup.EffectiveMode(), "summary")
 	}
-	if cfg.Injection.SessionDedup.EntryTTL != cfgTestEntryTTL10m {
-		t.Errorf("SessionDedup.EntryTTL = %v, want %v", cfg.Injection.SessionDedup.EntryTTL, cfgTestEntryTTL10m)
+	if cfg.Enrichment.SessionDedup.EntryTTL != cfgTestEntryTTL10m {
+		t.Errorf("SessionDedup.EntryTTL = %v, want %v", cfg.Enrichment.SessionDedup.EntryTTL, cfgTestEntryTTL10m)
 	}
-	if cfg.Injection.SessionDedup.SessionTimeout != time.Hour {
-		t.Errorf("SessionDedup.SessionTimeout = %v, want %v", cfg.Injection.SessionDedup.SessionTimeout, time.Hour)
+	if cfg.Enrichment.SessionDedup.SessionTimeout != time.Hour {
+		t.Errorf("SessionDedup.SessionTimeout = %v, want %v", cfg.Enrichment.SessionDedup.SessionTimeout, time.Hour)
 	}
 }
 
@@ -1337,9 +1373,9 @@ server:
 	})
 }
 
-func TestInjectionConfig_IsUnwrapJSONEnabled(t *testing.T) {
+func TestEnrichmentConfig_IsUnwrapJSONEnabled(t *testing.T) {
 	t.Run("nil defaults to true", func(t *testing.T) {
-		cfg := &InjectionConfig{}
+		cfg := &EnrichmentConfig{}
 		if !cfg.IsUnwrapJSONEnabled() {
 			t.Error("expected nil UnwrapJSON to default to true")
 		}
@@ -1347,7 +1383,7 @@ func TestInjectionConfig_IsUnwrapJSONEnabled(t *testing.T) {
 
 	t.Run("explicit true", func(t *testing.T) {
 		v := true
-		cfg := &InjectionConfig{UnwrapJSON: &v}
+		cfg := &EnrichmentConfig{UnwrapJSON: &v}
 		if !cfg.IsUnwrapJSONEnabled() {
 			t.Error("expected explicit true to return true")
 		}
@@ -1355,7 +1391,7 @@ func TestInjectionConfig_IsUnwrapJSONEnabled(t *testing.T) {
 
 	t.Run("explicit false", func(t *testing.T) {
 		v := false
-		cfg := &InjectionConfig{UnwrapJSON: &v}
+		cfg := &EnrichmentConfig{UnwrapJSON: &v}
 		if cfg.IsUnwrapJSONEnabled() {
 			t.Error("expected explicit false to return false")
 		}
@@ -1365,10 +1401,10 @@ func TestInjectionConfig_IsUnwrapJSONEnabled(t *testing.T) {
 		cfg := loadTestConfig(t, `
 server:
   name: test-platform
-injection:
+enrichment:
   unwrap_json: false
 `)
-		if cfg.Injection.IsUnwrapJSONEnabled() {
+		if cfg.Enrichment.IsUnwrapJSONEnabled() {
 			t.Error("expected unwrap_json: false to disable unwrap")
 		}
 	})
@@ -1377,18 +1413,18 @@ injection:
 		cfg := loadTestConfig(t, `
 server:
   name: test-platform
-injection:
+enrichment:
   trino_semantic_enrichment: true
 `)
-		if !cfg.Injection.IsUnwrapJSONEnabled() {
+		if !cfg.Enrichment.IsUnwrapJSONEnabled() {
 			t.Error("expected missing unwrap_json to default to true")
 		}
 	})
 }
 
-func TestInjectionConfig_IsColumnContextFilteringEnabled(t *testing.T) {
+func TestEnrichmentConfig_IsColumnContextFilteringEnabled(t *testing.T) {
 	t.Run("nil defaults to true", func(t *testing.T) {
-		cfg := &InjectionConfig{}
+		cfg := &EnrichmentConfig{}
 		if !cfg.IsColumnContextFilteringEnabled() {
 			t.Error("expected nil ColumnContextFiltering to default to true")
 		}
@@ -1396,7 +1432,7 @@ func TestInjectionConfig_IsColumnContextFilteringEnabled(t *testing.T) {
 
 	t.Run("explicit true", func(t *testing.T) {
 		v := true
-		cfg := &InjectionConfig{ColumnContextFiltering: &v}
+		cfg := &EnrichmentConfig{ColumnContextFiltering: &v}
 		if !cfg.IsColumnContextFilteringEnabled() {
 			t.Error("expected explicit true to return true")
 		}
@@ -1404,7 +1440,7 @@ func TestInjectionConfig_IsColumnContextFilteringEnabled(t *testing.T) {
 
 	t.Run("explicit false", func(t *testing.T) {
 		v := false
-		cfg := &InjectionConfig{ColumnContextFiltering: &v}
+		cfg := &EnrichmentConfig{ColumnContextFiltering: &v}
 		if cfg.IsColumnContextFilteringEnabled() {
 			t.Error("expected explicit false to return false")
 		}
@@ -1414,10 +1450,10 @@ func TestInjectionConfig_IsColumnContextFilteringEnabled(t *testing.T) {
 		cfg := loadTestConfig(t, `
 server:
   name: test-platform
-injection:
+enrichment:
   column_context_filtering: false
 `)
-		if cfg.Injection.IsColumnContextFilteringEnabled() {
+		if cfg.Enrichment.IsColumnContextFilteringEnabled() {
 			t.Error("expected column_context_filtering: false to disable filtering")
 		}
 	})
@@ -1426,18 +1462,18 @@ injection:
 		cfg := loadTestConfig(t, `
 server:
   name: test-platform
-injection:
+enrichment:
   trino_semantic_enrichment: true
 `)
-		if !cfg.Injection.IsColumnContextFilteringEnabled() {
+		if !cfg.Enrichment.IsColumnContextFilteringEnabled() {
 			t.Error("expected missing column_context_filtering to default to true")
 		}
 	})
 }
 
-func TestInjectionConfig_IsSearchSchemaPreviewEnabled(t *testing.T) {
+func TestEnrichmentConfig_IsSearchSchemaPreviewEnabled(t *testing.T) {
 	t.Run("nil defaults to true", func(t *testing.T) {
-		cfg := &InjectionConfig{}
+		cfg := &EnrichmentConfig{}
 		if !cfg.IsSearchSchemaPreviewEnabled() {
 			t.Error("expected nil SearchSchemaPreview to default to true")
 		}
@@ -1445,7 +1481,7 @@ func TestInjectionConfig_IsSearchSchemaPreviewEnabled(t *testing.T) {
 
 	t.Run("explicit true", func(t *testing.T) {
 		v := true
-		cfg := &InjectionConfig{SearchSchemaPreview: &v}
+		cfg := &EnrichmentConfig{SearchSchemaPreview: &v}
 		if !cfg.IsSearchSchemaPreviewEnabled() {
 			t.Error("expected explicit true to return true")
 		}
@@ -1453,7 +1489,7 @@ func TestInjectionConfig_IsSearchSchemaPreviewEnabled(t *testing.T) {
 
 	t.Run("explicit false", func(t *testing.T) {
 		v := false
-		cfg := &InjectionConfig{SearchSchemaPreview: &v}
+		cfg := &EnrichmentConfig{SearchSchemaPreview: &v}
 		if cfg.IsSearchSchemaPreviewEnabled() {
 			t.Error("expected explicit false to return false")
 		}
@@ -1463,18 +1499,18 @@ func TestInjectionConfig_IsSearchSchemaPreviewEnabled(t *testing.T) {
 		cfg := loadTestConfig(t, `
 server:
   name: test-platform
-injection:
+enrichment:
   search_schema_preview: false
 `)
-		if cfg.Injection.IsSearchSchemaPreviewEnabled() {
+		if cfg.Enrichment.IsSearchSchemaPreviewEnabled() {
 			t.Error("expected search_schema_preview: false to disable")
 		}
 	})
 }
 
-func TestInjectionConfig_EffectiveSchemaPreviewMaxColumns(t *testing.T) {
+func TestEnrichmentConfig_EffectiveSchemaPreviewMaxColumns(t *testing.T) {
 	t.Run("nil defaults to 15", func(t *testing.T) {
-		cfg := &InjectionConfig{}
+		cfg := &EnrichmentConfig{}
 		if cfg.EffectiveSchemaPreviewMaxColumns() != defaultSchemaPreviewMaxColumns {
 			t.Errorf("expected %d, got %d", defaultSchemaPreviewMaxColumns, cfg.EffectiveSchemaPreviewMaxColumns())
 		}
@@ -1482,7 +1518,7 @@ func TestInjectionConfig_EffectiveSchemaPreviewMaxColumns(t *testing.T) {
 
 	t.Run("explicit value", func(t *testing.T) {
 		v := 5
-		cfg := &InjectionConfig{SchemaPreviewMaxColumns: &v}
+		cfg := &EnrichmentConfig{SchemaPreviewMaxColumns: &v}
 		if cfg.EffectiveSchemaPreviewMaxColumns() != 5 {
 			t.Errorf("expected 5, got %d", cfg.EffectiveSchemaPreviewMaxColumns())
 		}
@@ -1492,32 +1528,32 @@ func TestInjectionConfig_EffectiveSchemaPreviewMaxColumns(t *testing.T) {
 		cfg := loadTestConfig(t, `
 server:
   name: test-platform
-injection:
+enrichment:
   schema_preview_max_columns: 10
 `)
-		if cfg.Injection.EffectiveSchemaPreviewMaxColumns() != 10 {
-			t.Errorf("expected 10, got %d", cfg.Injection.EffectiveSchemaPreviewMaxColumns())
+		if cfg.Enrichment.EffectiveSchemaPreviewMaxColumns() != 10 {
+			t.Errorf("expected 10, got %d", cfg.Enrichment.EffectiveSchemaPreviewMaxColumns())
 		}
 	})
 }
 
-func TestInjectionConfig_IsSemanticFallbackEnabled(t *testing.T) {
+func TestEnrichmentConfig_IsSemanticFallbackEnabled(t *testing.T) {
 	t.Run("nil defaults to off", func(t *testing.T) {
-		cfg := &InjectionConfig{}
+		cfg := &EnrichmentConfig{}
 		if cfg.IsSemanticFallbackEnabled() {
 			t.Error("default should be disabled per issue #444 acceptance criteria")
 		}
 	})
 	t.Run("explicit true", func(t *testing.T) {
 		v := true
-		cfg := &InjectionConfig{SemanticFallback: &v}
+		cfg := &EnrichmentConfig{SemanticFallback: &v}
 		if !cfg.IsSemanticFallbackEnabled() {
 			t.Error("expected enabled when explicitly true")
 		}
 	})
 	t.Run("explicit false", func(t *testing.T) {
 		v := false
-		cfg := &InjectionConfig{SemanticFallback: &v}
+		cfg := &EnrichmentConfig{SemanticFallback: &v}
 		if cfg.IsSemanticFallbackEnabled() {
 			t.Error("expected disabled when explicitly false")
 		}
@@ -1526,46 +1562,46 @@ func TestInjectionConfig_IsSemanticFallbackEnabled(t *testing.T) {
 		cfg := loadTestConfig(t, `
 server:
   name: test-platform
-injection:
+enrichment:
   semantic_fallback: true
 `)
-		if !cfg.Injection.IsSemanticFallbackEnabled() {
+		if !cfg.Enrichment.IsSemanticFallbackEnabled() {
 			t.Error("expected enabled from YAML")
 		}
 	})
 }
 
-func TestInjectionConfig_EffectiveSemanticFallbackTopK(t *testing.T) {
+func TestEnrichmentConfig_EffectiveSemanticFallbackTopK(t *testing.T) {
 	t.Run("nil defaults to 1", func(t *testing.T) {
-		cfg := &InjectionConfig{}
+		cfg := &EnrichmentConfig{}
 		if cfg.EffectiveSemanticFallbackTopK() != defaultSemanticFallbackTopK {
 			t.Errorf("got %d, want %d", cfg.EffectiveSemanticFallbackTopK(), defaultSemanticFallbackTopK)
 		}
 	})
 	t.Run("explicit value", func(t *testing.T) {
 		v := 5
-		cfg := &InjectionConfig{SemanticFallbackTopK: &v}
+		cfg := &EnrichmentConfig{SemanticFallbackTopK: &v}
 		if cfg.EffectiveSemanticFallbackTopK() != 5 {
 			t.Errorf("got %d, want 5", cfg.EffectiveSemanticFallbackTopK())
 		}
 	})
 	t.Run("clamps zero to 1", func(t *testing.T) {
 		v := 0
-		cfg := &InjectionConfig{SemanticFallbackTopK: &v}
+		cfg := &EnrichmentConfig{SemanticFallbackTopK: &v}
 		if cfg.EffectiveSemanticFallbackTopK() != 1 {
 			t.Errorf("got %d, want 1 (clamped)", cfg.EffectiveSemanticFallbackTopK())
 		}
 	})
 	t.Run("clamps negative to 1", func(t *testing.T) {
 		v := -3
-		cfg := &InjectionConfig{SemanticFallbackTopK: &v}
+		cfg := &EnrichmentConfig{SemanticFallbackTopK: &v}
 		if cfg.EffectiveSemanticFallbackTopK() != 1 {
 			t.Errorf("got %d, want 1 (clamped)", cfg.EffectiveSemanticFallbackTopK())
 		}
 	})
 	t.Run("clamps above max", func(t *testing.T) {
 		v := 999
-		cfg := &InjectionConfig{SemanticFallbackTopK: &v}
+		cfg := &EnrichmentConfig{SemanticFallbackTopK: &v}
 		if cfg.EffectiveSemanticFallbackTopK() != maxSemanticFallbackTopK {
 			t.Errorf("got %d, want %d (clamped)", cfg.EffectiveSemanticFallbackTopK(), maxSemanticFallbackTopK)
 		}

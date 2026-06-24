@@ -42,7 +42,7 @@ OpenAPI specs are stored in versioned **[API catalogs](https://mcp-data-platform
 - The data quality score dropped last week
 - Who to contact when something looks wrong
 
-**The Solution**: mcp-data-platform injects semantic context at the protocol level. Your AI assistant gets business meaning automatically—before it even asks.
+**The Solution**: mcp-data-platform adds semantic context at the protocol level. Your AI assistant gets business meaning automatically—before it even asks.
 
 ### Without vs With
 
@@ -134,7 +134,7 @@ Every tool call is logged with user identity, persona, request details, and timi
 OpenTelemetry instrumentation exposes `/metrics` on a dedicated `:9090` listener. Phase 1 instruments two chokepoints: every MCP tool call (`mcp_tool_calls_total`, `mcp_tool_call_duration_seconds`, `mcp_inflight_tool_calls`) and every apigateway outbound HTTP call (`apigateway_outbound_total`, `apigateway_outbound_duration_seconds`), each with a small, bounded label set (`tool`, `toolkit_kind`, `persona`, `status_category`, `connection`, `http_status_class`). High-cardinality fields like user id and raw URLs are deliberately kept off labels and reserved for traces (Phase 2). Enabled by default; set `OTEL_METRICS_ENABLED=false` to disable. See the [Observability documentation](https://mcp-data-platform.txn2.com/server/observability/) for details.
 
 ### Persistent Memory
-Agents accumulate knowledge across sessions: preferences, corrections, domain context, and institutional facts. Backed by PostgreSQL with pgvector for semantic search. The `memory_manage` tool provides CRUD operations; reading memory back (relevance, entity lookup, and DataHub lineage traversal) is part of the universal `search` tool. Hybrid ranking improves recall on identifier-heavy content, and ranking degrades gracefully to lexical-only when the embedder is unavailable. A reconciler backfills embeddings missed during an outage or invalidated by a model swap. Memories are automatically injected into toolkit responses via the cross-enrichment middleware. A staleness watcher flags memories when referenced DataHub entities change. Scoped by user and persona with full audit logging. See the [Memory Layer documentation](https://mcp-data-platform.txn2.com/memory/overview/) for details.
+Agents accumulate knowledge across sessions: preferences, corrections, domain context, and institutional facts. Backed by PostgreSQL with pgvector for semantic search. The `memory_manage` tool provides CRUD operations; reading memory back (relevance, entity lookup, and DataHub lineage traversal) is part of the universal `search` tool. Hybrid ranking improves recall on identifier-heavy content, and ranking degrades gracefully to lexical-only when the embedder is unavailable. A reconciler backfills embeddings missed during an outage or invalidated by a model swap. Memories are automatically added to toolkit responses via the cross-enrichment middleware. A staleness watcher flags memories when referenced DataHub entities change. Scoped by user and persona with full audit logging. See the [Memory Layer documentation](https://mcp-data-platform.txn2.com/memory/overview/) for details.
 
 ### Knowledge Capture
 AI sessions generate valuable domain knowledge: column meanings, data quality issues, business rules. The `memory_capture` tool records these observations during sessions (one verb, routed by sink-class, recall-first), and `apply_knowledge` provides admins with a structured review workflow to promote reviewed captures. Approved insights are written back to DataHub with full changeset tracking and rollback. `search` is the universal, topology-free discovery entry point: a single query fans across the technical catalog, the caller's memory, captured insights, saved assets, prompts, API endpoints, and connections, returning a balanced, grouped-by-source, per-user-scoped result set with a coverage summary so the agent sees breadth it would otherwise miss. An [Admin REST API](https://mcp-data-platform.txn2.com/knowledge/admin-api/) supports integration with existing governance tools. See the [Knowledge Capture documentation](https://mcp-data-platform.txn2.com/knowledge/overview/) for details.
@@ -376,7 +376,7 @@ semantic:
     enabled: true
     ttl: 5m
 
-injection:
+enrichment:
   trino_semantic_enrichment: true
   datahub_query_enrichment: true
   column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)

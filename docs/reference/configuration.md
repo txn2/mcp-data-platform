@@ -736,7 +736,7 @@ admin:
 ## Injection Configuration
 
 ```yaml
-injection:
+enrichment:
   trino_semantic_enrichment: true
   datahub_query_enrichment: true
   s3_semantic_enrichment: true
@@ -996,7 +996,7 @@ storage:
   provider: s3
   instance: primary
 
-injection:
+enrichment:
   trino_semantic_enrichment: true
   datahub_query_enrichment: true
   s3_semantic_enrichment: true

@@ -305,7 +305,7 @@ func main() {
             ReadOnly: true,
         }),
 
-        // Cross-injection
+        // Cross-enrichment
         platform.WithSemanticProvider("datahub", "primary"),
         platform.WithQueryProvider("trino", "primary"),
         platform.WithStorageProvider("s3", "primary"),

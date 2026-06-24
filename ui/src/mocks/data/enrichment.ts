@@ -1,6 +1,6 @@
 import type { EnrichmentRule } from "@/api/admin/types";
 
-// Cross-injection enrichment rules attached to the acme-crm-gateway (mcp)
+// Cross-enrichment enrichment rules attached to the acme-crm-gateway (mcp)
 // connection. These demonstrate the platform's headline feature: gateway-proxied
 // tool responses are automatically enriched with semantic context from DataHub
 // and query availability from Trino. Keyed by connection name to mirror the

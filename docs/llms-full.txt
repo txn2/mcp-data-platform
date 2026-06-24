@@ -1,6 +1,6 @@
 # mcp-data-platform
 
-> MCP server for AI-assisted data exploration. DataHub semantic layer with optional Trino and S3. Cross-injection automatically enriches query results with business context: owners, tags, quality scores, deprecation warnings. Implements fail-closed security with OIDC/API key authentication, TLS for HTTP transport, and prompt injection protection.
+> MCP server for AI-assisted data exploration. DataHub semantic layer with optional Trino and S3. Cross-enrichment automatically enriches query results with business context: owners, tags, quality scores, deprecation warnings. Implements fail-closed security with OIDC/API key authentication, TLS for HTTP transport, and prompt injection protection.
 
 For the security architecture rationale, see: https://imti.co/mcp-defense/
 
@@ -252,7 +252,7 @@ toolkits:
       ssl: true
       catalog: hive
 
-injection:
+enrichment:
   trino_semantic_enrichment: true
   datahub_query_enrichment: true
   unwrap_json: true                # Auto-unwrap single-row VARCHAR-of-JSON (default: true)
@@ -920,7 +920,7 @@ Worst-case counter cardinality for `mcp_tool_calls_total` with ~40 tools × 8 to
 
 ## Toolkit, provider, and DB-pool metrics
 
-Beyond the MCP and apigateway chokepoints, the toolkit and provider call paths are instrumented so the cross-injection fan-out and dependency health are visible:
+Beyond the MCP and apigateway chokepoints, the toolkit and provider call paths are instrumented so the cross-enrichment fan-out and dependency health are visible:
 
 - **Trino** (query provider): `trino_queries_total{status, query_kind}` and `trino_query_duration_seconds{query_kind}`. `query_kind` is the SQL verb (`select`, `show`, `insert`, ...) for queries, or the metadata operation (`list_catalogs`, `list_schemas`, `list_tables`, `describe_table`) for catalog calls; unknown SQL maps to `other`. (No `trino_bytes_scanned_total`: the mcp-trino v1.3.0 client exposes no bytes-scanned figure.)
 - **DataHub** (semantic provider): `datahub_requests_total{operation, status}` and `datahub_request_duration_seconds{operation}`, instrumented via a client decorator so metrics record on the underlying request even when a cache wraps the provider. `operation` ∈ `get_entity`, `get_schema`, `get_schemas`, `get_lineage`, `get_column_lineage`, `get_glossary_term`, `get_queries`.
@@ -1146,7 +1146,7 @@ Session dedup tracks which tables have been enriched per client session. First c
 ### Configuration
 
 ```yaml
-injection:
+enrichment:
   trino_semantic_enrichment: true
   column_context_filtering: true    # Only include SQL-referenced columns (default)
   session_dedup:

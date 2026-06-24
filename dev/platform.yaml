@@ -307,7 +307,7 @@ query:
   provider: "${QUERY_PROVIDER:-noop}"
   instance: acme
 
-injection:
+enrichment:
   trino_semantic_enrichment: true
   datahub_query_enrichment: true
   # column_context_filtering: true   # Default: true

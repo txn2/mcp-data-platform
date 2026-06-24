@@ -61,7 +61,7 @@ func buildPlatformConfig(e2eCfg *E2EConfig) *platform.Config {
 			Provider: "s3",
 			Instance: "e2e",
 		},
-		Injection: platform.InjectionConfig{
+		Enrichment: platform.EnrichmentConfig{
 			TrinoSemanticEnrichment:  new(true),
 			DataHubQueryEnrichment:   new(true),
 			S3SemanticEnrichment:     new(true),

@@ -125,7 +125,7 @@ For non-Trino platforms, the platform checks if an external table exists in Trin
 Enable DataHub query enrichment:
 
 ```yaml
-injection:
+enrichment:
   datahub_query_enrichment: true
   search_schema_preview: true          # Default: true
   schema_preview_max_columns: 15       # Default: 15

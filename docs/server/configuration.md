@@ -49,20 +49,17 @@ toolkits:
       access_key_id: ${AWS_ACCESS_KEY_ID}
       secret_access_key: ${AWS_SECRET_ACCESS_KEY}
 
-injection:
+enrichment:
   trino_semantic_enrichment: true
   datahub_query_enrichment: true
   s3_semantic_enrichment: true
   column_context_filtering: true     # Only include SQL-referenced columns (default: true)
 ```
 
-> **Naming note:** the `injection:` config-block key is on track to be
-> renamed to `enrichment:` in a future release — the feature has
-> always been about enriching tool responses with context, and
-> "injection" carries security baggage we'd rather not. The current
-> key continues to work; this docs PR uses the term "cross-enrichment"
-> in prose throughout, and a follow-up release will accept both keys
-> with a deprecation warning on `injection:`.
+> **Naming note:** the config-block key is `enrichment:`. The legacy
+> `injection:` key still loads as a deprecated alias (with a warning) so
+> existing configs keep working, but new configs should use `enrichment:`.
+> The feature has always been about enriching tool responses with context.
 
 ## Config Versioning
 
@@ -568,7 +565,7 @@ cross-enrichment rule schema.
 ## Cross-Enrichment Configuration
 
 ```yaml
-injection:
+enrichment:
   trino_semantic_enrichment: true    # Add DataHub context to Trino results
   datahub_query_enrichment: true     # Add Trino availability to DataHub results
   s3_semantic_enrichment: true       # Add DataHub context to S3 results
@@ -1010,7 +1007,7 @@ storage:
   provider: s3
   instance: primary
 
-injection:
+enrichment:
   trino_semantic_enrichment: true
   datahub_query_enrichment: true
   s3_semantic_enrichment: true

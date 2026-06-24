@@ -469,7 +469,7 @@ mcp-data-platform --config platform.yaml --list-tools
 **Step 1: Verify injection is enabled**
 
 ```yaml
-injection:
+enrichment:
   trino_semantic_enrichment: true  # Must be true
 ```
 
@@ -519,7 +519,7 @@ This is expected for tables that exist in Trino but aren't cataloged in DataHub.
 To suppress these warnings:
 
 ```yaml
-injection:
+enrichment:
   suppress_enrichment_warnings: true
 ```
 
@@ -528,7 +528,7 @@ injection:
 Column context filtering limits enrichment to columns mentioned in the SQL query. If you see all columns:
 
 ```yaml
-injection:
+enrichment:
   column_context_filtering: true  # Default: true — set to false to include all columns
 ```
 
@@ -597,7 +597,7 @@ time curl -H "Authorization: Bearer $DATAHUB_TOKEN" \
 **Step 3: Temporarily disable enrichment to isolate**
 
 ```yaml
-injection:
+enrichment:
   trino_semantic_enrichment: false  # Disable to test raw performance
 ```
 

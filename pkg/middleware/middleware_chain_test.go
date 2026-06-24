@@ -443,7 +443,7 @@ func (*denyAuthorizer) IsAuthorized(_ context.Context, _ string, _ []string, _, 
 // TestMiddlewareChain_EnrichmentAddsSemanticContext verifies that the semantic
 // enrichment middleware actually appends semantic_context to Trino tool results
 // when wired through a real mcp.Server. This tests Feature 1 (Semantic-First)
-// and Feature 2 (Cross-Injection Trino→DataHub).
+// and Feature 2 (Cross-Enrichment Trino→DataHub).
 func TestMiddlewareChain_EnrichmentAddsSemanticContext(t *testing.T) {
 	semProvider := &mockSemanticProvider{
 		tableContext: &semantic.TableContext{
@@ -536,7 +536,7 @@ func TestMiddlewareChain_EnrichmentAddsSemanticContext(t *testing.T) {
 
 // TestMiddlewareChain_EnrichmentAddsQueryContext verifies that DataHub tool
 // results get enriched with query_context from the QueryProvider (Trino).
-// This tests Feature 2 (Cross-Injection DataHub→Trino direction).
+// This tests Feature 2 (Cross-Enrichment DataHub→Trino direction).
 func TestMiddlewareChain_EnrichmentAddsQueryContext(t *testing.T) {
 	rowCount := int64(chainTestRowCount)
 	queryProv := &mockQueryProvider{

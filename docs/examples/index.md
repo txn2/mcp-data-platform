@@ -82,7 +82,7 @@ toolkits:
       ssl: true
       read_only: true  # No write operations
 
-injection:
+enrichment:
   trino_semantic_enrichment: true
   column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
 
@@ -270,7 +270,7 @@ toolkits:
       read_only: true
 
 # Enable all enrichment for maximum context
-injection:
+enrichment:
   trino_semantic_enrichment: true
   datahub_query_enrichment: true
   column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
@@ -359,8 +359,8 @@ toolkits:
       default_limit: 500
       read_only: true
 
-# Cross-injection from central DataHub to all Trino clusters
-injection:
+# Cross-enrichment from central DataHub to all Trino clusters
+enrichment:
   trino_semantic_enrichment: true
   datahub_query_enrichment: true
   column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
@@ -483,7 +483,7 @@ toolkits:
       default_limit: 100
       max_limit: 10000
 
-injection:
+enrichment:
   trino_semantic_enrichment: true
   datahub_query_enrichment: true
   column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
@@ -552,7 +552,7 @@ toolkits:
       schema: production
       read_only: true
 
-injection:
+enrichment:
   trino_semantic_enrichment: true
   column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
 
@@ -625,7 +625,7 @@ semantic:
     # Separate cache for lineage queries
     lineage_ttl: 1m  # Shorter TTL for lineage
 
-injection:
+enrichment:
   trino_semantic_enrichment: true
   column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
 

@@ -138,7 +138,7 @@ storage:
   provider: s3
   instance: data_lake     # Storage availability uses this instance
 
-injection:
+enrichment:
   trino_semantic_enrichment: true   # All Trino results get DataHub context
   datahub_query_enrichment: true    # DataHub results show Trino availability
   column_context_filtering: true    # Only enrich columns referenced in SQL (default: true)

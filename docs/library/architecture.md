@@ -198,7 +198,7 @@ p, err := platform.New(
     platform.WithTrinoToolkit("primary", trinoCfg),
     platform.WithDataHubToolkit("primary", datahubCfg),
     platform.WithSemanticProvider("datahub", "primary"),
-    platform.WithInjection(platform.InjectionConfig{
+    platform.WithEnrichment(platform.EnrichmentConfig{
         TrinoSemanticEnrichment: true,
     }),
 )

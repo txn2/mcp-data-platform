@@ -361,7 +361,7 @@ func TestMCPMiddlewareWithEnrichment(t *testing.T) {
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
 		Storage:  StorageConfig{Provider: testProviderNoop},
-		Injection: InjectionConfig{
+		Enrichment: EnrichmentConfig{
 			TrinoSemanticEnrichment: new(true),
 			DataHubQueryEnrichment:  new(true),
 		},

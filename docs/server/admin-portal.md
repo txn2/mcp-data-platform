@@ -124,7 +124,7 @@ Aggregated call volume, success rate, and average duration for the selected tool
 
 ![Tools Enrichment](../images/screenshots/light/admin-admin-tools-enrichment-light.webp#only-light)![Tools Enrichment](../images/screenshots/dark/admin-admin-tools-enrichment-dark.webp#only-dark)
 
-Shown for gateway-proxied (MCP) tools with a connection. Lists the cross-injection enrichment rules attached to the tool — each rule's predicate, action source and operation, merge strategy, and enabled state. This is where the platform's bidirectional context injection is configured per tool.
+Shown for gateway-proxied (MCP) tools with a connection. Lists the cross-enrichment enrichment rules attached to the tool — each rule's predicate, action source and operation, merge strategy, and enabled state. This is where the platform's bidirectional context injection is configured per tool.
 
 ### Visibility
 

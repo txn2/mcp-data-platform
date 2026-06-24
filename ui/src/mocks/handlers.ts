@@ -1360,7 +1360,7 @@ export const handlers = [
     return HttpResponse.json(detail);
   }),
 
-  // Cross-injection enrichment rules for a gateway-proxied connection.
+  // Cross-enrichment enrichment rules for a gateway-proxied connection.
   http.get(
     `${ADMIN_BASE}/gateway/connections/:connection/enrichment-rules`,
     ({ params }) => {

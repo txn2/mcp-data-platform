@@ -4,7 +4,7 @@ This file provides guidance to Claude Code when working with this project.
 
 ## Project Overview
 
-**mcp-data-platform** is a semantic data platform MCP server that composes multiple txn2 MCP libraries (mcp-trino, mcp-s3, mcp-datahub) with required semantic layer integration. The key differentiator is **bidirectional cross-injection** where tool responses automatically include critical context from other services.
+**mcp-data-platform** is a semantic data platform MCP server that composes multiple txn2 MCP libraries (mcp-trino, mcp-s3, mcp-datahub) with required semantic layer integration. The key differentiator is **bidirectional cross-enrichment** where tool responses automatically include critical context from other services.
 
 **Key Design Goals:**
 - **Semantic-first**: All data access includes business context from the semantic layer
@@ -53,7 +53,7 @@ graph TB
     Enrich --> Query
 ```
 
-### Cross-Injection Pattern
+### Cross-Enrichment Pattern
 
 **Trino → DataHub**: When describing a table in Trino, the response includes DataHub metadata (owners, tags, glossary terms, deprecation warnings, quality scores).
 
@@ -113,7 +113,7 @@ AI-generated prose (PR descriptions, commit messages, reviews, explanations) is 
    - **Write an integration test that exercises the real assembled system**, not just individual functions with hand-crafted inputs
    - For middleware: wire up the actual `mcp.Server` with all middleware via `AddReceivingMiddleware`, send a real request, and assert the end-to-end result (e.g., audit store received a complete event with non-empty fields)
    - For context propagation: verify that values set by one component are actually readable by downstream components through the real call chain
-   - For provider injection: verify that cross-service enrichment actually produces enriched output, not just that the enrichment function works in isolation
+   - For provider enrichment: verify that cross-service enrichment actually produces enriched output, not just that the enrichment function works in isolation
    - **A unit test that passes because it manually constructs the correct input does NOT prove the system works.** The integration test must prove that component A's output actually reaches component B through the real wiring.
    - If you cannot write a full integration test (e.g., requires external services), document exactly what manual verification steps the human should perform before release, with expected outputs
 
@@ -325,7 +325,7 @@ semantic:
     enabled: true
     ttl: 5m
 
-injection:
+enrichment:
   trino_semantic_enrichment: true
   datahub_query_enrichment: true
   unwrap_json: true                # Auto-unwrap single-row VARCHAR-of-JSON results (default: true)

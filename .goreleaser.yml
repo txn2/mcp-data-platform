@@ -132,7 +132,7 @@ dockers_v2:
       org.opencontainers.image.revision: "{{ .FullCommit }}"
       org.opencontainers.image.version: "{{ .Version }}"
       org.opencontainers.image.source: "{{ .GitURL }}"
-      org.opencontainers.image.description: "Semantic data platform MCP server with bidirectional cross-injection"
+      org.opencontainers.image.description: "Semantic data platform MCP server with bidirectional cross-enrichment"
       org.opencontainers.image.licenses: "Apache-2.0"
 
 # Sign Docker images with Cosign (keyless)
@@ -152,7 +152,7 @@ brews:
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     directory: Formula
     homepage: https://github.com/txn2/mcp-data-platform
-    description: Semantic data platform MCP server with bidirectional cross-injection
+    description: Semantic data platform MCP server with bidirectional cross-enrichment
     license: Apache-2.0
     install: |
       bin.install "mcp-data-platform"
