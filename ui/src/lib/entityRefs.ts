@@ -26,6 +26,8 @@ export interface ResolvedRef {
   type: string;
   label: string;
   exists: boolean;
+  /** False when the viewer may not access the target; such refs are not shown. */
+  accessible: boolean;
 }
 
 // Mirrors the backend refTokenRe: at most one level of parentheses, which covers
@@ -38,6 +40,14 @@ const REF_TOKEN_RE =
 // shown as a documentation example is not treated as a reference (mirrors the
 // server's codeSpanRe).
 const CODE_SPAN_RE = /```[\s\S]*?```|`[^`]*`/g;
+
+/** PickableRefType is an entity type the manual-reference picker can search. */
+export type PickableRefType = "asset" | "collection" | "knowledge_page" | "prompt";
+
+/** buildRefUrn serializes an internal entity reference for a single-id type. */
+export function buildRefUrn(type: PickableRefType, id: string): string {
+  return `mcp:${type}:${id}`;
+}
 
 /** isRefUrn reports whether an href is a serialized entity reference. */
 export function isRefUrn(href: string | undefined): boolean {

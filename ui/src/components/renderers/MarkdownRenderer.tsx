@@ -180,7 +180,13 @@ export function MarkdownRenderer({
       ({ href, children, node: _node, ...rest }:
         React.ComponentProps<"a"> & { node?: unknown }) => {
         if (isRefUrn(href)) {
-          return <EntityChip urn={href as string} resolved={refs?.get(href as string)} />;
+          const resolved = refs?.get(href as string);
+          // A reference the viewer cannot access is shown as the author's link
+          // text, never a confusing id chip.
+          if (resolved && !resolved.accessible) {
+            return <>{children}</>;
+          }
+          return <EntityChip urn={href as string} resolved={resolved} />;
         }
         return (
           <a href={href} {...rest}>

@@ -15,6 +15,8 @@ import type { KnowledgePage, KnowledgePageInput } from "@/api/portal/types";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
 import { extractRefUrns } from "@/lib/entityRefs";
+import { RelatedPanel } from "@/components/knowledge/RelatedPanel";
+import { RefPicker } from "@/components/knowledge/RefPicker";
 import { FeedbackButton } from "@/components/feedback/FeedbackButton";
 import { useAuthStore } from "@/stores/auth";
 import { parseTags } from "@/lib/tags";
@@ -342,6 +344,9 @@ function KnowledgePageDetail({
       >
         <MarkdownRenderer content={page.body} refs={resolvedRefs} />
       </article>
+
+      <RelatedPanel pageId={id} />
+      {canEdit && <RefPicker pageId={id} />}
     </div>
   );
 }

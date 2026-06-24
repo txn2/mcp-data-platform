@@ -2165,6 +2165,21 @@ func (h *Handler) canViewAsset(w http.ResponseWriter, r *http.Request, assetID s
 	return false
 }
 
+// userCanViewAsset reports whether the user may view the asset (owner, a direct
+// share, or a collection share) without writing an HTTP response — the pure form
+// of canViewAsset, for callers that resolve many entities in a loop. A share-store
+// error is treated as no access.
+func (h *Handler) userCanViewAsset(r *http.Request, assetID string, asset *Asset, user *User) bool {
+	if asset.OwnerID == user.UserID {
+		return true
+	}
+	if perm, err := h.sharePermissionForUser(r, assetID, user); err == nil && perm != "" {
+		return true
+	}
+	collPerm, _ := h.deps.ShareStore.GetUserAssetPermissionViaCollection(r.Context(), assetID, user.UserID, user.Email)
+	return collPerm != ""
+}
+
 // canEditAsset checks owner or editor share access, writing an HTTP error on failure.
 func (h *Handler) canEditAsset(w http.ResponseWriter, r *http.Request, assetID string, asset *Asset, user *User) bool {
 	if asset.OwnerID == user.UserID {

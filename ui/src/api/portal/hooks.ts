@@ -1276,3 +1276,45 @@ export function useResolveRefs(urns: string[]) {
     },
   });
 }
+
+/**
+ * PageEntityRef is a knowledge page's reference, resolved and access-filtered by
+ * the server: only references the viewer can access are returned, each with its
+ * display label. The id of an inaccessible entity is never included.
+ */
+export interface PageEntityRef {
+  urn: string;
+  type: string;
+  label: string;
+  exists: boolean;
+  source: string;
+}
+
+/** useKnowledgePageRefs lists a page's stored entity references (#664). */
+export function useKnowledgePageRefs(id: string) {
+  return useQuery({
+    queryKey: ["knowledge-page-refs", id],
+    queryFn: () => apiFetch<{ refs: PageEntityRef[] }>(`/knowledge-pages/${id}/refs`),
+    enabled: !!id,
+  });
+}
+
+/**
+ * useSetKnowledgePageRefs replaces a page's manual references with the given URNs
+ * (promoted/inline refs are preserved server-side). Requires apply_knowledge.
+ */
+export function useSetKnowledgePageRefs(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (urns: string[]) =>
+      apiFetch<{ refs: PageEntityRef[] }>(`/knowledge-pages/${id}/refs`, {
+        method: "PUT",
+        body: JSON.stringify({ refs: urns }),
+      }),
+    // Seed the cache from the response so a follow-up edit reads the new set
+    // immediately (no stale-closure overwrite between mutations).
+    onSuccess: (data) => {
+      qc.setQueryData(["knowledge-page-refs", id], data);
+    },
+  });
+}

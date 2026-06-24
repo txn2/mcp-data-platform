@@ -11,15 +11,16 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
+	"github.com/txn2/mcp-data-platform/pkg/prompt"
 )
 
 type refsResp struct {
 	Refs []struct {
-		URN        string `json:"urn"`
-		TargetType string `json:"target_type"`
-		AssetID    string `json:"asset_id"`
-		EntityURN  string `json:"entity_urn"`
-		Source     string `json:"source"`
+		URN    string `json:"urn"`
+		Type   string `json:"type"`
+		Label  string `json:"label"`
+		Exists bool   `json:"exists"`
+		Source string `json:"source"`
 	} `json:"refs"`
 }
 
@@ -51,10 +52,13 @@ func TestListKnowledgePageRefs(t *testing.T) {
 		assert.Equal(t, http.StatusNotFound, w.Code)
 	})
 
-	t.Run("returns refs with serialized urn", func(t *testing.T) {
+	t.Run("returns accessible refs with labels and hides inaccessible ones", func(t *testing.T) {
 		store := &mockKnowledgePageStore{page: livePage(), refs: []knowledgepage.EntityRef{
 			{TargetType: knowledgepage.RefTargetDataHub, EntityURN: "urn:li:dataset:x", Source: knowledgepage.RefSourcePromoted},
-			{TargetType: knowledgepage.RefTargetAsset, AssetID: "asset-001", Source: knowledgepage.RefSourceManual},
+			{TargetType: knowledgepage.RefTargetConnection, ConnectionKind: "trino", ConnectionName: "warehouse", Source: knowledgepage.RefSourceManual},
+			// No AssetStore in this handler -> the asset is inaccessible and must be hidden,
+			// so its id never reaches the viewer (the GET endpoint is access-filtered).
+			{TargetType: knowledgepage.RefTargetAsset, AssetID: "private-asset", Source: knowledgepage.RefSourceInline},
 		}}
 		h := newKnowledgePageHandler(store, kpViewer)
 		w := doKP(h, "GET", "/api/v1/portal/knowledge-pages/kp1/refs", "")
@@ -62,8 +66,13 @@ func TestListKnowledgePageRefs(t *testing.T) {
 		var resp refsResp
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 		require.Len(t, resp.Refs, 2)
-		assert.Equal(t, "urn:li:dataset:x", resp.Refs[0].URN)
-		assert.Equal(t, "mcp:asset:asset-001", resp.Refs[1].URN)
+		labels := map[string]string{}
+		for _, r := range resp.Refs {
+			labels[r.URN] = r.Label
+		}
+		assert.Contains(t, labels, "urn:li:dataset:x")
+		assert.Equal(t, "warehouse (trino)", labels["mcp:connection:(trino,warehouse)"])
+		assert.NotContains(t, labels, "mcp:asset:private-asset", "inaccessible asset id must not be returned")
 	})
 }
 
@@ -107,10 +116,10 @@ func TestSetKnowledgePageRefs(t *testing.T) {
 	t.Run("replaces manual refs and preserves promoted", func(t *testing.T) {
 		store := &mockKnowledgePageStore{page: livePage(), refs: []knowledgepage.EntityRef{
 			{TargetType: knowledgepage.RefTargetDataHub, EntityURN: "urn:li:dataset:x", Source: knowledgepage.RefSourcePromoted},
-			{TargetType: knowledgepage.RefTargetAsset, AssetID: "old-asset", Source: knowledgepage.RefSourceManual},
+			{TargetType: knowledgepage.RefTargetConnection, ConnectionKind: "trino", ConnectionName: "old", Source: knowledgepage.RefSourceManual},
 		}}
 		h := newKnowledgePageHandler(store, kpAdmin)
-		w := doKP(h, "PUT", "/api/v1/portal/knowledge-pages/kp1/refs", `{"refs":["mcp:collection:coll-1"]}`)
+		w := doKP(h, "PUT", "/api/v1/portal/knowledge-pages/kp1/refs", `{"refs":["mcp:connection:(trino,warehouse)"]}`)
 		require.Equal(t, http.StatusOK, w.Code)
 
 		var resp refsResp
@@ -119,10 +128,10 @@ func TestSetKnowledgePageRefs(t *testing.T) {
 		for _, r := range resp.Refs {
 			urns = append(urns, r.URN)
 		}
-		// promoted datahub ref survives; the old manual asset is gone; new manual collection present.
+		// promoted datahub ref survives; the old manual connection is gone; new manual connection present.
 		assert.Contains(t, urns, "urn:li:dataset:x")
-		assert.Contains(t, urns, "mcp:collection:coll-1")
-		assert.NotContains(t, urns, "mcp:asset:old-asset")
+		assert.Contains(t, urns, "mcp:connection:(trino,warehouse)")
+		assert.NotContains(t, urns, "mcp:connection:(trino,old)")
 	})
 
 	t.Run("page not found", func(t *testing.T) {
@@ -161,11 +170,11 @@ func TestResolveKnowledgePageRefs(t *testing.T) {
 	assert.True(t, byURN["mcp:knowledge_page:kp-2"].Exists)
 	assert.Equal(t, "warehouse (trino)", byURN["mcp:connection:(trino,warehouse)"].Label)
 	assert.Equal(t, "iceberg.retail.daily_sales", byURN["urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)"].Label)
-	// AssetStore not configured in this harness: keep the id, do not grey out.
-	assert.Equal(t, "asset-9", byURN["mcp:asset:asset-9"].Label)
-	assert.True(t, byURN["mcp:asset:asset-9"].Exists)
-	// Unparseable URN is returned as non-existent.
-	assert.False(t, byURN["garbage"].Exists)
+	assert.True(t, byURN["mcp:connection:(trino,warehouse)"].Accessible)
+	// AssetStore not configured: access cannot be verified, so the ref is hidden.
+	assert.False(t, byURN["mcp:asset:asset-9"].Accessible)
+	// Unparseable URN is inaccessible and non-existent.
+	assert.False(t, byURN["garbage"].Accessible)
 }
 
 func TestResolveKnowledgePageRefs_PageNotFound(t *testing.T) {
@@ -187,11 +196,15 @@ func TestResolveKnowledgePageRefs_Unauthenticated(t *testing.T) {
 }
 
 func TestResolveKnowledgePageRefs_WithStores(t *testing.T) {
-	// The viewer owns these, so names resolve (non-owners get the bare id).
+	// The viewer owns the asset/collection and the prompt is global, so all resolve
+	// to names and are accessible.
+	ps := newMockPromptStore()
+	ps.prompts["p"] = &prompt.Prompt{ID: "11111111-1111-1111-1111-111111111111", Name: "Summary Prompt", Scope: prompt.ScopeGlobal}
 	deps := Deps{
 		KnowledgePageStore: &mockKnowledgePageStore{},
 		AssetStore:         &mockAssetStore{getAsset: &Asset{ID: "asset-9", OwnerID: kpViewer.UserID, Name: "Revenue Dashboard"}},
 		CollectionStore:    &mockCollectionStore{getResult: &Collection{ID: "coll-1", OwnerID: kpViewer.UserID, Name: "Q4 Review"}},
+		PromptStore:        ps,
 		AdminRoles:         []string{"admin"},
 		RateLimit:          RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
 	}
@@ -207,8 +220,9 @@ func TestResolveKnowledgePageRefs_WithStores(t *testing.T) {
 		byURN[r.URN] = r
 	}
 	assert.Equal(t, "Revenue Dashboard", byURN["mcp:asset:asset-9"].Label)
+	assert.True(t, byURN["mcp:asset:asset-9"].Accessible)
 	assert.Equal(t, "Q4 Review", byURN["mcp:collection:coll-1"].Label)
-	assert.Equal(t, "11111111-1111-1111-1111-111111111111", byURN["mcp:prompt:11111111-1111-1111-1111-111111111111"].Label)
+	assert.Equal(t, "Summary Prompt", byURN["mcp:prompt:11111111-1111-1111-1111-111111111111"].Label)
 	assert.Equal(t, "revenue", byURN["urn:li:glossaryTerm:revenue"].Label)
 }
 
@@ -219,6 +233,7 @@ func TestResolveKnowledgePageRefs_AssetNotOwnedIsNotLeaked(t *testing.T) {
 		KnowledgePageStore: &mockKnowledgePageStore{},
 		AssetStore:         &mockAssetStore{getAsset: &Asset{ID: "secret", OwnerID: "someone-else", Name: "Confidential Q4 Layoffs"}},
 		CollectionStore:    &mockCollectionStore{getResult: &Collection{ID: "secret-c", OwnerID: "someone-else", Name: "Confidential Board Deck"}},
+		ShareStore:         &mockShareStore{}, // no shares -> viewer has no access
 		AdminRoles:         []string{"admin"},
 		RateLimit:          RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
 	}
@@ -232,8 +247,47 @@ func TestResolveKnowledgePageRefs_AssetNotOwnedIsNotLeaked(t *testing.T) {
 	for _, r := range resp.Refs {
 		byURN[r.URN] = r
 	}
-	assert.Equal(t, "secret", byURN["mcp:asset:secret"].Label, "must not leak a non-owned asset's name")
-	assert.Equal(t, "secret-c", byURN["mcp:collection:secret-c"].Label, "must not leak a non-owned collection's name")
+	a, c := byURN["mcp:asset:secret"], byURN["mcp:collection:secret-c"]
+	assert.False(t, a.Accessible, "non-owned asset must be inaccessible")
+	assert.NotContains(t, a.Label, "Confidential", "must not leak a non-owned asset's name")
+	assert.False(t, c.Accessible, "non-owned collection must be inaccessible")
+	assert.NotContains(t, c.Label, "Confidential", "must not leak a non-owned collection's name")
+}
+
+func TestResolveKnowledgePageRefs_NoStoresHideAccessGated(t *testing.T) {
+	// With no asset/collection/prompt stores, access cannot be verified, so every
+	// access-gated reference is hidden.
+	h := newKnowledgePageHandler(&mockKnowledgePageStore{}, kpViewer)
+	w := doKP(h, "POST", "/api/v1/portal/knowledge-pages/refs/resolve",
+		`{"urns":["mcp:asset:a","mcp:collection:c","mcp:prompt:11111111-1111-1111-1111-111111111111"]}`)
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp resolveResp
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	for _, r := range resp.Refs {
+		assert.False(t, r.Accessible, "%s should be hidden without a store", r.URN)
+	}
+}
+
+func TestResolveKnowledgePageRefs_PrivatePromptHidden(t *testing.T) {
+	ps := newMockPromptStore()
+	ps.prompts["p"] = &prompt.Prompt{
+		ID: "11111111-1111-1111-1111-111111111111", Name: "Secret", Scope: prompt.ScopePersonal, OwnerEmail: "other@example.com",
+	}
+	deps := Deps{
+		KnowledgePageStore: &mockKnowledgePageStore{},
+		PromptStore:        ps,
+		ShareStore:         &mockShareStore{}, // no shares
+		AdminRoles:         []string{"admin"},
+		RateLimit:          RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
+	}
+	h := NewHandler(deps, testAuthMiddleware(kpViewer))
+	w := doKP(h, "POST", "/api/v1/portal/knowledge-pages/refs/resolve",
+		`{"urns":["mcp:prompt:11111111-1111-1111-1111-111111111111"]}`)
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp resolveResp
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.False(t, resp.Refs[0].Accessible, "a personal prompt the viewer cannot see must be hidden")
+	assert.NotContains(t, resp.Refs[0].Label, "Secret")
 }
 
 func TestResolveKnowledgePageRefs_BadInput(t *testing.T) {

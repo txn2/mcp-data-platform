@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { extractRefUrns, parseRef, isRefUrn } from "./entityRefs";
+import { extractRefUrns, parseRef, isRefUrn, buildRefUrn } from "./entityRefs";
+
+describe("buildRefUrn", () => {
+  it("serializes a single-id reference and round-trips through parseRef", () => {
+    expect(buildRefUrn("asset", "asset-1")).toBe("mcp:asset:asset-1");
+    expect(buildRefUrn("knowledge_page", "kp-2")).toBe("mcp:knowledge_page:kp-2");
+    expect(parseRef(buildRefUrn("collection", "c-3"))?.type).toBe("collection");
+  });
+});
 
 describe("isRefUrn", () => {
   it("detects mcp: and urn: hrefs", () => {
