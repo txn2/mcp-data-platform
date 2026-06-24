@@ -96,6 +96,30 @@ describe("MarkdownRenderer entity chips", () => {
     expect(container.querySelector('a[href^="mcp:"]')).toBeNull();
   });
 
+  it("chips a BARE mcp: token in body text (not just markdown links) (#678)", () => {
+    const { container } = render(
+      <MarkdownRenderer content="Configured in mcp:connection:(trino,acme) for promotions." />,
+    );
+    // The bare token becomes a chip showing the derived label, not raw text.
+    expect(container.textContent).toContain("acme (trino)");
+    expect(container.textContent).not.toContain("mcp:connection:(trino,acme)");
+  });
+
+  it("chips a BARE urn:li: dataset token in body text (#678)", () => {
+    const { container } = render(
+      <MarkdownRenderer content="Query urn:li:dataset:(urn:li:dataPlatform:trino,opensearch.default.os_acme_transactions,PROD) carefully." />,
+    );
+    expect(container.textContent).toContain("os_acme_transactions");
+  });
+
+  it("does not chip a ref token inside an inline code span", () => {
+    const { container } = render(
+      <MarkdownRenderer content="Use the literal `mcp:asset:asset-001` token." />,
+    );
+    // Inside code it stays literal text, not a chip.
+    expect(container.querySelector("code")?.textContent).toContain("mcp:asset:asset-001");
+  });
+
   it("renders the server-resolved label when provided", () => {
     const refs = new Map<string, ResolvedRef>([
       ["mcp:asset:asset-001", { urn: "mcp:asset:asset-001", type: "asset", label: "Q4 Dashboard", exists: true, accessible: true }],

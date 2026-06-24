@@ -3,6 +3,7 @@ package portal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -2237,11 +2238,23 @@ type mockInsightStore struct {
 	statsResult *knowledge.InsightStats
 	statsErr    error
 	lastFilter  knowledge.InsightFilter
+	getResult   map[string]*knowledge.Insight
+	getErr      error
 }
 
 func (m *mockInsightStore) List(_ context.Context, f knowledge.InsightFilter) ([]knowledge.Insight, int, error) {
 	m.lastFilter = f
 	return m.listResult, m.listTotal, m.listErr
+}
+
+func (m *mockInsightStore) Get(_ context.Context, id string) (*knowledge.Insight, error) {
+	if m.getErr != nil {
+		return nil, m.getErr
+	}
+	if ins, ok := m.getResult[id]; ok {
+		return ins, nil
+	}
+	return nil, errors.New("insight not found")
 }
 
 func (m *mockInsightStore) Stats(_ context.Context, f knowledge.InsightFilter) (*knowledge.InsightStats, error) {

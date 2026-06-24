@@ -44,6 +44,8 @@ func (h *Handler) registerKnowledgePageRoutes() {
 	h.mux.HandleFunc("PUT /api/v1/portal/knowledge-pages/{id}", h.updateKnowledgePage)
 	h.mux.HandleFunc("DELETE /api/v1/portal/knowledge-pages/{id}", h.deleteKnowledgePage)
 	h.mux.HandleFunc("GET /api/v1/portal/knowledge-pages/{id}/versions", h.listKnowledgePageVersions)
+	// Source-insight lineage (#678): the insights a page was synthesized from.
+	h.mux.HandleFunc("GET /api/v1/portal/knowledge-pages/{id}/lineage", h.knowledgePageLineage)
 	// Entity references (#664): the entities a page provides knowledge about.
 	h.mux.HandleFunc("GET /api/v1/portal/knowledge-pages/{id}/refs", h.listKnowledgePageRefs)
 	h.mux.HandleFunc("PUT /api/v1/portal/knowledge-pages/{id}/refs", h.setKnowledgePageRefs)

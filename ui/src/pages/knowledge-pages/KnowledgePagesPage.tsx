@@ -16,6 +16,7 @@ import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
 import { extractRefUrns } from "@/lib/entityRefs";
 import { RelatedPanel } from "@/components/knowledge/RelatedPanel";
+import { LineagePanel } from "@/components/knowledge/LineagePanel";
 import { RefPicker } from "@/components/knowledge/RefPicker";
 import { KnowledgeBacklinks } from "@/components/knowledge/KnowledgeBacklinks";
 import { FeedbackButton } from "@/components/feedback/FeedbackButton";
@@ -341,6 +342,18 @@ function KnowledgePageDetail({
           v{page.current_version}
           {page.updated_by ? ` · last edited by ${page.updated_by}` : ""}
         </p>
+        {page.tags && page.tags.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {page.tags.map((tag) => (
+              <span
+                key={tag}
+                className="inline-flex items-center rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {showHistory && <KnowledgePageHistory id={id} onClose={() => setShowHistory(false)} />}
@@ -354,6 +367,7 @@ function KnowledgePageDetail({
 
       <RelatedPanel pageId={id} onNavigate={onNavigate} />
       <KnowledgeBacklinks urn={`mcp:knowledge_page:${id}`} onNavigate={onNavigate} />
+      {canEdit && <LineagePanel pageId={id} />}
       {canEdit && <RefPicker pageId={id} onNavigate={onNavigate} />}
     </div>
   );
