@@ -8505,6 +8505,60 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/knowledge-pages/refs/resolve": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Resolves a batch of serialized reference URNs (mcp:/urn:li:) to a display label, type, and whether the target still exists, so the renderer can show named chips.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Knowledge"
+                ],
+                "summary": "Resolve entity references to display labels",
+                "parameters": [
+                    {
+                        "description": "URNs to resolve",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/portal.resolveRefsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.resolveRefsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/knowledge-pages/{id}/refs": {
             "get": {
                 "security": [
@@ -15407,6 +15461,45 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "portal.resolveRefsRequest": {
+            "type": "object",
+            "properties": {
+                "urns": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "portal.resolveRefsResponse": {
+            "type": "object",
+            "properties": {
+                "refs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/portal.resolvedRef"
+                    }
+                }
+            }
+        },
+        "portal.resolvedRef": {
+            "type": "object",
+            "properties": {
+                "exists": {
+                    "type": "boolean"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "urn": {
                     "type": "string"
                 }
             }

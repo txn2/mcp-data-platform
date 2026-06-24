@@ -1,9 +1,11 @@
 import { useEffect, useRef, useId, useCallback, useState } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
 import mermaid from "mermaid";
 import DOMPurify from "dompurify";
+import { EntityChip } from "@/components/knowledge/EntityChip";
+import { isRefUrn, type ResolvedRef } from "@/lib/entityRefs";
 
 // DOMPurify's default FORBID_CONTENTS strips the children of `foreignObject`
 // (among others). We reuse that default list but drop `foreignobject` so the
@@ -163,8 +165,31 @@ function MermaidBlock({ content }: { content: string }) {
   );
 }
 
-export function MarkdownRenderer({ content, bare }: { content: string | null | undefined; bare?: boolean }) {
+export function MarkdownRenderer({
+  content,
+  bare,
+  refs,
+}: {
+  content: string | null | undefined;
+  bare?: boolean;
+  refs?: Map<string, ResolvedRef>;
+}) {
   const components: Components = {
+    // Render mcp:/urn: links as entity chips; ordinary links are unchanged.
+    a: useCallback(
+      ({ href, children, node: _node, ...rest }:
+        React.ComponentProps<"a"> & { node?: unknown }) => {
+        if (isRefUrn(href)) {
+          return <EntityChip urn={href as string} resolved={refs?.get(href as string)} />;
+        }
+        return (
+          <a href={href} {...rest}>
+            {children}
+          </a>
+        );
+      },
+      [refs],
+    ),
     code: useCallback(
       // react-markdown passes `node` (hast AST) — destructure it out so it
       // doesn't leak into the DOM as an invalid attribute.
@@ -202,7 +227,13 @@ export function MarkdownRenderer({ content, bare }: { content: string | null | u
       data-feedback-anchorable
       className={`prose prose-sm max-w-none dark:prose-invert [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 ${bare ? "" : "rounded-lg border bg-card p-6"}`}
     >
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={components}
+        // Preserve entity-reference URNs (mcp:/urn:) so the `a` override can chip
+        // them; everything else keeps react-markdown's default URL sanitization.
+        urlTransform={(url) => (isRefUrn(url) ? url : defaultUrlTransform(url))}
+      >
         {content}
       </ReactMarkdown>
     </div>

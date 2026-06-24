@@ -47,6 +47,7 @@ func (h *Handler) registerKnowledgePageRoutes() {
 	// Entity references (#664): the entities a page provides knowledge about.
 	h.mux.HandleFunc("GET /api/v1/portal/knowledge-pages/{id}/refs", h.listKnowledgePageRefs)
 	h.mux.HandleFunc("PUT /api/v1/portal/knowledge-pages/{id}/refs", h.setKnowledgePageRefs)
+	h.mux.HandleFunc("POST /api/v1/portal/knowledge-pages/refs/resolve", h.resolveKnowledgePageRefs)
 }
 
 // knowledgePageRequest is the create/update payload.
@@ -101,6 +102,7 @@ func (h *Handler) createKnowledgePage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to create knowledge page")
 		return
 	}
+	h.reconcileInlineRefs(r.Context(), page.ID, page.Body)
 	created, err := h.deps.KnowledgePageStore.Get(r.Context(), page.ID)
 	if err != nil {
 		writeJSON(w, http.StatusCreated, page)
@@ -234,6 +236,7 @@ func (h *Handler) updateKnowledgePage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to update knowledge page")
 		return
 	}
+	h.reconcileInlineRefs(r.Context(), id, req.Body)
 	updated, err := h.deps.KnowledgePageStore.Get(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to read updated knowledge page")

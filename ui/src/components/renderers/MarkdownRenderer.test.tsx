@@ -81,3 +81,35 @@ describe("sanitizeMermaidSvg", () => {
     expect(out).toContain("safe");
   });
 });
+
+import { render } from "@testing-library/react";
+import { MarkdownRenderer } from "./MarkdownRenderer";
+import type { ResolvedRef } from "@/lib/entityRefs";
+
+describe("MarkdownRenderer entity chips", () => {
+  it("renders an mcp: link as a chip (urlTransform must preserve the ref href)", () => {
+    const { container } = render(
+      <MarkdownRenderer content="See [Sales](mcp:asset:asset-001) here." />,
+    );
+    // The fallback label (the id) appears, and it is NOT a raw mcp: anchor.
+    expect(container.textContent).toContain("asset-001");
+    expect(container.querySelector('a[href^="mcp:"]')).toBeNull();
+  });
+
+  it("renders the server-resolved label when provided", () => {
+    const refs = new Map<string, ResolvedRef>([
+      ["mcp:asset:asset-001", { urn: "mcp:asset:asset-001", type: "asset", label: "Q4 Dashboard", exists: true }],
+    ]);
+    const { container } = render(
+      <MarkdownRenderer content="[x](mcp:asset:asset-001)" refs={refs} />,
+    );
+    expect(container.textContent).toContain("Q4 Dashboard");
+  });
+
+  it("leaves ordinary links untouched", () => {
+    const { container } = render(
+      <MarkdownRenderer content="[home](https://example.com)" />,
+    );
+    expect(container.querySelector('a[href="https://example.com"]')).not.toBeNull();
+  });
+});

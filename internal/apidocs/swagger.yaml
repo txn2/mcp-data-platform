@@ -3165,6 +3165,31 @@ definitions:
       type:
         type: string
     type: object
+  portal.resolveRefsRequest:
+    properties:
+      urns:
+        items:
+          type: string
+        type: array
+    type: object
+  portal.resolveRefsResponse:
+    properties:
+      refs:
+        items:
+          $ref: '#/definitions/portal.resolvedRef'
+        type: array
+    type: object
+  portal.resolvedRef:
+    properties:
+      exists:
+        type: boolean
+      label:
+        type: string
+      type:
+        type: string
+      urn:
+        type: string
+    type: object
   portal.respondValidationRequest:
     properties:
       reason:
@@ -8939,6 +8964,41 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Set a knowledge page's manual entity references
+      tags:
+      - Knowledge
+  /portal/knowledge-pages/refs/resolve:
+    post:
+      consumes:
+      - application/json
+      description: Resolves a batch of serialized reference URNs (mcp:/urn:li:) to
+        a display label, type, and whether the target still exists, so the renderer
+        can show named chips.
+      parameters:
+      - description: URNs to resolve
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/portal.resolveRefsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.resolveRefsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Resolve entity references to display labels
       tags:
       - Knowledge
   /portal/knowledge/insights:

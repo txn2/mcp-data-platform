@@ -889,6 +889,13 @@ Our fiscal year starts in **February**.
 - Q2: May - July
 - Q3: August - October
 - Q4: November - January
+
+## Related
+
+The fiscal calendar underpins the [revenue definition](mcp:knowledge_page:kp-seed-2)
+and is applied in the [sales warehouse](mcp:connection:(trino,warehouse)), where
+urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD) records
+quarter-tagged sales.
 $md$,
    '["finance","calendar"]'::jsonb, 'sarah.chen@example.com', 'sarah.chen@example.com', 'sarah.chen@example.com', 2, '2026-06-01T10:00:00Z', '2026-06-10T12:00:00Z'),
 
