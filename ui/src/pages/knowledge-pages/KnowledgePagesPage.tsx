@@ -36,6 +36,7 @@ type Mode = { view: "list" } | { view: "page"; id: string } | { view: "edit"; id
 export function KnowledgePagesPage({
   openPage,
   onPageOpened,
+  onNavigate,
 }: {
   // A request from the Knowledge hub's search to open a specific page in detail
   // view. The bump counter makes re-opening the same page re-fire the effect.
@@ -43,6 +44,8 @@ export function KnowledgePagesPage({
   // Called once the request has been consumed so the parent can clear it,
   // preventing a stale request from re-opening the page on the next remount.
   onPageOpened?: () => void;
+  // Navigate to an in-app path (for entity-reference chip deep-links).
+  onNavigate?: (path: string) => void;
 } = {}) {
   const [mode, setMode] = useState<Mode>({ view: "list" });
 
@@ -74,6 +77,7 @@ export function KnowledgePagesPage({
       <KnowledgePageDetail
         id={mode.id}
         canEdit={canEdit}
+        onNavigate={onNavigate}
         onBack={() => setMode({ view: "list" })}
         onEdit={() => setMode({ view: "edit", id: mode.id })}
         onDeleted={() => setMode({ view: "list" })}
@@ -267,12 +271,14 @@ function KnowledgePageList({ canEdit, onOpen, onCreate }: { canEdit: boolean; on
 function KnowledgePageDetail({
   id,
   canEdit,
+  onNavigate,
   onBack,
   onEdit,
   onDeleted,
 }: {
   id: string;
   canEdit: boolean;
+  onNavigate?: (path: string) => void;
   onBack: () => void;
   onEdit: () => void;
   onDeleted: () => void;
@@ -343,12 +349,12 @@ function KnowledgePageDetail({
         className="prose prose-sm max-w-none rounded-lg border border-border bg-card p-6 dark:prose-invert"
         data-feedback-anchorable
       >
-        <MarkdownRenderer content={page.body} refs={resolvedRefs} />
+        <MarkdownRenderer content={page.body} refs={resolvedRefs} onNavigate={onNavigate} />
       </article>
 
-      <RelatedPanel pageId={id} />
-      <KnowledgeBacklinks urn={`mcp:knowledge_page:${id}`} />
-      {canEdit && <RefPicker pageId={id} />}
+      <RelatedPanel pageId={id} onNavigate={onNavigate} />
+      <KnowledgeBacklinks urn={`mcp:knowledge_page:${id}`} onNavigate={onNavigate} />
+      {canEdit && <RefPicker pageId={id} onNavigate={onNavigate} />}
     </div>
   );
 }

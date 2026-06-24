@@ -16,8 +16,31 @@ export type RefType =
 export interface ParsedRef {
   urn: string;
   type: RefType;
+  /** The raw id for single-id internal types (asset/prompt/collection/page); "" otherwise. */
+  id: string;
   /** A label to show before (or instead of) a server-resolved name. */
   fallbackLabel: string;
+}
+
+// SAFE_ID matches the server's mcp: simple-id charset. A reference id that
+// contains anything else (for example a crafted `../../admin` path-traversal in a
+// markdown link href) is treated as non-navigable rather than interpolated into a
+// route.
+const SAFE_ID = /^[A-Za-z0-9_.-]+$/;
+
+/** entityHref returns the in-app path to an entity, or null if it has no route. */
+export function entityHref(type: string, id: string): string | null {
+  if (!id || !SAFE_ID.test(id)) return null;
+  switch (type) {
+    case "asset":
+      return `/assets/${id}`;
+    case "collection":
+      return `/collections/${id}`;
+    case "prompt":
+      return `/prompts/${id}`;
+    default:
+      return null; // knowledge_page (no URL route), connection, datahub
+  }
 }
 
 /** ResolvedRef is the server's resolution of a reference URN to a display label. */
@@ -77,7 +100,7 @@ function datahubLabel(urn: string): string {
 export function parseRef(urn: string): ParsedRef | null {
   const trimmed = urn.trim();
   if (trimmed.startsWith("urn:")) {
-    return { urn: trimmed, type: "datahub", fallbackLabel: datahubLabel(trimmed) };
+    return { urn: trimmed, type: "datahub", id: "", fallbackLabel: datahubLabel(trimmed) };
   }
   if (!trimmed.startsWith("mcp:")) return null;
 
@@ -93,11 +116,11 @@ export function parseRef(urn: string): ParsedRef | null {
     case "prompt":
     case "collection":
     case "knowledge_page":
-      return { urn: trimmed, type, fallbackLabel: id };
+      return { urn: trimmed, type, id, fallbackLabel: id };
     case "connection": {
       const m = id.match(/^\(([^,]+),([^)]+)\)$/);
       if (!m) return null;
-      return { urn: trimmed, type: "connection", fallbackLabel: `${m[2]} (${m[1]})` as string };
+      return { urn: trimmed, type: "connection", id: "", fallbackLabel: `${m[2]} (${m[1]})` as string };
     }
     default:
       return null;

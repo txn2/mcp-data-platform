@@ -62,6 +62,7 @@ type pageWriter interface {
 	ListEntityRefs(ctx context.Context, pageID string) ([]knowledgepage.EntityRef, error)
 	AddEntityRefs(ctx context.Context, pageID string, refs []knowledgepage.EntityRef) error
 	ReplaceEntityRefs(ctx context.Context, pageID string, refs []knowledgepage.EntityRef) error
+	ReplaceEntityRefsBySource(ctx context.Context, pageID, source string, refs []knowledgepage.EntityRef) error
 }
 
 // PageReverter is the slice of the knowledge-page store a rollback needs: look up
@@ -73,8 +74,9 @@ type PageReverter interface {
 	GetBySlug(ctx context.Context, slug string) (*knowledgepage.Page, error)
 	Update(ctx context.Context, id string, updates knowledgepage.Update) error
 	SoftDelete(ctx context.Context, id string) error
-	// Entity references (#664): restore the page's references on rollback.
-	ReplaceEntityRefs(ctx context.Context, pageID string, refs []knowledgepage.EntityRef) error
+	// Entity references (#664): restore the page's promoted references on rollback,
+	// scoped to source=promoted so manual and inline references are not clobbered.
+	ReplaceEntityRefsBySource(ctx context.Context, pageID, source string, refs []knowledgepage.EntityRef) error
 }
 
 // PageEditedError is returned when a knowledge-page promotion cannot be rolled
@@ -176,8 +178,8 @@ type pagePromotion struct {
 
 // applyPagePromotion find-or-creates the page by slug, carries the source
 // insights' references onto it (union), and returns the before/after images for
-// the changeset. entityURNs are the DataHub references gathered from the source
-// insights (#664).
+// the changeset. entityURNs are the serialized references (any type) gathered
+// from the source insights (#664).
 //
 // Atomicity: the page write, the reference write, and the changeset record are
 // separate operations (the page and changeset already were before #664; the
@@ -237,8 +239,8 @@ func (t *Toolkit) applyPagePromotion(ctx context.Context, page pagePromotionInpu
 	}
 }
 
-// pageEntityURNs returns the page's current DataHub reference URNs (Phase 0 only
-// writes DataHub references, so the changeset snapshot tracks those).
+// pageEntityURNs returns the serialized URNs of the page's promoted references
+// (every type, not just DataHub), for the changeset before/after image.
 func (t *Toolkit) pageEntityURNs(ctx context.Context, pageID string) ([]string, error) {
 	refs, err := t.pageWriter.ListEntityRefs(ctx, pageID)
 	if err != nil {
@@ -246,19 +248,19 @@ func (t *Toolkit) pageEntityURNs(ctx context.Context, pageID string) ([]string, 
 	}
 	var urns []string
 	for _, r := range refs {
-		if r.TargetType == knowledgepage.RefTargetDataHub && r.EntityURN != "" {
-			urns = append(urns, r.EntityURN)
+		if r.Source == knowledgepage.RefSourcePromoted {
+			urns = append(urns, r.URN())
 		}
 	}
 	return urns, nil
 }
 
-// addPageEntityRefs unions the given DataHub URNs onto the page as promoted
-// references and returns the page's full DataHub URN set afterward (for the
-// changeset after-image).
+// addPageEntityRefs unions the given references (serialized as URNs of any type)
+// onto the page as promoted references and returns the page's full promoted URN
+// set afterward (for the changeset after-image).
 func (t *Toolkit) addPageEntityRefs(ctx context.Context, pageID string, entityURNs []string, appliedBy string) ([]string, error) {
 	if len(entityURNs) > 0 {
-		refs := dataHubRefs(entityURNs)
+		refs := promotedRefsFromURNs(entityURNs)
 		for i := range refs {
 			refs[i].CreatedBy = appliedBy
 		}
@@ -269,14 +271,19 @@ func (t *Toolkit) addPageEntityRefs(ctx context.Context, pageID string, entityUR
 	return t.pageEntityURNs(ctx, pageID)
 }
 
-// dataHubRefs builds promoted DataHub references from a list of URNs.
-func dataHubRefs(urns []string) []knowledgepage.EntityRef {
+// promotedRefsFromURNs parses serialized reference URNs (any type: a urn:li:
+// DataHub URN or an mcp: internal reference) into promoted EntityRefs. An
+// unparseable URN is skipped. This carries every reference type an insight holds
+// onto the page, not just DataHub URNs (#664).
+func promotedRefsFromURNs(urns []string) []knowledgepage.EntityRef {
 	refs := make([]knowledgepage.EntityRef, 0, len(urns))
 	for _, urn := range urns {
-		if urn == "" {
+		ref, err := knowledgepage.ParseEntityRef(urn)
+		if err != nil {
 			continue
 		}
-		refs = append(refs, knowledgepage.DataHubRef(urn, knowledgepage.RefSourcePromoted))
+		ref.Source = knowledgepage.RefSourcePromoted
+		refs = append(refs, ref)
 	}
 	return refs
 }
@@ -343,7 +350,7 @@ func (t *Toolkit) validatePageInsightClasses(ctx context.Context, insightIDs []s
 		origin = ins.SinkClass
 		// Collect the references the insight carried so they survive promotion
 		// onto the page (#664). De-duped across all source insights.
-		for _, urn := range ins.EntityURNs {
+		for _, urn := range insightReferenceURNs(ins) {
 			if urn == "" {
 				continue
 			}
@@ -355,6 +362,19 @@ func (t *Toolkit) validatePageInsightClasses(ctx context.Context, insightIDs []s
 		}
 	}
 	return origin, entityURNs, nil
+}
+
+// insightReferenceURNs returns the serialized reference URNs an insight carries:
+// its DataHub entity_urns plus the mcp:/urn:li: references mentioned inline in its
+// text. These are carried onto the page on promotion (and by the backfill), so an
+// insight's references of every type survive synthesis into a knowledge page.
+func insightReferenceURNs(ins *Insight) []string {
+	urns := make([]string, 0, len(ins.EntityURNs))
+	urns = append(urns, ins.EntityURNs...)
+	for _, ref := range knowledgepage.ScanBodyRefs(ins.InsightText) {
+		urns = append(urns, ref.URN())
+	}
+	return urns
 }
 
 // validatePagePromotion checks the caller-supplied page payload.

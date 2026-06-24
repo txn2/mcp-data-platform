@@ -113,7 +113,7 @@ func (t *Toolkit) backfillPage(ctx context.Context, pages knowledgepage.Store, p
 		return
 	}
 	if len(urns) > 0 {
-		if err := pages.AddEntityRefs(ctx, page.ID, dataHubRefs(urns)); err != nil {
+		if err := pages.AddEntityRefs(ctx, page.ID, promotedRefsFromURNs(urns)); err != nil {
 			slog.WarnContext(ctx, "backfill: adding promoted refs failed", "page_id", page.ID, logKeyError, err)
 			return
 		}
@@ -151,16 +151,22 @@ func (t *Toolkit) appendInsightURNs(ctx context.Context, insightIDs []string, se
 		if err != nil || ins == nil {
 			continue // a drained or deleted insight is simply unrecoverable
 		}
-		for _, urn := range ins.EntityURNs {
-			if urn == "" {
-				continue
-			}
-			if _, dup := seen[urn]; dup {
-				continue
-			}
-			seen[urn] = struct{}{}
-			urns = append(urns, urn)
-		}
+		urns = appendUnique(urns, seen, insightReferenceURNs(ins))
 	}
 	return urns
+}
+
+// appendUnique appends each value not already in seen to dst, recording it.
+func appendUnique(dst []string, seen map[string]struct{}, values []string) []string {
+	for _, v := range values {
+		if v == "" {
+			continue
+		}
+		if _, dup := seen[v]; dup {
+			continue
+		}
+		seen[v] = struct{}{}
+		dst = append(dst, v)
+	}
+	return dst
 }

@@ -1,5 +1,23 @@
 import { describe, it, expect } from "vitest";
-import { extractRefUrns, parseRef, isRefUrn, buildRefUrn } from "./entityRefs";
+import { extractRefUrns, parseRef, isRefUrn, buildRefUrn, entityHref } from "./entityRefs";
+
+describe("entityHref", () => {
+  it("routes asset/collection/prompt to their viewers and nothing else", () => {
+    expect(entityHref("asset", "a1")).toBe("/assets/a1");
+    expect(entityHref("collection", "c1")).toBe("/collections/c1");
+    expect(entityHref("prompt", "p1")).toBe("/prompts/p1");
+    expect(entityHref("knowledge_page", "kp1")).toBeNull(); // no URL route
+    expect(entityHref("connection", "")).toBeNull();
+    expect(entityHref("datahub", "")).toBeNull();
+    expect(entityHref("asset", "")).toBeNull(); // no id
+  });
+
+  it("refuses an unsafe id so a crafted href cannot path-traverse", () => {
+    expect(entityHref("asset", "../../admin")).toBeNull();
+    expect(entityHref("asset", "a/b")).toBeNull();
+    expect(entityHref("collection", "x?y")).toBeNull();
+  });
+});
 
 describe("buildRefUrn", () => {
   it("serializes a single-id reference and round-trips through parseRef", () => {
@@ -23,11 +41,13 @@ describe("parseRef", () => {
     expect(parseRef("mcp:asset:asset-001")).toEqual({
       urn: "mcp:asset:asset-001",
       type: "asset",
+      id: "asset-001",
       fallbackLabel: "asset-001",
     });
     expect(parseRef("mcp:connection:(trino,warehouse)")).toEqual({
       urn: "mcp:connection:(trino,warehouse)",
       type: "connection",
+      id: "",
       fallbackLabel: "warehouse (trino)",
     });
     expect(
