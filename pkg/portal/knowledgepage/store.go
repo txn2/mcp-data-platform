@@ -95,6 +95,8 @@ type Store interface {
 	AddEntityRefs(ctx context.Context, pageID string, refs []EntityRef) error
 	ReplaceEntityRefs(ctx context.Context, pageID string, refs []EntityRef) error
 	ReplaceEntityRefsBySource(ctx context.Context, pageID, source string, refs []EntityRef) error
+	// ListPagesReferencing is the reverse lookup: the pages that reference a target.
+	ListPagesReferencing(ctx context.Context, ref EntityRef) ([]PageRef, error)
 }
 
 // ErrNotFound is returned when a page id/slug does not resolve to a

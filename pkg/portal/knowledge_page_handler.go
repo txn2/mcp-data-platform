@@ -48,6 +48,7 @@ func (h *Handler) registerKnowledgePageRoutes() {
 	h.mux.HandleFunc("GET /api/v1/portal/knowledge-pages/{id}/refs", h.listKnowledgePageRefs)
 	h.mux.HandleFunc("PUT /api/v1/portal/knowledge-pages/{id}/refs", h.setKnowledgePageRefs)
 	h.mux.HandleFunc("POST /api/v1/portal/knowledge-pages/refs/resolve", h.resolveKnowledgePageRefs)
+	h.mux.HandleFunc("GET /api/v1/portal/knowledge-pages/backlinks", h.knowledgePageBacklinks)
 }
 
 // knowledgePageRequest is the create/update payload.

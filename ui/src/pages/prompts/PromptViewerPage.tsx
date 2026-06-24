@@ -20,6 +20,7 @@ import {
   ArrowUpCircle,
 } from "lucide-react";
 import { useMyPrompts, useUpdateMyPrompt, useDeleteMyPrompt, useCreateAsset, useSharedPrompts } from "@/api/portal/hooks";
+import { KnowledgeBacklinks } from "@/components/knowledge/KnowledgeBacklinks";
 import { useAuthStore } from "@/stores/auth";
 import { ShareDialog } from "@/components/ShareDialog";
 import { FeedbackButton } from "@/components/feedback/FeedbackButton";
@@ -420,6 +421,8 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
           </>
         )}
       </div>
+
+      <KnowledgeBacklinks urn={`mcp:prompt:${promptId}`} onNavigate={onNavigate} />
 
       {/* Notices */}
       {error && (

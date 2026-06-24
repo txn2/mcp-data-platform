@@ -8505,6 +8505,55 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/knowledge-pages/backlinks": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Reverse lookup: returns the knowledge pages that reference the given entity (by serialized URN), so an entity view can surface \"N knowledge pages reference this\". Returns empty for an entity the viewer cannot access.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Knowledge"
+                ],
+                "summary": "List knowledge pages that reference an entity",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Serialized entity URN (mcp:/urn:li:)",
+                        "name": "urn",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/portal.backlinksResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/portal/knowledge-pages/refs/resolve": {
             "post": {
                 "security": [
@@ -14134,6 +14183,20 @@ const docTemplate = `{
                 }
             }
         },
+        "knowledgepage.PageRef": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "slug": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
         "persona.AccessSource": {
             "type": "string",
             "enum": [
@@ -14921,6 +14984,17 @@ const docTemplate = `{
                 },
                 "updated_at": {
                     "type": "string"
+                }
+            }
+        },
+        "portal.backlinksResponse": {
+            "type": "object",
+            "properties": {
+                "pages": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/knowledgepage.PageRef"
+                    }
                 }
             }
         },

@@ -157,6 +157,52 @@ func (h *Handler) setKnowledgePageRefs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, knowledgePageRefsResponse{Refs: h.resolveAndFilterRefs(r, user, updated)})
 }
 
+// backlinksResponse lists the knowledge pages that reference an entity.
+type backlinksResponse struct {
+	Pages []knowledgepage.PageRef `json:"pages"`
+}
+
+// knowledgePageBacklinks handles GET /api/v1/portal/knowledge-pages/backlinks?urn=.
+//
+// @Summary      List knowledge pages that reference an entity
+// @Description  Reverse lookup: returns the knowledge pages that reference the given entity (by serialized URN), so an entity view can surface "N knowledge pages reference this". Returns empty for an entity the viewer cannot access.
+// @Tags         Knowledge
+// @Produce      json
+// @Param        urn  query  string  true  "Serialized entity URN (mcp:/urn:li:)"
+// @Success      200  {object}  backlinksResponse
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/knowledge-pages/backlinks [get]
+func (h *Handler) knowledgePageBacklinks(w http.ResponseWriter, r *http.Request) {
+	user := GetUser(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, errAuthRequired)
+		return
+	}
+	ref, err := knowledgepage.ParseEntityRef(r.URL.Query().Get("urn"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// Don't reveal back-references for an entity the viewer cannot access (the
+	// same access model the forward lookup applies).
+	if !h.resolveRef(r, user, ref.URN(), ref).Accessible {
+		writeJSON(w, http.StatusOK, backlinksResponse{Pages: []knowledgepage.PageRef{}})
+		return
+	}
+	pages, err := h.deps.KnowledgePageStore.ListPagesReferencing(r.Context(), ref)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list referencing pages")
+		return
+	}
+	if pages == nil {
+		pages = []knowledgepage.PageRef{}
+	}
+	writeJSON(w, http.StatusOK, backlinksResponse{Pages: pages})
+}
+
 // resolveRefsRequest carries the serialized URNs the renderer wants resolved.
 type resolveRefsRequest struct {
 	URNs []string `json:"urns"`

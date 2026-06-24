@@ -2237,6 +2237,15 @@ definitions:
         example: amount
         type: string
     type: object
+  knowledgepage.PageRef:
+    properties:
+      id:
+        type: string
+      slug:
+        type: string
+      title:
+        type: string
+    type: object
   persona.AccessSource:
     enum:
     - allow
@@ -2792,6 +2801,13 @@ definitions:
         type: string
       updated_at:
         type: string
+    type: object
+  portal.backlinksResponse:
+    properties:
+      pages:
+        items:
+          $ref: '#/definitions/knowledgepage.PageRef'
+        type: array
     type: object
   portal.captureInsightRequest:
     properties:
@@ -8952,6 +8968,38 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Set a knowledge page's manual entity references
+      tags:
+      - Knowledge
+  /portal/knowledge-pages/backlinks:
+    get:
+      description: 'Reverse lookup: returns the knowledge pages that reference the
+        given entity (by serialized URN), so an entity view can surface "N knowledge
+        pages reference this". Returns empty for an entity the viewer cannot access.'
+      parameters:
+      - description: Serialized entity URN (mcp:/urn:li:)
+        in: query
+        name: urn
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.backlinksResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List knowledge pages that reference an entity
       tags:
       - Knowledge
   /portal/knowledge-pages/refs/resolve:
