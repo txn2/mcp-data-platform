@@ -23,6 +23,8 @@ function targetFields(target: FeedbackTarget): Partial<CreateThreadInput> {
       return { target_type: "collection", collection_id: target.id };
     case "prompt":
       return { target_type: "prompt", prompt_id: target.id };
+    case "knowledge_page":
+      return { target_type: "knowledge_page", knowledge_page_id: target.id };
     case "standalone":
       return { target_type: "standalone" };
   }
@@ -37,11 +39,15 @@ export function NewThreadForm({ target, availableAnchor, onCancel, onCreated }: 
   const [useAnchor, setUseAnchor] = useState(true);
   const create = useCreateThread();
 
-  // Text-quote anchoring is offered for asset and prompt targets (both render
-  // their content through the anchorable markdown/plain-text renderers) when
-  // the user has a live selection. Collections and standalone are object-level.
+  // Text-quote anchoring is offered for asset, prompt, and knowledge-page
+  // targets (all render their content through the anchorable markdown/plain-text
+  // renderers) when the user has a live selection. Collections and standalone
+  // are object-level.
   const canAnchor =
-    (target.type === "asset" || target.type === "prompt") && !!availableAnchor;
+    (target.type === "asset" ||
+      target.type === "prompt" ||
+      target.type === "knowledge_page") &&
+    !!availableAnchor;
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();

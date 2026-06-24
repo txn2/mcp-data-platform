@@ -2,22 +2,25 @@ package portal
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
 
 const (
-	paramTargetType   = "target_type"
-	paramAssetID      = "asset_id"
-	paramCollectionID = "collection_id"
-	paramPromptID     = "prompt_id"
-	paramKind         = "kind"
-	paramStatus       = "status"
-	paramIDs          = "ids"
+	paramTargetType      = "target_type"
+	paramAssetID         = "asset_id"
+	paramCollectionID    = "collection_id"
+	paramPromptID        = "prompt_id"
+	paramKnowledgePageID = "knowledge_page_id"
+	paramKind            = "kind"
+	paramStatus          = "status"
+	paramIDs             = "ids"
 
 	maxThreadCountIDs = 200
 
@@ -56,6 +59,7 @@ type createThreadRequest struct {
 	AssetID            string          `json:"asset_id"`
 	CollectionID       string          `json:"collection_id"`
 	PromptID           string          `json:"prompt_id"`
+	KnowledgePageID    string          `json:"knowledge_page_id"`
 	Anchor             json.RawMessage `json:"anchor" swaggertype:"object"`
 	TargetVersion      int             `json:"target_version"`
 	Title              string          `json:"title"`
@@ -109,14 +113,15 @@ func (h *Handler) listThreads(w http.ResponseWriter, r *http.Request) {
 	}
 
 	filter := ThreadFilter{
-		TargetType:   r.URL.Query().Get(paramTargetType),
-		AssetID:      r.URL.Query().Get(paramAssetID),
-		CollectionID: r.URL.Query().Get(paramCollectionID),
-		PromptID:     r.URL.Query().Get(paramPromptID),
-		Kind:         r.URL.Query().Get(paramKind),
-		Status:       r.URL.Query().Get(paramStatus),
-		Limit:        intParam(r, paramLimit, defaultThreadLimit),
-		Offset:       intParam(r, paramOffset, 0),
+		TargetType:      r.URL.Query().Get(paramTargetType),
+		AssetID:         r.URL.Query().Get(paramAssetID),
+		CollectionID:    r.URL.Query().Get(paramCollectionID),
+		PromptID:        r.URL.Query().Get(paramPromptID),
+		KnowledgePageID: r.URL.Query().Get(paramKnowledgePageID),
+		Kind:            r.URL.Query().Get(paramKind),
+		Status:          r.URL.Query().Get(paramStatus),
+		Limit:           intParam(r, paramLimit, defaultThreadLimit),
+		Offset:          intParam(r, paramOffset, 0),
 	}
 
 	targetType, ok := scopeFromFilter(filter)
@@ -125,7 +130,7 @@ func (h *Handler) listThreads(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	filter.TargetType = targetType
-	if !h.canAccessThreadTarget(w, r, user, threadTarget{targetType, filter.AssetID, filter.CollectionID, filter.PromptID}) {
+	if !h.canAccessThreadTarget(w, r, user, threadTarget{targetType, filter.AssetID, filter.CollectionID, filter.PromptID, filter.KnowledgePageID}) {
 		return
 	}
 
@@ -145,7 +150,7 @@ func (h *Handler) listThreads(w http.ResponseWriter, r *http.Request) {
 // createThread handles POST /api/v1/portal/threads.
 //
 // @Summary      Create a feedback thread
-// @Description  Opens a new feedback thread (and its first event) on an asset, collection, prompt, or the standalone channel.
+// @Description  Opens a new feedback thread (and its first event) on an asset, collection, prompt, knowledge page, or the standalone channel.
 // @Tags         Feedback
 // @Accept       json
 // @Produce      json
@@ -174,11 +179,11 @@ func (h *Handler) createThread(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid kind")
 		return
 	}
-	if !validThreadTarget(req.TargetType, req.AssetID, req.CollectionID, req.PromptID) {
+	if !validThreadTarget(req.TargetType, req.AssetID, req.CollectionID, req.PromptID, req.KnowledgePageID) {
 		writeError(w, http.StatusBadRequest, errThreadScope)
 		return
 	}
-	if !h.canAccessThreadTarget(w, r, user, threadTarget{req.TargetType, req.AssetID, req.CollectionID, req.PromptID}) {
+	if !h.canAccessThreadTarget(w, r, user, threadTarget{req.TargetType, req.AssetID, req.CollectionID, req.PromptID, req.KnowledgePageID}) {
 		return
 	}
 
@@ -189,6 +194,7 @@ func (h *Handler) createThread(w http.ResponseWriter, r *http.Request) {
 		AssetID:            req.AssetID,
 		CollectionID:       req.CollectionID,
 		PromptID:           req.PromptID,
+		KnowledgePageID:    req.KnowledgePageID,
 		Anchor:             req.Anchor,
 		TargetVersion:      req.TargetVersion,
 		Title:              req.Title,
@@ -490,8 +496,8 @@ func (h *Handler) threadCounts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	targetType := r.URL.Query().Get(paramTargetType)
-	if targetType != targetTypeAsset && targetType != targetTypeCollection {
-		writeError(w, http.StatusBadRequest, "target_type must be asset or collection")
+	if targetType != targetTypeAsset && targetType != targetTypeCollection && targetType != targetTypeKnowledgePage {
+		writeError(w, http.StatusBadRequest, "target_type must be asset, collection, or knowledge_page")
 		return
 	}
 	ids := splitIDs(r.URL.Query().Get(paramIDs))
@@ -502,7 +508,9 @@ func (h *Handler) threadCounts(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "too many ids")
 		return
 	}
-	if !h.userIsAdmin(user) {
+	// Knowledge pages are org-shared, so every authenticated user sees their
+	// feedback counts; only the owner-scoped asset/collection counts are filtered.
+	if !h.userIsAdmin(user) && targetType != targetTypeKnowledgePage {
 		ids = h.filterOwnedTargets(r, targetType, ids, user)
 	}
 
@@ -594,7 +602,7 @@ func (h *Handler) loadThreadForRead(w http.ResponseWriter, r *http.Request) (*Us
 		writeError(w, http.StatusNotFound, errThreadNotFound)
 		return nil, nil
 	}
-	if !h.canAccessThreadTarget(w, r, user, threadTarget{thread.TargetType, thread.AssetID, thread.CollectionID, thread.PromptID}) {
+	if !h.canAccessThreadTarget(w, r, user, threadTarget{thread.TargetType, thread.AssetID, thread.CollectionID, thread.PromptID, thread.KnowledgePageID}) {
 		return nil, nil
 	}
 	return user, thread
@@ -633,10 +641,33 @@ func (h *Handler) canAccessThreadTarget(w http.ResponseWriter, r *http.Request, 
 		return h.threadCollectionAccess(w, r, user, t.collection)
 	case targetTypePrompt:
 		return h.threadPromptAccess(w, r, user, t.prompt)
+	case targetTypeKnowledgePage:
+		return h.threadKnowledgePageAccess(w, r, t.knowledgePage)
 	default:
 		writeError(w, http.StatusBadRequest, errThreadScope)
 		return false
 	}
+}
+
+// threadKnowledgePageAccess allows any authenticated user to read and add
+// feedback on a knowledge page: pages are org-shared canonical knowledge, so
+// view access is universal. It only verifies the page exists and is not deleted.
+// Moderation (status change, delete) is gated separately in canModerateThread.
+func (h *Handler) threadKnowledgePageAccess(w http.ResponseWriter, r *http.Request, pageID string) bool {
+	if h.deps.KnowledgePageStore == nil {
+		writeError(w, http.StatusServiceUnavailable, "knowledge pages not configured")
+		return false
+	}
+	page, err := h.deps.KnowledgePageStore.Get(r.Context(), pageID)
+	if errors.Is(err, knowledgepage.ErrNotFound) || (err == nil && page.DeletedAt != nil) {
+		writeError(w, http.StatusNotFound, errKnowledgePageNotFoundMsg)
+		return false
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to verify knowledge page")
+		return false
+	}
+	return true
 }
 
 func (h *Handler) threadAssetAccess(w http.ResponseWriter, r *http.Request, user *User, assetID string) bool {
@@ -720,6 +751,10 @@ func (h *Handler) canModerateThread(r *http.Request, user *User, thread *Thread)
 		return h.canEditCollectionSilent(r, thread.CollectionID, user)
 	case targetTypePrompt:
 		return h.ownsPersonalPrompt(r, thread.PromptID, user)
+	case targetTypeKnowledgePage:
+		// Pages are edited by apply_knowledge holders, so they also moderate
+		// page feedback (author/admin already handled above).
+		return h.userHasApplyKnowledge(user)
 	default:
 		return false // standalone: only author/admin (handled above)
 	}
@@ -773,10 +808,11 @@ func (h *Handler) userIsAdmin(user *User) bool {
 // threadTarget bundles a thread's target discriminator and the 1-of-N object
 // ids, so access checks take one value instead of four positional args.
 type threadTarget struct {
-	kind       string
-	asset      string
-	collection string
-	prompt     string
+	kind          string
+	asset         string
+	collection    string
+	prompt        string
+	knowledgePage string
 }
 
 // countSet returns how many of the given ids are non-empty.
@@ -793,7 +829,7 @@ func countSet(ids ...string) int {
 // scopeFromFilter validates that a list filter is scoped to exactly one target
 // and returns the resolved target_type.
 func scopeFromFilter(f ThreadFilter) (string, bool) {
-	n := countSet(f.AssetID, f.CollectionID, f.PromptID)
+	n := countSet(f.AssetID, f.CollectionID, f.PromptID, f.KnowledgePageID)
 	if f.TargetType == targetTypeStandalone {
 		return targetTypeStandalone, n == 0 // standalone must carry no object target
 	}
@@ -805,27 +841,29 @@ func scopeFromFilter(f ThreadFilter) (string, bool) {
 		return targetTypeAsset, true
 	case f.CollectionID != "":
 		return targetTypeCollection, true
+	case f.KnowledgePageID != "":
+		return targetTypeKnowledgePage, true
 	default:
 		return targetTypePrompt, true
 	}
 }
 
 // validThreadTarget reports whether a create request names a valid 1-of-N (or
-// standalone) target.
-func validThreadTarget(targetType, assetID, collectionID, promptID string) bool {
-	n := countSet(assetID, collectionID, promptID)
-	switch targetType {
-	case targetTypeStandalone:
+// standalone) target: standalone carries no object id, every other type carries
+// exactly its own object id and no other.
+func validThreadTarget(targetType, assetID, collectionID, promptID, knowledgePageID string) bool {
+	n := countSet(assetID, collectionID, promptID, knowledgePageID)
+	if targetType == targetTypeStandalone {
 		return n == 0
-	case targetTypeAsset:
-		return n == 1 && assetID != ""
-	case targetTypeCollection:
-		return n == 1 && collectionID != ""
-	case targetTypePrompt:
-		return n == 1 && promptID != ""
-	default:
-		return false
 	}
+	objectIDs := map[string]string{
+		targetTypeAsset:         assetID,
+		targetTypeCollection:    collectionID,
+		targetTypePrompt:        promptID,
+		targetTypeKnowledgePage: knowledgePageID,
+	}
+	id, ok := objectIDs[targetType]
+	return ok && n == 1 && id != ""
 }
 
 // validAppendEventType limits client-authored events to conversational kinds;

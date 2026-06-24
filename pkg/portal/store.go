@@ -16,10 +16,11 @@ import (
 // object targets (asset/collection/prompt) is set on a polymorphic row; a
 // standalone thread has none.
 const (
-	targetTypeAsset      = "asset"
-	targetTypeCollection = "collection"
-	targetTypePrompt     = "prompt"
-	targetTypeStandalone = "standalone"
+	targetTypeAsset         = "asset"
+	targetTypeCollection    = "collection"
+	targetTypePrompt        = "prompt"
+	targetTypeKnowledgePage = "knowledge_page"
+	targetTypeStandalone    = "standalone"
 )
 
 // psq is the PostgreSQL statement builder with dollar placeholders.
@@ -1438,5 +1439,4 @@ var (
 	_ ShareStore   = (*noopShareStore)(nil)
 	_ VersionStore = (*postgresVersionStore)(nil)
 	_ VersionStore = (*noopVersionStore)(nil)
-	_ ThreadStore  = (*postgresThreadStore)(nil)
 )

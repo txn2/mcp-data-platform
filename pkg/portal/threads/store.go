@@ -1,4 +1,10 @@
-package portal
+// Package threads holds the portal feedback-thread data layer: the Thread types
+// and constants, the ThreadStore interface, its PostgreSQL implementation, and
+// the filter/query helpers. It was split out of the portal package (issue #594,
+// package-size gate) so the bulk of the thread substrate lives in a cohesive,
+// independently-reasoned package; the HTTP handlers that drive it remain in
+// portal, which re-exports these symbols under their original names.
+package threads
 
 import (
 	"context"
@@ -13,9 +19,23 @@ import (
 	"github.com/lib/pq"
 )
 
+// psq is the PostgreSQL statement builder with dollar placeholders (a local
+// copy of the portal one, so this package has no dependency on portal).
+var psq = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
+
+// Target-type discriminators for threads. Mirrors the portal share/thread
+// polymorphism; exactly one object target is set on a row, none for standalone.
+const (
+	targetTypeAsset         = "asset"
+	targetTypeCollection    = "collection"
+	targetTypePrompt        = "prompt"
+	targetTypeKnowledgePage = "knowledge_page"
+	targetTypeStandalone    = "standalone"
+)
+
 // Thread kinds. A kind is the human-facing classification of a feedback thread;
 // it is stored on the thread and also determines the event_type of the thread's
-// first event (see deriveFirstEventType).
+// first event (see DeriveFirstEventType).
 const (
 	ThreadKindComment    = "comment"
 	ThreadKindQuestion   = "question"
@@ -92,10 +112,11 @@ func ValidThreadValidationState(s string) bool {
 	}
 }
 
-// deriveFirstEventType maps a thread kind to the event_type its initial event
+// DeriveFirstEventType maps a thread kind to the event_type its initial event
 // carries: rating/approval/rejection keep their own semantic; everything else
-// (comment/question/correction/suggestion) is a plain comment event.
-func deriveFirstEventType(kind string) string {
+// (comment/question/correction/suggestion) is a plain comment event. Exported
+// for the portal createThread handler, which owns thread creation.
+func DeriveFirstEventType(kind string) string {
 	switch kind {
 	case ThreadKindRating:
 		return EventTypeRating
@@ -118,6 +139,7 @@ type Thread struct {
 	AssetID            string          `json:"asset_id,omitempty"`
 	CollectionID       string          `json:"collection_id,omitempty"`
 	PromptID           string          `json:"prompt_id,omitempty"`
+	KnowledgePageID    string          `json:"knowledge_page_id,omitempty"`
 	Anchor             json.RawMessage `json:"anchor,omitempty" swaggertype:"object"`
 	TargetVersion      int             `json:"target_version,omitempty"`
 	Title              string          `json:"title,omitempty"`
@@ -161,6 +183,7 @@ type ThreadFilter struct {
 	AssetID            string
 	CollectionID       string
 	PromptID           string
+	KnowledgePageID    string
 	Kind               string
 	Status             string
 	RequiresResolution *bool
@@ -206,7 +229,7 @@ const (
 	errBeginTx      = "begin tx: %w"
 	errCommitTx     = "commit: %w"
 	errRowsAffected = "checking rows affected: %w"
-	eventIDKind     = "evt" // newThreadID prefix for event ids
+	eventIDKind     = "evt" // NewThreadID prefix for event ids
 )
 
 // EffectiveLimit returns the clamped page size, applying the default when unset.
@@ -289,14 +312,14 @@ func (s *postgresThreadStore) CreateThread(ctx context.Context, t Thread, first 
 
 	insertThread := `
 		INSERT INTO portal_threads
-		(id, kind, target_type, asset_id, collection_id, prompt_id, anchor, target_version,
+		(id, kind, target_type, asset_id, collection_id, prompt_id, knowledge_page_id, anchor, target_version,
 		 title, author_id, author_email, status, requires_resolution, validation_state)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		RETURNING created_at, updated_at
 	`
 	if err := tx.QueryRowContext(ctx, insertThread,
 		t.ID, t.Kind, t.TargetType,
-		nullString(t.AssetID), nullString(t.CollectionID), nullString(t.PromptID),
+		nullString(t.AssetID), nullString(t.CollectionID), nullString(t.PromptID), nullString(t.KnowledgePageID),
 		nullJSON(t.Anchor), nullInt(t.TargetVersion),
 		t.Title, t.AuthorID, t.AuthorEmail, statusOrDefault(t.Status), t.RequiresResolution, validationOrDefault(t.ValidationState),
 	).Scan(&t.CreatedAt, &t.UpdatedAt); err != nil {
@@ -462,7 +485,7 @@ func (s *postgresThreadStore) UpdateThread(ctx context.Context, id string, u Thr
 	// view never shows a status with no corresponding event.
 	if u.Status != nil && *u.Status != oldStatus {
 		evt := ThreadEvent{
-			ID:          newThreadID(eventIDKind),
+			ID:          NewThreadID(eventIDKind),
 			ThreadID:    id,
 			EventType:   statusChangeEventType(*u.Status),
 			AuthorID:    actorID,
@@ -553,7 +576,7 @@ func linkInsightToThreadTx(ctx context.Context, tx *sql.Tx, id, insightID string
 		return false, nil // missing or deleted thread: skip
 	}
 	evt := ThreadEvent{
-		ID:          newThreadID(eventIDKind),
+		ID:          NewThreadID(eventIDKind),
 		ThreadID:    id,
 		EventType:   EventTypeInsightLinked,
 		AuthorID:    actor.id,
@@ -589,7 +612,7 @@ func (s *postgresThreadStore) RequestValidation(ctx context.Context, id, actorID
 	}
 
 	evt := ThreadEvent{
-		ID:          newThreadID(eventIDKind),
+		ID:          NewThreadID(eventIDKind),
 		ThreadID:    id,
 		EventType:   EventTypeValidationRequest,
 		AuthorID:    actorID,
@@ -653,7 +676,7 @@ func (s *postgresThreadStore) RespondValidation(ctx context.Context, id string, 
 	}
 
 	evt := ThreadEvent{
-		ID:          newThreadID(eventIDKind),
+		ID:          NewThreadID(eventIDKind),
 		ThreadID:    id,
 		EventType:   EventTypeValidationResult,
 		AuthorID:    actorID,
@@ -755,25 +778,36 @@ func targetColumn(targetType string) (string, error) {
 		return "collection_id", nil
 	case targetTypePrompt:
 		return "prompt_id", nil
+	case targetTypeKnowledgePage:
+		return "knowledge_page_id", nil
 	default:
 		return "", fmt.Errorf("unsupported target type for counts: %q", targetType)
 	}
 }
 
+// applyThreadTargetEq appends the single-target equality conditions (target type
+// plus the one object id that is set), factored out of applyThreadFilter to keep
+// its complexity bounded.
+func applyThreadTargetEq(qb sq.SelectBuilder, f ThreadFilter) sq.SelectBuilder {
+	// Ordered so the generated SQL is deterministic.
+	cols := []struct{ col, val string }{
+		{"t.target_type", f.TargetType},
+		{"t.asset_id", f.AssetID},
+		{"t.collection_id", f.CollectionID},
+		{"t.prompt_id", f.PromptID},
+		{"t.knowledge_page_id", f.KnowledgePageID},
+	}
+	for _, c := range cols {
+		if c.val != "" {
+			qb = qb.Where(sq.Eq{c.col: c.val})
+		}
+	}
+	return qb
+}
+
 // applyThreadFilter appends the equality conditions common to list and count.
 func applyThreadFilter(qb sq.SelectBuilder, f ThreadFilter) sq.SelectBuilder {
-	if f.TargetType != "" {
-		qb = qb.Where(sq.Eq{"t.target_type": f.TargetType})
-	}
-	if f.AssetID != "" {
-		qb = qb.Where(sq.Eq{"t.asset_id": f.AssetID})
-	}
-	if f.CollectionID != "" {
-		qb = qb.Where(sq.Eq{"t.collection_id": f.CollectionID})
-	}
-	if f.PromptID != "" {
-		qb = qb.Where(sq.Eq{"t.prompt_id": f.PromptID})
-	}
+	qb = applyThreadTargetEq(qb, f)
 	if f.Kind != "" {
 		qb = qb.Where(sq.Eq{"t.kind": f.Kind})
 	}
@@ -896,12 +930,12 @@ func touchThreadTx(ctx context.Context, tx *sql.Tx, threadID string) error {
 }
 
 func scanThread(row interface{ Scan(...any) error }, t *Thread) error {
-	var assetID, collectionID, promptID, insightID sql.NullString
+	var assetID, collectionID, promptID, knowledgePageID, insightID sql.NullString
 	var anchor []byte
 	var targetVersion sql.NullInt64
 	var deletedAt sql.NullTime
 	if err := row.Scan(
-		&t.ID, &t.Kind, &t.TargetType, &assetID, &collectionID, &promptID, &anchor, &targetVersion,
+		&t.ID, &t.Kind, &t.TargetType, &assetID, &collectionID, &promptID, &knowledgePageID, &anchor, &targetVersion,
 		&t.Title, &t.AuthorID, &t.AuthorEmail, &t.Status, &t.RequiresResolution, &t.ValidationState, &insightID,
 		&t.CreatedAt, &t.UpdatedAt, &deletedAt,
 	); err != nil {
@@ -910,6 +944,7 @@ func scanThread(row interface{ Scan(...any) error }, t *Thread) error {
 	t.AssetID = assetID.String
 	t.CollectionID = collectionID.String
 	t.PromptID = promptID.String
+	t.KnowledgePageID = knowledgePageID.String
 	t.InsightID = insightID.String
 	if len(anchor) > 0 {
 		t.Anchor = anchor
@@ -924,12 +959,12 @@ func scanThread(row interface{ Scan(...any) error }, t *Thread) error {
 }
 
 func scanThreadWithMeta(rows *sql.Rows, tm *ThreadWithMeta) error {
-	var assetID, collectionID, promptID, insightID sql.NullString
+	var assetID, collectionID, promptID, knowledgePageID, insightID sql.NullString
 	var anchor []byte
 	var targetVersion sql.NullInt64
 	var deletedAt sql.NullTime
 	if err := rows.Scan(
-		&tm.ID, &tm.Kind, &tm.TargetType, &assetID, &collectionID, &promptID, &anchor, &targetVersion,
+		&tm.ID, &tm.Kind, &tm.TargetType, &assetID, &collectionID, &promptID, &knowledgePageID, &anchor, &targetVersion,
 		&tm.Title, &tm.AuthorID, &tm.AuthorEmail, &tm.Status, &tm.RequiresResolution, &tm.ValidationState, &insightID,
 		&tm.CreatedAt, &tm.UpdatedAt, &deletedAt,
 		&tm.EventCount, &tm.LastEventAt, &tm.LastEventType,
@@ -939,6 +974,7 @@ func scanThreadWithMeta(rows *sql.Rows, tm *ThreadWithMeta) error {
 	tm.AssetID = assetID.String
 	tm.CollectionID = collectionID.String
 	tm.PromptID = promptID.String
+	tm.KnowledgePageID = knowledgePageID.String
 	tm.InsightID = insightID.String
 	if len(anchor) > 0 {
 		tm.Anchor = anchor
@@ -1003,23 +1039,32 @@ func aliasedThreadColumns(alias string) string {
 // scanThread/scanThreadWithMeta expect. threadSelectColumns is the same list as
 // a comma-joined SELECT expression; aliasedThreadColumns prefixes a table alias.
 var threadColumnNames = []string{
-	"id", "kind", "target_type", "asset_id", "collection_id", "prompt_id", "anchor", "target_version",
+	"id", "kind", "target_type", "asset_id", "collection_id", "prompt_id", "knowledge_page_id", "anchor", "target_version",
 	"title", "author_id", "author_email", "status", "requires_resolution", "validation_state", "insight_id",
 	"created_at", "updated_at", "deleted_at",
 }
 
 var threadSelectColumns = strings.Join(threadColumnNames, ", ")
 
-// newThreadID returns a prefixed unique id (e.g. "thr_<uuid>", "evt_<uuid>").
-func newThreadID(prefix string) string {
+// NewThreadID returns a prefixed unique id (e.g. "thr_<uuid>", "evt_<uuid>").
+func NewThreadID(prefix string) string {
 	return prefix + "_" + uuid.New().String()
 }
 
 // NewThreadEventID returns a unique id for a thread event. Exported so callers
 // outside the package (the portal toolkit) can mint event ids for AppendEvent.
 func NewThreadEventID() string {
-	return newThreadID(eventIDKind)
+	return NewThreadID(eventIDKind)
 }
+
+// DefaultThreadLimit and MaxThreadLimit are exported for the portal list
+// handlers, which parse and clamp the page size before calling the store.
+const (
+	DefaultThreadLimit = defaultThreadLimit
+	MaxThreadLimit     = maxThreadLimit
+)
+
+var _ ThreadStore = (*postgresThreadStore)(nil)
 
 func statusOrDefault(status string) string {
 	if status == "" {

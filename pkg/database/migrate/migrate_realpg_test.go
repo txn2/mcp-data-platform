@@ -14,7 +14,7 @@ import (
 
 // expectedFinalVersion is the highest migration the embedded set defines. Bump
 // this when adding a migration so the gate asserts the full set applied.
-const expectedFinalVersion = 71
+const expectedFinalVersion = 72
 
 // TestMigrationsAgainstRealPostgres applies the embedded migrations to a real
 // PostgreSQL (pgvector) instance and exercises the full lifecycle: up, seed,

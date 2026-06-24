@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Search, Plus, Pencil, Trash2, ArrowLeft, History, X } from "lucide-react";
+import { Search, Plus, Pencil, Trash2, ArrowLeft, History, X, MessageSquare } from "lucide-react";
 import {
   useKnowledgePages,
   useSearchKnowledgePages,
@@ -8,13 +8,17 @@ import {
   useCreateKnowledgePage,
   useUpdateKnowledgePage,
   useDeleteKnowledgePage,
+  useThreadCounts,
 } from "@/api/portal/hooks";
 import type { KnowledgePage, KnowledgePageInput } from "@/api/portal/types";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { MarkdownRenderer } from "@/components/renderers/MarkdownRenderer";
+import { FeedbackButton } from "@/components/feedback/FeedbackButton";
 import { useAuthStore } from "@/stores/auth";
 import { parseTags } from "@/lib/tags";
 import { FilterChip } from "@/components/FilterChip";
+import { useDebounced } from "@/lib/useDebounced";
+import { MIN_SEARCH_LEN } from "@/api/portal/hooks";
 
 type Mode = { view: "list" } | { view: "page"; id: string } | { view: "edit"; id: string } | { view: "create" };
 
@@ -74,13 +78,32 @@ export function KnowledgePagesPage({
   return <KnowledgePageList canEdit={canEdit} onOpen={(id) => setMode({ view: "page", id })} onCreate={() => setMode({ view: "create" })} />;
 }
 
-function PageCard({ page, onOpen }: { page: KnowledgePage; onOpen: (id: string) => void }) {
+function PageCard({
+  page,
+  openThreads,
+  onOpen,
+}: {
+  page: KnowledgePage;
+  openThreads: number;
+  onOpen: (id: string) => void;
+}) {
   return (
     <button
       onClick={() => onOpen(page.id)}
       className="flex h-full w-full flex-col rounded-lg border border-border bg-card p-4 text-left transition hover:border-primary/50 hover:shadow-sm"
     >
-      <span className="font-medium text-foreground">{page.title}</span>
+      <span className="flex items-start justify-between gap-2">
+        <span className="font-medium text-foreground">{page.title}</span>
+        {openThreads > 0 && (
+          <span
+            className="inline-flex shrink-0 items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground"
+            title={`${openThreads} open feedback ${openThreads === 1 ? "thread" : "threads"}`}
+          >
+            <MessageSquare className="h-3 w-3" />
+            {openThreads}
+          </span>
+        )}
+      </span>
       {page.summary && (
         <span className="mt-1 line-clamp-3 text-sm text-muted-foreground">{page.summary}</span>
       )}
@@ -104,12 +127,16 @@ function PageCard({ page, onOpen }: { page: KnowledgePage; onOpen: (id: string) 
 function KnowledgePageList({ canEdit, onOpen, onCreate }: { canEdit: boolean; onOpen: (id: string) => void; onCreate: () => void }) {
   const [query, setQuery] = useState("");
   const [tag, setTag] = useState("");
-  const trimmed = query.trim();
+  // Debounce the input and require a minimum length before searching, so the
+  // content search issues one request after the user pauses rather than one per
+  // keystroke. The hook enforces the same floor as a backstop.
+  const debouncedQuery = useDebounced(query, 250);
+  const trimmed = debouncedQuery.trim();
+  const searching = trimmed.length >= MIN_SEARCH_LEN;
   // A high limit so the tag facet and counts reflect the whole knowledgebase,
   // not just the first page of results.
   const list = useKnowledgePages({ limit: 200 });
   const search = useSearchKnowledgePages(trimmed, { limit: 25 });
-  const searching = trimmed.length > 0;
 
   const allPages = useMemo(() => list.data?.pages ?? [], [list.data]);
   const total = list.data?.total ?? allPages.length;
@@ -131,6 +158,11 @@ function KnowledgePageList({ canEdit, onOpen, onCreate }: { canEdit: boolean; on
     ? (search.data ?? []).map((s) => s.page)
     : browsePages;
   const loading = searching ? search.isLoading : list.isLoading;
+
+  // Open-feedback-thread counts for the visible pages, so each card can badge
+  // pages that have feedback awaiting attention.
+  const pageIds = useMemo(() => pages.map((p) => p.id), [pages]);
+  const threadCounts = useThreadCounts("knowledge_page", pageIds);
 
   return (
     <div className="space-y-4">
@@ -213,7 +245,11 @@ function KnowledgePageList({ canEdit, onOpen, onCreate }: { canEdit: boolean; on
           <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {pages.map((p) => (
               <li key={p.id}>
-                <PageCard page={p} onOpen={onOpen} />
+                <PageCard
+                  page={p}
+                  openThreads={threadCounts.data?.[p.id] ?? 0}
+                  onOpen={onOpen}
+                />
               </li>
             ))}
           </ul>
@@ -254,29 +290,34 @@ function KnowledgePageDetail({
         <button onClick={onBack} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-4 w-4" /> All pages
         </button>
-        {canEdit && (
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowHistory((v) => !v)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted"
-            >
-              <History className="h-4 w-4" /> History
-            </button>
-            <button
-              onClick={onEdit}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted"
-            >
-              <Pencil className="h-4 w-4" /> Edit
-            </button>
-            <button
-              onClick={handleDelete}
-              disabled={del.isPending}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50"
-            >
-              <Trash2 className="h-4 w-4" /> Remove
-            </button>
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          {/* Feedback is open to any authenticated user; apply_knowledge holders
+              (canEdit) also moderate. */}
+          <FeedbackButton target={{ type: "knowledge_page", id }} canModerate={canEdit} />
+          {canEdit && (
+            <>
+              <button
+                onClick={() => setShowHistory((v) => !v)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted"
+              >
+                <History className="h-4 w-4" /> History
+              </button>
+              <button
+                onClick={onEdit}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted"
+              >
+                <Pencil className="h-4 w-4" /> Edit
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={del.isPending}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50"
+              >
+                <Trash2 className="h-4 w-4" /> Remove
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       <div>

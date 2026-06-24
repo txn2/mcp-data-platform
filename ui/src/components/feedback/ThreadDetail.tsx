@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowLeft, Trash2, Quote, GitBranch, CheckCircle2, XCircle } from "lucide-react";
+import { ArrowLeft, Trash2, Quote, GitBranch, CheckCircle2, XCircle, Lightbulb } from "lucide-react";
 import {
   useThread,
   useThreadEvents,
@@ -8,6 +8,7 @@ import {
   useUpdateThread,
   useRespondValidation,
   useDeleteThread,
+  useCaptureThreadInsight,
 } from "@/api/portal/hooks";
 import type { ThreadEvent, ThreadStatus } from "@/api/portal/types";
 import { useAuthStore } from "@/stores/auth";
@@ -104,12 +105,16 @@ export function ThreadDetail({ threadId, canModerate, onBack, onDeleted }: Props
   const update = useUpdateThread();
   const del = useDeleteThread();
   const respondValidation = useRespondValidation();
+  const capture = useCaptureThreadInsight();
   const me = useAuthStore((s) => s.user);
   const [reply, setReply] = useState("");
   const [disputeReason, setDisputeReason] = useState("");
 
   const isAuthor = !!me?.email && thread?.author_email === me.email;
   const mayModerate = canModerate || !!me?.is_admin || isAuthor;
+  // Capturing feedback as an insight requires apply_knowledge access (or admin),
+  // the same capability that reviews and applies it; mirrors the backend gate.
+  const canApply = (me?.tools?.includes("apply_knowledge") ?? false) || !!me?.is_admin;
 
   const respond = (result: "validated" | "disputed") =>
     respondValidation.mutate({ threadId, result, reason: result === "disputed" ? disputeReason.trim() : undefined });
@@ -173,6 +178,35 @@ export function ThreadDetail({ threadId, canModerate, onBack, onDeleted }: Props
           </p>
         )}
       </div>
+
+      {/* Capture as insight: a reviewer turns actionable feedback into a pending
+          insight that enters the apply_knowledge review queue. Shown only for
+          unlinked correction/suggestion threads to apply_knowledge holders. */}
+      {!thread.insight_id &&
+        canApply &&
+        (thread.kind === "correction" || thread.kind === "suggestion") && (
+          <div className="border-b bg-primary/5 p-3">
+            <p className="mb-2 text-xs text-muted-foreground">
+              Promote this feedback into the review queue. It becomes a pending
+              insight an agent can apply as durable knowledge, and this thread
+              resolves with a link to it.
+            </p>
+            <button
+              type="button"
+              onClick={() => capture.mutate({ threadId })}
+              disabled={capture.isPending}
+              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              <Lightbulb className="h-3.5 w-3.5" />
+              {capture.isPending ? "Capturing…" : "Capture as insight"}
+            </button>
+            {capture.isError && (
+              <p className="mt-1.5 text-xs text-destructive">
+                Could not capture this as an insight.
+              </p>
+            )}
+          </div>
+        )}
 
       {/* Knowledge chain (shown once the thread is linked to a captured insight) */}
       {thread.insight_id && (

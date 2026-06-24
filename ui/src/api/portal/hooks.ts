@@ -858,6 +858,11 @@ export function useSearchMyMemories(
 // summary. It is the REST surface over the same router behind the MCP search
 // tool. Disabled (no request) until query or entityUrns is non-empty, so an
 // empty query falls back to the page's browse experience.
+// MIN_SEARCH_LEN is the shortest free-text query that issues a server search.
+// Single-character full-text queries are wasteful and return noise, so search
+// surfaces wait for at least this many characters (debounced) before querying.
+export const MIN_SEARCH_LEN = 2;
+
 export function useSearch(
   query: string,
   params?: { entityUrns?: string[]; sources?: string[]; status?: string; limit?: number },
@@ -873,7 +878,9 @@ export function useSearch(
   const hasEntityURNs = (params?.entityUrns?.length ?? 0) > 0;
   return useQuery({
     queryKey: ["unified-search", q, params],
-    enabled: q.length > 0 || hasEntityURNs,
+    // Free-text searches wait for the minimum query length; an entity-URN lookup
+    // is exact, so it is exempt.
+    enabled: q.length >= MIN_SEARCH_LEN || hasEntityURNs,
     queryFn: () => apiFetch<SearchResponse>(`/search?${sp.toString()}`),
   });
 }
@@ -885,6 +892,7 @@ export interface ThreadListFilter {
   asset_id?: string;
   collection_id?: string;
   prompt_id?: string;
+  knowledge_page_id?: string;
   kind?: ThreadKind;
   status?: ThreadStatus;
   limit?: number;
@@ -907,7 +915,8 @@ function threadFilterScoped(filter: ThreadListFilter): boolean {
     filter.target_type === "standalone" ||
     !!filter.asset_id ||
     !!filter.collection_id ||
-    !!filter.prompt_id
+    !!filter.prompt_id ||
+    !!filter.knowledge_page_id
   );
 }
 
@@ -1009,7 +1018,7 @@ export function useThreadChain(id: string, hasInsight: boolean) {
 }
 
 export function useThreadCounts(
-  targetType: "asset" | "collection",
+  targetType: "asset" | "collection" | "knowledge_page",
   ids: string[],
 ) {
   const sorted = [...ids].sort();
@@ -1029,6 +1038,7 @@ export interface CreateThreadInput {
   asset_id?: string;
   collection_id?: string;
   prompt_id?: string;
+  knowledge_page_id?: string;
   anchor?: ThreadAnchor;
   target_version?: number;
   title?: string;
@@ -1059,6 +1069,41 @@ export function useCreateThread() {
         body: JSON.stringify(input),
       }),
     onSuccess: () => invalidateThreadQueries(qc),
+  });
+}
+
+// Capturing a feedback thread as a reviewable insight (#662). The optional
+// fields override the defaults (content derived from the thread, sink class
+// business_knowledge). Requires apply_knowledge access server-side.
+export interface CaptureThreadInsightInput {
+  threadId: string;
+  content?: string;
+  category?: string;
+  confidence?: string;
+  sink_class?: string;
+  entity_urns?: string[];
+}
+
+export interface CaptureThreadInsightResult {
+  insight_id: string;
+  status: string;
+  linked: boolean;
+}
+
+export function useCaptureThreadInsight() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ threadId, ...body }: CaptureThreadInsightInput) =>
+      apiFetch<CaptureThreadInsightResult>(`/threads/${threadId}/insight`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      invalidateThreadQueries(qc);
+      // A new pending insight enters the review queue and its stats.
+      void qc.invalidateQueries({ queryKey: ["insights"] });
+      void qc.invalidateQueries({ queryKey: ["insight-stats"] });
+    },
   });
 }
 
@@ -1153,7 +1198,7 @@ export function useSearchKnowledgePages(query: string, params?: { limit?: number
   return useQuery({
     queryKey: ["search-knowledge-pages", q, params],
     queryFn: () => apiFetch<ScoredKnowledgePage[]>(`/knowledge-pages/search?${search.toString()}`),
-    enabled: q.length > 0,
+    enabled: q.length >= MIN_SEARCH_LEN,
   });
 }
 
