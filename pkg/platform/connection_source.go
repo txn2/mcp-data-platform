@@ -91,6 +91,15 @@ func (m *ConnectionSourceMap) ForConnection(kind, name string) *ConnectionSource
 	return m.byConnection[kind+"/"+name]
 }
 
+// DataHubSourceName returns the DataHub source name mapped to a connection, or ""
+// when none; it adapts the map to the connview.SourceResolver capability.
+func (m *ConnectionSourceMap) DataHubSourceName(kind, name string) string {
+	if s := m.ForConnection(kind, name); s != nil {
+		return s.DataHubSourceName
+	}
+	return ""
+}
+
 // ForConnectionName returns the DataHub source info by connection name only.
 // Searches all kinds. Returns nil if not found.
 func (m *ConnectionSourceMap) ForConnectionName(name string) *ConnectionSource {

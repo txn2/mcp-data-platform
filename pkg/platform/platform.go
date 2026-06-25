@@ -1730,7 +1730,7 @@ func (p *Platform) storeSearchProviders() []knowledge.Provider {
 	}
 	// Canonical knowledge pages (the internal-knowledge home for business
 	// ontology) are shared and searchable over their full content.
-	if s, ok := p.portalKnowledgePageStore.(knowledgepage.Searcher); ok {
+	if s, ok := p.portalKnowledgePageStore.(knowledge.PageSearcher); ok {
 		providers = append(providers, knowledge.NewKnowledgePagesProvider(s))
 	}
 	// Prompts are searchable through the postgres prompt store.
