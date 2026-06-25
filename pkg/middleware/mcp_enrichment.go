@@ -29,6 +29,7 @@ func MCPSemanticEnrichmentMiddleware(
 	storageProvider storage.Provider,
 	cfg EnrichmentConfig,
 	memoryProvider MemoryProvider,
+	pageProvider ...KnowledgePageProvider,
 ) mcp.Middleware {
 	enricher := &semanticEnricher{
 		semanticProvider: semanticProvider,
@@ -36,6 +37,9 @@ func MCPSemanticEnrichmentMiddleware(
 		storageProvider:  storageProvider,
 		memoryProvider:   memoryProvider,
 		cfg:              cfg,
+	}
+	if len(pageProvider) > 0 {
+		enricher.pageProvider = pageProvider[0]
 	}
 
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
@@ -114,6 +118,11 @@ func applyEnrichment(
 ) (mcp.Result, error) {
 	callReq := buildCallToolRequest(req)
 
+	// Capture the entities the tool itself returned before any enrichment appends
+	// blocks, so the knowledge-page lookup keys off the tool's own entities rather
+	// than enriched neighbors or memory free-text.
+	entityURNs := extractEntityURNsFromResult(callResult)
+
 	beforeLen := len(callResult.Content)
 	enrichedResult, _ := enricher.enrich(ctx, callResult, callReq, pc)
 	if len(enrichedResult.Content) > beforeLen {
@@ -125,6 +134,9 @@ func applyEnrichment(
 
 	// Attach relevant memories from the memory layer.
 	enrichedResult = enrichWithMemories(ctx, enricher.memoryProvider, enrichedResult, pc)
+
+	// Attach the canonical knowledge pages that document the named entities (#634).
+	enrichedResult = enrichWithKnowledgePages(ctx, enricher.pageProvider, enrichedResult, entityURNs)
 
 	appendDiscoveryNoteIfNeeded(enrichedResult, pc, enricher.cfg.WorkflowTracker)
 

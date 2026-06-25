@@ -15,6 +15,42 @@ type PageRef struct {
 	Title string `json:"title"`
 }
 
+// ReverseLookup is the reverse-lookup capability PagesForURNs needs (the pages that
+// reference a target), satisfied by Store and by lighter adapters in callers.
+type ReverseLookup interface {
+	ListPagesReferencing(ctx context.Context, ref EntityRef) ([]PageRef, error)
+}
+
+// PagesForURNs returns the distinct pages that reference any of the given entity
+// URNs, in first-seen order, capped at limit (limit <= 0 means no cap). A URN that
+// does not parse as a reference is skipped; a lookup error is returned. It backs the
+// cross-enrichment that surfaces the knowledge about the entities a tool returns.
+func PagesForURNs(ctx context.Context, store ReverseLookup, urns []string, limit int) ([]PageRef, error) {
+	seen := make(map[string]bool)
+	out := make([]PageRef, 0, len(urns))
+	for _, urn := range urns {
+		ref, err := ParseEntityRef(urn)
+		if err != nil {
+			continue
+		}
+		pages, err := store.ListPagesReferencing(ctx, ref)
+		if err != nil {
+			return nil, fmt.Errorf("listing pages referencing %q: %w", urn, err)
+		}
+		for _, pg := range pages {
+			if seen[pg.ID] {
+				continue
+			}
+			seen[pg.ID] = true
+			out = append(out, pg)
+			if limit > 0 && len(out) >= limit {
+				return out, nil
+			}
+		}
+	}
+	return out, nil
+}
+
 // reverseLookupFilter returns the WHERE clause and arguments that select the
 // references pointing at the given target, or ("", nil) for an unknown type. The
 // clause is a fixed literal per type; the target values are returned as args and

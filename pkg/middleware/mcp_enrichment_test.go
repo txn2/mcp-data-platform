@@ -222,6 +222,38 @@ func TestMCPSemanticEnrichmentMiddleware_DataHubEnrichment(t *testing.T) {
 	assert.Contains(t, tc.Text, "query_context")
 }
 
+// TestMCPSemanticEnrichmentMiddleware_AppendsKnowledgePages proves the #634 wiring
+// end to end: a knowledge-page provider passed to the middleware causes an entity
+// tool result to carry a knowledge_pages block through the real enrichment chain.
+func TestMCPSemanticEnrichmentMiddleware_AppendsKnowledgePages(t *testing.T) {
+	kp := &fakePageProvider{pages: []KnowledgePageSnippet{{ID: "kp1", Slug: "vocab", Title: "ACME Vocabulary"}}}
+	mw := MCPSemanticEnrichmentMiddleware(
+		nil, nil, nil,
+		EnrichmentConfig{EnrichDataHubResults: true},
+		nil,
+		kp,
+	)
+
+	handler := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{
+			Text: `{"urn":"urn:li:dataset:(urn:li:dataPlatform:postgres,test,PROD)"}`,
+		}}}, nil
+	}
+
+	req := createServerRequest(t, "datahub_get_entity", map[string]any{"urn": "x"})
+	result, err := mw(handler)(context.Background(), enrichTestMethodToolsCall, req)
+	require.NoError(t, err)
+	callResult, ok := result.(*mcp.CallToolResult)
+	require.True(t, ok, enrichTestCallToolFmt, result)
+
+	require.Len(t, callResult.Content, 2, "the knowledge_pages block is appended")
+	tc, ok := callResult.Content[1].(*mcp.TextContent)
+	require.True(t, ok)
+	assert.Contains(t, tc.Text, "knowledge_pages")
+	assert.Contains(t, tc.Text, "ACME Vocabulary")
+	assert.Contains(t, kp.gotURNs, "urn:li:dataset:(urn:li:dataPlatform:postgres,test,PROD)")
+}
+
 func TestMCPSemanticEnrichmentMiddleware_UnknownToolPassthrough(t *testing.T) {
 	// Create middleware
 	mw := MCPSemanticEnrichmentMiddleware(nil, nil, nil, EnrichmentConfig{

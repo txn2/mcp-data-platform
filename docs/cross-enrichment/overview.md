@@ -313,6 +313,31 @@ When listing S3 objects, show matching DataHub metadata:
 }
 ```
 
+### Knowledge Pages (entity to knowledge)
+
+When a tool result names entities, the response also carries the canonical
+knowledge pages that document those entities, so an agent sees the business and
+domain knowledge about what it just fetched. The entity URNs are read from the
+result, the reverse lookup finds the pages that reference them, and a bounded
+`knowledge_pages` block is appended (capped so a widely documented entity does not
+balloon the response):
+
+```json
+{
+  "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)",
+  "knowledge_pages": [
+    {"id": "kp_5cdde7bb", "slug": "retail-sales-vocabulary", "title": "Retail Sales Vocabulary"}
+  ]
+}
+```
+
+The same reverse lookup surfaces in two more agent-facing places:
+
+- **`search(entity_urns=[...])`** returns the knowledge pages that reference each
+  entity (datasets and connections), merged with the text-relevance results.
+- **`list_connections`** carries, per connection, a `knowledge_page_count` and a
+  bounded sample of the pages that document it.
+
 ---
 
 ## Configuration
