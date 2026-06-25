@@ -130,3 +130,54 @@ func TestMemoryStore_LexicalSearch_RealDB_Differentiates(t *testing.T) {
 		assert.Less(t, s, 1.0, "score for %s must be < 1", id)
 	}
 }
+
+// TestMemoryStore_Supersede_RealDB_AdvancesInsightStatus is the #682 fix at the
+// store level: superseding a reviewable insight must advance BOTH the lifecycle
+// status column AND metadata.insight_status, so the insights read path (which
+// filters on insight_status) stops surfacing the stale record. A non-insight
+// record, which carries no insight_status, must be superseded without one being
+// invented. Validates the jsonb_exists CASE that sqlmock cannot exercise.
+func TestMemoryStore_Supersede_RealDB_AdvancesInsightStatus(t *testing.T) {
+	store := NewPostgresStore(testdb.New(t))
+	ctx := context.Background()
+
+	insight := Record{
+		ID:        "mem_realdb_supersede_insight",
+		Content:   "Original business-knowledge insight to be superseded.",
+		Dimension: "knowledge",
+		Category:  "business_context",
+		Source:    "user",
+		Status:    StatusActive,
+		Metadata:  map[string]any{MetaKeyInsightStatus: InsightStatusPending},
+	}
+	require.NoError(t, store.Insert(ctx, insight))
+
+	pref := Record{
+		ID:        "mem_realdb_supersede_pref",
+		Content:   "A personal preference to be superseded (no insight_status).",
+		Dimension: "preference",
+		Category:  "general",
+		Source:    "user",
+		Status:    StatusActive,
+	}
+	require.NoError(t, store.Insert(ctx, pref))
+
+	require.NoError(t, store.Supersede(ctx, insight.ID, "mem_successor"))
+	require.NoError(t, store.Supersede(ctx, pref.ID, "mem_successor"))
+
+	gotInsight, err := store.Get(ctx, insight.ID)
+	require.NoError(t, err)
+	require.NotNil(t, gotInsight)
+	assert.Equal(t, StatusSuperseded, gotInsight.Status, "lifecycle status advanced")
+	assert.Equal(t, InsightStatusSuperseded, gotInsight.Metadata[MetaKeyInsightStatus],
+		"insight review status follows to superseded so the insights read path retracts it (#682)")
+	assert.Equal(t, "mem_successor", gotInsight.Metadata["superseded_by"])
+
+	gotPref, err := store.Get(ctx, pref.ID)
+	require.NoError(t, err)
+	require.NotNil(t, gotPref)
+	assert.Equal(t, StatusSuperseded, gotPref.Status, "non-insight lifecycle status advanced")
+	_, hasInsightStatus := gotPref.Metadata[MetaKeyInsightStatus]
+	assert.False(t, hasInsightStatus, "a non-insight record must not be given an insight_status")
+	assert.Equal(t, "mem_successor", gotPref.Metadata["superseded_by"])
+}

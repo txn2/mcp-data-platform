@@ -110,6 +110,11 @@ const (
 	MetaKeySuggestedActions = "suggested_actions"
 	MetaKeySessionID        = "session_id"
 	InsightStatusPending    = "pending"
+	// InsightStatusSuperseded mirrors knowledgekit.StatusSuperseded. It is the
+	// review-status counterpart of the StatusSuperseded lifecycle column: when a
+	// record is superseded, its insight review status must follow, or the insights
+	// read path (which filters on insight_status) keeps surfacing the stale record.
+	InsightStatusSuperseded = "superseded"
 )
 
 // Status values for memory records.

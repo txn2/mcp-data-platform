@@ -45,7 +45,7 @@ func (t *Toolkit) handleRollback(ctx context.Context, input applyKnowledgeInput)
 	}
 
 	deps := RollbackDeps{Writer: t.datahubWriter, Changesets: t.changesetStore, Insights: t.store, Pages: t.pageWriter}
-	result, err := RevertChangeset(ctx, deps, cs, userIDFromContext(ctx))
+	result, err := RevertChangeset(ctx, deps, cs, authorFromContext(ctx))
 	if err != nil {
 		return rollbackErrorResult(err), nil, nil
 	}
