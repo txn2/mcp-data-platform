@@ -6,35 +6,15 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/txn2/mcp-data-platform/pkg/registry"
-	"github.com/txn2/mcp-data-platform/pkg/toolkit"
+	"github.com/txn2/mcp-data-platform/pkg/connview"
 )
 
-// connectionEntry describes a single toolkit connection.
-//
-// CatalogID and OperationCount are populated only for kinds where they
-// have meaning (today: api). They make the runtime view of a
-// connection visible to MCP clients so a stale in-memory binding
-// (DB updated, toolkit not reloaded) is observable from list_connections
-// rather than only via a downstream tool failing with "no catalog
-// configured".
-type connectionEntry struct {
-	Kind              string                        `json:"kind"`
-	Name              string                        `json:"name"`
-	Connection        string                        `json:"connection"`
-	Description       string                        `json:"description,omitempty"`
-	IsDefault         bool                          `json:"is_default,omitempty"`
-	DataHubSourceName string                        `json:"datahub_source_name,omitempty"`
-	CatalogID         string                        `json:"catalog_id,omitempty"`
-	OperationCount    int                           `json:"operation_count,omitempty"`
-	Health            *toolkit.ConnectionHealthWire `json:"health,omitempty"`
-}
+// connectionEntry and listConnectionsOutput are the list_connections view types,
+// owned by pkg/connview (kept out of pkg/platform for the size budget). The aliases
+// preserve the existing platform-internal names and JSON shape.
+type connectionEntry = connview.Entry
 
-// listConnectionsOutput is the JSON response for the list_connections tool.
-type listConnectionsOutput struct {
-	Connections []connectionEntry `json:"connections"`
-	Count       int               `json:"count"`
-}
+type listConnectionsOutput = connview.Output
 
 // listConnectionsInput is empty since this tool has no parameters.
 type listConnectionsInput struct{}
@@ -42,32 +22,29 @@ type listConnectionsInput struct{}
 // registerConnectionsTool registers the list_connections tool with the MCP server.
 func (p *Platform) registerConnectionsTool() {
 	mcp.AddTool(p.mcpServer, &mcp.Tool{
-		Name:        toolListConns,
-		Title:       "List Connections",
-		Description: "List all configured data connections across toolkits (Trino, DataHub, S3, etc.).",
+		Name:  toolListConns,
+		Title: "List Connections",
+		Description: "List all configured data connections across toolkits (Trino, DataHub, S3, etc.). " +
+			"Each connection includes a count and a bounded sample of the canonical knowledge pages that document it.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, _ listConnectionsInput) (*mcp.CallToolResult, any, error) {
 		return p.handleListConnections(ctx, req)
 	})
 }
 
-// handleListConnections handles the list_connections tool call.
-func (p *Platform) handleListConnections(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, any, error) {
-	toolkits := p.toolkitRegistry.All()
-
-	entries := make([]connectionEntry, 0, len(toolkits))
-	for _, tk := range toolkits {
-		if lister, ok := tk.(toolkit.ConnectionLister); ok {
-			entries = p.entriesFromLister(entries, tk, lister)
-		} else {
-			entries = p.entryFromFallback(entries, tk)
-		}
+// handleListConnections handles the list_connections tool call, delegating the view
+// build (and the knowledge-page reverse-lookup enrichment) to pkg/connview.
+func (p *Platform) handleListConnections(ctx context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, any, error) {
+	var src connview.SourceResolver
+	if p.connectionSources != nil {
+		src = p.connectionSources
+	}
+	var pages connview.PageLookup
+	if p.portalKnowledgePageStore != nil {
+		pages = p.portalKnowledgePageStore
 	}
 
-	out := listConnectionsOutput{
-		Connections: entries,
-		Count:       len(entries),
-	}
+	out := connview.Build(ctx, p.toolkitRegistry.All(), src, pages)
 
 	data, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
@@ -84,43 +61,4 @@ func (p *Platform) handleListConnections(_ context.Context, _ *mcp.CallToolReque
 			&mcp.TextContent{Text: string(data)},
 		},
 	}, nil, nil
-}
-
-// entriesFromLister builds connection entries from a toolkit that implements ConnectionLister.
-func (p *Platform) entriesFromLister(entries []connectionEntry, tk registry.Toolkit, lister toolkit.ConnectionLister) []connectionEntry {
-	for _, conn := range lister.ListConnections() {
-		entry := connectionEntry{
-			Kind:           tk.Kind(),
-			Name:           conn.Name,
-			Connection:     conn.Name,
-			Description:    conn.Description,
-			IsDefault:      conn.IsDefault,
-			CatalogID:      conn.CatalogID,
-			OperationCount: conn.OperationCount,
-		}
-		if src := p.connectionSources.ForConnection(tk.Kind(), conn.Name); src != nil {
-			entry.DataHubSourceName = src.DataHubSourceName
-		}
-		entry.Health = conn.Health.Wire()
-		entries = append(entries, entry)
-	}
-	return entries
-}
-
-// entryFromFallback builds a single connection entry for toolkits that do not
-// implement ConnectionLister. Non-data toolkits are skipped.
-func (p *Platform) entryFromFallback(entries []connectionEntry, tk registry.Toolkit) []connectionEntry {
-	kind := tk.Kind()
-	if kind != kindTrino && kind != kindDataHub && kind != kindS3 {
-		return entries
-	}
-	entry := connectionEntry{
-		Kind:       kind,
-		Name:       tk.Name(),
-		Connection: tk.Connection(),
-	}
-	if src := p.connectionSources.ForConnection(kind, tk.Name()); src != nil {
-		entry.DataHubSourceName = src.DataHubSourceName
-	}
-	return append(entries, entry)
 }

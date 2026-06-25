@@ -145,6 +145,10 @@ func (globalKnowledgePages) Search(_ context.Context, _ knowledgepage.SearchQuer
 	return []knowledgepage.ScoredPage{{Page: knowledgepage.Page{ID: "g-page", Title: "global page"}, Score: 0.5}}, nil
 }
 
+func (globalKnowledgePages) ListPagesReferencing(_ context.Context, _ knowledgepage.EntityRef) ([]knowledgepage.PageRef, error) {
+	return nil, nil
+}
+
 const (
 	userAEmail = "alice@example.com"
 	userAID    = "uuid-alice"
