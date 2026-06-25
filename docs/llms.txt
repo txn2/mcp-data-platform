@@ -28,6 +28,7 @@ mcp-data-platform is the orchestration layer for the txn2 MCP ecosystem. DataHub
 - [Trino to DataHub](https://mcp-data-platform.txn2.com/cross-enrichment/trino-datahub/): Trino results include DataHub metadata
 - [DataHub to Trino](https://mcp-data-platform.txn2.com/cross-enrichment/datahub-trino/): DataHub results show query availability
 - [S3 Enrichment](https://mcp-data-platform.txn2.com/cross-enrichment/s3/): S3 operations include semantic context
+- [Knowledge Pages](https://mcp-data-platform.txn2.com/cross-enrichment/overview/#knowledge-pages-entity-to-knowledge): Entity tool results, search by entity_urns, and list_connections carry the canonical knowledge pages that document the named entities and connections (bounded, reverse lookup)
 - [Lineage Inheritance](https://mcp-data-platform.txn2.com/cross-enrichment/lineage/): Automatic column metadata inheritance from upstream datasets via DataHub lineage
 - [Session Dedup](https://mcp-data-platform.txn2.com/cross-enrichment/overview/#session-metadata-deduplication): Avoids repeating semantic metadata for previously-enriched tables within a session, saving LLM context tokens
 - [Column Context Filtering](https://mcp-data-platform.txn2.com/cross-enrichment/trino-datahub/#column-level-enrichment): Limits column-level enrichment to columns referenced in the SQL query, reducing token usage for wide tables (default: enabled)

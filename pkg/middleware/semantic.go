@@ -166,6 +166,7 @@ type semanticEnricher struct {
 	queryProvider    query.Provider
 	storageProvider  storage.Provider
 	memoryProvider   MemoryProvider
+	pageProvider     KnowledgePageProvider
 	cfg              EnrichmentConfig
 }
 

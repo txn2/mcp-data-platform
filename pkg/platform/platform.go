@@ -2884,8 +2884,37 @@ func (p *Platform) addEnrichmentMiddleware() {
 			p.storageProvider,
 			enrichCfg,
 			mp,
+			knowledgePageProviders(p.portalKnowledgePageStore)...,
 		),
 	)
+}
+
+// knowledgePageProviders returns the page-enrichment provider for the middleware, or
+// nothing when no knowledge-page store is configured (so the variadic stays empty).
+func knowledgePageProviders(store knowledgepage.ReverseLookup) []middleware.KnowledgePageProvider {
+	if store == nil {
+		return nil
+	}
+	return []middleware.KnowledgePageProvider{&knowledgePageEnrichmentBridge{store: store}}
+}
+
+// knowledgePageEnrichmentBridge adapts the knowledge-page reverse lookup to
+// middleware.KnowledgePageProvider for entity tool-response cross-enrichment (#634).
+type knowledgePageEnrichmentBridge struct {
+	store knowledgepage.ReverseLookup
+}
+
+// PagesForEntities returns the bounded set of pages referencing the given entity URNs.
+func (b *knowledgePageEnrichmentBridge) PagesForEntities(ctx context.Context, urns []string, limit int) ([]middleware.KnowledgePageSnippet, error) {
+	pages, err := knowledgepage.PagesForURNs(ctx, b.store, urns, limit)
+	if err != nil {
+		return nil, fmt.Errorf("knowledge-page enrichment lookup: %w", err)
+	}
+	out := make([]middleware.KnowledgePageSnippet, 0, len(pages))
+	for _, pg := range pages {
+		out = append(out, middleware.KnowledgePageSnippet{ID: pg.ID, Slug: pg.Slug, Title: pg.Title})
+	}
+	return out, nil
 }
 
 // buildEnrichmentConfig creates the enrichment middleware config, including

@@ -1137,6 +1137,21 @@ When lineage inheritance is active, responses include column context with proven
 
 **Data lakes**: Parquet files derived from operational databases. Aliases provide explicit mapping when lineage isn't tracked.
 
+### Knowledge Pages (entity to knowledge)
+
+When a tool result names entities, the response also carries the canonical knowledge pages that document those entities, so an agent sees the business and domain knowledge about what it just fetched. Entity URNs are read from the result, the reverse lookup finds the pages that reference them, and a bounded `knowledge_pages` block is appended (capped so a widely documented entity does not balloon the response):
+
+```json
+{
+  "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)",
+  "knowledge_pages": [
+    {"id": "kp_5cdde7bb", "slug": "retail-sales-vocabulary", "title": "Retail Sales Vocabulary"}
+  ]
+}
+```
+
+The same reverse lookup surfaces in two more agent-facing places: `search(entity_urns=[...])` returns the knowledge pages that reference each entity (datasets and connections) merged with the text-relevance results, and `list_connections` carries per connection a `knowledge_page_count` and a bounded sample of the pages that document it.
+
 ## Session Metadata Deduplication
 
 When Trino enrichment is enabled, every tool call targeting a table receives ~2KB of semantic metadata. In a typical session querying the same table multiple times, this wastes LLM context tokens with repeated information.
