@@ -38,6 +38,58 @@ func (f *fakeInsightStore) List(_ context.Context, filter knowledgekit.InsightFi
 	return recs, len(recs), nil
 }
 
+// TestInsightsProvider_TextPathRetractsNonLive is the #684 regression: an
+// unfiltered text/intent search must drop rejected/superseded/rolled-back insights,
+// exactly as the entity path does, so a "what do we know" lookup never surfaces
+// retracted knowledge.
+func TestInsightsProvider_TextPathRetractsNonLive(t *testing.T) {
+	s := &fakeInsightStore{scored: []knowledgekit.ScoredInsight{
+		{Insight: knowledgekit.Insight{ID: "live-pending", Status: knowledgekit.StatusPending}, Score: 0.9},
+		{Insight: knowledgekit.Insight{ID: "live-applied", Status: knowledgekit.StatusApplied}, Score: 0.8},
+		{Insight: knowledgekit.Insight{ID: "dead-superseded", Status: knowledgekit.StatusSuperseded}, Score: 0.95},
+		{Insight: knowledgekit.Insight{ID: "dead-rejected", Status: knowledgekit.StatusRejected}, Score: 0.7},
+		{Insight: knowledgekit.Insight{ID: "dead-rolledback", Status: knowledgekit.StatusRolledBack}, Score: 0.6},
+	}}
+	p := NewInsightsProvider(s)
+	hits, err := p.Search(context.Background(), Query{Intent: "q", Caller: Caller{Email: "a@example.com"}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got := map[string]bool{}
+	for _, h := range hits {
+		got[h.Ref] = true
+	}
+	for _, live := range []string{"live-pending", "live-applied"} {
+		if !got[live] {
+			t.Errorf("live insight %q was dropped from text search", live)
+		}
+	}
+	for _, dead := range []string{"dead-superseded", "dead-rejected", "dead-rolledback"} {
+		if got[dead] {
+			t.Errorf("retracted insight %q surfaced in unfiltered text search (#684)", dead)
+		}
+	}
+}
+
+// TestInsightsProvider_TextPathHonorsExplicitStatus confirms the retraction only
+// applies when no status was requested: an explicit status=superseded still returns
+// superseded insights (the store does that filtering; the provider must not re-drop).
+func TestInsightsProvider_TextPathHonorsExplicitStatus(t *testing.T) {
+	s := &fakeInsightStore{scored: []knowledgekit.ScoredInsight{
+		{Insight: knowledgekit.Insight{ID: "sup", Status: knowledgekit.StatusSuperseded}, Score: 0.9},
+	}}
+	p := NewInsightsProvider(s)
+	hits, err := p.Search(context.Background(), Query{
+		Intent: "q", Status: knowledgekit.StatusSuperseded, Caller: Caller{Email: "a@example.com"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(hits) != 1 || hits[0].Ref != "sup" {
+		t.Errorf("explicit status=superseded must return the superseded insight, got %+v", hits)
+	}
+}
+
 func TestInsightsProvider_Metadata(t *testing.T) {
 	p := NewInsightsProvider(&fakeInsightStore{})
 	if p.Name() != SourceInsights {

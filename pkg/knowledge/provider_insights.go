@@ -138,6 +138,12 @@ func (p *InsightsProvider) searchByText(ctx context.Context, q Query, seen map[s
 		if seen[scored[i].Insight.ID] {
 			continue
 		}
+		// Same retraction as the entity path: with no explicit status requested, a
+		// rejected/superseded/rolled-back insight is no longer in force and must not
+		// surface in a "what do we know" lookup (#684).
+		if q.Status == "" && !isLiveInsightStatus(scored[i].Insight.Status) {
+			continue
+		}
 		seen[scored[i].Insight.ID] = true
 		hits = append(hits, insightHit(scored[i].Insight, scored[i].Score))
 	}
@@ -159,7 +165,7 @@ func insightHit(in knowledgekit.Insight, score float64) Hit {
 
 // isLiveInsightStatus reports whether an insight status represents knowledge
 // still in force. Rejected, superseded, and rolled-back insights are retracted
-// and must not surface on the unfiltered entity path.
+// and must not surface on either unfiltered discovery path (entity or text).
 func isLiveInsightStatus(status string) bool {
 	switch status {
 	case knowledgekit.StatusRejected, knowledgekit.StatusSuperseded, knowledgekit.StatusRolledBack:
