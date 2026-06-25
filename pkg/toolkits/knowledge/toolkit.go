@@ -438,7 +438,7 @@ func (t *Toolkit) handleApply(ctx context.Context, input applyKnowledgeInput) (*
 		})
 	}
 
-	appliedBy := userIDFromContext(ctx)
+	appliedBy := authorFromContext(ctx)
 
 	// Get current metadata for recording previous values
 	prevMeta, err := t.datahubWriter.GetCurrentMetadata(ctx, input.EntityURN)
@@ -512,13 +512,21 @@ func (t *Toolkit) recordChangesetAndMarkApplied(ctx context.Context, input apply
 	return jsonResult(result)
 }
 
-// userIDFromContext extracts the user ID from the platform context, or returns empty.
-func userIDFromContext(ctx context.Context) string {
+// authorFromContext returns the acting user's identity for authorship fields
+// (page created_by/created_email, changeset author, rollback author). It prefers the
+// email, matching the portal page handler, captured-insight authorship, and how these
+// fields are displayed; it falls back to the user id only when no email is present
+// (e.g. an API-key identity), so authorship is never the opaque id when an email
+// exists (#682).
+func authorFromContext(ctx context.Context) string {
 	pc := middleware.GetPlatformContext(ctx)
-	if pc != nil {
-		return pc.UserID
+	if pc == nil {
+		return ""
 	}
-	return ""
+	if pc.UserEmail != "" {
+		return pc.UserEmail
+	}
+	return pc.UserID
 }
 
 // columnTargetPrefix is the prefix for column-level targets in the target field.

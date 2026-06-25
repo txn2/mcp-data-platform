@@ -67,6 +67,9 @@ func TestPageSink_RealDB_PromoteAndRollback(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Fiscal Calendar", page.Title)
 	assert.Contains(t, page.Tags, memory.SinkBusinessKnowledge)
+	// Authorship is the acting user's email, not the opaque user id (#682).
+	assert.Equal(t, "admin@example.com", page.CreatedEmail)
+	assert.Equal(t, "admin@example.com", page.CreatedBy)
 
 	// The insight's DataHub reference was carried onto the page (#664), against
 	// the real table with its CHECK, FK, and unique-index constraints.

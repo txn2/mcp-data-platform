@@ -408,6 +408,31 @@ func ctxWithUser(userID, sessionID, persona string) context.Context {
 	return middleware.WithPlatformContext(context.Background(), pc)
 }
 
+// TestAuthorFromContext covers #682 finding 2: authorship fields (page
+// created_by/created_email, changeset author) must prefer the email, falling back
+// to the user id only when no email is present, never the opaque id when an email
+// exists.
+func TestAuthorFromContext(t *testing.T) {
+	t.Run("prefers email over id", func(t *testing.T) {
+		ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
+			UserID:    "00f10812-22a1-4549-8a6b-8116b1f3cd06",
+			UserEmail: "alice@example.com",
+		})
+		assert.Equal(t, "alice@example.com", authorFromContext(ctx))
+	})
+
+	t.Run("falls back to id when no email", func(t *testing.T) {
+		ctx := middleware.WithPlatformContext(context.Background(), &middleware.PlatformContext{
+			UserID: "svc-api-key-1",
+		})
+		assert.Equal(t, "svc-api-key-1", authorFromContext(ctx))
+	})
+
+	t.Run("empty when no platform context", func(t *testing.T) {
+		assert.Equal(t, "", authorFromContext(context.Background()))
+	})
+}
+
 // ---------------------------------------------------------------------------
 // AC-1: Tool registration
 // ---------------------------------------------------------------------------

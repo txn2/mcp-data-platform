@@ -162,7 +162,7 @@ func (t *Toolkit) promoteToPage(ctx context.Context, input applyKnowledgeInput) 
 		})
 	}
 
-	appliedBy := userIDFromContext(ctx)
+	appliedBy := authorFromContext(ctx)
 	tags := tagsWithOrigin(page.Tags, originClass)
 	prom, err := t.applyPagePromotion(ctx, *page, tags, appliedBy, entityURNs)
 	if err != nil {

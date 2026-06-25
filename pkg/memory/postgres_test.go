@@ -556,12 +556,18 @@ func TestPostgresStore_Supersede_Success(t *testing.T) {
 
 	store := NewPostgresStore(db)
 
+	// The metadata merge conditionally advances insight_status to superseded, so the
+	// SQL binds the insight_status key (twice: jsonb_exists + jsonb_build_object) and
+	// the superseded value alongside the lifecycle status and the superseded_by patch.
 	mock.ExpectExec("UPDATE memory_records SET").
 		WithArgs(
-			sqlmock.AnyArg(), // status
-			sqlmock.AnyArg(), // metadata
-			sqlmock.AnyArg(), // updated_at
-			sqlmock.AnyArg(), // old id
+			StatusSuperseded,        // lifecycle status column
+			sqlmock.AnyArg(),        // metadata superseded_by patch (jsonb)
+			MetaKeyInsightStatus,    // jsonb_exists key
+			MetaKeyInsightStatus,    // jsonb_build_object key
+			InsightStatusSuperseded, // jsonb_build_object value
+			sqlmock.AnyArg(),        // updated_at
+			"old-id",                // where id
 		).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -579,6 +585,9 @@ func TestPostgresStore_Supersede_NotFound(t *testing.T) {
 
 	mock.ExpectExec("UPDATE memory_records SET").
 		WithArgs(
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
+			sqlmock.AnyArg(),
 			sqlmock.AnyArg(),
 			sqlmock.AnyArg(),
 			sqlmock.AnyArg(),

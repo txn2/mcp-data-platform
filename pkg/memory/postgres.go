@@ -702,16 +702,41 @@ func (s *postgresStore) MarkVerified(ctx context.Context, ids []string) error {
 
 // Supersede marks an old record as superseded by a new one.
 // Uses an atomic UPDATE with jsonb || merge to avoid read-modify-write races.
+//
+// It advances both status axes: the lifecycle status column and, when the record
+// carries an insight review status (metadata.insight_status, i.e. it is a reviewable
+// insight), that review status too. Without the second half the insights read path,
+// which filters on insight_status, keeps surfacing a record the write path already
+// superseded (#682). Non-insight records have no insight_status and are left alone.
 func (s *postgresStore) Supersede(ctx context.Context, oldID, newID string) error {
 	patch, err := json.Marshal(map[string]any{"superseded_by": newID})
 	if err != nil {
 		return fmt.Errorf("marshaling supersede metadata: %w", err)
 	}
 
+	// Build the new metadata:
+	//   1. Base: the existing metadata, but coerced to '{}' when it is not a JSON
+	//      object. A record captured with no extra metadata is stored as JSON null
+	//      (captureMetadata returns nil for the empty case), and `null || obj` yields
+	//      a JSON ARRAY in Postgres, which then fails to read back as a map. Coercing
+	//      to '{}' keeps the merge an object regardless of the prior shape.
+	//   2. The superseded_by patch.
+	//   3. insight_status -> superseded, but only when the record already carries one
+	//      (a reviewable insight); a null/non-object base has no keys so jsonb_exists
+	//      is false and no insight_status is invented.
+	// jsonb_exists (the function form of the `?` operator) avoids the `?` being read
+	// as a bind placeholder by the dollar-placeholder rewriter.
+	metaExpr := sq.Expr(
+		"(CASE WHEN jsonb_typeof(metadata) = 'object' THEN metadata ELSE '{}'::jsonb END) "+
+			"|| ?::jsonb "+
+			"|| (CASE WHEN jsonb_exists(metadata, ?::text) THEN jsonb_build_object(?::text, ?::text) ELSE '{}'::jsonb END)",
+		patch, MetaKeyInsightStatus, MetaKeyInsightStatus, InsightStatusSuperseded,
+	)
+
 	now := time.Now()
 	query, args, err := psq.Update(tableName).
 		Set(colStatus, StatusSuperseded).
-		Set(colMetadata, sq.Expr("metadata || ?::jsonb", patch)).
+		Set(colMetadata, metaExpr).
 		Set("updated_at", now).
 		Where(sq.Eq{"id": oldID}).
 		ToSql()
