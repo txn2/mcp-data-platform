@@ -49,9 +49,9 @@ func Build(accessibleTools []string) string {
 		bullets = append(bullets,
 			"Discover before you act. Call `search` first: one query reveals what is already "+
 				"known across every source you can reach (the data catalog, your memory, captured "+
-				"insights, prompts, API endpoints, and connections). The answer may span several "+
-				"sources, or may not be in the data warehouse at all, so do not assume a backend and "+
-				"do not stop at the first result.",
+				"insights, knowledge pages, your feedback, prompts, API endpoints, and connections). "+
+				"The answer may span several sources, or may not be in the data warehouse at all, so do "+
+				"not assume a backend and do not stop at the first result.",
 			"Reuse what is known. Treat `search` results as the starting point and drill in with "+
 				"the scoped tool a result points to, rather than re-deriving an answer or re-asking "+
 				"the user for something already recorded.")

@@ -1743,6 +1743,11 @@ func (p *Platform) storeSearchProviders() []knowledge.Provider {
 	if s, ok := p.portalAssetStore.(portal.AssetSearcher); ok {
 		providers = append(providers, knowledge.NewAssetsProvider(s))
 	}
+	// Feedback threads complete the search corpus (#686): a caller's own feedback
+	// becomes discoverable knowledge. Lexical and per-user (threads carry no embedding).
+	if s, ok := p.portalThreadStore.(knowledge.ThreadSearcher); ok {
+		providers = append(providers, knowledge.NewThreadsProvider(s))
+	}
 	return providers
 }
 

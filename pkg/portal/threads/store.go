@@ -413,6 +413,52 @@ func (s *postgresThreadStore) GetThread(ctx context.Context, id string) (*Thread
 	return &t, nil
 }
 
+// defaultThreadSearchLimit bounds SearchThreads when the caller passes no limit.
+const defaultThreadSearchLimit = 10
+
+// SearchThreads returns the owner's feedback threads whose title or any event
+// body matches the intent, newest-first. It is lexical (threads carry no
+// embedding) and owner-scoped by author email, so it never surfaces another
+// user's feedback. This is a separate capability used only by the unified-search
+// feedback provider, so it is not part of the ThreadStore interface.
+func (s *postgresThreadStore) SearchThreads(ctx context.Context, ownerEmail, intent string, limit int) ([]Thread, error) {
+	if ownerEmail == "" || strings.TrimSpace(intent) == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = defaultThreadSearchLimit
+	}
+	pattern := "%" + intent + "%"
+	// #nosec G202 -- threadSelectColumns is a fixed package-internal column list, not user input
+	query := `SELECT ` + threadSelectColumns + `
+		FROM portal_threads
+		WHERE deleted_at IS NULL
+		  AND lower(author_email) = lower($1)
+		  AND (title ILIKE $2 OR EXISTS (
+		        SELECT 1 FROM portal_thread_events e
+		        WHERE e.thread_id = portal_threads.id AND e.body ILIKE $2))
+		ORDER BY updated_at DESC
+		LIMIT $3`
+	rows, err := s.db.QueryContext(ctx, query, ownerEmail, pattern, limit)
+	if err != nil {
+		return nil, fmt.Errorf("searching threads: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck // best-effort cleanup after read-only query
+
+	var out []Thread
+	for rows.Next() {
+		var t Thread
+		if scanErr := scanThread(rows, &t); scanErr != nil {
+			return nil, scanErr
+		}
+		out = append(out, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating thread rows: %w", err)
+	}
+	return out, nil
+}
+
 func (s *postgresThreadStore) ListEvents(ctx context.Context, threadID string) ([]ThreadEvent, error) { //nolint:revive // interface impl
 	query := `
 		SELECT id, thread_id, event_type, author_id, author_email, body, rating, parent_event_id, metadata, created_at

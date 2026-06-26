@@ -40,7 +40,7 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | S3 | `s3_put_object` | Upload object (if not read-only) |
 | S3 | `s3_delete_object` | Delete object (if not read-only) |
 | S3 | `s3_copy_object` | Copy object (if not read-only) |
-| Knowledge | `search` | The one way to discover: balanced, grouped-by-source results across catalog, memory, insights, assets, prompts, API endpoints, and connections |
+| Knowledge | `search` | The one way to discover: balanced, grouped-by-source results across catalog, memory, insights, feedback, assets, prompts, API endpoints, and connections |
 | Memory | `memory_capture` | The one way to record knowledge: sink-class routed, recall-first |
 | Knowledge | `apply_knowledge` | Review and promote reviewed captures to the catalog (admin-only) |
 | Memory | `memory_manage` | Manage existing memories: update, forget, list, review_stale (opt-in per persona) |
@@ -582,9 +582,9 @@ Structured catalog navigation (platform/domain/tag/entity-type filters) stays in
 **Corpus (everything the persona can access):** the technical catalog (DataHub,
 when configured), canonical knowledge pages (the internal-knowledge home for
 business/domain ontology, searched over their full markdown content), the caller's
-personal memory, captured insights, saved assets, prompts, API endpoints
-(aggregated across every API gateway connection, reusing the per-connection
-semantic ranking of `api_list_endpoints`), and connections. Memory, insights, and
+personal memory, captured insights, the caller's feedback threads, saved assets,
+prompts, API endpoints (aggregated across every API gateway connection, reusing
+the per-connection semantic ranking of `api_list_endpoints`), and connections. Memory, insights, and
 assets are per-user, scoped server-side to the caller, so a search never surfaces
 another user's private records; the catalog, knowledge pages, prompts, endpoints
 (each gateway applies its own route policy), and connections are shared.
