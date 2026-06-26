@@ -240,10 +240,22 @@ func (a *memoryInsightAdapter) Stats(ctx context.Context, filter InsightFilter) 
 			return nil, fmt.Errorf("listing records for insight stats: %w", err)
 		}
 		for i := range records {
-			// Report the insight status (pending/approved/applied/...),
-			// not the raw memory status, so the keys match what callers
-			// and the postgres store produce.
-			stats.ByStatus[resolveInsightStatus(records[i])]++
+			// Recover the insight status (pending/approved/applied/...) from the
+			// lossy memory status, so the keys match what callers and the postgres
+			// store produce.
+			st := resolveInsightStatus(records[i])
+			// Scope every tally to the requested status, the way the postgres store
+			// does (its WHERE filters all three group-bys). The memory status filter
+			// is lossy: a Status=pending request maps to memory.StatusActive, which
+			// also returns approved and applied records (mapInsightStatusToMemory).
+			// Without this gate ByStatus/by_category/by_confidence span every active
+			// status while TotalPending counts only pending, so the counts disagree
+			// with each other and with postgres (#688). An empty filter (the portal
+			// "my stats" path, #515) still tallies every status.
+			if filter.Status != "" && st != filter.Status {
+				continue
+			}
+			stats.ByStatus[st]++
 			stats.ByCategory[records[i].Category]++
 			stats.ByConfidence[records[i].Confidence]++
 		}

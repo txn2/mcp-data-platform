@@ -549,6 +549,50 @@ func TestMemoryInsightAdapter_Stats_Paginates(t *testing.T) {
 	assert.Equal(t, total, stats.TotalPending)
 }
 
+// TestMemoryInsightAdapter_Stats_StatusFiltered is the bulk_review path (#688):
+// a Status=pending filter must scope every tally (ByStatus, by_category,
+// by_confidence) to pending, even though the lossy memory status mapping returns
+// approved and applied records too (they all map to memory.StatusActive). Without
+// scoping, the tallies span every active status while total_pending counts only
+// pending, so the counts disagree with each other and with the postgres store
+// (which filters every group-by by status).
+func TestMemoryInsightAdapter_Stats_StatusFiltered(t *testing.T) {
+	// All three records are memory.StatusActive (what a Status=pending filter
+	// returns from the real store); resolveInsightStatus recovers the true
+	// insight status from metadata.
+	store := &mockMemoryStore{
+		listRecords: []memory.Record{
+			{ID: "p1", Category: "correction", Confidence: "high", Status: memory.StatusActive},
+			{
+				ID: "a1", Category: "business_context", Confidence: "low", Status: memory.StatusActive,
+				Metadata: map[string]any{metaKeyInsightStatus: StatusApproved},
+			},
+			{
+				ID: "x1", Category: "data_quality", Confidence: "medium", Status: memory.StatusActive,
+				Metadata: map[string]any{metaKeyInsightStatus: StatusApplied},
+			},
+		},
+		listTotal: 3,
+	}
+	adapter := NewMemoryInsightAdapter(store)
+
+	stats, err := adapter.Stats(context.Background(), InsightFilter{Status: StatusPending})
+	require.NoError(t, err)
+	require.NotNil(t, stats)
+
+	// The lossy mapping: a pending filter is queried as active, so the store
+	// returns approved and applied records too.
+	assert.Equal(t, memory.StatusActive, store.listFilter.Status)
+
+	// A status filter scopes every tally (postgres parity): only the matching
+	// status survives, so ByStatus, TotalPending, by_category and by_confidence
+	// all agree and exclude the approved/applied records.
+	assert.Equal(t, map[string]int{StatusPending: 1}, stats.ByStatus)
+	assert.Equal(t, 1, stats.TotalPending)
+	assert.Equal(t, map[string]int{"correction": 1}, stats.ByCategory)
+	assert.Equal(t, map[string]int{"high": 1}, stats.ByConfidence)
+}
+
 func TestMemoryInsightAdapter_Stats_Error(t *testing.T) {
 	store := &mockMemoryStore{listErr: fmt.Errorf("db error")}
 	adapter := NewMemoryInsightAdapter(store)
