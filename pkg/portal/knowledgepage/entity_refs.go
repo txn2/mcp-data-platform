@@ -117,6 +117,78 @@ func (s *postgresStore) ListEntityRefs(ctx context.Context, pageID string) ([]En
 	return refs, nil
 }
 
+// ValidateRefTargets checks that each foreign-key-backed reference target exists,
+// so a caller (the apply_knowledge page promotion) can reject a citation to a
+// missing entity BEFORE writing the page rather than after, where the insert-time
+// foreign key would otherwise leave a partially written page behind. DataHub URN
+// references are free text with no catalog foreign key, so they are not checked.
+// Returns ErrRefTargetNotFound (wrapped with the ref identity) on the first miss.
+func (s *postgresStore) ValidateRefTargets(ctx context.Context, refs []EntityRef) error { //nolint:revive // interface impl
+	for i := range refs {
+		ok, err := s.refTargetExists(ctx, refs[i])
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("reference %q: %w", refs[i].identity(), ErrRefTargetNotFound)
+		}
+	}
+	return nil
+}
+
+// FilterExistingRefTargets returns the subset of refs whose target exists,
+// dropping the rest. It is the tolerant counterpart of ValidateRefTargets, used
+// for references carried from a source insight (#690): a stale reference the
+// caller cannot fix is skipped so the promotion still succeeds, rather than
+// rejecting the whole apply. DataHub URN references are free text and always kept.
+func (s *postgresStore) FilterExistingRefTargets(ctx context.Context, refs []EntityRef) ([]EntityRef, error) { //nolint:revive // interface impl
+	kept := make([]EntityRef, 0, len(refs))
+	for i := range refs {
+		ok, err := s.refTargetExists(ctx, refs[i])
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			kept = append(kept, refs[i])
+		}
+	}
+	return kept, nil
+}
+
+// refTargetExists reports whether one reference's foreign-key target row exists.
+// The table set mirrors the foreign keys in migration 000073 (portal_assets,
+// prompts, portal_collections, portal_knowledge_pages, connection_instances).
+// Types without a catalog foreign key (datahub, unknown) are reported present.
+func (s *postgresStore) refTargetExists(ctx context.Context, ref EntityRef) (bool, error) {
+	var query string
+	var args []any
+	switch ref.TargetType {
+	case RefTargetAsset:
+		query, args = `SELECT 1 FROM portal_assets WHERE id = $1`, []any{ref.AssetID}
+	case RefTargetPrompt:
+		query, args = `SELECT 1 FROM prompts WHERE id = $1`, []any{ref.PromptID}
+	case RefTargetCollection:
+		query, args = `SELECT 1 FROM portal_collections WHERE id = $1`, []any{ref.CollectionID}
+	case RefTargetKnowledgePage:
+		query, args = `SELECT 1 FROM portal_knowledge_pages WHERE id = $1`, []any{ref.RefPageID}
+	case RefTargetConnection:
+		query = `SELECT 1 FROM connection_instances WHERE kind = $1 AND name = $2`
+		// nosemgrep: semgrep.unbounded-make-slice-capacity -- fixed 2-element query-arg slice, not a make() with user-controlled capacity
+		args = []any{ref.ConnectionKind, ref.ConnectionName}
+	default:
+		return true, nil // datahub URN and unknown types have no catalog FK to check
+	}
+	var one int
+	switch err := s.db.QueryRowContext(ctx, query, args...).Scan(&one); {
+	case errors.Is(err, sql.ErrNoRows):
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf("validating reference target: %w", err)
+	default:
+		return true, nil
+	}
+}
+
 // AddEntityRefs inserts the given references for a page (union semantics): a
 // reference whose target already exists on the page is skipped. Each insert uses
 // ON CONFLICT DO NOTHING against the per-type unique index, so the union is

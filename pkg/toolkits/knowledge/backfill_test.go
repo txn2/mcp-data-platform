@@ -88,6 +88,14 @@ func (*fakeBackfillStore) ListEntityRefs(context.Context, string) ([]knowledgepa
 	return nil, nil
 }
 
+func (*fakeBackfillStore) ValidateRefTargets(context.Context, []knowledgepage.EntityRef) error {
+	return nil
+}
+
+func (*fakeBackfillStore) FilterExistingRefTargets(_ context.Context, refs []knowledgepage.EntityRef) ([]knowledgepage.EntityRef, error) {
+	return refs, nil
+}
+
 func (*fakeBackfillStore) ReplaceEntityRefs(context.Context, string, []knowledgepage.EntityRef) error {
 	return nil
 }

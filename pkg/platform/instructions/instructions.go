@@ -70,7 +70,9 @@ func Build(accessibleTools []string) string {
 				"reference) or to a canonical knowledge page when it is broader business or domain knowledge "+
 				"(an `mcp:<type>:<key>` reference). These are two distinct namespaces: cite an entity from a page "+
 				"with the `reference` string that search results and `list_connections` carry, and never cross the "+
-				"two schemes (no `urn:li:mcp:...`).")
+				"two schemes (no `urn:li:mcp:...`). To make a citation a tracked, clickable reference, write it in "+
+				"plain text or a markdown link in the page body, or pass it in the page's `references` list; a "+
+				"reference inside backticks or a code block is treated as an example and ignored.")
 	}
 	if len(bullets) == 0 {
 		return ""
