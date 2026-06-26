@@ -175,9 +175,10 @@ function LifecycleHeader() {
             Whoever holds the <code className="rounded bg-muted px-1 py-0.5 text-xs">apply_knowledge</code>{" "}
             capability reviews insights and promotes the good ones into{" "}
             <strong className="font-medium text-foreground">Knowledge</strong>: shared, trusted, and
-            canonical. Business and domain facts become knowledge pages; technical and entity facts go
-            to the DataHub catalog. This is the substrate your agents draw on; it is surfaced here so
-            you can audit, review, give feedback, and use it as a shared knowledgebase.
+            canonical. Each promotion lands where it fits best, decided when it is applied: a fact tied
+            to a specific dataset or column goes to the DataHub catalog, while broader business or domain
+            knowledge becomes a knowledge page. This is the substrate your agents draw on; it is surfaced
+            here so you can audit, review, give feedback, and use it as a shared knowledgebase.
           </p>
         </div>
       </div>
