@@ -247,6 +247,8 @@ func (f *Flow) CallbackHandler(w http.ResponseWriter, r *http.Request) {
 	if returnTo != "" {
 		dest = returnTo
 	}
+	// #nosec G710 -- dest is sanitizeReturnTo-validated to a site-relative path
+	// (scheme, host, and scheme-relative prefixes are dropped at write and read).
 	// nosemgrep: go.lang.security.injection.open-redirect.open-redirect
 	http.Redirect(w, r, dest, http.StatusFound)
 }
@@ -379,16 +381,14 @@ func (f *Flow) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 
 	ClearCookie(w, &f.cfg.Cookie)
 
-	// Build the post-logout redirect dynamically from the request so a
-	// session that started on a non-default origin (e.g., Vite dev
-	// server on :5173, an alternate ingress host) returns the operator
-	// to that same origin. The configured PostLogoutRedirect is the
-	// fallback for cases where headers are absent. Each candidate
-	// origin must be registered on the OIDC client's
-	// post.logout.redirect.uris.
-	postLogout := requestPostLogoutRedirect(r, f.cfg.PostLogoutRedirect)
-
 	if f.endpoints.EndSessionEndpoint != "" {
+		// Build the post-logout redirect dynamically from the request so a
+		// session that started on a non-default origin (e.g., Vite dev server
+		// on :5173, an alternate ingress host) returns the operator to that same
+		// origin. Safe here because the OIDC provider validates
+		// post_logout_redirect_uri against the client's registered
+		// post.logout.redirect.uris before honoring it.
+		postLogout := requestPostLogoutRedirect(r, f.cfg.PostLogoutRedirect)
 		params := url.Values{
 			paramClientID:              {f.cfg.ClientID},
 			"post_logout_redirect_uri": {postLogout},
@@ -400,7 +400,11 @@ func (f *Flow) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.Redirect(w, r, postLogout, http.StatusFound)
+	// No end_session endpoint: return to the trusted configured post-logout URL.
+	// We deliberately do NOT use the request-derived origin here, because nothing
+	// downstream validates an attacker-supplied X-Forwarded-Host, which would make
+	// this an open redirect (G710).
+	http.Redirect(w, r, f.cfg.PostLogoutRedirect, http.StatusFound)
 }
 
 // requestPostLogoutRedirect derives the absolute post-logout redirect

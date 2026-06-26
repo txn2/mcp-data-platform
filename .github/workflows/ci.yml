@@ -157,7 +157,7 @@ jobs:
 
       - name: Run Gosec Security Scanner
         run: |
-          go install github.com/securego/gosec/v2/cmd/gosec@v2.22.0
+          go install github.com/securego/gosec/v2/cmd/gosec@v2.27.1
           gosec ./...
 
       - name: Run govulncheck

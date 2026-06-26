@@ -762,6 +762,8 @@ func (*Handler) specErrorStatus(err error) int {
 // caller can early-return without re-checking each step.
 func readSpecUpload(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
 	r.Body = http.MaxBytesReader(w, r.Body, catalogSpecMaxUploadBytes+1024)
+	// #nosec G120 -- r.Body is bounded by http.MaxBytesReader above, so the
+	// multipart parse cannot exhaust memory; gosec's pattern match misses it.
 	if err := r.ParseMultipartForm(multipartMemoryLimit); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid multipart form: "+err.Error())
 		return nil, false

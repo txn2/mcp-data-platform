@@ -70,6 +70,7 @@ func (s *Store) EnsureMonthlyPartitions(ctx context.Context, monthsAhead int) er
 		// two date literals likewise produced by time.Format. None of these
 		// inputs are operator- or model-supplied, so SQL string formatting
 		// is safe here.
+		// #nosec G201 -- inputs are time.Format outputs, not user input
 		stmt := fmt.Sprintf(createPartitionTemplate, //nolint:gosec // G201: inputs are time.Format outputs, not user input
 			name,
 			from.Format(partitionDateSQLLayout),
