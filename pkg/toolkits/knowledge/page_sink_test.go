@@ -362,13 +362,21 @@ func TestPromoteToPage_UpdatesExistingBySlug(t *testing.T) {
 	assert.Contains(t, pw.updated, "kp-existing")
 }
 
-func TestPromoteToPage_RejectsSchemaEntityInsight(t *testing.T) {
+func TestPromoteToPage_AcceptsAnySinkClass(t *testing.T) {
+	// #686: the destination is decided at apply, not frozen at capture. A
+	// schema_entity insight (formerly barred from the page sink) now promotes
+	// successfully and carries its origin class as a non-binding tag.
 	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkSchemaEntity}}}
+	pw := newFakePageWriter()
 	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
-	tk.SetPageWriter(newFakePageWriter())
+	tk.SetPageWriter(pw)
+
 	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, applyPageInput([]string{"i1"}))
 	require.NoError(t, err)
-	assert.True(t, res.IsError, "schema_entity insight must be rejected from the page sink")
+	require.False(t, res.IsError, "schema_entity insight is no longer rejected from the page sink")
+	require.Len(t, store.MarkAppliedCalls, 1)
+	assert.Equal(t, "i1", store.MarkAppliedCalls[0].ID)
+	assert.Contains(t, pw.pages["seasons"].Tags, memory.SinkSchemaEntity)
 }
 
 func TestPromoteToPage_NotConfigured(t *testing.T) {

@@ -680,7 +680,7 @@ Both sinks record a **changeset** (page promotions use `target_urn = "kp:<slug>"
 | `sink` | string | No | apply target: `datahub` (default) or `knowledge_page` |
 | `entity_urn` | string | Conditional | Required for review, synthesize, list_changesets, and apply with `sink=datahub` |
 | `page` | object | Conditional | `{slug, title, body, summary?, tags?}` for apply with `sink=knowledge_page` |
-| `insight_ids` | array | Conditional | Source insights; required for approve, reject. Their sink-class must match the chosen sink |
+| `insight_ids` | array | Conditional | Source insights; required for approve, reject. Sink-class is a non-binding hint; any insight can be applied to either sink (destination chosen at apply) |
 | `changes` | array | Conditional | Required for apply with `sink=datahub` |
 | `changeset_id` | string | Conditional | Required for rollback |
 | `confirm` | bool | No | Required when `require_confirmation` is true (apply and rollback) |

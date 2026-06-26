@@ -80,7 +80,7 @@ var applyKnowledgeSchema = json.RawMessage(`{
     },
     "sink": {
       "type": "string",
-      "description": "Apply target for the apply action: 'datahub' (default) applies the 'changes' to the catalog entity; 'knowledge_page' promotes a business_knowledge or operational_rule capture to a canonical portal knowledge page using the 'page' object. schema_entity insights go to datahub; business_knowledge and operational_rule go to a knowledge page."
+      "description": "Apply target for the apply action: 'datahub' (default) applies the 'changes' to the catalog entity; 'knowledge_page' promotes the insight(s) to a canonical portal knowledge page using the 'page' object. The destination is your choice here, not frozen at capture: prefer datahub when the insight is anchored to a specific dataset/column (it carries entity_urns) and a knowledge page when it is broader business or domain knowledge. The capture-time sink-class is a non-binding hint."
     },
     "page": {
       "type": "object",

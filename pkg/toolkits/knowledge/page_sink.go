@@ -10,7 +10,6 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 )
 
@@ -113,21 +112,12 @@ type pagePromotionInput struct {
 	Tags    []string `json:"tags,omitempty"`
 }
 
-// SetPageWriter wires the knowledge-page store so apply can promote
-// business_knowledge / operational_rule captures to canonical pages. A nil store
-// leaves the page sink unavailable (apply with sink=knowledge_page then errors
-// rather than silently no-oping).
+// SetPageWriter wires the knowledge-page store so apply can promote captures to
+// canonical pages (the destination is the sink chosen at apply, not the
+// capture-time class). A nil store leaves the page sink unavailable (apply with
+// sink=knowledge_page then errors rather than silently no-oping).
 func (t *Toolkit) SetPageWriter(pw pageWriter) {
 	t.pageWriter = pw
-}
-
-// pageSinkClasses are the sink-classes whose canonical home is the internal
-// knowledge system (a knowledge page) rather than DataHub. schema_entity is
-// DataHub; personal_preference and episodic_event are live personal memory and
-// never reach apply.
-var pageSinkClasses = map[string]bool{
-	memory.SinkBusinessKnowledge: true,
-	memory.SinkOperationalRule:   true,
 }
 
 // promoteToPage promotes a business_knowledge / operational_rule capture into a
@@ -149,7 +139,7 @@ func (t *Toolkit) promoteToPage(ctx context.Context, input applyKnowledgeInput) 
 	// Mis-routing guard: every source insight must be page-class. This also
 	// collects the references the source insights carried, so they survive
 	// promotion onto the page instead of being dropped (#664).
-	originClass, entityURNs, err := t.validatePageInsightClasses(ctx, input.InsightIDs)
+	originClass, entityURNs, err := t.collectPageInsightRefs(ctx, input.InsightIDs)
 	if err != nil {
 		return errorResult(err.Error()), nil, nil //nolint:nilerr // MCP protocol
 	}
@@ -361,18 +351,18 @@ func (t *Toolkit) recordPageChangesetAndMarkApplied(ctx context.Context, input a
 	})
 }
 
-// validatePageInsightClasses fetches each insight and rejects any whose sink-class
-// does not belong to the knowledge-page sink, returning the common origin class
-// for tagging. Empty insight_ids is allowed (a curator authoring a page directly).
-func (t *Toolkit) validatePageInsightClasses(ctx context.Context, insightIDs []string) (origin string, entityURNs []string, err error) {
+// collectPageInsightRefs fetches each source insight and gathers the references
+// it carried so they survive promotion onto the page (#664), returning the last
+// source insight's class as a non-binding origin tag. Empty insight_ids is
+// allowed (a curator authoring a page directly). It does not gate by sink-class:
+// the destination is the sink chosen at apply, suggested by whether the insight
+// is entity-anchored, not frozen at capture (#686).
+func (t *Toolkit) collectPageInsightRefs(ctx context.Context, insightIDs []string) (origin string, entityURNs []string, err error) {
 	seen := map[string]struct{}{}
 	for _, id := range insightIDs {
 		ins, gErr := t.store.Get(ctx, id)
 		if gErr != nil {
 			return "", nil, fmt.Errorf("insight %s not found", id)
-		}
-		if !pageSinkClasses[ins.SinkClass] {
-			return "", nil, fmt.Errorf("insight %s is sink-class %q, which is not promoted to a knowledge page (schema_entity goes to DataHub)", id, ins.SinkClass)
 		}
 		origin = ins.SinkClass
 		// Collect the references the insight carried so they survive promotion
