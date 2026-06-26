@@ -135,6 +135,15 @@ type Hit struct {
 	Status     string   `json:"status,omitempty"`
 	EntityURNs []string `json:"entity_urns,omitempty"`
 	Dimension  string   `json:"dimension,omitempty"`
+	// CapturedBy is the author (email) of an authored result such as an insight,
+	// so a reviewer can see who recorded it. Omitted for sources with no single
+	// author (catalog datasets, API endpoints, connections).
+	CapturedBy string `json:"captured_by,omitempty"`
+	// Reference is the canonical citation string for the hit's entity
+	// (mcp:<type>:<key> for an internal entity, urn:... for DataHub), so an agent
+	// can reference it from a knowledge page without hand-assembling or guessing
+	// the form. Omitted when the entity is not referenceable.
+	Reference string `json:"reference,omitempty"`
 }
 
 // Provider is one searchable knowledge store behind the Router. Name is the

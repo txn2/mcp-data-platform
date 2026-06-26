@@ -60,6 +60,15 @@ type applyKnowledgeInput struct {
 	ReviewNotes string `json:"review_notes,omitempty"`
 	// ChangesetID is the target changeset for the rollback action.
 	ChangesetID string `json:"changeset_id,omitempty"`
+	// Itemize, with action=bulk_review, returns the pending insights themselves
+	// (each a full record with id, captured_by, sink_class, status and
+	// entity_urns), windowed by Offset/Limit, in addition to the aggregate
+	// counts. It is how an agent enumerates the review queue; the relevance
+	// ranked search tool cannot list it completely. Limit defaults to
+	// DefaultLimit and is capped at MaxLimit; Offset is the page start.
+	Itemize bool `json:"itemize,omitempty"`
+	Limit   int  `json:"limit,omitempty"`
+	Offset  int  `json:"offset,omitempty"`
 }
 
 // ApplyConfig configures the apply_knowledge tool.
@@ -235,7 +244,7 @@ func (t *Toolkit) handleApplyKnowledge(ctx context.Context, _ *mcp.CallToolReque
 func (t *Toolkit) dispatchApplyAction(ctx context.Context, input applyKnowledgeInput) (*mcp.CallToolResult, any, error) {
 	switch input.Action {
 	case actionBulkReview:
-		return t.handleBulkReview(ctx)
+		return t.handleBulkReview(ctx, input)
 	case actionReview:
 		return t.handleReview(ctx, input)
 	case actionSynthesize:
@@ -255,29 +264,137 @@ func (t *Toolkit) dispatchApplyAction(ctx context.Context, input applyKnowledgeI
 	}
 }
 
-// handleBulkReview returns a summary of all pending insights.
-func (t *Toolkit) handleBulkReview(ctx context.Context) (*mcp.CallToolResult, any, error) {
+// bulkReviewScopeNote labels the bulk_review denominators so the headline
+// numbers are not mistaken for one another. by_entity counts a multi-entity
+// insight once per URN and omits entity-agnostic insights, so it does not sum
+// to total_pending; itemize:true is the way to see every pending insight.
+const bulkReviewScopeNote = "Counts are pending insights only (the global review queue). " +
+	"by_entity counts an insight once per entity URN it carries and omits insights " +
+	"that have no entity URN, so it does not sum to total_pending. " +
+	"Pass itemize:true to enumerate every pending insight (with id, captured_by and sink_class)."
+
+// handleBulkReview summarizes the pending review queue. The default (counts-only)
+// path stays cheap and bounded; itemize:true enumerates the whole queue.
+func (t *Toolkit) handleBulkReview(ctx context.Context, input applyKnowledgeInput) (*mcp.CallToolResult, any, error) {
+	if input.Itemize {
+		return t.bulkReviewItemized(ctx, input)
+	}
+	return t.bulkReviewCounts(ctx)
+}
+
+// bulkReviewCounts returns the pending-queue aggregates without materializing the
+// whole queue: the counts come from store.Stats (a cheap grouped count), and
+// by_entity is a bounded sample of one page. The complete, itemized enumeration is
+// the itemize path, so a large queue never inflates the default counts response.
+func (t *Toolkit) bulkReviewCounts(ctx context.Context) (*mcp.CallToolResult, any, error) {
 	stats, err := t.store.Stats(ctx, InsightFilter{Status: StatusPending})
 	if err != nil {
 		return errorResult("failed to get stats: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
 	}
-
-	// Get pending insights grouped by entity
-	insights, _, err := t.store.List(ctx, InsightFilter{Status: StatusPending, Limit: MaxLimit})
+	sample, _, err := t.store.List(ctx, InsightFilter{Status: StatusPending, Limit: MaxLimit})
 	if err != nil {
 		return errorResult("failed to list insights: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
 	}
 
-	byEntity := buildEntitySummaries(insights)
-
 	result := map[string]any{
 		"total_pending": stats.TotalPending,
-		"by_entity":     byEntity,
+		"by_entity":     buildEntitySummaries(sample),
 		"by_category":   stats.ByCategory,
 		"by_confidence": stats.ByConfidence,
+		"note":          bulkReviewScopeNote,
+	}
+	if stats.TotalPending > len(sample) {
+		// by_entity is built from one page, so it is a sample here; itemize:true
+		// returns every pending insight including entity-agnostic ones.
+		result["by_entity_complete"] = false
+	}
+	return jsonResult(result)
+}
+
+// bulkReviewItemized returns the complete pending queue: aggregates and by_entity
+// from one full walk, plus the windowed insights themselves (id, captured_by,
+// sink_class, ...) so a reviewer can enumerate and act on every pending insight.
+func (t *Toolkit) bulkReviewItemized(ctx context.Context, input applyKnowledgeInput) (*mcp.CallToolResult, any, error) {
+	pending, err := t.collectPending(ctx)
+	if err != nil {
+		return errorResult("failed to list pending insights: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
 	}
 
+	byCategory := make(map[string]int)
+	byConfidence := make(map[string]int)
+	for i := range pending {
+		byCategory[pending[i].Category]++
+		byConfidence[pending[i].Confidence]++
+	}
+
+	page, offset, next := pageInsights(pending, input.Offset, input.Limit)
+	result := map[string]any{
+		"total_pending": len(pending),
+		"by_entity":     buildEntitySummaries(pending),
+		"by_category":   byCategory,
+		"by_confidence": byConfidence,
+		"note":          bulkReviewScopeNote,
+		"insights":      page,
+		"returned":      len(page),
+		"offset":        offset,
+	}
+	if next >= 0 {
+		result["next_offset"] = next
+	}
 	return jsonResult(result)
+}
+
+// collectPending returns every pending insight in the global review queue.
+// The memory-backed store maps pending, approved and applied onto a single
+// "active" memory status and recovers the exact insight status per record, so a
+// single status-filtered page is not guaranteed to be complete: pending
+// insights can sit behind applied ones. We walk the whole active set by the
+// underlying total and keep the pending records.
+//
+// The stride is MaxLimit, which is also the per-page count the store returns when
+// more records remain. That holds only while MaxLimit does not exceed the backing
+// store's own page cap (memory.MaxLimit); if it did, pages would be short and the
+// fixed stride would skip records. TestCollectPendingStrideInvariant guards that.
+func (t *Toolkit) collectPending(ctx context.Context) ([]Insight, error) {
+	var all []Insight
+	for offset := 0; ; offset += MaxLimit {
+		page, total, err := t.store.List(ctx, InsightFilter{
+			Status: StatusPending,
+			Limit:  MaxLimit,
+			Offset: offset,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("listing pending insights: %w", err)
+		}
+		all = append(all, page...)
+		if offset+MaxLimit >= total {
+			return all, nil
+		}
+	}
+}
+
+// pageInsights returns the window [offset, offset+limit) of insights together
+// with the offset used and the next offset to request, or -1 when the window
+// reaches the end. A non-positive limit defaults to DefaultLimit and is capped
+// at MaxLimit; a negative offset is treated as 0.
+func pageInsights(all []Insight, offset, limit int) (page []Insight, usedOffset, nextOffset int) {
+	if offset < 0 {
+		offset = 0
+	}
+	switch {
+	case limit <= 0:
+		limit = DefaultLimit
+	case limit > MaxLimit:
+		limit = MaxLimit
+	}
+	if offset >= len(all) {
+		return []Insight{}, offset, -1
+	}
+	end := offset + limit
+	if end >= len(all) {
+		return all[offset:], offset, -1
+	}
+	return all[offset:end], offset, end
 }
 
 // buildEntitySummaries groups insights by entity URN.

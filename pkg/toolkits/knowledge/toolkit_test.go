@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/txn2/mcp-datahub/pkg/types"
 
+	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
 
@@ -97,21 +100,48 @@ func (s *fullSpyStore) Get(_ context.Context, id string) (*Insight, error) {
 	return nil, fmt.Errorf("insight not found: %s", id)
 }
 
+// List models the memory-backed adapter's lossy paging faithfully: the store
+// fetches a window of the coarse "memory bucket" the requested status maps to
+// (pending, approved and applied all share the active bucket), returns the
+// underlying bucket total, and recovers the exact status per record by
+// post-filtering. This is what makes a single status-filtered page potentially
+// incomplete, so collectPending must walk the whole bucket by the total.
 func (s *fullSpyStore) List(_ context.Context, filter InsightFilter) ([]Insight, int, error) {
 	if s.ListErr != nil {
 		return nil, 0, s.ListErr
 	}
-	var result []Insight
+
+	wantBucket := mapInsightStatusToMemory(filter.Status)
+	var universe []Insight
 	for _, ins := range s.Insights {
-		if filter.Status != "" && ins.Status != filter.Status {
+		if filter.Status != "" && mapInsightStatusToMemory(ins.Status) != wantBucket {
 			continue
 		}
 		if filter.EntityURN != "" && !slices.Contains(ins.EntityURNs, filter.EntityURN) {
 			continue
 		}
+		universe = append(universe, ins)
+	}
+	// Newest-first, like the real store's ORDER BY created_at DESC.
+	sort.SliceStable(universe, func(i, j int) bool {
+		return universe[i].CreatedAt.After(universe[j].CreatedAt)
+	})
+	total := len(universe)
+
+	lo := min(max(filter.Offset, 0), total)
+	hi := total
+	if filter.Limit > 0 {
+		hi = min(lo+filter.Limit, total)
+	}
+
+	var result []Insight
+	for _, ins := range universe[lo:hi] {
+		if filter.Status != "" && ins.Status != filter.Status {
+			continue
+		}
 		result = append(result, ins)
 	}
-	return result, len(result), nil
+	return result, total, nil
 }
 
 func (s *fullSpyStore) UpdateStatus(_ context.Context, id, status, reviewedBy, reviewNotes string) error {
@@ -139,19 +169,31 @@ func (s *fullSpyStore) Update(_ context.Context, _ string, _ InsightUpdate) erro
 	return s.UpdateErr
 }
 
-func (s *fullSpyStore) Stats(_ context.Context, _ InsightFilter) (*InsightStats, error) {
+func (s *fullSpyStore) Stats(_ context.Context, filter InsightFilter) (*InsightStats, error) {
 	if s.StatsErr != nil {
 		return nil, s.StatsErr
 	}
 	if s.StatsResult != nil {
 		return s.StatsResult, nil
 	}
-	return &InsightStats{
-		TotalPending: len(s.Insights),
+	// Tally faithfully: by_category/by_confidence are scoped to the requested
+	// status (pending), and TotalPending is the pending count, mirroring the real
+	// adapter so the counts path is exercised, not stubbed.
+	stats := &InsightStats{
 		ByCategory:   map[string]int{},
 		ByConfidence: map[string]int{},
 		ByStatus:     map[string]int{},
-	}, nil
+	}
+	for _, ins := range s.Insights {
+		stats.ByStatus[ins.Status]++
+		if filter.Status != "" && ins.Status != filter.Status {
+			continue
+		}
+		stats.ByCategory[ins.Category]++
+		stats.ByConfidence[ins.Confidence]++
+	}
+	stats.TotalPending = stats.ByStatus[StatusPending]
+	return stats, nil
 }
 
 func (s *fullSpyStore) MarkApplied(_ context.Context, id, appliedBy, changesetRef string) error {
@@ -674,16 +716,12 @@ func TestHandleApplyKnowledge_ActionValidation(t *testing.T) {
 
 func TestHandleBulkReview_ReturnsSummary(t *testing.T) {
 	store := &fullSpyStore{
-		StatsResult: &InsightStats{
-			TotalPending: 3,
-			ByCategory:   map[string]int{"correction": 2, "business_context": 1},
-			ByConfidence: map[string]int{"high": 1, "medium": 2},
-			ByStatus:     map[string]int{"pending": 3},
-		},
 		Insights: []Insight{
-			{ID: "i1", Status: StatusPending, EntityURNs: []string{testEntityURN}, Category: "correction", CreatedAt: time.Now()},
-			{ID: "i2", Status: StatusPending, EntityURNs: []string{testEntityURN}, Category: "correction", CreatedAt: time.Now()},
-			{ID: "i3", Status: StatusPending, EntityURNs: []string{"urn:li:dataset:other"}, Category: "business_context", CreatedAt: time.Now()},
+			{ID: "i1", Status: StatusPending, EntityURNs: []string{testEntityURN}, Category: "correction", Confidence: "high", CreatedAt: time.Now()},
+			{ID: "i2", Status: StatusPending, EntityURNs: []string{testEntityURN}, Category: "correction", Confidence: "medium", CreatedAt: time.Now()},
+			{ID: "i3", Status: StatusPending, EntityURNs: []string{"urn:li:dataset:other"}, Category: "business_context", Confidence: "medium", CreatedAt: time.Now()},
+			// An applied insight must not be counted in the pending queue.
+			{ID: "i4", Status: StatusApplied, EntityURNs: []string{testEntityURN}, Category: "correction", Confidence: "high", CreatedAt: time.Now()},
 		},
 	}
 	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
@@ -694,14 +732,16 @@ func TestHandleBulkReview_ReturnsSummary(t *testing.T) {
 	require.False(t, result.IsError)
 
 	m := parseJSONResult(t, result)
-	assert.Equal(t, float64(3), m["total_pending"])
-	assert.NotNil(t, m["by_category"])
-	assert.NotNil(t, m["by_confidence"])
-	assert.NotNil(t, m["by_entity"])
+	assert.Equal(t, float64(3), m["total_pending"], "applied insight excluded")
+	assert.Equal(t, map[string]any{"correction": float64(2), "business_context": float64(1)}, m["by_category"])
+	assert.Equal(t, map[string]any{"high": float64(1), "medium": float64(2)}, m["by_confidence"])
+	assert.NotEmpty(t, m["note"], "scope note labels the denominators")
+	// Counts-only mode does not itemize.
+	assert.Nil(t, m["insights"])
 
 	byEntity, ok := m["by_entity"].([]any)
 	require.True(t, ok, "by_entity should be an array")
-	assert.Len(t, byEntity, 2, "should have 2 distinct entities")
+	assert.Len(t, byEntity, 2, "should have 2 distinct entities among pending")
 }
 
 func TestHandleBulkReview_StatsError(t *testing.T) {
@@ -722,6 +762,177 @@ func TestHandleBulkReview_ListError(t *testing.T) {
 	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil, input)
 	require.Nil(t, callErr)
 	assert.True(t, result.IsError)
+}
+
+// TestCollectPendingStrideInvariant guards the assumption documented on
+// collectPending: it strides the underlying offset by MaxLimit, which is correct
+// only while MaxLimit does not exceed the backing memory store's page cap. If a
+// future change lowered memory.MaxLimit below it, paging would skip records.
+// TestHandleBulkReview_CountsMarksByEntityIncomplete covers the cheap counts-only
+// path on a large queue: total_pending is accurate (Stats walks everything) while
+// by_entity is a one-page sample, so the response flags it as incomplete and stays
+// bounded instead of materializing the whole queue.
+func TestHandleBulkReview_CountsMarksByEntityIncomplete(t *testing.T) {
+	base := time.Now()
+	insights := make([]Insight, 0, 180)
+	for i := range 150 {
+		insights = append(insights, Insight{
+			ID: fmt.Sprintf("applied-%d", i), Status: StatusApplied,
+			EntityURNs: []string{testEntityURN}, CreatedAt: base.Add(time.Duration(1000+i) * time.Minute),
+		})
+	}
+	for i := range 30 {
+		insights = append(insights, Insight{
+			ID: fmt.Sprintf("pending-%d", i), Status: StatusPending, Category: "correction",
+			CreatedAt: base.Add(time.Duration(i) * time.Minute),
+		})
+	}
+	store := &fullSpyStore{Insights: insights}
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+
+	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil,
+		applyKnowledgeInput{Action: "bulk_review"})
+	require.Nil(t, callErr)
+	require.False(t, result.IsError)
+	m := parseJSONResult(t, result)
+
+	assert.Equal(t, float64(30), m["total_pending"], "Stats counts all pending across the active set")
+	assert.Equal(t, false, m["by_entity_complete"], "by_entity is a one-page sample on a large queue")
+	assert.Nil(t, m["insights"], "counts-only path does not itemize")
+}
+
+func TestCollectPendingStrideInvariant(t *testing.T) {
+	if MaxLimit > memory.MaxLimit {
+		t.Fatalf("knowledge MaxLimit (%d) must not exceed memory.MaxLimit (%d): collectPending would skip records", MaxLimit, memory.MaxLimit)
+	}
+}
+
+func TestPageInsights(t *testing.T) {
+	mk := func(n int) []Insight {
+		out := make([]Insight, n)
+		for i := range out {
+			out[i] = Insight{ID: fmt.Sprintf("i%d", i)}
+		}
+		return out
+	}
+	tests := []struct {
+		name                       string
+		total, offset, limit       int
+		wantLen, wantOff, wantNext int
+	}{
+		{"first page has more", 30, 0, 10, 10, 0, 10},
+		{"middle page", 30, 10, 10, 10, 10, 20},
+		{"last partial page", 30, 25, 10, 5, 25, -1},
+		{"window ends exactly at len", 30, 20, 10, 10, 20, -1},
+		{"offset past end", 5, 10, 10, 0, 10, -1},
+		{"non-positive limit defaults", 5, 0, 0, 5, 0, -1},
+		{"limit capped at max", MaxLimit + 50, 0, MaxLimit + 10, MaxLimit, 0, MaxLimit},
+		{"negative offset treated as zero", 5, -3, 10, 5, 0, -1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			page, off, next := pageInsights(mk(tc.total), tc.offset, tc.limit)
+			assert.Len(t, page, tc.wantLen)
+			assert.Equal(t, tc.wantOff, off)
+			assert.Equal(t, tc.wantNext, next)
+		})
+	}
+}
+
+// TestHandleBulkReview_ItemizeReturnsAuthors is the core of the author fix: the
+// itemized review queue carries captured_by and sink_class on every insight,
+// and the entity-agnostic insight is enumerated even though by_entity omits it.
+func TestHandleBulkReview_ItemizeReturnsAuthors(t *testing.T) {
+	now := time.Now()
+	store := &fullSpyStore{Insights: []Insight{
+		{ID: "i1", Status: StatusPending, CapturedBy: "alice@example.com", SinkClass: "schema_entity", Category: "correction", Confidence: "high", EntityURNs: []string{testEntityURN}, CreatedAt: now},
+		{ID: "i2", Status: StatusPending, CapturedBy: "bob@example.com", SinkClass: "business_knowledge", Category: "business_context", Confidence: "medium", CreatedAt: now.Add(-time.Minute)},
+		{ID: "i3", Status: StatusApplied, CapturedBy: "carol@example.com", Category: "correction", CreatedAt: now},
+	}}
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+
+	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil,
+		applyKnowledgeInput{Action: "bulk_review", Itemize: true})
+	require.Nil(t, callErr)
+	require.False(t, result.IsError)
+	m := parseJSONResult(t, result)
+
+	assert.Equal(t, float64(2), m["total_pending"])
+	items, ok := m["insights"].([]any)
+	require.True(t, ok, "itemize returns the insights")
+	require.Len(t, items, 2)
+
+	authors := map[string]string{}
+	for _, it := range items {
+		row, rok := it.(map[string]any)
+		require.True(t, rok)
+		idStr, _ := row["id"].(string)
+		capturedBy, _ := row["captured_by"].(string)
+		authors[idStr] = capturedBy
+		assert.NotEmpty(t, row["sink_class"], "sink_class surfaced for routing")
+	}
+	assert.Equal(t, "alice@example.com", authors["i1"])
+	assert.Equal(t, "bob@example.com", authors["i2"])
+
+	byEntity, ok := m["by_entity"].([]any)
+	require.True(t, ok)
+	assert.Len(t, byEntity, 1, "entity-agnostic insight omitted from by_entity but present in insights")
+}
+
+// TestHandleBulkReview_ItemizeEnumeratesPendingBehindApplied proves the lossy
+// memory mapping does not hide pending insights: with 150 applied insights
+// newer than 30 pending ones, a single status-filtered page would surface none,
+// yet itemized bulk_review enumerates all 30 across pages with no duplicates.
+func TestHandleBulkReview_ItemizeEnumeratesPendingBehindApplied(t *testing.T) {
+	base := time.Now()
+	insights := make([]Insight, 0, 180)
+	for i := range 150 {
+		insights = append(insights, Insight{
+			ID: fmt.Sprintf("applied-%d", i), Status: StatusApplied,
+			CapturedBy: "applier@example.com", Category: "correction", Confidence: "high",
+			EntityURNs: []string{testEntityURN}, CreatedAt: base.Add(time.Duration(1000+i) * time.Minute),
+		})
+	}
+	for i := range 30 {
+		ins := Insight{
+			ID: fmt.Sprintf("pending-%d", i), Status: StatusPending,
+			CapturedBy: "analyst@example.com", Category: "business_context", Confidence: "medium",
+			EntityURNs: []string{testEntityURN}, CreatedAt: base.Add(time.Duration(i) * time.Minute),
+		}
+		if i == 0 {
+			ins.EntityURNs = nil
+		}
+		insights = append(insights, ins)
+	}
+	store := &fullSpyStore{Insights: insights}
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+
+	seen := map[string]bool{}
+	offset := 0
+	for range 100 {
+		result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil,
+			applyKnowledgeInput{Action: "bulk_review", Itemize: true, Limit: 10, Offset: offset})
+		require.Nil(t, callErr)
+		require.False(t, result.IsError)
+		m := parseJSONResult(t, result)
+		assert.Equal(t, float64(30), m["total_pending"], "all pending counted despite 150 applied ahead")
+
+		insightsAny, _ := m["insights"].([]any)
+		for _, it := range insightsAny {
+			row, _ := it.(map[string]any)
+			id, _ := row["id"].(string)
+			require.False(t, seen[id], "no duplicate %s", id)
+			seen[id] = true
+			assert.True(t, strings.HasPrefix(id, "pending-"), "only pending enumerated, got %s", id)
+		}
+		next, ok := m["next_offset"]
+		if !ok {
+			break
+		}
+		nextF, _ := next.(float64)
+		offset = int(nextF)
+	}
+	assert.Len(t, seen, 30, "every pending insight enumerated across pages")
 }
 
 // ---------------------------------------------------------------------------

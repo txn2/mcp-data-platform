@@ -33,6 +33,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/configstore"
 	configpostgres "github.com/txn2/mcp-data-platform/pkg/configstore/postgres"
+	"github.com/txn2/mcp-data-platform/pkg/connbackfill"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/database/migrate"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
@@ -1165,6 +1166,7 @@ func (p *Platform) initRegistries(opts *Options) error {
 
 	// Build the connection→DataHub source mapping for semantic enrichment.
 	p.connectionSources = p.buildConnectionSourceMap()
+	connbackfill.Run(context.Background(), p.db, p.toolkitRegistry.All())
 
 	return nil
 }

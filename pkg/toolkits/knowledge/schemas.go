@@ -11,7 +11,19 @@ var applyKnowledgeSchema = json.RawMessage(`{
   "properties": {
     "action": {
       "type": "string",
-      "description": "The action to perform. Valid values: bulk_review, review, synthesize, apply, approve, reject, rollback, list_changesets"
+      "description": "The action to perform. Valid values: bulk_review, review, synthesize, apply, approve, reject, rollback, list_changesets. To see the whole review queue, call bulk_review with itemize:true (the search tool is relevance-ranked and cannot list it completely)."
+    },
+    "itemize": {
+      "type": "boolean",
+      "description": "With action=bulk_review, also return the pending insights themselves (each with id, captured_by, sink_class, category, confidence, status, entity_urns, created_at), windowed by offset/limit. This is how you enumerate the global review queue."
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Page size for itemized bulk_review (default 20, max 100)."
+    },
+    "offset": {
+      "type": "integer",
+      "description": "Page start for itemized bulk_review; pass the next_offset from the previous response to continue paging."
     },
     "entity_urn": {
       "type": "string",

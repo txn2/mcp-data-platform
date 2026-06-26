@@ -50,6 +50,12 @@ func ParseEntityRef(s string) (EntityRef, error) {
 	case s == "":
 		return EntityRef{}, fmt.Errorf("empty entity reference")
 	case strings.HasPrefix(s, externalURNPrefix):
+		// A DataHub URN never embeds the internal mcp: scheme; if it does, the
+		// caller crossed the two namespaces (e.g. urn:li:mcp:connection:(x)). Reject
+		// it rather than store a reference that resolves to nothing.
+		if strings.Contains(s, mcpScheme) {
+			return EntityRef{}, fmt.Errorf("reference %q mixes the urn: and mcp: schemes; use %s<type>:<key> for an internal entity (asset, prompt, collection, knowledge_page, connection) or a plain urn:li:... for a DataHub entity", s, mcpScheme)
+		}
 		return EntityRef{TargetType: RefTargetDataHub, EntityURN: s}, nil
 	case strings.HasPrefix(s, mcpScheme):
 		return parseMCPRef(s)

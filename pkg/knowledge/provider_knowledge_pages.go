@@ -84,6 +84,7 @@ func (p *PagesProvider) searchByEntity(ctx context.Context, q Query, seen map[st
 				Ref:        pg.ID,
 				Score:      entityMatchScore,
 				EntityURNs: []string{urn},
+				Reference:  knowledgepage.PageReference(pg.ID),
 			})
 		}
 	}
@@ -113,10 +114,11 @@ func (p *PagesProvider) searchByText(ctx context.Context, q Query, seen map[stri
 		}
 		seen[scored[i].Page.ID] = true
 		hits = append(hits, Hit{
-			Text:   knowledgePageHitText(scored[i].Page),
-			Source: SourceKnowledgePages,
-			Ref:    scored[i].Page.ID,
-			Score:  scored[i].Score,
+			Text:      knowledgePageHitText(scored[i].Page),
+			Source:    SourceKnowledgePages,
+			Ref:       scored[i].Page.ID,
+			Score:     scored[i].Score,
+			Reference: knowledgepage.PageReference(scored[i].Page.ID),
 		})
 	}
 	return hits, nil

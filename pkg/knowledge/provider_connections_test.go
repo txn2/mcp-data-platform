@@ -58,6 +58,9 @@ func TestConnectionsProvider_RanksByTokenOverlap(t *testing.T) {
 	if hits[0].Ref != "stripe" {
 		t.Errorf("expected stripe to rank first, got %q", hits[0].Ref)
 	}
+	if hits[0].Reference != "mcp:connection:(api,stripe)" {
+		t.Errorf("canonical reference = %q, want mcp:connection:(api,stripe)", hits[0].Reference)
+	}
 	if hits[0].Source != SourceConnections {
 		t.Errorf("source = %q", hits[0].Source)
 	}

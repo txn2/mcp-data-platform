@@ -139,6 +139,7 @@ func TestBuild_GatesOnAccessibleTools(t *testing.T) {
 		tools       []string
 		wantSearch  bool
 		wantCapture bool
+		wantApply   bool
 		wantEmpty   bool
 	}{
 		{
@@ -163,6 +164,11 @@ func TestBuild_GatesOnAccessibleTools(t *testing.T) {
 			wantCapture: true,
 		},
 		{
+			name:      "apply_knowledge adds the synthesize bullet",
+			tools:     []string{"apply_knowledge"},
+			wantApply: true,
+		},
+		{
 			name:      "nil tools yields empty baseline",
 			tools:     nil,
 			wantEmpty: true,
@@ -182,11 +188,15 @@ func TestBuild_GatesOnAccessibleTools(t *testing.T) {
 			}
 			mentionsSearch := strings.Contains(got, "`search`")
 			mentionsCapture := strings.Contains(got, "`memory_capture`")
+			mentionsApply := strings.Contains(got, "`apply_knowledge`")
 			if mentionsSearch != tt.wantSearch {
 				t.Errorf("mentions search = %v, want %v (baseline: %q)", mentionsSearch, tt.wantSearch, got)
 			}
 			if mentionsCapture != tt.wantCapture {
 				t.Errorf("mentions memory_capture = %v, want %v (baseline: %q)", mentionsCapture, tt.wantCapture, got)
+			}
+			if mentionsApply != tt.wantApply {
+				t.Errorf("mentions apply_knowledge = %v, want %v (baseline: %q)", mentionsApply, tt.wantApply, got)
 			}
 		})
 	}

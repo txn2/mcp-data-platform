@@ -102,6 +102,8 @@ func (p *DatahubProvider) searchByEntity(ctx context.Context, q Query, seen map[
 			Ref:        urn,
 			Score:      entityMatchScore,
 			EntityURNs: []string{urn},
+			// A DataHub reference is its URN verbatim (the canonical citable form).
+			Reference: urn,
 		})
 	}
 	return hits
@@ -135,6 +137,8 @@ func (p *DatahubProvider) searchByText(ctx context.Context, q Query, seen map[st
 			Ref:        results[i].URN,
 			Score:      positionalScore(i, n),
 			EntityURNs: []string{results[i].URN},
+			// A DataHub reference is its URN verbatim (the canonical citable form).
+			Reference: results[i].URN,
 		})
 	}
 	return hits, nil

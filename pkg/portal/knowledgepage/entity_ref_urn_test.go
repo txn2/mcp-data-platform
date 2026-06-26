@@ -46,10 +46,22 @@ func TestParseEntityRef_Errors(t *testing.T) {
 		"mcp:connection:trino,wh",     // missing parens
 		"mcp:connection:(trino)",      // missing name
 		"mcp:connection:(,warehouse)", // empty kind
+		// Crossed namespaces: a urn: reference embedding the internal mcp: scheme
+		// (the exact corruption an agent produced) must be rejected, not stored.
+		"urn:li:mcp:connection:(prometheus)",
+		"urn:li:mcp:asset:a1",
 	} {
 		_, err := ParseEntityRef(s)
 		assert.Error(t, err, "want error for %q", s)
 	}
+}
+
+// TestParseEntityRef_RejectsCrossedScheme verifies the crossed-namespace error
+// names the correct internal form so the caller can self-correct.
+func TestParseEntityRef_RejectsCrossedScheme(t *testing.T) {
+	_, err := ParseEntityRef("urn:li:mcp:connection:(prometheus)")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "mixes the urn: and mcp: schemes")
 }
 
 // TestParseEntityRef_ExternalPassthrough checks any urn: prefix is treated as an

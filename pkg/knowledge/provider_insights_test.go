@@ -122,7 +122,7 @@ func TestInsightsProvider_FailsClosedWithoutEmail(t *testing.T) {
 func TestInsightsProvider_TextScopesAndMaps(t *testing.T) {
 	s := &fakeInsightStore{
 		scored: []knowledgekit.ScoredInsight{
-			{Insight: knowledgekit.Insight{ID: "i1", InsightText: "churn = ...", Status: knowledgekit.StatusApproved}, Score: 0.7},
+			{Insight: knowledgekit.Insight{ID: "i1", InsightText: "churn = ...", Status: knowledgekit.StatusApproved, CapturedBy: "author@example.com"}, Score: 0.7},
 		},
 	}
 	p := NewInsightsProvider(s)
@@ -146,6 +146,9 @@ func TestInsightsProvider_TextScopesAndMaps(t *testing.T) {
 	}
 	if hits[0].Status != knowledgekit.StatusApproved {
 		t.Errorf("status not carried as provenance: %+v", hits[0])
+	}
+	if hits[0].CapturedBy != "author@example.com" {
+		t.Errorf("author not carried on hit: %+v", hits[0])
 	}
 }
 
