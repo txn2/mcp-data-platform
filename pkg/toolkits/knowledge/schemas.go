@@ -11,7 +11,19 @@ var applyKnowledgeSchema = json.RawMessage(`{
   "properties": {
     "action": {
       "type": "string",
-      "description": "The action to perform. Valid values: bulk_review, review, synthesize, apply, approve, reject, rollback, list_changesets"
+      "description": "The action to perform. Valid values: bulk_review, review, synthesize, apply, approve, reject, rollback, list_changesets. To see the whole review queue, call bulk_review with itemize:true (the search tool is relevance-ranked and cannot list it completely)."
+    },
+    "itemize": {
+      "type": "boolean",
+      "description": "With action=bulk_review, also return the pending insights themselves (each with id, captured_by, sink_class, category, confidence, status, entity_urns, created_at), windowed by offset/limit. This is how you enumerate the global review queue."
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Page size for itemized bulk_review (default 20, max 100)."
+    },
+    "offset": {
+      "type": "integer",
+      "description": "Page start for itemized bulk_review; pass the next_offset from the previous response to continue paging."
     },
     "entity_urn": {
       "type": "string",
@@ -68,7 +80,7 @@ var applyKnowledgeSchema = json.RawMessage(`{
     },
     "sink": {
       "type": "string",
-      "description": "Apply target for the apply action: 'datahub' (default) applies the 'changes' to the catalog entity; 'knowledge_page' promotes a business_knowledge or operational_rule capture to a canonical portal knowledge page using the 'page' object. schema_entity insights go to datahub; business_knowledge and operational_rule go to a knowledge page."
+      "description": "Apply target for the apply action: 'datahub' (default) applies the 'changes' to the catalog entity; 'knowledge_page' promotes the insight(s) to a canonical portal knowledge page using the 'page' object. The destination is your choice here, not frozen at capture: prefer datahub when the insight is anchored to a specific dataset/column (it carries entity_urns) and a knowledge page when it is broader business or domain knowledge. The capture-time sink-class is a non-binding hint."
     },
     "page": {
       "type": "object",

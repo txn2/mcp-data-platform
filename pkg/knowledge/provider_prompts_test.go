@@ -48,7 +48,7 @@ func TestPromptsProvider_NoIntentSkips(t *testing.T) {
 func TestPromptsProvider_ForwardsVisibilityAndMaps(t *testing.T) {
 	s := &fakePromptSearcher{
 		scored: []prompt.ScoredPrompt{
-			{Prompt: prompt.Prompt{Name: "churn-calc", DisplayName: "Churn Calculation", Description: "how we compute churn"}, Score: 0.8},
+			{Prompt: prompt.Prompt{ID: "11111111-1111-1111-1111-111111111111", Name: "churn-calc", DisplayName: "Churn Calculation", Description: "how we compute churn"}, Score: 0.8},
 			{Prompt: prompt.Prompt{Name: "bare"}, Score: 0.5},
 		},
 	}
@@ -73,6 +73,14 @@ func TestPromptsProvider_ForwardsVisibilityAndMaps(t *testing.T) {
 	}
 	if hits[0].Source != SourcePrompts || hits[0].Ref != "churn-calc" || hits[0].Text != "Churn Calculation\nhow we compute churn" {
 		t.Errorf("unexpected hit[0]: %+v", hits[0])
+	}
+	// The canonical reference uses the prompt UUID, not its name. The second
+	// prompt has no UUID id, so it gets no reference (omitted).
+	if hits[0].Reference != "mcp:prompt:11111111-1111-1111-1111-111111111111" {
+		t.Errorf("canonical reference = %q, want mcp:prompt:<uuid>", hits[0].Reference)
+	}
+	if hits[1].Reference != "" {
+		t.Errorf("prompt without a uuid id must have no reference, got %q", hits[1].Reference)
 	}
 	// No display name and no description falls back to the prompt name.
 	if hits[1].Text != "bare" {

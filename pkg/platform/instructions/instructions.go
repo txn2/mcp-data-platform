@@ -19,8 +19,9 @@ import (
 // reference, kept here so the baseline text and the gate that includes it cannot
 // drift apart.
 const (
-	toolSearch        = "search"
-	toolMemoryCapture = "memory_capture"
+	toolSearch         = "search"
+	toolMemoryCapture  = "memory_capture"
+	toolApplyKnowledge = "apply_knowledge"
 )
 
 // Build returns the platform-owned "how to operate this platform" instruction
@@ -48,9 +49,9 @@ func Build(accessibleTools []string) string {
 		bullets = append(bullets,
 			"Discover before you act. Call `search` first: one query reveals what is already "+
 				"known across every source you can reach (the data catalog, your memory, captured "+
-				"insights, prompts, API endpoints, and connections). The answer may span several "+
-				"sources, or may not be in the data warehouse at all, so do not assume a backend and "+
-				"do not stop at the first result.",
+				"insights, knowledge pages, your feedback, prompts, API endpoints, and connections). "+
+				"The answer may span several sources, or may not be in the data warehouse at all, so do "+
+				"not assume a backend and do not stop at the first result.",
 			"Reuse what is known. Treat `search` results as the starting point and drill in with "+
 				"the scoped tool a result points to, rather than re-deriving an answer or re-asking "+
 				"the user for something already recorded.")
@@ -60,6 +61,16 @@ func Build(accessibleTools []string) string {
 			"Capture what you learn. When you establish something durable (a definition, a "+
 				"correction, a data-quality finding), record it with `memory_capture` so it is "+
 				"available next time instead of rediscovered.")
+	}
+	if has[toolApplyKnowledge] {
+		bullets = append(bullets,
+			"Synthesize durable knowledge. Captured insights enter a review queue you drive with "+
+				"`apply_knowledge`: list it via action `bulk_review` with `itemize:true`, then promote each "+
+				"insight to a DataHub catalog entity when the fact is tied to a specific dataset (a `urn:li:...` "+
+				"reference) or to a canonical knowledge page when it is broader business or domain knowledge "+
+				"(an `mcp:<type>:<key>` reference). These are two distinct namespaces: cite an entity from a page "+
+				"with the `reference` string that search results and `list_connections` carry, and never cross the "+
+				"two schemes (no `urn:li:mcp:...`).")
 	}
 	if len(bullets) == 0 {
 		return ""

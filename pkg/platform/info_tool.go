@@ -4,6 +4,7 @@ package platform
 import (
 	"context"
 	"encoding/json"
+	"slices"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -68,8 +69,19 @@ type KnowledgeApplyInfo struct {
 	DataHubConnection string `json:"datahub_connection,omitempty"`
 }
 
-// buildFeatures constructs the Features struct from platform config.
-func (p *Platform) buildFeatures() Features {
+// Tool names whose platform_info feature flags are gated by persona access, so a
+// persona that cannot reach the tool is not told the capability exists (#686).
+const (
+	toolMemoryCapture  = "memory_capture"
+	toolApplyKnowledge = "apply_knowledge"
+)
+
+// buildFeatures constructs the Features struct from platform config, gating the
+// knowledge feature flags to the tools the caller's persona can actually reach
+// (accessibleTools) so the orientation never advertises a lifecycle the caller
+// cannot drive.
+func (p *Platform) buildFeatures(accessibleTools []string) Features {
+	canReach := func(tool string) bool { return slices.Contains(accessibleTools, tool) }
 	// Enrichment is reported on only when both its flag is enabled (default-on)
 	// AND the provider that performs it is configured. Reporting it on without a
 	// provider would mislead an agent into expecting context the platform cannot
@@ -81,11 +93,11 @@ func (p *Platform) buildFeatures() Features {
 		QueryEnrichment:   p.queryProvider != nil && p.config.Enrichment.IsDataHubQueryEnrichmentEnabled(),
 		StorageEnrichment: p.storageProvider != nil && p.config.Enrichment.IsDataHubStorageEnrichmentEnabled(),
 		AuditLogging:      !isExplicitlyDisabled(p.config.Audit.Enabled),
-		KnowledgeCapture:  !isExplicitlyDisabled(p.config.Knowledge.Enabled),
+		KnowledgeCapture:  canReach(toolMemoryCapture) && !isExplicitlyDisabled(p.config.Knowledge.Enabled),
 		ManagedResources:  p.resourceStore != nil,
 	}
 
-	if p.config.Knowledge.Apply.Enabled {
+	if p.config.Knowledge.Apply.Enabled && canReach(toolApplyKnowledge) {
 		f.KnowledgeApply = &KnowledgeApplyInfo{
 			Enabled:           true,
 			DataHubConnection: p.config.Knowledge.Apply.DataHubConnection,
@@ -197,6 +209,10 @@ func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp
 	if p.resourceStore != nil {
 		notes = append(notes, resourcesDiscoverabilityNote)
 	}
+	// The tools this caller's persona may reach gate both the instruction baseline
+	// and the knowledge feature flags, so a persona is never told about a
+	// capability it cannot drive.
+	accessibleTools := instructions.AccessibleTools(p.toolkitRegistry.AllTools(), caller, p.personaRegistry)
 	agentInstructions := instructions.ComposeForCaller(
 		p.config.Server.AgentInstructions,
 		p.toolkitRegistry.AllTools(),
@@ -217,7 +233,7 @@ func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp
 		PortalURL:           p.config.Portal.PublicBaseURL,
 		Persona:             persona,
 		Prompts:             p.AllPromptInfos(),
-		Features:            p.buildFeatures(),
+		Features:            p.buildFeatures(accessibleTools),
 		ConfigVersion: ConfigVersionInfo{
 			APIVersion:        p.config.APIVersion,
 			SupportedVersions: reg.ListSupported(),

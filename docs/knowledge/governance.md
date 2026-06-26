@@ -49,9 +49,22 @@ Response:
   "by_confidence": {
     "high": 3,
     "medium": 4
-  }
+  },
+  "note": "Counts are pending insights only (the global review queue). by_entity counts an insight once per entity URN it carries and omits insights that have no entity URN, so it does not sum to total_pending. Pass itemize:true to enumerate every pending insight (with id, captured_by and sink_class)."
 }
 ```
+
+The counts label their own scope: `total_pending` is the size of the global pending queue, while `by_entity` counts a multi-entity insight once per URN and omits entity-agnostic insights, so it does not sum to `total_pending`.
+
+### Enumerate the Review Queue
+
+`bulk_review` returns counts only. To list the pending insights themselves (the relevance-ranked `search` tool cannot enumerate the queue completely), pass `itemize: true`. The list is paginated by `offset`/`limit` (default 20, max 100) and carries `next_offset` while more remain:
+
+```json
+{"action": "bulk_review", "itemize": true, "limit": 50}
+```
+
+Each returned insight includes its `id`, `captured_by` (the author), `sink_class`, `category`, `confidence`, `status`, `entity_urns`, and `created_at`, so an entity-agnostic insight (one with no `entity_urns`, invisible to per-entity review) is still enumerable here. Page through by passing the previous response's `next_offset` as the next `offset`.
 
 ### Review by Entity
 

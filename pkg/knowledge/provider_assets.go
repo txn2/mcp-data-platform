@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/pkg/portal"
+	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 )
 
 // SourceAssets is the provenance label for asset-provider hits.
@@ -58,10 +59,11 @@ func (p *AssetsProvider) Search(ctx context.Context, q Query) ([]Hit, error) {
 	hits := make([]Hit, 0, len(scored))
 	for i := range scored {
 		hits = append(hits, Hit{
-			Text:   assetHitText(scored[i].Asset),
-			Source: SourceAssets,
-			Ref:    scored[i].Asset.ID,
-			Score:  scored[i].Score,
+			Text:      assetHitText(scored[i].Asset),
+			Source:    SourceAssets,
+			Ref:       scored[i].Asset.ID,
+			Score:     scored[i].Score,
+			Reference: knowledgepage.AssetRef(scored[i].Asset.ID),
 		})
 	}
 	return hits, nil

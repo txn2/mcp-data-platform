@@ -40,7 +40,7 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | S3 | `s3_put_object` | Upload object (if not read-only) |
 | S3 | `s3_delete_object` | Delete object (if not read-only) |
 | S3 | `s3_copy_object` | Copy object (if not read-only) |
-| Knowledge | `search` | The one way to discover: balanced, grouped-by-source results across catalog, memory, insights, assets, prompts, API endpoints, and connections |
+| Knowledge | `search` | The one way to discover: balanced, grouped-by-source results across catalog, memory, insights, feedback, assets, prompts, API endpoints, and connections |
 | Memory | `memory_capture` | The one way to record knowledge: sink-class routed, recall-first |
 | Knowledge | `apply_knowledge` | Review and promote reviewed captures to the catalog (admin-only) |
 | Memory | `memory_manage` | Manage existing memories: update, forget, list, review_stale (opt-in per persona) |
@@ -582,9 +582,9 @@ Structured catalog navigation (platform/domain/tag/entity-type filters) stays in
 **Corpus (everything the persona can access):** the technical catalog (DataHub,
 when configured), canonical knowledge pages (the internal-knowledge home for
 business/domain ontology, searched over their full markdown content), the caller's
-personal memory, captured insights, saved assets, prompts, API endpoints
-(aggregated across every API gateway connection, reusing the per-connection
-semantic ranking of `api_list_endpoints`), and connections. Memory, insights, and
+personal memory, captured insights, the caller's feedback threads, saved assets,
+prompts, API endpoints (aggregated across every API gateway connection, reusing
+the per-connection semantic ranking of `api_list_endpoints`), and connections. Memory, insights, and
 assets are per-user, scoped server-side to the caller, so a search never surfaces
 another user's private records; the catalog, knowledge pages, prompts, endpoints
 (each gateway applies its own route policy), and connections are shared.
@@ -680,15 +680,18 @@ Both sinks record a **changeset** (page promotions use `target_urn = "kp:<slug>"
 | `sink` | string | No | apply target: `datahub` (default) or `knowledge_page` |
 | `entity_urn` | string | Conditional | Required for review, synthesize, list_changesets, and apply with `sink=datahub` |
 | `page` | object | Conditional | `{slug, title, body, summary?, tags?}` for apply with `sink=knowledge_page` |
-| `insight_ids` | array | Conditional | Source insights; required for approve, reject. Their sink-class must match the chosen sink |
+| `insight_ids` | array | Conditional | Source insights; required for approve, reject. Sink-class is a non-binding hint; any insight can be applied to either sink (destination chosen at apply) |
 | `changes` | array | Conditional | Required for apply with `sink=datahub` |
 | `changeset_id` | string | Conditional | Required for rollback |
 | `confirm` | bool | No | Required when `require_confirmation` is true (apply and rollback) |
 | `review_notes` | string | No | Notes for approve/reject actions |
+| `itemize` | bool | No | With `bulk_review`, also return the pending insights themselves (each with `captured_by`, `sink_class`, etc.), paginated by `offset`/`limit` |
+| `limit` | int | No | Page size for itemized `bulk_review` (default 20, max 100) |
+| `offset` | int | No | Page start for itemized `bulk_review`; pass the previous `next_offset` to continue |
 
 **Actions:**
 
-- **bulk_review**: Summary of all pending insights grouped by entity
+- **bulk_review**: Counts of all pending insights (`total_pending`, `by_entity`, `by_category`, `by_confidence`). Pass `itemize: true` to enumerate the queue itself, paginated, with each insight's `id`, `captured_by`, and `sink_class` (the relevance-ranked `search` tool cannot list it completely)
 - **review**: Insights for a specific entity with current DataHub metadata
 - **approve/reject**: Transition insight status with optional notes
 - **synthesize**: Structured change proposals from approved insights

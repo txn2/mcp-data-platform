@@ -32,9 +32,13 @@ type KnowledgePage struct {
 // Entry describes a single toolkit connection. CatalogID and OperationCount are
 // populated only for kinds where they have meaning (today: api).
 type Entry struct {
-	Kind              string                        `json:"kind"`
-	Name              string                        `json:"name"`
-	Connection        string                        `json:"connection"`
+	Kind       string `json:"kind"`
+	Name       string `json:"name"`
+	Connection string `json:"connection"`
+	// Reference is the canonical mcp:connection:(kind,name) citation string, so an
+	// agent can reference this connection from a knowledge page without composing
+	// it by hand.
+	Reference         string                        `json:"reference,omitempty"`
 	Description       string                        `json:"description,omitempty"`
 	IsDefault         bool                          `json:"is_default,omitempty"`
 	DataHubSourceName string                        `json:"datahub_source_name,omitempty"`
@@ -85,6 +89,7 @@ func appendFromLister(entries []Entry, tk registry.Toolkit, lister toolkit.Conne
 			Kind:           tk.Kind(),
 			Name:           conn.Name,
 			Connection:     conn.Name,
+			Reference:      knowledgepage.ConnectionRef(tk.Kind(), conn.Name),
 			Description:    conn.Description,
 			IsDefault:      conn.IsDefault,
 			CatalogID:      conn.CatalogID,
@@ -104,7 +109,7 @@ func appendFallback(entries []Entry, tk registry.Toolkit, src SourceResolver) []
 	if !dataKinds[kind] {
 		return entries
 	}
-	e := Entry{Kind: kind, Name: tk.Name(), Connection: tk.Connection()}
+	e := Entry{Kind: kind, Name: tk.Name(), Connection: tk.Connection(), Reference: knowledgepage.ConnectionRef(kind, tk.Name())}
 	if src != nil {
 		e.DataHubSourceName = src.DataHubSourceName(kind, tk.Name())
 	}

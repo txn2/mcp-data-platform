@@ -37,6 +37,27 @@ func requireInfoFromResult(t *testing.T, result *mcp.CallToolResult) Info {
 	return info
 }
 
+// TestBuildFeatures_GatesKnowledgeByPersonaTools is the #686 fix: platform_info
+// must not advertise the knowledge lifecycle to a persona that cannot drive it.
+func TestBuildFeatures_GatesKnowledgeByPersonaTools(t *testing.T) {
+	p := &Platform{config: &Config{
+		Knowledge: KnowledgeConfig{Apply: KnowledgeApplyConfig{Enabled: true, DataHubConnection: "primary"}},
+	}}
+
+	t.Run("persona with the tools sees the knowledge features", func(t *testing.T) {
+		f := p.buildFeatures([]string{"memory_capture", "apply_knowledge"})
+		assert.True(t, f.KnowledgeCapture)
+		require.NotNil(t, f.KnowledgeApply)
+		assert.True(t, f.KnowledgeApply.Enabled)
+	})
+
+	t.Run("persona without the tools sees neither", func(t *testing.T) {
+		f := p.buildFeatures([]string{"trino_query"})
+		assert.False(t, f.KnowledgeCapture, "capture hidden from a persona without memory_capture")
+		assert.Nil(t, f.KnowledgeApply, "apply hidden from a persona without apply_knowledge")
+	})
+}
+
 func TestHandleInfo(t *testing.T) {
 	tests := []struct {
 		name                  string

@@ -1042,6 +1042,9 @@ Review, synthesize, and apply captured insights to the data catalog. Admin-only.
 | `changeset_id` | string | Conditional | Required for `rollback` |
 | `confirm` | bool | No | Required when `require_confirmation` is enabled (for `apply` and `rollback`) |
 | `review_notes` | string | No | Notes for `approve`/`reject` actions |
+| `itemize` | bool | No | With `bulk_review`, also return the pending insights themselves (each with `captured_by`, `sink_class`), paginated by `offset`/`limit` |
+| `limit` | int | No | Page size for itemized `bulk_review` (default 20, max 100) |
+| `offset` | int | No | Page start for itemized `bulk_review`; pass the previous `next_offset` to continue |
 
 **Change Schema (for `apply` action):**
 
@@ -1075,7 +1078,7 @@ Review, synthesize, and apply captured insights to the data catalog. Admin-only.
 
 | Action | Description | Required Params |
 |--------|-------------|-----------------|
-| `bulk_review` | Summary of all pending insights grouped by entity | None |
+| `bulk_review` | Counts of all pending insights; pass optional `itemize: true` (with `limit`/`offset`) to enumerate the queue, each with `captured_by` and `sink_class` | None |
 | `review` | Insights for a specific entity with current DataHub metadata | `entity_urn` |
 | `approve` | Transition insights to approved status | `insight_ids` |
 | `reject` | Transition insights to rejected status | `insight_ids` |

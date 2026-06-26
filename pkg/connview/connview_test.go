@@ -78,6 +78,7 @@ func TestBuild_KnowledgeBoundedByCap(t *testing.T) {
 
 	require.Len(t, out.Connections, 1)
 	e := out.Connections[0]
+	assert.Equal(t, "mcp:connection:(trino,acme)", e.Reference, "lister path emits the canonical reference")
 	assert.Equal(t, "trino_src", e.DataHubSourceName, "the lister path resolves the source")
 	assert.Equal(t, 7, e.KnowledgePageCount, "the full total is reported")
 	assert.Len(t, e.KnowledgePages, maxKnowledgePages, "the listed sample is capped")
@@ -94,6 +95,7 @@ func TestBuild_FallbackKindFilterAndSource(t *testing.T) {
 
 	require.Len(t, out.Connections, 1, "non-data kinds are dropped in the fallback path")
 	assert.Equal(t, "trino", out.Connections[0].Kind)
+	assert.Equal(t, "mcp:connection:(trino,warehouse)", out.Connections[0].Reference, "fallback path emits the canonical reference")
 	assert.Equal(t, "trino_src", out.Connections[0].DataHubSourceName)
 	assert.Equal(t, 1, out.Count)
 }

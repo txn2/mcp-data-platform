@@ -72,6 +72,9 @@ func TestKnowledgePagesProvider_MapsAndForwards(t *testing.T) {
 	if hits[0].Source != SourceKnowledgePages || hits[0].Ref != "kp1" || hits[0].Text != "Fiscal Calendar\nHow quarters are defined" {
 		t.Errorf("unexpected hit[0]: %+v", hits[0])
 	}
+	if hits[0].Reference != "mcp:knowledge_page:kp1" {
+		t.Errorf("canonical reference = %q, want mcp:knowledge_page:kp1", hits[0].Reference)
+	}
 	// No-summary page renders as just the title.
 	if hits[1].Text != "Seasons" {
 		t.Errorf("hit[1] text = %q, want %q", hits[1].Text, "Seasons")
@@ -101,6 +104,9 @@ func TestKnowledgePagesProvider_ReverseLookupByEntity(t *testing.T) {
 	}
 	if len(hits) != 2 {
 		t.Fatalf("len = %d, want 2", len(hits))
+	}
+	if hits[0].Reference != "mcp:knowledge_page:kp1" {
+		t.Errorf("entity-path canonical reference = %q, want mcp:knowledge_page:kp1", hits[0].Reference)
 	}
 	if hits[0].Source != SourceKnowledgePages || hits[0].Ref != "kp1" || hits[0].Text != "ACME Vocabulary" {
 		t.Errorf("unexpected hit[0]: %+v", hits[0])

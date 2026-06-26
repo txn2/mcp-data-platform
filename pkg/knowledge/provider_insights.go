@@ -160,6 +160,7 @@ func insightHit(in knowledgekit.Insight, score float64) Hit {
 		Score:      score,
 		Status:     in.Status,
 		EntityURNs: in.EntityURNs,
+		CapturedBy: in.CapturedBy,
 	}
 }
 

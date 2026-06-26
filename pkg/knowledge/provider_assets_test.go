@@ -71,6 +71,9 @@ func TestAssetsProvider_ScopesAndMaps(t *testing.T) {
 	if hits[0].Source != SourceAssets || hits[0].Ref != "a1" || hits[0].Text != "Q4 Dashboard\nrevenue by region" {
 		t.Errorf("unexpected hit[0] mapping: %+v", hits[0])
 	}
+	if hits[0].Reference != "mcp:asset:a1" {
+		t.Errorf("canonical reference = %q, want mcp:asset:a1", hits[0].Reference)
+	}
 	// Asset with no description renders as just its name.
 	if hits[1].Text != "No Desc" {
 		t.Errorf("hit[1] text = %q, want %q", hits[1].Text, "No Desc")

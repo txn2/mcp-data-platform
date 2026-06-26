@@ -22,6 +22,47 @@ func newThreadStoreMock(t *testing.T) (*postgresThreadStore, sqlmock.Sqlmock) {
 	return &postgresThreadStore{db: db}, mock
 }
 
+func TestSearchThreads(t *testing.T) {
+	t.Run("matches owner threads and maps rows", func(t *testing.T) {
+		store, mock := newThreadStoreMock(t)
+		now := time.Now()
+		rows := sqlmock.NewRows(threadColumnNames).
+			AddRow("thr_1", "correction", "asset", nil, nil, nil, nil, nil, nil,
+				"amount is gross", "u1", "a@example.com", "open", false, "none", nil, now, now, nil)
+		mock.ExpectQuery("SELECT .* FROM portal_threads").
+			WithArgs("a@example.com", "%amount%", 5).
+			WillReturnRows(rows)
+
+		got, err := store.SearchThreads(context.Background(), "a@example.com", "amount", 5)
+		require.NoError(t, err)
+		require.Len(t, got, 1)
+		assert.Equal(t, "thr_1", got[0].ID)
+		assert.Equal(t, "a@example.com", got[0].AuthorEmail)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("empty owner or blank intent never queries", func(t *testing.T) {
+		store, _ := newThreadStoreMock(t)
+		got, err := store.SearchThreads(context.Background(), "", "amount", 5)
+		require.NoError(t, err)
+		assert.Nil(t, got)
+		got, err = store.SearchThreads(context.Background(), "a@example.com", "   ", 5)
+		require.NoError(t, err)
+		assert.Nil(t, got)
+	})
+
+	t.Run("non-positive limit defaults", func(t *testing.T) {
+		store, mock := newThreadStoreMock(t)
+		mock.ExpectQuery("SELECT .* FROM portal_threads").
+			WithArgs("a@example.com", "%x%", defaultThreadSearchLimit).
+			WillReturnRows(sqlmock.NewRows(threadColumnNames))
+		got, err := store.SearchThreads(context.Background(), "a@example.com", "x", 0)
+		require.NoError(t, err)
+		assert.Empty(t, got)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+}
+
 func TestThreadStoreCreateThread(t *testing.T) {
 	store, mock := newThreadStoreMock(t)
 	now := time.Now()

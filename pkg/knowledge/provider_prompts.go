@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 )
 
@@ -62,10 +63,11 @@ func (p *PromptsProvider) Search(ctx context.Context, q Query) ([]Hit, error) {
 	hits := make([]Hit, 0, len(scored))
 	for i := range scored {
 		hits = append(hits, Hit{
-			Text:   promptHitText(scored[i].Prompt),
-			Source: SourcePrompts,
-			Ref:    scored[i].Prompt.Name,
-			Score:  scored[i].Score,
+			Text:      promptHitText(scored[i].Prompt),
+			Source:    SourcePrompts,
+			Ref:       scored[i].Prompt.Name,
+			Score:     scored[i].Score,
+			Reference: knowledgepage.PromptRef(scored[i].Prompt.ID),
 		})
 	}
 	return hits, nil

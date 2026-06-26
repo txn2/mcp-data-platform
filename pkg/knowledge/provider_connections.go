@@ -4,6 +4,8 @@ import (
 	"context"
 	"sort"
 	"strings"
+
+	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 )
 
 // SourceConnections is the provenance label for connection hits.
@@ -93,10 +95,11 @@ func (p *ConnectionsProvider) Search(_ context.Context, q Query) ([]Hit, error) 
 	hits := make([]Hit, 0, len(matches))
 	for _, m := range matches {
 		hits = append(hits, Hit{
-			Text:   connectionHitText(m.conn),
-			Source: SourceConnections,
-			Ref:    m.conn.Name,
-			Score:  m.score,
+			Text:      connectionHitText(m.conn),
+			Source:    SourceConnections,
+			Ref:       m.conn.Name,
+			Score:     m.score,
+			Reference: knowledgepage.ConnectionRef(m.conn.Kind, m.conn.Name),
 		})
 	}
 	return hits, nil
