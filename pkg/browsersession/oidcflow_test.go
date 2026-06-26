@@ -652,13 +652,13 @@ func TestLogoutHandlerDefaultsPostLogoutToPostLogin(t *testing.T) {
 	}
 }
 
-func TestLogoutHandlerNoEndSessionUsesRequestOrigin(t *testing.T) {
-	// When there's no end_session_endpoint, LogoutHandler derives the
-	// post-logout redirect from the request's scheme + host so a
-	// session started on a non-default origin (e.g., a Vite dev
-	// server, an alternate ingress host) returns to that same origin.
-	// The statically configured PostLogoutRedirect is only the
-	// fallback for header-less requests.
+func TestLogoutHandlerNoEndSessionIgnoresRequestOrigin(t *testing.T) {
+	// When there's no end_session_endpoint, LogoutHandler returns to the
+	// trusted configured PostLogoutRedirect and deliberately ignores the
+	// request-derived origin. Nothing downstream validates the redirect in
+	// this branch (unlike the end_session path, where the OIDC provider checks
+	// post_logout_redirect_uri), so honoring a spoofable X-Forwarded-Host here
+	// would be an open redirect (G710).
 	mux := http.NewServeMux()
 	var serverURL string
 	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
@@ -681,10 +681,9 @@ func TestLogoutHandlerNoEndSessionUsesRequestOrigin(t *testing.T) {
 		t.Fatalf("NewFlow: %v", err)
 	}
 
-	// X-Forwarded-Host overrides r.Host when set, mirroring the Vite
-	// dev server / ingress reverse-proxy pattern.
+	// A spoofed X-Forwarded-Host must NOT influence the redirect target.
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/portal/auth/logout", http.NoBody)
-	req.Header.Set("X-Forwarded-Host", "vite.local:5173")
+	req.Header.Set("X-Forwarded-Host", "evil.example.com")
 	req.Header.Set("X-Forwarded-Proto", "http")
 	w := httptest.NewRecorder()
 
@@ -696,7 +695,7 @@ func TestLogoutHandlerNoEndSessionUsesRequestOrigin(t *testing.T) {
 	}
 
 	loc := resp.Header.Get("Location")
-	wantLoc := "http://vite.local:5173" + DefaultPortalPath
+	wantLoc := "https://app.example.com/portal/" // the configured value, not the header host
 	if loc != wantLoc {
 		t.Errorf("redirect = %q, want %q", loc, wantLoc)
 	}
@@ -735,11 +734,11 @@ func TestLogoutHandlerNoEndSession(t *testing.T) {
 		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusFound)
 	}
 
-	// LogoutHandler now derives the post-logout target from the request
-	// scheme + host so a session started on a non-default origin
-	// returns to that same origin. httptest's default Host is
-	// "example.com", and no TLS → scheme="http".
-	wantLoc := "http://example.com" + DefaultPortalPath
+	// No end_session_endpoint: LogoutHandler returns to the trusted configured
+	// PostLogoutRedirect, which defaults to PostLoginRedirect ("/portal/") when
+	// unset. The request origin is deliberately not used here (open-redirect
+	// hardening, G710).
+	wantLoc := cfg.PostLoginRedirect
 	if resp.Header.Get("Location") != wantLoc {
 		t.Errorf("redirect = %q, want %q", resp.Header.Get("Location"), wantLoc)
 	}

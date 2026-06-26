@@ -17,7 +17,7 @@ CV_EMBED_DIR := ./internal/contentviewer/dist
 
 # Tool versions — keep in sync with .github/workflows/ci.yml
 GOLANGCI_LINT_VERSION := v2.11.4
-GOSEC_VERSION := v2.22.0
+GOSEC_VERSION := v2.27.1
 
 # Go commands
 GO := go
@@ -103,9 +103,9 @@ migrate-check:
 		-p $(MIGRATE_PG_PORT):5432 $(MIGRATE_PG_IMAGE) >/dev/null
 	@trap 'docker rm -f $(MIGRATE_PG_CONTAINER) >/dev/null 2>&1 || true' EXIT; \
 		echo "  waiting for Postgres on :$(MIGRATE_PG_PORT)..."; \
-		for i in $$(seq 1 30); do \
-			docker exec $(MIGRATE_PG_CONTAINER) pg_isready -U migrate -d migrate_check >/dev/null 2>&1 && break; \
-			if [ "$$i" = "30" ]; then echo "FAIL: Postgres did not become ready" >&2; exit 1; fi; \
+		for i in $$(seq 1 60); do \
+			docker exec $(MIGRATE_PG_CONTAINER) pg_isready -h localhost -p 5432 -U migrate -d migrate_check >/dev/null 2>&1 && break; \
+			if [ "$$i" = "60" ]; then echo "FAIL: Postgres did not become ready" >&2; exit 1; fi; \
 			sleep 1; \
 		done; \
 		MIGRATE_TEST_DSN="postgres://migrate:migrate@localhost:$(MIGRATE_PG_PORT)/migrate_check?sslmode=disable" \

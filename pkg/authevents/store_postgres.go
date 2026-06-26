@@ -125,6 +125,7 @@ func (s *PostgresStore) List(ctx context.Context, f Filter) ([]Event, error) {
 	}
 	if !f.Since.IsZero() {
 		args = append(args, f.Since)
+		// #nosec G202 -- only a $N placeholder is formatted; user input goes to args
 		q += fmt.Sprintf(" AND occurred_at >= $%d", len(args)) //nolint:gosec // see G202 note
 	}
 	q += " ORDER BY occurred_at DESC LIMIT $1"
