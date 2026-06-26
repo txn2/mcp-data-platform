@@ -53,6 +53,11 @@ func TestRun_InsertsEveryConnectionInsertOnly(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
 
+	// Run iterates registry.All(), which ranges a map, so the insert order is
+	// non-deterministic. The contract is "every connection inserted, insert-only",
+	// not a specific order (ON CONFLICT DO NOTHING is order-independent), so match
+	// the expectations in any order.
+	mock.MatchExpectationsInOrder(false)
 	for _, c := range [][2]string{{"trino", "prod"}, {"api", "stripe"}, {"api", "prometheus"}} {
 		mock.ExpectExec("INSERT INTO connection_instances .*ON CONFLICT .*DO NOTHING").
 			WithArgs(c[0], c[1], "").
