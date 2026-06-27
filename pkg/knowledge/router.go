@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 
@@ -111,16 +112,28 @@ func sourceSet(sources []string) map[string]bool {
 // (A name present here but unavailable on a given deployment, e.g. memory without a
 // database, is still "known": it is scope-filtered, not a typo.)
 var knownSourceNames = map[string]bool{
-	SourceDatahub:        true,
-	SourceDocuments:      true,
-	SourceKnowledgePages: true,
-	SourceMemory:         true,
-	SourceInsights:       true,
-	SourceFeedback:       true,
-	SourceAssets:         true,
-	SourcePrompts:        true,
-	SourceEndpoints:      true,
-	SourceConnections:    true,
+	SourceCatalog:          true,
+	SourceContextDocuments: true,
+	SourceKnowledgePages:   true,
+	SourceMemory:           true,
+	SourceInsights:         true,
+	SourceFeedback:         true,
+	SourceAssets:           true,
+	SourcePrompts:          true,
+	SourceEndpoints:        true,
+	SourceConnections:      true,
+}
+
+// KnownSources returns the valid search-source names (the Source* provenance
+// constants) sorted, so other packages and their drift guards validate against one
+// authority instead of a hand-maintained copy.
+func KnownSources() []string {
+	out := make([]string, 0, len(knownSourceNames))
+	for s := range knownSourceNames {
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // unknownSources returns the requested source names that match no known source,

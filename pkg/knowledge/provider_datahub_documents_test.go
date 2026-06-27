@@ -39,9 +39,9 @@ func TestDocumentsProvider_Search(t *testing.T) {
 		{URN: "urn:li:document:doc-1", Title: "Observability Runbook", SubType: "runbook", Snippet: "how to query prometheus", ShowInGlobalContext: true, Status: "PUBLISHED", RelatedAssetURNs: []string{"urn:li:dataset:(x)"}},
 		{URN: "urn:li:document:doc-2", Title: "Vocabulary", Snippet: "terms", ShowInGlobalContext: true, Status: "PUBLISHED"},
 	}}
-	p := NewDocumentsProvider(f)
+	p := NewContextDocumentsProvider(f)
 
-	assert.Equal(t, SourceDocuments, p.Name())
+	assert.Equal(t, SourceContextDocuments, p.Name())
 	assert.Equal(t, ScopeShared, p.Scope())
 
 	hits, err := p.Search(context.Background(), Query{Intent: "prometheus", Limit: 5})
@@ -52,7 +52,7 @@ func TestDocumentsProvider_Search(t *testing.T) {
 	assert.Equal(t, 5, f.gotLimit)
 
 	// The URN both drills in and is the citation; related assets ride along.
-	assert.Equal(t, SourceDocuments, hits[0].Source)
+	assert.Equal(t, SourceContextDocuments, hits[0].Source)
 	assert.Equal(t, "urn:li:document:doc-1", hits[0].Ref)
 	assert.Equal(t, "urn:li:document:doc-1", hits[0].Reference)
 	assert.Equal(t, []string{"urn:li:dataset:(x)"}, hits[0].EntityURNs)
@@ -69,7 +69,7 @@ func TestDocumentsProvider_FiltersHiddenAndUnpublished(t *testing.T) {
 		{URN: "urn:li:document:nostatus", Title: "No status (upstream defaults unset status to PUBLISHED)", ShowInGlobalContext: true},
 		{URN: "urn:li:document:archived", Title: "Unknown future state", ShowInGlobalContext: true, Status: "ARCHIVED"},
 	}}
-	p := NewDocumentsProvider(f)
+	p := NewContextDocumentsProvider(f)
 
 	hits, err := p.Search(context.Background(), Query{Intent: "x", Limit: 10})
 	require.NoError(t, err)
@@ -92,7 +92,7 @@ func TestDocumentsProvider_DefaultVisibleSurfaces(t *testing.T) {
 	f := &fakeDocumentSearcher{docs: []semantic.DocumentResult{
 		{URN: "urn:li:document:defvis", Title: "Default visible", ShowInGlobalContext: true, Status: "PUBLISHED"},
 	}}
-	hits, err := NewDocumentsProvider(f).Search(context.Background(), Query{Intent: "x", Limit: 10})
+	hits, err := NewContextDocumentsProvider(f).Search(context.Background(), Query{Intent: "x", Limit: 10})
 	require.NoError(t, err)
 	require.Len(t, hits, 1)
 	assert.Equal(t, "urn:li:document:defvis", hits[0].Ref)
@@ -113,7 +113,7 @@ func TestDocumentsProvider_EntityArmAndDedup(t *testing.T) {
 			{URN: "urn:li:document:textonly", Title: "Text only", ShowInGlobalContext: true, Status: "PUBLISHED"},
 		},
 	}
-	p := NewDocumentsProvider(f)
+	p := NewContextDocumentsProvider(f)
 
 	hits, err := p.Search(context.Background(), Query{Intent: "runbook", EntityURNs: []string{"urn:li:dataset:(t)"}, Limit: 10})
 	require.NoError(t, err)
@@ -123,7 +123,7 @@ func TestDocumentsProvider_EntityArmAndDedup(t *testing.T) {
 	refs := make([]string, 0, len(hits))
 	scores := map[string]float64{}
 	for _, h := range hits {
-		assert.Equal(t, SourceDocuments, h.Source)
+		assert.Equal(t, SourceContextDocuments, h.Source)
 		refs = append(refs, h.Ref)
 		scores[h.Ref] = h.Score
 		// Provenance: an entity-linked document carries its related assets (populated
@@ -144,14 +144,14 @@ func TestDocumentsProvider_EntityArmAndDedup(t *testing.T) {
 
 func TestDocumentsProvider_EntityArmErrorSkipped(t *testing.T) {
 	f := &fakeDocumentSearcher{relErr: errors.New("boom")}
-	hits, err := NewDocumentsProvider(f).Search(context.Background(), Query{EntityURNs: []string{"urn:li:dataset:(t)"}})
+	hits, err := NewContextDocumentsProvider(f).Search(context.Background(), Query{EntityURNs: []string{"urn:li:dataset:(t)"}})
 	require.NoError(t, err, "a related-document lookup error is skipped, not surfaced, so it does not blank the search")
 	assert.Empty(t, hits)
 }
 
 func TestDocumentsProvider_NoIntent(t *testing.T) {
 	f := &fakeDocumentSearcher{docs: []semantic.DocumentResult{{URN: "x"}}}
-	p := NewDocumentsProvider(f)
+	p := NewContextDocumentsProvider(f)
 
 	hits, err := p.Search(context.Background(), Query{Intent: "   "})
 	require.NoError(t, err)
@@ -160,7 +160,7 @@ func TestDocumentsProvider_NoIntent(t *testing.T) {
 }
 
 func TestDocumentsProvider_Error(t *testing.T) {
-	p := NewDocumentsProvider(&fakeDocumentSearcher{err: errors.New("boom")})
+	p := NewContextDocumentsProvider(&fakeDocumentSearcher{err: errors.New("boom")})
 	_, err := p.Search(context.Background(), Query{Intent: "x"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "document search")
@@ -173,7 +173,7 @@ func TestDocumentsProvider_SurfacesInAssembledRouter(t *testing.T) {
 	f := &fakeDocumentSearcher{docs: []semantic.DocumentResult{
 		{URN: "urn:li:document:doc-1", Title: "Runbook", Snippet: "how to query prometheus", ShowInGlobalContext: true, Status: "PUBLISHED"},
 	}}
-	r := NewRouter(nil, nil, NewDocumentsProvider(f))
+	r := NewRouter(nil, nil, NewContextDocumentsProvider(f))
 
 	res, err := r.Search(context.Background(), Query{Intent: "runbook"})
 	require.NoError(t, err)
@@ -181,7 +181,7 @@ func TestDocumentsProvider_SurfacesInAssembledRouter(t *testing.T) {
 	var found bool
 	for _, g := range res.Groups {
 		for _, h := range g.Hits {
-			if h.Source == SourceDocuments && h.Ref == "urn:li:document:doc-1" {
+			if h.Source == SourceContextDocuments && h.Ref == "urn:li:document:doc-1" {
 				found = true
 			}
 		}

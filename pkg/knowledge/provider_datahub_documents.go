@@ -9,36 +9,36 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
 
-// SourceDocuments is the provenance label for DataHub context-document hits.
-const SourceDocuments = "documents"
+// SourceContextDocuments is the provenance label for DataHub context-document hits.
+const SourceContextDocuments = "context_documents"
 
-// DocumentsProvider surfaces DataHub context documents in unified search (#692).
+// ContextDocumentsProvider surfaces DataHub context documents in unified search (#692).
 // Context documents are the non-dataset knowledge home that predates knowledge
 // pages; before this source they were undiscoverable from search (the catalog
 // provider only searched datasets), so the knowledge in them was stranded. The
 // catalog is global, so this is a shared source queried for every request.
-type DocumentsProvider struct {
+type ContextDocumentsProvider struct {
 	searcher semantic.DocumentSearcher
 }
 
-// NewDocumentsProvider builds the documents provider over a document searcher.
-func NewDocumentsProvider(searcher semantic.DocumentSearcher) *DocumentsProvider {
-	return &DocumentsProvider{searcher: searcher}
+// NewContextDocumentsProvider builds the documents provider over a document searcher.
+func NewContextDocumentsProvider(searcher semantic.DocumentSearcher) *ContextDocumentsProvider {
+	return &ContextDocumentsProvider{searcher: searcher}
 }
 
 // Name returns the provenance label.
-func (*DocumentsProvider) Name() string { return SourceDocuments }
+func (*ContextDocumentsProvider) Name() string { return SourceContextDocuments }
 
 // Scope marks the catalog shared (global, always queried).
-func (*DocumentsProvider) Scope() Scope { return ScopeShared }
+func (*ContextDocumentsProvider) Scope() Scope { return ScopeShared }
 
 // Search returns context documents for the query: those linked to the requested
 // EntityURNs (entity path) plus those relevant to Intent (text path), merged and
 // de-duplicated by document URN so a document found both ways appears once, the
-// entity match ranked first at the exact-match score (mirroring DatahubProvider and
+// entity match ranked first at the exact-match score (mirroring CatalogProvider and
 // PagesProvider). Both arms exclude drafts; the text arm additionally excludes
 // documents hidden from global search, which the entity (linked-asset) arm surfaces.
-func (p *DocumentsProvider) Search(ctx context.Context, q Query) ([]Hit, error) {
+func (p *ContextDocumentsProvider) Search(ctx context.Context, q Query) ([]Hit, error) {
 	return mergeArms(ctx, q, p.searchByEntity, p.searchByText)
 }
 
@@ -54,7 +54,7 @@ func (p *DocumentsProvider) Search(ctx context.Context, q Query) ([]Hit, error) 
 // (mcp-datahub types/document.go), and an entity-keyed lookup IS that linked-asset
 // path, so suppressing those documents here would make them reachable nowhere. The
 // text arm still hides them from global search.
-func (p *DocumentsProvider) searchByEntity(ctx context.Context, q Query, seen map[string]bool) []Hit {
+func (p *ContextDocumentsProvider) searchByEntity(ctx context.Context, q Query, seen map[string]bool) []Hit {
 	var hits []Hit
 	for _, urn := range q.EntityURNs {
 		docs, err := p.searcher.GetRelatedDocuments(ctx, urn)
@@ -75,7 +75,7 @@ func (p *DocumentsProvider) searchByEntity(ctx context.Context, q Query, seen ma
 
 // searchByText returns context documents relevant to the intent. A query with no
 // intent yields nothing, since a document is found by what it says.
-func (p *DocumentsProvider) searchByText(ctx context.Context, q Query, seen map[string]bool) ([]Hit, error) {
+func (p *ContextDocumentsProvider) searchByText(ctx context.Context, q Query, seen map[string]bool) ([]Hit, error) {
 	if strings.TrimSpace(q.Intent) == "" {
 		return nil, nil
 	}
@@ -122,7 +122,7 @@ func publishedDocument(d semantic.DocumentResult) bool {
 func documentHit(d semantic.DocumentResult, score float64) Hit {
 	return Hit{
 		Text:       documentHitText(d),
-		Source:     SourceDocuments,
+		Source:     SourceContextDocuments,
 		Ref:        d.URN,
 		Score:      score,
 		EntityURNs: d.RelatedAssetURNs,

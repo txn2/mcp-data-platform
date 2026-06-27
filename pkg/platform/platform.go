@@ -1728,10 +1728,10 @@ func (p *Platform) storeSearchProviders() []knowledge.Provider {
 	// semantic provider is configured (the noop fallback would add an
 	// always-empty provider).
 	if p.config.Semantic.Provider == kindDataHub && p.semanticProvider != nil {
-		providers = append(providers, knowledge.NewDatahubProvider(p.semanticProvider))
+		providers = append(providers, knowledge.NewCatalogProvider(p.semanticProvider))
 		// Context documents: a distinct search source (#692), present only when the real catalog exposes document search.
 		if ds, ok := semantic.DocumentSearcherFrom(p.semanticProvider); ok {
-			providers = append(providers, knowledge.NewDocumentsProvider(ds))
+			providers = append(providers, knowledge.NewContextDocumentsProvider(ds))
 		}
 	}
 	// Canonical knowledge pages (the internal-knowledge home for business

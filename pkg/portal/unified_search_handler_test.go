@@ -55,15 +55,15 @@ func TestSearch_ForwardsAndGroups(t *testing.T) {
 	router := &fakeSearchRouter{result: SearchResult{
 		Ranking: "hybrid",
 		Groups: []SearchGroup{
-			{Source: "datahub", Hits: []SearchHit{{Text: "daily_sales", Source: "datahub", Ref: "urn:1", Score: 0.9}}},
+			{Source: "catalog", Hits: []SearchHit{{Text: "daily_sales", Source: "catalog", Ref: "urn:1", Score: 0.9}}},
 			{Source: "knowledge_pages", Hits: []SearchHit{{Text: "Fiscal Calendar", Source: "knowledge_pages", Ref: "kp1", Score: 0.8}}},
 		},
-		Coverage: []SearchCoverage{{Source: "datahub", Matched: 14, Shown: 1}},
+		Coverage: []SearchCoverage{{Source: "catalog", Matched: 14, Shown: 1}},
 	}}
 	resolver := func([]string) *PersonaInfo { return &PersonaInfo{Name: "analyst", Tools: []string{"search"}} }
 	h := newSearchHandler(router, kpViewer, resolver)
 
-	rec := doKP(h, "GET", "/api/v1/portal/search?q=churn&sources=datahub,memory&entity_urns=urn:a&status=pending&limit=5", "")
+	rec := doKP(h, "GET", "/api/v1/portal/search?q=churn&sources=catalog,memory&entity_urns=urn:a&status=pending&limit=5", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body.String())
 	}
@@ -72,8 +72,8 @@ func TestSearch_ForwardsAndGroups(t *testing.T) {
 	if router.got.Intent != "churn" {
 		t.Errorf("intent = %q, want churn", router.got.Intent)
 	}
-	if len(router.got.Sources) != 2 || router.got.Sources[0] != "datahub" || router.got.Sources[1] != "memory" {
-		t.Errorf("sources = %v, want [datahub memory]", router.got.Sources)
+	if len(router.got.Sources) != 2 || router.got.Sources[0] != "catalog" || router.got.Sources[1] != "memory" {
+		t.Errorf("sources = %v, want [catalog memory]", router.got.Sources)
 	}
 	if len(router.got.EntityURNs) != 1 || router.got.EntityURNs[0] != "urn:a" {
 		t.Errorf("entity_urns = %v, want [urn:a]", router.got.EntityURNs)
@@ -166,10 +166,10 @@ func TestQueryValues(t *testing.T) {
 		want []string
 	}{
 		{"absent", "/x", "sources", nil},
-		{"single", "/x?sources=datahub", "sources", []string{"datahub"}},
-		{"comma-separated", "/x?sources=datahub,memory", "sources", []string{"datahub", "memory"}},
-		{"repeated", "/x?sources=datahub&sources=memory", "sources", []string{"datahub", "memory"}},
-		{"blanks dropped", "/x?sources=,%20,datahub", "sources", []string{"datahub"}},
+		{"single", "/x?sources=catalog", "sources", []string{"catalog"}},
+		{"comma-separated", "/x?sources=catalog,memory", "sources", []string{"catalog", "memory"}},
+		{"repeated", "/x?sources=catalog&sources=memory", "sources", []string{"catalog", "memory"}},
+		{"blanks dropped", "/x?sources=,%20,catalog", "sources", []string{"catalog"}},
 		{"all blank collapses to nil", "/x?sources=,%20,", "sources", nil},
 	}
 	for _, tt := range tests {

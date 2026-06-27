@@ -33,12 +33,9 @@ func TestSearchSchema_SourcesDescriptionListsAllKnownSources(t *testing.T) {
 	if desc == "" {
 		t.Fatal("sources property has no description")
 	}
-	for _, s := range []string{
-		knowledge.SourceDatahub, knowledge.SourceDocuments, knowledge.SourceKnowledgePages,
-		knowledge.SourceMemory, knowledge.SourceInsights, knowledge.SourceFeedback,
-		knowledge.SourceAssets, knowledge.SourcePrompts, knowledge.SourceEndpoints,
-		knowledge.SourceConnections,
-	} {
+	// Derive the expected set from the single authority (no hand-maintained list), so
+	// a newly added source the prose forgets is caught here.
+	for _, s := range knowledge.KnownSources() {
 		if !strings.Contains(desc, s) {
 			t.Errorf("search schema 'sources' description omits known source %q", s)
 		}

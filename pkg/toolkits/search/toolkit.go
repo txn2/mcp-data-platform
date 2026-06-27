@@ -67,7 +67,7 @@ var searchSchema = json.RawMessage(`{
   "properties": {
     "intent": {
       "type": "string",
-      "description": "Natural-language description of what you are looking for, across every source you can access: the technical catalog (DataHub), DataHub context documents, canonical knowledge pages (business/domain ontology), your memory, captured insights, your feedback, saved assets, prompts, API endpoints, and connections. Ranked by relevance and grouped by source. Provide intent, entity_urns, or both."
+      "description": "Natural-language description of what you are looking for, across every source you can access: the technical catalog, context documents, canonical knowledge pages (business/domain ontology), your memory, captured insights, your feedback, saved assets, prompts, API endpoints, and connections. Ranked by relevance and grouped by source. Provide intent, entity_urns, or both."
     },
     "context": {
       "type": "string",
@@ -85,7 +85,7 @@ var searchSchema = json.RawMessage(`{
     "sources": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Optional: narrow the search to specific sources (e.g. [\"datahub\"], [\"memory\",\"endpoints\"]). Omit to search every source you can access. This only narrows results; it never opts you into a source your access would otherwise exclude. Known sources: datahub, documents, knowledge_pages, memory, insights, feedback, assets, prompts, endpoints, connections. An unrecognized name is reported back in unknown_sources rather than silently ignored."
+      "description": "Optional: narrow the search to specific sources (e.g. [\"catalog\"], [\"memory\",\"endpoints\"]). Omit to search every source you can access. This only narrows results; it never opts you into a source your access would otherwise exclude. Known sources: catalog, context_documents, knowledge_pages, memory, insights, feedback, assets, prompts, endpoints, connections. An unrecognized name is reported back in unknown_sources rather than silently ignored."
     },
     "limit": {
       "type": "integer",
@@ -121,7 +121,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Title: "Search",
 		Description: "The one way to discover. Call this FIRST, before any other tool, to find what is " +
 			"already known and to learn where the answer to a question lives. One query fans across every " +
-			"source you can access (the technical catalog, DataHub context documents, canonical knowledge pages, your memory, " +
+			"source you can access (the technical catalog, context documents, canonical knowledge pages, your memory, " +
 			"captured insights, your feedback, saved assets, prompts, API endpoints, and connections) and returns results " +
 			"grouped by source with a coverage " +
 			"summary, so you see the full shape of the answer space instead of tunneling into the first tool " +

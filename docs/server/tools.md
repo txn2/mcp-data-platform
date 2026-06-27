@@ -40,7 +40,7 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | S3 | `s3_put_object` | Upload object (if not read-only) |
 | S3 | `s3_delete_object` | Delete object (if not read-only) |
 | S3 | `s3_copy_object` | Copy object (if not read-only) |
-| Knowledge | `search` | The one way to discover: balanced, grouped-by-source results across catalog, memory, insights, feedback, assets, prompts, API endpoints, and connections |
+| Knowledge | `search` | The one way to discover: balanced, grouped-by-source results across the catalog, context documents, knowledge pages, memory, insights, feedback, assets, prompts, API endpoints, and connections |
 | Memory | `memory_capture` | The one way to record knowledge: sink-class routed, recall-first |
 | Knowledge | `apply_knowledge` | Review and promote reviewed captures to the catalog (admin-only) |
 | Memory | `memory_manage` | Manage existing memories: update, forget, list, review_stale (opt-in per persona) |
@@ -619,7 +619,7 @@ and `dimension`), and a `coverage` array (`{source, matched, shown}`).
 | `context` | string | No | - | Optional surrounding context, folded into the intent to sharpen relevance |
 | `entity_urns` | array | Conditional | - | Exact entity-keyed lookup: everything linked to these DataHub URNs (the catalog entity, insights about it, and your memory linked to it), expanded along lineage |
 | `status` | string | No | - | Optional filter by insight review status (pending, approved, rejected, applied, superseded, rolled_back) |
-| `sources` | array | No | - | Narrow the search to named sources (`datahub`, `documents`, `knowledge_pages`, `memory`, `insights`, `assets`, `prompts`, `endpoints`, `connections`). Only narrows; never opts into a source the persona could not otherwise access. An unrecognized name is echoed back in the response `unknown_sources` rather than silently ignored |
+| `sources` | array | No | - | Narrow the search to named sources (`catalog`, `context_documents`, `knowledge_pages`, `memory`, `insights`, `feedback`, `assets`, `prompts`, `endpoints`, `connections`). Only narrows; never opts into a source the persona could not otherwise access. An unrecognized name is echoed back in the response `unknown_sources` rather than silently ignored |
 | `limit` | integer | No | 10 | Total results to display across all sources (max 50) |
 
 ---

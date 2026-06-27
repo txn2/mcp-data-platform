@@ -172,7 +172,7 @@ func assembledToolkit() *Toolkit {
 	router := knowledge.NewRouter(nil, nil,
 		knowledge.NewMemoryProvider(mem),
 		knowledge.NewInsightsProvider(ins),
-		knowledge.NewDatahubProvider(globalCatalog{}),
+		knowledge.NewCatalogProvider(globalCatalog{}),
 		knowledge.NewPromptsProvider(globalPrompts{}),
 		knowledge.NewAssetsProvider(assets),
 		knowledge.NewKnowledgePagesProvider(globalKnowledgePages{}),
@@ -232,7 +232,7 @@ func TestAC1_FusedAndSourceTagged(t *testing.T) {
 	}
 	for _, src := range []string{
 		knowledge.SourceMemory, knowledge.SourceInsights, knowledge.SourceAssets,
-		knowledge.SourceDatahub, knowledge.SourcePrompts, knowledge.SourceKnowledgePages,
+		knowledge.SourceCatalog, knowledge.SourcePrompts, knowledge.SourceKnowledgePages,
 	} {
 		if !got[src] {
 			t.Errorf("missing hit from source %q (sources seen: %v)", src, got)
@@ -333,7 +333,7 @@ func TestEntityFanoutUnionsAllSources(t *testing.T) {
 	router := knowledge.NewRouter(nil, nil,
 		knowledge.NewMemoryProvider(mem),
 		knowledge.NewInsightsProvider(ins),
-		knowledge.NewDatahubProvider(globalCatalog{}),
+		knowledge.NewCatalogProvider(globalCatalog{}),
 	)
 	tk := New("default", router)
 
@@ -345,7 +345,7 @@ func TestEntityFanoutUnionsAllSources(t *testing.T) {
 	for _, h := range hitsOf(out) {
 		bySource[h.Source] = true
 	}
-	for _, src := range []string{knowledge.SourceMemory, knowledge.SourceInsights, knowledge.SourceDatahub} {
+	for _, src := range []string{knowledge.SourceMemory, knowledge.SourceInsights, knowledge.SourceCatalog} {
 		if !bySource[src] {
 			t.Errorf("entity fanout missing %q; sources seen: %v", src, bySource)
 		}
@@ -366,7 +366,7 @@ func TestEntityFanoutNonexistentURNReturnsZero(t *testing.T) {
 	router := knowledge.NewRouter(nil, nil,
 		knowledge.NewMemoryProvider(mem),
 		knowledge.NewInsightsProvider(ins),
-		knowledge.NewDatahubProvider(globalCatalog{}),
+		knowledge.NewCatalogProvider(globalCatalog{}),
 	)
 	tk := New("default", router)
 
@@ -412,7 +412,7 @@ func (stubConnLister) Connections() []knowledge.ConnectionInfo {
 // entry for each, and Count equals the total shown.
 func TestGroupedOutputAndCoverage(t *testing.T) {
 	router := knowledge.NewRouter(nil, nil,
-		knowledge.NewDatahubProvider(globalCatalog{}),
+		knowledge.NewCatalogProvider(globalCatalog{}),
 		knowledge.NewConnectionsProvider(stubConnLister{}),
 	)
 	tk := New("default", router)
@@ -424,7 +424,7 @@ func TestGroupedOutputAndCoverage(t *testing.T) {
 		sources[g.Source] = true
 		shown += len(g.Hits)
 	}
-	if !sources[knowledge.SourceDatahub] || !sources[knowledge.SourceConnections] {
+	if !sources[knowledge.SourceCatalog] || !sources[knowledge.SourceConnections] {
 		t.Errorf("expected datahub and connections groups, got %v", sources)
 	}
 	if out.Count != shown {
@@ -444,7 +444,7 @@ func TestGroupedOutputAndCoverage(t *testing.T) {
 // from the tool input.
 func TestSourcesNarrowsThroughTool(t *testing.T) {
 	router := knowledge.NewRouter(nil, nil,
-		knowledge.NewDatahubProvider(globalCatalog{}),
+		knowledge.NewCatalogProvider(globalCatalog{}),
 		knowledge.NewConnectionsProvider(stubConnLister{}),
 	)
 	tk := New("default", router)
@@ -462,7 +462,7 @@ func TestSourcesNarrowsThroughTool(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 	for _, g := range out.Groups {
-		if g.Source == knowledge.SourceDatahub {
+		if g.Source == knowledge.SourceCatalog {
 			t.Errorf("sources=[connections] should exclude datahub, got group %q", g.Source)
 		}
 	}
