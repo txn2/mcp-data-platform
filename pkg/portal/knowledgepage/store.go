@@ -92,6 +92,12 @@ type Store interface {
 	GetVersion(ctx context.Context, pageID string, version int) (*Version, error)
 	// Entity references (#664): the entities a page provides knowledge about.
 	ListEntityRefs(ctx context.Context, pageID string) ([]EntityRef, error)
+	// ValidateRefTargets checks each FK-backed reference target exists, so a
+	// citation to a missing entity is rejected before the page is written (#690).
+	ValidateRefTargets(ctx context.Context, refs []EntityRef) error
+	// FilterExistingRefTargets returns the subset of refs whose target exists,
+	// dropping stale references carried from a source insight (#690).
+	FilterExistingRefTargets(ctx context.Context, refs []EntityRef) ([]EntityRef, error)
 	AddEntityRefs(ctx context.Context, pageID string, refs []EntityRef) error
 	ReplaceEntityRefs(ctx context.Context, pageID string, refs []EntityRef) error
 	ReplaceEntityRefsBySource(ctx context.Context, pageID, source string, refs []EntityRef) error

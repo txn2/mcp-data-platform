@@ -32,8 +32,9 @@ type mockKnowledgePageStore struct {
 	updated  *knowledgepage.Update
 	deleted  string
 
-	refs    []knowledgepage.EntityRef
-	refsErr error
+	refs            []knowledgepage.EntityRef
+	refsErr         error
+	validateRefsErr error
 
 	referencingPages []knowledgepage.PageRef
 	referencingErr   error
@@ -96,6 +97,14 @@ func (m *mockKnowledgePageStore) Search(_ context.Context, _ knowledgepage.Searc
 
 func (m *mockKnowledgePageStore) ListEntityRefs(_ context.Context, _ string) ([]knowledgepage.EntityRef, error) {
 	return m.refs, m.refsErr
+}
+
+func (m *mockKnowledgePageStore) ValidateRefTargets(_ context.Context, _ []knowledgepage.EntityRef) error {
+	return m.validateRefsErr
+}
+
+func (m *mockKnowledgePageStore) FilterExistingRefTargets(_ context.Context, refs []knowledgepage.EntityRef) ([]knowledgepage.EntityRef, error) {
+	return refs, m.validateRefsErr
 }
 
 func (m *mockKnowledgePageStore) AddEntityRefs(_ context.Context, _ string, refs []knowledgepage.EntityRef) error {

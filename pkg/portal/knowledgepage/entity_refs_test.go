@@ -2,6 +2,7 @@ package knowledgepage
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -10,6 +11,103 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func oneRow() *sqlmock.Rows { return sqlmock.NewRows([]string{"?column?"}).AddRow(1) }
+
+// TestStore_ValidateRefTargets covers the up-front existence check (#690): each
+// FK-backed type queries its catalog table, while a DataHub URN is free text and
+// is not queried at all.
+func TestStore_ValidateRefTargets(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+	store := NewPostgresStore(db)
+
+	mock.ExpectQuery("SELECT 1 FROM portal_assets WHERE id").WithArgs("a1").WillReturnRows(oneRow())
+	mock.ExpectQuery("SELECT 1 FROM prompts WHERE id").WithArgs("p1").WillReturnRows(oneRow())
+	mock.ExpectQuery("SELECT 1 FROM portal_collections WHERE id").WithArgs("c1").WillReturnRows(oneRow())
+	mock.ExpectQuery("SELECT 1 FROM portal_knowledge_pages WHERE id").WithArgs("kp1").WillReturnRows(oneRow())
+	mock.ExpectQuery("SELECT 1 FROM connection_instances WHERE kind").WithArgs("trino", "warehouse").WillReturnRows(oneRow())
+
+	refs := []EntityRef{
+		{TargetType: RefTargetAsset, AssetID: "a1"},
+		{TargetType: RefTargetPrompt, PromptID: "p1"},
+		{TargetType: RefTargetCollection, CollectionID: "c1"},
+		{TargetType: RefTargetKnowledgePage, RefPageID: "kp1"},
+		{TargetType: RefTargetConnection, ConnectionKind: "trino", ConnectionName: "warehouse"},
+		{TargetType: RefTargetDataHub, EntityURN: "urn:li:dataset:x"}, // no catalog FK, not queried
+	}
+	require.NoError(t, store.ValidateRefTargets(context.Background(), refs))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestStore_ValidateRefTargets_Missing maps a non-existent target to ErrRefTargetNotFound.
+func TestStore_ValidateRefTargets_Missing(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+	store := NewPostgresStore(db)
+
+	mock.ExpectQuery("SELECT 1 FROM portal_assets WHERE id").WithArgs("gone").
+		WillReturnRows(sqlmock.NewRows([]string{"?column?"})) // no rows
+
+	err = store.ValidateRefTargets(context.Background(), []EntityRef{{TargetType: RefTargetAsset, AssetID: "gone"}})
+	require.ErrorIs(t, err, ErrRefTargetNotFound)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestStore_FilterExistingRefTargets keeps the existing targets and drops the
+// missing ones (#690), and always keeps a free-text DataHub URN.
+func TestStore_FilterExistingRefTargets(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+	store := NewPostgresStore(db)
+
+	mock.ExpectQuery("SELECT 1 FROM portal_assets WHERE id").WithArgs("a1").WillReturnRows(oneRow())
+	mock.ExpectQuery("SELECT 1 FROM portal_assets WHERE id").WithArgs("gone").
+		WillReturnRows(sqlmock.NewRows([]string{"?column?"})) // no rows -> dropped
+
+	kept, err := store.FilterExistingRefTargets(context.Background(), []EntityRef{
+		{TargetType: RefTargetAsset, AssetID: "a1"},
+		{TargetType: RefTargetAsset, AssetID: "gone"},
+		{TargetType: RefTargetDataHub, EntityURN: "urn:li:dataset:x"},
+	})
+	require.NoError(t, err)
+	require.Len(t, kept, 2)
+	assert.Equal(t, "a1", kept[0].AssetID)
+	assert.Equal(t, RefTargetDataHub, kept[1].TargetType)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestStore_FilterExistingRefTargets_Error propagates a query failure.
+func TestStore_FilterExistingRefTargets_Error(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+	store := NewPostgresStore(db)
+
+	mock.ExpectQuery("SELECT 1 FROM portal_assets WHERE id").WithArgs("a1").WillReturnError(errors.New("db down"))
+	_, err = store.FilterExistingRefTargets(context.Background(), []EntityRef{{TargetType: RefTargetAsset, AssetID: "a1"}})
+	require.Error(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestStore_ValidateRefTargets_QueryError surfaces a non-ErrNoRows query failure as
+// a wrapped error, not a false "not found".
+func TestStore_ValidateRefTargets_QueryError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+	store := NewPostgresStore(db)
+
+	mock.ExpectQuery("SELECT 1 FROM prompts WHERE id").WithArgs("p1").WillReturnError(errors.New("db down"))
+
+	err = store.ValidateRefTargets(context.Background(), []EntityRef{{TargetType: RefTargetPrompt, PromptID: "p1"}})
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrRefTargetNotFound)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
 
 func refRows() *sqlmock.Rows {
 	return sqlmock.NewRows([]string{

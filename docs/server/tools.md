@@ -666,9 +666,11 @@ Review, synthesize, and apply captured insights to their canonical home. Admin-o
 `apply_knowledge` is the **sink router** (#633): the `apply` action's `sink` decides where a capture is promoted.
 
 - **`sink: datahub`** (default) applies the `changes` to a catalog entity (`entity_urn`).
-- **`sink: knowledge_page`** promotes a `business_knowledge` or `operational_rule` capture to a canonical portal **knowledge page**, found-or-created by `page.slug` (so repeated promotions on the same slug consolidate into one living page). `schema_entity` insights go to DataHub; promoting one through the page sink is rejected.
+- **`sink: knowledge_page`** promotes a capture to a canonical portal **knowledge page**, found-or-created by `page.slug` (so repeated promotions on the same slug consolidate into one living page). The capture-time sink-class is a non-binding hint: any insight can be promoted to either sink, with the destination chosen at apply (prefer DataHub for entity-anchored facts, a page for broader business or domain knowledge).
 
 Both sinks record a **changeset** (page promotions use `target_urn = "kp:<slug>"`) listed by `list_changesets` and reversible by `rollback`. Rolling back a page promotion soft-deletes a newly created page or restores a prior version, and is refused if the page was edited after the promotion.
+
+**Citing entities on a page.** To attach an entity reference (a dataset `urn:li:...`, or an `mcp:asset`/`mcp:prompt`/`mcp:collection`/`mcp:connection`/`mcp:knowledge_page`) to a page, pass it in `page.references` or write it in the body as plain text or a markdown link. A reference wrapped in backticks or a fenced code block is treated as a documentation example and intentionally ignored, so a backticked URN produces no reference and no link. Each entry in `page.references` is existence-checked **before** the page is written: a missing **internal** (`mcp:`) entity rejects the apply (a DataHub `urn:li:` reference is free text and is stored as given). References in `page.references` and those carried from the source insights attach with the promotion (so a `rollback` undoes them); a stale insight-carried reference is skipped rather than blocking. A target cited both in `page.references` and inline in the body is stored once. Inline body references are also filtered to those that exist, so a stale `mcp:` token in prose is skipped rather than blocking the page or leaving it partially written.
 
 `operational_rule` is stored as a knowledge page like `business_knowledge` (it is non-DataHub canonical knowledge); active enforcement of operational rules via the rules engine is tracked separately.
 
@@ -679,7 +681,7 @@ Both sinks record a **changeset** (page promotions use `target_urn = "kp:<slug>"
 | `action` | string | Yes | bulk_review, review, synthesize, apply, approve, reject, rollback, list_changesets |
 | `sink` | string | No | apply target: `datahub` (default) or `knowledge_page` |
 | `entity_urn` | string | Conditional | Required for review, synthesize, list_changesets, and apply with `sink=datahub` |
-| `page` | object | Conditional | `{slug, title, body, summary?, tags?}` for apply with `sink=knowledge_page` |
+| `page` | object | Conditional | `{slug, title, body, summary?, tags?, references?}` for apply with `sink=knowledge_page`. `references` is a list of serialized reference strings (`mcp:<type>:<id>` / `urn:li:...`) attached to the page independent of the body |
 | `insight_ids` | array | Conditional | Source insights; required for approve, reject. Sink-class is a non-binding hint; any insight can be applied to either sink (destination chosen at apply) |
 | `changes` | array | Conditional | Required for apply with `sink=datahub` |
 | `changeset_id` | string | Conditional | Required for rollback |

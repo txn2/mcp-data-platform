@@ -27,8 +27,34 @@ type fakePageWriter struct {
 	insertErr        error
 	updateErr        error
 	getErr           error
-	replaceBySrcErr  error // errors any ReplaceEntityRefsBySource call
-	replaceInlineErr error // errors only the source=inline replace
+	validateErr      error           // errors ValidateRefTargets (a missing reference target)
+	filterErr        error           // errors FilterExistingRefTargets
+	missingTargets   map[string]bool // ref URNs FilterExistingRefTargets drops as non-existent
+	replaceBySrcErr  error           // errors any ReplaceEntityRefsBySource call
+	replaceInlineErr error           // errors only the source=inline replace
+}
+
+func (f *fakePageWriter) ValidateRefTargets(_ context.Context, _ []knowledgepage.EntityRef) error {
+	return f.validateErr
+}
+
+// FilterExistingRefTargets drops refs whose target identity is in missingTargets,
+// modeling the store's existence filter for promoted (insight-carried) refs.
+func (f *fakePageWriter) FilterExistingRefTargets(_ context.Context, refs []knowledgepage.EntityRef) ([]knowledgepage.EntityRef, error) {
+	if f.filterErr != nil {
+		return nil, f.filterErr
+	}
+	if len(f.missingTargets) == 0 {
+		return refs, nil
+	}
+	kept := make([]knowledgepage.EntityRef, 0, len(refs))
+	for _, r := range refs {
+		if f.missingTargets[r.URN()] {
+			continue
+		}
+		kept = append(kept, r)
+	}
+	return kept, nil
 }
 
 func newFakePageWriter() *fakePageWriter {
@@ -73,14 +99,23 @@ func (f *fakePageWriter) ReplaceEntityRefsBySource(_ context.Context, pageID, so
 		return f.replaceInlineErr
 	}
 	kept := f.refs[pageID][:0:0]
+	keptKeys := map[string]bool{}
 	for _, r := range f.refs[pageID] {
 		if r.Source != source {
 			kept = append(kept, r)
+			keptKeys[fakeRefKey(r)] = true
 		}
 	}
 	for _, r := range refs {
+		// ON CONFLICT (page_id, target) DO NOTHING: a target already present under
+		// another source is not re-inserted (the per-target unique index ignores
+		// source), mirroring the postgres store.
+		if keptKeys[fakeRefKey(r)] {
+			continue
+		}
 		r.Source = source
 		kept = append(kept, r)
+		keptKeys[fakeRefKey(r)] = true
 	}
 	f.refs[pageID] = kept
 	return nil
@@ -246,6 +281,222 @@ func TestPromoteToPage_ReconcilesInlineBodyRefs(t *testing.T) {
 	}
 	assert.ElementsMatch(t, []string{"mcp:connection:(trino,acme)", "mcp:asset:asset-1"}, urns,
 		"inline references in the promoted page body must be reconciled onto the page")
+}
+
+// TestPromoteToPage_ExplicitReferences proves #690: references passed in the page
+// 'references' list attach to the page (as source=promoted), independent of body
+// text, giving agents a format-proof citation path.
+func TestPromoteToPage_ExplicitReferences(t *testing.T) {
+	dataset := "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.x,PROD)"
+	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
+	pw := newFakePageWriter()
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk.SetPageWriter(pw)
+
+	input := applyKnowledgeInput{
+		Action: actionApply, Sink: sinkKnowledgePage, InsightIDs: []string{"i1"},
+		Page: &pagePromotionInput{
+			Slug: "guide", Title: "Guide", Body: "No inline references in this body.",
+			References: []string{"mcp:asset:asset-1", "mcp:connection:(trino,acme)", dataset},
+		},
+	}
+	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, input)
+	require.NoError(t, err)
+	require.False(t, res.IsError, "unexpected error result")
+	page := pw.pages["guide"]
+	require.NotNil(t, page)
+
+	urns := make([]string, 0, len(pw.refs[page.ID]))
+	for _, r := range pw.refs[page.ID] {
+		assert.Equal(t, knowledgepage.RefSourcePromoted, r.Source,
+			"explicit references attach with the promotion (source=promoted), so a rollback undoes them")
+		urns = append(urns, r.URN())
+	}
+	assert.ElementsMatch(t, []string{"mcp:asset:asset-1", "mcp:connection:(trino,acme)", dataset}, urns,
+		"every explicit reference is attached to the page")
+}
+
+// TestPromoteToPage_InvalidExplicitReference proves a malformed or cross-namespace
+// explicit reference is a clean error that writes nothing, rather than a silently
+// dropped citation (#690).
+func TestPromoteToPage_InvalidExplicitReference(t *testing.T) {
+	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
+	pw := newFakePageWriter()
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk.SetPageWriter(pw)
+
+	input := applyKnowledgeInput{
+		Action: actionApply, Sink: sinkKnowledgePage, InsightIDs: []string{"i1"},
+		Page: &pagePromotionInput{
+			Slug: "guide", Title: "Guide", Body: "x",
+			References: []string{"urn:li:mcp:connection:(trino,acme)"}, // crosses the urn:/mcp: schemes
+		},
+	}
+	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, input)
+	require.NoError(t, err)
+	assert.True(t, res.IsError, "a cross-namespace explicit reference rejects the apply")
+	assert.Nil(t, pw.pages["guide"], "no page is written when an explicit reference does not parse")
+}
+
+// TestPromoteToPage_RefTargetValidationRejectsBeforeWrite proves the #690 atomicity
+// fix: a reference to a missing entity is rejected before the page is written, so no
+// partial page is left behind.
+func TestPromoteToPage_RefTargetValidationRejectsBeforeWrite(t *testing.T) {
+	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
+	pw := newFakePageWriter()
+	pw.validateErr = knowledgepage.ErrRefTargetNotFound
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk.SetPageWriter(pw)
+
+	input := applyKnowledgeInput{
+		Action: actionApply, Sink: sinkKnowledgePage, InsightIDs: []string{"i1"},
+		Page: &pagePromotionInput{
+			Slug: "guide", Title: "Guide", Body: "x",
+			References: []string{"mcp:asset:does-not-exist"},
+		},
+	}
+	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, input)
+	require.NoError(t, err)
+	assert.True(t, res.IsError, "a reference to a missing entity rejects the apply")
+	assert.Nil(t, pw.pages["guide"], "the page must not be written when a reference target is missing (#690)")
+}
+
+// TestPromoteToPage_ExplicitRefWinsOverInline proves the #690 fix: a target cited
+// both explicitly (references[]) and inline in the body is stored once, as a durable
+// promoted reference, because the promoted set is written before the inline reconcile
+// and the inline insert for that target is a no-op (ON CONFLICT per target).
+func TestPromoteToPage_ExplicitRefWinsOverInline(t *testing.T) {
+	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
+	pw := newFakePageWriter()
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk.SetPageWriter(pw)
+
+	input := applyKnowledgeInput{
+		Action: actionApply, Sink: sinkKnowledgePage, InsightIDs: []string{"i1"},
+		Page: &pagePromotionInput{
+			Slug: "guide", Title: "Guide",
+			Body:       "See the [dashboard](mcp:asset:asset-1) for details.",
+			References: []string{"mcp:asset:asset-1"},
+		},
+	}
+	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, input)
+	require.NoError(t, err)
+	require.False(t, res.IsError, "unexpected error result")
+	page := pw.pages["guide"]
+	require.NotNil(t, page)
+
+	require.Len(t, pw.refs[page.ID], 1, "a target cited both explicitly and inline is stored once")
+	assert.Equal(t, "mcp:asset:asset-1", pw.refs[page.ID][0].URN())
+	assert.Equal(t, knowledgepage.RefSourcePromoted, pw.refs[page.ID][0].Source,
+		"an explicitly cited target is a durable promoted reference, not a droppable inline one")
+}
+
+// TestPromoteToPage_RePromoteIsIdempotent re-promotes an existing page whose target
+// is already attached and proves the explicitly-cited reference survives (no silent
+// deletion), covering the update path the prior review flagged as untested.
+func TestPromoteToPage_RePromoteIsIdempotent(t *testing.T) {
+	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
+	pw := newFakePageWriter()
+	pw.pages["seasons"] = &knowledgepage.Page{ID: "kp1", Slug: "seasons", CurrentVersion: 1}
+	pw.refs["kp1"] = []knowledgepage.EntityRef{
+		{TargetType: knowledgepage.RefTargetAsset, AssetID: "asset-1", Source: knowledgepage.RefSourcePromoted},
+	}
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk.SetPageWriter(pw)
+
+	input := applyKnowledgeInput{
+		Action: actionApply, Sink: sinkKnowledgePage, InsightIDs: []string{"i1"},
+		Page: &pagePromotionInput{
+			Slug: "seasons", Title: "Seasons", Body: "no body refs",
+			References: []string{"mcp:asset:asset-1"},
+		},
+	}
+	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, input)
+	require.NoError(t, err)
+	require.False(t, res.IsError, "unexpected error result")
+
+	require.Len(t, pw.refs["kp1"], 1, "re-promoting the same citation does not duplicate or drop it")
+	assert.Equal(t, "mcp:asset:asset-1", pw.refs["kp1"][0].URN())
+	assert.Equal(t, knowledgepage.RefSourcePromoted, pw.refs["kp1"][0].Source)
+}
+
+// TestPromoteToPage_SkipsStaleInsightRefs proves the #690 fix for over-rejection: a
+// reference carried from a source insight whose target no longer exists is skipped,
+// so the promotion still succeeds rather than blocking on something the agent cannot
+// fix; the valid insight references still land.
+func TestPromoteToPage_SkipsStaleInsightRefs(t *testing.T) {
+	gone := "mcp:asset:deleted-asset"
+	live := "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.x,PROD)"
+	store := &fullSpyStore{Insights: []Insight{{
+		ID: "i1", SinkClass: memory.SinkBusinessKnowledge, EntityURNs: []string{live, gone},
+	}}}
+	pw := newFakePageWriter()
+	pw.missingTargets = map[string]bool{gone: true}
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk.SetPageWriter(pw)
+
+	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, applyPageInput([]string{"i1"}))
+	require.NoError(t, err)
+	require.False(t, res.IsError, "a stale insight-carried reference must not block the promotion")
+	page := pw.pages["seasons"]
+	require.NotNil(t, page)
+
+	urns := refURNs(pw.refs[page.ID])
+	assert.Contains(t, urns, live, "the valid insight reference is carried onto the page")
+	assert.NotContains(t, urns, gone, "the stale insight reference is skipped, not written")
+}
+
+// TestPromoteToPage_SkipsStaleInlineRef proves the #690 fix: a stale internal mcp:
+// token written in the page body is filtered out before the inline reconcile, so it
+// does not FK-fail the apply or leave a partial page; the page is still created.
+func TestPromoteToPage_SkipsStaleInlineRef(t *testing.T) {
+	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
+	pw := newFakePageWriter()
+	pw.missingTargets = map[string]bool{"mcp:asset:gone": true}
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk.SetPageWriter(pw)
+
+	input := applyKnowledgeInput{
+		Action: actionApply, Sink: sinkKnowledgePage, InsightIDs: []string{"i1"},
+		Page: &pagePromotionInput{
+			Slug: "guide", Title: "Guide",
+			Body: "Live [a](mcp:asset:asset-1) and stale [b](mcp:asset:gone) refs.",
+		},
+	}
+	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, input)
+	require.NoError(t, err)
+	require.False(t, res.IsError, "a stale inline reference must not block the page")
+	page := pw.pages["guide"]
+	require.NotNil(t, page, "the page is created despite a stale inline reference")
+
+	urns := make([]string, 0, len(pw.refs[page.ID]))
+	for _, r := range pw.refs[page.ID] {
+		urns = append(urns, r.URN())
+	}
+	assert.Contains(t, urns, "mcp:asset:asset-1", "the live inline reference is attached")
+	assert.NotContains(t, urns, "mcp:asset:gone", "the stale inline reference is skipped")
+}
+
+// TestPromoteToPage_TooManyReferences proves the #690 references cap rejects an
+// oversized list before any write, bounding the per-reference existence fan-out.
+func TestPromoteToPage_TooManyReferences(t *testing.T) {
+	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
+	pw := newFakePageWriter()
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk.SetPageWriter(pw)
+
+	refs := make([]string, maxPageReferences+1)
+	for i := range refs {
+		refs[i] = "mcp:asset:x"
+	}
+	input := applyKnowledgeInput{
+		Action: actionApply, Sink: sinkKnowledgePage, InsightIDs: []string{"i1"},
+		Page: &pagePromotionInput{Slug: "guide", Title: "Guide", Body: "x", References: refs},
+	}
+	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, input)
+	require.NoError(t, err)
+	assert.True(t, res.IsError, "exceeding the references cap rejects the apply")
+	assert.Nil(t, pw.pages["guide"], "no page is written")
 }
 
 // TestPromoteToPage_InlineReconcileError surfaces a failure in the inline-ref
