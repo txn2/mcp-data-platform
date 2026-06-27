@@ -3,7 +3,14 @@ package knowledge
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 // fakeProvider is a Provider stub recording the caller it was queried with.
@@ -74,13 +81,13 @@ func TestRouter_PerUserSkippedForAnonymousCaller(t *testing.T) {
 }
 
 func TestRouter_SourcesNarrowsButNeverWidens(t *testing.T) {
-	datahub := &fakeProvider{name: "datahub", scope: ScopeShared, hits: []Hit{{Source: "datahub", Ref: "d1", Score: 1}}}
+	datahub := &fakeProvider{name: "catalog", scope: ScopeShared, hits: []Hit{{Source: "catalog", Ref: "d1", Score: 1}}}
 	memory := &fakeProvider{name: "memory", scope: ScopePerUser, hits: []Hit{{Source: "memory", Ref: "m1", Score: 1}}}
 	r := NewRouter(nil, nil, datahub, memory)
 
-	// Narrow to datahub only: memory is skipped even though the caller has identity.
+	// Narrow to catalog only: memory is skipped even though the caller has identity.
 	caller := Caller{Email: "a@example.com"}
-	res, err := r.Search(context.Background(), Query{Intent: "q", Caller: caller, Sources: []string{"datahub"}})
+	res, err := r.Search(context.Background(), Query{Intent: "q", Caller: caller, Sources: []string{"catalog"}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -90,7 +97,7 @@ func TestRouter_SourcesNarrowsButNeverWidens(t *testing.T) {
 	if memory.called {
 		t.Error("memory must NOT be queried when sources narrows to datahub")
 	}
-	if hits := flatHits(res); len(hits) != 1 || hits[0].Source != "datahub" {
+	if hits := flatHits(res); len(hits) != 1 || hits[0].Source != "catalog" {
 		t.Errorf("expected only datahub, got %+v", hits)
 	}
 }
@@ -307,5 +314,156 @@ func TestCaller_Anonymous(t *testing.T) {
 	}
 	if (Caller{UserID: "u"}).Anonymous() {
 		t.Error("caller with user id is not anonymous")
+	}
+}
+
+// barrierProvider blocks in Search until every sibling provider has also entered
+// Search, then returns its preset hit. The barrier can only release if fanOut runs
+// the providers concurrently; a sequential fanOut would block on the first provider
+// forever (caught by the test timeout).
+type barrierProvider struct {
+	name    string
+	barrier *sync.WaitGroup
+	ret     []Hit
+}
+
+func (barrierProvider) Scope() Scope   { return ScopeShared }
+func (p barrierProvider) Name() string { return p.name }
+func (p barrierProvider) Search(_ context.Context, _ Query) ([]Hit, error) {
+	p.barrier.Done() // signal this provider has entered Search
+	p.barrier.Wait() // unblock only once all providers have entered, proving concurrency
+	return p.ret, nil
+}
+
+func TestFanOut_RunsProvidersConcurrentlyInRegistrationOrder(t *testing.T) {
+	const n = 4
+	var barrier sync.WaitGroup
+	barrier.Add(n)
+	providers := make([]Provider, n)
+	for i := range n {
+		providers[i] = barrierProvider{
+			name:    fmt.Sprintf("p%d", i),
+			barrier: &barrier,
+			ret:     []Hit{{Source: fmt.Sprintf("p%d", i), Ref: fmt.Sprintf("r%d", i)}},
+		}
+	}
+	r := NewRouter(nil, nil, providers...)
+
+	done := make(chan [][]Hit, 1)
+	go func() {
+		pp, _, _ := r.fanOut(context.Background(), Query{Intent: "x"})
+		done <- pp
+	}()
+
+	select {
+	case pp := <-done:
+		if len(pp) != n {
+			t.Fatalf("len(perProvider) = %d, want %d", len(pp), n)
+		}
+		// Despite concurrent, nondeterministic completion, output keeps registration order.
+		for i := range n {
+			if got := pp[i][0].Ref; got != fmt.Sprintf("r%d", i) {
+				t.Errorf("perProvider[%d] ref = %q, want r%d (registration order not preserved)", i, got, i)
+			}
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("fanOut did not finish: providers did not run concurrently (barrier never released)")
+	}
+}
+
+// panicProvider panics in Search, modeling a provider that hits a nil-pointer or
+// driver panic mid-request.
+type panicProvider struct{ name string }
+
+func (panicProvider) Scope() Scope                                 { return ScopeShared }
+func (p panicProvider) Name() string                               { return p.name }
+func (panicProvider) Search(context.Context, Query) ([]Hit, error) { panic("boom") }
+
+func TestFanOut_RecoversProviderPanicWithoutBlankingSearch(t *testing.T) {
+	good := &fakeProvider{name: "good", scope: ScopeShared, hits: []Hit{{Source: "good", Ref: "g1", Score: 1}}}
+	bad := panicProvider{name: "bad"}
+	r := NewRouter(nil, nil, bad, good)
+
+	pp, attempted, errs := r.fanOut(context.Background(), Query{Intent: "x"})
+	if attempted != 2 {
+		t.Errorf("attempted = %d, want 2", attempted)
+	}
+	// The panic is recovered into a collected error, not a process crash.
+	if len(errs) != 1 {
+		t.Fatalf("errs = %d, want 1 (panic collected as an error)", len(errs))
+	}
+	// The healthy provider's hits still surface: one panicking provider blanks neither
+	// the search nor the server.
+	if len(pp) != 1 || len(pp[0]) != 1 || pp[0][0].Ref != "g1" {
+		t.Errorf("perProvider = %+v, want only the good hit g1", pp)
+	}
+}
+
+func TestRouter_UnknownSourcesReported(t *testing.T) {
+	datahub := &fakeProvider{name: SourceCatalog, scope: ScopeShared, hits: []Hit{{Source: SourceCatalog, Ref: "d1", Score: 1}}}
+	r := NewRouter(nil, nil, datahub)
+
+	// A typo'd source alongside a valid one (plus a dup and a blank): the valid
+	// source runs and only the unrecognized name is reported, case-folded and deduped.
+	res, err := r.Search(context.Background(), Query{Intent: "q", Sources: []string{"catalog", "documnets", "CATALOG", "  "}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(res.UnknownSources) != 1 || res.UnknownSources[0] != "documnets" {
+		t.Errorf("UnknownSources = %v, want [documnets]", res.UnknownSources)
+	}
+}
+
+func TestRouter_KnownButUnregisteredSourcesAreNotUnknown(t *testing.T) {
+	// Only a memory provider is registered, but naming other KNOWN sources (insights,
+	// documents) is not a typo: they are scope/availability-filtered, not unknown.
+	p := &fakeProvider{name: SourceMemory, scope: ScopeShared}
+	r := NewRouter(nil, nil, p)
+	res, err := r.Search(context.Background(), Query{Intent: "q", Sources: []string{"memory", "insights", "context_documents"}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(res.UnknownSources) != 0 {
+		t.Errorf("UnknownSources = %v, want empty (all are known source names)", res.UnknownSources)
+	}
+}
+
+// TestKnownSourceNames_MatchesSourceConstants is the drift guard: it derives the
+// source constants from the package source itself (every `Source<Name> = "<value>"`
+// declaration) so a new or renamed source is caught WITHOUT a hand-maintained
+// parallel list. knownSourceNames must hold exactly those values: a constant missing
+// from the map would mis-report a valid source as unknown, and an extra map entry
+// would be a dead or typo'd name.
+func TestKnownSourceNames_MatchesSourceConstants(t *testing.T) {
+	re := regexp.MustCompile(`Source[A-Za-z]+\s*=\s*"([a-zA-Z0-9_-]+)"`)
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := map[string]bool{}
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		b, err := os.ReadFile(f) //nolint:gosec // test scans its own package's source files
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range re.FindAllStringSubmatch(string(b), -1) {
+			found[m[1]] = true
+		}
+	}
+	if len(found) == 0 {
+		t.Fatal("scan found no Source* constants; the regex or source layout changed")
+	}
+	for s := range found {
+		if !knownSourceNames[s] {
+			t.Errorf("Source constant %q is not in knownSourceNames (a source was added without updating the map)", s)
+		}
+	}
+	for s := range knownSourceNames {
+		if !found[s] {
+			t.Errorf("knownSourceNames has %q with no matching Source* constant", s)
+		}
 	}
 }

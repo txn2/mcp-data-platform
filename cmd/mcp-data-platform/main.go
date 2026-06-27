@@ -1016,7 +1016,7 @@ func (a portalSearchAdapter) Search(ctx context.Context, q portal.SearchQuery) (
 	if err != nil {
 		return portal.SearchResult{}, fmt.Errorf("knowledge search: %w", err)
 	}
-	out := portal.SearchResult{Ranking: res.Ranking}
+	out := portal.SearchResult{Ranking: res.Ranking, UnknownSources: res.UnknownSources}
 	for _, g := range res.Groups {
 		hits := make([]portal.SearchHit, 0, len(g.Hits))
 		for _, hit := range g.Hits {

@@ -24,6 +24,10 @@ const (
 	// (e.g., "schema.table" = 2, "catalog.schema.table" = 3).
 	urnPartsMinCount = 3
 
+	// documentSnippetRunes bounds a context-document body excerpt in a search hit
+	// so the snippet stays readable without carrying the whole document (#692).
+	documentSnippetRunes = 280
+
 	// datahubPlatform is the provider name for this adapter.
 	datahubPlatform = "datahub"
 
@@ -57,6 +61,8 @@ type Config struct {
 type Client interface {
 	SearchAcrossEntities(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error)
 	SemanticSearch(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error)
+	SearchDocuments(ctx context.Context, query string, opts ...dhclient.SearchOption) ([]types.Document, error)
+	GetRelatedDocuments(ctx context.Context, urn string) ([]types.Document, error)
 	GetEntity(ctx context.Context, urn string) (*types.Entity, error)
 	GetSchema(ctx context.Context, urn string) (*types.SchemaMetadata, error)
 	GetSchemas(ctx context.Context, urns []string) (map[string]*types.SchemaMetadata, error)
@@ -258,6 +264,90 @@ func (a *Adapter) SearchTables(ctx context.Context, filter semantic.SearchFilter
 	}
 
 	return results, nil
+}
+
+// SearchDocuments searches DataHub context documents by relevance and maps them to
+// the neutral semantic.DocumentResult for the unified search corpus (#692). It wraps
+// the upstream client's SearchDocuments (mcp-datahub v1.10.0+), which searches the
+// DOCUMENT entity type via searchAcrossEntities and returns ALL matching documents
+// regardless of visibility or publication state: filtering to globally-visible,
+// published documents is the caller's job (each result carries ShowInGlobalContext
+// and Status for that). A query of "*" lists; the query is passed through verbatim.
+func (a *Adapter) SearchDocuments(ctx context.Context, query string, limit int) ([]semantic.DocumentResult, error) {
+	var opts []dhclient.SearchOption
+	if limit > 0 {
+		opts = append(opts, dhclient.WithLimit(limit))
+	}
+	docs, err := a.client.SearchDocuments(ctx, query, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("searching datahub documents: %w", err)
+	}
+	results := make([]semantic.DocumentResult, 0, len(docs))
+	for i := range docs {
+		results = append(results, toDocumentResult(&docs[i]))
+	}
+	return results, nil
+}
+
+// GetRelatedDocuments returns the context documents linked to an entity URN (the
+// reverse of a document's related assets) and maps them to semantic.DocumentResult,
+// for entity-keyed document discovery (#692). It wraps the upstream client's
+// GetRelatedDocuments.
+func (a *Adapter) GetRelatedDocuments(ctx context.Context, urn string) ([]semantic.DocumentResult, error) {
+	docs, err := a.client.GetRelatedDocuments(ctx, urn)
+	if err != nil {
+		return nil, fmt.Errorf("getting related datahub documents: %w", err)
+	}
+	results := make([]semantic.DocumentResult, 0, len(docs))
+	for i := range docs {
+		results = append(results, toDocumentResult(&docs[i]))
+	}
+	return results, nil
+}
+
+// toDocumentResult maps a DataHub document to the neutral semantic result.
+func toDocumentResult(d *types.Document) semantic.DocumentResult {
+	r := semantic.DocumentResult{
+		URN:     d.URN,
+		Title:   d.Title,
+		SubType: d.SubType,
+		Snippet: truncateRunes(d.Content, documentSnippetRunes),
+		Status:  d.Status,
+		// mcp-datahub documents global_context as "default: true" (pkg/tools/write_create.go):
+		// a document is globally visible unless a settings aspect explicitly hides it.
+		// The upstream client leaves Settings nil when the aspect is absent, so default
+		// to visible here and let an explicit setting override, rather than dropping
+		// default-visible documents.
+		ShowInGlobalContext: true,
+	}
+	if d.Settings != nil {
+		r.ShowInGlobalContext = d.Settings.ShowInGlobalContext
+	}
+	for i := range d.RelatedAssets {
+		if d.RelatedAssets[i].URN != "" {
+			r.RelatedAssetURNs = append(r.RelatedAssetURNs, d.RelatedAssets[i].URN)
+		}
+	}
+	return r
+}
+
+// truncateRunes returns s clipped to at most n runes, appending an ellipsis when
+// clipped, so a document snippet stays bounded in a search hit. Byte length bounds
+// rune count, so a short string returns immediately; otherwise it walks runes and
+// slices at the n-th rune's byte offset, avoiding a full []rune allocation over a
+// possibly multi-KB body.
+func truncateRunes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	count := 0
+	for i := range s {
+		if count == n {
+			return s[:i] + "..."
+		}
+		count++
+	}
+	return s
 }
 
 // buildSearchOptions converts a semantic.SearchFilter to datahub client search options.

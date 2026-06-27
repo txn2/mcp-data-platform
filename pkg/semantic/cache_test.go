@@ -340,3 +340,103 @@ func TestCachedProvider_Errors(t *testing.T) {
 		}
 	})
 }
+
+// docProvider is a Provider (via embedded NoopProvider) that also implements
+// DocumentSearcher, to exercise the cache decorator's forward of the optional
+// document-search capability (#692).
+type docProvider struct {
+	*NoopProvider
+	docs         []DocumentResult
+	relatedCalls int
+}
+
+func (d *docProvider) SearchDocuments(_ context.Context, _ string, _ int) ([]DocumentResult, error) {
+	return d.docs, nil
+}
+
+func (d *docProvider) GetRelatedDocuments(_ context.Context, _ string) ([]DocumentResult, error) {
+	d.relatedCalls++
+	return d.docs, nil
+}
+
+func TestCachedProvider_GetRelatedDocumentsCachesByURN(t *testing.T) {
+	inner := &docProvider{NoopProvider: NewNoopProvider(), docs: []DocumentResult{{URN: "urn:li:document:d1"}}}
+	c := NewCachedProvider(inner, CacheConfig{TTL: time.Minute})
+
+	for range 3 {
+		got, err := c.GetRelatedDocuments(context.Background(), "urn:li:dataset:(t)")
+		if err != nil || len(got) != 1 || got[0].URN != "urn:li:document:d1" {
+			t.Fatalf("unexpected: got=%v err=%v", got, err)
+		}
+	}
+	// Same URN three times hits the wrapped provider once; the rest serve from cache.
+	if inner.relatedCalls != 1 {
+		t.Errorf("relatedCalls = %d, want 1 (cached by URN)", inner.relatedCalls)
+	}
+}
+
+func TestCachedProvider_SearchDocuments(t *testing.T) {
+	// Inner implements DocumentSearcher: the cache forwards it.
+	inner := &docProvider{NoopProvider: NewNoopProvider(), docs: []DocumentResult{{URN: "urn:li:document:d1"}}}
+	c := NewCachedProvider(inner, CacheConfig{})
+	got, err := c.SearchDocuments(context.Background(), "q", 5)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 1 || got[0].URN != "urn:li:document:d1" {
+		t.Errorf("forward = %+v, want d1", got)
+	}
+
+	// The entity-keyed arm forwards through the cache the same way.
+	rel, err := c.GetRelatedDocuments(context.Background(), "urn:li:dataset:(t)")
+	if err != nil || len(rel) != 1 || rel[0].URN != "urn:li:document:d1" {
+		t.Errorf("GetRelatedDocuments forward = %+v err=%v, want d1", rel, err)
+	}
+
+	// Inner does NOT implement DocumentSearcher: the capability is absent, so both
+	// document methods return nil without error (no documents source is registered).
+	c2 := NewCachedProvider(NewNoopProvider(), CacheConfig{})
+	got2, err := c2.SearchDocuments(context.Background(), "q", 5)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got2 != nil {
+		t.Errorf("expected nil for non-DocumentSearcher inner, got %+v", got2)
+	}
+	rel2, err := c2.GetRelatedDocuments(context.Background(), "urn:li:dataset:(t)")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rel2 != nil {
+		t.Errorf("expected nil related docs for non-DocumentSearcher inner, got %+v", rel2)
+	}
+}
+
+func TestDocumentSearcherFrom_UnwrapsCacheDecorator(t *testing.T) {
+	// Cache wrapping a document-capable provider: capability detected, and the
+	// returned searcher routes through the cache to the inner (not bypassing it).
+	docInner := &docProvider{NoopProvider: NewNoopProvider(), docs: []DocumentResult{{URN: "d1"}}}
+	ds, ok := DocumentSearcherFrom(NewCachedProvider(docInner, CacheConfig{}))
+	if !ok {
+		t.Fatal("cache over a DocumentSearcher should report the capability")
+	}
+	got, err := ds.SearchDocuments(context.Background(), "q", 5)
+	if err != nil || len(got) != 1 || got[0].URN != "d1" {
+		t.Errorf("returned searcher should route through the cache to the inner: got=%v err=%v", got, err)
+	}
+
+	// The regression guard: CachedProvider defines SearchDocuments unconditionally, so
+	// a naive type-assertion would falsely succeed here. The probe must unwrap and
+	// report NO capability when the wrapped provider cannot search documents.
+	if _, ok := DocumentSearcherFrom(NewCachedProvider(NewNoopProvider(), CacheConfig{})); ok {
+		t.Error("cache over a non-DocumentSearcher must NOT report the capability")
+	}
+
+	// Undecorated providers probe directly.
+	if _, ok := DocumentSearcherFrom(docInner); !ok {
+		t.Error("a raw DocumentSearcher should report the capability")
+	}
+	if _, ok := DocumentSearcherFrom(NewNoopProvider()); ok {
+		t.Error("a raw non-DocumentSearcher must not report the capability")
+	}
+}

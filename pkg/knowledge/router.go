@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
+	"sync"
 
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 )
@@ -40,6 +42,10 @@ type Result struct {
 	Groups   []SourceGroup
 	Coverage []SourceCoverage
 	Ranking  string
+	// UnknownSources lists requested Sources names that match no known source (a
+	// typo or an unsupported source), so a caller is told why a narrowed search
+	// returned little or nothing instead of being silently given an empty result.
+	UnknownSources []string
 }
 
 // LineageExpander optionally widens a set of entity URNs along lineage so an
@@ -99,6 +105,60 @@ func sourceSet(sources []string) map[string]bool {
 	return set
 }
 
+// knownSourceNames is every valid search-source label (the Source* provenance
+// constants), the single authority for validating a caller's Sources filter. A
+// requested name absent from this set is a typo or an unsupported source; it is
+// surfaced to the caller rather than silently narrowing the search to nothing.
+// (A name present here but unavailable on a given deployment, e.g. memory without a
+// database, is still "known": it is scope-filtered, not a typo.)
+var knownSourceNames = map[string]bool{
+	SourceCatalog:          true,
+	SourceContextDocuments: true,
+	SourceKnowledgePages:   true,
+	SourceMemory:           true,
+	SourceInsights:         true,
+	SourceFeedback:         true,
+	SourceAssets:           true,
+	SourcePrompts:          true,
+	SourceEndpoints:        true,
+	SourceConnections:      true,
+}
+
+// KnownSources returns the valid search-source names (the Source* provenance
+// constants) sorted, so other packages and their drift guards validate against one
+// authority instead of a hand-maintained copy.
+func KnownSources() []string {
+	out := make([]string, 0, len(knownSourceNames))
+	for s := range knownSourceNames {
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// unknownSources returns the requested source names that match no known source,
+// de-duplicated and in request order, so a caller learns a Sources entry was a typo
+// or unsupported instead of silently getting an empty result. Blank entries are
+// ignored (they mean "no narrowing").
+func unknownSources(sources []string) []string {
+	if len(sources) == 0 {
+		return nil
+	}
+	var unknown []string
+	seen := make(map[string]bool)
+	for _, s := range sources {
+		s = strings.ToLower(strings.TrimSpace(s))
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		if !knownSourceNames[s] {
+			unknown = append(unknown, s)
+		}
+	}
+	return unknown
+}
+
 // clampLimit constrains the per-provider result limit to valid bounds.
 func clampLimit(limit int) int {
 	if limit <= 0 {
@@ -155,36 +215,88 @@ func (r *Router) Search(ctx context.Context, q Query) (Result, error) {
 	}
 
 	groups, coverage := allocate(perProvider, displayBudget)
-	return Result{Groups: groups, Coverage: coverage, Ranking: ranking}, nil
+	return Result{
+		Groups:         groups,
+		Coverage:       coverage,
+		Ranking:        ranking,
+		UnknownSources: unknownSources(q.Sources),
+	}, nil
 }
 
-// fanOut queries every applicable provider with the prepared query, returning
-// each provider's hits, the number of providers actually queried, and any
-// errors. Per-user providers are skipped for an anonymous caller (the secure
-// default, not an error); a provider error is logged and collected so a single
-// unhealthy store does not blank the search.
-func (r *Router) fanOut(ctx context.Context, q Query) (perProvider [][]Hit, attempted int, errs []error) {
+// selectProviders returns the providers a query actually runs, in registration
+// order: Sources narrows the federation (a name absent from a non-empty Sources set
+// is skipped) but never widens it, and a per-user provider is skipped for an
+// anonymous caller, so narrowing can never opt a caller into a provider their
+// identity does not grant.
+func (r *Router) selectProviders(q Query) []Provider {
 	allowed := sourceSet(q.Sources)
+	selected := make([]Provider, 0, len(r.providers))
 	for _, p := range r.providers {
-		// Sources narrows the federation; it never widens it. A name absent
-		// from a non-empty Sources set is skipped, but membership still has to
-		// clear the per-user scope check below, so narrowing can never opt a
-		// caller into a provider their identity does not grant.
 		if allowed != nil && !allowed[p.Name()] {
 			continue
 		}
 		if p.Scope() == ScopePerUser && q.Caller.Anonymous() {
 			continue
 		}
-		attempted++
-		hits, err := p.Search(ctx, q)
-		if err != nil {
-			slog.Warn("knowledge provider search failed", "provider", p.Name(), "error", err)
-			errs = append(errs, err)
+		selected = append(selected, p)
+	}
+	return selected
+}
+
+// fanOut queries every applicable provider with the prepared query, returning each
+// provider's hits, the number of providers actually queried, and any errors. A
+// provider error is logged and collected so a single unhealthy store does not blank
+// the search.
+//
+// The applicable providers are independent (each Search shares no state with the
+// others, and several issue their own DB or network call), so the fan-out runs them
+// concurrently: a DataHub-backed deployment otherwise pays one serial round trip per
+// source. Results land in index-keyed slots so the assembled output keeps
+// provider-registration order regardless of completion order, keeping the downstream
+// allocation deterministic. A WaitGroup (not errgroup) is used deliberately: every
+// provider must run to completion even when another errors, so one unhealthy store
+// still cannot blank the search.
+func (r *Router) fanOut(ctx context.Context, q Query) (perProvider [][]Hit, attempted int, errs []error) {
+	selected := r.selectProviders(q)
+	if len(selected) == 0 {
+		return nil, 0, nil
+	}
+
+	type providerResult struct {
+		hits []Hit
+		err  error
+	}
+	results := make([]providerResult, len(selected))
+	var wg sync.WaitGroup
+	wg.Add(len(selected))
+	for i := range selected {
+		go func(i int, p Provider) {
+			defer wg.Done()
+			// A panic in a child goroutine is NOT catchable by the request handler's
+			// deferred recover (that only unwinds its own stack), so without this a
+			// single provider panic would crash the whole server. Recover here and
+			// turn it into this provider's error: one bad provider fails its own arm
+			// and is collected like any other error, while the rest still return.
+			defer func() {
+				if rec := recover(); rec != nil {
+					results[i] = providerResult{err: fmt.Errorf("provider %s panicked: %v", p.Name(), rec)}
+				}
+			}()
+			hits, err := p.Search(ctx, q)
+			results[i] = providerResult{hits: hits, err: err}
+		}(i, selected[i])
+	}
+	wg.Wait()
+
+	attempted = len(selected)
+	for i := range selected {
+		if results[i].err != nil {
+			slog.Warn("knowledge provider search failed", "provider", selected[i].Name(), "error", results[i].err)
+			errs = append(errs, results[i].err)
 			continue
 		}
-		if len(hits) > 0 {
-			perProvider = append(perProvider, hits)
+		if len(results[i].hits) > 0 {
+			perProvider = append(perProvider, results[i].hits)
 		}
 	}
 	return perProvider, attempted, errs

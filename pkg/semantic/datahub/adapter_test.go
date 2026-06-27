@@ -3,6 +3,7 @@ package datahub
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	dhclient "github.com/txn2/mcp-datahub/pkg/client"
@@ -31,6 +32,8 @@ const (
 type mockDataHubClient struct {
 	searchAcrossEntitiesFunc func(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error)
 	semanticSearchFunc       func(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error)
+	searchDocumentsFunc      func(ctx context.Context, query string, opts ...dhclient.SearchOption) ([]types.Document, error)
+	getRelatedDocumentsFunc  func(ctx context.Context, urn string) ([]types.Document, error)
 	getEntityFunc            func(ctx context.Context, urn string) (*types.Entity, error)
 	getSchemaFunc            func(ctx context.Context, urn string) (*types.SchemaMetadata, error)
 	getSchemasFunc           func(ctx context.Context, urns []string) (map[string]*types.SchemaMetadata, error)
@@ -54,6 +57,20 @@ func (m *mockDataHubClient) SemanticSearch(ctx context.Context, query string, op
 		return m.semanticSearchFunc(ctx, query, opts...)
 	}
 	return &types.SearchResult{}, nil
+}
+
+func (m *mockDataHubClient) SearchDocuments(ctx context.Context, query string, opts ...dhclient.SearchOption) ([]types.Document, error) {
+	if m.searchDocumentsFunc != nil {
+		return m.searchDocumentsFunc(ctx, query, opts...)
+	}
+	return nil, nil
+}
+
+func (m *mockDataHubClient) GetRelatedDocuments(ctx context.Context, urn string) ([]types.Document, error) {
+	if m.getRelatedDocumentsFunc != nil {
+		return m.getRelatedDocumentsFunc(ctx, urn)
+	}
+	return nil, nil
 }
 
 func (m *mockDataHubClient) GetEntity(ctx context.Context, urn string) (*types.Entity, error) {
@@ -137,6 +154,151 @@ func TestNewWithClient_ValidClient(t *testing.T) {
 	}
 	if adapter.cfg.Platform != dhAdapterTestPlatformTrino {
 		t.Errorf("expected default platform 'trino', got %q", adapter.cfg.Platform)
+	}
+}
+
+func TestAdapter_SearchDocuments(t *testing.T) {
+	mock := &mockDataHubClient{
+		searchDocumentsFunc: func(_ context.Context, query string, _ ...dhclient.SearchOption) ([]types.Document, error) {
+			if query != "observability" {
+				t.Errorf("query = %q, want observability", query)
+			}
+			return []types.Document{{
+				URN:           "urn:li:document:doc-1",
+				Title:         "Runbook",
+				SubType:       "runbook",
+				Status:        "PUBLISHED",
+				Content:       "how to query prometheus",
+				Settings:      &types.DocumentSettings{ShowInGlobalContext: true},
+				RelatedAssets: []types.DocumentRelatedAsset{{URN: "urn:li:dataset:(x)"}},
+			}}, nil
+		},
+	}
+	adapter, err := NewWithClient(Config{}, mock)
+	if err != nil {
+		t.Fatalf(dhAdapterTestUnexpectedErr, err)
+	}
+
+	got, err := adapter.SearchDocuments(context.Background(), "observability", 5)
+	if err != nil {
+		t.Fatalf(dhAdapterTestUnexpectedErr, err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len(got) = %d, want 1", len(got))
+	}
+	d := got[0]
+	if d.URN != "urn:li:document:doc-1" || d.Title != "Runbook" || d.SubType != "runbook" {
+		t.Errorf("unexpected doc: %+v", d)
+	}
+	if !d.ShowInGlobalContext {
+		t.Error("ShowInGlobalContext should be true")
+	}
+	if d.Status != "PUBLISHED" {
+		t.Errorf("Status = %q, want PUBLISHED", d.Status)
+	}
+	if len(d.RelatedAssetURNs) != 1 || d.RelatedAssetURNs[0] != "urn:li:dataset:(x)" {
+		t.Errorf("RelatedAssetURNs = %v", d.RelatedAssetURNs)
+	}
+	if d.Snippet != "how to query prometheus" {
+		t.Errorf("Snippet = %q, want full content (no truncation)", d.Snippet)
+	}
+}
+
+func TestAdapter_GetRelatedDocuments(t *testing.T) {
+	// As of mcp-datahub v1.10.1 GetRelatedDocuments returns the full projection
+	// (settings + relatedAssets), so the adapter maps visibility and provenance for
+	// the entity arm exactly as it does for SearchDocuments.
+	mock := &mockDataHubClient{
+		getRelatedDocumentsFunc: func(_ context.Context, urn string) ([]types.Document, error) {
+			if urn != "urn:li:dataset:(t)" {
+				t.Errorf("urn = %q", urn)
+			}
+			return []types.Document{
+				{
+					URN:           "urn:li:document:visible",
+					Title:         "Runbook",
+					Status:        "PUBLISHED",
+					Settings:      &types.DocumentSettings{ShowInGlobalContext: true},
+					RelatedAssets: []types.DocumentRelatedAsset{{URN: "urn:li:dataset:(t)"}},
+				},
+				{
+					URN:      "urn:li:document:hidden",
+					Title:    "Hidden",
+					Status:   "PUBLISHED",
+					Settings: &types.DocumentSettings{ShowInGlobalContext: false},
+				},
+			}, nil
+		},
+	}
+	adapter, err := NewWithClient(Config{}, mock)
+	if err != nil {
+		t.Fatalf(dhAdapterTestUnexpectedErr, err)
+	}
+	got, err := adapter.GetRelatedDocuments(context.Background(), "urn:li:dataset:(t)")
+	if err != nil {
+		t.Fatalf(dhAdapterTestUnexpectedErr, err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len(got) = %d, want 2", len(got))
+	}
+	if got[0].URN != "urn:li:document:visible" || !got[0].ShowInGlobalContext {
+		t.Errorf("visible doc mapped wrong: %+v", got[0])
+	}
+	if len(got[0].RelatedAssetURNs) != 1 || got[0].RelatedAssetURNs[0] != "urn:li:dataset:(t)" {
+		t.Errorf("related assets not mapped: %+v", got[0].RelatedAssetURNs)
+	}
+	// The hide flag now travels on the entity path (the v1.10.1 / #166 fix), so the
+	// consumer can suppress it rather than leaking it.
+	if got[1].ShowInGlobalContext {
+		t.Error("hidden doc should carry ShowInGlobalContext=false from the full projection")
+	}
+}
+
+func TestAdapter_GetRelatedDocuments_Error(t *testing.T) {
+	mock := &mockDataHubClient{
+		getRelatedDocumentsFunc: func(context.Context, string) ([]types.Document, error) {
+			return nil, errors.New("boom")
+		},
+	}
+	adapter, _ := NewWithClient(Config{}, mock)
+	if _, err := adapter.GetRelatedDocuments(context.Background(), "urn:li:dataset:(t)"); err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestToDocumentResult_VisibilityDefault(t *testing.T) {
+	// No settings aspect: DataHub default is globally visible, so do not drop it.
+	visible := toDocumentResult(&types.Document{URN: "urn:li:document:d", Title: "D", Status: "PUBLISHED"})
+	if !visible.ShowInGlobalContext {
+		t.Error("absent settings should default ShowInGlobalContext to true (DataHub default visible)")
+	}
+	// An explicit settings aspect overrides the default.
+	hidden := toDocumentResult(&types.Document{URN: "urn:li:document:h", Settings: &types.DocumentSettings{ShowInGlobalContext: false}})
+	if hidden.ShowInGlobalContext {
+		t.Error("an explicit settings aspect should override the visible default")
+	}
+}
+
+func TestAdapter_SearchDocuments_Error(t *testing.T) {
+	mock := &mockDataHubClient{
+		searchDocumentsFunc: func(context.Context, string, ...dhclient.SearchOption) ([]types.Document, error) {
+			return nil, errors.New("boom")
+		},
+	}
+	adapter, _ := NewWithClient(Config{}, mock)
+	if _, err := adapter.SearchDocuments(context.Background(), "x", 0); err == nil {
+		t.Error("expected error")
+	}
+}
+
+func TestTruncateRunes(t *testing.T) {
+	if got := truncateRunes("short", 280); got != "short" {
+		t.Errorf("short string changed: %q", got)
+	}
+	long := strings.Repeat("x", 300)
+	got := truncateRunes(long, 280)
+	if len([]rune(got)) != 283 || !strings.HasSuffix(got, "...") {
+		t.Errorf("truncate len=%d suffix=%q", len([]rune(got)), got[len(got)-3:])
 	}
 }
 

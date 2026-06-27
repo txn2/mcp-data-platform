@@ -46,9 +46,10 @@ type SearchCaller struct {
 
 // SearchResult is the grouped-by-source response. It mirrors knowledge.Result.
 type SearchResult struct {
-	Groups   []SearchGroup
-	Coverage []SearchCoverage
-	Ranking  string
+	Groups         []SearchGroup
+	Coverage       []SearchCoverage
+	Ranking        string
+	UnknownSources []string
 }
 
 // SearchGroup is one source's slice of the balanced display set.
@@ -91,10 +92,11 @@ func (h *Handler) registerSearchRoutes() {
 // router's grouped-by-source contract directly, so the portal renders the same
 // balanced display set and coverage summary the MCP search tool returns.
 type searchResponse struct {
-	Groups   []SearchGroup    `json:"groups"`
-	Coverage []SearchCoverage `json:"coverage"`
-	Count    int              `json:"count"`
-	Ranking  string           `json:"ranking"`
+	Groups         []SearchGroup    `json:"groups"`
+	Coverage       []SearchCoverage `json:"coverage"`
+	Count          int              `json:"count"`
+	Ranking        string           `json:"ranking"`
+	UnknownSources []string         `json:"unknown_sources,omitempty"`
 }
 
 // search handles GET /api/v1/portal/search. It is a thin REST adapter over the
@@ -103,7 +105,7 @@ type searchResponse struct {
 // unchanged. No new ranking or allocation logic lives here.
 //
 // @Summary      Unified knowledge search
-// @Description  One query fans across every source the caller can access (catalog, knowledge pages, memory, insights, assets, prompts, endpoints, connections), grouped by source and scope-enforced.
+// @Description  One query fans across every source the caller can access (catalog, context documents, knowledge pages, memory, insights, feedback, assets, prompts, endpoints, connections), grouped by source and scope-enforced.
 // @Tags         Knowledge
 // @Produce      json
 // @Param        q            query  string  false  "Natural-language intent"
@@ -158,10 +160,11 @@ func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
 		shown += len(g.Hits)
 	}
 	writeJSON(w, http.StatusOK, searchResponse{
-		Groups:   groups,
-		Coverage: coverage,
-		Count:    shown,
-		Ranking:  res.Ranking,
+		Groups:         groups,
+		Coverage:       coverage,
+		Count:          shown,
+		Ranking:        res.Ranking,
+		UnknownSources: res.UnknownSources,
 	})
 }
 

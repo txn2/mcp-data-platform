@@ -10,8 +10,8 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
 
-// SourceDatahub is the provenance label for technical-catalog hits.
-const SourceDatahub = "datahub"
+// SourceCatalog is the provenance label for technical-catalog hits.
+const SourceCatalog = "catalog"
 
 // tableSearcher is the catalog capability the datahub provider needs: relevance
 // search (text path) and exact entity lookup by table identifier (entity path).
@@ -22,7 +22,7 @@ type tableSearcher interface {
 	GetTableContext(ctx context.Context, table semantic.TableIdentifier) (*semantic.TableContext, error)
 }
 
-// DatahubProvider exposes the technical catalog (DataHub) to the router. It
+// CatalogProvider exposes the technical catalog (DataHub) to the router. It
 // serves two query shapes: a relevance search on Intent (folding datahub_search
 // into search) and an exact entity-keyed lookup on EntityURNs that returns the
 // catalog entity itself, so handing search a dataset URN surfaces its catalog
@@ -36,38 +36,26 @@ type tableSearcher interface {
 // provider derives a descending positional score from the result order;
 // entity-keyed hits take the max score. The router's per-provider normalization
 // then places these on the common scale.
-type DatahubProvider struct {
+type CatalogProvider struct {
 	searcher tableSearcher
 }
 
-// NewDatahubProvider builds the datahub provider over a catalog searcher.
-func NewDatahubProvider(searcher tableSearcher) *DatahubProvider {
-	return &DatahubProvider{searcher: searcher}
+// NewCatalogProvider builds the catalog provider over a catalog searcher.
+func NewCatalogProvider(searcher tableSearcher) *CatalogProvider {
+	return &CatalogProvider{searcher: searcher}
 }
 
 // Name returns the provenance label.
-func (*DatahubProvider) Name() string { return SourceDatahub }
+func (*CatalogProvider) Name() string { return SourceCatalog }
 
 // Scope marks the catalog shared (global, always queried).
-func (*DatahubProvider) Scope() Scope { return ScopeShared }
+func (*CatalogProvider) Scope() Scope { return ScopeShared }
 
 // Search returns catalog entities for the query: the entities named by
 // EntityURNs (entity path) plus those relevant to Intent (text path), merged and
 // de-duplicated by URN.
-func (p *DatahubProvider) Search(ctx context.Context, q Query) ([]Hit, error) {
-	seen := make(map[string]bool)
-
-	entityHits := p.searchByEntity(ctx, q, seen)
-
-	textHits, err := p.searchByText(ctx, q, seen)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(entityHits) == 0 && len(textHits) == 0 {
-		return nil, nil
-	}
-	return append(entityHits, textHits...), nil
+func (p *CatalogProvider) Search(ctx context.Context, q Query) ([]Hit, error) {
+	return mergeArms(ctx, q, p.searchByEntity, p.searchByText)
 }
 
 // searchByEntity fetches the catalog entity for each requested URN (already
@@ -77,7 +65,7 @@ func (p *DatahubProvider) Search(ctx context.Context, q Query) ([]Hit, error) {
 // legitimately have no catalog entry, so a miss must not blank the provider.
 // Only entities the catalog actually returned (non-empty URN) yield a hit, so a
 // non-existent URN produces nothing.
-func (p *DatahubProvider) searchByEntity(ctx context.Context, q Query, seen map[string]bool) []Hit {
+func (p *CatalogProvider) searchByEntity(ctx context.Context, q Query, seen map[string]bool) []Hit {
 	var hits []Hit
 	for _, urn := range q.EntityURNs {
 		if seen[urn] {
@@ -98,7 +86,7 @@ func (p *DatahubProvider) searchByEntity(ctx context.Context, q Query, seen map[
 		seen[urn] = true
 		hits = append(hits, Hit{
 			Text:       catalogContextText(table, tc),
-			Source:     SourceDatahub,
+			Source:     SourceCatalog,
 			Ref:        urn,
 			Score:      entityMatchScore,
 			EntityURNs: []string{urn},
@@ -111,7 +99,7 @@ func (p *DatahubProvider) searchByEntity(ctx context.Context, q Query, seen map[
 
 // searchByText returns catalog entities relevant to the intent. A query with no
 // intent yields nothing.
-func (p *DatahubProvider) searchByText(ctx context.Context, q Query, seen map[string]bool) ([]Hit, error) {
+func (p *CatalogProvider) searchByText(ctx context.Context, q Query, seen map[string]bool) ([]Hit, error) {
 	if q.Intent == "" {
 		return nil, nil
 	}
@@ -133,7 +121,7 @@ func (p *DatahubProvider) searchByText(ctx context.Context, q Query, seen map[st
 		seen[results[i].URN] = true
 		hits = append(hits, Hit{
 			Text:       catalogHitText(results[i]),
-			Source:     SourceDatahub,
+			Source:     SourceCatalog,
 			Ref:        results[i].URN,
 			Score:      positionalScore(i, n),
 			EntityURNs: []string{results[i].URN},

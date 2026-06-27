@@ -22,6 +22,7 @@ type CachedProvider struct {
 	lineageCache      map[string]*cacheEntry[*LineageInfo]
 	termCache         map[string]*cacheEntry[*GlossaryTerm]
 	curatedQueryCache map[string]*cacheEntry[int]
+	relatedDocsCache  map[string]*cacheEntry[[]DocumentResult]
 }
 
 type cacheEntry[T any] struct {
@@ -53,6 +54,7 @@ func NewCachedProvider(provider Provider, cfg CacheConfig) *CachedProvider {
 		lineageCache:      make(map[string]*cacheEntry[*LineageInfo]),
 		termCache:         make(map[string]*cacheEntry[*GlossaryTerm]),
 		curatedQueryCache: make(map[string]*cacheEntry[int]),
+		relatedDocsCache:  make(map[string]*cacheEntry[[]DocumentResult]),
 	}
 }
 
@@ -222,6 +224,61 @@ func (c *CachedProvider) SearchTables(ctx context.Context, filter SearchFilter) 
 	return results, nil
 }
 
+// Unwrap returns the wrapped provider, so a capability probe can inspect the real
+// provider behind the decorator instead of the decorator's unconditional
+// pass-throughs (SearchDocuments below always exists on CachedProvider, which would
+// otherwise make an optional-capability type-assertion falsely succeed).
+func (c *CachedProvider) Unwrap() Provider { return c.provider }
+
+// SearchDocuments forwards the optional document-search capability (#692) to the
+// wrapped provider, preserving it through the cache decorator. A wrapped provider
+// that does not implement it (e.g. a noop catalog) yields no documents, so the
+// capability is absent rather than always-empty. Not cached: queries vary too much.
+func (c *CachedProvider) SearchDocuments(ctx context.Context, query string, limit int) ([]DocumentResult, error) {
+	ds, ok := c.provider.(DocumentSearcher)
+	if !ok {
+		return nil, nil
+	}
+	results, err := ds.SearchDocuments(ctx, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("searching documents from provider: %w", err)
+	}
+	return results, nil
+}
+
+// GetRelatedDocuments forwards the entity-keyed document lookup (#692) to the wrapped
+// provider, preserving the DocumentSearcher capability through the cache decorator.
+// It is keyed on a single entity URN (like GetGlossaryTerm/GetTableContext), so it is
+// cached by URN: lineage expansion produces overlapping URN sets across successive
+// searches, and serving repeats from cache spares the DataHub round trip on the hot
+// search path.
+func (c *CachedProvider) GetRelatedDocuments(ctx context.Context, urn string) ([]DocumentResult, error) {
+	c.mu.RLock()
+	if entry, ok := c.relatedDocsCache[urn]; ok && !entry.isExpired() {
+		c.mu.RUnlock()
+		return entry.value, nil
+	}
+	c.mu.RUnlock()
+
+	ds, ok := c.provider.(DocumentSearcher)
+	if !ok {
+		return nil, nil
+	}
+	results, err := ds.GetRelatedDocuments(ctx, urn)
+	if err != nil {
+		return nil, fmt.Errorf("getting related documents from provider: %w", err)
+	}
+
+	c.mu.Lock()
+	c.relatedDocsCache[urn] = &cacheEntry[[]DocumentResult]{
+		value:     results,
+		expiresAt: time.Now().Add(c.ttl),
+	}
+	c.mu.Unlock()
+
+	return results, nil
+}
+
 // Close closes the underlying provider.
 func (c *CachedProvider) Close() error {
 	if err := c.provider.Close(); err != nil {
@@ -240,6 +297,7 @@ func (c *CachedProvider) Invalidate() {
 	c.lineageCache = make(map[string]*cacheEntry[*LineageInfo])
 	c.termCache = make(map[string]*cacheEntry[*GlossaryTerm])
 	c.curatedQueryCache = make(map[string]*cacheEntry[int])
+	c.relatedDocsCache = make(map[string]*cacheEntry[[]DocumentResult])
 }
 
 // Verify interface compliance.

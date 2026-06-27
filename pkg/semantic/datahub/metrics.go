@@ -23,6 +23,11 @@ const (
 	opGetColumnLineage = "get_column_lineage"
 	opGetGlossaryTerm  = "get_glossary_term"
 	opGetQueries       = "get_queries"
+
+	opSearchAcross        = "search_across_entities"
+	opSemanticSearch      = "semantic_search"
+	opSearchDocuments     = "search_documents"
+	opGetRelatedDocuments = "get_related_documents"
 )
 
 // SetMetrics wraps the adapter's client in an instrumenting decorator
@@ -121,4 +126,36 @@ func (c *instrumentedClient) GetQueries(ctx context.Context, urn string) (*types
 	start := time.Now()
 	q, err := c.Client.GetQueries(ctx, urn)
 	return q, c.finish(ctx, span, opGetQueries, start, err)
+}
+
+// SearchAcrossEntities records a search_across_entities observation and delegates.
+func (c *instrumentedClient) SearchAcrossEntities(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error) {
+	ctx, span := c.startSpan(ctx, opSearchAcross)
+	start := time.Now()
+	r, err := c.Client.SearchAcrossEntities(ctx, query, opts...)
+	return r, c.finish(ctx, span, opSearchAcross, start, err)
+}
+
+// SemanticSearch records a semantic_search observation and delegates.
+func (c *instrumentedClient) SemanticSearch(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error) {
+	ctx, span := c.startSpan(ctx, opSemanticSearch)
+	start := time.Now()
+	r, err := c.Client.SemanticSearch(ctx, query, opts...)
+	return r, c.finish(ctx, span, opSemanticSearch, start, err)
+}
+
+// SearchDocuments records a search_documents observation and delegates (#692).
+func (c *instrumentedClient) SearchDocuments(ctx context.Context, query string, opts ...dhclient.SearchOption) ([]types.Document, error) {
+	ctx, span := c.startSpan(ctx, opSearchDocuments)
+	start := time.Now()
+	d, err := c.Client.SearchDocuments(ctx, query, opts...)
+	return d, c.finish(ctx, span, opSearchDocuments, start, err)
+}
+
+// GetRelatedDocuments records a get_related_documents observation and delegates (#692).
+func (c *instrumentedClient) GetRelatedDocuments(ctx context.Context, urn string) ([]types.Document, error) {
+	ctx, span := c.startSpan(ctx, opGetRelatedDocuments)
+	start := time.Now()
+	d, err := c.Client.GetRelatedDocuments(ctx, urn)
+	return d, c.finish(ctx, span, opGetRelatedDocuments, start, err)
 }

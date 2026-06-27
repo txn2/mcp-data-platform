@@ -156,3 +156,28 @@ type Provider interface {
 	Scope() Scope
 	Search(ctx context.Context, q Query) ([]Hit, error)
 }
+
+// mergeArms runs a two-arm provider search and merges the results: the entity-keyed
+// arm first (exact, entity-matched), then the text-relevance arm, de-duplicated
+// across both via a shared seen-set so a result found both ways appears once at the
+// entity arm's rank. It holds the dedup-and-merge contract once for the catalog-style
+// sources (datahub, documents, knowledge pages) that share this shape, so the policy
+// cannot drift between hand-copied Search methods. A text-arm error blanks the
+// provider (consistent with every two-arm provider); the entity arm isolates per-item
+// errors internally.
+func mergeArms(
+	ctx context.Context, q Query,
+	entityArm func(context.Context, Query, map[string]bool) []Hit,
+	textArm func(context.Context, Query, map[string]bool) ([]Hit, error),
+) ([]Hit, error) {
+	seen := make(map[string]bool)
+	entityHits := entityArm(ctx, q, seen)
+	textHits, err := textArm(ctx, q, seen)
+	if err != nil {
+		return nil, err
+	}
+	if len(entityHits) == 0 && len(textHits) == 0 {
+		return nil, nil
+	}
+	return append(entityHits, textHits...), nil
+}
