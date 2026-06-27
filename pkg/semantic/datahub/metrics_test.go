@@ -76,12 +76,18 @@ func TestInstrumentedClient_AllOps(t *testing.T) {
 	_, _ = ic.GetColumnLineage(ctx, "urn")
 	_, _ = ic.GetGlossaryTerm(ctx, "urn")
 	_, _ = ic.GetQueries(ctx, "urn")
+	_, _ = ic.SearchAcrossEntities(ctx, "q")
+	_, _ = ic.SemanticSearch(ctx, "q")
+	_, _ = ic.SearchDocuments(ctx, "q")
+	_, _ = ic.GetRelatedDocuments(ctx, "urn")
 
 	body := scrapeForTest(t, m.Handler())
 	for _, want := range []string{
 		`operation="get_entity"`, `operation="get_schema"`, `operation="get_schemas"`,
 		`operation="get_lineage"`, `operation="get_column_lineage"`,
 		`operation="get_glossary_term"`, `operation="get_queries"`,
+		`operation="search_across_entities"`, `operation="semantic_search"`,
+		`operation="search_documents"`, `operation="get_related_documents"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("scrape missing %q\n%s", want, body)

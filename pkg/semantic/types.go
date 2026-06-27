@@ -242,6 +242,26 @@ type TableSearchResult struct {
 	MatchedField string   `json:"matched_field,omitempty"`
 }
 
+// DocumentResult is one DataHub context document returned by a relevance search
+// (#692). Context documents are the non-dataset knowledge home that predates
+// knowledge pages; surfacing them in search makes them discoverable (and
+// migratable). The URN (urn:li:document:<id>) drills in, Snippet shows relevance,
+// and ShowInGlobalContext distinguishes globally-visible documents from hidden ones.
+type DocumentResult struct {
+	URN     string `json:"urn"`
+	Title   string `json:"title"`
+	SubType string `json:"sub_type,omitempty"`
+	Snippet string `json:"snippet,omitempty"`
+	// Status is the publication state (PUBLISHED/UNPUBLISHED). The upstream search
+	// applies no status filter, so a consumer carries this to exclude drafts.
+	Status string `json:"status,omitempty"`
+	// ShowInGlobalContext reports whether the document is meant to appear in global
+	// search. The upstream search returns documents regardless of this flag, so a
+	// search consumer must filter on it to honor a steward's choice to hide a document.
+	ShowInGlobalContext bool     `json:"show_in_global_context"`
+	RelatedAssetURNs    []string `json:"related_asset_urns,omitempty"`
+}
+
 // StructuredProperty represents a typed custom property from DataHub 1.4.x.
 type StructuredProperty struct {
 	QualifiedName string `json:"qualified_name"`

@@ -46,16 +46,7 @@ func (*PagesProvider) Scope() Scope { return ScopeShared }
 // by page id. So an entity-keyed search surfaces "the knowledge about this entity",
 // not just text matches (#634).
 func (p *PagesProvider) Search(ctx context.Context, q Query) ([]Hit, error) {
-	seen := make(map[string]bool)
-	entityHits := p.searchByEntity(ctx, q, seen)
-	textHits, err := p.searchByText(ctx, q, seen)
-	if err != nil {
-		return nil, err
-	}
-	if len(entityHits) == 0 && len(textHits) == 0 {
-		return nil, nil
-	}
-	return append(entityHits, textHits...), nil
+	return mergeArms(ctx, q, p.searchByEntity, p.searchByText)
 }
 
 // searchByEntity returns the knowledge pages that reference each requested entity

@@ -619,7 +619,7 @@ and `dimension`), and a `coverage` array (`{source, matched, shown}`).
 | `context` | string | No | - | Optional surrounding context, folded into the intent to sharpen relevance |
 | `entity_urns` | array | Conditional | - | Exact entity-keyed lookup: everything linked to these DataHub URNs (the catalog entity, insights about it, and your memory linked to it), expanded along lineage |
 | `status` | string | No | - | Optional filter by insight review status (pending, approved, rejected, applied, superseded, rolled_back) |
-| `sources` | array | No | - | Narrow the search to named sources (`datahub`, `knowledge_pages`, `memory`, `insights`, `assets`, `prompts`, `endpoints`, `connections`). Only narrows; never opts into a source the persona could not otherwise access |
+| `sources` | array | No | - | Narrow the search to named sources (`datahub`, `documents`, `knowledge_pages`, `memory`, `insights`, `assets`, `prompts`, `endpoints`, `connections`). Only narrows; never opts into a source the persona could not otherwise access. An unrecognized name is echoed back in the response `unknown_sources` rather than silently ignored |
 | `limit` | integer | No | 10 | Total results to display across all sources (max 50) |
 
 ---

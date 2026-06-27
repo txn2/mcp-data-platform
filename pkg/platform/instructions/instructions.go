@@ -48,7 +48,7 @@ func Build(accessibleTools []string) string {
 	if has[toolSearch] {
 		bullets = append(bullets,
 			"Discover before you act. Call `search` first: one query reveals what is already "+
-				"known across every source you can reach (the data catalog, your memory, captured "+
+				"known across every source you can reach (the data catalog, its context documents, your memory, captured "+
 				"insights, knowledge pages, your feedback, prompts, API endpoints, and connections). "+
 				"The answer may span several sources, or may not be in the data warehouse at all, so do "+
 				"not assume a backend and do not stop at the first result.",

@@ -54,6 +54,10 @@ type searchOutput struct {
 	Coverage []knowledge.SourceCoverage `json:"coverage"`
 	Count    int                        `json:"count"`
 	Ranking  string                     `json:"ranking"`
+	// UnknownSources echoes any requested `sources` names that match no known
+	// source, so a typo (e.g. "documnets") is reported instead of silently
+	// returning nothing.
+	UnknownSources []string `json:"unknown_sources,omitempty"`
 }
 
 // searchSchema is the JSON Schema for the search tool input.
@@ -63,7 +67,7 @@ var searchSchema = json.RawMessage(`{
   "properties": {
     "intent": {
       "type": "string",
-      "description": "Natural-language description of what you are looking for, across every source you can access: the technical catalog (DataHub), canonical knowledge pages (business/domain ontology), your memory, captured insights, your feedback, saved assets, prompts, API endpoints, and connections. Ranked by relevance and grouped by source. Provide intent, entity_urns, or both."
+      "description": "Natural-language description of what you are looking for, across every source you can access: the technical catalog (DataHub), DataHub context documents, canonical knowledge pages (business/domain ontology), your memory, captured insights, your feedback, saved assets, prompts, API endpoints, and connections. Ranked by relevance and grouped by source. Provide intent, entity_urns, or both."
     },
     "context": {
       "type": "string",
@@ -81,7 +85,7 @@ var searchSchema = json.RawMessage(`{
     "sources": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Optional: narrow the search to specific sources (e.g. [\"datahub\"], [\"memory\",\"endpoints\"]). Omit to search every source you can access. This only narrows results; it never opts you into a source your access would otherwise exclude. Known sources: datahub, knowledge_pages, memory, insights, feedback, assets, prompts, endpoints, connections."
+      "description": "Optional: narrow the search to specific sources (e.g. [\"datahub\"], [\"memory\",\"endpoints\"]). Omit to search every source you can access. This only narrows results; it never opts you into a source your access would otherwise exclude. Known sources: datahub, documents, knowledge_pages, memory, insights, feedback, assets, prompts, endpoints, connections. An unrecognized name is reported back in unknown_sources rather than silently ignored."
     },
     "limit": {
       "type": "integer",
@@ -117,8 +121,9 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Title: "Search",
 		Description: "The one way to discover. Call this FIRST, before any other tool, to find what is " +
 			"already known and to learn where the answer to a question lives. One query fans across every " +
-			"source you can access (the technical catalog, your memory, captured insights, your feedback, " +
-			"saved assets, prompts, API endpoints, and connections) and returns results grouped by source with a coverage " +
+			"source you can access (the technical catalog, DataHub context documents, canonical knowledge pages, your memory, " +
+			"captured insights, your feedback, saved assets, prompts, API endpoints, and connections) and returns results " +
+			"grouped by source with a coverage " +
 			"summary, so you see the full shape of the answer space instead of tunneling into the first tool " +
 			"that comes to mind. For example 'how do we calculate churn' or 'customer retention'. Results are " +
 			"navigational pointers (title, reference, source); drill in with the scoped tool (trino_query, " +
@@ -179,10 +184,11 @@ func (t *Toolkit) handleSearch(ctx context.Context, _ *mcp.CallToolRequest, inpu
 		shown += len(g.Hits)
 	}
 	return jsonResult(searchOutput{
-		Groups:   groups,
-		Coverage: coverage,
-		Count:    shown,
-		Ranking:  res.Ranking,
+		Groups:         groups,
+		Coverage:       coverage,
+		Count:          shown,
+		Ranking:        res.Ranking,
+		UnknownSources: res.UnknownSources,
 	})
 }
 

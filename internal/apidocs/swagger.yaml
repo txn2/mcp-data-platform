@@ -3257,6 +3257,10 @@ definitions:
         type: array
       ranking:
         type: string
+      unknown_sources:
+        items:
+          type: string
+        type: array
     type: object
   portal.setEntityRefsRequest:
     properties:
@@ -9652,8 +9656,8 @@ paths:
   /portal/search:
     get:
       description: One query fans across every source the caller can access (catalog,
-        knowledge pages, memory, insights, assets, prompts, endpoints, connections),
-        grouped by source and scope-enforced.
+        context documents, knowledge pages, memory, insights, feedback, assets, prompts,
+        endpoints, connections), grouped by source and scope-enforced.
       parameters:
       - description: Natural-language intent
         in: query

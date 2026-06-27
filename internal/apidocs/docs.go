@@ -9632,7 +9632,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "One query fans across every source the caller can access (catalog, knowledge pages, memory, insights, assets, prompts, endpoints, connections), grouped by source and scope-enforced.",
+                "description": "One query fans across every source the caller can access (catalog, context documents, knowledge pages, memory, insights, feedback, assets, prompts, endpoints, connections), grouped by source and scope-enforced.",
                 "produces": [
                     "application/json"
                 ],
@@ -15699,6 +15699,12 @@ const docTemplate = `{
                 },
                 "ranking": {
                     "type": "string"
+                },
+                "unknown_sources": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },

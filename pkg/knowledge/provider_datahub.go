@@ -55,19 +55,7 @@ func (*DatahubProvider) Scope() Scope { return ScopeShared }
 // EntityURNs (entity path) plus those relevant to Intent (text path), merged and
 // de-duplicated by URN.
 func (p *DatahubProvider) Search(ctx context.Context, q Query) ([]Hit, error) {
-	seen := make(map[string]bool)
-
-	entityHits := p.searchByEntity(ctx, q, seen)
-
-	textHits, err := p.searchByText(ctx, q, seen)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(entityHits) == 0 && len(textHits) == 0 {
-		return nil, nil
-	}
-	return append(entityHits, textHits...), nil
+	return mergeArms(ctx, q, p.searchByEntity, p.searchByText)
 }
 
 // searchByEntity fetches the catalog entity for each requested URN (already
