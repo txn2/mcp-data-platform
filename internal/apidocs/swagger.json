@@ -15986,6 +15986,10 @@
                 "change_summary": {
                     "type": "string"
                 },
+                "force_new": {
+                    "description": "ForceNew overrides the create-time duplicate gate (#705): when set, a page\nwhose content is highly similar to an existing one is created anyway instead\nof being rejected with the candidate pages. Ignored on update.",
+                    "type": "boolean"
+                },
                 "slug": {
                     "type": "string"
                 },

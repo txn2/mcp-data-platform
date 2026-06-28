@@ -71,7 +71,10 @@ func Build(accessibleTools []string) string {
 				"with the `reference` string that search results and `list_connections` carry, and never cross the "+
 				"two schemes (no `urn:li:mcp:...`). To make a citation a tracked, clickable reference, write it in "+
 				"plain text or a markdown link in the page body, or pass it in the page's `references` list; a "+
-				"reference inside backticks or a code block is treated as an example and ignored.")
+				"reference inside backticks or a code block is treated as an example and ignored. Prefer several "+
+				"focused, cross-linked pages over one large page: cite related pages with `mcp:knowledge_page:` "+
+				"references and build a thin index page that links to them. Creating a page that duplicates an "+
+				"existing one is blocked with the candidates returned, so update in place rather than re-teaching a fact.")
 	}
 	if len(bullets) == 0 {
 		return ""

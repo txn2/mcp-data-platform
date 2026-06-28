@@ -27,6 +27,9 @@ type PageSearcher interface {
 	// List returns the offset/limit page of live pages plus the total live-page
 	// count, ordered deterministically, for exhaustive enumeration (#695).
 	List(ctx context.Context, filter knowledgepage.Filter) ([]knowledgepage.Page, int, error)
+	// ListEntityRefs returns the references a page declares (the pages and entities
+	// it links to), so a fetch can surface the page's outbound graph edges (#705).
+	ListEntityRefs(ctx context.Context, pageID string) ([]knowledgepage.EntityRef, error)
 }
 
 // PagesProvider exposes the platform's canonical knowledge pages (the
@@ -147,11 +150,38 @@ func (p *PagesProvider) Fetch(ctx context.Context, ref string, _ Caller) (*Docum
 		return nil, true, ErrNotFound
 	}
 	return &Document{
-		Reference: ref,
-		Source:    SourceKnowledgePages,
-		Title:     page.Title,
-		Body:      page.Body,
+		Reference:  ref,
+		Source:     SourceKnowledgePages,
+		Title:      page.Title,
+		Body:       page.Body,
+		References: p.outboundRefs(ctx, parsed.RefPageID),
 	}, true, nil
+}
+
+// outboundRefs returns the page's declared references as fetchable graph edges
+// (#705): the other pages and entities it links to, so an agent can deep-crawl
+// deliberately rather than re-parsing the markdown body. It is best-effort: a
+// listing error degrades to no edges rather than failing the fetch, since the body
+// is the primary content. A reference whose serialized form is empty (an
+// unrecognized target type) is skipped.
+func (p *PagesProvider) outboundRefs(ctx context.Context, pageID string) []DocumentRef {
+	refs, err := p.searcher.ListEntityRefs(ctx, pageID)
+	if err != nil {
+		slog.Debug("knowledge-page outbound refs skipped", "page_id", pageID, "error", err)
+		return nil
+	}
+	out := make([]DocumentRef, 0, len(refs))
+	for i := range refs {
+		urn := refs[i].URN()
+		if urn == "" {
+			continue
+		}
+		out = append(out, DocumentRef{Reference: urn, Type: refs[i].TargetType})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // Browse enumerates knowledge pages in full (#695): the offset/limit page of live

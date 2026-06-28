@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ApiError } from "@/api/portal/client";
+import { useCreateKnowledgePage } from "@/api/portal/hooks";
 
 // The form only calls useKnowledgePage / useCreateKnowledgePage /
 // useUpdateKnowledgePage; the rest are stubbed because the page module imports
@@ -52,5 +54,64 @@ describe("KnowledgePageForm fields (#708)", () => {
     render(<KnowledgePageForm onDone={() => {}} />, { wrapper });
     const title = screen.getByLabelText(/Title/i);
     expect(title.tagName).toBe("INPUT");
+  });
+});
+
+describe("KnowledgePageForm duplicate gate (#705)", () => {
+  // A create mutation whose mutate() rejects with the 409 duplicate_blocked
+  // payload, mirroring what the backend gate returns.
+  function mockCreateRejectingWithDuplicate() {
+    const mutate = vi.fn((_input: unknown, opts?: { onError?: (e: unknown) => void }) => {
+      opts?.onError?.(
+        new ApiError(409, "A similar knowledge page already exists.", {
+          duplicate_blocked: true,
+          candidates: [{ id: "kp_existing", slug: "return-policy", title: "Return Policy", score: 0.93 }],
+          message: "A similar knowledge page already exists.",
+        }),
+      );
+    });
+    vi.mocked(useCreateKnowledgePage).mockReturnValue({ mutate, isPending: false } as unknown as ReturnType<
+      typeof useCreateKnowledgePage
+    >);
+    return mutate;
+  }
+
+  it("surfaces candidate pages when create is blocked as a near-duplicate", () => {
+    mockCreateRejectingWithDuplicate();
+    render(<KnowledgePageForm onDone={() => {}} />, { wrapper });
+
+    fireEvent.change(screen.getByLabelText(/Title/i), { target: { value: "ACME Returns Policy" } });
+    fireEvent.click(screen.getByRole("button", { name: /Create page/i }));
+
+    expect(screen.getByText(/Similar pages already exist/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Return Policy/i })).toBeInTheDocument();
+    expect(screen.getByText(/93% match/i)).toBeInTheDocument();
+  });
+
+  it("resubmits with force_new when the user chooses to create anyway", () => {
+    const mutate = mockCreateRejectingWithDuplicate();
+    render(<KnowledgePageForm onDone={() => {}} />, { wrapper });
+
+    fireEvent.change(screen.getByLabelText(/Title/i), { target: { value: "ACME Returns Policy" } });
+    fireEvent.click(screen.getByRole("button", { name: /Create page/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Create separate page anyway/i }));
+
+    // The second create call carries force_new: true.
+    expect(mutate).toHaveBeenCalledTimes(2);
+    const secondCall = mutate.mock.calls[1];
+    const lastInput = (secondCall?.[0] ?? {}) as { force_new?: boolean };
+    expect(lastInput.force_new).toBe(true);
+  });
+
+  it("navigates to a candidate page when one is opened", () => {
+    mockCreateRejectingWithDuplicate();
+    const onDone = vi.fn();
+    render(<KnowledgePageForm onDone={onDone} />, { wrapper });
+
+    fireEvent.change(screen.getByLabelText(/Title/i), { target: { value: "ACME Returns Policy" } });
+    fireEvent.click(screen.getByRole("button", { name: /Create page/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Return Policy/i }));
+
+    expect(onDone).toHaveBeenCalledWith("kp_existing");
   });
 });

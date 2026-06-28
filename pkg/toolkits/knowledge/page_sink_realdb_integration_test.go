@@ -24,7 +24,7 @@ func TestPageSink_RealDB_PromoteAndRollback(t *testing.T) {
 	db := testdb.New(t)
 	insightStore := NewMemoryInsightAdapter(memory.NewPostgresStore(db))
 	csStore := NewPostgresChangesetStore(db)
-	pageStore := knowledgepage.NewPostgresStore(db)
+	pageStore := knowledgepage.NewPostgresStoreSearcher(db)
 
 	tk, err := New("test", insightStore)
 	require.NoError(t, err)

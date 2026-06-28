@@ -27,11 +27,23 @@ type fakePageWriter struct {
 	insertErr        error
 	updateErr        error
 	getErr           error
-	validateErr      error           // errors ValidateRefTargets (a missing reference target)
-	filterErr        error           // errors FilterExistingRefTargets
-	missingTargets   map[string]bool // ref URNs FilterExistingRefTargets drops as non-existent
-	replaceBySrcErr  error           // errors any ReplaceEntityRefsBySource call
-	replaceInlineErr error           // errors only the source=inline replace
+	validateErr      error                      // errors ValidateRefTargets (a missing reference target)
+	filterErr        error                      // errors FilterExistingRefTargets
+	missingTargets   map[string]bool            // ref URNs FilterExistingRefTargets drops as non-existent
+	replaceBySrcErr  error                      // errors any ReplaceEntityRefsBySource call
+	replaceInlineErr error                      // errors only the source=inline replace
+	searchResults    []knowledgepage.ScoredPage // returned by SemanticSearch (the dedup gate probe, #705)
+	searchErr        error                      // errors SemanticSearch
+	searchCalls      int                        // number of SemanticSearch invocations
+	lastSearchEmb    []float32                  // the most recent SemanticSearch embedding
+}
+
+// SemanticSearch models the dedup gate's pure-cosine probe (#705): it returns canned
+// scored pages so a test can assert the gate blocks (or allows) a create.
+func (f *fakePageWriter) SemanticSearch(_ context.Context, embedding []float32, _ int) ([]knowledgepage.ScoredPage, error) {
+	f.searchCalls++
+	f.lastSearchEmb = embedding
+	return f.searchResults, f.searchErr
 }
 
 func (f *fakePageWriter) ValidateRefTargets(_ context.Context, _ []knowledgepage.EntityRef) error {

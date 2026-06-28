@@ -486,6 +486,27 @@ export interface KnowledgePageInput {
   body?: string;
   tags?: string[];
   change_summary?: string;
+  /**
+   * Override the create-time duplicate gate (#705). When the content is highly
+   * similar to an existing page, create is rejected with the candidates; set this
+   * to create a separate page anyway. Ignored on update.
+   */
+  force_new?: boolean;
+}
+
+/** One near-duplicate page surfaced when the create gate blocks (#705). */
+export interface KnowledgePageDedupCandidate {
+  id: string;
+  slug?: string;
+  title: string;
+  score: number;
+}
+
+/** 409 body the create endpoint returns when the dedup gate blocks a near-duplicate. */
+export interface KnowledgePageDuplicateResponse {
+  duplicate_blocked: boolean;
+  candidates: KnowledgePageDedupCandidate[];
+  message: string;
 }
 
 // --- Unified knowledge search (GET /api/v1/portal/search, #661) ---

@@ -23,6 +23,31 @@ func kpRows() *sqlmock.Rows {
 	})
 }
 
+// TestNewPostgresStoreSearcher proves the combined constructor returns a working
+// store: a SemanticSearch through it actually queries the database and returns the
+// ranked row (#705). The apply path needs this combined Store+Searcher+prober value.
+func TestNewPostgresStoreSearcher(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+	ss := NewPostgresStoreSearcher(db)
+
+	cols := append([]string{
+		"id", "slug", "title", "summary", "body", "tags",
+		"created_by", "created_email", "updated_by", "current_version",
+		"created_at", "updated_at", "deleted_at",
+	}, "cos")
+	mock.ExpectQuery("ORDER BY embedding").
+		WillReturnRows(sqlmock.NewRows(cols).
+			AddRow("kp1", "s", "T", "", "b", []byte(`[]`), "", "", "", 1, time.Now(), time.Now(), nil, 0.88))
+
+	out, err := ss.SemanticSearch(context.Background(), []float32{0.1, 0.2}, 5)
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	require.Equal(t, "kp1", out[0].Page.ID)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestStore_Insert(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)

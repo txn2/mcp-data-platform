@@ -13,7 +13,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/txn2/mcp-datahub/pkg/types"
 
+	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
+	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
@@ -89,10 +91,26 @@ type Toolkit struct {
 	datahubWriter       DataHubWriter
 	pageWriter          pageWriter
 
+	// pageGuards holds the resolved knowledge-page write guards (#705): the
+	// create-time duplicate gate and the oversized-page split suggestion. embeddingProv
+	// computes the dedup probe's query vector; a nil/noop provider makes the gate a
+	// no-op (cosine is undefined without a real embedder).
+	pageGuards    knowledgepage.PageGuards
+	embeddingProv embedding.Provider
+
 	semanticProvider semantic.Provider
 	queryProvider    query.Provider
 
 	promptCreator PromptCreator
+}
+
+// SetPageGuards wires the resolved knowledge-page write-guard thresholds and the
+// embedding provider used by the create-time duplicate gate (#705). A nil provider
+// (or the noop placeholder) leaves the gate inactive: without a real embedding the
+// cosine similarity is not defined, so the create proceeds unguarded.
+func (t *Toolkit) SetPageGuards(guards knowledgepage.PageGuards, emb embedding.Provider) {
+	t.pageGuards = guards
+	t.embeddingProv = emb
 }
 
 // New creates a new knowledge toolkit.
@@ -165,8 +183,10 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 				"(3) synthesize: merge related insights into one coherent statement and resolve contradictions, rather than writing one artifact per raw insight; " +
 				"(4) route: entity-tied facts update the DataHub entity (description, tags, glossary, curated queries); business or domain knowledge promotes to a knowledge page " +
 				"via sink=knowledge_page with a 'page' object, found-or-created by slug so repeat promotions consolidate and references accumulate; " +
-				"(5) update in place over duplicating, and create only when genuinely new; " +
-				"(6) mark insights applied, rejected, or superseded. " +
+				"(5) update in place over duplicating, and create only when genuinely new: a create whose content closely matches an existing page is blocked and the candidate pages are returned, " +
+				"so re-apply against a candidate's slug to update it, or set page.force_new only when the new page is genuinely distinct; " +
+				"(6) prefer several focused, cross-linked pages over one large page, citing related pages with mcp:knowledge_page: references and building a thin index page that links to the focused ones; an oversized page is flagged with a non-blocking split suggestion; " +
+				"(7) mark insights applied, rejected, or superseded. " +
 				"Access is granted per persona by tool visibility, not by an admin role. " +
 				"Sinks for the apply action: sink='datahub' (default) applies 'changes' to entity_urn; sink='knowledge_page' promotes a business_knowledge or operational_rule " +
 				"insight to a page using the 'page' object {slug,title,summary,body,tags} and 'insight_ids'. " +
@@ -1163,14 +1183,19 @@ Always discover before you apply: search existing memory, insights, and knowledg
    - Tied to a catalog entity (dataset, column, dashboard): apply to DataHub with sink=datahub, using update_description, add_tag, add_glossary_term, add_curated_query, and so on, against the entity_urn.
    - Business or domain knowledge not tied to one entity (vocabulary, seasons, policies, cross-cutting context): promote to a knowledge page with sink=knowledge_page and a 'page' object {slug, title, summary, body, tags, references}. The page is found-or-created by slug, so promoting more insights to the same slug consolidates one living page and accumulates its entity references.
 5. **Cite entities so they become tracked references.** To link a page to a dataset, asset, prompt, collection, connection, or other page, either pass the reference strings in the page 'references' list (mcp:asset:<id>, mcp:connection:(kind,name), urn:li:..., and so on) or write them in the body as plain text or a markdown link. Do NOT put a reference inside backticks or a code block: code spans are treated as documentation examples and are deliberately ignored, so a backticked URN produces no reference and no link. Each reference in the 'references' list is existence-checked against the catalog before the page is written; a citation to a missing internal (mcp:) entity rejects the apply (a DataHub urn:li: reference is free text, stored as given). References in 'references' and those carried from the source insights attach with the promotion, so a rollback undoes them; a stale insight-carried reference is skipped rather than blocking the promotion. Inline body references follow the normal body reconcile (the same as editing the page).
-6. **Update in place over duplicating.** Consolidate onto the existing canonical home; create only when genuinely new.
+6. **Update in place over duplicating.** Consolidate onto the existing canonical home; create only when genuinely new. The platform enforces this on create: when a new page's slug does not yet exist but its content closely matches an existing page, the apply is blocked and the candidate pages are returned. Re-apply against a candidate's slug to update it, or set page.force_new: true only after deciding the new page is genuinely distinct (a deliberate, auditable choice, separate from confirm).
 7. **Close the loop.** Mark insights applied, rejected, or superseded with review notes, so the queue reflects reality.
+
+### Structure knowledge as a navigable graph
+
+Prefer several focused, cross-linked pages over one sprawling page (progressive revelation). Each page covers one topic and cites the related ones with mcp:knowledge_page:<id> references; a broad topic gets a thin **index page** whose body is mostly links to the focused sub-pages. When a promotion produces an oversized page, the apply response carries a non-blocking split_suggestion: split it into focused sub-pages and link them from an index. When you fetch a knowledge page, its outbound references (the pages and entities it links to) come back alongside the body, so deep-crawl deliberately: fetch the index, then follow into the branch the question needs.
 
 ### Routing examples
 
 - "The amount column excludes returns" applies to DataHub: update_description on that dataset column.
 - "We run Summer (May-Oct) and Winter (Nov-Apr) seasons for planning" becomes a knowledge page (sink=knowledge_page), for example slug retail-seasons.
-- Three insights all about discount vocabulary become one knowledge page synthesized from all three, not three pages.`
+- Three insights all about discount vocabulary become one knowledge page synthesized from all three, not three pages.
+- A broad "retail operations" topic becomes an index page linking to focused pages (retail-seasons, return-policy, discount-vocabulary), each citing the others, not one giant page.`
 
 // Helper functions
 

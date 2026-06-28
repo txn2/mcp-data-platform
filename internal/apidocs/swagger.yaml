@@ -3130,6 +3130,12 @@ definitions:
         type: string
       change_summary:
         type: string
+      force_new:
+        description: |-
+          ForceNew overrides the create-time duplicate gate (#705): when set, a page
+          whose content is highly similar to an existing one is created anyway instead
+          of being rejected with the candidate pages. Ignored on update.
+        type: boolean
       slug:
         type: string
       summary:
