@@ -953,6 +953,339 @@ $md$,
    '["lineage","sla","data-quality"]'::jsonb, 'priya.nair@example.com', 'priya.nair@example.com', 'priya.nair@example.com', 2, '2026-05-15T07:00:00Z', '2026-06-19T08:00:00Z')
 ON CONFLICT (id) DO NOTHING;
 
+-- Enriched knowledge pages: 25+ distinct tags so the facet caps + reveals
+-- (#707), multi-sentence summaries for the editor (#708), and inline
+-- references (cross-page links, dataset URNs, a connection, one broken ref)
+-- so the Related panel, backlinks, and the reference graph (#709) have material.
+INSERT INTO portal_knowledge_pages
+  (id, slug, title, summary, body, tags, created_by, created_email, updated_by, current_version, created_at, updated_at)
+VALUES
+  ('kp-seed-9', 'net-revenue-definition', 'Net Revenue Definition', 'net_revenue is gross sales minus returns, discounts, and tax. It is the only revenue figure used in board-level reporting, so always lead with it rather than gross.',
+   $md$# Net Revenue Definition
+
+net_revenue is gross sales minus returns, discounts, and tax. It is the only revenue figure used in board-level reporting, so always lead with it rather than gross.
+
+## Related
+
+The authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD), served from mcp:connection:(trino,acme-warehouse).
+
+Related pages: [Revenue Definition](mcp:knowledge_page:kp-seed-2), [Returns and Refunds Logic](mcp:knowledge_page:kp-seed-5).
+$md$,
+   '["finance","revenue","metrics","reporting"]'::jsonb, 'sarah.chen@example.com', 'sarah.chen@example.com', 'marcus.johnson@example.com', 1, NOW() - interval '5 days', NOW() - interval '1 days'),
+  ('kp-seed-10', 'inventory-snapshot-grain', 'Inventory Snapshot Grain', 'inventory_snapshot is one row per SKU per store per day. The on_hand count is the end-of-day position; intraday movements are not captured here.',
+   $md$# Inventory Snapshot Grain
+
+inventory_snapshot is one row per SKU per store per day. The on_hand count is the end-of-day position; intraday movements are not captured here.
+
+## Related
+
+The authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.inventory.inventory_levels,PROD).
+
+Related pages: [Supply Chain Lead Times](mcp:knowledge_page:kp-seed-14), [daily_sales Table Guide](mcp:knowledge_page:kp-seed-4).
+$md$,
+   '["inventory","schema","retail","data-quality"]'::jsonb, 'marcus.webb@example.com', 'marcus.webb@example.com', 'rachel.thompson@example.com', 2, NOW() - interval '6 days', NOW() - interval '2 days'),
+  ('kp-seed-11', 'price-change-history', 'Price Change History', 'price_history records every list-price change with an effective timestamp. To get the price in effect on a date, take the most recent row at or before that date.',
+   $md$# Price Change History
+
+price_history records every list-price change with an effective timestamp. To get the price in effect on a date, take the most recent row at or before that date.
+
+## Related
+
+The authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.price_adjustments,PROD), served from mcp:connection:(trino,acme-warehouse).
+
+Related pages: [Revenue Definition](mcp:knowledge_page:kp-seed-2).
+$md$,
+   '["pricing","schema","retail"]'::jsonb, 'priya.nair@example.com', 'priya.nair@example.com', 'david.park@example.com', 3, NOW() - interval '7 days', NOW() - interval '3 days'),
+  ('kp-seed-12', 'returns-reason-codes', 'Returns Reason Codes', 'Returns carry a reason_code from a controlled vocabulary (damaged, wrong-item, no-longer-needed, late-delivery). Free-text reasons were retired in FY2025, so do not expect them in new rows.',
+   $md$# Returns Reason Codes
+
+Returns carry a reason_code from a controlled vocabulary (damaged, wrong-item, no-longer-needed, late-delivery). Free-text reasons were retired in FY2025, so do not expect them in new rows.
+
+## Related
+
+Related pages: [Returns and Refunds Logic](mcp:knowledge_page:kp-seed-5), [Net Revenue Definition](mcp:knowledge_page:kp-seed-9).
+$md$,
+   '["returns","taxonomy","data-quality"]'::jsonb, 'marcus.johnson@example.com', 'marcus.johnson@example.com', 'amanda.lee@example.com', 4, NOW() - interval '8 days', NOW() - interval '4 days'),
+  ('kp-seed-13', 'loyalty-tier-rename', 'Loyalty Tier Rename', 'Loyalty tiers were renamed in Q3 FY2024: Bronze/Silver/Gold became Explorer/Enthusiast/Champion. Historical rows keep the old labels, so reporting must map both.',
+   $md$# Loyalty Tier Rename
+
+Loyalty tiers were renamed in Q3 FY2024: Bronze/Silver/Gold became Explorer/Enthusiast/Champion. Historical rows keep the old labels, so reporting must map both.
+
+## Related
+
+The authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.customer_segments,PROD).
+
+Related pages: [Customer Identity Resolution](mcp:knowledge_page:kp-seed-24), [Glossary: Core Terms](mcp:knowledge_page:kp-seed-28).
+$md$,
+   '["loyalty","marketing","customer","deprecation"]'::jsonb, 'rachel.thompson@example.com', 'rachel.thompson@example.com', 'admin@example.com', 1, NOW() - interval '9 days', NOW() - interval '5 days'),
+  ('kp-seed-14', 'supply-chain-lead-times', 'Supply Chain Lead Times', 'supplier_lead_time is measured in business days from PO submission to dock receipt. It excludes the put-away time before stock becomes sellable.',
+   $md$# Supply Chain Lead Times
+
+supplier_lead_time is measured in business days from PO submission to dock receipt. It excludes the put-away time before stock becomes sellable.
+
+## Related
+
+The authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.inventory.supply_chain_orders,PROD).
+
+Related pages: [Inventory Snapshot Grain](mcp:knowledge_page:kp-seed-10), [Demand Forecast Model](mcp:knowledge_page:kp-seed-15).
+$md$,
+   '["supply-chain","inventory","forecasting"]'::jsonb, 'david.park@example.com', 'david.park@example.com', 'sarah.chen@example.com', 2, NOW() - interval '10 days', NOW() - interval '1 days'),
+  ('kp-seed-15', 'demand-forecast-model', 'Demand Forecast Model', 'The weekly demand forecast blends a 52-week seasonal baseline with a promotions uplift. Forecasts beyond 8 weeks are directional and should not drive purchase orders.',
+   $md$# Demand Forecast Model
+
+The weekly demand forecast blends a 52-week seasonal baseline with a promotions uplift. Forecasts beyond 8 weeks are directional and should not drive purchase orders.
+
+## Related
+
+The authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.regional_performance,PROD).
+
+Related pages: [Supply Chain Lead Times](mcp:knowledge_page:kp-seed-14), [Promotions Attribution](mcp:knowledge_page:kp-seed-27).
+$md$,
+   '["forecasting","metrics","supply-chain"]'::jsonb, 'amanda.lee@example.com', 'amanda.lee@example.com', 'marcus.webb@example.com', 3, NOW() - interval '11 days', NOW() - interval '2 days'),
+  ('kp-seed-16', 'etl-refresh-windows', 'ETL Refresh Windows', 'Core marts refresh nightly between 02:00 and 04:00 UTC. Querying a mart mid-refresh can return a partial partition, so prefer reads after 04:30 UTC.',
+   $md$# ETL Refresh Windows
+
+Core marts refresh nightly between 02:00 and 04:00 UTC. Querying a mart mid-refresh can return a partial partition, so prefer reads after 04:30 UTC.
+
+## Related
+
+served from mcp:connection:(trino,acme-warehouse).
+
+Related pages: [Freshness SLA Tiers](mcp:knowledge_page:kp-seed-20), [sales_mart Schema](mcp:knowledge_page:kp-seed-17), [Lineage and Freshness SLAs](mcp:knowledge_page:kp-seed-8).
+$md$,
+   '["etl","freshness","sla","observability"]'::jsonb, 'admin@example.com', 'admin@example.com', 'priya.nair@example.com', 4, NOW() - interval '12 days', NOW() - interval '3 days'),
+  ('kp-seed-17', 'sales-mart-schema', 'sales_mart Schema', 'sales_mart is the curated star schema for sales reporting: one fact table (sales_fact) and four conformed dimensions (date, store, product, customer).',
+   $md$# sales_mart Schema
+
+sales_mart is the curated star schema for sales reporting: one fact table (sales_fact) and four conformed dimensions (date, store, product, customer).
+
+## Related
+
+The authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD).
+
+Related pages: [Executive Dashboard Guide](mcp:knowledge_page:kp-seed-23), [Partitioning Conventions](mcp:knowledge_page:kp-seed-21).
+$md$,
+   '["schema","reporting","lineage","dashboards"]'::jsonb, 'sarah.chen@example.com', 'sarah.chen@example.com', 'marcus.johnson@example.com', 1, NOW() - interval '13 days', NOW() - interval '4 days'),
+  ('kp-seed-18', 'pii-masking-policy', 'PII Masking Policy', 'Email, phone, and address are PII and must be masked in any shared mart. Unmasked access requires the pii_reader role and is logged for compliance review.',
+   $md$# PII Masking Policy
+
+Email, phone, and address are PII and must be masked in any shared mart. Unmasked access requires the pii_reader role and is logged for compliance review.
+
+## Related
+
+Related pages: [Customer PII Handling](mcp:knowledge_page:kp-seed-3), [Data Ownership Model](mcp:knowledge_page:kp-seed-19).
+$md$,
+   '["pii","governance","security","compliance"]'::jsonb, 'marcus.webb@example.com', 'marcus.webb@example.com', 'rachel.thompson@example.com', 2, NOW() - interval '14 days', NOW() - interval '5 days'),
+  ('kp-seed-19', 'data-ownership-model', 'Data Ownership Model', 'Every dataset has a named owner accountable for its quality and documentation. Ownership is recorded in the catalog; an unowned dataset cannot be promoted to certified.',
+   $md$# Data Ownership Model
+
+Every dataset has a named owner accountable for its quality and documentation. Ownership is recorded in the catalog; an unowned dataset cannot be promoted to certified.
+
+## Related
+
+Related pages: [Data Onboarding Checklist](mcp:knowledge_page:kp-seed-7), [Freshness SLA Tiers](mcp:knowledge_page:kp-seed-20).
+$md$,
+   '["ownership","governance","glossary"]'::jsonb, 'priya.nair@example.com', 'priya.nair@example.com', 'david.park@example.com', 3, NOW() - interval '15 days', NOW() - interval '1 days'),
+  ('kp-seed-20', 'freshness-sla-tiers', 'Freshness SLA Tiers', 'Datasets are assigned a freshness tier: gold refreshes hourly, silver daily, bronze weekly. The tier sets the alert threshold the on-call pages against.',
+   $md$# Freshness SLA Tiers
+
+Datasets are assigned a freshness tier: gold refreshes hourly, silver daily, bronze weekly. The tier sets the alert threshold the on-call pages against.
+
+## Related
+
+served from mcp:connection:(trino,acme-warehouse).
+
+Related pages: [ETL Refresh Windows](mcp:knowledge_page:kp-seed-16), [Observability and Alerting](mcp:knowledge_page:kp-seed-30).
+$md$,
+   '["freshness","sla","observability","data-quality"]'::jsonb, 'marcus.johnson@example.com', 'marcus.johnson@example.com', 'amanda.lee@example.com', 4, NOW() - interval '16 days', NOW() - interval '2 days'),
+  ('kp-seed-21', 'partitioning-conventions', 'Partitioning Conventions', 'Fact tables partition by event date in UTC. Querying without a date predicate scans every partition, so always bound large fact queries by date.',
+   $md$# Partitioning Conventions
+
+Fact tables partition by event date in UTC. Querying without a date predicate scans every partition, so always bound large fact queries by date.
+
+## Related
+
+The authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD).
+
+Related pages: [sales_mart Schema](mcp:knowledge_page:kp-seed-17).
+$md$,
+   '["partitioning","schema","data-quality"]'::jsonb, 'rachel.thompson@example.com', 'rachel.thompson@example.com', 'admin@example.com', 1, NOW() - interval '17 days', NOW() - interval '3 days'),
+  ('kp-seed-22', 'deprecated-columns', 'Deprecated Columns', 'Columns scheduled for removal carry a deprecated tag and a removal date in the catalog. Migrate off them before the date; reads will start returning NULL after.',
+   $md$# Deprecated Columns
+
+Columns scheduled for removal carry a deprecated tag and a removal date in the catalog. Migrate off them before the date; reads will start returning NULL after.
+
+## Related
+
+Related pages: [Data Ownership Model](mcp:knowledge_page:kp-seed-19), [Glossary: Core Terms](mcp:knowledge_page:kp-seed-28).
+
+The retired urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.legacy_orders,PROD) is kept only for the migration window.
+$md$,
+   '["deprecation","schema","governance"]'::jsonb, 'david.park@example.com', 'david.park@example.com', 'sarah.chen@example.com', 2, NOW() - interval '18 days', NOW() - interval '4 days'),
+  ('kp-seed-23', 'exec-dashboard-guide', 'Executive Dashboard Guide', 'The executive dashboard reads exclusively from sales_mart and refreshes by 06:00 UTC. If a number looks wrong, check the sales_mart partition before the dashboard.',
+   $md$# Executive Dashboard Guide
+
+The executive dashboard reads exclusively from sales_mart and refreshes by 06:00 UTC. If a number looks wrong, check the sales_mart partition before the dashboard.
+
+## Related
+
+The authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD), served from mcp:connection:(trino,acme-warehouse).
+
+Related pages: [sales_mart Schema](mcp:knowledge_page:kp-seed-17), [Lineage and Freshness SLAs](mcp:knowledge_page:kp-seed-8).
+$md$,
+   '["dashboards","reporting","lineage"]'::jsonb, 'amanda.lee@example.com', 'amanda.lee@example.com', 'marcus.webb@example.com', 3, NOW() - interval '19 days', NOW() - interval '5 days'),
+  ('kp-seed-24', 'customer-identity-resolution', 'Customer Identity Resolution', 'Customers are deduplicated into a single customer_key via email and loyalty-id matching. A raw order may reference a pre-resolution id, so always join through the identity map.',
+   $md$# Customer Identity Resolution
+
+Customers are deduplicated into a single customer_key via email and loyalty-id matching. A raw order may reference a pre-resolution id, so always join through the identity map.
+
+## Related
+
+The authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.customer_segments,PROD).
+
+Related pages: [Loyalty Tier Rename](mcp:knowledge_page:kp-seed-13), [Order Lifecycle States](mcp:knowledge_page:kp-seed-25).
+$md$,
+   '["customer","schema","data-quality"]'::jsonb, 'admin@example.com', 'admin@example.com', 'priya.nair@example.com', 4, NOW() - interval '20 days', NOW() - interval '1 days'),
+  ('kp-seed-25', 'order-lifecycle-states', 'Order Lifecycle States', 'An order moves placed -> picked -> shipped -> delivered, or placed -> cancelled. The orders table stores only the current state; state history lives in order_events.',
+   $md$# Order Lifecycle States
+
+An order moves placed -> picked -> shipped -> delivered, or placed -> cancelled. The orders table stores only the current state; state history lives in order_events.
+
+## Related
+
+The authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.store_transactions,PROD).
+
+Related pages: [Shipping Zones](mcp:knowledge_page:kp-seed-26), [Customer Identity Resolution](mcp:knowledge_page:kp-seed-24).
+$md$,
+   '["orders","schema","taxonomy"]'::jsonb, 'sarah.chen@example.com', 'sarah.chen@example.com', 'marcus.johnson@example.com', 1, NOW() - interval '21 days', NOW() - interval '2 days'),
+  ('kp-seed-26', 'shipping-zones', 'Shipping Zones', 'Shipping cost and SLA derive from the destination zone, not the raw address. The zone is assigned at order time and frozen, so a later address edit does not change it.',
+   $md$# Shipping Zones
+
+Shipping cost and SLA derive from the destination zone, not the raw address. The zone is assigned at order time and frozen, so a later address edit does not change it.
+
+## Related
+
+Related pages: [Order Lifecycle States](mcp:knowledge_page:kp-seed-25), [Supply Chain Lead Times](mcp:knowledge_page:kp-seed-14).
+$md$,
+   '["shipping","supply-chain","reference"]'::jsonb, 'marcus.webb@example.com', 'marcus.webb@example.com', 'rachel.thompson@example.com', 2, NOW() - interval '22 days', NOW() - interval '3 days'),
+  ('kp-seed-27', 'promotions-attribution', 'Promotions Attribution', 'Promotion uplift is attributed on a last-touch basis within the campaign window. Sales outside the window are never credited to the promotion even at a discounted price.',
+   $md$# Promotions Attribution
+
+Promotion uplift is attributed on a last-touch basis within the campaign window. Sales outside the window are never credited to the promotion even at a discounted price.
+
+## Related
+
+The authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD).
+
+Related pages: [Demand Forecast Model](mcp:knowledge_page:kp-seed-15), [Net Revenue Definition](mcp:knowledge_page:kp-seed-9).
+$md$,
+   '["promotions","marketing","metrics"]'::jsonb, 'priya.nair@example.com', 'priya.nair@example.com', 'david.park@example.com', 3, NOW() - interval '23 days', NOW() - interval '4 days'),
+  ('kp-seed-28', 'glossary-core-terms', 'Glossary: Core Terms', 'Canonical definitions for the terms used across reporting: revenue, margin, attach rate, and active customer. When a metric is ambiguous, this page is the tie-breaker.',
+   $md$# Glossary: Core Terms
+
+Canonical definitions for the terms used across reporting: revenue, margin, attach rate, and active customer. When a metric is ambiguous, this page is the tie-breaker.
+
+## Related
+
+Related pages: [Net Revenue Definition](mcp:knowledge_page:kp-seed-9), [Revenue Definition](mcp:knowledge_page:kp-seed-2), [Data Ownership Model](mcp:knowledge_page:kp-seed-19).
+$md$,
+   '["glossary","metrics","reporting","governance"]'::jsonb, 'marcus.johnson@example.com', 'marcus.johnson@example.com', 'amanda.lee@example.com', 4, NOW() - interval '24 days', NOW() - interval '5 days'),
+  ('kp-seed-29', 'catalog-connection-requests', 'Catalog Connection Requests', 'New catalog connections are requested from Connections > New and approved by an admin. Self-serve connections are scoped to read-only by default.',
+   $md$# Catalog Connection Requests
+
+New catalog connections are requested from Connections > New and approved by an admin. Self-serve connections are scoped to read-only by default.
+
+## Related
+
+served from mcp:connection:(trino,acme-warehouse).
+
+Related pages: [Data Onboarding Checklist](mcp:knowledge_page:kp-seed-7).
+$md$,
+   '["onboarding","security","governance"]'::jsonb, 'rachel.thompson@example.com', 'rachel.thompson@example.com', 'admin@example.com', 1, NOW() - interval '25 days', NOW() - interval '1 days'),
+  ('kp-seed-30', 'observability-alerting', 'Observability and Alerting', 'Pipeline health is tracked in the observability view; a failed run pages the dataset owner after two consecutive misses. Transient single failures auto-retry and do not alert.',
+   $md$# Observability and Alerting
+
+Pipeline health is tracked in the observability view; a failed run pages the dataset owner after two consecutive misses. Transient single failures auto-retry and do not alert.
+
+## Related
+
+The authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.inventory.supply_chain_orders,PROD).
+
+Related pages: [Freshness SLA Tiers](mcp:knowledge_page:kp-seed-20), [ETL Refresh Windows](mcp:knowledge_page:kp-seed-16).
+$md$,
+   '["observability","etl","sla","ownership"]'::jsonb, 'david.park@example.com', 'david.park@example.com', 'sarah.chen@example.com', 2, NOW() - interval '26 days', NOW() - interval '2 days')
+ON CONFLICT (id) DO NOTHING;
+
+-- Inline entity references for the enriched pages so inbound backlinks form
+-- and the reference graph is navigable in both directions (#709).
+INSERT INTO knowledge_page_entity_refs
+  (id, page_id, target_type, ref_page_id, connection_kind, connection_name, entity_urn, source, created_by)
+VALUES
+  ('kpref-9-1', 'kp-seed-9', 'knowledge_page', 'kp-seed-2', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
+  ('kpref-9-2', 'kp-seed-9', 'knowledge_page', 'kp-seed-5', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
+  ('kpref-9-3', 'kp-seed-9', 'connection', NULL, 'trino', 'acme-warehouse', NULL, 'inline', 'sarah.chen@example.com'),
+  ('kpref-9-4', 'kp-seed-9', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)', 'inline', 'sarah.chen@example.com'),
+  ('kpref-10-1', 'kp-seed-10', 'knowledge_page', 'kp-seed-14', NULL, NULL, NULL, 'inline', 'marcus.webb@example.com'),
+  ('kpref-10-2', 'kp-seed-10', 'knowledge_page', 'kp-seed-4', NULL, NULL, NULL, 'inline', 'marcus.webb@example.com'),
+  ('kpref-10-3', 'kp-seed-10', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.inventory.inventory_levels,PROD)', 'inline', 'marcus.webb@example.com'),
+  ('kpref-11-1', 'kp-seed-11', 'knowledge_page', 'kp-seed-2', NULL, NULL, NULL, 'inline', 'priya.nair@example.com'),
+  ('kpref-11-2', 'kp-seed-11', 'connection', NULL, 'trino', 'acme-warehouse', NULL, 'inline', 'priya.nair@example.com'),
+  ('kpref-11-3', 'kp-seed-11', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.price_adjustments,PROD)', 'inline', 'priya.nair@example.com'),
+  ('kpref-12-1', 'kp-seed-12', 'knowledge_page', 'kp-seed-5', NULL, NULL, NULL, 'inline', 'marcus.johnson@example.com'),
+  ('kpref-12-2', 'kp-seed-12', 'knowledge_page', 'kp-seed-9', NULL, NULL, NULL, 'inline', 'marcus.johnson@example.com'),
+  ('kpref-13-1', 'kp-seed-13', 'knowledge_page', 'kp-seed-24', NULL, NULL, NULL, 'inline', 'rachel.thompson@example.com'),
+  ('kpref-13-2', 'kp-seed-13', 'knowledge_page', 'kp-seed-28', NULL, NULL, NULL, 'inline', 'rachel.thompson@example.com'),
+  ('kpref-13-3', 'kp-seed-13', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.customer_segments,PROD)', 'inline', 'rachel.thompson@example.com'),
+  ('kpref-14-1', 'kp-seed-14', 'knowledge_page', 'kp-seed-10', NULL, NULL, NULL, 'inline', 'david.park@example.com'),
+  ('kpref-14-2', 'kp-seed-14', 'knowledge_page', 'kp-seed-15', NULL, NULL, NULL, 'inline', 'david.park@example.com'),
+  ('kpref-14-3', 'kp-seed-14', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.inventory.supply_chain_orders,PROD)', 'inline', 'david.park@example.com'),
+  ('kpref-15-1', 'kp-seed-15', 'knowledge_page', 'kp-seed-14', NULL, NULL, NULL, 'inline', 'amanda.lee@example.com'),
+  ('kpref-15-2', 'kp-seed-15', 'knowledge_page', 'kp-seed-27', NULL, NULL, NULL, 'inline', 'amanda.lee@example.com'),
+  ('kpref-15-3', 'kp-seed-15', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.regional_performance,PROD)', 'inline', 'amanda.lee@example.com'),
+  ('kpref-16-1', 'kp-seed-16', 'knowledge_page', 'kp-seed-20', NULL, NULL, NULL, 'inline', 'admin@example.com'),
+  ('kpref-16-2', 'kp-seed-16', 'knowledge_page', 'kp-seed-17', NULL, NULL, NULL, 'inline', 'admin@example.com'),
+  ('kpref-16-3', 'kp-seed-16', 'knowledge_page', 'kp-seed-8', NULL, NULL, NULL, 'inline', 'admin@example.com'),
+  ('kpref-16-4', 'kp-seed-16', 'connection', NULL, 'trino', 'acme-warehouse', NULL, 'inline', 'admin@example.com'),
+  ('kpref-17-1', 'kp-seed-17', 'knowledge_page', 'kp-seed-23', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
+  ('kpref-17-2', 'kp-seed-17', 'knowledge_page', 'kp-seed-21', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
+  ('kpref-17-3', 'kp-seed-17', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)', 'inline', 'sarah.chen@example.com'),
+  ('kpref-18-1', 'kp-seed-18', 'knowledge_page', 'kp-seed-3', NULL, NULL, NULL, 'inline', 'marcus.webb@example.com'),
+  ('kpref-18-2', 'kp-seed-18', 'knowledge_page', 'kp-seed-19', NULL, NULL, NULL, 'inline', 'marcus.webb@example.com'),
+  ('kpref-19-1', 'kp-seed-19', 'knowledge_page', 'kp-seed-7', NULL, NULL, NULL, 'inline', 'priya.nair@example.com'),
+  ('kpref-19-2', 'kp-seed-19', 'knowledge_page', 'kp-seed-20', NULL, NULL, NULL, 'inline', 'priya.nair@example.com'),
+  ('kpref-20-1', 'kp-seed-20', 'knowledge_page', 'kp-seed-16', NULL, NULL, NULL, 'inline', 'marcus.johnson@example.com'),
+  ('kpref-20-2', 'kp-seed-20', 'knowledge_page', 'kp-seed-30', NULL, NULL, NULL, 'inline', 'marcus.johnson@example.com'),
+  ('kpref-20-3', 'kp-seed-20', 'connection', NULL, 'trino', 'acme-warehouse', NULL, 'inline', 'marcus.johnson@example.com'),
+  ('kpref-21-1', 'kp-seed-21', 'knowledge_page', 'kp-seed-17', NULL, NULL, NULL, 'inline', 'rachel.thompson@example.com'),
+  ('kpref-21-2', 'kp-seed-21', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)', 'inline', 'rachel.thompson@example.com'),
+  ('kpref-22-1', 'kp-seed-22', 'knowledge_page', 'kp-seed-19', NULL, NULL, NULL, 'inline', 'david.park@example.com'),
+  ('kpref-22-2', 'kp-seed-22', 'knowledge_page', 'kp-seed-28', NULL, NULL, NULL, 'inline', 'david.park@example.com'),
+  ('kpref-22-3', 'kp-seed-22', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.legacy_orders,PROD)', 'inline', 'david.park@example.com'),
+  ('kpref-23-1', 'kp-seed-23', 'knowledge_page', 'kp-seed-17', NULL, NULL, NULL, 'inline', 'amanda.lee@example.com'),
+  ('kpref-23-2', 'kp-seed-23', 'knowledge_page', 'kp-seed-8', NULL, NULL, NULL, 'inline', 'amanda.lee@example.com'),
+  ('kpref-23-3', 'kp-seed-23', 'connection', NULL, 'trino', 'acme-warehouse', NULL, 'inline', 'amanda.lee@example.com'),
+  ('kpref-23-4', 'kp-seed-23', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)', 'inline', 'amanda.lee@example.com'),
+  ('kpref-24-1', 'kp-seed-24', 'knowledge_page', 'kp-seed-13', NULL, NULL, NULL, 'inline', 'admin@example.com'),
+  ('kpref-24-2', 'kp-seed-24', 'knowledge_page', 'kp-seed-25', NULL, NULL, NULL, 'inline', 'admin@example.com'),
+  ('kpref-24-3', 'kp-seed-24', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.customer_segments,PROD)', 'inline', 'admin@example.com'),
+  ('kpref-25-1', 'kp-seed-25', 'knowledge_page', 'kp-seed-26', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
+  ('kpref-25-2', 'kp-seed-25', 'knowledge_page', 'kp-seed-24', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
+  ('kpref-25-3', 'kp-seed-25', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.store_transactions,PROD)', 'inline', 'sarah.chen@example.com'),
+  ('kpref-26-1', 'kp-seed-26', 'knowledge_page', 'kp-seed-25', NULL, NULL, NULL, 'inline', 'marcus.webb@example.com'),
+  ('kpref-26-2', 'kp-seed-26', 'knowledge_page', 'kp-seed-14', NULL, NULL, NULL, 'inline', 'marcus.webb@example.com'),
+  ('kpref-27-1', 'kp-seed-27', 'knowledge_page', 'kp-seed-15', NULL, NULL, NULL, 'inline', 'priya.nair@example.com'),
+  ('kpref-27-2', 'kp-seed-27', 'knowledge_page', 'kp-seed-9', NULL, NULL, NULL, 'inline', 'priya.nair@example.com'),
+  ('kpref-27-3', 'kp-seed-27', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)', 'inline', 'priya.nair@example.com'),
+  ('kpref-28-1', 'kp-seed-28', 'knowledge_page', 'kp-seed-9', NULL, NULL, NULL, 'inline', 'marcus.johnson@example.com'),
+  ('kpref-28-2', 'kp-seed-28', 'knowledge_page', 'kp-seed-2', NULL, NULL, NULL, 'inline', 'marcus.johnson@example.com'),
+  ('kpref-28-3', 'kp-seed-28', 'knowledge_page', 'kp-seed-19', NULL, NULL, NULL, 'inline', 'marcus.johnson@example.com'),
+  ('kpref-29-1', 'kp-seed-29', 'knowledge_page', 'kp-seed-7', NULL, NULL, NULL, 'inline', 'rachel.thompson@example.com'),
+  ('kpref-29-2', 'kp-seed-29', 'connection', NULL, 'trino', 'acme-warehouse', NULL, 'inline', 'rachel.thompson@example.com'),
+  ('kpref-30-1', 'kp-seed-30', 'knowledge_page', 'kp-seed-20', NULL, NULL, NULL, 'inline', 'david.park@example.com'),
+  ('kpref-30-2', 'kp-seed-30', 'knowledge_page', 'kp-seed-16', NULL, NULL, NULL, 'inline', 'david.park@example.com'),
+  ('kpref-30-3', 'kp-seed-30', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.inventory.supply_chain_orders,PROD)', 'inline', 'david.park@example.com')
+ON CONFLICT (id) DO NOTHING;
+
 -- ============================================================================
 -- Live memory for the dev admin (admin@example.com == acme-dev-key-2024).
 -- The Memory tab is self-scoped (created_by = caller email), so these must be
@@ -1043,6 +1376,315 @@ VALUES
    jsonb_build_object('insight_status', 'applied', 'reviewed_by', 'admin@example.com',
                       'applied_by', 'admin@example.com', 'changeset_ref', 'cs-seed-02'), 'active',
    NOW() - interval '11 days', NOW() - interval '8 days', NULL)
+ON CONFLICT (id) DO NOTHING;
+
+-- Bulk knowledge-dimension insights so the admin review queue has a pending
+-- count spanning more than one page (pending scattered behind approved/applied),
+-- making the #706 count/pagination fix observable.
+INSERT INTO memory_records
+  (id, created_by, persona, dimension, sink_class, category, content, confidence, source,
+   entity_urns, related_columns, metadata, status, created_at, updated_at, last_verified)
+VALUES
+  ('ins-bulk-001', 'sarah.chen@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'business_context',
+   'The daily_sales is partitioned by date in UTC and backfills land two days late.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending'), 'active', NOW() - interval '1 days', NOW() - interval '1 days', NULL),
+  ('ins-bulk-002', 'marcus.webb@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'correction',
+   'The sales_mart excludes tax and returns from its revenue figure.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '2 days', NOW() - interval '2 days', NULL),
+  ('ins-bulk-003', 'priya.nair@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'data_quality',
+   'The inventory_snapshot must be joined through the identity map to avoid double-counting.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'applied', 'reviewed_by', 'admin@example.com', 'applied_by', 'admin@example.com', 'changeset_ref', 'cs-bulk'), 'active', NOW() - interval '3 days', NOW() - interval '3 days', NULL),
+  ('ins-bulk-004', 'marcus.johnson@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'usage_guidance',
+   'The price_history refreshes nightly and should not be read mid-window.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'rejected', 'reviewed_by', 'admin@example.com', 'review_notes', 'By design per the data contract.'), 'archived', NOW() - interval '4 days', NOW() - interval '4 days', NULL),
+  ('ins-bulk-005', 'rachel.thompson@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'enhancement',
+   'The returns uses a controlled vocabulary that retired free-text values in FY2025.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending'), 'active', NOW() - interval '5 days', NOW() - interval '5 days', NULL),
+  ('ins-bulk-006', 'david.park@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'business_context',
+   'The customer dimension measures lead time in business days, excluding put-away.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '6 days', NOW() - interval '6 days', NULL),
+  ('ins-bulk-007', 'amanda.lee@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'correction',
+   'The order_events keeps only the current state, with history in the events table.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'applied', 'reviewed_by', 'admin@example.com', 'applied_by', 'admin@example.com', 'changeset_ref', 'cs-bulk'), 'active', NOW() - interval '7 days', NOW() - interval '7 days', NULL),
+  ('ins-bulk-008', 'admin@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'data_quality',
+   'The exec_dashboard is the certified source of truth for board reporting.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'rejected', 'reviewed_by', 'admin@example.com', 'review_notes', 'By design per the data contract.'), 'archived', NOW() - interval '8 days', NOW() - interval '8 days', NULL),
+  ('ins-bulk-009', 'sarah.chen@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'usage_guidance',
+   'The supplier_lead_time has a deprecated column scheduled for removal next quarter.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending'), 'active', NOW() - interval '9 days', NOW() - interval '9 days', NULL),
+  ('ins-bulk-010', 'marcus.webb@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'enhancement',
+   'The loyalty tiers should be filtered by date to avoid a full partition scan.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '10 days', NOW() - interval '10 days', NULL),
+  ('ins-bulk-011', 'priya.nair@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'business_context',
+   'The promotions is partitioned by date in UTC and backfills land two days late.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'applied', 'reviewed_by', 'admin@example.com', 'applied_by', 'admin@example.com', 'changeset_ref', 'cs-bulk'), 'active', NOW() - interval '11 days', NOW() - interval '11 days', NULL),
+  ('ins-bulk-012', 'marcus.johnson@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'correction',
+   'The shipping zones excludes tax and returns from its revenue figure.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'rejected', 'reviewed_by', 'admin@example.com', 'review_notes', 'By design per the data contract.'), 'archived', NOW() - interval '12 days', NOW() - interval '12 days', NULL),
+  ('ins-bulk-013', 'rachel.thompson@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'data_quality',
+   'The net_revenue must be joined through the identity map to avoid double-counting.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending'), 'active', NOW() - interval '13 days', NOW() - interval '13 days', NULL),
+  ('ins-bulk-014', 'david.park@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'usage_guidance',
+   'The store_calendar refreshes nightly and should not be read mid-window.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '14 days', NOW() - interval '14 days', NULL),
+  ('ins-bulk-015', 'amanda.lee@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'enhancement',
+   'The daily_sales uses a controlled vocabulary that retired free-text values in FY2025.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'applied', 'reviewed_by', 'admin@example.com', 'applied_by', 'admin@example.com', 'changeset_ref', 'cs-bulk'), 'active', NOW() - interval '15 days', NOW() - interval '15 days', NULL),
+  ('ins-bulk-016', 'admin@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'business_context',
+   'The sales_mart measures lead time in business days, excluding put-away.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'rejected', 'reviewed_by', 'admin@example.com', 'review_notes', 'By design per the data contract.'), 'archived', NOW() - interval '16 days', NOW() - interval '16 days', NULL),
+  ('ins-bulk-017', 'sarah.chen@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'correction',
+   'The inventory_snapshot keeps only the current state, with history in the events table.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending'), 'active', NOW() - interval '17 days', NOW() - interval '17 days', NULL),
+  ('ins-bulk-018', 'marcus.webb@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'data_quality',
+   'The price_history is the certified source of truth for board reporting.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '18 days', NOW() - interval '18 days', NULL),
+  ('ins-bulk-019', 'priya.nair@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'usage_guidance',
+   'The returns has a deprecated column scheduled for removal next quarter.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'applied', 'reviewed_by', 'admin@example.com', 'applied_by', 'admin@example.com', 'changeset_ref', 'cs-bulk'), 'active', NOW() - interval '19 days', NOW() - interval '19 days', NULL),
+  ('ins-bulk-020', 'marcus.johnson@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'enhancement',
+   'The customer dimension should be filtered by date to avoid a full partition scan.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'rejected', 'reviewed_by', 'admin@example.com', 'review_notes', 'By design per the data contract.'), 'archived', NOW() - interval '20 days', NOW() - interval '20 days', NULL),
+  ('ins-bulk-021', 'rachel.thompson@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'business_context',
+   'The order_events is partitioned by date in UTC and backfills land two days late.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending'), 'active', NOW() - interval '21 days', NOW() - interval '21 days', NULL),
+  ('ins-bulk-022', 'david.park@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'correction',
+   'The exec_dashboard excludes tax and returns from its revenue figure.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '22 days', NOW() - interval '22 days', NULL),
+  ('ins-bulk-023', 'amanda.lee@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'data_quality',
+   'The supplier_lead_time must be joined through the identity map to avoid double-counting.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'applied', 'reviewed_by', 'admin@example.com', 'applied_by', 'admin@example.com', 'changeset_ref', 'cs-bulk'), 'active', NOW() - interval '23 days', NOW() - interval '23 days', NULL),
+  ('ins-bulk-024', 'admin@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'usage_guidance',
+   'The loyalty tiers refreshes nightly and should not be read mid-window.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'rejected', 'reviewed_by', 'admin@example.com', 'review_notes', 'By design per the data contract.'), 'archived', NOW() - interval '24 days', NOW() - interval '24 days', NULL),
+  ('ins-bulk-025', 'sarah.chen@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'enhancement',
+   'The promotions uses a controlled vocabulary that retired free-text values in FY2025.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending'), 'active', NOW() - interval '25 days', NOW() - interval '25 days', NULL),
+  ('ins-bulk-026', 'marcus.webb@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'business_context',
+   'The shipping zones measures lead time in business days, excluding put-away.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '26 days', NOW() - interval '26 days', NULL),
+  ('ins-bulk-027', 'priya.nair@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'correction',
+   'The net_revenue keeps only the current state, with history in the events table.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'applied', 'reviewed_by', 'admin@example.com', 'applied_by', 'admin@example.com', 'changeset_ref', 'cs-bulk'), 'active', NOW() - interval '27 days', NOW() - interval '27 days', NULL),
+  ('ins-bulk-028', 'marcus.johnson@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'data_quality',
+   'The store_calendar is the certified source of truth for board reporting.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'rejected', 'reviewed_by', 'admin@example.com', 'review_notes', 'By design per the data contract.'), 'archived', NOW() - interval '28 days', NOW() - interval '28 days', NULL),
+  ('ins-bulk-029', 'rachel.thompson@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'usage_guidance',
+   'The daily_sales has a deprecated column scheduled for removal next quarter.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending'), 'active', NOW() - interval '1 days', NOW() - interval '1 days', NULL),
+  ('ins-bulk-030', 'david.park@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'enhancement',
+   'The sales_mart should be filtered by date to avoid a full partition scan.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '2 days', NOW() - interval '2 days', NULL),
+  ('ins-bulk-031', 'amanda.lee@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'business_context',
+   'The inventory_snapshot is partitioned by date in UTC and backfills land two days late.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'applied', 'reviewed_by', 'admin@example.com', 'applied_by', 'admin@example.com', 'changeset_ref', 'cs-bulk'), 'active', NOW() - interval '3 days', NOW() - interval '3 days', NULL),
+  ('ins-bulk-032', 'admin@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'correction',
+   'The price_history excludes tax and returns from its revenue figure.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'rejected', 'reviewed_by', 'admin@example.com', 'review_notes', 'By design per the data contract.'), 'archived', NOW() - interval '4 days', NOW() - interval '4 days', NULL),
+  ('ins-bulk-033', 'sarah.chen@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'data_quality',
+   'The returns must be joined through the identity map to avoid double-counting.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending'), 'active', NOW() - interval '5 days', NOW() - interval '5 days', NULL),
+  ('ins-bulk-034', 'marcus.webb@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'usage_guidance',
+   'The customer dimension refreshes nightly and should not be read mid-window.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '6 days', NOW() - interval '6 days', NULL),
+  ('ins-bulk-035', 'priya.nair@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'enhancement',
+   'The order_events uses a controlled vocabulary that retired free-text values in FY2025.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'applied', 'reviewed_by', 'admin@example.com', 'applied_by', 'admin@example.com', 'changeset_ref', 'cs-bulk'), 'active', NOW() - interval '7 days', NOW() - interval '7 days', NULL),
+  ('ins-bulk-036', 'marcus.johnson@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'business_context',
+   'The exec_dashboard measures lead time in business days, excluding put-away.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'rejected', 'reviewed_by', 'admin@example.com', 'review_notes', 'By design per the data contract.'), 'archived', NOW() - interval '8 days', NOW() - interval '8 days', NULL),
+  ('ins-bulk-037', 'rachel.thompson@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'correction',
+   'The supplier_lead_time keeps only the current state, with history in the events table.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending'), 'active', NOW() - interval '9 days', NOW() - interval '9 days', NULL),
+  ('ins-bulk-038', 'david.park@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'data_quality',
+   'The loyalty tiers is the certified source of truth for board reporting.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '10 days', NOW() - interval '10 days', NULL),
+  ('ins-bulk-039', 'amanda.lee@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'usage_guidance',
+   'The promotions has a deprecated column scheduled for removal next quarter.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'applied', 'reviewed_by', 'admin@example.com', 'applied_by', 'admin@example.com', 'changeset_ref', 'cs-bulk'), 'active', NOW() - interval '11 days', NOW() - interval '11 days', NULL),
+  ('ins-bulk-040', 'admin@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'enhancement',
+   'The shipping zones should be filtered by date to avoid a full partition scan.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'rejected', 'reviewed_by', 'admin@example.com', 'review_notes', 'By design per the data contract.'), 'archived', NOW() - interval '12 days', NOW() - interval '12 days', NULL),
+  ('ins-bulk-041', 'sarah.chen@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'business_context',
+   'The net_revenue is partitioned by date in UTC and backfills land two days late.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending'), 'active', NOW() - interval '13 days', NOW() - interval '13 days', NULL),
+  ('ins-bulk-042', 'marcus.webb@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'correction',
+   'The store_calendar excludes tax and returns from its revenue figure.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '14 days', NOW() - interval '14 days', NULL),
+  ('ins-bulk-043', 'priya.nair@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'data_quality',
+   'The daily_sales must be joined through the identity map to avoid double-counting.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'applied', 'reviewed_by', 'admin@example.com', 'applied_by', 'admin@example.com', 'changeset_ref', 'cs-bulk'), 'active', NOW() - interval '15 days', NOW() - interval '15 days', NULL),
+  ('ins-bulk-044', 'marcus.johnson@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'usage_guidance',
+   'The sales_mart refreshes nightly and should not be read mid-window.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending'), 'active', NOW() - interval '16 days', NOW() - interval '16 days', NULL),
+  ('ins-bulk-045', 'rachel.thompson@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'enhancement',
+   'The inventory_snapshot uses a controlled vocabulary that retired free-text values in FY2025.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '17 days', NOW() - interval '17 days', NULL),
+  ('ins-bulk-046', 'david.park@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'business_context',
+   'The price_history measures lead time in business days, excluding put-away.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'applied', 'reviewed_by', 'admin@example.com', 'applied_by', 'admin@example.com', 'changeset_ref', 'cs-bulk'), 'active', NOW() - interval '18 days', NOW() - interval '18 days', NULL),
+  ('ins-bulk-047', 'amanda.lee@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'correction',
+   'The returns keeps only the current state, with history in the events table.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending'), 'active', NOW() - interval '19 days', NOW() - interval '19 days', NULL),
+  ('ins-bulk-048', 'admin@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'data_quality',
+   'The customer dimension is the certified source of truth for board reporting.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '20 days', NOW() - interval '20 days', NULL),
+  ('ins-bulk-049', 'sarah.chen@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'usage_guidance',
+   'The order_events has a deprecated column scheduled for removal next quarter.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'applied', 'reviewed_by', 'admin@example.com', 'applied_by', 'admin@example.com', 'changeset_ref', 'cs-bulk'), 'active', NOW() - interval '21 days', NOW() - interval '21 days', NULL),
+  ('ins-bulk-050', 'marcus.webb@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'enhancement',
+   'The exec_dashboard should be filtered by date to avoid a full partition scan.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending'), 'active', NOW() - interval '22 days', NOW() - interval '22 days', NULL),
+  ('ins-bulk-051', 'priya.nair@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'business_context',
+   'The supplier_lead_time is partitioned by date in UTC and backfills land two days late.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '23 days', NOW() - interval '23 days', NULL),
+  ('ins-bulk-052', 'marcus.johnson@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'correction',
+   'The loyalty tiers excludes tax and returns from its revenue figure.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'applied', 'reviewed_by', 'admin@example.com', 'applied_by', 'admin@example.com', 'changeset_ref', 'cs-bulk'), 'active', NOW() - interval '24 days', NOW() - interval '24 days', NULL),
+  ('ins-bulk-053', 'rachel.thompson@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'data_quality',
+   'The promotions must be joined through the identity map to avoid double-counting.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending'), 'active', NOW() - interval '25 days', NOW() - interval '25 days', NULL),
+  ('ins-bulk-054', 'david.park@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'usage_guidance',
+   'The shipping zones refreshes nightly and should not be read mid-window.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '26 days', NOW() - interval '26 days', NULL),
+  ('ins-bulk-055', 'amanda.lee@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'enhancement',
+   'The net_revenue uses a controlled vocabulary that retired free-text values in FY2025.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'applied', 'reviewed_by', 'admin@example.com', 'applied_by', 'admin@example.com', 'changeset_ref', 'cs-bulk'), 'active', NOW() - interval '27 days', NOW() - interval '27 days', NULL),
+  ('ins-bulk-056', 'admin@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'business_context',
+   'The store_calendar measures lead time in business days, excluding put-away.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending'), 'active', NOW() - interval '28 days', NOW() - interval '28 days', NULL),
+  ('ins-bulk-057', 'sarah.chen@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'correction',
+   'The daily_sales keeps only the current state, with history in the events table.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '1 days', NOW() - interval '1 days', NULL),
+  ('ins-bulk-058', 'marcus.webb@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'data_quality',
+   'The sales_mart is the certified source of truth for board reporting.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'applied', 'reviewed_by', 'admin@example.com', 'applied_by', 'admin@example.com', 'changeset_ref', 'cs-bulk'), 'active', NOW() - interval '2 days', NOW() - interval '2 days', NULL),
+  ('ins-bulk-059', 'priya.nair@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'usage_guidance',
+   'The inventory_snapshot has a deprecated column scheduled for removal next quarter.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending'), 'active', NOW() - interval '3 days', NOW() - interval '3 days', NULL),
+  ('ins-bulk-060', 'marcus.johnson@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'enhancement',
+   'The price_history should be filtered by date to avoid a full partition scan.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '4 days', NOW() - interval '4 days', NULL),
+  ('ins-bulk-061', 'rachel.thompson@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'business_context',
+   'The returns is partitioned by date in UTC and backfills land two days late.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'applied', 'reviewed_by', 'admin@example.com', 'applied_by', 'admin@example.com', 'changeset_ref', 'cs-bulk'), 'active', NOW() - interval '5 days', NOW() - interval '5 days', NULL),
+  ('ins-bulk-062', 'david.park@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'correction',
+   'The customer dimension excludes tax and returns from its revenue figure.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending'), 'active', NOW() - interval '6 days', NOW() - interval '6 days', NULL),
+  ('ins-bulk-063', 'amanda.lee@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'data_quality',
+   'The order_events must be joined through the identity map to avoid double-counting.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '7 days', NOW() - interval '7 days', NULL),
+  ('ins-bulk-064', 'admin@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'usage_guidance',
+   'The exec_dashboard refreshes nightly and should not be read mid-window.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'applied', 'reviewed_by', 'admin@example.com', 'applied_by', 'admin@example.com', 'changeset_ref', 'cs-bulk'), 'active', NOW() - interval '8 days', NOW() - interval '8 days', NULL),
+  ('ins-bulk-065', 'sarah.chen@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'enhancement',
+   'The supplier_lead_time uses a controlled vocabulary that retired free-text values in FY2025.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending'), 'active', NOW() - interval '9 days', NOW() - interval '9 days', NULL),
+  ('ins-bulk-066', 'marcus.webb@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'business_context',
+   'The loyalty tiers measures lead time in business days, excluding put-away.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '10 days', NOW() - interval '10 days', NULL),
+  ('ins-bulk-067', 'priya.nair@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'correction',
+   'The promotions keeps only the current state, with history in the events table.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'applied', 'reviewed_by', 'admin@example.com', 'applied_by', 'admin@example.com', 'changeset_ref', 'cs-bulk'), 'active', NOW() - interval '11 days', NOW() - interval '11 days', NULL),
+  ('ins-bulk-068', 'marcus.johnson@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'data_quality',
+   'The shipping zones is the certified source of truth for board reporting.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending'), 'active', NOW() - interval '12 days', NOW() - interval '12 days', NULL),
+  ('ins-bulk-069', 'rachel.thompson@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'usage_guidance',
+   'The net_revenue has a deprecated column scheduled for removal next quarter.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '13 days', NOW() - interval '13 days', NULL),
+  ('ins-bulk-070', 'david.park@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'enhancement',
+   'The store_calendar should be filtered by date to avoid a full partition scan.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'applied', 'reviewed_by', 'admin@example.com', 'applied_by', 'admin@example.com', 'changeset_ref', 'cs-bulk'), 'active', NOW() - interval '14 days', NOW() - interval '14 days', NULL),
+  ('ins-bulk-071', 'amanda.lee@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'business_context',
+   'The daily_sales is partitioned by date in UTC and backfills land two days late.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending'), 'active', NOW() - interval '15 days', NOW() - interval '15 days', NULL),
+  ('ins-bulk-072', 'admin@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'correction',
+   'The sales_mart excludes tax and returns from its revenue figure.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '16 days', NOW() - interval '16 days', NULL),
+  ('ins-bulk-073', 'sarah.chen@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'data_quality',
+   'The inventory_snapshot must be joined through the identity map to avoid double-counting.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'applied', 'reviewed_by', 'admin@example.com', 'applied_by', 'admin@example.com', 'changeset_ref', 'cs-bulk'), 'active', NOW() - interval '17 days', NOW() - interval '17 days', NULL),
+  ('ins-bulk-074', 'marcus.webb@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'usage_guidance',
+   'The price_history refreshes nightly and should not be read mid-window.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending'), 'active', NOW() - interval '18 days', NOW() - interval '18 days', NULL),
+  ('ins-bulk-075', 'priya.nair@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'enhancement',
+   'The returns uses a controlled vocabulary that retired free-text values in FY2025.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '19 days', NOW() - interval '19 days', NULL),
+  ('ins-bulk-076', 'marcus.johnson@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'business_context',
+   'The customer dimension measures lead time in business days, excluding put-away.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'applied', 'reviewed_by', 'admin@example.com', 'applied_by', 'admin@example.com', 'changeset_ref', 'cs-bulk'), 'active', NOW() - interval '20 days', NOW() - interval '20 days', NULL),
+  ('ins-bulk-077', 'rachel.thompson@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'correction',
+   'The order_events keeps only the current state, with history in the events table.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending'), 'active', NOW() - interval '21 days', NOW() - interval '21 days', NULL),
+  ('ins-bulk-078', 'david.park@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'data_quality',
+   'The exec_dashboard is the certified source of truth for board reporting.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '22 days', NOW() - interval '22 days', NULL),
+  ('ins-bulk-079', 'amanda.lee@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'usage_guidance',
+   'The supplier_lead_time has a deprecated column scheduled for removal next quarter.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'applied', 'reviewed_by', 'admin@example.com', 'applied_by', 'admin@example.com', 'changeset_ref', 'cs-bulk'), 'active', NOW() - interval '23 days', NOW() - interval '23 days', NULL),
+  ('ins-bulk-080', 'admin@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'enhancement',
+   'The loyalty tiers should be filtered by date to avoid a full partition scan.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending'), 'active', NOW() - interval '24 days', NOW() - interval '24 days', NULL),
+  ('ins-bulk-081', 'sarah.chen@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'business_context',
+   'The promotions is partitioned by date in UTC and backfills land two days late.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '25 days', NOW() - interval '25 days', NULL),
+  ('ins-bulk-082', 'marcus.webb@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'correction',
+   'The shipping zones excludes tax and returns from its revenue figure.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'applied', 'reviewed_by', 'admin@example.com', 'applied_by', 'admin@example.com', 'changeset_ref', 'cs-bulk'), 'active', NOW() - interval '26 days', NOW() - interval '26 days', NULL),
+  ('ins-bulk-083', 'priya.nair@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'data_quality',
+   'The net_revenue must be joined through the identity map to avoid double-counting.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending'), 'active', NOW() - interval '27 days', NOW() - interval '27 days', NULL),
+  ('ins-bulk-084', 'marcus.johnson@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'usage_guidance',
+   'The store_calendar refreshes nightly and should not be read mid-window.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '28 days', NOW() - interval '28 days', NULL),
+  ('ins-bulk-085', 'rachel.thompson@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'enhancement',
+   'The daily_sales uses a controlled vocabulary that retired free-text values in FY2025.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'applied', 'reviewed_by', 'admin@example.com', 'applied_by', 'admin@example.com', 'changeset_ref', 'cs-bulk'), 'active', NOW() - interval '1 days', NOW() - interval '1 days', NULL),
+  ('ins-bulk-086', 'david.park@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'business_context',
+   'The sales_mart measures lead time in business days, excluding put-away.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending'), 'active', NOW() - interval '2 days', NOW() - interval '2 days', NULL),
+  ('ins-bulk-087', 'amanda.lee@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'correction',
+   'The inventory_snapshot keeps only the current state, with history in the events table.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '3 days', NOW() - interval '3 days', NULL),
+  ('ins-bulk-088', 'admin@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'data_quality',
+   'The price_history is the certified source of truth for board reporting.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending'), 'active', NOW() - interval '4 days', NOW() - interval '4 days', NULL),
+  ('ins-bulk-089', 'sarah.chen@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'usage_guidance',
+   'The returns has a deprecated column scheduled for removal next quarter.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '5 days', NOW() - interval '5 days', NULL),
+  ('ins-bulk-090', 'marcus.webb@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'enhancement',
+   'The customer dimension should be filtered by date to avoid a full partition scan.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending'), 'active', NOW() - interval '6 days', NOW() - interval '6 days', NULL),
+  ('ins-bulk-091', 'priya.nair@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'business_context',
+   'The order_events is partitioned by date in UTC and backfills land two days late.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '7 days', NOW() - interval '7 days', NULL),
+  ('ins-bulk-092', 'marcus.johnson@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'correction',
+   'The exec_dashboard excludes tax and returns from its revenue figure.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending'), 'active', NOW() - interval '8 days', NOW() - interval '8 days', NULL),
+  ('ins-bulk-093', 'rachel.thompson@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'data_quality',
+   'The supplier_lead_time must be joined through the identity map to avoid double-counting.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '9 days', NOW() - interval '9 days', NULL),
+  ('ins-bulk-094', 'david.park@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'usage_guidance',
+   'The loyalty tiers refreshes nightly and should not be read mid-window.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'pending'), 'active', NOW() - interval '10 days', NOW() - interval '10 days', NULL),
+  ('ins-bulk-095', 'amanda.lee@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'enhancement',
+   'The promotions uses a controlled vocabulary that retired free-text values in FY2025.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '11 days', NOW() - interval '11 days', NULL),
+  ('ins-bulk-096', 'admin@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'business_context',
+   'The shipping zones measures lead time in business days, excluding put-away.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '12 days', NOW() - interval '12 days', NULL),
+  ('ins-bulk-097', 'sarah.chen@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'correction',
+   'The net_revenue keeps only the current state, with history in the events table.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '13 days', NOW() - interval '13 days', NULL),
+  ('ins-bulk-098', 'marcus.webb@example.com', 'data-engineer', 'knowledge', 'schema_entity', 'data_quality',
+   'The store_calendar is the certified source of truth for board reporting.', 'medium', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '14 days', NOW() - interval '14 days', NULL),
+  ('ins-bulk-099', 'priya.nair@example.com', 'data-engineer', 'knowledge', 'operational_rule', 'usage_guidance',
+   'The daily_sales has a deprecated column scheduled for removal next quarter.', 'low', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '15 days', NOW() - interval '15 days', NULL),
+  ('ins-bulk-100', 'marcus.johnson@example.com', 'data-engineer', 'knowledge', 'business_knowledge', 'enhancement',
+   'The sales_mart should be filtered by date to avoid a full partition scan.', 'high', 'user', '[]'::jsonb, '[]'::jsonb,
+   jsonb_build_object('insight_status', 'approved', 'reviewed_by', 'admin@example.com'), 'active', NOW() - interval '16 days', NOW() - interval '16 days', NULL)
 ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================================
