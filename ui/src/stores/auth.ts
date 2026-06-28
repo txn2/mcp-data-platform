@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { buildLoginURL } from "@/lib/loginUrl";
 
 /** User profile returned by GET /api/v1/portal/me. */
 export interface UserProfile {
@@ -110,7 +111,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   loginOIDC: () => {
-    window.location.href = "/portal/auth/login";
+    // Carry the current in-app location through the OIDC round-trip so an
+    // unauthenticated user who opened a deep link lands back on it after login
+    // instead of the default page. When the SPA renders the login form at a
+    // protected deep link, window.location is that deep link (#710).
+    window.location.href = buildLoginURL();
   },
 
   loginApiKey: async (key: string) => {

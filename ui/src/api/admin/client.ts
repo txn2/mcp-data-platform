@@ -1,4 +1,5 @@
 import { useAuthStore } from "@/stores/auth";
+import { buildLoginURL } from "@/lib/loginUrl";
 
 const BASE_URL = "/api/v1/admin";
 
@@ -29,9 +30,7 @@ function handleUnauthorized(): void {
     return;
   }
 
-  const returnTo = window.location.pathname + window.location.search + window.location.hash;
-  const loginURL = `/portal/auth/login?return_to=${encodeURIComponent(returnTo)}`;
-  window.location.replace(loginURL);
+  window.location.replace(buildLoginURL());
 }
 
 // apiFetchAt is the shared authenticated JSON fetch. It attaches the
