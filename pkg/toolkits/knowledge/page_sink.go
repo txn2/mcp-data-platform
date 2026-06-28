@@ -205,6 +205,19 @@ func (t *Toolkit) promoteToPage(ctx context.Context, input applyKnowledgeInput) 
 type pageRefPlan struct {
 	promoted []knowledgepage.EntityRef // explicit references[] + insight-carried refs (written first)
 	inline   []knowledgepage.EntityRef // existing references scanned from the body
+	// dropped is the de-duplicated set of insight-carried and inline-body reference
+	// URNs that did not land on the page (#696), reported on the apply response so an
+	// agent learns a citation did not attach. It covers both ways a reference is lost:
+	// the existence filter removed it (deleted target), or it was an insight-carried
+	// reference that could not be parsed into a citable ref at all (a non-citable
+	// per-user mcp:memory:/mcp:insight: ref, or a malformed token). Explicit
+	// references[] are never here: a missing explicit target is a hard error before
+	// any filtering runs.
+	dropped []string
+	// attached is the count of distinct reference targets this apply writes onto the
+	// page (the promoted and inline sets, de-duplicated), so an agent can reconcile
+	// intended vs landed (#696).
+	attached int
 }
 
 // preparePageRefs builds the reference plan for a promotion before any page write
@@ -231,26 +244,78 @@ func (t *Toolkit) preparePageRefs(ctx context.Context, page pagePromotionInput, 
 	// Filter the body's inline references to those that exist, so a stale internal
 	// (mcp:) token in prose is skipped rather than FK-failing the inline reconcile
 	// after the page is written. A DataHub urn:li: ref is free text and always kept.
-	inline, err := t.pageWriter.FilterExistingRefTargets(ctx, knowledgepage.ScanBodyRefs(page.Body))
+	inlineWant := knowledgepage.ScanBodyRefs(page.Body)
+	inline, err := t.pageWriter.FilterExistingRefTargets(ctx, inlineWant)
 	if err != nil {
 		return pageRefPlan{}, fmt.Errorf("filtering inline references: %w", err)
 	}
 
 	// Merge explicit + insight references into one promoted set, de-duplicated by
-	// target so a target cited both ways is written once.
+	// target so a target cited both ways is written once. `landed` accumulates the
+	// URN of every reference this apply writes (promoted, then inline below), so its
+	// size is the attached count and its membership tells droppedRefURNs what did not
+	// land.
 	promoted := make([]knowledgepage.EntityRef, 0, len(explicit)+len(insightRefs))
-	seen := make(map[string]struct{}, len(explicit)+len(insightRefs))
+	landed := make(map[string]struct{}, len(explicit)+len(insightRefs))
 	for _, group := range [][]knowledgepage.EntityRef{explicit, insightRefs} {
 		for i := range group {
-			if _, dup := seen[group[i].URN()]; dup {
+			if _, dup := landed[group[i].URN()]; dup {
 				continue
 			}
-			seen[group[i].URN()] = struct{}{}
+			landed[group[i].URN()] = struct{}{}
 			group[i].CreatedBy = appliedBy
 			promoted = append(promoted, group[i])
 		}
 	}
-	return pageRefPlan{promoted: promoted, inline: inline}, nil
+	for i := range inline {
+		landed[inline[i].URN()] = struct{}{}
+	}
+
+	return pageRefPlan{
+		promoted: promoted,
+		inline:   inline,
+		dropped:  droppedRefURNs(entityURNs, inlineWant, landed),
+		attached: len(landed),
+	}, nil
+}
+
+// droppedRefURNs returns the de-duplicated reference URNs that did not land on the
+// page (#696), given the set of URNs that did (`landed`). It reports two kinds of
+// loss: an insight-carried URN that promotedRefsFromURNs could not parse into a
+// citable ref (a non-citable per-user mcp:memory:/mcp:insight: ref, or a malformed
+// token) and so never reached the existence filter, and any insight-carried or
+// inline-body reference the existence filter removed because its target is gone. An
+// insight URN is matched in its parsed (canonical) form when it parses, falling
+// back to the raw string the insight carried, so a parse failure is still reported.
+// Explicit references[] are not considered here: a missing explicit target is a
+// hard error before any of this runs.
+func droppedRefURNs(insightURNs []string, inlineWant []knowledgepage.EntityRef, landed map[string]struct{}) []string {
+	var dropped []string
+	seen := make(map[string]struct{})
+	add := func(urn string) {
+		if urn == "" {
+			return
+		}
+		if _, ok := landed[urn]; ok {
+			return
+		}
+		if _, dup := seen[urn]; dup {
+			return
+		}
+		seen[urn] = struct{}{}
+		dropped = append(dropped, urn)
+	}
+	for _, urn := range insightURNs {
+		key := urn
+		if ref, pErr := knowledgepage.ParseCitableRef(urn); pErr == nil {
+			key = ref.URN()
+		}
+		add(key)
+	}
+	for i := range inlineWant {
+		add(inlineWant[i].URN())
+	}
+	return dropped
 }
 
 // pagePromotion holds the result of writing the page, for changeset recording.
@@ -260,6 +325,8 @@ type pagePromotion struct {
 	changeType string // changeCreatePage | changeUpdatePage
 	prev       map[string]any
 	next       map[string]any
+	dropped    []string // insight-carried / inline references dropped as non-existent (#696)
+	attached   int      // distinct references this apply attached to the page (#696)
 }
 
 // applyPagePromotion find-or-creates the page by slug, writes the prepared
@@ -298,8 +365,10 @@ func (t *Toolkit) applyPagePromotion(ctx context.Context, page pagePromotionInpu
 		}
 		return &pagePromotion{
 			pageID: existing.ID, slug: page.Slug, changeType: changeUpdatePage,
-			prev: prev,
-			next: pageImageWithRefs(pageSnapshot{page.Title, page.Summary, page.Body, tags, producedVersion, nextURNs}),
+			prev:     prev,
+			next:     pageImageWithRefs(pageSnapshot{page.Title, page.Summary, page.Body, tags, producedVersion, nextURNs}),
+			dropped:  plan.dropped,
+			attached: plan.attached,
 		}, nil
 	case errors.Is(err, knowledgepage.ErrNotFound):
 		id := knowledgepage.NewID()
@@ -315,8 +384,10 @@ func (t *Toolkit) applyPagePromotion(ctx context.Context, page pagePromotionInpu
 		}
 		return &pagePromotion{
 			pageID: id, slug: page.Slug, changeType: changeCreatePage,
-			prev: pageImageWithRefs(pageSnapshot{}),
-			next: pageImageWithRefs(pageSnapshot{title: page.Title, summary: page.Summary, body: page.Body, tags: tags, version: 1, entityURNs: nextURNs}),
+			prev:     pageImageWithRefs(pageSnapshot{}),
+			next:     pageImageWithRefs(pageSnapshot{title: page.Title, summary: page.Summary, body: page.Body, tags: tags, version: 1, entityURNs: nextURNs}),
+			dropped:  plan.dropped,
+			attached: plan.attached,
 		}, nil
 	default:
 		return nil, fmt.Errorf("looking up knowledge page by slug: %w", err)
@@ -440,15 +511,27 @@ func (t *Toolkit) recordPageChangesetAndMarkApplied(ctx context.Context, input a
 	if prom.changeType == changeCreatePage {
 		action = "created"
 	}
-	return jsonResult(map[string]any{
+	msg := fmt.Sprintf("Knowledge page %s. Roll back with action=rollback changeset_id=%s.", action, csID)
+	result := map[string]any{
 		"changeset_id":            csID,
 		"page_id":                 prom.pageID,
 		"slug":                    prom.slug,
 		"action":                  action,
 		"insights_marked_applied": len(insightIDs),
-		fieldMessage: fmt.Sprintf("Knowledge page %s. Roll back with action=rollback changeset_id=%s.",
-			action, csID),
-	})
+		// references_attached is always present (a count, 0 when this apply attached
+		// none) so a consumer can read it unconditionally.
+		"references_attached": prom.attached,
+	}
+	// Surface references that did not land (#696): an insight-carried or inline-body
+	// citation that could not be attached (target deleted, or a non-citable / malformed
+	// insight-carried ref) is dropped so it cannot block the promotion, but the agent
+	// must be told so it can fix the payload or the prose.
+	if len(prom.dropped) > 0 {
+		result["references_dropped"] = prom.dropped
+		msg += fmt.Sprintf(" Note: %d cited reference(s) did not resolve and were not attached (see references_dropped).", len(prom.dropped))
+	}
+	result[fieldMessage] = msg
+	return jsonResult(result)
 }
 
 // collectPageInsightRefs fetches each source insight and gathers the references
