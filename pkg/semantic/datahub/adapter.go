@@ -3,6 +3,7 @@ package datahub
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -63,6 +64,7 @@ type Client interface {
 	SemanticSearch(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error)
 	SearchDocuments(ctx context.Context, query string, opts ...dhclient.SearchOption) ([]types.Document, error)
 	GetRelatedDocuments(ctx context.Context, urn string) ([]types.Document, error)
+	GetDocument(ctx context.Context, urn string) (*types.Document, error)
 	GetEntity(ctx context.Context, urn string) (*types.Entity, error)
 	GetSchema(ctx context.Context, urn string) (*types.SchemaMetadata, error)
 	GetSchemas(ctx context.Context, urns []string) (map[string]*types.SchemaMetadata, error)
@@ -303,6 +305,28 @@ func (a *Adapter) GetRelatedDocuments(ctx context.Context, urn string) ([]semant
 		results = append(results, toDocumentResult(&docs[i]))
 	}
 	return results, nil
+}
+
+// GetDocument reads one context document by its URN and maps it to
+// semantic.DocumentResult with the FULL body (not the truncated search snippet),
+// so the fetch surface can dereference a urn:li:document:<id> reference to the
+// complete content (#694). The upstream ErrNotFound (a URN that resolves to no
+// document) is translated to semantic.ErrDocumentNotFound so the caller can render
+// a structured not-found instead of a transport error.
+func (a *Adapter) GetDocument(ctx context.Context, urn string) (*semantic.DocumentResult, error) {
+	doc, err := a.client.GetDocument(ctx, urn)
+	if err != nil {
+		if errors.Is(err, dhclient.ErrNotFound) {
+			return nil, fmt.Errorf("document %s: %w", urn, semantic.ErrDocumentNotFound)
+		}
+		return nil, fmt.Errorf("getting datahub document %s: %w", urn, err)
+	}
+	r := toDocumentResult(doc)
+	// Single-document read returns the whole body; the snippet truncation that
+	// keeps search hits bounded would defeat the purpose of a fetch.
+	r.Body = doc.Content
+	r.Snippet = ""
+	return &r, nil
 }
 
 // toDocumentResult maps a DataHub document to the neutral semantic result.

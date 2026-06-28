@@ -211,6 +211,23 @@ func TestBuild_NeverNamesInaccessibleTool(t *testing.T) {
 	}
 }
 
+func TestBuild_NamesFetchOnlyWhenAccessible(t *testing.T) {
+	// With fetch accessible, the reuse bullet teaches reading a result in full.
+	withFetch := Build([]string{"search", "fetch"})
+	if !strings.Contains(withFetch, "`fetch`") {
+		t.Errorf("baseline should name fetch when accessible: %q", withFetch)
+	}
+	// Without fetch (a persona that denies it), the baseline must not name it.
+	noFetch := Build([]string{"search"})
+	if strings.Contains(noFetch, "`fetch`") {
+		t.Errorf("baseline named fetch for a caller without it: %q", noFetch)
+	}
+	// Fetch alone (no search) says nothing: the reuse guidance hangs off search.
+	if got := Build([]string{"fetch"}); got != "" {
+		t.Errorf("fetch without search should yield an empty baseline, got %q", got)
+	}
+}
+
 func TestBuild_HasHeaderWhenNonEmpty(t *testing.T) {
 	got := Build([]string{"search"})
 	if !strings.HasPrefix(got, "How to operate this platform:") {

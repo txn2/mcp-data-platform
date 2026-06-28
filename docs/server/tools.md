@@ -41,6 +41,7 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | S3 | `s3_delete_object` | Delete object (if not read-only) |
 | S3 | `s3_copy_object` | Copy object (if not read-only) |
 | Knowledge | `search` | The one way to discover: balanced, grouped-by-source results across the catalog, context documents, knowledge pages, memory, insights, feedback, assets, prompts, API endpoints, and connections |
+| Knowledge | `fetch` | Read a search result in full: dereferences any reference search emits (knowledge page, context document, dataset, asset, prompt, connection) to its complete content, under the same per-user scope |
 | Memory | `memory_capture` | The one way to record knowledge: sink-class routed, recall-first |
 | Knowledge | `apply_knowledge` | Review and promote reviewed captures to the catalog (admin-only) |
 | Memory | `memory_manage` | Manage existing memories: update, forget, list, review_stale (opt-in per persona) |
@@ -598,8 +599,9 @@ per-source floor (so every matching source stays visible), a per-source ceiling
 relevant hits. Every response also carries a `coverage` summary of per-source
 `matched` vs `shown` counts, so the agent learns where the answer space lives even
 when only the top few of each source are displayed. Hits are navigational
-snippets (title, `ref`, short context line, `source`); the agent drills in with
-the scoped tool (`trino_query`, `api_invoke_endpoint`, `datahub_get_entity`).
+snippets (title, `ref`, `reference`, short context line, `source`); the agent reads
+the full content with [`fetch`](#fetch) (any source) or drills in with a scoped tool
+(`trino_query`, `api_invoke_endpoint`).
 
 A query may be text (`intent`), entity-keyed (`entity_urns`, returning every
 source linked to those datasets and their lineage neighbors: the catalog entity,
@@ -621,6 +623,58 @@ and `dimension`), and a `coverage` array (`{source, matched, shown}`).
 | `status` | string | No | - | Optional filter by insight review status (pending, approved, rejected, applied, superseded, rolled_back) |
 | `sources` | array | No | - | Narrow the search to named sources (`catalog`, `context_documents`, `knowledge_pages`, `memory`, `insights`, `feedback`, `assets`, `prompts`, `endpoints`, `connections`). Only narrows; never opts into a source the persona could not otherwise access. An unrecognized name is echoed back in the response `unknown_sources` rather than silently ignored |
 | `limit` | integer | No | 10 | Total results to display across all sources (max 50) |
+
+---
+
+### fetch
+
+The companion read verb to [`search`](#search). `search` returns navigational
+pointers with truncated snippets; `fetch` dereferences one pointer's `reference`
+back to its **complete content**, so the agent reads in full what it found. It is
+the single consumer of the `reference` every search hit already carries, and it
+collapses the previously fragmented scoped readers (`datahub_get_entity`,
+`manage_artifact` get, `manage_prompt` get) into one verb. Registered alongside
+`search`.
+
+A reference comes in one of two namespaces: `urn:li:...` is the external DataHub
+catalog scheme, `mcp:...` is the internal-platform scheme. `fetch` accepts both,
+routing each well-formed reference by its form to the owning source:
+
+| Reference form | Source | Returns |
+|----------------|--------|---------|
+| `mcp:knowledge_page:<id>` | knowledge pages | the full markdown body |
+| `urn:li:document:<id>` | context documents | the full document body (the only MCP path to it) |
+| `urn:li:dataset:<id>` | catalog | the dataset's catalog context |
+| `mcp:asset:<id>` | assets | the asset's metadata record (blob bytes stay in S3, reached with `s3_get_object`/`s3_presign_url`) |
+| `mcp:prompt:<id>` | prompts | the full prompt |
+| `mcp:connection:(kind,name)` | connections | the connection descriptor |
+
+The usual source of a reference is a `search` result's `reference` field, but
+`fetch` is not limited to references `search` produced: a well-formed reference
+held from another tool works too (for example a `urn:li:dataset:...` from
+`datahub_get_lineage` or an `entity_urns` lookup). Memory, insights, feedback, and
+endpoints emit no reference and are not fetch targets.
+
+**Scope mirrors `search` exactly:** a per-user source (assets) is read only for the
+identity that owns the record, and a persona/personal-scoped prompt only for the
+matching caller, so `fetch` never returns content the same caller could not have
+found with `search`. A reference outside the caller's scope is reported as
+not-found, indistinguishable from a missing one, so existence does not leak.
+
+**Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `reference` | string | Yes | - | A search result's `reference`, passed exactly as `search` returned it |
+
+The response is `{found, reference, document?, message?}`. A resolved reference
+returns `found: true` with a `document` (`{reference, source, title, body?,
+content?, entity_urns?}`, where text-bodied sources fill `body` and structured
+sources fill `content` with the source-native payload). A stale, unknown, or
+out-of-scope reference returns `found: false` with an explanatory `message`, a
+**structured not-found, not a tool error**, so a dangling citation is a normal
+answer. A malformed call (empty `reference`) and a real backend failure are tool
+errors.
 
 ---
 

@@ -19,6 +19,17 @@ type fakeDocumentSearcher struct {
 	gotQuery string
 	gotLimit int
 	gotURNs  []string
+	doc      *semantic.DocumentResult // GetDocument result
+	docErr   error
+	gotGetID string
+}
+
+func (f *fakeDocumentSearcher) GetDocument(_ context.Context, urn string) (*semantic.DocumentResult, error) {
+	f.gotGetID = urn
+	if f.docErr != nil {
+		return nil, f.docErr
+	}
+	return f.doc, nil
 }
 
 func (f *fakeDocumentSearcher) SearchDocuments(_ context.Context, query string, limit int) ([]semantic.DocumentResult, error) {
@@ -194,4 +205,84 @@ func TestDocumentsProvider_SurfacesInAssembledRouter(t *testing.T) {
 func TestDocumentHitText_Fallback(t *testing.T) {
 	assert.Equal(t, "runbook", documentHitText(semantic.DocumentResult{SubType: "runbook"}))
 	assert.Equal(t, "context document", documentHitText(semantic.DocumentResult{}))
+}
+
+func TestContextDocumentsProvider_Fetch(t *testing.T) {
+	t.Run("returns full body for a document reference", func(t *testing.T) {
+		f := &fakeDocumentSearcher{doc: &semantic.DocumentResult{
+			URN:              "urn:li:document:doc-1",
+			Title:            "Churn Runbook",
+			Body:             "Full body the snippet truncated.",
+			RelatedAssetURNs: []string{"urn:li:dataset:(x)"},
+		}}
+		doc, owned, err := NewContextDocumentsProvider(f).Fetch(context.Background(), "urn:li:document:doc-1", Caller{})
+		require.True(t, owned)
+		require.NoError(t, err)
+		assert.Equal(t, "urn:li:document:doc-1", f.gotGetID)
+		assert.Equal(t, "Full body the snippet truncated.", doc.Body)
+		assert.Equal(t, SourceContextDocuments, doc.Source)
+		assert.Equal(t, "Churn Runbook", doc.Title)
+		assert.Equal(t, []string{"urn:li:dataset:(x)"}, doc.EntityURNs)
+	})
+
+	t.Run("declines a non-document reference", func(t *testing.T) {
+		f := &fakeDocumentSearcher{}
+		_, owned, err := NewContextDocumentsProvider(f).Fetch(context.Background(), "urn:li:dataset:(x)", Caller{})
+		assert.False(t, owned)
+		assert.NoError(t, err)
+		assert.Empty(t, f.gotGetID, "GetDocument must not be called for a dataset reference")
+	})
+
+	t.Run("missing document is not-found", func(t *testing.T) {
+		f := &fakeDocumentSearcher{docErr: semantic.ErrDocumentNotFound}
+		_, owned, err := NewContextDocumentsProvider(f).Fetch(context.Background(), "urn:li:document:gone", Caller{})
+		assert.True(t, owned)
+		assert.ErrorIs(t, err, ErrNotFound)
+	})
+
+	t.Run("backend error surfaces as a real error", func(t *testing.T) {
+		f := &fakeDocumentSearcher{docErr: errors.New("boom")}
+		_, owned, err := NewContextDocumentsProvider(f).Fetch(context.Background(), "urn:li:document:d", Caller{})
+		assert.True(t, owned)
+		require.Error(t, err)
+		assert.NotErrorIs(t, err, ErrNotFound)
+	})
+
+	t.Run("nil document with no error is not-found", func(t *testing.T) {
+		f := &fakeDocumentSearcher{doc: nil} // GetDocument returns (nil, nil)
+		_, owned, err := NewContextDocumentsProvider(f).Fetch(context.Background(), "urn:li:document:d", Caller{})
+		assert.True(t, owned)
+		assert.ErrorIs(t, err, ErrNotFound)
+	})
+
+	t.Run("an unpublished draft is not-found, matching what search excludes", func(t *testing.T) {
+		// Both search arms drop non-PUBLISHED docs via publishedDocument; fetch must
+		// too, or a steward's draft becomes readable by URN.
+		f := &fakeDocumentSearcher{doc: &semantic.DocumentResult{URN: "urn:li:document:d", Title: "Draft", Status: "UNPUBLISHED", Body: "wip"}}
+		_, owned, err := NewContextDocumentsProvider(f).Fetch(context.Background(), "urn:li:document:d", Caller{})
+		assert.True(t, owned)
+		assert.ErrorIs(t, err, ErrNotFound)
+	})
+
+	t.Run("a published-but-hidden document stays fetchable by explicit URN", func(t *testing.T) {
+		// ShowInGlobalContext=false hides a doc from broad search but it remains
+		// reachable through its linked assets / explicit URN, so fetch returns it.
+		f := &fakeDocumentSearcher{doc: &semantic.DocumentResult{URN: "urn:li:document:d", Title: "Hidden", Status: "PUBLISHED", ShowInGlobalContext: false, Body: "full"}}
+		doc, owned, err := NewContextDocumentsProvider(f).Fetch(context.Background(), "urn:li:document:d", Caller{})
+		assert.True(t, owned)
+		require.NoError(t, err)
+		assert.Equal(t, "full", doc.Body)
+	})
+
+	t.Run("title falls back to sub-type then a generic label", func(t *testing.T) {
+		f := &fakeDocumentSearcher{doc: &semantic.DocumentResult{URN: "urn:li:document:d", SubType: "RUNBOOK", Body: "b"}}
+		doc, _, err := NewContextDocumentsProvider(f).Fetch(context.Background(), "urn:li:document:d", Caller{})
+		require.NoError(t, err)
+		assert.Equal(t, "RUNBOOK", doc.Title)
+
+		f2 := &fakeDocumentSearcher{doc: &semantic.DocumentResult{URN: "urn:li:document:d", Body: "b"}}
+		doc2, _, err := NewContextDocumentsProvider(f2).Fetch(context.Background(), "urn:li:document:d", Caller{})
+		require.NoError(t, err)
+		assert.Equal(t, "context document", doc2.Title)
+	})
 }

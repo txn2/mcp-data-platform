@@ -2,6 +2,7 @@ package knowledge
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -19,6 +20,10 @@ const SourceKnowledgePages = "knowledge_pages"
 type PageSearcher interface {
 	Search(ctx context.Context, q knowledgepage.SearchQuery) ([]knowledgepage.ScoredPage, error)
 	ListPagesReferencing(ctx context.Context, ref knowledgepage.EntityRef) ([]knowledgepage.PageRef, error)
+	// Get reads one page by id (the other half of search: a hit's reference
+	// dereferenced to the full body). Returns knowledgepage.ErrNotFound for a
+	// missing id.
+	Get(ctx context.Context, id string) (*knowledgepage.Page, error)
 }
 
 // PagesProvider exposes the platform's canonical knowledge pages (the
@@ -113,6 +118,37 @@ func (p *PagesProvider) searchByText(ctx context.Context, q Query, seen map[stri
 		})
 	}
 	return hits, nil
+}
+
+// Fetch dereferences an mcp:knowledge_page:<id> reference to the page's full body
+// (#694), the consumer the search snippet was built to anticipate ("a hit conveys
+// what the page covers without a fetch"). It owns only the knowledge-page reference
+// form; any other reference is declined (owned=false) so the Router tries the next
+// provider. A missing id, or a soft-deleted page, is ErrNotFound: a page-handler
+// Get returns soft-deleted rows (it is the editor's undelete path), so the live
+// read must filter them exactly as the portal HTTP handler does.
+func (p *PagesProvider) Fetch(ctx context.Context, ref string, _ Caller) (*Document, bool, error) {
+	parsed, err := knowledgepage.ParseEntityRef(ref)
+	if err != nil || parsed.TargetType != knowledgepage.RefTargetKnowledgePage {
+		// Not a knowledge-page reference: decline so the Router tries the next provider.
+		return nil, false, nil //nolint:nilerr // a non-page reference is a decline, not a failure
+	}
+	page, err := p.searcher.Get(ctx, parsed.RefPageID)
+	if err != nil {
+		if errors.Is(err, knowledgepage.ErrNotFound) {
+			return nil, true, ErrNotFound
+		}
+		return nil, true, fmt.Errorf("getting knowledge page %s: %w", parsed.RefPageID, err)
+	}
+	if page == nil || page.DeletedAt != nil {
+		return nil, true, ErrNotFound
+	}
+	return &Document{
+		Reference: ref,
+		Source:    SourceKnowledgePages,
+		Title:     page.Title,
+		Body:      page.Body,
+	}, true, nil
 }
 
 // knowledgePageRefHitText renders a reverse-lookup page hit: its title, noting it

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 )
@@ -16,6 +17,17 @@ type fakePageSearcher struct {
 	pages      []knowledgepage.PageRef // reverse-lookup result
 	reverseErr error
 	gotRef     knowledgepage.EntityRef
+	page       *knowledgepage.Page // Get result
+	getErr     error
+	gotGetID   string
+}
+
+func (f *fakePageSearcher) Get(_ context.Context, id string) (*knowledgepage.Page, error) {
+	f.gotGetID = id
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
+	return f.page, nil
 }
 
 func (f *fakePageSearcher) Search(_ context.Context, q knowledgepage.SearchQuery) ([]knowledgepage.ScoredPage, error) {
@@ -180,4 +192,64 @@ func TestKnowledgePagesProvider_UnparseableURNSkipped(t *testing.T) {
 	if (s.gotRef != knowledgepage.EntityRef{}) {
 		t.Errorf("reverse lookup should be skipped for an unparseable URN, got %+v", s.gotRef)
 	}
+}
+
+func TestPagesProvider_Fetch(t *testing.T) {
+	t.Run("returns full body for a knowledge_page reference", func(t *testing.T) {
+		s := &fakePageSearcher{page: &knowledgepage.Page{
+			ID:    "kp_1",
+			Title: "Fiscal Calendar",
+			Body:  "# Fiscal Calendar\n\nQ1 begins in February.",
+		}}
+		ref := knowledgepage.PageReference("kp_1")
+		doc, owned, err := NewKnowledgePagesProvider(s).Fetch(context.Background(), ref, Caller{})
+		if !owned || err != nil {
+			t.Fatalf("owned=%v err=%v, want owned, no error", owned, err)
+		}
+		if s.gotGetID != "kp_1" {
+			t.Errorf("Get id = %q, want kp_1", s.gotGetID)
+		}
+		if doc.Body != "# Fiscal Calendar\n\nQ1 begins in February." {
+			t.Errorf("Body = %q", doc.Body)
+		}
+		if doc.Source != SourceKnowledgePages || doc.Reference != ref || doc.Title != "Fiscal Calendar" {
+			t.Errorf("doc = %+v", doc)
+		}
+	})
+
+	t.Run("declines a non-page reference", func(t *testing.T) {
+		s := &fakePageSearcher{}
+		_, owned, err := NewKnowledgePagesProvider(s).Fetch(context.Background(), "mcp:asset:a1", Caller{})
+		if owned || err != nil {
+			t.Errorf("owned=%v err=%v, want declined", owned, err)
+		}
+		if s.gotGetID != "" {
+			t.Errorf("Get should not be called for a non-page reference, got %q", s.gotGetID)
+		}
+	})
+
+	t.Run("missing page is not-found", func(t *testing.T) {
+		s := &fakePageSearcher{getErr: knowledgepage.ErrNotFound}
+		_, owned, err := NewKnowledgePagesProvider(s).Fetch(context.Background(), knowledgepage.PageReference("gone"), Caller{})
+		if !owned || !errors.Is(err, ErrNotFound) {
+			t.Errorf("owned=%v err=%v, want owned + ErrNotFound", owned, err)
+		}
+	})
+
+	t.Run("soft-deleted page is not-found", func(t *testing.T) {
+		del := time.Now()
+		s := &fakePageSearcher{page: &knowledgepage.Page{ID: "kp_1", DeletedAt: &del}}
+		_, owned, err := NewKnowledgePagesProvider(s).Fetch(context.Background(), knowledgepage.PageReference("kp_1"), Caller{})
+		if !owned || !errors.Is(err, ErrNotFound) {
+			t.Errorf("owned=%v err=%v, want owned + ErrNotFound for a deleted page", owned, err)
+		}
+	})
+
+	t.Run("store error surfaces as a real error", func(t *testing.T) {
+		s := &fakePageSearcher{getErr: errors.New("boom")}
+		_, owned, err := NewKnowledgePagesProvider(s).Fetch(context.Background(), knowledgepage.PageReference("kp_1"), Caller{})
+		if !owned || err == nil || errors.Is(err, ErrNotFound) {
+			t.Errorf("owned=%v err=%v, want owned + a non-not-found error", owned, err)
+		}
+	})
 }

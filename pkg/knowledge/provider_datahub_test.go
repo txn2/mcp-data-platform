@@ -236,3 +236,62 @@ func TestPositionalScore(t *testing.T) {
 		t.Error("first of three should outrank last")
 	}
 }
+
+func TestCatalogProvider_Fetch(t *testing.T) {
+	t.Run("returns catalog context for a dataset reference", func(t *testing.T) {
+		f := &fakeTableSearcher{byTable: map[string]*semantic.TableContext{
+			testDatasetTable: {URN: testDatasetURN, Description: "ACME transactions"},
+		}}
+		doc, owned, err := NewCatalogProvider(f).Fetch(context.Background(), testDatasetURN, Caller{})
+		if !owned || err != nil {
+			t.Fatalf("owned=%v err=%v, want owned, no error", owned, err)
+		}
+		if doc.Source != SourceCatalog || doc.Reference != testDatasetURN {
+			t.Errorf("doc = %+v", doc)
+		}
+		tc, ok := doc.Content.(*semantic.TableContext)
+		if !ok || tc.Description != "ACME transactions" {
+			t.Errorf("Content = %+v, want the TableContext", doc.Content)
+		}
+		if len(doc.EntityURNs) != 1 || doc.EntityURNs[0] != testDatasetURN {
+			t.Errorf("EntityURNs = %+v", doc.EntityURNs)
+		}
+	})
+
+	t.Run("declines a non-dataset reference", func(t *testing.T) {
+		f := &fakeTableSearcher{}
+		_, owned, err := NewCatalogProvider(f).Fetch(context.Background(), "urn:li:document:d", Caller{})
+		if owned || err != nil {
+			t.Errorf("owned=%v err=%v, want declined", owned, err)
+		}
+		if len(f.gotTables) != 0 {
+			t.Errorf("GetTableContext must not be called for a document reference")
+		}
+	})
+
+	t.Run("unknown dataset is not-found", func(t *testing.T) {
+		f := &fakeTableSearcher{byTable: map[string]*semantic.TableContext{}} // empty -> nil context
+		_, owned, err := NewCatalogProvider(f).Fetch(context.Background(), testDatasetURN, Caller{})
+		if !owned || !errors.Is(err, ErrNotFound) {
+			t.Errorf("owned=%v err=%v, want owned + ErrNotFound", owned, err)
+		}
+	})
+
+	t.Run("unparseable dataset urn is not-found", func(t *testing.T) {
+		f := &fakeTableSearcher{}
+		_, owned, err := NewCatalogProvider(f).Fetch(context.Background(), "urn:li:dataset:garbage", Caller{})
+		if !owned || !errors.Is(err, ErrNotFound) {
+			t.Errorf("owned=%v err=%v, want owned + ErrNotFound", owned, err)
+		}
+	})
+
+	t.Run("a catalog lookup error is not-found, matching the search entity path's skip", func(t *testing.T) {
+		// DataHub reports a missing/deleted entity as an error; the search entity path
+		// skips it, so fetch reports a clean not-found rather than a hard failure.
+		f := &fakeTableSearcher{ctxErr: errors.New("GetEntity: entity not found")}
+		_, owned, err := NewCatalogProvider(f).Fetch(context.Background(), testDatasetURN, Caller{})
+		if !owned || !errors.Is(err, ErrNotFound) {
+			t.Errorf("owned=%v err=%v, want owned + ErrNotFound", owned, err)
+		}
+	})
+}
