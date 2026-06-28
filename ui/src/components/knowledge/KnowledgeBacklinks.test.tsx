@@ -10,14 +10,16 @@ vi.mock("@/api/portal/hooks", () => ({
 import { KnowledgeBacklinks } from "./KnowledgeBacklinks";
 
 describe("KnowledgeBacklinks", () => {
-  it("surfaces the referencing pages with a count", () => {
+  it("opens the specific referencing page via its detail route (#709)", () => {
     const onNavigate = vi.fn();
     const { container } = render(<KnowledgeBacklinks urn="mcp:asset:a1" onNavigate={onNavigate} />);
     const text = container.textContent ?? "";
     expect(text).toContain("1 knowledge page references this");
     expect(text).toContain("Fiscal Calendar");
-    fireEvent.click(container.querySelector("button")!);
-    expect(onNavigate).toHaveBeenCalledWith("/knowledge#knowledge");
+    // The backlink is a knowledge_page EntityChip: clicking it routes to that
+    // page (p.id), not a generic /knowledge#knowledge anchor.
+    fireEvent.click(container.querySelector("a")!);
+    expect(onNavigate).toHaveBeenCalledWith("/knowledge/pages/kp1");
   });
 
   it("renders nothing when there are no referencing pages", () => {

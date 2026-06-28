@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import {
   Search,
   Database,
@@ -13,6 +13,7 @@ import { useInsightStats } from "@/api/admin/hooks";
 import { useAuthStore } from "@/stores/auth";
 import type { SearchHit } from "@/api/portal/types";
 import { formatEntityUrn } from "@/lib/formatEntityUrn";
+import { entityHref } from "@/lib/entityRefs";
 import { useDebounced } from "@/lib/useDebounced";
 import { FilterChip } from "@/components/FilterChip";
 import { KnowledgePagesPage } from "@/pages/knowledge-pages/KnowledgePagesPage";
@@ -519,23 +520,29 @@ function SubTabBar<T extends string>({
  */
 export function KnowledgeHub({
   initialTab,
+  initialPageId,
+  pagesSubActive,
   onNavigate,
 }: {
   initialTab?: string;
+  // The knowledge page open in detail, from the /knowledge/pages/:id route (#709).
+  initialPageId?: string;
+  // True when the route is /knowledge/pages or /knowledge/pages/:id, so the
+  // Knowledge Pages sub-tab is the active, URL-addressable view.
+  pagesSubActive?: boolean;
   onNavigate?: (path: string) => void;
 }) {
-  const [tab, setTab] = useState<Tab>(() => normalizeTab(initialTab));
-  const [knowledgeSub, setKnowledgeSub] = useState<KnowledgeSubTab>("search");
-  const [insightSub, setInsightSub] = useState<InsightSubTab>("mine");
-  // A bump-counter request so clicking the same knowledge-page result twice
-  // still re-opens it (the object identity changes each time).
-  const [pageRequest, setPageRequest] = useState<{ id: string; n: number } | null>(
-    null,
+  // On a pages route the top tab is always Knowledge; otherwise it comes from the
+  // URL hash. The pages sub-tab is URL-driven (pagesSubActive), so it is never
+  // stored in knowledgeSub, which only ever holds search or changesets.
+  const [tab, setTab] = useState<Tab>(() => (pagesSubActive ? "knowledge" : normalizeTab(initialTab)));
+  // The pages sub-tab is URL-driven (a /knowledge/pages route); the in-page sub-tabs
+  // can be carried in the hash (e.g. /knowledge#changesets) so leaving the pages
+  // route opens the chosen one directly rather than defaulting to Search (#709).
+  const [knowledgeSub, setKnowledgeSub] = useState<KnowledgeSubTab>(() =>
+    initialTab === "changesets" || initialTab === "search" ? initialTab : "search",
   );
-  // Cleared once KnowledgePagesPage has opened the requested page, so the
-  // request does not re-fire and force the page detail open when the user later
-  // returns to the Knowledge Pages sub-tab (which remounts the component).
-  const clearPageRequest = useCallback(() => setPageRequest(null), []);
+  const [insightSub, setInsightSub] = useState<InsightSubTab>("mine");
   // Review and promote affordances gate on the apply_knowledge capability (not
   // an admin role), or admin. This mirrors the REST handler's userHasToolAccess:
   // the capability grants non-admins, and admins are allowed too since the tool
@@ -581,9 +588,12 @@ export function KnowledgeHub({
         ]
       : []),
   ];
-  const activeSub = knowledgeSubTabs.some((s) => s.key === knowledgeSub)
-    ? knowledgeSub
-    : "search";
+  // The pages sub-tab is selected by the route; the others by in-page state.
+  const activeSub: KnowledgeSubTab = pagesSubActive
+    ? "pages"
+    : knowledgeSubTabs.some((s) => s.key === knowledgeSub)
+      ? knowledgeSub
+      : "search";
   const activeSubMeta = knowledgeSubTabs.find((s) => s.key === activeSub)!;
 
   // Insights sub-tabs. The review queue is reviewer-only and carries the
@@ -618,10 +628,35 @@ export function KnowledgeHub({
   const insightSubMeta = insightSubTabs.find((s) => s.key === activeInsightSub)!;
 
   // Reflect the active tab in the URL hash so the view is deep-linkable and
-  // survives a refresh, without forcing a full navigation.
+  // survives a refresh, without forcing a full navigation. On the URL-addressable
+  // pages route (#709), switching the top tab must leave that path, so navigate
+  // rather than only rewriting the hash; staying on Knowledge keeps the route.
   const selectTab = (next: Tab) => {
+    if (pagesSubActive) {
+      if (next !== "knowledge") onNavigate?.(`/knowledge#${next}`);
+      return;
+    }
     setTab(next);
     window.history.replaceState(null, "", `#${next}`);
+  };
+
+  // Knowledge Pages is the one URL-addressable sub-tab (#709): selecting it routes
+  // to /knowledge/pages so page-detail deep-links and browser back/forward work.
+  // The other sub-tabs are in-page state under the bare /knowledge route, so
+  // leaving the pages route for one navigates back to /knowledge.
+  const selectKnowledgeSub = (next: KnowledgeSubTab) => {
+    if (next === "pages") {
+      onNavigate?.("/knowledge/pages");
+      return;
+    }
+    if (pagesSubActive) {
+      // Leaving the pages route for an in-page sub-tab: carry the target in the
+      // hash so the remount opens it in one click. A bare /knowledge would reset
+      // to Search, so selecting Changesets here would otherwise cost two clicks.
+      onNavigate?.(`/knowledge#${next}`);
+      return;
+    }
+    setKnowledgeSub(next);
   };
 
   // Open a search result in its native surface: assets and prompts deep-link to
@@ -636,10 +671,14 @@ export function KnowledgeHub({
       case "prompts":
         onNavigate?.(`/prompts/${hit.ref}`);
         break;
-      case "knowledge_pages":
-        setKnowledgeSub("pages");
-        setPageRequest((r) => ({ id: hit.ref, n: (r?.n ?? 0) + 1 }));
+      case "knowledge_pages": {
+        // Deep-link to the page's own URL so a search result opens the same
+        // shareable detail route as any other reference, through the shared
+        // entityHref builder so its safe-id guard applies here too (#709).
+        const href = entityHref("knowledge_page", hit.ref);
+        if (href) onNavigate?.(href);
         break;
+      }
       case "memory":
         selectTab("memory");
         break;
@@ -685,7 +724,7 @@ export function KnowledgeHub({
           <SubTabBar
             tabs={knowledgeSubTabs}
             active={activeSub}
-            onSelect={setKnowledgeSub}
+            onSelect={selectKnowledgeSub}
           />
           <p className="text-sm text-muted-foreground">
             {activeSubMeta.description}
@@ -693,11 +732,7 @@ export function KnowledgeHub({
 
           {activeSub === "search" && <UnifiedSearch onOpen={openHit} />}
           {activeSub === "pages" && (
-            <KnowledgePagesPage
-              openPage={pageRequest ?? undefined}
-              onPageOpened={clearPageRequest}
-              onNavigate={onNavigate}
-            />
+            <KnowledgePagesPage openPageId={initialPageId} onNavigate={onNavigate} />
           )}
           {/* Changesets live under Knowledge (the promoted layer), not Insights:
               a changeset is created only at apply time and records what was

@@ -9,11 +9,11 @@ import {
 } from "./entityRefs";
 
 describe("entityHref", () => {
-  it("routes asset/collection/prompt to their viewers and nothing else", () => {
+  it("routes asset/collection/prompt/knowledge_page to their views and nothing else", () => {
     expect(entityHref("asset", "a1")).toBe("/assets/a1");
     expect(entityHref("collection", "c1")).toBe("/collections/c1");
     expect(entityHref("prompt", "p1")).toBe("/prompts/p1");
-    expect(entityHref("knowledge_page", "kp1")).toBeNull(); // no URL route
+    expect(entityHref("knowledge_page", "kp1")).toBe("/knowledge/pages/kp1"); // #709
     expect(entityHref("connection", "")).toBeNull();
     expect(entityHref("datahub", "")).toBeNull();
     expect(entityHref("asset", "")).toBeNull(); // no id

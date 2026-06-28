@@ -38,8 +38,12 @@ export function entityHref(type: string, id: string): string | null {
       return `/collections/${id}`;
     case "prompt":
       return `/prompts/${id}`;
+    case "knowledge_page":
+      // Knowledge pages are URL-addressable (#709) so references deep-link, the
+      // browser back/forward works, and the reference graph is wiki-navigable.
+      return `/knowledge/pages/${id}`;
     default:
-      return null; // knowledge_page (no URL route), connection, datahub
+      return null; // connection, datahub: no in-app destination
   }
 }
 
