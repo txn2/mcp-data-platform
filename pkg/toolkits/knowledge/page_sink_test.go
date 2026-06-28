@@ -581,6 +581,147 @@ func TestRevertPageChangeset_InlineReconcileError(t *testing.T) {
 	assert.True(t, res.IsError, "an inline reconcile failure on rollback should surface as an error result")
 }
 
+// jsonStrings reads a JSON-decoded ([]any of strings) field as a []string, for
+// asserting on a list field of an apply response.
+func jsonStrings(t *testing.T, v any) []string {
+	t.Helper()
+	raw, ok := v.([]any)
+	require.True(t, ok, "expected a JSON array, got %T", v)
+	out := make([]string, 0, len(raw))
+	for _, e := range raw {
+		s, ok := e.(string)
+		require.True(t, ok, "expected a string element, got %T", e)
+		out = append(out, s)
+	}
+	return out
+}
+
+// TestPromoteToPage_ReportsDroppedInsightRefs proves acceptance criterion 1 of
+// #696: a promotion whose insight-carried references include a non-existent target
+// returns that target in references_dropped, while the references that resolved are
+// reported in references_attached.
+func TestPromoteToPage_ReportsDroppedInsightRefs(t *testing.T) {
+	gone := "mcp:asset:deleted-asset"
+	live := "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.x,PROD)"
+	store := &fullSpyStore{Insights: []Insight{{
+		ID: "i1", SinkClass: memory.SinkBusinessKnowledge, EntityURNs: []string{live, gone},
+	}}}
+	pw := newFakePageWriter()
+	pw.missingTargets = map[string]bool{gone: true}
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk.SetPageWriter(pw)
+
+	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, applyPageInput([]string{"i1"}))
+	require.NoError(t, err)
+	require.False(t, res.IsError, "a stale insight-carried reference must not block the promotion")
+	out := parseJSONResult(t, res)
+
+	assert.Equal(t, []string{gone}, jsonStrings(t, out["references_dropped"]),
+		"the dropped insight-carried target is reported so the agent learns its citation did not land")
+	assert.EqualValues(t, 1, out["references_attached"], "the one resolving reference is reported as attached")
+}
+
+// TestPromoteToPage_ReportsNonCitableInsightRef proves the apply reports an
+// insight-carried reference that promotedRefsFromURNs drops before the existence
+// filter ever runs: a per-user mcp:memory: ref is fetchable but not citable on a
+// shared page (#699), so it cannot land, and the agent must learn it did not
+// instead of believing every carried reference attached (#696).
+func TestPromoteToPage_ReportsNonCitableInsightRef(t *testing.T) {
+	memRef := "mcp:memory:mem_alice"
+	live := "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.x,PROD)"
+	store := &fullSpyStore{Insights: []Insight{{
+		ID: "i1", SinkClass: memory.SinkBusinessKnowledge, EntityURNs: []string{memRef, live},
+	}}}
+	pw := newFakePageWriter() // nothing missing: the loss is the non-citable ref, not a deleted target
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk.SetPageWriter(pw)
+
+	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, applyPageInput([]string{"i1"}))
+	require.NoError(t, err)
+	require.False(t, res.IsError, "a non-citable insight-carried reference must not block the promotion")
+	out := parseJSONResult(t, res)
+
+	assert.Equal(t, []string{memRef}, jsonStrings(t, out["references_dropped"]),
+		"a non-citable insight-carried reference is reported as dropped, not silently lost")
+	assert.EqualValues(t, 1, out["references_attached"], "the citable insight reference still attaches")
+}
+
+// TestPromoteToPage_ReportsDroppedInlineRefs proves acceptance criterion 1 of #696
+// for inline-body references: a stale mcp: token written in the page body is
+// reported in references_dropped, not silently discarded.
+func TestPromoteToPage_ReportsDroppedInlineRefs(t *testing.T) {
+	store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
+	pw := newFakePageWriter()
+	pw.missingTargets = map[string]bool{"mcp:asset:gone": true}
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk.SetPageWriter(pw)
+
+	input := applyKnowledgeInput{
+		Action: actionApply, Sink: sinkKnowledgePage, InsightIDs: []string{"i1"},
+		Page: &pagePromotionInput{
+			Slug: "guide", Title: "Guide",
+			Body: "Live [a](mcp:asset:asset-1) and stale [b](mcp:asset:gone) refs.",
+		},
+	}
+	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, input)
+	require.NoError(t, err)
+	require.False(t, res.IsError, "a stale inline reference must not block the page")
+	out := parseJSONResult(t, res)
+
+	assert.Equal(t, []string{"mcp:asset:gone"}, jsonStrings(t, out["references_dropped"]),
+		"the dropped inline-body target is reported")
+	assert.EqualValues(t, 1, out["references_attached"], "the live inline reference is reported as attached")
+}
+
+// TestPromoteToPage_DedupesDroppedAcrossSources proves a target dropped from both
+// the insight-carried set and the inline-body set is reported once (#696).
+func TestPromoteToPage_DedupesDroppedAcrossSources(t *testing.T) {
+	gone := "mcp:asset:gone"
+	store := &fullSpyStore{Insights: []Insight{{
+		ID: "i1", SinkClass: memory.SinkBusinessKnowledge, EntityURNs: []string{gone},
+	}}}
+	pw := newFakePageWriter()
+	pw.missingTargets = map[string]bool{gone: true}
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk.SetPageWriter(pw)
+
+	input := applyKnowledgeInput{
+		Action: actionApply, Sink: sinkKnowledgePage, InsightIDs: []string{"i1"},
+		Page: &pagePromotionInput{
+			Slug: "guide", Title: "Guide",
+			Body: "Stale [g](mcp:asset:gone) cited inline too.",
+		},
+	}
+	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, input)
+	require.NoError(t, err)
+	require.False(t, res.IsError)
+	out := parseJSONResult(t, res)
+
+	assert.Equal(t, []string{gone}, jsonStrings(t, out["references_dropped"]),
+		"a target dropped from both the insight set and the body is reported once")
+}
+
+// TestPromoteToPage_NoDroppedWhenAllResolve proves acceptance criterion 2 of #696:
+// a promotion where every reference resolves omits references_dropped entirely.
+func TestPromoteToPage_NoDroppedWhenAllResolve(t *testing.T) {
+	live := "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.x,PROD)"
+	store := &fullSpyStore{Insights: []Insight{{
+		ID: "i1", SinkClass: memory.SinkBusinessKnowledge, EntityURNs: []string{live},
+	}}}
+	pw := newFakePageWriter() // no missingTargets: everything resolves
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+	tk.SetPageWriter(pw)
+
+	res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, applyPageInput([]string{"i1"}))
+	require.NoError(t, err)
+	require.False(t, res.IsError)
+	out := parseJSONResult(t, res)
+
+	_, present := out["references_dropped"]
+	assert.False(t, present, "references_dropped is absent when every reference resolves")
+	assert.EqualValues(t, 1, out["references_attached"], "the resolving reference is still reported as attached")
+}
+
 func applyPageInput(insightIDs []string) applyKnowledgeInput {
 	return applyKnowledgeInput{
 		Action:     actionApply,
@@ -607,6 +748,11 @@ func TestPromoteToPage_CreatesNewPage(t *testing.T) {
 	assert.Equal(t, "created", out["action"])
 	assert.NotEmpty(t, out["changeset_id"])
 	assert.NotEmpty(t, out["page_id"])
+	// references_attached is always present as a count, 0 here (no references), so a
+	// consumer can read it unconditionally (#696).
+	require.Contains(t, out, "references_attached")
+	assert.EqualValues(t, 0, out["references_attached"])
+	assert.NotContains(t, out, "references_dropped", "no dropped references when none were cited")
 	require.Contains(t, pw.pages, "seasons")
 	require.Len(t, pw.inserted, 1)
 	assert.Equal(t, out["page_id"], pw.inserted[0])
