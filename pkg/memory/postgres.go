@@ -19,8 +19,16 @@ import (
 // by the squirrel query builder at runtime.
 const tableName = "memory_records"
 
-// errNotFoundFmt is the format string for not-found errors.
-const errNotFoundFmt = "memory record not found: %s"
+// ErrRecordNotFound is returned (wrapped with the offending id) when a memory
+// record id does not resolve. It is a sentinel so a caller can distinguish a stale
+// id from a transport error with errors.Is; the knowledge fetch surface maps it to
+// a structured not-found (#699). The store deliberately does NOT surface the raw
+// sql.ErrNoRows, so consumers must match on this sentinel, not sql.ErrNoRows.
+var ErrRecordNotFound = errors.New("memory record not found")
+
+// notFoundErr wraps ErrRecordNotFound with the offending id so the sentinel is
+// matchable with errors.Is while the message still names the missing record.
+func notFoundErr(id string) error { return fmt.Errorf("looking up %s: %w", id, ErrRecordNotFound) }
 
 // SQL column names. Defined as constants because squirrel queries
 // reference them in column lists, predicates, and updates — repeating
@@ -119,7 +127,7 @@ func (s *postgresStore) Get(ctx context.Context, id string) (*Record, error) {
 	record, err := scanRecord(s.db.QueryRowContext(ctx, query, args...))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf(errNotFoundFmt, id)
+			return nil, notFoundErr(id)
 		}
 		return nil, fmt.Errorf("querying memory record: %w", err)
 	}
@@ -155,7 +163,7 @@ func (s *postgresStore) Update(ctx context.Context, id string, updates RecordUpd
 		return fmt.Errorf("checking rows affected: %w", err)
 	}
 	if rows == 0 {
-		return fmt.Errorf(errNotFoundFmt, id)
+		return notFoundErr(id)
 	}
 
 	return nil
@@ -225,7 +233,7 @@ func (s *postgresStore) Delete(ctx context.Context, id string) error {
 		return fmt.Errorf("checking rows affected: %w", err)
 	}
 	if rows == 0 {
-		return fmt.Errorf(errNotFoundFmt, id)
+		return notFoundErr(id)
 	}
 
 	return nil
@@ -754,7 +762,7 @@ func (s *postgresStore) Supersede(ctx context.Context, oldID, newID string) erro
 		return fmt.Errorf("checking rows affected: %w", err)
 	}
 	if rows == 0 {
-		return fmt.Errorf(errNotFoundFmt, oldID)
+		return notFoundErr(oldID)
 	}
 
 	return nil

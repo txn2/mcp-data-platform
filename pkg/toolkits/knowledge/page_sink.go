@@ -373,7 +373,10 @@ func (t *Toolkit) pageEntityURNs(ctx context.Context, pageID string) ([]string, 
 func parsePageReferences(raw []string) ([]knowledgepage.EntityRef, error) {
 	refs := make([]knowledgepage.EntityRef, 0, len(raw))
 	for _, s := range raw {
-		ref, err := knowledgepage.ParseEntityRef(s)
+		// ParseCitableRef, not ParseEntityRef: a personal-memory reference parses and
+		// is fetchable but is rejected here, since it cannot be cited on a shared page
+		// (#699).
+		ref, err := knowledgepage.ParseCitableRef(s)
 		if err != nil {
 			return nil, fmt.Errorf("reference %q: %w", s, err)
 		}
@@ -385,12 +388,14 @@ func parsePageReferences(raw []string) ([]knowledgepage.EntityRef, error) {
 
 // promotedRefsFromURNs parses serialized reference URNs (any type: a urn:li:
 // DataHub URN or an mcp: internal reference) into promoted EntityRefs. An
-// unparseable URN is skipped. This carries every reference type an insight holds
-// onto the page, not just DataHub URNs (#664).
+// unparseable or non-citable URN is skipped. This carries every citable reference
+// type an insight holds onto the page, not just DataHub URNs (#664); a personal
+// memory reference an insight might carry is dropped here, since memory is not
+// citable on a shared page (#699).
 func promotedRefsFromURNs(urns []string) []knowledgepage.EntityRef {
 	refs := make([]knowledgepage.EntityRef, 0, len(urns))
 	for _, urn := range urns {
-		ref, err := knowledgepage.ParseEntityRef(urn)
+		ref, err := knowledgepage.ParseCitableRef(urn)
 		if err != nil {
 			continue
 		}

@@ -14,6 +14,8 @@ func TestReferenceBuilders_RoundTrip(t *testing.T) {
 		{"knowledge_page", PageReference("kp_36d8"), "mcp:knowledge_page:kp_36d8", RefTargetKnowledgePage},
 		{"prompt uuid", PromptRef(promptUUID), "mcp:prompt:" + promptUUID, RefTargetPrompt},
 		{"connection", ConnectionRef("api", "prometheus"), "mcp:connection:(api,prometheus)", RefTargetConnection},
+		{"insight", InsightRef("ins_36d8"), "mcp:insight:ins_36d8", RefTargetInsight},
+		{"memory", MemoryRef("mem_36d8"), "mcp:memory:mem_36d8", RefTargetMemory},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -39,6 +41,8 @@ func TestReferenceBuilders_EmptyForUnresolvable(t *testing.T) {
 		"non-uuid prompt id": PromptRef("prompt_a1b2c3d4"),
 		"empty connkind":     ConnectionRef("", "prometheus"),
 		"empty connname":     ConnectionRef("api", ""),
+		"empty insight id":   InsightRef(""),
+		"empty memory id":    MemoryRef(""),
 	}
 	for name, got := range cases {
 		if got != "" {

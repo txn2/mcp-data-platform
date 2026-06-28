@@ -19,6 +19,8 @@ func TestEntityRef_URNRoundTrip(t *testing.T) {
 		{"page", EntityRef{TargetType: RefTargetKnowledgePage, RefPageID: "kp-2"}, "mcp:knowledge_page:kp-2"},
 		{"connection", EntityRef{TargetType: RefTargetConnection, ConnectionKind: "trino", ConnectionName: "warehouse"}, "mcp:connection:(trino,warehouse)"},
 		{"datahub", EntityRef{TargetType: RefTargetDataHub, EntityURN: "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)"}, "urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)"},
+		{"insight", EntityRef{TargetType: RefTargetInsight, InsightID: "ins_01HK7"}, "mcp:insight:ins_01HK7"},
+		{"memory", EntityRef{TargetType: RefTargetMemory, MemoryID: "mem_01HK7"}, "mcp:memory:mem_01HK7"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -71,4 +73,35 @@ func TestParseEntityRef_ExternalPassthrough(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, RefTargetDataHub, ref.TargetType)
 	assert.Equal(t, "urn:li:glossaryTerm:revenue", ref.EntityURN)
+}
+
+func TestParseCitableRef_RejectsPerUserForms(t *testing.T) {
+	// The per-user forms parse and are fetchable, but are not citable on a shared
+	// page (#699): ParseCitableRef rejects them while ParseEntityRef accepts them.
+	for _, ref := range []string{"mcp:memory:mem_01HK7", "mcp:insight:ins_01HK7"} {
+		parsed, err := ParseEntityRef(ref)
+		require.NoError(t, err, "ParseEntityRef accepts %q (fetch uses it)", ref)
+		assert.Contains(t, []string{RefTargetMemory, RefTargetInsight}, parsed.TargetType)
+
+		_, err = ParseCitableRef(ref)
+		require.Error(t, err, "ParseCitableRef must reject %q", ref)
+		assert.Contains(t, err.Error(), "cannot be cited", "error explains why")
+	}
+}
+
+func TestParseCitableRef_AllowsSharedForms(t *testing.T) {
+	for _, ref := range []string{
+		"mcp:asset:a1",
+		"mcp:knowledge_page:kp1",
+		"mcp:connection:(trino,wh)",
+		"urn:li:dataset:(urn:li:dataPlatform:trino,a.b.c,PROD)",
+	} {
+		got, err := ParseCitableRef(ref)
+		require.NoError(t, err, "citable ref %q", ref)
+		assert.NotContains(t, []string{RefTargetMemory, RefTargetInsight}, got.TargetType)
+	}
+	// A malformed reference still errors through ParseCitableRef.
+	if _, err := ParseCitableRef("mcp:bogus:x"); err == nil {
+		t.Error("ParseCitableRef should propagate a parse error")
+	}
 }

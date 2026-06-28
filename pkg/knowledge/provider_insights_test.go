@@ -3,8 +3,11 @@ package knowledge
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
+	"github.com/txn2/mcp-data-platform/pkg/memory"
+	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
 
@@ -21,6 +24,19 @@ type fakeInsightStore struct {
 	byURN     map[string][]knowledgekit.Insight
 	listErr   error
 	gotFilter []knowledgekit.InsightFilter
+
+	// get path
+	getInsight *knowledgekit.Insight
+	getErr     error
+	gotGetID   string
+}
+
+func (f *fakeInsightStore) Get(_ context.Context, id string) (*knowledgekit.Insight, error) {
+	f.gotGetID = id
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
+	return f.getInsight, nil
 }
 
 func (f *fakeInsightStore) Search(_ context.Context, q knowledgekit.InsightSearchQuery) ([]knowledgekit.ScoredInsight, error) {
@@ -282,4 +298,89 @@ func TestInsightsProvider_EntityListError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected entity list error to propagate")
 	}
+}
+
+func TestInsightsProvider_Fetch(t *testing.T) {
+	const owner = "alice@example.com"
+	ref := knowledgepage.InsightRef("ins_1")
+	live := func() *knowledgekit.Insight {
+		return &knowledgekit.Insight{ID: "ins_1", CapturedBy: owner, Status: knowledgekit.StatusApproved, InsightText: "orders.total excludes tax", EntityURNs: []string{"urn:li:dataset:orders"}}
+	}
+
+	t.Run("returns the owner's live insight", func(t *testing.T) {
+		s := &fakeInsightStore{getInsight: live()}
+		doc, owned, err := NewInsightsProvider(s).Fetch(context.Background(), ref, Caller{Email: owner})
+		if !owned || err != nil {
+			t.Fatalf("owned=%v err=%v", owned, err)
+		}
+		if s.gotGetID != "ins_1" {
+			t.Errorf("Get id = %q", s.gotGetID)
+		}
+		if doc.Source != SourceInsights || doc.Body != "orders.total excludes tax" {
+			t.Errorf("doc = %+v", doc)
+		}
+		if len(doc.EntityURNs) != 1 {
+			t.Errorf("EntityURNs = %+v", doc.EntityURNs)
+		}
+	})
+
+	t.Run("declines a non-insight reference", func(t *testing.T) {
+		s := &fakeInsightStore{}
+		_, owned, err := NewInsightsProvider(s).Fetch(context.Background(), "mcp:memory:m1", Caller{Email: owner})
+		if owned || err != nil {
+			t.Errorf("owned=%v err=%v, want declined", owned, err)
+		}
+		if s.gotGetID != "" {
+			t.Errorf("Get must not be called for a non-insight reference")
+		}
+	})
+
+	t.Run("anonymous caller is not-found", func(t *testing.T) {
+		s := &fakeInsightStore{getInsight: live()}
+		_, owned, err := NewInsightsProvider(s).Fetch(context.Background(), ref, Caller{})
+		if !owned || !errors.Is(err, ErrNotFound) || s.gotGetID != "" {
+			t.Errorf("owned=%v err=%v get=%q, want owned + ErrNotFound + no Get", owned, err, s.gotGetID)
+		}
+	})
+
+	t.Run("another owner's insight is not-found", func(t *testing.T) {
+		in := live()
+		in.CapturedBy = "bob@example.com"
+		s := &fakeInsightStore{getInsight: in}
+		_, owned, err := NewInsightsProvider(s).Fetch(context.Background(), ref, Caller{Email: owner})
+		if !owned || !errors.Is(err, ErrNotFound) {
+			t.Errorf("owned=%v err=%v, want ErrNotFound for another owner", owned, err)
+		}
+	})
+
+	t.Run("a retracted insight is still fetchable by its owner", func(t *testing.T) {
+		// Search retracts non-live insights only from the default discovery path; an
+		// explicit status query still surfaces them with a reference, so fetch must
+		// dereference any owned insight regardless of status.
+		in := live()
+		in.Status = knowledgekit.StatusSuperseded
+		s := &fakeInsightStore{getInsight: in}
+		doc, owned, err := NewInsightsProvider(s).Fetch(context.Background(), ref, Caller{Email: owner})
+		if !owned || err != nil || doc.Body != "orders.total excludes tax" {
+			t.Errorf("owned=%v err=%v doc=%+v, want the retracted insight returned to its owner", owned, err, doc)
+		}
+	})
+
+	t.Run("a stale id (the store's not-found sentinel) is not-found", func(t *testing.T) {
+		// Insights are memory_records behind the adapter, so a missing id surfaces
+		// memory.ErrRecordNotFound (wrapped), NOT sql.ErrNoRows.
+		s := &fakeInsightStore{getErr: fmt.Errorf("getting insight record: %w", memory.ErrRecordNotFound)}
+		_, owned, err := NewInsightsProvider(s).Fetch(context.Background(), ref, Caller{Email: owner})
+		if !owned || !errors.Is(err, ErrNotFound) {
+			t.Errorf("owned=%v err=%v, want ErrNotFound", owned, err)
+		}
+	})
+
+	t.Run("a genuine store error surfaces", func(t *testing.T) {
+		s := &fakeInsightStore{getErr: errors.New("db down")}
+		_, owned, err := NewInsightsProvider(s).Fetch(context.Background(), ref, Caller{Email: owner})
+		if !owned || err == nil || errors.Is(err, ErrNotFound) {
+			t.Errorf("owned=%v err=%v, want a non-not-found error", owned, err)
+		}
+	})
 }

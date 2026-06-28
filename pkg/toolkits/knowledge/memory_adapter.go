@@ -41,11 +41,19 @@ func (a *memoryInsightAdapter) Insert(ctx context.Context, insight Insight) erro
 	return nil
 }
 
-// Get retrieves a single insight by ID.
+// Get retrieves a single insight by ID. It is dimension-scoped like List and
+// Search (the adapter is a knowledge-dimension view of the shared memory store): a
+// record from another dimension is a memory, not an insight, so it is reported
+// not-found rather than returned mislabeled. This keeps the by-id read consistent
+// with the search paths, so an mcp:insight:<id> reference that actually names a
+// non-knowledge memory record cannot resolve as an insight (#699).
 func (a *memoryInsightAdapter) Get(ctx context.Context, id string) (*Insight, error) {
 	record, err := a.store.Get(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("getting insight record: %w", err)
+	}
+	if record.Dimension != a.dimension {
+		return nil, fmt.Errorf("insight %s: %w", id, memory.ErrRecordNotFound)
 	}
 	insight := recordToInsight(*record)
 	return &insight, nil

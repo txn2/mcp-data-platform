@@ -66,6 +66,20 @@ func (s *scopedMemoryStore) scoped(owner string) []memory.ScoredRecord {
 	return out
 }
 
+// Get reads a record by id regardless of owner (the MemoryProvider applies the
+// ownership scope), modeling the real store's by-id read; a missing id is the
+// store's memory.ErrRecordNotFound sentinel (the real store does NOT surface
+// sql.ErrNoRows).
+func (s *scopedMemoryStore) Get(_ context.Context, id string) (*memory.Record, error) {
+	for i := range s.records {
+		if s.records[i].ID == id {
+			r := s.records[i]
+			return &r, nil
+		}
+	}
+	return nil, fmt.Errorf("memory record not found: %s: %w", id, memory.ErrRecordNotFound)
+}
+
 // scopedInsightStore returns only insights whose CapturedBy matches the query.
 type scopedInsightStore struct {
 	insights []knowledgekit.Insight
@@ -95,6 +109,19 @@ func (s *scopedInsightStore) List(_ context.Context, f knowledgekit.InsightFilte
 		out = append(out, in)
 	}
 	return out, len(out), nil
+}
+
+// Get reads an insight by id regardless of owner (the InsightsProvider applies the
+// ownership scope), modeling the memory-backed adapter; a missing id surfaces the
+// wrapped memory.ErrRecordNotFound the adapter passes through.
+func (s *scopedInsightStore) Get(_ context.Context, id string) (*knowledgekit.Insight, error) {
+	for i := range s.insights {
+		if s.insights[i].ID == id {
+			in := s.insights[i]
+			return &in, nil
+		}
+	}
+	return nil, fmt.Errorf("getting insight record: %w", memory.ErrRecordNotFound)
 }
 
 // scopedAssetStore returns only assets whose OwnerID matches the query.
@@ -212,10 +239,10 @@ const (
 // adapters, with per-user data owned by user A and shared catalog/prompt data.
 func assembledToolkit() *Toolkit {
 	mem := &scopedMemoryStore{records: []memory.Record{
-		{ID: "m-alice", CreatedBy: userAEmail, Content: "alice memory", Dimension: memory.DimensionPreference},
+		{ID: "m-alice", CreatedBy: userAEmail, Content: "alice memory", Dimension: memory.DimensionPreference, Status: memory.StatusActive},
 	}}
 	ins := &scopedInsightStore{insights: []knowledgekit.Insight{
-		{ID: "i-alice", CapturedBy: userAEmail, InsightText: "alice insight"},
+		{ID: "i-alice", CapturedBy: userAEmail, InsightText: "alice insight", Status: knowledgekit.StatusApproved},
 	}}
 	assets := &scopedAssetStore{assets: []portal.Asset{
 		{ID: "a-alice", OwnerID: userAID, Name: "alice asset"},
@@ -818,5 +845,46 @@ func TestFetch_EmptyReferenceIsToolError(t *testing.T) {
 	}
 	if !res.IsError {
 		t.Errorf("empty reference should be a tool error, got %+v", res.Content)
+	}
+}
+
+// AC (#699): memory and insight search hits now carry a fetchable reference, and a
+// fetch on that reference returns the full record scoped to the caller.
+func TestFetch_MemoryAndInsightRoundTrip(t *testing.T) {
+	tk := assembledToolkit()
+	aCtx := ctxFor(userAID, userAEmail)
+
+	// search surfaces alice's memory and insight, each now carrying a reference.
+	out := callSearch(aCtx, t, tk, "alice")
+	memRef := referenceFor(t, out, "memory")
+	insRef := referenceFor(t, out, "insights")
+	if memRef != "mcp:memory:m-alice" {
+		t.Fatalf("memory reference = %q, want mcp:memory:m-alice", memRef)
+	}
+	if insRef != "mcp:insight:i-alice" {
+		t.Fatalf("insight reference = %q, want mcp:insight:i-alice", insRef)
+	}
+
+	// The owner fetches both in full.
+	if got := callFetch(aCtx, t, tk, memRef); !got.Found || got.Document.Body != "alice memory" {
+		t.Errorf("owner memory fetch = %+v", got)
+	}
+	if got := callFetch(aCtx, t, tk, insRef); !got.Found || got.Document.Body != "alice insight" {
+		t.Errorf("owner insight fetch = %+v", got)
+	}
+
+	// Another user fetching alice's references gets a structured not-found: fetch
+	// never reads memory or insights the caller could not have searched.
+	bCtx := ctxFor(userBID, userBEmail)
+	if got := callFetch(bCtx, t, tk, memRef); got.Found {
+		t.Errorf("user B fetched user A's memory: %+v", got.Document)
+	}
+	if got := callFetch(bCtx, t, tk, insRef); got.Found {
+		t.Errorf("user B fetched user A's insight: %+v", got.Document)
+	}
+
+	// An anonymous caller likewise cannot fetch a per-user reference.
+	if got := callFetch(context.Background(), t, tk, memRef); got.Found {
+		t.Errorf("anonymous caller fetched a memory record: %+v", got.Document)
 	}
 }

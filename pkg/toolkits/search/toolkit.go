@@ -148,7 +148,7 @@ var fetchSchema = json.RawMessage(`{
   "properties": {
     "reference": {
       "type": "string",
-      "description": "A reference to read in full. References come in two namespaces: urn:li:... is the external DataHub catalog scheme, mcp:... is the internal-platform scheme. fetch dereferences any well-formed reference of these forms: knowledge pages (mcp:knowledge_page:<id>), context documents (urn:li:document:<id>), catalog datasets (urn:li:dataset:<id>), saved assets (mcp:asset:<id>), prompts (mcp:prompt:<id>), and connections (mcp:connection:(kind,name)). The usual source is a search result's \"reference\" field (pass it verbatim), but a reference you already hold from another tool works too (for example a urn:li:dataset:... from datahub_get_lineage or an entity_urns lookup). Returns the full content the search snippet was a preview of."
+      "description": "A reference to read in full. References come in two namespaces: urn:li:... is the external DataHub catalog scheme, mcp:... is the internal-platform scheme. fetch dereferences any well-formed reference of these forms: knowledge pages (mcp:knowledge_page:<id>), context documents (urn:li:document:<id>), catalog datasets (urn:li:dataset:<id>), saved assets (mcp:asset:<id>), prompts (mcp:prompt:<id>), connections (mcp:connection:(kind,name)), your captured insights (mcp:insight:<id>), and your personal memory (mcp:memory:<id>). The usual source is a search result's \"reference\" field (pass it verbatim), but a reference you already hold from another tool works too (for example a urn:li:dataset:... from datahub_get_lineage or an entity_urns lookup). Your memory and insights are scoped to you. Returns the full content the search snippet was a preview of."
     }
   }
 }`)
@@ -200,7 +200,8 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Description: "Read a reference in full. search returns navigational pointers with truncated " +
 			"snippets; fetch dereferences one pointer's reference back to its complete content (a knowledge " +
 			"page's body, a context document's full text, a dataset's catalog context, an asset's metadata, " +
-			"a prompt, or a connection descriptor). A reference is either a urn:li:... form (the external " +
+			"a prompt, a connection descriptor, one of your captured insights, or one of your personal " +
+			"memory records). A reference is either a urn:li:... form (the external " +
 			"DataHub catalog scheme) or an mcp:... form (the internal-platform scheme); fetch accepts both. " +
 			"The usual source is a search result's \"reference\" field (pass it verbatim), but a well-formed " +
 			"reference you already hold from another tool works too (for example a urn:li:dataset:... from " +

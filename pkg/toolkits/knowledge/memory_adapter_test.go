@@ -246,6 +246,7 @@ func TestMemoryInsightAdapter_Get(t *testing.T) {
 			CreatedAt:  now,
 			CreatedBy:  "user@example.com",
 			Persona:    "admin",
+			Dimension:  memory.DimensionKnowledge,
 			Content:    "This table is deprecated",
 			Category:   "data_quality",
 			Confidence: "medium",
@@ -304,6 +305,24 @@ func TestMemoryInsightAdapter_Get_NotFound(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, insight)
 	assert.Contains(t, err.Error(), "getting insight record")
+}
+
+// TestMemoryInsightAdapter_Get_WrongDimension proves Get is dimension-scoped like
+// List/Search (#699): a record from another dimension is a memory, not an insight,
+// so Get reports it not-found (memory.ErrRecordNotFound) rather than returning it
+// mislabeled. This is what stops an mcp:insight:<id> that names a memory record from
+// resolving as an insight.
+func TestMemoryInsightAdapter_Get_WrongDimension(t *testing.T) {
+	store := &mockMemoryStore{getRecord: &memory.Record{
+		ID: "mem-1", CreatedBy: "u@example.com", Dimension: memory.DimensionPreference,
+		Content: "I prefer ISO dates", Status: memory.StatusActive,
+	}}
+	adapter := NewMemoryInsightAdapter(store)
+
+	insight, err := adapter.Get(context.Background(), "mem-1")
+	require.Error(t, err)
+	assert.Nil(t, insight)
+	assert.ErrorIs(t, err, memory.ErrRecordNotFound, "a non-knowledge record is not an insight")
 }
 
 func TestMemoryInsightAdapter_List_FilterMapping(t *testing.T) {

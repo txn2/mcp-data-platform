@@ -28,6 +28,17 @@ const (
 	RefTargetKnowledgePage = "knowledge_page"
 	RefTargetConnection    = "connection"
 	RefTargetDataHub       = "datahub"
+	// RefTargetInsight is a captured insight (a knowledge-dimension memory record).
+	// It is fetchable by its owner, but NOT citable on a shared knowledge page (#699):
+	// an insight is ScopePerUser, so a citation would resolve only for its capturer.
+	// Promote the insight to the catalog via apply_knowledge and cite the resulting
+	// urn:li:... entity instead. The page-citation path rejects it (ParseCitableRef).
+	RefTargetInsight = "insight"
+	// RefTargetMemory is a personal memory record. It is fetchable by its owner but
+	// must NOT be cited on a shared knowledge page: a per-user reference would
+	// resolve only for its owner and be a broken citation for everyone else (#699).
+	// It has no DB column and is rejected by the page-citation path (ParseCitableRef).
+	RefTargetMemory = "memory"
 )
 
 // Entity-reference sources, recording how a reference came to be so the inline
@@ -42,19 +53,23 @@ const (
 // EntityRef is a typed reference from a knowledge page to an entity it provides
 // knowledge about. Exactly one target is populated, matching TargetType.
 type EntityRef struct {
-	ID             string    `json:"id,omitempty"`
-	PageID         string    `json:"page_id,omitempty"`
-	TargetType     string    `json:"target_type"`
-	AssetID        string    `json:"asset_id,omitempty"`
-	PromptID       string    `json:"prompt_id,omitempty"`
-	CollectionID   string    `json:"collection_id,omitempty"`
-	RefPageID      string    `json:"ref_page_id,omitempty"`
-	ConnectionKind string    `json:"connection_kind,omitempty"`
-	ConnectionName string    `json:"connection_name,omitempty"`
-	EntityURN      string    `json:"entity_urn,omitempty"`
-	Source         string    `json:"source,omitempty"`
-	CreatedBy      string    `json:"created_by,omitempty"`
-	CreatedAt      time.Time `json:"created_at"`
+	ID             string `json:"id,omitempty"`
+	PageID         string `json:"page_id,omitempty"`
+	TargetType     string `json:"target_type"`
+	AssetID        string `json:"asset_id,omitempty"`
+	PromptID       string `json:"prompt_id,omitempty"`
+	CollectionID   string `json:"collection_id,omitempty"`
+	RefPageID      string `json:"ref_page_id,omitempty"`
+	ConnectionKind string `json:"connection_kind,omitempty"`
+	ConnectionName string `json:"connection_name,omitempty"`
+	EntityURN      string `json:"entity_urn,omitempty"`
+	InsightID      string `json:"insight_id,omitempty"`
+	// MemoryID is set only by the parser for an mcp:memory: reference (fetch-only);
+	// it is never persisted, since memory is not citable on a page (#699).
+	MemoryID  string    `json:"memory_id,omitempty"`
+	Source    string    `json:"source,omitempty"`
+	CreatedBy string    `json:"created_by,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // refKeySep separates the target type from its id in a reference identity key.
@@ -83,6 +98,10 @@ func (r EntityRef) identity() string {
 		return RefTargetConnection + refKeySep + r.ConnectionKind + "/" + r.ConnectionName
 	case RefTargetDataHub:
 		return RefTargetDataHub + refKeySep + r.EntityURN
+	case RefTargetInsight:
+		return RefTargetInsight + refKeySep + r.InsightID
+	case RefTargetMemory:
+		return RefTargetMemory + refKeySep + r.MemoryID
 	default:
 		return r.TargetType + refKeySep
 	}

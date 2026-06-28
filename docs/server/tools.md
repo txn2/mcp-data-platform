@@ -678,16 +678,19 @@ routing each well-formed reference by its form to the owning source:
 | `mcp:asset:<id>` | assets | the asset's metadata record (blob bytes stay in S3, reached with `s3_get_object`/`s3_presign_url`) |
 | `mcp:prompt:<id>` | prompts | the full prompt |
 | `mcp:connection:(kind,name)` | connections | the connection descriptor |
+| `mcp:insight:<id>` | insights | the full captured insight (scoped to the caller; fetch-only, not citable on a page) |
+| `mcp:memory:<id>` | memory | the full personal memory record (scoped to the caller; fetch-only, not citable on a page) |
 
 The usual source of a reference is a `search` result's `reference` field, but
 `fetch` is not limited to references `search` produced: a well-formed reference
 held from another tool works too (for example a `urn:li:dataset:...` from
-`datahub_get_lineage` or an `entity_urns` lookup). Memory, insights, feedback, and
+`datahub_get_lineage` or an `entity_urns` lookup). Feedback threads and API
 endpoints emit no reference and are not fetch targets.
 
-**Scope mirrors `search` exactly:** a per-user source (assets) is read only for the
-identity that owns the record, and a persona/personal-scoped prompt only for the
-matching caller, so `fetch` never returns content the same caller could not have
+**Scope mirrors `search` exactly:** the per-user sources (assets, your memory, your
+insights) are read only for the identity that owns the record, and a
+persona/personal-scoped prompt only for the matching caller, so `fetch` never
+returns content the same caller could not have
 found with `search`. A reference outside the caller's scope is reported as
 not-found, indistinguishable from a missing one, so existence does not leak.
 
