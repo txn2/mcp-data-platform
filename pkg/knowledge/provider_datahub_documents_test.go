@@ -22,6 +22,12 @@ type fakeDocumentSearcher struct {
 	doc      *semantic.DocumentResult // GetDocument result
 	docErr   error
 	gotGetID string
+
+	browseDocs   []semantic.DocumentResult // BrowseDocuments page
+	browseTotal  int
+	browseErr    error
+	gotBrowseOff int
+	gotBrowseLim int
 }
 
 func (f *fakeDocumentSearcher) GetDocument(_ context.Context, urn string) (*semantic.DocumentResult, error) {
@@ -30,6 +36,14 @@ func (f *fakeDocumentSearcher) GetDocument(_ context.Context, urn string) (*sema
 		return nil, f.docErr
 	}
 	return f.doc, nil
+}
+
+func (f *fakeDocumentSearcher) BrowseDocuments(_ context.Context, offset, limit int) ([]semantic.DocumentResult, int, error) {
+	f.gotBrowseOff, f.gotBrowseLim = offset, limit
+	if f.browseErr != nil {
+		return nil, 0, f.browseErr
+	}
+	return f.browseDocs, f.browseTotal, nil
 }
 
 func (f *fakeDocumentSearcher) SearchDocuments(_ context.Context, query string, limit int) ([]semantic.DocumentResult, error) {
@@ -255,13 +269,15 @@ func TestContextDocumentsProvider_Fetch(t *testing.T) {
 		assert.ErrorIs(t, err, ErrNotFound)
 	})
 
-	t.Run("an unpublished draft is not-found, matching what search excludes", func(t *testing.T) {
-		// Both search arms drop non-PUBLISHED docs via publishedDocument; fetch must
-		// too, or a steward's draft becomes readable by URN.
+	t.Run("an unpublished draft is fetchable, since browse can surface it", func(t *testing.T) {
+		// Browse (#695) enumerates the whole corpus, drafts included, so a draft is a
+		// discoverable reference and fetch must read it (relevance search still hides
+		// drafts from its ranked view).
 		f := &fakeDocumentSearcher{doc: &semantic.DocumentResult{URN: "urn:li:document:d", Title: "Draft", Status: "UNPUBLISHED", Body: "wip"}}
-		_, owned, err := NewContextDocumentsProvider(f).Fetch(context.Background(), "urn:li:document:d", Caller{})
+		doc, owned, err := NewContextDocumentsProvider(f).Fetch(context.Background(), "urn:li:document:d", Caller{})
 		assert.True(t, owned)
-		assert.ErrorIs(t, err, ErrNotFound)
+		require.NoError(t, err)
+		assert.Equal(t, "wip", doc.Body)
 	})
 
 	t.Run("a published-but-hidden document stays fetchable by explicit URN", func(t *testing.T) {
@@ -284,5 +300,34 @@ func TestContextDocumentsProvider_Fetch(t *testing.T) {
 		doc2, _, err := NewContextDocumentsProvider(f2).Fetch(context.Background(), "urn:li:document:d", Caller{})
 		require.NoError(t, err)
 		assert.Equal(t, "context document", doc2.Title)
+	})
+}
+
+func TestContextDocumentsProvider_Browse(t *testing.T) {
+	t.Run("enumerates documents with total and references", func(t *testing.T) {
+		f := &fakeDocumentSearcher{
+			browseDocs: []semantic.DocumentResult{
+				{URN: "urn:li:document:a", Title: "A", Status: "PUBLISHED"},
+				{URN: "urn:li:document:draft", Title: "Draft", Status: "UNPUBLISHED"},
+			},
+			browseTotal: 14,
+		}
+		page, err := NewContextDocumentsProvider(f).Browse(context.Background(), BrowseQuery{Offset: 10, Limit: 25})
+		require.NoError(t, err)
+		if f.gotBrowseOff != 10 || f.gotBrowseLim != 25 {
+			t.Errorf("BrowseDocuments got offset=%d limit=%d, want 10/25", f.gotBrowseOff, f.gotBrowseLim)
+		}
+		assert.Equal(t, 14, page.Total)
+		// All documents enumerable, drafts included; references point back for fetch.
+		require.Len(t, page.Hits, 2)
+		assert.Equal(t, SourceContextDocuments, page.Hits[0].Source)
+		assert.Equal(t, "urn:li:document:a", page.Hits[0].Reference)
+		assert.Equal(t, "urn:li:document:draft", page.Hits[1].Reference)
+	})
+
+	t.Run("a browse error surfaces", func(t *testing.T) {
+		f := &fakeDocumentSearcher{browseErr: errors.New("datahub down")}
+		_, err := NewContextDocumentsProvider(f).Browse(context.Background(), BrowseQuery{})
+		assert.Error(t, err)
 	})
 }

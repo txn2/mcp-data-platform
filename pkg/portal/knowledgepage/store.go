@@ -233,7 +233,11 @@ func (s *postgresStore) GetBySlug(ctx context.Context, slug string) (*Page, erro
 }
 
 // List returns non-deleted pages matching the filter, plus the total count
-// (for pagination). Ordered by most-recently-updated.
+// (for pagination). Ordered by most-recently-updated, with the unique id as a
+// tiebreaker so the order is a deterministic TOTAL order: pages that share an
+// updated_at timestamp (e.g. a bulk import) keep a stable relative position across
+// separate paginated queries, so an offset/limit sweep neither skips nor
+// double-returns a page.
 func (s *postgresStore) List(ctx context.Context, filter Filter) ([]Page, int, error) { //nolint:revive // interface impl
 	total, err := s.countPages(ctx, filter)
 	if err != nil {
@@ -242,7 +246,7 @@ func (s *postgresStore) List(ctx context.Context, filter Filter) ([]Page, int, e
 
 	qb := applyFilter(psq.Select(pageColumns).From("portal_knowledge_pages"), filter).
 		Where("deleted_at IS NULL").
-		OrderBy("updated_at DESC").
+		OrderBy("updated_at DESC", "id ASC").
 		Limit(uint64(clampSearchLimit(filter.Limit))) // #nosec G115 -- clampSearchLimit bounds to [1, maxSearchLimit]
 	if filter.Offset > 0 {
 		qb = qb.Offset(uint64(filter.Offset)) // #nosec G115 -- offset guarded > 0

@@ -159,16 +159,21 @@ func unknownSources(sources []string) []string {
 	return unknown
 }
 
-// clampLimit constrains the per-provider result limit to valid bounds.
-func clampLimit(limit int) int {
+// clampInt constrains limit to [1, max], substituting def for a non-positive
+// (unset) value. It is the one clamp rule shared by the search display budget and
+// the browse page size, so the two cannot drift.
+func clampInt(limit, def, upper int) int {
 	if limit <= 0 {
-		return defaultLimit
+		return def
 	}
-	if limit > maxLimit {
-		return maxLimit
+	if limit > upper {
+		return upper
 	}
 	return limit
 }
+
+// clampLimit constrains the per-provider result limit to valid bounds.
+func clampLimit(limit int) int { return clampInt(limit, defaultLimit, maxLimit) }
 
 // Search runs one knowledge search from a caller-built Query. It embeds the
 // intent once (when present) and shares the vector across providers, queries

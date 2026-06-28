@@ -24,6 +24,9 @@ type PageSearcher interface {
 	// dereferenced to the full body). Returns knowledgepage.ErrNotFound for a
 	// missing id.
 	Get(ctx context.Context, id string) (*knowledgepage.Page, error)
+	// List returns the offset/limit page of live pages plus the total live-page
+	// count, ordered deterministically, for exhaustive enumeration (#695).
+	List(ctx context.Context, filter knowledgepage.Filter) ([]knowledgepage.Page, int, error)
 }
 
 // PagesProvider exposes the platform's canonical knowledge pages (the
@@ -149,6 +152,31 @@ func (p *PagesProvider) Fetch(ctx context.Context, ref string, _ Caller) (*Docum
 		Title:     page.Title,
 		Body:      page.Body,
 	}, true, nil
+}
+
+// Browse enumerates knowledge pages in full (#695): the offset/limit page of live
+// pages plus the total live-page count, with no relevance threshold, so an agent can
+// page the whole corpus to audit or migrate it. Pages are org-shared, so no
+// per-caller scope applies; the store's List excludes soft-deleted pages and orders
+// by (updated_at DESC, id) - a deterministic total order whose unique id tiebreaker
+// keeps pagination stable across pages even when timestamps collide, so a sweep
+// neither skips nor double-returns a page of a fixed corpus. Each member carries the
+// same Reference search emits, so a browse page feeds directly into fetch.
+func (p *PagesProvider) Browse(ctx context.Context, q BrowseQuery) (BrowsePage, error) {
+	pages, total, err := p.searcher.List(ctx, knowledgepage.Filter{Offset: q.Offset, Limit: q.Limit})
+	if err != nil {
+		return BrowsePage{}, fmt.Errorf("listing knowledge pages: %w", err)
+	}
+	hits := make([]Hit, 0, len(pages))
+	for i := range pages {
+		hits = append(hits, Hit{
+			Text:      knowledgePageHitText(pages[i]),
+			Source:    SourceKnowledgePages,
+			Ref:       pages[i].ID,
+			Reference: knowledgepage.PageReference(pages[i].ID),
+		})
+	}
+	return BrowsePage{Hits: hits, Total: total}, nil
 }
 
 // knowledgePageRefHitText renders a reverse-lookup page hit: its title, noting it

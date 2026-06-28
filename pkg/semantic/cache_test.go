@@ -346,10 +346,13 @@ func TestCachedProvider_Errors(t *testing.T) {
 // docProvider is a Provider (via embedded NoopProvider) that also implements
 // DocumentSearcher, to exercise the cache decorator's forward of the optional
 // document-search capability (#692).
+var errTestBrowse = errors.New("browse failed")
+
 type docProvider struct {
 	*NoopProvider
 	docs         []DocumentResult
 	relatedCalls int
+	browseErr    error
 }
 
 func (d *docProvider) SearchDocuments(_ context.Context, _ string, _ int) ([]DocumentResult, error) {
@@ -368,6 +371,13 @@ func (d *docProvider) GetDocument(_ context.Context, urn string) (*DocumentResul
 		}
 	}
 	return nil, fmt.Errorf("document %s: %w", urn, ErrDocumentNotFound)
+}
+
+func (d *docProvider) BrowseDocuments(_ context.Context, _, _ int) ([]DocumentResult, int, error) {
+	if d.browseErr != nil {
+		return nil, 0, d.browseErr
+	}
+	return d.docs, len(d.docs), nil
 }
 
 func TestCachedProvider_GetRelatedDocumentsCachesByURN(t *testing.T) {
@@ -409,6 +419,17 @@ func TestCachedProvider_SearchDocuments(t *testing.T) {
 	if err != nil || doc == nil || doc.URN != "urn:li:document:d1" {
 		t.Errorf("GetDocument forward = %+v err=%v, want d1", doc, err)
 	}
+
+	// Document enumeration forwards through the cache too (#695).
+	browsed, total, err := c.BrowseDocuments(context.Background(), 0, 10)
+	if err != nil || total != 1 || len(browsed) != 1 || browsed[0].URN != "urn:li:document:d1" {
+		t.Errorf("BrowseDocuments forward = %+v total=%d err=%v, want 1 doc, total 1", browsed, total, err)
+	}
+	// A browse error from the wrapped provider propagates (wrapped) through the cache.
+	cErr := NewCachedProvider(&docProvider{NoopProvider: NewNoopProvider(), browseErr: errTestBrowse}, CacheConfig{})
+	if _, _, err := cErr.BrowseDocuments(context.Background(), 0, 10); err == nil {
+		t.Error("a browse error should propagate through the cache")
+	}
 	// A URN the inner does not know surfaces ErrDocumentNotFound through the cache.
 	if _, err := c.GetDocument(context.Background(), "urn:li:document:missing"); !errors.Is(err, ErrDocumentNotFound) {
 		t.Errorf("GetDocument(missing) err = %v, want ErrDocumentNotFound", err)
@@ -434,6 +455,9 @@ func TestCachedProvider_SearchDocuments(t *testing.T) {
 	}
 	if _, err := c2.GetDocument(context.Background(), "urn:li:document:d1"); !errors.Is(err, ErrDocumentNotFound) {
 		t.Errorf("GetDocument on non-DocumentSearcher inner err = %v, want ErrDocumentNotFound", err)
+	}
+	if docs, total, err := c2.BrowseDocuments(context.Background(), 0, 10); err != nil || docs != nil || total != 0 {
+		t.Errorf("BrowseDocuments on non-DocumentSearcher inner = %+v total=%d err=%v, want empty", docs, total, err)
 	}
 }
 

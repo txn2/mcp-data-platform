@@ -626,6 +626,36 @@ and `dimension`), and a `coverage` array (`{source, matched, shown}`).
 
 ---
 
+### search browse mode (enumeration)
+
+`search` is relevance-ranked and floors/caps each source, so it cannot list a
+source in full. Browse mode (#695) is the exhaustive counterpart: it pages the
+complete set of one source with a total count and **no relevance threshold**, so an
+agent can audit, dedup, govern, or migrate a corpus it must first obtain in full.
+It is the same `search` tool, not a new one.
+
+A call enters browse mode when it carries **exactly one `sources` entry, no
+`intent`, and no `entity_urns`**; pass `offset` to page. Browsable sources:
+`knowledge_pages` and `context_documents` (the two tiers that had no enumeration on
+the MCP surface). Browsing more than one source at once, a non-browsable source, or
+an unknown source is a tool error that names what can be browsed.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `sources` | array | Yes | - | Exactly one source to enumerate (`knowledge_pages` or `context_documents`) |
+| `offset` | integer | No | 0 | 0-based start of the page |
+| `limit` | integer | No | 50 | Page size (max 100) |
+
+The response is a flat, unranked page: `{source, total, offset, limit, count,
+items[]}`, where `total` is the source's full member count (so the agent knows how
+many pages remain) and each item carries the same `reference` that `fetch` reads in
+full. Context-document enumeration includes every document (drafts and hidden ones),
+so the page and `total` describe the same complete set. Scope mirrors `search`: the
+two browsable sources are org-global, so any caller may enumerate them; a per-user
+source is never browsable for an anonymous caller.
+
+---
+
 ### fetch
 
 The companion read verb to [`search`](#search). `search` returns navigational

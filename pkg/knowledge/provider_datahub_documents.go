@@ -125,12 +125,15 @@ const documentPrefix = "urn:li:document:"
 // (#694). Context documents are snippet-only in search; this is the only MCP path
 // to their complete content. It owns only the document URN form; any other
 // reference is declined (owned=false). A URN that resolves to no document
-// (semantic.ErrDocumentNotFound), or one whose document is a draft, is ErrNotFound:
-// both search arms exclude drafts via publishedDocument, so fetch must too, lest a
-// steward's in-progress draft be readable by URN when search never surfaces it.
-// Publication is the only gate; the catalog is global, so no per-caller scope
-// applies, and a hidden (ShowInGlobalContext=false) but published document stays
-// fetchable by its explicit URN, the same linked-asset path the entity arm honors.
+// (semantic.ErrDocumentNotFound) is ErrNotFound.
+//
+// No publication or visibility filter is applied: browse (#695) enumerates the
+// whole corpus, drafts and hidden documents included, so a draft is a legitimately
+// discoverable reference and fetch must read it (else browse would list documents
+// fetch refuses, and a migration task could not open the drafts it is sent to
+// clean up). The catalog is global, so no per-caller scope applies; relevance
+// search still hides drafts and hidden documents from its ranked results (the
+// curated view), while browse + fetch are the exhaustive read path.
 func (p *ContextDocumentsProvider) Fetch(ctx context.Context, ref string, _ Caller) (*Document, bool, error) {
 	if !strings.HasPrefix(ref, documentPrefix) {
 		return nil, false, nil
@@ -142,7 +145,7 @@ func (p *ContextDocumentsProvider) Fetch(ctx context.Context, ref string, _ Call
 		}
 		return nil, true, fmt.Errorf("getting context document %s: %w", ref, err)
 	}
-	if doc == nil || !publishedDocument(*doc) {
+	if doc == nil {
 		return nil, true, ErrNotFound
 	}
 	return &Document{
@@ -152,6 +155,24 @@ func (p *ContextDocumentsProvider) Fetch(ctx context.Context, ref string, _ Call
 		Body:       doc.Body,
 		EntityURNs: doc.RelatedAssetURNs,
 	}, true, nil
+}
+
+// Browse enumerates context documents in full (#695): the offset/limit page of the
+// complete corpus plus the total document count, with no relevance threshold and no
+// visibility/status filter, so a governance sweep sees every document (drafts and
+// hidden ones included) and the page matches the total. The catalog is global, so no
+// per-caller scope applies. Each member carries the same Reference search emits, so a
+// browse page feeds directly into fetch.
+func (p *ContextDocumentsProvider) Browse(ctx context.Context, q BrowseQuery) (BrowsePage, error) {
+	docs, total, err := p.searcher.BrowseDocuments(ctx, q.Offset, q.Limit)
+	if err != nil {
+		return BrowsePage{}, fmt.Errorf("browsing context documents: %w", err)
+	}
+	hits := make([]Hit, 0, len(docs))
+	for i := range docs {
+		hits = append(hits, documentHit(docs[i], 0))
+	}
+	return BrowsePage{Hits: hits, Total: total}, nil
 }
 
 // documentTitle renders a document's display title, falling back to its sub-type

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	dhclient "github.com/txn2/mcp-datahub/pkg/client"
@@ -327,6 +328,68 @@ func (a *Adapter) GetDocument(ctx context.Context, urn string) (*semantic.Docume
 	r.Body = doc.Content
 	r.Snippet = ""
 	return &r, nil
+}
+
+// BrowseDocuments enumerates context documents for the browse surface (#695): the
+// offset/limit page of the complete corpus plus the total count. The list query
+// "*" returns every document with no relevance threshold; WithOffset/WithLimit
+// page it. The total comes from a separate count-only searchAcrossEntities scoped
+// to the DOCUMENT entity type (the document-scoped SearchDocuments query fetches
+// the total in GraphQL but the upstream client does not surface it, so the total is
+// read from the typed SearchResult instead, with count=1 to avoid transferring a
+// second full page). No visibility/status filter is applied, so the page and total
+// describe the same complete set (drafts and hidden documents included).
+func (a *Adapter) BrowseDocuments(ctx context.Context, offset, limit int) ([]semantic.DocumentResult, int, error) {
+	// The count and the page are independent DataHub round trips with no data
+	// dependency, so they run concurrently: a corpus sweep pays max(count, page)
+	// latency per page rather than their sum.
+	var (
+		wg       sync.WaitGroup
+		total    int
+		countErr error
+		docs     []types.Document
+		listErr  error
+	)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		countRes, err := a.client.SearchAcrossEntities(ctx, "*",
+			dhclient.WithTypes([]string{dhclient.EntityTypeDocument}), dhclient.WithLimit(1))
+		if err != nil {
+			countErr = fmt.Errorf("counting datahub documents: %w", err)
+			return
+		}
+		total = countRes.Total
+	}()
+	go func() {
+		defer wg.Done()
+		opts := []dhclient.SearchOption{}
+		if limit > 0 {
+			opts = append(opts, dhclient.WithLimit(limit))
+		}
+		if offset > 0 {
+			opts = append(opts, dhclient.WithOffset(offset))
+		}
+		d, err := a.client.SearchDocuments(ctx, "*", opts...)
+		if err != nil {
+			listErr = fmt.Errorf("listing datahub documents: %w", err)
+			return
+		}
+		docs = d
+	}()
+	wg.Wait()
+	if countErr != nil {
+		return nil, 0, countErr
+	}
+	if listErr != nil {
+		return nil, 0, listErr
+	}
+
+	results := make([]semantic.DocumentResult, 0, len(docs))
+	for i := range docs {
+		results = append(results, toDocumentResult(&docs[i]))
+	}
+	return results, total, nil
 }
 
 // toDocumentResult maps a DataHub document to the neutral semantic result.
