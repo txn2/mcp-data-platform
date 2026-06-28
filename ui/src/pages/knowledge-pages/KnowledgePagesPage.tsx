@@ -23,6 +23,7 @@ import { FeedbackButton } from "@/components/feedback/FeedbackButton";
 import { useAuthStore } from "@/stores/auth";
 import { parseTags } from "@/lib/tags";
 import { FilterChip } from "@/components/FilterChip";
+import { visibleFacetTags } from "./tagFacet";
 import { useDebounced } from "@/lib/useDebounced";
 import { MIN_SEARCH_LEN } from "@/api/portal/hooks";
 
@@ -137,12 +138,19 @@ function PageCard({
 function KnowledgePageList({ canEdit, onOpen, onCreate }: { canEdit: boolean; onOpen: (id: string) => void; onCreate: () => void }) {
   const [query, setQuery] = useState("");
   const [tag, setTag] = useState("");
+  // Whether the tag facet shows every tag or just the top TAG_FACET_LIMIT.
+  const [tagsExpanded, setTagsExpanded] = useState(false);
   // Debounce the input and require a minimum length before searching, so the
   // content search issues one request after the user pauses rather than one per
   // keystroke. The hook enforces the same floor as a backstop.
   const debouncedQuery = useDebounced(query, 250);
   const trimmed = debouncedQuery.trim();
   const searching = trimmed.length >= MIN_SEARCH_LEN;
+  // Searching hides the facet; collapse it so returning to browse starts from the
+  // compact top-N view rather than a stale expansion from before the search.
+  useEffect(() => {
+    if (searching) setTagsExpanded(false);
+  }, [searching]);
   // A high limit so the tag facet and counts reflect the whole knowledgebase,
   // not just the first page of results.
   const list = useKnowledgePages({ limit: 200 });
@@ -157,6 +165,12 @@ function KnowledgePageList({ canEdit, onOpen, onCreate }: { canEdit: boolean; on
     for (const p of allPages) for (const t of p.tags) m.set(t, (m.get(t) ?? 0) + 1);
     return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   }, [allPages]);
+
+  // The capped facet chips, and how many tags that leaves hidden. The reveal
+  // control only appears when something is actually hidden, so it is never a
+  // dead button (e.g. when a selected over-limit tag is already pulled in).
+  const visibleTags = visibleFacetTags(tagCounts, tag, tagsExpanded);
+  const tagsHidden = tagCounts.length - visibleTags.length;
 
   // Browse list: filter by the selected tag, newest first.
   const browsePages = useMemo(() => {
@@ -208,11 +222,13 @@ function KnowledgePageList({ canEdit, onOpen, onCreate }: { canEdit: boolean; on
         />
       </div>
 
-      {/* Tag browse (browse mode only) */}
+      {/* Tag browse (browse mode only). Cap the facet at TAG_FACET_LIMIT chips
+          with a reveal for the rest, so a large tag set does not push the page
+          list off-screen (#707). */}
       {!searching && tagCounts.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
           <FilterChip label="All" active={tag === ""} onClick={() => setTag("")} />
-          {tagCounts.map(([t, c]) => (
+          {visibleTags.map(([t, c]) => (
             <FilterChip
               key={t}
               label={t}
@@ -221,6 +237,15 @@ function KnowledgePageList({ canEdit, onOpen, onCreate }: { canEdit: boolean; on
               onClick={() => setTag(tag === t ? "" : t)}
             />
           ))}
+          {(tagsExpanded || tagsHidden > 0) && (
+            <button
+              type="button"
+              onClick={() => setTagsExpanded((v) => !v)}
+              className="rounded-full border border-dashed border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
+            >
+              {tagsExpanded ? "Show fewer" : `Show all (${tagCounts.length})`}
+            </button>
+          )}
         </div>
       )}
 
@@ -398,7 +423,7 @@ function KnowledgePageHistory({ id, onClose }: { id: string; onClose: () => void
   );
 }
 
-function KnowledgePageForm({ id, onDone }: { id?: string; onDone: (id: string | null) => void }) {
+export function KnowledgePageForm({ id, onDone }: { id?: string; onDone: (id: string | null) => void }) {
   const existing = useKnowledgePage(id ?? null);
   const create = useCreateKnowledgePage();
   const update = useUpdateKnowledgePage();
@@ -477,24 +502,47 @@ function KnowledgePageForm({ id, onDone }: { id?: string; onDone: (id: string | 
 
       {error && <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
 
-      <input
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        placeholder="Title"
-        className="w-full rounded-md border border-border bg-background px-3 py-2 text-lg font-medium outline-none focus:ring-2 focus:ring-primary/40"
-      />
-      <input
-        value={summary}
-        onChange={(e) => setSummary(e.target.value)}
-        placeholder="One-line summary (optional)"
-        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/40"
-      />
-      <input
-        value={tags}
-        onChange={(e) => setTags(e.target.value)}
-        placeholder="Tags, comma-separated (optional)"
-        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/40"
-      />
+      {/* Persistent labels so each field stays identifiable once populated (the
+          edit case), not just while the placeholder shows (#708). */}
+      <div className="space-y-1">
+        <label htmlFor="kp-title" className="text-xs font-medium text-muted-foreground">
+          Title
+        </label>
+        <input
+          id="kp-title"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Title"
+          className="w-full rounded-md border border-border bg-background px-3 py-2 text-lg font-medium outline-none focus:ring-2 focus:ring-primary/40"
+        />
+      </div>
+      <div className="space-y-1">
+        <label htmlFor="kp-summary" className="text-xs font-medium text-muted-foreground">
+          Summary <span className="font-normal opacity-70">(optional)</span>
+        </label>
+        {/* Multi-line so a two-sentence summary is fully readable without
+            horizontal scroll (#708). */}
+        <textarea
+          id="kp-summary"
+          value={summary}
+          onChange={(e) => setSummary(e.target.value)}
+          rows={3}
+          placeholder="A sentence or two summarizing the page"
+          className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/40"
+        />
+      </div>
+      <div className="space-y-1">
+        <label htmlFor="kp-tags" className="text-xs font-medium text-muted-foreground">
+          Tags <span className="font-normal opacity-70">(comma-separated, optional)</span>
+        </label>
+        <input
+          id="kp-tags"
+          value={tags}
+          onChange={(e) => setTags(e.target.value)}
+          placeholder="retail, pricing, seasonal"
+          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/40"
+        />
+      </div>
       <MarkdownEditor value={body} onChange={setBody} minHeight="420px" placeholder="Write the knowledge page in markdown..." />
     </div>
   );

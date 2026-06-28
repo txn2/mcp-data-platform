@@ -443,5 +443,8 @@ function generateNewValue(
 // Exports
 // ---------------------------------------------------------------------------
 
-export const mockInsights: Insight[] = generateInsights(50);
+// 110 so the admin review queue has a pending set spanning more than one page
+// (the status pool is ~30% pending), making the #706 count/pagination behavior
+// visible in frontend-mock as well as `make dev`.
+export const mockInsights: Insight[] = generateInsights(110);
 export const mockChangesets: Changeset[] = generateChangesets(mockInsights);
