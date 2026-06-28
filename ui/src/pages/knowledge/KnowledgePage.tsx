@@ -254,7 +254,7 @@ export function KnowledgeCaptureTab() {
       {totalPages > 1 && (
         <div className="flex items-center justify-between text-sm">
           <span className="text-muted-foreground">
-            Showing {(page - 1) * PER_PAGE + 1}--
+            Showing {(page - 1) * PER_PAGE + 1}-
             {Math.min(page * PER_PAGE, data?.total ?? 0)} of{" "}
             {data?.total ?? 0}
           </span>
@@ -696,7 +696,7 @@ export function ChangesetsTab() {
       {totalPages > 1 && (
         <div className="flex items-center justify-between text-sm">
           <span className="text-muted-foreground">
-            Showing {(page - 1) * PER_PAGE + 1}--
+            Showing {(page - 1) * PER_PAGE + 1}-
             {Math.min(page * PER_PAGE, data?.total ?? 0)} of{" "}
             {data?.total ?? 0}
           </span>

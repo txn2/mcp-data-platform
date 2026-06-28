@@ -344,14 +344,13 @@ func (t *Toolkit) bulkReviewItemized(ctx context.Context, input applyKnowledgeIn
 	return jsonResult(result)
 }
 
-// collectPending returns every pending insight in the global review queue.
-// The memory-backed store maps pending, approved and applied onto a single
-// "active" memory status and recovers the exact insight status per record, so a
-// single status-filtered page is not guaranteed to be complete: pending
-// insights can sit behind applied ones. We walk the whole active set by the
-// underlying total and keep the pending records.
+// collectPending returns every pending insight in the global review queue by
+// paging List until its reported total is covered. Since #706, List filters and
+// counts on the exact insight status and returns the exact pending total, so this
+// loop pages the pending set directly rather than walking the coarse active set;
+// for the common case (pending count <= one page) it is a single List call.
 //
-// The stride is MaxLimit, which is also the per-page count the store returns when
+// The stride is MaxLimit, which is also the per-page window List returns when
 // more records remain. That holds only while MaxLimit does not exceed the backing
 // store's own page cap (memory.MaxLimit); if it did, pages would be short and the
 // fixed stride would skip records. TestCollectPendingStrideInvariant guards that.
