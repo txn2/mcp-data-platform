@@ -132,6 +132,48 @@ func (p *CatalogProvider) searchByText(ctx context.Context, q Query, seen map[st
 	return hits, nil
 }
 
+// datasetPrefix is the URN form of a catalog dataset reference. The catalog owns
+// exactly this prefix for fetch; the context-documents source owns
+// urn:li:document:, so the two urn:li: sources never contend for a reference.
+const datasetPrefix = "urn:li:dataset:"
+
+// Fetch dereferences a urn:li:dataset:<id> reference to the dataset's full catalog
+// context (#694), folding what datahub_get_entity returns into the one fetch verb.
+// It owns only the dataset URN form; any other reference is declined (owned=false).
+// A URN that does not parse as a dataset, that the catalog has no entry for, or that
+// the catalog errors on is ErrNotFound: DataHub reports a missing/deleted entity as
+// an error rather than an empty result (mcp-datahub GetEntity), and the search
+// entity path treats that same lookup error as a skip (searchByEntity), so a stale
+// dataset citation must be a clean not-found here too, not a hard tool failure. The
+// catalog is global, so no per-caller scope applies.
+func (p *CatalogProvider) Fetch(ctx context.Context, ref string, _ Caller) (*Document, bool, error) {
+	if !strings.HasPrefix(ref, datasetPrefix) {
+		return nil, false, nil
+	}
+	table, err := memory.ParseURNToTable(ref)
+	if err != nil {
+		return nil, true, ErrNotFound
+	}
+	tc, err := p.searcher.GetTableContext(ctx, table)
+	if err != nil {
+		// DataHub conflates "no such entity" with an error, the same condition
+		// searchByEntity skips; surface it as not-found so a stale citation is a clean
+		// answer rather than a failure.
+		slog.Debug("catalog entity fetch miss", "urn", ref, "error", err)
+		return nil, true, ErrNotFound
+	}
+	if tc == nil || tc.URN == "" {
+		return nil, true, ErrNotFound
+	}
+	return &Document{
+		Reference:  ref,
+		Source:     SourceCatalog,
+		Title:      table.String(),
+		Content:    tc,
+		EntityURNs: []string{ref},
+	}, true, nil
+}
+
 // positionalScore turns a 0-based rank into a descending score in (0,1],
 // highest for the first result. DataHub returns an ordered list without
 // numeric scores, so order is the only relevance signal available.

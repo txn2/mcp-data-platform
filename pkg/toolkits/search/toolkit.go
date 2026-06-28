@@ -12,6 +12,7 @@ package search
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -23,8 +24,12 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 )
 
-// toolName is the MCP tool name for the universal search entry point.
-const toolName = "search"
+// toolName is the MCP tool name for the universal search entry point; fetchToolName
+// is its companion read verb that dereferences a search reference to full content.
+const (
+	toolName      = "search"
+	fetchToolName = "fetch"
+)
 
 // searchInput is the deserialized search input. Intent is the natural-language
 // description of what the caller wants; Context is optional surrounding detail
@@ -94,6 +99,38 @@ var searchSchema = json.RawMessage(`{
   }
 }`)
 
+// fetchInput is the deserialized fetch input: a single reference string, the
+// canonical citation search emits on every result (mcp:knowledge_page:<id>,
+// urn:li:document:<id>, urn:li:dataset:<id>, mcp:asset:<id>, mcp:prompt:<id>, or
+// mcp:connection:(kind,name)).
+type fetchInput struct {
+	Reference string `json:"reference"`
+}
+
+// fetchOutput is the fetch response. Found reports whether the reference resolved;
+// when false, Document is nil and Message explains why (stale, unknown form, or out
+// of the caller's scope), so a dangling citation is a normal, structured answer
+// rather than a tool error. When true, Document carries the full content.
+type fetchOutput struct {
+	Found     bool                `json:"found"`
+	Reference string              `json:"reference"`
+	Document  *knowledge.Document `json:"document,omitempty"`
+	Message   string              `json:"message,omitempty"`
+}
+
+// fetchSchema is the JSON Schema for the fetch tool input.
+var fetchSchema = json.RawMessage(`{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["reference"],
+  "properties": {
+    "reference": {
+      "type": "string",
+      "description": "A reference to read in full. References come in two namespaces: urn:li:... is the external DataHub catalog scheme, mcp:... is the internal-platform scheme. fetch dereferences any well-formed reference of these forms: knowledge pages (mcp:knowledge_page:<id>), context documents (urn:li:document:<id>), catalog datasets (urn:li:dataset:<id>), saved assets (mcp:asset:<id>), prompts (mcp:prompt:<id>), and connections (mcp:connection:(kind,name)). The usual source is a search result's \"reference\" field (pass it verbatim), but a reference you already hold from another tool works too (for example a urn:li:dataset:... from datahub_get_lineage or an entity_urns lookup). Returns the full content the search snippet was a preview of."
+    }
+  }
+}`)
+
 // Toolkit registers the search tool over a knowledge.Router.
 type Toolkit struct {
 	name   string
@@ -126,15 +163,31 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"grouped by source with a coverage " +
 			"summary, so you see the full shape of the answer space instead of tunneling into the first tool " +
 			"that comes to mind. For example 'how do we calculate churn' or 'customer retention'. Results are " +
-			"navigational pointers (title, reference, source); drill in with the scoped tool (trino_query, " +
-			"api_invoke_endpoint, datahub_get_entity). Pass entity_urns to pull what you know about specific " +
-			"datasets. Personal results are scoped to you.",
+			"navigational pointers (title, reference, source); read one in full with fetch (pass its reference) " +
+			"or drill in with a scoped tool (trino_query, api_invoke_endpoint). Pass entity_urns to pull what " +
+			"you know about specific datasets. Personal results are scoped to you.",
 		InputSchema: searchSchema,
 	}, t.handleSearch)
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:  fetchToolName,
+		Title: "Fetch",
+		Description: "Read a reference in full. search returns navigational pointers with truncated " +
+			"snippets; fetch dereferences one pointer's reference back to its complete content (a knowledge " +
+			"page's body, a context document's full text, a dataset's catalog context, an asset's metadata, " +
+			"a prompt, or a connection descriptor). A reference is either a urn:li:... form (the external " +
+			"DataHub catalog scheme) or an mcp:... form (the internal-platform scheme); fetch accepts both. " +
+			"The usual source is a search result's \"reference\" field (pass it verbatim), but a well-formed " +
+			"reference you already hold from another tool works too (for example a urn:li:dataset:... from " +
+			"datahub_get_lineage or an entity_urns lookup). A reference that is stale, unknown, or outside what " +
+			"you can access returns found=false rather than an error, so a dangling citation is a clean answer. " +
+			"Personal results stay scoped to you: fetch never reads content you could not have found with search.",
+		InputSchema: fetchSchema,
+	}, t.handleFetch)
 }
 
 // Tools returns the list of tool names provided by this toolkit.
-func (*Toolkit) Tools() []string { return []string{toolName} }
+func (*Toolkit) Tools() []string { return []string{toolName, fetchToolName} }
 
 // SetSemanticProvider is a no-op: search reads through the router's providers,
 // not the enrichment semantic provider.
@@ -189,6 +242,39 @@ func (t *Toolkit) handleSearch(ctx context.Context, _ *mcp.CallToolRequest, inpu
 		Count:          shown,
 		Ranking:        res.Ranking,
 		UnknownSources: res.UnknownSources,
+	})
+}
+
+// handleFetch dereferences a search reference to its full content. It resolves the
+// caller identity (the router re-applies the same per-user scope search uses, so a
+// reference the caller could not have searched returns not-found, not content), and
+// renders three outcomes distinctly: a resolved reference returns the document; a
+// stale, unknown, or out-of-scope reference returns a structured found=false (not an
+// error), so a dangling citation is a normal answer; a real backend failure returns
+// a tool error.
+func (t *Toolkit) handleFetch(ctx context.Context, _ *mcp.CallToolRequest, input fetchInput) (*mcp.CallToolResult, any, error) {
+	ref := strings.TrimSpace(input.Reference)
+	if ref == "" {
+		return errorResult("fetch requires a reference"), nil, nil
+	}
+
+	doc, err := t.router.Fetch(ctx, ref, callerFromContext(ctx))
+	if err != nil {
+		if errors.Is(err, knowledge.ErrNotFound) {
+			return jsonResult(fetchOutput{
+				Found:     false,
+				Reference: ref,
+				Message: "no content found for this reference; it may be stale, not a recognized " +
+					"reference form, or outside what you can access",
+			})
+		}
+		return errorResult("fetch failed: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol: tool errors are returned in CallToolResult.IsError
+	}
+
+	return jsonResult(fetchOutput{
+		Found:     true,
+		Reference: ref,
+		Document:  doc,
 	})
 }
 

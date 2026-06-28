@@ -1,6 +1,9 @@
 package semantic
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 // Provider retrieves semantic metadata from catalog systems.
 // DataHub implements this. Future alternatives (Atlas, Unity Catalog) can too.
@@ -50,7 +53,20 @@ type DocumentSearcher interface {
 	// reverse of a document's related assets), for entity-keyed discovery. Results
 	// carry the same fields as SearchDocuments so the caller applies the same filter.
 	GetRelatedDocuments(ctx context.Context, urn string) ([]DocumentResult, error)
+
+	// GetDocument reads one context document by its URN, returning the full
+	// untruncated body (in DocumentResult.Body) so an agent can dereference a
+	// urn:li:document:<id> reference search emitted to the complete content. A URN
+	// that resolves to no document returns ErrDocumentNotFound, which the fetch
+	// surface maps to a structured not-found rather than an error.
+	GetDocument(ctx context.Context, urn string) (*DocumentResult, error)
 }
+
+// ErrDocumentNotFound reports that a document URN did not resolve to a document.
+// GetDocument returns it (wrapped) so a caller can distinguish a stale reference
+// from a transport failure. It is defined here, on the capability interface,
+// rather than per-implementation so every DocumentSearcher agrees on the sentinel.
+var ErrDocumentNotFound = errors.New("document not found")
 
 // DocumentSearcherFrom reports the document-search capability of p, unwrapping any
 // decorator chain (e.g. CachedProvider) so the answer reflects the real underlying

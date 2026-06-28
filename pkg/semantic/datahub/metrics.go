@@ -28,6 +28,7 @@ const (
 	opSemanticSearch      = "semantic_search"
 	opSearchDocuments     = "search_documents"
 	opGetRelatedDocuments = "get_related_documents"
+	opGetDocument         = "get_document"
 )
 
 // SetMetrics wraps the adapter's client in an instrumenting decorator
@@ -150,6 +151,14 @@ func (c *instrumentedClient) SearchDocuments(ctx context.Context, query string, 
 	start := time.Now()
 	d, err := c.Client.SearchDocuments(ctx, query, opts...)
 	return d, c.finish(ctx, span, opSearchDocuments, start, err)
+}
+
+// GetDocument records a get_document observation and delegates (#694).
+func (c *instrumentedClient) GetDocument(ctx context.Context, urn string) (*types.Document, error) {
+	ctx, span := c.startSpan(ctx, opGetDocument)
+	start := time.Now()
+	d, err := c.Client.GetDocument(ctx, urn)
+	return d, c.finish(ctx, span, opGetDocument, start, err)
 }
 
 // GetRelatedDocuments records a get_related_documents observation and delegates (#692).

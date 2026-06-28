@@ -2,7 +2,10 @@ package search
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"slices"
 	"testing"
 
@@ -108,6 +111,19 @@ func (s *scopedAssetStore) SearchAssets(_ context.Context, q portal.AssetSearchQ
 	return out, nil
 }
 
+// Get reads an asset by id regardless of owner (the AssetsProvider applies the
+// ownership scope). It reports a missing id as a wrapped sql.ErrNoRows, exactly as
+// the real postgres store does, so the provider's not-found mapping is exercised.
+func (s *scopedAssetStore) Get(_ context.Context, id string) (*portal.Asset, error) {
+	for i := range s.assets {
+		if s.assets[i].ID == id {
+			a := s.assets[i]
+			return &a, nil
+		}
+	}
+	return nil, fmt.Errorf("querying asset: %w", sql.ErrNoRows)
+}
+
 // globalCatalog is a shared datahub fake: it returns the same catalog hit for
 // every caller, modeling global (non-per-user) knowledge.
 type globalCatalog struct{}
@@ -134,7 +150,19 @@ func (globalCatalog) GetTableContext(_ context.Context, table semantic.TableIden
 type globalPrompts struct{}
 
 func (globalPrompts) Search(_ context.Context, _ prompt.SearchQuery) ([]prompt.ScoredPrompt, error) {
-	return []prompt.ScoredPrompt{{Prompt: prompt.Prompt{Name: "g-prompt", DisplayName: "global prompt"}, Score: 0.5}}, nil
+	return []prompt.ScoredPrompt{{Prompt: prompt.Prompt{ID: globalPromptID, Name: "g-prompt", DisplayName: "global prompt"}, Score: 0.5}}, nil
+}
+
+// globalPromptID is the UUID the global prompt is referenced by (prompt references
+// carry the prompt's UUID id).
+const globalPromptID = "11111111-1111-1111-1111-111111111111"
+
+// GetByID returns the global prompt for its id, the read half of search.
+func (globalPrompts) GetByID(_ context.Context, id string) (*prompt.Prompt, error) {
+	if id != globalPromptID {
+		return nil, nil //nolint:nilnil // mirrors prompt.Store.GetByID: (nil,nil) means not-found
+	}
+	return &prompt.Prompt{ID: globalPromptID, Name: "g-prompt", DisplayName: "global prompt", Content: "global prompt body", Scope: prompt.ScopeGlobal, Status: prompt.StatusApproved, Enabled: true}, nil
 }
 
 // globalKnowledgePages is a shared knowledge-page fake returning one canonical
@@ -147,6 +175,14 @@ func (globalKnowledgePages) Search(_ context.Context, _ knowledgepage.SearchQuer
 
 func (globalKnowledgePages) ListPagesReferencing(_ context.Context, _ knowledgepage.EntityRef) ([]knowledgepage.PageRef, error) {
 	return nil, nil
+}
+
+// Get returns the canonical page's full body for its id, the read half of search.
+func (globalKnowledgePages) Get(_ context.Context, id string) (*knowledgepage.Page, error) {
+	if id != "g-page" {
+		return nil, knowledgepage.ErrNotFound
+	}
+	return &knowledgepage.Page{ID: "g-page", Title: "global page", Body: "the full canonical page body"}, nil
 }
 
 const (
@@ -198,6 +234,110 @@ func callSearch(ctx context.Context, t *testing.T, tk *Toolkit, intent string) s
 		t.Fatalf("decoding output: %v", err)
 	}
 	return out
+}
+
+func callFetch(ctx context.Context, t *testing.T, tk *Toolkit, ref string) fetchOutput {
+	t.Helper()
+	res, _, err := tk.handleFetch(ctx, &mcp.CallToolRequest{}, fetchInput{Reference: ref})
+	if err != nil {
+		t.Fatalf("handleFetch returned transport error: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("fetch reported a tool error: %v", res.Content)
+	}
+	tc, ok := res.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("unexpected content type %T", res.Content[0])
+	}
+	var out fetchOutput
+	if err := json.Unmarshal([]byte(tc.Text), &out); err != nil {
+		t.Fatalf("decoding fetch output: %v", err)
+	}
+	return out
+}
+
+// referenceFor returns the reference of the first hit from the named source, or
+// fails the test: a fetch round-trip starts from a reference search actually
+// emitted, not a hand-assembled one.
+func referenceFor(t *testing.T, out searchOutput, source string) string {
+	t.Helper()
+	for _, h := range hitsOf(out) {
+		if h.Source == source {
+			if h.Reference == "" {
+				t.Fatalf("hit from %q carried no reference: %+v", source, h)
+			}
+			return h.Reference
+		}
+	}
+	t.Fatalf("no hit from source %q in %+v", source, out)
+	return ""
+}
+
+// AC2: a search result round-trips through fetch. Take the reference search
+// returned for a knowledge page and fetch its full body.
+func TestFetch_KnowledgePageRoundTrip(t *testing.T) {
+	tk := assembledToolkit()
+	ctx := ctxFor(userAID, userAEmail)
+
+	out := callSearch(ctx, t, tk, "global page")
+	ref := referenceFor(t, out, "knowledge_pages")
+	if ref != "mcp:knowledge_page:g-page" {
+		t.Fatalf("reference = %q, want mcp:knowledge_page:g-page", ref)
+	}
+
+	got := callFetch(ctx, t, tk, ref)
+	if !got.Found {
+		t.Fatalf("fetch found=false for a live reference: %+v", got)
+	}
+	if got.Document == nil || got.Document.Body != "the full canonical page body" {
+		t.Errorf("fetch did not return the full page body: %+v", got.Document)
+	}
+	if got.Document.Source != "knowledge_pages" || got.Document.Reference != ref {
+		t.Errorf("document provenance wrong: %+v", got.Document)
+	}
+}
+
+// AC3: a stale or unknown reference is a structured not-found, not a tool error.
+func TestFetch_StaleReferenceIsStructuredNotFound(t *testing.T) {
+	tk := assembledToolkit()
+	ctx := ctxFor(userAID, userAEmail)
+
+	for _, ref := range []string{
+		"mcp:knowledge_page:does-not-exist", // owned form, missing record
+		"mcp:bogus:whatever",                // unknown form
+		"not a reference at all",            // unparseable
+	} {
+		got := callFetch(ctx, t, tk, ref)
+		if got.Found {
+			t.Errorf("ref %q: found=true, want a structured not-found", ref)
+		}
+		if got.Message == "" {
+			t.Errorf("ref %q: not-found should carry an explanatory message", ref)
+		}
+	}
+}
+
+// AC4: persona/per-user scope is respected. One user cannot fetch another user's
+// asset by reference, even though the reference form is valid.
+func TestFetch_PerUserScopeRespected(t *testing.T) {
+	tk := assembledToolkit()
+
+	// User A owns a-alice; A can fetch it.
+	aRef := referenceFor(t, callSearch(ctxFor(userAID, userAEmail), t, tk, "alice asset"), "assets")
+	if got := callFetch(ctxFor(userAID, userAEmail), t, tk, aRef); !got.Found {
+		t.Fatalf("owner could not fetch their own asset: %+v", got)
+	}
+
+	// User B fetching A's reference gets a structured not-found: fetch never reads
+	// content B could not have searched.
+	if got := callFetch(ctxFor(userBID, userBEmail), t, tk, aRef); got.Found {
+		t.Errorf("user B fetched user A's asset: %+v", got.Document)
+	}
+
+	// An anonymous caller likewise cannot fetch a per-user reference.
+	if got := callFetch(context.Background(), t, tk, aRef); got.Found {
+		t.Errorf("anonymous caller fetched a per-user asset: %+v", got.Document)
+	}
 }
 
 // hitsOf flattens the grouped display set into one slice, for assertions that
@@ -484,9 +624,52 @@ func TestToolkit_RegistersTool(t *testing.T) {
 	if tk.Kind() != "search" {
 		t.Errorf("Kind = %q", tk.Kind())
 	}
-	if tools := tk.Tools(); len(tools) != 1 || tools[0] != toolName {
-		t.Errorf("Tools = %v", tools)
+	if tools := tk.Tools(); len(tools) != 2 || tools[0] != toolName || tools[1] != fetchToolName {
+		t.Errorf("Tools = %v, want [search fetch]", tools)
 	}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "0"}, nil)
 	tk.RegisterTools(srv)
+}
+
+// erroringFetcher is a provider that owns a reference but fails its fetch with a
+// genuine backend error (not a not-found), to exercise the fetch handler's
+// real-error path (distinct from a structured found=false).
+type erroringFetcher struct{}
+
+func (erroringFetcher) Name() string           { return "boom" }
+func (erroringFetcher) Scope() knowledge.Scope { return knowledge.ScopeShared }
+func (erroringFetcher) Search(context.Context, knowledge.Query) ([]knowledge.Hit, error) {
+	return nil, nil
+}
+
+func (erroringFetcher) Fetch(context.Context, string, knowledge.Caller) (*knowledge.Document, bool, error) {
+	return nil, true, errors.New("store down")
+}
+
+func TestFetch_BackendErrorIsToolError(t *testing.T) {
+	router := knowledge.NewRouter(nil, nil, erroringFetcher{})
+	tk := New("default", router)
+	res, _, err := tk.handleFetch(ctxFor(userAID, userAEmail), &mcp.CallToolRequest{},
+		fetchInput{Reference: "anything"})
+	if err != nil {
+		t.Fatalf("transport error: %v", err)
+	}
+	// A real backend failure is a tool error, NOT a structured found=false.
+	if !res.IsError {
+		t.Errorf("a backend failure should be a tool error, got %+v", res.Content)
+	}
+}
+
+func TestFetch_EmptyReferenceIsToolError(t *testing.T) {
+	tk := assembledToolkit()
+	// An empty reference is a malformed call (the agent must pass one), distinct
+	// from a well-formed reference that resolves to nothing: it is a tool error,
+	// not a structured not-found.
+	res, _, err := tk.handleFetch(ctxFor(userAID, userAEmail), &mcp.CallToolRequest{}, fetchInput{Reference: "   "})
+	if err != nil {
+		t.Fatalf("transport error: %v", err)
+	}
+	if !res.IsError {
+		t.Errorf("empty reference should be a tool error, got %+v", res.Content)
+	}
 }

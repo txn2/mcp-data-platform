@@ -80,6 +80,7 @@ func TestInstrumentedClient_AllOps(t *testing.T) {
 	_, _ = ic.SemanticSearch(ctx, "q")
 	_, _ = ic.SearchDocuments(ctx, "q")
 	_, _ = ic.GetRelatedDocuments(ctx, "urn")
+	_, _ = ic.GetDocument(ctx, "urn")
 
 	body := scrapeForTest(t, m.Handler())
 	for _, want := range []string{
@@ -88,6 +89,7 @@ func TestInstrumentedClient_AllOps(t *testing.T) {
 		`operation="get_glossary_term"`, `operation="get_queries"`,
 		`operation="search_across_entities"`, `operation="semantic_search"`,
 		`operation="search_documents"`, `operation="get_related_documents"`,
+		`operation="get_document"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("scrape missing %q\n%s", want, body)

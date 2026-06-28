@@ -246,6 +246,23 @@ func (c *CachedProvider) SearchDocuments(ctx context.Context, query string, limi
 	return results, nil
 }
 
+// GetDocument forwards the single-document read (#694) to the wrapped provider,
+// preserving the DocumentSearcher capability through the cache decorator. It is
+// not cached: a fetch is an explicit, low-frequency dereference whose whole point
+// is the current full body, so serving a stale cached copy (e.g. just after an
+// edit) would defeat it; the hot search path is what the snippet caches serve.
+func (c *CachedProvider) GetDocument(ctx context.Context, urn string) (*DocumentResult, error) {
+	ds, ok := c.provider.(DocumentSearcher)
+	if !ok {
+		return nil, fmt.Errorf("document %s: %w", urn, ErrDocumentNotFound)
+	}
+	doc, err := ds.GetDocument(ctx, urn)
+	if err != nil {
+		return nil, fmt.Errorf("getting document from provider: %w", err)
+	}
+	return doc, nil
+}
+
 // GetRelatedDocuments forwards the entity-keyed document lookup (#692) to the wrapped
 // provider, preserving the DocumentSearcher capability through the cache decorator.
 // It is keyed on a single entity URN (like GetGlossaryTerm/GetTableContext), so it is

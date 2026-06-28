@@ -2,6 +2,8 @@ package semantic
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -359,6 +361,15 @@ func (d *docProvider) GetRelatedDocuments(_ context.Context, _ string) ([]Docume
 	return d.docs, nil
 }
 
+func (d *docProvider) GetDocument(_ context.Context, urn string) (*DocumentResult, error) {
+	for i := range d.docs {
+		if d.docs[i].URN == urn {
+			return &d.docs[i], nil
+		}
+	}
+	return nil, fmt.Errorf("document %s: %w", urn, ErrDocumentNotFound)
+}
+
 func TestCachedProvider_GetRelatedDocumentsCachesByURN(t *testing.T) {
 	inner := &docProvider{NoopProvider: NewNoopProvider(), docs: []DocumentResult{{URN: "urn:li:document:d1"}}}
 	c := NewCachedProvider(inner, CacheConfig{TTL: time.Minute})
@@ -393,8 +404,19 @@ func TestCachedProvider_SearchDocuments(t *testing.T) {
 		t.Errorf("GetRelatedDocuments forward = %+v err=%v, want d1", rel, err)
 	}
 
-	// Inner does NOT implement DocumentSearcher: the capability is absent, so both
-	// document methods return nil without error (no documents source is registered).
+	// The single-document read forwards through the cache as well (#694).
+	doc, err := c.GetDocument(context.Background(), "urn:li:document:d1")
+	if err != nil || doc == nil || doc.URN != "urn:li:document:d1" {
+		t.Errorf("GetDocument forward = %+v err=%v, want d1", doc, err)
+	}
+	// A URN the inner does not know surfaces ErrDocumentNotFound through the cache.
+	if _, err := c.GetDocument(context.Background(), "urn:li:document:missing"); !errors.Is(err, ErrDocumentNotFound) {
+		t.Errorf("GetDocument(missing) err = %v, want ErrDocumentNotFound", err)
+	}
+
+	// Inner does NOT implement DocumentSearcher: the capability is absent, so the
+	// search methods return nil without error (no documents source is registered)
+	// and GetDocument reports not-found.
 	c2 := NewCachedProvider(NewNoopProvider(), CacheConfig{})
 	got2, err := c2.SearchDocuments(context.Background(), "q", 5)
 	if err != nil {
@@ -409,6 +431,9 @@ func TestCachedProvider_SearchDocuments(t *testing.T) {
 	}
 	if rel2 != nil {
 		t.Errorf("expected nil related docs for non-DocumentSearcher inner, got %+v", rel2)
+	}
+	if _, err := c2.GetDocument(context.Background(), "urn:li:document:d1"); !errors.Is(err, ErrDocumentNotFound) {
+		t.Errorf("GetDocument on non-DocumentSearcher inner err = %v, want ErrDocumentNotFound", err)
 	}
 }
 

@@ -2,6 +2,7 @@ package knowledge
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -115,6 +116,56 @@ func publishedDocument(d semantic.DocumentResult) bool {
 	return d.Status == "" || strings.EqualFold(d.Status, "PUBLISHED")
 }
 
+// documentPrefix is the URN form of a context-document reference. The documents
+// provider owns exactly this prefix for fetch; the dataset catalog owns
+// urn:li:dataset:, so the two urn:li: sources never contend for a reference.
+const documentPrefix = "urn:li:document:"
+
+// Fetch dereferences a urn:li:document:<id> reference to the document's full body
+// (#694). Context documents are snippet-only in search; this is the only MCP path
+// to their complete content. It owns only the document URN form; any other
+// reference is declined (owned=false). A URN that resolves to no document
+// (semantic.ErrDocumentNotFound), or one whose document is a draft, is ErrNotFound:
+// both search arms exclude drafts via publishedDocument, so fetch must too, lest a
+// steward's in-progress draft be readable by URN when search never surfaces it.
+// Publication is the only gate; the catalog is global, so no per-caller scope
+// applies, and a hidden (ShowInGlobalContext=false) but published document stays
+// fetchable by its explicit URN, the same linked-asset path the entity arm honors.
+func (p *ContextDocumentsProvider) Fetch(ctx context.Context, ref string, _ Caller) (*Document, bool, error) {
+	if !strings.HasPrefix(ref, documentPrefix) {
+		return nil, false, nil
+	}
+	doc, err := p.searcher.GetDocument(ctx, ref)
+	if err != nil {
+		if errors.Is(err, semantic.ErrDocumentNotFound) {
+			return nil, true, ErrNotFound
+		}
+		return nil, true, fmt.Errorf("getting context document %s: %w", ref, err)
+	}
+	if doc == nil || !publishedDocument(*doc) {
+		return nil, true, ErrNotFound
+	}
+	return &Document{
+		Reference:  ref,
+		Source:     SourceContextDocuments,
+		Title:      documentTitle(doc),
+		Body:       doc.Body,
+		EntityURNs: doc.RelatedAssetURNs,
+	}, true, nil
+}
+
+// documentTitle renders a document's display title, falling back to its sub-type
+// then a generic label when untitled, mirroring the search snippet's heading.
+func documentTitle(d *semantic.DocumentResult) string {
+	if t := strings.TrimSpace(d.Title); t != "" {
+		return t
+	}
+	if d.SubType != "" {
+		return d.SubType
+	}
+	return "context document"
+}
+
 // documentHit maps a context document to a knowledge hit. The URN both drills in
 // (Ref) and is the citation (Reference, a urn:li:document:<id> form); the title and
 // snippet give an agent enough to decide whether to open and migrate the document,
@@ -130,16 +181,10 @@ func documentHit(d semantic.DocumentResult, score float64) Hit {
 	}
 }
 
-// documentHitText renders a document as a search snippet: its title (or sub-type
-// when untitled) and a bounded body excerpt.
+// documentHitText renders a document as a search snippet: its display title (the
+// same Title->SubType->generic fallback fetch uses, via documentTitle, so the
+// search heading and the fetched Document.Title cannot drift) and a bounded body
+// excerpt.
 func documentHitText(d semantic.DocumentResult) string {
-	title := strings.TrimSpace(d.Title)
-	if title == "" {
-		if d.SubType != "" {
-			title = d.SubType
-		} else {
-			title = "context document"
-		}
-	}
-	return catalogSnippet(title, d.Snippet)
+	return catalogSnippet(documentTitle(&d), d.Snippet)
 }

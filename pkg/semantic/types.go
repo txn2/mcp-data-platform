@@ -252,6 +252,13 @@ type DocumentResult struct {
 	Title   string `json:"title"`
 	SubType string `json:"sub_type,omitempty"`
 	Snippet string `json:"snippet,omitempty"`
+	// Body is the full, untruncated document content. It is populated only by a
+	// single-document read (GetDocument), where the whole point is to return the
+	// complete content a search snippet elides; the relevance-search paths
+	// (SearchDocuments, GetRelatedDocuments) leave it empty and populate the
+	// bounded Snippet instead, so a multi-result search does not carry N full
+	// bodies.
+	Body string `json:"body,omitempty"`
 	// Status is the publication state (PUBLISHED/UNPUBLISHED). The upstream search
 	// applies no status filter, so a consumer carries this to exclude drafts.
 	Status string `json:"status,omitempty"`

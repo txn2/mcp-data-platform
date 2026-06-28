@@ -3,6 +3,7 @@ package datahub
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -34,6 +35,7 @@ type mockDataHubClient struct {
 	semanticSearchFunc       func(ctx context.Context, query string, opts ...dhclient.SearchOption) (*types.SearchResult, error)
 	searchDocumentsFunc      func(ctx context.Context, query string, opts ...dhclient.SearchOption) ([]types.Document, error)
 	getRelatedDocumentsFunc  func(ctx context.Context, urn string) ([]types.Document, error)
+	getDocumentFunc          func(ctx context.Context, urn string) (*types.Document, error)
 	getEntityFunc            func(ctx context.Context, urn string) (*types.Entity, error)
 	getSchemaFunc            func(ctx context.Context, urn string) (*types.SchemaMetadata, error)
 	getSchemasFunc           func(ctx context.Context, urns []string) (map[string]*types.SchemaMetadata, error)
@@ -71,6 +73,13 @@ func (m *mockDataHubClient) GetRelatedDocuments(ctx context.Context, urn string)
 		return m.getRelatedDocumentsFunc(ctx, urn)
 	}
 	return nil, nil
+}
+
+func (m *mockDataHubClient) GetDocument(ctx context.Context, urn string) (*types.Document, error) {
+	if m.getDocumentFunc != nil {
+		return m.getDocumentFunc(ctx, urn)
+	}
+	return nil, nil //nolint:nilnil // test mock default; the real client returns a document or an error
 }
 
 func (m *mockDataHubClient) GetEntity(ctx context.Context, urn string) (*types.Entity, error) {
@@ -263,6 +272,67 @@ func TestAdapter_GetRelatedDocuments_Error(t *testing.T) {
 	adapter, _ := NewWithClient(Config{}, mock)
 	if _, err := adapter.GetRelatedDocuments(context.Background(), "urn:li:dataset:(t)"); err == nil {
 		t.Error("expected error")
+	}
+}
+
+func TestAdapter_GetDocument(t *testing.T) {
+	mock := &mockDataHubClient{
+		getDocumentFunc: func(_ context.Context, urn string) (*types.Document, error) {
+			if urn != "urn:li:document:d1" {
+				t.Errorf("urn = %q", urn)
+			}
+			return &types.Document{
+				URN:     "urn:li:document:d1",
+				Title:   "Churn Runbook",
+				SubType: "RUNBOOK",
+				Status:  "PUBLISHED",
+				Content: "Full body text that the search snippet would have truncated.",
+			}, nil
+		},
+	}
+	adapter, err := NewWithClient(Config{}, mock)
+	if err != nil {
+		t.Fatalf(dhAdapterTestUnexpectedErr, err)
+	}
+	got, err := adapter.GetDocument(context.Background(), "urn:li:document:d1")
+	if err != nil {
+		t.Fatalf(dhAdapterTestUnexpectedErr, err)
+	}
+	// The single read returns the FULL body, not the bounded snippet.
+	if got.Body != "Full body text that the search snippet would have truncated." {
+		t.Errorf("Body = %q, want full content", got.Body)
+	}
+	if got.Snippet != "" {
+		t.Errorf("Snippet = %q, want empty on a single-document read", got.Snippet)
+	}
+	if got.Title != "Churn Runbook" {
+		t.Errorf("Title = %q", got.Title)
+	}
+}
+
+func TestAdapter_GetDocument_NotFound(t *testing.T) {
+	mock := &mockDataHubClient{
+		getDocumentFunc: func(context.Context, string) (*types.Document, error) {
+			return nil, fmt.Errorf("get document: %w", dhclient.ErrNotFound)
+		},
+	}
+	adapter, _ := NewWithClient(Config{}, mock)
+	_, err := adapter.GetDocument(context.Background(), "urn:li:document:missing")
+	if !errors.Is(err, semantic.ErrDocumentNotFound) {
+		t.Errorf("err = %v, want semantic.ErrDocumentNotFound", err)
+	}
+}
+
+func TestAdapter_GetDocument_Error(t *testing.T) {
+	mock := &mockDataHubClient{
+		getDocumentFunc: func(context.Context, string) (*types.Document, error) {
+			return nil, errors.New("boom")
+		},
+	}
+	adapter, _ := NewWithClient(Config{}, mock)
+	_, err := adapter.GetDocument(context.Background(), "urn:li:document:d1")
+	if err == nil || errors.Is(err, semantic.ErrDocumentNotFound) {
+		t.Errorf("err = %v, want a non-not-found transport error", err)
 	}
 }
 

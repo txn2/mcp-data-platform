@@ -20,6 +20,7 @@ import (
 // drift apart.
 const (
 	toolSearch         = "search"
+	toolFetch          = "fetch"
 	toolMemoryCapture  = "memory_capture"
 	toolApplyKnowledge = "apply_knowledge"
 )
@@ -52,9 +53,7 @@ func Build(accessibleTools []string) string {
 				"insights, knowledge pages, your feedback, saved assets, prompts, API endpoints, and connections). "+
 				"The answer may span several sources, or may not be in the data warehouse at all, so do "+
 				"not assume a backend and do not stop at the first result.",
-			"Reuse what is known. Treat `search` results as the starting point and drill in with "+
-				"the scoped tool a result points to, rather than re-deriving an answer or re-asking "+
-				"the user for something already recorded.")
+			reuseBullet(has[toolFetch]))
 	}
 	if has[toolMemoryCapture] {
 		bullets = append(bullets,
@@ -84,6 +83,21 @@ func Build(accessibleTools []string) string {
 		lines = append(lines, "- "+bullet)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// reuseBullet returns the "reuse what is known" instruction, naming `fetch` as the
+// way to read a result in full only when the caller can reach it (fetch is
+// registered alongside search but a persona may deny it); otherwise it names only
+// the scoped drill-in tools, so the baseline never tells an agent to call a tool it
+// cannot reach.
+func reuseBullet(hasFetch bool) string {
+	const head = "Reuse what is known. Treat `search` results as the starting point and "
+	const tail = "rather than re-deriving an answer or re-asking the user for something already recorded."
+	if hasFetch {
+		return head + "read a result in full with `fetch` (pass the result's `reference`), or drill in " +
+			"with the scoped tool a result points to, " + tail
+	}
+	return head + "drill in with the scoped tool a result points to, " + tail
 }
 
 // Compose joins the platform baseline above the rest of the instruction stack

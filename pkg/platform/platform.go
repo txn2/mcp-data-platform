@@ -1739,12 +1739,13 @@ func (p *Platform) storeSearchProviders() []knowledge.Provider {
 	if s, ok := p.portalKnowledgePageStore.(knowledge.PageSearcher); ok {
 		providers = append(providers, knowledge.NewKnowledgePagesProvider(s))
 	}
-	// Prompts are searchable through the postgres prompt store.
-	if s, ok := p.promptStore.(prompt.Searcher); ok {
+	// Prompts are searchable and fetchable through the postgres prompt store
+	// (search + read-by-id, the two halves of search/fetch).
+	if s, ok := p.promptStore.(knowledge.PromptSearcher); ok {
 		providers = append(providers, knowledge.NewPromptsProvider(s))
 	}
-	// Assets are searchable only through the postgres asset store.
-	if s, ok := p.portalAssetStore.(portal.AssetSearcher); ok {
+	// Assets are searchable and fetchable only through the postgres asset store.
+	if s, ok := p.portalAssetStore.(knowledge.AssetSearcher); ok {
 		providers = append(providers, knowledge.NewAssetsProvider(s))
 	}
 	// Feedback threads complete the search corpus (#686): a caller's own feedback

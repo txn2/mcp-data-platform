@@ -105,6 +105,33 @@ func (p *ConnectionsProvider) Search(_ context.Context, q Query) ([]Hit, error) 
 	return hits, nil
 }
 
+// Fetch dereferences an mcp:connection:(kind,name) reference to the connection's
+// descriptor (#694), folding what list_connections enumerates into the one fetch
+// verb. It owns only the connection reference form; any other reference is declined
+// (owned=false). Connection metadata is global (the same list_connections exposes),
+// so no per-caller scope applies; a reference that matches no current connection is
+// ErrNotFound. As with search, this surfaces only the descriptor: which personas
+// may USE a connection is enforced fail-closed at tool-call time on the scoped
+// tools, unchanged by this read.
+func (p *ConnectionsProvider) Fetch(_ context.Context, ref string, _ Caller) (*Document, bool, error) {
+	parsed, err := knowledgepage.ParseEntityRef(ref)
+	if err != nil || parsed.TargetType != knowledgepage.RefTargetConnection {
+		// Not a connection reference: decline so the Router tries the next provider.
+		return nil, false, nil //nolint:nilerr // a non-connection reference is a decline, not a failure
+	}
+	for _, c := range p.lister.Connections() {
+		if c.Kind == parsed.ConnectionKind && c.Name == parsed.ConnectionName {
+			return &Document{
+				Reference: ref,
+				Source:    SourceConnections,
+				Title:     connectionHitText(c),
+				Content:   c,
+			}, true, nil
+		}
+	}
+	return nil, true, ErrNotFound
+}
+
 // connectionScore is the fraction of query tokens that appear as a substring of
 // the connection's searchable text (name, kind, description). A connection that
 // matches more of the query ranks higher; zero means no token matched and the
