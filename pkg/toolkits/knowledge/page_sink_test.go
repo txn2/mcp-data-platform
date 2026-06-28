@@ -338,6 +338,34 @@ func TestPromoteToPage_InvalidExplicitReference(t *testing.T) {
 	assert.Nil(t, pw.pages["guide"], "no page is written when an explicit reference does not parse")
 }
 
+// TestPromoteToPage_RejectsPerUserCitation proves the #699 rule: the per-user
+// reference forms (personal memory, captured insight) are fetchable but cannot be
+// cited on a shared knowledge page (they would resolve only for their owner), so an
+// explicit mcp:memory: or mcp:insight: citation rejects the apply before any page is
+// written.
+func TestPromoteToPage_RejectsPerUserCitation(t *testing.T) {
+	for _, ref := range []string{"mcp:memory:mem_alice", "mcp:insight:ins_alice"} {
+		t.Run(ref, func(t *testing.T) {
+			store := &fullSpyStore{Insights: []Insight{{ID: "i1", SinkClass: memory.SinkBusinessKnowledge}}}
+			pw := newFakePageWriter()
+			tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+			tk.SetPageWriter(pw)
+
+			input := applyKnowledgeInput{
+				Action: actionApply, Sink: sinkKnowledgePage, InsightIDs: []string{"i1"},
+				Page: &pagePromotionInput{
+					Slug: "guide", Title: "Guide", Body: "x",
+					References: []string{ref}, // fetchable, but not citable
+				},
+			}
+			res, _, err := tk.handleApplyKnowledge(pageCtx(), &mcp.CallToolRequest{}, input)
+			require.NoError(t, err)
+			assert.True(t, res.IsError, "a per-user citation rejects the apply")
+			assert.Nil(t, pw.pages["guide"], "no page is written when a per-user reference is cited")
+		})
+	}
+}
+
 // TestPromoteToPage_RefTargetValidationRejectsBeforeWrite proves the #690 atomicity
 // fix: a reference to a missing entity is rejected before the page is written, so no
 // partial page is left behind.

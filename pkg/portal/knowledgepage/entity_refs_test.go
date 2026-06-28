@@ -222,6 +222,8 @@ func TestEntityRefIdentity(t *testing.T) {
 	assert.Equal(t, "knowledge_page:kp", EntityRef{TargetType: RefTargetKnowledgePage, RefPageID: "kp"}.identity())
 	assert.Equal(t, "connection:trino/warehouse",
 		EntityRef{TargetType: RefTargetConnection, ConnectionKind: "trino", ConnectionName: "warehouse"}.identity())
+	assert.Equal(t, "insight:i", EntityRef{TargetType: RefTargetInsight, InsightID: "i"}.identity())
+	assert.Equal(t, "memory:m", EntityRef{TargetType: RefTargetMemory, MemoryID: "m"}.identity())
 	assert.Equal(t, "bogus:", EntityRef{TargetType: "bogus"}.identity())
 	assert.NotEqual(t,
 		EntityRef{TargetType: RefTargetAsset, AssetID: "a"}.identity(),

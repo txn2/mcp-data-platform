@@ -19,10 +19,12 @@ var codeSpanRe = regexp.MustCompile("(?s)```.*?```|`[^`]*`")
 
 // ScanBodyRefs extracts the entity references mentioned in a page's markdown body.
 // It is content-agnostic: a reference is found whether it appears as a markdown
-// link href, an autolink, or inline text. Unparseable matches are skipped, the
-// result is de-duplicated by target, and every ref is marked source=inline so a
-// reconcile can replace only the inline set without touching promoted or manual
-// references.
+// link href, an autolink, or inline text. It uses ParseCitableRef, so a mention of
+// a fetch-only-but-not-citable form (mcp:memory:, mcp:insight:) is skipped exactly
+// like an unparseable token rather than producing a reference no page-citation path
+// can persist (#699). Unparseable matches are skipped, the result is de-duplicated
+// by target, and every ref is marked source=inline so a reconcile can replace only
+// the inline set without touching promoted or manual references.
 func ScanBodyRefs(body string) []EntityRef {
 	body = codeSpanRe.ReplaceAllString(body, " ")
 	matches := refTokenRe.FindAllString(body, -1)
@@ -32,7 +34,7 @@ func ScanBodyRefs(body string) []EntityRef {
 	seen := make(map[string]struct{}, len(matches))
 	refs := make([]EntityRef, 0, len(matches))
 	for _, m := range matches {
-		ref, err := ParseEntityRef(m)
+		ref, err := ParseCitableRef(m)
 		if err != nil {
 			continue
 		}

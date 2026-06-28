@@ -2,8 +2,11 @@ package knowledge
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	"github.com/txn2/mcp-data-platform/pkg/memory"
+	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
 
@@ -17,6 +20,9 @@ const SourceInsights = "insights"
 type insightSource interface {
 	Search(ctx context.Context, q knowledgekit.InsightSearchQuery) ([]knowledgekit.ScoredInsight, error)
 	List(ctx context.Context, filter knowledgekit.InsightFilter) ([]knowledgekit.Insight, int, error)
+	// Get reads one insight by id (the read half of search: a hit's reference
+	// dereferenced to the full insight).
+	Get(ctx context.Context, id string) (*knowledgekit.Insight, error)
 }
 
 // InsightsProvider exposes captured domain knowledge (insights) to the router.
@@ -151,7 +157,8 @@ func (p *InsightsProvider) searchByText(ctx context.Context, q Query, seen map[s
 }
 
 // insightHit maps an insight to a knowledge hit, carrying its review status and
-// linked entity URNs as provenance.
+// linked entity URNs as provenance, plus the canonical mcp:insight:<id> reference
+// so an agent can read the full insight with fetch and cite it on a page (#699).
 func insightHit(in knowledgekit.Insight, score float64) Hit {
 	return Hit{
 		Text:       in.InsightText,
@@ -161,7 +168,49 @@ func insightHit(in knowledgekit.Insight, score float64) Hit {
 		Status:     in.Status,
 		EntityURNs: in.EntityURNs,
 		CapturedBy: in.CapturedBy,
+		Reference:  knowledgepage.InsightRef(in.ID),
 	}
+}
+
+// Fetch dereferences an mcp:insight:<id> reference to the full insight (#699),
+// following the AssetsProvider precedent. Insights are per-user, so the read is
+// scoped to the caller: it returns an insight only when the caller captured it
+// (captured_by == caller email); a non-owner, a missing id, or an anonymous caller
+// is ErrNotFound, so fetch never reveals an insight the caller could not have
+// searched. It does NOT additionally gate on review status: Search retracts non-live
+// insights only from the default (no-status) discovery path, while an explicit
+// status query surfaces them, so a caller can search any of their own insights by
+// status and fetch must dereference any reference search hands out. The
+// knowledge-dimension scope is enforced by the store adapter's Get, so a reference
+// that names a non-knowledge memory record resolves to not-found here.
+func (p *InsightsProvider) Fetch(ctx context.Context, ref string, caller Caller) (*Document, bool, error) {
+	parsed, err := knowledgepage.ParseEntityRef(ref)
+	if err != nil || parsed.TargetType != knowledgepage.RefTargetInsight {
+		return nil, false, nil //nolint:nilerr // a non-insight reference is a decline, not a failure
+	}
+	if caller.Email == "" {
+		return nil, true, ErrNotFound
+	}
+	in, err := p.store.Get(ctx, parsed.InsightID)
+	if err != nil {
+		// Insights are memory_records behind the adapter, so a missing id (or a
+		// non-knowledge record) surfaces memory.ErrRecordNotFound (wrapped), NOT
+		// sql.ErrNoRows; a stale citation is a clean not-found.
+		if errors.Is(err, memory.ErrRecordNotFound) {
+			return nil, true, ErrNotFound
+		}
+		return nil, true, fmt.Errorf("getting insight %s: %w", parsed.InsightID, err)
+	}
+	if in == nil || in.CapturedBy != caller.Email {
+		return nil, true, ErrNotFound
+	}
+	return &Document{
+		Reference:  ref,
+		Source:     SourceInsights,
+		Body:       in.InsightText,
+		Content:    in,
+		EntityURNs: in.EntityURNs,
+	}, true, nil
 }
 
 // isLiveInsightStatus reports whether an insight status represents knowledge

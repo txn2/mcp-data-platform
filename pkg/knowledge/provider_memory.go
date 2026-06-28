@@ -2,9 +2,11 @@ package knowledge
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/txn2/mcp-data-platform/pkg/memory"
+	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 )
 
 // SourceMemory is the provenance label for memory-provider hits.
@@ -24,6 +26,9 @@ type memorySearcher interface {
 	HybridSearch(ctx context.Context, q memory.HybridQuery) ([]memory.ScoredRecord, error)
 	LexicalSearch(ctx context.Context, q memory.LexicalQuery) ([]memory.ScoredRecord, error)
 	EntityLookup(ctx context.Context, urn, persona, createdBy string) ([]memory.Record, error)
+	// Get reads one memory record by id (the read half of search: a hit's
+	// reference dereferenced to the full record).
+	Get(ctx context.Context, id string) (*memory.Record, error)
 }
 
 // MemoryProvider exposes a caller's personal memory to the knowledge router.
@@ -155,7 +160,8 @@ func (p *MemoryProvider) searchByText(ctx context.Context, q Query, seen map[str
 }
 
 // recordHit maps a memory record to a knowledge hit, carrying its dimension and
-// linked entity URNs as provenance.
+// linked entity URNs as provenance, plus the canonical mcp:memory:<id> reference
+// so an agent can read the full record with fetch (#699).
 func recordHit(r memory.Record, score float64) Hit {
 	return Hit{
 		Text:       r.Content,
@@ -164,5 +170,46 @@ func recordHit(r memory.Record, score float64) Hit {
 		Score:      score,
 		Dimension:  r.Dimension,
 		EntityURNs: r.EntityURNs,
+		Reference:  knowledgepage.MemoryRef(r.ID),
 	}
+}
+
+// Fetch dereferences an mcp:memory:<id> reference to the full memory record (#699),
+// following the AssetsProvider precedent. Memory is per-user, so the read is scoped
+// to the caller exactly as Search is: it returns a record only when the caller owns
+// it (created_by == caller email), it is active, and it is not a knowledge-dimension
+// record (those are insights, addressed by mcp:insight:); anything else, a missing
+// id, or an anonymous caller is ErrNotFound, so fetch never reveals a record the
+// caller could not have searched (nor even its existence).
+func (p *MemoryProvider) Fetch(ctx context.Context, ref string, caller Caller) (*Document, bool, error) {
+	parsed, err := knowledgepage.ParseEntityRef(ref)
+	if err != nil || parsed.TargetType != knowledgepage.RefTargetMemory {
+		return nil, false, nil //nolint:nilerr // a non-memory reference is a decline, not a failure
+	}
+	if caller.Email == "" {
+		return nil, true, ErrNotFound
+	}
+	rec, err := p.store.Get(ctx, parsed.MemoryID)
+	if err != nil {
+		// The memory store reports a missing id as memory.ErrRecordNotFound (it does
+		// NOT surface sql.ErrNoRows), so a stale citation is a clean not-found.
+		if errors.Is(err, memory.ErrRecordNotFound) {
+			return nil, true, ErrNotFound
+		}
+		return nil, true, fmt.Errorf("getting memory %s: %w", parsed.MemoryID, err)
+	}
+	// Fail closed: a non-owner, knowledge-dimension (insight), inactive, or missing
+	// record is all indistinguishable to the caller, so neither content nor existence
+	// of a record the caller could not search leaks.
+	if rec == nil || rec.CreatedBy != caller.Email ||
+		rec.Dimension == memory.DimensionKnowledge || rec.Status != memory.StatusActive {
+		return nil, true, ErrNotFound
+	}
+	return &Document{
+		Reference:  ref,
+		Source:     SourceMemory,
+		Body:       rec.Content,
+		Content:    rec,
+		EntityURNs: rec.EntityURNs,
+	}, true, nil
 }

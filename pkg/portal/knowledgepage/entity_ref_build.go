@@ -32,6 +32,22 @@ func ConnectionRef(kind, name string) string {
 	return refOrEmpty(EntityRef{TargetType: RefTargetConnection, ConnectionKind: kind, ConnectionName: name})
 }
 
+// InsightRef returns the canonical reference for a captured insight, or "" if id
+// is empty. An insight is fetchable by its owner but is NOT citable on a knowledge
+// page (#699): it is per-user, so a shared-page citation would resolve for no one
+// else. The page-citation path rejects it (ParseCitableRef); promote the insight to
+// the catalog and cite the resulting urn:li:... entity instead.
+func InsightRef(id string) string {
+	return refOrEmpty(EntityRef{TargetType: RefTargetInsight, InsightID: id})
+}
+
+// MemoryRef returns the canonical reference for a personal memory record, or "" if
+// id is empty. Memory is fetchable by its owner but is NOT citable on a knowledge
+// page (#699); the page-citation path rejects it.
+func MemoryRef(id string) string {
+	return refOrEmpty(EntityRef{TargetType: RefTargetMemory, MemoryID: id})
+}
+
 // refOrEmpty serializes a reference and returns it only when it round-trips
 // through ParseEntityRef, so an unresolvable reference is never emitted.
 func refOrEmpty(r EntityRef) string {

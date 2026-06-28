@@ -513,12 +513,15 @@ func (h *Handler) knowledgePageExists(w http.ResponseWriter, r *http.Request, id
 	return true
 }
 
-// parseEntityRefs parses serialized URN strings into typed references, stamping
-// each with the authoring user. A parse failure aborts with the offending error.
+// parseEntityRefs parses serialized URN strings into typed references for
+// attachment to a page, stamping each with the authoring user. It uses
+// ParseCitableRef, so a personal-memory reference (fetchable but not citable on a
+// shared page) is rejected here (#699). A parse failure aborts with the offending
+// error.
 func parseEntityRefs(urns []string, createdBy string) ([]knowledgepage.EntityRef, error) {
 	refs := make([]knowledgepage.EntityRef, 0, len(urns))
 	for _, s := range urns {
-		ref, err := knowledgepage.ParseEntityRef(s)
+		ref, err := knowledgepage.ParseCitableRef(s)
 		if err != nil {
 			return nil, fmt.Errorf("invalid reference: %w", err)
 		}

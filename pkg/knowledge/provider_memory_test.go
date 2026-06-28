@@ -3,9 +3,11 @@ package knowledge
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/txn2/mcp-data-platform/pkg/memory"
+	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 )
 
 type fakeMemoryStore struct {
@@ -18,9 +20,20 @@ type fakeMemoryStore struct {
 	gotEntity  []entityCall
 	hybridHit  bool
 	lexicalHit bool
+	getRec     *memory.Record // Get result
+	getErr     error
+	gotGetID   string
 }
 
 type entityCall struct{ urn, persona, createdBy string }
+
+func (f *fakeMemoryStore) Get(_ context.Context, id string) (*memory.Record, error) {
+	f.gotGetID = id
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
+	return f.getRec, nil
+}
 
 func (f *fakeMemoryStore) HybridSearch(_ context.Context, q memory.HybridQuery) ([]memory.ScoredRecord, error) {
 	f.hybridHit = true
@@ -199,4 +212,93 @@ func TestMemoryProvider_SearchError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error to propagate")
 	}
+}
+
+func TestMemoryProvider_Fetch(t *testing.T) {
+	const owner = "alice@example.com"
+	ref := knowledgepage.MemoryRef("mem_1")
+	active := func() *memory.Record {
+		return &memory.Record{ID: "mem_1", CreatedBy: owner, Dimension: memory.DimensionPreference, Status: memory.StatusActive, Content: "I prefer ISO dates"}
+	}
+
+	t.Run("returns the owner's active record", func(t *testing.T) {
+		s := &fakeMemoryStore{getRec: active()}
+		doc, owned, err := NewMemoryProvider(s).Fetch(context.Background(), ref, Caller{Email: owner})
+		if !owned || err != nil {
+			t.Fatalf("owned=%v err=%v", owned, err)
+		}
+		if s.gotGetID != "mem_1" {
+			t.Errorf("Get id = %q", s.gotGetID)
+		}
+		if doc.Source != SourceMemory || doc.Body != "I prefer ISO dates" {
+			t.Errorf("doc = %+v", doc)
+		}
+	})
+
+	t.Run("declines a non-memory reference", func(t *testing.T) {
+		s := &fakeMemoryStore{}
+		_, owned, err := NewMemoryProvider(s).Fetch(context.Background(), "mcp:insight:i1", Caller{Email: owner})
+		if owned || err != nil {
+			t.Errorf("owned=%v err=%v, want declined", owned, err)
+		}
+		if s.gotGetID != "" {
+			t.Errorf("Get must not be called for a non-memory reference")
+		}
+	})
+
+	t.Run("anonymous caller is not-found", func(t *testing.T) {
+		s := &fakeMemoryStore{getRec: active()}
+		_, owned, err := NewMemoryProvider(s).Fetch(context.Background(), ref, Caller{})
+		if !owned || !errors.Is(err, ErrNotFound) || s.gotGetID != "" {
+			t.Errorf("owned=%v err=%v get=%q, want owned + ErrNotFound + no Get", owned, err, s.gotGetID)
+		}
+	})
+
+	t.Run("another owner's record is not-found", func(t *testing.T) {
+		r := active()
+		r.CreatedBy = "bob@example.com"
+		s := &fakeMemoryStore{getRec: r}
+		_, owned, err := NewMemoryProvider(s).Fetch(context.Background(), ref, Caller{Email: owner})
+		if !owned || !errors.Is(err, ErrNotFound) {
+			t.Errorf("owned=%v err=%v, want ErrNotFound for another owner", owned, err)
+		}
+	})
+
+	t.Run("a knowledge-dimension record (an insight) is not-found via memory", func(t *testing.T) {
+		r := active()
+		r.Dimension = memory.DimensionKnowledge
+		s := &fakeMemoryStore{getRec: r}
+		_, owned, err := NewMemoryProvider(s).Fetch(context.Background(), ref, Caller{Email: owner})
+		if !owned || !errors.Is(err, ErrNotFound) {
+			t.Errorf("owned=%v err=%v, want ErrNotFound for a knowledge-dimension record", owned, err)
+		}
+	})
+
+	t.Run("an inactive record is not-found", func(t *testing.T) {
+		r := active()
+		r.Status = "forgotten"
+		s := &fakeMemoryStore{getRec: r}
+		_, owned, err := NewMemoryProvider(s).Fetch(context.Background(), ref, Caller{Email: owner})
+		if !owned || !errors.Is(err, ErrNotFound) {
+			t.Errorf("owned=%v err=%v, want ErrNotFound for an inactive record", owned, err)
+		}
+	})
+
+	t.Run("a stale id (the store's not-found sentinel) is not-found", func(t *testing.T) {
+		// The real memory store returns memory.ErrRecordNotFound (wrapped), NOT
+		// sql.ErrNoRows, so the fake mirrors that exactly.
+		s := &fakeMemoryStore{getErr: fmt.Errorf("get: %w", memory.ErrRecordNotFound)}
+		_, owned, err := NewMemoryProvider(s).Fetch(context.Background(), ref, Caller{Email: owner})
+		if !owned || !errors.Is(err, ErrNotFound) {
+			t.Errorf("owned=%v err=%v, want ErrNotFound", owned, err)
+		}
+	})
+
+	t.Run("a genuine store error surfaces", func(t *testing.T) {
+		s := &fakeMemoryStore{getErr: errors.New("db down")}
+		_, owned, err := NewMemoryProvider(s).Fetch(context.Background(), ref, Caller{Email: owner})
+		if !owned || err == nil || errors.Is(err, ErrNotFound) {
+			t.Errorf("owned=%v err=%v, want a non-not-found error", owned, err)
+		}
+	})
 }
