@@ -67,6 +67,21 @@ const REF_TOKEN_RE = new RegExp(REF_TOKEN_SOURCE, "g");
 // server's codeSpanRe).
 const CODE_SPAN_RE = /```[\s\S]*?```|`[^`]*`/g;
 
+// TRAILING_PUNCT_RE mirrors the server's trailingPunct trim (entity_ref_scan.go,
+// #704). An undelimited mcp:/urn: token written in prose immediately before
+// sentence punctuation absorbs that punctuation into the match (the mcp id class
+// includes "." and the bare-urn class stops only at whitespace or a closing
+// bracket), so it is trimmed before the token is parsed or resolved. The
+// parenthesized forms already terminate at ")", so this never touches
+// punctuation inside a token. Keeping this in lockstep with the server is what
+// prevents the rendered chip and the stored reference from diverging.
+const TRAILING_PUNCT_RE = /[.,;:!?]+$/;
+
+/** trimRefToken strips a trailing run of sentence punctuation from a scanned token. */
+export function trimRefToken(token: string): string {
+  return token.replace(TRAILING_PUNCT_RE, "");
+}
+
 /** PickableRefType is an entity type the manual-reference picker can search. */
 export type PickableRefType = "asset" | "collection" | "knowledge_page" | "prompt";
 
@@ -84,7 +99,9 @@ export function isRefUrn(href: string | undefined): boolean {
 /** extractRefUrns returns the distinct reference URNs mentioned in a body. */
 export function extractRefUrns(body: string): string[] {
   const matches = body.replace(CODE_SPAN_RE, " ").match(REF_TOKEN_RE) ?? [];
-  return Array.from(new Set(matches.filter((m) => parseRef(m) !== null)));
+  return Array.from(
+    new Set(matches.map(trimRefToken).filter((m) => parseRef(m) !== null)),
+  );
 }
 
 /** datahubLabel pulls a readable name out of a DataHub URN. */

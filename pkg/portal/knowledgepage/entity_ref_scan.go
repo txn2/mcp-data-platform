@@ -1,6 +1,19 @@
 package knowledgepage
 
-import "regexp"
+import (
+	"regexp"
+	"strings"
+)
+
+// trailingPunct is the set of sentence punctuation trimmed from the tail of an
+// undelimited reference token. The id class of an mcp: reference includes ".",
+// and the bare-urn class stops only at whitespace or a closing bracket, so a
+// reference written in prose immediately before sentence punctuation absorbs
+// that punctuation into the token (#704). No real reference id or URN ends in
+// these characters, and the parenthesized/dataset forms already terminate at
+// ")", so trimming a trailing run is safe and never touches punctuation inside
+// a token.
+const trailingPunct = ".,;:!?"
 
 // refTokenRe matches a serialized reference token in page-body text: an mcp:
 // internal reference (a simple id, or a (kind,name) connection) or a urn:
@@ -34,6 +47,7 @@ func ScanBodyRefs(body string) []EntityRef {
 	seen := make(map[string]struct{}, len(matches))
 	refs := make([]EntityRef, 0, len(matches))
 	for _, m := range matches {
+		m = strings.TrimRight(m, trailingPunct)
 		ref, err := ParseCitableRef(m)
 		if err != nil {
 			continue

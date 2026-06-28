@@ -5,7 +5,7 @@ import type { Components } from "react-markdown";
 import mermaid from "mermaid";
 import DOMPurify from "dompurify";
 import { EntityChip } from "@/components/knowledge/EntityChip";
-import { isRefUrn, REF_TOKEN_SOURCE, type ResolvedRef } from "@/lib/entityRefs";
+import { isRefUrn, REF_TOKEN_SOURCE, trimRefToken, type ResolvedRef } from "@/lib/entityRefs";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type MdNode = { type?: string; value?: string; url?: string; children?: any[] };
@@ -17,7 +17,13 @@ function splitRefTokens(value: string): MdNode[] {
   let m: RegExpExecArray | null;
   while ((m = re.exec(value)) !== null) {
     if (m.index > last) out.push({ type: "text", value: value.slice(last, m.index) });
-    out.push({ type: "link", url: m[0], children: [{ type: "text", value: m[0] }] });
+    // Trailing sentence punctuation absorbed by the token's char class is split
+    // back out so the chip url matches the (trimmed) resolved ref and the
+    // punctuation renders as ordinary prose after the chip (#704).
+    const token = trimRefToken(m[0]);
+    out.push({ type: "link", url: token, children: [{ type: "text", value: token }] });
+    const trailing = m[0].slice(token.length);
+    if (trailing) out.push({ type: "text", value: trailing });
     last = m.index + m[0].length;
   }
   if (last === 0) return [{ type: "text", value }];

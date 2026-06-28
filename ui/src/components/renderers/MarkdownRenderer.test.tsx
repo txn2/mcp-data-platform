@@ -112,6 +112,23 @@ describe("MarkdownRenderer entity chips", () => {
     expect(container.textContent).toContain("os_acme_transactions");
   });
 
+  it("splits trailing sentence punctuation out of a bare-token chip (#704)", () => {
+    // The token abuts a period in prose; the chip must resolve against the
+    // trimmed ref (so the server-resolved label shows) and the period must
+    // remain as ordinary text, not be swallowed into the chip's id.
+    const refs = new Map<string, ResolvedRef>([
+      ["mcp:asset:asset-001", { urn: "mcp:asset:asset-001", type: "asset", label: "Q4 Dashboard", exists: true, accessible: true }],
+    ]);
+    const { container } = render(
+      <MarkdownRenderer content="The fact lives in mcp:asset:asset-001. Done." refs={refs} />,
+    );
+    // Resolved label appears (proves the chip url was trimmed to match the key).
+    expect(container.textContent).toContain("Q4 Dashboard");
+    // The punctuated id never renders, and the sentence period survives as prose.
+    expect(container.textContent).not.toContain("asset-001.");
+    expect(container.textContent).toContain(". Done.");
+  });
+
   it("does not chip a ref token inside an inline code span", () => {
     const { container } = render(
       <MarkdownRenderer content="Use the literal `mcp:asset:asset-001` token." />,
