@@ -38,12 +38,32 @@ describe("EntityChip", () => {
     expect(container.querySelector(".line-through")).not.toBeNull();
   });
 
-  it("does not link a type without an in-app route (connection)", () => {
+  it("deep-links a knowledge-page chip to its detail route (#709)", () => {
+    const onNavigate = vi.fn();
+    const { container } = render(
+      <EntityChip
+        urn="mcp:knowledge_page:kp-7"
+        resolved={resolved({ urn: "mcp:knowledge_page:kp-7", type: "knowledge_page", label: "Fiscal Calendar" })}
+        onNavigate={onNavigate}
+      />,
+    );
+    const a = container.querySelector("a");
+    expect(a).not.toBeNull();
+    fireEvent.click(a!);
+    expect(onNavigate).toHaveBeenCalledWith("/knowledge/pages/kp-7");
+  });
+
+  it("renders a destination-less type as a neutral, non-link chip (connection)", () => {
     const onNavigate = vi.fn();
     const { container } = render(
       <EntityChip urn="mcp:connection:(trino,warehouse)" onNavigate={onNavigate} />,
     );
+    // No route, so it must not be a link nor styled like one (#709): no <a>,
+    // no primary/link tone, and not struck through (it is live, not broken).
     expect(container.querySelector("a")).toBeNull();
     expect(container.textContent).toContain("warehouse (trino)");
+    const chip = container.querySelector("span.inline-flex");
+    expect(chip?.className).not.toContain("text-primary");
+    expect(chip?.className).not.toContain("line-through");
   });
 });

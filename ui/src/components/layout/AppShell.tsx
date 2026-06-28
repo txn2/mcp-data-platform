@@ -152,11 +152,25 @@ export function AppShell() {
   }, [currentPath, sidebarCollapsed]);
 
   const navigate = useCallback((path: string) => {
-    setCurrentPath(path);
     const hashIdx = path.indexOf("#");
     const pathname = hashIdx >= 0 ? path.slice(0, hashIdx) : path;
     const hash = hashIdx >= 0 ? path.slice(hashIdx) : "";
-    window.history.pushState(null, "", BASE + pathname + hash);
+    const target = BASE + pathname + hash;
+    // A navigation to the URL already in the bar (re-selecting the open page,
+    // cancelling a form that never changed the path) must not push a duplicate
+    // history entry, which would make browser Back appear to do nothing. Sync the
+    // in-memory path and stop. (#709)
+    if (target === window.location.pathname + window.location.hash) {
+      setCurrentPath(path);
+      return;
+    }
+    // Record the path we are leaving so a detail view can offer a wiki-style Back:
+    // return to the previous knowledge page when that is where we came from, and
+    // fall back to the section index otherwise (an asset viewer, a search result,
+    // or a cold deep-link, where state is null on the initial entry). (#709)
+    const from = readPath();
+    setCurrentPath(path);
+    window.history.pushState({ appNav: true, from }, "", target);
   }, []);
 
   useEffect(() => {
@@ -192,6 +206,10 @@ export function AppShell() {
   const assetMatch = route.match(/^\/assets\/(.+)$/);
   const adminAssetMatch = route.match(/^\/admin\/assets\/(.+)$/);
   const promptViewMatch = route.match(/^\/prompts\/(.+)$/);
+  // Knowledge-page routes (#709): the page list and the URL-addressable page
+  // detail. Both render the Knowledge hub focused on its Knowledge Pages sub-tab.
+  const knowledgePageMatch = route.match(/^\/knowledge\/pages\/(.+)$/);
+  const knowledgePagesList = route === "/knowledge/pages";
   // Collection routes: /collections/:id and /collections/:id/edit
   const collectionEditMatch = route.match(/^\/collections\/([^/]+)\/edit$/);
   const collectionViewMatch = !collectionEditMatch && !collectionAssetMatch
@@ -208,7 +226,9 @@ export function AppShell() {
           ? "Collection"
           : promptViewMatch
             ? "Prompt"
-            : (pageTitles[route] ?? "Assets");
+            : knowledgePagesList || knowledgePageMatch
+              ? "Knowledge"
+              : (pageTitles[route] ?? "Assets");
 
   // Admin routes start with /admin
   const isAdminRoute = route.startsWith("/admin");
@@ -277,8 +297,14 @@ export function AppShell() {
             <ResourcesPage onNavigate={navigate} />
           )}
           {!isAdminRoute && route === "/feedback" && <FeedbackPage onNavigate={navigate} />}
-          {!isAdminRoute && route === "/knowledge" && (
-            <KnowledgeHub key={currentPath} initialTab={initialTab} onNavigate={navigate} />
+          {!isAdminRoute && (route === "/knowledge" || knowledgePagesList || knowledgePageMatch) && (
+            <KnowledgeHub
+              key={currentPath}
+              initialTab={initialTab}
+              initialPageId={knowledgePageMatch?.[1]}
+              pagesSubActive={knowledgePagesList || !!knowledgePageMatch}
+              onNavigate={navigate}
+            />
           )}
           {!isAdminRoute && route === "/prompts" && <MyPromptsPage onNavigate={navigate} />}
           {!isAdminRoute && promptViewMatch && (

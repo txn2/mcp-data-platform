@@ -873,418 +873,247 @@ UPDATE prompts
 -- Knowledge pages (#634, migration 000070): canonical business/domain knowledge.
 -- The dev seed previously created every content type EXCEPT these, so the
 -- Knowledge hub's "Knowledge Pages" tab came up empty against the real backend.
--- Mirrors the MSW seed (ui/src/mocks/data/knowledgePages.ts) so the live dev
--- environment and the mock environment show the same pages. Embeddings are left
--- NULL; the indexer/reconciler fills them, and content search falls back to
--- lexical until then. Idempotent.
+--
+-- These are a curated, tightly interlinked set (#709): each page is a realistic
+-- multi-paragraph knowledge page whose references are woven INLINE into the prose
+-- (cross-page links, dataset URNs, the warehouse connection, and one deliberately
+-- broken ref), not dumped in a trailing list. The inline mentions form a connected
+-- graph so the reference panel, inbound backlinks, and wiki-style click-through all
+-- have material to traverse. NOTE: a direct SQL insert bypasses the handler's
+-- inline-ref reconcile, so the matching knowledge_page_entity_refs rows below are
+-- written by hand and MUST stay in step with the inline mentions in each body.
+-- Embeddings are left NULL; the indexer/reconciler fills them, and content search
+-- falls back to lexical until then. Idempotent.
+--
+-- This set intentionally diverges from the MSW mock (ui/src/mocks/data/
+-- knowledgePages.ts), which still carries the older, larger fixture for the
+-- component tests; sync it separately if the two need to match again.
 INSERT INTO portal_knowledge_pages
   (id, slug, title, summary, body, tags, created_by, created_email, updated_by, current_version, created_at, updated_at)
 VALUES
-  ('kp-seed-1', 'fiscal-calendar', 'Fiscal Calendar', 'How the company defines fiscal quarters.',
+  ('kp-seed-1', 'fiscal-calendar', 'Fiscal Calendar',
+   'The fiscal year starts in February, so every finance comparison is offset a month from the civil calendar. This page is the source of truth for fiscal quarter and week boundaries.',
    $md$# Fiscal Calendar
 
-Our fiscal year starts in **February**.
+Our fiscal year starts in **February**, not January, so every period-over-period comparison in finance reporting is offset a month from the civil calendar. The four quarters are Q1 (February-April), Q2 (May-July), Q3 (August-October), and Q4 (November-January).
 
-- Q1: February - April
-- Q2: May - July
-- Q3: August - October
-- Q4: November - January
+The fiscal quarter is the default time grain for revenue reporting. When the [Revenue Definition](mcp:knowledge_page:kp-seed-2) or [Net Revenue Definition](mcp:knowledge_page:kp-seed-9) page refers to "the current quarter", it means the fiscal quarter defined here. The same tagging is applied at load time to [daily_sales](urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)), so a row can be rolled up to its fiscal period without a date-math join.
 
-## Related
+Two gotchas catch people every year. January belongs to the **previous** fiscal year's Q4, and fiscal-week numbering resets in February rather than at the civil new year. (Historically the calendar dimension was sourced from the [retired warehouse connection](mcp:connection:(trino,warehouse)); it now ships with the platform, so that link no longer resolves.)
 
-The fiscal calendar underpins the [revenue definition](mcp:knowledge_page:kp-seed-2)
-and is applied in the [sales warehouse](mcp:connection:(trino,warehouse)), where
-urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD) records
-quarter-tagged sales.
+For the canonical definitions of the metrics that sit on top of these periods, see the [Glossary: Core Terms](mcp:knowledge_page:kp-seed-28).
 $md$,
    '["finance","calendar"]'::jsonb, 'sarah.chen@example.com', 'sarah.chen@example.com', 'sarah.chen@example.com', 2, '2026-06-01T10:00:00Z', '2026-06-10T12:00:00Z'),
 
-  ('kp-seed-2', 'revenue-definition', 'Revenue Definition', 'What the amount column means.',
+  ('kp-seed-2', 'revenue-definition', 'Revenue Definition',
+   'The amount column is gross margin before returns, not gross revenue. Use net_revenue for any top-line or board-level figure.',
    $md$# Revenue Definition
 
-The `amount` column is **gross margin before returns**, not gross revenue. Use `net_revenue` for top-line reporting.
+The `amount` column on the sales fact is **gross margin before returns**, not gross revenue. It is the most misread field in the warehouse: it already nets cost of goods, but it does **not** net returns, discounts, or tax.
+
+For any top-line or board-level number, use net_revenue instead, defined on the [Net Revenue Definition](mcp:knowledge_page:kp-seed-9) page. The two differ by exactly the returns described in [Returns and Refunds Logic](mcp:knowledge_page:kp-seed-5), which post in a later layer rather than at ingest.
+
+The field lives on [daily_sales](urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)) at store-day grain. When a report and the dashboard disagree, it is almost always because one used `amount` where it meant net_revenue. The [Glossary: Core Terms](mcp:knowledge_page:kp-seed-28) page is the tie-breaker when a metric name is ambiguous.
 $md$,
    '["finance","metrics"]'::jsonb, 'sarah.chen@example.com', 'sarah.chen@example.com', 'sarah.chen@example.com', 1, '2026-06-05T09:00:00Z', '2026-06-18T14:30:00Z'),
 
-  ('kp-seed-3', 'customer-pii-handling', 'Customer PII Handling', 'Which columns are personal data and how to treat them.',
+  ('kp-seed-3', 'customer-pii-handling', 'Customer PII Handling',
+   'email, phone, and address are PII. They must never be joined into a shared mart unmasked, and unmasked access is gated and logged.',
    $md$# Customer PII Handling
 
-`email`, `phone`, and `address` are **PII**. Never join them into shared marts without masking. See the governance policy before exporting.
+`email`, `phone`, and `address` are classified **PII**. They may exist in raw landing tables, but they must never be joined into a shared mart in the clear, and they must never be exported without masking.
+
+The mechanics of masking, who may read the raw values, and how access is logged are covered in the [PII Masking Policy](mcp:knowledge_page:kp-seed-18). In short: masked columns are safe to use everywhere; the raw values require the `pii_reader` role and every read is recorded for compliance review.
+
+These columns originate on [customer_segments](urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.customer_segments,PROD)). If you need to segment or join on a customer without touching PII, use the resolved `customer_key`, never the raw email.
 $md$,
    '["governance","pii"]'::jsonb, 'marcus.webb@example.com', 'marcus.webb@example.com', 'marcus.webb@example.com', 3, '2026-05-20T08:00:00Z', '2026-06-20T16:00:00Z'),
 
-  ('kp-seed-4', 'daily-sales-table-guide', 'daily_sales Table Guide', 'Grain, partitioning, and known gotchas for daily_sales.',
-   $md$# daily_sales
+  ('kp-seed-4', 'daily-sales-table-guide', 'daily_sales Table Guide',
+   'daily_sales is one row per store per day, partitioned by date. Backfills land two days late, so the last 48 hours are never final.',
+   $md$# daily_sales Table Guide
 
-One row per **store per day**. Partitioned by `date`. Backfills land 2 days late; do not trust the last 48 hours for finals.
+[daily_sales](urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)) is the base fact for retail reporting: **one row per store per day**, partitioned by `date`, served from the [acme-warehouse](mcp:connection:(trino,acme-warehouse)) connection.
+
+The single most important gotcha is freshness. Backfills and late-arriving corrections land up to **two days late**, so the last 48 hours are provisional. Do not publish a final number that depends on the trailing two days; the timing rules are spelled out in [Lineage and Freshness SLAs](mcp:knowledge_page:kp-seed-8).
+
+For curated reporting do not query this table directly. The [sales_mart Schema](mcp:knowledge_page:kp-seed-17) page describes the conformed star schema that sits on top of it and is what dashboards should read.
 $md$,
    '["data-quality","retail"]'::jsonb, 'sarah.chen@example.com', 'sarah.chen@example.com', 'priya.nair@example.com', 4, '2026-04-12T11:00:00Z', '2026-06-22T09:15:00Z'),
 
-  ('kp-seed-5', 'returns-and-refunds', 'Returns and Refunds Logic', 'How returns net against revenue and where they land.',
-   $md$# Returns and Refunds
+  ('kp-seed-5', 'returns-and-refunds', 'Returns and Refunds Logic',
+   'Returns post to the refunds table with a negative amount and a reason_code. They net against revenue in the reporting layer, not at ingest.',
+   $md$# Returns and Refunds Logic
 
-Returns post to `refunds` with a negative `amount` and a `reason_code`. They net against revenue in the reporting layer, not at ingest.
+A return posts a row to [refunds](urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.refunds,PROD)) with a **negative** `amount` and a `reason_code`. Crucially, the return is **not** applied at ingest: the original sale stays whole, and the offset is applied later in the reporting layer.
+
+This is why gross figures and net figures diverge. The gross `amount` in [Revenue Definition](mcp:knowledge_page:kp-seed-2) never sees the return, while the [Net Revenue Definition](mcp:knowledge_page:kp-seed-9) subtracts it. If you sum `amount` across sales and refunds yourself you will double-count timing, so prefer the net measure.
+
+Returns can post in a later fiscal period than the original sale. Reporting attributes the return to the period it posts in, not the period of the sale.
 $md$,
    '["finance","metrics","data-quality"]'::jsonb, 'marcus.webb@example.com', 'marcus.webb@example.com', 'marcus.webb@example.com', 2, '2026-05-02T13:00:00Z', '2026-06-12T10:45:00Z'),
 
-  ('kp-seed-6', 'store-hours-reference', 'Store Hours Reference', 'Standard and holiday operating hours by region.',
-   $md$# Store Hours
+  ('kp-seed-8', 'lineage-and-freshness-slas', 'Lineage and Freshness SLAs',
+   'daily_sales feeds sales_mart feeds the executive dashboard. Marts refresh by 06:00 UTC; page the on-call if the dashboard is stale past 08:00.',
+   $md$# Lineage and Freshness SLAs
 
-Stores open **09:00 local**. Holiday hours override the default; see the `store_calendar` dimension for exceptions.
+The reporting chain is short and load-bearing: [daily_sales](urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)) feeds the curated [sales_mart Schema](mcp:knowledge_page:kp-seed-17), which feeds the executive dashboard. A delay anywhere upstream surfaces at the very end.
+
+Freshness is governed by two pages. [Freshness SLA Tiers](mcp:knowledge_page:kp-seed-20) sets the tier each dataset is held to, and [ETL Refresh Windows](mcp:knowledge_page:kp-seed-16) sets the clock the loads run on. The contract: marts refresh by **06:00 UTC**, and the on-call is paged if the dashboard is still stale past 08:00.
+
+Because backfills into the base table are two days late (see the [daily_sales Table Guide](mcp:knowledge_page:kp-seed-4)), "fresh" and "final" are not the same thing. A mart can be fresh as of its last run yet still be revised when a late partition lands.
 $md$,
-   '["retail","calendar"]'::jsonb, 'priya.nair@example.com', 'priya.nair@example.com', 'priya.nair@example.com', 1, '2026-06-08T15:00:00Z', '2026-06-08T15:00:00Z'),
+   '["lineage","sla","data-quality"]'::jsonb, 'priya.nair@example.com', 'priya.nair@example.com', 'priya.nair@example.com', 2, '2026-05-15T07:00:00Z', '2026-06-19T08:00:00Z'),
 
-  ('kp-seed-7', 'data-onboarding-checklist', 'Data Onboarding Checklist', 'What a new dataset needs before it is trusted.',
-   $md$# Onboarding Checklist
-
-1. Owner assigned
-2. PII classified
-3. Freshness SLA set
-4. Description and tags applied
-5. Sample query reviewed
-$md$,
-   '["onboarding","governance"]'::jsonb, 'marcus.webb@example.com', 'marcus.webb@example.com', 'sarah.chen@example.com', 5, '2026-03-30T09:30:00Z', '2026-06-21T11:20:00Z'),
-
-  ('kp-seed-8', 'lineage-and-freshness-slas', 'Lineage and Freshness SLAs', 'Upstream sources and how fresh each mart is expected to be.',
-   $md$# Lineage and Freshness
-
-`daily_sales` -> `sales_mart` -> `exec_dashboard`. SLA: marts refresh by **06:00 UTC**. Page the on-call if `exec_dashboard` is stale past 08:00.
-$md$,
-   '["lineage","sla","data-quality"]'::jsonb, 'priya.nair@example.com', 'priya.nair@example.com', 'priya.nair@example.com', 2, '2026-05-15T07:00:00Z', '2026-06-19T08:00:00Z')
-ON CONFLICT (id) DO NOTHING;
-
--- Enriched knowledge pages: 25+ distinct tags so the facet caps + reveals
--- (#707), multi-sentence summaries for the editor (#708), and inline
--- references (cross-page links, dataset URNs, a connection, one broken ref)
--- so the Related panel, backlinks, and the reference graph (#709) have material.
-INSERT INTO portal_knowledge_pages
-  (id, slug, title, summary, body, tags, created_by, created_email, updated_by, current_version, created_at, updated_at)
-VALUES
-  ('kp-seed-9', 'net-revenue-definition', 'Net Revenue Definition', 'net_revenue is gross sales minus returns, discounts, and tax. It is the only revenue figure used in board-level reporting, so always lead with it rather than gross.',
+  ('kp-seed-9', 'net-revenue-definition', 'Net Revenue Definition',
+   'net_revenue is gross sales minus returns, discounts, and tax. It is the only revenue figure used in board-level reporting, so always lead with it rather than gross.',
    $md$# Net Revenue Definition
 
-net_revenue is gross sales minus returns, discounts, and tax. It is the only revenue figure used in board-level reporting, so always lead with it rather than gross.
+net_revenue is gross sales **minus returns, discounts, and tax**. It is the only revenue figure used in board-level reporting, so always lead with it rather than gross.
 
-## Related
+It is built on top of two other definitions. The gross input is the `amount` field from [Revenue Definition](mcp:knowledge_page:kp-seed-2), and the returns it subtracts are exactly those described in [Returns and Refunds Logic](mcp:knowledge_page:kp-seed-5). Because returns net in the reporting layer, net_revenue for a period can move after the period closes.
 
-The authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD), served from mcp:connection:(trino,acme-warehouse).
-
-Related pages: [Revenue Definition](mcp:knowledge_page:kp-seed-2), [Returns and Refunds Logic](mcp:knowledge_page:kp-seed-5).
+The measure is computed from [daily_sales](urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)) on the [acme-warehouse](mcp:connection:(trino,acme-warehouse)) connection. When a stakeholder simply says "revenue", they mean this; the [Glossary: Core Terms](mcp:knowledge_page:kp-seed-28) page records that mapping so the word is unambiguous in reporting.
 $md$,
    '["finance","revenue","metrics","reporting"]'::jsonb, 'sarah.chen@example.com', 'sarah.chen@example.com', 'marcus.johnson@example.com', 1, NOW() - interval '5 days', NOW() - interval '1 days'),
-  ('kp-seed-10', 'inventory-snapshot-grain', 'Inventory Snapshot Grain', 'inventory_snapshot is one row per SKU per store per day. The on_hand count is the end-of-day position; intraday movements are not captured here.',
-   $md$# Inventory Snapshot Grain
 
-inventory_snapshot is one row per SKU per store per day. The on_hand count is the end-of-day position; intraday movements are not captured here.
-
-## Related
-
-The authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.inventory.inventory_levels,PROD).
-
-Related pages: [Supply Chain Lead Times](mcp:knowledge_page:kp-seed-14), [daily_sales Table Guide](mcp:knowledge_page:kp-seed-4).
-$md$,
-   '["inventory","schema","retail","data-quality"]'::jsonb, 'marcus.webb@example.com', 'marcus.webb@example.com', 'rachel.thompson@example.com', 2, NOW() - interval '6 days', NOW() - interval '2 days'),
-  ('kp-seed-11', 'price-change-history', 'Price Change History', 'price_history records every list-price change with an effective timestamp. To get the price in effect on a date, take the most recent row at or before that date.',
-   $md$# Price Change History
-
-price_history records every list-price change with an effective timestamp. To get the price in effect on a date, take the most recent row at or before that date.
-
-## Related
-
-The authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.price_adjustments,PROD), served from mcp:connection:(trino,acme-warehouse).
-
-Related pages: [Revenue Definition](mcp:knowledge_page:kp-seed-2).
-$md$,
-   '["pricing","schema","retail"]'::jsonb, 'priya.nair@example.com', 'priya.nair@example.com', 'david.park@example.com', 3, NOW() - interval '7 days', NOW() - interval '3 days'),
-  ('kp-seed-12', 'returns-reason-codes', 'Returns Reason Codes', 'Returns carry a reason_code from a controlled vocabulary (damaged, wrong-item, no-longer-needed, late-delivery). Free-text reasons were retired in FY2025, so do not expect them in new rows.',
-   $md$# Returns Reason Codes
-
-Returns carry a reason_code from a controlled vocabulary (damaged, wrong-item, no-longer-needed, late-delivery). Free-text reasons were retired in FY2025, so do not expect them in new rows.
-
-## Related
-
-Related pages: [Returns and Refunds Logic](mcp:knowledge_page:kp-seed-5), [Net Revenue Definition](mcp:knowledge_page:kp-seed-9).
-$md$,
-   '["returns","taxonomy","data-quality"]'::jsonb, 'marcus.johnson@example.com', 'marcus.johnson@example.com', 'amanda.lee@example.com', 4, NOW() - interval '8 days', NOW() - interval '4 days'),
-  ('kp-seed-13', 'loyalty-tier-rename', 'Loyalty Tier Rename', 'Loyalty tiers were renamed in Q3 FY2024: Bronze/Silver/Gold became Explorer/Enthusiast/Champion. Historical rows keep the old labels, so reporting must map both.',
-   $md$# Loyalty Tier Rename
-
-Loyalty tiers were renamed in Q3 FY2024: Bronze/Silver/Gold became Explorer/Enthusiast/Champion. Historical rows keep the old labels, so reporting must map both.
-
-## Related
-
-The authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.customer_segments,PROD).
-
-Related pages: [Customer Identity Resolution](mcp:knowledge_page:kp-seed-24), [Glossary: Core Terms](mcp:knowledge_page:kp-seed-28).
-$md$,
-   '["loyalty","marketing","customer","deprecation"]'::jsonb, 'rachel.thompson@example.com', 'rachel.thompson@example.com', 'admin@example.com', 1, NOW() - interval '9 days', NOW() - interval '5 days'),
-  ('kp-seed-14', 'supply-chain-lead-times', 'Supply Chain Lead Times', 'supplier_lead_time is measured in business days from PO submission to dock receipt. It excludes the put-away time before stock becomes sellable.',
-   $md$# Supply Chain Lead Times
-
-supplier_lead_time is measured in business days from PO submission to dock receipt. It excludes the put-away time before stock becomes sellable.
-
-## Related
-
-The authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.inventory.supply_chain_orders,PROD).
-
-Related pages: [Inventory Snapshot Grain](mcp:knowledge_page:kp-seed-10), [Demand Forecast Model](mcp:knowledge_page:kp-seed-15).
-$md$,
-   '["supply-chain","inventory","forecasting"]'::jsonb, 'david.park@example.com', 'david.park@example.com', 'sarah.chen@example.com', 2, NOW() - interval '10 days', NOW() - interval '1 days'),
-  ('kp-seed-15', 'demand-forecast-model', 'Demand Forecast Model', 'The weekly demand forecast blends a 52-week seasonal baseline with a promotions uplift. Forecasts beyond 8 weeks are directional and should not drive purchase orders.',
-   $md$# Demand Forecast Model
-
-The weekly demand forecast blends a 52-week seasonal baseline with a promotions uplift. Forecasts beyond 8 weeks are directional and should not drive purchase orders.
-
-## Related
-
-The authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.regional_performance,PROD).
-
-Related pages: [Supply Chain Lead Times](mcp:knowledge_page:kp-seed-14), [Promotions Attribution](mcp:knowledge_page:kp-seed-27).
-$md$,
-   '["forecasting","metrics","supply-chain"]'::jsonb, 'amanda.lee@example.com', 'amanda.lee@example.com', 'marcus.webb@example.com', 3, NOW() - interval '11 days', NOW() - interval '2 days'),
-  ('kp-seed-16', 'etl-refresh-windows', 'ETL Refresh Windows', 'Core marts refresh nightly between 02:00 and 04:00 UTC. Querying a mart mid-refresh can return a partial partition, so prefer reads after 04:30 UTC.',
+  ('kp-seed-16', 'etl-refresh-windows', 'ETL Refresh Windows',
+   'Core marts refresh nightly between 02:00 and 04:00 UTC. Querying mid-refresh can return a partial partition, so prefer reads after 04:30 UTC.',
    $md$# ETL Refresh Windows
 
-Core marts refresh nightly between 02:00 and 04:00 UTC. Querying a mart mid-refresh can return a partial partition, so prefer reads after 04:30 UTC.
+Core marts refresh nightly between **02:00 and 04:00 UTC** on the [acme-warehouse](mcp:connection:(trino,acme-warehouse)) connection. A query that lands mid-refresh can read a half-written partition, so for anything that must be correct, prefer reads after **04:30 UTC**.
 
-## Related
+These windows are how the platform meets the [Freshness SLA Tiers](mcp:knowledge_page:kp-seed-20): a gold dataset gets an extra intraday pass, while silver and bronze ride the nightly window only. The end-to-end timing, including the 06:00 UTC mart deadline, is in [Lineage and Freshness SLAs](mcp:knowledge_page:kp-seed-8).
 
-served from mcp:connection:(trino,acme-warehouse).
-
-Related pages: [Freshness SLA Tiers](mcp:knowledge_page:kp-seed-20), [sales_mart Schema](mcp:knowledge_page:kp-seed-17), [Lineage and Freshness SLAs](mcp:knowledge_page:kp-seed-8).
+The reporting consumer of these loads is [sales_mart Schema](mcp:knowledge_page:kp-seed-17). If a dashboard number looks wrong first thing in the morning, check whether its mart had finished its window before you read it.
 $md$,
    '["etl","freshness","sla","observability"]'::jsonb, 'admin@example.com', 'admin@example.com', 'priya.nair@example.com', 4, NOW() - interval '12 days', NOW() - interval '3 days'),
-  ('kp-seed-17', 'sales-mart-schema', 'sales_mart Schema', 'sales_mart is the curated star schema for sales reporting: one fact table (sales_fact) and four conformed dimensions (date, store, product, customer).',
+
+  ('kp-seed-17', 'sales-mart-schema', 'sales_mart Schema',
+   'sales_mart is the curated star schema for sales reporting: one fact table and four conformed dimensions. Dashboards should read this, never the base table.',
    $md$# sales_mart Schema
 
-sales_mart is the curated star schema for sales reporting: one fact table (sales_fact) and four conformed dimensions (date, store, product, customer).
+[sales_mart](urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.sales_mart,PROD)) is the curated star schema for sales reporting: one fact table (`sales_fact`) and four conformed dimensions (`date`, `store`, `product`, `customer`).
 
-## Related
+It is built from the base [daily_sales Table Guide](mcp:knowledge_page:kp-seed-4) table, with the cleanup and conformance applied so that reporting does not have to. Its place in the pipeline and its refresh deadline are described in [Lineage and Freshness SLAs](mcp:knowledge_page:kp-seed-8).
 
-The authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD).
-
-Related pages: [Executive Dashboard Guide](mcp:knowledge_page:kp-seed-23), [Partitioning Conventions](mcp:knowledge_page:kp-seed-21).
+Use the measures here rather than recomputing from raw rows; the canonical names (revenue, margin, attach rate) resolve through the [Glossary: Core Terms](mcp:knowledge_page:kp-seed-28) page so the same word means the same thing on every dashboard.
 $md$,
    '["schema","reporting","lineage","dashboards"]'::jsonb, 'sarah.chen@example.com', 'sarah.chen@example.com', 'marcus.johnson@example.com', 1, NOW() - interval '13 days', NOW() - interval '4 days'),
-  ('kp-seed-18', 'pii-masking-policy', 'PII Masking Policy', 'Email, phone, and address are PII and must be masked in any shared mart. Unmasked access requires the pii_reader role and is logged for compliance review.',
+
+  ('kp-seed-18', 'pii-masking-policy', 'PII Masking Policy',
+   'Email, phone, and address must be masked in any shared mart. Unmasked access requires the pii_reader role and is logged for compliance review.',
    $md$# PII Masking Policy
 
-Email, phone, and address are PII and must be masked in any shared mart. Unmasked access requires the pii_reader role and is logged for compliance review.
+Email, phone, and address must be **masked** in any shared mart. The masked form (a stable hash) is safe to join and group on; the raw value is restricted.
 
-## Related
+This is the enforcement side of [Customer PII Handling](mcp:knowledge_page:kp-seed-3): that page says which columns are PII, this one says what you may do with them. Reading the unmasked values requires the `pii_reader` role, and every such read is logged for compliance review.
 
-Related pages: [Customer PII Handling](mcp:knowledge_page:kp-seed-3), [Data Ownership Model](mcp:knowledge_page:kp-seed-19).
+On [customer_segments](urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.customer_segments,PROD)) the masked columns carry a `_masked` suffix. If a query needs to join customers across datasets, join on the resolved `customer_key`, which is not PII, rather than on email.
 $md$,
    '["pii","governance","security","compliance"]'::jsonb, 'marcus.webb@example.com', 'marcus.webb@example.com', 'rachel.thompson@example.com', 2, NOW() - interval '14 days', NOW() - interval '5 days'),
-  ('kp-seed-19', 'data-ownership-model', 'Data Ownership Model', 'Every dataset has a named owner accountable for its quality and documentation. Ownership is recorded in the catalog; an unowned dataset cannot be promoted to certified.',
-   $md$# Data Ownership Model
 
-Every dataset has a named owner accountable for its quality and documentation. Ownership is recorded in the catalog; an unowned dataset cannot be promoted to certified.
-
-## Related
-
-Related pages: [Data Onboarding Checklist](mcp:knowledge_page:kp-seed-7), [Freshness SLA Tiers](mcp:knowledge_page:kp-seed-20).
-$md$,
-   '["ownership","governance","glossary"]'::jsonb, 'priya.nair@example.com', 'priya.nair@example.com', 'david.park@example.com', 3, NOW() - interval '15 days', NOW() - interval '1 days'),
-  ('kp-seed-20', 'freshness-sla-tiers', 'Freshness SLA Tiers', 'Datasets are assigned a freshness tier: gold refreshes hourly, silver daily, bronze weekly. The tier sets the alert threshold the on-call pages against.',
+  ('kp-seed-20', 'freshness-sla-tiers', 'Freshness SLA Tiers',
+   'Datasets are assigned a freshness tier: gold refreshes hourly, silver daily, bronze weekly. The tier sets the alert threshold the on-call pages against.',
    $md$# Freshness SLA Tiers
 
-Datasets are assigned a freshness tier: gold refreshes hourly, silver daily, bronze weekly. The tier sets the alert threshold the on-call pages against.
+Every dataset is assigned a freshness **tier**: gold refreshes hourly, silver daily, bronze weekly. The tier is a promise to consumers and it sets the threshold the on-call is paged against.
 
-## Related
+The tier is delivered by the loads in [ETL Refresh Windows](mcp:knowledge_page:kp-seed-16) and enforced end to end by [Lineage and Freshness SLAs](mcp:knowledge_page:kp-seed-8). A dataset cannot be promoted to gold unless its source on the [acme-warehouse](mcp:connection:(trino,acme-warehouse)) connection can actually sustain an hourly load.
 
-served from mcp:connection:(trino,acme-warehouse).
-
-Related pages: [ETL Refresh Windows](mcp:knowledge_page:kp-seed-16), [Observability and Alerting](mcp:knowledge_page:kp-seed-30).
+Pick the lowest tier that meets the real need. Gold is expensive and noisy; most reporting tables are correctly silver, refreshed once in the nightly window.
 $md$,
    '["freshness","sla","observability","data-quality"]'::jsonb, 'marcus.johnson@example.com', 'marcus.johnson@example.com', 'amanda.lee@example.com', 4, NOW() - interval '16 days', NOW() - interval '2 days'),
-  ('kp-seed-21', 'partitioning-conventions', 'Partitioning Conventions', 'Fact tables partition by event date in UTC. Querying without a date predicate scans every partition, so always bound large fact queries by date.',
-   $md$# Partitioning Conventions
 
-Fact tables partition by event date in UTC. Querying without a date predicate scans every partition, so always bound large fact queries by date.
-
-## Related
-
-The authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD).
-
-Related pages: [sales_mart Schema](mcp:knowledge_page:kp-seed-17).
-$md$,
-   '["partitioning","schema","data-quality"]'::jsonb, 'rachel.thompson@example.com', 'rachel.thompson@example.com', 'admin@example.com', 1, NOW() - interval '17 days', NOW() - interval '3 days'),
-  ('kp-seed-22', 'deprecated-columns', 'Deprecated Columns', 'Columns scheduled for removal carry a deprecated tag and a removal date in the catalog. Migrate off them before the date; reads will start returning NULL after.',
-   $md$# Deprecated Columns
-
-Columns scheduled for removal carry a deprecated tag and a removal date in the catalog. Migrate off them before the date; reads will start returning NULL after.
-
-## Related
-
-Related pages: [Data Ownership Model](mcp:knowledge_page:kp-seed-19), [Glossary: Core Terms](mcp:knowledge_page:kp-seed-28).
-
-The retired urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.legacy_orders,PROD) is kept only for the migration window.
-$md$,
-   '["deprecation","schema","governance"]'::jsonb, 'david.park@example.com', 'david.park@example.com', 'sarah.chen@example.com', 2, NOW() - interval '18 days', NOW() - interval '4 days'),
-  ('kp-seed-23', 'exec-dashboard-guide', 'Executive Dashboard Guide', 'The executive dashboard reads exclusively from sales_mart and refreshes by 06:00 UTC. If a number looks wrong, check the sales_mart partition before the dashboard.',
-   $md$# Executive Dashboard Guide
-
-The executive dashboard reads exclusively from sales_mart and refreshes by 06:00 UTC. If a number looks wrong, check the sales_mart partition before the dashboard.
-
-## Related
-
-The authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD), served from mcp:connection:(trino,acme-warehouse).
-
-Related pages: [sales_mart Schema](mcp:knowledge_page:kp-seed-17), [Lineage and Freshness SLAs](mcp:knowledge_page:kp-seed-8).
-$md$,
-   '["dashboards","reporting","lineage"]'::jsonb, 'amanda.lee@example.com', 'amanda.lee@example.com', 'marcus.webb@example.com', 3, NOW() - interval '19 days', NOW() - interval '5 days'),
-  ('kp-seed-24', 'customer-identity-resolution', 'Customer Identity Resolution', 'Customers are deduplicated into a single customer_key via email and loyalty-id matching. A raw order may reference a pre-resolution id, so always join through the identity map.',
-   $md$# Customer Identity Resolution
-
-Customers are deduplicated into a single customer_key via email and loyalty-id matching. A raw order may reference a pre-resolution id, so always join through the identity map.
-
-## Related
-
-The authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.customer_segments,PROD).
-
-Related pages: [Loyalty Tier Rename](mcp:knowledge_page:kp-seed-13), [Order Lifecycle States](mcp:knowledge_page:kp-seed-25).
-$md$,
-   '["customer","schema","data-quality"]'::jsonb, 'admin@example.com', 'admin@example.com', 'priya.nair@example.com', 4, NOW() - interval '20 days', NOW() - interval '1 days'),
-  ('kp-seed-25', 'order-lifecycle-states', 'Order Lifecycle States', 'An order moves placed -> picked -> shipped -> delivered, or placed -> cancelled. The orders table stores only the current state; state history lives in order_events.',
-   $md$# Order Lifecycle States
-
-An order moves placed -> picked -> shipped -> delivered, or placed -> cancelled. The orders table stores only the current state; state history lives in order_events.
-
-## Related
-
-The authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.store_transactions,PROD).
-
-Related pages: [Shipping Zones](mcp:knowledge_page:kp-seed-26), [Customer Identity Resolution](mcp:knowledge_page:kp-seed-24).
-$md$,
-   '["orders","schema","taxonomy"]'::jsonb, 'sarah.chen@example.com', 'sarah.chen@example.com', 'marcus.johnson@example.com', 1, NOW() - interval '21 days', NOW() - interval '2 days'),
-  ('kp-seed-26', 'shipping-zones', 'Shipping Zones', 'Shipping cost and SLA derive from the destination zone, not the raw address. The zone is assigned at order time and frozen, so a later address edit does not change it.',
-   $md$# Shipping Zones
-
-Shipping cost and SLA derive from the destination zone, not the raw address. The zone is assigned at order time and frozen, so a later address edit does not change it.
-
-## Related
-
-Related pages: [Order Lifecycle States](mcp:knowledge_page:kp-seed-25), [Supply Chain Lead Times](mcp:knowledge_page:kp-seed-14).
-$md$,
-   '["shipping","supply-chain","reference"]'::jsonb, 'marcus.webb@example.com', 'marcus.webb@example.com', 'rachel.thompson@example.com', 2, NOW() - interval '22 days', NOW() - interval '3 days'),
-  ('kp-seed-27', 'promotions-attribution', 'Promotions Attribution', 'Promotion uplift is attributed on a last-touch basis within the campaign window. Sales outside the window are never credited to the promotion even at a discounted price.',
-   $md$# Promotions Attribution
-
-Promotion uplift is attributed on a last-touch basis within the campaign window. Sales outside the window are never credited to the promotion even at a discounted price.
-
-## Related
-
-The authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD).
-
-Related pages: [Demand Forecast Model](mcp:knowledge_page:kp-seed-15), [Net Revenue Definition](mcp:knowledge_page:kp-seed-9).
-$md$,
-   '["promotions","marketing","metrics"]'::jsonb, 'priya.nair@example.com', 'priya.nair@example.com', 'david.park@example.com', 3, NOW() - interval '23 days', NOW() - interval '4 days'),
-  ('kp-seed-28', 'glossary-core-terms', 'Glossary: Core Terms', 'Canonical definitions for the terms used across reporting: revenue, margin, attach rate, and active customer. When a metric is ambiguous, this page is the tie-breaker.',
+  ('kp-seed-28', 'glossary-core-terms', 'Glossary: Core Terms',
+   'Canonical definitions for the terms used across reporting: revenue, margin, attach rate, and active customer. When a metric is ambiguous, this page is the tie-breaker.',
    $md$# Glossary: Core Terms
 
-Canonical definitions for the terms used across reporting: revenue, margin, attach rate, and active customer. When a metric is ambiguous, this page is the tie-breaker.
+This page is the tie-breaker when a reporting term is ambiguous. It does not redefine the metrics, it points at the one page that owns each.
 
-## Related
+**Revenue.** Unqualified, "revenue" means net revenue, defined on [Net Revenue Definition](mcp:knowledge_page:kp-seed-9). The gross `amount` field, which is margin before returns, is defined separately on [Revenue Definition](mcp:knowledge_page:kp-seed-2); never report it as revenue.
 
-Related pages: [Net Revenue Definition](mcp:knowledge_page:kp-seed-9), [Revenue Definition](mcp:knowledge_page:kp-seed-2), [Data Ownership Model](mcp:knowledge_page:kp-seed-19).
+**Returns.** A return is a negative-amount row whose accounting is described in [Returns and Refunds Logic](mcp:knowledge_page:kp-seed-5). Returns net in the reporting layer, so a closed period can still move.
+
+**Margin** is revenue minus cost of goods. **Attach rate** is the share of orders that include an accessory line. **Active customer** is one with a purchase in the trailing fiscal quarter; the period is the fiscal quarter, not the civil one.
 $md$,
-   '["glossary","metrics","reporting","governance"]'::jsonb, 'marcus.johnson@example.com', 'marcus.johnson@example.com', 'amanda.lee@example.com', 4, NOW() - interval '24 days', NOW() - interval '5 days'),
-  ('kp-seed-29', 'catalog-connection-requests', 'Catalog Connection Requests', 'New catalog connections are requested from Connections > New and approved by an admin. Self-serve connections are scoped to read-only by default.',
-   $md$# Catalog Connection Requests
+   '["glossary","metrics","reporting","governance"]'::jsonb, 'marcus.johnson@example.com', 'marcus.johnson@example.com', 'amanda.lee@example.com', 4, NOW() - interval '24 days', NOW() - interval '5 days')
+-- Refresh the curated bodies on a re-seed instead of skipping them: a dev DB that
+-- was seeded from the older fixture reuses these kp-seed-* ids, so DO NOTHING would
+-- silently keep the stale pages. (Pages dropped from this set still linger until a
+-- volume reset via `make dev-down && make dev`.)
+ON CONFLICT (id) DO UPDATE SET
+  slug = EXCLUDED.slug,
+  title = EXCLUDED.title,
+  summary = EXCLUDED.summary,
+  body = EXCLUDED.body,
+  tags = EXCLUDED.tags,
+  updated_by = EXCLUDED.updated_by,
+  current_version = EXCLUDED.current_version,
+  updated_at = EXCLUDED.updated_at;
 
-New catalog connections are requested from Connections > New and approved by an admin. Self-serve connections are scoped to read-only by default.
-
-## Related
-
-served from mcp:connection:(trino,acme-warehouse).
-
-Related pages: [Data Onboarding Checklist](mcp:knowledge_page:kp-seed-7).
-$md$,
-   '["onboarding","security","governance"]'::jsonb, 'rachel.thompson@example.com', 'rachel.thompson@example.com', 'admin@example.com', 1, NOW() - interval '25 days', NOW() - interval '1 days'),
-  ('kp-seed-30', 'observability-alerting', 'Observability and Alerting', 'Pipeline health is tracked in the observability view; a failed run pages the dataset owner after two consecutive misses. Transient single failures auto-retry and do not alert.',
-   $md$# Observability and Alerting
-
-Pipeline health is tracked in the observability view; a failed run pages the dataset owner after two consecutive misses. Transient single failures auto-retry and do not alert.
-
-## Related
-
-The authoritative data lives in urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.inventory.supply_chain_orders,PROD).
-
-Related pages: [Freshness SLA Tiers](mcp:knowledge_page:kp-seed-20), [ETL Refresh Windows](mcp:knowledge_page:kp-seed-16).
-$md$,
-   '["observability","etl","sla","ownership"]'::jsonb, 'david.park@example.com', 'david.park@example.com', 'sarah.chen@example.com', 2, NOW() - interval '26 days', NOW() - interval '2 days')
-ON CONFLICT (id) DO NOTHING;
-
--- Inline entity references for the enriched pages so inbound backlinks form
--- and the reference graph is navigable in both directions (#709).
+-- Inline entity references for the curated pages, mirroring the inline mentions in
+-- each body above so inbound backlinks form and the reference graph is navigable in
+-- both directions (#709). source='inline' so a handler-side reconcile would rebuild
+-- the same set from the body. The one deliberately broken ref (kp-seed-1's retired
+-- warehouse connection) is intentionally NOT listed here: it has no existing target,
+-- so it renders struck-through in the body and never appears in the Related panel.
 INSERT INTO knowledge_page_entity_refs
   (id, page_id, target_type, ref_page_id, connection_kind, connection_name, entity_urn, source, created_by)
 VALUES
+  ('kpref-1-1', 'kp-seed-1', 'knowledge_page', 'kp-seed-2', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
+  ('kpref-1-2', 'kp-seed-1', 'knowledge_page', 'kp-seed-9', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
+  ('kpref-1-3', 'kp-seed-1', 'knowledge_page', 'kp-seed-28', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
+  ('kpref-1-4', 'kp-seed-1', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)', 'inline', 'sarah.chen@example.com'),
+  ('kpref-2-1', 'kp-seed-2', 'knowledge_page', 'kp-seed-9', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
+  ('kpref-2-2', 'kp-seed-2', 'knowledge_page', 'kp-seed-5', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
+  ('kpref-2-3', 'kp-seed-2', 'knowledge_page', 'kp-seed-28', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
+  ('kpref-2-4', 'kp-seed-2', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)', 'inline', 'sarah.chen@example.com'),
+  ('kpref-3-1', 'kp-seed-3', 'knowledge_page', 'kp-seed-18', NULL, NULL, NULL, 'inline', 'marcus.webb@example.com'),
+  ('kpref-3-2', 'kp-seed-3', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.customer_segments,PROD)', 'inline', 'marcus.webb@example.com'),
+  ('kpref-4-1', 'kp-seed-4', 'knowledge_page', 'kp-seed-17', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
+  ('kpref-4-2', 'kp-seed-4', 'knowledge_page', 'kp-seed-8', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
+  ('kpref-4-3', 'kp-seed-4', 'connection', NULL, 'trino', 'acme-warehouse', NULL, 'inline', 'sarah.chen@example.com'),
+  ('kpref-4-4', 'kp-seed-4', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)', 'inline', 'sarah.chen@example.com'),
+  ('kpref-5-1', 'kp-seed-5', 'knowledge_page', 'kp-seed-9', NULL, NULL, NULL, 'inline', 'marcus.webb@example.com'),
+  ('kpref-5-2', 'kp-seed-5', 'knowledge_page', 'kp-seed-2', NULL, NULL, NULL, 'inline', 'marcus.webb@example.com'),
+  ('kpref-5-3', 'kp-seed-5', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.refunds,PROD)', 'inline', 'marcus.webb@example.com'),
+  ('kpref-8-1', 'kp-seed-8', 'knowledge_page', 'kp-seed-4', NULL, NULL, NULL, 'inline', 'priya.nair@example.com'),
+  ('kpref-8-2', 'kp-seed-8', 'knowledge_page', 'kp-seed-17', NULL, NULL, NULL, 'inline', 'priya.nair@example.com'),
+  ('kpref-8-3', 'kp-seed-8', 'knowledge_page', 'kp-seed-20', NULL, NULL, NULL, 'inline', 'priya.nair@example.com'),
+  ('kpref-8-4', 'kp-seed-8', 'knowledge_page', 'kp-seed-16', NULL, NULL, NULL, 'inline', 'priya.nair@example.com'),
+  ('kpref-8-5', 'kp-seed-8', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)', 'inline', 'priya.nair@example.com'),
   ('kpref-9-1', 'kp-seed-9', 'knowledge_page', 'kp-seed-2', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
   ('kpref-9-2', 'kp-seed-9', 'knowledge_page', 'kp-seed-5', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
-  ('kpref-9-3', 'kp-seed-9', 'connection', NULL, 'trino', 'acme-warehouse', NULL, 'inline', 'sarah.chen@example.com'),
-  ('kpref-9-4', 'kp-seed-9', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)', 'inline', 'sarah.chen@example.com'),
-  ('kpref-10-1', 'kp-seed-10', 'knowledge_page', 'kp-seed-14', NULL, NULL, NULL, 'inline', 'marcus.webb@example.com'),
-  ('kpref-10-2', 'kp-seed-10', 'knowledge_page', 'kp-seed-4', NULL, NULL, NULL, 'inline', 'marcus.webb@example.com'),
-  ('kpref-10-3', 'kp-seed-10', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.inventory.inventory_levels,PROD)', 'inline', 'marcus.webb@example.com'),
-  ('kpref-11-1', 'kp-seed-11', 'knowledge_page', 'kp-seed-2', NULL, NULL, NULL, 'inline', 'priya.nair@example.com'),
-  ('kpref-11-2', 'kp-seed-11', 'connection', NULL, 'trino', 'acme-warehouse', NULL, 'inline', 'priya.nair@example.com'),
-  ('kpref-11-3', 'kp-seed-11', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.price_adjustments,PROD)', 'inline', 'priya.nair@example.com'),
-  ('kpref-12-1', 'kp-seed-12', 'knowledge_page', 'kp-seed-5', NULL, NULL, NULL, 'inline', 'marcus.johnson@example.com'),
-  ('kpref-12-2', 'kp-seed-12', 'knowledge_page', 'kp-seed-9', NULL, NULL, NULL, 'inline', 'marcus.johnson@example.com'),
-  ('kpref-13-1', 'kp-seed-13', 'knowledge_page', 'kp-seed-24', NULL, NULL, NULL, 'inline', 'rachel.thompson@example.com'),
-  ('kpref-13-2', 'kp-seed-13', 'knowledge_page', 'kp-seed-28', NULL, NULL, NULL, 'inline', 'rachel.thompson@example.com'),
-  ('kpref-13-3', 'kp-seed-13', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.customer_segments,PROD)', 'inline', 'rachel.thompson@example.com'),
-  ('kpref-14-1', 'kp-seed-14', 'knowledge_page', 'kp-seed-10', NULL, NULL, NULL, 'inline', 'david.park@example.com'),
-  ('kpref-14-2', 'kp-seed-14', 'knowledge_page', 'kp-seed-15', NULL, NULL, NULL, 'inline', 'david.park@example.com'),
-  ('kpref-14-3', 'kp-seed-14', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.inventory.supply_chain_orders,PROD)', 'inline', 'david.park@example.com'),
-  ('kpref-15-1', 'kp-seed-15', 'knowledge_page', 'kp-seed-14', NULL, NULL, NULL, 'inline', 'amanda.lee@example.com'),
-  ('kpref-15-2', 'kp-seed-15', 'knowledge_page', 'kp-seed-27', NULL, NULL, NULL, 'inline', 'amanda.lee@example.com'),
-  ('kpref-15-3', 'kp-seed-15', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.regional_performance,PROD)', 'inline', 'amanda.lee@example.com'),
+  ('kpref-9-3', 'kp-seed-9', 'knowledge_page', 'kp-seed-28', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
+  ('kpref-9-4', 'kp-seed-9', 'connection', NULL, 'trino', 'acme-warehouse', NULL, 'inline', 'sarah.chen@example.com'),
+  ('kpref-9-5', 'kp-seed-9', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)', 'inline', 'sarah.chen@example.com'),
   ('kpref-16-1', 'kp-seed-16', 'knowledge_page', 'kp-seed-20', NULL, NULL, NULL, 'inline', 'admin@example.com'),
-  ('kpref-16-2', 'kp-seed-16', 'knowledge_page', 'kp-seed-17', NULL, NULL, NULL, 'inline', 'admin@example.com'),
-  ('kpref-16-3', 'kp-seed-16', 'knowledge_page', 'kp-seed-8', NULL, NULL, NULL, 'inline', 'admin@example.com'),
+  ('kpref-16-2', 'kp-seed-16', 'knowledge_page', 'kp-seed-8', NULL, NULL, NULL, 'inline', 'admin@example.com'),
+  ('kpref-16-3', 'kp-seed-16', 'knowledge_page', 'kp-seed-17', NULL, NULL, NULL, 'inline', 'admin@example.com'),
   ('kpref-16-4', 'kp-seed-16', 'connection', NULL, 'trino', 'acme-warehouse', NULL, 'inline', 'admin@example.com'),
-  ('kpref-17-1', 'kp-seed-17', 'knowledge_page', 'kp-seed-23', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
-  ('kpref-17-2', 'kp-seed-17', 'knowledge_page', 'kp-seed-21', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
-  ('kpref-17-3', 'kp-seed-17', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)', 'inline', 'sarah.chen@example.com'),
+  ('kpref-17-1', 'kp-seed-17', 'knowledge_page', 'kp-seed-4', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
+  ('kpref-17-2', 'kp-seed-17', 'knowledge_page', 'kp-seed-8', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
+  ('kpref-17-3', 'kp-seed-17', 'knowledge_page', 'kp-seed-28', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
+  ('kpref-17-4', 'kp-seed-17', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.sales_mart,PROD)', 'inline', 'sarah.chen@example.com'),
   ('kpref-18-1', 'kp-seed-18', 'knowledge_page', 'kp-seed-3', NULL, NULL, NULL, 'inline', 'marcus.webb@example.com'),
-  ('kpref-18-2', 'kp-seed-18', 'knowledge_page', 'kp-seed-19', NULL, NULL, NULL, 'inline', 'marcus.webb@example.com'),
-  ('kpref-19-1', 'kp-seed-19', 'knowledge_page', 'kp-seed-7', NULL, NULL, NULL, 'inline', 'priya.nair@example.com'),
-  ('kpref-19-2', 'kp-seed-19', 'knowledge_page', 'kp-seed-20', NULL, NULL, NULL, 'inline', 'priya.nair@example.com'),
+  ('kpref-18-2', 'kp-seed-18', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.customer_segments,PROD)', 'inline', 'marcus.webb@example.com'),
   ('kpref-20-1', 'kp-seed-20', 'knowledge_page', 'kp-seed-16', NULL, NULL, NULL, 'inline', 'marcus.johnson@example.com'),
-  ('kpref-20-2', 'kp-seed-20', 'knowledge_page', 'kp-seed-30', NULL, NULL, NULL, 'inline', 'marcus.johnson@example.com'),
+  ('kpref-20-2', 'kp-seed-20', 'knowledge_page', 'kp-seed-8', NULL, NULL, NULL, 'inline', 'marcus.johnson@example.com'),
   ('kpref-20-3', 'kp-seed-20', 'connection', NULL, 'trino', 'acme-warehouse', NULL, 'inline', 'marcus.johnson@example.com'),
-  ('kpref-21-1', 'kp-seed-21', 'knowledge_page', 'kp-seed-17', NULL, NULL, NULL, 'inline', 'rachel.thompson@example.com'),
-  ('kpref-21-2', 'kp-seed-21', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)', 'inline', 'rachel.thompson@example.com'),
-  ('kpref-22-1', 'kp-seed-22', 'knowledge_page', 'kp-seed-19', NULL, NULL, NULL, 'inline', 'david.park@example.com'),
-  ('kpref-22-2', 'kp-seed-22', 'knowledge_page', 'kp-seed-28', NULL, NULL, NULL, 'inline', 'david.park@example.com'),
-  ('kpref-22-3', 'kp-seed-22', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.legacy_orders,PROD)', 'inline', 'david.park@example.com'),
-  ('kpref-23-1', 'kp-seed-23', 'knowledge_page', 'kp-seed-17', NULL, NULL, NULL, 'inline', 'amanda.lee@example.com'),
-  ('kpref-23-2', 'kp-seed-23', 'knowledge_page', 'kp-seed-8', NULL, NULL, NULL, 'inline', 'amanda.lee@example.com'),
-  ('kpref-23-3', 'kp-seed-23', 'connection', NULL, 'trino', 'acme-warehouse', NULL, 'inline', 'amanda.lee@example.com'),
-  ('kpref-23-4', 'kp-seed-23', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)', 'inline', 'amanda.lee@example.com'),
-  ('kpref-24-1', 'kp-seed-24', 'knowledge_page', 'kp-seed-13', NULL, NULL, NULL, 'inline', 'admin@example.com'),
-  ('kpref-24-2', 'kp-seed-24', 'knowledge_page', 'kp-seed-25', NULL, NULL, NULL, 'inline', 'admin@example.com'),
-  ('kpref-24-3', 'kp-seed-24', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.analytics.customer_segments,PROD)', 'inline', 'admin@example.com'),
-  ('kpref-25-1', 'kp-seed-25', 'knowledge_page', 'kp-seed-26', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
-  ('kpref-25-2', 'kp-seed-25', 'knowledge_page', 'kp-seed-24', NULL, NULL, NULL, 'inline', 'sarah.chen@example.com'),
-  ('kpref-25-3', 'kp-seed-25', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.store_transactions,PROD)', 'inline', 'sarah.chen@example.com'),
-  ('kpref-26-1', 'kp-seed-26', 'knowledge_page', 'kp-seed-25', NULL, NULL, NULL, 'inline', 'marcus.webb@example.com'),
-  ('kpref-26-2', 'kp-seed-26', 'knowledge_page', 'kp-seed-14', NULL, NULL, NULL, 'inline', 'marcus.webb@example.com'),
-  ('kpref-27-1', 'kp-seed-27', 'knowledge_page', 'kp-seed-15', NULL, NULL, NULL, 'inline', 'priya.nair@example.com'),
-  ('kpref-27-2', 'kp-seed-27', 'knowledge_page', 'kp-seed-9', NULL, NULL, NULL, 'inline', 'priya.nair@example.com'),
-  ('kpref-27-3', 'kp-seed-27', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.retail.daily_sales,PROD)', 'inline', 'priya.nair@example.com'),
   ('kpref-28-1', 'kp-seed-28', 'knowledge_page', 'kp-seed-9', NULL, NULL, NULL, 'inline', 'marcus.johnson@example.com'),
   ('kpref-28-2', 'kp-seed-28', 'knowledge_page', 'kp-seed-2', NULL, NULL, NULL, 'inline', 'marcus.johnson@example.com'),
-  ('kpref-28-3', 'kp-seed-28', 'knowledge_page', 'kp-seed-19', NULL, NULL, NULL, 'inline', 'marcus.johnson@example.com'),
-  ('kpref-29-1', 'kp-seed-29', 'knowledge_page', 'kp-seed-7', NULL, NULL, NULL, 'inline', 'rachel.thompson@example.com'),
-  ('kpref-29-2', 'kp-seed-29', 'connection', NULL, 'trino', 'acme-warehouse', NULL, 'inline', 'rachel.thompson@example.com'),
-  ('kpref-30-1', 'kp-seed-30', 'knowledge_page', 'kp-seed-20', NULL, NULL, NULL, 'inline', 'david.park@example.com'),
-  ('kpref-30-2', 'kp-seed-30', 'knowledge_page', 'kp-seed-16', NULL, NULL, NULL, 'inline', 'david.park@example.com'),
-  ('kpref-30-3', 'kp-seed-30', 'datahub', NULL, NULL, NULL, 'urn:li:dataset:(urn:li:dataPlatform:trino,iceberg.inventory.supply_chain_orders,PROD)', 'inline', 'david.park@example.com')
-ON CONFLICT (id) DO NOTHING;
+  ('kpref-28-3', 'kp-seed-28', 'knowledge_page', 'kp-seed-5', NULL, NULL, NULL, 'inline', 'marcus.johnson@example.com')
+-- Refresh ref rows on re-seed too, so an updated graph replaces a stale one for
+-- reused kpref-* ids rather than being skipped.
+ON CONFLICT (id) DO UPDATE SET
+  page_id = EXCLUDED.page_id,
+  target_type = EXCLUDED.target_type,
+  ref_page_id = EXCLUDED.ref_page_id,
+  connection_kind = EXCLUDED.connection_kind,
+  connection_name = EXCLUDED.connection_name,
+  entity_urn = EXCLUDED.entity_urn,
+  source = EXCLUDED.source;
 
 -- ============================================================================
 -- Live memory for the dev admin (admin@example.com == acme-dev-key-2024).

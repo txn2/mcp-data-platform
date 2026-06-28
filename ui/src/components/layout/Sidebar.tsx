@@ -142,7 +142,10 @@ export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse, 
         route.startsWith("/shared/assets/")
       );
     }
-    if (itemPath === "/admin" || itemPath === "/activity" || itemPath === "/knowledge" || itemPath === "/prompts") return route === itemPath;
+    if (itemPath === "/admin" || itemPath === "/activity" || itemPath === "/prompts") return route === itemPath;
+    // Knowledge keeps its nav item active across the URL-addressable page routes
+    // (/knowledge/pages and /knowledge/pages/:id), so the wiki view stays anchored
+    // to the Knowledge section (#709).
     return route === itemPath || route.startsWith(itemPath + "/");
   }
 

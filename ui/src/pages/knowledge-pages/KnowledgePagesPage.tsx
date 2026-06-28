@@ -34,29 +34,49 @@ type Mode = { view: "list" } | { view: "page"; id: string } | { view: "edit"; id
  * pages. Everyone can browse and read; create/edit/remove is shown only to
  * personas with apply_knowledge access (admins). It reuses the shared
  * MarkdownEditor and MarkdownRenderer.
+ *
+ * The page detail view is URL-addressable (#709): the open page is driven by the
+ * /knowledge/pages/:id route via the openPageId prop, so detail is deep-linkable,
+ * shareable, and supports browser back/forward. The hub keys this subtree by
+ * path, so opening another page remounts with a fresh openPageId. Create and edit
+ * are transient sub-states layered over the current route.
  */
 export function KnowledgePagesPage({
-  openPage,
-  onPageOpened,
+  openPageId,
   onNavigate,
 }: {
-  // A request from the Knowledge hub's search to open a specific page in detail
-  // view. The bump counter makes re-opening the same page re-fire the effect.
-  openPage?: { id: string; n: number };
-  // Called once the request has been consumed so the parent can clear it,
-  // preventing a stale request from re-opening the page on the next remount.
-  onPageOpened?: () => void;
-  // Navigate to an in-app path (for entity-reference chip deep-links).
+  // The knowledge page to open in detail, from the /knowledge/pages/:id route.
+  // Undefined renders the page list (the /knowledge/pages route).
+  openPageId?: string;
+  // Navigate to an in-app path (page detail routing and entity-reference chips).
   onNavigate?: (path: string) => void;
 } = {}) {
-  const [mode, setMode] = useState<Mode>({ view: "list" });
+  const [mode, setMode] = useState<Mode>(
+    openPageId ? { view: "page", id: openPageId } : { view: "list" },
+  );
 
-  useEffect(() => {
-    if (openPage) {
-      setMode({ view: "page", id: openPage.id });
-      onPageOpened?.();
+  // Open/leave page detail through real navigation when a navigator is present
+  // (the hub always provides one) so the URL stays the source of truth; fall back
+  // to in-component state when rendered standalone without a navigator.
+  const openDetail = (id: string) =>
+    onNavigate ? onNavigate(`/knowledge/pages/${id}`) : setMode({ view: "page", id });
+  const backToList = () =>
+    onNavigate ? onNavigate("/knowledge/pages") : setMode({ view: "list" });
+
+  // Wiki-style back (#709): from page B reached by clicking through page A, "Back"
+  // returns to A. AppShell records the path each navigation came from in
+  // history.state.from, so we only step back through real browser history when the
+  // previous entry was itself a knowledge page. Reaching this detail from anywhere
+  // else (an asset viewer, a search result, a feedback surface, or a cold
+  // deep-link) returns to the page list instead of ejecting out of Knowledge.
+  const goBack = () => {
+    const from = typeof window !== "undefined" ? window.history.state?.from : undefined;
+    if (onNavigate && typeof from === "string" && from.startsWith("/knowledge/pages")) {
+      window.history.back();
+    } else {
+      backToList();
     }
-  }, [openPage, onPageOpened]);
+  };
 
   // Create/edit/remove gates on the apply_knowledge capability (a tool-access
   // gate, not an admin-role gate), or admin. This mirrors the REST handler's
@@ -68,7 +88,15 @@ export function KnowledgePagesPage({
   );
 
   if (mode.view === "create") {
-    return <KnowledgePageForm key="create" onDone={(id) => setMode(id ? { view: "page", id } : { view: "list" })} />;
+    return (
+      <KnowledgePageForm
+        key="create"
+        // Cancel (onDone with no id) returns to the list in-component: the create
+        // form never changed the URL (it is still /knowledge/pages), so navigating
+        // there would be a no-op remount and leave the form on screen (#709).
+        onDone={(id) => (id ? openDetail(id) : setMode({ view: "list" }))}
+      />
+    );
   }
   if (mode.view === "edit") {
     // key by id so switching edit targets always remounts with fresh hydration.
@@ -80,13 +108,13 @@ export function KnowledgePagesPage({
         id={mode.id}
         canEdit={canEdit}
         onNavigate={onNavigate}
-        onBack={() => setMode({ view: "list" })}
+        onBack={goBack}
         onEdit={() => setMode({ view: "edit", id: mode.id })}
-        onDeleted={() => setMode({ view: "list" })}
+        onDeleted={backToList}
       />
     );
   }
-  return <KnowledgePageList canEdit={canEdit} onOpen={(id) => setMode({ view: "page", id })} onCreate={() => setMode({ view: "create" })} />;
+  return <KnowledgePageList canEdit={canEdit} onOpen={openDetail} onCreate={() => setMode({ view: "create" })} />;
 }
 
 function PageCard({
@@ -328,7 +356,7 @@ function KnowledgePageDetail({
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4">
         <button onClick={onBack} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="h-4 w-4" /> All pages
+          <ArrowLeft className="h-4 w-4" /> Back
         </button>
         <div className="flex items-center gap-2">
           {/* Feedback is open to any authenticated user; apply_knowledge holders
