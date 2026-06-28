@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { extractRefUrns, parseRef, isRefUrn, buildRefUrn, entityHref } from "./entityRefs";
+import {
+  extractRefUrns,
+  parseRef,
+  isRefUrn,
+  buildRefUrn,
+  entityHref,
+  trimRefToken,
+} from "./entityRefs";
 
 describe("entityHref", () => {
   it("routes asset/collection/prompt to their viewers and nothing else", () => {
@@ -88,5 +95,24 @@ and <urn:li:glossaryTerm:revenue> and a duplicate [a2](mcp:asset:asset-001).`;
     const body =
       "Real [a](mcp:asset:real-1).\n\n```\nmcp:asset:in-fence\n```\n\nInline `mcp:asset:in-code`.";
     expect(extractRefUrns(body)).toEqual(["mcp:asset:real-1"]);
+  });
+
+  it("trims trailing sentence punctuation from inline prose tokens (#704)", () => {
+    // Mirrors the server-side trim so the resolved-ref map keys match what the
+    // chip url will be; a bare token before a period must not absorb it.
+    const body =
+      "The fact is in mcp:asset:asset-001. Also tagged urn:li:tag:revenue, plus mcp:asset:a.b.c!";
+    expect(extractRefUrns(body).sort()).toEqual(
+      ["mcp:asset:a.b.c", "mcp:asset:asset-001", "urn:li:tag:revenue"].sort(),
+    );
+  });
+});
+
+describe("trimRefToken", () => {
+  it("strips a trailing run of sentence punctuation only", () => {
+    expect(trimRefToken("mcp:asset:asset-001.")).toBe("mcp:asset:asset-001");
+    expect(trimRefToken("urn:li:tag:revenue?!")).toBe("urn:li:tag:revenue");
+    expect(trimRefToken("mcp:asset:a.b.c.")).toBe("mcp:asset:a.b.c"); // internal dots kept
+    expect(trimRefToken("mcp:connection:(trino,acme)")).toBe("mcp:connection:(trino,acme)"); // no-op
   });
 });
