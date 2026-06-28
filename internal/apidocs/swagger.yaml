@@ -540,6 +540,42 @@ definitions:
         example: ACME Corp analytics platform
         type: string
     type: object
+  admin.effectiveConnection:
+    properties:
+      config:
+        additionalProperties: {}
+        type: object
+      connection:
+        example: acme-warehouse
+        type: string
+      created_by:
+        example: admin@example.com
+        type: string
+      description:
+        example: Production data warehouse
+        type: string
+      health:
+        $ref: '#/definitions/toolkit.ConnectionHealthWire'
+      kind:
+        example: trino
+        type: string
+      name:
+        example: acme-warehouse
+        type: string
+      source:
+        description: '"file", "database", or "both"'
+        example: file
+        type: string
+      tools:
+        example:
+        - trino_query
+        - trino_describe_table
+        items:
+          type: string
+        type: array
+      updated_at:
+        type: string
+    type: object
   admin.embeddingHealthResponse:
     properties:
       catalog_id:
@@ -2237,6 +2273,49 @@ definitions:
         example: amount
         type: string
     type: object
+  knowledgepage.Page:
+    properties:
+      body:
+        example: |-
+          # Fiscal Calendar
+
+          Q1 begins...
+        type: string
+      created_at:
+        type: string
+      created_by:
+        example: alice@example.com
+        type: string
+      created_email:
+        example: alice@example.com
+        type: string
+      current_version:
+        example: 3
+        type: integer
+      deleted_at:
+        type: string
+      id:
+        example: kp_01HK7R8Z8M0Y6A5G1R6FQ2VQNK
+        type: string
+      slug:
+        example: fiscal-calendar
+        type: string
+      summary:
+        example: How the company defines fiscal quarters.
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
+      title:
+        example: Fiscal Calendar
+        type: string
+      updated_at:
+        type: string
+      updated_by:
+        example: bob@example.com
+        type: string
+    type: object
   knowledgepage.PageRef:
     properties:
       id:
@@ -2245,6 +2324,44 @@ definitions:
         type: string
       title:
         type: string
+    type: object
+  knowledgepage.ScoredPage:
+    properties:
+      page:
+        $ref: '#/definitions/knowledgepage.Page'
+      score:
+        type: number
+    type: object
+  knowledgepage.Version:
+    properties:
+      body:
+        type: string
+      change_summary:
+        example: Clarified Q1 start
+        type: string
+      created_at:
+        type: string
+      created_by:
+        example: bob@example.com
+        type: string
+      id:
+        example: kpv_01HK7R9A
+        type: string
+      page_id:
+        example: kp_01HK7R8Z8M0Y6A5G1R6FQ2VQNK
+        type: string
+      summary:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
+      title:
+        example: Fiscal Calendar
+        type: string
+      version:
+        example: 2
+        type: integer
     type: object
   persona.AccessSource:
     enum:
@@ -2991,11 +3108,46 @@ definitions:
           $ref: '#/definitions/portal.lineageInsight'
         type: array
     type: object
+  portal.knowledgePageListResponse:
+    properties:
+      pages:
+        items:
+          $ref: '#/definitions/knowledgepage.Page'
+        type: array
+      total:
+        type: integer
+    type: object
   portal.knowledgePageRefsResponse:
     properties:
       refs:
         items:
           $ref: '#/definitions/portal.resolvedRefView'
+        type: array
+    type: object
+  portal.knowledgePageRequest:
+    properties:
+      body:
+        type: string
+      change_summary:
+        type: string
+      slug:
+        type: string
+      summary:
+        type: string
+      tags:
+        items:
+          type: string
+        type: array
+      title:
+        type: string
+    type: object
+  portal.knowledgePageVersionsResponse:
+    properties:
+      total:
+        type: integer
+      versions:
+        items:
+          $ref: '#/definitions/knowledgepage.Version'
         type: array
     type: object
   portal.lineageChangeset:
@@ -5493,6 +5645,29 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Create or update connection instance
+      tags:
+      - Connections
+  /admin/connection-instances/effective:
+    get:
+      description: Returns the merged view of file-configured (live) and database-managed
+        connection instances, with secrets redacted.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/admin.effectiveConnection'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List effective connections
       tags:
       - Connections
   /admin/connections:
@@ -8933,6 +9108,207 @@ paths:
       summary: Feedback activity feed
       tags:
       - Feedback
+  /portal/knowledge-pages:
+    get:
+      description: Returns canonical, org-shared knowledge pages. Open to every authenticated
+        user.
+      parameters:
+      - description: Filter by tag
+        in: query
+        name: tag
+        type: string
+      - description: Filter by title/summary text
+        in: query
+        name: q
+        type: string
+      - description: 'Results per page (default: 20)'
+        in: query
+        name: limit
+        type: integer
+      - description: Pagination offset
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.knowledgePageListResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List knowledge pages
+      tags:
+      - Knowledge
+    post:
+      consumes:
+      - application/json
+      description: Creates a canonical, org-shared knowledge page. Requires apply_knowledge
+        access (the same authorization that applies captured insights).
+      parameters:
+      - description: Knowledge page content
+        in: body
+        name: page
+        required: true
+        schema:
+          $ref: '#/definitions/portal.knowledgePageRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/knowledgepage.Page'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Create a knowledge page
+      tags:
+      - Knowledge
+  /portal/knowledge-pages/{id}:
+    delete:
+      description: Soft-deletes a knowledge page. Requires apply_knowledge access.
+      parameters:
+      - description: Knowledge page id
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Delete a knowledge page
+      tags:
+      - Knowledge
+    get:
+      description: Returns a single canonical knowledge page by id. Open to every
+        authenticated user.
+      parameters:
+      - description: Knowledge page id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/knowledgepage.Page'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get a knowledge page
+      tags:
+      - Knowledge
+    put:
+      consumes:
+      - application/json
+      description: Replaces a knowledge page's content and records a new version.
+        Requires apply_knowledge access.
+      parameters:
+      - description: Knowledge page id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Knowledge page content
+        in: body
+        name: page
+        required: true
+        schema:
+          $ref: '#/definitions/portal.knowledgePageRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/knowledgepage.Page'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update a knowledge page
+      tags:
+      - Knowledge
   /portal/knowledge-pages/{id}/lineage:
     get:
       description: Returns the insights the page was synthesized from and the promotion
@@ -9047,6 +9423,45 @@ paths:
       summary: Set a knowledge page's manual entity references
       tags:
       - Knowledge
+  /portal/knowledge-pages/{id}/versions:
+    get:
+      description: Returns the saved versions of a knowledge page, newest first. Open
+        to every authenticated user.
+      parameters:
+      - description: Knowledge page id
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 'Results per page (default: 20)'
+        in: query
+        name: limit
+        type: integer
+      - description: Pagination offset
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/portal.knowledgePageVersionsResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: List a knowledge page's version history
+      tags:
+      - Knowledge
   /portal/knowledge-pages/backlinks:
     get:
       description: 'Reverse lookup: returns the knowledge pages that reference the
@@ -9112,6 +9527,52 @@ paths:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Resolve entity references to display labels
+      tags:
+      - Knowledge
+  /portal/knowledge-pages/search:
+    get:
+      description: Ranks knowledge-page content by relevance to the query. Uses semantic
+        ranking when an embedding provider is configured, else degrades to lexical-only.
+        Open to every authenticated user.
+      parameters:
+      - description: Search query
+        in: query
+        name: q
+        required: true
+        type: string
+      - description: 'Maximum results (default: 20)'
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/knowledgepage.ScoredPage'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+        "501":
+          description: Not Implemented
+          schema:
+            $ref: '#/definitions/portal.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Search knowledge pages
       tags:
       - Knowledge
   /portal/knowledge/insights:

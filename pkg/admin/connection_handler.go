@@ -304,6 +304,16 @@ type effectiveConnection struct {
 }
 
 // listEffectiveConnections returns the merged view of file-configured and DB-managed connections.
+//
+// @Summary      List effective connections
+// @Description  Returns the merged view of file-configured (live) and database-managed connection instances, with secrets redacted.
+// @Tags         Connections
+// @Produce      json
+// @Success      200  {array}   effectiveConnection
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /admin/connection-instances/effective [get]
 func (h *Handler) listEffectiveConnections(w http.ResponseWriter, r *http.Request) {
 	live := h.collectLiveConnections()
 

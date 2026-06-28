@@ -69,7 +69,28 @@ type knowledgePageListResponse struct {
 	Total int                  `json:"total"`
 }
 
+// knowledgePageVersionsResponse is the paginated version-history envelope.
+type knowledgePageVersionsResponse struct {
+	Versions []knowledgepage.Version `json:"versions"`
+	Total    int                     `json:"total"`
+}
+
 // createKnowledgePage handles POST /api/v1/portal/knowledge-pages (apply_knowledge access).
+//
+// @Summary      Create a knowledge page
+// @Description  Creates a canonical, org-shared knowledge page. Requires apply_knowledge access (the same authorization that applies captured insights).
+// @Tags         Knowledge
+// @Accept       json
+// @Produce      json
+// @Param        page  body  knowledgePageRequest  true  "Knowledge page content"
+// @Success      201  {object}  knowledgepage.Page
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/knowledge-pages [post]
 func (h *Handler) createKnowledgePage(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -115,6 +136,21 @@ func (h *Handler) createKnowledgePage(w http.ResponseWriter, r *http.Request) {
 }
 
 // listKnowledgePages handles GET /api/v1/portal/knowledge-pages (any user).
+//
+// @Summary      List knowledge pages
+// @Description  Returns canonical, org-shared knowledge pages. Open to every authenticated user.
+// @Tags         Knowledge
+// @Produce      json
+// @Param        tag     query  string   false  "Filter by tag"
+// @Param        q       query  string   false  "Filter by title/summary text"
+// @Param        limit   query  integer  false  "Results per page (default: 20)"
+// @Param        offset  query  integer  false  "Pagination offset"
+// @Success      200  {object}  knowledgePageListResponse
+// @Failure      401  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/knowledge-pages [get]
 func (h *Handler) listKnowledgePages(w http.ResponseWriter, r *http.Request) {
 	if GetUser(r.Context()) == nil {
 		writeError(w, http.StatusUnauthorized, errAuthRequired)
@@ -140,6 +176,21 @@ func (h *Handler) listKnowledgePages(w http.ResponseWriter, r *http.Request) {
 // searchKnowledgePages handles GET /api/v1/portal/knowledge-pages/search?q= (any
 // user). It ranks page CONTENT; the embedding is computed server-side when a
 // provider is configured, else it degrades to lexical-only.
+//
+// @Summary      Search knowledge pages
+// @Description  Ranks knowledge-page content by relevance to the query. Uses semantic ranking when an embedding provider is configured, else degrades to lexical-only. Open to every authenticated user.
+// @Tags         Knowledge
+// @Produce      json
+// @Param        q      query  string   true   "Search query"
+// @Param        limit  query  integer  false  "Maximum results (default: 20)"
+// @Success      200  {array}   knowledgepage.ScoredPage
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Failure      501  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/knowledge-pages/search [get]
 func (h *Handler) searchKnowledgePages(w http.ResponseWriter, r *http.Request) {
 	if GetUser(r.Context()) == nil {
 		writeError(w, http.StatusUnauthorized, errAuthRequired)
@@ -173,6 +224,19 @@ func (h *Handler) searchKnowledgePages(w http.ResponseWriter, r *http.Request) {
 }
 
 // getKnowledgePage handles GET /api/v1/portal/knowledge-pages/{id} (any user).
+//
+// @Summary      Get a knowledge page
+// @Description  Returns a single canonical knowledge page by id. Open to every authenticated user.
+// @Tags         Knowledge
+// @Produce      json
+// @Param        id  path  string  true  "Knowledge page id"
+// @Success      200  {object}  knowledgepage.Page
+// @Failure      401  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/knowledge-pages/{id} [get]
 func (h *Handler) getKnowledgePage(w http.ResponseWriter, r *http.Request) {
 	if GetUser(r.Context()) == nil {
 		writeError(w, http.StatusUnauthorized, errAuthRequired)
@@ -195,6 +259,23 @@ func (h *Handler) getKnowledgePage(w http.ResponseWriter, r *http.Request) {
 }
 
 // updateKnowledgePage handles PUT /api/v1/portal/knowledge-pages/{id} (apply_knowledge access).
+//
+// @Summary      Update a knowledge page
+// @Description  Replaces a knowledge page's content and records a new version. Requires apply_knowledge access.
+// @Tags         Knowledge
+// @Accept       json
+// @Produce      json
+// @Param        id    path  string                true  "Knowledge page id"
+// @Param        page  body  knowledgePageRequest  true  "Knowledge page content"
+// @Success      200  {object}  knowledgepage.Page
+// @Failure      400  {object}  problemDetail
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/knowledge-pages/{id} [put]
 func (h *Handler) updateKnowledgePage(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -249,6 +330,19 @@ func (h *Handler) updateKnowledgePage(w http.ResponseWriter, r *http.Request) {
 }
 
 // deleteKnowledgePage handles DELETE /api/v1/portal/knowledge-pages/{id} (apply_knowledge access).
+//
+// @Summary      Delete a knowledge page
+// @Description  Soft-deletes a knowledge page. Requires apply_knowledge access.
+// @Tags         Knowledge
+// @Param        id  path  string  true  "Knowledge page id"
+// @Success      204  "No Content"
+// @Failure      401  {object}  problemDetail
+// @Failure      403  {object}  problemDetail
+// @Failure      404  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/knowledge-pages/{id} [delete]
 func (h *Handler) deleteKnowledgePage(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
@@ -271,6 +365,20 @@ func (h *Handler) deleteKnowledgePage(w http.ResponseWriter, r *http.Request) {
 }
 
 // listKnowledgePageVersions handles GET /api/v1/portal/knowledge-pages/{id}/versions (any user).
+//
+// @Summary      List a knowledge page's version history
+// @Description  Returns the saved versions of a knowledge page, newest first. Open to every authenticated user.
+// @Tags         Knowledge
+// @Produce      json
+// @Param        id      path   string   true   "Knowledge page id"
+// @Param        limit   query  integer  false  "Results per page (default: 20)"
+// @Param        offset  query  integer  false  "Pagination offset"
+// @Success      200  {object}  knowledgePageVersionsResponse
+// @Failure      401  {object}  problemDetail
+// @Failure      500  {object}  problemDetail
+// @Security     ApiKeyAuth
+// @Security     BearerAuth
+// @Router       /portal/knowledge-pages/{id}/versions [get]
 func (h *Handler) listKnowledgePageVersions(w http.ResponseWriter, r *http.Request) {
 	if GetUser(r.Context()) == nil {
 		writeError(w, http.StatusUnauthorized, errAuthRequired)
@@ -285,7 +393,7 @@ func (h *Handler) listKnowledgePageVersions(w http.ResponseWriter, r *http.Reque
 	if versions == nil {
 		versions = []knowledgepage.Version{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"versions": versions, "total": total})
+	writeJSON(w, http.StatusOK, knowledgePageVersionsResponse{Versions: versions, Total: total})
 }
 
 // validateKnowledgePage checks the create/update payload, returning an empty
