@@ -352,7 +352,7 @@ func TestMemoryInsightAdapter_List_FilterMapping(t *testing.T) {
 		Since:      &since,
 		Until:      &until,
 		Limit:      10,
-		Offset:     5,
+		Offset:     0,
 	}
 
 	insights, total, err := adapter.List(context.Background(), filter)
@@ -369,9 +369,15 @@ func TestMemoryInsightAdapter_List_FilterMapping(t *testing.T) {
 	assert.Equal(t, "user", mf.Source)
 	assert.Equal(t, &since, mf.Since)
 	assert.Equal(t, &until, mf.Until)
-	assert.Equal(t, 10, mf.Limit)
-	assert.Equal(t, 5, mf.Offset)
+	// The caller's Limit/Offset are applied in Go, not delegated to the store:
+	// the store is walked a full page at a time so the adapter sees every active
+	// record and can filter/count on the exact insight status (#706).
+	assert.Equal(t, memory.MaxLimit, mf.Limit)
+	assert.Equal(t, 0, mf.Offset)
 	assert.Equal(t, memory.StatusActive, mf.Status) // pending -> active
+	// The walk uses a stable total order so OFFSET paging cannot skip or
+	// duplicate a record on a page boundary with a tied created_at (#706).
+	assert.Equal(t, insightWalkOrder, mf.OrderBy)
 }
 
 func TestMemoryInsightAdapter_List_ConfidencePostFiltering(t *testing.T) {
@@ -387,7 +393,7 @@ func TestMemoryInsightAdapter_List_ConfidencePostFiltering(t *testing.T) {
 
 	insights, total, err := adapter.List(context.Background(), InsightFilter{Confidence: "high"})
 	require.NoError(t, err)
-	assert.Equal(t, 3, total) // total from store (pre-filter)
+	assert.Equal(t, 2, total) // exact count of matching insights, not the coarse store total
 	assert.Len(t, insights, 2)
 	for _, ins := range insights {
 		assert.Equal(t, "high", ins.Confidence)
@@ -426,6 +432,94 @@ func TestMemoryInsightAdapter_List_Error(t *testing.T) {
 	_, _, err := adapter.List(context.Background(), InsightFilter{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "listing insight records")
+}
+
+// pagingMemoryStore is a memory.Store whose List honors the coarse status filter
+// and Offset/Limit over a backing slice, so a test can exercise the adapter's
+// multi-page walk. The base mockMemoryStore returns its whole slice on every
+// call regardless of offset, which both cannot reproduce paging and would loop
+// forever once the slice reaches memory.MaxLimit.
+type pagingMemoryStore struct {
+	mockMemoryStore
+	all []memory.Record
+}
+
+func (p *pagingMemoryStore) List(_ context.Context, filter memory.Filter) ([]memory.Record, int, error) {
+	matched := make([]memory.Record, 0, len(p.all))
+	for _, r := range p.all {
+		if filter.Status != "" && r.Status != filter.Status {
+			continue
+		}
+		matched = append(matched, r)
+	}
+	start := min(filter.Offset, len(matched))
+	end := min(start+filter.EffectiveLimit(), len(matched))
+	return matched[start:end], len(matched), nil
+}
+
+// TestMemoryInsightAdapter_List_AgreesWithStatsAcrossPages is the #706
+// regression: List must filter, paginate, and count on the EXACT insight status,
+// not post-filter a single coarse page. With pending/approved/applied all
+// collapsed to memory StatusActive and the pending records scattered past the
+// first store page, the old List returned the coarse active total and dropped
+// pending records beyond the first window, so the review-queue footer and the
+// Pending stat card disagreed and a pending insight was hidden and un-reviewable.
+func TestMemoryInsightAdapter_List_AgreesWithStatsAcrossPages(t *testing.T) {
+	// 150 active records, round-robin pending/approved/applied so 50 of each and
+	// pending records land at indices up to 147 (well past the first 100-record
+	// store page). All three are memory.StatusActive, so only the exact insight
+	// status distinguishes them.
+	const total = 150
+	all := make([]memory.Record, 0, total)
+	wantPending := 0
+	for i := range total {
+		rec := memory.Record{
+			ID:       fmt.Sprintf("r%03d", i),
+			Status:   memory.StatusActive,
+			Metadata: map[string]any{},
+		}
+		switch i % 3 {
+		case 0:
+			wantPending++ // no insight_status metadata -> resolves to pending
+		case 1:
+			rec.Metadata[metaKeyInsightStatus] = StatusApproved
+		case 2:
+			rec.Metadata[metaKeyInsightStatus] = StatusApplied
+		}
+		all = append(all, rec)
+	}
+	require.Equal(t, 50, wantPending)
+
+	adapter := NewMemoryInsightAdapter(&pagingMemoryStore{all: all})
+	ctx := context.Background()
+
+	// Stats already counts the exact pending status across the whole active set.
+	stats, err := adapter.Stats(ctx, InsightFilter{Status: StatusPending})
+	require.NoError(t, err)
+	assert.Equal(t, wantPending, stats.TotalPending)
+
+	// List's total must equal that exact pending count (the footer "of N"), not
+	// the coarse active total of 150.
+	page, listTotal, err := adapter.List(ctx, InsightFilter{Status: StatusPending, Limit: 20, Offset: 0})
+	require.NoError(t, err)
+	assert.Equal(t, wantPending, listTotal, "List total must match the Pending stat card")
+	assert.Equal(t, stats.TotalPending, listTotal, "List and Stats must agree")
+	assert.Len(t, page, 20, "first page is one full window")
+
+	// A pending insight past the first window is reachable: paging to offset 40
+	// returns the last 10 pending records, every one of them pending.
+	tail, tailTotal, err := adapter.List(ctx, InsightFilter{Status: StatusPending, Limit: 20, Offset: 40})
+	require.NoError(t, err)
+	assert.Equal(t, wantPending, tailTotal)
+	assert.Len(t, tail, 10)
+	for _, ins := range tail {
+		assert.Equal(t, StatusPending, ins.Status)
+	}
+
+	// The other statuses that collapse to active are likewise exact, not coarse.
+	_, approvedTotal, err := adapter.List(ctx, InsightFilter{Status: StatusApproved})
+	require.NoError(t, err)
+	assert.Equal(t, 50, approvedTotal)
 }
 
 func TestMemoryInsightAdapter_UpdateStatus(t *testing.T) {

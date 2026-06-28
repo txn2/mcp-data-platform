@@ -59,47 +59,97 @@ func (a *memoryInsightAdapter) Get(ctx context.Context, id string) (*Insight, er
 	return &insight, nil
 }
 
-// List returns insights matching the given filter.
+// insightWalkOrder is the stable total ordering used for the active-set walk
+// that List and Stats share. The OFFSET-paged walk pages at memory.MaxLimit, so
+// the sort must be a total order: created_at alone is not unique (bulk-imported
+// rows can share a timestamp), and a non-unique sort lets Postgres OFFSET skip
+// or duplicate a row straddling a page boundary, which would silently drop or
+// double-count a pending insight and re-open #706 under tie conditions. The id
+// column is the primary key, so created_at DESC, id DESC is deterministic.
+const insightWalkOrder = "created_at DESC, id DESC"
+
+// eachActiveInsightRecord pages the entire result of mf and invokes fn for every
+// record. mf must carry the coarse memory status (the store cannot filter on the
+// exact insight status, which lives in metadata and is recovered per record by
+// the caller's fn). List and Stats share this so the multi-page walk, its page
+// size, and its stable ordering have a single definition: a future paging fix
+// applied here cannot drift the two out of agreement, the disagreement #706 was
+// filed for.
+//
+// Cost note: this walks the whole matching set (one store page per memory.MaxLimit
+// records), so it is O(matching active records), the same shape as Stats. Callers
+// that pass EntityURN are store-filtered to one entity (a small set); the
+// unscoped review-queue walk is bounded by the active insight count. Pushing the
+// exact-status predicate into the store (so it can LIMIT/OFFSET/COUNT directly)
+// is the larger future optimization noted in #706.
+func (a *memoryInsightAdapter) eachActiveInsightRecord(ctx context.Context, mf memory.Filter, fn func(memory.Record)) error {
+	mf.Dimension = a.dimension
+	mf.Limit = memory.MaxLimit
+	mf.Offset = 0
+	if mf.OrderBy == "" {
+		mf.OrderBy = insightWalkOrder
+	}
+	for {
+		records, _, err := a.store.List(ctx, mf)
+		if err != nil {
+			return fmt.Errorf("listing insight records: %w", err)
+		}
+		for i := range records {
+			fn(records[i])
+		}
+		if len(records) < memory.MaxLimit {
+			return nil
+		}
+		mf.Offset += memory.MaxLimit
+	}
+}
+
+// List returns insights matching the given filter, with total being the exact
+// count of matching insights (not the coarse active-record count).
+//
+// The status/confidence filter cannot be delegated to a single store page.
+// memory.Filter's status enum is coarser than the insight status (pending,
+// approved and applied all collapse to memory StatusActive, see
+// mapInsightStatusToMemory) and it has no confidence field. A store-side
+// LIMIT/OFFSET over the coarse status would therefore (a) report total as the
+// count of all active records rather than the requested status, and (b) drop
+// matching records that sit behind non-matching ones in the active set, so a
+// pending insight past the first page becomes invisible and un-reviewable
+// (#706). So walk the whole matching active set (eachActiveInsightRecord),
+// recover and filter on the exact insight status and confidence, then count and
+// paginate the survivors in Go.
 func (a *memoryInsightAdapter) List(ctx context.Context, filter InsightFilter) ([]Insight, int, error) {
 	mf := memory.Filter{
-		Dimension: a.dimension,
 		Category:  filter.Category,
 		EntityURN: filter.EntityURN,
 		CreatedBy: filter.CapturedBy,
 		Source:    filter.Source,
 		Since:     filter.Since,
 		Until:     filter.Until,
-		Limit:     filter.Limit,
-		Offset:    filter.Offset,
+		// Lossy map; the exact status is recovered per record below.
+		Status: mapInsightStatusToMemory(filter.Status),
 	}
 
-	// Map the insight status onto its memory status. This mapping is lossy:
-	// pending, approved and applied all collapse to memory StatusActive, so
-	// the store fetch alone cannot distinguish them. The exact insight status
-	// is recovered per record below and post-filtered.
-	mf.Status = mapInsightStatusToMemory(filter.Status)
-
-	records, total, err := a.store.List(ctx, mf)
-	if err != nil {
-		return nil, 0, fmt.Errorf("listing insight records: %w", err)
-	}
-
-	insights := make([]Insight, 0, len(records))
-	for _, r := range records {
+	matched := make([]Insight, 0)
+	err := a.eachActiveInsightRecord(ctx, mf, func(r memory.Record) {
 		insight := recordToInsight(r)
-		// Confidence and the exact insight status are filtered post-fetch:
-		// memory.Filter has no confidence field, and its status enum is
-		// coarser than the insight status (see the lossy mapping above).
 		if filter.Confidence != "" && insight.Confidence != filter.Confidence {
-			continue
+			return
 		}
 		if filter.Status != "" && insight.Status != filter.Status {
-			continue
+			return
 		}
-		insights = append(insights, insight)
+		matched = append(matched, insight)
+	})
+	if err != nil {
+		return nil, 0, err
 	}
 
-	return insights, total, nil
+	// total is the exact matching count so the caller's pagination footer agrees
+	// with the stat card; pageInsights returns the requested window in the same
+	// created_at DESC order the walk preserved.
+	page, _, _ := pageInsights(matched, filter.Offset, filter.Limit)
+	return page, len(matched), nil
 }
 
 // InsightSearchQuery parameterizes a relevance-ranked insight search. It
@@ -223,17 +273,15 @@ func (a *memoryInsightAdapter) Update(ctx context.Context, id string, updates In
 }
 
 // Stats returns aggregate counts of insights by category, confidence, and
-// status. The memory.Store has no Stats method, so we page through the
-// matching records and tally them. The filter must be scoped the same way
-// List scopes (owner + knowledge dimension); otherwise the totals would
-// count other users' records and non-knowledge memory dimensions, leaving
-// the stat card and the list disagreeing.
+// status. The memory.Store has no Stats method, so it walks the matching records
+// (eachActiveInsightRecord) and tallies them. The filter must be scoped the same
+// way List scopes (owner + knowledge dimension); otherwise the totals would count
+// other users' records and non-knowledge memory dimensions, leaving the stat card
+// and the list disagreeing.
 func (a *memoryInsightAdapter) Stats(ctx context.Context, filter InsightFilter) (*InsightStats, error) {
 	mf := memory.Filter{
-		Dimension: a.dimension,
 		CreatedBy: filter.CapturedBy,
 		Status:    mapInsightStatusToMemory(filter.Status),
-		Limit:     memory.MaxLimit,
 	}
 
 	stats := &InsightStats{
@@ -242,35 +290,28 @@ func (a *memoryInsightAdapter) Stats(ctx context.Context, filter InsightFilter) 
 		ByStatus:     make(map[string]int),
 	}
 
-	for {
-		records, _, err := a.store.List(ctx, mf)
-		if err != nil {
-			return nil, fmt.Errorf("listing records for insight stats: %w", err)
+	err := a.eachActiveInsightRecord(ctx, mf, func(r memory.Record) {
+		// Recover the insight status (pending/approved/applied/...) from the lossy
+		// memory status, so the keys match what callers and the postgres store
+		// produce.
+		st := resolveInsightStatus(r)
+		// Scope every tally to the requested status, the way the postgres store
+		// does (its WHERE filters all three group-bys). The memory status filter
+		// is lossy: a Status=pending request maps to memory.StatusActive, which
+		// also returns approved and applied records (mapInsightStatusToMemory).
+		// Without this gate ByStatus/by_category/by_confidence span every active
+		// status while TotalPending counts only pending, so the counts disagree
+		// with each other and with postgres (#688). An empty filter (the portal
+		// "my stats" path, #515) still tallies every status.
+		if filter.Status != "" && st != filter.Status {
+			return
 		}
-		for i := range records {
-			// Recover the insight status (pending/approved/applied/...) from the
-			// lossy memory status, so the keys match what callers and the postgres
-			// store produce.
-			st := resolveInsightStatus(records[i])
-			// Scope every tally to the requested status, the way the postgres store
-			// does (its WHERE filters all three group-bys). The memory status filter
-			// is lossy: a Status=pending request maps to memory.StatusActive, which
-			// also returns approved and applied records (mapInsightStatusToMemory).
-			// Without this gate ByStatus/by_category/by_confidence span every active
-			// status while TotalPending counts only pending, so the counts disagree
-			// with each other and with postgres (#688). An empty filter (the portal
-			// "my stats" path, #515) still tallies every status.
-			if filter.Status != "" && st != filter.Status {
-				continue
-			}
-			stats.ByStatus[st]++
-			stats.ByCategory[records[i].Category]++
-			stats.ByConfidence[records[i].Confidence]++
-		}
-		if len(records) < memory.MaxLimit {
-			break
-		}
-		mf.Offset += memory.MaxLimit
+		stats.ByStatus[st]++
+		stats.ByCategory[r.Category]++
+		stats.ByConfidence[r.Confidence]++
+	})
+	if err != nil {
+		return nil, fmt.Errorf("listing records for insight stats: %w", err)
 	}
 	stats.TotalPending = stats.ByStatus[StatusPending]
 
