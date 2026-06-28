@@ -336,6 +336,70 @@ func TestAdapter_GetDocument_Error(t *testing.T) {
 	}
 }
 
+func TestAdapter_BrowseDocuments(t *testing.T) {
+	var countQuery, listQuery string
+	mock := &mockDataHubClient{
+		searchAcrossEntitiesFunc: func(_ context.Context, query string, _ ...dhclient.SearchOption) (*types.SearchResult, error) {
+			// The count call carries the total; it is scoped to DOCUMENT via options.
+			countQuery = query
+			return &types.SearchResult{Total: 42}, nil
+		},
+		searchDocumentsFunc: func(_ context.Context, query string, _ ...dhclient.SearchOption) ([]types.Document, error) {
+			listQuery = query
+			return []types.Document{
+				{URN: "urn:li:document:a", Title: "A", Status: "PUBLISHED"},
+				{URN: "urn:li:document:draft", Title: "Draft", Status: "UNPUBLISHED"},
+			}, nil
+		},
+	}
+	adapter, err := NewWithClient(Config{}, mock)
+	if err != nil {
+		t.Fatalf(dhAdapterTestUnexpectedErr, err)
+	}
+	docs, total, err := adapter.BrowseDocuments(context.Background(), 10, 25)
+	if err != nil {
+		t.Fatalf(dhAdapterTestUnexpectedErr, err)
+	}
+	if total != 42 {
+		t.Errorf("total = %d, want 42 (from the document-scoped count)", total)
+	}
+	if countQuery != "*" || listQuery != "*" {
+		t.Errorf("queries = count %q / list %q, want * (enumerate all)", countQuery, listQuery)
+	}
+	// No visibility/status filter: the draft is enumerable too, so the page mirrors
+	// the corpus the total counts.
+	if len(docs) != 2 {
+		t.Fatalf("len(docs) = %d, want 2 (drafts included)", len(docs))
+	}
+}
+
+func TestAdapter_BrowseDocuments_CountError(t *testing.T) {
+	mock := &mockDataHubClient{
+		searchAcrossEntitiesFunc: func(context.Context, string, ...dhclient.SearchOption) (*types.SearchResult, error) {
+			return nil, errors.New("boom")
+		},
+	}
+	adapter, _ := NewWithClient(Config{}, mock)
+	if _, _, err := adapter.BrowseDocuments(context.Background(), 0, 10); err == nil {
+		t.Error("expected error when the count call fails")
+	}
+}
+
+func TestAdapter_BrowseDocuments_ListError(t *testing.T) {
+	mock := &mockDataHubClient{
+		searchAcrossEntitiesFunc: func(context.Context, string, ...dhclient.SearchOption) (*types.SearchResult, error) {
+			return &types.SearchResult{Total: 3}, nil
+		},
+		searchDocumentsFunc: func(context.Context, string, ...dhclient.SearchOption) ([]types.Document, error) {
+			return nil, errors.New("boom")
+		},
+	}
+	adapter, _ := NewWithClient(Config{}, mock)
+	if _, _, err := adapter.BrowseDocuments(context.Background(), 0, 10); err == nil {
+		t.Error("expected error when the list call fails")
+	}
+}
+
 func TestToDocumentResult_VisibilityDefault(t *testing.T) {
 	// No settings aspect: DataHub default is globally visible, so do not drop it.
 	visible := toDocumentResult(&types.Document{URN: "urn:li:document:d", Title: "D", Status: "PUBLISHED"})

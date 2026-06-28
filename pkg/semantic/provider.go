@@ -60,6 +60,16 @@ type DocumentSearcher interface {
 	// that resolves to no document returns ErrDocumentNotFound, which the fetch
 	// surface maps to a structured not-found rather than an error.
 	GetDocument(ctx context.Context, urn string) (*DocumentResult, error)
+
+	// BrowseDocuments enumerates context documents for the browse surface (#695):
+	// the offset/limit page of the complete document set plus the total document
+	// count, so an agent can page the whole corpus to audit, dedup, or migrate it.
+	// Unlike SearchDocuments this applies NO relevance threshold and NO
+	// visibility/status filter: every document is enumerable (drafts and hidden
+	// documents included), so the returned page and total describe the same complete
+	// set. Results carry the same fields as SearchDocuments (a bounded Snippet, not
+	// the full Body) since a listing shows what each document is, not its contents.
+	BrowseDocuments(ctx context.Context, offset, limit int) (docs []DocumentResult, total int, err error)
 }
 
 // ErrDocumentNotFound reports that a document URN did not resolve to a document.

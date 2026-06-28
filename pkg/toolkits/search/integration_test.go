@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -185,6 +186,21 @@ func (globalKnowledgePages) Get(_ context.Context, id string) (*knowledgepage.Pa
 	return &knowledgepage.Page{ID: "g-page", Title: "global page", Body: "the full canonical page body"}, nil
 }
 
+// List enumerates the canonical pages for browse, honoring offset/limit over a
+// fixed two-page corpus so a browse round-trip can assert pagination and total.
+func (globalKnowledgePages) List(_ context.Context, filter knowledgepage.Filter) ([]knowledgepage.Page, int, error) {
+	all := []knowledgepage.Page{
+		{ID: "g-page", Title: "global page", Body: "the full canonical page body"},
+		{ID: "g-page-2", Title: "second page", Body: "another body"},
+	}
+	start := min(filter.Offset, len(all))
+	end := start + filter.Limit
+	if filter.Limit <= 0 || end > len(all) {
+		end = len(all)
+	}
+	return all[start:end], len(all), nil
+}
+
 const (
 	userAEmail = "alice@example.com"
 	userAID    = "uuid-alice"
@@ -234,6 +250,80 @@ func callSearch(ctx context.Context, t *testing.T, tk *Toolkit, intent string) s
 		t.Fatalf("decoding output: %v", err)
 	}
 	return out
+}
+
+func callBrowse(ctx context.Context, t *testing.T, tk *Toolkit, input searchInput) (*mcp.CallToolResult, browseOutput) {
+	t.Helper()
+	res, _, err := tk.handleSearch(ctx, &mcp.CallToolRequest{}, input)
+	if err != nil {
+		t.Fatalf("handleSearch returned transport error: %v", err)
+	}
+	tc, ok := res.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("unexpected content type %T", res.Content[0])
+	}
+	var out browseOutput
+	if !res.IsError {
+		if err := json.Unmarshal([]byte(tc.Text), &out); err != nil {
+			t.Fatalf("decoding browse output: %v", err)
+		}
+	}
+	return res, out
+}
+
+// AC1+AC2: an agent can page the complete set of a source with a total count, and
+// no relevance threshold drops members (browse returns the whole corpus).
+func TestBrowse_EnumeratesKnowledgePagesWithPagination(t *testing.T) {
+	tk := assembledToolkit()
+	ctx := ctxFor(userAID, userAEmail)
+
+	// Page 1: offset 0, limit 1, over a two-page corpus.
+	_, p1 := callBrowse(ctx, t, tk, searchInput{Sources: []string{"knowledge_pages"}, Offset: 0, Limit: 1})
+	if p1.Source != "knowledge_pages" || p1.Total != 2 {
+		t.Fatalf("page1 meta = %+v, want source knowledge_pages total 2", p1)
+	}
+	if p1.Count != 1 || len(p1.Items) != 1 || p1.Items[0].Reference != "mcp:knowledge_page:g-page" {
+		t.Fatalf("page1 items = %+v", p1.Items)
+	}
+
+	// Page 2: offset 1 returns the rest; together the two pages enumerate the corpus.
+	_, p2 := callBrowse(ctx, t, tk, searchInput{Sources: []string{"knowledge_pages"}, Offset: 1, Limit: 1})
+	if p2.Offset != 1 || p2.Count != 1 || p2.Items[0].Reference != "mcp:knowledge_page:g-page-2" {
+		t.Fatalf("page2 = %+v", p2)
+	}
+}
+
+// AC3: persona scope is respected. The browsable sources here are global, so any
+// caller (including anonymous) may enumerate them, exactly as search exposes them;
+// a per-user source is not browsable for an anonymous caller (covered in the router
+// test). An unknown or non-browsable source is reported distinctly, not as data.
+func TestBrowse_RejectsBadSourceSelection(t *testing.T) {
+	tk := assembledToolkit()
+	ctx := ctxFor(userAID, userAEmail)
+
+	// Zero sources with no intent: ambiguous, a tool error explaining both modes.
+	res, _ := callBrowse(ctx, t, tk, searchInput{Offset: 0})
+	if !res.IsError {
+		t.Error("a no-intent call with no single source should be a tool error")
+	}
+
+	// Two sources: browse enumerates one source at a time.
+	res, _ = callBrowse(ctx, t, tk, searchInput{Sources: []string{"knowledge_pages", "context_documents"}})
+	if !res.IsError {
+		t.Error("browsing two sources at once should be a tool error")
+	}
+
+	// A real but non-browsable source.
+	res, _ = callBrowse(ctx, t, tk, searchInput{Sources: []string{"memory"}})
+	if !res.IsError {
+		t.Error("browsing a non-browsable source should be a tool error")
+	}
+
+	// An unknown source name.
+	res, _ = callBrowse(ctx, t, tk, searchInput{Sources: []string{"no_such_source"}})
+	if !res.IsError {
+		t.Error("an unknown source should be a tool error")
+	}
 }
 
 func callFetch(ctx context.Context, t *testing.T, tk *Toolkit, ref string) fetchOutput {
@@ -657,6 +747,63 @@ func TestFetch_BackendErrorIsToolError(t *testing.T) {
 	// A real backend failure is a tool error, NOT a structured found=false.
 	if !res.IsError {
 		t.Errorf("a backend failure should be a tool error, got %+v", res.Content)
+	}
+}
+
+// erroringBrowser is a browsable provider whose Browse fails with a generic error,
+// to exercise the browse handler's "browse failed" path (distinct from the typed
+// unknown-source / not-browsable errors).
+type erroringBrowser struct{}
+
+func (erroringBrowser) Name() string           { return "knowledge_pages" }
+func (erroringBrowser) Scope() knowledge.Scope { return knowledge.ScopeShared }
+func (erroringBrowser) Search(context.Context, knowledge.Query) ([]knowledge.Hit, error) {
+	return nil, nil
+}
+
+func (erroringBrowser) Browse(context.Context, knowledge.BrowseQuery) (knowledge.BrowsePage, error) {
+	return knowledge.BrowsePage{}, errors.New("catalog down")
+}
+
+func TestBrowse_BackendErrorIsToolError(t *testing.T) {
+	router := knowledge.NewRouter(nil, nil, erroringBrowser{})
+	tk := New("default", router)
+	res, _ := callBrowse(ctxFor(userAID, userAEmail), t, tk,
+		searchInput{Sources: []string{"knowledge_pages"}, Offset: 0})
+	if !res.IsError {
+		t.Errorf("a backend failure should be a tool error, got %+v", res.Content)
+	}
+}
+
+// emptyBrowser is a browsable provider that returns an empty page (nil hits), to
+// prove the handler renders items as an empty array rather than null.
+type emptyBrowser struct{}
+
+func (emptyBrowser) Name() string           { return "knowledge_pages" }
+func (emptyBrowser) Scope() knowledge.Scope { return knowledge.ScopeShared }
+func (emptyBrowser) Search(context.Context, knowledge.Query) ([]knowledge.Hit, error) {
+	return nil, nil
+}
+
+func (emptyBrowser) Browse(context.Context, knowledge.BrowseQuery) (knowledge.BrowsePage, error) {
+	return knowledge.BrowsePage{Hits: nil, Total: 0}, nil
+}
+
+func TestBrowse_EmptyPageRendersEmptyArray(t *testing.T) {
+	tk := New("default", knowledge.NewRouter(nil, nil, emptyBrowser{}))
+	res, out := callBrowse(ctxFor(userAID, userAEmail), t, tk, searchInput{Sources: []string{"knowledge_pages"}})
+	if res.IsError {
+		t.Fatalf("an empty browse should succeed: %v", res.Content)
+	}
+	if out.Count != 0 || out.Total != 0 {
+		t.Errorf("empty page = %+v, want count 0 total 0", out)
+	}
+	tc, ok := res.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("unexpected content type %T", res.Content[0])
+	}
+	if !strings.Contains(tc.Text, "\"items\": []") {
+		t.Errorf("items should serialize as an empty array, got: %s", tc.Text)
 	}
 }
 

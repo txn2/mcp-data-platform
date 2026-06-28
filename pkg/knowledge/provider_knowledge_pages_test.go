@@ -20,6 +20,10 @@ type fakePageSearcher struct {
 	page       *knowledgepage.Page // Get result
 	getErr     error
 	gotGetID   string
+	listPages  []knowledgepage.Page // List result
+	listTotal  int
+	listErr    error
+	gotList    knowledgepage.Filter
 }
 
 func (f *fakePageSearcher) Get(_ context.Context, id string) (*knowledgepage.Page, error) {
@@ -28,6 +32,14 @@ func (f *fakePageSearcher) Get(_ context.Context, id string) (*knowledgepage.Pag
 		return nil, f.getErr
 	}
 	return f.page, nil
+}
+
+func (f *fakePageSearcher) List(_ context.Context, filter knowledgepage.Filter) ([]knowledgepage.Page, int, error) {
+	f.gotList = filter
+	if f.listErr != nil {
+		return nil, 0, f.listErr
+	}
+	return f.listPages, f.listTotal, nil
 }
 
 func (f *fakePageSearcher) Search(_ context.Context, q knowledgepage.SearchQuery) ([]knowledgepage.ScoredPage, error) {
@@ -250,6 +262,38 @@ func TestPagesProvider_Fetch(t *testing.T) {
 		_, owned, err := NewKnowledgePagesProvider(s).Fetch(context.Background(), knowledgepage.PageReference("kp_1"), Caller{})
 		if !owned || err == nil || errors.Is(err, ErrNotFound) {
 			t.Errorf("owned=%v err=%v, want owned + a non-not-found error", owned, err)
+		}
+	})
+}
+
+func TestPagesProvider_Browse(t *testing.T) {
+	t.Run("enumerates pages with total and references", func(t *testing.T) {
+		s := &fakePageSearcher{
+			listPages: []knowledgepage.Page{
+				{ID: "kp1", Title: "Fiscal Calendar", Summary: "quarters"},
+				{ID: "kp2", Title: "Seasons"},
+			},
+			listTotal: 9,
+		}
+		page, err := NewKnowledgePagesProvider(s).Browse(context.Background(), BrowseQuery{Offset: 4, Limit: 2})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if s.gotList.Offset != 4 || s.gotList.Limit != 2 {
+			t.Errorf("List filter = %+v, want offset 4 limit 2", s.gotList)
+		}
+		if page.Total != 9 || len(page.Hits) != 2 {
+			t.Errorf("page = total %d, %d hits; want total 9, 2 hits", page.Total, len(page.Hits))
+		}
+		if page.Hits[0].Source != SourceKnowledgePages || page.Hits[0].Reference != "mcp:knowledge_page:kp1" {
+			t.Errorf("hit[0] = %+v", page.Hits[0])
+		}
+	})
+
+	t.Run("a list error surfaces", func(t *testing.T) {
+		s := &fakePageSearcher{listErr: errors.New("db down")}
+		if _, err := NewKnowledgePagesProvider(s).Browse(context.Background(), BrowseQuery{}); err == nil {
+			t.Error("expected the list error to surface")
 		}
 	})
 }

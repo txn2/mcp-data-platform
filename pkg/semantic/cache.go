@@ -263,6 +263,23 @@ func (c *CachedProvider) GetDocument(ctx context.Context, urn string) (*Document
 	return doc, nil
 }
 
+// BrowseDocuments forwards the document enumeration (#695) to the wrapped provider,
+// preserving the DocumentSearcher capability through the cache decorator. It is not
+// cached: a browse pages a mutating corpus and reports a live total, so a stale
+// cached page or count would be worse than a fresh round trip. A wrapped provider
+// without the capability yields an empty page and a zero total.
+func (c *CachedProvider) BrowseDocuments(ctx context.Context, offset, limit int) ([]DocumentResult, int, error) {
+	ds, ok := c.provider.(DocumentSearcher)
+	if !ok {
+		return nil, 0, nil
+	}
+	docs, total, err := ds.BrowseDocuments(ctx, offset, limit)
+	if err != nil {
+		return nil, 0, fmt.Errorf("browsing documents from provider: %w", err)
+	}
+	return docs, total, nil
+}
+
 // GetRelatedDocuments forwards the entity-keyed document lookup (#692) to the wrapped
 // provider, preserving the DocumentSearcher capability through the cache decorator.
 // It is keyed on a single entity URN (like GetGlossaryTerm/GetTableContext), so it is

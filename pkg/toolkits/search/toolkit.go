@@ -47,6 +47,24 @@ type searchInput struct {
 	Status     string   `json:"status,omitempty"`
 	Sources    []string `json:"sources,omitempty"`
 	Limit      int      `json:"limit,omitempty"`
+	// Offset selects browse (enumeration) mode together with a single `sources`
+	// entry and no intent/entity_urns: it is the 0-based start of the page. It is
+	// ignored in search (relevance) mode.
+	Offset int `json:"offset,omitempty"`
+}
+
+// browseOutput is the enumeration response (#695): the source enumerated, its total
+// member count, the effective offset/limit of this page, the number shown, and the
+// page of members (each a navigational item carrying a `reference` that `fetch`
+// reads in full). Unlike searchOutput it is a single flat, unranked list, since a
+// browse enumerates one source exhaustively rather than ranking across many.
+type browseOutput struct {
+	Source string          `json:"source"`
+	Total  int             `json:"total"`
+	Offset int             `json:"offset"`
+	Limit  int             `json:"limit"`
+	Count  int             `json:"count"`
+	Items  []knowledge.Hit `json:"items"`
 }
 
 // searchOutput is the search response: the balanced display set grouped by
@@ -90,11 +108,15 @@ var searchSchema = json.RawMessage(`{
     "sources": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Optional: narrow the search to specific sources (e.g. [\"catalog\"], [\"memory\",\"endpoints\"]). Omit to search every source you can access. This only narrows results; it never opts you into a source your access would otherwise exclude. Known sources: catalog, context_documents, knowledge_pages, memory, insights, feedback, assets, prompts, endpoints, connections. An unrecognized name is reported back in unknown_sources rather than silently ignored."
+      "description": "Optional: narrow the search to specific sources (e.g. [\"catalog\"], [\"memory\",\"endpoints\"]). Omit to search every source you can access. This only narrows results; it never opts you into a source your access would otherwise exclude. Known sources: catalog, context_documents, knowledge_pages, memory, insights, feedback, assets, prompts, endpoints, connections. An unrecognized name is reported back in unknown_sources rather than silently ignored. To BROWSE (enumerate) a source instead of searching it, pass exactly one source here with no intent and no entity_urns (browsable sources: knowledge_pages, context_documents)."
     },
     "limit": {
       "type": "integer",
-      "description": "Total number of results to display across all sources (the display budget, default 10, max 50). Each source is floored so breadth stays visible and capped so none dominates; coverage reports how many more matched beyond what is shown."
+      "description": "Search mode: total results to display across all sources (display budget, default 10, max 50). Browse mode: page size (default 50, max 100)."
+    },
+    "offset": {
+      "type": "integer",
+      "description": "Browse (enumeration) mode only: the 0-based start of the page. Use with exactly one sources entry and no intent/entity_urns to page the complete set of that source (the response carries a total so you know how many pages remain). Ignored in search mode."
     }
   }
 }`)
@@ -165,7 +187,10 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"that comes to mind. For example 'how do we calculate churn' or 'customer retention'. Results are " +
 			"navigational pointers (title, reference, source); read one in full with fetch (pass its reference) " +
 			"or drill in with a scoped tool (trino_query, api_invoke_endpoint). Pass entity_urns to pull what " +
-			"you know about specific datasets. Personal results are scoped to you.",
+			"you know about specific datasets. Personal results are scoped to you. To enumerate a whole source " +
+			"instead of relevance-ranking it (to audit or migrate it), call with exactly one `sources` entry, " +
+			"no intent, and an `offset`: this browses the complete set with a total count (browsable: " +
+			"knowledge_pages, context_documents).",
 		InputSchema: searchSchema,
 	}, t.handleSearch)
 
@@ -209,7 +234,9 @@ func (t *Toolkit) handleSearch(ctx context.Context, _ *mcp.CallToolRequest, inpu
 		searchText = strings.TrimSpace(searchText + "\n" + c)
 	}
 	if searchText == "" && len(input.EntityURNs) == 0 {
-		return errorResult("search requires intent or entity_urns"), nil, nil
+		// No relevance query: this is either a browse (enumerate one source) or a
+		// malformed call. handleBrowse decides and explains.
+		return t.handleBrowse(ctx, input)
 	}
 
 	res, err := t.router.Search(ctx, knowledge.Query{
@@ -276,6 +303,65 @@ func (t *Toolkit) handleFetch(ctx context.Context, _ *mcp.CallToolRequest, input
 		Reference: ref,
 		Document:  doc,
 	})
+}
+
+// handleBrowse enumerates one source in full (#695). It is reached when a call
+// carries no intent and no entity_urns: with exactly one browsable source named it
+// pages that source (offset/limit) and reports a total; otherwise it explains that
+// a call needs either a relevance query (intent/entity_urns) or exactly one source
+// to browse. A source that is unknown or not enumerable is reported distinctly so a
+// typo reads differently from "that source cannot be listed".
+func (t *Toolkit) handleBrowse(ctx context.Context, input searchInput) (*mcp.CallToolResult, any, error) {
+	sources := nonBlank(input.Sources)
+	if len(sources) != 1 {
+		return errorResult("provide intent or entity_urns to search, or exactly one `sources` entry " +
+			"(with no intent/entity_urns) to browse it; browsable sources: " +
+			strings.Join(t.router.BrowsableSources(), ", ")), nil, nil
+	}
+	source := sources[0]
+
+	page, err := t.router.Browse(ctx, source, knowledge.BrowseQuery{
+		Caller: callerFromContext(ctx),
+		Offset: input.Offset,
+		Limit:  input.Limit,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, knowledge.ErrUnknownSource):
+			return errorResult(fmt.Sprintf("unknown source %q; known sources: %s",
+				source, strings.Join(knowledge.KnownSources(), ", "))), nil, nil
+		case errors.Is(err, knowledge.ErrSourceNotBrowsable):
+			return errorResult(fmt.Sprintf("source %q cannot be enumerated here; browsable sources: %s",
+				source, strings.Join(t.router.BrowsableSources(), ", "))), nil, nil
+		default:
+			return errorResult("browse failed: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol: tool errors are returned in CallToolResult.IsError
+		}
+	}
+
+	items := page.Hits
+	if items == nil {
+		items = []knowledge.Hit{}
+	}
+	return jsonResult(browseOutput{
+		Source: source,
+		Total:  page.Total,
+		Offset: page.Offset,
+		Limit:  page.Limit,
+		Count:  len(items),
+		Items:  items,
+	})
+}
+
+// nonBlank returns the input source names with blank entries removed, so a
+// stray empty string in the sources array does not read as a named source.
+func nonBlank(sources []string) []string {
+	out := make([]string, 0, len(sources))
+	for _, s := range sources {
+		if s = strings.TrimSpace(s); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // callerFromContext resolves the requester identity from the platform context.
