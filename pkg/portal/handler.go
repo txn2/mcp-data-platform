@@ -111,22 +111,27 @@ type Deps struct {
 	CollectionStore    CollectionStore
 	ThreadStore        ThreadStore
 	KnowledgePageStore knowledgepage.Store
-	S3Client           S3Client
-	S3Bucket           string
-	PublicBaseURL      string
-	RateLimit          RateLimitConfig
-	OIDCEnabled        bool
-	AdminRoles         []string // roles that grant admin access in the portal
-	PromptStore        PromptStore
-	PromptRegistrar    PromptRegistrar
-	PromptInfoProvider PromptInfoProvider
-	AuditMetrics       AuditMetrics
-	InsightStore       InsightReader
-	ChangesetReader    ChangesetReader
-	MemoryStore        MemoryReader
-	MemoryWriter       MemoryWriter
-	EmbeddingProvider  embedding.Provider
-	PersonaResolver    PersonaResolver
+	// KnowledgePageDedupThreshold is the create-time duplicate-gate threshold (#705)
+	// the REST create path shares with the MCP apply path. 0 disables the gate. The
+	// platform resolves it (default/disabled) before wiring; the handler treats it as
+	// final.
+	KnowledgePageDedupThreshold float64
+	S3Client                    S3Client
+	S3Bucket                    string
+	PublicBaseURL               string
+	RateLimit                   RateLimitConfig
+	OIDCEnabled                 bool
+	AdminRoles                  []string // roles that grant admin access in the portal
+	PromptStore                 PromptStore
+	PromptRegistrar             PromptRegistrar
+	PromptInfoProvider          PromptInfoProvider
+	AuditMetrics                AuditMetrics
+	InsightStore                InsightReader
+	ChangesetReader             ChangesetReader
+	MemoryStore                 MemoryReader
+	MemoryWriter                MemoryWriter
+	EmbeddingProvider           embedding.Provider
+	PersonaResolver             PersonaResolver
 	// SearchRouter backs GET /api/v1/portal/search, the REST surface over the
 	// unified knowledge federation. nil disables the endpoint (no searchable
 	// source configured).

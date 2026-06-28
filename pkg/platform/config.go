@@ -15,6 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/txn2/mcp-data-platform/pkg/platform/dedup"
+	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	datahubsemantic "github.com/txn2/mcp-data-platform/pkg/semantic/datahub"
 )
 
@@ -146,8 +147,9 @@ type AdminConfig struct {
 // KnowledgeConfig configures the knowledge capture feature.
 // Enabled by default when a database is available. Set enabled: false to disable.
 type KnowledgeConfig struct {
-	Enabled *bool                `yaml:"enabled"`
-	Apply   KnowledgeApplyConfig `yaml:"apply"`
+	Enabled *bool                          `yaml:"enabled"`
+	Apply   KnowledgeApplyConfig           `yaml:"apply"`
+	Pages   knowledgepage.PageGuardsConfig `yaml:"pages"` // write guards (#705); see knowledgepage
 }
 
 // KnowledgeApplyConfig configures the apply_knowledge tool.

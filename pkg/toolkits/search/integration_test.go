@@ -228,6 +228,10 @@ func (globalKnowledgePages) List(_ context.Context, filter knowledgepage.Filter)
 	return all[start:end], len(all), nil
 }
 
+func (globalKnowledgePages) ListEntityRefs(_ context.Context, _ string) ([]knowledgepage.EntityRef, error) {
+	return nil, nil
+}
+
 const (
 	userAEmail = "alice@example.com"
 	userAID    = "uuid-alice"

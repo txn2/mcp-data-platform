@@ -95,6 +95,12 @@ func (m *mockKnowledgePageStore) Search(_ context.Context, _ knowledgepage.Searc
 	return m.scored, nil
 }
 
+// SemanticSearch backs the create-time dedup probe (#705); it returns the same
+// canned scored pages, so a high score blocks a create in the handler tests.
+func (m *mockKnowledgePageStore) SemanticSearch(_ context.Context, _ []float32, _ int) ([]knowledgepage.ScoredPage, error) {
+	return m.scored, nil
+}
+
 func (m *mockKnowledgePageStore) ListEntityRefs(_ context.Context, _ string) ([]knowledgepage.EntityRef, error) {
 	return m.refs, m.refsErr
 }
@@ -378,6 +384,84 @@ func TestKnowledgePage_SearchWithEmbedder(t *testing.T) {
 	h := NewHandler(deps, testAuthMiddleware(kpViewer))
 	if rec := doKP(h, "GET", "/api/v1/portal/knowledge-pages/search?q=fiscal&limit=5", ""); rec.Code != http.StatusOK {
 		t.Errorf("search w/ embedder = %d, want 200", rec.Code)
+	}
+}
+
+// newGuardedKnowledgePageHandler builds a handler with the create-time dedup gate
+// active: a real embedder and the given threshold.
+func newGuardedKnowledgePageHandler(store knowledgepage.Store, user *User, threshold float64) *Handler {
+	deps := Deps{
+		KnowledgePageStore:          store,
+		KnowledgePageDedupThreshold: threshold,
+		EmbeddingProvider:           kpEmbedder{},
+		AdminRoles:                  []string{"admin"},
+		RateLimit:                   RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
+	}
+	return NewHandler(deps, testAuthMiddleware(user))
+}
+
+// TestKnowledgePage_CreateBlocksNearDuplicate proves the REST create path shares
+// the dedup gate (#705): a create whose content is highly similar to an existing
+// page is rejected with 409 and the candidate pages, and nothing is written.
+func TestKnowledgePage_CreateBlocksNearDuplicate(t *testing.T) {
+	store := &mockKnowledgePageStore{
+		scored: []knowledgepage.ScoredPage{
+			{Page: knowledgepage.Page{ID: "kp_existing", Slug: "return-policy", Title: "Return Policy"}, Score: 0.93},
+		},
+	}
+	h := newGuardedKnowledgePageHandler(store, kpAdmin, 0.82)
+	rec := doKP(h, "POST", "/api/v1/portal/knowledge-pages", `{"title":"ACME Returns Policy","body":"How returns work."}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("near-duplicate create = %d, want 409 (body: %s)", rec.Code, rec.Body.String())
+	}
+	var resp knowledgePageDuplicateResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode 409 body: %v", err)
+	}
+	if !resp.DuplicateBlocked || len(resp.Candidates) != 1 || resp.Candidates[0].ID != "kp_existing" {
+		t.Errorf("unexpected duplicate response: %+v", resp)
+	}
+	if store.inserted != nil {
+		t.Error("blocked create must not write a page")
+	}
+}
+
+// TestKnowledgePage_CreateForceNewBypassesGate proves force_new overrides the gate
+// on the REST path: a near-duplicate is created (201) despite the high score.
+func TestKnowledgePage_CreateForceNewBypassesGate(t *testing.T) {
+	store := &mockKnowledgePageStore{
+		page:   &knowledgepage.Page{ID: "kp_new", Title: "ACME Returns Policy"},
+		scored: []knowledgepage.ScoredPage{{Page: knowledgepage.Page{ID: "kp_existing", Title: "Return Policy"}, Score: 0.99}},
+	}
+	h := newGuardedKnowledgePageHandler(store, kpAdmin, 0.82)
+	rec := doKP(h, "POST", "/api/v1/portal/knowledge-pages", `{"title":"ACME Returns Policy","body":"x","force_new":true}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("force_new create = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
+	}
+	if store.inserted == nil {
+		t.Error("force_new must create the page despite the near-duplicate")
+	}
+}
+
+// TestKnowledgePage_CreateGateInactiveWithoutEmbedder proves the gate degrades
+// safely: with the threshold set but no real embedder, the create proceeds (the
+// similarity score is not thresholdable).
+func TestKnowledgePage_CreateGateInactiveWithoutEmbedder(t *testing.T) {
+	store := &mockKnowledgePageStore{
+		page:   &knowledgepage.Page{ID: "kp_new", Title: "X"},
+		scored: []knowledgepage.ScoredPage{{Page: knowledgepage.Page{ID: "kp_existing", Title: "X"}, Score: 0.99}},
+	}
+	// Threshold set, but no EmbeddingProvider in deps.
+	deps := Deps{
+		KnowledgePageStore:          store,
+		KnowledgePageDedupThreshold: 0.82,
+		AdminRoles:                  []string{"admin"},
+		RateLimit:                   RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
+	}
+	h := NewHandler(deps, testAuthMiddleware(kpAdmin))
+	rec := doKP(h, "POST", "/api/v1/portal/knowledge-pages", `{"title":"X","body":"y"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create without embedder = %d, want 201 (body: %s)", rec.Code, rec.Body.String())
 	}
 }
 

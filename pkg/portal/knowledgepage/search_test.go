@@ -62,6 +62,52 @@ func TestSearch_Hybrid(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestSemanticSearch(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+	store := &postgresStore{db: db}
+
+	cols := append([]string{
+		"id", "slug", "title", "summary", "body", "tags",
+		"created_by", "created_email", "updated_by", "current_version",
+		"created_at", "updated_at", "deleted_at",
+	}, "cos")
+	// Pure cosine arm: no FTS, no UNION; the raw cosine is the score.
+	mock.ExpectQuery("ORDER BY embedding").
+		WillReturnRows(sqlmock.NewRows(cols).
+			AddRow("kp1", "return-policy", "Return Policy", "", "body", []byte(`[]`),
+				"", "", "", 1, time.Now(), time.Now(), nil, 0.91))
+
+	out, err := store.SemanticSearch(context.Background(), []float32{0.1, 0.2, 0.3}, 5)
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	assert.Equal(t, "kp1", out[0].Page.ID)
+	assert.InDelta(t, 0.91, out[0].Score, 0.0001)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSemanticSearch_NilEmbeddingIsNoOp(t *testing.T) {
+	db, _, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+	store := &postgresStore{db: db}
+	// No query expectation registered: a nil embedding must not hit the database.
+	out, err := store.SemanticSearch(context.Background(), nil, 5)
+	require.NoError(t, err)
+	assert.Nil(t, out)
+}
+
+func TestSemanticSearch_Error(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+	store := &postgresStore{db: db}
+	mock.ExpectQuery("ORDER BY embedding").WillReturnError(errBoom)
+	_, err = store.SemanticSearch(context.Background(), []float32{0.1}, 5)
+	require.Error(t, err)
+}
+
 func TestSearch_Errors(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)

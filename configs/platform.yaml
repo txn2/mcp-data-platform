@@ -343,6 +343,16 @@ tuning:
 #     enabled: true                # Enable apply_knowledge tool (default: false)
 #     datahub_connection: primary  # Which DataHub instance to write to
 #     require_confirmation: true   # Require confirm: true on apply (default: false)
+#   pages:                         # Knowledge-page write guards (#705)
+#     dedup_threshold: 0.85        # Block creating a page whose content cosine-similarity to an
+#                                  # existing one is >= this (re-apply against its slug, or pass
+#                                  # force_new). Raw cosine [0,1]; default 0.85. Only acts with a
+#                                  # real embedding provider (cosine is not defined without one).
+#     dedup_disabled: false        # Set true to turn the create-time duplicate gate off entirely
+#     oversize_bytes: 16384        # Body bytes at/above which a non-blocking split suggestion is
+#                                  # returned (default 16384; negative disables this arm)
+#     oversize_sections: 12        # Heading count at/above which the split suggestion fires
+#                                  # (default 12; negative disables this arm)
 
 # Portal UI and branding
 # portal:

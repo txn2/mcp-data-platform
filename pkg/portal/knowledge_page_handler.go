@@ -1,6 +1,7 @@
 package portal
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -61,6 +62,20 @@ type knowledgePageRequest struct {
 	Body          string   `json:"body,omitempty"`
 	Tags          []string `json:"tags,omitempty"`
 	ChangeSummary string   `json:"change_summary,omitempty"`
+	// ForceNew overrides the create-time duplicate gate (#705): when set, a page
+	// whose content is highly similar to an existing one is created anyway instead
+	// of being rejected with the candidate pages. Ignored on update.
+	ForceNew bool `json:"force_new,omitempty"`
+}
+
+// knowledgePageDuplicateResponse is the 409 body the create path returns when the
+// dedup gate (#705) blocks a near-duplicate: the candidate pages to consolidate
+// against, so the client can re-submit a PUT to a candidate's id (an update) or
+// re-POST with force_new.
+type knowledgePageDuplicateResponse struct {
+	DuplicateBlocked bool                           `json:"duplicate_blocked"`
+	Candidates       []knowledgepage.DedupCandidate `json:"candidates"`
+	Message          string                         `json:"message"`
 }
 
 // knowledgePageListResponse is the paginated list envelope.
@@ -112,6 +127,37 @@ func (h *Handler) createKnowledgePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Exact-slug collision: a POST with a slug that already names a live page would
+	// otherwise hit the unique-slug index and surface as an opaque 500. Return a
+	// clear 409 pointing at the existing page so the caller updates it instead (the
+	// MCP apply path consolidates by slug; force_new cannot override a hard slug
+	// collision). #705.
+	if slug := strings.TrimSpace(req.Slug); slug != "" {
+		if existing, err := h.deps.KnowledgePageStore.GetBySlug(r.Context(), slug); err == nil && existing != nil && existing.DeletedAt == nil {
+			writeError(w, http.StatusConflict, fmt.Sprintf("a knowledge page with slug %q already exists; update it instead", slug))
+			return
+		}
+	}
+
+	// Create-time duplicate gate (#705), shared with the MCP apply path: block a
+	// near-duplicate create and return the candidate pages, unless force_new is set.
+	if !req.ForceNew {
+		dup, err := h.knowledgePageDuplicates(r.Context(), req)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to check for duplicate knowledge pages")
+			return
+		}
+		if len(dup) > 0 {
+			writeJSON(w, http.StatusConflict, knowledgePageDuplicateResponse{
+				DuplicateBlocked: true,
+				Candidates:       dup,
+				Message: "A similar knowledge page already exists. Update an existing page instead of creating a duplicate: " +
+					"edit a candidate page, or resubmit with force_new to create a separate page anyway.",
+			})
+			return
+		}
+	}
+
 	page := knowledgepage.Page{
 		ID:           knowledgepage.NewID(),
 		Slug:         strings.TrimSpace(req.Slug),
@@ -133,6 +179,30 @@ func (h *Handler) createKnowledgePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, created)
+}
+
+// knowledgePageDuplicates runs the create-time dedup probe (#705): it ranks
+// existing pages against the candidate's content by pure cosine and returns those
+// at or above the configured similarity threshold. It is a no-op (no candidates)
+// when the gate is disabled (threshold <= 0), the store cannot rank by cosine (no
+// DuplicateProber), or no real embedding provider is configured (the score is not
+// thresholdable), so the create proceeds. The shared knowledgepage.NearDuplicatePages
+// enforces the same rule the MCP apply path uses, embedding over the same IndexText
+// composition, so the two surfaces cannot drift.
+func (h *Handler) knowledgePageDuplicates(ctx context.Context, req knowledgePageRequest) ([]knowledgepage.DedupCandidate, error) {
+	if h.deps.KnowledgePageDedupThreshold <= 0 {
+		return nil, nil
+	}
+	prober, ok := h.deps.KnowledgePageStore.(knowledgepage.DuplicateProber)
+	if !ok {
+		return nil, nil
+	}
+	emb := h.embedSearchQuery(ctx, knowledgepage.IndexText(strings.TrimSpace(req.Title), req.Body, normalizeTags(req.Tags)))
+	candidates, err := knowledgepage.NearDuplicatePages(ctx, prober, emb, h.deps.KnowledgePageDedupThreshold)
+	if err != nil {
+		return nil, fmt.Errorf("ranking knowledge pages for dedup: %w", err)
+	}
+	return candidates, nil
 }
 
 // listKnowledgePages handles GET /api/v1/portal/knowledge-pages (any user).

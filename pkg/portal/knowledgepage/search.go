@@ -137,6 +137,54 @@ func collectHybridPages(rows *sql.Rows, limit int) ([]ScoredPage, error) {
 	return scored, nil
 }
 
+// SemanticSearch ranks non-deleted pages purely by embedding cosine similarity,
+// with NO lexical arm and NO score fusion, returning the raw cosine in [0,1] as the
+// score (#705). The dedup gate uses this rather than Search so its threshold is a
+// true cosine similarity: Search returns fuseHybridScore (0.6*semantic + 0.4*binary
+// lexical match), on which a near-duplicate paraphrase with no shared keywords caps
+// below the threshold while two distinct pages sharing common words can exceed it.
+// A nil/empty embedding returns no results (the gate then proceeds unguarded).
+func (s *postgresStore) SemanticSearch(ctx context.Context, embedding []float32, limit int) ([]ScoredPage, error) { //nolint:revive // interface impl
+	if len(embedding) == 0 {
+		return nil, nil
+	}
+	// #nosec G201 -- column list is a constant; the vector is a parameterized
+	// placeholder ($1); limit is a sanitized int. No user input is concatenated.
+	query := fmt.Sprintf(
+		"SELECT %s, 1 - (embedding <=> $1) AS cos "+
+			"FROM portal_knowledge_pages WHERE embedding IS NOT NULL AND deleted_at IS NULL "+
+			"ORDER BY embedding <=> $1 LIMIT %d",
+		pageColumns, clampSearchLimit(limit))
+
+	rows, err := s.db.QueryContext(ctx, query, pgvector.NewVector(embedding))
+	if err != nil {
+		return nil, fmt.Errorf("semantic search knowledge pages: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck // best-effort cleanup after read-only query
+
+	var scored []ScoredPage
+	for rows.Next() {
+		var (
+			page      Page
+			tagsJSON  []byte
+			deletedAt sql.NullTime
+			cos       float64
+		)
+		dest := append(scanDest(&page, &tagsJSON, &deletedAt), &cos)
+		if err := rows.Scan(dest...); err != nil {
+			return nil, fmt.Errorf("scanning semantic knowledge page row: %w", err)
+		}
+		if err := finishScannedPage(&page, tagsJSON, deletedAt); err != nil {
+			return nil, err
+		}
+		scored = append(scored, ScoredPage{Page: page, Score: cos})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating semantic knowledge page rows: %w", err)
+	}
+	return scored, nil
+}
+
 // searchPagesLexical ranks non-deleted pages by full-text relevance only (the
 // no-embedding-provider fallback), ordered by a length-normalized ts_rank_cd
 // score (lexRankNormalization) so single-match pages do not collapse to a flat 0.1.

@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 )
 
@@ -63,6 +64,10 @@ const (
 // depends on the capability and tests can supply a fake.
 type pageWriter interface {
 	GetBySlug(ctx context.Context, slug string) (*knowledgepage.Page, error)
+	// SemanticSearch ranks existing pages by pure cosine for the create-time
+	// duplicate gate (#705). The postgres store implements it
+	// (knowledgepage.DuplicateProber); the gate only acts on a real embedding.
+	SemanticSearch(ctx context.Context, vector []float32, limit int) ([]knowledgepage.ScoredPage, error)
 	Insert(ctx context.Context, page knowledgepage.Page) error
 	Update(ctx context.Context, id string, updates knowledgepage.Update) error
 	SoftDelete(ctx context.Context, id string) error
@@ -126,6 +131,12 @@ type pagePromotionInput struct {
 	// and existence-checked before the page is written, and attached with the
 	// promotion (source=promoted) so a rollback undoes it.
 	References []string `json:"references,omitempty"`
+	// ForceNew overrides the create-time duplicate gate (#705): when the page's slug
+	// does not exist but its content is highly similar to an existing page, the
+	// promotion is blocked and the candidate pages are returned, unless ForceNew is
+	// set. Forcing a duplicate is a deliberate, separate act from the confirm flag
+	// (which gates promotion confirmation), so it is an auditable choice.
+	ForceNew bool `json:"force_new,omitempty"`
 }
 
 // SetPageWriter wires the knowledge-page store so apply can promote captures to
@@ -168,6 +179,30 @@ func (t *Toolkit) promoteToPage(ctx context.Context, input applyKnowledgeInput) 
 		return errorResult("invalid page reference: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
 	}
 
+	// Look up the slug once: both the dedup gate (create vs update) and the
+	// find-or-create write below consult this single result (#705).
+	existing, err := t.lookupExistingPage(ctx, page.Slug)
+	if err != nil {
+		return errorResult(err.Error()), nil, nil //nolint:nilerr // MCP protocol
+	}
+
+	// Create-time duplicate gate (#705): on a slug miss, block a near-duplicate
+	// create and return the candidate pages to consolidate against, unless the
+	// caller passed force_new. Runs before the confirmation gate so the agent
+	// resolves the duplicate question first.
+	candidates, err := t.duplicateCandidates(ctx, *page, existing)
+	if err != nil {
+		return errorResult(err.Error()), nil, nil //nolint:nilerr // MCP protocol
+	}
+	if len(candidates) > 0 {
+		return jsonResult(map[string]any{
+			"duplicate_blocked": true,
+			"candidates":        candidates,
+			fieldMessage: "A similar knowledge page already exists. Prefer updating existing knowledge over creating a duplicate: " +
+				"re-apply with a candidate's slug to consolidate onto that page, or set page.force_new: true to create a separate page anyway.",
+		})
+	}
+
 	if t.requireConfirmation && !input.Confirm {
 		return jsonResult(map[string]any{
 			"confirmation_required": true,
@@ -190,12 +225,53 @@ func (t *Toolkit) promoteToPage(ctx context.Context, input applyKnowledgeInput) 
 	}
 
 	tags := tagsWithOrigin(page.Tags, originClass)
-	prom, err := t.applyPagePromotion(ctx, *page, tags, appliedBy, plan)
+	prom, err := t.applyPagePromotion(ctx, pageWrite{
+		input: *page, tags: tags, appliedBy: appliedBy, plan: plan, existing: existing,
+	})
 	if err != nil {
 		return errorResult(err.Error()), nil, nil //nolint:nilerr // MCP protocol
 	}
 
 	return t.recordPageChangesetAndMarkApplied(ctx, input, prom, appliedBy)
+}
+
+// duplicateCandidates runs the create-time dedup gate (#705) and returns the
+// existing pages a promotion would duplicate. It returns no candidates (so the
+// promotion proceeds) when force_new is set, the gate is disabled or has no real
+// embedding provider, or the slug already exists (a slug hit is an update, which
+// the find-or-create path already consolidates, not a create). Only a genuine
+// store lookup failure returns an error.
+func (t *Toolkit) duplicateCandidates(ctx context.Context, page pagePromotionInput, existing *knowledgepage.Page) ([]knowledgepage.DedupCandidate, error) {
+	// existing != nil means the slug resolves to a live page: this is an update (the
+	// find-or-create consolidation), not a guarded create.
+	if page.ForceNew || t.pageGuards.DedupThreshold <= 0 || existing != nil {
+		return nil, nil
+	}
+	// Embed the candidate over IndexText (title+body+tags), the same composition the
+	// stored page embeddings use, so the query vector lives in the same space (#705).
+	emb := embedding.EmbedForSearch(ctx, t.embeddingProv, knowledgepage.IndexText(page.Title, page.Body, page.Tags))
+	candidates, err := knowledgepage.NearDuplicatePages(ctx, t.pageWriter, emb, t.pageGuards.DedupThreshold)
+	if err != nil {
+		return nil, fmt.Errorf("checking for duplicate pages: %w", err)
+	}
+	return candidates, nil
+}
+
+// lookupExistingPage returns the live page for a slug, or (nil, nil) when none
+// exists, so a promotion does one slug lookup feeding both the dedup gate and the
+// find-or-create write (#705). A real store failure is returned.
+func (t *Toolkit) lookupExistingPage(ctx context.Context, slug string) (*knowledgepage.Page, error) {
+	existing, err := t.pageWriter.GetBySlug(ctx, slug)
+	switch {
+	case err == nil:
+		return existing, nil
+	case errors.Is(err, knowledgepage.ErrNotFound):
+		// (nil, nil) is the "no such page, proceed to create" signal; a live page is
+		// never nil, so the absence is unambiguous.
+		return nil, nil //nolint:nilnil // nil page + nil error means "not found, create path"
+	default:
+		return nil, fmt.Errorf("looking up knowledge page by slug: %w", err)
+	}
 }
 
 // pageRefPlan is the reference set to write for a promotion (#690). promoted holds
@@ -339,59 +415,69 @@ type pagePromotion struct {
 // mid-sequence can leave a written page; the reference writes use ON CONFLICT DO
 // NOTHING and re-applying the same slug is idempotent. A single transaction
 // spanning page + references + changeset is a broader change tracked separately.
-func (t *Toolkit) applyPagePromotion(ctx context.Context, page pagePromotionInput, tags []string, appliedBy string, plan pageRefPlan) (*pagePromotion, error) {
-	existing, err := t.pageWriter.GetBySlug(ctx, page.Slug)
-	switch {
-	case err == nil:
-		// Snapshot the before-image and target version BEFORE updating, so the
-		// changeset records the prior content regardless of whether the store
-		// returns a shared row pointer.
-		producedVersion := existing.CurrentVersion + 1
-		prevURNs, err := t.pageEntityURNs(ctx, existing.ID)
-		if err != nil {
-			return nil, err
-		}
-		prev := pageImageWithRefs(pageSnapshot{existing.Title, existing.Summary, existing.Body, existing.Tags, existing.CurrentVersion, prevURNs})
-		// Update the existing page (consolidation): a new version is produced.
-		if uErr := t.pageWriter.Update(ctx, existing.ID, knowledgepage.Update{
-			Title: &page.Title, Summary: &page.Summary, Body: &page.Body, Tags: &tags,
-			UpdatedBy: appliedBy, ChangeSummary: "promoted from capture",
-		}); uErr != nil {
-			return nil, fmt.Errorf("updating knowledge page: %w", uErr)
-		}
-		nextURNs, err := t.writePageRefs(ctx, existing.ID, plan)
-		if err != nil {
-			return nil, err
-		}
-		return &pagePromotion{
-			pageID: existing.ID, slug: page.Slug, changeType: changeUpdatePage,
-			prev:     prev,
-			next:     pageImageWithRefs(pageSnapshot{page.Title, page.Summary, page.Body, tags, producedVersion, nextURNs}),
-			dropped:  plan.dropped,
-			attached: plan.attached,
-		}, nil
-	case errors.Is(err, knowledgepage.ErrNotFound):
-		id := knowledgepage.NewID()
-		if iErr := t.pageWriter.Insert(ctx, knowledgepage.Page{
-			ID: id, Slug: page.Slug, Title: page.Title, Summary: page.Summary, Body: page.Body,
-			Tags: tags, CreatedBy: appliedBy, CreatedEmail: appliedBy,
-		}); iErr != nil {
-			return nil, fmt.Errorf("creating knowledge page: %w", iErr)
-		}
-		nextURNs, err := t.writePageRefs(ctx, id, plan)
-		if err != nil {
-			return nil, err
-		}
-		return &pagePromotion{
-			pageID: id, slug: page.Slug, changeType: changeCreatePage,
-			prev:     pageImageWithRefs(pageSnapshot{}),
-			next:     pageImageWithRefs(pageSnapshot{title: page.Title, summary: page.Summary, body: page.Body, tags: tags, version: 1, entityURNs: nextURNs}),
-			dropped:  plan.dropped,
-			attached: plan.attached,
-		}, nil
-	default:
-		return nil, fmt.Errorf("looking up knowledge page by slug: %w", err)
+// pageWrite carries the resolved inputs for a page promotion write. existing is the
+// live page for input.Slug (nil for a create), fetched once by promoteToPage (#705)
+// so the find-or-create write and the dedup gate share one slug lookup rather than
+// each issuing its own.
+type pageWrite struct {
+	input     pagePromotionInput
+	tags      []string
+	appliedBy string
+	plan      pageRefPlan
+	existing  *knowledgepage.Page
+}
+
+func (t *Toolkit) applyPagePromotion(ctx context.Context, w pageWrite) (*pagePromotion, error) {
+	if w.existing != nil {
+		return t.updatePromotedPage(ctx, w)
 	}
+	id := knowledgepage.NewID()
+	if iErr := t.pageWriter.Insert(ctx, knowledgepage.Page{
+		ID: id, Slug: w.input.Slug, Title: w.input.Title, Summary: w.input.Summary, Body: w.input.Body,
+		Tags: w.tags, CreatedBy: w.appliedBy, CreatedEmail: w.appliedBy,
+	}); iErr != nil {
+		return nil, fmt.Errorf("creating knowledge page: %w", iErr)
+	}
+	nextURNs, err := t.writePageRefs(ctx, id, w.plan)
+	if err != nil {
+		return nil, err
+	}
+	return &pagePromotion{
+		pageID: id, slug: w.input.Slug, changeType: changeCreatePage,
+		prev:     pageImageWithRefs(pageSnapshot{}),
+		next:     pageImageWithRefs(pageSnapshot{title: w.input.Title, summary: w.input.Summary, body: w.input.Body, tags: w.tags, version: 1, entityURNs: nextURNs}),
+		dropped:  w.plan.dropped,
+		attached: w.plan.attached,
+	}, nil
+}
+
+// updatePromotedPage consolidates a promotion onto an existing page (a new version),
+// snapshotting the before-image first so the changeset records the prior content.
+func (t *Toolkit) updatePromotedPage(ctx context.Context, w pageWrite) (*pagePromotion, error) {
+	existing := w.existing
+	producedVersion := existing.CurrentVersion + 1
+	prevURNs, err := t.pageEntityURNs(ctx, existing.ID)
+	if err != nil {
+		return nil, err
+	}
+	prev := pageImageWithRefs(pageSnapshot{existing.Title, existing.Summary, existing.Body, existing.Tags, existing.CurrentVersion, prevURNs})
+	if uErr := t.pageWriter.Update(ctx, existing.ID, knowledgepage.Update{
+		Title: &w.input.Title, Summary: &w.input.Summary, Body: &w.input.Body, Tags: &w.tags,
+		UpdatedBy: w.appliedBy, ChangeSummary: "promoted from capture",
+	}); uErr != nil {
+		return nil, fmt.Errorf("updating knowledge page: %w", uErr)
+	}
+	nextURNs, err := t.writePageRefs(ctx, existing.ID, w.plan)
+	if err != nil {
+		return nil, err
+	}
+	return &pagePromotion{
+		pageID: existing.ID, slug: w.input.Slug, changeType: changeUpdatePage,
+		prev:     prev,
+		next:     pageImageWithRefs(pageSnapshot{w.input.Title, w.input.Summary, w.input.Body, w.tags, producedVersion, nextURNs}),
+		dropped:  w.plan.dropped,
+		attached: w.plan.attached,
+	}, nil
 }
 
 // writePageRefs writes the prepared reference plan onto a page: the promoted
@@ -529,6 +615,14 @@ func (t *Toolkit) recordPageChangesetAndMarkApplied(ctx context.Context, input a
 	if len(prom.dropped) > 0 {
 		result["references_dropped"] = prom.dropped
 		msg += fmt.Sprintf(" Note: %d cited reference(s) did not resolve and were not attached (see references_dropped).", len(prom.dropped))
+	}
+	// Oversized-page soft signal (#705 Part B): non-blocking; the write already
+	// succeeded. Suggests splitting a large page into focused, cross-linked sub-pages.
+	if input.Page != nil {
+		if suggestion, ok := knowledgepage.SplitSuggestion(input.Page.Body, t.pageGuards.OversizeBytes, t.pageGuards.OversizeSections); ok {
+			result["split_suggestion"] = suggestion
+			msg += " " + suggestion + "."
+		}
 	}
 	result[fieldMessage] = msg
 	return jsonResult(result)

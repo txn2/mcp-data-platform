@@ -6,6 +6,10 @@ class ApiError extends Error {
   constructor(
     public status: number,
     public detail: string,
+    // body is the parsed error response, so callers can read structured payloads
+    // (e.g. the knowledge-page dedup 409's candidates list). Undefined when the
+    // response had no JSON body.
+    public body?: unknown,
   ) {
     super(detail);
     this.name = "ApiError";
@@ -38,7 +42,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
       useAuthStore.getState().expireSession();
     }
     const body = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new ApiError(res.status, body.detail || res.statusText);
+    throw new ApiError(res.status, body.detail || body.message || res.statusText, body);
   }
 
   return res.json() as Promise<T>;

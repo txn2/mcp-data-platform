@@ -1794,11 +1794,8 @@ func (p *Platform) configureKnowledgeApply(tk *knowledgekit.Toolkit) error {
 	}
 	p.knowledgeDataHubWriter = writer
 
-	tk.SetApplyConfig(knowledgekit.ApplyConfig{
-		Enabled:             true,
-		DataHubConnection:   p.config.Knowledge.Apply.DataHubConnection,
-		RequireConfirmation: p.config.Knowledge.Apply.RequireConfirmation,
-	}, csStore, writer)
+	apply := p.config.Knowledge.Apply
+	tk.SetApplyConfig(knowledgekit.ApplyConfig{Enabled: true, DataHubConnection: apply.DataHubConnection, RequireConfirmation: apply.RequireConfirmation}, csStore, writer)
 
 	// #633 Goal 3: let apply promote business_knowledge/operational_rule captures
 	// to canonical knowledge pages. Built directly from the DB (not
@@ -1806,13 +1803,13 @@ func (p *Platform) configureKnowledgeApply(tk *knowledgekit.Toolkit) error {
 	// that field is not yet set here; apply requires the DB the changeset store
 	// already uses.
 	if p.db != nil {
-		tk.SetPageWriter(knowledgepage.NewPostgresStore(p.db))
+		tk.SetPageWriter(knowledgepage.NewPostgresStoreSearcher(p.db))
 	}
+	// Knowledge-page write guards (#705); embeddingProv (from initMemory, which runs
+	// first) powers the dedup probe and is inactive under a noop provider.
+	tk.SetPageGuards(p.config.Knowledge.Pages.Resolve(), p.embeddingProv)
 
-	slog.Info("knowledge apply enabled",
-		"datahub_connection", p.config.Knowledge.Apply.DataHubConnection,
-		"require_confirmation", p.config.Knowledge.Apply.RequireConfirmation,
-	)
+	slog.Info("knowledge apply enabled", "datahub_connection", p.config.Knowledge.Apply.DataHubConnection, "require_confirmation", p.config.Knowledge.Apply.RequireConfirmation)
 	return nil
 }
 

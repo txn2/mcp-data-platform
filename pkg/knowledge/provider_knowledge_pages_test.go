@@ -24,6 +24,14 @@ type fakePageSearcher struct {
 	listTotal  int
 	listErr    error
 	gotList    knowledgepage.Filter
+	entityRefs []knowledgepage.EntityRef // ListEntityRefs result (#705 fetch outbound edges)
+	refsErr    error
+	gotRefsID  string
+}
+
+func (f *fakePageSearcher) ListEntityRefs(_ context.Context, pageID string) ([]knowledgepage.EntityRef, error) {
+	f.gotRefsID = pageID
+	return f.entityRefs, f.refsErr
 }
 
 func (f *fakePageSearcher) Get(_ context.Context, id string) (*knowledgepage.Page, error) {
@@ -226,6 +234,50 @@ func TestPagesProvider_Fetch(t *testing.T) {
 		}
 		if doc.Source != SourceKnowledgePages || doc.Reference != ref || doc.Title != "Fiscal Calendar" {
 			t.Errorf("doc = %+v", doc)
+		}
+	})
+
+	t.Run("populates outbound references as graph edges", func(t *testing.T) {
+		s := &fakePageSearcher{
+			page: &knowledgepage.Page{ID: "kp_1", Title: "Index", Body: "see the sub-pages"},
+			entityRefs: []knowledgepage.EntityRef{
+				{TargetType: knowledgepage.RefTargetKnowledgePage, RefPageID: "kp_2"},
+				{TargetType: knowledgepage.RefTargetDataHub, EntityURN: "urn:li:dataset:(x,y,PROD)"},
+				{TargetType: "bogus"}, // unrecognized target -> empty URN -> skipped
+			},
+		}
+		doc, owned, err := NewKnowledgePagesProvider(s).Fetch(context.Background(), knowledgepage.PageReference("kp_1"), Caller{})
+		if !owned || err != nil {
+			t.Fatalf("owned=%v err=%v", owned, err)
+		}
+		if s.gotRefsID != "kp_1" {
+			t.Errorf("ListEntityRefs id = %q, want kp_1", s.gotRefsID)
+		}
+		want := []DocumentRef{
+			{Reference: "mcp:knowledge_page:kp_2", Type: knowledgepage.RefTargetKnowledgePage},
+			{Reference: "urn:li:dataset:(x,y,PROD)", Type: knowledgepage.RefTargetDataHub},
+		}
+		if len(doc.References) != len(want) {
+			t.Fatalf("References = %+v, want %+v", doc.References, want)
+		}
+		for i := range want {
+			if doc.References[i] != want[i] {
+				t.Errorf("References[%d] = %+v, want %+v", i, doc.References[i], want[i])
+			}
+		}
+	})
+
+	t.Run("refs listing error degrades to no edges, not a fetch failure", func(t *testing.T) {
+		s := &fakePageSearcher{
+			page:    &knowledgepage.Page{ID: "kp_1", Title: "T", Body: "b"},
+			refsErr: errors.New("refs boom"),
+		}
+		doc, owned, err := NewKnowledgePagesProvider(s).Fetch(context.Background(), knowledgepage.PageReference("kp_1"), Caller{})
+		if !owned || err != nil {
+			t.Fatalf("owned=%v err=%v, want owned + no error (refs error is best-effort)", owned, err)
+		}
+		if doc.References != nil {
+			t.Errorf("References = %+v, want nil when listing failed", doc.References)
 		}
 	})
 

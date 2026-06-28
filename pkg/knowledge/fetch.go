@@ -50,6 +50,20 @@ type Document struct {
 	// EntityURNs are the catalog entities this content is about, when the source
 	// links any (a context document's related assets, a dataset's own URN).
 	EntityURNs []string `json:"entity_urns,omitempty"`
+	// References are the outbound links this content declares: the other pages and
+	// entities it points to, as citable references a caller can fetch in turn (#705).
+	// A knowledge page populates these from its tracked entity references, so an agent
+	// can deliberately deep-crawl the knowledge graph (fetch the index, follow into
+	// the relevant branch) instead of re-parsing links out of the markdown body.
+	References []DocumentRef `json:"references,omitempty"`
+}
+
+// DocumentRef is one outbound link a Document declares (#705): a reference string a
+// caller can fetch, plus its target type so the caller can decide whether to crawl
+// it (another knowledge page, a dataset, an asset, a connection, ...).
+type DocumentRef struct {
+	Reference string `json:"reference"`
+	Type      string `json:"type"`
 }
 
 // Fetcher is the optional capability of a Provider to dereference a reference (the

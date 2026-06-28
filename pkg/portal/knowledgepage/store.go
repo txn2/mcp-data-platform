@@ -143,6 +143,23 @@ func NewPostgresStore(db *sql.DB) Store {
 	return &postgresStore{db: db}
 }
 
+// StoreSearcher is a Store that also ranks pages by relevance (Searcher) and by
+// pure cosine for the dedup gate (DuplicateProber). The postgres store implements
+// all three; the knowledge apply path needs them to write a page and run the
+// create-time duplicate probe (#705), so it takes this combined capability rather
+// than asserting the optional interfaces off a bare Store at runtime.
+type StoreSearcher interface {
+	Store
+	Searcher
+	DuplicateProber
+}
+
+// NewPostgresStoreSearcher is NewPostgresStore typed as a StoreSearcher, for the
+// apply path which needs Search (the dedup gate) alongside the write methods.
+func NewPostgresStoreSearcher(db *sql.DB) StoreSearcher {
+	return &postgresStore{db: db}
+}
+
 // Compile-time checks.
 var (
 	_ Store    = (*postgresStore)(nil)
