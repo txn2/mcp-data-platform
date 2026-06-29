@@ -294,7 +294,14 @@ func TestDataHubClientWriter_GetCurrentMetadata_GlossaryTermEntityError(t *testi
 func TestDataHubClientWriter_GetCurrentMetadata_DatasetTagReadError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
-			w.WriteHeader(http.StatusInternalServerError)
+			// Fail only the globalTags read so the error is deterministically the tag
+			// read (the two aspect reads run concurrently).
+			if strings.Contains(r.URL.String(), "globalTags") {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"value":{"terms":[]}}`))
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -317,7 +324,13 @@ func TestDataHubClientWriter_GetCurrentMetadata_TagReadError(t *testing.T) {
 	const productURN = "urn:li:dataProduct:x"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
-			w.WriteHeader(http.StatusInternalServerError)
+			// Fail only the globalTags read (the two aspect reads run concurrently).
+			if strings.Contains(r.URL.String(), "globalTags") {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"value":{"terms":[]}}`))
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")

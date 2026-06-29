@@ -28,9 +28,40 @@ const (
 	// entityTypeDomain is the DataHub entity type string for domains.
 	entityTypeDomain = "domain"
 
+	// entityTypeDocument is the DataHub entity type string for documents.
+	entityTypeDocument = "document"
+
 	// opsSeparator is the delimiter used when joining supported operations in error messages.
 	opsSeparator = ", "
 )
+
+// descriptionReadableTypes are entity types whose description GetCurrentMetadata can
+// read back, and therefore capture in a changeset before-image: dataset and
+// dashboard via the entity query, glossaryTerm and dataProduct via dedicated getters.
+// For any other type the before-image description is empty (not read), so rolling
+// back an update_description would blank a real description; such a rollback is
+// refused instead. Keep in sync with GetCurrentMetadata.
+var descriptionReadableTypes = map[string]bool{
+	entityTypeDataset:      true,
+	entityTypeDashboard:    true,
+	entityTypeGlossaryTerm: true,
+	entityTypeDataProduct:  true,
+}
+
+// descriptionReadable reports whether GetCurrentMetadata can read an entity type's
+// description (and thus whether update_description is safely revertible).
+func descriptionReadable(entityType string) bool {
+	return descriptionReadableTypes[entityType]
+}
+
+// associationsReadable reports whether GetCurrentMetadata can read an entity type's
+// tags and glossary terms. Every tag/term-writable type can be read except document,
+// whose globalTags/glossaryTerms aspects have no read path; rolling back a tag or
+// glossary-term change on a document could strip a pre-existing value, so it is
+// refused instead. Keep in sync with GetCurrentMetadata.
+func associationsReadable(entityType string) bool {
+	return entityType != entityTypeDocument
+}
 
 // entityTypeFromURN extracts the entity type from a DataHub URN.
 // For example, "urn:li:dataset:(...)" returns "dataset".

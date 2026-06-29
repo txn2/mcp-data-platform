@@ -234,7 +234,14 @@ Source insights move to `applied` status with a reference to the changeset.
 
 `changes_applied` counts the changes that were dispatched without error; a duplicate add (for example a tag that was already present) is a no-op upstream and still counts. The `resulting_state` field is a fresh read-back of the entity's description, tags, glossary terms, and owners after the apply, so callers can confirm what actually persisted without a follow-up call. Writes are not transactional: if a change in the middle of the list fails, earlier changes have already persisted and are reported in the error message rather than silently rolled back.
 
-`resulting_state` reads `tags` and `glossary_terms` from the authoritative DataHub aspects, so they are populated for every entity type: REST-exposed types (datasets, dashboards, charts, data flows, data jobs, containers, data products) are read from the REST aspects, and the GraphQL-only types (`domain`, `glossaryTerm`, `glossaryNode`) are read through the entity query (which surfaces those aspects as of `mcp-datahub` v1.10.2). `description` and `owners` come from the entity query for datasets and dashboards and from dedicated getters for data products and glossary terms. The one remaining gap is `description`: entity types without a dedicated description read (for example `domain`, `glossaryNode`, `container`, `chart`, `dataFlow`, `dataJob`) report an empty `description` even when one is set — treat an empty `description` for those types as "not read" rather than "not set".
+`resulting_state` reads `tags` and `glossary_terms` from the authoritative DataHub aspects. REST-exposed types (datasets, dashboards, charts, data flows, data jobs, containers, data products) are read from the REST aspects, and three GraphQL-only types (`domain`, `glossaryTerm`, `glossaryNode`) are read through the entity query (which surfaces those aspects as of `mcp-datahub` v1.10.2). `description` and `owners` come from the entity query for datasets and dashboards and from dedicated getters for data products and glossary terms.
+
+Some fields cannot be read for some entity types and come back empty even when set, so for those types treat an empty value as "not read" rather than "not set":
+
+- `tags` and `glossary_terms` are empty for `document` entities (no read path exists for their associations).
+- `description` and `owners` are empty for entity types with no dedicated read and no dataset/dashboard entity-query fragment (`domain`, `glossaryNode`, `container`, `chart`, `dataFlow`, `dataJob`).
+
+These same gaps apply to the changeset before-image, so a rollback cannot restore a field it could not read: do not rely on rollback to restore `tags`/`glossary_terms` on a `document`, or `description`/`owners` on those getter-less types.
 
 ## Changeset Tracking
 
@@ -292,6 +299,7 @@ The rollback also transitions the changeset's source insights from `applied` to 
 - The changeset has already been rolled back.
 - A newer, not-yet-rolled-back changeset has since modified the same aspect on the same entity. Reverting would clobber that newer change, so the rollback is blocked and names the conflicting changeset; roll the newer one back first, or restore the desired state with a fresh apply.
 - The changeset contains change types whose prior state was not captured in the before-image and therefore cannot be reverted automatically: column-level descriptions, structured properties, incidents, curated queries, context documents, and prompts. For these, restore the desired state with a new apply.
+- The changeset targets an entity type whose affected field could not be read into the before-image, so reverting would write an empty value over a real one. This covers `update_description` on entity types with no readable description (`domain`, `glossaryNode`, `container`, `chart`, `dataFlow`, `dataJob`) and tag or glossary-term changes on `document` entities. The rollback is refused rather than risking the overwrite; restore the desired state with a new apply.
 
 When the changeset contains a mix of revertible and unrevertible change types, the rollback is refused as a whole so it never leaves the entity in a partially reverted state.
 

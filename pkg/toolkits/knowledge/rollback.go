@@ -103,7 +103,11 @@ func RevertChangeset(ctx context.Context, deps RollbackDeps, cs *Changeset, roll
 	}
 
 	changes := parseRecordedChanges(cs.NewValue)
-	if unsupported := unrevertibleChangeTypes(changes); len(unsupported) > 0 {
+	// entityTypeFromURN failure leaves entityType "", which the readability
+	// predicates treat as unreadable, so a change whose before-image could not be
+	// captured is refused rather than reverted destructively.
+	entityType, _ := entityTypeFromURN(cs.TargetURN)
+	if unsupported := unrevertibleChangeTypes(changes, entityType); len(unsupported) > 0 {
 		return nil, &UnrevertibleError{ChangeTypes: unsupported}
 	}
 	if err := checkRollbackConflicts(ctx, deps.Changesets, cs, changes); err != nil {
@@ -148,12 +152,15 @@ var revertibleChangeTypes = map[string]bool{
 // unrevertibleChangeTypes returns the distinct change types in the changeset that
 // cannot be reverted from the recorded before-image. Column-level description
 // changes are unrevertible even though update_description itself is revertible,
-// because the before-image only captures the entity-level description.
-func unrevertibleChangeTypes(changes []recordedChange) []string {
+// because the before-image only captures the entity-level description. Changes are
+// also unrevertible when the target entity type's before-image field could not be
+// read (description for getter-less types, tags/terms for documents), since
+// reverting would write an empty value over a real one.
+func unrevertibleChangeTypes(changes []recordedChange, entityType string) []string {
 	seen := map[string]bool{}
 	var out []string
 	for _, c := range changes {
-		if !isRevertible(c) && !seen[c.ChangeType] {
+		if !isRevertible(c, entityType) && !seen[c.ChangeType] {
 			seen[c.ChangeType] = true
 			out = append(out, c.ChangeType)
 		}
@@ -161,13 +168,21 @@ func unrevertibleChangeTypes(changes []recordedChange) []string {
 	return out
 }
 
-// isRevertible reports whether a single recorded change has a derivable inverse.
-func isRevertible(c recordedChange) bool {
-	if c.ChangeType == string(actionUpdateDescription) {
-		_, isColumn := parseColumnTarget(c.Target)
-		return !isColumn
+// isRevertible reports whether a single recorded change has a derivable inverse for
+// the given target entity type.
+func isRevertible(c recordedChange, entityType string) bool {
+	switch c.ChangeType {
+	case string(actionUpdateDescription):
+		if _, isColumn := parseColumnTarget(c.Target); isColumn {
+			return false
+		}
+		return descriptionReadable(entityType)
+	case string(actionAddTag), string(actionRemoveTag),
+		string(actionFlagQualityIssue), string(actionAddGlossaryTerm):
+		return revertibleChangeTypes[c.ChangeType] && associationsReadable(entityType)
+	default:
+		return revertibleChangeTypes[c.ChangeType]
 	}
-	return revertibleChangeTypes[c.ChangeType]
 }
 
 // applyInverseChanges performs the inverse of each recorded change against

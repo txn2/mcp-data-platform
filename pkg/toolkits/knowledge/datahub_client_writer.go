@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	dhclient "github.com/txn2/mcp-datahub/pkg/client"
 	"github.com/txn2/mcp-datahub/pkg/types"
 )
@@ -134,15 +136,29 @@ func (w *DataHubClientWriter) fillAssociationsFromEntity(ctx context.Context, ur
 }
 
 // fillAssociationsFromREST reads tags and glossary terms from the authoritative REST
-// aspects and writes them onto meta.
+// aspects and writes them onto meta. The two reads are independent GETs, so they run
+// concurrently.
 func (w *DataHubClientWriter) fillAssociationsFromREST(ctx context.Context, entityType, urn string, meta *EntityMetadata) error {
-	tags, err := w.readTagURNs(ctx, entityType, urn)
-	if err != nil {
-		return err
-	}
-	terms, err := w.readGlossaryTermURNs(ctx, entityType, urn)
-	if err != nil {
-		return err
+	var tags, terms []string
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		t, err := w.readTagURNs(gctx, entityType, urn)
+		if err != nil {
+			return err
+		}
+		tags = t
+		return nil
+	})
+	g.Go(func() error {
+		t, err := w.readGlossaryTermURNs(gctx, entityType, urn)
+		if err != nil {
+			return err
+		}
+		terms = t
+		return nil
+	})
+	if err := g.Wait(); err != nil {
+		return err //nolint:wrapcheck // readTagURNs/readGlossaryTermURNs already wrap their errors
 	}
 	meta.Tags = tags
 	meta.GlossaryTerms = terms
