@@ -3,6 +3,7 @@ package knowledge
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -117,6 +118,55 @@ func TestRevertChangeset_MultiTagBatch(t *testing.T) {
 	// The pre-existing tag "a" is kept (skipped), b and c are reverted.
 	assert.Len(t, res.RevertedChanges, 2)
 	assert.Len(t, res.SkippedChanges, 1)
+}
+
+// TestRevertChangeset_ResolvesQualityIncident is the #722 rollback regression:
+// rolling back a flag_quality_issue removes the QualityIssue tag AND resolves the
+// DataHub incident it raised (recorded in created_urns).
+func TestRevertChangeset_ResolvesQualityIncident(t *testing.T) {
+	cs := baseChangeset("cs1",
+		map[string]any{
+			"change_0": changeEntry("flag_quality_issue", "", "nulls"),
+			// A non-incident created URN must be left untouched (only incidents resolve).
+			"created_urns": []any{"urn:li:incident:abc", "urn:li:query:q1"},
+		},
+		map[string]any{"tags": []any{}},
+	)
+	store := seededStore(cs)
+	writer := &spyWriter{}
+
+	res, err := RevertChangeset(context.Background(), RollbackDeps{Writer: writer, Changesets: store, Insights: &fullSpyStore{}}, cs, "admin")
+	require.NoError(t, err)
+
+	var resolveCalls int
+	for _, wc := range writer.WriteCalls {
+		if wc.Method == "ResolveIncident" {
+			resolveCalls++
+			assert.Equal(t, "urn:li:incident:abc", wc.URN)
+		}
+	}
+	assert.Equal(t, 1, resolveCalls, "only the incident URN is resolved, not the query URN")
+	assert.Contains(t, strings.Join(res.RevertedChanges, " "), "resolved incident urn:li:incident:abc")
+	assert.True(t, store.Changesets[0].RolledBack)
+}
+
+// TestRevertChangeset_ResolveIncidentErrorReported verifies a failed incident
+// resolve surfaces an error rather than silently succeeding.
+func TestRevertChangeset_ResolveIncidentErrorReported(t *testing.T) {
+	cs := baseChangeset("cs1",
+		map[string]any{
+			"change_0":     changeEntry("flag_quality_issue", "", "nulls"),
+			"created_urns": []any{"urn:li:incident:abc"},
+		},
+		map[string]any{"tags": []any{}},
+	)
+	store := seededStore(cs)
+	// Tag revert is call 1 (succeeds); ResolveIncident is call 2 (fails).
+	writer := &spyWriter{FailAtCall: 2}
+
+	_, err := RevertChangeset(context.Background(), RollbackDeps{Writer: writer, Changesets: store, Insights: &fullSpyStore{}}, cs, "admin")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "resolving the incident failed")
 }
 
 // TestRevertChangeset_RefusesDescriptionOnUnreadableType verifies that rolling back

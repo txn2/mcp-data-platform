@@ -120,6 +120,14 @@ func RevertChangeset(ctx context.Context, deps RollbackDeps, cs *Changeset, roll
 		return nil, fmt.Errorf("rollback aborted after reverting %d change(s): %w", len(reverted), err)
 	}
 
+	// Resolve any DataHub incident this changeset created (e.g. the incident raised
+	// by flag_quality_issue to carry its detail), recorded in created_urns (#722).
+	incidentReverted, err := resolveCreatedIncidents(ctx, deps.Writer, cs.NewValue, rolledBackBy)
+	if err != nil {
+		return nil, fmt.Errorf("rollback reverted %d change(s) but resolving the incident failed: %w", len(reverted), err)
+	}
+	reverted = append(reverted, incidentReverted...)
+
 	rolledBackInsights := rollbackInsights(ctx, deps.Insights, cs.SourceInsightIDs, rolledBackBy)
 
 	if err := deps.Changesets.RollbackChangeset(ctx, cs.ID, rolledBackBy); err != nil {
@@ -134,6 +142,28 @@ func RevertChangeset(ctx context.Context, deps RollbackDeps, cs *Changeset, roll
 		InsightsRolledBack: rolledBackInsights,
 		RolledBackBy:       rolledBackBy,
 	}, nil
+}
+
+// incidentURNPrefix identifies DataHub incident URNs among a changeset's created URNs.
+const incidentURNPrefix = "urn:li:incident:"
+
+// resolveCreatedIncidents resolves the DataHub incidents a changeset created
+// (recorded in created_urns), e.g. the incident raised by flag_quality_issue to make
+// its detail verifiable. Only incident URNs are resolved; other created URNs (queries,
+// documents) are left untouched. It returns a description per resolved incident.
+func resolveCreatedIncidents(ctx context.Context, writer DataHubWriter, newValue map[string]any, rolledBackBy string) ([]string, error) {
+	var reverted []string
+	for _, urn := range strsFromMap(newValue, fieldCreatedURNs) {
+		if !strings.HasPrefix(urn, incidentURNPrefix) {
+			continue
+		}
+		msg := fmt.Sprintf("Resolved by knowledge changeset rollback (%s)", rolledBackBy)
+		if err := writer.ResolveIncident(ctx, urn, msg); err != nil {
+			return reverted, fmt.Errorf("resolving incident %s: %w", urn, err)
+		}
+		reverted = append(reverted, fmt.Sprintf("resolved incident %s", urn))
+	}
+	return reverted, nil
 }
 
 // revertibleChangeTypes is the set of change types whose inverse operation can be

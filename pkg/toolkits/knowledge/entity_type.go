@@ -35,6 +35,23 @@ const (
 	opsSeparator = ", "
 )
 
+// incidentSupportedTypes are the entity types DataHub raises incidents on.
+// flag_quality_issue raises its detail incident only for these; on any other type
+// (glossary terms, glossary nodes, domains, documents, etc.) it sets the QualityIssue
+// tag alone, so it never fails an apply on an unsupported type and never orphans an
+// incident a rollback cannot resolve. Being conservative here can only skip an
+// incident on a type that would have supported one, which is not a regression
+// (flag_quality_issue was tag-only before #722).
+var incidentSupportedTypes = map[string]bool{
+	entityTypeDataset:     true,
+	entityTypeDashboard:   true,
+	"chart":               true,
+	"dataFlow":            true,
+	"dataJob":             true,
+	entityTypeContainer:   true,
+	entityTypeDataProduct: true,
+}
+
 // descriptionReadableTypes are entity types whose description GetCurrentMetadata can
 // read back, and therefore capture in a changeset before-image: dataset and
 // dashboard via the entity query, glossaryTerm and dataProduct via dedicated getters.

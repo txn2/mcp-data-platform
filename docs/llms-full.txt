@@ -1716,7 +1716,7 @@ Records domain knowledge shared during a session (memory toolkit).
 
 **Detail field:** Description text, tag name or URN (e.g., `pii` or `urn:li:tag:pii`), glossary term name or URN, quality issue description, link description, or query name (for `add_curated_query`). Short tag/term names are auto-normalized to full URNs.
 
-`flag_quality_issue` adds a fixed `QualityIssue` tag; the detail text is stored as context in the knowledge store, not encoded in the tag name.
+`flag_quality_issue` adds a fixed `QualityIssue` tag and, on entity types DataHub supports incidents for (datasets, dashboards, charts, data flows/jobs, containers, data products) with a detail, raises a "Data quality issue" incident whose description is the detail, so the issue is verifiable on the entity (the detail is not encoded in the tag name). Re-applying the same detail reuses the existing open incident rather than creating a duplicate. The created incident URN is recorded in the changeset's `new_value.created_urns`, and rolling the changeset back removes the tag and resolves any incident it created. On entity types that do not support incidents, only the tag is set.
 
 `add_curated_query` creates a reusable Query entity in DataHub linked to the target dataset. Requires `query_sql` (the SQL statement) and optionally `query_description`. The `detail` field serves as the query name.
 

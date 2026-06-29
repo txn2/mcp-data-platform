@@ -858,6 +858,15 @@ func (w *DataHubClientWriter) RaiseIncident(ctx context.Context, entityURN, titl
 	return incidentURN, nil
 }
 
+// GetIncidents returns the incidents currently on an entity.
+func (w *DataHubClientWriter) GetIncidents(ctx context.Context, entityURN string) ([]types.Incident, error) {
+	result, err := w.client.GetIncidents(ctx, entityURN)
+	if err != nil {
+		return nil, fmt.Errorf("getting incidents for %s: %w", entityURN, err)
+	}
+	return result.Incidents, nil
+}
+
 // ResolveIncident marks an incident as resolved.
 func (w *DataHubClientWriter) ResolveIncident(ctx context.Context, incidentURN, message string) error {
 	if err := w.client.ResolveIncident(ctx, incidentURN, message); err != nil {

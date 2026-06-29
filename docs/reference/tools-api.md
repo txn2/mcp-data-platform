@@ -1063,7 +1063,7 @@ Review, synthesize, and apply captured insights to the data catalog. Admin-only.
 | `update_description` | `column:<fieldPath>` for column-level, empty for entity-level | Description text |
 | `add_tag` / `remove_tag` | Ignored | Tag name or URN |
 | `add_glossary_term` | Ignored | Term name or URN |
-| `flag_quality_issue` | Ignored | Quality issue description |
+| `flag_quality_issue` | Ignored | Quality issue description (sets the `QualityIssue` tag; with a detail, also raises a DataHub incident carrying it) |
 | `add_documentation` | URL | Link description |
 | `add_curated_query` | Ignored | Query name |
 | `set_structured_property` | Property qualified name or URN | Value or JSON array |

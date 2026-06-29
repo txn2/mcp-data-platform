@@ -303,6 +303,10 @@ type spyWriter struct {
 	// ApplyGlossaryTermChanges so tests can assert the batched write does not clobber
 	// terms.
 	TermState map[string]map[string]bool
+	// Incidents is returned by GetIncidents (for dedup tests); IncidentsErr forces an
+	// error.
+	Incidents    []types.Incident
+	IncidentsErr error
 }
 
 type writerCall struct {
@@ -427,6 +431,13 @@ func (w *spyWriter) RaiseIncident(_ context.Context, entityURN, title, desc stri
 		return "", err
 	}
 	return "urn:li:incident:generated-id", nil
+}
+
+func (w *spyWriter) GetIncidents(_ context.Context, _ string) ([]types.Incident, error) {
+	if w.IncidentsErr != nil {
+		return nil, w.IncidentsErr
+	}
+	return w.Incidents, nil
 }
 
 func (w *spyWriter) ResolveIncident(_ context.Context, incidentURN, message string) error {
@@ -1357,8 +1368,9 @@ func TestHandleApply_WritesToDataHub(t *testing.T) {
 
 	// Tag changes batch into one ApplyTagChanges and add_glossary_term into one
 	// ApplyGlossaryTermChanges, both before the dispatched writes (#721, #729).
-	// Remaining dispatched writes: update_description, add_documentation.
-	assert.Len(t, writer.WriteCalls, 4)
+	// Remaining dispatched writes: update_description, add_documentation, and the
+	// flag_quality_issue incident carrying its detail (#722).
+	assert.Len(t, writer.WriteCalls, 5)
 	assert.Equal(t, "ApplyTagChanges", writer.WriteCalls[0].Method)
 	// Arg1 is the comma-joined adds (add_tag then flag_quality_issue's QualityIssue),
 	// Arg2 the comma-joined removes.
@@ -1370,6 +1382,11 @@ func TestHandleApply_WritesToDataHub(t *testing.T) {
 	assert.Equal(t, "AddDocumentationLink", writer.WriteCalls[3].Method)
 	assert.Equal(t, "https://docs.example.com", writer.WriteCalls[3].Arg1)
 	assert.Equal(t, "Revenue docs", writer.WriteCalls[3].Arg2)
+	// flag_quality_issue raises an incident titled "Data quality issue" with the
+	// detail as the description.
+	assert.Equal(t, "RaiseIncident", writer.WriteCalls[4].Method)
+	assert.Equal(t, "Data quality issue", writer.WriteCalls[4].Arg1)
+	assert.Equal(t, "missing_values", writer.WriteCalls[4].Arg2)
 
 	// The QualityIssue tag survives in the same batched write as the other tags,
 	// rather than being clobbered by a separate per-tag write.
@@ -2305,8 +2322,9 @@ func TestExecuteChanges_AllTypes(t *testing.T) {
 	require.NoError(t, err)
 	// add_tag/remove_tag/flag_quality_issue collapse into one ApplyTagChanges and
 	// add_glossary_term into one ApplyGlossaryTermChanges (both run first), leaving
-	// update_description and add_documentation as dispatched writes (#721, #729).
-	assert.Len(t, writer.WriteCalls, 4)
+	// update_description, add_documentation, and the flag_quality_issue incident as
+	// dispatched writes (#721, #729, #722).
+	assert.Len(t, writer.WriteCalls, 5)
 
 	// Batched tag write: adds (add_tag then flag_quality_issue) and removes, with
 	// short names normalized to full URNs.
@@ -2325,6 +2343,10 @@ func TestExecuteChanges_AllTypes(t *testing.T) {
 	assert.Equal(t, "AddDocumentationLink", writer.WriteCalls[3].Method)
 	assert.Equal(t, "https://docs.example.com", writer.WriteCalls[3].Arg1)
 	assert.Equal(t, "API Docs", writer.WriteCalls[3].Arg2)
+
+	// flag_quality_issue raises an incident carrying its detail (#722).
+	assert.Equal(t, "RaiseIncident", writer.WriteCalls[4].Method)
+	assert.Equal(t, "nulls", writer.WriteCalls[4].Arg2)
 }
 
 func TestExecuteChanges_AddCuratedQuery(t *testing.T) {
@@ -2638,11 +2660,123 @@ func TestExecuteChanges_FlagQualityIssue_FixedTag(t *testing.T) {
 	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
 	require.NoError(t, err)
 	// All flag_quality_issue changes batch into a single ApplyTagChanges adding the
-	// fixed QualityIssue tag, regardless of detail text.
-	require.Len(t, writer.WriteCalls, 1)
+	// fixed QualityIssue tag, regardless of detail text. Each one with a non-empty
+	// detail also raises an incident carrying that detail (#722); the empty-detail
+	// one raises no incident.
+	require.Len(t, writer.WriteCalls, 3)
 	assert.Equal(t, "ApplyTagChanges", writer.WriteCalls[0].Method)
 	assert.Equal(t, "urn:li:tag:QualityIssue,urn:li:tag:QualityIssue,urn:li:tag:QualityIssue", writer.WriteCalls[0].Arg1)
 	assert.Contains(t, writer.TagState[testEntityURN], "urn:li:tag:QualityIssue")
+	assert.Equal(t, "RaiseIncident", writer.WriteCalls[1].Method)
+	assert.Equal(t, "Missing column descriptions", writer.WriteCalls[1].Arg2)
+	assert.Equal(t, "RaiseIncident", writer.WriteCalls[2].Method)
+	assert.Equal(t, "nulls", writer.WriteCalls[2].Arg2)
+}
+
+// TestHandleApply_FlagQualityIssueRaisesIncident is the #722 regression: a
+// flag_quality_issue with a detail sets the QualityIssue tag AND raises a DataHub
+// incident carrying the detail, and the created incident URN is recorded on the
+// changeset so rollback can resolve it.
+func TestHandleApply_FlagQualityIssueRaisesIncident(t *testing.T) {
+	store := &fullSpyStore{}
+	csStore := &spyChangesetStore{}
+	writer := &spyWriter{}
+	tk := newApplyToolkit(t, store, csStore, writer)
+
+	input := applyKnowledgeInput{
+		Action:    "apply",
+		EntityURN: testEntityURN,
+		Changes:   []ApplyChange{{ChangeType: "flag_quality_issue", Detail: "amount column has nulls"}},
+	}
+	result, _, callErr := tk.handleApplyKnowledge(ctxWithUser("admin-1", "s", "admin"), nil, input)
+	require.Nil(t, callErr)
+	require.False(t, result.IsError, "got error: %v", result.Content)
+
+	var raisedDetail string
+	for _, wc := range writer.WriteCalls {
+		if wc.Method == "RaiseIncident" {
+			raisedDetail = wc.Arg2
+		}
+	}
+	assert.Equal(t, "amount column has nulls", raisedDetail, "the detail is raised as an incident")
+
+	// The created incident URN is recorded on the changeset for rollback.
+	require.Len(t, csStore.Changesets, 1)
+	assert.Equal(t, []string{"urn:li:incident:generated-id"}, strsFromMap(csStore.Changesets[0].NewValue, "created_urns"))
+}
+
+// TestHandleApply_FlagQualityIssueNoDetailNoIncident verifies a flag_quality_issue
+// without a detail sets only the tag and raises no (empty) incident.
+func TestHandleApply_FlagQualityIssueNoDetailNoIncident(t *testing.T) {
+	store := &fullSpyStore{}
+	csStore := &spyChangesetStore{}
+	writer := &spyWriter{}
+	tk := newApplyToolkit(t, store, csStore, writer)
+
+	input := applyKnowledgeInput{
+		Action:    "apply",
+		EntityURN: testEntityURN,
+		Changes:   []ApplyChange{{ChangeType: "flag_quality_issue", Detail: ""}},
+	}
+	result, _, callErr := tk.handleApplyKnowledge(ctxWithUser("admin-1", "s", "admin"), nil, input)
+	require.Nil(t, callErr)
+	require.False(t, result.IsError)
+
+	for _, wc := range writer.WriteCalls {
+		assert.NotEqual(t, "RaiseIncident", wc.Method, "no incident without a detail")
+	}
+	assert.Contains(t, writer.TagState[testEntityURN], "urn:li:tag:QualityIssue")
+}
+
+// TestExecuteChanges_FlagQualityIssueDedup verifies that when an active quality
+// incident with the same detail already exists, a re-apply does not raise a duplicate
+// (and does not record a created incident, since none was created).
+func TestExecuteChanges_FlagQualityIssueDedup(t *testing.T) {
+	writer := &spyWriter{Incidents: []types.Incident{
+		{URN: "urn:li:incident:existing", Title: "Data quality issue", Description: "nulls", State: "ACTIVE"},
+	}}
+	tk := &Toolkit{datahubWriter: writer}
+
+	created, err := tk.executeChanges(context.Background(), testEntityURN, []ApplyChange{
+		{ChangeType: "flag_quality_issue", Detail: "nulls"},
+	})
+	require.NoError(t, err)
+	for _, wc := range writer.WriteCalls {
+		assert.NotEqual(t, "RaiseIncident", wc.Method, "deduped: no new incident raised")
+	}
+	assert.Empty(t, created, "a reused (deduped) incident is not recorded as created")
+}
+
+// TestExecuteChanges_FlagQualityIssueDedupReadErrorRaises verifies that a failed
+// incident read does not block the apply: it falls back to raising the incident.
+func TestExecuteChanges_FlagQualityIssueDedupReadErrorRaises(t *testing.T) {
+	writer := &spyWriter{IncidentsErr: errors.New("incident read boom")}
+	tk := &Toolkit{datahubWriter: writer}
+
+	_, err := tk.executeChanges(context.Background(), testEntityURN, []ApplyChange{
+		{ChangeType: "flag_quality_issue", Detail: "nulls"},
+	})
+	require.NoError(t, err)
+	var raised bool
+	for _, wc := range writer.WriteCalls {
+		if wc.Method == "RaiseIncident" {
+			raised = true
+		}
+	}
+	assert.True(t, raised, "a dedup read failure falls back to raising the incident")
+}
+
+// TestExecuteChanges_FlagQualityIssueIncidentError verifies a failed incident raise
+// surfaces as an apply error.
+func TestExecuteChanges_FlagQualityIssueIncidentError(t *testing.T) {
+	writer := &spyWriter{FailAtCall: 2} // tag batch (call 1) ok, RaiseIncident (call 2) fails
+	tk := &Toolkit{datahubWriter: writer}
+
+	_, err := tk.executeChanges(context.Background(), testEntityURN, []ApplyChange{
+		{ChangeType: "flag_quality_issue", Detail: "nulls"},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "flag_quality_issue")
 }
 
 func TestExecuteChanges_GlossaryTermNormalization(t *testing.T) {
@@ -2823,10 +2957,15 @@ func TestHandleApply_AddTagOnNonDatasetSucceeds(t *testing.T) {
 	require.Nil(t, callErr)
 	require.False(t, result.IsError, "tag/glossary/doc/quality ops should work on domains: %v", result.Content)
 
-	// add_tag, remove_tag, and flag_quality_issue batch into one ApplyTagChanges,
-	// leaving add_glossary_term and add_documentation as individual writes.
+	// add_tag, remove_tag, and flag_quality_issue's tag batch into one
+	// ApplyTagChanges, leaving add_glossary_term and add_documentation as individual
+	// writes. A domain does not support incidents, so flag_quality_issue raises none
+	// (it stays tag-only on unsupported types, #722).
 	assert.Len(t, writer.WriteCalls, 3)
 	assert.Equal(t, "ApplyTagChanges", writer.WriteCalls[0].Method)
+	for _, wc := range writer.WriteCalls {
+		assert.NotEqual(t, "RaiseIncident", wc.Method, "no incident on a domain")
+	}
 }
 
 func TestHandleApply_MixedChangesRejectsBeforeExecution(t *testing.T) {
