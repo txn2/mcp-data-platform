@@ -299,6 +299,10 @@ type spyWriter struct {
 	// TagState simulates the persisted globalTags per URN, applied additively by
 	// ApplyTagChanges so tests can assert the batched write does not clobber tags.
 	TagState map[string]map[string]bool
+	// TermState simulates the persisted glossaryTerms per URN, applied additively by
+	// ApplyGlossaryTermChanges so tests can assert the batched write does not clobber
+	// terms.
+	TermState map[string]map[string]bool
 }
 
 type writerCall struct {
@@ -371,12 +375,25 @@ func (w *spyWriter) ApplyTagChanges(_ context.Context, urn string, add, remove [
 	return nil
 }
 
-func (w *spyWriter) AddGlossaryTerm(_ context.Context, urn, termURN string) error {
-	return w.recordAndCheck("AddGlossaryTerm", urn, termURN, "")
-}
-
-func (w *spyWriter) RemoveGlossaryTerm(_ context.Context, urn, termURN string) error {
-	return w.recordAndCheck("RemoveGlossaryTerm", urn, termURN, "")
+func (w *spyWriter) ApplyGlossaryTermChanges(_ context.Context, urn string, add, remove []string) error {
+	if err := w.recordAndCheck("ApplyGlossaryTermChanges", urn, strings.Join(add, ","), strings.Join(remove, ",")); err != nil {
+		return err
+	}
+	// Model additive/subtractive semantics so regression tests can assert that a
+	// batched apply/rollback does not clobber pre-existing glossary terms (#729).
+	if w.TermState == nil {
+		w.TermState = map[string]map[string]bool{}
+	}
+	if w.TermState[urn] == nil {
+		w.TermState[urn] = map[string]bool{}
+	}
+	for _, t := range remove {
+		delete(w.TermState[urn], t)
+	}
+	for _, t := range add {
+		w.TermState[urn][t] = true
+	}
+	return nil
 }
 
 func (w *spyWriter) AddDocumentationLink(_ context.Context, urn, url, desc string) error {
@@ -1338,17 +1355,18 @@ func TestHandleApply_WritesToDataHub(t *testing.T) {
 	require.Nil(t, callErr)
 	require.False(t, result.IsError, "expected success but got error: %v", result.Content)
 
-	// The three tag changes (add_tag, remove_tag, flag_quality_issue) are batched
-	// into a single ApplyTagChanges that runs before the other dispatched writes
-	// (#721). Remaining writes: update_description, add_glossary_term, add_documentation.
+	// Tag changes batch into one ApplyTagChanges and add_glossary_term into one
+	// ApplyGlossaryTermChanges, both before the dispatched writes (#721, #729).
+	// Remaining dispatched writes: update_description, add_documentation.
 	assert.Len(t, writer.WriteCalls, 4)
 	assert.Equal(t, "ApplyTagChanges", writer.WriteCalls[0].Method)
 	// Arg1 is the comma-joined adds (add_tag then flag_quality_issue's QualityIssue),
 	// Arg2 the comma-joined removes.
 	assert.Equal(t, "urn:li:tag:important,urn:li:tag:QualityIssue", writer.WriteCalls[0].Arg1)
 	assert.Equal(t, "urn:li:tag:deprecated", writer.WriteCalls[0].Arg2)
-	assert.Equal(t, "UpdateDescription", writer.WriteCalls[1].Method)
-	assert.Equal(t, "AddGlossaryTerm", writer.WriteCalls[2].Method)
+	assert.Equal(t, "ApplyGlossaryTermChanges", writer.WriteCalls[1].Method)
+	assert.Equal(t, "urn:li:glossaryTerm:revenue", writer.WriteCalls[1].Arg1)
+	assert.Equal(t, "UpdateDescription", writer.WriteCalls[2].Method)
 	assert.Equal(t, "AddDocumentationLink", writer.WriteCalls[3].Method)
 	assert.Equal(t, "https://docs.example.com", writer.WriteCalls[3].Arg1)
 	assert.Equal(t, "Revenue docs", writer.WriteCalls[3].Arg2)
@@ -2285,9 +2303,9 @@ func TestExecuteChanges_AllTypes(t *testing.T) {
 
 	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
 	require.NoError(t, err)
-	// add_tag, remove_tag, and flag_quality_issue collapse into one batched
-	// ApplyTagChanges (run first), leaving update_description, add_glossary_term,
-	// and add_documentation as individual dispatched writes (#721).
+	// add_tag/remove_tag/flag_quality_issue collapse into one ApplyTagChanges and
+	// add_glossary_term into one ApplyGlossaryTermChanges (both run first), leaving
+	// update_description and add_documentation as dispatched writes (#721, #729).
 	assert.Len(t, writer.WriteCalls, 4)
 
 	// Batched tag write: adds (add_tag then flag_quality_issue) and removes, with
@@ -2296,11 +2314,12 @@ func TestExecuteChanges_AllTypes(t *testing.T) {
 	assert.Equal(t, "urn:li:tag:tag1,urn:li:tag:QualityIssue", writer.WriteCalls[0].Arg1)
 	assert.Equal(t, "urn:li:tag:old_tag", writer.WriteCalls[0].Arg2)
 
-	assert.Equal(t, "UpdateDescription", writer.WriteCalls[1].Method)
-	assert.Equal(t, "new desc", writer.WriteCalls[1].Arg1)
+	// Batched glossary-term write.
+	assert.Equal(t, "ApplyGlossaryTermChanges", writer.WriteCalls[1].Method)
+	assert.Equal(t, "urn:li:glossaryTerm:t1", writer.WriteCalls[1].Arg1)
 
-	assert.Equal(t, "AddGlossaryTerm", writer.WriteCalls[2].Method)
-	assert.Equal(t, "urn:li:glossaryTerm:t1", writer.WriteCalls[2].Arg1)
+	assert.Equal(t, "UpdateDescription", writer.WriteCalls[2].Method)
+	assert.Equal(t, "new desc", writer.WriteCalls[2].Arg1)
 
 	// add_documentation: detail=description, target=URL
 	assert.Equal(t, "AddDocumentationLink", writer.WriteCalls[3].Method)
@@ -2365,7 +2384,25 @@ func TestExecuteChanges_FailsOnError(t *testing.T) {
 // not claim "no changes were applied" (which would mislead the operator into not
 // cleaning up the already-applied tags).
 func TestExecuteChanges_DispatchFailAfterTagBatch(t *testing.T) {
-	writer := &spyWriter{FailAtCall: 2} // tag batch (call 1) succeeds, glossary (call 2) fails
+	writer := &spyWriter{FailAtCall: 2} // tag batch (call 1) succeeds, dispatched doc (call 2) fails
+	tk := &Toolkit{datahubWriter: writer}
+
+	changes := []ApplyChange{
+		{ChangeType: "add_tag", Detail: "important"},
+		{ChangeType: "add_documentation", Detail: "docs", Target: "https://docs.example.com"},
+	}
+
+	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "no changes were applied")
+	assert.Contains(t, err.Error(), "earlier changes in this changeset were already applied")
+}
+
+// TestExecuteChanges_BatchFailAfterPriorBatch verifies that when an earlier batch
+// (tags) persisted and a later batch (glossary terms) fails, the error warns that
+// earlier changes were already applied rather than reading as a clean failure.
+func TestExecuteChanges_BatchFailAfterPriorBatch(t *testing.T) {
+	writer := &spyWriter{FailAtCall: 2} // tag batch (call 1) succeeds, glossary batch (call 2) fails
 	tk := &Toolkit{datahubWriter: writer}
 
 	changes := []ApplyChange{
@@ -2375,7 +2412,7 @@ func TestExecuteChanges_DispatchFailAfterTagBatch(t *testing.T) {
 
 	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
 	require.Error(t, err)
-	assert.NotContains(t, err.Error(), "no changes were applied")
+	assert.Contains(t, err.Error(), "glossary term changes")
 	assert.Contains(t, err.Error(), "earlier changes in this changeset were already applied")
 }
 
@@ -2619,12 +2656,11 @@ func TestExecuteChanges_GlossaryTermNormalization(t *testing.T) {
 
 	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
 	require.NoError(t, err)
-	require.Len(t, writer.WriteCalls, 2)
-
-	// Short name gets normalized
-	assert.Equal(t, "urn:li:glossaryTerm:Revenue", writer.WriteCalls[0].Arg1)
-	// Full URN passes through unchanged
-	assert.Equal(t, "urn:li:glossaryTerm:Revenue", writer.WriteCalls[1].Arg1)
+	// Both add_glossary_term changes batch into a single ApplyGlossaryTermChanges;
+	// each short name is normalized to its full URN.
+	require.Len(t, writer.WriteCalls, 1)
+	assert.Equal(t, "ApplyGlossaryTermChanges", writer.WriteCalls[0].Method)
+	assert.Equal(t, "urn:li:glossaryTerm:Revenue,urn:li:glossaryTerm:Revenue", writer.WriteCalls[0].Arg1)
 }
 
 func TestExecuteChanges_DocumentationParamMapping(t *testing.T) {
