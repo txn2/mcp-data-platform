@@ -216,8 +216,8 @@ func TestDataHubWriterAddGlossaryTerm(t *testing.T) {
 	})
 
 	// Add glossary term
-	if err := writer.AddGlossaryTerm(ctx, urn, termURN); err != nil {
-		t.Fatalf("AddGlossaryTerm: %v", err)
+	if err := writer.ApplyGlossaryTermChanges(ctx, urn, []string{termURN}, nil); err != nil {
+		t.Fatalf("ApplyGlossaryTermChanges: %v", err)
 	}
 
 	// Verify via GetCurrentMetadata

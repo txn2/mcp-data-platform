@@ -75,7 +75,7 @@ func TestHandleRollback_Success(t *testing.T) {
 	m := parseJSONResult(t, result)
 	assert.Equal(t, "cs1", m["changeset_id"])
 	require.Len(t, writer.WriteCalls, 1)
-	assert.Equal(t, "RemoveGlossaryTerm", writer.WriteCalls[0].Method)
+	assert.Equal(t, "ApplyGlossaryTermChanges", writer.WriteCalls[0].Method)
 	assert.True(t, csStore.Changesets[0].RolledBack)
 	assert.Equal(t, StatusRolledBack, store.Insights[0].Status)
 }
@@ -241,9 +241,11 @@ func TestApplyRollbackEndToEnd(t *testing.T) {
 	})
 	assert.Equal(t, changesetID, rbResp["changeset_id"])
 
-	require.Len(t, writer.WriteCalls, 2, "one AddGlossaryTerm on apply, one RemoveGlossaryTerm on rollback")
-	assert.Equal(t, "AddGlossaryTerm", writer.WriteCalls[0].Method)
-	assert.Equal(t, "RemoveGlossaryTerm", writer.WriteCalls[1].Method)
+	require.Len(t, writer.WriteCalls, 2, "one ApplyGlossaryTermChanges add on apply, one remove on rollback")
+	assert.Equal(t, "ApplyGlossaryTermChanges", writer.WriteCalls[0].Method)
+	assert.Equal(t, "urn:li:glossaryTerm:e2e", writer.WriteCalls[0].Arg1, "apply adds the term")
+	assert.Equal(t, "ApplyGlossaryTermChanges", writer.WriteCalls[1].Method)
+	assert.Equal(t, "urn:li:glossaryTerm:e2e", writer.WriteCalls[1].Arg2, "rollback removes the term")
 	require.Len(t, csStore.Changesets, 1)
 	assert.True(t, csStore.Changesets[0].RolledBack)
 }

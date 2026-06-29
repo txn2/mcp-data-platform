@@ -213,9 +213,8 @@ func (m *mockDataHubWriter) ApplyTagChanges(_ context.Context, _ string, _, remo
 	m.removeTagCalls = append(m.removeTagCalls, remove...)
 	return nil
 }
-func (*mockDataHubWriter) AddGlossaryTerm(_ context.Context, _, _ string) error { return nil }
-func (m *mockDataHubWriter) RemoveGlossaryTerm(_ context.Context, _, termURN string) error {
-	m.removeTermCalls = append(m.removeTermCalls, termURN)
+func (m *mockDataHubWriter) ApplyGlossaryTermChanges(_ context.Context, _ string, _, remove []string) error {
+	m.removeTermCalls = append(m.removeTermCalls, remove...)
 	return nil
 }
 
