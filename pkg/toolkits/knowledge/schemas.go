@@ -15,7 +15,7 @@ var applyKnowledgeSchema = json.RawMessage(`{
     },
     "itemize": {
       "type": "boolean",
-      "description": "With action=bulk_review, also return the pending insights themselves (each with id, captured_by, sink_class, category, confidence, status, entity_urns, created_at), windowed by offset/limit. This is how you enumerate the global review queue."
+      "description": "With action=bulk_review, also return the pending insights themselves: each is the full insight record (id, captured_by, session_id, persona, category, confidence, status, sink_class, entity_urns, related_columns, created_at and the full insight_text body, so a review pass needs no per-insight fetch), with the suggested_actions array replaced by suggested_actions_count to keep the listing bounded (fetch mcp:insight:<id> for the full actions). Windowed by offset/limit. This is how you enumerate the global review queue. A page is additionally capped by a byte budget so the response stays under the output limit: when page_size_capped is true the page returned fewer than limit insights, page on with next_offset. by_entity is likewise capped (by_entity_truncated flags the cut; each insight still carries its full entity_urns)."
     },
     "limit": {
       "type": "integer",

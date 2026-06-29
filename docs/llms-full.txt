@@ -1469,7 +1469,7 @@ The sink router (#633). Review, synthesize, and promote captured insights to the
 | `changeset_id` | string | Conditional | Required for rollback |
 | `confirm` | bool | No | Required when `require_confirmation` is true (apply and rollback) |
 | `review_notes` | string | No | Notes for approve/reject actions |
-| `itemize` | bool | No | With bulk_review, also return the pending insights themselves (each with captured_by, sink_class), paginated by offset/limit |
+| `itemize` | bool | No | With bulk_review, also return the pending insights themselves (full insight_text body, captured_by, sink_class, created_at, suggested_actions_count, ...; full suggested_actions omitted, fetch for it), paginated by offset/limit. The response is bounded so it stays under the output limit: page_size_capped:true flags a short insights page (continue with next_offset) and by_entity_truncated:true flags a capped by_entity |
 | `limit` | int | No | Page size for itemized bulk_review (default 20, max 100) |
 | `offset` | int | No | Page start for itemized bulk_review; pass the previous next_offset to continue |
 
@@ -1755,7 +1755,7 @@ Admin-only tool for reviewing and applying captured insights. Requires the `admi
 
 ### Actions
 
-**bulk_review**: Counts of all pending insights (total_pending, by_entity, by_category, by_confidence). Pass itemize:true to enumerate the queue itself, paginated by offset/limit, each insight carrying its captured_by (author) and sink_class; the relevance-ranked search tool cannot list it completely.
+**bulk_review**: Counts of all pending insights (total_pending, by_entity, by_category, by_confidence). Pass itemize:true to enumerate the queue itself, paginated by offset/limit, each insight carrying its full insight_text body, captured_by (author), sink_class and suggested_actions_count (full suggested_actions omitted, fetch for it); the relevance-ranked search tool cannot list it completely. The response is bounded so it stays under the output limit: page_size_capped:true flags a short insights page (continue with next_offset) and by_entity_truncated:true flags a capped by_entity.
 
 ```json
 {"action": "bulk_review"}

@@ -979,6 +979,257 @@ func TestHandleBulkReview_ItemizeEnumeratesPendingBehindApplied(t *testing.T) {
 	assert.Len(t, seen, 30, "every pending insight enumerated across pages")
 }
 
+// TestHandleBulkReview_ItemizeIncludesBody locks issue #724 ask 1: an itemized
+// bulk_review page carries the full insight_text body so a review pass can read
+// every insight without a per-insight fetch.
+func TestHandleBulkReview_ItemizeIncludesBody(t *testing.T) {
+	body := "The amount column is gross margin before returns, not revenue."
+	store := &fullSpyStore{Insights: []Insight{
+		{
+			ID: "i1", Status: StatusPending, CapturedBy: "alice@example.com", Category: "correction",
+			Confidence: "high", InsightText: body, CreatedAt: time.Now(),
+		},
+	}}
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+
+	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil,
+		applyKnowledgeInput{Action: "bulk_review", Itemize: true})
+	require.Nil(t, callErr)
+	require.False(t, result.IsError)
+	m := parseJSONResult(t, result)
+
+	items, ok := m["insights"].([]any)
+	require.True(t, ok)
+	require.Len(t, items, 1)
+	row, ok := items[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, body, row["insight_text"], "the body is included so no per-insight fetch is needed")
+	assert.NotContains(t, m, "page_size_capped", "a small queue is not size-capped")
+}
+
+// TestHandleBulkReview_ItemizeBudgetCapsPage locks issue #724 ask 2: a queue of
+// large insights returns fewer than the requested limit per page (so the response
+// stays under the output cap), flags page_size_capped, and still enumerates every
+// insight (with its body) across pages via next_offset.
+func TestHandleBulkReview_ItemizeBudgetCapsPage(t *testing.T) {
+	base := time.Now()
+	const count = 25
+	bigBody := strings.Repeat("x", 4000) // near the real per-insight body ceiling
+	insights := make([]Insight, 0, count)
+	for i := range count {
+		insights = append(insights, Insight{
+			ID: fmt.Sprintf("pending-%02d", i), Status: StatusPending,
+			CapturedBy: "analyst@example.com", Category: "correction", Confidence: "high",
+			InsightText: bigBody, CreatedAt: base.Add(time.Duration(count-i) * time.Minute),
+		})
+	}
+	store := &fullSpyStore{Insights: insights}
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+
+	// First page: requested limit is the max, but the byte budget cuts it short.
+	first, _, callErr := tk.handleApplyKnowledge(context.Background(), nil,
+		applyKnowledgeInput{Action: "bulk_review", Itemize: true, Limit: MaxLimit})
+	require.Nil(t, callErr)
+	require.False(t, first.IsError)
+	fm := parseJSONResult(t, first)
+	firstItems, _ := fm["insights"].([]any)
+	require.NotEmpty(t, firstItems)
+	assert.Less(t, len(firstItems), count, "the byte budget returns fewer than the whole queue")
+	assert.Equal(t, true, fm["page_size_capped"], "page_size_capped signals a budget-truncated page")
+	require.Contains(t, fm, "next_offset", "more insights remain to page through")
+
+	// Page through to the end; every insight is enumerated once, with its body.
+	seen := map[string]bool{}
+	offset := 0
+	for range count + 5 {
+		result, _, err := tk.handleApplyKnowledge(context.Background(), nil,
+			applyKnowledgeInput{Action: "bulk_review", Itemize: true, Limit: MaxLimit, Offset: offset})
+		require.Nil(t, err)
+		m := parseJSONResult(t, result)
+		items, _ := m["insights"].([]any)
+
+		// The marshaled insights array stays within the budget (the always-take-one
+		// rule allows a single item to exceed it, but here no single body does).
+		raw, mErr := json.Marshal(items)
+		require.NoError(t, mErr)
+		assert.LessOrEqual(t, len(raw), bulkReviewItemBudgetBytes, "page insights fit the byte budget")
+
+		for _, it := range items {
+			row, _ := it.(map[string]any)
+			id, _ := row["id"].(string)
+			require.False(t, seen[id], "no duplicate %s", id)
+			seen[id] = true
+			assert.Equal(t, bigBody, row["insight_text"], "body carried on every page")
+		}
+		next, ok := m["next_offset"]
+		if !ok {
+			break
+		}
+		nextF, _ := next.(float64)
+		offset = int(nextF)
+	}
+	assert.Len(t, seen, count, "every insight enumerated across budget-capped pages")
+}
+
+// TestHandleBulkReview_ItemizeProjectsSuggestedActions locks the projection: the
+// uncapped suggested_actions array is replaced by suggested_actions_count so a
+// single insight's query SQL cannot overflow the output cap (issue #724 [1]).
+func TestHandleBulkReview_ItemizeProjectsSuggestedActions(t *testing.T) {
+	store := &fullSpyStore{Insights: []Insight{
+		{
+			ID: "i1", Status: StatusPending, CapturedBy: "alice@example.com", SessionID: "sess-1",
+			Persona: "analyst", Category: "correction",
+			Confidence: "high", InsightText: "body", CreatedAt: time.Now(),
+			EntityURNs:     []string{testEntityURN},
+			RelatedColumns: []RelatedColumn{{URN: testEntityURN, Column: "amount", Relevance: "direct"}},
+			SuggestedActions: []SuggestedAction{
+				{ActionType: testActionAddTag},
+				{ActionType: "add_curated_query", QuerySQL: strings.Repeat("SELECT 1 ", 100)},
+			},
+		},
+	}}
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+
+	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil,
+		applyKnowledgeInput{Action: "bulk_review", Itemize: true})
+	require.Nil(t, callErr)
+	m := parseJSONResult(t, result)
+	items, _ := m["insights"].([]any)
+	require.Len(t, items, 1)
+	row, _ := items[0].(map[string]any)
+	assert.Equal(t, float64(2), row["suggested_actions_count"], "the count replaces the full array")
+	assert.NotContains(t, row, "suggested_actions", "the heavy suggested_actions array is dropped from the listing")
+	assert.Contains(t, row, "created_at", "created_at is still present for time-based triage")
+	// The full record is preserved (only suggested_actions is substituted), so
+	// fields like session_id that callers grouped on are not silently dropped.
+	assert.Equal(t, "sess-1", row["session_id"], "session_id preserved on the full record")
+	assert.Equal(t, "analyst", row["persona"], "persona preserved on the full record")
+}
+
+// TestHandleBulkReview_ItemizeCapsByEntity locks issue #724 [0]: by_entity is built
+// over the whole queue and is otherwise unbounded, so it is capped and the cut is
+// flagged with by_entity_truncated.
+func TestHandleBulkReview_ItemizeCapsByEntity(t *testing.T) {
+	base := time.Now()
+	// One insight per distinct entity URN, more than the cap.
+	total := maxBulkReviewEntitySummaries + 15
+	insights := make([]Insight, 0, total)
+	for i := range total {
+		insights = append(insights, Insight{
+			ID: fmt.Sprintf("i%03d", i), Status: StatusPending, CapturedBy: "a@example.com",
+			Category: "correction", Confidence: "high", InsightText: "b",
+			EntityURNs: []string{fmt.Sprintf("urn:li:dataset:(urn:li:dataPlatform:trino,db.t%03d,PROD)", i)},
+			CreatedAt:  base.Add(time.Duration(i) * time.Minute),
+		})
+	}
+	store := &fullSpyStore{Insights: insights}
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+
+	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil,
+		applyKnowledgeInput{Action: "bulk_review", Itemize: true, Limit: 5})
+	require.Nil(t, callErr)
+	m := parseJSONResult(t, result)
+
+	byEntity, ok := m["by_entity"].([]any)
+	require.True(t, ok)
+	assert.Len(t, byEntity, maxBulkReviewEntitySummaries, "by_entity is capped")
+	assert.Equal(t, true, m["by_entity_truncated"], "the cut is flagged")
+	assert.Equal(t, float64(total), m["total_pending"], "the count still reflects the whole queue")
+}
+
+// TestPageInsightsBudgeted covers the windowing arithmetic: limit-bound vs
+// budget-bound vs end-of-queue termination, the always-take-at-least-one rule for
+// an oversized leading insight, and out-of-range offsets.
+func TestPageInsightsBudgeted(t *testing.T) {
+	// Uniformly sized insights so item size is predictable via reviewItemSize.
+	mk := func(n int) []Insight {
+		out := make([]Insight, n)
+		for i := range out {
+			out[i] = Insight{ID: fmt.Sprintf("i%02d", i), InsightText: strings.Repeat("y", 100)}
+		}
+		return out
+	}
+	all := mk(10)
+	itemSize := reviewItemSize(all[0])
+
+	t.Run("empty input returns empty page and no next", func(t *testing.T) {
+		p := pageInsightsBudgeted(nil, 0, 10, 1<<20)
+		assert.Empty(t, p.insights)
+		assert.Equal(t, 0, p.offset)
+		assert.Equal(t, -1, p.next)
+		assert.False(t, p.capped)
+	})
+
+	t.Run("offset past end returns empty and no next", func(t *testing.T) {
+		p := pageInsightsBudgeted(all, 100, 10, 1<<20)
+		assert.Empty(t, p.insights)
+		assert.Equal(t, 100, p.offset)
+		assert.Equal(t, -1, p.next)
+		assert.False(t, p.capped)
+	})
+
+	t.Run("whole queue under limit and budget", func(t *testing.T) {
+		p := pageInsightsBudgeted(all, 0, MaxLimit, 1<<20)
+		assert.Len(t, p.insights, 10)
+		assert.Equal(t, 0, p.offset)
+		assert.Equal(t, -1, p.next)
+		assert.False(t, p.capped)
+	})
+
+	t.Run("limit-bound page is not flagged capped", func(t *testing.T) {
+		p := pageInsightsBudgeted(all, 0, 4, 1<<20)
+		assert.Len(t, p.insights, 4)
+		assert.Equal(t, 0, p.offset)
+		assert.Equal(t, 4, p.next, "next_offset advances by the limit")
+		assert.False(t, p.capped, "the limit, not the budget, ended the page")
+	})
+
+	t.Run("budget-bound page is flagged capped and pages on", func(t *testing.T) {
+		// Budget fits exactly three items, well under the requested limit.
+		budget := itemSize*3 + itemSize/2
+		p := pageInsightsBudgeted(all, 0, MaxLimit, budget)
+		assert.Len(t, p.insights, 3)
+		assert.Equal(t, 0, p.offset)
+		assert.Equal(t, 3, p.next)
+		assert.True(t, p.capped)
+	})
+
+	t.Run("single oversized insight is always returned", func(t *testing.T) {
+		// A budget smaller than one item must still make progress.
+		p := pageInsightsBudgeted(all, 0, MaxLimit, 1)
+		assert.Len(t, p.insights, 1, "always take at least one so paging never stalls")
+		assert.Equal(t, 0, p.offset)
+		assert.Equal(t, 1, p.next)
+		assert.True(t, p.capped)
+	})
+
+	t.Run("limit above max is clamped to MaxLimit", func(t *testing.T) {
+		big := mk(MaxLimit + 5)
+		p := pageInsightsBudgeted(big, 0, MaxLimit+50, 1<<30)
+		assert.Len(t, p.insights, MaxLimit, "page is clamped to MaxLimit even with a generous budget")
+		assert.Equal(t, 0, p.offset)
+		assert.Equal(t, MaxLimit, p.next, "the clamped limit, not the budget, ended the page")
+		assert.False(t, p.capped)
+	})
+
+	t.Run("non-positive limit defaults to DefaultLimit", func(t *testing.T) {
+		big := mk(DefaultLimit + 5)
+		p := pageInsightsBudgeted(big, 0, 0, 1<<30)
+		assert.Len(t, p.insights, DefaultLimit, "a zero limit defaults to DefaultLimit")
+		assert.Equal(t, DefaultLimit, p.next)
+		assert.False(t, p.capped)
+	})
+
+	t.Run("budget cut on the final stretch returns no next", func(t *testing.T) {
+		budget := itemSize*3 + itemSize/2
+		p := pageInsightsBudgeted(all, 8, MaxLimit, budget)
+		assert.Len(t, p.insights, 2, "only two insights remain from offset 8")
+		assert.Equal(t, 8, p.offset)
+		assert.Equal(t, -1, p.next, "the end of the queue, reached within budget, returns no next")
+		assert.False(t, p.capped)
+	})
+}
+
 // ---------------------------------------------------------------------------
 // AC-4: review returns entity insights + metadata
 // ---------------------------------------------------------------------------

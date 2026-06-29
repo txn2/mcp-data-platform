@@ -774,13 +774,13 @@ Both sinks record a **changeset** (page promotions use `target_urn = "kp:<slug>"
 | `changeset_id` | string | Conditional | Required for rollback |
 | `confirm` | bool | No | Required when `require_confirmation` is true (apply and rollback) |
 | `review_notes` | string | No | Notes for approve/reject actions |
-| `itemize` | bool | No | With `bulk_review`, also return the pending insights themselves (each with `captured_by`, `sink_class`, etc.), paginated by `offset`/`limit` |
+| `itemize` | bool | No | With `bulk_review`, also return the pending insights themselves (full `insight_text` body, `captured_by`, `sink_class`, `created_at`, `suggested_actions_count`, etc.; full `suggested_actions` omitted, `fetch` for it), paginated by `offset`/`limit`. The response is bounded (`page_size_capped`/`by_entity_truncated` flag any cut) so it stays under the output limit |
 | `limit` | int | No | Page size for itemized `bulk_review` (default 20, max 100) |
 | `offset` | int | No | Page start for itemized `bulk_review`; pass the previous `next_offset` to continue |
 
 **Actions:**
 
-- **bulk_review**: Counts of all pending insights (`total_pending`, `by_entity`, `by_category`, `by_confidence`). Pass `itemize: true` to enumerate the queue itself, paginated, with each insight's `id`, `captured_by`, and `sink_class` (the relevance-ranked `search` tool cannot list it completely)
+- **bulk_review**: Counts of all pending insights (`total_pending`, `by_entity`, `by_category`, `by_confidence`). Pass `itemize: true` to enumerate the queue itself, paginated, with each insight's full `insight_text` body, `id`, `captured_by`, `sink_class`, and `suggested_actions_count` (full `suggested_actions` omitted, `fetch` for it; the relevance-ranked `search` tool cannot list the queue completely). The response is bounded so it stays under the output limit: `page_size_capped: true` flags a short insights page (continue with `next_offset`) and `by_entity_truncated: true` flags a capped `by_entity`
 - **review**: Insights for a specific entity with current DataHub metadata
 - **approve/reject**: Transition insight status with optional notes
 - **synthesize**: Structured change proposals from approved insights

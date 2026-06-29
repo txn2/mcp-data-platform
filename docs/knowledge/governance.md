@@ -64,7 +64,9 @@ The counts label their own scope: `total_pending` is the size of the global pend
 {"action": "bulk_review", "itemize": true, "limit": 50}
 ```
 
-Each returned insight includes its `id`, `captured_by` (the author), `sink_class`, `category`, `confidence`, `status`, `entity_urns`, and `created_at`, so an entity-agnostic insight (one with no `entity_urns`, invisible to per-entity review) is still enumerable here. Page through by passing the previous response's `next_offset` as the next `offset`.
+Each returned insight is the full record, including its `insight_text` body so a review pass can read every insight without a per-insight `fetch`, plus `id`, `captured_by` (the author), `session_id`, `persona`, `sink_class`, `category`, `confidence`, `status`, `entity_urns`, `related_columns`, and `created_at`. The `suggested_actions` array is replaced by `suggested_actions_count` to keep the listing bounded (`fetch mcp:insight:<id>` for the full actions). An entity-agnostic insight (one with no `entity_urns`, invisible to per-entity review) is still enumerable here. Page through by passing the previous response's `next_offset` as the next `offset`.
+
+Each part of the response is bounded so it stays under the tool output limit even for a large queue: the insights window is byte-budgeted (when the budget is reached the page returns fewer than `limit` insights and sets `page_size_capped: true`), and `by_entity` is capped to the busiest entities (`by_entity_truncated: true` flags the cut; each insight still carries its full `entity_urns`). Treat `page_size_capped` as a normal "more remain" signal and continue paging with `next_offset`.
 
 ### Review by Entity
 

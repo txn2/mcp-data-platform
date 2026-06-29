@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -63,11 +64,15 @@ type applyKnowledgeInput struct {
 	// ChangesetID is the target changeset for the rollback action.
 	ChangesetID string `json:"changeset_id,omitempty"`
 	// Itemize, with action=bulk_review, returns the pending insights themselves
-	// (each a full record with id, captured_by, sink_class, status and
-	// entity_urns), windowed by Offset/Limit, in addition to the aggregate
-	// counts. It is how an agent enumerates the review queue; the relevance
-	// ranked search tool cannot list it completely. Limit defaults to
-	// DefaultLimit and is capped at MaxLimit; Offset is the page start.
+	// (toReviewItems): each is the full insight record, including the insight_text
+	// body, with the uncapped suggested_actions array replaced by
+	// suggested_actions_count. Carrying the body lets a review pass read every
+	// insight without a per-insight fetch (#724). It is how an agent enumerates the
+	// review queue; the relevance-ranked search tool cannot list it completely.
+	// Limit defaults to DefaultLimit and is capped at MaxLimit; Offset is the page
+	// start. A page is additionally bounded by a byte budget so the response never
+	// exceeds the output token cap (see pageInsightsBudgeted), which can return
+	// fewer than Limit insights and set page_size_capped on the response.
 	Itemize bool `json:"itemize,omitempty"`
 	Limit   int  `json:"limit,omitempty"`
 	Offset  int  `json:"offset,omitempty"`
@@ -331,9 +336,13 @@ func (t *Toolkit) bulkReviewCounts(ctx context.Context) (*mcp.CallToolResult, an
 	return jsonResult(result)
 }
 
-// bulkReviewItemized returns the complete pending queue: aggregates and by_entity
-// from one full walk, plus the windowed insights themselves (id, captured_by,
-// sink_class, ...) so a reviewer can enumerate and act on every pending insight.
+// bulkReviewItemized returns the complete pending queue: aggregate counts and a
+// bounded by_entity summary computed over the pending set, plus the windowed
+// insights themselves projected for review so a reviewer can enumerate and act on
+// every pending insight. Each part of the response is independently bounded so a large
+// queue never pushes the response past the MCP tool output token limit (#724):
+// the insights window is byte-budgeted (pageInsightsBudgeted), by_entity is capped
+// (boundedEntitySummaries), and by_category/by_confidence are inherently small.
 func (t *Toolkit) bulkReviewItemized(ctx context.Context, input applyKnowledgeInput) (*mcp.CallToolResult, any, error) {
 	pending, err := t.collectPending(ctx)
 	if err != nil {
@@ -347,21 +356,65 @@ func (t *Toolkit) bulkReviewItemized(ctx context.Context, input applyKnowledgeIn
 		byConfidence[pending[i].Confidence]++
 	}
 
-	page, offset, next := pageInsights(pending, input.Offset, input.Limit)
+	page := pageInsightsBudgeted(pending, input.Offset, input.Limit, bulkReviewItemBudgetBytes)
+	entities, entitiesTruncated := boundedEntitySummaries(pending, maxBulkReviewEntitySummaries)
 	result := map[string]any{
 		"total_pending": len(pending),
-		"by_entity":     buildEntitySummaries(pending),
+		"by_entity":     entities,
 		"by_category":   byCategory,
 		"by_confidence": byConfidence,
 		"note":          bulkReviewScopeNote,
-		"insights":      page,
-		"returned":      len(page),
-		"offset":        offset,
+		"insights":      toReviewItems(page.insights),
+		"returned":      len(page.insights),
+		"offset":        page.offset,
 	}
-	if next >= 0 {
-		result["next_offset"] = next
+	if entitiesTruncated {
+		// by_entity was capped to the busiest entities so the response stays
+		// bounded; the full per-insight entity_urns remain on each insight.
+		result["by_entity_truncated"] = true
+	}
+	if page.next >= 0 {
+		result["next_offset"] = page.next
+	}
+	if page.capped {
+		// The byte budget, not the requested limit, ended this page: fewer than
+		// limit insights were returned so the response stays under the output cap.
+		// Page on with next_offset to read the rest (#724).
+		result["page_size_capped"] = true
 	}
 	return jsonResult(result)
+}
+
+// bulkReviewItem is the per-insight shape returned by itemized bulk_review. It is
+// the full Insight (so every field a reviewer had before this change, including
+// session_id, persona and related_columns, is preserved and no per-insight fetch
+// is needed, #724) with one substitution: the suggested_actions array is hidden
+// and replaced by suggested_actions_count. suggested_actions carry uncapped query
+// SQL, so including them inline let a single insight overflow the output token
+// limit and stall paging; the full array remains available via fetch
+// mcp:insight:<id>. The outer SuggestedActions field shadows the embedded one (same
+// JSON name, shallower depth) so the array is omitted from the output.
+type bulkReviewItem struct {
+	Insight
+	SuggestedActions      []SuggestedAction `json:"suggested_actions,omitempty"`
+	SuggestedActionsCount int               `json:"suggested_actions_count"`
+}
+
+// toReviewItem wraps one insight as a review item: the suggested_actions array is
+// dropped from the embedded copy and replaced by its count.
+func toReviewItem(in Insight) bulkReviewItem {
+	count := len(in.SuggestedActions)
+	in.SuggestedActions = nil
+	return bulkReviewItem{Insight: in, SuggestedActionsCount: count}
+}
+
+// toReviewItems maps insights to the review-item shape.
+func toReviewItems(insights []Insight) []bulkReviewItem {
+	items := make([]bulkReviewItem, len(insights))
+	for i := range insights {
+		items[i] = toReviewItem(insights[i])
+	}
+	return items
 }
 
 // collectPending returns every pending insight in the global review queue by
@@ -392,11 +445,12 @@ func (t *Toolkit) collectPending(ctx context.Context) ([]Insight, error) {
 	}
 }
 
-// pageInsights returns the window [offset, offset+limit) of insights together
-// with the offset used and the next offset to request, or -1 when the window
-// reaches the end. A non-positive limit defaults to DefaultLimit and is capped
-// at MaxLimit; a negative offset is treated as 0.
-func pageInsights(all []Insight, offset, limit int) (page []Insight, usedOffset, nextOffset int) {
+// normalizeWindow clamps a requested offset/limit against a record count, returning
+// the usable start offset and the exclusive end of the limit window (end == start
+// when the offset is past the data). A non-positive limit defaults to DefaultLimit
+// and is capped at MaxLimit; a negative offset is treated as 0. pageInsights and
+// pageInsightsBudgeted share it so the paging bounds have one definition.
+func normalizeWindow(offset, limit, n int) (start, end int) {
 	if offset < 0 {
 		offset = 0
 	}
@@ -406,14 +460,115 @@ func pageInsights(all []Insight, offset, limit int) (page []Insight, usedOffset,
 	case limit > MaxLimit:
 		limit = MaxLimit
 	}
-	if offset >= len(all) {
-		return []Insight{}, offset, -1
+	if offset >= n {
+		return offset, offset
 	}
-	end := offset + limit
+	return offset, min(offset+limit, n)
+}
+
+// pageInsights returns the window [offset, offset+limit) of insights together
+// with the offset used and the next offset to request, or -1 when the window
+// reaches the end.
+func pageInsights(all []Insight, offset, limit int) (page []Insight, usedOffset, nextOffset int) {
+	start, end := normalizeWindow(offset, limit, len(all))
+	if start >= len(all) {
+		return []Insight{}, start, -1
+	}
 	if end >= len(all) {
-		return all[offset:], offset, -1
+		return all[start:], start, -1
 	}
-	return all[offset:end], offset, end
+	return all[start:end], start, end
+}
+
+// bulkReviewItemBudgetBytes bounds the cumulative serialized size of the insights
+// returned by one itemized bulk_review page (measured by reviewItemSize against the
+// emitted indented form), so a queue of large insights never pushes the response
+// past the MCP tool output token limit (#724). It is chosen together with
+// maxBulkReviewEntitySummaries so their joint worst case (this budget of insights
+// plus that many bounded entity summaries, the only two queue-sized parts of the
+// response) stays well under a ~25k-token output cap at roughly four bytes/token.
+const bulkReviewItemBudgetBytes = 40000
+
+// budgetedPage is the result of one byte-budgeted itemized bulk_review window:
+// the page of insights, the offset it started at, the next offset to request
+// (-1 at the end of the queue), and whether the byte budget ended the page.
+type budgetedPage struct {
+	insights []Insight
+	offset   int
+	next     int
+	capped   bool
+}
+
+// pageInsightsBudgeted windows all from offset like pageInsights, but additionally
+// ends the page once including the next insight would push the cumulative serialized
+// size past byteBudget, so an itemized bulk_review page stays under the output cap
+// regardless of individual insight sizes (#724). At least one insight is always
+// returned when offset is in range, so paging always makes progress; this is safe
+// because the projected item (toReviewItems) drops the only uncapped field
+// (suggested_actions), leaving the body (capped at MaxInsightTextLen) the largest
+// part, so no single item approaches the output cap. The result's capped field
+// reports whether the byte budget, rather than the limit or the end of the queue,
+// ended the page.
+func pageInsightsBudgeted(all []Insight, offset, limit, byteBudget int) budgetedPage {
+	start, end := normalizeWindow(offset, limit, len(all))
+	if start >= len(all) {
+		return budgetedPage{insights: []Insight{}, offset: start, next: -1}
+	}
+	size := 0
+	i := start
+	capped := false
+	for ; i < end; i++ {
+		itemSize := reviewItemSize(all[i])
+		// Always include the first insight of the page so a single large insight
+		// does not stall paging; stop before a later insight overflows the budget.
+		if i > start && size+itemSize > byteBudget {
+			capped = true
+			break
+		}
+		size += itemSize
+	}
+	page := budgetedPage{insights: all[start:i], offset: start, next: i, capped: capped}
+	if i >= len(all) {
+		page.next = -1
+	}
+	return page
+}
+
+// reviewItemSize reports the serialized size of the review item for an insight,
+// measured against the same indented form jsonResult emits so the byte budget
+// reflects the bytes actually sent. It marshals the projected item (rather than
+// estimating per field) so the budget cannot drift as the item shape changes;
+// json.Marshal of the item cannot fail (no unmarshalable fields), so the error is
+// intentionally ignored. The second marshal here (jsonResult re-marshals the whole
+// response) is negligible against the budget it guards.
+func reviewItemSize(in Insight) int {
+	b, _ := json.MarshalIndent(toReviewItem(in), "", "  ")
+	return len(b)
+}
+
+// maxBulkReviewEntitySummaries caps the by_entity array on an itemized bulk_review
+// response. by_entity carries one entry per distinct entity URN across the whole
+// pending queue, which is otherwise unbounded, so capping it (with by_entity_truncated
+// signaling the cut) keeps the whole response bounded, not just the insights array.
+const maxBulkReviewEntitySummaries = 100
+
+// boundedEntitySummaries returns buildEntitySummaries ordered by descending insight
+// count (ties broken by URN for a stable order) and capped at maxEntries, so the
+// itemized bulk_review response stays bounded even for a queue spanning many
+// distinct entities. truncated reports whether the cap dropped any entry; the
+// per-insight entity_urns still carry the complete entity set.
+func boundedEntitySummaries(insights []Insight, maxEntries int) (summaries []EntityInsightSummary, truncated bool) {
+	all := buildEntitySummaries(insights)
+	sort.Slice(all, func(i, j int) bool {
+		if all[i].Count != all[j].Count {
+			return all[i].Count > all[j].Count
+		}
+		return all[i].EntityURN < all[j].EntityURN
+	})
+	if len(all) > maxEntries {
+		return all[:maxEntries], true
+	}
+	return all, false
 }
 
 // buildEntitySummaries groups insights by entity URN.
