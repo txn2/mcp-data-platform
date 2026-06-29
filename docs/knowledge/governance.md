@@ -206,7 +206,7 @@ When `require_confirmation` is enabled in configuration and `confirm` is not `tr
 | `add_tag` | Add a tag to the entity | (ignored) | Tag name or URN (e.g., `pii` or `urn:li:tag:pii`) |
 | `remove_tag` | Remove a tag from the entity | (ignored) | Tag name or URN to remove |
 | `add_glossary_term` | Associate a glossary term | (ignored) | Glossary term name or URN |
-| `flag_quality_issue` | Add fixed `QualityIssue` tag to the entity | (ignored) | Issue description (stored as context in the knowledge store) |
+| `flag_quality_issue` | Add fixed `QualityIssue` tag and, on incident-supporting entity types with a detail, raise a deduped DataHub incident ("Data quality issue") carrying the detail | (ignored) | Issue description (raised as the incident description; empty, or an unsupported entity type, means tag only) |
 | `add_documentation` | Add a documentation link | URL of the documentation | Link description |
 | `add_curated_query` | Create a reusable Query entity linked to the dataset | (ignored) | Query name. Also requires `query_sql` (SQL statement) and optionally `query_description` |
 
@@ -291,6 +291,7 @@ Rollback reverts each change the apply made, back to its before-image:
 - A tag, glossary term, or documentation link the apply **added** is removed, **unless** it was already present in the before-image (in which case the add was a no-op and the pre-existing value is kept). This is what preserves an entity's canonical glossary term when an apply added another term alongside it.
 - A tag the apply **removed** is restored.
 - A description the apply changed is reset to the prior description.
+- An incident the apply **created** (the `flag_quality_issue` detail incident) is resolved. Its URN is recorded in the changeset's `new_value` (`created_urns`) so the rollback can find it.
 
 The rollback also transitions the changeset's source insights from `applied` to `rolled_back` and records the rollback as its own auditable tool call referencing the original `changeset_id`.
 

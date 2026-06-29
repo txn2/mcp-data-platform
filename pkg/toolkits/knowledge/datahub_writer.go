@@ -41,6 +41,9 @@ type DataHubWriter interface {
 	// Incidents (DataHub 1.4.x)
 	RaiseIncident(ctx context.Context, entityURN, title, description string) (string, error)
 	ResolveIncident(ctx context.Context, incidentURN, message string) error
+	// GetIncidents returns the incidents currently on an entity, used to avoid raising
+	// a duplicate quality-issue incident.
+	GetIncidents(ctx context.Context, entityURN string) ([]types.Incident, error)
 
 	// Context documents (DataHub 1.4.x with document support)
 	UpsertContextDocument(ctx context.Context, entityURN string, doc types.ContextDocumentInput) (*types.ContextDocument, error)
@@ -106,6 +109,11 @@ func (*NoopDataHubWriter) RemoveStructuredProperty(_ context.Context, _, _ strin
 // RaiseIncident is a no-op.
 func (*NoopDataHubWriter) RaiseIncident(_ context.Context, _, _, _ string) (string, error) {
 	return "", nil
+}
+
+// GetIncidents returns no incidents.
+func (*NoopDataHubWriter) GetIncidents(_ context.Context, _ string) ([]types.Incident, error) {
+	return nil, nil
 }
 
 // ResolveIncident is a no-op.

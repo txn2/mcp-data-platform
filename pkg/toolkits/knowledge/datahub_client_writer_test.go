@@ -1448,6 +1448,27 @@ func TestDataHubClientWriter_RaiseIncident(t *testing.T) {
 	assert.Equal(t, "urn:li:incident:new123", urn)
 }
 
+func TestDataHubClientWriter_GetIncidents(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(graphQLResponse{
+			Data: json.RawMessage(`{"entity":{"incidents":{"total":1,"incidents":[` +
+				`{"urn":"urn:li:incident:abc","type":"OPERATIONAL","title":"Data quality issue",` +
+				`"description":"nulls","status":{"state":"ACTIVE"}}` +
+				`]}}}`),
+		})
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	incidents, err := writer.GetIncidents(context.Background(), testURN)
+	require.NoError(t, err)
+	require.Len(t, incidents, 1)
+	assert.Equal(t, "urn:li:incident:abc", incidents[0].URN)
+	assert.Equal(t, "Data quality issue", incidents[0].Title)
+	assert.Equal(t, "ACTIVE", incidents[0].State)
+}
+
 func TestDataHubClientWriter_RaiseIncident_Error(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

@@ -205,7 +205,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 				"add_tag, remove_tag, add_glossary_term, add_documentation, and flag_quality_issue work on all entity types. " +
 				"add_curated_query is dataset-only. " +
 				"For add_tag/remove_tag, detail is the tag name or URN (e.g., 'pii' or 'urn:li:tag:pii'). " +
-				"flag_quality_issue adds a fixed 'QualityIssue' tag; the detail text is stored as context in the knowledge store. " +
+				"flag_quality_issue adds a fixed 'QualityIssue' tag and, for entity types DataHub supports incidents on (datasets, dashboards, charts, data flows/jobs, containers, data products) with a detail, raises a 'Data quality issue' incident whose description is the detail, so the issue is verifiable on the entity (re-applying the same detail reuses the existing open incident instead of duplicating it); rolling back the changeset resolves an incident it created. On other entity types it sets only the tag. " +
 				"For add_documentation, target is the URL, detail is the link description. " +
 				"For add_curated_query, detail is the query name, query_sql is the SQL statement (required), and query_description is optional. " +
 				"For set_structured_property, target is the property qualified name or URN, detail is the value or JSON array. " +
@@ -603,12 +603,20 @@ func (t *Toolkit) recordChangesetAndMarkApplied(ctx context.Context, input apply
 		insightIDs = []string{}
 	}
 
+	newValue := changesToMap(input.Changes)
+	// Record the URNs created by this apply (incidents, queries, documents) so
+	// rollback can act on them, e.g. resolve the incident raised by
+	// flag_quality_issue (#722).
+	if len(createdURNs) > 0 {
+		newValue[fieldCreatedURNs] = createdURNs
+	}
+
 	cs := Changeset{
 		ID:               csID,
 		TargetURN:        input.EntityURN,
 		ChangeType:       summarizeChangeTypes(input.Changes),
 		PreviousValue:    metadataToMap(prevMeta),
-		NewValue:         changesToMap(input.Changes),
+		NewValue:         newValue,
 		SourceInsightIDs: insightIDs,
 		AppliedBy:        appliedBy,
 	}
@@ -741,6 +749,11 @@ func partitionGlossaryTermChanges(changes []ApplyChange) (add []string, other []
 // flag_quality_issue, which sets the QualityIssue tag) from other changes so they
 // can be applied in a single read-modify-write. Batching avoids the stale-read
 // clobber where back-to-back per-tag writes drop all but the last tag (#721).
+//
+// flag_quality_issue also keeps its change in the dispatched set when it carries a
+// detail, so dispatchCoreOrV14Change raises a DataHub incident describing the issue:
+// the QualityIssue tag is the at-a-glance signal and the incident makes the detail
+// verifiable on the entity (#722). With no detail, only the tag is set.
 func partitionTagChanges(changes []ApplyChange) (add, remove []string, other []ApplyChange) {
 	for _, c := range changes {
 		switch c.ChangeType {
@@ -750,6 +763,9 @@ func partitionTagChanges(changes []ApplyChange) (add, remove []string, other []A
 			remove = append(remove, normalizeTagURN(c.Detail))
 		case string(actionFlagQualityIssue):
 			add = append(add, qualityIssueTagURN)
+			if strings.TrimSpace(c.Detail) != "" {
+				other = append(other, c)
+			}
 		default:
 			other = append(other, c)
 		}
@@ -824,15 +840,19 @@ func (t *Toolkit) dispatchChange(ctx context.Context, urn string, c ApplyChange)
 // dispatchCoreOrV14Change handles core DataHub changes and delegates to V14 for newer types.
 func (t *Toolkit) dispatchCoreOrV14Change(ctx context.Context, urn string, c ApplyChange) (string, error) {
 	var err error
-	// Tag changes (add_tag, remove_tag, flag_quality_issue) and glossary-term changes
-	// (add_glossary_term) are not handled here: executeChanges batches them through
-	// ApplyTagChanges / ApplyGlossaryTermChanges so a multi-item apply is a single
-	// read-modify-write rather than a clobbering sequence of per-item writes (#721, #729).
+	// The tag side of add_tag/remove_tag/flag_quality_issue and the glossary-term
+	// changes (add_glossary_term) are not handled here: executeChanges batches them
+	// through ApplyTagChanges / ApplyGlossaryTermChanges so a multi-item apply is a
+	// single read-modify-write rather than a clobbering sequence of per-item writes
+	// (#721, #729). flag_quality_issue with a detail still reaches this dispatch to
+	// raise the incident that makes the detail verifiable (#722).
 	switch c.ChangeType {
 	case string(actionUpdateDescription):
 		err = t.executeUpdateDescription(ctx, urn, c)
 	case string(actionAddDocumentation):
 		err = t.datahubWriter.AddDocumentationLink(ctx, urn, c.Target, c.Detail)
+	case string(actionFlagQualityIssue):
+		return t.dispatchQualityIncident(ctx, urn, c)
 	default:
 		return t.dispatchV14Change(ctx, urn, c)
 	}
@@ -840,6 +860,54 @@ func (t *Toolkit) dispatchCoreOrV14Change(ctx context.Context, urn string, c App
 		return "", fmt.Errorf(errFmtExecuting, c.ChangeType, err)
 	}
 	return "", nil
+}
+
+// dispatchQualityIncident raises a DataHub incident carrying a flag_quality_issue's
+// detail so the issue is verifiable on the entity. It returns the created incident
+// URN (recorded in the changeset so rollback can resolve it), or "" when no incident
+// was created: the entity type does not support incidents, or an identical active
+// quality incident already exists (deduped). A deduped incident is intentionally not
+// recorded, so rollback only resolves incidents this changeset actually created.
+func (t *Toolkit) dispatchQualityIncident(ctx context.Context, urn string, c ApplyChange) (string, error) {
+	// An unparseable URN yields entityType "", which is not incident-supported, so it
+	// falls through to the tag-only path below (the change's URN was already validated
+	// before dispatch).
+	entityType, _ := entityTypeFromURN(urn)
+	if !incidentSupportedTypes[entityType] {
+		// Unsupported entity type: the QualityIssue tag is the signal; the detail
+		// stays in the changeset record. No incident, no apply failure.
+		return "", nil
+	}
+	if t.activeQualityIncidentExists(ctx, urn, c.Detail) {
+		return "", nil
+	}
+	return t.raiseIncident(ctx, urn, qualityIssueIncidentTitle, c.Detail, c.ChangeType)
+}
+
+// activeQualityIncidentExists reports whether the entity already has an active
+// quality-issue incident with the same detail, so a re-apply or retry does not pile
+// up duplicates. A read failure is treated as "no duplicate" (best-effort dedup).
+func (t *Toolkit) activeQualityIncidentExists(ctx context.Context, urn, detail string) bool {
+	incidents, err := t.datahubWriter.GetIncidents(ctx, urn)
+	if err != nil {
+		return false
+	}
+	for _, inc := range incidents {
+		if inc.State == "ACTIVE" && inc.Title == qualityIssueIncidentTitle && inc.Description == detail {
+			return true
+		}
+	}
+	return false
+}
+
+// raiseIncident raises a DataHub incident and returns its URN, wrapping a failure
+// with the change type. Shared by flag_quality_issue and the raise_incident action.
+func (t *Toolkit) raiseIncident(ctx context.Context, urn, title, description, changeType string) (string, error) {
+	incidentURN, err := t.datahubWriter.RaiseIncident(ctx, urn, title, description)
+	if err != nil {
+		return "", fmt.Errorf(errFmtExecuting, changeType, err)
+	}
+	return incidentURN, nil
 }
 
 // dispatchCuratedQuery handles add_curated_query changes.
@@ -891,11 +959,7 @@ func (t *Toolkit) dispatchV14Change(ctx context.Context, urn string, c ApplyChan
 	case string(actionRemoveStructuredProperty):
 		err = t.datahubWriter.RemoveStructuredProperty(ctx, urn, normalizeStructuredPropertyURN(c.Target))
 	case string(actionRaiseIncident):
-		incidentURN, iErr := t.datahubWriter.RaiseIncident(ctx, urn, c.Target, c.Detail)
-		if iErr != nil {
-			return "", fmt.Errorf(errFmtExecuting, c.ChangeType, iErr)
-		}
-		return incidentURN, nil
+		return t.raiseIncident(ctx, urn, c.Target, c.Detail, c.ChangeType)
 	case string(actionResolveIncident):
 		err = t.datahubWriter.ResolveIncident(ctx, c.Target, c.Detail)
 	default:
@@ -978,6 +1042,9 @@ const (
 	fieldDescription = "description"
 	fieldTarget      = "target"
 	fieldDetail      = "detail"
+	// fieldCreatedURNs is the changeset NewValue key holding the URNs created by an
+	// apply (incidents, queries, documents), used by rollback.
+	fieldCreatedURNs = "created_urns"
 )
 
 // promptRoleUser is the MCP message Role value for user-authored
@@ -989,8 +1056,14 @@ const promptRoleUser = "user"
 
 // qualityIssueTagURN is the single fixed DataHub tag applied by flag_quality_issue.
 // Instead of encoding quality issue details into dynamic tag names (which pollutes
-// the tag namespace), the detail text is stored as a knowledge insight for admin review.
+// the tag namespace), the QualityIssue tag is the at-a-glance signal and the detail
+// text is raised as a DataHub incident (titled qualityIssueIncidentTitle) so it is
+// verifiable on the entity (#722).
 const qualityIssueTagURN = "urn:li:tag:QualityIssue"
+
+// qualityIssueIncidentTitle is the fixed title of the DataHub incident raised to
+// carry a flag_quality_issue's detail.
+const qualityIssueIncidentTitle = "Data quality issue"
 
 // normalizeStructuredPropertyURN ensures a property name is a full DataHub URN.
 func normalizeStructuredPropertyURN(name string) string {
