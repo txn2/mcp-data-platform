@@ -679,27 +679,62 @@ func (t *Toolkit) executeChanges(ctx context.Context, urn string, changes []Appl
 
 	columnDescs, nonColumnChanges := partitionColumnChanges(changes)
 
-	// Track whether any batched write (column descriptions, tags) has already been
-	// persisted, so a later per-change failure does not falsely report that nothing
-	// was applied. These batched writes run before the per-change dispatch loop.
+	// Track whether any batched write (column descriptions, tags, glossary terms) has
+	// already been persisted, so a later batch or per-change failure does not falsely
+	// report that nothing was applied. These batched writes run before the per-change
+	// dispatch loop.
 	priorWrites := false
 
 	if len(columnDescs) > 0 {
 		if err := t.datahubWriter.UpdateColumnDescriptionBatch(ctx, urn, columnDescs); err != nil {
-			return nil, fmt.Errorf("datahub write failed for column descriptions: %w", err)
+			return nil, batchWriteError("column descriptions", priorWrites, err)
 		}
 		priorWrites = true
 	}
 
-	addTags, removeTags, otherChanges := partitionTagChanges(nonColumnChanges)
+	addTags, removeTags, nonTagChanges := partitionTagChanges(nonColumnChanges)
 	if len(addTags) > 0 || len(removeTags) > 0 {
 		if err := t.datahubWriter.ApplyTagChanges(ctx, urn, addTags, removeTags); err != nil {
-			return nil, fmt.Errorf("datahub write failed for tag changes: %w", err)
+			return nil, batchWriteError("tag changes", priorWrites, err)
+		}
+		priorWrites = true
+	}
+
+	addTerms, otherChanges := partitionGlossaryTermChanges(nonTagChanges)
+	if len(addTerms) > 0 {
+		if err := t.datahubWriter.ApplyGlossaryTermChanges(ctx, urn, addTerms, nil); err != nil {
+			return nil, batchWriteError("glossary term changes", priorWrites, err)
 		}
 		priorWrites = true
 	}
 
 	return t.dispatchNonColumnChanges(ctx, urn, otherChanges, priorWrites)
+}
+
+// batchWriteError wraps a batched-write failure, appending the "earlier changes
+// already applied" warning when a prior batch in the same changeset has already
+// persisted to DataHub (those writes are not transactional and are not rolled back).
+func batchWriteError(stage string, priorWrites bool, err error) error {
+	if priorWrites {
+		return fmt.Errorf("datahub write failed for %s: %w (earlier changes in this changeset were already applied and were NOT rolled back)", stage, err)
+	}
+	return fmt.Errorf("datahub write failed for %s: %w", stage, err)
+}
+
+// partitionGlossaryTermChanges separates add_glossary_term changes from other
+// changes so they can be applied in a single read-modify-write. Batching avoids the
+// stale-read clobber where back-to-back per-term writes drop all but the last term
+// (#729). There is no remove_glossary_term apply action; removal happens only on
+// rollback.
+func partitionGlossaryTermChanges(changes []ApplyChange) (add []string, other []ApplyChange) {
+	for _, c := range changes {
+		if c.ChangeType == string(actionAddGlossaryTerm) {
+			add = append(add, normalizeGlossaryTermURN(c.Detail))
+			continue
+		}
+		other = append(other, c)
+	}
+	return add, other
 }
 
 // partitionTagChanges separates tag-setting changes (add_tag, remove_tag, and
@@ -789,14 +824,13 @@ func (t *Toolkit) dispatchChange(ctx context.Context, urn string, c ApplyChange)
 // dispatchCoreOrV14Change handles core DataHub changes and delegates to V14 for newer types.
 func (t *Toolkit) dispatchCoreOrV14Change(ctx context.Context, urn string, c ApplyChange) (string, error) {
 	var err error
-	// Tag changes (add_tag, remove_tag, flag_quality_issue) are not handled here:
-	// executeChanges batches them through ApplyTagChanges so a multi-tag apply is a
-	// single read-modify-write rather than a clobbering sequence of per-tag writes (#721).
+	// Tag changes (add_tag, remove_tag, flag_quality_issue) and glossary-term changes
+	// (add_glossary_term) are not handled here: executeChanges batches them through
+	// ApplyTagChanges / ApplyGlossaryTermChanges so a multi-item apply is a single
+	// read-modify-write rather than a clobbering sequence of per-item writes (#721, #729).
 	switch c.ChangeType {
 	case string(actionUpdateDescription):
 		err = t.executeUpdateDescription(ctx, urn, c)
-	case string(actionAddGlossaryTerm):
-		err = t.datahubWriter.AddGlossaryTerm(ctx, urn, normalizeGlossaryTermURN(c.Detail))
 	case string(actionAddDocumentation):
 		err = t.datahubWriter.AddDocumentationLink(ctx, urn, c.Target, c.Detail)
 	default:

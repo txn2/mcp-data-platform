@@ -22,9 +22,13 @@ type DataHubWriter interface {
 	// Batching every add/remove for an entity into one read-modify-write is lossless.
 	// add and remove hold full TagUrns; a tag in both add and remove is removed.
 	ApplyTagChanges(ctx context.Context, urn string, add, remove []string) error
-	AddGlossaryTerm(ctx context.Context, urn string, termURN string) error
-	// RemoveGlossaryTerm removes a glossary term association. Used to revert add_glossary_term.
-	RemoveGlossaryTerm(ctx context.Context, urn string, termURN string) error
+	// ApplyGlossaryTermChanges adds and removes the given glossary terms in a single
+	// read-modify-write of the glossaryTerms aspect. Per-term writes are
+	// read-modify-write against DataHub's eventually consistent store, so back-to-back
+	// single calls read stale state and the last write clobbers the rest, silently
+	// dropping terms (#729, same class of bug as #721). add and remove hold full
+	// glossaryTerm URNs; a term in both add and remove is removed.
+	ApplyGlossaryTermChanges(ctx context.Context, urn string, add, remove []string) error
 	AddDocumentationLink(ctx context.Context, urn string, url string, description string) error
 	// RemoveDocumentationLink removes a documentation link by URL. Used to revert add_documentation.
 	RemoveDocumentationLink(ctx context.Context, urn string, url string) error
@@ -73,11 +77,10 @@ func (*NoopDataHubWriter) ApplyTagChanges(_ context.Context, _ string, _, _ []st
 	return nil
 }
 
-// AddGlossaryTerm is a no-op.
-func (*NoopDataHubWriter) AddGlossaryTerm(_ context.Context, _, _ string) error { return nil }
-
-// RemoveGlossaryTerm is a no-op.
-func (*NoopDataHubWriter) RemoveGlossaryTerm(_ context.Context, _, _ string) error { return nil }
+// ApplyGlossaryTermChanges is a no-op.
+func (*NoopDataHubWriter) ApplyGlossaryTermChanges(_ context.Context, _ string, _, _ []string) error {
+	return nil
+}
 
 // AddDocumentationLink is a no-op.
 func (*NoopDataHubWriter) AddDocumentationLink(_ context.Context, _, _, _ string) error { return nil }

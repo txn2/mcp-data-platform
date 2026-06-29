@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	dhclient "github.com/txn2/mcp-datahub/pkg/client"
 	"github.com/txn2/mcp-datahub/pkg/types"
@@ -126,37 +127,50 @@ type editableFieldInfo struct {
 	GlossaryTerms json.RawMessage `json:"glossaryTerms,omitempty"`
 }
 
-// readEditableSchema reads the current editableSchemaMetadata aspect via REST.
-func (w *DataHubClientWriter) readEditableSchema(ctx context.Context, entityType, urn string) (*editableSchemaAspect, error) {
-	body, statusCode, err := w.doRESTGet(ctx, w.aspectGetURL(entityType, urn, "editableSchemaMetadata"))
+// readAspect performs a REST aspect GET and parses the response into *T, returning a
+// zero-valued *T when the aspect does not exist (404 or an empty/null value). Shared
+// by the editableSchemaMetadata, globalTags, and glossaryTerms read paths.
+func readAspect[T any](ctx context.Context, w *DataHubClientWriter, entityType, urn, aspectName string) (*T, error) {
+	body, statusCode, err := w.doRESTGet(ctx, w.aspectGetURL(entityType, urn, aspectName))
 	if err != nil {
 		return nil, fmt.Errorf("rest get aspect: %w", err)
 	}
 	if statusCode == http.StatusNotFound {
-		return &editableSchemaAspect{}, nil
+		return new(T), nil
 	}
 	if statusCode != http.StatusOK {
 		return nil, fmt.Errorf("rest get status %d: %s", statusCode, truncateBody(body))
 	}
-	return parseEditableSchema(body)
+	return parseAspect[T](body)
 }
 
-// parseEditableSchema unmarshals the REST response body into an editableSchemaAspect.
-func parseEditableSchema(body []byte) (*editableSchemaAspect, error) {
+// parseAspect unmarshals a REST aspect GET response (a {"value": <aspect>} envelope)
+// into *T, returning a zero-valued *T when the aspect is absent (empty or null value).
+func parseAspect[T any](body []byte) (*T, error) {
 	var aspectResp struct {
 		Value json.RawMessage `json:"value"`
 	}
 	if err := json.Unmarshal(body, &aspectResp); err != nil {
 		return nil, fmt.Errorf("unmarshal response: %w", err)
 	}
+	out := new(T)
 	if len(aspectResp.Value) == 0 || string(bytes.TrimSpace(aspectResp.Value)) == "null" {
-		return &editableSchemaAspect{}, nil
+		return out, nil
 	}
-	var schema editableSchemaAspect
-	if err := json.Unmarshal(aspectResp.Value, &schema); err != nil {
-		return nil, fmt.Errorf("unmarshal schema: %w", err)
+	if err := json.Unmarshal(aspectResp.Value, out); err != nil {
+		return nil, fmt.Errorf("unmarshal aspect: %w", err)
 	}
-	return &schema, nil
+	return out, nil
+}
+
+// readEditableSchema reads the current editableSchemaMetadata aspect via REST.
+func (w *DataHubClientWriter) readEditableSchema(ctx context.Context, entityType, urn string) (*editableSchemaAspect, error) {
+	return readAspect[editableSchemaAspect](ctx, w, entityType, urn, "editableSchemaMetadata")
+}
+
+// parseEditableSchema unmarshals the REST response body into an editableSchemaAspect.
+func parseEditableSchema(body []byte) (*editableSchemaAspect, error) {
+	return parseAspect[editableSchemaAspect](body)
 }
 
 // aspectGetURL builds the REST URL for reading an aspect.
@@ -310,13 +324,13 @@ var tagSupportedTypes = map[string]bool{
 	"domain": true, "glossaryTerm": true, "glossaryNode": true, "document": true,
 }
 
-// tagGraphQLWriteTypes lists entity types whose globalTags aspect is not exposed
-// over the REST aspect API, so the upstream client writes them with the GraphQL
-// addTag/removeTag mutations instead. Those mutations are server-side additive and
-// not subject to the read-modify-write clobber, so for these types ApplyTagChanges
-// delegates per-tag rather than batching a REST read-modify-write. Mirrors the
-// upstream client's graphQLWriteTypes set.
-var tagGraphQLWriteTypes = map[string]bool{
+// graphQLWriteTypes lists entity types whose globalTags/glossaryTerms aspects are
+// not exposed over the REST aspect API, so the upstream client writes them with
+// GraphQL mutations instead. Those mutations are server-side additive and not
+// subject to the read-modify-write clobber, so for these types ApplyTagChanges and
+// ApplyGlossaryTermChanges delegate per-item rather than batching a REST
+// read-modify-write. Mirrors the upstream client's graphQLWriteTypes set.
+var graphQLWriteTypes = map[string]bool{
 	"domain": true, "glossaryTerm": true, "glossaryNode": true, "document": true,
 }
 
@@ -338,10 +352,35 @@ func (w *DataHubClientWriter) ApplyTagChanges(ctx context.Context, urn string, a
 	if !tagSupportedTypes[parsed.EntityType] {
 		return fmt.Errorf("apply tag changes: entity type %q does not support tag operations", parsed.EntityType)
 	}
-	if tagGraphQLWriteTypes[parsed.EntityType] {
+	if graphQLWriteTypes[parsed.EntityType] {
 		return w.applyTagChangesGraphQL(ctx, urn, add, remove)
 	}
 	return w.applyTagChangesREST(ctx, parsed.EntityType, urn, add, remove)
+}
+
+// applyAssociationChangesGraphQL removes then adds items via per-item GraphQL
+// mutations, skipping an add that is also a remove (so an item present in both is
+// left removed, matching the REST merge semantics and the Apply*Changes contracts).
+// removeFn/addFn perform and wrap each per-item call.
+func applyAssociationChangesGraphQL(add, remove []string, removeFn, addFn func(string) error) error {
+	removeSet := make(map[string]bool, len(remove))
+	for _, x := range remove {
+		removeSet[x] = true
+	}
+	for _, x := range remove {
+		if err := removeFn(x); err != nil {
+			return err
+		}
+	}
+	for _, x := range add {
+		if removeSet[x] {
+			continue
+		}
+		if err := addFn(x); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // applyTagChangesGraphQL applies tag changes for entity types whose globalTags
@@ -349,26 +388,19 @@ func (w *DataHubClientWriter) ApplyTagChanges(ctx context.Context, urn string, a
 // document). The upstream AddTag/RemoveTag use the server-side additive GraphQL
 // mutations for these types, which are already lossless, so we delegate per-tag.
 func (w *DataHubClientWriter) applyTagChangesGraphQL(ctx context.Context, urn string, add, remove []string) error {
-	removeSet := make(map[string]bool, len(remove))
-	for _, tag := range remove {
-		removeSet[tag] = true
-	}
-	for _, tag := range remove {
-		if err := w.client.RemoveTag(ctx, urn, tag); err != nil {
-			return fmt.Errorf("removing tag %s from %s: %w", tag, urn, err)
-		}
-	}
-	for _, tag := range add {
-		// A tag in both add and remove is left removed, matching the REST path and
-		// the ApplyTagChanges contract.
-		if removeSet[tag] {
-			continue
-		}
-		if err := w.client.AddTag(ctx, urn, tag); err != nil {
-			return fmt.Errorf("adding tag %s to %s: %w", tag, urn, err)
-		}
-	}
-	return nil
+	return applyAssociationChangesGraphQL(add, remove,
+		func(tag string) error {
+			if err := w.client.RemoveTag(ctx, urn, tag); err != nil {
+				return fmt.Errorf("removing tag %s from %s: %w", tag, urn, err)
+			}
+			return nil
+		},
+		func(tag string) error {
+			if err := w.client.AddTag(ctx, urn, tag); err != nil {
+				return fmt.Errorf("adding tag %s to %s: %w", tag, urn, err)
+			}
+			return nil
+		})
 }
 
 // applyTagChangesREST reads the current globalTags aspect once, applies all
@@ -386,11 +418,18 @@ func (w *DataHubClientWriter) applyTagChangesREST(ctx context.Context, entityTyp
 	return w.postIngestProposal(ctx, entityType, urn, "globalTags", current)
 }
 
-// mergeGlobalTags returns the globalTags associations after removing every tag in
-// remove and appending every tag in add that is not already present, deduped. Each
-// surviving existing association's full JSON is preserved (context/attribution),
-// and a tag present in both add and remove is removed.
-func mergeGlobalTags(current []json.RawMessage, add, remove []string) ([]json.RawMessage, error) {
+// mergeRawAssociations returns the aspect associations after removing every URN in
+// remove and appending every URN in add that is not already present, deduped. Each
+// surviving existing association's full JSON is preserved, and a URN present in both
+// add and remove is removed. urnOf extracts the URN from a raw association; newAssoc
+// marshals a new association for an added URN. Shared by the globalTags and
+// glossaryTerms read-modify-write paths.
+func mergeRawAssociations(
+	current []json.RawMessage,
+	add, remove []string,
+	urnOf func(json.RawMessage) string,
+	newAssoc func(string) ([]byte, error),
+) ([]json.RawMessage, error) {
 	removeSet := make(map[string]bool, len(remove))
 	for _, t := range remove {
 		removeSet[t] = true
@@ -399,8 +438,15 @@ func mergeGlobalTags(current []json.RawMessage, add, remove []string) ([]json.Ra
 	merged := make([]json.RawMessage, 0, len(current)+len(add))
 	have := make(map[string]bool, len(current)+len(add))
 	for _, raw := range current {
-		u := tagURNOf(raw)
-		if u == "" || removeSet[u] || have[u] {
+		u := urnOf(raw)
+		// An association whose URN cannot be extracted is preserved as-is rather than
+		// dropped: it cannot be deduped or matched for removal, but discarding it would
+		// silently lose a tag/term on an unrelated change.
+		if u == "" {
+			merged = append(merged, raw)
+			continue
+		}
+		if removeSet[u] || have[u] {
 			continue
 		}
 		have[u] = true
@@ -411,63 +457,165 @@ func mergeGlobalTags(current []json.RawMessage, add, remove []string) ([]json.Ra
 			continue
 		}
 		have[t] = true
-		assoc, err := json.Marshal(tagAssociation{Tag: t})
+		assoc, err := newAssoc(t)
 		if err != nil {
-			return nil, fmt.Errorf("marshal tag %s: %w", t, err)
+			return nil, err
 		}
 		merged = append(merged, assoc)
 	}
 	return merged, nil
 }
 
+// mergeGlobalTags merges tag adds/removes into the current globalTags associations,
+// preserving each surviving association's full JSON (context/attribution).
+func mergeGlobalTags(current []json.RawMessage, add, remove []string) ([]json.RawMessage, error) {
+	return mergeRawAssociations(current, add, remove, tagURNOf, func(t string) ([]byte, error) {
+		assoc, err := json.Marshal(tagAssociation{Tag: t})
+		if err != nil {
+			return nil, fmt.Errorf("marshal tag %s: %w", t, err)
+		}
+		return assoc, nil
+	})
+}
+
 // readGlobalTags reads the current globalTags aspect via the REST aspect API,
 // returning an empty aspect when none exists.
 func (w *DataHubClientWriter) readGlobalTags(ctx context.Context, entityType, urn string) (*globalTagsAspect, error) {
-	body, statusCode, err := w.doRESTGet(ctx, w.aspectGetURL(entityType, urn, "globalTags"))
-	if err != nil {
-		return nil, fmt.Errorf("rest get aspect: %w", err)
-	}
-	if statusCode == http.StatusNotFound {
-		return &globalTagsAspect{}, nil
-	}
-	if statusCode != http.StatusOK {
-		return nil, fmt.Errorf("rest get status %d: %s", statusCode, truncateBody(body))
-	}
-	return parseGlobalTags(body)
+	return readAspect[globalTagsAspect](ctx, w, entityType, urn, "globalTags")
 }
 
 // parseGlobalTags unmarshals the REST response body into a globalTagsAspect.
 func parseGlobalTags(body []byte) (*globalTagsAspect, error) {
-	var aspectResp struct {
-		Value json.RawMessage `json:"value"`
-	}
-	if err := json.Unmarshal(body, &aspectResp); err != nil {
-		return nil, fmt.Errorf("unmarshal response: %w", err)
-	}
-	if len(aspectResp.Value) == 0 || string(bytes.TrimSpace(aspectResp.Value)) == "null" {
-		return &globalTagsAspect{}, nil
-	}
-	var aspect globalTagsAspect
-	if err := json.Unmarshal(aspectResp.Value, &aspect); err != nil {
-		return nil, fmt.Errorf("unmarshal globalTags: %w", err)
-	}
-	return &aspect, nil
+	return parseAspect[globalTagsAspect](body)
 }
 
-// AddGlossaryTerm adds a glossary term to an entity.
-func (w *DataHubClientWriter) AddGlossaryTerm(ctx context.Context, urn, termURN string) error {
-	if err := w.client.AddGlossaryTerm(ctx, urn, termURN); err != nil {
-		return fmt.Errorf("adding glossary term %s to %s: %w", termURN, urn, err)
-	}
-	return nil
+// glossaryTermsAspect mirrors the upstream glossaryTerms aspect. Associations are
+// kept as raw JSON so fields beyond the term URN survive a read-modify-write. Per
+// the GlossaryTerms PDL, auditStamp is required and is set on every write.
+type glossaryTermsAspect struct {
+	Terms      []json.RawMessage  `json:"terms"`
+	AuditStamp glossaryAuditStamp `json:"auditStamp"`
 }
 
-// RemoveGlossaryTerm removes a glossary term association from an entity.
-func (w *DataHubClientWriter) RemoveGlossaryTerm(ctx context.Context, urn, termURN string) error {
-	if err := w.client.RemoveGlossaryTerm(ctx, urn, termURN); err != nil {
-		return fmt.Errorf("removing glossary term %s from %s: %w", termURN, urn, err)
+// termAssociation is the minimal shape used to emit a new term association and to
+// extract the term URN from an existing raw association for dedupe/removal.
+type termAssociation struct {
+	URN string `json:"urn"`
+}
+
+// glossaryAuditStamp is the required audit metadata on the glossaryTerms aspect.
+type glossaryAuditStamp struct {
+	Time  int64  `json:"time"`
+	Actor string `json:"actor"`
+}
+
+// glossaryAuditActor mirrors the system actor the upstream client stamps writes with.
+const glossaryAuditActor = "urn:li:corpuser:datahub"
+
+// newGlossaryAuditStamp builds the required auditStamp for a glossaryTerms write.
+func newGlossaryAuditStamp() glossaryAuditStamp {
+	return glossaryAuditStamp{Time: time.Now().UnixMilli(), Actor: glossaryAuditActor}
+}
+
+// glossaryTermURNOf extracts the term URN from a raw glossaryTerms association,
+// returning "" if it cannot be parsed.
+func glossaryTermURNOf(raw json.RawMessage) string {
+	var ta termAssociation
+	if err := json.Unmarshal(raw, &ta); err != nil {
+		return ""
 	}
-	return nil
+	return ta.URN
+}
+
+// glossaryTermSupportedTypes lists entity types DataHub registers the glossaryTerms
+// aspect on. Mirrors the upstream client's glossaryTermsSupportedTypes set (kept
+// separate from the tag set because DataHub may add support to each independently).
+var glossaryTermSupportedTypes = map[string]bool{
+	"dataset": true, "dashboard": true, "chart": true, "dataFlow": true,
+	"dataJob": true, "container": true, "dataProduct": true,
+	"domain": true, "glossaryTerm": true, "glossaryNode": true, "document": true,
+}
+
+// ApplyGlossaryTermChanges adds and removes glossary terms on an entity in a single
+// read-modify-write of the glossaryTerms aspect. Delegating to the upstream client's
+// per-term AddGlossaryTerm/RemoveGlossaryTerm issues a read-modify-write per term;
+// because DataHub aspect writes are eventually consistent, back-to-back calls read
+// stale state and the final write overwrites the whole aspect with a single term,
+// silently dropping the rest (#729). Reading once, merging every add/remove, and
+// writing once is lossless. A term present in both add and remove is removed.
+func (w *DataHubClientWriter) ApplyGlossaryTermChanges(ctx context.Context, urn string, add, remove []string) error {
+	if len(add) == 0 && len(remove) == 0 {
+		return nil
+	}
+	parsed, err := dhclient.ParseURN(urn)
+	if err != nil {
+		return fmt.Errorf("apply glossary term changes: invalid URN: %w", err)
+	}
+	if !glossaryTermSupportedTypes[parsed.EntityType] {
+		return fmt.Errorf("apply glossary term changes: entity type %q does not support glossary term operations", parsed.EntityType)
+	}
+	if graphQLWriteTypes[parsed.EntityType] {
+		return w.applyGlossaryTermChangesGraphQL(ctx, urn, add, remove)
+	}
+	return w.applyGlossaryTermChangesREST(ctx, parsed.EntityType, urn, add, remove)
+}
+
+// applyGlossaryTermChangesGraphQL applies term changes for entity types whose
+// glossaryTerms aspect is only writable via GraphQL (domain, glossaryTerm,
+// glossaryNode, document), delegating per-term to the upstream lossless mutations.
+func (w *DataHubClientWriter) applyGlossaryTermChangesGraphQL(ctx context.Context, urn string, add, remove []string) error {
+	return applyAssociationChangesGraphQL(add, remove,
+		func(term string) error {
+			if err := w.client.RemoveGlossaryTerm(ctx, urn, term); err != nil {
+				return fmt.Errorf("removing glossary term %s from %s: %w", term, urn, err)
+			}
+			return nil
+		},
+		func(term string) error {
+			if err := w.client.AddGlossaryTerm(ctx, urn, term); err != nil {
+				return fmt.Errorf("adding glossary term %s to %s: %w", term, urn, err)
+			}
+			return nil
+		})
+}
+
+// applyGlossaryTermChangesREST reads the current glossaryTerms aspect once, applies
+// all removes and adds, refreshes the required auditStamp, and writes once.
+func (w *DataHubClientWriter) applyGlossaryTermChangesREST(ctx context.Context, entityType, urn string, add, remove []string) error {
+	current, err := w.readGlossaryTerms(ctx, entityType, urn)
+	if err != nil {
+		return fmt.Errorf("apply glossary term changes: read glossaryTerms: %w", err)
+	}
+	merged, err := mergeGlossaryTerms(current.Terms, add, remove)
+	if err != nil {
+		return fmt.Errorf("apply glossary term changes: %w", err)
+	}
+	current.Terms = merged
+	current.AuditStamp = newGlossaryAuditStamp()
+	return w.postIngestProposal(ctx, entityType, urn, "glossaryTerms", current)
+}
+
+// mergeGlossaryTerms merges term adds/removes into the current glossaryTerms
+// associations, preserving each surviving association's full JSON.
+func mergeGlossaryTerms(current []json.RawMessage, add, remove []string) ([]json.RawMessage, error) {
+	return mergeRawAssociations(current, add, remove, glossaryTermURNOf, func(t string) ([]byte, error) {
+		assoc, err := json.Marshal(termAssociation{URN: t})
+		if err != nil {
+			return nil, fmt.Errorf("marshal glossary term %s: %w", t, err)
+		}
+		return assoc, nil
+	})
+}
+
+// readGlossaryTerms reads the current glossaryTerms aspect via the REST aspect API,
+// returning an empty aspect when none exists.
+func (w *DataHubClientWriter) readGlossaryTerms(ctx context.Context, entityType, urn string) (*glossaryTermsAspect, error) {
+	return readAspect[glossaryTermsAspect](ctx, w, entityType, urn, "glossaryTerms")
+}
+
+// parseGlossaryTerms unmarshals the REST response body into a glossaryTermsAspect.
+func parseGlossaryTerms(body []byte) (*glossaryTermsAspect, error) {
+	return parseAspect[glossaryTermsAspect](body)
 }
 
 // AddDocumentationLink adds a documentation link to an entity.
