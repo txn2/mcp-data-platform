@@ -753,7 +753,7 @@ func TestGetChangeset(t *testing.T) {
 	t.Run("returns changeset when found", func(t *testing.T) {
 		cs := &knowledge.Changeset{
 			ID:            "cs-123",
-			TargetURN:     "urn:li:dataset:test",
+			TargetURN:     "urn:li:dataset:(urn:li:dataPlatform:trino,test,PROD)",
 			ChangeType:    "update_description",
 			PreviousValue: map[string]any{"description": "old"},
 			NewValue:      map[string]any{"description": "new"},
@@ -795,7 +795,7 @@ func TestGetChangeset(t *testing.T) {
 func addTermChangeset(id, termURN string) *knowledge.Changeset {
 	return &knowledge.Changeset{
 		ID:            id,
-		TargetURN:     "urn:li:dataset:test",
+		TargetURN:     "urn:li:dataset:(urn:li:dataPlatform:trino,test,PROD)",
 		ChangeType:    "add_glossary_term",
 		CreatedAt:     time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
 		PreviousValue: map[string]any{"glossary_terms": []any{"urn:li:glossaryTerm:canonical"}},
@@ -875,7 +875,7 @@ func TestRollbackChangeset(t *testing.T) {
 	t.Run("unrevertible change type returns 422", func(t *testing.T) {
 		cs := &knowledge.Changeset{
 			ID:        "cs-unrev",
-			TargetURN: "urn:li:dataset:test",
+			TargetURN: "urn:li:dataset:(urn:li:dataPlatform:trino,test,PROD)",
 			NewValue: map[string]any{
 				"change_0": map[string]any{"change_type": "set_structured_property", "target": "urn:li:structuredProperty:x", "detail": "v"},
 			},
@@ -897,7 +897,7 @@ func TestRollbackChangeset(t *testing.T) {
 		cs := addTermChangeset("cs-old", "urn:li:glossaryTerm:added")
 		newer := &knowledge.Changeset{
 			ID:        "cs-newer",
-			TargetURN: "urn:li:dataset:test",
+			TargetURN: "urn:li:dataset:(urn:li:dataPlatform:trino,test,PROD)",
 			CreatedAt: time.Date(2026, 5, 2, 0, 0, 0, 0, time.UTC),
 			NewValue: map[string]any{
 				"change_0": map[string]any{"change_type": "add_glossary_term", "target": "", "detail": "urn:li:glossaryTerm:other"},
@@ -922,7 +922,7 @@ func TestRollbackChangeset(t *testing.T) {
 	t.Run("datahub writer error returns 500", func(t *testing.T) {
 		cs := &knowledge.Changeset{
 			ID:            "cs-fail",
-			TargetURN:     "urn:li:dataset:test",
+			TargetURN:     "urn:li:dataset:(urn:li:dataPlatform:trino,test,PROD)",
 			CreatedAt:     time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
 			PreviousValue: map[string]any{"description": "old desc"},
 			NewValue: map[string]any{
@@ -946,7 +946,7 @@ func TestRollbackChangeset(t *testing.T) {
 	t.Run("restores prior description and records admin as rolled_back_by", func(t *testing.T) {
 		cs := &knowledge.Changeset{
 			ID:            "cs-desc",
-			TargetURN:     "urn:li:dataset:test",
+			TargetURN:     "urn:li:dataset:(urn:li:dataPlatform:trino,test,PROD)",
 			CreatedAt:     time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC),
 			PreviousValue: map[string]any{"description": "original desc"},
 			NewValue: map[string]any{

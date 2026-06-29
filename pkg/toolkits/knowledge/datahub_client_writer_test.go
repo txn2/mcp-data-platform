@@ -40,9 +40,21 @@ type graphQLResponse struct {
 }
 
 func TestDataHubClientWriter_GetCurrentMetadata(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		// GetEntity uses GraphQL — POST to /api/graphql
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		// Tags and glossary terms are read from the REST aspects (GET); the entity
+		// description/owners come from the GraphQL entity query (POST).
+		if r.Method == http.MethodGet {
+			switch {
+			case strings.Contains(r.URL.String(), "globalTags"):
+				_, _ = w.Write([]byte(`{"value":{"tags":[{"tag":"urn:li:tag:PII"},{"tag":"urn:li:tag:Sensitive"}]}}`))
+			case strings.Contains(r.URL.String(), "glossaryTerms"):
+				_, _ = w.Write([]byte(`{"value":{"terms":[{"urn":"urn:li:glossaryTerm:Revenue"}]}}`))
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+			return
+		}
 		resp := graphQLResponse{
 			Data: json.RawMessage(`{
 				"entity": {
@@ -146,6 +158,260 @@ func TestDataHubClientWriter_GetCurrentMetadata_Error(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "getting entity")
+}
+
+// TestDataHubClientWriter_GetCurrentMetadata_GlossaryTerm is the #723 regression for
+// glossaryTerm URNs: description and owners come from the dedicated getter, and tags
+// and glossary terms come from the entity query (mcp-datahub v1.10.2 surfaces them
+// via the experimental aspects read). All reads are GraphQL; no REST aspect GET is
+// issued because glossaryTerm does not expose those aspects over REST.
+func TestDataHubClientWriter_GetCurrentMetadata_GlossaryTerm(t *testing.T) {
+	const termURN = "urn:li:glossaryTerm:Revenue"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method, "glossaryTerm must not issue REST aspect GETs")
+		body, _ := io.ReadAll(r.Body)
+		s := string(body)
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.Contains(s, "getEntityAspects"):
+			// Raw-aspect read (v1.10.2): payloads are escaped JSON strings.
+			_, _ = w.Write([]byte(`{"data":{"entity":{"aspects":[` +
+				`{"aspectName":"globalTags","payload":"{\"tags\":[{\"tag\":\"urn:li:tag:Curated\"}]}"},` +
+				`{"aspectName":"glossaryTerms","payload":"{\"terms\":[{\"urn\":\"urn:li:glossaryTerm:Related\"}]}"}` +
+				`]}}}`))
+		case strings.Contains(s, "getGlossaryTerm"):
+			_ = json.NewEncoder(w).Encode(graphQLResponse{
+				Data: json.RawMessage(`{"glossaryTerm":{"urn":"` + termURN + `","name":"Revenue",` +
+					`"properties":{"name":"Revenue","description":"Recognized revenue"},` +
+					`"ownership":{"owners":[{"owner":{"urn":"urn:li:corpuser:alice"},"type":"BUSINESS_OWNER"}]}}}`),
+			})
+		default: // getEntity
+			_ = json.NewEncoder(w).Encode(graphQLResponse{
+				Data: json.RawMessage(`{"entity":{"urn":"` + termURN + `","type":"GLOSSARY_TERM"}}`),
+			})
+		}
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	meta, err := writer.GetCurrentMetadata(context.Background(), termURN)
+	require.NoError(t, err)
+	assert.Equal(t, "Recognized revenue", meta.Description)
+	assert.Equal(t, []string{"urn:li:corpuser:alice"}, meta.Owners)
+	assert.Equal(t, []string{"urn:li:tag:Curated"}, meta.Tags)
+	assert.Equal(t, []string{"urn:li:glossaryTerm:Related"}, meta.GlossaryTerms)
+}
+
+// TestDataHubClientWriter_GetCurrentMetadata_DataProduct is the #723 regression for
+// dataProduct URNs: description and owners come from the dedicated getter, while
+// tags and glossary terms are read from the authoritative REST aspects. Complete
+// metadata here is what keeps a rollback before-image from being empty and stripping
+// pre-existing tags/terms.
+func TestDataHubClientWriter_GetCurrentMetadata_DataProduct(t *testing.T) {
+	const productURN = "urn:li:dataProduct:revenue_analytics"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet {
+			switch {
+			case strings.Contains(r.URL.String(), "globalTags"):
+				_, _ = w.Write([]byte(`{"value":{"tags":[{"tag":"urn:li:tag:Curated"}]}}`))
+			case strings.Contains(r.URL.String(), "glossaryTerms"):
+				_, _ = w.Write([]byte(`{"value":{"terms":[{"urn":"urn:li:glossaryTerm:Revenue"}]}}`))
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+			return
+		}
+		_ = json.NewEncoder(w).Encode(graphQLResponse{
+			Data: json.RawMessage(`{"dataProduct":{"urn":"` + productURN + `",` +
+				`"properties":{"name":"Revenue Analytics","description":"Curated revenue datasets"},` +
+				`"ownership":{"owners":[{"owner":{"urn":"urn:li:corpuser:bob"},"type":"TECHNICAL_OWNER"}]}}}`),
+		})
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	meta, err := writer.GetCurrentMetadata(context.Background(), productURN)
+	require.NoError(t, err)
+	assert.Equal(t, "Curated revenue datasets", meta.Description)
+	assert.Equal(t, []string{"urn:li:corpuser:bob"}, meta.Owners)
+	assert.Equal(t, []string{"urn:li:tag:Curated"}, meta.Tags)
+	assert.Equal(t, []string{"urn:li:glossaryTerm:Revenue"}, meta.GlossaryTerms)
+}
+
+// TestDataHubClientWriter_GetCurrentMetadata_Domain verifies that a domain (a
+// GraphQL-only type) gets its tags/glossary terms from the entity query (no REST
+// aspect GET), as surfaced by mcp-datahub v1.10.2.
+func TestDataHubClientWriter_GetCurrentMetadata_Domain(t *testing.T) {
+	const domainURN = "urn:li:domain:sales"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method, "domain must not issue REST aspect GETs")
+		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(string(body), "getEntityAspects") {
+			_, _ = w.Write([]byte(`{"data":{"entity":{"aspects":[` +
+				`{"aspectName":"globalTags","payload":"{\"tags\":[{\"tag\":\"urn:li:tag:Org\"}]}"}` +
+				`]}}}`))
+			return
+		}
+		_ = json.NewEncoder(w).Encode(graphQLResponse{
+			Data: json.RawMessage(`{"entity":{"urn":"` + domainURN + `","type":"DOMAIN"}}`),
+		})
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	meta, err := writer.GetCurrentMetadata(context.Background(), domainURN)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"urn:li:tag:Org"}, meta.Tags)
+}
+
+// TestDataHubClientWriter_GetCurrentMetadata_GlossaryTermEntityError verifies that a
+// failed entity read (the source of a glossaryTerm's tags/terms) propagates.
+func TestDataHubClientWriter_GetCurrentMetadata_GlossaryTermEntityError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(string(body), "getGlossaryTerm") {
+			_ = json.NewEncoder(w).Encode(graphQLResponse{
+				Data: json.RawMessage(`{"glossaryTerm":{"urn":"urn:li:glossaryTerm:Revenue","properties":{"description":"d"}}}`),
+			})
+			return
+		}
+		// The entity read (for tags/terms) fails.
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	_, err := writer.GetCurrentMetadata(context.Background(), "urn:li:glossaryTerm:Revenue")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "getting entity")
+}
+
+// TestDataHubClientWriter_GetCurrentMetadata_DatasetTagReadError verifies that a
+// failed REST tag read on the generic (dataset) path propagates.
+func TestDataHubClientWriter_GetCurrentMetadata_DatasetTagReadError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			// Fail only the globalTags read so the error is deterministically the tag
+			// read (the two aspect reads run concurrently).
+			if strings.Contains(r.URL.String(), "globalTags") {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"value":{"terms":[]}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(graphQLResponse{
+			Data: json.RawMessage(`{"entity":{"urn":"` + testURN + `","type":"DATASET","editableProperties":{"description":"d"}}}`),
+		})
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	_, err := writer.GetCurrentMetadata(context.Background(), testURN)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reading tags")
+}
+
+// TestDataHubClientWriter_GetCurrentMetadata_TagReadError verifies that a failed
+// REST tag read propagates rather than silently yielding an empty tag set (an empty
+// before-image would let rollback strip pre-existing tags).
+func TestDataHubClientWriter_GetCurrentMetadata_TagReadError(t *testing.T) {
+	const productURN = "urn:li:dataProduct:x"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			// Fail only the globalTags read (the two aspect reads run concurrently).
+			if strings.Contains(r.URL.String(), "globalTags") {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"value":{"terms":[]}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(graphQLResponse{
+			Data: json.RawMessage(`{"dataProduct":{"urn":"` + productURN + `","properties":{"description":"d"}}}`),
+		})
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	_, err := writer.GetCurrentMetadata(context.Background(), productURN)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reading tags")
+}
+
+// TestDataHubClientWriter_GetCurrentMetadata_TermReadError verifies the glossary-term
+// read error path propagates (globalTags succeeds, glossaryTerms fails).
+func TestDataHubClientWriter_GetCurrentMetadata_TermReadError(t *testing.T) {
+	const productURN = "urn:li:dataProduct:x"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			if strings.Contains(r.URL.String(), "glossaryTerms") {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"value":{"tags":[]}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(graphQLResponse{
+			Data: json.RawMessage(`{"dataProduct":{"urn":"` + productURN + `","properties":{"description":"d"}}}`),
+		})
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	_, err := writer.GetCurrentMetadata(context.Background(), productURN)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reading glossary terms")
+}
+
+// TestDataHubClientWriter_GetCurrentMetadata_UnparseableURN verifies that a URN the
+// parser rejects falls back to the generic entity read rather than erroring early.
+func TestDataHubClientWriter_GetCurrentMetadata_UnparseableURN(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(graphQLResponse{
+			Data: json.RawMessage(`{"entity":{"urn":"x","type":"DATASET","editableProperties":{"description":"D"}}}`),
+		})
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	meta, err := writer.GetCurrentMetadata(context.Background(), "not-a-urn")
+	require.NoError(t, err)
+	assert.Equal(t, "D", meta.Description)
+}
+
+func TestDataHubClientWriter_GetCurrentMetadata_GlossaryTermError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	_, err := writer.GetCurrentMetadata(context.Background(), "urn:li:glossaryTerm:Revenue")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "getting glossary term")
+}
+
+func TestDataHubClientWriter_GetCurrentMetadata_DataProductError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	_, err := writer.GetCurrentMetadata(context.Background(), "urn:li:dataProduct:x")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "getting data product")
 }
 
 func TestDataHubClientWriter_UpdateDescription(t *testing.T) {

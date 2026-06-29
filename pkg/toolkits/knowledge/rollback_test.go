@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const rbURN = "urn:li:dataset:rb"
+const rbURN = "urn:li:dataset:(urn:li:dataPlatform:trino,rb,PROD)"
 
 // seededStore returns a changeset store pre-populated with cs so RollbackChangeset
 // (which looks the changeset up by id) succeeds.
@@ -117,6 +117,48 @@ func TestRevertChangeset_MultiTagBatch(t *testing.T) {
 	// The pre-existing tag "a" is kept (skipped), b and c are reverted.
 	assert.Len(t, res.RevertedChanges, 2)
 	assert.Len(t, res.SkippedChanges, 1)
+}
+
+// TestRevertChangeset_RefusesDescriptionOnUnreadableType verifies that rolling back
+// an update_description on an entity type whose description cannot be read (e.g. a
+// domain) is refused rather than blanking the real description with the empty,
+// never-captured before-image.
+func TestRevertChangeset_RefusesDescriptionOnUnreadableType(t *testing.T) {
+	cs := &Changeset{
+		ID:            "cs1",
+		TargetURN:     "urn:li:domain:sales",
+		PreviousValue: map[string]any{"description": ""}, // never captured (domain description is unreadable)
+		NewValue:      map[string]any{"change_0": changeEntry("update_description", "", "new desc")},
+	}
+	store := seededStore(cs)
+	writer := &spyWriter{}
+
+	_, err := RevertChangeset(context.Background(), RollbackDeps{Writer: writer, Changesets: store, Insights: &fullSpyStore{}}, cs, "admin")
+	var unrev *UnrevertibleError
+	require.ErrorAs(t, err, &unrev)
+	assert.Contains(t, unrev.ChangeTypes, "update_description")
+	assert.Empty(t, writer.WriteCalls, "must not write a (blank) description it never captured")
+	assert.False(t, store.Changesets[0].RolledBack)
+}
+
+// TestRevertChangeset_RefusesTagOnDocument verifies that rolling back a tag change on
+// a document (whose tags cannot be read) is refused rather than risking removal of a
+// pre-existing tag the empty before-image did not record.
+func TestRevertChangeset_RefusesTagOnDocument(t *testing.T) {
+	cs := &Changeset{
+		ID:            "cs1",
+		TargetURN:     "urn:li:document:doc1",
+		PreviousValue: map[string]any{"tags": []any{}},
+		NewValue:      map[string]any{"change_0": changeEntry("add_tag", "", "pii")},
+	}
+	store := seededStore(cs)
+	writer := &spyWriter{}
+
+	_, err := RevertChangeset(context.Background(), RollbackDeps{Writer: writer, Changesets: store, Insights: &fullSpyStore{}}, cs, "admin")
+	var unrev *UnrevertibleError
+	require.ErrorAs(t, err, &unrev)
+	assert.Contains(t, unrev.ChangeTypes, "add_tag")
+	assert.Empty(t, writer.WriteCalls)
 }
 
 // TestRevertChangeset_MultiGlossaryTermBatch is the #729 regression for rollback:
