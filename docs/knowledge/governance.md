@@ -234,6 +234,8 @@ Source insights move to `applied` status with a reference to the changeset.
 
 `changes_applied` counts the changes that were dispatched without error; a duplicate add (for example a tag that was already present) is a no-op upstream and still counts. The `resulting_state` field is a fresh read-back of the entity's description, tags, glossary terms, and owners after the apply, so callers can confirm what actually persisted without a follow-up call. Writes are not transactional: if a change in the middle of the list fails, earlier changes have already persisted and are reported in the error message rather than silently rolled back.
 
+`resulting_state` reads `tags` and `glossary_terms` from the authoritative DataHub aspects, so they are populated for every entity type: REST-exposed types (datasets, dashboards, charts, data flows, data jobs, containers, data products) are read from the REST aspects, and the GraphQL-only types (`domain`, `glossaryTerm`, `glossaryNode`) are read through the entity query (which surfaces those aspects as of `mcp-datahub` v1.10.2). `description` and `owners` come from the entity query for datasets and dashboards and from dedicated getters for data products and glossary terms. The one remaining gap is `description`: entity types without a dedicated description read (for example `domain`, `glossaryNode`, `container`, `chart`, `dataFlow`, `dataJob`) report an empty `description` even when one is set — treat an empty `description` for those types as "not read" rather than "not set".
+
 ## Changeset Tracking
 
 Every `apply` action creates a changeset record in the `knowledge_changesets` table:

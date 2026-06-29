@@ -30,30 +30,193 @@ func NewDataHubClientWriter(c *dhclient.Client) *DataHubClientWriter {
 }
 
 // GetCurrentMetadata retrieves current metadata for an entity from DataHub.
+//
+// The generic entity query (client.GetEntity) populates description and owners only
+// for dataset and dashboard entities, so glossaryTerm and dataProduct read those
+// fields through dedicated getters. Tags and glossary terms come from the
+// authoritative REST aspects for the entity types that expose them over REST, and
+// from the entity query for the GraphQL-only types (domain, glossaryTerm,
+// glossaryNode), which mcp-datahub >= v1.10.2 surfaces on GetEntity via the
+// experimental aspects API. This keeps both resulting_state and the rollback
+// before-image complete for non-dataset types, where they were previously empty
+// (#723): an empty before-image otherwise let a rollback strip tags or glossary
+// terms the entity already had.
+//
+// Description and owners are still empty for types that have neither a generic-query
+// fragment nor a dedicated getter (e.g. container, chart, dataFlow, dataJob).
 func (w *DataHubClientWriter) GetCurrentMetadata(ctx context.Context, urn string) (*EntityMetadata, error) {
+	entityType, err := entityTypeFromURN(urn)
+	if err != nil {
+		// Unknown URN shape: best-effort generic read.
+		return w.entityMetadata(ctx, urn)
+	}
+	switch entityType {
+	case entityTypeGlossaryTerm:
+		return w.glossaryTermMetadata(ctx, urn)
+	case entityTypeDataProduct:
+		return w.dataProductMetadata(ctx, urn)
+	default:
+		return w.genericMetadata(ctx, entityType, urn)
+	}
+}
+
+// glossaryTermMetadata reads a glossary term's description and owners from the
+// dedicated getter and its tags/glossary terms from the entity query (the getter
+// does not return associations and they are not REST-readable for this type).
+func (w *DataHubClientWriter) glossaryTermMetadata(ctx context.Context, urn string) (*EntityMetadata, error) {
+	term, err := w.client.GetGlossaryTerm(ctx, urn)
+	if err != nil {
+		return nil, fmt.Errorf("getting glossary term %s: %w", urn, err)
+	}
+	meta := descriptionOwnersMetadata(term.Description, term.Owners)
+	if err := w.fillAssociationsFromEntity(ctx, urn, meta); err != nil {
+		return nil, err
+	}
+	return meta, nil
+}
+
+// dataProductMetadata reads a data product's description and owners from the
+// dedicated getter and its tags/glossary terms from the authoritative REST aspects.
+func (w *DataHubClientWriter) dataProductMetadata(ctx context.Context, urn string) (*EntityMetadata, error) {
+	dp, err := w.client.GetDataProduct(ctx, urn)
+	if err != nil {
+		return nil, fmt.Errorf("getting data product %s: %w", urn, err)
+	}
+	meta := descriptionOwnersMetadata(dp.Description, dp.Owners)
+	if err := w.fillAssociationsFromREST(ctx, entityTypeDataProduct, urn, meta); err != nil {
+		return nil, err
+	}
+	return meta, nil
+}
+
+// genericMetadata reads metadata via the generic entity query (description and
+// owners are populated for dataset and dashboard). For REST-readable types it then
+// overwrites tags/glossary terms with the authoritative REST aspects; GraphQL-only
+// types (domain, glossaryNode) already carry them from the entity query.
+func (w *DataHubClientWriter) genericMetadata(ctx context.Context, entityType, urn string) (*EntityMetadata, error) {
+	meta, err := w.entityMetadata(ctx, urn)
+	if err != nil {
+		return nil, err
+	}
+	if !graphQLWriteTypes[entityType] {
+		if err := w.fillAssociationsFromREST(ctx, entityType, urn, meta); err != nil {
+			return nil, err
+		}
+	}
+	return meta, nil
+}
+
+// entityMetadata reads metadata via the generic entity query.
+func (w *DataHubClientWriter) entityMetadata(ctx context.Context, urn string) (*EntityMetadata, error) {
 	entity, err := w.client.GetEntity(ctx, urn)
 	if err != nil {
 		return nil, fmt.Errorf("getting entity %s: %w", urn, err)
 	}
-
-	meta := &EntityMetadata{
+	return &EntityMetadata{
 		Description:   entity.Description,
-		Tags:          make([]string, 0, len(entity.Tags)),
-		GlossaryTerms: make([]string, 0, len(entity.GlossaryTerms)),
-		Owners:        make([]string, 0, len(entity.Owners)),
-	}
+		Tags:          entityTagURNs(entity),
+		GlossaryTerms: entityTermURNs(entity),
+		Owners:        ownerURNs(entity.Owners),
+	}, nil
+}
 
-	for _, t := range entity.Tags {
-		meta.Tags = append(meta.Tags, t.URN)
+// fillAssociationsFromEntity reads tags and glossary terms via the entity query and
+// writes them onto meta. Used for entity types whose tag/term aspects are exposed
+// only through the entity query (the GraphQL-only types).
+func (w *DataHubClientWriter) fillAssociationsFromEntity(ctx context.Context, urn string, meta *EntityMetadata) error {
+	entity, err := w.client.GetEntity(ctx, urn)
+	if err != nil {
+		return fmt.Errorf("getting entity %s: %w", urn, err)
 	}
-	for _, gt := range entity.GlossaryTerms {
-		meta.GlossaryTerms = append(meta.GlossaryTerms, gt.URN)
-	}
-	for _, o := range entity.Owners {
-		meta.Owners = append(meta.Owners, o.URN)
-	}
+	meta.Tags = entityTagURNs(entity)
+	meta.GlossaryTerms = entityTermURNs(entity)
+	return nil
+}
 
-	return meta, nil
+// fillAssociationsFromREST reads tags and glossary terms from the authoritative REST
+// aspects and writes them onto meta.
+func (w *DataHubClientWriter) fillAssociationsFromREST(ctx context.Context, entityType, urn string, meta *EntityMetadata) error {
+	tags, err := w.readTagURNs(ctx, entityType, urn)
+	if err != nil {
+		return err
+	}
+	terms, err := w.readGlossaryTermURNs(ctx, entityType, urn)
+	if err != nil {
+		return err
+	}
+	meta.Tags = tags
+	meta.GlossaryTerms = terms
+	return nil
+}
+
+// entityTagURNs extracts the tag URNs from an entity.
+func entityTagURNs(e *types.Entity) []string {
+	urns := make([]string, 0, len(e.Tags))
+	for _, t := range e.Tags {
+		urns = append(urns, t.URN)
+	}
+	return urns
+}
+
+// entityTermURNs extracts the glossary-term URNs from an entity.
+func entityTermURNs(e *types.Entity) []string {
+	urns := make([]string, 0, len(e.GlossaryTerms))
+	for _, gt := range e.GlossaryTerms {
+		urns = append(urns, gt.URN)
+	}
+	return urns
+}
+
+// descriptionOwnersMetadata builds metadata for entity types read through a getter
+// that exposes only description and owners; tag and glossary-term associations are
+// filled in separately.
+func descriptionOwnersMetadata(description string, owners []types.Owner) *EntityMetadata {
+	return &EntityMetadata{
+		Description:   description,
+		Tags:          []string{},
+		GlossaryTerms: []string{},
+		Owners:        ownerURNs(owners),
+	}
+}
+
+// ownerURNs extracts the owner URNs from a slice of DataHub owners.
+func ownerURNs(owners []types.Owner) []string {
+	urns := make([]string, 0, len(owners))
+	for _, o := range owners {
+		urns = append(urns, o.URN)
+	}
+	return urns
+}
+
+// readTagURNs reads the entity's tag URNs from the REST globalTags aspect.
+func (w *DataHubClientWriter) readTagURNs(ctx context.Context, entityType, urn string) ([]string, error) {
+	aspect, err := w.readGlobalTags(ctx, entityType, urn)
+	if err != nil {
+		return nil, fmt.Errorf("reading tags for %s: %w", urn, err)
+	}
+	urns := make([]string, 0, len(aspect.Tags))
+	for _, raw := range aspect.Tags {
+		if u := tagURNOf(raw); u != "" {
+			urns = append(urns, u)
+		}
+	}
+	return urns, nil
+}
+
+// readGlossaryTermURNs reads the entity's glossary-term URNs from the REST
+// glossaryTerms aspect.
+func (w *DataHubClientWriter) readGlossaryTermURNs(ctx context.Context, entityType, urn string) ([]string, error) {
+	aspect, err := w.readGlossaryTerms(ctx, entityType, urn)
+	if err != nil {
+		return nil, fmt.Errorf("reading glossary terms for %s: %w", urn, err)
+	}
+	urns := make([]string, 0, len(aspect.Terms))
+	for _, raw := range aspect.Terms {
+		if u := glossaryTermURNOf(raw); u != "" {
+			urns = append(urns, u)
+		}
+	}
+	return urns, nil
 }
 
 // UpdateDescription sets the editable description for an entity.
