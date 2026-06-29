@@ -439,6 +439,33 @@ func TestDataHubClientWriter_ApplyTagChanges_PreservesAssociationFields(t *testi
 	assert.Contains(t, body, "urn:li:tag:New")
 }
 
+// TestDataHubClientWriter_ApplyTagChanges_PreservesUnparseableAssociation verifies
+// that an existing association whose URN cannot be extracted is preserved on the
+// merged write rather than silently dropped.
+func TestDataHubClientWriter_ApplyTagChanges_PreservesUnparseableAssociation(t *testing.T) {
+	var posted []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
+			// One well-formed association and one without a parseable tag URN.
+			_, _ = w.Write([]byte(`{"value":{"tags":[{"tag":"urn:li:tag:Keep"},{"weird":true}]}}`))
+			return
+		}
+		posted, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.ApplyTagChanges(context.Background(), testURN, []string{"urn:li:tag:New"}, nil)
+	require.NoError(t, err)
+
+	body := string(posted)
+	assert.Contains(t, body, "urn:li:tag:Keep")
+	assert.Contains(t, body, "weird", "an association without a parseable URN must be preserved, not dropped")
+	assert.Contains(t, body, "urn:li:tag:New")
+}
+
 func TestDataHubClientWriter_ApplyTagChanges_UnsupportedType(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Error("unsupported entity types must be rejected before any DataHub call")
@@ -504,33 +531,214 @@ func TestParseGlobalTags_InvalidJSON(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestDataHubClientWriter_AddGlossaryTerm(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// glossaryTermsServer mirrors globalTagsServer for the glossaryTerms aspect: it
+// serves the given existing terms on GET and captures the POSTed aspect body,
+// counting reads and writes.
+func glossaryTermsServer(t *testing.T, existing []string, posted *[]byte, gets, posts *int) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			w.WriteHeader(http.StatusNotFound)
+			*gets++
+			if existing == nil {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			assocs := make([]string, 0, len(existing))
+			for _, term := range existing {
+				assocs = append(assocs, `{"urn":"`+term+`"}`)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"value":{"terms":[` + strings.Join(assocs, ",") + `]}}`))
 		case http.MethodPost:
+			*posts++
+			*posted, _ = io.ReadAll(r.Body)
 			w.WriteHeader(http.StatusOK)
 		}
 	}))
+}
+
+// TestDataHubClientWriter_ApplyGlossaryTermChanges_NoClobber is the #729 regression:
+// adding several terms in one call must read once and write all of them, with the
+// required auditStamp, not clobber down to a single term.
+func TestDataHubClientWriter_ApplyGlossaryTermChanges_NoClobber(t *testing.T) {
+	var posted []byte
+	var gets, posts int
+	server := glossaryTermsServer(t, nil, &posted, &gets, &posts)
 	defer server.Close()
 
 	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
-	err := writer.AddGlossaryTerm(context.Background(), testURN, "urn:li:glossaryTerm:Revenue")
-
+	terms := []string{"urn:li:glossaryTerm:a", "urn:li:glossaryTerm:b", "urn:li:glossaryTerm:c"}
+	err := writer.ApplyGlossaryTermChanges(context.Background(), testURN, terms, nil)
 	require.NoError(t, err)
+
+	assert.Equal(t, 1, gets, "a batched apply reads once")
+	assert.Equal(t, 1, posts, "a batched apply writes once")
+	body := string(posted)
+	for _, term := range terms {
+		assert.Contains(t, body, term, "all terms must survive the single write")
+	}
+	assert.Contains(t, body, "auditStamp", "the required auditStamp must be written")
+	assert.Contains(t, body, glossaryAuditActor)
 }
 
-func TestDataHubClientWriter_AddGlossaryTerm_Error(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(`server error`))
+func TestDataHubClientWriter_ApplyGlossaryTermChanges_AddMergesExisting(t *testing.T) {
+	var posted []byte
+	var gets, posts int
+	server := glossaryTermsServer(t, []string{"urn:li:glossaryTerm:Existing"}, &posted, &gets, &posts)
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.ApplyGlossaryTermChanges(context.Background(), testURN, []string{"urn:li:glossaryTerm:New"}, nil)
+	require.NoError(t, err)
+
+	body := string(posted)
+	assert.Contains(t, body, "urn:li:glossaryTerm:Existing", "existing term must be preserved")
+	assert.Contains(t, body, "urn:li:glossaryTerm:New")
+	assert.Equal(t, 1, gets)
+	assert.Equal(t, 1, posts)
+}
+
+func TestDataHubClientWriter_ApplyGlossaryTermChanges_Remove(t *testing.T) {
+	var posted []byte
+	var gets, posts int
+	server := glossaryTermsServer(t, []string{"urn:li:glossaryTerm:Keep", "urn:li:glossaryTerm:Drop"}, &posted, &gets, &posts)
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.ApplyGlossaryTermChanges(context.Background(), testURN, nil, []string{"urn:li:glossaryTerm:Drop"})
+	require.NoError(t, err)
+
+	body := string(posted)
+	assert.Contains(t, body, "urn:li:glossaryTerm:Keep")
+	assert.NotContains(t, body, "urn:li:glossaryTerm:Drop")
+}
+
+func TestDataHubClientWriter_ApplyGlossaryTermChanges_NoChanges(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Error("ApplyGlossaryTermChanges with no add/remove must not hit DataHub")
 	}))
 	defer server.Close()
 
 	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
-	err := writer.AddGlossaryTerm(context.Background(), testURN, "urn:li:glossaryTerm:Revenue")
+	require.NoError(t, writer.ApplyGlossaryTermChanges(context.Background(), testURN, nil, nil))
+}
 
+func TestDataHubClientWriter_ApplyGlossaryTermChanges_UnsupportedType(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Error("unsupported entity types must be rejected before any DataHub call")
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.ApplyGlossaryTermChanges(context.Background(),
+		"urn:li:mlModel:(urn:li:dataPlatform:science,model,PROD)", []string{"urn:li:glossaryTerm:x"}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not support glossary term operations")
+}
+
+func TestDataHubClientWriter_ApplyGlossaryTermChanges_InvalidURN(t *testing.T) {
+	writer := NewDataHubClientWriter(newTestClient(t, "http://unused"))
+	err := writer.ApplyGlossaryTermChanges(context.Background(), "not-a-urn", []string{"urn:li:glossaryTerm:x"}, nil)
+	assert.Error(t, err)
+}
+
+func TestDataHubClientWriter_ApplyGlossaryTermChanges_ReadError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`boom`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.ApplyGlossaryTermChanges(context.Background(), testURN, []string{"urn:li:glossaryTerm:x"}, nil)
+	assert.Error(t, err)
+}
+
+func TestDataHubClientWriter_ApplyGlossaryTermChanges_WriteError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`boom`))
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.ApplyGlossaryTermChanges(context.Background(), testURN, []string{"urn:li:glossaryTerm:x"}, nil)
+	assert.Error(t, err)
+}
+
+// TestDataHubClientWriter_ApplyGlossaryTermChanges_GraphQLType verifies that for
+// entity types whose glossaryTerms aspect is GraphQL-only, term changes go through
+// the upstream per-term GraphQL mutation rather than a REST aspect write, and a term
+// in both add and remove is left removed.
+func TestDataHubClientWriter_ApplyGlossaryTermChanges_GraphQLType(t *testing.T) {
+	var addedTerms []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method, "GraphQL types must not issue REST aspect GETs")
+		body, _ := io.ReadAll(r.Body)
+		s := string(body)
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(s, "removeTerm") {
+			_ = json.NewEncoder(w).Encode(graphQLResponse{Data: json.RawMessage(`{"removeTerm":true}`)})
+			return
+		}
+		if strings.Contains(s, "urn:li:glossaryTerm:Both") {
+			addedTerms = append(addedTerms, "urn:li:glossaryTerm:Both")
+		}
+		_ = json.NewEncoder(w).Encode(graphQLResponse{Data: json.RawMessage(`{"addTerm":true}`)})
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.ApplyGlossaryTermChanges(context.Background(),
+		"urn:li:domain:sales", []string{"urn:li:glossaryTerm:Both"}, []string{"urn:li:glossaryTerm:Both"})
+	require.NoError(t, err)
+	assert.Empty(t, addedTerms, "a term in both add and remove must not be re-added")
+}
+
+func TestDataHubClientWriter_ApplyGlossaryTermChanges_GraphQLTypeError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`boom`))
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	addErr := writer.ApplyGlossaryTermChanges(context.Background(), "urn:li:domain:sales", []string{"urn:li:glossaryTerm:x"}, nil)
+	assert.Error(t, addErr)
+	removeErr := writer.ApplyGlossaryTermChanges(context.Background(), "urn:li:domain:sales", nil, []string{"urn:li:glossaryTerm:x"})
+	assert.Error(t, removeErr)
+}
+
+func TestGlossaryTermURNOf(t *testing.T) {
+	assert.Equal(t, "urn:li:glossaryTerm:a", glossaryTermURNOf([]byte(`{"urn":"urn:li:glossaryTerm:a"}`)))
+	assert.Empty(t, glossaryTermURNOf([]byte(`{"nourn":1}`)))
+	assert.Empty(t, glossaryTermURNOf([]byte(`not json`)))
+}
+
+func TestParseGlossaryTerms(t *testing.T) {
+	aspect, err := parseGlossaryTerms([]byte(`{"value":{"terms":[{"urn":"urn:li:glossaryTerm:a"}]}}`))
+	require.NoError(t, err)
+	require.Len(t, aspect.Terms, 1)
+	assert.Equal(t, "urn:li:glossaryTerm:a", glossaryTermURNOf(aspect.Terms[0]))
+}
+
+func TestParseGlossaryTerms_NullValue(t *testing.T) {
+	aspect, err := parseGlossaryTerms([]byte(`{"value":null}`))
+	require.NoError(t, err)
+	assert.Empty(t, aspect.Terms)
+}
+
+func TestParseGlossaryTerms_InvalidJSON(t *testing.T) {
+	_, err := parseGlossaryTerms([]byte(`not json`))
 	assert.Error(t, err)
 }
 

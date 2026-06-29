@@ -45,9 +45,10 @@ func TestNoopDataHubWriter_ApplyTagChanges(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestNoopDataHubWriter_AddGlossaryTerm(t *testing.T) {
+func TestNoopDataHubWriter_ApplyGlossaryTermChanges(t *testing.T) {
 	writer := &NoopDataHubWriter{}
-	err := writer.AddGlossaryTerm(context.Background(), testDatasetURN, "urn:li:glossaryTerm:revenue")
+	err := writer.ApplyGlossaryTermChanges(context.Background(), testDatasetURN,
+		[]string{"urn:li:glossaryTerm:revenue"}, []string{"urn:li:glossaryTerm:old"})
 	assert.NoError(t, err)
 }
 

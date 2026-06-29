@@ -47,8 +47,9 @@ func TestRevertChangeset_RemovesAddedTerm(t *testing.T) {
 	res, err := RevertChangeset(context.Background(), RollbackDeps{Writer: writer, Changesets: store, Insights: insights}, cs, "admin")
 	require.NoError(t, err)
 	require.Len(t, writer.WriteCalls, 1)
-	assert.Equal(t, "RemoveGlossaryTerm", writer.WriteCalls[0].Method)
-	assert.Equal(t, "urn:li:glossaryTerm:new", writer.WriteCalls[0].Arg1)
+	assert.Equal(t, "ApplyGlossaryTermChanges", writer.WriteCalls[0].Method)
+	assert.Empty(t, writer.WriteCalls[0].Arg1, "no adds")
+	assert.Equal(t, "urn:li:glossaryTerm:new", writer.WriteCalls[0].Arg2)
 	assert.True(t, store.Changesets[0].RolledBack)
 	assert.Equal(t, []string{"ins-1"}, res.InsightsRolledBack)
 	assert.Equal(t, StatusRolledBack, insights.Insights[0].Status)
@@ -116,6 +117,60 @@ func TestRevertChangeset_MultiTagBatch(t *testing.T) {
 	// The pre-existing tag "a" is kept (skipped), b and c are reverted.
 	assert.Len(t, res.RevertedChanges, 2)
 	assert.Len(t, res.SkippedChanges, 1)
+}
+
+// TestRevertChangeset_MultiGlossaryTermBatch is the #729 regression for rollback:
+// reverting a changeset that added several glossary terms must remove them in a
+// single batched ApplyGlossaryTermChanges, keeping any pre-existing term.
+func TestRevertChangeset_MultiGlossaryTermBatch(t *testing.T) {
+	cs := baseChangeset("cs1",
+		map[string]any{
+			"change_0": changeEntry("add_glossary_term", "", "urn:li:glossaryTerm:a"),
+			"change_1": changeEntry("add_glossary_term", "", "urn:li:glossaryTerm:b"),
+			"change_2": changeEntry("add_glossary_term", "", "urn:li:glossaryTerm:c"),
+		},
+		// Term "a" pre-existed, so it must be kept; b and c were added by the changeset.
+		map[string]any{"glossary_terms": []any{"urn:li:glossaryTerm:a"}},
+	)
+	store := seededStore(cs)
+	writer := &spyWriter{}
+
+	res, err := RevertChangeset(context.Background(), RollbackDeps{Writer: writer, Changesets: store, Insights: &fullSpyStore{}}, cs, "admin")
+	require.NoError(t, err)
+
+	// Exactly one batched write removing only the newly-added terms.
+	require.Len(t, writer.WriteCalls, 1)
+	assert.Equal(t, "ApplyGlossaryTermChanges", writer.WriteCalls[0].Method)
+	assert.Empty(t, writer.WriteCalls[0].Arg1, "no adds")
+	assert.Equal(t, "urn:li:glossaryTerm:b,urn:li:glossaryTerm:c", writer.WriteCalls[0].Arg2)
+
+	// The pre-existing term "a" is kept (skipped), b and c are reverted.
+	assert.Len(t, res.RevertedChanges, 2)
+	assert.Len(t, res.SkippedChanges, 1)
+}
+
+// TestRevertChangeset_PartialRevertReportsProgress verifies that when an earlier
+// batched revert (tags) succeeds but a later one (glossary terms) fails, the error
+// reports what was already reverted rather than discarding it (and claiming zero).
+func TestRevertChangeset_PartialRevertReportsProgress(t *testing.T) {
+	cs := baseChangeset("cs1",
+		map[string]any{
+			"change_0": changeEntry("add_tag", "", "pii"),
+			"change_1": changeEntry("add_glossary_term", "", "urn:li:glossaryTerm:revenue"),
+		},
+		map[string]any{"tags": []any{}, "glossary_terms": []any{}},
+	)
+	store := seededStore(cs)
+	// Tag revert is call 1 (succeeds); glossary-term revert is call 2 (fails).
+	writer := &spyWriter{FailAtCall: 2}
+
+	res, err := RevertChangeset(context.Background(), RollbackDeps{Writer: writer, Changesets: store, Insights: &fullSpyStore{}}, cs, "admin")
+	require.Error(t, err)
+	assert.Nil(t, res)
+	// The tag was actually removed from DataHub, so the error must not claim zero
+	// changes were reverted.
+	assert.Contains(t, err.Error(), "reverting 1 change")
+	assert.NotContains(t, err.Error(), "reverting 0 change")
 }
 
 func TestRevertChangeset_ReAddsRemovedTag(t *testing.T) {
