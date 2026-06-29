@@ -15,8 +15,13 @@ type DataHubWriter interface {
 	// read-modify-write cycle, avoiding the stale-read bug where back-to-back single
 	// calls lose all but the last column.
 	UpdateColumnDescriptionBatch(ctx context.Context, urn string, columns map[string]string) error
-	AddTag(ctx context.Context, urn string, tag string) error
-	RemoveTag(ctx context.Context, urn string, tag string) error
+	// ApplyTagChanges adds and removes the given tags in a single read-modify-write
+	// of the globalTags aspect. Per-tag writes are read-modify-write against
+	// DataHub's eventually consistent store, so back-to-back single calls read stale
+	// tag state and the last write clobbers the rest, silently dropping tags (#721).
+	// Batching every add/remove for an entity into one read-modify-write is lossless.
+	// add and remove hold full TagUrns; a tag in both add and remove is removed.
+	ApplyTagChanges(ctx context.Context, urn string, add, remove []string) error
 	AddGlossaryTerm(ctx context.Context, urn string, termURN string) error
 	// RemoveGlossaryTerm removes a glossary term association. Used to revert add_glossary_term.
 	RemoveGlossaryTerm(ctx context.Context, urn string, termURN string) error
@@ -63,11 +68,10 @@ func (*NoopDataHubWriter) UpdateColumnDescriptionBatch(_ context.Context, _ stri
 	return nil
 }
 
-// AddTag is a no-op.
-func (*NoopDataHubWriter) AddTag(_ context.Context, _, _ string) error { return nil }
-
-// RemoveTag is a no-op.
-func (*NoopDataHubWriter) RemoveTag(_ context.Context, _, _ string) error { return nil }
+// ApplyTagChanges is a no-op.
+func (*NoopDataHubWriter) ApplyTagChanges(_ context.Context, _ string, _, _ []string) error {
+	return nil
+}
 
 // AddGlossaryTerm is a no-op.
 func (*NoopDataHubWriter) AddGlossaryTerm(_ context.Context, _, _ string) error { return nil }

@@ -39,15 +39,9 @@ func TestNoopDataHubWriter_UpdateDescription(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestNoopDataHubWriter_AddTag(t *testing.T) {
+func TestNoopDataHubWriter_ApplyTagChanges(t *testing.T) {
 	writer := &NoopDataHubWriter{}
-	err := writer.AddTag(context.Background(), testDatasetURN, "important")
-	assert.NoError(t, err)
-}
-
-func TestNoopDataHubWriter_RemoveTag(t *testing.T) {
-	writer := &NoopDataHubWriter{}
-	err := writer.RemoveTag(context.Background(), testDatasetURN, "deprecated")
+	err := writer.ApplyTagChanges(context.Background(), testDatasetURN, []string{"important"}, []string{"deprecated"})
 	assert.NoError(t, err)
 }
 

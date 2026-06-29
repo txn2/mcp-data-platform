@@ -296,6 +296,9 @@ type spyWriter struct {
 	FailAtCall  int // If > 0, fail on the Nth write call
 	currentCall int
 	QueryURN    string // URN returned by CreateCuratedQuery
+	// TagState simulates the persisted globalTags per URN, applied additively by
+	// ApplyTagChanges so tests can assert the batched write does not clobber tags.
+	TagState map[string]map[string]bool
 }
 
 type writerCall struct {
@@ -347,12 +350,25 @@ func (w *spyWriter) UpdateColumnDescriptionBatch(_ context.Context, urn string, 
 	return nil
 }
 
-func (w *spyWriter) AddTag(_ context.Context, urn, tag string) error {
-	return w.recordAndCheck("AddTag", urn, tag, "")
-}
-
-func (w *spyWriter) RemoveTag(_ context.Context, urn, tag string) error {
-	return w.recordAndCheck("RemoveTag", urn, tag, "")
+func (w *spyWriter) ApplyTagChanges(_ context.Context, urn string, add, remove []string) error {
+	if err := w.recordAndCheck("ApplyTagChanges", urn, strings.Join(add, ","), strings.Join(remove, ",")); err != nil {
+		return err
+	}
+	// Model the server-side additive/subtractive semantics so regression tests can
+	// assert that a batched apply/rollback does not clobber pre-existing tags (#721).
+	if w.TagState == nil {
+		w.TagState = map[string]map[string]bool{}
+	}
+	if w.TagState[urn] == nil {
+		w.TagState[urn] = map[string]bool{}
+	}
+	for _, t := range remove {
+		delete(w.TagState[urn], t)
+	}
+	for _, t := range add {
+		w.TagState[urn][t] = true
+	}
+	return nil
 }
 
 func (w *spyWriter) AddGlossaryTerm(_ context.Context, urn, termURN string) error {
@@ -1322,21 +1338,25 @@ func TestHandleApply_WritesToDataHub(t *testing.T) {
 	require.Nil(t, callErr)
 	require.False(t, result.IsError, "expected success but got error: %v", result.Content)
 
-	// Verify all 6 write calls were made
-	assert.Len(t, writer.WriteCalls, 6)
-	assert.Equal(t, "UpdateDescription", writer.WriteCalls[0].Method)
-	assert.Equal(t, "AddTag", writer.WriteCalls[1].Method)
-	assert.Equal(t, "urn:li:tag:important", writer.WriteCalls[1].Arg1)
-	assert.Equal(t, "RemoveTag", writer.WriteCalls[2].Method)
-	assert.Equal(t, "urn:li:tag:deprecated", writer.WriteCalls[2].Arg1)
-	assert.Equal(t, "AddGlossaryTerm", writer.WriteCalls[3].Method)
-	assert.Equal(t, "AddDocumentationLink", writer.WriteCalls[4].Method)
-	assert.Equal(t, "https://docs.example.com", writer.WriteCalls[4].Arg1)
-	assert.Equal(t, "Revenue docs", writer.WriteCalls[4].Arg2)
-	assert.Equal(t, "AddTag", writer.WriteCalls[5].Method)
+	// The three tag changes (add_tag, remove_tag, flag_quality_issue) are batched
+	// into a single ApplyTagChanges that runs before the other dispatched writes
+	// (#721). Remaining writes: update_description, add_glossary_term, add_documentation.
+	assert.Len(t, writer.WriteCalls, 4)
+	assert.Equal(t, "ApplyTagChanges", writer.WriteCalls[0].Method)
+	// Arg1 is the comma-joined adds (add_tag then flag_quality_issue's QualityIssue),
+	// Arg2 the comma-joined removes.
+	assert.Equal(t, "urn:li:tag:important,urn:li:tag:QualityIssue", writer.WriteCalls[0].Arg1)
+	assert.Equal(t, "urn:li:tag:deprecated", writer.WriteCalls[0].Arg2)
+	assert.Equal(t, "UpdateDescription", writer.WriteCalls[1].Method)
+	assert.Equal(t, "AddGlossaryTerm", writer.WriteCalls[2].Method)
+	assert.Equal(t, "AddDocumentationLink", writer.WriteCalls[3].Method)
+	assert.Equal(t, "https://docs.example.com", writer.WriteCalls[3].Arg1)
+	assert.Equal(t, "Revenue docs", writer.WriteCalls[3].Arg2)
 
-	// Verify flag_quality_issue uses fixed QualityIssue tag (not dynamic slugified tag)
-	assert.Equal(t, "urn:li:tag:QualityIssue", writer.WriteCalls[5].Arg1)
+	// The QualityIssue tag survives in the same batched write as the other tags,
+	// rather than being clobbered by a separate per-tag write.
+	assert.Contains(t, writer.TagState[testEntityURN], "urn:li:tag:important")
+	assert.Contains(t, writer.TagState[testEntityURN], "urn:li:tag:QualityIssue")
 
 	// Verify all writes target the correct URN
 	for _, wc := range writer.WriteCalls {
@@ -1527,7 +1547,6 @@ func TestHandleApply_WriterFailsMidBatch(t *testing.T) {
 	m := parseJSONResult(t, result)
 	errMsg, _ := m["error"].(string)
 	assert.Contains(t, errMsg, "datahub write failed")
-	assert.Contains(t, errMsg, "2 of 3")
 
 	// No changeset should be recorded on failure
 	assert.Empty(t, csStore.Changesets)
@@ -2266,30 +2285,27 @@ func TestExecuteChanges_AllTypes(t *testing.T) {
 
 	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
 	require.NoError(t, err)
-	assert.Len(t, writer.WriteCalls, 6)
+	// add_tag, remove_tag, and flag_quality_issue collapse into one batched
+	// ApplyTagChanges (run first), leaving update_description, add_glossary_term,
+	// and add_documentation as individual dispatched writes (#721).
+	assert.Len(t, writer.WriteCalls, 4)
 
-	assert.Equal(t, "UpdateDescription", writer.WriteCalls[0].Method)
-	assert.Equal(t, "new desc", writer.WriteCalls[0].Arg1)
+	// Batched tag write: adds (add_tag then flag_quality_issue) and removes, with
+	// short names normalized to full URNs.
+	assert.Equal(t, "ApplyTagChanges", writer.WriteCalls[0].Method)
+	assert.Equal(t, "urn:li:tag:tag1,urn:li:tag:QualityIssue", writer.WriteCalls[0].Arg1)
+	assert.Equal(t, "urn:li:tag:old_tag", writer.WriteCalls[0].Arg2)
 
-	// add_tag: short name normalized to full URN
-	assert.Equal(t, "AddTag", writer.WriteCalls[1].Method)
-	assert.Equal(t, "urn:li:tag:tag1", writer.WriteCalls[1].Arg1)
+	assert.Equal(t, "UpdateDescription", writer.WriteCalls[1].Method)
+	assert.Equal(t, "new desc", writer.WriteCalls[1].Arg1)
 
-	// remove_tag: short name normalized to full URN
-	assert.Equal(t, "RemoveTag", writer.WriteCalls[2].Method)
-	assert.Equal(t, "urn:li:tag:old_tag", writer.WriteCalls[2].Arg1)
-
-	assert.Equal(t, "AddGlossaryTerm", writer.WriteCalls[3].Method)
-	assert.Equal(t, "urn:li:glossaryTerm:t1", writer.WriteCalls[3].Arg1)
+	assert.Equal(t, "AddGlossaryTerm", writer.WriteCalls[2].Method)
+	assert.Equal(t, "urn:li:glossaryTerm:t1", writer.WriteCalls[2].Arg1)
 
 	// add_documentation: detail=description, target=URL
-	assert.Equal(t, "AddDocumentationLink", writer.WriteCalls[4].Method)
-	assert.Equal(t, "https://docs.example.com", writer.WriteCalls[4].Arg1)
-	assert.Equal(t, "API Docs", writer.WriteCalls[4].Arg2)
-
-	// flag_quality_issue: fixed QualityIssue tag (detail is stored as context, not in tag name)
-	assert.Equal(t, "AddTag", writer.WriteCalls[5].Method)
-	assert.Equal(t, "urn:li:tag:QualityIssue", writer.WriteCalls[5].Arg1)
+	assert.Equal(t, "AddDocumentationLink", writer.WriteCalls[3].Method)
+	assert.Equal(t, "https://docs.example.com", writer.WriteCalls[3].Arg1)
+	assert.Equal(t, "API Docs", writer.WriteCalls[3].Arg2)
 }
 
 func TestExecuteChanges_AddCuratedQuery(t *testing.T) {
@@ -2339,7 +2355,28 @@ func TestExecuteChanges_FailsOnError(t *testing.T) {
 
 	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "datahub write failed for change 1 of 2")
+	// Both tags are written in one batched call, so a writer failure surfaces as a
+	// single tag-changes error rather than a per-change failure.
+	assert.Contains(t, err.Error(), "datahub write failed for tag changes")
+}
+
+// TestExecuteChanges_DispatchFailAfterTagBatch verifies that when the batched tag
+// write has already persisted and a later dispatched change fails, the error does
+// not claim "no changes were applied" (which would mislead the operator into not
+// cleaning up the already-applied tags).
+func TestExecuteChanges_DispatchFailAfterTagBatch(t *testing.T) {
+	writer := &spyWriter{FailAtCall: 2} // tag batch (call 1) succeeds, glossary (call 2) fails
+	tk := &Toolkit{datahubWriter: writer}
+
+	changes := []ApplyChange{
+		{ChangeType: "add_tag", Detail: "important"},
+		{ChangeType: "add_glossary_term", Detail: "Revenue"},
+	}
+
+	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "no changes were applied")
+	assert.Contains(t, err.Error(), "earlier changes in this changeset were already applied")
 }
 
 func TestExecuteChanges_UnknownType(t *testing.T) {
@@ -2433,14 +2470,14 @@ func TestExecuteChanges_MixedColumnAndDataset(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, writer.WriteCalls, 3)
 
-	// Column descriptions are batched and applied first.
+	// Column descriptions are batched and applied first, then the batched tag
+	// changes, then the remaining non-column changes.
 	assert.Equal(t, "UpdateColumnDescriptionBatch", writer.WriteCalls[0].Method)
 	assert.Equal(t, "email", writer.WriteCalls[0].Arg1)
-	// Then non-column changes in order.
-	assert.Equal(t, "UpdateDescription", writer.WriteCalls[1].Method)
-	assert.Equal(t, "AddTag", writer.WriteCalls[2].Method)
+	assert.Equal(t, "ApplyTagChanges", writer.WriteCalls[1].Method)
 	// Full URN should pass through unchanged (no double-prepend)
-	assert.Equal(t, "urn:li:tag:PII", writer.WriteCalls[2].Arg1)
+	assert.Equal(t, "urn:li:tag:PII", writer.WriteCalls[1].Arg1)
+	assert.Equal(t, "UpdateDescription", writer.WriteCalls[2].Method)
 }
 
 func TestExecuteChanges_ColumnTargetError(t *testing.T) {
@@ -2524,12 +2561,11 @@ func TestExecuteChanges_TagNormalization(t *testing.T) {
 
 	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
 	require.NoError(t, err)
-	require.Len(t, writer.WriteCalls, 2)
-
-	// Short name gets normalized
-	assert.Equal(t, "urn:li:tag:pii", writer.WriteCalls[0].Arg1)
-	// Full URN passes through unchanged
-	assert.Equal(t, "urn:li:tag:pii", writer.WriteCalls[1].Arg1)
+	// Both add_tag changes batch into a single ApplyTagChanges; each short name is
+	// normalized to its full URN.
+	require.Len(t, writer.WriteCalls, 1)
+	assert.Equal(t, "ApplyTagChanges", writer.WriteCalls[0].Method)
+	assert.Equal(t, "urn:li:tag:pii,urn:li:tag:pii", writer.WriteCalls[0].Arg1)
 }
 
 func TestExecuteChanges_RemoveTag(t *testing.T) {
@@ -2543,14 +2579,12 @@ func TestExecuteChanges_RemoveTag(t *testing.T) {
 
 	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
 	require.NoError(t, err)
-	require.Len(t, writer.WriteCalls, 2)
-
-	// Short name gets normalized
-	assert.Equal(t, "RemoveTag", writer.WriteCalls[0].Method)
-	assert.Equal(t, "urn:li:tag:deprecated", writer.WriteCalls[0].Arg1)
-	// Full URN passes through unchanged
-	assert.Equal(t, "RemoveTag", writer.WriteCalls[1].Method)
-	assert.Equal(t, "urn:li:tag:QualityIssue", writer.WriteCalls[1].Arg1)
+	// Both remove_tag changes batch into a single ApplyTagChanges; the removes are
+	// the comma-joined Arg2, with short names normalized to full URNs.
+	require.Len(t, writer.WriteCalls, 1)
+	assert.Equal(t, "ApplyTagChanges", writer.WriteCalls[0].Method)
+	assert.Empty(t, writer.WriteCalls[0].Arg1, "no adds")
+	assert.Equal(t, "urn:li:tag:deprecated,urn:li:tag:QualityIssue", writer.WriteCalls[0].Arg2)
 }
 
 func TestExecuteChanges_FlagQualityIssue_FixedTag(t *testing.T) {
@@ -2566,13 +2600,12 @@ func TestExecuteChanges_FlagQualityIssue_FixedTag(t *testing.T) {
 
 	_, err := tk.executeChanges(context.Background(), testEntityURN, changes)
 	require.NoError(t, err)
-	require.Len(t, writer.WriteCalls, 3)
-
-	// All calls should use the same fixed tag
-	for i, call := range writer.WriteCalls {
-		assert.Equal(t, "AddTag", call.Method, "call %d", i)
-		assert.Equal(t, "urn:li:tag:QualityIssue", call.Arg1, "call %d", i)
-	}
+	// All flag_quality_issue changes batch into a single ApplyTagChanges adding the
+	// fixed QualityIssue tag, regardless of detail text.
+	require.Len(t, writer.WriteCalls, 1)
+	assert.Equal(t, "ApplyTagChanges", writer.WriteCalls[0].Method)
+	assert.Equal(t, "urn:li:tag:QualityIssue,urn:li:tag:QualityIssue,urn:li:tag:QualityIssue", writer.WriteCalls[0].Arg1)
+	assert.Contains(t, writer.TagState[testEntityURN], "urn:li:tag:QualityIssue")
 }
 
 func TestExecuteChanges_GlossaryTermNormalization(t *testing.T) {
@@ -2754,7 +2787,10 @@ func TestHandleApply_AddTagOnNonDatasetSucceeds(t *testing.T) {
 	require.Nil(t, callErr)
 	require.False(t, result.IsError, "tag/glossary/doc/quality ops should work on domains: %v", result.Content)
 
-	assert.Len(t, writer.WriteCalls, 5)
+	// add_tag, remove_tag, and flag_quality_issue batch into one ApplyTagChanges,
+	// leaving add_glossary_term and add_documentation as individual writes.
+	assert.Len(t, writer.WriteCalls, 3)
+	assert.Equal(t, "ApplyTagChanges", writer.WriteCalls[0].Method)
 }
 
 func TestHandleApply_MixedChangesRejectsBeforeExecution(t *testing.T) {

@@ -679,13 +679,47 @@ func (t *Toolkit) executeChanges(ctx context.Context, urn string, changes []Appl
 
 	columnDescs, nonColumnChanges := partitionColumnChanges(changes)
 
+	// Track whether any batched write (column descriptions, tags) has already been
+	// persisted, so a later per-change failure does not falsely report that nothing
+	// was applied. These batched writes run before the per-change dispatch loop.
+	priorWrites := false
+
 	if len(columnDescs) > 0 {
 		if err := t.datahubWriter.UpdateColumnDescriptionBatch(ctx, urn, columnDescs); err != nil {
 			return nil, fmt.Errorf("datahub write failed for column descriptions: %w", err)
 		}
+		priorWrites = true
 	}
 
-	return t.dispatchNonColumnChanges(ctx, urn, nonColumnChanges)
+	addTags, removeTags, otherChanges := partitionTagChanges(nonColumnChanges)
+	if len(addTags) > 0 || len(removeTags) > 0 {
+		if err := t.datahubWriter.ApplyTagChanges(ctx, urn, addTags, removeTags); err != nil {
+			return nil, fmt.Errorf("datahub write failed for tag changes: %w", err)
+		}
+		priorWrites = true
+	}
+
+	return t.dispatchNonColumnChanges(ctx, urn, otherChanges, priorWrites)
+}
+
+// partitionTagChanges separates tag-setting changes (add_tag, remove_tag, and
+// flag_quality_issue, which sets the QualityIssue tag) from other changes so they
+// can be applied in a single read-modify-write. Batching avoids the stale-read
+// clobber where back-to-back per-tag writes drop all but the last tag (#721).
+func partitionTagChanges(changes []ApplyChange) (add, remove []string, other []ApplyChange) {
+	for _, c := range changes {
+		switch c.ChangeType {
+		case string(actionAddTag):
+			add = append(add, normalizeTagURN(c.Detail))
+		case string(actionRemoveTag):
+			remove = append(remove, normalizeTagURN(c.Detail))
+		case string(actionFlagQualityIssue):
+			add = append(add, qualityIssueTagURN)
+		default:
+			other = append(other, c)
+		}
+	}
+	return add, remove, other
 }
 
 // validateAllChanges pre-checks entity type compatibility for all changes.
@@ -714,19 +748,23 @@ func partitionColumnChanges(changes []ApplyChange) (map[string]string, []ApplyCh
 	return columnDescs, other
 }
 
-// dispatchNonColumnChanges applies non-column changes individually.
-func (t *Toolkit) dispatchNonColumnChanges(ctx context.Context, urn string, changes []ApplyChange) ([]string, error) {
+// dispatchNonColumnChanges applies non-column changes individually. priorWrites
+// reports whether batched writes (column descriptions, tags) were already persisted
+// before this loop, so a failure on the first dispatched change is not mislabeled as
+// "no changes were applied".
+func (t *Toolkit) dispatchNonColumnChanges(ctx context.Context, urn string, changes []ApplyChange, priorWrites bool) ([]string, error) {
 	var createdURNs []string
 	for i, c := range changes {
 		queryURN, err := t.dispatchChange(ctx, urn, c)
 		if err != nil {
-			// Writes are not transactional: changes 1..i already persisted and are
-			// NOT automatically undone. Report this honestly so the caller can use
-			// rollback (or re-apply) rather than assuming a clean failure.
-			if i == 0 {
+			// Writes are not transactional: any batched writes plus dispatched changes
+			// 1..i already persisted and are NOT automatically undone. Report this
+			// honestly so the caller can re-apply (or roll back) rather than assuming a
+			// clean failure.
+			if i == 0 && !priorWrites {
 				return nil, fmt.Errorf("datahub write failed for change 1 of %d: %w (no changes were applied)", len(changes), err)
 			}
-			return nil, fmt.Errorf("datahub write failed for change %d of %d: %w (changes 1-%d were already applied and were NOT rolled back)", i+1, len(changes), err, i)
+			return nil, fmt.Errorf("datahub write failed for change %d of %d: %w (earlier changes in this changeset were already applied and were NOT rolled back)", i+1, len(changes), err)
 		}
 		if queryURN != "" {
 			createdURNs = append(createdURNs, queryURN)
@@ -751,19 +789,16 @@ func (t *Toolkit) dispatchChange(ctx context.Context, urn string, c ApplyChange)
 // dispatchCoreOrV14Change handles core DataHub changes and delegates to V14 for newer types.
 func (t *Toolkit) dispatchCoreOrV14Change(ctx context.Context, urn string, c ApplyChange) (string, error) {
 	var err error
+	// Tag changes (add_tag, remove_tag, flag_quality_issue) are not handled here:
+	// executeChanges batches them through ApplyTagChanges so a multi-tag apply is a
+	// single read-modify-write rather than a clobbering sequence of per-tag writes (#721).
 	switch c.ChangeType {
 	case string(actionUpdateDescription):
 		err = t.executeUpdateDescription(ctx, urn, c)
-	case string(actionAddTag):
-		err = t.datahubWriter.AddTag(ctx, urn, normalizeTagURN(c.Detail))
-	case string(actionRemoveTag):
-		err = t.datahubWriter.RemoveTag(ctx, urn, normalizeTagURN(c.Detail))
 	case string(actionAddGlossaryTerm):
 		err = t.datahubWriter.AddGlossaryTerm(ctx, urn, normalizeGlossaryTermURN(c.Detail))
 	case string(actionAddDocumentation):
 		err = t.datahubWriter.AddDocumentationLink(ctx, urn, c.Target, c.Detail)
-	case string(actionFlagQualityIssue):
-		err = t.datahubWriter.AddTag(ctx, urn, qualityIssueTagURN)
 	default:
 		return t.dispatchV14Change(ctx, urn, c)
 	}

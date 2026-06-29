@@ -181,56 +181,327 @@ func TestDataHubClientWriter_UpdateDescription_Error(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestDataHubClientWriter_AddTag(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// globalTagsServer returns a test server that serves the given existing tags on
+// GET (as the globalTags aspect) and captures the POSTed aspect body. A nil
+// existing slice responds 404 (no aspect yet). It records the number of GET and
+// POST requests so tests can assert a single read-modify-write.
+func globalTagsServer(t *testing.T, existing []string, posted *[]byte, gets, posts *int) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			// Return empty tags (not found)
-			w.WriteHeader(http.StatusNotFound)
+			*gets++
+			if existing == nil {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			assocs := make([]string, 0, len(existing))
+			for _, tag := range existing {
+				assocs = append(assocs, `{"tag":"`+tag+`"}`)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"value":{"tags":[` + strings.Join(assocs, ",") + `]}}`))
 		case http.MethodPost:
+			*posts++
+			*posted, _ = io.ReadAll(r.Body)
 			w.WriteHeader(http.StatusOK)
 		}
 	}))
+}
+
+func TestDataHubClientWriter_ApplyTagChanges_AddMergesExisting(t *testing.T) {
+	var posted []byte
+	var gets, posts int
+	server := globalTagsServer(t, []string{"urn:li:tag:Existing"}, &posted, &gets, &posts)
 	defer server.Close()
 
 	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
-	err := writer.AddTag(context.Background(), testURN, "urn:li:tag:NewTag")
-
+	err := writer.ApplyTagChanges(context.Background(), testURN, []string{"urn:li:tag:NewTag"}, nil)
 	require.NoError(t, err)
+
+	body := string(posted)
+	assert.Contains(t, body, "urn:li:tag:Existing", "existing tag must be preserved")
+	assert.Contains(t, body, "urn:li:tag:NewTag", "new tag must be added")
+	assert.Equal(t, 1, gets, "exactly one read")
+	assert.Equal(t, 1, posts, "exactly one write")
 }
 
-func TestDataHubClientWriter_AddTag_Error(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(`server error`))
+// TestDataHubClientWriter_ApplyTagChanges_NoClobber is the #721 regression: adding
+// several tags in one call must read once and write all of them, not clobber down
+// to a single tag the way back-to-back per-tag read-modify-writes did.
+func TestDataHubClientWriter_ApplyTagChanges_NoClobber(t *testing.T) {
+	var posted []byte
+	var gets, posts int
+	server := globalTagsServer(t, nil, &posted, &gets, &posts)
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	tags := []string{"urn:li:tag:a", "urn:li:tag:b", "urn:li:tag:c", "urn:li:tag:d"}
+	err := writer.ApplyTagChanges(context.Background(), testURN, tags, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, gets, "a batched apply reads once")
+	assert.Equal(t, 1, posts, "a batched apply writes once")
+	body := string(posted)
+	for _, tag := range tags {
+		assert.Contains(t, body, tag, "all tags must survive the single write")
+	}
+}
+
+func TestDataHubClientWriter_ApplyTagChanges_Remove(t *testing.T) {
+	var posted []byte
+	var gets, posts int
+	server := globalTagsServer(t, []string{"urn:li:tag:Keep", "urn:li:tag:Remove"}, &posted, &gets, &posts)
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.ApplyTagChanges(context.Background(), testURN, nil, []string{"urn:li:tag:Remove"})
+	require.NoError(t, err)
+
+	body := string(posted)
+	assert.Contains(t, body, "urn:li:tag:Keep")
+	assert.NotContains(t, body, "urn:li:tag:Remove")
+}
+
+// TestDataHubClientWriter_ApplyTagChanges_AddAndRemove verifies a mixed delta (as
+// produced by a rollback containing both add_tag and remove_tag) is applied in a
+// single read-modify-write.
+func TestDataHubClientWriter_ApplyTagChanges_AddAndRemove(t *testing.T) {
+	var posted []byte
+	var gets, posts int
+	server := globalTagsServer(t, []string{"urn:li:tag:Old"}, &posted, &gets, &posts)
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.ApplyTagChanges(context.Background(), testURN, []string{"urn:li:tag:New"}, []string{"urn:li:tag:Old"})
+	require.NoError(t, err)
+
+	body := string(posted)
+	assert.Contains(t, body, "urn:li:tag:New")
+	assert.NotContains(t, body, "urn:li:tag:Old")
+	assert.Equal(t, 1, gets)
+	assert.Equal(t, 1, posts)
+}
+
+// TestDataHubClientWriter_ApplyTagChanges_Dedup ensures adding a tag that already
+// exists does not duplicate it, and a tag in both add and remove is removed.
+func TestDataHubClientWriter_ApplyTagChanges_Dedup(t *testing.T) {
+	var posted []byte
+	var gets, posts int
+	server := globalTagsServer(t, []string{"urn:li:tag:Dup"}, &posted, &gets, &posts)
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.ApplyTagChanges(context.Background(), testURN,
+		[]string{"urn:li:tag:Dup", "urn:li:tag:Conflict"}, []string{"urn:li:tag:Conflict"})
+	require.NoError(t, err)
+
+	body := string(posted)
+	assert.Equal(t, 1, strings.Count(body, "urn:li:tag:Dup"), "existing tag must not be duplicated")
+	assert.NotContains(t, body, "urn:li:tag:Conflict", "a tag in both add and remove is removed")
+}
+
+func TestDataHubClientWriter_ApplyTagChanges_NoChanges(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Error("ApplyTagChanges with no add/remove must not hit DataHub")
 	}))
 	defer server.Close()
 
 	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
-	err := writer.AddTag(context.Background(), testURN, "urn:li:tag:NewTag")
+	require.NoError(t, writer.ApplyTagChanges(context.Background(), testURN, nil, nil))
+}
 
+func TestDataHubClientWriter_ApplyTagChanges_InvalidURN(t *testing.T) {
+	writer := NewDataHubClientWriter(newTestClient(t, "http://unused"))
+	err := writer.ApplyTagChanges(context.Background(), "not-a-urn", []string{"urn:li:tag:x"}, nil)
 	assert.Error(t, err)
 }
 
-func TestDataHubClientWriter_RemoveTag(t *testing.T) {
+func TestDataHubClientWriter_ApplyTagChanges_ReadError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			w.Header().Set("Content-Type", "application/json")
-			resp := map[string]json.RawMessage{
-				"value": json.RawMessage(`{"tags":[{"tag":"urn:li:tag:Keep"},{"tag":"urn:li:tag:Remove"}]}`),
-			}
-			_ = json.NewEncoder(w).Encode(resp)
-		case http.MethodPost:
-			w.WriteHeader(http.StatusOK)
+		if r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`boom`))
+			return
 		}
+		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
 
 	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
-	err := writer.RemoveTag(context.Background(), testURN, "urn:li:tag:Remove")
+	err := writer.ApplyTagChanges(context.Background(), testURN, []string{"urn:li:tag:x"}, nil)
+	assert.Error(t, err)
+}
 
+func TestDataHubClientWriter_ApplyTagChanges_WriteError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`boom`))
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.ApplyTagChanges(context.Background(), testURN, []string{"urn:li:tag:x"}, nil)
+	assert.Error(t, err)
+}
+
+// TestDataHubClientWriter_ApplyTagChanges_GraphQLType verifies that for entity
+// types whose globalTags aspect is GraphQL-only (e.g. glossaryTerm), tag changes
+// go through the upstream per-tag GraphQL mutation rather than a REST aspect write.
+func TestDataHubClientWriter_ApplyTagChanges_GraphQLType(t *testing.T) {
+	var graphqlCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method, "GraphQL types must not issue REST aspect GETs")
+		graphqlCalls++
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(graphQLResponse{Data: json.RawMessage(`{"addTag":true}`)})
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.ApplyTagChanges(context.Background(),
+		"urn:li:glossaryTerm:revenue", []string{"urn:li:tag:Curated"}, nil)
 	require.NoError(t, err)
+	assert.Positive(t, graphqlCalls)
+}
+
+// TestDataHubClientWriter_ApplyTagChanges_GraphQLTypeRemove covers the remove path
+// for GraphQL-only entity types.
+func TestDataHubClientWriter_ApplyTagChanges_GraphQLTypeRemove(t *testing.T) {
+	var ops []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		// The mutation name distinguishes add from remove.
+		if strings.Contains(string(body), "removeTag") {
+			ops = append(ops, "remove")
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(graphQLResponse{Data: json.RawMessage(`{"removeTag":true}`)})
+			return
+		}
+		ops = append(ops, "add")
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(graphQLResponse{Data: json.RawMessage(`{"addTag":true}`)})
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.ApplyTagChanges(context.Background(),
+		"urn:li:domain:sales", []string{"urn:li:tag:Add"}, []string{"urn:li:tag:Drop"})
+	require.NoError(t, err)
+	// Removes are applied before adds.
+	assert.Equal(t, []string{"remove", "add"}, ops)
+}
+
+func TestDataHubClientWriter_ApplyTagChanges_GraphQLTypeError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`boom`))
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	addErr := writer.ApplyTagChanges(context.Background(), "urn:li:domain:sales", []string{"urn:li:tag:x"}, nil)
+	assert.Error(t, addErr)
+	removeErr := writer.ApplyTagChanges(context.Background(), "urn:li:domain:sales", nil, []string{"urn:li:tag:x"})
+	assert.Error(t, removeErr)
+}
+
+// TestDataHubClientWriter_ApplyTagChanges_PreservesAssociationFields verifies that
+// a read-modify-write preserves fields beyond the tag URN (e.g. propagation
+// context/attribution) on existing associations, rather than stripping them.
+func TestDataHubClientWriter_ApplyTagChanges_PreservesAssociationFields(t *testing.T) {
+	var posted []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
+			// An existing association carrying a propagation context field.
+			_, _ = w.Write([]byte(`{"value":{"tags":[{"tag":"urn:li:tag:Propagated","context":"lineage"}]}}`))
+			return
+		}
+		posted, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.ApplyTagChanges(context.Background(), testURN, []string{"urn:li:tag:New"}, nil)
+	require.NoError(t, err)
+
+	// The aspect is embedded as an escaped JSON string in the v2 ingest body, so
+	// match the unescaped substrings rather than exact quoting.
+	body := string(posted)
+	assert.Contains(t, body, "lineage", "existing association context must be preserved")
+	assert.Contains(t, body, "urn:li:tag:Propagated")
+	assert.Contains(t, body, "urn:li:tag:New")
+}
+
+func TestDataHubClientWriter_ApplyTagChanges_UnsupportedType(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Error("unsupported entity types must be rejected before any DataHub call")
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.ApplyTagChanges(context.Background(),
+		"urn:li:mlModel:(urn:li:dataPlatform:science,model,PROD)", []string{"urn:li:tag:x"}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not support tag operations")
+}
+
+// TestDataHubClientWriter_ApplyTagChanges_GraphQLDedup verifies that on a GraphQL
+// entity type, a tag in both add and remove ends up removed (matching the REST path
+// and the documented contract): it is never re-added.
+func TestDataHubClientWriter_ApplyTagChanges_GraphQLDedup(t *testing.T) {
+	var addedTags []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		s := string(body)
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(s, "removeTag") {
+			_ = json.NewEncoder(w).Encode(graphQLResponse{Data: json.RawMessage(`{"removeTag":true}`)})
+			return
+		}
+		// Capture which tag was added.
+		if strings.Contains(s, "urn:li:tag:Both") {
+			addedTags = append(addedTags, "urn:li:tag:Both")
+		}
+		_ = json.NewEncoder(w).Encode(graphQLResponse{Data: json.RawMessage(`{"addTag":true}`)})
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.ApplyTagChanges(context.Background(),
+		"urn:li:domain:sales", []string{"urn:li:tag:Both"}, []string{"urn:li:tag:Both"})
+	require.NoError(t, err)
+	assert.Empty(t, addedTags, "a tag in both add and remove must not be re-added")
+}
+
+func TestTagURNOf(t *testing.T) {
+	assert.Equal(t, "urn:li:tag:a", tagURNOf([]byte(`{"tag":"urn:li:tag:a"}`)))
+	assert.Empty(t, tagURNOf([]byte(`{"notag":1}`)), "missing tag field yields empty")
+	assert.Empty(t, tagURNOf([]byte(`not json`)), "unparseable association yields empty")
+}
+
+func TestParseGlobalTags(t *testing.T) {
+	aspect, err := parseGlobalTags([]byte(`{"value":{"tags":[{"tag":"urn:li:tag:a"}]}}`))
+	require.NoError(t, err)
+	require.Len(t, aspect.Tags, 1)
+	assert.Equal(t, "urn:li:tag:a", tagURNOf(aspect.Tags[0]))
+}
+
+func TestParseGlobalTags_NullValue(t *testing.T) {
+	aspect, err := parseGlobalTags([]byte(`{"value":null}`))
+	require.NoError(t, err)
+	assert.Empty(t, aspect.Tags)
+}
+
+func TestParseGlobalTags_InvalidJSON(t *testing.T) {
+	_, err := parseGlobalTags([]byte(`not json`))
+	assert.Error(t, err)
 }
 
 func TestDataHubClientWriter_AddGlossaryTerm(t *testing.T) {
