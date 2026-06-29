@@ -181,7 +181,22 @@ func applyInverseChanges(
 	changes []recordedChange,
 	prior priorState,
 ) (reverted, skipped []string, err error) {
+	// Tag inverses are reverted in a single read-modify-write. Reverting each tag
+	// with its own write reads DataHub's eventually consistent state back-to-back,
+	// so the last write clobbers the rest and a multi-tag rollback could leave the
+	// entity with zero tags instead of its prior set (#721). Non-tag inverses
+	// (description, glossary term, documentation) are reverted individually.
+	tagReverted, tagSkipped, err := revertTagChanges(ctx, writer, urn, changes, prior)
+	if err != nil {
+		return nil, nil, err
+	}
+	reverted = append(reverted, tagReverted...)
+	skipped = append(skipped, tagSkipped...)
+
 	for _, c := range changes {
+		if isTagChange(c.ChangeType) {
+			continue
+		}
 		desc, didRevert, applyErr := applyInverse(ctx, writer, urn, c, prior)
 		if applyErr != nil {
 			return reverted, skipped, applyErr
@@ -195,19 +210,73 @@ func applyInverseChanges(
 	return reverted, skipped, nil
 }
 
+// isTagChange reports whether a change type is reverted by the batched tag path.
+func isTagChange(changeType string) bool {
+	switch changeType {
+	case string(actionAddTag), string(actionRemoveTag), string(actionFlagQualityIssue):
+		return true
+	default:
+		return false
+	}
+}
+
+// revertTagChanges computes the tag adds and removes that invert the changeset's
+// tag changes and applies them in a single read-modify-write. A tag whose value
+// already existed before the changeset (per the before-image) is left untouched.
+// The returned descriptions are only committed after the single write succeeds, so
+// a failed write reports nothing as reverted (the write is all-or-nothing).
+func revertTagChanges(
+	ctx context.Context,
+	writer DataHubWriter,
+	urn string,
+	changes []recordedChange,
+	prior priorState,
+) (reverted, skipped []string, err error) {
+	var add, remove []string
+	for _, c := range changes {
+		switch c.ChangeType {
+		case string(actionAddTag):
+			tagURN := normalizeTagURN(c.Detail)
+			reverted, skipped, remove = classifyAddedTagRevert(tagURN, prior, reverted, skipped, remove)
+		case string(actionFlagQualityIssue):
+			reverted, skipped, remove = classifyAddedTagRevert(qualityIssueTagURN, prior, reverted, skipped, remove)
+		case string(actionRemoveTag):
+			tagURN := normalizeTagURN(c.Detail)
+			if !prior.Tags[tagURN] {
+				skipped = append(skipped, fmt.Sprintf("tag %s was not present before; nothing to restore", tagURN))
+				continue
+			}
+			add = append(add, tagURN)
+			reverted = append(reverted, fmt.Sprintf("restored tag %s", tagURN))
+		}
+	}
+	if len(add) == 0 && len(remove) == 0 {
+		return reverted, skipped, nil
+	}
+	if err := writer.ApplyTagChanges(ctx, urn, add, remove); err != nil {
+		return nil, nil, fmt.Errorf("reverting tags: %w", err)
+	}
+	return reverted, skipped, nil
+}
+
+// classifyAddedTagRevert decides how to revert an added tag: a tag that existed
+// before the changeset is kept (skipped); otherwise it is queued for removal.
+func classifyAddedTagRevert(tagURN string, prior priorState, reverted, skipped, remove []string) (rev, skip, rem []string) {
+	if prior.Tags[tagURN] {
+		return reverted, append(skipped, fmt.Sprintf("kept pre-existing tag %s", tagURN)), remove
+	}
+	return append(reverted, fmt.Sprintf("removed tag %s", tagURN)), skipped, append(remove, tagURN)
+}
+
 // applyInverse reverts a single change. didRevert is false when the change was a
 // no-op at apply time (the value already existed in the before-image), so the
 // rollback intentionally leaves the pre-existing value in place.
 func applyInverse(ctx context.Context, writer DataHubWriter, urn string, c recordedChange, prior priorState) (desc string, didRevert bool, err error) {
+	// Tag inverses (add_tag, remove_tag, flag_quality_issue) are not handled here:
+	// applyInverseChanges reverts them in a single batched read-modify-write (#721).
 	switch c.ChangeType {
 	case string(actionUpdateDescription):
 		return revertDescription(ctx, writer, urn, prior)
-	case string(actionAddTag):
-		return revertAddedTag(ctx, writer, urn, normalizeTagURN(c.Detail), prior)
-	case string(actionFlagQualityIssue):
-		return revertAddedTag(ctx, writer, urn, qualityIssueTagURN, prior)
-	case string(actionRemoveTag):
-		return revertRemovedTag(ctx, writer, urn, normalizeTagURN(c.Detail), prior)
 	case string(actionAddGlossaryTerm):
 		return revertAddedTerm(ctx, writer, urn, normalizeGlossaryTermURN(c.Detail), prior)
 	case string(actionAddDocumentation):
@@ -222,26 +291,6 @@ func revertDescription(ctx context.Context, writer DataHubWriter, urn string, pr
 		return "", false, fmt.Errorf("restoring description: %w", err)
 	}
 	return "restored description", true, nil
-}
-
-func revertAddedTag(ctx context.Context, writer DataHubWriter, urn, tagURN string, prior priorState) (desc string, reverted bool, err error) {
-	if prior.Tags[tagURN] {
-		return fmt.Sprintf("kept pre-existing tag %s", tagURN), false, nil
-	}
-	if err := writer.RemoveTag(ctx, urn, tagURN); err != nil {
-		return "", false, fmt.Errorf("removing tag %s: %w", tagURN, err)
-	}
-	return fmt.Sprintf("removed tag %s", tagURN), true, nil
-}
-
-func revertRemovedTag(ctx context.Context, writer DataHubWriter, urn, tagURN string, prior priorState) (desc string, reverted bool, err error) {
-	if !prior.Tags[tagURN] {
-		return fmt.Sprintf("tag %s was not present before; nothing to restore", tagURN), false, nil
-	}
-	if err := writer.AddTag(ctx, urn, tagURN); err != nil {
-		return "", false, fmt.Errorf("restoring tag %s: %w", tagURN, err)
-	}
-	return fmt.Sprintf("restored tag %s", tagURN), true, nil
 }
 
 func revertAddedTerm(ctx context.Context, writer DataHubWriter, urn, termURN string, prior priorState) (desc string, reverted bool, err error) {

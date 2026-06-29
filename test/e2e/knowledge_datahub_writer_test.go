@@ -137,13 +137,13 @@ func TestDataHubWriterAddTag(t *testing.T) {
 		cleanCtx, cleanCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cleanCancel()
 
-		if err := writer.RemoveTag(cleanCtx, urn, tagURN); err != nil {
+		if err := writer.ApplyTagChanges(cleanCtx, urn, nil, []string{tagURN}); err != nil {
 			t.Logf("cleanup: failed to remove tag: %v", err)
 		}
 	})
 
 	// Add tag
-	if err := writer.AddTag(ctx, urn, tagURN); err != nil {
+	if err := writer.ApplyTagChanges(ctx, urn, []string{tagURN}, nil); err != nil {
 		t.Fatalf("AddTag: %v", err)
 	}
 
@@ -167,7 +167,7 @@ func TestDataHubWriterRemoveTag(t *testing.T) {
 	tagURN := fmt.Sprintf("urn:li:tag:e2e_writer_%s", nanos())
 
 	// Setup: add tag first
-	if err := writer.AddTag(ctx, urn, tagURN); err != nil {
+	if err := writer.ApplyTagChanges(ctx, urn, []string{tagURN}, nil); err != nil {
 		t.Fatalf("setup AddTag: %v", err)
 	}
 
@@ -176,13 +176,13 @@ func TestDataHubWriterRemoveTag(t *testing.T) {
 		cleanCtx, cleanCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cleanCancel()
 
-		if err := writer.RemoveTag(cleanCtx, urn, tagURN); err != nil {
+		if err := writer.ApplyTagChanges(cleanCtx, urn, nil, []string{tagURN}); err != nil {
 			t.Logf("cleanup: failed to remove tag: %v", err)
 		}
 	})
 
 	// Remove tag
-	if err := writer.RemoveTag(ctx, urn, tagURN); err != nil {
+	if err := writer.ApplyTagChanges(ctx, urn, nil, []string{tagURN}); err != nil {
 		t.Fatalf("RemoveTag: %v", err)
 	}
 

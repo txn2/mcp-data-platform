@@ -80,9 +80,42 @@ func TestRevertChangeset_RemovesAddedTag(t *testing.T) {
 
 	_, err := RevertChangeset(context.Background(), RollbackDeps{Writer: writer, Changesets: store, Insights: &fullSpyStore{}}, cs, "admin")
 	require.NoError(t, err)
+	// The added tag is reverted via a single batched ApplyTagChanges removing it.
 	require.Len(t, writer.WriteCalls, 1)
-	assert.Equal(t, "RemoveTag", writer.WriteCalls[0].Method)
-	assert.Equal(t, normalizeTagURN("pii"), writer.WriteCalls[0].Arg1)
+	assert.Equal(t, "ApplyTagChanges", writer.WriteCalls[0].Method)
+	assert.Empty(t, writer.WriteCalls[0].Arg1, "no adds")
+	assert.Equal(t, normalizeTagURN("pii"), writer.WriteCalls[0].Arg2)
+}
+
+// TestRevertChangeset_MultiTagBatch is the #721 regression for rollback: reverting
+// a changeset that added several tags must remove them in a single batched
+// ApplyTagChanges, not a sequence of per-tag writes that read stale state and
+// could leave the entity with zero (or the wrong set of) tags.
+func TestRevertChangeset_MultiTagBatch(t *testing.T) {
+	cs := baseChangeset("cs1",
+		map[string]any{
+			"change_0": changeEntry("add_tag", "", "a"),
+			"change_1": changeEntry("add_tag", "", "b"),
+			"change_2": changeEntry("add_tag", "", "c"),
+		},
+		// Tag "a" pre-existed, so it must be kept; b and c were added by the changeset.
+		map[string]any{"tags": []any{normalizeTagURN("a")}},
+	)
+	store := seededStore(cs)
+	writer := &spyWriter{}
+
+	res, err := RevertChangeset(context.Background(), RollbackDeps{Writer: writer, Changesets: store, Insights: &fullSpyStore{}}, cs, "admin")
+	require.NoError(t, err)
+
+	// Exactly one batched write removing only the newly-added tags.
+	require.Len(t, writer.WriteCalls, 1)
+	assert.Equal(t, "ApplyTagChanges", writer.WriteCalls[0].Method)
+	assert.Empty(t, writer.WriteCalls[0].Arg1, "no adds")
+	assert.Equal(t, normalizeTagURN("b")+","+normalizeTagURN("c"), writer.WriteCalls[0].Arg2)
+
+	// The pre-existing tag "a" is kept (skipped), b and c are reverted.
+	assert.Len(t, res.RevertedChanges, 2)
+	assert.Len(t, res.SkippedChanges, 1)
 }
 
 func TestRevertChangeset_ReAddsRemovedTag(t *testing.T) {
@@ -96,9 +129,11 @@ func TestRevertChangeset_ReAddsRemovedTag(t *testing.T) {
 
 	_, err := RevertChangeset(context.Background(), RollbackDeps{Writer: writer, Changesets: store, Insights: &fullSpyStore{}}, cs, "admin")
 	require.NoError(t, err)
+	// The removed tag is restored via a single batched ApplyTagChanges adding it.
 	require.Len(t, writer.WriteCalls, 1)
-	assert.Equal(t, "AddTag", writer.WriteCalls[0].Method)
+	assert.Equal(t, "ApplyTagChanges", writer.WriteCalls[0].Method)
 	assert.Equal(t, tagURN, writer.WriteCalls[0].Arg1)
+	assert.Empty(t, writer.WriteCalls[0].Arg2, "no removes")
 }
 
 func TestRevertChangeset_RemovedTagNotPreviouslyPresentIsNoop(t *testing.T) {
@@ -125,9 +160,11 @@ func TestRevertChangeset_FlagQualityIssueRemovesTag(t *testing.T) {
 
 	_, err := RevertChangeset(context.Background(), RollbackDeps{Writer: writer, Changesets: store, Insights: &fullSpyStore{}}, cs, "admin")
 	require.NoError(t, err)
+	// The QualityIssue tag is reverted via a single batched ApplyTagChanges removing it.
 	require.Len(t, writer.WriteCalls, 1)
-	assert.Equal(t, "RemoveTag", writer.WriteCalls[0].Method)
-	assert.Equal(t, qualityIssueTagURN, writer.WriteCalls[0].Arg1)
+	assert.Equal(t, "ApplyTagChanges", writer.WriteCalls[0].Method)
+	assert.Empty(t, writer.WriteCalls[0].Arg1, "no adds")
+	assert.Equal(t, qualityIssueTagURN, writer.WriteCalls[0].Arg2)
 }
 
 func TestRevertChangeset_RestoresDescription(t *testing.T) {

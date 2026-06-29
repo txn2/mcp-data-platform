@@ -209,9 +209,8 @@ func (m *mockDataHubWriter) UpdateDescription(_ context.Context, urn, desc strin
 	return m.updateDescErr
 }
 
-func (*mockDataHubWriter) AddTag(_ context.Context, _, _ string) error { return nil }
-func (m *mockDataHubWriter) RemoveTag(_ context.Context, _, tag string) error {
-	m.removeTagCalls = append(m.removeTagCalls, tag)
+func (m *mockDataHubWriter) ApplyTagChanges(_ context.Context, _ string, _, remove []string) error {
+	m.removeTagCalls = append(m.removeTagCalls, remove...)
 	return nil
 }
 func (*mockDataHubWriter) AddGlossaryTerm(_ context.Context, _, _ string) error { return nil }

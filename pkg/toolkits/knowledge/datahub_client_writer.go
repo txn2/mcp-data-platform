@@ -275,20 +275,183 @@ func truncateBody(b []byte) string {
 	return string(b[:maxBodyTruncate]) + "..."
 }
 
-// AddTag adds a tag to an entity.
-func (w *DataHubClientWriter) AddTag(ctx context.Context, urn, tag string) error {
-	if err := w.client.AddTag(ctx, urn, tag); err != nil {
-		return fmt.Errorf("adding tag %s to %s: %w", tag, urn, err)
+// globalTagsAspect mirrors the upstream globalTags aspect for REST read-modify-write.
+// globalTagsAspect mirrors the upstream globalTags aspect. Associations are kept as
+// raw JSON so that fields beyond the tag URN (e.g. a tag's propagation context or
+// attribution) survive a read-modify-write instead of being stripped when an
+// unrelated tag is added or removed.
+type globalTagsAspect struct {
+	Tags []json.RawMessage `json:"tags"`
+}
+
+// tagAssociation is the minimal shape used to emit a new tag association and to
+// extract the tag URN from an existing raw association for dedupe/removal.
+type tagAssociation struct {
+	Tag string `json:"tag"`
+}
+
+// tagURNOf extracts the tag URN from a raw globalTags association, returning "" if
+// it cannot be parsed.
+func tagURNOf(raw json.RawMessage) string {
+	var ta tagAssociation
+	if err := json.Unmarshal(raw, &ta); err != nil {
+		return ""
+	}
+	return ta.Tag
+}
+
+// tagSupportedTypes lists entity types DataHub registers the globalTags aspect on.
+// Applying tags to any other type is rejected up front with a clear error, matching
+// the guard the upstream client enforced before this batched path bypassed it.
+// Mirrors the upstream client's globalTagsSupportedTypes set.
+var tagSupportedTypes = map[string]bool{
+	"dataset": true, "dashboard": true, "chart": true, "dataFlow": true,
+	"dataJob": true, "container": true, "dataProduct": true,
+	"domain": true, "glossaryTerm": true, "glossaryNode": true, "document": true,
+}
+
+// tagGraphQLWriteTypes lists entity types whose globalTags aspect is not exposed
+// over the REST aspect API, so the upstream client writes them with the GraphQL
+// addTag/removeTag mutations instead. Those mutations are server-side additive and
+// not subject to the read-modify-write clobber, so for these types ApplyTagChanges
+// delegates per-tag rather than batching a REST read-modify-write. Mirrors the
+// upstream client's graphQLWriteTypes set.
+var tagGraphQLWriteTypes = map[string]bool{
+	"domain": true, "glossaryTerm": true, "glossaryNode": true, "document": true,
+}
+
+// ApplyTagChanges adds and removes tags on an entity in a single read-modify-write
+// of the globalTags aspect. Delegating to the upstream client's per-tag AddTag/
+// RemoveTag issues a read-modify-write per tag; because DataHub aspect writes are
+// eventually consistent, back-to-back calls read stale tag state and the final
+// write overwrites the whole aspect with a single tag, silently dropping the rest
+// (#721). Reading once, merging every add/remove, and writing once is lossless. A
+// tag present in both add and remove is removed.
+func (w *DataHubClientWriter) ApplyTagChanges(ctx context.Context, urn string, add, remove []string) error {
+	if len(add) == 0 && len(remove) == 0 {
+		return nil
+	}
+	parsed, err := dhclient.ParseURN(urn)
+	if err != nil {
+		return fmt.Errorf("apply tag changes: invalid URN: %w", err)
+	}
+	if !tagSupportedTypes[parsed.EntityType] {
+		return fmt.Errorf("apply tag changes: entity type %q does not support tag operations", parsed.EntityType)
+	}
+	if tagGraphQLWriteTypes[parsed.EntityType] {
+		return w.applyTagChangesGraphQL(ctx, urn, add, remove)
+	}
+	return w.applyTagChangesREST(ctx, parsed.EntityType, urn, add, remove)
+}
+
+// applyTagChangesGraphQL applies tag changes for entity types whose globalTags
+// aspect is only writable via GraphQL (domain, glossaryTerm, glossaryNode,
+// document). The upstream AddTag/RemoveTag use the server-side additive GraphQL
+// mutations for these types, which are already lossless, so we delegate per-tag.
+func (w *DataHubClientWriter) applyTagChangesGraphQL(ctx context.Context, urn string, add, remove []string) error {
+	removeSet := make(map[string]bool, len(remove))
+	for _, tag := range remove {
+		removeSet[tag] = true
+	}
+	for _, tag := range remove {
+		if err := w.client.RemoveTag(ctx, urn, tag); err != nil {
+			return fmt.Errorf("removing tag %s from %s: %w", tag, urn, err)
+		}
+	}
+	for _, tag := range add {
+		// A tag in both add and remove is left removed, matching the REST path and
+		// the ApplyTagChanges contract.
+		if removeSet[tag] {
+			continue
+		}
+		if err := w.client.AddTag(ctx, urn, tag); err != nil {
+			return fmt.Errorf("adding tag %s to %s: %w", tag, urn, err)
+		}
 	}
 	return nil
 }
 
-// RemoveTag removes a tag from an entity.
-func (w *DataHubClientWriter) RemoveTag(ctx context.Context, urn, tag string) error {
-	if err := w.client.RemoveTag(ctx, urn, tag); err != nil {
-		return fmt.Errorf("removing tag %s from %s: %w", tag, urn, err)
+// applyTagChangesREST reads the current globalTags aspect once, applies all
+// removes and adds, and writes the merged aspect once.
+func (w *DataHubClientWriter) applyTagChangesREST(ctx context.Context, entityType, urn string, add, remove []string) error {
+	current, err := w.readGlobalTags(ctx, entityType, urn)
+	if err != nil {
+		return fmt.Errorf("apply tag changes: read globalTags: %w", err)
 	}
-	return nil
+	merged, err := mergeGlobalTags(current.Tags, add, remove)
+	if err != nil {
+		return fmt.Errorf("apply tag changes: %w", err)
+	}
+	current.Tags = merged
+	return w.postIngestProposal(ctx, entityType, urn, "globalTags", current)
+}
+
+// mergeGlobalTags returns the globalTags associations after removing every tag in
+// remove and appending every tag in add that is not already present, deduped. Each
+// surviving existing association's full JSON is preserved (context/attribution),
+// and a tag present in both add and remove is removed.
+func mergeGlobalTags(current []json.RawMessage, add, remove []string) ([]json.RawMessage, error) {
+	removeSet := make(map[string]bool, len(remove))
+	for _, t := range remove {
+		removeSet[t] = true
+	}
+
+	merged := make([]json.RawMessage, 0, len(current)+len(add))
+	have := make(map[string]bool, len(current)+len(add))
+	for _, raw := range current {
+		u := tagURNOf(raw)
+		if u == "" || removeSet[u] || have[u] {
+			continue
+		}
+		have[u] = true
+		merged = append(merged, raw)
+	}
+	for _, t := range add {
+		if removeSet[t] || have[t] {
+			continue
+		}
+		have[t] = true
+		assoc, err := json.Marshal(tagAssociation{Tag: t})
+		if err != nil {
+			return nil, fmt.Errorf("marshal tag %s: %w", t, err)
+		}
+		merged = append(merged, assoc)
+	}
+	return merged, nil
+}
+
+// readGlobalTags reads the current globalTags aspect via the REST aspect API,
+// returning an empty aspect when none exists.
+func (w *DataHubClientWriter) readGlobalTags(ctx context.Context, entityType, urn string) (*globalTagsAspect, error) {
+	body, statusCode, err := w.doRESTGet(ctx, w.aspectGetURL(entityType, urn, "globalTags"))
+	if err != nil {
+		return nil, fmt.Errorf("rest get aspect: %w", err)
+	}
+	if statusCode == http.StatusNotFound {
+		return &globalTagsAspect{}, nil
+	}
+	if statusCode != http.StatusOK {
+		return nil, fmt.Errorf("rest get status %d: %s", statusCode, truncateBody(body))
+	}
+	return parseGlobalTags(body)
+}
+
+// parseGlobalTags unmarshals the REST response body into a globalTagsAspect.
+func parseGlobalTags(body []byte) (*globalTagsAspect, error) {
+	var aspectResp struct {
+		Value json.RawMessage `json:"value"`
+	}
+	if err := json.Unmarshal(body, &aspectResp); err != nil {
+		return nil, fmt.Errorf("unmarshal response: %w", err)
+	}
+	if len(aspectResp.Value) == 0 || string(bytes.TrimSpace(aspectResp.Value)) == "null" {
+		return &globalTagsAspect{}, nil
+	}
+	var aspect globalTagsAspect
+	if err := json.Unmarshal(aspectResp.Value, &aspect); err != nil {
+		return nil, fmt.Errorf("unmarshal globalTags: %w", err)
+	}
+	return &aspect, nil
 }
 
 // AddGlossaryTerm adds a glossary term to an entity.
