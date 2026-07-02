@@ -53,3 +53,30 @@ func TestApplyKnowledgeSchema_Valid(t *testing.T) {
 	require.True(t, ok, "target should have description")
 	assert.Contains(t, targetDesc, "column:")
 }
+
+// TestApplyKnowledgeSchema_InsightIDsCoversApply guards #725: the apply handler
+// links the changeset to insight_ids and marks those insights applied, but that
+// only happens if the agent passes insight_ids on apply. The param description
+// once framed insight_ids as approve/reject-only, so agents never passed it on
+// apply and insights_marked_applied stayed 0. The description must tell the agent
+// insight_ids applies to the apply action too.
+func TestApplyKnowledgeSchema_InsightIDsCoversApply(t *testing.T) {
+	var schema map[string]any
+	require.NoError(t, json.Unmarshal(applyKnowledgeSchema, &schema))
+	props, ok := schema["properties"].(map[string]any)
+	require.True(t, ok, "schema should have properties")
+	insightIDs, ok := props["insight_ids"].(map[string]any)
+	require.True(t, ok, "should have insight_ids property")
+	desc, ok := insightIDs["description"].(string)
+	require.True(t, ok, "insight_ids should have description")
+	assert.Contains(t, desc, "apply", "insight_ids description must cover the apply action (#725)")
+	assert.Contains(t, desc, "marked applied", "description must explain that apply marks the source insights applied")
+}
+
+// TestKnowledgeApplyPrompt_GuidesInsightIDsOnApply guards that the reviewer
+// guidance prompt tells the holder to pass insight_ids on apply (not only to
+// vaguely "mark insights applied"), which is what closes the loop (#725).
+func TestKnowledgeApplyPrompt_GuidesInsightIDsOnApply(t *testing.T) {
+	assert.Contains(t, knowledgeApplyPrompt, "insight_ids on the apply call",
+		"apply guidance must tell the reviewer to pass insight_ids on apply (#725)")
+}
