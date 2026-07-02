@@ -210,6 +210,17 @@ export function AppShell() {
   // detail. Both render the Knowledge hub focused on its Knowledge Pages sub-tab.
   const knowledgePageMatch = route.match(/^\/knowledge\/pages\/(.+)$/);
   const knowledgePagesList = route === "/knowledge/pages";
+  // DataHub Catalog and Context Docs sub-tab routes (#719/#720), first-class like
+  // /knowledge/pages so they deep-link and survive refresh.
+  const catalogRoute = route === "/knowledge/catalog";
+  const contextDocsRoute = route === "/knowledge/context-docs";
+  const knowledgeRouteSub = knowledgePagesList || knowledgePageMatch
+    ? "pages"
+    : catalogRoute
+      ? "catalog"
+      : contextDocsRoute
+        ? "context_docs"
+        : undefined;
   // Collection routes: /collections/:id and /collections/:id/edit
   const collectionEditMatch = route.match(/^\/collections\/([^/]+)\/edit$/);
   const collectionViewMatch = !collectionEditMatch && !collectionAssetMatch
@@ -226,7 +237,7 @@ export function AppShell() {
           ? "Collection"
           : promptViewMatch
             ? "Prompt"
-            : knowledgePagesList || knowledgePageMatch
+            : knowledgePagesList || knowledgePageMatch || catalogRoute || contextDocsRoute
               ? "Knowledge"
               : (pageTitles[route] ?? "Assets");
 
@@ -297,15 +308,20 @@ export function AppShell() {
             <ResourcesPage onNavigate={navigate} />
           )}
           {!isAdminRoute && route === "/feedback" && <FeedbackPage onNavigate={navigate} />}
-          {!isAdminRoute && (route === "/knowledge" || knowledgePagesList || knowledgePageMatch) && (
-            <KnowledgeHub
-              key={currentPath}
-              initialTab={initialTab}
-              initialPageId={knowledgePageMatch?.[1]}
-              pagesSubActive={knowledgePagesList || !!knowledgePageMatch}
-              onNavigate={navigate}
-            />
-          )}
+          {!isAdminRoute &&
+            (route === "/knowledge" ||
+              knowledgePagesList ||
+              knowledgePageMatch ||
+              catalogRoute ||
+              contextDocsRoute) && (
+              <KnowledgeHub
+                key={currentPath}
+                initialTab={initialTab}
+                initialPageId={knowledgePageMatch?.[1]}
+                routeSub={knowledgeRouteSub}
+                onNavigate={navigate}
+              />
+            )}
           {!isAdminRoute && route === "/prompts" && <MyPromptsPage onNavigate={navigate} />}
           {!isAdminRoute && promptViewMatch && (
             <PromptViewerPage

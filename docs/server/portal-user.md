@@ -187,14 +187,15 @@ The page has three tabs. Review and promote affordances appear only when your pe
 - **Browse** - With the search box empty, the tab browses the canonical knowledge pages. Personas with `apply_knowledge` can create, edit, and remove pages
 - **Changesets** (`apply_knowledge` holders) - The record of insights promoted into knowledge: the catalog and knowledge-page changes applied when your agent runs `apply_knowledge`, with rollback to undo a changeset's writes. They live here, with the promoted knowledge, rather than with the unpromoted insights in the review pipeline
 
-### DataHub catalog and context documents
+### Catalog
 
-The portal exposes the DataHub catalog (datasets) and context documents over REST at `/api/v1/portal/datahub/{connection}/...`, so catalog metadata and context docs can be browsed, searched, read, and edited without leaving the portal. `GET .../connections` lists the DataHub connections available, each flagged writable.
+The **Catalog** sub-tab brings the DataHub catalog into the portal: pick a DataHub connection, then browse or search its datasets and open one to see its description, tags, owners, glossary terms, domain, and columns. When your persona grants `datahub_update` and the connection is write-enabled, each metadata facet is editable inline (description, tags, owners, glossary terms, domain); otherwise the view is read-only with no edit controls. DataHub has no dataset create or delete (datasets originate in source systems), so this is metadata editing, not dataset lifecycle. The tab is URL-addressable at `/knowledge/catalog`.
 
-- **Catalog** - Browse and search datasets, read an entity's description, tags, owners, glossary terms, domain, and columns, and edit that metadata. DataHub has no dataset create or delete (datasets originate in source systems), so catalog editing is metadata-only.
-- **Context documents** - Full create, read, update, and delete. A context document can attach only to a Dataset, GlossaryTerm, GlossaryNode, or Container; attaching to any other entity type is rejected.
+### Context Docs
 
-Reads are open to any authenticated user with access to the connection. A write is permitted only when your persona grants the matching MCP tool (`datahub_update` to edit catalog metadata or update a document, `datahub_create` to create a document, `datahub_delete` to delete one) **and** the target connection is write-enabled (`read_only: false`). Both checks are enforced server-side regardless of what the UI shows, and every write is recorded in the audit log. Tag and glossary-term edits are applied as batched add/remove sets so concurrent edits do not clobber one another.
+The **Context Docs** sub-tab manages DataHub context documents: markdown notes attached to a dataset, glossary term, glossary node, or container. Browse or search a connection, open a document to read its rendered markdown, and, with the matching `datahub_create` / `datahub_update` / `datahub_delete` grant on a write-enabled connection, create, edit, and delete documents through a markdown editor. A document can attach only to the supported entity types; the create form rejects any other type. The tab is URL-addressable at `/knowledge/context-docs`.
+
+Both tabs are backed by the portal DataHub REST API at `/api/v1/portal/datahub/{connection}/...`. Reads require DataHub access on your persona; a write is permitted only when your persona grants the matching MCP tool **and** the target connection is write-enabled (`read_only: false`). Both checks are enforced server-side regardless of what the UI shows, and every write is recorded in the audit log. Tag and glossary-term edits are applied as batched add/remove sets so concurrent edits do not clobber one another.
 
 ### Insights
 
