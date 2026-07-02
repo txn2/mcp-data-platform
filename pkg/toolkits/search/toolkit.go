@@ -190,7 +190,11 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"you know about specific datasets. Personal results are scoped to you. To enumerate a whole source " +
 			"instead of relevance-ranking it (to audit or migrate it), call with exactly one `sources` entry, " +
 			"no intent, and an `offset`: this browses the complete set with a total count (browsable: " +
-			"knowledge_pages, context_documents).",
+			"knowledge_pages, context_documents). Freshness: catalog and context-document results come from " +
+			"DataHub's search index, which is eventually consistent and can briefly lag a recent catalog write, so " +
+			"a result may still show pre-edit text right after you change it. To confirm a specific entity's " +
+			"current state after a write, read it directly (datahub_get_entity, or the resulting_state in the " +
+			"apply_knowledge apply response), not search.",
 		InputSchema: searchSchema,
 	}, t.handleSearch)
 
