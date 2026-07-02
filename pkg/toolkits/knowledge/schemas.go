@@ -35,7 +35,7 @@ var applyKnowledgeSchema = json.RawMessage(`{
     },
     "insight_ids": {
       "type": "array",
-      "description": "Insight IDs to operate on (required for approve, reject)",
+      "description": "Insight IDs to operate on. Required for approve and reject. On apply, pass the source insight IDs you are promoting so the resulting changeset is linked to them and those insights are marked applied: this closes the review loop, so the queue reflects what is live and the same insight is not re-reviewed. An apply without insight_ids still writes the changes but leaves the source insights in their prior (approved/pending) state.",
       "items": {"type": "string"},
       "maxItems": 50
     },
