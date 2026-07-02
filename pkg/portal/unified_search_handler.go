@@ -196,11 +196,20 @@ func (h *Handler) callerFor(user *User) SearchCaller {
 // a regression from the prior admin-role gate. The admin arm only widens access;
 // the capability still grants non-admins, which is the behavior #661 requires.
 func (h *Handler) userHasApplyKnowledge(user *User) bool {
+	return h.userHasTool(user, applyKnowledgeTool)
+}
+
+// userHasTool reports whether the user's resolved persona grants the named tool,
+// or the user is an admin. It is the shared capability check behind the
+// apply_knowledge and DataHub write authorizations; the admin arm only widens
+// access (a separate write-enabled-connection check still applies to DataHub
+// writes, so admin cannot mutate a read-only connection).
+func (h *Handler) userHasTool(user *User, tool string) bool {
 	if user == nil {
 		return false
 	}
 	if h.deps.PersonaResolver != nil {
-		if info := h.deps.PersonaResolver(user.Roles); info != nil && slices.Contains(info.Tools, applyKnowledgeTool) {
+		if info := h.deps.PersonaResolver(user.Roles); info != nil && slices.Contains(info.Tools, tool) {
 			return true
 		}
 	}

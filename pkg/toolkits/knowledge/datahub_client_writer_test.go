@@ -475,6 +475,128 @@ func globalTagsServer(t *testing.T, existing []string, posted *[]byte, gets, pos
 	}))
 }
 
+// graphQLMutationServer records every GraphQL mutation body posted to it and
+// replies with a generic success payload for the owner/domain mutations. Each
+// captured body is the raw {"query":...,"variables":...} envelope so tests can
+// assert which operation fired, in what order, and with which URNs.
+func graphQLMutationServer(t *testing.T, bodies *[]string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		*bodies = append(*bodies, string(raw))
+		w.Header().Set("Content-Type", "application/json")
+		// All four mutations return a single boolean field; supplying every field
+		// keeps one handler valid for add/remove owner and set/unset domain.
+		_, _ = w.Write([]byte(`{"data":{"addOwner":true,"removeOwner":true,"setDomain":true,"unsetDomain":true}}`))
+	}))
+}
+
+func TestDataHubClientWriter_ApplyOwnerChanges_RemovesThenAdds(t *testing.T) {
+	var bodies []string
+	server := graphQLMutationServer(t, &bodies)
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.ApplyOwnerChanges(context.Background(), testURN,
+		[]OwnerChange{{OwnerURN: "urn:li:corpuser:alice", OwnershipType: "TECHNICAL_OWNER"}},
+		[]string{"urn:li:corpuser:bob"},
+	)
+	require.NoError(t, err)
+	require.Len(t, bodies, 2, "one remove then one add")
+	assert.Contains(t, bodies[0], "removeOwner", "remove must be applied first")
+	assert.Contains(t, bodies[0], "urn:li:corpuser:bob")
+	assert.Contains(t, bodies[1], "addOwner", "add must follow the remove")
+	assert.Contains(t, bodies[1], "urn:li:corpuser:alice")
+}
+
+// TestDataHubClientWriter_ApplyOwnerChanges_SkipsAddInRemove verifies an owner
+// present in both add and remove is left removed (never re-added).
+func TestDataHubClientWriter_ApplyOwnerChanges_SkipsAddInRemove(t *testing.T) {
+	var bodies []string
+	server := graphQLMutationServer(t, &bodies)
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.ApplyOwnerChanges(context.Background(), testURN,
+		[]OwnerChange{{OwnerURN: "urn:li:corpuser:carol"}},
+		[]string{"urn:li:corpuser:carol"},
+	)
+	require.NoError(t, err)
+	require.Len(t, bodies, 1, "only the remove fires; the add is skipped")
+	assert.Contains(t, bodies[0], "removeOwner")
+}
+
+func TestDataHubClientWriter_ApplyOwnerChanges_NoChanges(t *testing.T) {
+	var bodies []string
+	server := graphQLMutationServer(t, &bodies)
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	require.NoError(t, writer.ApplyOwnerChanges(context.Background(), testURN, nil, nil))
+	assert.Empty(t, bodies, "no-op must not call DataHub")
+}
+
+func TestDataHubClientWriter_ApplyOwnerChanges_RemoveError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.ApplyOwnerChanges(context.Background(), testURN, nil, []string{"urn:li:corpuser:bob"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "removing owner")
+}
+
+func TestDataHubClientWriter_SetDomain(t *testing.T) {
+	var bodies []string
+	server := graphQLMutationServer(t, &bodies)
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.SetDomain(context.Background(), testURN, "urn:li:domain:finance")
+	require.NoError(t, err)
+	require.Len(t, bodies, 1)
+	assert.Contains(t, bodies[0], "setDomain")
+	assert.Contains(t, bodies[0], "urn:li:domain:finance")
+}
+
+func TestDataHubClientWriter_SetDomain_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.SetDomain(context.Background(), testURN, "urn:li:domain:finance")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "setting domain")
+}
+
+func TestDataHubClientWriter_UnsetDomain(t *testing.T) {
+	var bodies []string
+	server := graphQLMutationServer(t, &bodies)
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.UnsetDomain(context.Background(), testURN)
+	require.NoError(t, err)
+	require.Len(t, bodies, 1)
+	assert.Contains(t, bodies[0], "unsetDomain")
+}
+
+func TestDataHubClientWriter_UnsetDomain_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.UnsetDomain(context.Background(), testURN)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsetting domain")
+}
+
 func TestDataHubClientWriter_ApplyTagChanges_AddMergesExisting(t *testing.T) {
 	var posted []byte
 	var gets, posts int
