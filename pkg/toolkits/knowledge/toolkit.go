@@ -63,6 +63,9 @@ type applyKnowledgeInput struct {
 	ReviewNotes string `json:"review_notes,omitempty"`
 	// ChangesetID is the target changeset for the rollback action.
 	ChangesetID string `json:"changeset_id,omitempty"`
+	// TagURN is the tag to remove from every entity that carries it, for the
+	// bulk_untag action (#726).
+	TagURN string `json:"tag_urn,omitempty"`
 	// Itemize, with action=bulk_review, returns the pending insights themselves
 	// (toReviewItems): each is the full insight record, including the insight_text
 	// body, with the uncapped suggested_actions array replaced by
@@ -195,15 +198,16 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 				"Access is granted per persona by tool visibility, not by an admin role. " +
 				"Sinks for the apply action: sink='datahub' (default) applies 'changes' to entity_urn; sink='knowledge_page' promotes a business_knowledge or operational_rule " +
 				"insight to a page using the 'page' object {slug,title,summary,body,tags} and 'insight_ids'. " +
-				"Actions: bulk_review, review, synthesize, apply, approve, reject, rollback, list_changesets. " +
+				"Actions: bulk_review, review, synthesize, apply, approve, reject, rollback, list_changesets, bulk_untag. " +
+				"bulk_untag (tag_urn required, confirm required) removes a tag from every entity a catalog search finds carrying it, recording one changeset; it is not auto-revertible. " +
 				"rollback (changeset_id required, confirm required) reverts the aspects a prior apply changed, back to their before-image: " +
 				"it removes tags/glossary terms/documentation links the apply added (leaving any that pre-existed) and restores the prior description. " +
 				"Rollback is refused if the changeset is already rolled back, if a newer changeset has since changed the same aspect, " +
-				"or if the changeset touched change types whose prior state was not captured (column descriptions, structured properties, incidents, curated queries, context documents, prompts). " +
+				"or if the changeset touched change types whose prior state was not captured or is irreversible (column descriptions, structured properties, custom properties, incidents, curated queries, context documents, prompts, delete_tag, bulk_untag). " +
 				"list_changesets (entity_urn required) lists an entity's changesets with their ids, timestamps, actors, and rollback status. " +
 				"Change types: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query, " +
 				"set_structured_property, remove_structured_property, raise_incident, resolve_incident, " +
-				"add_context_document, update_context_document, remove_context_document. " +
+				"add_context_document, update_context_document, remove_context_document, delete_tag, set_custom_property, remove_custom_property. " +
 				"For update_description, use target 'column:<fieldPath>' for column-level (e.g., 'column:location_type_id'), omit for entity-level. " +
 				"update_description works on datasets, dashboards, charts, dataFlows, dataJobs, containers, dataProducts, domains, glossaryTerms, and glossaryNodes. " +
 				"Column-level descriptions (column:<fieldPath>) are dataset-only. " +
@@ -221,6 +225,9 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 				"For update_context_document, target is the document ID, detail is the new content, query_sql is the new title, query_description is the category. " +
 				"For remove_context_document, target is the document ID. " +
 				"add_context_document/update_context_document work on datasets, glossaryTerms, glossaryNodes, and containers. " +
+				"delete_tag deletes a tag definition entirely (entity_urn is the tag URN); it is irreversible. " +
+				"update_description with entity_urn set to a tag URN fixes the tag's own definition. " +
+				"For set_custom_property, target is the customProperties key, detail is the value; for remove_custom_property, target is the key. Custom properties are recorded but not auto-revertible. " +
 				"Structured properties, incidents, and context documents require DataHub 1.4.x. " +
 				"Insight lifecycle: pending → approved/rejected/superseded; approved → applied/rejected; applied → rolled_back.",
 			InputSchema: applyKnowledgeSchema,
@@ -284,6 +291,8 @@ func (t *Toolkit) dispatchApplyAction(ctx context.Context, input applyKnowledgeI
 		return t.handleRollback(ctx, input)
 	case actionListChangesets:
 		return t.handleListChangesets(ctx, input)
+	case actionBulkUntag:
+		return t.handleBulkUntag(ctx, input)
 	default:
 		return errorResult("unknown action: " + input.Action), nil, nil
 	}
@@ -1113,6 +1122,21 @@ func (t *Toolkit) dispatchV14Change(ctx context.Context, urn string, c ApplyChan
 		err = t.datahubWriter.UpsertStructuredProperties(ctx, urn, normalizeStructuredPropertyURN(c.Target), values)
 	case string(actionRemoveStructuredProperty):
 		err = t.datahubWriter.RemoveStructuredProperty(ctx, urn, normalizeStructuredPropertyURN(c.Target))
+	case string(actionDeleteTag):
+		// entity_urn is the tag URN being deleted. Irreversible: the changeset is
+		// recorded for audit but delete_tag is not in revertibleChangeTypes.
+		err = t.datahubWriter.DeleteTag(ctx, urn)
+	case string(actionSetCustomProperty):
+		// One custom property per change: Target is the key, Detail the value.
+		if c.Target == "" {
+			return "", fmt.Errorf("set_custom_property requires a property key in target")
+		}
+		err = t.datahubWriter.SetCustomProperties(ctx, urn, map[string]string{c.Target: c.Detail})
+	case string(actionRemoveCustomProperty):
+		if c.Target == "" {
+			return "", fmt.Errorf("remove_custom_property requires a property key in target")
+		}
+		err = t.datahubWriter.RemoveCustomProperties(ctx, urn, []string{c.Target})
 	case string(actionRaiseIncident):
 		return t.raiseIncident(ctx, urn, c.Target, c.Detail, c.ChangeType)
 	case string(actionResolveIncident):

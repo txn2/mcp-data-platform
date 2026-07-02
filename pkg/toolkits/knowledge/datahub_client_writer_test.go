@@ -1548,6 +1548,94 @@ func TestDataHubClientWriter_RemoveStructuredProperty_Error(t *testing.T) {
 	assert.Contains(t, err.Error(), "removing structured property")
 }
 
+func TestDataHubClientWriter_DeleteTag(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(graphQLResponse{Data: json.RawMessage(`{"deleteTag": true}`)})
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.DeleteTag(context.Background(), "urn:li:tag:Deprecated")
+	require.NoError(t, err)
+}
+
+func TestDataHubClientWriter_DeleteTag_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(graphQLResponse{Errors: []any{map[string]any{"message": "boom"}}})
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.DeleteTag(context.Background(), "urn:li:tag:Deprecated")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "deleting tag")
+}
+
+// customPropertiesServer serves a 404 on the aspect GET (no existing aspect) and
+// 200 on the ingestProposal POST, capturing the posted body. This is the
+// read-modify-write shape SetCustomProperties/RemoveCustomProperties follow.
+func customPropertiesServer(t *testing.T, posted *json.RawMessage) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/aspects") {
+			_ = json.NewDecoder(r.Body).Decode(posted)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+}
+
+func TestDataHubClientWriter_SetCustomProperties(t *testing.T) {
+	var body json.RawMessage
+	server := customPropertiesServer(t, &body)
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.SetCustomProperties(context.Background(), testURN, map[string]string{"source_system": "warehouse"})
+	require.NoError(t, err)
+	assert.NotEmpty(t, body)
+}
+
+func TestDataHubClientWriter_SetCustomProperties_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`server error`))
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.SetCustomProperties(context.Background(), testURN, map[string]string{"k": "v"})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "setting custom properties")
+}
+
+func TestDataHubClientWriter_RemoveCustomProperties(t *testing.T) {
+	var body json.RawMessage
+	server := customPropertiesServer(t, &body)
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.RemoveCustomProperties(context.Background(), testURN, []string{"legacy_owner"})
+	require.NoError(t, err)
+	assert.NotEmpty(t, body)
+}
+
+func TestDataHubClientWriter_RemoveCustomProperties_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`server error`))
+	}))
+	defer server.Close()
+
+	writer := NewDataHubClientWriter(newTestClient(t, server.URL))
+	err := writer.RemoveCustomProperties(context.Background(), testURN, []string{"k"})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "removing custom properties")
+}
+
 func TestDataHubClientWriter_RaiseIncident(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

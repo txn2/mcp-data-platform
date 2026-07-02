@@ -426,6 +426,23 @@ func (w *spyWriter) RemoveStructuredProperty(_ context.Context, urn, propertyURN
 	return w.recordAndCheck("RemoveStructuredProperty", urn, propertyURN, "")
 }
 
+func (w *spyWriter) DeleteTag(_ context.Context, tagURN string) error {
+	return w.recordAndCheck("DeleteTag", tagURN, "", "")
+}
+
+func (w *spyWriter) SetCustomProperties(_ context.Context, urn string, properties map[string]string) error {
+	keys := make([]string, 0, len(properties))
+	for k := range properties {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return w.recordAndCheck("SetCustomProperties", urn, strings.Join(keys, ","), "")
+}
+
+func (w *spyWriter) RemoveCustomProperties(_ context.Context, urn string, keys []string) error {
+	return w.recordAndCheck("RemoveCustomProperties", urn, strings.Join(keys, ","), "")
+}
+
 func (w *spyWriter) RaiseIncident(_ context.Context, entityURN, title, desc string) (string, error) {
 	if err := w.recordAndCheck("RaiseIncident", entityURN, title, desc); err != nil {
 		return "", err

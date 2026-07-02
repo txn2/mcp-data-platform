@@ -765,9 +765,10 @@ Both sinks record a **changeset** (page promotions use `target_urn = "kp:<slug>"
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `action` | string | Yes | bulk_review, review, synthesize, apply, approve, reject, rollback, list_changesets |
+| `action` | string | Yes | bulk_review, review, synthesize, apply, approve, reject, rollback, list_changesets, bulk_untag |
 | `sink` | string | No | apply target: `datahub` (default) or `knowledge_page` |
 | `entity_urn` | string | Conditional | Required for review, synthesize, list_changesets, and apply with `sink=datahub` |
+| `tag_urn` | string | Conditional | Required for `bulk_untag`; the tag (name or `urn:li:tag:...`) to remove from every entity that carries it |
 | `page` | object | Conditional | `{slug, title, body, summary?, tags?, references?}` for apply with `sink=knowledge_page`. `references` is a list of serialized reference strings (`mcp:<type>:<id>` / `urn:li:...`) attached to the page independent of the body |
 | `insight_ids` | array | Conditional | Source insights; required for approve, reject. On apply, pass the promoted insights so they are marked applied and the changeset is linked to them (closes the review loop; the queue then reflects what is live). Sink-class is a non-binding hint; any insight can be applied to either sink (destination chosen at apply) |
 | `changes` | array | Conditional | Required for apply with `sink=datahub` |
@@ -787,12 +788,13 @@ Both sinks record a **changeset** (page promotions use `target_urn = "kp:<slug>"
 - **apply**: Write changes to DataHub with changeset tracking
 - **list_changesets**: List an entity's changesets (id, timestamp, actor, change type, rollback status)
 - **rollback**: Revert a changeset's changes to their before-image and transition its source insights to `rolled_back` (requires `changeset_id` and `confirm`)
+- **bulk_untag**: Remove a tag (`tag_urn`) from every entity a catalog search finds carrying it, recording one changeset for audit (when `require_confirmation` is enabled it first returns the affected count and needs `confirm`; not auto-revertible, re-apply `add_tag` to restore)
 
 **Supported change types for `apply` action:**
 
 | Change Type | Target | Detail | Entity Types |
 |-------------|--------|--------|--------------|
-| `update_description` | `column:<fieldPath>` for column-level, empty for entity-level | Description text | datasets (column+entity), dashboards, charts, dataFlows, dataJobs, containers, dataProducts, domains, glossaryTerms, glossaryNodes |
+| `update_description` | `column:<fieldPath>` for column-level, empty for entity-level | Description text | datasets (column+entity), dashboards, charts, dataFlows, dataJobs, containers, dataProducts, domains, glossaryTerms, glossaryNodes, tags (set `entity_urn` to the tag URN to fix a tag's own definition) |
 | `add_tag` / `remove_tag` | Ignored | Tag name or URN (e.g., `pii` or `urn:li:tag:pii`) | All |
 | `add_glossary_term` | Ignored | Term name or URN | All |
 | `flag_quality_issue` | Ignored | Quality issue description | All |
@@ -805,8 +807,11 @@ Both sinks record a **changeset** (page promotions use `target_urn = "kp:<slug>"
 | `add_context_document` | Document title | Document content | Datasets, glossaryTerms, glossaryNodes, containers (DataHub 1.4.x) |
 | `update_context_document` | Document ID | New content (`query_sql` = new title) | Datasets, glossaryTerms, glossaryNodes, containers (DataHub 1.4.x) |
 | `remove_context_document` | Document ID | Ignored | All (DataHub 1.4.x) |
+| `delete_tag` | Ignored | Ignored | Tags (`entity_urn` is the tag URN); deletes the tag definition entirely, irreversible |
+| `set_custom_property` | customProperties key | Value | All |
+| `remove_custom_property` | customProperties key | Ignored | All |
 
-For `add_curated_query`, `query_sql` (required) and `query_description` (optional) provide the SQL statement. For `add_context_document` and `update_context_document`, `query_description` is the document category.
+`delete_tag`, `set_custom_property`, and `remove_custom_property` are recorded for audit but are not auto-revertible. For `add_curated_query`, `query_sql` (required) and `query_description` (optional) provide the SQL statement. For `add_context_document` and `update_context_document`, `query_description` is the document category.
 
 ---
 

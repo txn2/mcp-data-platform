@@ -31,6 +31,9 @@ const (
 	// entityTypeDocument is the DataHub entity type string for documents.
 	entityTypeDocument = "document"
 
+	// entityTypeTag is the DataHub entity type string for tags.
+	entityTypeTag = "tag"
+
 	// opsSeparator is the delimiter used when joining supported operations in error messages.
 	opsSeparator = ", "
 )
@@ -112,6 +115,27 @@ var contextDocumentOps = map[actionType]bool{
 	actionRemoveContextDocument: true,
 }
 
+// customPropertyOps are change types that edit an entity's legacy customProperties.
+var customPropertyOps = map[actionType]bool{
+	actionSetCustomProperty:    true,
+	actionRemoveCustomProperty: true,
+}
+
+// customPropertySupportedTypes are entity types whose customProperties mcp-datahub
+// can edit. Must stay in sync with the upstream customPropertiesAspectMap.
+var customPropertySupportedTypes = map[string]bool{
+	entityTypeDataset:      true,
+	entityTypeDashboard:    true,
+	"chart":                true,
+	"dataFlow":             true,
+	"dataJob":              true,
+	entityTypeContainer:    true,
+	entityTypeDataProduct:  true,
+	"glossaryNode":         true,
+	entityTypeGlossaryTerm: true,
+	entityTypeDomain:       true,
+}
+
 // supportedOpsForType returns the list of supported operations for a given entity type.
 // All entity types support tag, glossary term, documentation, and quality issue operations.
 // Only datasets support column descriptions and curated queries.
@@ -150,6 +174,7 @@ var descriptionSupportedTypes = map[string]bool{
 	entityTypeDomain:       true,
 	entityTypeGlossaryTerm: true,
 	"glossaryNode":         true,
+	entityTypeTag:          true,
 }
 
 // validateEntityTypeForChange checks whether a change type is supported for the
@@ -185,6 +210,23 @@ func validateEntityTypeForChange(urn string, c ApplyChange) error {
 			"%s is only supported for datasets, glossaryTerms, glossaryNodes, and containers, not %s entities. "+
 				"Supported operations for %s: %s",
 			c.ChangeType, entityType, entityType, strings.Join(supportedOpsForType(entityType), opsSeparator),
+		)
+	}
+
+	// delete_tag operates on a tag definition, so entity_urn must be a tag URN.
+	if c.ChangeType == string(actionDeleteTag) && entityType != entityTypeTag {
+		return fmt.Errorf(
+			"delete_tag is only supported for tag entities (entity_urn must be a tag URN), not %s entities",
+			entityType,
+		)
+	}
+
+	// Custom-property operations require an entity type mcp-datahub can edit.
+	if customPropertyOps[actionType(c.ChangeType)] && !customPropertySupportedTypes[entityType] {
+		return fmt.Errorf(
+			"%s is not supported for %s entities (customProperties are editable on datasets, dashboards, charts, "+
+				"dataFlows, dataJobs, containers, dataProducts, domains, glossaryTerms, and glossaryNodes)",
+			c.ChangeType, entityType,
 		)
 	}
 

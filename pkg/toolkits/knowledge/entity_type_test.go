@@ -106,13 +106,39 @@ func TestValidateEntityTypeForChange(t *testing.T) {
 			change: ApplyChange{ChangeType: "update_description", Detail: "desc"},
 		},
 
-		// update_description on unsupported entity types
+		// update_description on a tag fixes the tag's own definition (#726)
 		{
-			name:       "update_description on tag (unsupported)",
-			urn:        tagURN,
-			change:     ApplyChange{ChangeType: "update_description", Detail: "desc"},
+			name:   "update_description on tag",
+			urn:    tagURN,
+			change: ApplyChange{ChangeType: "update_description", Detail: "desc"},
+		},
+
+		// delete_tag: tag URNs only (#726)
+		{
+			name:   "delete_tag on tag",
+			urn:    tagURN,
+			change: ApplyChange{ChangeType: "delete_tag"},
+		},
+		{
+			name:       "delete_tag on dataset (unsupported)",
+			urn:        datasetURN,
+			change:     ApplyChange{ChangeType: "delete_tag"},
 			wantErr:    true,
-			errContain: "update_description is not supported for tag entities",
+			errContain: "delete_tag is only supported for tag entities",
+		},
+
+		// custom properties: mcp-datahub-supported types only (#726)
+		{
+			name:   "set_custom_property on dataset",
+			urn:    datasetURN,
+			change: ApplyChange{ChangeType: "set_custom_property", Target: "k", Detail: "v"},
+		},
+		{
+			name:       "set_custom_property on tag (unsupported)",
+			urn:        tagURN,
+			change:     ApplyChange{ChangeType: "set_custom_property", Target: "k", Detail: "v"},
+			wantErr:    true,
+			errContain: "set_custom_property is not supported for tag entities",
 		},
 
 		// Column-level descriptions: dataset only
@@ -304,8 +330,8 @@ func TestSupportedOpsForType(t *testing.T) {
 		},
 		{
 			entityType:   "tag",
-			wantContains: []string{"add_tag", "remove_tag", "add_glossary_term"},
-			wantMissing:  []string{"update_description", "add_curated_query", "add_context_document", "update_context_document", "remove_context_document"},
+			wantContains: []string{"update_description", "add_tag", "remove_tag", "add_glossary_term"},
+			wantMissing:  []string{"add_curated_query", "add_context_document", "update_context_document", "remove_context_document"},
 		},
 		{
 			entityType:   "glossaryTerm",

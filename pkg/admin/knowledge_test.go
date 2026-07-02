@@ -243,6 +243,16 @@ func (*mockDataHubWriter) UpsertStructuredProperties(_ context.Context, _, _ str
 	return nil
 }
 
+func (*mockDataHubWriter) DeleteTag(_ context.Context, _ string) error { return nil }
+
+func (*mockDataHubWriter) SetCustomProperties(_ context.Context, _ string, _ map[string]string) error {
+	return nil
+}
+
+func (*mockDataHubWriter) RemoveCustomProperties(_ context.Context, _ string, _ []string) error {
+	return nil
+}
+
 func (*mockDataHubWriter) RemoveStructuredProperty(_ context.Context, _, _ string) error {
 	return nil
 }

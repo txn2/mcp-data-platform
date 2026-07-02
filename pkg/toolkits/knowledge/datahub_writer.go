@@ -38,6 +38,13 @@ type DataHubWriter interface {
 	UpsertStructuredProperties(ctx context.Context, urn string, propertyURN string, values []any) error
 	RemoveStructuredProperty(ctx context.Context, urn string, propertyURN string) error
 
+	// Curation (#726, mcp-datahub v1.11.0). DeleteTag removes a tag definition
+	// entirely; SetCustomProperties/RemoveCustomProperties edit an entity's legacy
+	// customProperties map.
+	DeleteTag(ctx context.Context, tagURN string) error
+	SetCustomProperties(ctx context.Context, urn string, properties map[string]string) error
+	RemoveCustomProperties(ctx context.Context, urn string, keys []string) error
+
 	// Incidents (DataHub 1.4.x)
 	RaiseIncident(ctx context.Context, entityURN, title, description string) (string, error)
 	ResolveIncident(ctx context.Context, incidentURN, message string) error
@@ -103,6 +110,19 @@ func (*NoopDataHubWriter) UpsertStructuredProperties(_ context.Context, _, _ str
 
 // RemoveStructuredProperty is a no-op.
 func (*NoopDataHubWriter) RemoveStructuredProperty(_ context.Context, _, _ string) error {
+	return nil
+}
+
+// DeleteTag is a no-op.
+func (*NoopDataHubWriter) DeleteTag(_ context.Context, _ string) error { return nil }
+
+// SetCustomProperties is a no-op.
+func (*NoopDataHubWriter) SetCustomProperties(_ context.Context, _ string, _ map[string]string) error {
+	return nil
+}
+
+// RemoveCustomProperties is a no-op.
+func (*NoopDataHubWriter) RemoveCustomProperties(_ context.Context, _ string, _ []string) error {
 	return nil
 }
 

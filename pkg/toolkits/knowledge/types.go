@@ -158,6 +158,16 @@ const (
 	actionRaiseIncident            actionType = "raise_incident"
 	actionResolveIncident          actionType = "resolve_incident"
 
+	// Curation change types (#726). delete_tag removes a tag definition entirely
+	// (entity_urn is the tag URN); set_custom_property/remove_custom_property edit
+	// an entity's legacy customProperties map. Like the structured-property changes
+	// they are recorded for audit but are not auto-revertible (see
+	// revertibleChangeTypes): a deleted tag cannot be restored with its prior
+	// associations, and a customProperties edit has no before-image captured.
+	actionDeleteTag            actionType = "delete_tag"
+	actionSetCustomProperty    actionType = "set_custom_property"
+	actionRemoveCustomProperty actionType = "remove_custom_property"
+
 	// Context document actions (DataHub 1.4.x with document support).
 	actionAddContextDocument    actionType = "add_context_document"
 	actionUpdateContextDocument actionType = "update_context_document"
@@ -171,7 +181,7 @@ const (
 const actionTypeList = "update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, " +
 	"add_documentation, add_curated_query, set_structured_property, remove_structured_property, " +
 	"raise_incident, resolve_incident, add_context_document, update_context_document, remove_context_document, " +
-	"add_prompt"
+	"add_prompt, delete_tag, set_custom_property, remove_custom_property"
 
 // validActionTypes is the set of accepted action type values.
 var validActionTypes = map[actionType]bool{
@@ -190,6 +200,9 @@ var validActionTypes = map[actionType]bool{
 	actionUpdateContextDocument:    true,
 	actionRemoveContextDocument:    true,
 	actionAddPrompt:                true,
+	actionDeleteTag:                true,
+	actionSetCustomProperty:        true,
+	actionRemoveCustomProperty:     true,
 }
 
 // SuggestedAction represents a proposed catalog change.
@@ -289,6 +302,10 @@ const (
 	actionReject         = "reject"
 	actionRollback       = "rollback"
 	actionListChangesets = "list_changesets"
+	// actionBulkUntag removes a tag from every entity that carries it (#726). It is
+	// a top-level action rather than a per-entity change because it fans out across
+	// the entities a search finds, recording one changeset that lists them.
+	actionBulkUntag = "bulk_untag"
 )
 
 // validTransitions defines allowed status transitions.
@@ -460,6 +477,12 @@ func validateChangeRequiredFields(c ApplyChange) error {
 		return requireField(c.Target, "target (document ID) is required for remove_context_document")
 	case string(actionAddPrompt):
 		return validateAddPromptFields(c)
+	case string(actionSetCustomProperty):
+		if c.Target == "" || c.Detail == "" {
+			return fmt.Errorf("target (property key) and detail (value) are required for set_custom_property")
+		}
+	case string(actionRemoveCustomProperty):
+		return requireField(c.Target, "target (property key) is required for remove_custom_property")
 	}
 	return nil
 }
@@ -507,7 +530,7 @@ type ProposedChange struct {
 }
 
 // actionList is the human-readable list of valid apply_knowledge actions.
-const actionList = "bulk_review, review, synthesize, apply, approve, reject, rollback, list_changesets"
+const actionList = "bulk_review, review, synthesize, apply, approve, reject, rollback, list_changesets, bulk_untag"
 
 // ValidateAction checks whether an action value is valid.
 func ValidateAction(action string) error {
@@ -520,6 +543,7 @@ func ValidateAction(action string) error {
 		actionReject:         true,
 		actionRollback:       true,
 		actionListChangesets: true,
+		actionBulkUntag:      true,
 	}
 	if action == "" {
 		return fmt.Errorf("action is required and must be one of: %s", actionList)

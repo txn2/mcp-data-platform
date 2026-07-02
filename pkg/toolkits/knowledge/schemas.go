@@ -11,7 +11,7 @@ var applyKnowledgeSchema = json.RawMessage(`{
   "properties": {
     "action": {
       "type": "string",
-      "description": "The action to perform. Valid values: bulk_review, review, synthesize, apply, approve, reject, rollback, list_changesets. To see the whole review queue, call bulk_review with itemize:true (the search tool is relevance-ranked and cannot list it completely)."
+      "description": "The action to perform. Valid values: bulk_review, review, synthesize, apply, approve, reject, rollback, list_changesets, bulk_untag. To see the whole review queue, call bulk_review with itemize:true (the search tool is relevance-ranked and cannot list it completely). bulk_untag removes a tag (tag_urn) from every entity that carries it."
     },
     "itemize": {
       "type": "boolean",
@@ -33,6 +33,10 @@ var applyKnowledgeSchema = json.RawMessage(`{
       "type": "string",
       "description": "Changeset to revert (required for rollback action). Obtain it from a prior apply response or the list_changesets action."
     },
+    "tag_urn": {
+      "type": "string",
+      "description": "The tag to remove from every entity that carries it (required for bulk_untag). Accepts a tag name or a full urn:li:tag:... URN. bulk_untag enumerates the entities via catalog search (datasets and other indexed types) and removes the tag from each, recording one changeset; it is destructive, so when confirmation is enabled it first returns the affected count and requires confirm: true. To fix a tag's own definition instead of removing it everywhere, apply update_description with entity_urn set to the tag URN; to delete the tag definition entirely, apply delete_tag with entity_urn set to the tag URN."
+    },
     "insight_ids": {
       "type": "array",
       "description": "Insight IDs to operate on. Required for approve and reject. On apply, pass the source insight IDs you are promoting so the resulting changeset is linked to them and those insights are marked applied: this closes the review loop, so the queue reflects what is live and the same insight is not re-reviewed. An apply without insight_ids still writes the changes but leaves the source insights in their prior (approved/pending) state.",
@@ -48,15 +52,15 @@ var applyKnowledgeSchema = json.RawMessage(`{
         "properties": {
           "change_type": {
             "type": "string",
-            "description": "Type of catalog change. Valid values: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query, set_structured_property, remove_structured_property, raise_incident, resolve_incident, add_context_document, update_context_document, remove_context_document, add_prompt. update_description supports datasets, dashboards, charts, dataFlows, dataJobs, containers, dataProducts, domains, glossaryTerms, glossaryNodes. Column-level descriptions and add_curated_query are dataset-only. add_context_document/update_context_document work on datasets, glossaryTerms, glossaryNodes, containers. remove_context_document works on all entity types. Structured properties and incidents require DataHub 1.4.x. add_prompt creates a platform prompt (target=name, detail=content)."
+            "description": "Type of catalog change. Valid values: update_description, add_tag, remove_tag, add_glossary_term, flag_quality_issue, add_documentation, add_curated_query, set_structured_property, remove_structured_property, raise_incident, resolve_incident, add_context_document, update_context_document, remove_context_document, add_prompt, delete_tag, set_custom_property, remove_custom_property. update_description supports datasets, dashboards, charts, dataFlows, dataJobs, containers, dataProducts, domains, glossaryTerms, glossaryNodes, and tags (set entity_urn to the tag URN to fix a tag's own definition). Column-level descriptions and add_curated_query are dataset-only. add_context_document/update_context_document work on datasets, glossaryTerms, glossaryNodes, containers. remove_context_document works on all entity types. delete_tag removes a tag definition entirely (entity_urn is the tag URN); it is irreversible and its changeset cannot be rolled back. set_custom_property/remove_custom_property edit an entity's legacy customProperties (one key per change: target=key, detail=value for set; target=key for remove); like structured properties they are recorded but not auto-revertible. Structured properties and incidents require DataHub 1.4.x. add_prompt creates a platform prompt (target=name, detail=content)."
           },
           "target": {
             "type": "string",
-            "description": "Where to apply the change. Use 'column:<fieldPath>' for column-level descriptions (dataset-only). For add_documentation, this is the URL. For set_structured_property/remove_structured_property, this is the property qualified name or URN. For raise_incident, this is the incident title. For resolve_incident, this is the incident URN. For add_context_document, this is the document title. For update_context_document/remove_context_document, this is the document ID. For add_prompt, this is the prompt name. For remove_tag, this is ignored. Leave empty for entity-level updates"
+            "description": "Where to apply the change. Use 'column:<fieldPath>' for column-level descriptions (dataset-only). For add_documentation, this is the URL. For set_structured_property/remove_structured_property, this is the property qualified name or URN. For set_custom_property/remove_custom_property, this is the customProperties key. For raise_incident, this is the incident title. For resolve_incident, this is the incident URN. For add_context_document, this is the document title. For update_context_document/remove_context_document, this is the document ID. For add_prompt, this is the prompt name. For remove_tag and delete_tag, this is ignored. Leave empty for entity-level updates"
           },
           "detail": {
             "type": "string",
-            "description": "The content for the change: description text, tag name/URN, glossary term name/URN, quality issue description, documentation link description, query name (for add_curated_query), property value or JSON array (for set_structured_property), removal reason (for remove_structured_property), optional description (for raise_incident), resolution message (for resolve_incident), or document content (for add_context_document/update_context_document)"
+            "description": "The content for the change: description text, tag name/URN, glossary term name/URN, quality issue description, documentation link description, query name (for add_curated_query), property value or JSON array (for set_structured_property), the customProperties value (for set_custom_property), removal reason (for remove_structured_property), optional description (for raise_incident), resolution message (for resolve_incident), or document content (for add_context_document/update_context_document)"
           },
           "query_sql": {
             "type": "string",
