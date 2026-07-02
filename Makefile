@@ -512,7 +512,9 @@ build-with-ui: frontend-build build
 # E2E Testing Targets
 # =============================================================================
 
-E2E_COMPOSE := docker compose -f docker-compose.e2e.yml
+# Cleared DOCKER_DEFAULT_PLATFORM (see DEV_COMPOSE below) so the local E2E stack
+# uses the host's native platform for multi-arch images like pgvector.
+E2E_COMPOSE := DOCKER_DEFAULT_PLATFORM= docker compose -f docker-compose.e2e.yml
 
 ## e2e-up: Start E2E test environment (PostgreSQL, Trino, SeaweedFS)
 e2e-up:
@@ -578,7 +580,13 @@ e2e-clean: e2e-down
 # Local Dev Environment (ACME Corporation)
 # =============================================================================
 
-DEV_COMPOSE := docker compose -f dev/docker-compose.yml
+# Clear DOCKER_DEFAULT_PLATFORM for the local dev stack: a developer who exports
+# it as linux/amd64 (to build cluster images) would otherwise force the amd64
+# variant of multi-arch images like pgvector/pgvector:pg16, which fails on an
+# arm64 host whose cached image is arm64 ("platform does not match"). An empty
+# value lets Docker pick the host's native platform, so this works on both
+# arm64 and amd64 machines.
+DEV_COMPOSE := DOCKER_DEFAULT_PLATFORM= docker compose -f dev/docker-compose.yml
 
 ## dev-up: Start ACME dev environment (PostgreSQL)
 dev-up:
