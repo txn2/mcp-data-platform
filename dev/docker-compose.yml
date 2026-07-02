@@ -16,7 +16,11 @@ services:
       POSTGRES_PASSWORD: platform_secret
       POSTGRES_DB: mcp_platform
     ports:
-      - "5432:5432"
+      # Bind loopback only (like the other dev services below): local dev
+      # connects via localhost, and an all-interfaces 0.0.0.0 bind both exposes
+      # the DB on the LAN and collides with any other specific-address :5432
+      # listener (e.g. a kubefwd-forwarded cluster Postgres on a 127.x alias).
+      - "127.0.0.1:5432:5432"
     volumes:
       - acme_postgres_data:/var/lib/postgresql/data
       # Init script creates the mcp_test and apitest databases used by the
@@ -118,7 +122,8 @@ services:
     container_name: acme-dev-seaweedfs
     command: 'server -s3 -s3.port=8333 -s3.config=/etc/seaweedfs/s3.json -dir=/data -volume.max=5'
     ports:
-      - "9000:8333"
+      # Loopback only, matching the other dev services (see postgres above).
+      - "127.0.0.1:9000:8333"
     volumes:
       - acme_seaweed_data:/data
       - ./seaweedfs-s3.json:/etc/seaweedfs/s3.json:ro

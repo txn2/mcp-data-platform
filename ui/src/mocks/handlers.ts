@@ -19,6 +19,19 @@ import { mockSystemInfo, mockTools, mockConnections } from "./data/system";
 import { mockToolSchemas, generateMockResult } from "./data/tools";
 import { mockEnrichmentRules } from "./data/enrichment";
 import { mockAssets, mockShares, mockSharedWithMe } from "./data/assets";
+import {
+  mockDataHubConnections,
+  catalogBrowse,
+  catalogSearch,
+  catalogEntity,
+  applyCatalogChange,
+  docsBrowse,
+  docsSearch,
+  getDoc,
+  createDoc,
+  updateDoc,
+  deleteDoc,
+} from "./data/datahub";
 import { mockKnowledgePages } from "./data/knowledgePages";
 import { mockContent } from "./data/content";
 import { mockCollections, mockSharedCollections } from "./data/collections";
@@ -723,6 +736,55 @@ export const handlers = [
     if (page) page.deleted_at = new Date().toISOString();
     return new HttpResponse(null, { status: 204 });
   }),
+
+  // --- DataHub Catalog + Context Docs (#719/#720) ---
+  http.get(`${PORTAL_BASE}/datahub/connections`, () =>
+    HttpResponse.json({ connections: mockDataHubConnections }),
+  ),
+  http.get(`${PORTAL_BASE}/datahub/:conn/catalog/browse`, () =>
+    HttpResponse.json({ results: catalogBrowse() }),
+  ),
+  http.get(`${PORTAL_BASE}/datahub/:conn/catalog/search`, ({ request }) => {
+    const q = new URL(request.url).searchParams.get("q") ?? "";
+    return HttpResponse.json({ results: catalogSearch(q) });
+  }),
+  http.get(`${PORTAL_BASE}/datahub/:conn/catalog/entity`, ({ request }) => {
+    const u = new URL(request.url).searchParams.get("urn") ?? "";
+    const entity = catalogEntity(u);
+    return entity ? HttpResponse.json(entity) : new HttpResponse(null, { status: 502 });
+  }),
+  ...(["description", "tags", "owners", "glossary-terms", "domain"] as const).map((field) =>
+    http.put(`${PORTAL_BASE}/datahub/:conn/catalog/entity/${field}`, async ({ request }) => {
+      const body = (await request.json()) as Record<string, unknown>;
+      if (!body.urn) return HttpResponse.json({ detail: "urn is required" }, { status: 400 });
+      applyCatalogChange(field, body as never);
+      return HttpResponse.json({ status: "ok" });
+    }),
+  ),
+  http.get(`${PORTAL_BASE}/datahub/:conn/documents/browse`, () => HttpResponse.json(docsBrowse())),
+  http.get(`${PORTAL_BASE}/datahub/:conn/documents/search`, ({ request }) => {
+    const q = new URL(request.url).searchParams.get("q") ?? "";
+    return HttpResponse.json({ documents: docsSearch(q) });
+  }),
+  http.get(`${PORTAL_BASE}/datahub/:conn/documents/:id`, ({ params }) => {
+    const doc = getDoc(String(params.id));
+    return doc ? HttpResponse.json(doc) : new HttpResponse(null, { status: 404 });
+  }),
+  http.post(`${PORTAL_BASE}/datahub/:conn/documents`, async ({ request }) => {
+    const body = (await request.json()) as { entity_urn?: string; title?: string; content?: string; category?: string };
+    if (!body.title) return HttpResponse.json({ detail: "title is required" }, { status: 400 });
+    if (!body.entity_urn) return HttpResponse.json({ detail: "entity_urn is required" }, { status: 400 });
+    return HttpResponse.json(createDoc({ ...body, title: body.title, content: body.content ?? "" }), { status: 201 });
+  }),
+  http.put(`${PORTAL_BASE}/datahub/:conn/documents/:id`, async ({ params, request }) => {
+    const body = (await request.json()) as { title?: string; content?: string; category?: string };
+    if (!body.title) return HttpResponse.json({ detail: "title is required" }, { status: 400 });
+    const doc = updateDoc(String(params.id), { title: body.title, content: body.content ?? "", category: body.category });
+    return doc ? HttpResponse.json(doc) : new HttpResponse(null, { status: 502 });
+  }),
+  http.delete(`${PORTAL_BASE}/datahub/:conn/documents/:id`, ({ params }) =>
+    deleteDoc(String(params.id)) ? HttpResponse.json({ status: "deleted" }) : new HttpResponse(null, { status: 502 }),
+  ),
 
   // =========================================================================
   // Admin API
