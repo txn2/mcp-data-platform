@@ -187,6 +187,15 @@ The page has three tabs. Review and promote affordances appear only when your pe
 - **Browse** - With the search box empty, the tab browses the canonical knowledge pages. Personas with `apply_knowledge` can create, edit, and remove pages
 - **Changesets** (`apply_knowledge` holders) - The record of insights promoted into knowledge: the catalog and knowledge-page changes applied when your agent runs `apply_knowledge`, with rollback to undo a changeset's writes. They live here, with the promoted knowledge, rather than with the unpromoted insights in the review pipeline
 
+### DataHub catalog and context documents
+
+The portal exposes the DataHub catalog (datasets) and context documents over REST at `/api/v1/portal/datahub/{connection}/...`, so catalog metadata and context docs can be browsed, searched, read, and edited without leaving the portal. `GET .../connections` lists the DataHub connections available, each flagged writable.
+
+- **Catalog** - Browse and search datasets, read an entity's description, tags, owners, glossary terms, domain, and columns, and edit that metadata. DataHub has no dataset create or delete (datasets originate in source systems), so catalog editing is metadata-only.
+- **Context documents** - Full create, read, update, and delete. A context document can attach only to a Dataset, GlossaryTerm, GlossaryNode, or Container; attaching to any other entity type is rejected.
+
+Reads are open to any authenticated user with access to the connection. A write is permitted only when your persona grants the matching MCP tool (`datahub_update` to edit catalog metadata or update a document, `datahub_create` to create a document, `datahub_delete` to delete one) **and** the target connection is write-enabled (`read_only: false`). Both checks are enforced server-side regardless of what the UI shows, and every write is recorded in the audit log. Tag and glossary-term edits are applied as batched add/remove sets so concurrent edits do not clobber one another.
+
 ### Insights
 
 The review pipeline for insights, which are the only memories that cross between users. A pending-review count is badged on the sidebar Knowledge item and the Insights tab so reviewers notice work without opening it.

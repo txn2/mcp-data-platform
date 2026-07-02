@@ -891,3 +891,59 @@ func (w *DataHubClientWriter) DeleteContextDocument(ctx context.Context, documen
 	}
 	return nil
 }
+
+// OwnerChange is an owner to add along with its ownership type.
+type OwnerChange struct {
+	// OwnerURN is the corpUser or corpGroup URN being added as an owner.
+	OwnerURN string
+	// OwnershipType is the ownership type (e.g. "TECHNICAL_OWNER"); when empty
+	// the upstream client defaults it.
+	OwnershipType string
+}
+
+// ApplyOwnerChanges removes then adds owners on an entity. Unlike tags and
+// glossary terms, ownership is written through the server-side additive GraphQL
+// mutations addOwner/removeOwner (upstream write_owners.go), which modify the
+// ownership aspect per association and are lossless, so this needs no
+// read-modify-write batching of the whole aspect. An owner URN present in both
+// add and remove is left removed, matching the ApplyTagChanges/ApplyGlossaryTermChanges
+// contracts; removes are applied before adds for the same reason.
+func (w *DataHubClientWriter) ApplyOwnerChanges(ctx context.Context, urn string, add []OwnerChange, remove []string) error {
+	if len(add) == 0 && len(remove) == 0 {
+		return nil
+	}
+	removeSet := make(map[string]bool, len(remove))
+	for _, o := range remove {
+		removeSet[o] = true
+	}
+	for _, o := range remove {
+		if err := w.client.RemoveOwner(ctx, urn, o); err != nil {
+			return fmt.Errorf("removing owner %s from %s: %w", o, urn, err)
+		}
+	}
+	for _, o := range add {
+		if removeSet[o.OwnerURN] {
+			continue
+		}
+		if err := w.client.AddOwner(ctx, urn, o.OwnerURN, o.OwnershipType); err != nil {
+			return fmt.Errorf("adding owner %s to %s: %w", o.OwnerURN, urn, err)
+		}
+	}
+	return nil
+}
+
+// SetDomain assigns a domain to an entity, replacing any existing domain.
+func (w *DataHubClientWriter) SetDomain(ctx context.Context, entityURN, domainURN string) error {
+	if err := w.client.SetDomain(ctx, entityURN, domainURN); err != nil {
+		return fmt.Errorf("setting domain %s on %s: %w", domainURN, entityURN, err)
+	}
+	return nil
+}
+
+// UnsetDomain removes the domain from an entity.
+func (w *DataHubClientWriter) UnsetDomain(ctx context.Context, entityURN string) error {
+	if err := w.client.UnsetDomain(ctx, entityURN); err != nil {
+		return fmt.Errorf("unsetting domain on %s: %w", entityURN, err)
+	}
+	return nil
+}

@@ -28,6 +28,13 @@ func GetUser(ctx context.Context) *User {
 	return u
 }
 
+// ContextWithUser returns a copy of ctx carrying the authenticated user, the
+// value GetUser reads. Exported so handlers split into sibling packages (e.g.
+// pkg/portal/datahubapi) can be exercised with an authenticated principal.
+func ContextWithUser(ctx context.Context, user *User) context.Context {
+	return context.WithValue(ctx, portalUserKey, user)
+}
+
 // Authenticator wraps the platform's middleware.Authenticator chain
 // for HTTP portal requests. Unlike the admin authenticator, it does not
 // require a specific persona — any authenticated user can access the portal.

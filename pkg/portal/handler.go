@@ -136,6 +136,11 @@ type Deps struct {
 	// unified knowledge federation. nil disables the endpoint (no searchable
 	// source configured).
 	SearchRouter SearchRouter
+	// DataHubRegistrar, when set, registers the portal DataHub Catalog and Context
+	// Docs REST routes (#718) onto the portal mux. It is provided by cmd wiring
+	// (pkg/portal/datahubapi.Handler.Register) so the DataHub feature lives in its
+	// own package; nil leaves the /api/v1/portal/datahub/* routes unregistered.
+	DataHubRegistrar func(*http.ServeMux)
 	// UserDirectory is the known-users directory (#614), read by the share
 	// picker so users can pick a teammate instead of typing an email. nil
 	// disables the /api/v1/portal/users endpoint (no database); the share
@@ -252,6 +257,12 @@ func (h *Handler) registerRoutes() {
 
 	// Unified knowledge search (one query across every source the caller can access)
 	h.registerSearchRoutes()
+
+	// DataHub catalog + context-doc browse/search/edit (#718). Registered by cmd
+	// wiring via pkg/portal/datahubapi so the feature stays in its own package.
+	if h.deps.DataHubRegistrar != nil {
+		h.deps.DataHubRegistrar(h.mux)
+	}
 
 	// Feedback thread routes
 	h.registerThreadRoutes()

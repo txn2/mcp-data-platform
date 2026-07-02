@@ -26,6 +26,7 @@ import (
 	mcpserver "github.com/txn2/mcp-data-platform/internal/server"
 	"github.com/txn2/mcp-data-platform/internal/ui"
 	"github.com/txn2/mcp-data-platform/pkg/admin"
+	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/gatewayhttp"
 	"github.com/txn2/mcp-data-platform/pkg/health"
@@ -36,6 +37,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/pkcestore"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
+	"github.com/txn2/mcp-data-platform/pkg/portal/datahubapi"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/session"
@@ -991,6 +993,54 @@ func wirePortalOptionalDeps(deps *portal.Deps, p *platform.Platform) {
 	if router := p.KnowledgeRouter(); router != nil {
 		deps.SearchRouter = portalSearchAdapter{router: router}
 	}
+	if reg := buildDataHubRegistrar(p, deps.PersonaResolver, deps.AdminRoles); reg != nil {
+		deps.DataHubRegistrar = reg
+	}
+}
+
+// buildDataHubRegistrar assembles the portal DataHub REST handler (#718) over the
+// live DataHub toolkit clients and returns its route registrar, or nil when no
+// DataHub connection is registered. The bridge reuses each toolkit's client for
+// both the semantic read adapter and the batched write client; a read-only
+// connection (read_only=true) exposes no writer.
+func buildDataHubRegistrar(p *platform.Platform, resolver portal.PersonaResolver, adminRoles []string) func(*http.ServeMux) {
+	if p.ToolkitRegistry() == nil {
+		return nil
+	}
+	urn := p.Config().Semantic.URNMapping
+	platformName := urn.Platform
+	if platformName == "" {
+		platformName = "trino"
+	}
+
+	bridge := datahubapi.NewStaticBridge()
+	for _, tk := range p.ToolkitRegistry().All() {
+		dhTk, ok := tk.(*datahubkit.Toolkit)
+		if !ok || dhTk.Client() == nil {
+			continue
+		}
+		reader, writer, err := datahubapi.BuildConnection(dhTk.Client(), platformName, urn.CatalogMapping, dhTk.Config().ReadOnly)
+		if err != nil {
+			log.Printf("portal datahub: skipping connection %q: %v", dhTk.Name(), err)
+			continue
+		}
+		bridge.Add(dhTk.Name(), reader, writer)
+	}
+	if bridge.Empty() {
+		return nil
+	}
+
+	var auditLogger audit.Logger
+	if store := p.AuditStore(); store != nil {
+		auditLogger = store
+	}
+	handler := datahubapi.NewHandler(datahubapi.Deps{
+		Bridge:          bridge,
+		PersonaResolver: resolver,
+		AdminRoles:      adminRoles,
+		Audit:           auditLogger,
+	})
+	return handler.Register
 }
 
 // portalSearchAdapter bridges the portal's GET /search endpoint to the unified
