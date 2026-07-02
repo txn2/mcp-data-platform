@@ -8,6 +8,15 @@ if [ -f .env ]; then
   set +a
 fi
 
+# Use the host's native platform for the local dev stack. A developer who
+# exports DOCKER_DEFAULT_PLATFORM=linux/amd64 (to build cluster images) would
+# otherwise force the amd64 variant of multi-arch images like
+# pgvector/pgvector:pg16, which fails on an arm64 host whose cached image is
+# arm64 ("platform does not match"). Clearing it lets Docker pick native, so
+# this works on both arm64 and amd64 machines. Set after .env so neither the
+# inherited shell value nor .env can re-force a platform.
+export DOCKER_DEFAULT_PLATFORM=""
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
