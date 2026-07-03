@@ -20,6 +20,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 // ---------------------------------------------------------------------------
@@ -303,4 +304,228 @@ func TestClaudeMdCoversPkgDirectories(t *testing.T) {
 			"pkg/%s is not listed in CLAUDE.md's Project Structure section. "+
 				"Add it with a one-line purpose note, or delete the package if it's no longer used.", e.Name())
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Gate: No orphaned documentation pages
+// ---------------------------------------------------------------------------
+
+// mappingValue returns the value node for key in a YAML mapping (or the
+// document's root mapping), or nil if absent.
+func mappingValue(node *yaml.Node, key string) *yaml.Node {
+	if node != nil && node.Kind == yaml.DocumentNode && len(node.Content) > 0 {
+		node = node.Content[0]
+	}
+	if node == nil || node.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == key {
+			return node.Content[i+1]
+		}
+	}
+	return nil
+}
+
+// collectNavPages recursively gathers every page path (scalar ending in
+// ".md") from the mkdocs nav tree. Mapping keys are section/page titles, not
+// paths, so only mapping values are visited.
+func collectNavPages(node *yaml.Node, pages map[string]bool) {
+	if node == nil {
+		return
+	}
+	switch node.Kind {
+	case yaml.ScalarNode:
+		if strings.HasSuffix(node.Value, ".md") {
+			pages[node.Value] = true
+		}
+	case yaml.MappingNode:
+		for i := 1; i < len(node.Content); i += 2 {
+			collectNavPages(node.Content[i], pages)
+		}
+	default:
+		for _, child := range node.Content {
+			collectNavPages(child, pages)
+		}
+	}
+}
+
+// parseExcludePatterns splits an mkdocs exclude_docs/not_in_nav literal block
+// into its gitignore-style patterns, dropping blanks and comment lines.
+func parseExcludePatterns(block string) []string {
+	var patterns []string
+	for line := range strings.SplitSeq(block, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		patterns = append(patterns, line)
+	}
+	return patterns
+}
+
+// validateExcludePattern rejects gitignore syntax the gate's matcher does not
+// model. MkDocs accepts full gitignore syntax (pathspec); rather than
+// approximating it and silently diverging, the gate restricts mkdocs.yml to a
+// subset it matches exactly and fails loudly on anything else.
+func validateExcludePattern(pattern string) error {
+	if pattern == ".*" {
+		return nil
+	}
+	if strings.HasPrefix(pattern, "!") {
+		return fmt.Errorf("negation pattern %q is not modeled by the docs orphan gate; restructure the patterns without negation or extend matchesExcludePattern", pattern)
+	}
+	if strings.ContainsAny(pattern, "*?[") {
+		return fmt.Errorf("glob pattern %q is not modeled by the docs orphan gate; use an anchored /dir/ or exact path, or extend matchesExcludePattern", pattern)
+	}
+	if !strings.HasPrefix(pattern, "/") && strings.Contains(strings.TrimSuffix(pattern, "/"), "/") {
+		return fmt.Errorf("unanchored multi-segment pattern %q is ambiguous (gitignore anchors it to the root anyway); add a leading /", pattern)
+	}
+	return nil
+}
+
+// hasDotSegment reports whether any path segment starts with ".", mirroring
+// how gitignore's ".*" pattern hides dotfiles and dot-directories at any level.
+func hasDotSegment(rel string) bool {
+	for segment := range strings.SplitSeq(rel, "/") {
+		if strings.HasPrefix(segment, ".") {
+			return true
+		}
+	}
+	return false
+}
+
+// matchesAnchored matches a root-anchored pattern (leading "/" removed): a
+// trailing "/" names a directory subtree; otherwise the pattern names an
+// exact file or directory at the docs root.
+func matchesAnchored(rel, pattern string) bool {
+	if strings.HasSuffix(pattern, "/") {
+		return strings.HasPrefix(rel, pattern)
+	}
+	return rel == pattern || strings.HasPrefix(rel, pattern+"/")
+}
+
+// matchesSegmentName matches an unanchored single-name pattern against any
+// path segment, per gitignore: a bare name matches a file or directory at any
+// level; a trailing "/" restricts it to directories.
+func matchesSegmentName(rel, pattern string) bool {
+	name := strings.TrimSuffix(pattern, "/")
+	dirOnly := strings.HasSuffix(pattern, "/")
+	segments := strings.Split(rel, "/")
+	for i, segment := range segments {
+		if segment == name && (!dirOnly || i < len(segments)-1) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchesExcludePattern reports whether the docs-relative path (forward
+// slashes) matches one pattern from the subset accepted by
+// validateExcludePattern. Within that subset the semantics are exactly
+// gitignore's, so the gate cannot drift from what MkDocs actually excludes.
+func matchesExcludePattern(rel, pattern string) bool {
+	if pattern == ".*" {
+		return hasDotSegment(rel)
+	}
+	if anchored, ok := strings.CutPrefix(pattern, "/"); ok {
+		return matchesAnchored(rel, anchored)
+	}
+	return matchesSegmentName(rel, pattern)
+}
+
+// TestMatchesExcludePattern pins the matcher's semantics per branch so a
+// divergence from gitignore (what MkDocs' pathspec implements) cannot ship
+// silently.
+func TestMatchesExcludePattern(t *testing.T) {
+	cases := []struct {
+		rel, pattern string
+		want         bool
+	}{
+		{"research/notes.md", ".*", false},
+		{".hidden.md", ".*", true},
+		{"a/.playwright/x.md", ".*", true},
+		{"research/notes.md", "/research/", true},
+		{"research/sub/notes.md", "/research/", true},
+		{"archive/research/notes.md", "/research/", false},
+		{"research/notes.md", "/templates/", false},
+		{"a/b.md", "/a/b.md", true},
+		{"a/b.md/c.md", "/a/b.md", true},
+		{"x/a/b.md", "/a/b.md", false},
+		{"any/depth/drafts/x.md", "drafts", true},
+		{"any/depth/drafts/x.md", "drafts/", true},
+		{"a/b/drafts", "drafts/", false},
+		{"a/b/drafts.md", "drafts", false},
+	}
+	for _, tc := range cases {
+		assert.Equal(t, tc.want, matchesExcludePattern(tc.rel, tc.pattern),
+			"matchesExcludePattern(%q, %q)", tc.rel, tc.pattern)
+	}
+
+	for _, bad := range []string{"!/research/x.md", "/res*/", "/research/**", "/[internal/", "guides/internal/"} {
+		assert.Error(t, validateExcludePattern(bad), "pattern %q should be rejected", bad)
+	}
+	for _, good := range []string{".*", "/templates/", "/research/", "/a/b.md", "drafts", "drafts/"} {
+		assert.NoError(t, validateExcludePattern(good), "pattern %q should be accepted", good)
+	}
+}
+
+// mkdocsBuiltinExcludes are always applied by MkDocs in addition to any
+// configured exclude_docs (mkdocs 1.6 files.set_exclusions prepends
+// _default_exclude = ['.*', '/templates/'] unconditionally).
+var mkdocsBuiltinExcludes = []string{".*", "/templates/"}
+
+// TestDocsPagesInNavOrExcluded verifies that every Markdown page under docs/
+// is reachable from the mkdocs.yml nav, intentionally unlinked (not_in_nav),
+// or excluded from the build (exclude_docs plus MkDocs' built-in defaults).
+//
+// A page in none of those sets is built and published at its URL but
+// unreachable by browsing: invisible to humans evaluating the docs site
+// while remaining live content that silently goes stale (see issue #772).
+func TestDocsPagesInNavOrExcluded(t *testing.T) {
+	projectRoot, err := filepath.Abs(".")
+	require.NoError(t, err)
+
+	raw, err := os.ReadFile(filepath.Join(projectRoot, "mkdocs.yml")) //nolint:gosec // test reads project config
+	require.NoError(t, err)
+	var root yaml.Node
+	require.NoError(t, yaml.Unmarshal(raw, &root))
+
+	navPages := map[string]bool{}
+	collectNavPages(mappingValue(&root, "nav"), navPages)
+	require.NotEmpty(t, navPages, "mkdocs.yml nav should reference .md pages")
+
+	patterns := append([]string{}, mkdocsBuiltinExcludes...)
+	for _, key := range []string{"exclude_docs", "not_in_nav"} {
+		if node := mappingValue(&root, key); node != nil {
+			patterns = append(patterns, parseExcludePatterns(node.Value)...)
+		}
+	}
+	for _, pattern := range patterns {
+		require.NoError(t, validateExcludePattern(pattern),
+			"mkdocs.yml exclude_docs/not_in_nav pattern %q", pattern)
+	}
+
+	docsDir := filepath.Join(projectRoot, "docs")
+	walkErr := filepath.Walk(docsDir, func(p string, info os.FileInfo, fErr error) error {
+		if fErr != nil || info.IsDir() || !strings.HasSuffix(info.Name(), ".md") {
+			return fErr
+		}
+		rel, relErr := filepath.Rel(docsDir, p)
+		require.NoError(t, relErr)
+		rel = filepath.ToSlash(rel)
+		excluded := false
+		for _, pattern := range patterns {
+			if matchesExcludePattern(rel, pattern) {
+				excluded = true
+				break
+			}
+		}
+		assert.True(t, navPages[rel] || excluded,
+			"docs/%s is built and published but unreachable: it is not in the mkdocs.yml nav "+
+				"and no not_in_nav/exclude_docs pattern matches it. Add it to nav, list it under "+
+				"not_in_nav (published, intentionally unlinked), or under exclude_docs (not built).", rel)
+		return nil
+	})
+	require.NoError(t, walkErr)
 }

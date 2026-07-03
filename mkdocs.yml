@@ -6,6 +6,14 @@ repo_url: https://github.com/txn2/mcp-data-platform
 repo_name: txn2/mcp-data-platform
 edit_uri: edit/main/docs/
 
+# research/ holds internal engineering working papers: still built (their
+# URLs stay live for existing links) but intentionally absent from the nav.
+# TestDocsPagesInNavOrExcluded (verify_test.go) fails on any docs/**/*.md
+# that is in neither nav nor this list nor exclude_docs, and only accepts
+# the pattern subset it models exactly (see validateExcludePattern).
+not_in_nav: |
+  /research/
+
 copyright: Copyright &copy; 2025 - 2026 Craig Johnston / Deasil Works, Inc.
 
 theme:
