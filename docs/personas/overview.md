@@ -39,42 +39,41 @@ Define personas in your configuration:
 
 ```yaml
 personas:
-  definitions:
-    analyst:
-      display_name: "Data Analyst"
-      description: "Read-only access to query and explore data"
-      roles: ["analyst", "data_user"]
-      tools:
-        allow:
-          - "trino_*"
-          - "datahub_*"
-        deny:
-          - "*_delete_*"
-      context:
-        description_prefix: "You are helping a data analyst explore data."
+  analyst:
+    display_name: "Data Analyst"
+    description: "Read-only access to query and explore data"
+    roles: ["analyst", "data_user"]
+    tools:
+      allow:
+        - "trino_*"
+        - "datahub_*"
+      deny:
+        - "*_delete_*"
+    context:
+      description_prefix: "You are helping a data analyst explore data."
 
-    admin:
-      display_name: "Administrator"
-      description: "Full access to all tools"
-      roles: ["admin", "platform_admin"]
-      tools:
-        allow: ["*"]
-        deny: []
+  admin:
+    display_name: "Administrator"
+    description: "Full access to all tools"
+    roles: ["admin", "platform_admin"]
+    tools:
+      allow: ["*"]
+      deny: []
 
-    viewer:
-      display_name: "Viewer"
-      description: "Read-only access, no queries"
-      roles: ["viewer", "guest"]
-      tools:
-        allow:
-          - "datahub_search"
-          - "datahub_get_*"
-          - "s3_list_*"
-          - "s3_get_object_metadata"
-        deny:
-          - "trino_query"
-          - "trino_execute"
-          - "s3_get_object"
+  viewer:
+    display_name: "Viewer"
+    description: "Read-only access, no queries"
+    roles: ["viewer", "guest"]
+    tools:
+      allow:
+        - "datahub_search"
+        - "datahub_get_*"
+        - "s3_list_*"
+        - "s3_get_object_metadata"
+      deny:
+        - "trino_query"
+        - "trino_execute"
+        - "s3_get_object"
 
   default_persona: viewer
 ```
@@ -99,12 +98,18 @@ The platform includes two built-in personas that can be overridden:
 **Default Persona:**
 ```yaml
 default:
-  display_name: "Default User"
+  display_name: "Default User (No Access)"
   roles: []
   tools:
-    allow: ["*"]
-    deny: []
+    allow: []
+    deny: ["*"]
 ```
+
+The built-in default persona is **deny-all**, not allow-all: a user who
+matches no configured persona gets no tools. This is fail-closed by design —
+unmatched users must be explicitly granted access through a persona rather
+than falling back to broad permissions. Define explicit personas (with
+matching `roles`) for every group of users you want to grant tool access to.
 
 **Admin Persona:**
 ```yaml
@@ -114,8 +119,15 @@ admin:
   tools:
     allow: ["*"]
     deny: []
+  connections:
+    allow: ["*"]
   priority: 100
 ```
+
+The built-in admin persona also grants `connections.allow: ["*"]`. Since
+connections are deny-by-default (see below), an admin override that omits
+the `connections` block would reach zero connections despite having
+`tools.allow: ["*"]`.
 
 ## Persona Priority
 
@@ -123,18 +135,17 @@ When a user has roles matching multiple personas, priority determines which one 
 
 ```yaml
 personas:
-  definitions:
-    analyst:
-      roles: ["analyst"]
-      priority: 10
+  analyst:
+    roles: ["analyst"]
+    priority: 10
 
-    senior_analyst:
-      roles: ["analyst", "senior"]
-      priority: 20    # Higher priority wins
+  senior_analyst:
+    roles: ["analyst", "senior"]
+    priority: 20    # Higher priority wins
 
-    admin:
-      roles: ["admin"]
-      priority: 100   # Admin always wins if user has admin role
+  admin:
+    roles: ["admin"]
+    priority: 100   # Admin always wins if user has admin role
 ```
 
 A user with roles `["analyst", "senior"]` gets the `senior_analyst` persona (higher priority).
@@ -177,23 +188,22 @@ Personas can restrict which toolkit connections a user may access. This is enfor
 
 ```yaml
 personas:
-  definitions:
-    analyst:
-      display_name: "Data Analyst"
-      roles: ["analyst"]
-      tools:
-        allow: ["trino_*", "datahub_*"]
-      connections:
-        allow: ["prod-*"]
-        deny: ["prod-admin-*"]
+  analyst:
+    display_name: "Data Analyst"
+    roles: ["analyst"]
+    tools:
+      allow: ["trino_*", "datahub_*"]
+    connections:
+      allow: ["prod-*"]
+      deny: ["prod-admin-*"]
 
-    admin:
-      display_name: "Administrator"
-      roles: ["admin"]
-      tools:
-        allow: ["*"]
-      connections:
-        allow: ["*"]   # required: connections are deny-by-default
+  admin:
+    display_name: "Administrator"
+    roles: ["admin"]
+    tools:
+      allow: ["*"]
+    connections:
+      allow: ["*"]   # required: connections are deny-by-default
 ```
 
 ### How Connection Filtering Works
@@ -218,33 +228,32 @@ The knowledge capture tools follow the same allow/deny patterns. Control who can
 
 ```yaml
 personas:
-  definitions:
-    analyst:
-      display_name: "Data Analyst"
-      roles: ["analyst"]
-      tools:
-        allow:
-          - "trino_*"
-          - "datahub_*"
-          - "memory_capture"        # Can capture knowledge
-        deny:
-          - "apply_knowledge"       # Cannot apply changes
+  analyst:
+    display_name: "Data Analyst"
+    roles: ["analyst"]
+    tools:
+      allow:
+        - "trino_*"
+        - "datahub_*"
+        - "memory_capture"        # Can capture knowledge
+      deny:
+        - "apply_knowledge"       # Cannot apply changes
 
-    admin:
-      display_name: "Administrator"
-      roles: ["admin"]
-      tools:
-        allow: ["*"]               # Full access including apply_knowledge
+  admin:
+    display_name: "Administrator"
+    roles: ["admin"]
+    tools:
+      allow: ["*"]               # Full access including apply_knowledge
 
-    etl_service:
-      display_name: "ETL Service"
-      roles: ["service"]
-      tools:
-        allow:
-          - "trino_*"
-        deny:
-          - "memory_capture"        # Automated processes should not capture
-          - "apply_knowledge"
+  etl_service:
+    display_name: "ETL Service"
+    roles: ["service"]
+    tools:
+      allow:
+        - "trino_*"
+      deny:
+        - "memory_capture"        # Automated processes should not capture
+        - "apply_knowledge"
 ```
 
 See [Knowledge Capture](../knowledge/overview.md) for the full feature documentation.
@@ -253,34 +262,33 @@ See [Knowledge Capture](../knowledge/overview.md) for the full feature documenta
 
 ```yaml
 personas:
-  definitions:
-    sales_analyst:
-      display_name: "Sales Domain Analyst"
-      roles: ["sales_team"]
-      tools:
-        allow:
-          - "trino_*"
-          - "datahub_*"
-        deny: []
-      context:
-        description_prefix: |
-          You are helping a sales analyst.
-          Focus on: revenue metrics, customer data, order patterns.
-        agent_instructions_suffix: "Query the hive.sales schema for sales data."
+  sales_analyst:
+    display_name: "Sales Domain Analyst"
+    roles: ["sales_team"]
+    tools:
+      allow:
+        - "trino_*"
+        - "datahub_*"
+      deny: []
+    context:
+      description_prefix: |
+        You are helping a sales analyst.
+        Focus on: revenue metrics, customer data, order patterns.
+      agent_instructions_suffix: "Query the hive.sales schema for sales data."
 
-    marketing_analyst:
-      display_name: "Marketing Domain Analyst"
-      roles: ["marketing_team"]
-      tools:
-        allow:
-          - "trino_*"
-          - "datahub_*"
-        deny: []
-      context:
-        description_prefix: |
-          You are helping a marketing analyst.
-          Focus on: campaign metrics, customer segments, attribution.
-        agent_instructions_suffix: "Query the hive.marketing schema for marketing data."
+  marketing_analyst:
+    display_name: "Marketing Domain Analyst"
+    roles: ["marketing_team"]
+    tools:
+      allow:
+        - "trino_*"
+        - "datahub_*"
+      deny: []
+    context:
+      description_prefix: |
+        You are helping a marketing analyst.
+        Focus on: campaign metrics, customer segments, attribution.
+      agent_instructions_suffix: "Query the hive.marketing schema for marketing data."
 
   default_persona: viewer
 ```

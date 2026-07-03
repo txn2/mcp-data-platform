@@ -418,9 +418,8 @@ Filtered roles: `["analyst"]` (prefix stripped)
 
 ```yaml
 personas:
-  definitions:
-    analyst:
-      roles: ["analyst"]  # Must match filtered role exactly
+  analyst:
+    roles: ["analyst"]  # Must match filtered role exactly
 ```
 
 ### Tool denied unexpectedly (403)
@@ -435,12 +434,11 @@ Error: tool access denied: trino_query not allowed for persona 'analyst'
 
 ```yaml
 personas:
-  definitions:
-    analyst:
-      tools:
-        # Deny patterns are checked FIRST
-        deny: ["trino_query"]  # This blocks trino_query
-        allow: ["trino_*"]     # This would allow it, but deny wins
+  analyst:
+    tools:
+      # Deny patterns are checked FIRST
+      deny: ["trino_query"]  # This blocks trino_query
+      allow: ["trino_*"]     # This would allow it, but deny wins
 ```
 
 **Step 2: Verify wildcard pattern matching**
@@ -453,10 +451,9 @@ personas:
 
 **Step 3: List available tools**
 
-```bash
-# Check what tools are registered
-mcp-data-platform --config platform.yaml --list-tools
-```
+There is no CLI flag to list registered tools. Connect an MCP client (e.g.
+[MCP Inspector](../mcpapps/development.md)) to the running server and send a
+`tools/list` request to see the tools your persona currently has access to.
 
 ---
 
@@ -466,7 +463,7 @@ mcp-data-platform --config platform.yaml --list-tools
 
 **Debug steps:**
 
-**Step 1: Verify injection is enabled**
+**Step 1: Verify enrichment is enabled**
 
 ```yaml
 enrichment:
@@ -614,17 +611,18 @@ enrichment:
 ```yaml
 toolkits:
   trino:
-    primary:
-      max_limit: 10000  # Reduce maximum result size
+    enabled: true
+    instances:
+      primary:
+        max_limit: 10000  # Reduce maximum result size
+    default: primary
 
 semantic:
   cache:
-    max_entries: 5000   # Reduce cache size
-    ttl: 1m             # Shorter TTL
+    ttl: 1m             # Shorter TTL, bounds how long stale entries persist
 
 database:
   max_open_conns: 10    # Reduce connection pool
-  max_idle_conns: 5
 ```
 
 ---
@@ -673,13 +671,13 @@ If audit logging is enabled, query the database:
 ```sql
 -- Recent tool calls
 SELECT * FROM audit_logs
-ORDER BY created_at DESC
+ORDER BY timestamp DESC
 LIMIT 100;
 
 -- Failed requests
 SELECT * FROM audit_logs
-WHERE status = 'error'
-ORDER BY created_at DESC;
+WHERE success = false
+ORDER BY timestamp DESC;
 
 -- Requests by user
 SELECT tool_name, COUNT(*) as count

@@ -229,4 +229,4 @@ Then check if URNs match. Common mismatches:
 ## Next Steps
 
 - [DataHub → Trino](datahub-trino.md) - The reverse direction
-- [Configuration](../reference/configuration.md) - All options
+- [Configuration](../server/configuration.md) - All options

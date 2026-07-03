@@ -32,37 +32,28 @@ auth:
     client_id: "mcp-data-platform"
     audience: "mcp-data-platform"
     role_claim_path: "realm_access.roles"
-    required_claims:
-      - sub
-      - exp
-      - email  # Required for audit attribution
 
 audit:
   enabled: true
   log_tool_calls: true
-  log_parameters: true      # Log query parameters (redact PII)
-  log_results: false        # Don't log result data
   retention_days: 2555      # 7 years for compliance
-
-  # Async write to avoid blocking requests
-  async_writes: true
-  buffer_size: 1000
-  flush_interval: 5s
 
 database:
   dsn: ${DATABASE_URL}
   max_open_conns: 25
-  max_idle_conns: 5
-  conn_max_lifetime: 5m
 ```
 
 **Key decisions:**
 
 - TLS required for all connections
-- Email claim required for audit attribution
-- Parameters logged (for query reconstruction) but results not logged (privacy)
+- Every tool call is logged (`audit.log_tool_calls`), including caller identity and parameters, for audit attribution and query reconstruction
 - 7-year retention matches common compliance requirements
-- Async writes prevent audit logging from blocking user requests
+
+Audit writes are asynchronous by design (they never block a tool call); this
+is not a config option. Fields like per-field parameter/result redaction,
+buffering, and claim allowlisting (`required_claims`) are not implemented —
+if your compliance program needs them, treat this as a gap to fill, not a
+config knob to set.
 
 ### PII Detection and Acknowledgment
 
@@ -71,58 +62,47 @@ Configure the platform to surface PII warnings prominently.
 ```yaml
 toolkits:
   datahub:
-    primary:
-      url: https://datahub.example.com
-      token: ${DATAHUB_TOKEN}
+    enabled: true
+    instances:
+      primary:
+        url: https://datahub.example.com
+        token: ${DATAHUB_TOKEN}
+    default: primary
 
   trino:
-    primary:
-      host: trino.example.com
-      port: 443
-      ssl: true
-      read_only: true  # No write operations
+    enabled: true
+    instances:
+      primary:
+        host: trino.example.com
+        port: 443
+        ssl: true
+        read_only: true  # No write operations
+    default: primary
 
 enrichment:
   trino_semantic_enrichment: true
   column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
 
-  # PII handling configuration
-  enrichment:
-    pii_tags:
-      - pii
-      - pii-email
-      - pii-phone
-      - pii-ssn
-      - gdpr-personal-data
-
-    # Require acknowledgment for PII queries
-    pii_acknowledgment:
-      enabled: true
-      message: |
-        This dataset contains PII. By proceeding, you acknowledge:
-        - Data will be handled per company privacy policy
-        - Access is logged for compliance
-        - Data must not be exported without approval
+elicitation:
+  enabled: true
+  pii_consent:
+    enabled: true   # Require confirmation before a tool call touches a PII-tagged table
 
 personas:
-  definitions:
-    analyst:
-      display_name: "Data Analyst"
-      roles: ["analyst"]
-      tools:
-        allow: ["trino_query", "trino_describe_*", "datahub_*"]
-        deny: ["*_delete_*", "*_drop_*"]
-
-      # Additional PII handling
-      restrictions:
-        max_rows: 10000
-        allowed_schemas:
-          - analytics
-          - aggregated
-        denied_tags:
-          - restricted
-          - executive-only
+  analyst:
+    display_name: "Data Analyst"
+    roles: ["analyst"]
+    tools:
+      allow: ["trino_query", "trino_describe_*", "datahub_*"]
+      deny: ["*_delete_*", "*_drop_*"]
 ```
+
+PII detection itself comes from DataHub tags on the table (surfaced via
+cross-enrichment); the platform doesn't maintain its own PII tag list or a
+configurable consent message. There is also no persona-level `restrictions`
+block for row caps, schema allowlists, or tag denylists — persona access
+control is limited to `tools` (allow/deny patterns) and `connections`
+(allow/deny by connection name).
 
 ### Role-Based Access with Keycloak
 
@@ -140,43 +120,37 @@ auth:
     role_claim_path: "realm_access.roles"
     role_prefix: "dp_"  # Only roles starting with dp_ are considered
 
-    # Security settings
-    clock_skew_seconds: 30
-    max_token_age: 8h
-    refresh_enabled: true
-
 personas:
-  definitions:
-    # Tier 1: Read-only analysts
-    viewer:
-      display_name: "Data Viewer"
-      roles: ["dp_viewer"]
-      tools:
-        allow: ["datahub_search", "datahub_get_*"]
-        deny: ["*"]
+  # Tier 1: Read-only analysts
+  viewer:
+    display_name: "Data Viewer"
+    roles: ["dp_viewer"]
+    tools:
+      allow: ["datahub_search", "datahub_get_*"]
+      deny: ["*"]
 
-    # Tier 2: Query-capable analysts
-    analyst:
-      display_name: "Data Analyst"
-      roles: ["dp_analyst"]
-      tools:
-        allow: ["trino_query", "trino_browse", "trino_describe_*", "trino_list_connections", "datahub_*"]
-        deny: ["*_delete_*", "*_drop_*", "*_put_*"]
+  # Tier 2: Query-capable analysts
+  analyst:
+    display_name: "Data Analyst"
+    roles: ["dp_analyst"]
+    tools:
+      allow: ["trino_query", "trino_browse", "trino_describe_*", "trino_list_connections", "datahub_*"]
+      deny: ["*_delete_*", "*_drop_*", "*_put_*"]
 
-    # Tier 3: Data engineers with write access
-    engineer:
-      display_name: "Data Engineer"
-      roles: ["dp_engineer"]
-      tools:
-        allow: ["trino_*", "datahub_*", "s3_*"]
-        deny: ["*_delete_*"]
+  # Tier 3: Data engineers with write access
+  engineer:
+    display_name: "Data Engineer"
+    roles: ["dp_engineer"]
+    tools:
+      allow: ["trino_*", "datahub_*", "s3_*"]
+      deny: ["*_delete_*"]
 
-    # Tier 4: Administrators
-    admin:
-      display_name: "Administrator"
-      roles: ["dp_admin"]
-      tools:
-        allow: ["*"]
+  # Tier 4: Administrators
+  admin:
+    display_name: "Administrator"
+    roles: ["dp_admin"]
+    tools:
+      allow: ["*"]
 
   # Mapping for legacy role names
   role_mapping:
@@ -286,35 +260,34 @@ semantic:
     max_entries: 10000
 
 personas:
-  definitions:
-    business_analyst:
-      display_name: "Business Analyst"
-      roles: ["analyst", "business"]
-      tools:
-        allow:
-          - "datahub_search"
-          - "datahub_get_entity"
-          - "datahub_get_schema"
-          - "datahub_get_lineage"
-          - "datahub_get_glossary_term"
-          - "datahub_browse"
-          - "trino_query"
-          - "trino_execute"
-          - "trino_browse"
-          - "trino_describe_*"
-        deny:
-          - "*_delete_*"
-          - "*_drop_*"
+  business_analyst:
+    display_name: "Business Analyst"
+    roles: ["analyst", "business"]
+    tools:
+      allow:
+        - "datahub_search"
+        - "datahub_get_entity"
+        - "datahub_get_schema"
+        - "datahub_get_lineage"
+        - "datahub_get_glossary_term"
+        - "datahub_browse"
+        - "trino_query"
+        - "trino_execute"
+        - "trino_browse"
+        - "trino_describe_*"
+      deny:
+        - "*_delete_*"
+        - "*_drop_*"
 
-      # User-friendly context override
-      context:
-        description_prefix: |
-          You are helping a business analyst explore and understand data.
-          Always explain what tables contain in business terms.
-        agent_instructions_suffix: |
-          When showing query results, explain what the data means.
-          If data quality is below 80%, mention this to the user.
-          If a table is deprecated, always suggest the replacement.
+    # User-friendly context override
+    context:
+      description_prefix: |
+        You are helping a business analyst explore and understand data.
+        Always explain what tables contain in business terms.
+      agent_instructions_suffix: |
+        When showing query results, explain what the data means.
+        If data quality is below 80%, mention this to the user.
+        If a table is deprecated, always suggest the replacement.
 
   default_persona: business_analyst
 ```
@@ -378,31 +351,30 @@ query:
     "urn:li:dataset:(urn:li:dataPlatform:trino,finance.*,PROD)": finance
 
 personas:
-  definitions:
-    cross_team_analyst:
-      display_name: "Cross-Team Analyst"
-      roles: ["cross_team"]
-      tools:
-        allow:
-          - "datahub_*"
-          - "trino_query:marketing"      # Explicit cluster access
-          - "trino_query:sales"
-          - "trino_browse"
-          - "trino_describe_*"
-          - "trino_list_connections"
-        deny:
-          - "trino_query:finance"        # No finance access
-          - "*_delete_*"
+  cross_team_analyst:
+    display_name: "Cross-Team Analyst"
+    roles: ["cross_team"]
+    tools:
+      allow:
+        - "datahub_*"
+        - "trino_query:marketing"      # Explicit cluster access
+        - "trino_query:sales"
+        - "trino_browse"
+        - "trino_describe_*"
+        - "trino_list_connections"
+      deny:
+        - "trino_query:finance"        # No finance access
+        - "*_delete_*"
 
-    finance_analyst:
-      display_name: "Finance Analyst"
-      roles: ["finance"]
-      tools:
-        allow:
-          - "datahub_*"
-          - "trino_*"                    # All clusters including finance
-        deny:
-          - "*_delete_*"
+  finance_analyst:
+    display_name: "Finance Analyst"
+    roles: ["finance"]
+    tools:
+      allow:
+        - "datahub_*"
+        - "trino_*"                    # All clusters including finance
+      deny:
+        - "*_delete_*"
 ```
 
 ### New Employee Onboarding Workflow
@@ -411,45 +383,44 @@ Configuration with helpful prompts for new team members.
 
 ```yaml
 personas:
-  definitions:
-    new_hire:
-      display_name: "New Team Member"
-      roles: ["new_hire", "onboarding"]
-      tools:
-        allow:
-          - "datahub_search"
-          - "datahub_get_entity"
-          - "datahub_get_schema"
-          - "datahub_get_lineage"
-          - "datahub_get_glossary_term"
-          - "datahub_browse"
-          - "trino_browse"
-          - "trino_describe_*"
-          # No direct query access yet
-        deny:
-          - "trino_query"
-          - "trino_execute"
-          - "*_delete_*"
+  new_hire:
+    display_name: "New Team Member"
+    roles: ["new_hire", "onboarding"]
+    tools:
+      allow:
+        - "datahub_search"
+        - "datahub_get_entity"
+        - "datahub_get_schema"
+        - "datahub_get_lineage"
+        - "datahub_get_glossary_term"
+        - "datahub_browse"
+        - "trino_browse"
+        - "trino_describe_*"
+        # No direct query access yet
+      deny:
+        - "trino_query"
+        - "trino_execute"
+        - "*_delete_*"
 
-      context:
-        description_prefix: |
-          You are onboarding a new team member to our data platform.
-        agent_instructions_suffix: |
-          When they ask about data:
-          1. Start with the domain (Sales, Marketing, Finance, etc.)
-          2. Explain what the domain contains
-          3. Show key tables and their purposes
-          4. Point out data owners they can contact
-          5. Highlight any data quality concerns
+    context:
+      description_prefix: |
+        You are onboarding a new team member to our data platform.
+      agent_instructions_suffix: |
+        When they ask about data:
+        1. Start with the domain (Sales, Marketing, Finance, etc.)
+        2. Explain what the domain contains
+        3. Show key tables and their purposes
+        4. Point out data owners they can contact
+        5. Highlight any data quality concerns
 
-          Always recommend they review the glossary terms for unfamiliar concepts.
-          If they want to query data, explain they need to complete onboarding first.
+        Always recommend they review the glossary terms for unfamiliar concepts.
+        If they want to query data, explain they need to complete onboarding first.
 
-          Useful resources for new team members:
-          - Data Glossary: /glossary
-          - Domain Owners: /domains
-          - Data Quality Dashboard: /quality
-          - Request Access: /access-request
+        Useful resources for new team members:
+        - Data Glossary: /glossary
+        - Domain Owners: /domains
+        - Data Quality Dashboard: /quality
+        - Request Access: /access-request
 ```
 
 ---
@@ -497,44 +468,43 @@ semantic:
     include_column_lineage: true
 
 personas:
-  definitions:
-    ml_agent:
-      display_name: "ML Data Agent"
-      roles: ["ml_agent", "automated"]
-      tools:
-        allow:
-          - "datahub_search"
-          - "datahub_get_entity"
-          - "datahub_get_schema"
-          - "datahub_get_lineage"
-          - "datahub_get_queries"        # See popular queries
-          - "datahub_browse"
-          - "trino_query"
-          - "trino_browse"
-          - "trino_describe_*"
-          - "trino_explain"              # Query planning
-        deny:
-          - "*_delete_*"
-          - "*_put_*"
+  ml_agent:
+    display_name: "ML Data Agent"
+    roles: ["ml_agent", "automated"]
+    tools:
+      allow:
+        - "datahub_search"
+        - "datahub_get_entity"
+        - "datahub_get_schema"
+        - "datahub_get_lineage"
+        - "datahub_get_queries"        # See popular queries
+        - "datahub_browse"
+        - "trino_query"
+        - "trino_browse"
+        - "trino_describe_*"
+        - "trino_explain"              # Query planning
+      deny:
+        - "*_delete_*"
+        - "*_put_*"
 
-      # Rate limiting for automated access
-      rate_limit:
-        requests_per_minute: 60
-        requests_per_hour: 1000
+    # Rate limiting for automated access
+    rate_limit:
+      requests_per_minute: 60
+      requests_per_hour: 1000
 
-      context:
-        description_prefix: |
-          You are an ML data exploration agent. Your goal is to discover
-          and evaluate datasets for machine learning use cases.
-        agent_instructions_suffix: |
-          When exploring:
-          1. Check data quality scores (reject < 70%)
-          2. Verify data freshness (check last_updated)
-          3. Trace lineage to understand transformations
-          4. Look for feature-ready columns (numeric, categorical)
-          5. Note any PII tags that require handling
+    context:
+      description_prefix: |
+        You are an ML data exploration agent. Your goal is to discover
+        and evaluate datasets for machine learning use cases.
+      agent_instructions_suffix: |
+        When exploring:
+        1. Check data quality scores (reject < 70%)
+        2. Verify data freshness (check last_updated)
+        3. Trace lineage to understand transformations
+        4. Look for feature-ready columns (numeric, categorical)
+        5. Note any PII tags that require handling
 
-          Always document your findings with URNs for reproducibility.
+        Always document your findings with URNs for reproducibility.
 ```
 
 ### Feature Store Integration
@@ -580,29 +550,28 @@ enrichment:
         message: "PII features require explicit approval"
 
 personas:
-  definitions:
-    ml_engineer:
-      display_name: "ML Engineer"
-      roles: ["ml_engineer"]
-      tools:
-        allow:
-          - "datahub_*"
-          - "trino_*"
-        deny:
-          - "*_delete_*"
+  ml_engineer:
+    display_name: "ML Engineer"
+    roles: ["ml_engineer"]
+    tools:
+      allow:
+        - "datahub_*"
+        - "trino_*"
+      deny:
+        - "*_delete_*"
 
-      context:
-        description_prefix: |
-          You are helping an ML engineer select features from the feature store.
-        agent_instructions_suffix: |
-          For each feature, report:
-          - Quality score and null percentage
-          - Last update time
-          - Upstream dependencies (lineage)
-          - Any quality gate warnings
+    context:
+      description_prefix: |
+        You are helping an ML engineer select features from the feature store.
+      agent_instructions_suffix: |
+        For each feature, report:
+        - Quality score and null percentage
+        - Last update time
+        - Upstream dependencies (lineage)
+        - Any quality gate warnings
 
-          Reject features that fail hard quality gates.
-          Flag features with soft gate warnings but allow their use.
+        Reject features that fail hard quality gates.
+        Flag features with soft gate warnings but allow their use.
 ```
 
 ### Pipeline Lineage Exploration
@@ -636,31 +605,30 @@ enrichment:
     lineage_direction: both
 
 personas:
-  definitions:
-    data_engineer:
-      display_name: "Data Engineer"
-      roles: ["data_engineer"]
-      tools:
-        allow:
-          - "datahub_get_lineage"
-          - "datahub_get_entity"
-          - "datahub_search"
-          - "trino_*"
-        deny:
-          - "*_delete_*"
+  data_engineer:
+    display_name: "Data Engineer"
+    roles: ["data_engineer"]
+    tools:
+      allow:
+        - "datahub_get_lineage"
+        - "datahub_get_entity"
+        - "datahub_search"
+        - "trino_*"
+      deny:
+        - "*_delete_*"
 
-      context:
-        description_prefix: |
-          You are helping a data engineer understand data lineage.
-        agent_instructions_suffix: |
-          When showing lineage:
-          1. Start with the requested entity
-          2. Show immediate upstream sources
-          3. Show immediate downstream consumers
-          4. Highlight any transformation steps
-          5. Note data quality changes through the pipeline
+    context:
+      description_prefix: |
+        You are helping a data engineer understand data lineage.
+      agent_instructions_suffix: |
+        When showing lineage:
+        1. Start with the requested entity
+        2. Show immediate upstream sources
+        3. Show immediate downstream consumers
+        4. Highlight any transformation steps
+        5. Note data quality changes through the pipeline
 
-          Use URNs consistently for reference.
+        Use URNs consistently for reference.
 ```
 
 ---
@@ -813,6 +781,6 @@ toolkits:
 
 ## Next Steps
 
-- [Configuration Reference](../reference/configuration.md) - Full configuration schema
+- [Configuration](../server/configuration.md) - Full configuration schema
 - [Tools API](../reference/tools-api.md) - Complete tool documentation
 - [Troubleshooting](../support/troubleshooting.md) - Common issues and solutions

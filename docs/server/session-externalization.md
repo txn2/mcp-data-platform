@@ -47,11 +47,10 @@ Clients see no change. The `Mcp-Session-Id` header works transparently.
 sessions:
   store: memory               # "memory" (default) or "database"
   ttl: 30m                    # session lifetime (defaults to streamable.session_timeout)
-  idle_timeout: 30m           # idle session eviction (defaults to streamable.session_timeout)
   cleanup_interval: 1m        # cleanup routine frequency
 ```
 
-See [Configuration Reference](../reference/configuration.md#session-externalization) for full parameter details.
+See [Configuration](../server/configuration.md#session-configuration) for full parameter details.
 
 ## Kubernetes Rolling Update
 

@@ -117,6 +117,9 @@ server:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `name` | string | `mcp-data-platform` | Server name in MCP handshake |
+| `version` | string | build-injected (`dev` in unlinked builds) | Server version reported to clients |
+| `description` | string | - | Explains when to use this MCP server - which business, products, or domains it covers. Agents use this to route questions to the right MCP server; also shown in `platform_info` |
+| `tags` | array | `[]` | Discovery keywords (company names, product names, business domains) that agents match against user questions |
 | `transport` | string | `stdio` | Transport protocol: `stdio` or `http` (`sse` accepted for backward compatibility) |
 | `address` | string | `:8080` | Listen address for HTTP transports |
 | `tls.enabled` | bool | `false` | Enable TLS for HTTP transport |
@@ -204,8 +207,6 @@ auth:
     audience: "mcp-data-platform"
     role_claim_path: "realm_access.roles"
     role_prefix: "dp_"
-    clock_skew_seconds: 30     # Allowed clock drift
-    max_token_age: 24h         # Reject tokens older than this
   api_keys:
     enabled: true
     keys:
@@ -223,10 +224,10 @@ auth:
 | `oidc.audience` | string | - | Expected token audience |
 | `oidc.role_claim_path` | string | `roles` | Path to roles in token claims |
 | `oidc.role_prefix` | string | - | Filter roles to those with this prefix |
-| `oidc.clock_skew_seconds` | int | `30` | Allowed clock skew for time claims |
-| `oidc.max_token_age` | duration | `0` | Max token age (0 = no limit) |
 | `api_keys.enabled` | bool | `false` | Enable API key authentication |
 | `api_keys.keys` | array | - | List of API key configurations |
+
+Token clock skew is a fixed 30 seconds and is not exposed as a YAML setting.
 
 !!! note "Fail-Closed Security"
     Authentication follows a fail-closed model. Missing tokens, invalid signatures, expired tokens, or missing required claims (`sub`, `exp`) all result in denied access.
@@ -266,6 +267,10 @@ The portal UI automatically detects OIDC availability and shows an SSO button. A
 
 !!! warning "Session Limitations"
     Sessions are stateless (no server-side store). Individual sessions cannot be revoked. Rotating `signing_key` invalidates all active sessions. Users must re-authenticate after TTL expires.
+
+### OAuth 2.1 Server (Inbound)
+
+The built-in `oauth:` block turns the platform itself into an OAuth 2.1 authorization server, for clients like Claude Desktop that expect to sign in directly to the MCP server rather than through an existing OIDC provider. For most deployments, `auth.oidc` or `auth.api_keys` above are simpler and sufficient. See [OAuth 2.1 Server](../auth/oauth-server.md) for the full config reference, Dynamic Client Registration guidance, and setup walkthrough.
 
 ## Database Configuration
 
@@ -342,6 +347,7 @@ tools:
 |-------|------|---------|-------------|
 | `tools.allow` | array | `[]` | Tool name patterns to include in `tools/list` |
 | `tools.deny` | array | `[]` | Tool name patterns to exclude from `tools/list` |
+| `tools.description_overrides` | map | `{}` | Override tool descriptions in `tools/list` (key: tool name, value: description text). Config values take precedence over built-in defaults, e.g. the built-in `trino_query`/`trino_execute` overrides that guide agents to call `search` first |
 
 **Semantics:**
 
@@ -380,6 +386,67 @@ admin:
 
 The admin portal provides a web-based dashboard for audit log exploration, tool execution testing, and system monitoring. Enable with `portal.enabled: true`. When enabled, it is served at `/portal/`. See [Admin API](admin-api.md) for the full endpoint reference and [Admin Portal](admin-portal.md) for the visual guide.
 
+## Portal Configuration
+
+The `portal` block enables the asset portal - the web UI plus REST API that persists AI-generated artifacts (JSX dashboards, HTML reports, SVG charts, exports) to S3 with PostgreSQL metadata tracking. See [Admin Portal](admin-portal.md) for branding and public-viewer walkthroughs and [User Portal](portal-user.md) for the end-user feature tour.
+
+```yaml
+portal:
+  enabled: true
+  title: "ACME Data Platform"                     # Sidebar/branding title
+  tagline: "Sign in to access your data."         # Login-screen subtitle
+  oidc_button_label: "Sign in with ACME Keycloak" # Login-screen SSO button text
+  logo: https://example.com/logo.svg              # Logo URL (fallback for both themes)
+  logo_light: https://example.com/logo-light.svg  # Logo for light theme
+  logo_dark: https://example.com/logo-dark.svg    # Logo for dark theme
+  s3_connection: primary        # S3 toolkit instance for artifact storage
+  s3_bucket: portal-artifacts   # Bucket for artifact content
+  s3_prefix: "artifacts/"       # Key prefix within the bucket
+  public_base_url: "https://portal.example.com"   # Base URL for portal links
+  max_content_size: 10485760    # Max artifact size in bytes (default: 10MB)
+  implementor:                                    # Optional implementor brand (left zone of public viewer header)
+    name: "ACME Corp"
+    logo: "https://acme.com/logo.svg"
+    url: "https://acme.com"
+  rate_limit:                                     # Public portal viewer rate limiting
+    requests_per_minute: 60
+    burst_size: 10
+  export:                                         # trino_export configuration
+    enabled: true                                 # auto-enabled when portal + trino are configured
+    max_rows: 100000                              # hard row cap per export
+    max_bytes: 104857600                          # hard byte cap (100 MB)
+    default_timeout: "5m"                         # default query timeout
+    max_timeout: "10m"                             # maximum allowed timeout
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Enable the portal SPA frontend and artifact API |
+| `title` | string | `MCP Data Platform` | Sidebar/branding title text |
+| `tagline` | string | `Sign in to access the platform.` | Login-screen subtitle text |
+| `oidc_button_label` | string | `Sign in with OIDC` | Login-screen SSO button text |
+| `logo` | string | - | URL to logo image (used for both themes if no theme-specific logo is set) |
+| `logo_light` | string | - | URL to logo for light theme (overrides `logo`) |
+| `logo_dark` | string | - | URL to logo for dark theme (overrides `logo`) |
+| `s3_connection` | string | - | Name of the S3 toolkit instance to use for artifact storage |
+| `s3_bucket` | string | `portal-assets` | S3 bucket for storing artifact content |
+| `s3_prefix` | string | `artifacts/` | Key prefix within the bucket |
+| `public_base_url` | string | - | Base URL for portal links returned in `save_artifact` responses |
+| `max_content_size` | int | `10485760` | Maximum artifact size in bytes (10 MB) |
+| `implementor.name` | string | - | Implementor display name shown in the left zone of the public viewer header |
+| `implementor.logo` | string | - | URL to implementor SVG logo (fetched once at startup, max 1 MB) |
+| `implementor.url` | string | - | Clickable link wrapping the implementor name and logo |
+| `rate_limit.requests_per_minute` | int | `60` | Public portal viewer rate limit |
+| `rate_limit.burst_size` | int | `10` | Public portal viewer burst allowance |
+| `export.enabled` | bool | auto | Enable `trino_export` tool. Auto-enabled when portal and Trino are both configured. Set `false` to disable |
+| `export.max_rows` | int | `100000` | Hard row cap for exports |
+| `export.max_bytes` | int64 | `104857600` | Hard byte cap for formatted output (100 MB) |
+| `export.default_timeout` | string | `5m` | Default query timeout for exports |
+| `export.max_timeout` | string | `10m` | Maximum allowed query timeout for exports |
+
+!!! note "Prerequisites"
+    Portal requires `database.dsn` to be configured for metadata storage, and at least one S3 toolkit instance for artifact content storage.
+
 ## Audit Configuration
 
 The `audit` block controls audit logging of MCP tool calls. Audit events are written asynchronously to PostgreSQL.
@@ -410,7 +477,6 @@ The `sessions` block controls how MCP session state is stored. In-memory session
 sessions:
   store: database
   ttl: 30m
-  idle_timeout: 30m
   cleanup_interval: 1m
 ```
 
@@ -418,7 +484,6 @@ sessions:
 |-------|------|---------|-------------|
 | `store` | string | `memory` | Backend: `memory` or `database` |
 | `ttl` | duration | streamable `session_timeout` | Session lifetime |
-| `idle_timeout` | duration | streamable `session_timeout` | Idle eviction threshold |
 | `cleanup_interval` | duration | `1m` | Cleanup routine interval |
 
 !!! note "Requires database"
@@ -464,6 +529,7 @@ toolkits:
 | `max_limit` | int | `10000` | Maximum allowed row limit |
 | `read_only` | bool | `false` | Restrict to read-only queries |
 | `connection_name` | string | instance name | Display name for this connection |
+| `descriptions` | map | `{}` | Override tool descriptions for this instance (key: tool name, value: description text) |
 
 ### DataHub
 
@@ -491,6 +557,7 @@ toolkits:
 | `max_lineage_depth` | int | `5` | Maximum lineage traversal depth |
 | `connection_name` | string | instance name | Display name for this connection |
 | `read_only` | bool | `false` | Restrict to read operations (disables write tools) |
+| `descriptions` | map | `{}` | Override tool descriptions for this instance (key: tool name, value: description text) |
 
 ### S3
 
@@ -532,6 +599,7 @@ toolkits:
 | `max_put_size` | int64 | `104857600` | Max bytes to write to objects |
 | `connection_name` | string | instance name | Display name for this connection |
 | `bucket_prefix` | string | - | Only show buckets with this prefix |
+| `descriptions` | map | `{}` | Override tool descriptions for this instance (key: tool name, value: description text) |
 
 ### MCP Gateway
 
@@ -594,6 +662,52 @@ enrichment:
 | `session_dedup.entry_ttl` | duration | semantic cache TTL | How long a table stays "already sent" |
 | `session_dedup.session_timeout` | duration | streamable session timeout | Idle session cleanup interval |
 
+## Tuning Configuration
+
+Static operational rules that shape agent behavior via `platform_info` guidance and tool descriptions.
+
+```yaml
+tuning:
+  rules:
+    require_datahub_check: true
+    warn_on_deprecated: true
+    quality_threshold: 0.7
+  prompts_dir: "/etc/mcp/prompts"
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `rules.require_datahub_check` | bool | `false` | Static hint for query tools encouraging DataHub discovery first. Superseded by the session-aware [Workflow Gating](#workflow-gating-configuration) below for actual enforcement |
+| `rules.warn_on_deprecated` | bool | `false` | Warn when a query touches a table marked deprecated in DataHub |
+| `rules.quality_threshold` | float | `0.7` | Minimum DataHub quality score below which a warning is surfaced |
+| `prompts_dir` | string | - | Directory of additional prompt resource files |
+
+## Workflow Gating Configuration
+
+Session-aware enforcement that agents call DataHub discovery tools before running Trino queries. Unlike the static `tuning.rules.require_datahub_check` hint above (which fires on every query), workflow gating tracks discovery per session and only warns when discovery hasn't occurred yet.
+
+```yaml
+workflow:
+  require_discovery_before_query: true
+  # discovery_tools: []             # Defaults to all datahub_* tools
+  # query_tools: []                 # Defaults to trino_query, trino_execute
+  # warning_message: ""             # Custom warning (default: built-in REQUIRED message)
+  escalation:
+    after_warnings: 3               # Switch to escalated message after N warnings
+    # escalation_message: ""        # Custom escalation (use {count} for warning number)
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `require_discovery_before_query` | bool | `false` | Enable session-aware workflow gating |
+| `discovery_tools` | array | all `datahub_*` tools | Tool names that count as discovery |
+| `query_tools` | array | `trino_query`, `trino_execute` | Tool names gated by discovery |
+| `warning_message` | string | built-in | Message prepended to query results when no discovery has occurred |
+| `escalation.after_warnings` | int | `3` | Number of standard warnings before escalation |
+| `escalation.escalation_message` | string | built-in | Escalated message (supports `{count}` placeholder) |
+
+When enabled, a standard warning is prepended to the first N query results (where N = `escalation.after_warnings`). After the threshold, an escalated message replaces the standard warning. Calling any discovery tool resets the warning count for that session.
+
 ## Semantic and Query Provider Configuration
 
 Specify which toolkit instance provides semantic metadata and query execution:
@@ -615,38 +729,53 @@ storage:
   instance: primary           # Which S3 instance to use
 ```
 
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `semantic.provider` | string | - | Provider type: `datahub` or `noop` |
+| `semantic.instance` | string | - | Toolkit instance name |
+| `semantic.cache.enabled` | bool | `false` | Enable semantic metadata caching |
+| `semantic.cache.ttl` | duration | `5m` | Cache TTL |
+| `query.provider` | string | - | Provider type: `trino` or `noop` |
+| `query.instance` | string | - | Toolkit instance name |
+| `storage.provider` | string | - | Provider type: `s3` or `noop` |
+| `storage.instance` | string | - | Toolkit instance name |
+
+**URN mapping** (`semantic.urn_mapping`, `query.urn_mapping`) translates catalog and platform names when Trino and DataHub name the same data differently - see [Trino to DataHub](../cross-enrichment/trino-datahub.md#urn-mapping-for-mismatched-names) for the full config reference. **Lineage-aware enrichment** (`semantic.lineage`) inherits column metadata from upstream datasets when a table's own columns lack it - see [Lineage Inheritance](../cross-enrichment/lineage.md) for the full config reference and worked examples.
+
 ## Persona Configuration
 
 Personas define tool access based on user roles. The security model follows a **default-deny** approach.
 
+Persona names are keyed directly under `personas:` (the config's `Definitions`
+field is an inline map, so there is no `definitions:` wrapper key).
+
 ```yaml
 personas:
-  definitions:
-    analyst:
-      display_name: "Data Analyst"
-      roles: ["analyst", "data_engineer"]
-      tools:
-        allow: ["trino_*", "datahub_*"]
-        deny: ["*_delete_*", "*_drop_*"]
-    admin:
-      display_name: "Administrator"
-      roles: ["admin"]
-      tools:
-        allow: ["*"]
+  analyst:
+    display_name: "Data Analyst"
+    roles: ["analyst", "data_engineer"]
+    tools:
+      allow: ["trino_*", "datahub_*"]
+      deny: ["*_delete_*", "*_drop_*"]
+  admin:
+    display_name: "Administrator"
+    roles: ["admin"]
+    tools:
+      allow: ["*"]
   default_persona: analyst
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `definitions` | map | - | Named persona configurations |
-| `definitions.<name>.display_name` | string | - | Human-readable name |
-| `definitions.<name>.roles` | array | - | Roles that map to this persona |
-| `definitions.<name>.tools.allow` | array | `[]` | Allowed tool patterns |
-| `definitions.<name>.tools.deny` | array | `[]` | Denied tool patterns |
-| `definitions.<name>.context.description_prefix` | string | - | Prepended to platform description |
-| `definitions.<name>.context.description_override` | string | - | Replaces platform description entirely |
-| `definitions.<name>.context.agent_instructions_suffix` | string | - | Appended to the admin `agent_instructions` layer |
-| `definitions.<name>.context.agent_instructions_override` | string | - | Replaces the admin `agent_instructions` layer only; the platform baseline is always present |
+| `<name>` | map | - | Named persona configuration, keyed directly under `personas:` |
+| `<name>.display_name` | string | - | Human-readable name |
+| `<name>.roles` | array | - | Roles that map to this persona |
+| `<name>.tools.allow` | array | `[]` | Allowed tool patterns |
+| `<name>.tools.deny` | array | `[]` | Denied tool patterns |
+| `<name>.context.description_prefix` | string | - | Prepended to platform description |
+| `<name>.context.description_override` | string | - | Replaces platform description entirely |
+| `<name>.context.agent_instructions_suffix` | string | - | Appended to the admin `agent_instructions` layer |
+| `<name>.context.agent_instructions_override` | string | - | Replaces the admin `agent_instructions` layer only; the platform baseline is always present |
 | `default_persona` | string | - | Persona for users without role match |
 
 !!! warning "Default-Deny Security"
@@ -959,7 +1088,6 @@ audit:
 sessions:
   store: database
   ttl: 30m
-  idle_timeout: 30m
   cleanup_interval: 1m
 
 auth:
@@ -1033,18 +1161,17 @@ elicitation:
     row_threshold: 1000000
 
 personas:
-  definitions:
-    analyst:
-      display_name: "Data Analyst"
-      roles: ["analyst"]
-      tools:
-        allow: ["trino_query", "trino_execute", "trino_explain", "datahub_*"]
-        deny: ["*_delete_*"]
-    admin:
-      display_name: "Administrator"
-      roles: ["admin"]
-      tools:
-        allow: ["*"]
+  analyst:
+    display_name: "Data Analyst"
+    roles: ["analyst"]
+    tools:
+      allow: ["trino_query", "trino_execute", "trino_explain", "datahub_*"]
+      deny: ["*_delete_*"]
+  admin:
+    display_name: "Administrator"
+    roles: ["admin"]
+    tools:
+      allow: ["*"]
   default_persona: analyst
 ```
 

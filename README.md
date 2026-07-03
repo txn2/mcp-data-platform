@@ -130,8 +130,8 @@ Define who can use which tools. Analysts get read access to queries and searches
 ### Comprehensive Audit Logging
 Every tool call is logged with user identity, persona, request details, and timing. PostgreSQL-backed for querying and compliance. Know who queried what, when, and why.
 
-### Prometheus Metrics
-OpenTelemetry instrumentation exposes `/metrics` on a dedicated `:9090` listener. Phase 1 instruments two chokepoints: every MCP tool call (`mcp_tool_calls_total`, `mcp_tool_call_duration_seconds`, `mcp_inflight_tool_calls`) and every apigateway outbound HTTP call (`apigateway_outbound_total`, `apigateway_outbound_duration_seconds`), each with a small, bounded label set (`tool`, `toolkit_kind`, `persona`, `status_category`, `connection`, `http_status_class`). High-cardinality fields like user id and raw URLs are deliberately kept off labels and reserved for traces (Phase 2). Enabled by default; set `OTEL_METRICS_ENABLED=false` to disable. See the [Observability documentation](https://mcp-data-platform.txn2.com/server/observability/) for details.
+### Prometheus Metrics and Distributed Tracing
+OpenTelemetry instrumentation exposes `/metrics` on a dedicated `:9090` listener, covering every MCP tool call (`mcp_tool_calls_total`, `mcp_tool_call_duration_seconds`, `mcp_inflight_tool_calls`), every apigateway outbound HTTP call (`apigateway_outbound_total`, `apigateway_outbound_duration_seconds`), and per-toolkit Trino/DataHub/S3/OAuth/database-pool metrics, each with a small, bounded label set (`tool`, `toolkit_kind`, `persona`, `status_category`, `connection`, `http_status_class`). High-cardinality fields like user id and raw URLs are deliberately kept off labels and reserved for traces. Metrics are enabled by default; set `OTEL_METRICS_ENABLED=false` to disable. Optional OpenTelemetry distributed tracing (off by default; `OTEL_TRACES_ENABLED=true`) exports one span tree per tool call over OTLP/gRPC to Tempo, Jaeger, or any OTLP-compatible collector. See the [Observability documentation](https://mcp-data-platform.txn2.com/server/observability/) for details.
 
 ### Persistent Memory
 Agents accumulate knowledge across sessions: preferences, corrections, domain context, and institutional facts. Backed by PostgreSQL with pgvector for semantic search. The `memory_manage` tool provides CRUD operations; reading memory back (relevance, entity lookup, and DataHub lineage traversal) is part of the universal `search` tool. Hybrid ranking improves recall on identifier-heavy content, and ranking degrades gracefully to lexical-only when the embedder is unavailable. A reconciler backfills embeddings missed during an outage or invalidated by a model swap. Memories are automatically added to toolkit responses via the cross-enrichment middleware. A staleness watcher flags memories when referenced DataHub entities change. Scoped by user and persona with full audit logging. See the [Memory Layer documentation](https://mcp-data-platform.txn2.com/memory/overview/) for details.
@@ -356,18 +356,17 @@ auth:
         roles: ["admin"]
 
 personas:
-  definitions:
-    analyst:
-      display_name: "Data Analyst"
-      roles: ["analyst"]
-      tools:
-        allow: ["trino_*", "datahub_*"]
-        deny: ["*_delete_*"]
-    admin:
-      display_name: "Administrator"
-      roles: ["admin"]
-      tools:
-        allow: ["*"]
+  analyst:
+    display_name: "Data Analyst"
+    roles: ["analyst"]
+    tools:
+      allow: ["trino_*", "datahub_*"]
+      deny: ["*_delete_*"]
+  admin:
+    display_name: "Administrator"
+    roles: ["admin"]
+    tools:
+      allow: ["*"]
   default_persona: analyst
 
 semantic:
