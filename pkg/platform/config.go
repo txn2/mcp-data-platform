@@ -15,6 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/txn2/mcp-data-platform/pkg/platform/dedup"
+	"github.com/txn2/mcp-data-platform/pkg/platform/reflexivecapture"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	datahubsemantic "github.com/txn2/mcp-data-platform/pkg/semantic/datahub"
 )
@@ -150,6 +151,13 @@ type KnowledgeConfig struct {
 	Enabled *bool                          `yaml:"enabled"`
 	Apply   KnowledgeApplyConfig           `yaml:"apply"`
 	Pages   knowledgepage.PageGuardsConfig `yaml:"pages"` // write guards (#705); see knowledgepage
+	// ReflexiveCapture configures auto-capture of query-error corrections (#635):
+	// when a query errors and a later related query on the same connection
+	// succeeds in the same session, the platform mints a "misconception + fix"
+	// memory. Captures enter review (reviewed sink-class), so the blast radius is
+	// a pending insight, not live catalog state. Auto-enabled with the memory
+	// subsystem; see pkg/platform/reflexivecapture.
+	ReflexiveCapture reflexivecapture.Config `yaml:"reflexive_capture"`
 }
 
 // KnowledgeApplyConfig configures the apply_knowledge tool.

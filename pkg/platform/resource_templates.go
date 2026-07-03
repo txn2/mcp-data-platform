@@ -10,6 +10,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
+	"github.com/txn2/mcp-data-platform/pkg/urnbuild"
 )
 
 // Resource template URI patterns.
@@ -242,7 +243,8 @@ func (p *Platform) handleAvailabilityResource(ctx context.Context, req *mcp.Read
 	}
 
 	// Build the DataHub URN for lookup.
-	urn := buildDataHubURN(p.config.Semantic.URNMapping, catalog, schemaName, table)
+	m := p.config.Semantic.URNMapping
+	urn := urnbuild.DatasetURN(m.Platform, m.CatalogMapping, catalog, schemaName, table)
 
 	avail, err := p.queryProvider.GetTableAvailability(ctx, urn)
 	if err != nil {
@@ -261,28 +263,6 @@ func (p *Platform) handleAvailabilityResource(ctx context.Context, req *mcp.Read
 	}
 
 	return marshalResourceResult(uri, result)
-}
-
-// buildDataHubURN constructs a DataHub dataset URN from table components.
-// Uses URN mapping config to determine the platform name and catalog mapping.
-func buildDataHubURN(mapping URNMappingConfig, catalog, schema, table string) string {
-	platform := mapping.Platform
-	if platform == "" {
-		platform = toolkitKindTrino
-	}
-
-	// Apply catalog mapping if configured.
-	mappedCatalog := catalog
-	if mapped, ok := mapping.CatalogMapping[catalog]; ok {
-		mappedCatalog = mapped
-	}
-
-	return fmt.Sprintf("urn:li:dataset:(urn:li:dataPlatform:%s,%s.%s.%s,PROD)",
-		platform,
-		mappedCatalog,
-		schema,
-		table,
-	)
 }
 
 // marshalResourceResult marshals a value to JSON and wraps it in a ReadResourceResult.

@@ -353,6 +353,16 @@ tuning:
 #                                  # returned (default 16384; negative disables this arm)
 #     oversize_sections: 12        # Heading count at/above which the split suggestion fires
 #                                  # (default 12; negative disables this arm)
+#   reflexive_capture:             # Reflexive knowledge activation (#635)
+#     enabled: true                # Default on when the memory subsystem is available. When a
+#                                  # trino query errors and a later related query on the same
+#                                  # connection succeeds in the same session, the platform auto-
+#                                  # mints one "misconception + fix" correction memory
+#                                  # (source=automation), with no operator prompt. Captures enter
+#                                  # review as a reviewed sink-class (schema_entity) before any
+#                                  # promotion to shared knowledge, so nothing touches live catalog
+#                                  # state directly, and are gated by the persona's memory_capture
+#                                  # grant. Set false to disable auto-capture entirely.
 
 # Portal UI and branding
 # portal:
