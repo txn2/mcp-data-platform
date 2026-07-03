@@ -6,14 +6,14 @@ Automated screenshot generation for every portal page in light and dark modes.
 
 ```bash
 cd ui
-pnpm screenshots          # Generate PNGs to public/images/screenshots/
-pnpm screenshots:convert  # Convert PNGs to WebP (removes PNGs)
+npm run screenshots          # Generate PNGs to public/images/screenshots/
+npm run screenshots:convert  # Convert PNGs to WebP (removes PNGs)
 ```
 
 Both steps together:
 
 ```bash
-pnpm screenshots && pnpm screenshots:convert
+npm run screenshots && npm run screenshots:convert
 ```
 
 Screenshots output to `docs/images/screenshots/{light,dark}/`.
@@ -21,8 +21,8 @@ Screenshots output to `docs/images/screenshots/{light,dark}/`.
 ## Custom Output Directory
 
 ```bash
-SCREENSHOT_OUTPUT_DIR=/path/to/output pnpm screenshots
-SCREENSHOT_OUTPUT_DIR=/path/to/output pnpm screenshots:convert
+SCREENSHOT_OUTPUT_DIR=/path/to/output npm run screenshots
+SCREENSHOT_OUTPUT_DIR=/path/to/output npm run screenshots:convert
 ```
 
 ## Custom Branding
@@ -31,9 +31,9 @@ Create a JSON file and point to it:
 
 ```bash
 SCREENSHOT_BRANDING_FILE=/path/to/branding.json \
-SCREENSHOT_PREFIX=plexara- \
+SCREENSHOT_PREFIX=acme- \
 SCREENSHOT_OUTPUT_DIR=/path/to/website/public/images/screenshots \
-  pnpm screenshots
+  npm run screenshots
 ```
 
 branding.json:
@@ -48,8 +48,8 @@ branding.json:
 
 1. Add the route to `route-manifest.ts`
 2. If the route needs mock data, add MSW handlers in `src/mocks/handlers.ts`
-3. Run `pnpm test` to verify the route sync test passes
-4. Run `pnpm screenshots` to generate
+3. Run `npm test` to verify the route sync test passes
+4. Run `npm run screenshots` to generate
 
 ## File Structure
 

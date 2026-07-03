@@ -7,44 +7,21 @@
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/txn2/mcp-data-platform/badge)](https://scorecard.dev/viewer/?uri=github.com/txn2/mcp-data-platform)
 [![SLSA 3](https://slsa.dev/images/gh-badge-level3.svg)](https://slsa.dev)
 
-
-
-**[Documentation](https://mcp-data-platform.txn2.com/)** | **[Installation](https://mcp-data-platform.txn2.com/server/overview/)** | **[Library Docs](https://mcp-data-platform.txn2.com/library/overview/)**
+**[Documentation](https://mcp-data-platform.txn2.com/)** | **[Installation](https://mcp-data-platform.txn2.com/server/installation/)** | **[Quick Start](#quick-start)** | **[Go Library](https://mcp-data-platform.txn2.com/library/overview/)**
 
 **Your AI assistant can run SQL. But it doesn't know that `cust_id` contains PII, that the table was deprecated last month, or who to ask when something breaks.**
 
-mcp-data-platform fixes that. It connects AI assistants to your data infrastructure and adds business context from your semantic layer. Query a table and get its meaning, owners, quality scores, and deprecation warnings in the same response.
+mcp-data-platform fixes that. It is a single MCP server that connects AI assistants to your data infrastructure and enriches every response with business context from your semantic layer: query a table and get its meaning, owners, quality scores, and deprecation warnings in the same call.
 
-The only requirement is [DataHub](https://datahubproject.io/) as your semantic layer. Add [Trino](https://trino.io/) for SQL queries and [S3](https://aws.amazon.com/s3/) for object storage when you're ready. [Learn why this stack →](https://mcp-data-platform.txn2.com/concepts/components/)
+It is a platform, not just a bridge. The same endpoint gives agents persistent memory and a governed path to write knowledge back to the catalog, proxies third-party MCP servers and REST APIs through one authentication, persona, and audit pipeline, and ships a web portal where AI-generated artifacts are saved, organized into collections, and shared with teammates.
 
-## MCP Data Platform Ecosystem
-
-mcp-data-platform is the orchestration layer for a broader suite of open-source MCP servers designed to work together as a composable data platform. Each component can run standalone or be combined through mcp-data-platform for unified access with cross-enrichment, authentication, and personas.
-
-- [txn2/mcp-datahub](https://github.com/txn2/mcp-datahub/) — DataHub metadata catalog: search, lineage, glossary terms, domains, tags, and ownership
-- [txn2/mcp-s3](https://github.com/txn2/mcp-s3/) — S3 object storage: list buckets, browse prefixes, read objects, generate presigned URLs
-- [txn2/mcp-trino](https://github.com/txn2/mcp-trino/) — Trino distributed SQL: query any data source Trino connects to with configurable timeouts and row limits
-
-The platform also includes a **[gateway toolkit](https://mcp-data-platform.txn2.com/server/gateway/)** that re-exposes any well-behaved third-party MCP server through the platform's auth, persona, and audit pipeline. Operators add connections through the admin portal (DB-backed, encrypted credentials); tools surface as `<connection>__<remote_tool>`. Optional declarative cross-enrichment rules join proxied responses with Trino queries or DataHub lookups, so a vendor MCP can return its own data plus warehouse context in a single call.
-
-For REST/HTTP APIs that aren't MCP servers, the **[API gateway toolkit](https://mcp-data-platform.txn2.com/server/api-gateway/)** (`kind: api`) proxies upstreams like Salesforce, Google APIs, GitHub, and Stripe through the same pipeline. Four tools (`api_invoke_endpoint`, `api_list_endpoints`, `api_list_specs`, `api_get_endpoint_schema`) cover every operation on every upstream; `api_list_specs` lets the model browse a multi-spec catalog's sections before drilling into one. Auth modes cover bearer, API key, HTTP Basic (RFC 7617, for legacy APIs like Jenkins or on-prem Jira), OAuth 2.1 client_credentials, and OAuth 2.1 authorization_code with browser sign-in. `static_headers` adds operator-supplied per-call headers alongside the auth header, so APIs that require both an OAuth bearer AND a project/subscription header (Google's `x-goog-user-project` for quota billing, vendor subscription keys) work without code changes. A REST shim at `POST /api/v1/gateway/{connection}/invoke` exposes `api_invoke_endpoint` to non-MCP HTTP clients (Apache NiFi, Airflow `HttpOperator`, `curl`) using the same `Authorization`/`X-API-Key` headers, persona allowlists, route-policy gates, and audit pipeline. A global in-flight memory budget (`apigateway.memory.max_in_flight_bytes`) bounds the bytes committed to `api_invoke_endpoint` response buffering across all connections, so a burst of large responses cannot OOMKill the pod — excess requests get a retryable `429`. `api_export` streams the upstream response directly to S3 (multipart, no full-body buffer) so it stays at bounded memory regardless of size and is exempt from the budget. For large or binary downloads, `POST /api/v1/gateway/{connection}/invoke-raw` streams the upstream body straight to the client at bounded memory, still injecting the held credential (a `413` rejects bodies over `raw_max_bytes`).
-
-OpenAPI specs are stored in versioned **[API catalogs](https://mcp-data-platform.txn2.com/server/api-catalogs/)**: globally-owned bundles of component specs that any number of connections can reference. One Google Workspace catalog (drive.yaml, calendar.yaml, gmail.yaml) backs every Google Workspace connection in the deployment; an organization running a Salesforce sandbox and a Salesforce production org points both connections at one Salesforce catalog. Specs ingest via paste, file upload, or HTTPS URL (with strict SSRF guards); mutations fan out to live connections without a process restart.
+The only required backend is [DataHub](https://datahubproject.io/) as the semantic layer. Add [Trino](https://trino.io/) for SQL and [S3](https://aws.amazon.com/s3/) for object storage when you're ready. [Learn why this stack.](https://mcp-data-platform.txn2.com/concepts/components/)
 
 ---
 
-## Why mcp-data-platform?
+## Why
 
-**The Problem**: AI assistants are powerful at querying data, but they're working blind. When Claude asks "What's in the orders table?", it gets column names and types. It doesn't know:
-
-- The `customer_id` column contains PII requiring special handling
-- The table is deprecated in favor of `orders_v2`
-- The data quality score dropped last week
-- Who to contact when something looks wrong
-
-**The Solution**: mcp-data-platform adds semantic context at the protocol level. Your AI assistant gets business meaning automatically—before it even asks.
-
-### Without vs With
+AI assistants are powerful at querying data, but they work blind. When an agent asks "What's in the orders table?", it gets column names and types. It doesn't know that `customer_id` is PII, that the table is deprecated in favor of `orders_v2`, that the quality score dropped last week, or who to contact when something looks wrong.
 
 ```
 # Without mcp-data-platform
@@ -76,8 +53,6 @@ AI:        Gets everything in one response:
 1 call. Complete context. Warnings front and center.
 ```
 
----
-
 ## How It Works
 
 ```mermaid
@@ -95,421 +70,155 @@ sequenceDiagram
     P-->>AI: Schema + Full Business Context
 ```
 
-The platform intercepts tool responses and enriches them with semantic metadata. This **cross-enrichment** pattern means:
+The platform intercepts tool responses at the protocol level and enriches them with context from the other services. This **cross-enrichment** is bidirectional:
 
-- **Trino → DataHub**: Query results include owners, tags, glossary terms, deprecation warnings, quality scores
-- **DataHub → Trino**: Search results include query availability (can this dataset be queried? what's the SQL?)
-- **S3 → DataHub**: Object listings include matching dataset metadata
-- **DataHub → S3**: Dataset searches show storage availability
-
----
+- **Trino → DataHub**: query results include owners, tags, glossary terms, deprecation warnings, quality scores
+- **DataHub → Trino**: search results include query availability and sample SQL
+- **S3 ↔ DataHub**: object listings include matching dataset metadata, and dataset searches show storage availability
 
 ## Features
 
-### Semantic-First Data Access
-Every data query includes business context from DataHub. Table descriptions, column meanings, data quality scores, and ownership information flow automatically. Your AI assistant understands what data means, not just what it contains.
+Each feature links to its full documentation.
 
-### Bidirectional Cross-Enrichment
-Context flows between services automatically. Trino results come enriched with DataHub metadata. DataHub searches show which datasets are queryable in Trino. No manual lookups or separate API calls needed.
-
-### Workflow Gating
-LLM agents tend to skip DataHub discovery and jump straight to SQL. Session-aware workflow gating detects this and annotates query results with warnings when no discovery has occurred. Warnings escalate after repeated violations. Built-in description overrides on `trino_query` and `trino_execute` also guide agents to call `search` first. A platform-owned instruction baseline (versioned with the release, layered beneath the admin's `agent_instructions`, and naming only tools the caller's persona can reach) carries the search-first operating model to every deployment without per-deployment edits, so admins write business context rather than restating how to operate. See the [Middleware Reference](https://mcp-data-platform.txn2.com/reference/middleware/) for details.
-
-### Enterprise Security
-Built with a **fail-closed** security model. Missing credentials deny access—never bypass. TLS enforcement for HTTP transport, prompt injection protection, and read-only mode enforcement for sensitive environments. See [MCP Defense: A Case Study in AI Security](https://imti.co/mcp-defense/) for the security architecture rationale.
-
-### OAuth 2.1 Authentication
-Native support for OIDC providers (Keycloak, Auth0, Okta), API keys for service accounts, PKCE for public clients, and Dynamic Client Registration. Claude Desktop can authenticate through your existing identity provider. Outbound gateway connections send `oauth_scope` to the IdP verbatim — operators add `offline_access` (Keycloak/Auth0/Okta) or `refresh_token` (Salesforce) themselves to get refresh tokens that survive platform restarts beyond the IdP's interactive SSO session timeout.
-
-### Live Tool Inventory Updates
-When a gateway upstream re-authenticates or a connection is added/removed, downstream agents (Claude.ai, Claude Desktop) receive a `notifications/tools/list_changed` event over a long-lived SSE channel — no disconnect / reconnect required. Works in stateless streamable-HTTP mode (the multi-replica deployment shape) via a postgres `LISTEN/NOTIFY` broadcaster; falls back to in-memory fan-out for single-replica deployments.
-
-### Role-Based Personas
-Define who can use which tools. Analysts get read access to queries and searches. Admins get everything. Tool filtering uses wildcard patterns (allow/deny rules) mapped from your identity provider's roles.
-
-### Comprehensive Audit Logging
-Every tool call is logged with user identity, persona, request details, and timing. PostgreSQL-backed for querying and compliance. Know who queried what, when, and why.
-
-### Prometheus Metrics and Distributed Tracing
-OpenTelemetry instrumentation exposes `/metrics` on a dedicated `:9090` listener, covering every MCP tool call (`mcp_tool_calls_total`, `mcp_tool_call_duration_seconds`, `mcp_inflight_tool_calls`), every apigateway outbound HTTP call (`apigateway_outbound_total`, `apigateway_outbound_duration_seconds`), and per-toolkit Trino/DataHub/S3/OAuth/database-pool metrics, each with a small, bounded label set (`tool`, `toolkit_kind`, `persona`, `status_category`, `connection`, `http_status_class`). High-cardinality fields like user id and raw URLs are deliberately kept off labels and reserved for traces. Metrics are enabled by default; set `OTEL_METRICS_ENABLED=false` to disable. Optional OpenTelemetry distributed tracing (off by default; `OTEL_TRACES_ENABLED=true`) exports one span tree per tool call over OTLP/gRPC to Tempo, Jaeger, or any OTLP-compatible collector. See the [Observability documentation](https://mcp-data-platform.txn2.com/server/observability/) for details.
-
-### Persistent Memory
-Agents accumulate knowledge across sessions: preferences, corrections, domain context, and institutional facts. Backed by PostgreSQL with pgvector for semantic search. The `memory_manage` tool provides CRUD operations; reading memory back (relevance, entity lookup, and DataHub lineage traversal) is part of the universal `search` tool. Hybrid ranking improves recall on identifier-heavy content, and ranking degrades gracefully to lexical-only when the embedder is unavailable. A reconciler backfills embeddings missed during an outage or invalidated by a model swap. Memories are automatically added to toolkit responses via the cross-enrichment middleware. A staleness watcher flags memories when referenced DataHub entities change. Scoped by user and persona with full audit logging. See the [Memory Layer documentation](https://mcp-data-platform.txn2.com/memory/overview/) for details.
-
-### Knowledge Capture
-AI sessions generate valuable domain knowledge: column meanings, data quality issues, business rules. The `memory_capture` tool records these observations during sessions (one verb, routed by sink-class, recall-first), and `apply_knowledge` provides admins with a structured review workflow to promote reviewed captures. Approved insights are written back to DataHub with full changeset tracking and rollback. `search` is the universal, topology-free discovery entry point: a single query fans across the technical catalog and its context documents, canonical knowledge pages, the caller's memory, captured insights, the caller's feedback, saved assets, prompts, API endpoints, and connections, returning a balanced, grouped-by-source, per-user-scoped result set with a coverage summary so the agent sees breadth it would otherwise miss. Search returns navigational pointers with truncated snippets; the companion `fetch` tool dereferences any reference search emits (a knowledge page, context document, catalog dataset, saved asset, prompt, connection, captured insight, or personal memory record) back to its full content, honoring the same per-user scope so it never reads what search could not surface. The per-user forms (memory and insights) are fetch-only and not citable on a shared page: a private record would resolve only for its owner, so an insight is instead promoted to the catalog and cited as its `urn:li:...` entity. A browse mode on `search` (one source, no intent, an offset) enumerates a corpus in full with a total count and no relevance threshold, so an agent can audit or migrate the knowledge pages and context documents that ranked search cannot list. Knowledge pages stay de-duplicated and navigable: creating a page whose content closely matches an existing one is blocked with the matching pages returned (re-apply against one to update it, or pass `force_new` to create a distinct page), an oversized page gets a non-blocking suggestion to split into focused sub-pages, and a `fetch` returns a page's outbound references so an agent can deep-crawl a graph of focused, cross-linked pages (with thin index pages) rather than one sprawling page. An [Admin REST API](https://mcp-data-platform.txn2.com/knowledge/admin-api/) supports integration with existing governance tools. See the [Knowledge Capture documentation](https://mcp-data-platform.txn2.com/knowledge/overview/) for details.
-
-### Resource Templates
-Browse platform data as parameterized MCP resources using RFC 6570 URI templates. Three built-in templates expose table schemas (`schema://catalog.schema/table`), glossary terms (`glossary://term`), and data availability (`availability://catalog.schema/table`) without making tool calls.
-
-### Managed Resources
-Human-uploaded reference material (samples, playbooks, templates, references) surfaced directly to AI assistants via MCP `resources/list` and `resources/read`. Resources are scoped to three visibility levels: global (visible to all authenticated users), persona (visible to users in a specific persona), and user (visible only to the owner). Metadata is stored in PostgreSQL; file blobs are stored in S3. A REST API at `/api/v1/resources` provides CRUD operations, and the Admin Portal includes a dedicated Resources page for uploading, browsing, and managing resources. Enabled automatically when a database is available.
-
-### Progress Notifications
-Long-running Trino queries send granular progress updates to MCP clients (executing, formatting, complete). Clients that provide a `_meta.progressToken` receive real-time status. Zero overhead when disabled.
-
-### Client Logging
-Server-to-client log messages give AI agents visibility into platform decisions (enrichment applied, timing). Uses the MCP `logging/setLevel` protocol — zero overhead if the client hasn't opted in.
-
-### Extensible Middleware Architecture
-Add custom authentication, rate limiting, or logging. Swap providers to integrate different semantic layers or query engines. The Go library exposes everything—build the platform your organization needs.
-
----
-
-## Admin Portal
-
-A built-in web dashboard for monitoring, auditing, and managing the platform. Enable with `portal.enabled: true`.
-
-![Admin Dashboard](docs/images/screenshots/light/admin-admin-dashboard-light.webp)
-
-**Dashboard** — Real-time activity timelines, top tools/users, performance percentiles, error monitoring, knowledge insight summary, and connection health.
-
-**Indexing** — Admin-only, cross-kind embedding-index health for every consumer of the shared `index_jobs` queue (api-catalog operation vectors, tool descriptors, and any future consumer). Each kind leads with one plain health verdict (Up to date / Indexing… / Degraded), with equivalent states rendered identically (same badge and a full green coverage bar), alongside a throughput timeline, embed-latency track, in-flight progress, and retry backoff. The failure triage is self-resolving: a failure clears once the unit is re-indexed successfully, with Retry and an explicit Dismiss, first/last-seen timestamps, and a drill-in to the underlying error. So a provider outage or a stalled embed pass that silently degrades semantic ranking to lexical is visible in one place.
-
-![Admin Tools page](docs/images/screenshots/light/admin-admin-tools-overview-light.webp)
-
-**Tools** — Master-detail surface for the full tool inventory. Search and group by connection or kind; drill into any tool to see its routing, persona allow/deny matrix, 24h audit aggregate, and cross-enrichment rules. Edit the per-tool description override, run the tool inline with auto-generated forms, and toggle global visibility (`tools.deny`) without leaving the page.
-
-**Users** — A known-users directory (first name, last name, email) that makes sharing easier. It is not an authorization layer and grants no access. Anyone who signs in via OIDC/OAuth is recorded automatically with the name from their token claims; admins can pre-add people by email so they are selectable for sharing before they have ever logged in (shown with an "Invited" status until their first sign-in). The portal share dialog suggests these known teammates as you type while still accepting any free-typed email. Requires a database.
-
-See the [Admin Portal documentation](https://mcp-data-platform.txn2.com/server/admin-portal/) for the complete visual guide.
-
----
-
-## Use Cases
-
-### Enterprise Data Governance
-- **Compliance-Ready Audit Trails**: Every query logged with user identity and business justification
-- **PII Protection**: Tag-based warnings ensure AI assistants acknowledge sensitive data handling requirements
-- **Access Control**: Persona system enforces who can query what, mapped from your IdP
-- **Deprecation Enforcement**: Deprecated tables surface warnings before AI assistants use stale data
-
-### Data Democratization
-- **Self-Service Analytics**: Business users explore data through AI with context they'd otherwise need to ask engineers for
-- **Cross-Team Discovery**: Search finds datasets across all systems with unified metadata
-- **Onboarding Acceleration**: New team members understand data assets immediately—meanings, owners, quality, and lineage included
-- **Glossary-Driven Exploration**: Business terms connect to actual tables and columns automatically
-
-### AI/ML Workflows
-- **Autonomous Data Exploration**: AI agents discover and understand datasets without human guidance
-- **Feature Discovery**: Find and evaluate potential ML features with quality scores and lineage
-- **Pipeline Understanding**: Trace data lineage to understand feature provenance
-- **Quality Gates**: Data quality scores help AI agents avoid problematic datasets
-
----
-
-## Architecture
-
-```mermaid
-graph LR
-    subgraph "MCP Data Platform"
-        DataHub[DataHub<br/>Semantic Metadata]
-        Platform[Platform<br/>Bridge]
-        Trino[Trino<br/>Query Engine]
-        S3[S3<br/>Object Storage]
-
-        DataHub <-->|"enrichment"| Platform
-        Platform <-->|"enrichment"| Trino
-        Platform <-->|"enrichment"| S3
-    end
-
-    Client([MCP Client]) --> Platform
-    Platform --> Client
-```
-
----
-
-## Security
-
-mcp-data-platform implements a **fail-closed** security model designed for enterprise deployments. See [MCP Defense: A Case Study in AI Security](https://imti.co/mcp-defense/) for the security architecture rationale.
+### Semantic data access
 
 | Feature | Description |
 |---------|-------------|
-| **Fail-Closed Authentication** | Missing or invalid credentials deny access (never bypass) |
-| **Required JWT Claims** | Tokens must include `sub` and `exp` claims |
-| **TLS for HTTP Transport** | Configurable TLS with warnings for plaintext connections |
-| **Prompt Injection Protection** | Metadata sanitization prevents injection attacks |
-| **Read-Only Mode** | Trino and S3 toolkits support enforced read-only access |
-| **Default-Deny Personas** | Users without explicit persona assignment have no tool access |
-| **Cryptographic Request IDs** | Request tracing uses secure random identifiers |
+| [Cross-enrichment](https://mcp-data-platform.txn2.com/cross-enrichment/overview/) | Business context added to every tool response automatically, with session dedup to save tokens |
+| [Lineage inheritance](https://mcp-data-platform.txn2.com/cross-enrichment/lineage/) | Column descriptions inherited from upstream datasets via DataHub lineage |
+| [Universal search](https://mcp-data-platform.txn2.com/knowledge/overview/) | One `search` tool fans a query across the catalog, knowledge pages, memory, insights, assets, prompts, and APIs; `fetch` dereferences any result |
+| [Workflow gating](https://mcp-data-platform.txn2.com/reference/middleware/) | Session-aware guidance that steers agents to discovery before SQL, with escalating warnings |
+| [Tools](https://mcp-data-platform.txn2.com/server/tools/) | Full tool reference for Trino, DataHub, S3, knowledge, memory, portal, and gateway toolkits |
 
-### Transport Security
+### Knowledge and memory
 
-| Transport | Authentication | TLS |
-|-----------|---------------|-----|
-| **stdio** | Not required (local execution) | N/A |
-| **HTTP** | Required (Bearer token or API key) | Strongly recommended |
+| Feature | Description |
+|---------|-------------|
+| [Memory layer](https://mcp-data-platform.txn2.com/memory/overview/) | Persistent agent memory across sessions, PostgreSQL + pgvector, hybrid semantic/lexical recall |
+| [Knowledge capture](https://mcp-data-platform.txn2.com/knowledge/overview/) | Agents record domain insights during sessions; approved knowledge is written back to DataHub or canonical knowledge pages |
+| [Governance workflow](https://mcp-data-platform.txn2.com/knowledge/governance/) | Human-in-the-loop review, approve/reject, changeset tracking, and rollback for every applied change |
+| [Managed resources](https://mcp-data-platform.txn2.com/server/portal-user/#resources) | Human-uploaded reference files (playbooks, samples, templates) served to agents as MCP resources |
 
----
+### Gateways and extensibility
 
-## Installation
+| Feature | Description |
+|---------|-------------|
+| [MCP gateway](https://mcp-data-platform.txn2.com/server/gateway/) | Re-expose any third-party MCP server through the platform's auth, persona, and audit pipeline |
+| [API gateway](https://mcp-data-platform.txn2.com/server/api-gateway/) | Proxy REST/HTTP APIs (Salesforce, Google, GitHub, Stripe) with four tools instead of one tool per endpoint |
+| [API catalogs](https://mcp-data-platform.txn2.com/server/api-catalogs/) | Versioned OpenAPI bundles shared across connections, with semantic endpoint ranking |
+| [REST invoke shim](https://mcp-data-platform.txn2.com/server/api-gateway/#rest-gateway-for-non-mcp-clients) | Call gateway endpoints from NiFi, Airflow, or `curl` under the same auth and audit pipeline |
+| [Self-configuration](https://mcp-data-platform.txn2.com/server/self-configuration/) | Admins manage personas, connections, and prompts by asking the agent instead of clicking |
+| [MCP Apps](https://mcp-data-platform.txn2.com/mcpapps/overview/) | Interactive UI panels rendered inline in the MCP host |
+| [Go library](https://mcp-data-platform.txn2.com/library/overview/) | Import the platform as a library: custom toolkits, providers, and middleware |
 
-### Go Install
+### Security and operations
+
+| Feature | Description |
+|---------|-------------|
+| [Authentication](https://mcp-data-platform.txn2.com/auth/overview/) | Fail-closed model: OIDC (Keycloak, Auth0, Okta, Azure AD) and API keys for service accounts |
+| [OAuth 2.1 server](https://mcp-data-platform.txn2.com/auth/oauth-server/) | Built-in authorization server with PKCE and Dynamic Client Registration; Claude signs in through your IdP |
+| [Outbound OAuth](https://mcp-data-platform.txn2.com/auth/oauth-gateway/) | OAuth to upstream MCPs and APIs with encrypted refresh tokens that survive restarts |
+| [Personas](https://mcp-data-platform.txn2.com/personas/overview/) | Role-mapped allow/deny tool and connection filtering, default-deny |
+| [Audit logging](https://mcp-data-platform.txn2.com/server/audit/) | Every tool call logged to PostgreSQL with identity, persona, sanitized parameters, and timing |
+| [Observability](https://mcp-data-platform.txn2.com/server/observability/) | Prometheus metrics and optional OpenTelemetry distributed tracing |
+| [Session externalization](https://mcp-data-platform.txn2.com/server/session-externalization/) | PostgreSQL-backed sessions for zero-downtime restarts, horizontal scaling, and live tool-inventory updates |
+| [Multi-provider](https://mcp-data-platform.txn2.com/server/multi-provider/) | Multiple instances of each service behind one endpoint, with isolated failure domains |
+| [Operating modes](https://mcp-data-platform.txn2.com/server/operating-modes/) | Standalone (no database) or file + database with hot-reloaded config overrides |
+
+## The Portal
+
+A built-in web portal serves both operators and end users. Enable with `portal.enabled: true`.
+
+**For operators**: dashboards with activity timelines and performance percentiles, a searchable audit log, an interactive tool explorer with per-persona visibility and inline test runs, knowledge insight governance, connection and persona management, API keys, and indexing health. See the [Admin Portal guide](https://mcp-data-platform.txn2.com/server/admin-portal/).
+
+![Admin Dashboard](docs/images/screenshots/light/admin-admin-dashboard-light.webp)
+
+**For users**: AI-generated artifacts (reports, charts, documents) are saved from any session with the `save_artifact` tool, organized into shareable [collections](https://mcp-data-platform.txn2.com/server/portal-user/#collections), and shared with teammates or through public links. A [prompt library](https://mcp-data-platform.txn2.com/server/portal-user/#prompts), [feedback threads](https://mcp-data-platform.txn2.com/server/portal-user/#feedback) on any artifact, and personal knowledge and activity views round out the [User Portal](https://mcp-data-platform.txn2.com/server/portal-user/).
+
+![Collections](docs/images/screenshots/light/user-collection-view-light.webp)
+
+## Quick Start
+
+Install (see [all methods](https://mcp-data-platform.txn2.com/server/installation/): Homebrew, Docker, source):
 
 ```bash
 go install github.com/txn2/mcp-data-platform/cmd/mcp-data-platform@latest
 ```
 
-### From Source
-
-```bash
-git clone https://github.com/txn2/mcp-data-platform.git
-cd mcp-data-platform
-go build -o mcp-data-platform ./cmd/mcp-data-platform
-```
-
----
-
-## Quick Start
-
-### Standalone Server
-
-```bash
-# Run with stdio transport (default)
-./mcp-data-platform
-
-# Run with configuration file
-./mcp-data-platform --config configs/platform.yaml
-
-# Run with HTTP transport (serves both SSE and Streamable HTTP)
-./mcp-data-platform --transport http --address :8080
-```
-
-### Claude Code CLI
-
-```bash
-claude mcp add mcp-data-platform -- mcp-data-platform
-```
-
-### Claude Desktop (Local)
-
-Add to your `claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "mcp-data-platform": {
-      "command": "mcp-data-platform",
-      "args": ["--config", "/path/to/platform.yaml"]
-    }
-  }
-}
-```
-
-### Claude Desktop (Remote with OAuth)
-
-For connecting Claude Desktop to a remote MCP server with Keycloak authentication:
-
-1. **Configure the MCP server** with OAuth and upstream IdP:
+Create a minimal configuration. DataHub is the only required backend; `${VAR}` references are expanded from the environment:
 
 ```yaml
-server:
-  transport: http
-  address: ":8080"
-
-oauth:
-  enabled: true
-  issuer: "https://mcp.example.com"
-  clients:
-    - id: "claude-desktop"
-      secret: "${CLAUDE_CLIENT_SECRET}"
-      redirect_uris:
-        - "http://localhost"
-        - "http://127.0.0.1"
-  upstream:
-    issuer: "https://keycloak.example.com/realms/your-realm"
-    client_id: "mcp-data-platform"
-    client_secret: "${KEYCLOAK_CLIENT_SECRET}"
-    redirect_uri: "https://mcp.example.com/oauth/callback"
-```
-
-2. **In Claude Desktop**, add the server with OAuth credentials:
-   - **URL**: `https://mcp.example.com`
-   - **Client ID**: `claude-desktop`
-   - **Client Secret**: (the secret you configured)
-
-When you connect, Claude Desktop will open your browser for Keycloak login, then automatically complete the OAuth flow.
-
-See [OAuth 2.1 Server documentation](https://mcp-data-platform.txn2.com/auth/oauth-server/) for complete setup instructions.
-
----
-
-## Configuration
-
-Create a `platform.yaml` configuration file:
-
-```yaml
+# platform.yaml
 server:
   name: mcp-data-platform
   transport: stdio
 
-auth:
-  oidc:
-    enabled: true
-    issuer: "https://auth.example.com/realms/platform"
-    client_id: "mcp-data-platform"
-  api_keys:
-    enabled: true
-    keys:
-      - key: "${API_KEY_ADMIN}"
-        name: "admin"
-        roles: ["admin"]
-
-personas:
-  analyst:
-    display_name: "Data Analyst"
-    roles: ["analyst"]
-    tools:
-      allow: ["trino_*", "datahub_*"]
-      deny: ["*_delete_*"]
-  admin:
-    display_name: "Administrator"
-    roles: ["admin"]
-    tools:
-      allow: ["*"]
-  default_persona: analyst
-
 semantic:
   provider: datahub
-  cache:
+  instance: primary
+
+toolkits:
+  datahub:
     enabled: true
-    ttl: 5m
-
-enrichment:
-  trino_semantic_enrichment: true
-  datahub_query_enrichment: true
-  column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
-
-audit:
-  enabled: true
-  log_tool_calls: true
-  retention_days: 90
-
-database:
-  dsn: "${DATABASE_URL}"
+    instances:
+      primary:
+        url: "${DATAHUB_URL}"
+        token: "${DATAHUB_TOKEN}"
+    default: primary
 ```
 
-### Managed Resources
-```yaml
-resources:
-  managed:
-    enabled: true             # auto-enabled when database is available
-    uri_scheme: "mcp"         # URI prefix (default: "mcp")
-    s3_connection: "primary"  # name of S3 toolkit instance for blob storage
-    s3_bucket: "resources"    # S3 bucket for uploaded files
+Wire it to Claude Code:
+
+```bash
+claude mcp add data-platform \
+  -e DATAHUB_URL=https://datahub.example.com/api/graphql \
+  -e DATAHUB_TOKEN=$TOKEN \
+  -- mcp-data-platform --config platform.yaml
 ```
 
-### Environment Variables
+For a hosted deployment, run `--transport http` and enable the built-in OAuth 2.1 server so Claude and other MCP clients sign in through your identity provider. See [Configuration](https://mcp-data-platform.txn2.com/server/configuration/), [Deployment](https://mcp-data-platform.txn2.com/server/deployment/) (Docker Compose, Kubernetes), and the [OAuth 2.1 Server guide](https://mcp-data-platform.txn2.com/auth/oauth-server/).
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `DATABASE_URL` | PostgreSQL connection string for audit logs | - |
-| `API_KEY_ADMIN` | Admin API key (if using API key auth) | - |
+## Security
 
----
+The platform implements a **fail-closed** security model: missing or invalid credentials deny access, never bypass. Personas are default-deny, Trino and S3 support enforced read-only mode, and metadata is sanitized against prompt injection. See the [Auth Overview](https://mcp-data-platform.txn2.com/auth/overview/) and [MCP Defense: A Case Study in AI Security](https://imti.co/mcp-defense/) for the architecture rationale.
 
-## Core Packages
+| Transport | Authentication | TLS |
+|-----------|----------------|-----|
+| **stdio** | Not required (local execution) | N/A |
+| **HTTP** | Required (Bearer token or API key) | Strongly recommended |
 
-| Package | Description |
-|---------|-------------|
-| `pkg/platform` | Main platform facade and configuration |
-| `pkg/auth` | OIDC and API key authentication |
-| `pkg/oauth` | OAuth 2.1 server with DCR and PKCE |
-| `pkg/pkcestore` | In-flight PKCE state store for outbound OAuth (in-memory + PostgreSQL) |
-| `pkg/persona` | Role-based personas and tool filtering |
-| `pkg/semantic` | Semantic metadata provider abstraction |
-| `pkg/query` | Query execution provider abstraction |
-| `pkg/middleware` | Request/response middleware chain |
-| `pkg/mcpcontext` | MCP session/progress context helpers |
-| `pkg/registry` | Toolkit registration and management |
-| `pkg/audit` | Audit logging with PostgreSQL storage |
-| `pkg/tuning` | Prompts, hints, and operational rules |
-| `pkg/storage` | S3-compatible storage provider abstraction |
-| `pkg/portal` | Asset portal types, stores, and S3 client for AI-generated artifacts |
-| `pkg/resource` | Managed resources: scoped file uploads, REST API, MCP integration |
-| `pkg/toolkits` | Toolkit implementations (Trino, DataHub, S3, Knowledge, Memory, Portal, Gateway) |
-| `pkg/admin` | Admin REST API for tools, personas, config, audit, knowledge, memory, connections, gateway, OAuth, and resources |
-| `pkg/client` | Platform client utilities |
+## Ecosystem
 
----
+mcp-data-platform is the orchestration layer for a suite of open-source MCP servers that also run standalone:
 
-## Library Usage
+- [txn2/mcp-datahub](https://github.com/txn2/mcp-datahub/): DataHub metadata: search, lineage, glossary, domains, tags, ownership
+- [txn2/mcp-trino](https://github.com/txn2/mcp-trino/): Trino distributed SQL with configurable timeouts and row limits
+- [txn2/mcp-s3](https://github.com/txn2/mcp-s3/): S3 object storage: buckets, prefixes, objects, presigned URLs
 
-The platform can be imported and used as a library:
+See [Ecosystem](https://mcp-data-platform.txn2.com/ecosystem/) for how they compose.
 
-```go
-import (
-    "github.com/txn2/mcp-data-platform/pkg/platform"
-)
+## Documentation
 
-// Load configuration
-cfg, err := platform.LoadConfig("platform.yaml")
-if err != nil {
-    log.Fatal(err)
-}
+Full documentation lives at [mcp-data-platform.txn2.com](https://mcp-data-platform.txn2.com/).
 
-// Create platform
-p, err := platform.New(platform.WithConfig(cfg))
-if err != nil {
-    log.Fatal(err)
-}
-defer p.Close()
-
-// Start the platform
-if err := p.Start(ctx); err != nil {
-    log.Fatal(err)
-}
-
-// Access the MCP server
-mcpServer := p.MCPServer()
-```
-
----
+- [Server Guide](https://mcp-data-platform.txn2.com/server/overview/): architecture, configuration, deployment
+- [Cross-Enrichment](https://mcp-data-platform.txn2.com/cross-enrichment/overview/): how automatic enrichment works
+- [Authentication](https://mcp-data-platform.txn2.com/auth/overview/): OIDC, API keys, OAuth 2.1
+- [Knowledge Capture](https://mcp-data-platform.txn2.com/knowledge/overview/) and [Memory](https://mcp-data-platform.txn2.com/memory/overview/): the agent knowledge loop
+- [Go Library](https://mcp-data-platform.txn2.com/library/overview/): build custom MCP servers
+- [Tools API Reference](https://mcp-data-platform.txn2.com/reference/tools-api/): complete tool specifications
+- [Examples Gallery](https://mcp-data-platform.txn2.com/examples/): real-world configurations
+- [Troubleshooting](https://mcp-data-platform.txn2.com/support/troubleshooting/): common issues and debugging
 
 ## Development
 
 ```bash
-# Run tests with race detection
-go test -race ./...
-
-# Run linter
-golangci-lint run ./...
-
-# Run security scan
-gosec ./...
-
-# Run SAST (Semgrep + CodeQL)
-make sast
-
-# Build
-go build -o mcp-data-platform ./cmd/mcp-data-platform
+go build -o mcp-data-platform ./cmd/mcp-data-platform   # build
+go test -race ./...                                     # tests
+make verify                                             # full CI-equivalent suite
 ```
 
----
-
-## Documentation
-
-Full documentation is available at [mcp-data-platform.txn2.com](https://mcp-data-platform.txn2.com/).
-
-- [Server Guide](https://mcp-data-platform.txn2.com/server/overview/) - Configuration and deployment
-- [Cross-Enrichment](https://mcp-data-platform.txn2.com/cross-enrichment/overview/) - How automatic enrichment works
-- [Authentication](https://mcp-data-platform.txn2.com/auth/overview/) - OIDC, API keys, and OAuth 2.1
-- [Go Library](https://mcp-data-platform.txn2.com/library/overview/) - Build custom MCP servers
-- [API Reference](https://mcp-data-platform.txn2.com/reference/tools-api/) - Complete tool documentation
-
----
-
-## Contributing
-
-We welcome contributions for bug fixes, tests, and documentation. Please ensure:
-
-1. All tests pass (`go test -race ./...`)
-2. Code is formatted (`gofmt`)
-3. Linter passes (`golangci-lint run ./...`)
-4. Security scan passes (`gosec ./...`)
-5. SAST passes (`make sast` — Semgrep + CodeQL)
-
----
+Contributions for bug fixes, tests, and documentation are welcome. Please run `make verify` (formatting, race-detected tests, coverage, linting, security scanning) before opening a pull request.
 
 ## License
 
@@ -517,4 +226,4 @@ We welcome contributions for bug fixes, tests, and documentation. Please ensure:
 
 ---
 
-Open source by [Craig Johnston](https://twitter.com/cjimti), sponsored by [Deasil Works, Inc.](https://deasil.works/)
+Open source by [Craig Johnston](https://imti.co/about/), sponsored by [Deasil Works, Inc.](https://deasil.works/) and [Plexara](https://plexara.io)

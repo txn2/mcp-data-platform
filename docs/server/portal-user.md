@@ -131,15 +131,13 @@ The Resources page provides:
 
 ## Shared With Me
 
-The Shared With Me page shows assets, collections, and prompts that other users have shared with you.
+Items that other users share with you appear in the corresponding pages, filtered by ownership scope:
 
-![Shared With Me](../images/screenshots/light/user-shared-light.webp#only-light)![Shared With Me](../images/screenshots/dark/user-shared-dark.webp#only-dark)
+- **Assets**: the Assets page has a Mine / Shared / All scope control. Shared assets show content type badges, tags, sharer email, permission level (Viewer/Editor), file size, and share date
+- **Collections**: the Collections page has the same Mine / Shared / All scope control, listing shared collections with sharer and access level
+- **Prompts**: the Prompts page has a Shared tab. These are real runnable prompts: your agent can invoke a shared prompt over MCP as `shared-<name>`
 
-Three tabs:
-
-- **Assets** — Shared assets displayed in grid or table view with content type badges, tags, sharer name, permission level (Viewer/Editor), file size, and share date
-- **Collections** — Shared collections with name, description, sharer, access level, and share date
-- **Prompts** — Prompts shared with you, with name, description, sharer, access level, and share date. These are real runnable prompts: your agent can invoke a shared prompt over MCP as `shared-<name>`
+![Shared Assets](../images/screenshots/light/user-assets-shared-light.webp#only-light)![Shared Assets](../images/screenshots/dark/user-assets-shared-dark.webp#only-dark)
 
 Click any shared asset to open it in the viewer:
 
@@ -220,10 +218,11 @@ Prompts are reusable templates that guide AI agent behavior. Users can create pe
 
 ![Prompts](../images/screenshots/light/user-prompts-light.webp#only-light)![Prompts](../images/screenshots/dark/user-prompts-dark.webp#only-dark)
 
-Two tabs:
+Three tabs:
 
-- **Personal** — Your own prompts with create, edit, and delete actions
-- **Available** — Global and persona-scoped prompts you can view and use
+- **Personal**: your own prompts with create, edit, and delete actions
+- **Available**: global and persona-scoped prompts you can view and use
+- **Shared**: prompts other users shared with you, with sharer and access level
 
 Features:
 
@@ -239,7 +238,7 @@ Features:
 
 ### Sharing a prompt
 
-Open your prompt and choose **Share**, then enter a recipient's email. The recipient sees it under **Shared With Me → Prompts** and their agent can run it over MCP as `shared-<name>` (auto-deduplicated if names collide). Sharing is owner-initiated and does not require admin approval; revoke a share any time from the Share dialog. Markdown export ("Save as Asset") is a distinct action for documentation or external sharing.
+Open your prompt and choose **Share**, then enter a recipient's email. The recipient sees it on the Prompts page's **Shared** tab and their agent can run it over MCP as `shared-<name>` (auto-deduplicated if names collide). Sharing is owner-initiated and does not require admin approval; revoke a share any time from the Share dialog. Markdown export ("Save as Asset") is a distinct action for documentation or external sharing.
 
 ### Requesting promotion
 
@@ -252,5 +251,6 @@ Personal prompt names are unique per owner, so two users can each have a prompt 
 - Personal prompts appear as `personal-<name>` (for example, `personal-report`)
 - Persona prompts appear as `<persona>-<name>` (one entry per persona you belong to, for example `analyst-report`)
 - Global prompts appear as `global-<name>`
+- Prompts shared with you appear as `shared-<name>`
 
 These prefixes are computed at serve time; the stored name stays bare. To make a personal prompt visible at the persona or global scope, rename it if a prompt with that name already exists at the target scope.
