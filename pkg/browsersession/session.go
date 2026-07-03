@@ -7,6 +7,7 @@ package browsersession
 
 import (
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -87,4 +88,34 @@ func (c *CookieConfig) effectiveSameSite() http.SameSite {
 		return http.SameSiteLaxMode
 	}
 	return c.SameSite
+}
+
+// ParseSameSite maps a configuration string ("lax", "strict", "none") to an
+// http.SameSite mode. An empty or unrecognized value yields the zero value,
+// which effectiveSameSite treats as Lax, the safe default. The match is
+// case-insensitive.
+func ParseSameSite(s string) http.SameSite {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "strict":
+		return http.SameSiteStrictMode
+	case "none":
+		return http.SameSiteNoneMode
+	case "lax":
+		return http.SameSiteLaxMode
+	default:
+		return 0 // unset resolves to the Lax default via effectiveSameSite
+	}
+}
+
+// IsValidSameSite reports whether s is a recognized same_site config value
+// (case-insensitive): "" (defaults to Lax), "lax", "strict", or "none".
+// Config validation uses this to reject a typo at startup rather than let
+// ParseSameSite silently downgrade an unrecognized value to Lax.
+func IsValidSameSite(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "lax", "strict", "none":
+		return true
+	default:
+		return false
+	}
 }

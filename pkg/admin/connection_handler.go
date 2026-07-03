@@ -13,6 +13,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
+	"github.com/txn2/mcp-data-platform/pkg/platform/fieldcrypt"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
@@ -510,9 +511,9 @@ var connectionSensitiveKeys = []string{
 
 // nestedMapSensitiveKeys lists config keys whose value is itself a
 // map of strings; the inner values must be redacted while the inner
-// names remain visible. Mirrors platform.SensitiveNestedMapKeyList().
+// names remain visible. Mirrors fieldcrypt.SensitiveNestedMapKeyList().
 var nestedMapSensitiveKeys = []string{
-	platform.CfgKeyStaticHeaders,
+	fieldcrypt.CfgKeyStaticHeaders,
 }
 
 // platformInternalKeys lists config keys injected by the platform at runtime

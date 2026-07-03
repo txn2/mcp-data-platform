@@ -2,6 +2,8 @@ package admin
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -22,6 +24,11 @@ type User struct {
 	UserID string
 	Email  string
 	Roles  []string
+	// FromCookie is true when the user authenticated via a browser session
+	// cookie (as opposed to an API key / Bearer token). Cookie-authenticated
+	// requests are the only ones subject to CSRF enforcement, since the
+	// browser attaches the cookie automatically on cross-site requests.
+	FromCookie bool
 }
 
 // GetUser returns the User from context, or nil if not set.
@@ -133,30 +140,50 @@ func WithBrowserSessionAuth(ba *browsersession.Authenticator) PlatformAuthOption
 // the admin persona. It checks browser session cookies first, then falls
 // back to token-based authentication.
 func (pa *PlatformAuthenticator) Authenticate(r *http.Request) (*User, error) {
-	// Try cookie-based auth first (browser sessions).
-	if u := pa.authenticateViaCookie(r); u != nil {
+	// Try cookie-based auth first (browser sessions). A CSRF failure on an
+	// otherwise-valid admin cookie is deferred, not fatal: a CSRF-exempt
+	// token (which a cross-site attacker cannot supply) may still legitimately
+	// authenticate the request.
+	u, csrfErr := pa.authenticateViaCookie(r)
+	if u != nil {
 		return u, nil
 	}
 
 	// Fall back to token-based auth.
-	return pa.authenticateViaToken(r)
+	tokenUser, tokenErr := pa.authenticateViaToken(r)
+	if tokenUser != nil {
+		return tokenUser, nil
+	}
+	// No token authenticated the request. If a cookie was present but failed
+	// CSRF, surface that rejection (→ 403) rather than a bare 401.
+	if csrfErr != nil {
+		return nil, csrfErr
+	}
+	return tokenUser, tokenErr
 }
 
 // authenticateViaCookie tries browser session cookie auth and verifies the
-// user has the admin persona.
-func (pa *PlatformAuthenticator) authenticateViaCookie(r *http.Request) *User {
+// user has the admin persona. It returns (nil, nil) when there is no valid
+// admin cookie, and (nil, ErrCSRFInvalid) when a valid admin cookie is
+// present on a state-changing request that lacks a valid CSRF token.
+func (pa *PlatformAuthenticator) authenticateViaCookie(r *http.Request) (*User, error) {
 	if pa.browserAuth == nil {
-		return nil
+		return nil, nil //nolint:nilnil // no cookie authenticator configured
 	}
 	info, err := pa.browserAuth.AuthenticateHTTP(r)
 	if err != nil || info == nil {
-		return nil
+		return nil, nil //nolint:nilnil,nilerr // cookie auth failure falls back to token, not a fatal error
 	}
 	resolved, ok := pa.registry.GetForRoles(info.Roles)
 	if !ok || resolved.Name != pa.adminPersona {
-		return nil
+		return nil, nil //nolint:nilnil // cookie user is not admin persona
 	}
-	return &User{UserID: info.UserID, Email: info.Email, Roles: info.Roles}
+	// The request is authenticated by a cookie the browser attached
+	// automatically; enforce CSRF on state-changing methods.
+	if err := pa.browserAuth.ValidateCSRFRequest(r, info.UserID); err != nil {
+		return nil, fmt.Errorf("admin cookie csrf: %w", err)
+	}
+	return &User{UserID: info.UserID, Email: info.Email, Roles: info.Roles, FromCookie: true}, nil
 }
 
 // authenticateViaToken extracts a token from headers, validates it, and
@@ -212,6 +239,10 @@ func RequirePersona(auth Authenticator) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			user, err := auth.Authenticate(r)
 			if err != nil {
+				if errors.Is(err, browsersession.ErrCSRFInvalid) {
+					writeError(w, http.StatusForbidden, "invalid or missing CSRF token")
+					return
+				}
 				writeError(w, http.StatusInternalServerError, "authentication error")
 				return
 			}

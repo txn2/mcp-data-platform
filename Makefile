@@ -28,7 +28,7 @@ GOFMT := gofmt
 GOLINT := golangci-lint
 
 .PHONY: all build test lint lint-full fmt clean install help docs-serve docs-build verify verify-release \
-	tools-check dead-code mutate patch-coverage doc-check swagger swagger-check \
+	tools-check dead-code mutate patch-coverage doc-check emdash-check swagger swagger-check \
 	semgrep codeql sast embed-clean migrate-check \
 	frontend-install frontend-build frontend-build-content-viewer \
 	frontend-dev frontend-mock frontend-test frontend-e2e \
@@ -319,6 +319,10 @@ patch-coverage:
 doc-check:
 	@./scripts/doc-check.sh
 
+## emdash-check: Fail if a change adds an em dash to user-facing text (docs/, ui/src/)
+emdash-check:
+	@./scripts/check-emdash.sh
+
 ## release-check: Validate build, Docker, and release config
 release-check:
 	@echo "Running GoReleaser dry-run..."
@@ -423,7 +427,7 @@ verify-release: verify mutate
 ## verify: Run the CI-equivalent per-commit suite (test, lint, security, SAST, coverage, release)
 ## NOTE: mutation testing is intentionally excluded — it lives in verify-release.
 ## Do not add `mutate` back to this per-commit target.
-verify: tools-check fmt swagger-check embed-clean test migrate-check test-realdb frontend-test frontend-e2e lint security semgrep codeql coverage-report patch-coverage doc-check dead-code release-check
+verify: tools-check fmt swagger-check embed-clean test migrate-check test-realdb frontend-test frontend-e2e lint security semgrep codeql coverage-report patch-coverage doc-check emdash-check dead-code release-check
 	@echo ""
 	@echo "=== All checks passed ==="
 	@# Write the gate sentinel: the short SHA-256 of the working-tree diff

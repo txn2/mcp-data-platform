@@ -9,6 +9,12 @@ export interface UserProfile {
   is_admin: boolean;
   persona?: string;
   tools?: string[];
+  /**
+   * CSRF token bound to the browser session. Present only for cookie-based
+   * sessions; API-key auth is exempt and omits it. The SPA echoes it in the
+   * X-CSRF-Token header on state-changing requests.
+   */
+  csrf_token?: string;
 }
 
 type AuthMethod = "cookie" | "apikey" | null;
@@ -20,6 +26,11 @@ interface AuthState {
   authMethod: AuthMethod;
   /** API key stored in sessionStorage (for API-key auth mode). */
   apiKey: string;
+  /**
+   * CSRF token for the current cookie session (empty in API-key mode). Sent
+   * as the X-CSRF-Token header on state-changing cookie-authenticated requests.
+   */
+  csrfToken: string;
   /** True while the initial session check is in progress. */
   loading: boolean;
   /** True when a previously valid session has expired (401 detected). */
@@ -57,6 +68,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   authMethod: null,
   apiKey: sessionStorage.getItem(API_KEY_STORAGE) ?? "",
+  csrfToken: "",
   loading: true,
   sessionExpired: false,
 
@@ -73,6 +85,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         set({
           user: profile,
           authMethod: "cookie",
+          csrfToken: profile.csrf_token ?? "",
           loading: false,
           sessionExpired: false,
         });
@@ -95,6 +108,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             user: profile,
             authMethod: "apikey",
             apiKey: storedKey,
+            csrfToken: "",
             loading: false,
             sessionExpired: false,
           });
@@ -107,7 +121,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
 
     // 3. Not authenticated.
-    set({ user: null, authMethod: null, apiKey: "", loading: false });
+    set({ user: null, authMethod: null, apiKey: "", csrfToken: "", loading: false });
   },
 
   loginOIDC: () => {
@@ -133,6 +147,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       user: profile,
       authMethod: "apikey",
       apiKey: key,
+      csrfToken: "",
       loading: false,
       sessionExpired: false,
     });
@@ -141,7 +156,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   logout: () => {
     const method = get().authMethod;
     sessionStorage.removeItem(API_KEY_STORAGE);
-    set({ user: null, authMethod: null, apiKey: "", loading: false });
+    set({ user: null, authMethod: null, apiKey: "", csrfToken: "", loading: false });
 
     if (method === "cookie") {
       // Redirect to server-side logout which clears the cookie and redirects
@@ -156,6 +171,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       user: null,
       authMethod: null,
       apiKey: "",
+      csrfToken: "",
       loading: false,
       sessionExpired: true,
     });

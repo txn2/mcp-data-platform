@@ -3224,6 +3224,11 @@ definitions:
     type: object
   portal.meResponse:
     properties:
+      csrf_token:
+        description: |-
+          CSRFToken is set only for cookie sessions; the SPA echoes it in the
+          X-CSRF-Token header on mutations. API-key clients are exempt.
+        type: string
       email:
         example: analyst@example.com
         type: string

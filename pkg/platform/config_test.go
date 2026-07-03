@@ -486,6 +486,77 @@ func TestConfigValidate(t *testing.T) {
 			t.Errorf("Validate() unexpected error: %v", err)
 		}
 	})
+
+	t.Run("same_site none without secure is rejected", func(t *testing.T) {
+		secureFalse := false
+		cfg := &Config{
+			Auth: AuthConfig{
+				OIDC: OIDCAuthConfig{Enabled: true, Issuer: "https://auth.example.com"},
+				BrowserSession: BrowserSessionConfig{
+					Enabled:    true,
+					SigningKey: "dGVzdGtleXRoYXRpc2F0bGVhc3QzMmJ5dGVzbG9uZyEh",
+					SameSite:   "none",
+					Secure:     &secureFalse,
+				},
+			},
+		}
+		err := cfg.Validate()
+		if err == nil || !strings.Contains(err.Error(), "same_site=none requires") {
+			t.Errorf("Validate() error = %v, want same_site=none requires secure", err)
+		}
+	})
+
+	t.Run("same_site none with secure omitted is valid (defaults true)", func(t *testing.T) {
+		cfg := &Config{
+			Auth: AuthConfig{
+				OIDC: OIDCAuthConfig{Enabled: true, Issuer: "https://auth.example.com"},
+				BrowserSession: BrowserSessionConfig{
+					Enabled:    true,
+					SigningKey: "dGVzdGtleXRoYXRpc2F0bGVhc3QzMmJ5dGVzbG9uZyEh",
+					SameSite:   "none",
+					// Secure omitted: IsSecure() defaults to true, so none is valid.
+				},
+			},
+		}
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("Validate() unexpected error: %v", err)
+		}
+	})
+
+	t.Run("misspelled same_site is rejected", func(t *testing.T) {
+		cfg := &Config{
+			Auth: AuthConfig{
+				OIDC: OIDCAuthConfig{Enabled: true, Issuer: "https://auth.example.com"},
+				BrowserSession: BrowserSessionConfig{
+					Enabled:    true,
+					SigningKey: "dGVzdGtleXRoYXRpc2F0bGVhc3QzMmJ5dGVzbG9uZyEh",
+					SameSite:   "stict", // typo for "strict"
+				},
+			},
+		}
+		err := cfg.Validate()
+		if err == nil || !strings.Contains(err.Error(), "same_site=\"stict\" is invalid") {
+			t.Errorf("Validate() error = %v, want invalid same_site", err)
+		}
+	})
+
+	t.Run("same_site none with secure is valid", func(t *testing.T) {
+		secureTrue := true
+		cfg := &Config{
+			Auth: AuthConfig{
+				OIDC: OIDCAuthConfig{Enabled: true, Issuer: "https://auth.example.com"},
+				BrowserSession: BrowserSessionConfig{
+					Enabled:    true,
+					SigningKey: "dGVzdGtleXRoYXRpc2F0bGVhc3QzMmJ5dGVzbG9uZyEh",
+					SameSite:   "none",
+					Secure:     &secureTrue,
+				},
+			},
+		}
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("Validate() unexpected error: %v", err)
+		}
+	})
 }
 
 func TestLoadConfig_StreamableFromYAML(t *testing.T) {

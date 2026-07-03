@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -27,6 +28,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/ui"
 	"github.com/txn2/mcp-data-platform/pkg/admin"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
+	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/gatewayhttp"
 	"github.com/txn2/mcp-data-platform/pkg/health"
@@ -760,7 +762,16 @@ func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform) {
 	adminPersona := p.Config().Admin.Persona
 	extractClaims := func(r *http.Request) (*resource.Claims, error) {
 		user, err := portalAuth.Authenticate(r)
-		if err != nil || user == nil {
+		if err != nil {
+			// Surface a CSRF rejection as resource.ErrForbidden so the handler
+			// responds 403 (recoverable) instead of 401 (force-logout), matching
+			// the admin/portal surfaces.
+			if errors.Is(err, browsersession.ErrCSRFInvalid) {
+				return nil, resource.ErrForbidden
+			}
+			return nil, fmt.Errorf("authentication required")
+		}
+		if user == nil {
 			return nil, fmt.Errorf("authentication required")
 		}
 		return buildResourceClaims(user, pr, adminPersona), nil

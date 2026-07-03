@@ -252,6 +252,7 @@ auth:
     signing_key: "${SESSION_SIGNING_KEY}"  # openssl rand -base64 32
     ttl: 8h
     secure: true
+    same_site: lax
 ```
 
 | Field | Type | Default | Description |
@@ -262,11 +263,22 @@ auth:
 | `browser_session.secure` | bool | `true` | HTTPS-only cookies (set `false` for local dev) |
 | `browser_session.cookie_name` | string | `mcp_session` | Cookie name |
 | `browser_session.domain` | string | - | Cookie domain restriction |
+| `browser_session.same_site` | string | `lax` | Cookie `SameSite` mode: `lax`, `strict`, or `none`. `none` requires `secure: true` and disables the browser's built-in CSRF defense (see below) |
 
 The portal UI automatically detects OIDC availability and shows an SSO button. API key authentication remains as a fallback. MCP protocol clients are unaffected — browser sessions only apply to the portal HTTP endpoints.
 
 !!! warning "Session Limitations"
     Sessions are stateless (no server-side store). Individual sessions cannot be revoked. Rotating `signing_key` invalidates all active sessions. Users must re-authenticate after TTL expires.
+
+#### CSRF Protection
+
+Because portal, admin, and managed-resources mutations can be authenticated by the session cookie, which the browser attaches automatically, the platform enforces token-based CSRF protection on cookie-authenticated, state-changing requests (`POST`, `PUT`, `PATCH`, `DELETE`):
+
+- On login, `GET /api/v1/portal/me` returns a `csrf_token` bound to the session (an HMAC over the session subject under the signing key; stateless, no server store).
+- The SPA echoes it in the `X-CSRF-Token` header on every non-`GET` request. Requests missing or presenting an invalid token are rejected with `403`.
+- Read-only requests (`GET`, `HEAD`, `OPTIONS`) are exempt, as are API-key / Bearer-authenticated requests, because those credentials are not attached automatically by the browser and so are not vulnerable to CSRF.
+
+`SameSite=Lax` (the default) is retained as defense-in-depth. Setting `same_site: none` removes that browser-level defense and makes the `X-CSRF-Token` check the sole protection; the platform logs a startup warning in that case.
 
 ### OAuth 2.1 Server (Inbound)
 

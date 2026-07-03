@@ -1,4 +1,9 @@
-package platform
+// Package fieldcrypt provides AES-256-GCM encryption of sensitive fields
+// within connection-config maps, plus the RestFieldEncryptor adapter used by
+// sub-package stores (gateway OAuth tokens, PKCE state). It is a standalone
+// package (not tied to *platform.Platform) so the at-rest encryption concern
+// lives in one place and does not count against the platform package budget.
+package fieldcrypt
 
 import (
 	"crypto/aes"
@@ -11,31 +16,33 @@ import (
 	"strings"
 )
 
-// aes256KeyLength is the required key length for AES-256.
-const aes256KeyLength = 32
+// KeyLength is the required key length in bytes for AES-256.
+const KeyLength = 32
 
 // encryptedPrefix marks a value as AES-256-GCM encrypted + base64-encoded.
 const encryptedPrefix = "enc:"
 
-// configKeyPassword is the conventional config-map key for password fields.
-const configKeyPassword = "password"
+// CfgKeyPassword is the conventional config-map key for password fields.
+const CfgKeyPassword = "password"
 
 // Conventional config-map keys for sensitive fields. Defined as
 // constants because the same literals appear in multiple call sites
 // (encryption allowlist + per-toolkit config extraction) and a typo
 // or rename would silently bypass at-rest encryption.
 const (
-	cfgKeySecretAccessKey = "secret_access_key"
+	// CfgKeySecretAccessKey is the S3 secret access key config-map key.
+	CfgKeySecretAccessKey = "secret_access_key"
 	cfgKeySecretKey       = "secret_key"
-	cfgKeyToken           = "token"
+	// CfgKeyToken is the bearer/token config-map key.
+	CfgKeyToken = "token"
 )
 
 // sensitiveConfigKeys are the config map keys whose values must be encrypted at rest.
 var sensitiveConfigKeys = map[string]bool{
-	configKeyPassword:      true,
-	cfgKeySecretAccessKey:  true,
+	CfgKeyPassword:         true,
+	CfgKeySecretAccessKey:  true,
 	cfgKeySecretKey:        true,
-	cfgKeyToken:            true,
+	CfgKeyToken:            true,
 	"access_token":         true,
 	"refresh_token":        true,
 	"api_key":              true,
@@ -115,8 +122,8 @@ func NewFieldEncryptor(key []byte) (*FieldEncryptor, error) {
 	if len(key) == 0 {
 		return nil, nil //nolint:nilnil // nil encryptor = encryption disabled
 	}
-	if len(key) != aes256KeyLength {
-		return nil, fmt.Errorf("encryption key must be exactly %d bytes (got %d)", aes256KeyLength, len(key))
+	if len(key) != KeyLength {
+		return nil, fmt.Errorf("encryption key must be exactly %d bytes (got %d)", KeyLength, len(key))
 	}
 
 	block, err := aes.NewCipher(key)
@@ -291,4 +298,53 @@ func (e *FieldEncryptor) decrypt(encoded string) (string, error) {
 	}
 
 	return string(plaintext), nil
+}
+
+// RestFieldEncryptor adapts a FieldEncryptor to the generic Encrypt/Decrypt
+// interface used by sub-package stores (gateway OAuth tokens, PKCE state, etc.)
+// so every at-rest secret uses the same key, algorithm, and
+// enc:base64(nonce|cipher) prefix as connection credentials.
+//
+// Exported so consumers like main.go can pass it to constructors (e.g.,
+// pkcestore.NewPostgresStore) without importing internal platform types.
+type RestFieldEncryptor struct {
+	enc *FieldEncryptor
+}
+
+// NewRestFieldEncryptor wraps a FieldEncryptor (which may be nil when
+// encryption is disabled) as a RestFieldEncryptor.
+func NewRestFieldEncryptor(enc *FieldEncryptor) *RestFieldEncryptor {
+	return &RestFieldEncryptor{enc: enc}
+}
+
+// Encrypt wraps a string with the same enc:base64(nonce|cipher) prefix
+// the field encryptor uses for sensitive config map values.
+func (g *RestFieldEncryptor) Encrypt(plaintext string) (string, error) {
+	if g.enc == nil || plaintext == "" {
+		return plaintext, nil
+	}
+	if strings.HasPrefix(plaintext, encryptedPrefix) {
+		return plaintext, nil // idempotent: already encrypted
+	}
+	out, err := g.enc.encrypt(plaintext)
+	if err != nil {
+		return "", fmt.Errorf("rest field encrypt: %w", err)
+	}
+	return encryptedPrefix + out, nil
+}
+
+// Decrypt reverses Encrypt. Plaintext (no enc: prefix) is returned
+// unchanged so legacy/unencrypted rows degrade gracefully.
+func (g *RestFieldEncryptor) Decrypt(ciphertext string) (string, error) {
+	if g.enc == nil || ciphertext == "" {
+		return ciphertext, nil
+	}
+	if !strings.HasPrefix(ciphertext, encryptedPrefix) {
+		return ciphertext, nil
+	}
+	out, err := g.enc.decrypt(strings.TrimPrefix(ciphertext, encryptedPrefix))
+	if err != nil {
+		return "", fmt.Errorf("rest field decrypt: %w", err)
+	}
+	return out, nil
 }
