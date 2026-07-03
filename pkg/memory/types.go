@@ -109,7 +109,13 @@ const (
 	MetaKeyInsightStatus    = "insight_status"
 	MetaKeySuggestedActions = "suggested_actions"
 	MetaKeySessionID        = "session_id"
-	InsightStatusPending    = "pending"
+	// MetaKeyLegacyStatus holds the original review status of an insight migrated
+	// from the old knowledge_insights table (migration 000031). Those rows carry
+	// no insight_status key, so legacy_status is the pending source for migrated
+	// candidates. resolveInsightStatus falls back to it after insight_status, and
+	// the enrichment push gate must honor both keys (#745).
+	MetaKeyLegacyStatus  = "legacy_status"
+	InsightStatusPending = "pending"
 	// InsightStatusSuperseded mirrors knowledgekit.StatusSuperseded. It is the
 	// review-status counterpart of the StatusSuperseded lifecycle column: when a
 	// record is superseded, its insight review status must follow, or the insights

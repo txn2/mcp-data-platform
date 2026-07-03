@@ -16,6 +16,10 @@ const (
 	// so memory_capture and this adapter agree on where review state lives.
 	metaKeyInsightStatus = memory.MetaKeyInsightStatus
 	metaKeyChangesetRef  = "changeset_ref"
+	// metaKeyLegacyStatus is the original review status of an insight migrated
+	// from knowledge_insights (migration 000031); those rows carry no
+	// insight_status, so this is the pending source for migrated candidates.
+	metaKeyLegacyStatus = memory.MetaKeyLegacyStatus
 )
 
 // memoryInsightAdapter implements InsightStore by delegating to a memory.Store.
@@ -514,7 +518,7 @@ func resolveInsightStatus(record memory.Record) string {
 		}
 	}
 	// Fall back to legacy_status (set by migration from knowledge_insights).
-	if v, ok := record.Metadata["legacy_status"]; ok {
+	if v, ok := record.Metadata[metaKeyLegacyStatus]; ok {
 		if s, ok := v.(string); ok && s != "" {
 			return s
 		}
