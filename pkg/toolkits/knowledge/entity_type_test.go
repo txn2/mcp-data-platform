@@ -321,7 +321,8 @@ func TestSupportedOpsForType(t *testing.T) {
 	}{
 		{
 			entityType:   "dataset",
-			wantContains: []string{"update_description", "add_tag", "remove_tag", "add_glossary_term", "add_documentation", "flag_quality_issue", "add_curated_query", "add_context_document", "update_context_document", "remove_context_document"},
+			wantContains: []string{"update_description", "add_tag", "remove_tag", "add_glossary_term", "add_documentation", "flag_quality_issue", "add_curated_query", "add_context_document", "update_context_document", "remove_context_document", "set_custom_property", "remove_custom_property"},
+			wantMissing:  []string{"delete_tag"},
 		},
 		{
 			entityType:   "domain",
@@ -330,8 +331,8 @@ func TestSupportedOpsForType(t *testing.T) {
 		},
 		{
 			entityType:   "tag",
-			wantContains: []string{"update_description", "add_tag", "remove_tag", "add_glossary_term"},
-			wantMissing:  []string{"add_curated_query", "add_context_document", "update_context_document", "remove_context_document"},
+			wantContains: []string{"update_description", "add_tag", "remove_tag", "add_glossary_term", "delete_tag"},
+			wantMissing:  []string{"add_curated_query", "add_context_document", "update_context_document", "remove_context_document", "set_custom_property", "remove_custom_property"},
 		},
 		{
 			entityType:   "glossaryTerm",

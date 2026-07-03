@@ -158,6 +158,14 @@ func supportedOpsForType(entityType string) []string {
 		ops = append(ops, "add_context_document", "update_context_document", "remove_context_document")
 	}
 
+	if customPropertySupportedTypes[entityType] {
+		ops = append(ops, string(actionSetCustomProperty), string(actionRemoveCustomProperty))
+	}
+
+	if entityType == entityTypeTag {
+		ops = append(ops, string(actionDeleteTag))
+	}
+
 	return ops
 }
 

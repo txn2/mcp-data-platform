@@ -228,6 +228,7 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 				"delete_tag deletes a tag definition entirely (entity_urn is the tag URN); it is irreversible. " +
 				"update_description with entity_urn set to a tag URN fixes the tag's own definition. " +
 				"For set_custom_property, target is the customProperties key, detail is the value; for remove_custom_property, target is the key. Custom properties are recorded but not auto-revertible. " +
+				"A single apply may set multiple custom properties or remove multiple, but not both set and remove on the same entity, and not a custom-property change together with update_description on a dataProduct (they share one aspect written non-atomically); split those into separate apply calls. " +
 				"Structured properties, incidents, and context documents require DataHub 1.4.x. " +
 				"Insight lifecycle: pending → approved/rejected/superseded; approved → applied/rejected; applied → rolled_back.",
 			InputSchema: applyKnowledgeSchema,
@@ -727,6 +728,10 @@ func (t *Toolkit) handleApply(ctx context.Context, input applyKnowledgeInput) (*
 	if err := ValidateApplyChanges(input.Changes); err != nil {
 		return errorResult(err.Error()), nil, nil //nolint:nilerr // MCP protocol
 	}
+	// Reject unsafe change combinations up front, before the confirmation round-trip.
+	if err := validateChangeCombination(input.EntityURN, input.Changes); err != nil {
+		return errorResult(err.Error()), nil, nil //nolint:nilerr // MCP protocol
+	}
 
 	// Check confirmation requirement
 	if t.requireConfirmation && !input.Confirm {
@@ -872,7 +877,7 @@ func (t *Toolkit) executeChanges(ctx context.Context, urn string, changes []Appl
 		priorWrites = true
 	}
 
-	addTerms, otherChanges := partitionGlossaryTermChanges(nonTagChanges)
+	addTerms, nonTermChanges := partitionGlossaryTermChanges(nonTagChanges)
 	if len(addTerms) > 0 {
 		if err := t.datahubWriter.ApplyGlossaryTermChanges(ctx, urn, addTerms, nil); err != nil {
 			return nil, batchWriteError("glossary term changes", priorWrites, err)
@@ -880,7 +885,33 @@ func (t *Toolkit) executeChanges(ctx context.Context, urn string, changes []Appl
 		priorWrites = true
 	}
 
+	otherChanges, priorWrites, err := t.applyCustomPropertyBatch(ctx, urn, nonTermChanges, priorWrites)
+	if err != nil {
+		return nil, err
+	}
+
 	return t.dispatchNonColumnChanges(ctx, urn, otherChanges, priorWrites)
+}
+
+// applyCustomPropertyBatch applies all set_custom_property changes in one
+// read-modify-write and all remove_custom_property changes in another, returning the
+// remaining changes and whether anything was persisted. Mixed set+remove is rejected
+// up front by validateCustomPropertyBatch, so at most one of the two writes fires.
+func (t *Toolkit) applyCustomPropertyBatch(ctx context.Context, urn string, changes []ApplyChange, priorWrites bool) ([]ApplyChange, bool, error) {
+	setProps, removeKeys, other := partitionCustomPropertyChanges(changes)
+	if len(setProps) > 0 {
+		if err := t.datahubWriter.SetCustomProperties(ctx, urn, setProps); err != nil {
+			return nil, priorWrites, batchWriteError("custom properties", priorWrites, err)
+		}
+		priorWrites = true
+	}
+	if len(removeKeys) > 0 {
+		if err := t.datahubWriter.RemoveCustomProperties(ctx, urn, removeKeys); err != nil {
+			return nil, priorWrites, batchWriteError("custom properties", priorWrites, err)
+		}
+		priorWrites = true
+	}
+	return other, priorWrites, nil
 }
 
 // batchWriteError wraps a batched-write failure, appending the "earlier changes
@@ -937,7 +968,7 @@ func partitionTagChanges(changes []ApplyChange) (add, remove []string, other []A
 	return add, remove, other
 }
 
-// validateAllChanges pre-checks entity type compatibility for all changes.
+// validateAllChanges pre-checks entity type compatibility for each change.
 func validateAllChanges(urn string, changes []ApplyChange) error {
 	for i, c := range changes {
 		if err := validateEntityTypeForChange(urn, c); err != nil {
@@ -945,6 +976,79 @@ func validateAllChanges(urn string, changes []ApplyChange) error {
 		}
 	}
 	return nil
+}
+
+// changeAspectFlags summarizes, for one apply, which mutations touch the shared
+// properties aspect: whether it sets and/or removes custom properties and whether it
+// carries an entity-level (not column) description change.
+func changeAspectFlags(changes []ApplyChange) (set, remove, entityDesc bool) {
+	for _, c := range changes {
+		switch c.ChangeType {
+		case string(actionSetCustomProperty):
+			set = true
+		case string(actionRemoveCustomProperty):
+			remove = true
+		case string(actionUpdateDescription):
+			if _, isColumn := parseColumnTarget(c.Target); !isColumn {
+				entityDesc = true
+			}
+		}
+	}
+	return set, remove, entityDesc
+}
+
+// validateChangeCombination rejects change combinations that would issue two
+// non-atomic read-modify-writes of the SAME DataHub aspect in one apply, which under
+// DataHub's non-read-your-writes aspect reads would clobber each other (the reason
+// tags and glossary terms are batched, #721/#729). Upstream exposes no atomic
+// combined mutate, so the safe answer is to split them into separate apply calls.
+func validateChangeCombination(urn string, changes []ApplyChange) error {
+	set, remove, entityDesc := changeAspectFlags(changes)
+	if set && remove {
+		return fmt.Errorf("a single apply cannot both set and remove custom properties on the same entity " +
+			"(they share one aspect that DataHub writes non-atomically, so one would clobber the other); " +
+			"use separate apply calls for set_custom_property and remove_custom_property")
+	}
+	// A dataProduct stores its description and its customProperties in the one
+	// dataProductProperties aspect, so an entity-level update_description alongside a
+	// custom-property change would be two non-atomic writes to it.
+	if (set || remove) && entityDesc && sharesDescriptionAndCustomPropertiesAspect(urn) {
+		return fmt.Errorf("a single apply cannot combine a custom-property change with update_description on a " +
+			"dataProduct (they share one aspect that DataHub writes non-atomically); use separate apply calls")
+	}
+	return nil
+}
+
+// sharesDescriptionAndCustomPropertiesAspect reports whether an entity type stores its
+// description in the same aspect as its customProperties (dataProduct:
+// dataProductProperties). For other supported types the description lives in a
+// distinct aspect (editable* or a GraphQL mutation), so co-applying is safe.
+func sharesDescriptionAndCustomPropertiesAspect(urn string) bool {
+	et, err := entityTypeFromURN(urn)
+	return err == nil && et == entityTypeDataProduct
+}
+
+// partitionCustomPropertyChanges separates custom-property changes from other changes
+// so all sets apply in one read-modify-write and all removes in another. Batching
+// avoids the stale-read clobber where back-to-back per-key writes of the shared
+// customProperties aspect drop all but the last (#721/#729). A later-listed set of
+// the same key wins. Mixed set+remove is rejected up front by
+// validateCustomPropertyBatch, so at most one of set/remove is non-empty here.
+func partitionCustomPropertyChanges(changes []ApplyChange) (set map[string]string, remove []string, other []ApplyChange) {
+	for _, c := range changes {
+		switch c.ChangeType {
+		case string(actionSetCustomProperty):
+			if set == nil {
+				set = map[string]string{}
+			}
+			set[c.Target] = c.Detail
+		case string(actionRemoveCustomProperty):
+			remove = append(remove, c.Target)
+		default:
+			other = append(other, c)
+		}
+	}
+	return set, remove, other
 }
 
 // partitionColumnChanges separates column description updates from other changes.
@@ -1126,17 +1230,6 @@ func (t *Toolkit) dispatchV14Change(ctx context.Context, urn string, c ApplyChan
 		// entity_urn is the tag URN being deleted. Irreversible: the changeset is
 		// recorded for audit but delete_tag is not in revertibleChangeTypes.
 		err = t.datahubWriter.DeleteTag(ctx, urn)
-	case string(actionSetCustomProperty):
-		// One custom property per change: Target is the key, Detail the value.
-		if c.Target == "" {
-			return "", fmt.Errorf("set_custom_property requires a property key in target")
-		}
-		err = t.datahubWriter.SetCustomProperties(ctx, urn, map[string]string{c.Target: c.Detail})
-	case string(actionRemoveCustomProperty):
-		if c.Target == "" {
-			return "", fmt.Errorf("remove_custom_property requires a property key in target")
-		}
-		err = t.datahubWriter.RemoveCustomProperties(ctx, urn, []string{c.Target})
 	case string(actionRaiseIncident):
 		return t.raiseIncident(ctx, urn, c.Target, c.Detail, c.ChangeType)
 	case string(actionResolveIncident):

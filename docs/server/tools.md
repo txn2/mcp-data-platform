@@ -808,10 +808,10 @@ Both sinks record a **changeset** (page promotions use `target_urn = "kp:<slug>"
 | `update_context_document` | Document ID | New content (`query_sql` = new title) | Datasets, glossaryTerms, glossaryNodes, containers (DataHub 1.4.x) |
 | `remove_context_document` | Document ID | Ignored | All (DataHub 1.4.x) |
 | `delete_tag` | Ignored | Ignored | Tags (`entity_urn` is the tag URN); deletes the tag definition entirely, irreversible |
-| `set_custom_property` | customProperties key | Value | All |
-| `remove_custom_property` | customProperties key | Ignored | All |
+| `set_custom_property` | customProperties key | Value | datasets, dashboards, charts, dataFlows, dataJobs, containers, dataProducts, domains, glossaryTerms, glossaryNodes |
+| `remove_custom_property` | customProperties key | Ignored | datasets, dashboards, charts, dataFlows, dataJobs, containers, dataProducts, domains, glossaryTerms, glossaryNodes |
 
-`delete_tag`, `set_custom_property`, and `remove_custom_property` are recorded for audit but are not auto-revertible. For `add_curated_query`, `query_sql` (required) and `query_description` (optional) provide the SQL statement. For `add_context_document` and `update_context_document`, `query_description` is the document category.
+`delete_tag`, `set_custom_property`, and `remove_custom_property` are recorded for audit but are not auto-revertible. Custom-property changes are batched, so a single apply may not both set and remove custom properties on the same entity (the shared aspect is written non-atomically); use separate apply calls. For `add_curated_query`, `query_sql` (required) and `query_description` (optional) provide the SQL statement. For `add_context_document` and `update_context_document`, `query_description` is the document category.
 
 ---
 

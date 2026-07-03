@@ -1078,7 +1078,7 @@ Review, synthesize, and apply captured insights to the data catalog. Admin-only.
 | `set_custom_property` | customProperties key | Value |
 | `remove_custom_property` | customProperties key | Ignored |
 
-`delete_tag` deletes a tag definition entirely and is irreversible; `set_custom_property`/`remove_custom_property` edit an entity's legacy `customProperties` and, like structured properties, are recorded but not auto-revertible.
+`delete_tag` deletes a tag definition entirely and is irreversible; `set_custom_property`/`remove_custom_property` edit an entity's legacy `customProperties` (datasets, dashboards, charts, dataFlows, dataJobs, containers, dataProducts, domains, glossaryTerms, glossaryNodes) and, like structured properties, are recorded but not auto-revertible. A single apply may set multiple properties or remove multiple properties, but not both on the same entity (the shared aspect is written non-atomically); use separate apply calls.
 
 **Actions:**
 
