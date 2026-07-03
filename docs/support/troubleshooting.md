@@ -46,28 +46,43 @@ mcp-data-platform --config platform.yaml 2>&1 | grep -i "missing\|undefined\|req
 
 **Common configuration errors:**
 
-```yaml
-# WRONG: Missing quotes around URL with special characters
-toolkits:
-  datahub:
-    primary:
-      url: https://datahub.example.com:8080  # Might be parsed incorrectly
+WRONG: missing quotes around a URL with special characters (may be parsed
+incorrectly):
 
-# CORRECT: Quote URLs
+```yaml
 toolkits:
   datahub:
-    primary:
-      url: "https://datahub.example.com:8080"
+    enabled: true
+    instances:
+      primary:
+        url: https://datahub.example.com:8080
+    default: primary
 ```
 
+CORRECT: quote URLs:
+
 ```yaml
-# WRONG: Environment variable without braces
+toolkits:
+  datahub:
+    enabled: true
+    instances:
+      primary:
+        url: "https://datahub.example.com:8080"
+    default: primary
+```
+
+WRONG: environment variable without braces (won't expand):
+
+```yaml
 auth:
   api_keys:
     keys:
-      - key: $API_KEY  # Won't expand
+      - key: $API_KEY
+```
 
-# CORRECT: Use ${} syntax
+CORRECT: use `${}` syntax:
+
+```yaml
 auth:
   api_keys:
     keys:
@@ -137,14 +152,17 @@ curl -v https://trino.example.com:443/v1/info
 ```yaml
 toolkits:
   trino:
-    primary:
-      host: trino.example.com
-      port: 443
-      ssl: true
-      ssl_verify: true  # Try false for self-signed certs
+    enabled: true
+    instances:
+      primary:
+        host: trino.example.com
+        port: 443
+        ssl: true
+        ssl_verify: true  # Try false for self-signed certs
 
-      # For custom CA certificates
-      ssl_ca_file: /path/to/ca.crt
+        # For custom CA certificates
+        ssl_ca_file: /path/to/ca.crt
+    default: primary
 ```
 
 **Step 3: Verify credentials**
@@ -172,12 +190,15 @@ Error: DataHub API error: 401 Unauthorized
 ```yaml
 toolkits:
   datahub:
-    primary:
-      # CORRECT: GMS URL (metadata service)
-      url: "https://datahub-gms.example.com"
+    enabled: true
+    instances:
+      primary:
+        # CORRECT: GMS URL (metadata service)
+        url: "https://datahub-gms.example.com"
 
-      # WRONG: Frontend URL
-      # url: "https://datahub.example.com"  # This is the UI
+        # WRONG: Frontend URL
+        # url: "https://datahub.example.com"  # This is the UI
+    default: primary
 ```
 
 **Step 2: Test token validity**
@@ -222,11 +243,14 @@ AWS_ACCESS_KEY_ID=$KEY AWS_SECRET_ACCESS_KEY=$SECRET \
 ```yaml
 toolkits:
   s3:
-    minio:
-      endpoint: "http://minio.local:9000"  # Include protocol
-      use_path_style: true                  # Required for MinIO
-      disable_ssl: true                     # For non-TLS endpoints
-      region: "us-east-1"                   # Still required
+    enabled: true
+    instances:
+      minio:
+        endpoint: "http://minio.local:9000"  # Include protocol
+        use_path_style: true                  # Required for MinIO
+        disable_ssl: true                     # For non-TLS endpoints
+        region: "us-east-1"                   # Still required
+    default: minio
 ```
 
 **Step 3: Verify bucket permissions**
@@ -273,13 +297,12 @@ auth:
     # issuer: "https://auth.example.com"  # WRONG
 ```
 
-**Step 3: Check token expiration and clock skew**
+**Step 3: Check token expiration and server clock**
 
-```yaml
-auth:
-  oidc:
-    clock_skew_seconds: 60  # Allow 60 seconds of clock drift
-```
+The platform validates `exp`/`nbf` with a fixed 30-second clock-skew
+tolerance; this is not currently configurable via YAML. If the server clock
+drifts by more than 30 seconds a valid token can be rejected, so keep the
+server clock synchronized (NTP) and confirm the token has not expired:
 
 ```bash
 # Check server time
@@ -511,14 +534,7 @@ semantic:
 WARN  enrichment failed for table orders: DataHub entity not found
 ```
 
-This is expected for tables that exist in Trino but aren't cataloged in DataHub. The platform returns the original result without enrichment.
-
-To suppress these warnings:
-
-```yaml
-enrichment:
-  suppress_enrichment_warnings: true
-```
+This is expected for tables that exist in Trino but aren't cataloged in DataHub. The platform returns the original result without enrichment, so these warnings are harmless. They are emitted at WARN level; raise the process log level (`LOG_LEVEL`) if they are noisy in your environment.
 
 ### Column enrichment shows all columns instead of referenced ones
 
@@ -542,8 +558,11 @@ Note: `trino_describe_table` always returns all columns. Filtering only applies 
 ```yaml
 toolkits:
   trino:
-    primary:
-      timeout: 300s  # Increase if needed
+    enabled: true
+    instances:
+      primary:
+        timeout: 300s  # Increase if needed
+    default: primary
 ```
 
 **Step 2: Verify row limits**
@@ -551,9 +570,12 @@ toolkits:
 ```yaml
 toolkits:
   trino:
-    primary:
-      default_limit: 1000   # Default rows returned
-      max_limit: 10000      # Maximum allowed
+    enabled: true
+    instances:
+      primary:
+        default_limit: 1000   # Default rows returned
+        max_limit: 10000      # Maximum allowed
+    default: primary
 ```
 
 **Step 3: Profile the query in Trino**
@@ -580,7 +602,6 @@ semantic:
   cache:
     enabled: true
     ttl: 5m
-    max_entries: 10000  # Increase for large catalogs
 ```
 
 **Step 2: Check DataHub response time**

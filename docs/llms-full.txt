@@ -190,6 +190,8 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 
 Configuration uses YAML with environment variable expansion (`${VAR_NAME}`).
 
+By default, unrecognized config keys are logged as a `WARN` and ignored so older configs keep loading. Detection applies at every level that maps to a defined field (a stray key under `server:`, `auth.oidc:`, or inside a persona definition is flagged, not just stray top-level keys). Set `config.strict: true` to reject unknown keys with a hard startup error instead (recommended: turns typos and stale keys into an immediate failure rather than a silent no-op). Free-form maps are exempt because they accept arbitrary keys by design: the `toolkits` tree, each toolkit's `config:` map, and the persona *names* under `personas:` (the fields within a persona definition are still validated). A future release will make strict rejection the default, opt-out via `config.strict: false`.
+
 ## Config Versioning
 
 Every configuration file should include an `apiVersion` field as the first key. This enables safe schema evolution with deprecation warnings and migration tooling.
@@ -239,18 +241,24 @@ server:
 
 toolkits:
   datahub:
-    primary:
-      url: https://datahub.example.com
-      token: ${DATAHUB_TOKEN}
+    enabled: true
+    instances:
+      primary:
+        url: https://datahub.example.com
+        token: ${DATAHUB_TOKEN}
+    default: primary
 
   trino:
-    primary:
-      host: trino.example.com
-      port: 443
-      user: ${TRINO_USER}
-      password: ${TRINO_PASSWORD}
-      ssl: true
-      catalog: hive
+    enabled: true
+    instances:
+      primary:
+        host: trino.example.com
+        port: 443
+        user: ${TRINO_USER}
+        password: ${TRINO_PASSWORD}
+        ssl: true
+        catalog: hive
+    default: primary
 
 enrichment:
   trino_semantic_enrichment: true
