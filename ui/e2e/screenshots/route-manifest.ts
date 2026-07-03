@@ -27,6 +27,23 @@ export const routes: ScreenshotRoute[] = [
     category: "user",
   },
   {
+    // Assets page in the Shared ownership scope (replaces the removed
+    // standalone Shared With Me page, consolidated in #616). The clicked
+    // scope persists in localStorage (shared with Collections), so clear it
+    // after clicking to keep later captures order-independent.
+    slug: "assets-shared",
+    path: "/portal/",
+    category: "user",
+    beforeCapture: async (page) => {
+      // Unconditional click: this capture's whole identity is the Shared
+      // scope, so a missing tab must fail the run, not silently publish an
+      // All-scope screenshot under the assets-shared name.
+      await page.getByRole("tab", { name: "Shared" }).click();
+      await page.waitForTimeout(500);
+      await page.evaluate(() => localStorage.removeItem("asset-scope"));
+    },
+  },
+  {
     slug: "collections",
     path: "/portal/collections",
     category: "user",
@@ -105,20 +122,12 @@ export const routes: ScreenshotRoute[] = [
   },
   {
     // KnowledgeHub (#661): one /knowledge route, three hash-driven tabs.
+    // The tabs expand to knowledge-{knowledge,insights,memory} captures, so
+    // no standalone #insights / #memory entries (they would collide).
     slug: "knowledge",
     path: "/portal/knowledge",
     category: "user",
     tabs: ["knowledge", "insights", "memory"],
-  },
-  {
-    slug: "knowledge-insights",
-    path: "/portal/knowledge#insights",
-    category: "user",
-  },
-  {
-    slug: "knowledge-memory",
-    path: "/portal/knowledge#memory",
-    category: "user",
   },
   {
     slug: "prompts",

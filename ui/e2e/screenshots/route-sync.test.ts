@@ -63,6 +63,21 @@ describe("route manifest sync", () => {
     expect(duplicates, "Duplicate slugs found").toEqual([]);
   });
 
+  // screenshot.spec.ts names each capture `${category}-${slug}` plus a
+  // `-${tab}` suffix for tabbed routes. A bare slug can collide with another
+  // route's slug+tab expansion (e.g. slug "knowledge-memory" vs slug
+  // "knowledge" + tab "memory"), which Playwright rejects as duplicate test
+  // titles. Checking raw slugs alone cannot see this.
+  it("has no duplicate expanded capture names", () => {
+    const names = routes.flatMap((r) =>
+      (r.tabs ?? [undefined]).map(
+        (tab) => `${r.category}-${r.slug}${tab ? `-${tab}` : ""}`,
+      ),
+    );
+    const duplicates = names.filter((n, i) => names.indexOf(n) !== i);
+    expect(duplicates, "Duplicate capture names found").toEqual([]);
+  });
+
   // Tab drift is the gap the pageTitles check above cannot see: a page can be
   // in the manifest while its tabs silently grow. These two checks read the
   // real tab keys from source and assert the manifest captures every one.
