@@ -45,6 +45,17 @@ func TestNoopDataHubWriter_ApplyTagChanges(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestNoopDataHubWriter_DeleteTag(t *testing.T) {
+	writer := &NoopDataHubWriter{}
+	assert.NoError(t, writer.DeleteTag(context.Background(), "urn:li:tag:Deprecated"))
+}
+
+func TestNoopDataHubWriter_CustomProperties(t *testing.T) {
+	writer := &NoopDataHubWriter{}
+	assert.NoError(t, writer.SetCustomProperties(context.Background(), testDatasetURN, map[string]string{"k": "v"}))
+	assert.NoError(t, writer.RemoveCustomProperties(context.Background(), testDatasetURN, []string{"k"}))
+}
+
 func TestNoopDataHubWriter_ApplyGlossaryTermChanges(t *testing.T) {
 	writer := &NoopDataHubWriter{}
 	err := writer.ApplyGlossaryTermChanges(context.Background(), testDatasetURN,

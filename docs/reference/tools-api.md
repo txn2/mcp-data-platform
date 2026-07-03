@@ -1035,8 +1035,9 @@ Review, synthesize, and apply captured insights to the data catalog. Admin-only.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `action` | string | Yes | One of: `bulk_review`, `review`, `synthesize`, `apply`, `approve`, `reject`, `rollback`, `list_changesets` |
+| `action` | string | Yes | One of: `bulk_review`, `review`, `synthesize`, `apply`, `approve`, `reject`, `rollback`, `list_changesets`, `bulk_untag` |
 | `entity_urn` | string | Conditional | Required for `review`, `synthesize`, `apply`, `list_changesets`; optional for `rollback` (validates the changeset belongs to this entity) |
+| `tag_urn` | string | Conditional | Required for `bulk_untag`; the tag (name or `urn:li:tag:...`) to remove from every entity that carries it |
 | `insight_ids` | array | Conditional | Required for `approve`, `reject`; optional for `synthesize`, `apply` |
 | `changes` | array | Conditional | Required for `apply` |
 | `changeset_id` | string | Conditional | Required for `rollback` |
@@ -1050,7 +1051,7 @@ Review, synthesize, and apply captured insights to the data catalog. Admin-only.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `change_type` | string | Yes | One of: `update_description`, `add_tag`, `remove_tag`, `add_glossary_term`, `flag_quality_issue`, `add_documentation`, `add_curated_query`, `set_structured_property`, `remove_structured_property`, `raise_incident`, `resolve_incident`, `add_context_document`, `update_context_document`, `remove_context_document` |
+| `change_type` | string | Yes | One of: `update_description`, `add_tag`, `remove_tag`, `add_glossary_term`, `flag_quality_issue`, `add_documentation`, `add_curated_query`, `set_structured_property`, `remove_structured_property`, `raise_incident`, `resolve_incident`, `add_context_document`, `update_context_document`, `remove_context_document`, `delete_tag`, `set_custom_property`, `remove_custom_property` |
 | `target` | string | Yes | Target of the change (see below) |
 | `detail` | string | Yes | Change detail (see below) |
 | `query_sql` | string | Conditional | SQL statement (required for `add_curated_query`). For `update_context_document`, the new title |
@@ -1060,7 +1061,7 @@ Review, synthesize, and apply captured insights to the data catalog. Admin-only.
 
 | Change Type | Target | Detail |
 |-------------|--------|--------|
-| `update_description` | `column:<fieldPath>` for column-level, empty for entity-level | Description text |
+| `update_description` | `column:<fieldPath>` for column-level, empty for entity-level (or the tag URN via `entity_urn` to fix a tag's own definition) | Description text |
 | `add_tag` / `remove_tag` | Ignored | Tag name or URN |
 | `add_glossary_term` | Ignored | Term name or URN |
 | `flag_quality_issue` | Ignored | Quality issue description (sets the `QualityIssue` tag; with a detail, also raises a DataHub incident carrying it) |
@@ -1073,6 +1074,11 @@ Review, synthesize, and apply captured insights to the data catalog. Admin-only.
 | `add_context_document` | Document title | Document content |
 | `update_context_document` | Document ID | New content |
 | `remove_context_document` | Document ID | Ignored |
+| `delete_tag` | Ignored (`entity_urn` is the tag URN) | Ignored |
+| `set_custom_property` | customProperties key | Value |
+| `remove_custom_property` | customProperties key | Ignored |
+
+`delete_tag` deletes a tag definition entirely and is irreversible; `set_custom_property`/`remove_custom_property` edit an entity's legacy `customProperties` (datasets, dashboards, charts, dataFlows, dataJobs, containers, dataProducts, domains, glossaryTerms, glossaryNodes) and, like structured properties, are recorded but not auto-revertible. A single apply may set multiple properties or remove multiple properties, but not both on the same entity (the shared aspect is written non-atomically); use separate apply calls.
 
 **Actions:**
 
@@ -1086,8 +1092,9 @@ Review, synthesize, and apply captured insights to the data catalog. Admin-only.
 | `apply` | Write changes to DataHub with changeset tracking | `entity_urn`, `changes` |
 | `list_changesets` | List an entity's changesets (id, timestamp, actor, change type, rollback status) | `entity_urn` |
 | `rollback` | Revert a changeset's changes to their before-image | `changeset_id`, `confirm` |
+| `bulk_untag` | Remove a tag from every entity a catalog search finds carrying it, recording one changeset (not auto-revertible) | `tag_urn`, `confirm` |
 
-`rollback` reverts the changes an `apply` made: it removes added tags/glossary terms/documentation links (keeping any that pre-existed in the before-image), restores a changed description, transitions the source insights to `rolled_back`, and marks the changeset rolled back. It is refused if the changeset is already rolled back, if a newer changeset has since modified the same aspect, or if the changeset touched change types whose prior state was not captured (column descriptions, structured properties, incidents, curated queries, context documents, prompts).
+`rollback` reverts the changes an `apply` made: it removes added tags/glossary terms/documentation links (keeping any that pre-existed in the before-image), restores a changed description, transitions the source insights to `rolled_back`, and marks the changeset rolled back. It is refused if the changeset is already rolled back, if a newer changeset has since modified the same aspect, or if the changeset touched change types whose prior state was not captured or is irreversible (column descriptions, structured properties, custom properties, incidents, curated queries, context documents, prompts, `delete_tag`, `bulk_untag`).
 
 **Response Schema (apply):**
 

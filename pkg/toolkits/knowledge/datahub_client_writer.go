@@ -836,6 +836,30 @@ func (w *DataHubClientWriter) UpsertStructuredProperties(ctx context.Context, ur
 	return nil
 }
 
+// DeleteTag removes a tag definition entirely (#726).
+func (w *DataHubClientWriter) DeleteTag(ctx context.Context, tagURN string) error {
+	if err := w.client.DeleteTag(ctx, tagURN); err != nil {
+		return fmt.Errorf("deleting tag %s: %w", tagURN, err)
+	}
+	return nil
+}
+
+// SetCustomProperties sets the given customProperties key/values on an entity (#726).
+func (w *DataHubClientWriter) SetCustomProperties(ctx context.Context, urn string, properties map[string]string) error {
+	if err := w.client.SetCustomProperties(ctx, urn, properties); err != nil {
+		return fmt.Errorf("setting custom properties on %s: %w", urn, err)
+	}
+	return nil
+}
+
+// RemoveCustomProperties removes the given customProperties keys from an entity (#726).
+func (w *DataHubClientWriter) RemoveCustomProperties(ctx context.Context, urn string, keys []string) error {
+	if err := w.client.RemoveCustomProperties(ctx, urn, keys); err != nil {
+		return fmt.Errorf("removing custom properties on %s: %w", urn, err)
+	}
+	return nil
+}
+
 // RemoveStructuredProperty removes a structured property from an entity.
 func (w *DataHubClientWriter) RemoveStructuredProperty(ctx context.Context, urn, propertyURN string) error {
 	if err := w.client.RemoveStructuredProperties(ctx, urn, []string{propertyURN}); err != nil {

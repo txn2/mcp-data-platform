@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -290,6 +291,9 @@ var _ ChangesetStore = (*spyChangesetStore)(nil)
 
 // spyWriter implements DataHubWriter for tests.
 type spyWriter struct {
+	// mu guards the shared mutation state below so the writer is safe to call from
+	// the concurrent bulk_untag fan-out.
+	mu          sync.Mutex
 	Metadata    *EntityMetadata
 	MetaErr     error
 	WriteCalls  []writerCall
@@ -331,6 +335,8 @@ func (w *spyWriter) GetCurrentMetadata(_ context.Context, _ string) (*EntityMeta
 }
 
 func (w *spyWriter) recordAndCheck(method, urn, arg1, arg2 string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	w.currentCall++
 	w.WriteCalls = append(w.WriteCalls, writerCall{
 		Method: method, URN: urn, Arg1: arg1, Arg2: arg2,
@@ -364,6 +370,8 @@ func (w *spyWriter) ApplyTagChanges(_ context.Context, urn string, add, remove [
 	}
 	// Model the server-side additive/subtractive semantics so regression tests can
 	// assert that a batched apply/rollback does not clobber pre-existing tags (#721).
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	if w.TagState == nil {
 		w.TagState = map[string]map[string]bool{}
 	}
@@ -385,6 +393,8 @@ func (w *spyWriter) ApplyGlossaryTermChanges(_ context.Context, urn string, add,
 	}
 	// Model additive/subtractive semantics so regression tests can assert that a
 	// batched apply/rollback does not clobber pre-existing glossary terms (#729).
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	if w.TermState == nil {
 		w.TermState = map[string]map[string]bool{}
 	}
@@ -424,6 +434,23 @@ func (w *spyWriter) UpsertStructuredProperties(_ context.Context, urn, propertyU
 
 func (w *spyWriter) RemoveStructuredProperty(_ context.Context, urn, propertyURN string) error {
 	return w.recordAndCheck("RemoveStructuredProperty", urn, propertyURN, "")
+}
+
+func (w *spyWriter) DeleteTag(_ context.Context, tagURN string) error {
+	return w.recordAndCheck("DeleteTag", tagURN, "", "")
+}
+
+func (w *spyWriter) SetCustomProperties(_ context.Context, urn string, properties map[string]string) error {
+	keys := make([]string, 0, len(properties))
+	for k := range properties {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return w.recordAndCheck("SetCustomProperties", urn, strings.Join(keys, ","), "")
+}
+
+func (w *spyWriter) RemoveCustomProperties(_ context.Context, urn string, keys []string) error {
+	return w.recordAndCheck("RemoveCustomProperties", urn, strings.Join(keys, ","), "")
 }
 
 func (w *spyWriter) RaiseIncident(_ context.Context, entityURN, title, desc string) (string, error) {
