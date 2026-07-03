@@ -393,6 +393,55 @@ func TestPostgresStore_List_EmptyResult(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+// TestPostgresStore_List_MalformedRowJSON pins the row-scan error path: a row
+// whose JSON column does not unmarshal must fail the listing, not yield a
+// half-populated record.
+func TestPostgresStore_List_MalformedRowJSON(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresStore(db)
+	now := time.Now()
+
+	mock.ExpectQuery("SELECT COUNT").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	rows := sqlmock.NewRows(memorySelectColumns).AddRow(
+		"mem-bad", now, now, "user-abc", "analyst", DimensionKnowledge, "schema_entity",
+		"content", CategoryGeneral, ConfidenceMedium, SourceUser,
+		[]byte(`not-json`), []byte(`[]`), []byte(`{}`),
+		StatusActive, nil, nil, nil,
+	)
+	mock.ExpectQuery("SELECT .+ FROM memory_records").WillReturnRows(rows)
+
+	_, _, err = store.List(context.Background(), Filter{})
+	require.Error(t, err, "a malformed JSON column must fail the scan")
+}
+
+// TestPostgresStore_List_ScanTypeMismatch pins the Scan-error branch itself:
+// a column value that cannot convert to its destination type (a non-time
+// created_at) must fail the listing.
+func TestPostgresStore_List_ScanTypeMismatch(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresStore(db)
+
+	mock.ExpectQuery("SELECT COUNT").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	rows := sqlmock.NewRows(memorySelectColumns).AddRow(
+		"mem-bad", "not-a-time", "not-a-time", "user-abc", "analyst", DimensionKnowledge, "schema_entity",
+		"content", CategoryGeneral, ConfidenceMedium, SourceUser,
+		[]byte(`[]`), []byte(`[]`), []byte(`{}`),
+		StatusActive, nil, nil, nil,
+	)
+	mock.ExpectQuery("SELECT .+ FROM memory_records").WillReturnRows(rows)
+
+	_, _, err = store.List(context.Background(), Filter{})
+	require.Error(t, err, "a scan type mismatch must fail the listing")
+}
+
 func TestPostgresStore_List_Pagination(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)

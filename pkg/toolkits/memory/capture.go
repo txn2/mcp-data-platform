@@ -26,6 +26,13 @@ const memoryCaptureToolName = "memory_capture"
 // returned by VectorSearch, so 0.9 means "near-identical text". Tunable.
 const recallSupersedeThreshold = 0.9
 
+// recallSuggestThreshold is the minimum cosine similarity at which an existing
+// record is surfaced as a similar_existing candidate in the capture response
+// (#762): close enough that the agent should decide update-vs-create, but not
+// close enough to auto-supersede. Matches in [suggest, supersede) are returned;
+// matches at or above recallSupersedeThreshold are superseded automatically.
+const recallSuggestThreshold = 0.75
+
 // maxSuggestedActions caps the catalog-change proposals a single capture may
 // carry, mirroring knowledge.MaxSuggestedActions.
 const maxSuggestedActions = 5
@@ -35,7 +42,7 @@ const logKeyError = "error"
 
 // RecallQuery is the recall-first lookup: the precomputed embedding of the
 // candidate content, the entities it concerns, and the caller's email, plus the
-// cosine threshold above which a prior record counts as a restatement. Embedding
+// cosine threshold above which a prior record counts as similar. Embedding
 // is empty when no embedder is configured; in that case recall is skipped (no
 // reliable similarity, so the capture simply appends).
 type RecallQuery struct {
@@ -45,12 +52,26 @@ type RecallQuery struct {
 	MinScore    float64
 }
 
-// RecallChecker finds an existing record a new capture restates, so the write
-// path can supersede instead of appending (recall-first, #633). Implemented by
+// RecallMatch is one existing record similar to a new capture, with its raw
+// cosine score. The capture path splits matches by score: at or above
+// recallSupersedeThreshold the record is superseded; below it the match is
+// returned to the agent as a similar_existing candidate.
+type RecallMatch struct {
+	ID    string  `json:"id"`
+	Score float64 `json:"score"`
+}
+
+// RecallChecker finds the caller's active records a new capture restates, so
+// the write path can supersede instead of appending (recall-first, #633) and
+// surface near-matches for the agent to consolidate (#762). Implemented by
 // the platform over the memory store; declared here so this package does not
 // import pkg/knowledge.
 type RecallChecker interface {
-	ExistingMatch(ctx context.Context, q RecallQuery) (id string, score float64, err error)
+	// Matches returns the caller's active records with cosine similarity at or
+	// above q.MinScore, best first. When the candidate carries entity URNs,
+	// matches must share at least one (knowledge about table A never matches
+	// knowledge about table B).
+	Matches(ctx context.Context, q RecallQuery) ([]RecallMatch, error)
 }
 
 // ThreadLinker bridges a reviewed capture back to the feedback thread(s) it
@@ -108,13 +129,23 @@ type memoryCaptureInput struct {
 
 // memoryCaptureOutput is the memory_capture success response.
 type memoryCaptureOutput struct {
-	ID                string   `json:"id"`
-	SinkClass         string   `json:"sink_class"`
-	Status            string   `json:"status"`
-	Superseded        string   `json:"superseded,omitempty"`
-	Message           string   `json:"message"`
-	LinkedThreadCount int      `json:"linked_thread_count,omitempty"`
-	UnlinkedThreadIDs []string `json:"unlinked_thread_ids,omitempty"`
+	ID        string `json:"id"`
+	SinkClass string `json:"sink_class"`
+	Status    string `json:"status"`
+	// Superseded keeps the original wire shape (a single id, the best match)
+	// so existing consumers of the field keep parsing; SupersededIDs carries
+	// the complete list now that one capture can consolidate several
+	// restatements (#762).
+	Superseded    string   `json:"superseded,omitempty"`
+	SupersededIDs []string `json:"superseded_ids,omitempty"`
+	// SimilarExisting lists active records similar to this capture but below
+	// the auto-supersede threshold, so the agent can decide whether the new
+	// capture restates one of them and consolidate (memory_manage update /
+	// consolidate) instead of leaving a near-duplicate behind (#762).
+	SimilarExisting   []RecallMatch `json:"similar_existing,omitempty"`
+	Message           string        `json:"message"`
+	LinkedThreadCount int           `json:"linked_thread_count,omitempty"`
+	UnlinkedThreadIDs []string      `json:"unlinked_thread_ids,omitempty"`
 }
 
 // handleMemoryCapture is the unified write verb. It validates the input, finds
@@ -147,12 +178,13 @@ func (t *Toolkit) handleMemoryCapture(ctx context.Context, _ *mcp.CallToolReques
 		return errorResult("failed to capture: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
 	}
 
-	return captureSuccess(rec, out.Superseded, out.Linked, out.Unlinked)
+	return captureSuccess(rec, out)
 }
 
 // captureOutcome carries the side results of the shared write pipeline.
 type captureOutcome struct {
-	Superseded string
+	Superseded []string
+	Similar    []RecallMatch
 	Linked     int
 	Unlinked   []string
 }
@@ -177,7 +209,7 @@ func (t *Toolkit) applyCapture(ctx context.Context, rec *memstore.Record, sinkCl
 	t.embedCaptureRecord(ctx, rec, rec.Content)
 
 	// Recall-first reuses the embedding just computed (no second embed call).
-	matchID := t.findPriorMatch(ctx, *rec)
+	restated, similar := t.findPriorMatches(ctx, *rec)
 
 	if err := t.store.Insert(ctx, *rec); err != nil {
 		return captureOutcome{}, fmt.Errorf("insert capture: %w", err)
@@ -185,7 +217,8 @@ func (t *Toolkit) applyCapture(ctx context.Context, rec *memstore.Record, sinkCl
 
 	linked, unlinked := t.linkCaptureThreads(ctx, actor, rec.ID, sinkClass, threadIDs)
 	return captureOutcome{
-		Superseded: t.applySupersede(ctx, matchID, rec.ID),
+		Superseded: t.applySupersedes(ctx, restated, rec.ID),
+		Similar:    similar,
 		Linked:     linked,
 		Unlinked:   unlinked,
 	}, nil
@@ -289,38 +322,57 @@ func (t *Toolkit) embedCaptureRecord(ctx context.Context, rec *memstore.Record, 
 	rec.EmbeddingModel, rec.EmbeddingTextHash = t.embeddingBreadcrumbs(emb, content)
 }
 
-// findPriorMatch returns the id of an existing record this capture restates, or
-// "" when recall is unavailable (no checker, no embedding) or nothing clears the
-// threshold. Best-effort: a recall error never fails the capture.
-func (t *Toolkit) findPriorMatch(ctx context.Context, rec memstore.Record) string {
+// findPriorMatches returns the existing records this capture restates
+// (similarity at or above the supersede threshold, all of them — so a capture
+// arriving over an already-duplicated pair consolidates the whole set; the
+// blast radius is bounded by the recall candidate limit and by the threshold,
+// which at 0.9 raw cosine means near-identical text, and every superseded id
+// is reported in the response) and the records similar enough to surface as
+// candidates but not to auto-supersede.
+// Both are empty when recall is unavailable (no checker, no embedding) or
+// nothing clears the suggest threshold. Best-effort: a recall error never
+// fails the capture.
+func (t *Toolkit) findPriorMatches(ctx context.Context, rec memstore.Record) (restated, similar []RecallMatch) {
 	if t.recallChecker == nil || len(rec.Embedding) == 0 {
-		return ""
+		return nil, nil
 	}
-	matchID, _, err := t.recallChecker.ExistingMatch(ctx, RecallQuery{
+	matches, err := t.recallChecker.Matches(ctx, RecallQuery{
 		Embedding:   rec.Embedding,
 		EntityURNs:  rec.EntityURNs,
 		CallerEmail: rec.CreatedBy,
-		MinScore:    recallSupersedeThreshold,
+		MinScore:    recallSuggestThreshold,
 	})
 	if err != nil {
 		slog.Debug("memory_capture: recall-first check failed", logKeyError, err)
-		return ""
+		return nil, nil
 	}
-	return matchID
+	for _, m := range matches {
+		if m.Score >= recallSupersedeThreshold {
+			restated = append(restated, m)
+		} else {
+			similar = append(similar, m)
+		}
+	}
+	return restated, similar
 }
 
-// applySupersede marks the prior record superseded by the new capture. Best-
-// effort: a failure is logged and the capture still succeeds (the new row is
-// already stored), returning "" so the caller does not falsely claim a supersede.
-func (t *Toolkit) applySupersede(ctx context.Context, matchID, newID string) string {
-	if matchID == "" || matchID == newID {
-		return ""
+// applySupersedes marks every restated record superseded by the new capture.
+// Best-effort per record: a failure is logged and the capture still succeeds
+// (the new row is already stored); only records actually superseded are
+// returned so the caller never falsely claims a supersede.
+func (t *Toolkit) applySupersedes(ctx context.Context, restated []RecallMatch, newID string) []string {
+	var superseded []string
+	for _, m := range restated {
+		if m.ID == "" || m.ID == newID {
+			continue
+		}
+		if err := t.store.Supersede(ctx, m.ID, newID); err != nil {
+			slog.Warn("memory_capture: failed to supersede prior record", "old", m.ID, "new", newID, logKeyError, err)
+			continue
+		}
+		superseded = append(superseded, m.ID)
 	}
-	if err := t.store.Supersede(ctx, matchID, newID); err != nil {
-		slog.Warn("memory_capture: failed to supersede prior record", "old", matchID, "new", newID, logKeyError, err)
-		return ""
-	}
-	return matchID
+	return superseded
 }
 
 // linkCaptureThreads bridges a reviewed capture to feedback threads (#602).
@@ -343,24 +395,36 @@ func (t *Toolkit) linkCaptureThreads(ctx context.Context, actor captureActor, id
 }
 
 // captureSuccess marshals the success response.
-func captureSuccess(rec memstore.Record, superseded string, linked int, unlinked []string) (*mcp.CallToolResult, any, error) {
+func captureSuccess(rec memstore.Record, out captureOutcome) (*mcp.CallToolResult, any, error) {
 	msg := "Captured. "
 	if memstore.SinkClassIsLive(rec.SinkClass) {
 		msg += "Available to you immediately."
 	} else {
 		msg += "It will be reviewed before promotion to a shared catalog."
 	}
-	if superseded != "" {
-		msg += " A prior record was superseded."
+	if n := len(out.Superseded); n > 0 {
+		msg += fmt.Sprintf(" %d prior record(s) superseded.", n)
+	}
+	if len(out.Similar) > 0 {
+		msg += " Similar existing records found (similar_existing): if this restates one," +
+			" consolidate with memory_manage (update the existing record, or consolidate the duplicate)."
+	}
+	// Matches arrive best-first, so the first superseded id is the best match
+	// (the singular field's original meaning).
+	var best string
+	if len(out.Superseded) > 0 {
+		best = out.Superseded[0]
 	}
 	return jsonResult(memoryCaptureOutput{
 		ID:                rec.ID,
 		SinkClass:         rec.SinkClass,
 		Status:            rec.Status,
-		Superseded:        superseded,
+		Superseded:        best,
+		SupersededIDs:     out.Superseded,
+		SimilarExisting:   out.Similar,
 		Message:           msg,
-		LinkedThreadCount: linked,
-		UnlinkedThreadIDs: unlinked,
+		LinkedThreadCount: out.Linked,
+		UnlinkedThreadIDs: out.Unlinked,
 	}), nil, nil
 }
 

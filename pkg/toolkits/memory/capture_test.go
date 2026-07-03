@@ -15,18 +15,19 @@ import (
 // errBoom is a sentinel error for failure-path tests.
 var errBoom = errors.New("boom")
 
-// fakeRecallChecker returns a fixed match for recall-first tests and records the
-// embedding it was handed (recall reuses the capture's precomputed vector).
+// fakeRecallChecker returns fixed matches for recall-first tests and records the
+// query it was handed (recall reuses the capture's precomputed vector).
 type fakeRecallChecker struct {
-	id           string
-	score        float64
+	matches      []RecallMatch
 	err          error
 	gotEmbedding []float32
+	gotMinScore  float64
 }
 
-func (f *fakeRecallChecker) ExistingMatch(_ context.Context, q RecallQuery) (id string, score float64, err error) {
+func (f *fakeRecallChecker) Matches(_ context.Context, q RecallQuery) ([]RecallMatch, error) {
 	f.gotEmbedding = q.Embedding
-	return f.id, f.score, f.err
+	f.gotMinScore = q.MinScore
+	return f.matches, f.err
 }
 
 // captureToolkitEmbedded builds a toolkit whose embedder produces a non-empty
@@ -113,7 +114,7 @@ func TestMemoryCapture_ReviewedClassWritesPendingInsight(t *testing.T) {
 
 func TestMemoryCapture_RecallFirstSupersedes(t *testing.T) {
 	tk, store := captureToolkitEmbedded(t)
-	rc := &fakeRecallChecker{id: "old-mem", score: 0.95}
+	rc := &fakeRecallChecker{matches: []RecallMatch{{ID: "old-mem", Score: 0.95}}}
 	tk.SetRecallChecker(rc)
 
 	res, _, err := tk.handleMemoryCapture(ctxWithPC("a@example.com", "analyst"), nil, memoryCaptureInput{
@@ -123,22 +124,99 @@ func TestMemoryCapture_RecallFirstSupersedes(t *testing.T) {
 	require.False(t, res.IsError)
 	require.Len(t, store.insertedRecords, 1)
 	newID := store.insertedRecords[0].ID
-	assert.Equal(t, "old-mem", store.supersededOld)
-	assert.Equal(t, newID, store.supersededNew)
-	// Recall must reuse the precomputed embedding, not re-embed.
+	assert.Equal(t, [][2]string{{"old-mem", newID}}, store.supersedeCalls)
+	// Recall must reuse the precomputed embedding, not re-embed, and query at
+	// the suggest threshold so near-matches below the supersede bar surface.
 	assert.NotEmpty(t, rc.gotEmbedding, "recall must receive the capture's embedding")
+	assert.Equal(t, recallSuggestThreshold, rc.gotMinScore)
+}
+
+// TestMemoryCapture_SupersedesAllRestatements verifies that a capture arriving
+// over an already-duplicated pair consolidates the whole set (#762): every
+// match at or above the supersede threshold is superseded and reported.
+func TestMemoryCapture_SupersedesAllRestatements(t *testing.T) {
+	tk, store := captureToolkitEmbedded(t)
+	tk.SetRecallChecker(&fakeRecallChecker{matches: []RecallMatch{
+		{ID: "dup-a", Score: 0.97},
+		{ID: "dup-b", Score: 0.93},
+	}})
+
+	res, _, err := tk.handleMemoryCapture(ctxWithPC("a@example.com", "analyst"), nil, memoryCaptureInput{
+		Type: memstore.SinkBusinessKnowledge, Content: "The feed refreshes nightly at 2am.",
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError)
+	require.Len(t, store.insertedRecords, 1)
+	newID := store.insertedRecords[0].ID
+	assert.Equal(t, [][2]string{{"dup-a", newID}, {"dup-b", newID}}, store.supersedeCalls)
+	out := extractJSON(t, res)
+	// `superseded` keeps its original single-id wire shape (the best match);
+	// `superseded_ids` carries the complete consolidated set.
+	assert.Equal(t, "dup-a", out["superseded"])
+	assert.Equal(t, []any{"dup-a", "dup-b"}, out["superseded_ids"])
+	assert.NotContains(t, out, "similar_existing")
+}
+
+// TestMemoryCapture_SimilarBelowSupersedeReturnsCandidates verifies the
+// suggest band (#762): a match below the supersede threshold is not
+// superseded, but is returned as a similar_existing candidate so the agent
+// can choose update-vs-create.
+func TestMemoryCapture_SimilarBelowSupersedeReturnsCandidates(t *testing.T) {
+	tk, store := captureToolkitEmbedded(t)
+	tk.SetRecallChecker(&fakeRecallChecker{matches: []RecallMatch{{ID: "near-mem", Score: 0.8}}})
+
+	res, _, err := tk.handleMemoryCapture(ctxWithPC("a@example.com", "analyst"), nil, memoryCaptureInput{
+		Type: memstore.SinkBusinessKnowledge, Content: "The feed refreshes nightly at 2am.",
+	})
+	require.NoError(t, err)
+	require.False(t, res.IsError)
+	assert.Empty(t, store.supersedeCalls, "a below-threshold match must not supersede")
+	out := extractJSON(t, res)
+	require.Contains(t, out, "similar_existing")
+	similar, ok := out["similar_existing"].([]any)
+	require.True(t, ok)
+	require.Len(t, similar, 1)
+	candidate, ok := similar[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "near-mem", candidate["id"])
+	assert.Equal(t, 0.8, candidate["score"])
+	assert.Contains(t, out["message"], "consolidate")
+}
+
+// TestMemoryCapture_MixedMatchesSplitByThreshold verifies the split: matches
+// at or above the supersede threshold are superseded, the rest surface as
+// candidates.
+func TestMemoryCapture_MixedMatchesSplitByThreshold(t *testing.T) {
+	tk, store := captureToolkitEmbedded(t)
+	tk.SetRecallChecker(&fakeRecallChecker{matches: []RecallMatch{
+		{ID: "restated", Score: 0.95},
+		{ID: "nearby", Score: 0.82},
+	}})
+
+	res, _, err := tk.handleMemoryCapture(ctxWithPC("a@example.com", "analyst"), nil, memoryCaptureInput{
+		Type: memstore.SinkBusinessKnowledge, Content: "The feed refreshes nightly at 2am.",
+	})
+	require.NoError(t, err)
+	newID := store.insertedRecords[0].ID
+	assert.Equal(t, [][2]string{{"restated", newID}}, store.supersedeCalls)
+	out := extractJSON(t, res)
+	assert.Equal(t, "restated", out["superseded"])
+	assert.Equal(t, []any{"restated"}, out["superseded_ids"])
+	similar, ok := out["similar_existing"].([]any)
+	require.True(t, ok)
+	require.Len(t, similar, 1)
 }
 
 func TestMemoryCapture_RecallNoMatchDoesNotSupersede(t *testing.T) {
 	tk, store := captureToolkitEmbedded(t)
-	// ExistingMatch applies the threshold/URN gate itself; "" means no qualifying match.
-	tk.SetRecallChecker(&fakeRecallChecker{id: "", score: 0})
+	// Matches applies the threshold/URN gate itself; empty means no qualifying match.
+	tk.SetRecallChecker(&fakeRecallChecker{})
 
 	_, _, err := tk.handleMemoryCapture(ctxWithPC("a@example.com", "analyst"), nil, memoryCaptureInput{
 		Type: memstore.SinkBusinessKnowledge, Content: "Stores close at 9pm.",
 	})
 	require.NoError(t, err)
-	assert.Empty(t, store.supersededOld, "no qualifying match must not supersede")
+	assert.Empty(t, store.supersedeCalls, "no qualifying match must not supersede")
 }
 
 func TestMemoryCapture_NoEmbeddingSkipsRecall(t *testing.T) {
@@ -147,14 +225,14 @@ func TestMemoryCapture_NoEmbeddingSkipsRecall(t *testing.T) {
 	store := &mockStore{}
 	tk, err := New("test", store, nil)
 	require.NoError(t, err)
-	rc := &fakeRecallChecker{id: "old-mem", score: 0.99}
+	rc := &fakeRecallChecker{matches: []RecallMatch{{ID: "old-mem", Score: 0.99}}}
 	tk.SetRecallChecker(rc)
 
 	_, _, err = tk.handleMemoryCapture(ctxWithPC("a@example.com", "analyst"), nil, memoryCaptureInput{
 		Type: memstore.SinkBusinessKnowledge, Content: "Stores close at 9pm.",
 	})
 	require.NoError(t, err)
-	assert.Empty(t, store.supersededOld, "recall must be skipped when there is no embedding")
+	assert.Empty(t, store.supersedeCalls, "recall must be skipped when there is no embedding")
 	assert.Nil(t, rc.gotEmbedding, "recall checker must not be consulted without an embedding")
 }
 
@@ -256,13 +334,13 @@ func TestMemoryCapture_RecallErrorToleratedNoSupersede(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.False(t, res.IsError, "a recall-check error must not fail the capture")
-	assert.Empty(t, store.supersededOld)
+	assert.Empty(t, store.supersedeCalls)
 }
 
 func TestMemoryCapture_SupersedeErrorTolerated(t *testing.T) {
 	store := &mockStore{supersedeErr: errBoom}
 	tk := newTestToolkit(store, &mockEmbedder{embedResult: []float32{0.1, 0.2, 0.3}})
-	tk.SetRecallChecker(&fakeRecallChecker{id: "old-mem", score: 0.95})
+	tk.SetRecallChecker(&fakeRecallChecker{matches: []RecallMatch{{ID: "old-mem", Score: 0.95}}})
 
 	res, _, err := tk.handleMemoryCapture(ctxWithPC("a@example.com", "analyst"), nil, memoryCaptureInput{
 		Type: memstore.SinkBusinessKnowledge, Content: "Stores close at 9pm.",

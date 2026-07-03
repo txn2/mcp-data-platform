@@ -334,7 +334,8 @@ func (s *postgresStore) VectorSearch(ctx context.Context, query VectorQuery) ([]
 	// vector parameter ($1) used in the ORDER BY and SELECT expressions.
 	// Optional scope predicates start at $2 (only $1=vector is fixed).
 	filterClause, filterArgs := scopeFilters(scope{
-		createdBy: query.CreatedBy, dimension: query.Dimension, persona: query.Persona, status: query.Status,
+		createdBy: query.CreatedBy, dimension: query.Dimension, persona: query.Persona,
+		status: query.Status, excludeStatuses: query.ExcludeStatuses,
 	}, 2)
 	args := append([]any{pgvector.NewVector(query.Embedding)}, filterArgs...)
 
@@ -415,14 +416,15 @@ func archivedExclusion(status string) string {
 }
 
 // scope holds the optional predicates shared by the search arms. created_by is
-// the portal's per-user security boundary; excludeDimension is the negative
-// complement of dimension (drop one rather than restrict to one).
+// the portal's per-user security boundary; excludeDimension and excludeStatuses
+// are the negative complements of dimension/status (drop rather than restrict).
 type scope struct {
 	createdBy        string
 	dimension        string
 	persona          string
 	status           string
 	excludeDimension string
+	excludeStatuses  []string
 }
 
 // scopeFilters builds the optional scope predicates, parameterized from
@@ -449,6 +451,12 @@ func scopeFilters(s scope, startIdx int) (clause string, args []any) {
 	if s.excludeDimension != "" {
 		clause += fmt.Sprintf(" AND %s <> $%d", colDimension, idx)
 		args = append(args, s.excludeDimension)
+		idx++
+	}
+	for _, st := range s.excludeStatuses {
+		clause += fmt.Sprintf(" AND %s <> $%d", colStatus, idx)
+		args = append(args, st)
+		idx++
 	}
 	return clause, args
 }
@@ -863,115 +871,85 @@ func recordColumns() []string {
 	}
 }
 
-// scanRecord scans a single row from QueryRow into a Record.
-func scanRecord(row *sql.Row) (*Record, error) {
-	var r Record
-	var entityURNs, relatedCols, metadata []byte
-	var sinkClass, staleReason sql.NullString
-	var staleAt, lastVerified sql.NullTime
+// recordScanBuf holds the scan destinations for one record's standard
+// projection (recordColumns/rawRecordCols order) and converts them into a
+// Record. It is THE record scanner: every scan path (single row, row set,
+// scored row, hybrid row, pair row) builds on dest()+finish(), so a column
+// added to recordColumns() is threaded through exactly one place.
+type recordScanBuf struct {
+	r                                 Record
+	entityURNs, relatedCols, metadata []byte
+	sinkClass, staleReason            sql.NullString
+	staleAt, lastVerified             sql.NullTime
+}
 
-	err := row.Scan(
-		&r.ID, &r.CreatedAt, &r.UpdatedAt, &r.CreatedBy, &r.Persona, &r.Dimension, &sinkClass,
-		&r.Content, &r.Category, &r.Confidence, &r.Source,
-		&entityURNs, &relatedCols, &metadata,
-		&r.Status, &staleReason, &staleAt, &lastVerified,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("scanning memory record: %w", err)
+// dest returns the scan destinations in recordColumns order.
+func (b *recordScanBuf) dest() []any {
+	return []any{
+		&b.r.ID, &b.r.CreatedAt, &b.r.UpdatedAt, &b.r.CreatedBy, &b.r.Persona, &b.r.Dimension, &b.sinkClass,
+		&b.r.Content, &b.r.Category, &b.r.Confidence, &b.r.Source,
+		&b.entityURNs, &b.relatedCols, &b.metadata,
+		&b.r.Status, &b.staleReason, &b.staleAt, &b.lastVerified,
 	}
+}
 
-	if err := unmarshalRecordJSON(&r, entityURNs, relatedCols, metadata); err != nil {
+// finish unmarshals the JSON columns and applies nullable values.
+func (b *recordScanBuf) finish() (*Record, error) {
+	if err := unmarshalRecordJSON(&b.r, b.entityURNs, b.relatedCols, b.metadata); err != nil {
 		return nil, err
 	}
+	b.r.SinkClass = b.sinkClass.String
+	applyNullables(&b.r, b.staleReason, b.staleAt, b.lastVerified)
+	return &b.r, nil
+}
 
-	r.SinkClass = sinkClass.String
-	applyNullables(&r, staleReason, staleAt, lastVerified)
-	return &r, nil
+// scanRecord scans a single row from QueryRow into a Record.
+func scanRecord(row *sql.Row) (*Record, error) {
+	var b recordScanBuf
+	if err := row.Scan(b.dest()...); err != nil {
+		return nil, fmt.Errorf("scanning memory record: %w", err)
+	}
+	return b.finish()
 }
 
 // scanRecordRow scans a single row from Rows into a Record.
 func scanRecordRow(rows *sql.Rows) (*Record, error) {
-	var r Record
-	var entityURNs, relatedCols, metadata []byte
-	var sinkClass, staleReason sql.NullString
-	var staleAt, lastVerified sql.NullTime
-
-	err := rows.Scan(
-		&r.ID, &r.CreatedAt, &r.UpdatedAt, &r.CreatedBy, &r.Persona, &r.Dimension, &sinkClass,
-		&r.Content, &r.Category, &r.Confidence, &r.Source,
-		&entityURNs, &relatedCols, &metadata,
-		&r.Status, &staleReason, &staleAt, &lastVerified,
-	)
-	if err != nil {
+	var b recordScanBuf
+	if err := rows.Scan(b.dest()...); err != nil {
 		return nil, fmt.Errorf("scanning memory row: %w", err)
 	}
-
-	if err := unmarshalRecordJSON(&r, entityURNs, relatedCols, metadata); err != nil {
-		return nil, err
-	}
-
-	r.SinkClass = sinkClass.String
-	applyNullables(&r, staleReason, staleAt, lastVerified)
-	return &r, nil
+	return b.finish()
 }
 
 // scanScoredRow scans a row with an appended score column.
 func scanScoredRow(rows *sql.Rows) (*Record, float64, error) {
-	var r Record
-	var entityURNs, relatedCols, metadata []byte
-	var sinkClass, staleReason sql.NullString
-	var staleAt, lastVerified sql.NullTime
+	var b recordScanBuf
 	var score float64
-
-	err := rows.Scan(
-		&r.ID, &r.CreatedAt, &r.UpdatedAt, &r.CreatedBy, &r.Persona, &r.Dimension, &sinkClass,
-		&r.Content, &r.Category, &r.Confidence, &r.Source,
-		&entityURNs, &relatedCols, &metadata,
-		&r.Status, &staleReason, &staleAt, &lastVerified,
-		&score,
-	)
-	if err != nil {
+	if err := rows.Scan(append(b.dest(), &score)...); err != nil {
 		return nil, 0, fmt.Errorf("scanning scored row: %w", err)
 	}
-
-	if err := unmarshalRecordJSON(&r, entityURNs, relatedCols, metadata); err != nil {
+	r, err := b.finish()
+	if err != nil {
 		return nil, 0, err
 	}
-
-	r.SinkClass = sinkClass.String
-	applyNullables(&r, staleReason, staleAt, lastVerified)
-	return &r, score, nil
+	return r, score, nil
 }
 
 // scanHybridRow scans a row with appended vec_score and lex_match
 // columns (the HybridSearch arms) into a candidate. The 18 record
 // columns must match rawRecordCols in order.
 func scanHybridRow(rows *sql.Rows) (*hybridCandidate, error) {
-	var r Record
-	var entityURNs, relatedCols, metadata []byte
-	var sinkClass, staleReason sql.NullString
-	var staleAt, lastVerified sql.NullTime
+	var b recordScanBuf
 	var vecScore float64
 	var lexMatch bool
-
-	err := rows.Scan(
-		&r.ID, &r.CreatedAt, &r.UpdatedAt, &r.CreatedBy, &r.Persona, &r.Dimension, &sinkClass,
-		&r.Content, &r.Category, &r.Confidence, &r.Source,
-		&entityURNs, &relatedCols, &metadata,
-		&r.Status, &staleReason, &staleAt, &lastVerified,
-		&vecScore, &lexMatch,
-	)
-	if err != nil {
+	if err := rows.Scan(append(b.dest(), &vecScore, &lexMatch)...); err != nil {
 		return nil, fmt.Errorf("scanning hybrid row: %w", err)
 	}
-
-	if err := unmarshalRecordJSON(&r, entityURNs, relatedCols, metadata); err != nil {
+	r, err := b.finish()
+	if err != nil {
 		return nil, err
 	}
-
-	r.SinkClass = sinkClass.String
-	applyNullables(&r, staleReason, staleAt, lastVerified)
-	return &hybridCandidate{record: r, vecScore: vecScore, lexMatch: lexMatch}, nil
+	return &hybridCandidate{record: *r, vecScore: vecScore, lexMatch: lexMatch}, nil
 }
 
 // unmarshalRecordJSON unmarshals JSON columns into Record fields.

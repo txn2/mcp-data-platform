@@ -35,7 +35,7 @@ type CaptureResult struct {
 	ID         string
 	SinkClass  string
 	Status     string
-	Superseded string
+	Superseded []string
 }
 
 // AutoCapture persists a server-initiated capture, reusing the full

@@ -10,7 +10,7 @@ var memoryManageSchema = json.RawMessage(`{
   "properties": {
     "command": {
       "type": "string",
-      "description": "Operation: update, forget, list, review_stale. Call without a command to see available commands. To CREATE memory or knowledge, use memory_capture."
+      "description": "Operation: update, forget, list, review_stale, review_duplicates, consolidate. Call without a command to see available commands. To CREATE memory or knowledge, use memory_capture."
     },
     "content": {
       "type": "string",
@@ -18,7 +18,11 @@ var memoryManageSchema = json.RawMessage(`{
     },
     "id": {
       "type": "string",
-      "description": "Memory record ID. Required for 'update' and 'forget'."
+      "description": "Memory record ID. Required for 'update' and 'forget'; for 'consolidate' it is the record to KEEP."
+    },
+    "duplicate_id": {
+      "type": "string",
+      "description": "For 'consolidate': the duplicate record the kept record supersedes."
     },
     "dimension": {
       "type": "string",

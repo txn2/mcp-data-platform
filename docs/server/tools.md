@@ -44,7 +44,7 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | Knowledge | `fetch` | Read a search result in full: dereferences any reference search emits (knowledge page, context document, dataset, asset, prompt, connection) to its complete content, under the same per-user scope |
 | Memory | `memory_capture` | The one way to record knowledge: sink-class routed, recall-first |
 | Knowledge | `apply_knowledge` | Review and promote reviewed captures to the catalog (admin-only) |
-| Memory | `memory_manage` | Manage existing memories: update, forget, list, review_stale (opt-in per persona) |
+| Memory | `memory_manage` | Manage existing memories: update, forget, list, review_stale, review_duplicates, consolidate (opt-in per persona) |
 | Portal | `save_artifact` | Save an AI-generated artifact (JSX, HTML, SVG, etc.) |
 | Portal | `manage_artifact` | List, get, update, delete, or relevance-search saved artifacts and collections |
 | Portal | `manage_feedback` | Review and respond to human feedback (list pending across everything, get, reply, resolve, request/respond validation) |
@@ -551,7 +551,7 @@ Copy an object. Only available when `read_only: false`.
 
 The one way to record knowledge. The `type` (sink-class) is the single organizing axis and drives routing: `personal_preference` and `episodic_event` are live for the capturer immediately; `business_knowledge`, `schema_entity`, and `operational_rule` are recorded as **pending** and reviewed before promotion to a shared catalog via `apply_knowledge`. Lives in the memory toolkit so creating memory never requires the knowledge toolkit.
 
-Capture is **recall-first**: before writing, it runs a similarity check over the caller's own memory and, on a near-duplicate, supersedes the prior record instead of appending. `schema_entity` carries `entity_urns` and optional `suggested_actions` (the catalog-change payload `apply_knowledge` later applies).
+Capture is **recall-first**: before writing, it runs a similarity check over the caller's own memory (superseded rows excluded; stale rows stay matchable, since a restatement corrects them). Every near-duplicate at or above the supersede threshold (0.9 cosine) is superseded by the new capture (`superseded` in the response carries the best match id, `superseded_ids` the complete list); matches in the 0.75-0.9 band are returned as `similar_existing` candidates (id + score) so the agent can consolidate instead of creating a near-duplicate. `schema_entity` carries `entity_urns` and optional `suggested_actions` (the catalog-change payload `apply_knowledge` later applies).
 
 **Parameters:**
 
@@ -826,8 +826,9 @@ Manages the lifecycle of existing persistent memory. Create new memory with `mem
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `command` | string | No | Operation: `update`, `forget`, `list`, `review_stale`. Omit for help. (Create with `memory_capture`.) |
-| `id` | string | For `update`, `forget` | Memory record ID |
+| `command` | string | No | Operation: `update`, `forget`, `list`, `review_stale`, `review_duplicates`, `consolidate`. Omit for help. (Create with `memory_capture`.) |
+| `id` | string | For `update`, `forget`, `consolidate` | Memory record ID (for `consolidate`: the record to keep) |
+| `duplicate_id` | string | For `consolidate` | The duplicate record the kept record supersedes |
 | `dimension` | string | No | LOCOMO dimension: `knowledge`, `event`, `entity`, `relationship`, `preference` |
 | `category` | string | No | Category: `correction`, `business_context`, `data_quality`, `usage_guidance`, `relationship`, `enhancement`, `general` |
 | `confidence` | string | No | `high`, `medium`, `low` (default: `medium`) |

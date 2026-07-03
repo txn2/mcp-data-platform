@@ -58,50 +58,56 @@ func scoredRec(id string, score float64, urns ...string) memory.ScoredRecord {
 	return memory.ScoredRecord{Record: memory.Record{ID: id, EntityURNs: urns}, Score: score}
 }
 
-func TestMemoryRecallChecker_ExistingMatch(t *testing.T) {
+func TestMemoryRecallChecker_Matches(t *testing.T) {
 	emb := []float32{0.1, 0.2, 0.3}
 
 	t.Run("no embedding skips search", func(t *testing.T) {
 		store := &recallFakeStore{results: []memory.ScoredRecord{scoredRec("x", 0.99)}}
 		c := &memoryRecallChecker{store: store}
-		id, _, err := c.ExistingMatch(context.Background(), memorykit.RecallQuery{CallerEmail: "a@x.com", MinScore: 0.9})
+		matches, err := c.Matches(context.Background(), memorykit.RecallQuery{CallerEmail: "a@x.com", MinScore: 0.9})
 		require.NoError(t, err)
-		assert.Empty(t, id)
+		assert.Empty(t, matches)
 		assert.False(t, store.called, "must not search without an embedding")
 	})
 
 	t.Run("no caller skips search", func(t *testing.T) {
 		store := &recallFakeStore{}
 		c := &memoryRecallChecker{store: store}
-		id, _, err := c.ExistingMatch(context.Background(), memorykit.RecallQuery{Embedding: emb, MinScore: 0.9})
+		matches, err := c.Matches(context.Background(), memorykit.RecallQuery{Embedding: emb, MinScore: 0.9})
 		require.NoError(t, err)
-		assert.Empty(t, id)
+		assert.Empty(t, matches)
 		assert.False(t, store.called)
 	})
 
-	t.Run("top match returned and query scoped", func(t *testing.T) {
-		store := &recallFakeStore{results: []memory.ScoredRecord{scoredRec("m1", 0.95)}}
+	t.Run("matches returned and query scoped to caller's active records", func(t *testing.T) {
+		store := &recallFakeStore{results: []memory.ScoredRecord{scoredRec("m1", 0.95), scoredRec("m2", 0.92)}}
 		c := &memoryRecallChecker{store: store}
-		id, score, err := c.ExistingMatch(context.Background(), memorykit.RecallQuery{
+		matches, err := c.Matches(context.Background(), memorykit.RecallQuery{
 			Embedding: emb, CallerEmail: "a@x.com", MinScore: 0.9,
 		})
 		require.NoError(t, err)
-		assert.Equal(t, "m1", id)
-		assert.InDelta(t, 0.95, score, 1e-9)
+		assert.Equal(t, []memorykit.RecallMatch{{ID: "m1", Score: 0.95}, {ID: "m2", Score: 0.92}}, matches)
 		assert.Equal(t, "a@x.com", store.gotQ.CreatedBy)
 		assert.Equal(t, 0.9, store.gotQ.MinScore)
 		assert.Equal(t, recallCandidateK, store.gotQ.Limit)
 		assert.Equal(t, emb, store.gotQ.Embedding)
+		// Regression (#762): recall must exclude superseded records. Without
+		// that a superseded predecessor can outrank its active successor,
+		// absorb the supersede, and leave two active duplicates standing.
+		// Stale records stay matchable (a restatement corrects them), so the
+		// scope is an exclusion, not a Status=active restriction.
+		assert.Equal(t, []string{memory.StatusSuperseded}, store.gotQ.ExcludeStatuses)
+		assert.Empty(t, store.gotQ.Status)
 	})
 
 	t.Run("below threshold yields no match", func(t *testing.T) {
 		store := &recallFakeStore{results: []memory.ScoredRecord{scoredRec("m1", 0.5)}}
 		c := &memoryRecallChecker{store: store}
-		id, _, err := c.ExistingMatch(context.Background(), memorykit.RecallQuery{
+		matches, err := c.Matches(context.Background(), memorykit.RecallQuery{
 			Embedding: emb, CallerEmail: "a@x.com", MinScore: 0.9,
 		})
 		require.NoError(t, err)
-		assert.Empty(t, id)
+		assert.Empty(t, matches)
 	})
 
 	t.Run("entity-URN gate skips non-matching higher score", func(t *testing.T) {
@@ -111,29 +117,30 @@ func TestMemoryRecallChecker_ExistingMatch(t *testing.T) {
 			scoredRec("same-table", 0.93, "urn:li:dataset:A"),
 		}}
 		c := &memoryRecallChecker{store: store}
-		id, _, err := c.ExistingMatch(context.Background(), memorykit.RecallQuery{
+		matches, err := c.Matches(context.Background(), memorykit.RecallQuery{
 			Embedding: emb, CallerEmail: "a@x.com", MinScore: 0.9,
 			EntityURNs: []string{"urn:li:dataset:A"},
 		})
 		require.NoError(t, err)
-		assert.Equal(t, "same-table", id, "must not supersede knowledge about a different entity")
+		assert.Equal(t, []memorykit.RecallMatch{{ID: "same-table", Score: 0.93}}, matches,
+			"must not supersede knowledge about a different entity")
 	})
 
 	t.Run("entity-URN gate with no overlap yields no match", func(t *testing.T) {
 		store := &recallFakeStore{results: []memory.ScoredRecord{scoredRec("other", 0.99, "urn:li:dataset:B")}}
 		c := &memoryRecallChecker{store: store}
-		id, _, err := c.ExistingMatch(context.Background(), memorykit.RecallQuery{
+		matches, err := c.Matches(context.Background(), memorykit.RecallQuery{
 			Embedding: emb, CallerEmail: "a@x.com", MinScore: 0.9,
 			EntityURNs: []string{"urn:li:dataset:A"},
 		})
 		require.NoError(t, err)
-		assert.Empty(t, id)
+		assert.Empty(t, matches)
 	})
 
 	t.Run("store error propagates", func(t *testing.T) {
 		store := &recallFakeStore{err: errors.New("boom")}
 		c := &memoryRecallChecker{store: store}
-		_, _, err := c.ExistingMatch(context.Background(), memorykit.RecallQuery{
+		_, err := c.Matches(context.Background(), memorykit.RecallQuery{
 			Embedding: emb, CallerEmail: "a@x.com", MinScore: 0.9,
 		})
 		require.Error(t, err)

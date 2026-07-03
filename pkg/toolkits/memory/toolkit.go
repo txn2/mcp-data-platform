@@ -58,7 +58,8 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 		Name:  manageToolName,
 		Title: "Memory Manage",
 		Description: "Manage the lifecycle of EXISTING persistent memory. " +
-			"Commands: update, forget (archive), list, review_stale. " +
+			"Commands: update, forget (archive), list, review_stale, review_duplicates (list " +
+			"high-similarity active pairs), consolidate (supersede a duplicate by the record kept). " +
 			"To CREATE memory or knowledge, use memory_capture (call it proactively to record corrections, " +
 			"preferences, business context, and data-quality observations). " +
 			"To find memory back, use search.",
@@ -74,7 +75,8 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"schema_entity (with entity_urns), and operational_rule are reviewed before promotion to a shared " +
 			"catalog. Examples: 'stores close at 9pm' -> business_knowledge; 'the amount column excludes returns' " +
 			"-> schema_entity. Capture is recall-first: a restatement of something already known supersedes it " +
-			"instead of duplicating.",
+			"instead of duplicating, and near-matches below the supersede bar are returned as similar_existing " +
+			"so you can consolidate instead of creating a duplicate.",
 		InputSchema: memoryCaptureSchema,
 	}, t.handleMemoryCapture)
 }
