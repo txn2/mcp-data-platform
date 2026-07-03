@@ -194,17 +194,23 @@ server:
 
 toolkits:
   datahub:
-    primary:
-      url: http://datahub-gms:8080
-      token: ${DATAHUB_TOKEN}
+    enabled: true
+    instances:
+      primary:
+        url: http://datahub-gms:8080
+        token: ${DATAHUB_TOKEN}
+    default: primary
 
   trino:
-    primary:
-      host: trino
-      port: 8080
-      user: trino
-      catalog: memory
-      ssl: false
+    enabled: true
+    instances:
+      primary:
+        host: trino
+        port: 8080
+        user: trino
+        catalog: memory
+        ssl: false
+    default: primary
 
 oauth:
   enabled: true
@@ -403,15 +409,21 @@ config:
 
   toolkits:
     datahub:
-      primary:
-        url: http://datahub-gms.datahub:8080
+      enabled: true
+      instances:
+        primary:
+          url: http://datahub-gms.datahub:8080
+      default: primary
     trino:
-      primary:
-        host: trino.trino
-        port: 8080
-        user: mcp-platform
-        catalog: hive
-        ssl: false
+      enabled: true
+      instances:
+        primary:
+          host: trino.trino
+          port: 8080
+          user: mcp-platform
+          catalog: hive
+          ssl: false
+      default: primary
 
   enrichment:
     trino_semantic_enrichment: true

@@ -19,12 +19,18 @@ When running mcp-data-platform locally via stdio (Claude Desktop, Claude Code), 
 ```yaml
 toolkits:
   trino:
-    primary:
-      user: ${TRINO_USER}        # Your credentials
-      password: ${TRINO_PASSWORD}
+    enabled: true
+    instances:
+      primary:
+        user: ${TRINO_USER}        # Your credentials
+        password: ${TRINO_PASSWORD}
+    default: primary
   datahub:
-    primary:
-      token: ${DATAHUB_TOKEN}    # Your token
+    enabled: true
+    instances:
+      primary:
+        token: ${DATAHUB_TOKEN}    # Your token
+    default: primary
 ```
 
 You're authenticated implicitly. It's your machine, your config, your credentials.

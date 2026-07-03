@@ -84,18 +84,24 @@ server:
 
 toolkits:
   datahub:
-    primary:
-      url: https://datahub.example.com
-      token: ${DATAHUB_TOKEN}
+    enabled: true
+    instances:
+      primary:
+        url: https://datahub.example.com
+        token: ${DATAHUB_TOKEN}
+    default: primary
 
   # Optional: add Trino for SQL queries
   trino:
-    primary:
-      host: trino.example.com
-      port: 443
-      user: analyst
-      ssl: true
-      catalog: hive
+    enabled: true
+    instances:
+      primary:
+        host: trino.example.com
+        port: 443
+        user: analyst
+        ssl: true
+        catalog: hive
+    default: primary
 
 enrichment:
   trino_semantic_enrichment: true

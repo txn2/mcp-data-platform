@@ -97,12 +97,13 @@ The platform includes two built-in personas that can be overridden:
 
 **Default Persona:**
 ```yaml
-default:
-  display_name: "Default User (No Access)"
-  roles: []
-  tools:
-    allow: []
-    deny: ["*"]
+personas:
+  default:
+    display_name: "Default User (No Access)"
+    roles: []
+    tools:
+      allow: []
+      deny: ["*"]
 ```
 
 The built-in default persona is **deny-all**, not allow-all: a user who
@@ -113,15 +114,16 @@ matching `roles`) for every group of users you want to grant tool access to.
 
 **Admin Persona:**
 ```yaml
-admin:
-  display_name: "Administrator"
-  roles: ["admin"]
-  tools:
-    allow: ["*"]
-    deny: []
-  connections:
-    allow: ["*"]
-  priority: 100
+personas:
+  admin:
+    display_name: "Administrator"
+    roles: ["admin"]
+    tools:
+      allow: ["*"]
+      deny: []
+    connections:
+      allow: ["*"]
+    priority: 100
 ```
 
 The built-in admin persona also grants `connections.allow: ["*"]`. Since

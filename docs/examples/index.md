@@ -168,41 +168,47 @@ Lock down production data access to read-only operations.
 ```yaml
 toolkits:
   trino:
-    production:
-      host: trino-prod.example.com
-      port: 443
-      ssl: true
-      ssl_verify: true
+    enabled: true
+    instances:
+      production:
+        host: trino-prod.example.com
+        port: 443
+        ssl: true
+        ssl_verify: true
 
-      # Enforce read-only at the toolkit level
-      read_only: true
+        # Enforce read-only at the toolkit level
+        read_only: true
 
-      # Additional query restrictions
-      default_limit: 1000
-      max_limit: 50000
-      timeout: 300s
+        # Additional query restrictions
+        default_limit: 1000
+        max_limit: 50000
+        timeout: 300s
 
-      # Blocked SQL patterns (defense in depth)
-      blocked_patterns:
-        - "INSERT"
-        - "UPDATE"
-        - "DELETE"
-        - "DROP"
-        - "CREATE"
-        - "ALTER"
-        - "TRUNCATE"
+        # Blocked SQL patterns (defense in depth)
+        blocked_patterns:
+          - "INSERT"
+          - "UPDATE"
+          - "DELETE"
+          - "DROP"
+          - "CREATE"
+          - "ALTER"
+          - "TRUNCATE"
+    default: production
 
   s3:
-    data_lake:
-      region: us-east-1
+    enabled: true
+    instances:
+      data_lake:
+        region: us-east-1
 
-      # Read-only S3 access
-      read_only: true
+        # Read-only S3 access
+        read_only: true
 
-      # Restrict to specific buckets
-      allowed_buckets:
-        - data-lake-prod
-        - analytics-exports
+        # Restrict to specific buckets
+        allowed_buckets:
+          - data-lake-prod
+          - analytics-exports
+    default: data_lake
 ```
 
 ---
@@ -221,27 +227,33 @@ server:
 
 toolkits:
   datahub:
-    primary:
-      url: https://datahub.example.com
-      token: ${DATAHUB_TOKEN}
+    enabled: true
+    instances:
+      primary:
+        url: https://datahub.example.com
+        token: ${DATAHUB_TOKEN}
 
-      # Higher limits for exploration
-      default_limit: 25
-      max_limit: 100
+        # Higher limits for exploration
+        default_limit: 25
+        max_limit: 100
+    default: primary
 
   trino:
-    analytics:
-      host: trino-analytics.example.com
-      port: 443
-      ssl: true
-      catalog: analytics
-      schema: curated
+    enabled: true
+    instances:
+      analytics:
+        host: trino-analytics.example.com
+        port: 443
+        ssl: true
+        catalog: analytics
+        schema: curated
 
-      # Reasonable limits for interactive use
-      default_limit: 100
-      max_limit: 10000
-      timeout: 60s
-      read_only: true
+        # Reasonable limits for interactive use
+        default_limit: 100
+        max_limit: 10000
+        timeout: 60s
+        read_only: true
+    default: analytics
 
 # Enable all enrichment for maximum context
 enrichment:
@@ -257,7 +269,6 @@ semantic:
   cache:
     enabled: true
     ttl: 15m
-    max_entries: 10000
 
 personas:
   business_analyst:
@@ -299,38 +310,44 @@ Multi-Trino cluster setup for organization-wide data discovery.
 ```yaml
 toolkits:
   datahub:
-    # Central metadata catalog
-    central:
-      url: https://datahub.example.com
-      token: ${DATAHUB_TOKEN}
+    enabled: true
+    instances:
+      # Central metadata catalog
+      central:
+        url: https://datahub.example.com
+        token: ${DATAHUB_TOKEN}
+    default: central
 
   trino:
-    # Marketing team's cluster
-    marketing:
-      host: trino-marketing.example.com
-      port: 443
-      ssl: true
-      catalog: marketing
-      default_limit: 1000
-      read_only: true
+    enabled: true
+    instances:
+      # Marketing team's cluster
+      marketing:
+        host: trino-marketing.example.com
+        port: 443
+        ssl: true
+        catalog: marketing
+        default_limit: 1000
+        read_only: true
 
-    # Sales team's cluster
-    sales:
-      host: trino-sales.example.com
-      port: 443
-      ssl: true
-      catalog: sales
-      default_limit: 1000
-      read_only: true
+      # Sales team's cluster
+      sales:
+        host: trino-sales.example.com
+        port: 443
+        ssl: true
+        catalog: sales
+        default_limit: 1000
+        read_only: true
 
-    # Finance team's cluster (restricted)
-    finance:
-      host: trino-finance.example.com
-      port: 443
-      ssl: true
-      catalog: finance
-      default_limit: 500
-      read_only: true
+      # Finance team's cluster (restricted)
+      finance:
+        host: trino-finance.example.com
+        port: 443
+        ssl: true
+        catalog: finance
+        default_limit: 500
+        read_only: true
+    default: marketing
 
 # Cross-enrichment from central DataHub to all Trino clusters
 enrichment:
@@ -342,13 +359,10 @@ semantic:
   provider: datahub
   instance: central
 
-# Query provider maps DataHub URNs to correct Trino cluster
+# Query provider binds to a single Trino instance for availability checks
 query:
   provider: trino
-  mappings:
-    "urn:li:dataset:(urn:li:dataPlatform:trino,marketing.*,PROD)": marketing
-    "urn:li:dataset:(urn:li:dataPlatform:trino,sales.*,PROD)": sales
-    "urn:li:dataset:(urn:li:dataPlatform:trino,finance.*,PROD)": finance
+  instance: marketing
 
 personas:
   cross_team_analyst:
@@ -439,20 +453,26 @@ server:
 
 toolkits:
   datahub:
-    primary:
-      url: https://datahub.example.com
-      token: ${DATAHUB_TOKEN}
-      default_limit: 50  # More results for exploration
+    enabled: true
+    instances:
+      primary:
+        url: https://datahub.example.com
+        token: ${DATAHUB_TOKEN}
+        default_limit: 50  # More results for exploration
+    default: primary
 
   trino:
-    ml_cluster:
-      host: trino-ml.example.com
-      port: 443
-      ssl: true
-      catalog: feature_store
-      read_only: true
-      default_limit: 100
-      max_limit: 10000
+    enabled: true
+    instances:
+      ml_cluster:
+        host: trino-ml.example.com
+        port: 443
+        ssl: true
+        catalog: feature_store
+        read_only: true
+        default_limit: 100
+        max_limit: 10000
+    default: ml_cluster
 
 enrichment:
   trino_semantic_enrichment: true
@@ -464,8 +484,8 @@ semantic:
   provider: datahub
   instance: primary
   lineage:
-    max_depth: 5
-    include_column_lineage: true
+    max_hops: 5
+    prefer_column_lineage: true
 
 personas:
   ml_agent:
@@ -487,11 +507,6 @@ personas:
         - "*_delete_*"
         - "*_put_*"
 
-    # Rate limiting for automated access
-    rate_limit:
-      requests_per_minute: 60
-      requests_per_hour: 1000
-
     context:
       description_prefix: |
         You are an ML data exploration agent. Your goal is to discover
@@ -509,45 +524,25 @@ personas:
 
 ### Feature Store Integration
 
-Connecting to a feature store with quality gates.
+Connecting to a feature store for ML feature selection.
 
 ```yaml
 toolkits:
   trino:
-    feature_store:
-      host: trino-features.example.com
-      port: 443
-      ssl: true
-      catalog: feature_store
-      schema: production
-      read_only: true
+    enabled: true
+    instances:
+      feature_store:
+        host: trino-features.example.com
+        port: 443
+        ssl: true
+        catalog: feature_store
+        schema: production
+        read_only: true
+    default: feature_store
 
 enrichment:
   trino_semantic_enrichment: true
   column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
-
-  # Quality gates for feature selection
-  quality_gates:
-    enabled: true
-    minimum_quality_score: 0.75
-    maximum_null_percentage: 10
-    require_documentation: true
-
-    # Warn but don't block
-    soft_gates:
-      - name: freshness
-        max_age_days: 7
-        message: "Feature data is over 7 days old"
-      - name: coverage
-        min_coverage: 0.90
-        message: "Feature coverage is below 90%"
-
-    # Block features that don't meet criteria
-    hard_gates:
-      - name: deprecated
-        message: "Cannot use deprecated features"
-      - name: pii
-        message: "PII features require explicit approval"
 
 personas:
   ml_engineer:
@@ -568,10 +563,9 @@ personas:
         - Quality score and null percentage
         - Last update time
         - Upstream dependencies (lineage)
-        - Any quality gate warnings
 
-        Reject features that fail hard quality gates.
-        Flag features with soft gate warnings but allow their use.
+        Recommend against deprecated or low-quality features, and flag
+        stale or poorly-covered features so the engineer can judge fitness.
 ```
 
 ### Pipeline Lineage Exploration
@@ -584,25 +578,17 @@ semantic:
   instance: primary
 
   lineage:
-    max_depth: 10                    # Deep lineage traversal
-    include_column_lineage: true     # Column-level lineage
-    include_process_lineage: true    # Show transformation steps
+    max_hops: 5                      # Deep lineage traversal (max 5)
+    prefer_column_lineage: true      # Prefer column-level lineage
+    cache_ttl: 1m                    # Shorter TTL for lineage queries
 
   cache:
     enabled: true
     ttl: 5m
-    # Separate cache for lineage queries
-    lineage_ttl: 1m  # Shorter TTL for lineage
 
 enrichment:
   trino_semantic_enrichment: true
   column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
-
-  # Include full lineage in enrichment
-  enrichment:
-    include_lineage: true
-    lineage_depth: 3
-    lineage_direction: both
 
 personas:
   data_engineer:
@@ -642,52 +628,61 @@ Connect multiple instances of each service type.
 ```yaml
 toolkits:
   datahub:
-    # Production DataHub
-    production:
-      url: https://datahub.example.com
-      token: ${DATAHUB_TOKEN_PROD}
+    enabled: true
+    instances:
+      # Production DataHub
+      production:
+        url: https://datahub.example.com
+        token: ${DATAHUB_TOKEN_PROD}
 
-    # Development DataHub
-    development:
-      url: https://datahub-dev.example.com
-      token: ${DATAHUB_TOKEN_DEV}
+      # Development DataHub
+      development:
+        url: https://datahub-dev.example.com
+        token: ${DATAHUB_TOKEN_DEV}
+    default: production
 
   trino:
-    # Production Trino (read-only)
-    production:
-      host: trino.example.com
-      port: 443
-      ssl: true
-      read_only: true
+    enabled: true
+    instances:
+      # Production Trino (read-only)
+      production:
+        host: trino.example.com
+        port: 443
+        ssl: true
+        read_only: true
 
-    # Development Trino (read-write)
-    development:
-      host: trino-dev.example.com
-      port: 8080
-      ssl: false
-      read_only: false
+      # Development Trino (read-write)
+      development:
+        host: trino-dev.example.com
+        port: 8080
+        ssl: false
+        read_only: false
 
-    # Analytics Trino
-    analytics:
-      host: trino-analytics.example.com
-      port: 443
-      ssl: true
-      read_only: true
+      # Analytics Trino
+      analytics:
+        host: trino-analytics.example.com
+        port: 443
+        ssl: true
+        read_only: true
+    default: production
 
   s3:
-    # AWS S3
-    aws:
-      region: us-east-1
-      access_key_id: ${AWS_ACCESS_KEY_ID}
-      secret_access_key: ${AWS_SECRET_ACCESS_KEY}
+    enabled: true
+    instances:
+      # AWS S3
+      aws:
+        region: us-east-1
+        access_key_id: ${AWS_ACCESS_KEY_ID}
+        secret_access_key: ${AWS_SECRET_ACCESS_KEY}
 
-    # MinIO (on-prem)
-    minio:
-      endpoint: http://minio.local:9000
-      use_path_style: true
-      disable_ssl: true
-      access_key_id: ${MINIO_ACCESS_KEY}
-      secret_access_key: ${MINIO_SECRET_KEY}
+      # MinIO (on-prem)
+      minio:
+        endpoint: http://minio.local:9000
+        use_path_style: true
+        disable_ssl: true
+        access_key_id: ${MINIO_ACCESS_KEY}
+        secret_access_key: ${MINIO_SECRET_KEY}
+    default: aws
 
 # Configure which instances to use for enrichment
 semantic:
@@ -771,10 +766,13 @@ Register the custom toolkit in configuration:
 ```yaml
 toolkits:
   custom:
-    my_custom:
-      # Custom toolkit configuration
-      api_endpoint: https://custom-api.example.com
-      api_key: ${CUSTOM_API_KEY}
+    enabled: true
+    instances:
+      my_custom:
+        # Custom toolkit configuration
+        api_endpoint: https://custom-api.example.com
+        api_key: ${CUSTOM_API_KEY}
+    default: my_custom
 ```
 
 ---

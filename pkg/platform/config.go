@@ -1,7 +1,9 @@
 package platform
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -95,6 +97,7 @@ type ConfigStoreConfig struct {
 // Config holds the complete platform configuration.
 type Config struct {
 	APIVersion  string            `yaml:"apiVersion"`
+	Meta        ConfigMeta        `yaml:"config"`
 	ConfigStore ConfigStoreConfig `yaml:"config_store"`
 	Server      ServerConfig      `yaml:"server"`
 	Auth        AuthConfig        `yaml:"auth"`
@@ -135,6 +138,83 @@ type Config struct {
 	// loaded once from YAML and not protected here. Unexported so YAML
 	// marshaling ignores it.
 	runtimeMu sync.RWMutex
+}
+
+// ConfigMeta holds meta-configuration controlling how the config file itself is
+// parsed. It is read from the top-level `config:` block.
+type ConfigMeta struct {
+	// Strict controls how unrecognized YAML keys are handled. When nil (the
+	// default for this release) unknown keys are logged as a prominent warning
+	// and ignored, so existing configs keep loading while operators are alerted
+	// to drift. Set `config.strict: true` to reject unknown keys with a hard
+	// error instead (recommended: catches typos and stale keys at startup).
+	//
+	// A future release will flip the default so unknown keys are an error
+	// unless `config.strict: false` is set as a temporary escape hatch.
+	Strict *bool `yaml:"strict"`
+}
+
+// IsStrict reports whether unrecognized YAML keys should be a hard error.
+// Defaults to false (warn-and-continue) for this release.
+func (m ConfigMeta) IsStrict() bool {
+	return m.Strict != nil && *m.Strict
+}
+
+// strictDecode decodes expanded YAML into cfg with KnownFields(true). It
+// returns the list of unrecognized-key errors (empty when every key is
+// recognized) and a non-nil error only for malformed YAML. cfg is populated
+// with all recognized fields even when unknown keys are present, so a single
+// decode both parses the config and detects drift.
+//
+// Only keys that map to a typed struct field are inspected. Keys nested under
+// free-form maps — the `toolkits` tree, each persona definition's *name*, and a
+// toolkit's `config:` map — accept arbitrary keys by design and are not
+// flagged. (The fields *within* a persona definition are typed and are
+// checked.) The doc round-trip test validates toolkit shape separately.
+func strictDecode(expanded []byte, cfg *Config) ([]string, error) {
+	dec := yaml.NewDecoder(bytes.NewReader(expanded))
+	dec.KnownFields(true)
+
+	if err := dec.Decode(cfg); err != nil {
+		var typeErr *yaml.TypeError
+		if errors.As(err, &typeErr) {
+			return typeErr.Errors, nil
+		}
+		return nil, fmt.Errorf("parsing config: %w", err)
+	}
+	return nil, nil
+}
+
+// detectUnknownFields reports the unrecognized keys in expanded YAML, or nil
+// when every key maps to a known field. It decodes into a throwaway Config and
+// is intended for tests and validation tooling.
+func detectUnknownFields(expanded []byte) []string {
+	var probe Config
+	unknown, _ := strictDecode(expanded, &probe)
+	return unknown
+}
+
+// decodeConfigStrict parses expanded YAML into a Config in a single pass,
+// enforcing the config.strict unknown-key policy: unrecognized keys are a hard
+// error when config.strict is true, otherwise a logged warning.
+func decodeConfigStrict(expanded []byte) (*Config, error) {
+	cfg := &Config{}
+	unknown, err := strictDecode(expanded, cfg)
+	if err != nil {
+		return nil, err
+	}
+	if len(unknown) > 0 {
+		if cfg.Meta.IsStrict() {
+			return nil, fmt.Errorf(
+				"strict config parsing: %d unrecognized key(s): %s",
+				len(unknown), strings.Join(unknown, "; "))
+		}
+		slog.Warn("config contains unrecognized keys that are ignored; "+
+			"fix or remove them, or set config.strict: true to reject them "+
+			"(a future release will make rejection the default)",
+			"unknown_keys", unknown)
+	}
+	return cfg, nil
 }
 
 // defaultAdminPersona is the persona name that grants platform admin.
@@ -1134,12 +1214,19 @@ func LoadConfig(path string) (*Config, error) {
 // Environment variables are expanded before parsing. The apiVersion field
 // is validated against the default version registry.
 func LoadConfigFromBytes(data []byte) (*Config, error) {
+	return loadConfigWithRegistry(data, DefaultRegistry())
+}
+
+// loadConfigWithRegistry is LoadConfigFromBytes with the version registry
+// injected so the version-dispatch branches (deprecated warning, converter
+// path) can be exercised in tests; the default registry ships only the current
+// v1.
+func loadConfigWithRegistry(data []byte, reg *VersionRegistry) (*Config, error) {
 	// Expand environment variables
 	expanded := []byte(expandEnvVars(string(data)))
 
 	// Peek at the version before full parse
 	version := PeekVersion(expanded)
-	reg := DefaultRegistry()
 
 	info, err := resolveVersion(reg, version)
 	if err != nil {
@@ -1157,15 +1244,16 @@ func LoadConfigFromBytes(data []byte) (*Config, error) {
 	// Parse the config
 	var cfg *Config
 	if info.Converter != nil {
+		// Legacy apiVersions are translated by their converter, which owns the
+		// legacy schema. Unknown-key detection (below) is scoped to the current
+		// schema and does not run here; today only v1 exists with a nil
+		// converter, so every real config takes the strict-checked path.
 		cfg, err = info.Converter(expanded)
 		if err != nil {
 			return nil, fmt.Errorf("converting config from %s: %w", version, err)
 		}
-	} else {
-		cfg = &Config{}
-		if err := yaml.Unmarshal(expanded, cfg); err != nil {
-			return nil, fmt.Errorf("parsing config: %w", err)
-		}
+	} else if cfg, err = decodeConfigStrict(expanded); err != nil {
+		return nil, err
 	}
 
 	// Ensure APIVersion is set

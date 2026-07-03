@@ -61,17 +61,23 @@ server:
 
 toolkits:
   datahub:
-    primary:
-      url: https://datahub.example.com
-      token: ${DATAHUB_TOKEN}
+    enabled: true
+    instances:
+      primary:
+        url: https://datahub.example.com
+        token: ${DATAHUB_TOKEN}
+    default: primary
 
   trino:
-    primary:
-      host: trino.example.com
-      port: 443
-      user: ${TRINO_USER}
-      password: ${TRINO_PASSWORD}
-      ssl: true
+    enabled: true
+    instances:
+      primary:
+        host: trino.example.com
+        port: 443
+        user: ${TRINO_USER}
+        password: ${TRINO_PASSWORD}
+        ssl: true
+    default: primary
 
 semantic:
   provider: datahub
@@ -150,17 +156,23 @@ auth:
 
 toolkits:
   datahub:
-    primary:
-      url: https://datahub.example.com
-      token: ${DATAHUB_TOKEN}
+    enabled: true
+    instances:
+      primary:
+        url: https://datahub.example.com
+        token: ${DATAHUB_TOKEN}
+    default: primary
 
   trino:
-    primary:
-      host: trino.example.com
-      port: 443
-      user: ${TRINO_USER}
-      password: ${TRINO_PASSWORD}
-      ssl: true
+    enabled: true
+    instances:
+      primary:
+        host: trino.example.com
+        port: 443
+        user: ${TRINO_USER}
+        password: ${TRINO_PASSWORD}
+        ssl: true
+    default: primary
 
 semantic:
   provider: datahub

@@ -363,7 +363,6 @@ semantic:
   cache:
     enabled: true
     ttl: 5m
-    max_entries: 10000
 
 # Configure the query provider (for DataHub enrichment)
 query:
@@ -389,9 +388,12 @@ enrichment:
 # Only DataHub toolkit, no cross-enrichment
 toolkits:
   datahub:
-    primary:
-      url: https://datahub.example.com
-      token: ${DATAHUB_TOKEN}
+    enabled: true
+    instances:
+      primary:
+        url: https://datahub.example.com
+        token: ${DATAHUB_TOKEN}
+    default: primary
 ```
 
 ### Full Cross-Enrichment
@@ -424,22 +426,31 @@ storage:
 
 toolkits:
   datahub:
-    primary:
-      url: https://datahub.example.com
-      token: ${DATAHUB_TOKEN}
+    enabled: true
+    instances:
+      primary:
+        url: https://datahub.example.com
+        token: ${DATAHUB_TOKEN}
+    default: primary
 
   trino:
-    production:
-      host: trino.example.com
-      port: 443
-      ssl: true
-      catalog: hive
+    enabled: true
+    instances:
+      production:
+        host: trino.example.com
+        port: 443
+        ssl: true
+        catalog: hive
+    default: production
 
   s3:
-    data_lake:
-      region: us-east-1
-      access_key_id: ${AWS_ACCESS_KEY_ID}
-      secret_access_key: ${AWS_SECRET_ACCESS_KEY}
+    enabled: true
+    instances:
+      data_lake:
+        region: us-east-1
+        access_key_id: ${AWS_ACCESS_KEY_ID}
+        secret_access_key: ${AWS_SECRET_ACCESS_KEY}
+    default: data_lake
 ```
 
 ---
@@ -517,17 +528,19 @@ semantic:
   cache:
     enabled: true
     ttl: 5m           # How long to cache entries
-    max_entries: 10000 # Maximum cache size
 ```
 
-**Recommended settings by use case:**
+The cache is time-based only; entries expire after `ttl` and there is no
+per-count size cap.
 
-| Use Case | TTL | Max Entries |
-|----------|-----|-------------|
-| Development | 1m | 1000 |
-| Production | 5m | 10000 |
-| High-traffic | 15m | 50000 |
-| Real-time requirements | 30s | 5000 |
+**Recommended TTL by use case:**
+
+| Use Case | TTL |
+|----------|-----|
+| Development | 1m |
+| Production | 5m |
+| High-traffic | 15m |
+| Real-time requirements | 30s |
 
 ### Cache Invalidation
 
@@ -647,50 +660,21 @@ enrichment:
 
 ## Advanced Patterns
 
-### Multi-Cluster Enrichment
+### URN Mapping
 
-When you have multiple Trino clusters:
+When Trino catalog names differ from the platform or catalog identifiers
+DataHub uses, the query provider can translate them so URN lookups resolve.
+`platform` overrides the DataHub platform name and `catalog_mapping` maps
+catalog names between the two systems:
 
 ```yaml
-toolkits:
-  trino:
-    production:
-      host: trino-prod.example.com
-    analytics:
-      host: trino-analytics.example.com
-
 query:
   provider: trino
-  # Map DataHub URNs to specific clusters
-  mappings:
-    "urn:li:dataset:(urn:li:dataPlatform:trino,hive.*,PROD)": production
-    "urn:li:dataset:(urn:li:dataPlatform:trino,analytics.*,PROD)": analytics
-```
-
-### Custom Enrichment Fields
-
-Extend enrichment with custom DataHub properties:
-
-```yaml
-semantic:
-  custom_properties:
-    - data_owner_team
-    - pii_classification
-    - retention_policy
-```
-
-These appear in the response:
-
-```json
-{
-  "semantic_context": {
-    "custom_properties": {
-      "data_owner_team": "platform",
-      "pii_classification": "internal",
-      "retention_policy": "365d"
-    }
-  }
-}
+  instance: production
+  urn_mapping:
+    platform: trino
+    catalog_mapping:
+      hive: warehouse
 ```
 
 ---

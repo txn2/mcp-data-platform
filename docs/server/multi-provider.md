@@ -13,53 +13,62 @@ Each toolkit section accepts multiple named instances:
 ```yaml
 toolkits:
   trino:
-    production:
-      host: trino-prod.example.com
-      port: 443
-      user: analyst
-      ssl: true
-      catalog: hive
-      connection_name: Production
+    enabled: true
+    instances:
+      production:
+        host: trino-prod.example.com
+        port: 443
+        user: analyst
+        ssl: true
+        catalog: hive
+        connection_name: Production
 
-    staging:
-      host: trino-staging.example.com
-      port: 443
-      user: analyst
-      ssl: true
-      catalog: hive
-      connection_name: Staging
+      staging:
+        host: trino-staging.example.com
+        port: 443
+        user: analyst
+        ssl: true
+        catalog: hive
+        connection_name: Staging
 
-    warehouse:
-      host: trino-dw.example.com
-      port: 443
-      user: analyst
-      ssl: true
-      catalog: iceberg
-      connection_name: Data Warehouse
+      warehouse:
+        host: trino-dw.example.com
+        port: 443
+        user: analyst
+        ssl: true
+        catalog: iceberg
+        connection_name: Data Warehouse
+    default: production
 
   datahub:
-    primary:
-      url: https://datahub.example.com
-      token: ${DATAHUB_TOKEN}
-      connection_name: Primary Catalog
+    enabled: true
+    instances:
+      primary:
+        url: https://datahub.example.com
+        token: ${DATAHUB_TOKEN}
+        connection_name: Primary Catalog
 
-    legacy:
-      url: https://datahub-legacy.example.com
-      token: ${DATAHUB_LEGACY_TOKEN}
-      connection_name: Legacy Catalog
+      legacy:
+        url: https://datahub-legacy.example.com
+        token: ${DATAHUB_LEGACY_TOKEN}
+        connection_name: Legacy Catalog
+    default: primary
 
   s3:
-    data_lake:
-      region: us-east-1
-      access_key_id: ${AWS_ACCESS_KEY_ID}
-      secret_access_key: ${AWS_SECRET_ACCESS_KEY}
-      connection_name: Data Lake
+    enabled: true
+    instances:
+      data_lake:
+        region: us-east-1
+        access_key_id: ${AWS_ACCESS_KEY_ID}
+        secret_access_key: ${AWS_SECRET_ACCESS_KEY}
+        connection_name: Data Lake
 
-    archive:
-      region: us-west-2
-      access_key_id: ${ARCHIVE_AWS_ACCESS_KEY_ID}
-      secret_access_key: ${ARCHIVE_AWS_SECRET_ACCESS_KEY}
-      connection_name: Archive
+      archive:
+        region: us-west-2
+        access_key_id: ${ARCHIVE_AWS_ACCESS_KEY_ID}
+        secret_access_key: ${ARCHIVE_AWS_SECRET_ACCESS_KEY}
+        connection_name: Archive
+    default: data_lake
 ```
 
 ## Using Connections in Tools
@@ -156,12 +165,15 @@ Use environment variables to manage different environments:
 ```yaml
 toolkits:
   trino:
-    main:
-      host: ${TRINO_HOST}
-      port: ${TRINO_PORT}
-      user: ${TRINO_USER}
-      password: ${TRINO_PASSWORD}
-      ssl: true
+    enabled: true
+    instances:
+      main:
+        host: ${TRINO_HOST}
+        port: ${TRINO_PORT}
+        user: ${TRINO_USER}
+        password: ${TRINO_PASSWORD}
+        ssl: true
+    default: main
 ```
 
 Development:
@@ -216,20 +228,23 @@ Note: Connection-level filtering requires custom middleware. The built-in person
 ```yaml
 toolkits:
   datahub:
-    sales:
-      url: https://datahub-sales.example.com
-      token: ${SALES_DATAHUB_TOKEN}
-      connection_name: Sales Domain
+    enabled: true
+    instances:
+      sales:
+        url: https://datahub-sales.example.com
+        token: ${SALES_DATAHUB_TOKEN}
+        connection_name: Sales Domain
 
-    marketing:
-      url: https://datahub-marketing.example.com
-      token: ${MARKETING_DATAHUB_TOKEN}
-      connection_name: Marketing Domain
+      marketing:
+        url: https://datahub-marketing.example.com
+        token: ${MARKETING_DATAHUB_TOKEN}
+        connection_name: Marketing Domain
 
-    finance:
-      url: https://datahub-finance.example.com
-      token: ${FINANCE_DATAHUB_TOKEN}
-      connection_name: Finance Domain
+      finance:
+        url: https://datahub-finance.example.com
+        token: ${FINANCE_DATAHUB_TOKEN}
+        connection_name: Finance Domain
+    default: sales
 ```
 
 ### Hybrid Cloud
@@ -237,24 +252,27 @@ toolkits:
 ```yaml
 toolkits:
   s3:
-    aws:
-      region: us-east-1
-      connection_name: AWS S3
+    enabled: true
+    instances:
+      aws:
+        region: us-east-1
+        connection_name: AWS S3
 
-    gcs:
-      endpoint: https://storage.googleapis.com
-      region: auto
-      access_key_id: ${GCS_ACCESS_KEY}
-      secret_access_key: ${GCS_SECRET_KEY}
-      connection_name: Google Cloud Storage
+      gcs:
+        endpoint: https://storage.googleapis.com
+        region: auto
+        access_key_id: ${GCS_ACCESS_KEY}
+        secret_access_key: ${GCS_SECRET_KEY}
+        connection_name: Google Cloud Storage
 
-    minio:
-      endpoint: http://minio.internal:9000
-      use_path_style: true
-      disable_ssl: true
-      access_key_id: ${MINIO_ACCESS_KEY}
-      secret_access_key: ${MINIO_SECRET_KEY}
-      connection_name: On-Premise MinIO
+      minio:
+        endpoint: http://minio.internal:9000
+        use_path_style: true
+        disable_ssl: true
+        access_key_id: ${MINIO_ACCESS_KEY}
+        secret_access_key: ${MINIO_SECRET_KEY}
+        connection_name: On-Premise MinIO
+    default: aws
 ```
 
 ## Next Steps

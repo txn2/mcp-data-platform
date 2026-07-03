@@ -16,6 +16,30 @@ mcp-data-platform uses YAML configuration with environment variable expansion. V
 
 See [Operating Modes](operating-modes.md) for the full comparison and [Admin API](admin-api.md) for the REST endpoints.
 
+### Unknown keys and strict parsing
+
+By default the loader accepts a config file that contains keys it does not
+recognize: each unknown key is logged as a prominent `WARN` at startup and then
+ignored. This applies at every level that maps to a defined config field: a
+stray key under `server:`, `auth.oidc:`, or inside a persona definition is
+flagged just like a stray top-level key. This keeps older configs loading, but
+it also means a typo or a renamed key silently does nothing.
+
+Set `config.strict: true` to reject unknown keys with a hard error at startup
+instead. This is recommended, since it turns typos and stale keys into an
+immediate, actionable failure rather than a silent no-op:
+
+```yaml
+config:
+  strict: true
+```
+
+Free-form maps are exempt because they accept arbitrary keys by design: the
+`toolkits` tree, each toolkit's `config:` map, and the persona *names* under
+`personas:` (the fields *within* a persona definition, such as `display_name`
+and `tools`, are still validated). A future release will make strict rejection
+the default; you will be able to opt back out with `config.strict: false`.
+
 ## Configuration File
 
 Create a `platform.yaml` file:
@@ -29,25 +53,34 @@ server:
 
 toolkits:
   trino:
-    primary:
-      host: trino.example.com
-      port: 443
-      user: ${TRINO_USER}
-      password: ${TRINO_PASSWORD}
-      ssl: true
-      catalog: hive
-      schema: default
+    enabled: true
+    instances:
+      primary:
+        host: trino.example.com
+        port: 443
+        user: ${TRINO_USER}
+        password: ${TRINO_PASSWORD}
+        ssl: true
+        catalog: hive
+        schema: default
+    default: primary
 
   datahub:
-    primary:
-      url: https://datahub.example.com
-      token: ${DATAHUB_TOKEN}
+    enabled: true
+    instances:
+      primary:
+        url: https://datahub.example.com
+        token: ${DATAHUB_TOKEN}
+    default: primary
 
   s3:
-    primary:
-      region: us-east-1
-      access_key_id: ${AWS_ACCESS_KEY_ID}
-      secret_access_key: ${AWS_SECRET_ACCESS_KEY}
+    enabled: true
+    instances:
+      primary:
+        region: us-east-1
+        access_key_id: ${AWS_ACCESS_KEY_ID}
+        secret_access_key: ${AWS_SECRET_ACCESS_KEY}
+    default: primary
 
 enrichment:
   trino_semantic_enrichment: true
@@ -510,20 +543,23 @@ See [Session Externalization](session-externalization.md) for architecture detai
 ```yaml
 toolkits:
   trino:
-    primary:                   # Instance name (can be any identifier)
-      host: trino.example.com
-      port: 443
-      user: analyst
-      password: ${TRINO_PASSWORD}
-      catalog: hive
-      schema: default
-      ssl: true
-      ssl_verify: true
-      timeout: 120s
-      default_limit: 1000
-      max_limit: 10000
-      read_only: false
-      connection_name: primary
+    enabled: true
+    instances:
+      primary:                   # Instance name (can be any identifier)
+        host: trino.example.com
+        port: 443
+        user: analyst
+        password: ${TRINO_PASSWORD}
+        catalog: hive
+        schema: default
+        ssl: true
+        ssl_verify: true
+        timeout: 120s
+        default_limit: 1000
+        max_limit: 10000
+        read_only: false
+        connection_name: primary
+    default: primary
 ```
 
 | Field | Type | Default | Description |
@@ -548,15 +584,18 @@ toolkits:
 ```yaml
 toolkits:
   datahub:
-    primary:
-      url: https://datahub.example.com
-      token: ${DATAHUB_TOKEN}
-      timeout: 30s
-      default_limit: 10
-      max_limit: 100
-      max_lineage_depth: 5
-      connection_name: primary
-      read_only: true
+    enabled: true
+    instances:
+      primary:
+        url: https://datahub.example.com
+        token: ${DATAHUB_TOKEN}
+        timeout: 30s
+        default_limit: 10
+        max_limit: 100
+        max_lineage_depth: 5
+        connection_name: primary
+        read_only: true
+    default: primary
 ```
 
 | Field | Type | Default | Description |
@@ -576,22 +615,25 @@ toolkits:
 ```yaml
 toolkits:
   s3:
-    primary:
-      region: us-east-1
-      endpoint: ""                    # Custom endpoint for MinIO, etc.
-      public_endpoint: ""             # Public endpoint for presigned URLs (see below)
-      access_key_id: ${AWS_ACCESS_KEY_ID}
-      secret_access_key: ${AWS_SECRET_ACCESS_KEY}
-      session_token: ""
-      profile: ""                     # AWS profile name
-      use_path_style: false           # Use path-style URLs
-      timeout: 30s
-      disable_ssl: false
-      read_only: true                 # Restrict to read operations
-      max_get_size: 10485760          # 10MB
-      max_put_size: 104857600         # 100MB
-      connection_name: primary
-      bucket_prefix: ""               # Filter to buckets with this prefix
+    enabled: true
+    instances:
+      primary:
+        region: us-east-1
+        endpoint: ""                    # Custom endpoint for MinIO, etc.
+        public_endpoint: ""             # Public endpoint for presigned URLs (see below)
+        access_key_id: ${AWS_ACCESS_KEY_ID}
+        secret_access_key: ${AWS_SECRET_ACCESS_KEY}
+        session_token: ""
+        profile: ""                     # AWS profile name
+        use_path_style: false           # Use path-style URLs
+        timeout: 30s
+        disable_ssl: false
+        read_only: true                 # Restrict to read operations
+        max_get_size: 10485760          # 10MB
+        max_put_size: 104857600         # 100MB
+        connection_name: primary
+        bucket_prefix: ""               # Filter to buckets with this prefix
+    default: primary
 ```
 
 | Field | Type | Default | Description |
@@ -1112,28 +1154,37 @@ auth:
 
 toolkits:
   trino:
-    primary:
-      host: trino.example.com
-      port: 443
-      user: ${TRINO_USER}
-      password: ${TRINO_PASSWORD}
-      ssl: true
-      catalog: hive
-      schema: default
-      default_limit: 1000
-      max_limit: 10000
+    enabled: true
+    instances:
+      primary:
+        host: trino.example.com
+        port: 443
+        user: ${TRINO_USER}
+        password: ${TRINO_PASSWORD}
+        ssl: true
+        catalog: hive
+        schema: default
+        default_limit: 1000
+        max_limit: 10000
+    default: primary
 
   datahub:
-    primary:
-      url: https://datahub.example.com
-      token: ${DATAHUB_TOKEN}
-      default_limit: 10
-      max_limit: 100
+    enabled: true
+    instances:
+      primary:
+        url: https://datahub.example.com
+        token: ${DATAHUB_TOKEN}
+        default_limit: 10
+        max_limit: 100
+    default: primary
 
   s3:
-    primary:
-      region: us-east-1
-      read_only: true
+    enabled: true
+    instances:
+      primary:
+        region: us-east-1
+        read_only: true
+    default: primary
 
 semantic:
   provider: datahub
