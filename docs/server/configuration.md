@@ -663,6 +663,8 @@ knowledge:
     enabled: true
     datahub_connection: primary
     require_confirmation: true
+  reflexive_capture:
+    enabled: true
 ```
 
 | Field | Type | Default | Description |
@@ -671,6 +673,7 @@ knowledge:
 | `apply.enabled` | bool | `false` | Enable the `apply_knowledge` tool for admin review and catalog write-back |
 | `apply.datahub_connection` | string | - | DataHub instance name for write-back operations |
 | `apply.require_confirmation` | bool | `false` | Require explicit `confirm: true` on apply actions |
+| `reflexive_capture.enabled` | bool | `true` | Auto-capture a "misconception + fix" correction when a Trino query errors and a later related same-session query on the same connection succeeds (#635). Source `automation`, reviewed sink-class (enters review, never live), gated by the persona's `memory_capture` grant. Default-on when the memory subsystem is available; set `false` to disable |
 
 !!! note "Prerequisites"
     Knowledge capture requires `database.dsn` to be configured. The `apply_knowledge` tool requires the admin persona.

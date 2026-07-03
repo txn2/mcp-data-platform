@@ -47,6 +47,7 @@ import (
 	oauthpostgres "github.com/txn2/mcp-data-platform/pkg/oauth/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
+	"github.com/txn2/mcp-data-platform/pkg/platform/reflexivecapture"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
@@ -241,6 +242,11 @@ type Platform struct {
 
 	// Workflow gating
 	workflowTracker *middleware.SessionWorkflowTracker
+
+	// Reflexive knowledge capture (#635): per-session query-failure state used to
+	// pair a query error with its later in-session fix into an auto-minted
+	// correction memory.
+	reflexiveErrors *middleware.SessionErrorTracker
 
 	// Session gate
 	sessionGate *middleware.SessionGate
@@ -2647,6 +2653,13 @@ func (p *Platform) finalizeSetup() {
 		)
 	}
 
+	// 4.7. Reflexive capture (#635) - observes trino query outcomes and mints a
+	// correction memory when an error is followed by a same-table success in the
+	// session. Reads PlatformContext (identity/session) so it sits INNER to
+	// MCPToolCallMiddleware, and OUTER to the error contract so it sees the
+	// normalized error. Strictly observational: never mutates request or result.
+	p.addReflexiveCaptureMiddleware()
+
 	// 5. Session gate - blocks non-exempt tools until platform_info is called.
 	// Inner to Auth/Authz so PlatformContext is available; outer to Audit so
 	// gated calls don't produce audit events.
@@ -2679,6 +2692,40 @@ func (p *Platform) finalizeSetup() {
 
 	// 9. Icons (outermost list decoration) - injects icons into list responses
 	p.addIconMiddleware()
+}
+
+// addReflexiveCaptureMiddleware wires reflexive query-error capture (#635) via
+// the reflexivecapture package, default-on when the memory subsystem is
+// available. The tracker is retained so shutdown can Stop its cleanup loop.
+func (p *Platform) addReflexiveCaptureMiddleware() {
+	p.reflexiveErrors = reflexivecapture.Wire(reflexivecapture.Deps{
+		Enabled:           p.config.Knowledge.ReflexiveCapture.IsEnabled() && p.memoryToolkit != nil,
+		Server:            p.mcpServer,
+		Toolkit:           p.memoryToolkit,
+		ResolveURNMapping: p.reflexiveURNMapping,
+		PersonaAllowsTool: p.reflexivePersonaAllowsTool(),
+	})
+}
+
+// reflexiveURNMapping resolves the DataHub platform and catalog mapping for a
+// connection, falling back to the query-provider mapping when it is unknown.
+func (p *Platform) reflexiveURNMapping(connection string) (platform string, catalogMapping map[string]string) {
+	if p.connectionSources != nil && connection != "" {
+		if src := p.connectionSources.ForConnectionName(connection); src != nil {
+			return src.DataHubSourceName, src.CatalogMapping
+		}
+	}
+	m := p.config.Query.URNMapping
+	return m.Platform, m.CatalogMapping
+}
+
+// reflexivePersonaAllowsTool returns the persona tool-access predicate, or nil
+// when no authorizer is configured (no persona gating, allow all).
+func (p *Platform) reflexivePersonaAllowsTool() reflexivecapture.PersonaToolCheck {
+	if p.authorizer == nil {
+		return nil
+	}
+	return p.personaAllowsTool
 }
 
 // addManagedResourceMiddleware registers managed resources middleware when enabled.
@@ -4115,6 +4162,10 @@ func (p *Platform) stopBackgroundTrackers() {
 	if p.sessionGate != nil {
 		slog.Debug("shutdown: stopping session gate")
 		p.sessionGate.Stop()
+	}
+	if p.reflexiveErrors != nil {
+		slog.Debug("shutdown: stopping reflexive error tracker")
+		p.reflexiveErrors.Stop()
 	}
 	if p.stalenessWatcher != nil {
 		slog.Debug("shutdown: stopping staleness watcher")

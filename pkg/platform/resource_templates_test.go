@@ -405,54 +405,6 @@ func TestHandleAvailabilityResource(t *testing.T) {
 	})
 }
 
-func TestBuildDataHubURN(t *testing.T) {
-	tests := []struct {
-		name    string
-		mapping URNMappingConfig
-		catalog string
-		schema  string
-		table   string
-		want    string
-	}{
-		{
-			name:    "default platform",
-			mapping: URNMappingConfig{},
-			catalog: "rdbms",
-			schema:  "public",
-			table:   "users",
-			want:    "urn:li:dataset:(urn:li:dataPlatform:trino,rdbms.public.users,PROD)",
-		},
-		{
-			name:    "custom platform",
-			mapping: URNMappingConfig{Platform: "postgres"},
-			catalog: "rdbms",
-			schema:  "public",
-			table:   "users",
-			want:    "urn:li:dataset:(urn:li:dataPlatform:postgres,rdbms.public.users,PROD)",
-		},
-		{
-			name: "catalog mapping",
-			mapping: URNMappingConfig{
-				Platform:       "postgres",
-				CatalogMapping: map[string]string{"rdbms": "warehouse"},
-			},
-			catalog: "rdbms",
-			schema:  "public",
-			table:   "users",
-			want:    "urn:li:dataset:(urn:li:dataPlatform:postgres,warehouse.public.users,PROD)",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := buildDataHubURN(tt.mapping, tt.catalog, tt.schema, tt.table)
-			if got != tt.want {
-				t.Errorf("buildDataHubURN() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestRegisterResourceTemplates(t *testing.T) {
 	t.Run("disabled", func(_ *testing.T) {
 		s := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "v0.1"}, nil)

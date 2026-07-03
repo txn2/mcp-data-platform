@@ -78,51 +78,6 @@ func TestConnectionSourceMap_ConnectionsForURN(t *testing.T) {
 	assert.Nil(t, m.ConnectionsForURN("not-a-urn"))
 }
 
-func TestExtractPlatformFromURN(t *testing.T) {
-	tests := []struct {
-		name     string
-		urn      string
-		expected string
-	}{
-		{
-			name:     "standard dataset URN",
-			urn:      "urn:li:dataset:(urn:li:dataPlatform:trino,catalog.schema.table,PROD)",
-			expected: "trino",
-		},
-		{
-			name:     "postgres platform",
-			urn:      "urn:li:dataset:(urn:li:dataPlatform:postgres,db.schema.table,PROD)",
-			expected: "postgres",
-		},
-		{
-			name:     "platform only",
-			urn:      "urn:li:dataPlatform:s3",
-			expected: "s3",
-		},
-		{
-			name:     "no platform prefix",
-			urn:      "urn:li:dataset:(urn:li:dataFlow:airflow,flow1,PROD)",
-			expected: "",
-		},
-		{
-			name:     "empty string",
-			urn:      "",
-			expected: "",
-		},
-		{
-			name:     "platform with closing paren",
-			urn:      "urn:li:dataset:(urn:li:dataPlatform:hive)",
-			expected: "hive",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, extractPlatformFromURN(tt.urn))
-		})
-	}
-}
-
 func TestConnectionSourceFromInstance(t *testing.T) {
 	t.Run("with datahub_source_name and catalog_mapping", func(t *testing.T) {
 		inst := ConnectionInstance{

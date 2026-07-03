@@ -139,21 +139,56 @@ func (t *Toolkit) handleMemoryCapture(ctx context.Context, _ *mcp.CallToolReques
 		return errorResult("failed to generate ID"), nil, nil //nolint:nilerr // MCP protocol
 	}
 
-	rec := t.buildCaptureRecord(id, content, input, pc)
-	t.embedCaptureRecord(ctx, &rec, content)
+	actor := captureActor{UserID: pc.UserID, Email: pc.UserEmail, Persona: pc.PersonaName, SessionID: pc.SessionID}
+	rec := t.buildCaptureRecord(id, content, input, actor)
 
-	// Recall-first runs BEFORE the insert (so the new row cannot be its own
-	// match) and reuses the embedding just computed (no second embed call).
-	matchID := t.findPriorMatch(ctx, rec)
-
-	if err := t.store.Insert(ctx, rec); err != nil {
+	out, err := t.applyCapture(ctx, &rec, input.Type, actor, input.ThreadIDs)
+	if err != nil {
 		return errorResult("failed to capture: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
 	}
 
-	superseded := t.applySupersede(ctx, matchID, rec.ID)
-	linked, unlinked := t.linkCaptureThreads(ctx, pc, rec.ID, input.Type, input.ThreadIDs)
+	return captureSuccess(rec, out.Superseded, out.Linked, out.Unlinked)
+}
 
-	return captureSuccess(rec, superseded, linked, unlinked)
+// captureOutcome carries the side results of the shared write pipeline.
+type captureOutcome struct {
+	Superseded string
+	Linked     int
+	Unlinked   []string
+}
+
+// captureActor carries the identity a capture is attributed to. The
+// memory_capture tool fills it from the request's PlatformContext; server-
+// initiated captures (AutoCapture) supply it explicitly, since a platform-
+// minted record has no incoming request context.
+type captureActor struct {
+	UserID    string
+	Email     string
+	Persona   string
+	SessionID string
+}
+
+// applyCapture runs the shared write pipeline for an already-assembled record:
+// embed, recall-first supersede check (BEFORE the insert so the new row cannot
+// match itself), insert, supersede, then thread-link. Both the memory_capture
+// tool and AutoCapture funnel through here so server-initiated captures get
+// identical semantics. The record is mutated in place to carry its embedding.
+func (t *Toolkit) applyCapture(ctx context.Context, rec *memstore.Record, sinkClass string, actor captureActor, threadIDs []string) (captureOutcome, error) {
+	t.embedCaptureRecord(ctx, rec, rec.Content)
+
+	// Recall-first reuses the embedding just computed (no second embed call).
+	matchID := t.findPriorMatch(ctx, *rec)
+
+	if err := t.store.Insert(ctx, *rec); err != nil {
+		return captureOutcome{}, fmt.Errorf("insert capture: %w", err)
+	}
+
+	linked, unlinked := t.linkCaptureThreads(ctx, actor, rec.ID, sinkClass, threadIDs)
+	return captureOutcome{
+		Superseded: t.applySupersede(ctx, matchID, rec.ID),
+		Linked:     linked,
+		Unlinked:   unlinked,
+	}, nil
 }
 
 // validateCaptureInput returns the first validation failure message, or "" when
@@ -198,11 +233,11 @@ func validateSuggestedActions(actions []suggestedActionInput) error {
 
 // buildCaptureRecord assembles the memory record for a capture, applying the
 // sink-class routing: dimension, live-vs-reviewed status overlay, and metadata.
-func (*Toolkit) buildCaptureRecord(id, content string, input memoryCaptureInput, pc *middleware.PlatformContext) memstore.Record {
+func (*Toolkit) buildCaptureRecord(id, content string, input memoryCaptureInput, actor captureActor) memstore.Record {
 	return memstore.Record{
 		ID:             id,
-		CreatedBy:      pc.UserEmail,
-		Persona:        pc.PersonaName,
+		CreatedBy:      actor.Email,
+		Persona:        actor.Persona,
 		Dimension:      memstore.SinkClassDimension(input.Type),
 		SinkClass:      input.Type,
 		Content:        content,
@@ -212,23 +247,24 @@ func (*Toolkit) buildCaptureRecord(id, content string, input memoryCaptureInput,
 		EntityURNs:     input.EntityURNs,
 		RelatedColumns: input.RelatedColumns,
 		Status:         memstore.StatusActive,
-		Metadata:       captureMetadata(input, pc),
+		Metadata:       captureMetadata(input.Type, actor.SessionID, input.SuggestedActions, input.Metadata),
 	}
 }
 
 // captureMetadata builds the record metadata, adding the pending insight overlay
 // (review state + catalog proposals + session) for reviewed sink-classes so
-// apply_knowledge surfaces them as pending insights.
-func captureMetadata(input memoryCaptureInput, pc *middleware.PlatformContext) map[string]any {
+// apply_knowledge surfaces them as pending insights. Identity-agnostic (takes a
+// sessionID, not a PlatformContext) so both the tool and AutoCapture share it.
+func captureMetadata(sinkClass, sessionID string, suggestedActions []suggestedActionInput, extra map[string]any) map[string]any {
 	meta := map[string]any{}
-	maps.Copy(meta, input.Metadata)
-	if !memstore.SinkClassIsLive(input.Type) {
+	maps.Copy(meta, extra)
+	if !memstore.SinkClassIsLive(sinkClass) {
 		meta[memstore.MetaKeyInsightStatus] = memstore.InsightStatusPending
-		if pc.SessionID != "" {
-			meta[memstore.MetaKeySessionID] = pc.SessionID
+		if sessionID != "" {
+			meta[memstore.MetaKeySessionID] = sessionID
 		}
-		if len(input.SuggestedActions) > 0 {
-			meta[memstore.MetaKeySuggestedActions] = input.SuggestedActions
+		if len(suggestedActions) > 0 {
+			meta[memstore.MetaKeySuggestedActions] = suggestedActions
 		}
 	}
 	if len(meta) == 0 {
@@ -291,14 +327,14 @@ func (t *Toolkit) applySupersede(ctx context.Context, matchID, newID string) str
 // Thread linking is a review-loop concept, so live captures (and captures with
 // no linker wired) surface the thread_ids as unlinked rather than silently
 // dropping them.
-func (t *Toolkit) linkCaptureThreads(ctx context.Context, pc *middleware.PlatformContext, id, sinkClass string, threadIDs []string) (linked int, unlinked []string) {
+func (t *Toolkit) linkCaptureThreads(ctx context.Context, actor captureActor, id, sinkClass string, threadIDs []string) (linked int, unlinked []string) {
 	if len(threadIDs) == 0 {
 		return 0, nil
 	}
 	if memstore.SinkClassIsLive(sinkClass) || t.threadLinker == nil {
 		return 0, threadIDs
 	}
-	linkedIDs, err := t.threadLinker.LinkInsight(ctx, threadIDs, id, pc.UserID, pc.UserEmail)
+	linkedIDs, err := t.threadLinker.LinkInsight(ctx, threadIDs, id, actor.UserID, actor.Email)
 	if err != nil {
 		slog.Warn("memory_capture: failed to link threads", "id", id, logKeyError, err)
 		return 0, threadIDs

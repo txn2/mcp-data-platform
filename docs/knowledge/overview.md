@@ -47,6 +47,20 @@ flowchart LR
 - **`apply_knowledge`** is an admin-only tool for reviewing, approving, synthesizing, and applying insights to DataHub.
 - **[Admin REST API](admin-api.md)** provides HTTP endpoints for managing insights and changesets outside the MCP protocol.
 
+## Reflexive Capture (automatic corrections)
+
+Most capture depends on someone deciding to record knowledge. Reflexive capture removes the operator from that loop for the highest-signal case: a query error that the same session later fixes.
+
+When a `trino_query` or `trino_execute` call fails with a data-model misunderstanding (an unknown column, unknown table, ambiguous reference, type mismatch, or a `GROUP BY` mistake) and a later **related** query on the **same connection** succeeds in the **same session**, the platform mints one "misconception + fix" correction memory automatically. No tool call is made by the agent, and the tool response is never blocked (the capture runs asynchronously).
+
+- **Attribution.** The record carries `source: automation` and `category: correction`, so it is distinguishable from user- and agent-authored knowledge in reads and audits. `source: automation` is the audit trail for platform-minted knowledge.
+- **Review, not live.** The correction is a reviewed sink-class (`schema_entity`), so it enters review as a `pending` insight rather than mutating catalog state. A human promotes it via `apply_knowledge` exactly like any other insight.
+- **Persona-gated.** Reflexive capture is a memory write, so a persona denied the `memory_capture` tool never has records minted on its behalf.
+- **Conservative pairing.** Only errors matching a small allowlist of misconception signatures are captured; infra, policy, timeout, and permission errors are treated as noise and ignored. The success is paired only when it runs on the same connection and is a near-variant of the failing query (measured by shared identifiers), so an unrelated query on the same table is not mistaken for a fix, and an identical statement that merely succeeds on retry is ignored.
+- **Entity-keyed.** When the fixed query references fully-qualified tables, the correction is linked to those DataHub dataset URNs (resolved against the successful query's connection).
+
+Reflexive capture is enabled by default whenever the memory subsystem is available. Disable it with `knowledge.reflexive_capture.enabled: false`. It is part of the reflexive knowledge-activation work ([#635](https://github.com/txn2/mcp-data-platform/issues/635)).
+
 ## Insight Categories
 
 Insights have six categories:

@@ -3,156 +3,20 @@ package platform
 import (
 	"context"
 	"log/slog"
-	"strings"
+
+	"github.com/txn2/mcp-data-platform/pkg/platform/connsource"
 )
 
-// ConnectionSource holds the DataHub mapping for a single connection.
-type ConnectionSource struct {
-	// Kind is the toolkit kind (trino, s3).
-	Kind string `json:"kind"`
+// ConnectionSource is re-exported from the connsource package (extracted for the
+// package-size budget) so existing platform callers keep the name.
+type ConnectionSource = connsource.Source
 
-	// Name is the connection name.
-	Name string `json:"name"`
+// ConnectionSourceMap is re-exported from the connsource package; existing
+// callers keep the name and NewConnectionSourceMap constructs one.
+type ConnectionSourceMap = connsource.Map
 
-	// DataHubSourceName is the platform identifier in DataHub URNs
-	// (e.g. "trino", "postgres", "s3"). Multiple connections can share the same
-	// source name.
-	DataHubSourceName string `json:"datahub_source_name"`
-
-	// CatalogMapping maps connection catalog names to DataHub catalog names.
-	// For example: {"rdbms": "postgres"} means the connection's "rdbms" catalog
-	// corresponds to "postgres" in DataHub URNs.
-	CatalogMapping map[string]string `json:"catalog_mapping,omitempty"`
-
-	// Description is the human-readable connection description.
-	Description string `json:"description,omitempty"`
-}
-
-// ConnectionSourceMap provides forward and reverse lookups between connections
-// and DataHub URN components.
-type ConnectionSourceMap struct {
-	// byConnection maps "kind/name" to its DataHub source info.
-	byConnection map[string]*ConnectionSource
-
-	// bySourceName maps DataHub source name to all connections that use it.
-	bySourceName map[string][]*ConnectionSource
-}
-
-// NewConnectionSourceMap creates an empty source map.
-func NewConnectionSourceMap() *ConnectionSourceMap {
-	return &ConnectionSourceMap{
-		byConnection: make(map[string]*ConnectionSource),
-		bySourceName: make(map[string][]*ConnectionSource),
-	}
-}
-
-// Add registers a connection's DataHub source mapping.
-// If the same connection (kind+name) already exists, the old entry is
-// replaced so that bySourceName never contains duplicates.
-func (m *ConnectionSourceMap) Add(src ConnectionSource) {
-	key := src.Kind + "/" + src.Name
-	if _, exists := m.byConnection[key]; exists {
-		m.Remove(src.Kind, src.Name)
-	}
-	m.byConnection[key] = &src
-	m.bySourceName[src.DataHubSourceName] = append(m.bySourceName[src.DataHubSourceName], &src)
-}
-
-// Remove deletes a connection's DataHub source mapping.
-func (m *ConnectionSourceMap) Remove(kind, name string) {
-	key := kind + "/" + name
-	src, ok := m.byConnection[key]
-	if !ok {
-		return
-	}
-
-	delete(m.byConnection, key)
-
-	// Remove from the bySourceName slice.
-	dsn := src.DataHubSourceName
-	entries := m.bySourceName[dsn]
-	for i, e := range entries {
-		if e.Kind == kind && e.Name == name {
-			m.bySourceName[dsn] = append(entries[:i], entries[i+1:]...)
-			break
-		}
-	}
-	if len(m.bySourceName[dsn]) == 0 {
-		delete(m.bySourceName, dsn)
-	}
-}
-
-// ForConnection returns the DataHub source info for a connection.
-// Returns nil if the connection has no mapping.
-func (m *ConnectionSourceMap) ForConnection(kind, name string) *ConnectionSource {
-	if m == nil {
-		return nil
-	}
-	return m.byConnection[kind+"/"+name]
-}
-
-// DataHubSourceName returns the DataHub source name mapped to a connection, or ""
-// when none; it adapts the map to the connview.SourceResolver capability.
-func (m *ConnectionSourceMap) DataHubSourceName(kind, name string) string {
-	if s := m.ForConnection(kind, name); s != nil {
-		return s.DataHubSourceName
-	}
-	return ""
-}
-
-// ForConnectionName returns the DataHub source info by connection name only.
-// Searches all kinds. Returns nil if not found.
-func (m *ConnectionSourceMap) ForConnectionName(name string) *ConnectionSource {
-	if m == nil {
-		return nil
-	}
-	for _, src := range m.byConnection {
-		if src.Name == name {
-			return src
-		}
-	}
-	return nil
-}
-
-// ConnectionsForSource returns all connections that map to the given DataHub
-// source name (e.g. "trino" returns all Trino connections).
-func (m *ConnectionSourceMap) ConnectionsForSource(datahubSourceName string) []*ConnectionSource {
-	if m == nil {
-		return nil
-	}
-	return m.bySourceName[datahubSourceName]
-}
-
-// ConnectionsForURN parses a DataHub URN and returns all connections whose
-// source name matches the URN's platform. Returns nil if the URN can't be parsed.
-func (m *ConnectionSourceMap) ConnectionsForURN(urn string) []*ConnectionSource {
-	if m == nil {
-		return nil
-	}
-	platform := extractPlatformFromURN(urn)
-	if platform == "" {
-		return nil
-	}
-	return m.bySourceName[platform]
-}
-
-// extractPlatformFromURN extracts the platform name from a DataHub URN.
-// Example: "urn:li:dataset:(urn:li:dataPlatform:trino,...)" returns "trino".
-func extractPlatformFromURN(urn string) string {
-	const prefix = "urn:li:dataPlatform:"
-	_, after, found := strings.Cut(urn, prefix)
-	if !found {
-		return ""
-	}
-	rest := after
-	// Platform name ends at comma or closing paren
-	for i, c := range rest {
-		if c == ',' || c == ')' {
-			return rest[:i]
-		}
-	}
-	return rest
-}
+// NewConnectionSourceMap creates an empty connection source map.
+func NewConnectionSourceMap() *ConnectionSourceMap { return connsource.NewMap() }
 
 // buildConnectionSourceMap constructs the source map from the toolkit registry
 // and DB connection instances.

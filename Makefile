@@ -100,7 +100,7 @@ migrate-check:
 	@docker rm -f $(MIGRATE_PG_CONTAINER) >/dev/null 2>&1 || true
 	@docker run -d --name $(MIGRATE_PG_CONTAINER) \
 		-e POSTGRES_USER=migrate -e POSTGRES_PASSWORD=migrate -e POSTGRES_DB=migrate_check \
-		-p $(MIGRATE_PG_PORT):5432 $(MIGRATE_PG_IMAGE) >/dev/null
+		-p 127.0.0.1:$(MIGRATE_PG_PORT):5432 $(MIGRATE_PG_IMAGE) >/dev/null
 	@trap 'docker rm -f $(MIGRATE_PG_CONTAINER) >/dev/null 2>&1 || true' EXIT; \
 		echo "  waiting for Postgres on :$(MIGRATE_PG_PORT)..."; \
 		for i in $$(seq 1 60); do \

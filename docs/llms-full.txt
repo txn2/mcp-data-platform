@@ -1663,6 +1663,10 @@ The system has four MCP tools and an Admin REST API:
 - `apply_knowledge`: Admin-only sink router for reviewing, approving, synthesizing, applying, and rolling back insights. `apply` promotes by `sink`: `datahub` (schema_entity → catalog) or `knowledge_page` (business_knowledge/operational_rule → a canonical portal knowledge page, found-or-created by slug). Both record reversible changesets. Actions: `bulk_review`, `review`, `synthesize`, `apply`, `approve`, `reject`, `rollback`, `list_changesets`, `bulk_untag` (remove a tag from every entity carrying it).
 - Admin REST API: HTTP endpoints for managing insights and changesets outside the MCP protocol.
 
+## Reflexive Capture
+
+Reflexive capture removes the operator from the loop for the highest-signal case: a query error the same session later fixes. When a `trino_query`/`trino_execute` call fails with a data-model misunderstanding (unknown column/table, ambiguous reference, type mismatch, `GROUP BY` mistake) and a later related query on the same connection succeeds in the same session, the platform auto-mints one "misconception + fix" correction memory with no tool call by the agent and without blocking the tool response (the mint is asynchronous). The record carries `source: automation` and `category: correction`, and is a reviewed sink-class (`schema_entity`) so it enters review as a `pending` insight rather than mutating catalog state. Pairing is conservative: the error must match an allowlist of misconception signatures (infra, policy, timeout, and permission errors are ignored), and the success must run on the same connection and be a near-variant of the failing query (scored on shared identifiers, and requiring a novel corrected identifier) so an unrelated query on the same table, or an identical retry, is not treated as a fix. The correction is best-effort entity-keyed to the successful query's DataHub dataset URNs, and the whole path is gated by the caller persona's `memory_capture` grant. Enabled by default when the memory subsystem is available; disable with `knowledge.reflexive_capture.enabled: false` (#635).
+
 ## Configuration
 
 ```yaml
@@ -1672,6 +1676,8 @@ knowledge:
     enabled: true
     datahub_connection: primary
     require_confirmation: true
+  reflexive_capture:
+    enabled: true
 ```
 
 | Field | Type | Default | Description |
@@ -1680,6 +1686,7 @@ knowledge:
 | `knowledge.apply.enabled` | bool | `false` | Enable the `apply_knowledge` tool for admin review and catalog write-back |
 | `knowledge.apply.datahub_connection` | string | - | DataHub instance name for write-back operations |
 | `knowledge.apply.require_confirmation` | bool | `false` | When true, the `apply` action requires `confirm: true` in the request |
+| `knowledge.reflexive_capture.enabled` | bool | `true` | Auto-capture a "misconception + fix" correction (source `automation`, reviewed sink-class) when a Trino query errors and a later same-session query over the same table(s) succeeds (#635). Default-on when the memory subsystem is available; set `false` to disable |
 
 Prerequisites: `database.dsn` must be configured. The `apply_knowledge` tool requires the admin persona.
 
