@@ -43,13 +43,12 @@ Memory tools (`memory_capture`, `memory_manage`) are opt-in. Add `memory_*` to a
 
 ```yaml
 personas:
-  definitions:
-    analyst:
-      tools:
-        allow: ["trino_*", "datahub_*", "memory_*"]
-    admin:
-      tools:
-        allow: ["*"]
+  analyst:
+    tools:
+      allow: ["trino_*", "datahub_*", "memory_*"]
+  admin:
+    tools:
+      allow: ["*"]
 ```
 
 ## Embedding Provider

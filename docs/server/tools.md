@@ -850,7 +850,7 @@ Manages the lifecycle of existing persistent memory. Create new memory with `mem
 The portal toolkit persists AI-generated artifacts (JSX dashboards, HTML reports, SVG charts) to S3 with PostgreSQL metadata, enabling viewing and sharing. Automatically captures provenance (which tool calls produced the artifact).
 
 !!! tip "Prerequisites"
-    Portal tools require `portal.enabled: true`, a configured S3 connection (`portal.s3_connection`), and `database.dsn`. See [Configuration](../reference/configuration.md#portal-configuration).
+    Portal tools require `portal.enabled: true`, a configured S3 connection (`portal.s3_connection`), and `database.dsn`. See [Configuration](configuration.md#portal-configuration).
 
 ### save_artifact
 

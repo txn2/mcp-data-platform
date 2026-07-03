@@ -150,91 +150,68 @@ AI-generated prose (PR descriptions, commit messages, reviews, explanations) is 
 
 ## Project Structure
 
+`pkg/` holds 39 top-level packages (all public API). Depth-2 subdirectories are
+shown where they represent a distinct implementation (a storage backend, an
+adapter, an indexjobs consumer); helper subpackages are omitted for brevity.
+Regenerate this list with `find pkg -mindepth 1 -maxdepth 1 -type d | sort` and
+diff against the packages below when adding or removing a `pkg/` directory.
+
 ```
 mcp-data-platform/
-├── cmd/mcp-data-platform/
-│   └── main.go                    # Entry point
-├── pkg/                           # PUBLIC API
-│   ├── platform/                  # Core orchestration
-│   │   ├── platform.go            # Platform facade (main entry point)
-│   │   ├── config.go              # Configuration types and loading
-│   │   ├── options.go             # Functional options
-│   │   └── lifecycle.go           # Startup/shutdown coordination
-│   ├── auth/                      # Authentication layer
-│   │   ├── oidc.go                # Generic OIDC (discovery-based)
-│   │   ├── apikey.go              # API key validation
-│   │   ├── middleware.go          # Auth middleware
-│   │   ├── claims.go              # Claims extraction
-│   │   └── context.go             # UserContext type
-│   ├── oauth/                     # OAuth 2.1 server
-│   │   ├── server.go              # Authorization server
-│   │   ├── dcr.go                 # Dynamic Client Registration
-│   │   ├── pkce.go                # PKCE support
-│   │   ├── storage.go             # Storage interface
-│   │   └── postgres/
-│   │       └── store.go           # PostgreSQL implementation
-│   ├── pkcestore/                 # In-flight PKCE state for outbound OAuth
-│   │   ├── store.go               # Store interface + State type
-│   │   ├── memory.go              # In-memory implementation (single-replica)
-│   │   └── postgres.go            # PostgreSQL implementation (multi-replica)
-│   ├── persona/                   # Persona system
-│   │   ├── persona.go             # Persona definition
-│   │   ├── registry.go            # PersonaRegistry
-│   │   ├── mapper.go              # RoleMapper (OIDC + static)
-│   │   └── filter.go              # Tool filtering per persona
-│   ├── semantic/                  # Semantic layer abstraction
-│   │   ├── provider.go            # SemanticMetadataProvider interface
-│   │   ├── types.go               # Semantic types
-│   │   ├── datahub/
-│   │   │   └── adapter.go         # DataHub implementation
-│   │   ├── cache.go               # Caching decorator
-│   │   └── noop.go                # No-op for testing
-│   ├── query/                     # Query execution abstraction
-│   │   ├── provider.go            # QueryExecutionProvider interface
-│   │   ├── types.go               # Query types
-│   │   ├── trino/
-│   │   │   └── adapter.go         # Trino implementation
-│   │   └── noop.go                # No-op for testing
-│   ├── resource/                  # Managed resources (human-uploaded files)
-│   │   ├── types.go               # Resource, Filter, Scope types
-│   │   ├── store.go               # Store interface + PostgreSQL implementation
-│   │   ├── handler.go             # REST API handler (CRUD)
-│   │   ├── permission.go          # Claims, scope-based permission checks
-│   │   ├── validate.go            # Input validation (filename, MIME, tags)
-│   │   ├── uri.go                 # URI scheme builder/parser
-│   │   └── id.go                  # Secure random ID generation
-│   ├── registry/                  # Toolkit registry
-│   │   ├── registry.go            # ToolkitRegistry
-│   │   ├── toolkit.go             # Toolkit interface
-│   │   └── loader.go              # Config-driven loading
-│   ├── middleware/                # MCP protocol middleware
-│   │   ├── context.go             # PlatformContext
-│   │   ├── mcp_toolcall.go        # Auth/authz middleware
-│   │   ├── mcp_enrichment.go      # Semantic enrichment middleware
-│   │   ├── mcp_audit.go           # Audit logging middleware
-│   │   └── semantic.go            # Enrichment functions
-│   ├── audit/                     # Audit logging
-│   │   ├── logger.go              # AuditLogger interface
-│   │   ├── event.go               # Event types
-│   │   └── postgres/
-│   │       └── store.go           # PostgreSQL implementation
-│   ├── database/                  # Database utilities
-│   │   └── migrate/               # Database migrations (golang-migrate)
-│   │       ├── migrate.go         # Migration runner
-│   │       └── migrations/        # Embedded SQL migrations
-│   │           ├── 000001_oauth_clients.up.sql
-│   │           ├── 000001_oauth_clients.down.sql
-│   │           ├── 000002_audit_logs.up.sql
-│   │           └── 000002_audit_logs.down.sql
-│   ├── tuning/                    # Tuning layer
-│   │   ├── prompts.go             # Prompt resources
-│   │   ├── hints.go               # Tool hints
-│   │   └── rules.go               # Operational rules
-│   └── tools/                     # Base toolkit
-│       └── toolkit.go             # Example toolkit
-├── internal/server/               # Server factory
+├── cmd/mcp-data-platform/          # Entry point (main.go)
+├── pkg/                            # PUBLIC API (39 top-level packages)
+│   ├── admin/                      # REST API endpoints for administrative operations
+│   ├── audit/                      # Audit logging (postgres/ = PostgreSQL implementation)
+│   ├── auth/                       # Authentication: OIDC, API keys, claims, middleware
+│   ├── authevents/                 # Durable audit history for the OAuth authorization flow
+│   ├── browsersession/             # Browser-based OIDC authentication (cookie sessions)
+│   ├── client/                     # Reserved placeholder (currently empty, no Go files)
+│   ├── configstore/                # Granular key/value storage for platform config (postgres/)
+│   ├── connbackfill/               # Seeds connection_instances with credential-free rows
+│   ├── connoauth/                  # Shared OAuth-to-upstream-MCP implementation across connection kinds
+│   ├── connview/                   # Builds the list_connections view (configured + discovered)
+│   ├── database/                   # Database utilities (migrate/ = golang-migrate runner + 75 embedded SQL migrations)
+│   ├── embedding/                  # Text embedding generation for memory vector search
+│   ├── gatewayhttp/                # HTTP exposure of the apigateway toolkit's invoke path
+│   ├── health/                     # Readiness state tracking and HTTP health check handlers
+│   ├── http/                       # HTTP-level auth middleware (SSE transport)
+│   ├── indexjobs/                  # Postgres-backed, source-kind-agnostic background indexer
+│   ├── knowledge/                  # Unified read path for platform knowledge (federation/ = live toolkit registry adapter)
+│   ├── mcpapps/                    # MCP Apps support for interactive UI components
+│   ├── mcpcontext/                 # Context helpers for MCP session state
+│   ├── memory/                     # Persistent memory storage for agent/analyst sessions (memoryindex/ = indexjobs consumer)
+│   ├── middleware/                 # MCP protocol middleware chain (auth, authz, enrichment, audit, rules)
+│   ├── oauth/                      # OAuth 2.1 authorization server (postgres/ = storage implementation)
+│   ├── observability/              # OpenTelemetry metrics (proxy/ = authenticated PromQL query proxy)
+│   ├── persona/                    # Persona-based access control and customization
+│   ├── pkcestore/                  # In-flight PKCE state for outbound OAuth (oauth-start → callback)
+│   ├── platform/                   # Core orchestration: facade, config, options, lifecycle
+│   ├── portal/                     # Asset portal data layer (assetindex/, collectionindex/, datahubapi/, knowledgepage/, threads/, ...)
+│   ├── prompt/                     # Prompt management for the MCP data platform
+│   ├── query/                      # Query execution provider abstraction (trino/ = Trino adapter)
+│   ├── registry/                   # Toolkit registration and management
+│   ├── resource/                   # Managed resources: human-uploaded reference files
+│   ├── semantic/                   # Semantic layer abstraction (datahub/ = DataHub adapter)
+│   ├── session/                    # Session externalization (postgres/ = multi-replica backend)
+│   ├── storage/                    # Storage provider abstraction (s3/ = S3 adapter)
+│   ├── toolkit/                    # Shared types for toolkit implementations
+│   ├── toolkits/                   # Toolkit adapters registered with the platform:
+│   │   ├── apigateway/             #   HTTP API gateway proxy toolkit
+│   │   ├── datahub/                #   DataHub toolkit
+│   │   ├── gateway/                #   MCP gateway toolkit (proxies tools from upstream MCP servers)
+│   │   ├── knowledge/              #   Knowledge capture toolkit
+│   │   ├── memory/                 #   memory_manage / memory_capture tools
+│   │   ├── portal/                 #   Save/manage-artifact toolkit
+│   │   ├── s3/                     #   S3 toolkit
+│   │   ├── search/                 #   Universal, topology-free discovery entry point
+│   │   ├── tools/                  #   toolsindex/ = tools-discovery indexjobs consumer
+│   │   └── trino/                  #   Trino toolkit
+│   ├── tuning/                     # AI tuning: prompts, hints, operational rules
+│   ├── urnbuild/                   # Constructs DataHub dataset URNs from query-engine table identifiers
+│   └── user/                       # Directory of known people keyed by email
+├── internal/server/                # Server factory
 │   └── server.go
-├── configs/                       # Example configurations
+├── configs/                        # Example configurations
 │   └── platform.yaml
 ├── go.mod
 ├── LICENSE
@@ -299,22 +276,24 @@ auth:
 ### Personas
 ```yaml
 personas:
-  definitions:
-    analyst:
-      display_name: "Data Analyst"
-      roles: ["analyst", "data_engineer"]
-      tools:
-        allow: ["trino_*", "datahub_*"]
-        deny: ["*_delete_*"]
-      context:
-        description_prefix: "You are helping a data analyst."
-    admin:
-      display_name: "Administrator"
-      roles: ["admin"]
-      tools:
-        allow: ["*"]
+  analyst:
+    display_name: "Data Analyst"
+    roles: ["analyst", "data_engineer"]
+    tools:
+      allow: ["trino_*", "datahub_*"]
+      deny: ["*_delete_*"]
+    context:
+      description_prefix: "You are helping a data analyst."
+  admin:
+    display_name: "Administrator"
+    roles: ["admin"]
+    tools:
+      allow: ["*"]
   default_persona: analyst
 ```
+
+`PersonasConfig.Definitions` is an inline map (`pkg/platform/config.go`), so
+persona names go directly under `personas:` — not under a `definitions:` key.
 
 ### Semantic Layer
 ```yaml

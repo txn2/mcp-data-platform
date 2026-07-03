@@ -103,12 +103,10 @@ nav:
     - Configuration: reference/configuration.md
     - Providers: reference/providers.md
     - Middleware: reference/middleware.md
+    - Tuning and Scaling: reference/tuning-and-scaling.md
     - Support:
       - Release Highlights: release-highlights.md
       - Troubleshooting: support/troubleshooting.md
-      - Research:
-        - MCP Gateway Landscape Survey: research/mcp-gateway-landscape-2026.md
-        - MCP Gateway Live End-to-End Test: research/mcp-gateway-livetest-2026.md
 
 extra:
   social:

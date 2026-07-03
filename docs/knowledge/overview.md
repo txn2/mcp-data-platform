@@ -163,33 +163,32 @@ Control who can capture and apply knowledge through persona tool filtering:
 
 ```yaml
 personas:
-  definitions:
-    analyst:
-      display_name: "Data Analyst"
-      roles: ["analyst"]
-      tools:
-        allow:
-          - "trino_*"
-          - "datahub_*"
-          - "memory_capture"        # Can capture knowledge
-        deny:
-          - "apply_knowledge"       # Cannot apply changes
+  analyst:
+    display_name: "Data Analyst"
+    roles: ["analyst"]
+    tools:
+      allow:
+        - "trino_*"
+        - "datahub_*"
+        - "memory_capture"        # Can capture knowledge
+      deny:
+        - "apply_knowledge"       # Cannot apply changes
 
-    admin:
-      display_name: "Administrator"
-      roles: ["admin"]
-      tools:
-        allow: ["*"]               # Full access including apply_knowledge
+  admin:
+    display_name: "Administrator"
+    roles: ["admin"]
+    tools:
+      allow: ["*"]               # Full access including apply_knowledge
 
-    etl_service:
-      display_name: "ETL Service"
-      roles: ["service"]
-      tools:
-        allow:
-          - "trino_*"
-        deny:
-          - "memory_capture"        # Automated processes should not capture
-          - "apply_knowledge"
+  etl_service:
+    display_name: "ETL Service"
+    roles: ["service"]
+    tools:
+      allow:
+        - "trino_*"
+      deny:
+        - "memory_capture"        # Automated processes should not capture
+        - "apply_knowledge"
 ```
 
 ## Insight Sources

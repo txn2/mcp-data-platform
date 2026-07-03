@@ -576,7 +576,6 @@ Requires `database.dsn`. Both `enabled` and `log_tool_calls` must be `true` for 
 |-------|------|---------|-------------|
 | `sessions.store` | string | `memory` | Backend: `memory` or `database` |
 | `sessions.ttl` | duration | streamable session_timeout | Session lifetime |
-| `sessions.idle_timeout` | duration | streamable session_timeout | Idle eviction threshold |
 | `sessions.cleanup_interval` | duration | `1m` | Cleanup routine interval |
 
 The `database` store requires `database.dsn`. Database-backed sessions survive restarts and support multi-replica deployments.
@@ -932,7 +931,7 @@ Beyond the MCP and apigateway chokepoints, the toolkit and provider call paths a
 
 ## Deployment manifests
 
-Plain Kubernetes manifests (no Helm, no Operator CRDs) ship in `deployments/observability/`: `pod-annotations.yaml` (enable the listener + `prometheus.io/*` scrape annotations), `recording-rules.yaml` and `alert-rules.yaml` (ConfigMaps with starter rules in the `level:metric:operations` convention — `mcp:tool_call_duration:p95_5m`, `apigateway:inbound_error_rate:5m`, a DB-pool saturation alert, an `up{job="mcp-data-platform"} == 0` alert, etc.), and a README covering how to mount the rules and confirm scraping. The full metric reference is `docs/observability.md`.
+Plain Kubernetes manifests (no Helm, no Operator CRDs) ship in `deployments/observability/`: `pod-annotations.yaml` (enable the listener + `prometheus.io/*` scrape annotations), `recording-rules.yaml` and `alert-rules.yaml` (ConfigMaps with starter rules in the `level:metric:operations` convention — `mcp:tool_call_duration:p95_5m`, `apigateway:inbound_error_rate:5m`, a DB-pool saturation alert, an `up{job="mcp-data-platform"} == 0` alert, etc.), and a README covering how to mount the rules and confirm scraping. The full metric reference is `docs/server/observability.md`.
 
 ## What metrics do NOT replace
 
@@ -957,7 +956,7 @@ Environment-only configuration: `OTEL_TRACES_ENABLED` (default false), `OTEL_EXP
 
 Each tool call produces one trace. The ROOT span has the fixed, low-cardinality name `tool_call` (the specific tool is on the `mcp.tool` attribute, not the span name, so all tool calls share one queryable name) and is opened by the tracing middleware inner to auth, so it carries the request's identity. It holds the bounded attributes that mirror the metric labels (`mcp.tool`, `mcp.toolkit_kind`, `mcp.persona`, `status_category`) PLUS the high-cardinality fields deliberately kept off Prometheus labels — `mcp.user_id`, `mcp.user_email`, `mcp.session_id`, `mcp.request_id`, `mcp.connection`, `mcp.transport`, `mcp.source`, and the enrichment summary. CHILD spans nest under the root via context propagation: the cross-service `enrichment` fan-out (the original motivation for tracing — the deep, easily-misordered middleware chain), and one span per upstream call to Trino (`trino.<query_kind>`), DataHub (`datahub.<operation>`), and S3 (`s3.<operation>`). Those toolkit spans are emitted by the same instrumenting decorators that record the toolkit metrics, installed when EITHER metrics or tracing is enabled (the decorator's metric record is nil-safe and its span is a no-op outside an active trace, so whichever subsystem is off costs effectively nothing; when both are off the decorators are not installed at all). Span status is `Error` for any non-`ok` status_category, with the error recorded as a span event so error traces stand out. The inbound OAuth 2.1 server and the asynchronous audit write run outside a tool call's request context and so are not part of the tool-call trace.
 
-Head-based sampling is in-app via a ParentBased ratio sampler (a sampled caller's whole trace is always kept). Tail-based sampling — keeping 100% of error and slow traces and down-sampling only the fast successful majority — belongs in the collector, not the application, so it can be tuned without redeploying. An example collector pipeline (OTLP receiver, `tail_sampling` keeping ERROR and >2s traces, OTLP export to Tempo) ships in `deployments/observability/otel-collector.yaml`. Full reference, the span-tree diagram, and example Tempo/Jaeger queries are in [docs/observability.md](https://github.com/txn2/mcp-data-platform/blob/main/docs/observability.md).
+Head-based sampling is in-app via a ParentBased ratio sampler (a sampled caller's whole trace is always kept). Tail-based sampling — keeping 100% of error and slow traces and down-sampling only the fast successful majority — belongs in the collector, not the application, so it can be tuned without redeploying. An example collector pipeline (OTLP receiver, `tail_sampling` keeping ERROR and >2s traces, OTLP export to Tempo) ships in `deployments/observability/otel-collector.yaml`. Full reference, the span-tree diagram, and example Tempo/Jaeger queries are in [docs/server/observability.md](https://github.com/txn2/mcp-data-platform/blob/main/docs/server/observability.md).
 
 ---
 
@@ -1548,18 +1547,17 @@ Personas control which tools a user can access. Map OIDC roles to personas for r
 
 ```yaml
 personas:
-  definitions:
-    analyst:
-      display_name: "Data Analyst"
-      roles: ["analyst", "data_engineer"]
-      tools:
-        allow: ["trino_*", "datahub_*"]
-        deny: ["*_delete_*"]
-    admin:
-      display_name: "Administrator"
-      roles: ["admin"]
-      tools:
-        allow: ["*"]
+  analyst:
+    display_name: "Data Analyst"
+    roles: ["analyst", "data_engineer"]
+    tools:
+      allow: ["trino_*", "datahub_*"]
+      deny: ["*_delete_*"]
+  admin:
+    display_name: "Administrator"
+    roles: ["admin"]
+    tools:
+      allow: ["*"]
   default_persona: analyst
 ```
 
@@ -1578,11 +1576,10 @@ Personas can restrict which toolkit connections a user may access. A tool call m
 
 ```yaml
 personas:
-  definitions:
-    analyst:
-      connections:
-        allow: ["prod-*"]
-        deny: ["prod-admin-*"]
+  analyst:
+    connections:
+      allow: ["prod-*"]
+      deny: ["prod-admin-*"]
 ```
 
 If the `connections` block is omitted or empty, all connections are permitted (backward-compatible default). Connection patterns use the same wildcard syntax as tool patterns.
@@ -1861,18 +1858,17 @@ Control access through persona tool filtering:
 
 ```yaml
 personas:
-  definitions:
-    analyst:
-      tools:
-        allow: ["trino_*", "datahub_*", "memory_capture"]
-        deny: ["apply_knowledge"]
-    admin:
-      tools:
-        allow: ["*"]
-    etl_service:
-      tools:
-        allow: ["trino_*"]
-        deny: ["memory_capture", "apply_knowledge"]
+  analyst:
+    tools:
+      allow: ["trino_*", "datahub_*", "memory_capture"]
+      deny: ["apply_knowledge"]
+  admin:
+    tools:
+      allow: ["*"]
+  etl_service:
+    tools:
+      allow: ["trino_*"]
+      deny: ["memory_capture", "apply_knowledge"]
 ```
 
 ## Admin REST API

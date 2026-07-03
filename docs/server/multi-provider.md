@@ -185,27 +185,26 @@ You can restrict personas to specific connections using tool patterns:
 
 ```yaml
 personas:
-  definitions:
-    analyst:
-      display_name: Data Analyst
-      roles: ["analyst"]
-      tools:
-        allow:
-          - "trino_*"
-          - "datahub_*"
-        deny: []
+  analyst:
+    display_name: Data Analyst
+    roles: ["analyst"]
+    tools:
+      allow:
+        - "trino_*"
+        - "datahub_*"
+      deny: []
 
-    staging_user:
-      display_name: Staging User
-      roles: ["staging"]
-      tools:
-        allow:
-          - "trino_query"           # Can query
-          - "trino_browse"          # Can explore catalogs/schemas/tables
-          - "trino_describe_*"      # Can describe tables
-          - "trino_list_connections" # Can list connections
-        deny:
-          - "trino_explain"     # Cannot see execution plans
+  staging_user:
+    display_name: Staging User
+    roles: ["staging"]
+    tools:
+      allow:
+        - "trino_query"           # Can query
+        - "trino_browse"          # Can explore catalogs/schemas/tables
+        - "trino_describe_*"      # Can describe tables
+        - "trino_list_connections" # Can list connections
+      deny:
+        - "trino_explain"     # Cannot see execution plans
 ```
 
 Note: Connection-level filtering requires custom middleware. The built-in persona system filters by tool name patterns only.
@@ -261,4 +260,4 @@ toolkits:
 ## Next Steps
 
 - [Cross-Enrichment](../cross-enrichment/overview.md) - How enrichment works
-- [Configuration Reference](../reference/configuration.md) - All configuration options
+- [Configuration](configuration.md) - All configuration options

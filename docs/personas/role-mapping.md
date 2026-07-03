@@ -22,12 +22,11 @@ Personas define which roles they accept:
 
 ```yaml
 personas:
-  definitions:
-    analyst:
-      roles: ["analyst", "data_user"]
+  analyst:
+    roles: ["analyst", "data_user"]
 
-    admin:
-      roles: ["admin", "platform_admin"]
+  admin:
+    roles: ["admin", "platform_admin"]
 ```
 
 A user with role `analyst` gets the `analyst` persona.
@@ -39,18 +38,17 @@ When a user has multiple roles, the persona with the highest priority wins:
 
 ```yaml
 personas:
-  definitions:
-    viewer:
-      roles: ["viewer"]
-      priority: 1
+  viewer:
+    roles: ["viewer"]
+    priority: 1
 
-    analyst:
-      roles: ["analyst"]
-      priority: 10
+  analyst:
+    roles: ["analyst"]
+    priority: 10
 
-    admin:
-      roles: ["admin"]
-      priority: 100
+  admin:
+    roles: ["admin"]
+    priority: 100
 ```
 
 User with roles `["viewer", "analyst"]`:
@@ -92,20 +90,6 @@ Filtered roles: `["analyst", "admin"]`
 
 These filtered roles are then matched to personas.
 
-## User-Specific Mapping
-
-Assign specific users to personas directly:
-
-```yaml
-personas:
-  role_mapping:
-    user_personas:
-      "user123@example.com": "admin"
-      "service-account-etl": "etl_service"
-```
-
-User-specific mappings take precedence over role-based mapping.
-
 ## API Key Role Mapping
 
 API keys define roles directly in their configuration:
@@ -143,10 +127,9 @@ This applies to:
 
 The mapping process follows this priority order:
 
-1. **User-specific mapping** - `user_personas` entries
-2. **OIDC role mapping** - `oidc_to_persona` entries
-3. **Direct role match** - Persona's `roles` list
-4. **Default persona** - `default_persona`
+1. **OIDC role mapping** - `oidc_to_persona` entries
+2. **Direct role match** - Persona's `roles` list
+3. **Default persona** - `default_persona`
 
 ## Example: Enterprise Setup
 
@@ -159,36 +142,35 @@ auth:
     role_prefix: "mcp-"
 
 personas:
-  definitions:
-    viewer:
-      display_name: "Viewer"
-      roles: ["viewer", "guest"]
-      priority: 1
-      tools:
-        allow: ["datahub_search", "datahub_get_*"]
+  viewer:
+    display_name: "Viewer"
+    roles: ["viewer", "guest"]
+    priority: 1
+    tools:
+      allow: ["datahub_search", "datahub_get_*"]
 
-    analyst:
-      display_name: "Data Analyst"
-      roles: ["analyst", "data-team"]
-      priority: 10
-      tools:
-        allow: ["trino_*", "datahub_*"]
-        deny: ["*_delete_*"]
+  analyst:
+    display_name: "Data Analyst"
+    roles: ["analyst", "data-team"]
+    priority: 10
+    tools:
+      allow: ["trino_*", "datahub_*"]
+      deny: ["*_delete_*"]
 
-    data_engineer:
-      display_name: "Data Engineer"
-      roles: ["engineer", "platform-team"]
-      priority: 20
-      tools:
-        allow: ["*"]
-        deny: ["*_delete_*"]
+  data_engineer:
+    display_name: "Data Engineer"
+    roles: ["engineer", "platform-team"]
+    priority: 20
+    tools:
+      allow: ["*"]
+      deny: ["*_delete_*"]
 
-    admin:
-      display_name: "Administrator"
-      roles: ["admin", "ops-team"]
-      priority: 100
-      tools:
-        allow: ["*"]
+  admin:
+    display_name: "Administrator"
+    roles: ["admin", "ops-team"]
+    priority: 100
+    tools:
+      allow: ["*"]
 
   role_mapping:
     oidc_to_persona:
@@ -196,9 +178,6 @@ personas:
       "mcp-analyst": "analyst"
       "mcp-engineer": "data_engineer"
       "mcp-admin": "admin"
-
-    user_personas:
-      "emergency-admin@example.com": "admin"
 
   default_persona: viewer
 ```
@@ -212,7 +191,6 @@ With this configuration:
 | `["mcp-analyst", "mcp-engineer"]` | data_engineer (higher priority) |
 | `["mcp-admin"]` | admin |
 | `["unknown-role"]` | viewer (default) |
-| `emergency-admin@example.com` | admin (user mapping) |
 
 ## Debugging Role Mapping
 
@@ -236,7 +214,6 @@ The audit log includes:
 - Check role extraction from OIDC token
 - Verify role prefix configuration
 - Review persona priority settings
-- Check for user-specific mappings
 
 **User gets default persona unexpectedly:**
 - Verify roles are being extracted from token

@@ -52,11 +52,19 @@ The public viewer includes:
 - **Expiration notice** — When the share has an expiration, a notice bar shows the relative time remaining (e.g., "This page expires in 6 hours"). Hidden when the share has no expiry or `hide_expiration` was set at share creation.
 - **Notice text** — Configurable per-share via `notice_text`. Defaults to "Proprietary & Confidential. Only share with authorized viewers." Set to `""` to hide the notice entirely.
 
-The `hide_expiration` and `notice_text` fields are set per-share when creating a share via the API:
+These fields are set per-share when creating a share via `POST /api/v1/portal/assets/{id}/shares`:
 
 ```json
 {"expires_in": "24h", "hide_expiration": true, "notice_text": "Internal use only."}
 ```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `expires_in` | string | - | Duration string (e.g., `"24h"`, `"72h"`) |
+| `shared_with_user_id` | string | - | Target user ID for private shares |
+| `shared_with_email` | string | - | Target email for private shares |
+| `hide_expiration` | bool | `false` | Hide the expiration countdown in the public viewer |
+| `notice_text` | string\|null | `"Proprietary & Confidential. Only share with authorized viewers."` | Custom notice text for the public viewer. Omit or `null` for the default. Set to `""` to hide the notice entirely. Max 500 characters. |
 
 ## Dashboard
 

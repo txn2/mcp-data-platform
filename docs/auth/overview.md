@@ -70,7 +70,7 @@ JWT tokens are validated with the following checks:
 
 1. **Signature verification** - Token signature verified against JWKS
 2. **Required claims** - `sub` (subject) and `exp` (expiration) are mandatory
-3. **Time validation** - `exp`, `nbf`, and `iat` claims validated with configurable clock skew
+3. **Time validation** - `exp`, `nbf`, and `iat` claims validated with a fixed 30-second clock skew (not YAML-configurable)
 4. **Issuer verification** - Token issuer must match configuration
 5. **Audience verification** - Token audience must match (when configured)
 
@@ -81,8 +81,6 @@ auth:
     issuer: "https://auth.example.com/realms/platform"
     client_id: "mcp-data-platform"
     audience: "mcp-data-platform"
-    clock_skew_seconds: 30      # Default: 30 seconds
-    max_token_age: 24h          # Optional: reject tokens older than this
 ```
 
 ## HTTP Authentication Flow
@@ -181,8 +179,6 @@ auth:
     audience: "mcp-data-platform"
     role_claim_path: "realm_access.roles"
     role_prefix: "dp_"
-    clock_skew_seconds: 30
-    max_token_age: 24h
 
   api_keys:
     enabled: true
@@ -192,13 +188,12 @@ auth:
         roles: ["service"]
 
 personas:
-  definitions:
-    analyst:
-      display_name: "Data Analyst"
-      roles: ["analyst"]
-      tools:
-        allow: ["trino_query", "trino_execute", "trino_explain", "datahub_*"]
-        deny: ["*_delete_*"]
+  analyst:
+    display_name: "Data Analyst"
+    roles: ["analyst"]
+    tools:
+      allow: ["trino_query", "trino_execute", "trino_explain", "datahub_*"]
+      deny: ["*_delete_*"]
   default_persona: analyst  # Required: users need explicit persona
 ```
 

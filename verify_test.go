@@ -229,3 +229,38 @@ func TestNoopOnlyInterfaces(t *testing.T) {
 			iface, typeNames)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Gate: CLAUDE.md project structure map stays current
+// ---------------------------------------------------------------------------
+
+// TestClaudeMdCoversPkgDirectories verifies that every top-level pkg/
+// directory is referenced by name in CLAUDE.md's Project Structure section.
+//
+// CLAUDE.md is the first map new contributors and coding agents load. A map
+// that silently drops packages as the tree grows sends every newcomer's
+// first exploration to the wrong places (see issue #773).
+func TestClaudeMdCoversPkgDirectories(t *testing.T) {
+	projectRoot, err := filepath.Abs(".")
+	require.NoError(t, err)
+
+	entries, err := os.ReadDir(filepath.Join(projectRoot, "pkg"))
+	require.NoError(t, err)
+
+	claudeMd, err := os.ReadFile(filepath.Join(projectRoot, "CLAUDE.md")) //nolint:gosec // test reads project doc
+	require.NoError(t, err)
+	content := string(claudeMd)
+
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		// \b prevents a substring collision from masking a missing entry,
+		// e.g. "auth/" matching inside "oauth/" or "session/" inside
+		// "browsersession/".
+		pkgNameRe := regexp.MustCompile(`\b` + regexp.QuoteMeta(e.Name()) + `/`)
+		assert.True(t, pkgNameRe.MatchString(content),
+			"pkg/%s is not listed in CLAUDE.md's Project Structure section. "+
+				"Add it with a one-line purpose note, or delete the package if it's no longer used.", e.Name())
+	}
+}

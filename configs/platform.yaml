@@ -28,7 +28,6 @@ server:
 # sessions:
 #   store: memory               # "memory" (default) or "database"
 #   ttl: 30m                    # session lifetime (defaults to streamable.session_timeout)
-#   idle_timeout: 30m           # idle session eviction (defaults to streamable.session_timeout)
 #   cleanup_interval: 1m        # cleanup routine frequency
 
 # Generic OIDC authentication
@@ -132,8 +131,6 @@ personas:
       "dp_admin": "admin"
       "dp_analyst": "analyst"
       "dp_executive": "executive"
-    user_personas:
-      "admin@example.com": "admin"
 
 # Tool visibility filter and description overrides
 # Reduces token usage by hiding tools from tools/list responses.
@@ -189,8 +186,8 @@ toolkits:
         read_only: true         # Restrict to read operations
     default: primary
     config:
-      search_limit: 50
-      lineage_max_depth: 5
+      default_limit: 50
+      max_lineage_depth: 5
       # descriptions:
       #   datahub_search: "Search the data catalog for datasets and dashboards"
       #   datahub_get_entity: "Get full metadata for a catalog entity by URN"

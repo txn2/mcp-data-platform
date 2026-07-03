@@ -87,12 +87,11 @@ enrichment:
   column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
 
 personas:
-  definitions:
-    analyst:
-      display_name: "Data Analyst"
-      roles: ["analyst"]
-      tools:
-        allow: ["trino_*", "datahub_*"]
+  analyst:
+    display_name: "Data Analyst"
+    roles: ["analyst"]
+    tools:
+      allow: ["trino_*", "datahub_*"]
   default_persona: analyst
 ```
 
@@ -177,17 +176,16 @@ enrichment:
   column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
 
 personas:
-  definitions:
-    analyst:
-      display_name: "Data Analyst"
-      roles: ["analyst"]
-      tools:
-        allow: ["trino_*", "datahub_*"]
-    admin:
-      display_name: "Administrator"
-      roles: ["admin"]
-      tools:
-        allow: ["*"]
+  analyst:
+    display_name: "Data Analyst"
+    roles: ["analyst"]
+    tools:
+      allow: ["trino_*", "datahub_*"]
+  admin:
+    display_name: "Administrator"
+    roles: ["admin"]
+    tools:
+      allow: ["*"]
   default_persona: analyst
 ```
 
