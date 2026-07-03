@@ -181,3 +181,107 @@ func TestMemoryStore_Supersede_RealDB_AdvancesInsightStatus(t *testing.T) {
 	assert.False(t, hasInsightStatus, "a non-insight record must not be given an insight_status")
 	assert.Equal(t, "mem_successor", gotPref.Metadata["superseded_by"])
 }
+
+// TestMemoryStore_EntityLookup_RealDB_PushPathGatesPending is the #745 acceptance
+// test at the store level. The persona-scoped enrichment push path (createdBy == "")
+// must exclude un-evaluated candidates regardless of how their pending state is
+// encoded:
+//   - live captures set metadata.insight_status = pending
+//   - insights migrated from knowledge_insights carry no insight_status and record
+//     their state under metadata.legacy_status (migration 000031)
+//
+// Grounded records (any status off pending) and non-insight memories (no marker)
+// must still be pushed. The user-scoped path (createdBy set) is a caller reading
+// their own memories and keeps their own pending candidates.
+func TestMemoryStore_EntityLookup_RealDB_PushPathGatesPending(t *testing.T) {
+	store := NewPostgresStore(testdb.New(t))
+	ctx := context.Background()
+
+	const (
+		urn   = "urn:li:dataset:(urn:li:dataPlatform:trino,cat.sch.tbl,PROD)"
+		owner = "owner@example.com"
+		other = "analyst"
+	)
+	knowledgeRec := func(id, content string, meta map[string]any) Record {
+		return Record{
+			ID:         id,
+			CreatedBy:  owner,
+			Persona:    other,
+			Dimension:  DimensionKnowledge,
+			SinkClass:  SinkSchemaEntity,
+			Content:    content,
+			Category:   CategoryBusinessCtx,
+			Confidence: ConfidenceHigh,
+			Source:     SourceUser,
+			Status:     StatusActive,
+			EntityURNs: []string{urn},
+			Metadata:   meta,
+		}
+	}
+
+	// Two pending encodings that must be gated on the push path.
+	pendingInsight := knowledgeRec("mem_745_pending_insight", "Pending live capture.",
+		map[string]any{MetaKeyInsightStatus: InsightStatusPending})
+	migratedPending := knowledgeRec("mem_745_pending_legacy", "Pending migrated insight.",
+		map[string]any{MetaKeyLegacyStatus: InsightStatusPending})
+	// Grounded records that must still be pushed.
+	appliedInsight := knowledgeRec("mem_745_applied", "Grounded via apply.",
+		map[string]any{MetaKeyInsightStatus: "applied"})
+	migratedApproved := knowledgeRec("mem_745_legacy_approved", "Grounded migrated insight.",
+		map[string]any{MetaKeyLegacyStatus: "approved"})
+	// A migrated candidate later approved: UpdateStatus merges insight_status
+	// without clearing the stale legacy_status='pending', so the record carries
+	// BOTH keys. insight_status is authoritative (resolveInsightStatus precedence),
+	// so this grounded insight must still be pushed. Gating on "either key pending"
+	// would withhold it forever.
+	migratedThenApproved := knowledgeRec("mem_745_legacy_then_approved", "Migrated, then approved.",
+		map[string]any{MetaKeyInsightStatus: "approved", MetaKeyLegacyStatus: InsightStatusPending})
+	// A non-insight preference (no marker) must never be gated by the insight logic.
+	preference := Record{
+		ID:         "mem_745_pref",
+		CreatedBy:  owner,
+		Persona:    other,
+		Dimension:  DimensionPreference,
+		SinkClass:  SinkPersonalPreference,
+		Content:    "User prefers ISO dates.",
+		Category:   CategoryGeneral,
+		Confidence: ConfidenceHigh,
+		Source:     SourceUser,
+		Status:     StatusActive,
+		EntityURNs: []string{urn},
+	}
+	for _, r := range []Record{
+		pendingInsight, migratedPending, appliedInsight, migratedApproved, migratedThenApproved, preference,
+	} {
+		require.NoError(t, store.Insert(ctx, r))
+	}
+
+	ids := func(records []Record) map[string]bool {
+		set := make(map[string]bool, len(records))
+		for _, r := range records {
+			set[r.ID] = true
+		}
+		return set
+	}
+
+	// Push path: persona-scoped, createdBy == "".
+	pushed, err := store.EntityLookup(ctx, urn, other, "")
+	require.NoError(t, err)
+	got := ids(pushed)
+	assert.False(t, got[pendingInsight.ID], "insight_status=pending candidate must not be pushed")
+	assert.False(t, got[migratedPending.ID], "legacy_status=pending (migrated) candidate must not be pushed")
+	assert.True(t, got[appliedInsight.ID], "grounded (applied) insight must be pushed")
+	assert.True(t, got[migratedApproved.ID], "grounded (legacy approved) insight must be pushed")
+	assert.True(t, got[migratedThenApproved.ID],
+		"grounded insight with stale legacy_status=pending must be pushed (insight_status is authoritative)")
+	assert.True(t, got[preference.ID], "non-insight memory must be pushed")
+
+	// User-scoped path: createdBy set to the owner. The caller sees their own
+	// candidates; the pending gate does not apply.
+	own, err := store.EntityLookup(ctx, urn, other, owner)
+	require.NoError(t, err)
+	gotOwn := ids(own)
+	assert.True(t, gotOwn[pendingInsight.ID], "owner sees their own insight_status=pending candidate")
+	assert.True(t, gotOwn[migratedPending.ID], "owner sees their own legacy_status=pending candidate")
+	assert.Len(t, own, 6, "user-scoped lookup returns all of the owner's entity-linked records")
+}

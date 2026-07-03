@@ -630,6 +630,40 @@ func (s *postgresStore) EntityLookup(ctx context.Context, urn, persona, createdB
 	// memories. Empty leaves the lookup persona-scoped (the enrichment path).
 	if createdBy != "" {
 		qb = qb.Where(sq.Eq{colCreatedBy: createdBy})
+	} else {
+		// Persona-scoped lookup (createdBy == "") is the enrichment push path:
+		// it injects entity-linked knowledge into any same-persona agent's tool
+		// results. A pending insight candidate has not been evaluated by anyone
+		// yet, so it must not be pushed before it is grounded (#745). Any
+		// transition off pending lifts this gate.
+		//
+		// Every live path that creates a pending candidate stamps an explicit
+		// marker: memory_capture and the portal capture set metadata.insight_status
+		// = pending; insights migrated from knowledge_insights carry no
+		// insight_status and record their state under metadata.legacy_status
+		// (migration 000031). The gate keys off those explicit markers, applying
+		// resolveInsightStatus's precedence between them: insight_status is
+		// authoritative and legacy_status is only the fallback. That precedence
+		// matters when a migrated candidate is later approved: UpdateStatus merges
+		// the new insight_status without clearing the stale legacy_status='pending',
+		// and a naive "either key is pending" gate would keep excluding the
+		// now-grounded insight forever. COALESCE(insight_status, legacy_status)
+		// resolves to the authoritative value, so the record is gated only while it
+		// is truly pending.
+		//
+		// The gate deliberately stops at the explicit markers and does NOT apply
+		// resolveInsightStatus's third-level status-column fallback (an active
+		// knowledge record with no marker maps to pending). That fallback is an
+		// insight-lens default; applying it here would exclude markerless active
+		// memories that are not pending candidates: non-insight memories and
+		// established knowledge captured before the marker convention. A record with
+		// neither marker therefore resolves to NULL, which IS DISTINCT FROM keeps.
+		//
+		// A user-scoped lookup (createdBy set) is the caller reading their own
+		// memories and may include their own candidates.
+		qb = qb.Where(sq.Expr(
+			"COALESCE(NULLIF(metadata ->> ?, ''), NULLIF(metadata ->> ?, '')) IS DISTINCT FROM ?",
+			MetaKeyInsightStatus, MetaKeyLegacyStatus, InsightStatusPending))
 	}
 
 	query, args, err := qb.ToSql()

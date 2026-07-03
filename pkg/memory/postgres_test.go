@@ -448,6 +448,9 @@ func TestPostgresStore_EntityLookup_WithPersona(t *testing.T) {
 			sqlmock.AnyArg(), // entity_urns @> JSON
 			StatusActive,
 			"analyst",
+			MetaKeyInsightStatus, // authoritative pending marker (push path)
+			MetaKeyLegacyStatus,  // fallback marker (migrated candidates)
+			InsightStatusPending,
 		).
 		WillReturnRows(rows)
 
@@ -458,7 +461,38 @@ func TestPostgresStore_EntityLookup_WithPersona(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+// TestPostgresStore_EntityLookup_WithoutPersona covers the persona-scoped enrichment
+// push path (persona == "", createdBy == ""). It asserts the precedence-honoring
+// COALESCE(insight_status, legacy_status) pending-exclusion predicate is emitted so an
+// un-evaluated candidate (live or migrated) is never pushed into an agent's context
+// before it is grounded (#745).
 func TestPostgresStore_EntityLookup_WithoutPersona(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresStore(db)
+
+	mock.ExpectQuery("SELECT .+ FROM memory_records WHERE .+COALESCE.NULLIF.metadata ->> .+ IS DISTINCT FROM").
+		WithArgs(
+			sqlmock.AnyArg(), // entity_urns @> JSON
+			StatusActive,
+			MetaKeyInsightStatus, // authoritative pending marker (push path)
+			MetaKeyLegacyStatus,  // fallback marker (migrated candidates)
+			InsightStatusPending,
+		).
+		WillReturnRows(sqlmock.NewRows(memorySelectColumns))
+
+	records, err := store.EntityLookup(context.Background(), "urn:li:dataset:bar", "", "")
+	require.NoError(t, err)
+	assert.Empty(t, records)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestPostgresStore_EntityLookup_UserScopedKeepsPending asserts the user-scoped
+// search path (createdBy set) does NOT apply the pending exclusion: a caller may see
+// their own un-evaluated candidates. The query filters by created_by instead (#745).
+func TestPostgresStore_EntityLookup_UserScopedKeepsPending(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	defer db.Close() //nolint:errcheck // test cleanup
@@ -469,10 +503,11 @@ func TestPostgresStore_EntityLookup_WithoutPersona(t *testing.T) {
 		WithArgs(
 			sqlmock.AnyArg(), // entity_urns @> JSON
 			StatusActive,
+			"user@example.com", // created_by scope, no pending exclusion
 		).
 		WillReturnRows(sqlmock.NewRows(memorySelectColumns))
 
-	records, err := store.EntityLookup(context.Background(), "urn:li:dataset:bar", "", "")
+	records, err := store.EntityLookup(context.Background(), "urn:li:dataset:qux", "", "user@example.com")
 	require.NoError(t, err)
 	assert.Empty(t, records)
 	assert.NoError(t, mock.ExpectationsWereMet())
