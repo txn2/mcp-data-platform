@@ -1423,7 +1423,7 @@ Copy an object. Only available when `read_only: false`. Parameters: `source_buck
 
 ### memory_capture
 
-The one way to record knowledge, in the memory toolkit. The `type` (sink-class) drives routing: `personal_preference` and `episodic_event` write live to memory; `business_knowledge`, `schema_entity`, and `operational_rule` write a knowledge-dimension record carrying a pending insight overlay (`insight_status=pending`) that `apply_knowledge` can promote. Capture is recall-first: a near-duplicate of the caller's existing memory is superseded, not appended.
+The one way to record knowledge, in the memory toolkit. The `type` (sink-class) drives routing: `personal_preference` and `episodic_event` write live to memory; `business_knowledge`, `schema_entity`, and `operational_rule` write a knowledge-dimension record carrying a pending insight overlay (`insight_status=pending`) that `apply_knowledge` can promote. Capture is recall-first over the caller's memory (superseded rows excluded so a dead predecessor never absorbs the supersede; stale rows stay matchable, since a restatement corrects them): every near-duplicate at or above the supersede threshold (0.9 cosine) is superseded by the new capture, not appended (all of them, so a capture over an already-duplicated pair consolidates the whole set); the response's `superseded` field carries the best match id and `superseded_ids` the complete list. Matches in the 0.75-0.9 band are returned as `similar_existing` candidates (id + score) so the agent can consolidate (`memory_manage` update/consolidate) instead of leaving a near-duplicate. When the capture carries `entity_urns`, only records sharing an entity URN can match. Recall requires an embedding provider; without one, captures append.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
@@ -1498,12 +1498,13 @@ Persistent memory for agent and analyst sessions. Requires `memory.enabled: true
 
 ### memory_manage
 
-Lifecycle operations for existing memory records; create new records with `memory_capture`. Commands: `update`, `forget` (soft-delete), `list` (persona-scoped), `review_stale` (admin review of stale memories).
+Lifecycle operations for existing memory records; create new records with `memory_capture`. Commands: `update`, `forget` (soft-delete), `list` (persona-scoped), `review_stale` (admin review of stale memories), `review_duplicates` (list the caller's own active pairs at or above 0.75 cosine similarity, the backstop for near-duplicates the capture-time recall gate missed; requires the database-backed store with vector search), `consolidate` (supersede a duplicate by the record kept: `id` = keep, `duplicate_id` = supersede; both must belong to the caller, the record kept must be active, and the correction chain is preserved via `metadata.superseded_by`).
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `command` | string | No | update, forget, list, review_stale (create with memory_capture) |
-| `id` | string | For update/forget | Memory record ID |
+| `command` | string | No | update, forget, list, review_stale, review_duplicates, consolidate (create with memory_capture) |
+| `id` | string | For update/forget/consolidate | Memory record ID (for consolidate: the record to keep) |
+| `duplicate_id` | string | For consolidate | The duplicate record the kept record supersedes |
 | `dimension` | string | No | LOCOMO: knowledge, event, entity, relationship, preference |
 | `category` | string | No | correction, business_context, data_quality, usage_guidance, relationship, enhancement, general |
 | `confidence` | string | No | high, medium, low |

@@ -10,6 +10,7 @@ import (
 	"log/slog"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	memstore "github.com/txn2/mcp-data-platform/pkg/memory"
@@ -22,10 +23,12 @@ const idLength = 16
 // switch, the help map, and any audit/log statements all reference
 // the same literal — and goconst doesn't flag the repeats.
 const (
-	cmdUpdate      = "update"
-	cmdForget      = "forget"
-	cmdList        = "list"
-	cmdReviewStale = "review_stale"
+	cmdUpdate           = "update"
+	cmdForget           = "forget"
+	cmdList             = "list"
+	cmdReviewStale      = "review_stale"
+	cmdReviewDuplicates = "review_duplicates"
+	cmdConsolidate      = "consolidate"
 	// fieldMessage is the JSON key used in successful command results.
 	fieldMessage = "message"
 )
@@ -43,10 +46,14 @@ func (t *Toolkit) handleManage(ctx context.Context, _ *mcp.CallToolRequest, inpu
 		return t.handleList(ctx, input)
 	case cmdReviewStale:
 		return t.handleReviewStale(ctx, input)
+	case cmdReviewDuplicates:
+		return t.handleReviewDuplicates(ctx, input)
+	case cmdConsolidate:
+		return t.handleConsolidate(ctx, input)
 	case "":
 		return helpResult(), nil, nil
 	default:
-		return errorResult(fmt.Sprintf("unknown command %q: use update, forget, list, or review_stale (create with memory_capture)", input.Command)), nil, nil
+		return errorResult(fmt.Sprintf("unknown command %q: use update, forget, list, review_stale, review_duplicates, or consolidate (create with memory_capture)", input.Command)), nil, nil
 	}
 }
 
@@ -211,14 +218,116 @@ func (t *Toolkit) handleReviewStale(ctx context.Context, input manageInput) (*mc
 	}), nil, nil
 }
 
+// handleReviewDuplicates lists the caller's high-similarity active record
+// pairs for consolidation review, the backstop for near-duplicates the
+// capture-time recall gate missed (#762). Memory content is per-user, so the
+// listing is scoped to the caller's own records — the same boundary
+// consolidate/update/forget enforce, keeping every listed pair actionable.
+// The similarity floor is the capture-time suggest threshold: the backstop
+// exists precisely for pairs below the auto-supersede bar.
+func (t *Toolkit) handleReviewDuplicates(ctx context.Context, input manageInput) (*mcp.CallToolResult, any, error) {
+	finder, ok := t.store.(memstore.DuplicateFinder)
+	if !ok {
+		return errorResult("review_duplicates requires the database-backed memory store with vector search"), nil, nil
+	}
+	pc := middleware.GetPlatformContext(ctx)
+	if pc == nil || pc.UserEmail == "" {
+		return errorResult("a user identity (email) is required to review duplicates"), nil, nil
+	}
+
+	pairs, err := finder.SimilarActivePairs(ctx, pc.UserEmail, recallSuggestThreshold, input.Limit)
+	if err != nil {
+		return errorResult("failed to list duplicate candidates: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+	}
+
+	return jsonResult(map[string]any{
+		"pairs": pairs,
+		"total": len(pairs),
+		fieldMessage: fmt.Sprintf("%d high-similarity active pair(s) found. To consolidate a pair, use"+
+			" command=consolidate with id (the record to keep) and duplicate_id (the record it supersedes).", len(pairs)),
+	}), nil, nil
+}
+
+// handleConsolidate supersedes a duplicate record by the record being kept,
+// completing the review_duplicates loop. Both records must belong to the
+// caller (same ownership rule as update/forget) and the kept record must be
+// active — otherwise the "duplicate" could be the only live copy of the fact
+// and consolidating would silently retire it behind a dead record. The
+// supersede preserves the correction chain via metadata.superseded_by rather
+// than discarding the duplicate outright.
+func (t *Toolkit) handleConsolidate(ctx context.Context, input manageInput) (*mcp.CallToolResult, any, error) {
+	if input.ID == "" || input.DuplicateID == "" {
+		return errorResult("consolidate requires id (the record to keep) and duplicate_id (the record it supersedes)"), nil, nil
+	}
+	if input.ID == input.DuplicateID {
+		return errorResult("id and duplicate_id must differ"), nil, nil
+	}
+
+	keep, result := t.fetchConsolidatePair(ctx, input.ID, input.DuplicateID)
+	if result != nil {
+		return result, nil, nil
+	}
+	if keep.Status != memstore.StatusActive {
+		return errorResult("the record to keep must be active (status: " + keep.Status + ")"), nil, nil
+	}
+
+	if err := t.store.Supersede(ctx, input.DuplicateID, input.ID); err != nil {
+		return errorResult("failed to consolidate: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+	}
+
+	return jsonResult(map[string]any{
+		"id":         input.ID,
+		"superseded": input.DuplicateID,
+		fieldMessage: "Duplicate consolidated: the kept record now supersedes it.",
+	}), nil, nil
+}
+
+// fetchConsolidatePair loads the two consolidate operands concurrently
+// (independent PK lookups) and enforces caller ownership on both. It returns
+// the kept record, or a non-nil error result when either record is missing or
+// foreign.
+func (t *Toolkit) fetchConsolidatePair(ctx context.Context, keepID, duplicateID string) (*memstore.Record, *mcp.CallToolResult) {
+	var keep, dup *memstore.Record
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		r, err := t.store.Get(gctx, keepID)
+		if err != nil {
+			return fmt.Errorf("loading record to keep: %w", err)
+		}
+		keep = r
+		return nil
+	})
+	g.Go(func() error {
+		r, err := t.store.Get(gctx, duplicateID)
+		if err != nil {
+			return fmt.Errorf("loading duplicate record: %w", err)
+		}
+		dup = r
+		return nil
+	})
+	if err := g.Wait(); err != nil {
+		return nil, errorResult("memory not found")
+	}
+
+	pc := middleware.GetPlatformContext(ctx)
+	for _, r := range []*memstore.Record{keep, dup} {
+		if pc != nil && pc.UserEmail != "" && r.CreatedBy != pc.UserEmail {
+			return nil, errorResult("you can only " + cmdConsolidate + " your own memories")
+		}
+	}
+	return keep, nil
+}
+
 // helpResult returns the list of available commands.
 func helpResult() *mcp.CallToolResult {
 	return jsonResult(map[string]any{
 		"commands": map[string]string{
-			cmdUpdate:      "Update an existing memory (requires id)",
-			cmdForget:      "Archive a memory (requires id)",
-			cmdList:        "List memories with optional filters",
-			cmdReviewStale: "List memories flagged as stale",
+			cmdUpdate:           "Update an existing memory (requires id)",
+			cmdForget:           "Archive a memory (requires id)",
+			cmdList:             "List memories with optional filters",
+			cmdReviewStale:      "List memories flagged as stale",
+			cmdReviewDuplicates: "List high-similarity active memory pairs for consolidation",
+			cmdConsolidate:      "Supersede a duplicate record by the one kept (requires id and duplicate_id)",
 		},
 	})
 }

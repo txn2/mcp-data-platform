@@ -420,6 +420,63 @@ func TestVectorSearch_CreatedByAndDimensionFilters(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+// TestVectorSearch_MalformedRowJSON pins the scored-row scan error path: a
+// row whose JSON column does not unmarshal must fail the search, not scan a
+// half-populated record.
+func TestVectorSearch_MalformedRowJSON(t *testing.T) {
+	t.Parallel()
+
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresStore(db)
+
+	rows := sqlmock.NewRows(lexicalColumns).AddRow(
+		"bad", time.Now(), time.Now(), "u@example.com", "analyst", DimensionKnowledge, SinkBusinessKnowledge,
+		"content", CategoryBusinessCtx, ConfidenceMedium, SourceUser,
+		[]byte(`not-json`), []byte(`[]`), []byte(`{}`),
+		StatusActive, nil, nil, nil,
+		0.9,
+	)
+	mock.ExpectQuery("ORDER BY embedding").WillReturnRows(rows)
+
+	_, err = store.VectorSearch(context.Background(), VectorQuery{Embedding: []float32{0.1}, Limit: 5})
+	require.Error(t, err, "a malformed JSON column must fail the scan")
+}
+
+// TestVectorSearch_ExcludeStatuses covers the negative status scope the
+// recall-first capture check uses (#762): superseded rows must be dropped by
+// an `status <> $n` predicate bound after the positive scope args, while the
+// default archived exclusion still applies (no explicit Status set).
+func TestVectorSearch_ExcludeStatuses(t *testing.T) {
+	t.Parallel()
+
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresStore(db)
+
+	rows := sqlmock.NewRows(lexicalColumns)
+	addLexicalRow(rows, "active-match", true, 0.95)
+	mock.ExpectQuery(`status <> 'archived'.* AND status <> \$3`).
+		WithArgs(sqlmock.AnyArg(), "user@example.com", StatusSuperseded).
+		WillReturnRows(rows)
+
+	got, err := store.VectorSearch(context.Background(), VectorQuery{
+		Embedding:       []float32{0.1, 0.2},
+		CreatedBy:       "user@example.com",
+		ExcludeStatuses: []string{StatusSuperseded},
+		MinScore:        0.9,
+		Limit:           5,
+	})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "active-match", got[0].Record.ID)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
 // TestArchivedExclusion pins the rule that resolves the archived-status
 // search contradiction: the default `status <> 'archived'` predicate is
 // emitted only when no explicit status is requested. An explicit status

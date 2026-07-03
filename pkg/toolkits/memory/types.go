@@ -5,6 +5,7 @@ type manageInput struct {
 	Command         string         `json:"command"`
 	Content         string         `json:"content,omitempty"`
 	ID              string         `json:"id,omitempty"`
+	DuplicateID     string         `json:"duplicate_id,omitempty"`
 	Dimension       string         `json:"dimension,omitempty"`
 	Category        string         `json:"category,omitempty"`
 	Confidence      string         `json:"confidence,omitempty"`

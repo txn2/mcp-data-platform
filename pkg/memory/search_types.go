@@ -16,6 +16,13 @@ type VectorQuery struct {
 	Dimension string
 	Persona   string
 	Status    string
+	// ExcludeStatuses drops rows of the listed statuses, the complement of
+	// Status (which restricts to one). It composes with the default archived
+	// exclusion (applied when Status is empty). The recall-first capture check
+	// uses it to skip superseded rows (a dead predecessor must not absorb a
+	// new capture's supersede, #762) while still matching stale rows (a
+	// restatement is exactly how a stale record gets corrected).
+	ExcludeStatuses []string
 }
 
 // HybridQuery defines parameters for hybrid (vector + lexical) recall.

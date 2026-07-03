@@ -1576,37 +1576,44 @@ func (p *Platform) initSessionGate() {
 const recallCandidateK = 5
 
 // memoryRecallChecker implements memorykit.RecallChecker by running a raw cosine
-// (vector-only) similarity search over the caller's own memory and returning the
-// best match that also shares an entity URN with the candidate (when it has any).
-// It uses VectorSearch's raw cosine (not the search router's min-max
-// normalization, nor the fused hybrid score) so MinScore reads as a true cosine.
-// The candidate embedding is supplied by the caller (memory_capture reuses the
-// vector it already computed), so this type needs no embedder of its own.
+// (vector-only) similarity search over the caller's own memory and returning
+// every match clearing the threshold that also shares an entity URN with the
+// candidate (when it has any). It uses VectorSearch's raw cosine (not the
+// search router's min-max normalization, nor the fused hybrid score) so
+// MinScore reads as a true cosine. The candidate embedding is supplied by the
+// caller (memory_capture reuses the vector it already computed), so this type
+// needs no embedder of its own.
 type memoryRecallChecker struct {
 	store memory.Store
 }
 
-// ExistingMatch returns the caller's best-matching memory id and cosine score, or
-// ("", 0) when there is no precomputed embedding, no caller, or nothing clears
-// MinScore and the entity-URN gate. The caller (memory_capture) precomputes the
-// embedding and runs this BEFORE inserting the new row, so a capture never
-// matches itself.
-func (c *memoryRecallChecker) ExistingMatch(ctx context.Context, q memorykit.RecallQuery) (id string, score float64, err error) {
+// Matches returns the caller's memories similar to the candidate, best first,
+// or nil when there is no precomputed embedding, no caller, or nothing clears
+// MinScore and the entity-URN gate. The caller (memory_capture) precomputes
+// the embedding and runs this BEFORE inserting the new row, so a capture never
+// matches itself. Superseded rows are excluded from the search: without that,
+// a superseded (near-identical) predecessor can outrank its active successor,
+// absorb the supersede, and leave two active duplicates standing (#762). Stale
+// rows remain matchable — a restatement is exactly how a stale record gets
+// corrected — and archived rows are excluded by the store's default.
+func (c *memoryRecallChecker) Matches(ctx context.Context, q memorykit.RecallQuery) ([]memorykit.RecallMatch, error) {
 	if q.CallerEmail == "" || c.store == nil || len(q.Embedding) == 0 {
-		return "", 0, nil
+		return nil, nil
 	}
 	res, err := c.store.VectorSearch(ctx, memory.VectorQuery{
-		Embedding: q.Embedding,
-		CreatedBy: q.CallerEmail,
-		MinScore:  q.MinScore,
-		Limit:     recallCandidateK,
+		Embedding:       q.Embedding,
+		CreatedBy:       q.CallerEmail,
+		MinScore:        q.MinScore,
+		ExcludeStatuses: []string{memory.StatusSuperseded},
+		Limit:           recallCandidateK,
 	})
 	if err != nil {
-		return "", 0, fmt.Errorf("recall-first similarity: %w", err)
+		return nil, fmt.Errorf("recall-first similarity: %w", err)
 	}
-	// Results are sorted by descending similarity. Take the best one that clears
+	// Results are sorted by descending similarity. Keep every one that clears
 	// the threshold and, when the candidate concerns specific entities, shares an
 	// entity URN — so knowledge about table A never supersedes knowledge about B.
+	var matches []memorykit.RecallMatch
 	for i := range res {
 		if res[i].Score < q.MinScore {
 			break
@@ -1614,9 +1621,9 @@ func (c *memoryRecallChecker) ExistingMatch(ctx context.Context, q memorykit.Rec
 		if len(q.EntityURNs) > 0 && !sharesAny(res[i].Record.EntityURNs, q.EntityURNs) {
 			continue
 		}
-		return res[i].Record.ID, res[i].Score, nil
+		matches = append(matches, memorykit.RecallMatch{ID: res[i].Record.ID, Score: res[i].Score})
 	}
-	return "", 0, nil
+	return matches, nil
 }
 
 // sharesAny reports whether a and b have at least one element in common.

@@ -285,3 +285,56 @@ func TestMemoryStore_EntityLookup_RealDB_PushPathGatesPending(t *testing.T) {
 	assert.True(t, gotOwn[migratedPending.ID], "owner sees their own legacy_status=pending candidate")
 	assert.Len(t, own, 6, "user-scoped lookup returns all of the owner's entity-linked records")
 }
+
+// TestMemoryStore_SimilarActivePairs_RealDB exercises the #762 backstop query
+// against real pgvector: the lateral self-join must pair a user's two
+// near-identical ACTIVE records exactly once (mirror rows deduplicated, older
+// first), and must not pair across owners, against superseded records, or
+// across dissimilar content. sqlmock cannot validate any of this SQL.
+func TestMemoryStore_SimilarActivePairs_RealDB(t *testing.T) {
+	store := NewPostgresStore(testdb.New(t))
+	ctx := context.Background()
+
+	// 768-dim embeddings: base and near are almost parallel (cosine ~0.995);
+	// distinct is orthogonal to both.
+	base := make([]float32, 768)
+	base[0] = 1
+	near := make([]float32, 768)
+	near[0] = 1
+	near[1] = 0.1
+	distinct := make([]float32, 768)
+	distinct[2] = 1
+
+	rec := func(id, owner, status string, emb []float32) Record {
+		return Record{
+			ID: id, CreatedBy: owner, Dimension: DimensionKnowledge, SinkClass: SinkBusinessKnowledge,
+			Content: "content for " + id, Category: CategoryBusinessCtx, Confidence: ConfidenceMedium,
+			Source: SourceUser, Status: status, Embedding: emb, EmbeddingModel: "test",
+		}
+	}
+	for _, r := range []Record{
+		rec("mem_762_dup_a", "a@example.com", StatusActive, base),
+		rec("mem_762_dup_b", "a@example.com", StatusActive, near),
+		rec("mem_762_distinct", "a@example.com", StatusActive, distinct),
+		rec("mem_762_superseded_twin", "a@example.com", StatusSuperseded, base),
+		rec("mem_762_other_user_twin", "b@example.com", StatusActive, base),
+	} {
+		require.NoError(t, store.Insert(ctx, r))
+	}
+
+	finder, ok := any(store).(DuplicateFinder)
+	require.True(t, ok, "postgres store must implement DuplicateFinder")
+
+	pairs, err := finder.SimilarActivePairs(ctx, "a@example.com", 0.9, 10)
+	require.NoError(t, err)
+	require.Len(t, pairs, 1, "exactly one active pair must be found for the owner (no mirrors, no superseded)")
+	assert.Equal(t, "mem_762_dup_a", pairs[0].Older.ID)
+	assert.Equal(t, "mem_762_dup_b", pairs[0].Newer.ID)
+	assert.Greater(t, pairs[0].Score, 0.9)
+
+	// The owner scope is the per-user privacy boundary: user B has only one
+	// active embedded record, so no pair — and never user A's content.
+	pairsB, err := finder.SimilarActivePairs(ctx, "b@example.com", 0.9, 10)
+	require.NoError(t, err)
+	assert.Empty(t, pairsB, "another user's records must never appear in a caller's pair listing")
+}

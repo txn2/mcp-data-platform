@@ -63,6 +63,8 @@ Memories are classified by LOCOMO dimension for structured retrieval:
 
 The one way to create a memory record. Routed by `type` (sink-class): `personal_preference` and `episodic_event` are live for the capturer immediately; `business_knowledge`, `schema_entity`, and `operational_rule` are recorded as pending insights reviewed via `apply_knowledge`.
 
+Capture is **recall-first**: before inserting, the new content is compared (by embedding cosine similarity) against the caller's records. Superseded rows are excluded from matching (a dead predecessor must not absorb a new capture's supersede); stale rows remain matchable, since a restatement is exactly how a stale record gets corrected. Every match at or above the supersede threshold (0.9) is superseded by the new capture; the response's `superseded` field carries the best match id and `superseded_ids` the complete list. When the capture names entities (`entity_urns`), only records sharing an entity can match, so knowledge about one table never supersedes knowledge about another. Matches that are similar but below the supersede bar (0.75 to 0.9) are returned as `similar_existing` candidates (id + score) so the agent can decide update-vs-create instead of leaving a near-duplicate behind. Recall requires an embedding provider; without one, captures simply append.
+
 ### memory_manage
 
 Lifecycle operations for existing memory records. Opt-in per persona (requires `memory_*` in `tools.allow`).
@@ -73,6 +75,10 @@ Lifecycle operations for existing memory records. Opt-in per persona (requires `
 | `forget` | Soft-delete (archive) a memory |
 | `list` | Query memories with filters, persona-scoped by default |
 | `review_stale` | List memories flagged as stale by the lineage watcher |
+| `review_duplicates` | List the caller's high-similarity active memory pairs for consolidation review |
+| `consolidate` | Supersede a duplicate record by the record kept (`id` = keep, `duplicate_id` = supersede) |
+
+`review_duplicates` is the backstop for near-duplicates the capture-time recall gate missed (captures made before dedup existed, or pairs scoring below the auto-supersede threshold). It lists the caller's own active pairs at or above 0.75 cosine similarity, highest first: memory content is per-user, so the listing shares the ownership boundary `consolidate`/`update`/`forget` enforce, keeping every listed pair actionable. `consolidate` completes the loop, preserving the correction chain via `metadata.superseded_by` rather than discarding the duplicate; both records must belong to the caller and the record kept must be active (so the only live copy of a fact can never be retired behind a dead record). Requires the database-backed memory store with vector search.
 
 ### Recall (via search)
 

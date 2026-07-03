@@ -100,7 +100,7 @@ func TestAutoCapture_Validation(t *testing.T) {
 func TestAutoCapture_RecallFirstSupersedes(t *testing.T) {
 	store := &mockStore{}
 	tk := newTestToolkit(store, nil)
-	tk.SetRecallChecker(&fakeRecallChecker{id: "old-mem", score: 0.95})
+	tk.SetRecallChecker(&fakeRecallChecker{matches: []RecallMatch{{ID: "old-mem", Score: 0.95}}})
 
 	res, err := tk.AutoCapture(context.Background(), AutoCaptureInput{
 		SinkClass: memstore.SinkSchemaEntity,
@@ -110,11 +110,11 @@ func TestAutoCapture_RecallFirstSupersedes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AutoCapture: %v", err)
 	}
-	if res.Superseded != "old-mem" {
-		t.Errorf("Superseded = %q, want old-mem (recall-first supersede)", res.Superseded)
+	if len(res.Superseded) != 1 || res.Superseded[0] != "old-mem" {
+		t.Errorf("Superseded = %v, want [old-mem] (recall-first supersede)", res.Superseded)
 	}
-	if store.supersededOld != "old-mem" || store.supersededNew != res.ID {
-		t.Errorf("supersede call = (%q,%q), want (old-mem,%q)", store.supersededOld, store.supersededNew, res.ID)
+	if len(store.supersedeCalls) != 1 || store.supersedeCalls[0] != [2]string{"old-mem", res.ID} {
+		t.Errorf("supersede calls = %v, want [(old-mem,%s)]", store.supersedeCalls, res.ID)
 	}
 }
 

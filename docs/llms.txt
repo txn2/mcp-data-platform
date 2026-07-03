@@ -62,7 +62,7 @@ mcp-data-platform is the orchestration layer for the txn2 MCP ecosystem. DataHub
 
 ## Memory Layer
 
-- [Overview](https://mcp-data-platform.txn2.com/memory/overview/): Persistent memory for agent and analyst sessions backed by PostgreSQL + pgvector, with hybrid semantic/lexical recall, cross-enrichment attachment, staleness detection, and embedding backfill
+- [Overview](https://mcp-data-platform.txn2.com/memory/overview/): Persistent memory for agent and analyst sessions backed by PostgreSQL + pgvector, with hybrid semantic/lexical recall, cross-enrichment attachment, recall-first capture dedup with duplicate consolidation review, staleness detection, and embedding backfill
 - [Configuration](https://mcp-data-platform.txn2.com/memory/configuration/): Memory configuration reference: embedding provider, input caps, staleness watcher, persona opt-in, and pgvector setup
 
 ## Managed Resources

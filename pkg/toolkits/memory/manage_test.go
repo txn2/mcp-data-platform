@@ -49,8 +49,7 @@ type mockStore struct {
 	deletedIDs      []string
 	updatedID       string
 	updatedFields   memstore.RecordUpdate
-	supersededOld   string
-	supersededNew   string
+	supersedeCalls  [][2]string
 }
 
 func (m *mockStore) Insert(_ context.Context, record memstore.Record) error {
@@ -137,7 +136,7 @@ func (m *mockStore) Supersede(_ context.Context, oldID, newID string) error {
 	if m.supersedeErr != nil {
 		return m.supersedeErr
 	}
-	m.supersededOld, m.supersededNew = oldID, newID
+	m.supersedeCalls = append(m.supersedeCalls, [2]string{oldID, newID})
 	return nil
 }
 
@@ -797,4 +796,190 @@ func TestHelpResult(t *testing.T) {
 	assert.Contains(t, commands, "forget")
 	assert.Contains(t, commands, "list")
 	assert.Contains(t, commands, "review_stale")
+	assert.Contains(t, commands, "review_duplicates")
+	assert.Contains(t, commands, "consolidate")
+}
+
+// ---------------------------------------------------------------------------
+// review_duplicates / consolidate tests (#762)
+// ---------------------------------------------------------------------------
+
+// duplicateFinderStore is a mockStore that also implements the optional
+// memstore.DuplicateFinder capability.
+type duplicateFinderStore struct {
+	mockStore
+	pairs        []memstore.SimilarPair
+	pairsErr     error
+	gotCreatedBy string
+	gotMinScore  float64
+	gotLimit     int
+}
+
+func (d *duplicateFinderStore) SimilarActivePairs(_ context.Context, createdBy string, minScore float64, limit int) ([]memstore.SimilarPair, error) {
+	d.gotCreatedBy, d.gotMinScore, d.gotLimit = createdBy, minScore, limit
+	return d.pairs, d.pairsErr
+}
+
+func TestHandleReviewDuplicates_ReturnsPairs(t *testing.T) {
+	t.Parallel()
+
+	store := &duplicateFinderStore{pairs: []memstore.SimilarPair{{
+		Older: memstore.Record{ID: "dup-old"},
+		Newer: memstore.Record{ID: "dup-new"},
+		Score: 0.96,
+	}}}
+	tk := newTestToolkit(store, nil)
+
+	result, _, err := tk.handleManage(ctxWithPC("user@example.com", "analyst"), nil,
+		manageInput{Command: "review_duplicates", Limit: 7})
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	data := extractJSON(t, result)
+	assert.Equal(t, float64(1), data["total"])
+	assert.Contains(t, data["message"], "consolidate")
+	// Memory content is per-user: the listing must be scoped to the caller.
+	assert.Equal(t, "user@example.com", store.gotCreatedBy)
+	// The listing floor is the capture-time suggest threshold: the backstop
+	// exists for pairs below the auto-supersede bar.
+	assert.Equal(t, recallSuggestThreshold, store.gotMinScore)
+	assert.Equal(t, 7, store.gotLimit)
+	pairs, ok := data["pairs"].([]any)
+	require.True(t, ok)
+	require.Len(t, pairs, 1)
+}
+
+func TestHandleReviewDuplicates_RequiresIdentity(t *testing.T) {
+	t.Parallel()
+
+	store := &duplicateFinderStore{}
+	tk := newTestToolkit(store, nil)
+	result, _, err := tk.handleManage(ctxWithPC("", "analyst"), nil,
+		manageInput{Command: "review_duplicates"})
+	require.NoError(t, err)
+	require.True(t, result.IsError, "an anonymous caller must not list duplicate pairs")
+	assert.Empty(t, store.gotCreatedBy)
+}
+
+func TestHandleReviewDuplicates_StoreWithoutCapability(t *testing.T) {
+	t.Parallel()
+
+	tk := newTestToolkit(&mockStore{}, nil)
+	result, _, err := tk.handleManage(ctxWithPC("user@example.com", "analyst"), nil,
+		manageInput{Command: "review_duplicates"})
+	require.NoError(t, err)
+	require.True(t, result.IsError)
+	data := extractJSON(t, result)
+	assert.Contains(t, data["error"], "requires the database-backed memory store")
+}
+
+func TestHandleReviewDuplicates_FinderError(t *testing.T) {
+	t.Parallel()
+
+	store := &duplicateFinderStore{pairsErr: errBoom}
+	tk := newTestToolkit(store, nil)
+	result, _, err := tk.handleManage(ctxWithPC("user@example.com", "analyst"), nil,
+		manageInput{Command: "review_duplicates"})
+	require.NoError(t, err)
+	require.True(t, result.IsError)
+	data := extractJSON(t, result)
+	assert.Contains(t, data["error"], "failed to list duplicate candidates")
+}
+
+func TestHandleConsolidate_SupersedesDuplicate(t *testing.T) {
+	t.Parallel()
+
+	store := &mockStore{getResult: &memstore.Record{
+		ID: "keep", CreatedBy: "user@example.com", Status: memstore.StatusActive,
+	}}
+	tk := newTestToolkit(store, nil)
+
+	result, _, err := tk.handleManage(ctxWithPC("user@example.com", "analyst"), nil,
+		manageInput{Command: "consolidate", ID: "keep", DuplicateID: "dup"})
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	assert.Equal(t, [][2]string{{"dup", "keep"}}, store.supersedeCalls,
+		"the duplicate must be superseded by the kept record")
+	data := extractJSON(t, result)
+	assert.Equal(t, "keep", data["id"])
+	assert.Equal(t, "dup", data["superseded"])
+}
+
+// TestHandleConsolidate_KeptRecordMustBeActive guards against silent data
+// loss: if the record to keep is itself superseded or archived, consolidating
+// would retire the only live copy of the fact behind a dead record.
+func TestHandleConsolidate_KeptRecordMustBeActive(t *testing.T) {
+	t.Parallel()
+
+	for _, status := range []string{memstore.StatusSuperseded, memstore.StatusArchived, memstore.StatusStale} {
+		t.Run(status, func(t *testing.T) {
+			t.Parallel()
+			store := &mockStore{getResult: &memstore.Record{
+				ID: "keep", CreatedBy: "user@example.com", Status: status,
+			}}
+			tk := newTestToolkit(store, nil)
+			result, _, err := tk.handleManage(ctxWithPC("user@example.com", "analyst"), nil,
+				manageInput{Command: "consolidate", ID: "keep", DuplicateID: "dup"})
+			require.NoError(t, err)
+			require.True(t, result.IsError)
+			assert.Empty(t, store.supersedeCalls, "a non-active keeper must not absorb a supersede")
+			data := extractJSON(t, result)
+			assert.Contains(t, data["error"], "must be active")
+		})
+	}
+}
+
+func TestHandleConsolidate_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input manageInput
+	}{
+		{"missing id", manageInput{Command: "consolidate", DuplicateID: "dup"}},
+		{"missing duplicate_id", manageInput{Command: "consolidate", ID: "keep"}},
+		{"identical ids", manageInput{Command: "consolidate", ID: "same", DuplicateID: "same"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			store := &mockStore{getResult: &memstore.Record{ID: "x", CreatedBy: "user@example.com"}}
+			tk := newTestToolkit(store, nil)
+			result, _, err := tk.handleManage(ctxWithPC("user@example.com", "analyst"), nil, tt.input)
+			require.NoError(t, err)
+			assert.True(t, result.IsError)
+			assert.Empty(t, store.supersedeCalls)
+		})
+	}
+}
+
+func TestHandleConsolidate_OwnershipEnforced(t *testing.T) {
+	t.Parallel()
+
+	store := &mockStore{getResult: &memstore.Record{ID: "keep", CreatedBy: "other@example.com"}}
+	tk := newTestToolkit(store, nil)
+
+	result, _, err := tk.handleManage(ctxWithPC("user@example.com", "analyst"), nil,
+		manageInput{Command: "consolidate", ID: "keep", DuplicateID: "dup"})
+	require.NoError(t, err)
+	require.True(t, result.IsError)
+	assert.Empty(t, store.supersedeCalls, "consolidating another user's records must be blocked")
+	data := extractJSON(t, result)
+	assert.Contains(t, data["error"], "your own memories")
+}
+
+func TestHandleConsolidate_SupersedeError(t *testing.T) {
+	t.Parallel()
+
+	store := &mockStore{
+		getResult:    &memstore.Record{ID: "keep", CreatedBy: "user@example.com", Status: memstore.StatusActive},
+		supersedeErr: errBoom,
+	}
+	tk := newTestToolkit(store, nil)
+
+	result, _, err := tk.handleManage(ctxWithPC("user@example.com", "analyst"), nil,
+		manageInput{Command: "consolidate", ID: "keep", DuplicateID: "dup"})
+	require.NoError(t, err)
+	require.True(t, result.IsError)
+	data := extractJSON(t, result)
+	assert.Contains(t, data["error"], "failed to consolidate")
 }
