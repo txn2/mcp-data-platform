@@ -31,7 +31,7 @@ func TestOAuthJWTAuthenticator_Authenticate(t *testing.T) {
 		claims := jwt.MapClaims{
 			"iss":   issuer,
 			"sub":   "user-123",
-			"aud":   "client-id",
+			"aud":   issuer,
 			"exp":   now.Add(time.Hour).Unix(),
 			"iat":   now.Unix(),
 			"nbf":   now.Unix(),
@@ -88,6 +88,80 @@ func TestOAuthJWTAuthenticator_Authenticate(t *testing.T) {
 		_, err := authenticator.Authenticate(ctx)
 		if err == nil {
 			t.Error("expected error for expired token")
+		}
+	})
+
+	t.Run("wrong audience", func(t *testing.T) {
+		now := time.Now()
+		claims := jwt.MapClaims{
+			"iss": issuer,
+			"sub": "user-123",
+			"aud": "some-other-service",
+			"exp": now.Add(time.Hour).Unix(),
+			"iat": now.Unix(),
+			"nbf": now.Unix(),
+		}
+
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		tokenString, _ := token.SignedString(signingKey)
+
+		ctx := WithToken(context.Background(), tokenString)
+		_, err := authenticator.Authenticate(ctx)
+		if err == nil {
+			t.Error("expected error for wrong audience")
+		}
+	})
+
+	t.Run("missing audience", func(t *testing.T) {
+		now := time.Now()
+		claims := jwt.MapClaims{
+			"iss": issuer,
+			"sub": "user-123",
+			"exp": now.Add(time.Hour).Unix(),
+			"iat": now.Unix(),
+			"nbf": now.Unix(),
+		}
+
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		tokenString, _ := token.SignedString(signingKey)
+
+		ctx := WithToken(context.Background(), tokenString)
+		_, err := authenticator.Authenticate(ctx)
+		if err == nil {
+			t.Error("expected error for missing audience")
+		}
+	})
+
+	t.Run("custom accepted audience", func(t *testing.T) {
+		customAuth, err := NewOAuthJWTAuthenticator(OAuthJWTConfig{
+			Issuer:     issuer,
+			SigningKey: signingKey,
+			Audience:   "custom-audience",
+		})
+		if err != nil {
+			t.Fatalf("failed to create authenticator: %v", err)
+		}
+
+		now := time.Now()
+		claims := jwt.MapClaims{
+			"iss": issuer,
+			"sub": "user-123",
+			"aud": "custom-audience",
+			"exp": now.Add(time.Hour).Unix(),
+			"iat": now.Unix(),
+			"nbf": now.Unix(),
+		}
+
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		tokenString, _ := token.SignedString(signingKey)
+
+		ctx := WithToken(context.Background(), tokenString)
+		userInfo, err := customAuth.Authenticate(ctx)
+		if err != nil {
+			t.Fatalf("authentication failed: %v", err)
+		}
+		if userInfo.UserID != "user-123" {
+			t.Errorf("expected UserID 'user-123', got %q", userInfo.UserID)
 		}
 	})
 

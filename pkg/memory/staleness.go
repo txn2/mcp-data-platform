@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
+	"github.com/txn2/mcp-data-platform/pkg/urnbuild"
 )
 
 const (
@@ -17,8 +18,6 @@ const (
 	defaultStalenessInterval = 15 * time.Minute
 	// defaultStalenessBatchSize is the default number of records per check.
 	defaultStalenessBatchSize = 50
-	// urnDatasetParts is the expected number of comma-separated parts in a dataset URN.
-	urnDatasetParts = 3
 	// urnTablePathParts is the minimum number of dot-separated segments in a table path.
 	urnTablePathParts = 3
 )
@@ -100,9 +99,10 @@ func (w *StalenessWatcher) run() {
 // checkBatch checks one batch of the oldest-verified active memories.
 func (w *StalenessWatcher) checkBatch(ctx context.Context) error {
 	records, _, err := w.store.List(ctx, Filter{
-		Status:  StatusActive,
-		Limit:   w.cfg.BatchSize,
-		OrderBy: "last_verified ASC NULLS FIRST",
+		Status:        StatusActive,
+		Limit:         w.cfg.BatchSize,
+		SortBy:        "last_verified",
+		SortDirection: SortAscNullsFirst,
 	})
 	if err != nil {
 		return fmt.Errorf("listing records for staleness check: %w", err)
@@ -168,25 +168,15 @@ func (w *StalenessWatcher) checkEntityStaleness(ctx context.Context, record Reco
 	return strings.Join(reasons, "; ")
 }
 
-// ParseURNToTable attempts to extract a TableIdentifier from a DataHub dataset URN.
-// URN format: urn:li:dataset:(urn:li:dataPlatform:platform,catalog.schema.table,ENV).
+// ParseURNToTable attempts to extract a TableIdentifier from a DataHub dataset
+// URN whose name is <catalog>.<schema>.<table>.
 func ParseURNToTable(urn string) (semantic.TableIdentifier, error) {
-	// Extract the dataset key portion.
-	const prefix = "urn:li:dataset:(urn:li:dataPlatform:"
-	if !strings.HasPrefix(urn, prefix) {
-		return semantic.TableIdentifier{}, fmt.Errorf("not a dataset URN: %s", urn)
+	parsed, err := urnbuild.ParseDatasetURN(urn)
+	if err != nil {
+		return semantic.TableIdentifier{}, fmt.Errorf("parsing dataset URN: %w", err)
 	}
 
-	inner := strings.TrimPrefix(urn, prefix)
-	inner = strings.TrimSuffix(inner, ")")
-
-	parts := strings.SplitN(inner, ",", urnDatasetParts)
-	if len(parts) < 2 {
-		return semantic.TableIdentifier{}, fmt.Errorf("malformed dataset URN: %s", urn)
-	}
-
-	tablePath := parts[1]
-	pathParts := strings.Split(tablePath, ".")
+	pathParts := strings.Split(parsed.Name, ".")
 	if len(pathParts) < urnTablePathParts {
 		return semantic.TableIdentifier{}, fmt.Errorf("incomplete table path in URN: %s", urn)
 	}

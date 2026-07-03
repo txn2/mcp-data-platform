@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -164,7 +165,27 @@ func (s *Store) GetAuthorizationCode(ctx context.Context, code string) (*oauth.A
 		SELECT id, code, client_id, user_id, user_claims, code_challenge, redirect_uri, scope, expires_at, used, created_at
 		FROM oauth_authorization_codes
 		WHERE code = $1`, code)
+	return scanAuthorizationCode(row)
+}
 
+// ConsumeAuthorizationCode atomically deletes and returns an authorization
+// code in a single statement, so retrieval and single-use invalidation
+// cannot diverge. Returns oauth.ErrNotFound when the code does not exist,
+// so the grant handler can distinguish replay from a storage outage.
+func (s *Store) ConsumeAuthorizationCode(ctx context.Context, code string) (*oauth.AuthorizationCode, error) {
+	row := s.db.QueryRowContext(ctx, `
+		DELETE FROM oauth_authorization_codes
+		WHERE code = $1
+		RETURNING id, code, client_id, user_id, user_claims, code_challenge, redirect_uri, scope, expires_at, used, created_at`, code)
+	ac, err := scanAuthorizationCode(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("authorization code: %w", oauth.ErrNotFound)
+	}
+	return ac, err
+}
+
+// scanAuthorizationCode scans a single authorization-code row.
+func scanAuthorizationCode(row *sql.Row) (*oauth.AuthorizationCode, error) {
 	var ac oauth.AuthorizationCode
 	var claimsJSON []byte
 	err := row.Scan(
@@ -226,7 +247,28 @@ func (s *Store) GetRefreshToken(ctx context.Context, token string) (*oauth.Refre
 		SELECT id, token, client_id, user_id, user_claims, scope, expires_at, created_at
 		FROM oauth_refresh_tokens
 		WHERE token = $1`, token)
+	return scanRefreshToken(row)
+}
 
+// ConsumeRefreshToken atomically deletes and returns a refresh token in a
+// single statement, backing rotation: the old token is provably invalid
+// before new tokens are issued. Returns oauth.ErrNotFound when the token
+// does not exist, so the grant handler can distinguish an invalid token
+// from a storage outage.
+func (s *Store) ConsumeRefreshToken(ctx context.Context, token string) (*oauth.RefreshToken, error) {
+	row := s.db.QueryRowContext(ctx, `
+		DELETE FROM oauth_refresh_tokens
+		WHERE token = $1
+		RETURNING id, token, client_id, user_id, user_claims, scope, expires_at, created_at`, token)
+	rt, err := scanRefreshToken(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("refresh token: %w", oauth.ErrNotFound)
+	}
+	return rt, err
+}
+
+// scanRefreshToken scans a single refresh-token row.
+func scanRefreshToken(row *sql.Row) (*oauth.RefreshToken, error) {
 	var rt oauth.RefreshToken
 	var claimsJSON []byte
 	err := row.Scan(
@@ -293,6 +335,9 @@ func (s *Store) StartCleanupRoutine(interval time.Duration) {
 				}
 				if err := s.CleanupExpiredTokens(ctx); err != nil {
 					slog.Warn("oauth store cleanup: expired tokens", "error", err)
+				}
+				if err := s.CleanupExpiredStates(ctx, oauth.StateMaxAge); err != nil {
+					slog.Warn("oauth store cleanup: expired states", "error", err)
 				}
 			}
 		}

@@ -736,6 +736,12 @@ oauth:
     redirect_uri: "https://mcp.example.com/oauth/callback"
 ```
 
+Access tokens are signed JWTs whose `aud` claim is the issuer URL (the platform is both authorization server and resource server); the requesting client is carried in the `client_id` claim, and the authenticator rejects tokens minted for any other audience.
+
+Dynamic Client Registration (`oauth.dcr`) is off by default. Enabling it requires `allowed_redirect_patterns` (regex list): the registration endpoint is unauthenticated, so registration is denied when no patterns are configured (a startup warning flags the misconfiguration). `allow_all_redirect_uris: true` explicitly opts out of pattern matching. Plain HTTP redirect URIs are rejected for non-loopback hosts regardless of configuration; private-use schemes (RFC 8252 native apps) are accepted only through an explicit pattern.
+
+When a database is configured, in-flight authorization state (linking `/oauth/authorize` to the upstream IdP callback) is stored in PostgreSQL so multi-replica deployments work behind a load balancer: the callback can land on a different replica than the one that started the flow.
+
 ## Browser Sessions (OIDC Login for Portal UI)
 
 When `auth.oidc` and `auth.browser_session` are both enabled, the portal UI offers SSO login. The flow uses OIDC authorization code with PKCE. Sessions are stored as HMAC-SHA256 signed JWT cookies (stateless, no server-side store).

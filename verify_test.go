@@ -234,6 +234,46 @@ func TestNoopOnlyInterfaces(t *testing.T) {
 // Gate: CLAUDE.md project structure map stays current
 // ---------------------------------------------------------------------------
 
+// TestDatasetURNGrammarCentralized verifies that the DataHub dataset URN
+// grammar (urn:li:dataset:(urn:li:dataPlatform:...)) is built and parsed only
+// in pkg/urnbuild (#760). Hand-rolled copies drift independently: an edge case
+// (commas in dataset names, non-PROD environments) fixed in one copy and not
+// the others produces URNs one subsystem emits and another fails to resolve.
+//
+// The pattern matches grammar *implementations*: a parse-prefix string
+// constant ("...dataPlatform:"), a format-string build ("...dataPlatform:%s"),
+// or a concatenation build ("...dataPlatform:<platform>," +). Complete
+// example URNs in doc comments and struct tags are left alone.
+func TestDatasetURNGrammarCentralized(t *testing.T) {
+	projectRoot, err := filepath.Abs(".")
+	require.NoError(t, err)
+
+	grammarRe := regexp.MustCompile(`urn:li:dataset:\(urn:li:dataPlatform:([a-zA-Z0-9_-]*,)?("|%s)`)
+
+	for _, root := range []string{"pkg", "internal", "cmd"} {
+		err := filepath.Walk(filepath.Join(projectRoot, root), func(path string, info os.FileInfo, walkErr error) error {
+			if walkErr != nil || info.IsDir() {
+				return walkErr
+			}
+			if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			rel, relErr := filepath.Rel(projectRoot, path)
+			require.NoError(t, relErr)
+			if strings.HasPrefix(rel, filepath.Join("pkg", "urnbuild")) {
+				return nil
+			}
+			content, readErr := os.ReadFile(path) //nolint:gosec // test reads project sources
+			require.NoError(t, readErr)
+			assert.False(t, grammarRe.Match(content),
+				"%s builds or parses the dataset URN grammar by hand. "+
+					"Use pkg/urnbuild (DatasetURN, DatasetURNFromName, ParseDatasetURN) instead.", rel)
+			return nil
+		})
+		require.NoError(t, err)
+	}
+}
+
 // TestClaudeMdCoversPkgDirectories verifies that every top-level pkg/
 // directory is referenced by name in CLAUDE.md's Project Structure section.
 //

@@ -62,13 +62,13 @@ func TestParseURNToTable(t *testing.T) {
 			name:    "invalid prefix",
 			urn:     "urn:li:corpuser:foo",
 			wantErr: true,
-			errMsg:  "not a dataset URN",
+			errMsg:  "invalid dataset URN",
 		},
 		{
 			name:    "malformed - missing comma",
 			urn:     "urn:li:dataset:(urn:li:dataPlatform:trino)",
 			wantErr: true,
-			errMsg:  "malformed dataset URN",
+			errMsg:  "invalid dataset URN format",
 		},
 		{
 			name:    "incomplete table path",

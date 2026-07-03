@@ -63,22 +63,16 @@ func (a *memoryInsightAdapter) Get(ctx context.Context, id string) (*Insight, er
 	return &insight, nil
 }
 
-// insightWalkOrder is the stable total ordering used for the active-set walk
-// that List and Stats share. The OFFSET-paged walk pages at memory.MaxLimit, so
-// the sort must be a total order: created_at alone is not unique (bulk-imported
-// rows can share a timestamp), and a non-unique sort lets Postgres OFFSET skip
-// or duplicate a row straddling a page boundary, which would silently drop or
-// double-count a pending insight and re-open #706 under tie conditions. The id
-// column is the primary key, so created_at DESC, id DESC is deterministic.
-const insightWalkOrder = "created_at DESC, id DESC"
-
 // eachActiveInsightRecord pages the entire result of mf and invokes fn for every
 // record. mf must carry the coarse memory status (the store cannot filter on the
 // exact insight status, which lives in metadata and is recovered per record by
-// the caller's fn). List and Stats share this so the multi-page walk, its page
-// size, and its stable ordering have a single definition: a future paging fix
-// applied here cannot drift the two out of agreement, the disagreement #706 was
-// filed for.
+// the caller's fn). List and Stats share this so the multi-page walk and its
+// page size have a single definition: a future paging fix applied here cannot
+// drift the two out of agreement, the disagreement #706 was filed for. The
+// stable total ordering the OFFSET-paged walk needs (created_at DESC with the
+// primary-key id as tie-breaker) is guaranteed by the store itself
+// (memory.applyPagination), so tied created_at values cannot skip or duplicate
+// a record on a page boundary.
 //
 // Cost note: this walks the whole matching set (one store page per memory.MaxLimit
 // records), so it is O(matching active records), the same shape as Stats. Callers
@@ -90,9 +84,6 @@ func (a *memoryInsightAdapter) eachActiveInsightRecord(ctx context.Context, mf m
 	mf.Dimension = a.dimension
 	mf.Limit = memory.MaxLimit
 	mf.Offset = 0
-	if mf.OrderBy == "" {
-		mf.OrderBy = insightWalkOrder
-	}
 	for {
 		records, _, err := a.store.List(ctx, mf)
 		if err != nil {

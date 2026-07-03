@@ -10,6 +10,7 @@ import (
 	"github.com/txn2/mcp-datahub/pkg/types"
 
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
+	"github.com/txn2/mcp-data-platform/pkg/urnbuild"
 )
 
 // lineageResolver handles lineage-aware column resolution.
@@ -164,7 +165,7 @@ func (r *lineageResolver) inheritFromAlias(
 		return columns, nil
 	}
 
-	sourceURN := "urn:li:dataset:(urn:li:dataPlatform:trino," + source + ",PROD)"
+	sourceURN := urnbuild.DatasetURNFromName("trino", source)
 	sourceSchema, err := r.client.GetSchema(ctx, sourceURN)
 	if err != nil {
 		return columns, nil //nolint:nilerr // alias resolution is best-effort; return columns without inheritance on failure

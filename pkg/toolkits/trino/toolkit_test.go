@@ -899,17 +899,21 @@ func TestBuildMultiserverConfig(t *testing.T) {
 }
 
 func TestBuildToolkitOptions(t *testing.T) {
-	t.Run("empty config produces no options", func(t *testing.T) {
+	// The error sanitizer middleware is always present, so every case
+	// carries a baseline of one option.
+	const baseline = 1
+
+	t.Run("empty config produces only the error sanitizer", func(t *testing.T) {
 		opts := buildToolkitOptions(Config{}, nil, nil)
-		if len(opts) != 0 {
-			t.Errorf("expected 0 options, got %d", len(opts))
+		if len(opts) != baseline {
+			t.Errorf("expected %d option, got %d", baseline, len(opts))
 		}
 	})
 
 	t.Run("read-only adds interceptor", func(t *testing.T) {
 		opts := buildToolkitOptions(Config{ReadOnly: true}, nil, nil)
-		if len(opts) != 1 {
-			t.Errorf("expected 1 option, got %d", len(opts))
+		if len(opts) != baseline+1 {
+			t.Errorf("expected %d options, got %d", baseline+1, len(opts))
 		}
 	})
 
@@ -917,8 +921,8 @@ func TestBuildToolkitOptions(t *testing.T) {
 		opts := buildToolkitOptions(Config{
 			Titles: map[string]string{"trino_query": "Run Query"},
 		}, nil, nil)
-		if len(opts) != 1 {
-			t.Errorf("expected 1 option, got %d", len(opts))
+		if len(opts) != baseline+1 {
+			t.Errorf("expected %d options, got %d", baseline+1, len(opts))
 		}
 	})
 
@@ -927,15 +931,15 @@ func TestBuildToolkitOptions(t *testing.T) {
 			Descriptions: map[string]string{"trino_query": "custom"},
 			Annotations:  map[string]AnnotationConfig{"trino_query": {}},
 		}, nil, nil)
-		if len(opts) != 2 {
-			t.Errorf("expected 2 options, got %d", len(opts))
+		if len(opts) != baseline+2 {
+			t.Errorf("expected %d options, got %d", baseline+2, len(opts))
 		}
 	})
 
 	t.Run("progress adds middleware", func(t *testing.T) {
 		opts := buildToolkitOptions(Config{ProgressEnabled: true}, nil, nil)
-		if len(opts) != 1 {
-			t.Errorf("expected 1 option, got %d", len(opts))
+		if len(opts) != baseline+1 {
+			t.Errorf("expected %d options, got %d", baseline+1, len(opts))
 		}
 	})
 
@@ -944,8 +948,8 @@ func TestBuildToolkitOptions(t *testing.T) {
 			{Name: "a"}, {Name: "b"},
 		})
 		opts := buildToolkitOptions(Config{}, nil, cr)
-		if len(opts) != 1 {
-			t.Errorf("expected 1 option, got %d", len(opts))
+		if len(opts) != baseline+1 {
+			t.Errorf("expected %d options, got %d", baseline+1, len(opts))
 		}
 	})
 
@@ -961,8 +965,8 @@ func TestBuildToolkitOptions(t *testing.T) {
 			Annotations:     map[string]AnnotationConfig{"a": {}},
 			ProgressEnabled: true,
 		}, em, cr)
-		if len(opts) != 7 { //nolint:mnd // 7 option types: readonly + titles + descs + annots + connRequired + progress + elicit
-			t.Errorf("expected 7 options, got %d", len(opts))
+		if len(opts) != baseline+7 { //nolint:mnd // readonly + titles + descs + annots + connRequired + progress + elicit
+			t.Errorf("expected %d options, got %d", baseline+7, len(opts))
 		}
 	})
 }

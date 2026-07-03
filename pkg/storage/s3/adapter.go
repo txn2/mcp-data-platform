@@ -9,6 +9,7 @@ import (
 	s3client "github.com/txn2/mcp-s3/pkg/client"
 
 	"github.com/txn2/mcp-data-platform/pkg/storage"
+	"github.com/txn2/mcp-data-platform/pkg/urnbuild"
 )
 
 const (
@@ -80,22 +81,15 @@ func (*Adapter) Name() string {
 	return "s3"
 }
 
-// ResolveDataset converts a URN to an S3 dataset identifier.
+// ResolveDataset converts a URN to an S3 dataset identifier. The dataset
+// name carries the bucket and optional prefix: bucket/prefix.
 func (a *Adapter) ResolveDataset(_ context.Context, urn string) (*storage.DatasetIdentifier, error) {
-	// Parse URN format: urn:li:dataset:(urn:li:dataPlatform:s3,bucket/prefix,PROD)
-	if !strings.HasPrefix(urn, "urn:li:dataset:") {
-		return nil, fmt.Errorf("invalid dataset URN: %s", urn)
+	parsed, err := urnbuild.ParseDatasetURN(urn)
+	if err != nil {
+		return nil, fmt.Errorf("parsing dataset URN: %w", err)
 	}
 
-	// Extract the name part (bucket/prefix)
-	start := strings.Index(urn, ",")
-	end := strings.LastIndex(urn, ",")
-	if start == -1 || end == -1 || start == end {
-		return nil, fmt.Errorf("invalid URN format: %s", urn)
-	}
-
-	path := urn[start+1 : end]
-	parts := strings.SplitN(path, "/", 2)
+	parts := strings.SplitN(parsed.Name, "/", 2)
 
 	dataset := &storage.DatasetIdentifier{
 		Bucket:     parts[0],

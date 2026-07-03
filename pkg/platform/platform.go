@@ -1411,8 +1411,9 @@ func (p *Platform) initOAuth() error {
 
 	// Create storage: use PostgreSQL if database is available, otherwise in-memory.
 	var oauthStorage oauth.Storage
+	var pgStore *oauthpostgres.Store
 	if p.db != nil {
-		pgStore := oauthpostgres.New(p.db)
+		pgStore = oauthpostgres.New(p.db)
 		pgStore.StartCleanupRoutine(time.Minute)
 		p.oauthStoreCloser = pgStore
 		oauthStorage = pgStore
@@ -1454,6 +1455,7 @@ func (p *Platform) initOAuth() error {
 		DCR: oauth.DCRConfig{
 			Enabled:                 p.config.OAuth.DCR.Enabled,
 			AllowedRedirectPatterns: p.config.OAuth.DCR.AllowedRedirectPatterns,
+			AllowAllRedirectURIs:    p.config.OAuth.DCR.AllowAllRedirectURIs,
 			RequirePKCE:             true,
 		},
 	}
@@ -1472,6 +1474,37 @@ func (p *Platform) initOAuth() error {
 	server, err := oauth.NewServer(serverConfig, oauthStorage)
 	if err != nil {
 		return fmt.Errorf("creating OAuth server: %w", err)
+	}
+
+	// Surface the DCR default-deny at boot: a deployment that enabled DCR
+	// without patterns previously accepted any redirect URI and now denies
+	// all registrations. The request-time error repeats the guidance, but
+	// the operator should learn about it from the startup log, not from
+	// the first failing client.
+	if p.config.OAuth.DCR.Enabled && len(p.config.OAuth.DCR.AllowedRedirectPatterns) == 0 &&
+		!p.config.OAuth.DCR.AllowAllRedirectURIs {
+		slog.Warn("OAuth DCR is enabled without allowed_redirect_patterns: all client registrations will be denied. " +
+			"Set oauth.dcr.allowed_redirect_patterns, or oauth.dcr.allow_all_redirect_uris: true to explicitly accept any redirect URI.")
+	}
+
+	// In multi-replica deployments the upstream IdP callback can land on a
+	// different replica than the one that started the flow, so in-flight
+	// authorization state must live in the shared database when one is
+	// configured. The Postgres store's cleanup routine sweeps it; the
+	// memory path sweeps via the server's own cleanup routine, canceled
+	// at platform shutdown so repeated start/stop cycles do not leak
+	// ticker goroutines.
+	if pgStore != nil {
+		server.SetStateStore(pgStore)
+		slog.Info("OAuth state store: database")
+	} else {
+		cleanupCtx, cancelCleanup := context.WithCancel(context.Background())
+		server.StartCleanupRoutine(cleanupCtx, time.Minute)
+		p.lifecycle.OnStop(func(context.Context) error {
+			cancelCleanup()
+			return nil
+		})
+		slog.Info("OAuth state store: memory (single-replica)")
 	}
 
 	server.SetMetrics(p.metrics)

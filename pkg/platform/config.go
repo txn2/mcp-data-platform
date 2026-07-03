@@ -378,8 +378,13 @@ type OAuthClientConfig struct {
 
 // DCRConfig configures Dynamic Client Registration.
 type DCRConfig struct {
-	Enabled                 bool     `yaml:"enabled"`
+	Enabled bool `yaml:"enabled"`
+	// AllowedRedirectPatterns are regex patterns for redirect URIs that
+	// dynamically registered clients may use. The registration endpoint is
+	// unauthenticated, so registration is denied when this is empty unless
+	// AllowAllRedirectURIs explicitly opts out of pattern matching.
 	AllowedRedirectPatterns []string `yaml:"allowed_redirect_patterns"`
+	AllowAllRedirectURIs    bool     `yaml:"allow_all_redirect_uris"`
 }
 
 // UpstreamIDPConfig configures the upstream identity provider (e.g., Keycloak).

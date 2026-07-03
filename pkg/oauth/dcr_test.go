@@ -16,10 +16,12 @@ type mockStorage struct {
 	saveAuthorizationCodeFunc    func(ctx context.Context, code *AuthorizationCode) error
 	getAuthorizationCodeFunc     func(ctx context.Context, code string) (*AuthorizationCode, error)
 	deleteAuthorizationCodeFunc  func(ctx context.Context, code string) error
+	consumeAuthorizationCodeFunc func(ctx context.Context, code string) (*AuthorizationCode, error)
 	cleanupExpiredCodesFunc      func(ctx context.Context) error
 	saveRefreshTokenFunc         func(ctx context.Context, token *RefreshToken) error
 	getRefreshTokenFunc          func(ctx context.Context, token string) (*RefreshToken, error)
 	deleteRefreshTokenFunc       func(ctx context.Context, token string) error
+	consumeRefreshTokenFunc      func(ctx context.Context, token string) (*RefreshToken, error)
 	deleteRefreshTokensForClient func(ctx context.Context, clientID string) error
 	cleanupExpiredTokensFunc     func(ctx context.Context) error
 }
@@ -80,6 +82,23 @@ func (m *mockStorage) DeleteAuthorizationCode(ctx context.Context, code string) 
 	return nil
 }
 
+// ConsumeAuthorizationCode falls back to Get-then-Delete semantics when no
+// explicit consume behavior is configured, so existing grant-path tests
+// keep working against the mock.
+func (m *mockStorage) ConsumeAuthorizationCode(ctx context.Context, code string) (*AuthorizationCode, error) {
+	if m.consumeAuthorizationCodeFunc != nil {
+		return m.consumeAuthorizationCodeFunc(ctx, code)
+	}
+	authCode, err := m.GetAuthorizationCode(ctx, code)
+	if err != nil {
+		return nil, err
+	}
+	if err := m.DeleteAuthorizationCode(ctx, code); err != nil {
+		return nil, err
+	}
+	return authCode, nil
+}
+
 func (m *mockStorage) CleanupExpiredCodes(ctx context.Context) error {
 	if m.cleanupExpiredCodesFunc != nil {
 		return m.cleanupExpiredCodesFunc(ctx)
@@ -106,6 +125,22 @@ func (m *mockStorage) DeleteRefreshToken(ctx context.Context, token string) erro
 		return m.deleteRefreshTokenFunc(ctx, token)
 	}
 	return nil
+}
+
+// ConsumeRefreshToken falls back to Get-then-Delete semantics when no
+// explicit consume behavior is configured.
+func (m *mockStorage) ConsumeRefreshToken(ctx context.Context, token string) (*RefreshToken, error) {
+	if m.consumeRefreshTokenFunc != nil {
+		return m.consumeRefreshTokenFunc(ctx, token)
+	}
+	refreshToken, err := m.GetRefreshToken(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+	if err := m.DeleteRefreshToken(ctx, token); err != nil {
+		return nil, err
+	}
+	return refreshToken, nil
 }
 
 func (m *mockStorage) DeleteRefreshTokensForClient(ctx context.Context, clientID string) error {
@@ -210,8 +245,9 @@ func TestDCRServiceRegister(t *testing.T) {
 			},
 		}
 		service, _ := NewDCRService(storage, DCRConfig{
-			Enabled:     true,
-			RequirePKCE: true,
+			Enabled:                 true,
+			RequirePKCE:             true,
+			AllowedRedirectPatterns: []string{`^http://localhost.*`},
 		})
 
 		resp, err := service.Register(ctx, DCRRequest{
@@ -245,7 +281,10 @@ func TestDCRServiceRegister_ErrorsAndOptions(t *testing.T) {
 				return errors.New("storage error")
 			},
 		}
-		service, _ := NewDCRService(storage, DCRConfig{Enabled: true})
+		service, _ := NewDCRService(storage, DCRConfig{
+			Enabled:                 true,
+			AllowedRedirectPatterns: []string{`^http://localhost.*`},
+		})
 
 		_, err := service.Register(ctx, DCRRequest{
 			ClientName:   "Test Client",
@@ -256,9 +295,41 @@ func TestDCRServiceRegister_ErrorsAndOptions(t *testing.T) {
 		}
 	})
 
-	t.Run("custom grant types", func(t *testing.T) {
+	t.Run("no patterns denies registration by default", func(t *testing.T) {
 		storage := &mockStorage{}
 		service, _ := NewDCRService(storage, DCRConfig{Enabled: true})
+
+		_, err := service.Register(ctx, DCRRequest{
+			ClientName:   "Test Client",
+			RedirectURIs: []string{"https://any-url.com/callback"},
+		})
+		if err == nil {
+			t.Fatal("expected registration to be denied when no patterns are configured")
+		}
+	})
+
+	t.Run("allow_all_redirect_uris opts back in", func(t *testing.T) {
+		storage := &mockStorage{}
+		service, _ := NewDCRService(storage, DCRConfig{
+			Enabled:              true,
+			AllowAllRedirectURIs: true,
+		})
+
+		_, err := service.Register(ctx, DCRRequest{
+			ClientName:   "Test Client",
+			RedirectURIs: []string{"https://any-url.com/callback"},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("custom grant types", func(t *testing.T) {
+		storage := &mockStorage{}
+		service, _ := NewDCRService(storage, DCRConfig{
+			Enabled:                 true,
+			AllowedRedirectPatterns: []string{`^http://localhost.*`},
+		})
 
 		resp, err := service.Register(ctx, DCRRequest{
 			ClientName:   "Test Client",
@@ -275,12 +346,66 @@ func TestDCRServiceRegister_ErrorsAndOptions(t *testing.T) {
 }
 
 func TestIsAllowedRedirectURI(t *testing.T) {
-	t.Run("no patterns allows all", func(t *testing.T) {
+	t.Run("no patterns denies", func(t *testing.T) {
 		storage := &mockStorage{}
 		service, _ := NewDCRService(storage, DCRConfig{Enabled: true})
 
-		if !service.isAllowedRedirectURI("http://any-url.com/callback") {
-			t.Error("expected any URL to be allowed when no patterns configured")
+		if service.isAllowedRedirectURI("https://any-url.com/callback") {
+			t.Error("expected URIs to be denied when no patterns configured")
+		}
+	})
+
+	t.Run("allow all accepts https and loopback only", func(t *testing.T) {
+		storage := &mockStorage{}
+		service, _ := NewDCRService(storage, DCRConfig{
+			Enabled:              true,
+			AllowAllRedirectURIs: true,
+		})
+
+		tests := []struct {
+			uri     string
+			allowed bool
+		}{
+			{"https://any-url.com/callback", true},
+			{"http://localhost:8080/callback", true},
+			{"http://127.0.0.1:39413/callback", true},
+			{"http://any-url.com/callback", false},
+			{"com.example.app:/callback", false},
+		}
+		for _, tt := range tests {
+			if got := service.isAllowedRedirectURI(tt.uri); got != tt.allowed {
+				t.Errorf("URI %q: expected %v, got %v", tt.uri, tt.allowed, got)
+			}
+		}
+	})
+
+	t.Run("plain http non-loopback rejected even when a pattern matches", func(t *testing.T) {
+		storage := &mockStorage{}
+		service, _ := NewDCRService(storage, DCRConfig{
+			Enabled:                 true,
+			AllowedRedirectPatterns: []string{`^http://.*`},
+		})
+
+		if service.isAllowedRedirectURI("http://evil.example.net/callback") {
+			t.Error("expected plain-http non-loopback URI to be rejected regardless of patterns")
+		}
+	})
+
+	t.Run("private-use scheme allowed via explicit pattern", func(t *testing.T) {
+		// RFC 8252 Section 7.1: native apps may use private-use schemes.
+		// The operator opted in with an explicit pattern, so the scheme
+		// gate defers to that choice.
+		storage := &mockStorage{}
+		service, _ := NewDCRService(storage, DCRConfig{
+			Enabled:                 true,
+			AllowedRedirectPatterns: []string{`^com\.example\.app:.*`},
+		})
+
+		if !service.isAllowedRedirectURI("com.example.app:/callback") {
+			t.Error("expected explicitly allowlisted private-use scheme to be accepted")
+		}
+		if service.isAllowedRedirectURI("com.evil.app:/callback") {
+			t.Error("expected non-matching private-use scheme to be rejected")
 		}
 	})
 

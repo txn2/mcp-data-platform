@@ -1,6 +1,7 @@
 package oauth
 
 import (
+	"context"
 	"sync"
 	"time"
 )
@@ -38,19 +39,28 @@ type AuthorizationState struct {
 	CreatedAt time.Time
 }
 
-// StateStore manages authorization states for the OAuth flow.
+// StateMaxAge is how long an in-flight authorization state stays valid.
+// The window spans the user's whole trip through the upstream IdP login
+// form, so it is generous relative to the auth-code TTL.
+const StateMaxAge = time.Hour
+
+// StateStore manages authorization states for the OAuth flow. In
+// multi-replica deployments the store must be shared (database-backed):
+// the /oauth/authorize redirect and the upstream IdP callback can land
+// on different replicas.
 type StateStore interface {
-	// Save stores an authorization state.
-	Save(key string, state *AuthorizationState) error
+	// SaveState stores an authorization state, replacing any existing
+	// state under the same key.
+	SaveState(ctx context.Context, key string, state *AuthorizationState) error
 
-	// Get retrieves an authorization state.
-	Get(key string) (*AuthorizationState, error)
+	// GetState retrieves an authorization state.
+	GetState(ctx context.Context, key string) (*AuthorizationState, error)
 
-	// Delete removes an authorization state.
-	Delete(key string) error
+	// DeleteState removes an authorization state.
+	DeleteState(ctx context.Context, key string) error
 
-	// Cleanup removes expired states.
-	Cleanup(maxAge time.Duration) error
+	// CleanupExpiredStates removes states older than maxAge.
+	CleanupExpiredStates(ctx context.Context, maxAge time.Duration) error
 }
 
 // MemoryStateStore is an in-memory implementation of StateStore.
@@ -66,8 +76,8 @@ func NewMemoryStateStore() *MemoryStateStore {
 	}
 }
 
-// Save stores an authorization state.
-func (s *MemoryStateStore) Save(key string, state *AuthorizationState) error {
+// SaveState stores an authorization state.
+func (s *MemoryStateStore) SaveState(_ context.Context, key string, state *AuthorizationState) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -75,8 +85,8 @@ func (s *MemoryStateStore) Save(key string, state *AuthorizationState) error {
 	return nil
 }
 
-// Get retrieves an authorization state.
-func (s *MemoryStateStore) Get(key string) (*AuthorizationState, error) {
+// GetState retrieves an authorization state.
+func (s *MemoryStateStore) GetState(_ context.Context, key string) (*AuthorizationState, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -87,8 +97,8 @@ func (s *MemoryStateStore) Get(key string) (*AuthorizationState, error) {
 	return state, nil
 }
 
-// Delete removes an authorization state.
-func (s *MemoryStateStore) Delete(key string) error {
+// DeleteState removes an authorization state.
+func (s *MemoryStateStore) DeleteState(_ context.Context, key string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -96,8 +106,8 @@ func (s *MemoryStateStore) Delete(key string) error {
 	return nil
 }
 
-// Cleanup removes states older than maxAge.
-func (s *MemoryStateStore) Cleanup(maxAge time.Duration) error {
+// CleanupExpiredStates removes states older than maxAge.
+func (s *MemoryStateStore) CleanupExpiredStates(_ context.Context, maxAge time.Duration) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

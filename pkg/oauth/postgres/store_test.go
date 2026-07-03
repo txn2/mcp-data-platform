@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -303,6 +304,51 @@ func TestDeleteAuthorizationCode(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestConsumeAuthorizationCode(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // sqlmock db close error is inconsequential in tests.
+
+	store := New(db)
+	code := testAuthCode()
+	claimsJSON, _ := json.Marshal(code.UserClaims)
+
+	rows := sqlmock.NewRows([]string{
+		"id", "code", "client_id", "user_id", "user_claims",
+		"code_challenge", "redirect_uri", "scope", "expires_at", "used", "created_at",
+	}).AddRow(
+		code.ID, code.Code, code.ClientID, code.UserID, claimsJSON,
+		code.CodeChallenge, code.RedirectURI, code.Scope,
+		code.ExpiresAt, code.Used, code.CreatedAt,
+	)
+
+	mock.ExpectQuery("DELETE FROM oauth_authorization_codes .+ RETURNING").
+		WithArgs(testCodeValue).
+		WillReturnRows(rows)
+
+	result, err := store.ConsumeAuthorizationCode(context.Background(), testCodeValue)
+	assert.NoError(t, err)
+	assert.Equal(t, code.Code, result.Code)
+	assert.Equal(t, code.ClientID, result.ClientID)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestConsumeAuthorizationCode_NotFound(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // sqlmock db close error is inconsequential in tests.
+
+	store := New(db)
+
+	mock.ExpectQuery("DELETE FROM oauth_authorization_codes .+ RETURNING").
+		WithArgs(testCodeValue).
+		WillReturnError(sql.ErrNoRows)
+
+	_, err = store.ConsumeAuthorizationCode(context.Background(), testCodeValue)
+	assert.Error(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestCleanupExpiredCodes(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
@@ -377,6 +423,50 @@ func TestDeleteRefreshToken(t *testing.T) {
 
 	err = store.DeleteRefreshToken(context.Background(), testTokenValue)
 	assert.NoError(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestConsumeRefreshToken(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // sqlmock db close error is inconsequential in tests.
+
+	store := New(db)
+	token := testRefreshToken()
+	claimsJSON, _ := json.Marshal(token.UserClaims)
+
+	rows := sqlmock.NewRows([]string{
+		"id", "token", "client_id", "user_id", "user_claims",
+		"scope", "expires_at", "created_at",
+	}).AddRow(
+		token.ID, token.Token, token.ClientID, token.UserID,
+		claimsJSON, token.Scope, token.ExpiresAt, token.CreatedAt,
+	)
+
+	mock.ExpectQuery("DELETE FROM oauth_refresh_tokens .+ RETURNING").
+		WithArgs(testTokenValue).
+		WillReturnRows(rows)
+
+	result, err := store.ConsumeRefreshToken(context.Background(), testTokenValue)
+	assert.NoError(t, err)
+	assert.Equal(t, token.Token, result.Token)
+	assert.Equal(t, token.ClientID, result.ClientID)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestConsumeRefreshToken_NotFound(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // sqlmock db close error is inconsequential in tests.
+
+	store := New(db)
+
+	mock.ExpectQuery("DELETE FROM oauth_refresh_tokens .+ RETURNING").
+		WithArgs(testTokenValue).
+		WillReturnError(sql.ErrNoRows)
+
+	_, err = store.ConsumeRefreshToken(context.Background(), testTokenValue)
+	assert.Error(t, err)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 

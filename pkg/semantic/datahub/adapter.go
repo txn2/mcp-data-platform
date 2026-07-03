@@ -13,6 +13,7 @@ import (
 	"github.com/txn2/mcp-datahub/pkg/types"
 
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
+	"github.com/txn2/mcp-data-platform/pkg/urnbuild"
 )
 
 const (
@@ -557,8 +558,6 @@ func (a *Adapter) Close() error {
 // buildDatasetURN creates a DataHub URN for a table.
 // It applies catalog mapping to translate query engine catalogs to metadata catalogs.
 func (a *Adapter) buildDatasetURN(table semantic.TableIdentifier) string {
-	// DataHub URN format: urn:li:dataset:(urn:li:dataPlatform:platform,catalog.schema.table,PROD)
-
 	catalog := table.Catalog
 
 	// Apply catalog mapping if configured
@@ -576,25 +575,17 @@ func (a *Adapter) buildDatasetURN(table semantic.TableIdentifier) string {
 	}
 	parts = append(parts, table.Table)
 
-	return fmt.Sprintf("urn:li:dataset:(urn:li:dataPlatform:%s,%s,PROD)", a.cfg.Platform, strings.Join(parts, "."))
+	return urnbuild.DatasetURNFromName(a.cfg.Platform, strings.Join(parts, "."))
 }
 
 // ResolveURN converts a DataHub URN to a table identifier.
 func (*Adapter) ResolveURN(_ context.Context, urn string) (*semantic.TableIdentifier, error) {
-	// Parse URN format: urn:li:dataset:(urn:li:dataPlatform:platform,name,env)
-	if !strings.HasPrefix(urn, "urn:li:dataset:") {
-		return nil, fmt.Errorf("invalid dataset URN: %s", urn)
+	parsed, err := urnbuild.ParseDatasetURN(urn)
+	if err != nil {
+		return nil, fmt.Errorf("parsing dataset URN: %w", err)
 	}
 
-	// Extract the name part
-	start := strings.Index(urn, ",")
-	end := strings.LastIndex(urn, ",")
-	if start == -1 || end == -1 || start == end {
-		return nil, fmt.Errorf("invalid URN format: %s", urn)
-	}
-
-	name := urn[start+1 : end]
-	parts := strings.Split(name, ".")
+	parts := strings.Split(parsed.Name, ".")
 
 	switch len(parts) {
 	case 2:
@@ -609,7 +600,7 @@ func (*Adapter) ResolveURN(_ context.Context, urn string) (*semantic.TableIdenti
 			Table:   parts[2],
 		}, nil
 	default:
-		return nil, fmt.Errorf("invalid table name in URN: %s", name)
+		return nil, fmt.Errorf("invalid table name in URN: %s", parsed.Name)
 	}
 }
 
@@ -645,35 +636,33 @@ func (a *Adapter) entityToTableContext(entity *types.Entity) *semantic.TableCont
 
 // logInjectionAttempts checks for and logs any prompt injection attempts in entity fields.
 func (a *Adapter) logInjectionAttempts(entity *types.Entity) {
-	logger := semantic.DefaultInjectionLogger
-
 	// Check description
-	logger.DetectAndLog(a.sanitizer, entity.URN, "description", entity.Description)
+	semantic.DetectAndLogInjection(a.sanitizer, entity.URN, "description", entity.Description)
 
 	// Check owner names
 	for i, owner := range entity.Owners {
-		logger.DetectAndLog(a.sanitizer, entity.URN, fmt.Sprintf("owners[%d].name", i), owner.Name)
+		semantic.DetectAndLogInjection(a.sanitizer, entity.URN, fmt.Sprintf("owners[%d].name", i), owner.Name)
 	}
 
 	// Check glossary term descriptions
 	for i, term := range entity.GlossaryTerms {
-		logger.DetectAndLog(a.sanitizer, entity.URN, fmt.Sprintf("glossaryTerms[%d].description", i), term.Description)
+		semantic.DetectAndLogInjection(a.sanitizer, entity.URN, fmt.Sprintf("glossaryTerms[%d].description", i), term.Description)
 	}
 
 	// Check domain description
 	if entity.Domain != nil {
-		logger.DetectAndLog(a.sanitizer, entity.URN, "domain.description", entity.Domain.Description)
+		semantic.DetectAndLogInjection(a.sanitizer, entity.URN, "domain.description", entity.Domain.Description)
 	}
 
 	// Check deprecation note
 	if entity.Deprecation != nil {
-		logger.DetectAndLog(a.sanitizer, entity.URN, "deprecation.note", entity.Deprecation.Note)
+		semantic.DetectAndLogInjection(a.sanitizer, entity.URN, "deprecation.note", entity.Deprecation.Note)
 	}
 
 	// Check custom properties
 	for key, value := range entity.Properties {
 		if str, ok := value.(string); ok {
-			logger.DetectAndLog(a.sanitizer, entity.URN, fmt.Sprintf("properties[%s]", key), str)
+			semantic.DetectAndLogInjection(a.sanitizer, entity.URN, fmt.Sprintf("properties[%s]", key), str)
 		}
 	}
 
@@ -682,16 +671,14 @@ func (a *Adapter) logInjectionAttempts(entity *types.Entity) {
 
 // logInjectionAttemptsV14 checks DataHub 1.4.x fields for prompt injection attempts.
 func (a *Adapter) logInjectionAttemptsV14(entity *types.Entity) {
-	logger := semantic.DefaultInjectionLogger
-
 	// Check structured property display names and string values
 	for i, sp := range entity.StructuredProperties {
 		if sp.Definition != nil {
-			logger.DetectAndLog(a.sanitizer, entity.URN, fmt.Sprintf("structuredProperties[%d].displayName", i), sp.Definition.DisplayName)
+			semantic.DetectAndLogInjection(a.sanitizer, entity.URN, fmt.Sprintf("structuredProperties[%d].displayName", i), sp.Definition.DisplayName)
 		}
 		for j, v := range sp.Values {
 			if str, ok := v.(string); ok {
-				logger.DetectAndLog(a.sanitizer, entity.URN, fmt.Sprintf("structuredProperties[%d].values[%d]", i, j), str)
+				semantic.DetectAndLogInjection(a.sanitizer, entity.URN, fmt.Sprintf("structuredProperties[%d].values[%d]", i, j), str)
 			}
 		}
 	}
@@ -699,8 +686,8 @@ func (a *Adapter) logInjectionAttemptsV14(entity *types.Entity) {
 	// Check incident titles and descriptions
 	if entity.ActiveIncidents != nil {
 		for i, inc := range entity.ActiveIncidents.Incidents {
-			logger.DetectAndLog(a.sanitizer, entity.URN, fmt.Sprintf("incidents[%d].title", i), inc.Title)
-			logger.DetectAndLog(a.sanitizer, entity.URN, fmt.Sprintf("incidents[%d].description", i), inc.Description)
+			semantic.DetectAndLogInjection(a.sanitizer, entity.URN, fmt.Sprintf("incidents[%d].title", i), inc.Title)
+			semantic.DetectAndLogInjection(a.sanitizer, entity.URN, fmt.Sprintf("incidents[%d].description", i), inc.Description)
 		}
 	}
 }
@@ -798,10 +785,9 @@ func (a *Adapter) fieldToColumnContext(field types.SchemaField) *semantic.Column
 	fieldName := extractFieldName(field.FieldPath)
 
 	// Log any injection attempts in user-provided content
-	logger := semantic.DefaultInjectionLogger
-	logger.DetectAndLog(a.sanitizer, "column:"+fieldName, "description", field.Description)
+	semantic.DetectAndLogInjection(a.sanitizer, "column:"+fieldName, "description", field.Description)
 	for i, term := range field.GlossaryTerms {
-		logger.DetectAndLog(a.sanitizer, "column:"+fieldName, fmt.Sprintf("glossaryTerms[%d].description", i), term.Description)
+		semantic.DetectAndLogInjection(a.sanitizer, "column:"+fieldName, fmt.Sprintf("glossaryTerms[%d].description", i), term.Description)
 	}
 
 	cc := &semantic.ColumnContext{

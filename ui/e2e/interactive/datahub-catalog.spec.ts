@@ -64,9 +64,11 @@ test.describe("DataHub Catalog", () => {
   test("sets and clears the domain", async ({ page }) => {
     await page.getByText("analytics.public.customers").click();
     await page.getByPlaceholder("urn:li:domain:finance").fill("urn:li:domain:marketing");
-    await page.getByRole("button", { name: "Set" }).click();
+    // exact: true because role-name matching is substring-based and "Set"
+    // also matches the sidebar's "Assets" and "Changesets" buttons.
+    await page.getByRole("button", { name: "Set", exact: true }).click();
     await expect(page.getByText("marketing")).toBeVisible();
-    await page.getByRole("button", { name: "Clear" }).click();
+    await page.getByRole("button", { name: "Clear", exact: true }).click();
     await expect(page.getByText("None.").first()).toBeVisible();
   });
 });

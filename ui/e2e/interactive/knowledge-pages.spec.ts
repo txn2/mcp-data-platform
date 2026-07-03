@@ -8,11 +8,9 @@ import { authenticate } from "../screenshots/helpers/auth";
 
 async function gotoKnowledgePages(page: Page): Promise<void> {
   await authenticate(page);
-  // #661: the canonical knowledge pages now browse under the Knowledge tab of
-  // the unified /knowledge hub (the standalone /knowledge-pages route redirects
-  // here). With the unified search box empty, the page list and its own
-  // content-search box render below.
-  await page.goto("/portal/knowledge#knowledge");
+  // #709: Knowledge Pages is a URL-addressable sub-tab of the unified
+  // knowledge hub with its own first-class route.
+  await page.goto("/portal/knowledge/pages");
   await expect(page.getByPlaceholder("Search knowledge by content...")).toBeVisible();
 }
 
@@ -23,14 +21,15 @@ test.describe("Knowledge Pages", () => {
 
   test("lists seeded pages", async ({ page }) => {
     await expect(page.getByText("Fiscal Calendar")).toBeVisible();
-    await expect(page.getByText("Revenue Definition")).toBeVisible();
+    // exact: true because the seed also contains "Net Revenue Definition".
+    await expect(page.getByText("Revenue Definition", { exact: true })).toBeVisible();
   });
 
   test("searches over page content", async ({ page }) => {
     // "gross margin" appears only in the Revenue Definition body, proving
     // content (not just title) search.
     await page.getByPlaceholder("Search knowledge by content...").fill("gross margin");
-    await expect(page.getByText("Revenue Definition")).toBeVisible();
+    await expect(page.getByText("Revenue Definition", { exact: true })).toBeVisible();
     await expect(page.getByText("Fiscal Calendar")).toHaveCount(0);
   });
 
@@ -44,7 +43,7 @@ test.describe("Knowledge Pages", () => {
   test("admin can create a new page", async ({ page }) => {
     await page.getByRole("button", { name: "New page" }).click();
     await page.getByPlaceholder("Title").fill("Operating Hours");
-    await page.getByPlaceholder("One-line summary (optional)").fill("When the business runs");
+    await page.getByPlaceholder("A sentence or two summarizing the page").fill("When the business runs");
     await page.locator(".cm-content").first().click();
     await page.keyboard.type("# Operating Hours\n\nMon-Fri 9-5 Pacific.");
     await page.getByRole("button", { name: "Create page" }).click();
@@ -53,9 +52,9 @@ test.describe("Knowledge Pages", () => {
   });
 
   test("admin can edit an existing page", async ({ page }) => {
-    await page.getByText("Revenue Definition").click();
+    await page.getByText("Revenue Definition", { exact: true }).click();
     await page.getByRole("button", { name: "Edit" }).click();
-    const summary = page.getByPlaceholder("One-line summary (optional)");
+    const summary = page.getByPlaceholder("A sentence or two summarizing the page");
     await expect(summary).toHaveValue("What the amount column means.");
     await summary.fill("Clarified gross-margin definition.");
     await page.getByRole("button", { name: "Save changes" }).click();

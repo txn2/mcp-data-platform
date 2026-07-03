@@ -3,6 +3,7 @@ package oauth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -113,6 +114,19 @@ func (m *MemoryStorage) DeleteAuthorizationCode(_ context.Context, code string) 
 	return nil
 }
 
+// ConsumeAuthorizationCode atomically deletes and returns an authorization code.
+func (m *MemoryStorage) ConsumeAuthorizationCode(_ context.Context, code string) (*AuthorizationCode, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	authCode, ok := m.codes[code]
+	if !ok {
+		return nil, fmt.Errorf("authorization code: %w", ErrNotFound)
+	}
+	delete(m.codes, code)
+	return authCode, nil
+}
+
 // CleanupExpiredCodes removes expired authorization codes.
 func (m *MemoryStorage) CleanupExpiredCodes(_ context.Context) error {
 	m.mu.Lock()
@@ -155,6 +169,19 @@ func (m *MemoryStorage) DeleteRefreshToken(_ context.Context, token string) erro
 
 	delete(m.refreshTokens, token)
 	return nil
+}
+
+// ConsumeRefreshToken atomically deletes and returns a refresh token.
+func (m *MemoryStorage) ConsumeRefreshToken(_ context.Context, token string) (*RefreshToken, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	refreshToken, ok := m.refreshTokens[token]
+	if !ok {
+		return nil, fmt.Errorf("refresh token: %w", ErrNotFound)
+	}
+	delete(m.refreshTokens, token)
+	return refreshToken, nil
 }
 
 // DeleteRefreshTokensForClient deletes all refresh tokens for a client.

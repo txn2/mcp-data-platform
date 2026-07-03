@@ -114,7 +114,8 @@ oauth:
 | `oauth.clients[].secret` | Yes | Client secret (use environment variable) |
 | `oauth.clients[].redirect_uris` | Yes | Allowed redirect URIs |
 | `oauth.dcr.enabled` | No | Enable Dynamic Client Registration |
-| `oauth.dcr.allowed_redirect_patterns` | No | Regex patterns for allowed redirect URIs |
+| `oauth.dcr.allowed_redirect_patterns` | Yes, when DCR is enabled | Regex patterns for allowed redirect URIs. Registration is denied when empty unless `allow_all_redirect_uris` is set |
+| `oauth.dcr.allow_all_redirect_uris` | No | Explicitly accept any HTTPS (or loopback HTTP) redirect URI without pattern matching. Not recommended: an attacker-controlled redirect URI enables authorization-code interception |
 | `oauth.upstream.issuer` | No | Upstream IdP issuer URL |
 | `oauth.upstream.client_id` | No | MCP server's client ID in the upstream IdP |
 | `oauth.upstream.client_secret` | No | MCP server's client secret |
@@ -197,6 +198,24 @@ database:
   dsn: "${DATABASE_URL}"
 ```
 
+When a database is configured, in-flight authorization state (the link
+between an `/oauth/authorize` redirect and its upstream IdP callback) is also
+stored in PostgreSQL. This matters behind a load balancer: the callback can
+land on a different replica than the one that started the flow, and browser
+login would fail if the state lived only in one replica's memory.
+
+## Upgrade Note: Access Token Audience
+
+Access tokens mint `aud` as the issuer URL (the platform is both the
+authorization server and the resource server, RFC 9068); the requesting
+client is carried in a `client_id` claim, and the authenticator rejects
+tokens minted for any other audience. Tokens issued by versions that set
+`aud` to the client id fail validation after an upgrade: clients receive a
+401, silently refresh, and get a token with the new audience. During a
+multi-replica rolling upgrade this self-heals the same way once the rollout
+completes; expect brief 401-plus-refresh cycles while old and new replicas
+coexist.
+
 ## PKCE Support
 
 PKCE (Proof Key for Code Exchange) is **required** for all authorization requests:
@@ -209,6 +228,10 @@ PKCE (Proof Key for Code Exchange) is **required** for all authorization request
 
 !!! warning "Security Consideration"
     DCR allows unknown clients to register. For production deployments with sensitive data, prefer pre-registered clients.
+
+Enabling DCR requires configuring `allowed_redirect_patterns`: the registration endpoint is unauthenticated, and an unrestricted redirect URI is the setup for authorization-code interception, so registration is denied when no patterns are configured (the server logs a startup warning for this misconfiguration). Set `allow_all_redirect_uris: true` to explicitly opt out of pattern matching.
+
+Scheme rules: plain HTTP redirect URIs are rejected for non-loopback hosts regardless of configuration; loopback HTTP (`localhost`, `127.0.0.1`, `[::1]`) follows the RFC 8252 Section 7.3 native-app pattern and is accepted. Private-use schemes (RFC 8252 Section 7.1, e.g. `com.example.app:/callback`) are accepted only through an explicitly configured pattern, never through `allow_all_redirect_uris`.
 
 If DCR is enabled, clients can register:
 

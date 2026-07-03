@@ -42,6 +42,9 @@ test.describe("Context Docs", () => {
     await page.locator(".cm-content").first().click();
     await page.keyboard.type("# Clickstream\n\nOne row per page view.");
     await page.getByRole("button", { name: "Create document" }).click();
+    // Create returns to the list with the new document present; opening it
+    // proves the detail view renders.
+    await page.getByRole("button", { name: "Clickstream schema notes" }).click();
     await expect(page.getByRole("heading", { name: "Clickstream schema notes" })).toBeVisible();
   });
 

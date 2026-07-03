@@ -375,9 +375,11 @@ func TestMemoryInsightAdapter_List_FilterMapping(t *testing.T) {
 	assert.Equal(t, memory.MaxLimit, mf.Limit)
 	assert.Equal(t, 0, mf.Offset)
 	assert.Equal(t, memory.StatusActive, mf.Status) // pending -> active
-	// The walk uses a stable total order so OFFSET paging cannot skip or
-	// duplicate a record on a page boundary with a tied created_at (#706).
-	assert.Equal(t, insightWalkOrder, mf.OrderBy)
+	// The stable total order the OFFSET-paged walk needs (#706) is
+	// guaranteed by the store's default ordering (created_at DESC, id
+	// DESC in memory.applyPagination), so the adapter passes no sort.
+	assert.Empty(t, mf.SortBy)
+	assert.Empty(t, mf.SortDirection)
 }
 
 func TestMemoryInsightAdapter_List_ConfidencePostFiltering(t *testing.T) {
