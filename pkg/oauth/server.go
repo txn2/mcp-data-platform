@@ -91,6 +91,19 @@ const (
 // Errors returned by the OAuth server.
 var (
 	ErrStateNotFound = errors.New("authorization state not found")
+
+	// ErrNotFound indicates a stored OAuth record (authorization code,
+	// refresh token) does not exist. Storage implementations return it
+	// from Consume* so the grant handlers can distinguish a genuinely
+	// invalid/replayed credential from a storage outage.
+	ErrNotFound = errors.New("record not found")
+
+	// ErrStorageFailure indicates the backing store failed while
+	// processing a grant. The token endpoint maps it to a 500
+	// server_error response so clients retry with the same credentials
+	// instead of treating the failure as a terminal invalid_grant and
+	// discarding a still-valid refresh token.
+	ErrStorageFailure = errors.New("temporary storage failure")
 )
 
 // ServerConfig configures the OAuth server.
@@ -148,6 +161,17 @@ type Server struct {
 // outcomes are recorded. Nil-safe: the Record* calls no-op when metrics are
 // disabled, so the token path behaves identically either way.
 func (s *Server) SetMetrics(m *observability.Metrics) { s.metrics = m }
+
+// SetStateStore replaces the in-memory authorization state store. Call it
+// during setup, before the server handles requests: in multi-replica
+// deployments the upstream IdP callback can land on a different replica
+// than the one that started the flow, so the state must live in a shared
+// (database-backed) store.
+func (s *Server) SetStateStore(store StateStore) {
+	if store != nil {
+		s.stateStore = store
+	}
+}
 
 // NewServer creates a new OAuth server.
 func NewServer(config ServerConfig, storage Storage) (*Server, error) {
@@ -367,8 +391,19 @@ func (s *Server) handleAuthorizationCodeGrant(ctx context.Context, req TokenRequ
 		return nil, err
 	}
 
-	code.Used = true
-	_ = s.storage.DeleteAuthorizationCode(ctx, code.Code)
+	// Atomically consume the code so single-use holds even when storage
+	// misbehaves or two exchanges race: whichever request loses the
+	// consume fails the grant instead of replaying the code. A storage
+	// outage surfaces as server_error (retryable) rather than
+	// invalid_grant: the code is still stored and single-use still holds.
+	if _, err := s.storage.ConsumeAuthorizationCode(ctx, code.Code); err != nil {
+		slog.Warn("oauth: authorization code consume failed",
+			paramClientID, req.ClientID, logKeyError, err.Error())
+		if errors.Is(err, ErrNotFound) {
+			return nil, fmt.Errorf("invalid authorization code")
+		}
+		return nil, fmt.Errorf("consuming authorization code: %w", ErrStorageFailure)
+	}
 
 	return s.generateTokens(ctx, client, code.UserID, code.UserClaims, code.Scope)
 }
@@ -382,7 +417,10 @@ func (s *Server) handleRefreshTokenGrant(ctx context.Context, req TokenRequest) 
 	}
 
 	if token.IsExpired() {
-		_ = s.storage.DeleteRefreshToken(ctx, token.Token)
+		if delErr := s.storage.DeleteRefreshToken(ctx, token.Token); delErr != nil {
+			slog.Warn("oauth: expired refresh token delete failed",
+				paramClientID, token.ClientID, logKeyError, delErr.Error())
+		}
 		return nil, fmt.Errorf("refresh token expired")
 	}
 
@@ -400,16 +438,46 @@ func (s *Server) handleRefreshTokenGrant(ctx context.Context, req TokenRequest) 
 		return nil, fmt.Errorf("invalid client credentials")
 	}
 
-	// Delete old refresh token (rotation)
-	_ = s.storage.DeleteRefreshToken(ctx, token.Token)
+	// Rotate: atomically consume the old refresh token, failing the grant
+	// when it cannot be invalidated so rotation never silently degrades
+	// into two live tokens. A storage outage surfaces as server_error
+	// (retryable) so a spec-compliant client does not discard its
+	// still-valid refresh token over a transient infrastructure blip.
+	if _, err := s.storage.ConsumeRefreshToken(ctx, token.Token); err != nil {
+		slog.Warn("oauth: refresh token rotation consume failed",
+			paramClientID, req.ClientID, logKeyError, err.Error())
+		if errors.Is(err, ErrNotFound) {
+			return nil, fmt.Errorf("invalid refresh token")
+		}
+		return nil, fmt.Errorf("rotating refresh token: %w", ErrStorageFailure)
+	}
 
-	// Generate new tokens
+	// Determine the new token scope. RFC 6749 section 6: a refresh
+	// request may narrow the scope but never exceed the originally
+	// granted one.
 	scope := req.Scope
 	if scope == "" {
 		scope = token.Scope
+	} else if !isScopeSubset(scope, token.Scope) {
+		return nil, fmt.Errorf("invalid scope: exceeds originally granted scope")
 	}
 
 	return s.generateTokens(ctx, client, token.UserID, token.UserClaims, scope)
+}
+
+// isScopeSubset reports whether every space-delimited scope in requested is
+// present in granted (RFC 6749 section 3.3 scope syntax).
+func isScopeSubset(requested, granted string) bool {
+	grantedSet := make(map[string]bool)
+	for s := range strings.FieldsSeq(granted) {
+		grantedSet[s] = true
+	}
+	for s := range strings.FieldsSeq(requested) {
+		if !grantedSet[s] {
+			return false
+		}
+	}
+	return true
 }
 
 // generateTokens generates access and refresh tokens.
@@ -462,11 +530,15 @@ func (s *Server) generateAccessToken(clientID, userID string, userClaims map[str
 	now := time.Now()
 	exp := now.Add(s.config.AccessTokenTTL)
 
-	// Build JWT claims
+	// Build JWT claims. aud identifies the resource server the token is
+	// minted for (RFC 9068): this platform is both the authorization
+	// server and the resource server, so the issuer URL is the audience.
+	// The requesting client is carried in the client_id claim.
 	claims := jwt.MapClaims{
 		"iss":       s.config.Issuer,
 		jwtClaimSub: userID,
-		"aud":       clientID,
+		"aud":       s.config.Issuer,
+		"client_id": clientID,
 		"exp":       exp.Unix(),
 		"iat":       now.Unix(),
 		"nbf":       now.Unix(),
@@ -589,6 +661,13 @@ func (s *Server) handleTokenEndpoint(w http.ResponseWriter, r *http.Request) {
 			"has_code_verifier", req.CodeVerifier != "",
 			"duration_ms", time.Since(start).Milliseconds(),
 			logKeyError, err.Error())
+		// Storage outages are retryable: surface them as 500
+		// server_error so the client keeps its credentials and retries,
+		// instead of treating the failure as a terminal invalid grant.
+		if errors.Is(err, ErrStorageFailure) {
+			s.writeError(w, http.StatusInternalServerError, errServerError, err.Error())
+			return
+		}
 		s.writeError(w, http.StatusBadRequest, errInvalidRequest, err.Error())
 		return
 	}
@@ -687,7 +766,7 @@ func (s *Server) handleAuthorizeEndpoint(w http.ResponseWriter, r *http.Request)
 		UpstreamState:       upstreamState,
 		CreatedAt:           time.Now(),
 	}
-	if err := s.stateStore.Save(upstreamState, authState); err != nil {
+	if err := s.stateStore.SaveState(r.Context(), upstreamState, authState); err != nil {
 		s.writeError(w, http.StatusInternalServerError, errServerError, "failed to save state")
 		return
 	}
@@ -713,7 +792,7 @@ func (s *Server) handleLoginRequiredError(w http.ResponseWriter, r *http.Request
 		return false
 	}
 
-	authState, err := s.stateStore.Get(stateParam)
+	authState, err := s.stateStore.GetState(r.Context(), stateParam)
 	if err != nil {
 		return false
 	}
@@ -725,7 +804,9 @@ func (s *Server) handleLoginRequiredError(w http.ResponseWriter, r *http.Request
 
 	// Mark that we tried prompt=none and re-save the state
 	authState.PromptNoneAttempted = true
-	_ = s.stateStore.Save(stateParam, authState)
+	if err := s.stateStore.SaveState(r.Context(), stateParam, authState); err != nil {
+		slog.Warn("oauth: authorization state re-save failed", logKeyError, err.Error())
+	}
 
 	// Redirect to upstream IdP without prompt=none
 	upstreamURL := s.buildUpstreamAuthURLWithPrompt(stateParam, false)
@@ -763,14 +844,16 @@ func (s *Server) handleCallbackEndpoint(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Retrieve original authorization state
-	authState, err := s.stateStore.Get(upstreamState)
+	authState, err := s.stateStore.GetState(r.Context(), upstreamState)
 	if err != nil {
 		s.writeError(w, http.StatusBadRequest, "invalid_state", "authorization state not found")
 		return
 	}
 
 	// Delete state to prevent replay
-	_ = s.stateStore.Delete(upstreamState)
+	if err := s.stateStore.DeleteState(r.Context(), upstreamState); err != nil {
+		slog.Warn("oauth: authorization state delete failed", logKeyError, err.Error())
+	}
 
 	// Exchange code with upstream IdP
 	upstreamToken, err := s.exchangeUpstreamCode(r.Context(), upstreamCode)
@@ -993,7 +1076,8 @@ func (s *Server) writeError(w http.ResponseWriter, status int, err, desc string)
 	s.writeJSON(w, status, ErrorResponse{Error: err, ErrorDescription: desc})
 }
 
-// StartCleanupRoutine starts a background routine to clean up expired codes and tokens.
+// StartCleanupRoutine starts a background routine to clean up expired codes,
+// tokens, and in-flight authorization states.
 func (s *Server) StartCleanupRoutine(ctx context.Context, interval time.Duration) {
 	go func() {
 		ticker := time.NewTicker(interval)
@@ -1009,6 +1093,9 @@ func (s *Server) StartCleanupRoutine(ctx context.Context, interval time.Duration
 				}
 				if err := s.storage.CleanupExpiredTokens(ctx); err != nil {
 					slog.Warn("oauth cleanup: expired tokens", "error", err)
+				}
+				if err := s.stateStore.CleanupExpiredStates(ctx, StateMaxAge); err != nil {
+					slog.Warn("oauth cleanup: expired states", "error", err)
 				}
 			}
 		}

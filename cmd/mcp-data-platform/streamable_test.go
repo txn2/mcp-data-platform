@@ -222,7 +222,10 @@ func makeTestJWT(t *testing.T, signingKey []byte, issuer, userID string, keycloa
 	claims := jwt.MapClaims{
 		"iss": issuer,
 		"sub": userID,
-		"aud": "test-client",
+		// The OAuth server mints aud as the issuer (the platform is both
+		// authorization server and resource server); the authenticator
+		// rejects any other audience.
+		"aud": issuer,
 		"exp": time.Now().Add(time.Hour).Unix(),
 		"iat": time.Now().Unix(),
 	}

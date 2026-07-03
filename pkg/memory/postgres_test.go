@@ -728,17 +728,43 @@ func TestApplyPagination(t *testing.T) {
 		qb := applyPagination(psq.Select("*").From(tableName), Filter{Limit: 10})
 		query, _, err := qb.ToSql()
 		require.NoError(t, err)
-		assert.Contains(t, query, "ORDER BY created_at DESC")
+		assert.Contains(t, query, "ORDER BY created_at DESC, id DESC")
 	})
 
-	t.Run("custom order", func(t *testing.T) {
+	t.Run("custom order with nulls handling", func(t *testing.T) {
 		qb := applyPagination(psq.Select("*").From(tableName), Filter{
-			Limit:   10,
-			OrderBy: "last_verified ASC NULLS FIRST",
+			Limit:         10,
+			SortBy:        "last_verified",
+			SortDirection: SortAscNullsFirst,
 		})
 		query, _, err := qb.ToSql()
 		require.NoError(t, err)
-		assert.Contains(t, query, "ORDER BY last_verified ASC NULLS FIRST")
+		assert.Contains(t, query, "ORDER BY last_verified ASC NULLS FIRST, id ASC")
+	})
+
+	t.Run("non-allowlisted column falls back to default", func(t *testing.T) {
+		// Regression for the ORDER BY splice: a hostile SortBy must never
+		// reach the SQL text.
+		qb := applyPagination(psq.Select("*").From(tableName), Filter{
+			Limit:  10,
+			SortBy: "created_at; DROP TABLE memory_records--",
+		})
+		query, _, err := qb.ToSql()
+		require.NoError(t, err)
+		assert.Contains(t, query, "ORDER BY created_at DESC, id DESC")
+		assert.NotContains(t, query, "DROP TABLE")
+	})
+
+	t.Run("non-allowlisted direction falls back to DESC", func(t *testing.T) {
+		qb := applyPagination(psq.Select("*").From(tableName), Filter{
+			Limit:         10,
+			SortBy:        "updated_at",
+			SortDirection: "ASC; DELETE FROM memory_records--",
+		})
+		query, _, err := qb.ToSql()
+		require.NoError(t, err)
+		assert.Contains(t, query, "ORDER BY updated_at DESC, id DESC")
+		assert.NotContains(t, query, "DELETE FROM")
 	})
 }
 

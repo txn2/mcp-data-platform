@@ -18,6 +18,12 @@ type OAuthJWTConfig struct {
 	// SigningKey is the HMAC key used to verify JWT signatures.
 	SigningKey []byte
 
+	// Audience is the accepted aud claim value. Tokens minted for a
+	// different audience are rejected. Defaults to Issuer, which is the
+	// audience the platform's own OAuth server mints (the platform is
+	// both the authorization server and the resource server).
+	Audience string
+
 	// RoleClaimPath is the path to roles within the nested "claims" object.
 	// e.g., "realm_access.roles" extracts claims["claims"]["realm_access"]["roles"]
 	RoleClaimPath string
@@ -39,6 +45,9 @@ func NewOAuthJWTAuthenticator(cfg OAuthJWTConfig) (*OAuthJWTAuthenticator, error
 	}
 	if len(cfg.SigningKey) == 0 {
 		return nil, fmt.Errorf("oauth signing key is required")
+	}
+	if cfg.Audience == "" {
+		cfg.Audience = cfg.Issuer
 	}
 
 	extractor := &ClaimsExtractor{
@@ -115,14 +124,14 @@ func (a *OAuthJWTAuthenticator) parseAndValidateToken(tokenString string) (map[s
 	if !LooksLikeJWT(tokenString) {
 		return nil, ErrNotAJWT
 	}
-	// Parse and verify the JWT signature
+	// Parse and verify the JWT signature and audience
 	token, err := jwt.Parse(tokenString, func(t *jwt.Token) (any, error) {
 		// Validate the algorithm is HMAC
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}
 		return a.cfg.SigningKey, nil
-	})
+	}, jwt.WithAudience(a.cfg.Audience))
 	if err != nil {
 		return nil, fmt.Errorf("parsing token: %w", err)
 	}

@@ -1,6 +1,7 @@
 package oauth
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -21,14 +22,14 @@ func TestMemoryStateStore(t *testing.T) {
 	}
 
 	t.Run("save state", func(t *testing.T) {
-		err := store.Save("key-1", state)
+		err := store.SaveState(context.Background(), "key-1", state)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
 
 	t.Run("get state", func(t *testing.T) {
-		got, err := store.Get("key-1")
+		got, err := store.GetState(context.Background(), "key-1")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -41,19 +42,19 @@ func TestMemoryStateStore(t *testing.T) {
 	})
 
 	t.Run("get nonexistent state", func(t *testing.T) {
-		_, err := store.Get("nonexistent")
+		_, err := store.GetState(context.Background(), "nonexistent")
 		if !errors.Is(err, ErrStateNotFound) {
 			t.Errorf("expected ErrStateNotFound, got %v", err)
 		}
 	})
 
 	t.Run("delete state", func(t *testing.T) {
-		err := store.Delete("key-1")
+		err := store.DeleteState(context.Background(), "key-1")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		_, err = store.Get("key-1")
+		_, err = store.GetState(context.Background(), "key-1")
 		if !errors.Is(err, ErrStateNotFound) {
 			t.Error("expected state to be deleted")
 		}
@@ -65,29 +66,29 @@ func TestMemoryStateStore(t *testing.T) {
 			ClientID:  "old-client",
 			CreatedAt: time.Now().Add(-time.Hour),
 		}
-		_ = store.Save("old-key", oldState)
+		_ = store.SaveState(context.Background(), "old-key", oldState)
 
 		// Add new state
 		newState := &AuthorizationState{
 			ClientID:  "new-client",
 			CreatedAt: time.Now(),
 		}
-		_ = store.Save("new-key", newState)
+		_ = store.SaveState(context.Background(), "new-key", newState)
 
 		// Cleanup states older than 30 minutes
-		err := store.Cleanup(30 * time.Minute)
+		err := store.CleanupExpiredStates(context.Background(), 30*time.Minute)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
 		// Old should be gone
-		_, err = store.Get("old-key")
+		_, err = store.GetState(context.Background(), "old-key")
 		if !errors.Is(err, ErrStateNotFound) {
 			t.Error("expected old state to be cleaned up")
 		}
 
 		// New should remain
-		_, err = store.Get("new-key")
+		_, err = store.GetState(context.Background(), "new-key")
 		if err != nil {
 			t.Error("expected new state to remain")
 		}

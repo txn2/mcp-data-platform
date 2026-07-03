@@ -170,6 +170,35 @@ func TestMemoryStorage_AuthorizationCode(t *testing.T) {
 		}
 	})
 
+	t.Run("consume authorization code", func(t *testing.T) {
+		consumable := &AuthorizationCode{
+			Code:      "consume-me",
+			ExpiresAt: time.Now().Add(10 * time.Minute),
+		}
+		if err := storage.SaveAuthorizationCode(ctx, consumable); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		got, err := storage.ConsumeAuthorizationCode(ctx, "consume-me")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got.Code != "consume-me" {
+			t.Errorf("expected code 'consume-me', got %q", got.Code)
+		}
+
+		// Second consume must fail: the code is single-use.
+		if _, err := storage.ConsumeAuthorizationCode(ctx, "consume-me"); err == nil {
+			t.Error("expected error consuming an already-consumed code")
+		}
+	})
+
+	t.Run("consume nonexistent code", func(t *testing.T) {
+		if _, err := storage.ConsumeAuthorizationCode(ctx, "nonexistent"); err == nil {
+			t.Error("expected error for nonexistent code")
+		}
+	})
+
 	t.Run("cleanup expired codes", func(t *testing.T) {
 		// Add expired code
 		expiredCode := &AuthorizationCode{
@@ -251,6 +280,35 @@ func TestMemoryStorage_RefreshToken(t *testing.T) {
 		_, err = storage.GetRefreshToken(ctx, "token-123")
 		if err == nil {
 			t.Error("expected error for deleted token")
+		}
+	})
+
+	t.Run("consume refresh token", func(t *testing.T) {
+		consumable := &RefreshToken{
+			Token:     "rotate-me",
+			ExpiresAt: time.Now().Add(24 * time.Hour),
+		}
+		if err := storage.SaveRefreshToken(ctx, consumable); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		got, err := storage.ConsumeRefreshToken(ctx, "rotate-me")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got.Token != "rotate-me" {
+			t.Errorf("expected token 'rotate-me', got %q", got.Token)
+		}
+
+		// Second consume must fail: rotation invalidated the token.
+		if _, err := storage.ConsumeRefreshToken(ctx, "rotate-me"); err == nil {
+			t.Error("expected error consuming an already-consumed token")
+		}
+	})
+
+	t.Run("consume nonexistent token", func(t *testing.T) {
+		if _, err := storage.ConsumeRefreshToken(ctx, "nonexistent"); err == nil {
+			t.Error("expected error for nonexistent token")
 		}
 	})
 }

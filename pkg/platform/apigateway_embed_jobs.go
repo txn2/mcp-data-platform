@@ -118,7 +118,7 @@ func (p *Platform) WireAPIGatewayEmbedJobsFromDB() {
 		p.indexJobsListener = indexjobs.NewListener(p.config.Database.DSN, indexjobs.NotifyChannel, worker)
 	}
 
-	p.lifecycle.OnStart(func(ctx context.Context) error {
+	p.lifecycle.OnComponent(func(ctx context.Context) error {
 		worker.Start(ctx)
 		reaper.Start(ctx)
 		reconciler.Start(ctx)
@@ -134,8 +134,7 @@ func (p *Platform) WireAPIGatewayEmbedJobsFromDB() {
 		p.bootstrapToolsIndex(ctx)
 		slog.Info("index jobs: started", "kinds", reg.Kinds())
 		return nil
-	})
-	p.lifecycle.OnStop(func(ctx context.Context) error {
+	}, func(ctx context.Context) error {
 		return p.stopIndexJobs(ctx, worker, reaper, reconciler)
 	})
 }

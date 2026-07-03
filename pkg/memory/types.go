@@ -266,9 +266,39 @@ type Filter struct {
 	Until     *time.Time
 	Limit     int
 	Offset    int
-	// OrderBy overrides the default ordering ("created_at DESC").
-	// Must be a valid SQL ORDER BY clause (e.g. "last_verified ASC NULLS FIRST").
-	OrderBy string
+	// SortBy overrides the default ordering column (created_at). It must
+	// be a key of ValidSortColumns; unknown columns fall back to the
+	// default. ORDER BY cannot be parameterized, so the column is spliced
+	// into SQL and only allowlisted values are accepted.
+	SortBy string
+	// SortDirection is one of SortAsc, SortDesc, SortAscNullsFirst, or
+	// SortDescNullsLast. Unknown values fall back to SortDesc.
+	SortDirection string
+}
+
+// Sort directions accepted by Filter.SortDirection.
+const (
+	SortAsc           = "ASC"
+	SortDesc          = "DESC"
+	SortAscNullsFirst = "ASC NULLS FIRST"
+	SortDescNullsLast = "DESC NULLS LAST"
+)
+
+// ValidSortColumns lists memory-record columns that Filter.SortBy may
+// reference. Only these values are ever spliced into an ORDER BY clause.
+var ValidSortColumns = map[string]bool{
+	"created_at":    true,
+	"updated_at":    true,
+	"last_verified": true,
+	"confidence":    true,
+}
+
+// validSortDirections guards the direction half of the ORDER BY splice.
+var validSortDirections = map[string]bool{
+	SortAsc:           true,
+	SortDesc:          true,
+	SortAscNullsFirst: true,
+	SortDescNullsLast: true,
 }
 
 // EffectiveLimit returns the limit capped to MaxLimit, defaulting to DefaultLimit.

@@ -231,6 +231,79 @@ func TestLifecycle_RollbackSkipsNilStopCallback(t *testing.T) {
 	}
 }
 
+// TestLifecycle_RollbackWithMismatchedRegistrations is the regression test
+// for #755: a component registering only OnStart (or only OnStop) used to
+// shift the positional pairing between the two callback slices, so rollback
+// either indexed out of range or stopped the wrong component. With paired
+// registration the rollback is structural.
+func TestLifecycle_RollbackWithMismatchedRegistrations(t *testing.T) {
+	t.Parallel()
+	lc := NewLifecycle()
+
+	// Start-only component (no stop half) shifts nothing anymore.
+	lc.OnStart(func(_ context.Context) error { return nil })
+
+	// Paired component whose stop must run during rollback.
+	var pairedStopped bool
+	lc.OnComponent(
+		func(_ context.Context) error { return nil },
+		func(_ context.Context) error { pairedStopped = true; return nil },
+	)
+
+	// Stop-only component (a Closer): closed during rollback too.
+	var closerStopped bool
+	lc.OnStop(func(_ context.Context) error { closerStopped = true; return nil })
+
+	// This component's own stop must NOT run: its start failed.
+	var failedStopped bool
+	lc.OnComponent(
+		func(_ context.Context) error { return errors.New("boom") },
+		func(_ context.Context) error { failedStopped = true; return nil },
+	)
+
+	if err := lc.Start(context.Background()); err == nil {
+		t.Fatal("Start() expected error")
+	}
+	if !pairedStopped {
+		t.Error("paired component's stop must run during rollback")
+	}
+	if !closerStopped {
+		t.Error("stop-only component must be torn down during rollback")
+	}
+	if failedStopped {
+		t.Error("failed component's own stop must not run")
+	}
+	if lc.IsStarted() {
+		t.Error("lifecycle should not be started after rollback")
+	}
+}
+
+// TestLifecycle_OnComponentAfterStarted mirrors the late-wiring behavior of
+// OnStart: the start half fires immediately, and the stop half still runs
+// at shutdown.
+func TestLifecycle_OnComponentAfterStarted(t *testing.T) {
+	t.Parallel()
+	lc := NewLifecycle()
+	if err := lc.Start(context.Background()); err != nil {
+		t.Fatalf("Start() error: %v", err)
+	}
+
+	var started, stopped bool
+	lc.OnComponent(
+		func(_ context.Context) error { started = true; return nil },
+		func(_ context.Context) error { stopped = true; return nil },
+	)
+	if !started {
+		t.Error("late-registered start must fire immediately")
+	}
+	if err := lc.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop() error: %v", err)
+	}
+	if !stopped {
+		t.Error("late-registered stop must run at shutdown")
+	}
+}
+
 func TestLifecycle_StopWithError(t *testing.T) {
 	lc := NewLifecycle()
 

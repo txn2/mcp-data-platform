@@ -13,6 +13,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	"github.com/txn2/mcp-data-platform/pkg/storage"
+	"github.com/txn2/mcp-data-platform/pkg/urnbuild"
 )
 
 // tokenDivisor is the approximate characters-per-token ratio for estimation.
@@ -1188,15 +1189,25 @@ func filterDatasetURNs(urns []string) []string {
 	return filtered
 }
 
-// extractURNsFromResult extracts URNs from result content.
+// extractURNsFromResult extracts URNs from result content, deduplicated in
+// first-seen order: a rich result legitimately mentions the same URN several
+// times (the entity itself, memory-context references, related-document
+// assets), and downstream enrichment must not repeat per-URN output for each
+// occurrence.
 func extractURNsFromResult(result *mcp.CallToolResult) []string {
 	var urns []string
+	seen := make(map[string]bool)
 	for _, content := range result.Content {
 		if textContent, ok := content.(*mcp.TextContent); ok {
 			// Try to parse as JSON and extract URNs
 			var data map[string]any
 			if err := json.Unmarshal([]byte(textContent.Text), &data); err == nil {
-				urns = append(urns, extractURNsFromMap(data)...)
+				for _, urn := range extractURNsFromMap(data) {
+					if !seen[urn] {
+						seen[urn] = true
+						urns = append(urns, urn)
+					}
+				}
 			}
 		}
 	}
@@ -1720,6 +1731,9 @@ func appendResourceLinks(result *mcp.CallToolResult, urns []string) *mcp.CallToo
 		return result
 	}
 
+	// Distinct URNs can resolve to the same table (e.g. environment
+	// variants), so links are keyed on the derived URI, not the URN.
+	seen := make(map[string]bool)
 	for _, urn := range urns {
 		catalog, schema, table := parseDataHubURNComponents(urn)
 		if table == "" {
@@ -1727,6 +1741,10 @@ func appendResourceLinks(result *mcp.CallToolResult, urns []string) *mcp.CallToo
 		}
 
 		schemaURI := fmt.Sprintf("schema://%s.%s/%s", catalog, schema, table)
+		if seen[schemaURI] {
+			continue
+		}
+		seen[schemaURI] = true
 		result.Content = append(result.Content, &mcp.ResourceLink{
 			URI:         schemaURI,
 			Name:        fmt.Sprintf("Schema: %s.%s.%s", catalog, schema, table),
@@ -1747,38 +1765,17 @@ func appendResourceLinks(result *mcp.CallToolResult, urns []string) *mcp.CallToo
 }
 
 // parseDataHubURNComponents extracts catalog, schema, and table from a DataHub
-// dataset URN. The expected format is:
-//
-//	urn:li:dataset:(urn:li:dataPlatform:<platform>,<catalog>.<schema>.<table>,PROD)
-//
+// dataset URN whose name is <catalog>.<schema>.<table>.
 // Returns empty strings if the URN doesn't match the expected format.
 func parseDataHubURNComponents(urn string) (catalog, schema, table string) {
-	const prefix = "urn:li:dataset:(urn:li:dataPlatform:"
-	if !strings.HasPrefix(urn, prefix) {
-		return "", "", ""
-	}
-
-	// Strip prefix to get: "trino,catalog.schema.table,PROD)"
-	rest := urn[len(prefix):]
-
-	// Find first comma after platform name
-	firstComma := strings.Index(rest, ",")
-	if firstComma < 0 {
-		return "", "", ""
-	}
-
-	// Get the qualified name portion: "catalog.schema.table,PROD)"
-	rest = rest[firstComma+1:]
-
-	// Find the next comma (before ",PROD)")
-	qualifiedName, _, found := strings.Cut(rest, ",")
-	if !found {
+	parsed, err := urnbuild.ParseDatasetURN(urn)
+	if err != nil {
 		return "", "", ""
 	}
 
 	// Split by dots: catalog.schema.table
-	parts := strings.SplitN(qualifiedName, ".", 3) //nolint:mnd,revive // 3 parts: catalog.schema.table
-	if len(parts) != 3 {                           //nolint:mnd,revive // 3 parts: catalog.schema.table
+	parts := strings.SplitN(parsed.Name, ".", 3) //nolint:mnd,revive // 3 parts: catalog.schema.table
+	if len(parts) != 3 {                         //nolint:mnd,revive // 3 parts: catalog.schema.table
 		return "", "", ""
 	}
 

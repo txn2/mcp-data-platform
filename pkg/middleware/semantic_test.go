@@ -402,6 +402,37 @@ func TestExtractURNsFromResult(t *testing.T) {
 			t.Errorf("expected 2 URNs, got %d", len(urns))
 		}
 	})
+
+	t.Run("repeated URN across nested fields is deduplicated", func(t *testing.T) {
+		// A rich entity response mentions the same dataset URN several
+		// times (the entity itself, memory-context references,
+		// related-document assets). Regression for #763: enrichment must
+		// see it once, in first-seen order.
+		jsonContent, _ := json.Marshal(map[string]any{
+			"urn": semTestDatasetURN1,
+			"memory_context": map[string]any{
+				"entity": map[string]any{"urn": semTestDatasetURN1},
+			},
+			"related_documents": []any{
+				map[string]any{"related_assets": []any{
+					map[string]any{"urn": semTestDatasetURN1},
+				}},
+			},
+			"query_context": map[string]any{"urn": semTestDatasetURN1},
+		})
+		result := &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: string(jsonContent)},
+			},
+		}
+		urns := extractURNsFromResult(result)
+		if len(urns) != 1 {
+			t.Fatalf("expected 1 deduplicated URN, got %d: %v", len(urns), urns)
+		}
+		if urns[0] != semTestDatasetURN1 {
+			t.Errorf("expected %q, got %q", semTestDatasetURN1, urns[0])
+		}
+	})
 }
 
 func TestExtractURNsFromMap(t *testing.T) {
@@ -3223,6 +3254,25 @@ func TestAppendResourceLinks(t *testing.T) {
 		got := appendResourceLinks(result, urns)
 		if len(got.Content) != 1 {
 			t.Errorf("content count = %d, want 1", len(got.Content))
+		}
+	})
+
+	t.Run("URNs resolving to the same table produce one link pair", func(t *testing.T) {
+		// Regression for #763: repeated or environment-variant URNs must
+		// not emit duplicate schema/availability link pairs.
+		result := &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "original"}},
+		}
+		urns := []string{
+			"urn:li:dataset:(urn:li:dataPlatform:trino,rdbms.public.orders,PROD)",
+			"urn:li:dataset:(urn:li:dataPlatform:trino,rdbms.public.orders,PROD)",
+			"urn:li:dataset:(urn:li:dataPlatform:trino,rdbms.public.orders,DEV)",
+		}
+		got := appendResourceLinks(result, urns)
+
+		// 1 original + exactly 2 resource links (schema + availability)
+		if len(got.Content) != 3 {
+			t.Fatalf("content count = %d, want 3", len(got.Content))
 		}
 	})
 }

@@ -296,7 +296,10 @@ func TestServerRegisterClient(t *testing.T) {
 	t.Run("DCR enabled", func(t *testing.T) {
 		storage := &mockStorage{}
 		server, _ := NewServer(ServerConfig{
-			DCR: DCRConfig{Enabled: true},
+			DCR: DCRConfig{
+				Enabled:                 true,
+				AllowedRedirectPatterns: []string{`^http://localhost.*`},
+			},
 		}, storage)
 
 		resp, err := server.RegisterClient(ctx, DCRRequest{
@@ -408,7 +411,10 @@ func TestServerHTTPHandlers_Register(t *testing.T) {
 	storage := &mockStorage{}
 	server, _ := NewServer(ServerConfig{
 		Issuer: "http://localhost:8080",
-		DCR:    DCRConfig{Enabled: true},
+		DCR: DCRConfig{
+			Enabled:                 true,
+			AllowedRedirectPatterns: []string{`^http://localhost.*`},
+		},
 	}, storage)
 
 	t.Run("register endpoint with valid JSON", func(t *testing.T) {
@@ -441,7 +447,10 @@ func TestServerHTTPHandlersClaudeDesktopPaths(t *testing.T) {
 	storage := &mockStorage{}
 	server, _ := NewServer(ServerConfig{
 		Issuer: "http://localhost:8080",
-		DCR:    DCRConfig{Enabled: true},
+		DCR: DCRConfig{
+			Enabled:                 true,
+			AllowedRedirectPatterns: []string{`^http://localhost.*`},
+		},
 	}, storage)
 
 	// Test paths without /oauth prefix (Claude Desktop compatibility)
@@ -612,6 +621,55 @@ func TestHandleAuthorizationCodeGrant(t *testing.T) {
 			t.Error("access token and refresh token must be different")
 		}
 	})
+}
+
+func TestAuthorizationCodeConsumeFailureFailsGrant(t *testing.T) {
+	// Single-use rests on the atomic consume: when it fails (storage error
+	// or a concurrent exchange already consumed the code), the grant must
+	// fail instead of issuing tokens for a possibly replayed code.
+	ctx := context.Background()
+	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte(testSecret), bcrypt.MinCost)
+
+	client := &Client{
+		ClientID:     testClientID,
+		ClientSecret: string(hashedSecret),
+		RedirectURIs: []string{testRedirectURI},
+		Active:       true,
+	}
+	authCode := &AuthorizationCode{
+		ID:          "code-id-consume",
+		Code:        "consume-fail-code",
+		ClientID:    testClientID,
+		UserID:      testServerUserID,
+		RedirectURI: testRedirectURI,
+		Scope:       testScopeRead,
+		ExpiresAt:   time.Now().Add(10 * time.Minute),
+		CreatedAt:   time.Now(),
+	}
+
+	storage := &mockStorage{
+		getClientFunc: func(_ context.Context, _ string) (*Client, error) {
+			return client, nil
+		},
+		getAuthorizationCodeFunc: func(_ context.Context, _ string) (*AuthorizationCode, error) {
+			return authCode, nil
+		},
+		consumeAuthorizationCodeFunc: func(_ context.Context, _ string) (*AuthorizationCode, error) {
+			return nil, errors.New(testDBError)
+		},
+	}
+	server, _ := NewServer(ServerConfig{}, storage)
+
+	_, err := server.Token(ctx, TokenRequest{
+		GrantType:    "authorization_code",
+		Code:         "consume-fail-code",
+		RedirectURI:  testRedirectURI,
+		ClientID:     testClientID,
+		ClientSecret: testSecret,
+	})
+	if err == nil {
+		t.Fatal("expected grant to fail when code consume fails")
+	}
 }
 
 func TestHandleAuthorizationCodeGrant_Errors(t *testing.T) {
@@ -1447,8 +1505,150 @@ func TestGenerateTokensSaveRefreshError(t *testing.T) {
 	}
 }
 
-func TestRefreshTokenDeleteIgnoresError(t *testing.T) {
-	// Delete refresh token errors are ignored (the token rotation proceeds)
+func TestIsScopeSubset(t *testing.T) {
+	tests := []struct {
+		requested string
+		granted   string
+		want      bool
+	}{
+		{"read", "read write", true},
+		{"read write", "read write", true},
+		{"", "read", true},
+		{"read write admin", "read write", false},
+		{"admin", "read", false},
+		{"read", "", false},
+	}
+	for _, tt := range tests {
+		if got := isScopeSubset(tt.requested, tt.granted); got != tt.want {
+			t.Errorf("isScopeSubset(%q, %q) = %v, want %v", tt.requested, tt.granted, got, tt.want)
+		}
+	}
+}
+
+func TestRefreshTokenScopeEscalationRejected(t *testing.T) {
+	// RFC 6749 section 6: a refresh request may narrow scope but never
+	// exceed the originally granted one.
+	ctx := context.Background()
+	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte(testSecret), bcrypt.MinCost)
+
+	client := &Client{
+		ClientID:     testClientID,
+		ClientSecret: string(hashedSecret),
+		Active:       true,
+	}
+	refreshToken := &RefreshToken{
+		Token:     "valid-token",
+		ClientID:  testClientID,
+		UserID:    testServerUserID,
+		Scope:     testScopeRead,
+		ExpiresAt: time.Now().Add(24 * time.Hour),
+	}
+
+	storage := &mockStorage{
+		getClientFunc: func(_ context.Context, _ string) (*Client, error) {
+			return client, nil
+		},
+		getRefreshTokenFunc: func(_ context.Context, _ string) (*RefreshToken, error) {
+			return refreshToken, nil
+		},
+		consumeRefreshTokenFunc: func(_ context.Context, _ string) (*RefreshToken, error) {
+			return refreshToken, nil
+		},
+		saveRefreshTokenFunc: func(_ context.Context, _ *RefreshToken) error {
+			return nil
+		},
+	}
+	server, _ := NewServer(ServerConfig{}, storage)
+
+	_, err := server.Token(ctx, TokenRequest{
+		GrantType:    "refresh_token",
+		RefreshToken: "valid-token",
+		ClientID:     testClientID,
+		ClientSecret: testSecret,
+		Scope:        testScopeRead + " admin",
+	})
+	if err == nil {
+		t.Fatal("expected scope escalation to be rejected")
+	}
+
+	// Same-scope refresh still succeeds.
+	resp, err := server.Token(ctx, TokenRequest{
+		GrantType:    "refresh_token",
+		RefreshToken: "valid-token",
+		ClientID:     testClientID,
+		ClientSecret: testSecret,
+		Scope:        testScopeRead,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Scope != testScopeRead {
+		t.Errorf("expected scope %q, got %q", testScopeRead, resp.Scope)
+	}
+}
+
+func TestConsumeStorageFailureMapsToServerError(t *testing.T) {
+	// A storage outage during rotation must surface as 500 server_error
+	// (retryable) rather than 400 invalid_request, so spec-compliant
+	// clients keep their still-valid refresh token and retry.
+	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte(testSecret), bcrypt.MinCost)
+
+	client := &Client{
+		ClientID:     testClientID,
+		ClientSecret: string(hashedSecret),
+		Active:       true,
+	}
+	refreshToken := &RefreshToken{
+		Token:     "valid-token",
+		ClientID:  testClientID,
+		UserID:    testServerUserID,
+		Scope:     testScopeRead,
+		ExpiresAt: time.Now().Add(24 * time.Hour),
+	}
+
+	newServerWithConsume := func(consumeErr error) *Server {
+		storage := &mockStorage{
+			getClientFunc: func(_ context.Context, _ string) (*Client, error) {
+				return client, nil
+			},
+			getRefreshTokenFunc: func(_ context.Context, _ string) (*RefreshToken, error) {
+				return refreshToken, nil
+			},
+			consumeRefreshTokenFunc: func(_ context.Context, _ string) (*RefreshToken, error) {
+				return nil, consumeErr
+			},
+		}
+		server, _ := NewServer(ServerConfig{Issuer: "http://localhost:8080"}, storage)
+		return server
+	}
+
+	post := func(server *Server) *httptest.ResponseRecorder {
+		form := "grant_type=refresh_token&refresh_token=valid-token&client_id=" + testClientID + "&client_secret=" + testSecret
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/oauth/token", strings.NewReader(form))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		server.ServeHTTP(w, req)
+		return w
+	}
+
+	t.Run("storage outage returns 500 server_error", func(t *testing.T) {
+		w := post(newServerWithConsume(errors.New("connection refused")))
+		if w.Code != http.StatusInternalServerError {
+			t.Errorf("expected 500, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("consumed token returns 400 invalid grant", func(t *testing.T) {
+		w := post(newServerWithConsume(ErrNotFound))
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+}
+
+func TestRefreshTokenRotationConsumeFailureFailsGrant(t *testing.T) {
+	// Rotation is a containment mechanism: when the old token cannot be
+	// invalidated, the grant must fail rather than leave two live tokens.
 	ctx := context.Background()
 	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte(testSecret), bcrypt.MinCost)
 
@@ -1473,8 +1673,8 @@ func TestRefreshTokenDeleteIgnoresError(t *testing.T) {
 		getRefreshTokenFunc: func(_ context.Context, _ string) (*RefreshToken, error) {
 			return refreshToken, nil
 		},
-		deleteRefreshTokenFunc: func(_ context.Context, _ string) error {
-			return errors.New(testDBError) // Error is ignored
+		consumeRefreshTokenFunc: func(_ context.Context, _ string) (*RefreshToken, error) {
+			return nil, errors.New(testDBError)
 		},
 		saveRefreshTokenFunc: func(_ context.Context, _ *RefreshToken) error {
 			return nil
@@ -1482,18 +1682,14 @@ func TestRefreshTokenDeleteIgnoresError(t *testing.T) {
 	}
 	server, _ := NewServer(ServerConfig{}, storage)
 
-	resp, err := server.Token(ctx, TokenRequest{
+	_, err := server.Token(ctx, TokenRequest{
 		GrantType:    "refresh_token",
 		RefreshToken: "valid-token",
 		ClientID:     testClientID,
 		ClientSecret: testSecret,
 	})
-	// Should succeed despite delete error
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if resp.AccessToken == "" {
-		t.Error("expected non-empty access token")
+	if err == nil {
+		t.Fatal("expected grant to fail when rotation consume fails")
 	}
 }
 
@@ -1667,8 +1863,11 @@ func TestGenerateAccessToken_JWT(t *testing.T) {
 		if claims["sub"] != testServerUserID {
 			t.Errorf("expected sub 'user-123', got %q", claims["sub"])
 		}
-		if claims["aud"] != "test-client" {
-			t.Errorf("expected aud 'test-client', got %q", claims["aud"])
+		if claims["aud"] != issuer {
+			t.Errorf("expected aud %q, got %q", issuer, claims["aud"])
+		}
+		if claims["client_id"] != "test-client" {
+			t.Errorf("expected client_id 'test-client', got %q", claims["client_id"])
 		}
 		if claims["scope"] != "openid profile" {
 			t.Errorf("expected scope 'openid profile', got %q", claims["scope"])

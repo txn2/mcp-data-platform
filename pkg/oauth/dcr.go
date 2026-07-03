@@ -5,10 +5,17 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"net/url"
 	"regexp"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+)
+
+// Redirect URI schemes with special handling in the scheme gate.
+const (
+	schemeHTTP  = "http"
+	schemeHTTPS = "https"
 )
 
 // DCR credential size constants.
@@ -29,7 +36,16 @@ type DCRConfig struct {
 	Enabled bool
 
 	// AllowedRedirectPatterns are regex patterns for allowed redirect URIs.
+	// The registration endpoint is unauthenticated, so leaving this empty
+	// denies all registrations unless AllowAllRedirectURIs is set.
 	AllowedRedirectPatterns []string
+
+	// AllowAllRedirectURIs explicitly opts out of redirect URI pattern
+	// matching, accepting any HTTPS (or loopback HTTP) redirect URI. An
+	// attacker-controlled redirect URI is the setup for authorization-code
+	// interception, so this is an explicit escape hatch rather than the
+	// default for an empty pattern list.
+	AllowAllRedirectURIs bool
 
 	// DefaultGrantTypes are the default grant types for new clients.
 	DefaultGrantTypes []string
@@ -91,6 +107,10 @@ func (s *DCRService) Register(ctx context.Context, req DCRRequest) (*DCRResponse
 		return nil, fmt.Errorf("dynamic client registration is disabled")
 	}
 
+	if len(s.patterns) == 0 && !s.config.AllowAllRedirectURIs {
+		return nil, fmt.Errorf("dynamic client registration is not configured: set allowed_redirect_patterns to the redirect URIs your clients use, or set allow_all_redirect_uris: true to explicitly accept any redirect URI")
+	}
+
 	// Validate redirect URIs
 	for _, uri := range req.RedirectURIs {
 		if !s.isAllowedRedirectURI(uri) {
@@ -149,9 +169,26 @@ func (s *DCRService) Register(ctx context.Context, req DCRRequest) (*DCRResponse
 }
 
 // isAllowedRedirectURI checks if a redirect URI is allowed.
+//
+// Scheme rules: plain HTTP to a non-loopback host is interceptable
+// transport and is never allowed regardless of configuration. HTTPS and
+// loopback HTTP (RFC 8252 Section 7.3) are eligible everywhere.
+// Private-use schemes (RFC 8252 Section 7.1 native apps, e.g.
+// com.example.app:/callback) are eligible only through an explicitly
+// configured pattern; AllowAllRedirectURIs does not cover them, so the
+// unauthenticated registration endpoint never hands out arbitrary
+// scheme hijacking by default.
 func (s *DCRService) isAllowedRedirectURI(uri string) bool {
+	u, err := url.Parse(uri)
+	if err != nil {
+		return false
+	}
+	if u.Scheme == schemeHTTP && !isLoopbackURI(uri) {
+		return false
+	}
+
 	if len(s.patterns) == 0 {
-		return true // Allow all if no patterns configured
+		return s.config.AllowAllRedirectURIs && (u.Scheme == schemeHTTPS || u.Scheme == schemeHTTP)
 	}
 
 	for _, pattern := range s.patterns {

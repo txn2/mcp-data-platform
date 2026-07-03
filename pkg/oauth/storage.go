@@ -21,12 +21,23 @@ type Storage interface {
 	SaveAuthorizationCode(ctx context.Context, code *AuthorizationCode) error
 	GetAuthorizationCode(ctx context.Context, code string) (*AuthorizationCode, error)
 	DeleteAuthorizationCode(ctx context.Context, code string) error
+	// ConsumeAuthorizationCode atomically deletes the authorization code
+	// and returns it, so single-use invalidation and retrieval cannot
+	// diverge: a replayed or concurrently exchanged code fails because
+	// the record is already gone. Returns an error when the code does
+	// not exist.
+	ConsumeAuthorizationCode(ctx context.Context, code string) (*AuthorizationCode, error)
 	CleanupExpiredCodes(ctx context.Context) error
 
 	// Token management
 	SaveRefreshToken(ctx context.Context, token *RefreshToken) error
 	GetRefreshToken(ctx context.Context, token string) (*RefreshToken, error)
 	DeleteRefreshToken(ctx context.Context, token string) error
+	// ConsumeRefreshToken atomically deletes the refresh token and
+	// returns it, backing rotation: the old token is provably invalid
+	// before new tokens are issued. Returns an error when the token
+	// does not exist.
+	ConsumeRefreshToken(ctx context.Context, token string) (*RefreshToken, error)
 	DeleteRefreshTokensForClient(ctx context.Context, clientID string) error
 	CleanupExpiredTokens(ctx context.Context) error
 }
@@ -100,7 +111,7 @@ func isLoopbackURI(uri string) bool {
 	if err != nil {
 		return false
 	}
-	if u.Scheme != "http" {
+	if u.Scheme != schemeHTTP {
 		return false
 	}
 	host := u.Hostname()

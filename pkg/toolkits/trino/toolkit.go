@@ -297,6 +297,10 @@ func buildMultiserverConfig(
 func buildToolkitOptions(cfg Config, elicit *ElicitationMiddleware, connRequired *ConnectionRequiredMiddleware) []trinotools.ToolkitOption {
 	var opts []trinotools.ToolkitOption
 
+	// Always scrub internal topology (connector transport envelopes) from
+	// upstream engine errors before they reach tool callers.
+	opts = append(opts, trinotools.WithMiddleware(&ErrorSanitizerMiddleware{}))
+
 	if cfg.ReadOnly {
 		opts = append(opts, trinotools.WithQueryInterceptor(NewReadOnlyInterceptor()))
 	}

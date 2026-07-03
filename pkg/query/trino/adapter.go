@@ -10,6 +10,7 @@ import (
 	trinoclient "github.com/txn2/mcp-trino/pkg/client"
 
 	"github.com/txn2/mcp-data-platform/pkg/query"
+	"github.com/txn2/mcp-data-platform/pkg/urnbuild"
 )
 
 const (
@@ -141,20 +142,12 @@ func (*Adapter) Name() string {
 // ResolveTable converts a URN to a table identifier.
 // Applies reverse catalog mapping if configured.
 func (a *Adapter) ResolveTable(_ context.Context, urn string) (*query.TableIdentifier, error) {
-	// Parse URN format: urn:li:dataset:(urn:li:dataPlatform:platform,name,env)
-	if !strings.HasPrefix(urn, "urn:li:dataset:") {
-		return nil, fmt.Errorf("invalid dataset URN: %s", urn)
+	parsed, err := urnbuild.ParseDatasetURN(urn)
+	if err != nil {
+		return nil, fmt.Errorf("parsing dataset URN: %w", err)
 	}
 
-	// Extract the name part
-	start := strings.Index(urn, ",")
-	end := strings.LastIndex(urn, ",")
-	if start == -1 || end == -1 || start == end {
-		return nil, fmt.Errorf("invalid URN format: %s", urn)
-	}
-
-	name := urn[start+1 : end]
-	parts := strings.Split(name, ".")
+	parts := strings.Split(parsed.Name, ".")
 
 	switch len(parts) {
 	case 2:
@@ -177,7 +170,7 @@ func (a *Adapter) ResolveTable(_ context.Context, urn string) (*query.TableIdent
 			Connection: a.cfg.ConnectionName,
 		}, nil
 	default:
-		return nil, fmt.Errorf("invalid table name in URN: %s", name)
+		return nil, fmt.Errorf("invalid table name in URN: %s", parsed.Name)
 	}
 }
 

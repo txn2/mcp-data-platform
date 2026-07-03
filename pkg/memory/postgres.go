@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
@@ -279,12 +280,26 @@ func (s *postgresStore) List(ctx context.Context, filter Filter) ([]Record, int,
 }
 
 // applyPagination adds ORDER BY, LIMIT, and OFFSET clauses to a query builder.
+// The ORDER BY column and direction are validated against allowlists because
+// squirrel does not parameterize ORDER BY. The primary-key tie-breaker makes
+// every ordering a total order: none of the sortable columns is unique, and a
+// non-unique sort lets Postgres OFFSET skip or duplicate a row straddling a
+// page boundary, silently dropping or double-counting records in paged walks
+// (#706).
 func applyPagination(qb sq.SelectBuilder, filter Filter) sq.SelectBuilder {
-	orderClause := "created_at DESC"
-	if filter.OrderBy != "" {
-		orderClause = filter.OrderBy
+	orderCol := colCreatedAt
+	if ValidSortColumns[filter.SortBy] {
+		orderCol = filter.SortBy
 	}
-	qb = qb.OrderBy(orderClause)
+	orderDir := SortDesc
+	if validSortDirections[filter.SortDirection] {
+		orderDir = filter.SortDirection
+	}
+	tieDir := "DESC"
+	if strings.HasPrefix(orderDir, "ASC") {
+		tieDir = "ASC"
+	}
+	qb = qb.OrderBy(orderCol+" "+orderDir, "id "+tieDir)
 
 	if limit := filter.EffectiveLimit(); limit > 0 {
 		qb = qb.Limit(uint64(limit))

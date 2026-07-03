@@ -267,7 +267,7 @@ func TestHandleCallbackEndpoint(t *testing.T) {
 			State:       "client-state",
 			CreatedAt:   time.Now(),
 		}
-		_ = server.stateStore.Save("upstream-state", state)
+		_ = server.stateStore.SaveState(context.Background(), "upstream-state", state)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/oauth/callback?code=keycloak-code&state=upstream-state", http.NoBody)
 		w := httptest.NewRecorder()
@@ -593,7 +593,7 @@ func TestHandleLoginRequiredError(t *testing.T) {
 			State:       "client-state",
 			CreatedAt:   time.Now(),
 		}
-		_ = server.stateStore.Save("upstream-state", state)
+		_ = server.stateStore.SaveState(context.Background(), "upstream-state", state)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/oauth/callback?error=login_required&state=upstream-state", http.NoBody)
 		w := httptest.NewRecorder()
@@ -620,7 +620,7 @@ func TestHandleLoginRequiredError(t *testing.T) {
 		}
 
 		// Verify state was marked as attempted
-		savedState, _ := server.stateStore.Get("upstream-state")
+		savedState, _ := server.stateStore.GetState(context.Background(), "upstream-state")
 		if !savedState.PromptNoneAttempted {
 			t.Error("expected PromptNoneAttempted to be true")
 		}
@@ -664,7 +664,7 @@ func TestHandleLoginRequiredError(t *testing.T) {
 			PromptNoneAttempted: true, // Already attempted
 			CreatedAt:           time.Now(),
 		}
-		_ = server.stateStore.Save("loop-state", state)
+		_ = server.stateStore.SaveState(context.Background(), "loop-state", state)
 
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/oauth/callback?error=login_required&state=loop-state", http.NoBody)
 		w := httptest.NewRecorder()
@@ -706,7 +706,7 @@ func TestHandleCallbackEndpointLoginRequired(t *testing.T) {
 			State:       "client-state",
 			CreatedAt:   time.Now(),
 		}
-		_ = server.stateStore.Save("upstream-state", state)
+		_ = server.stateStore.SaveState(context.Background(), "upstream-state", state)
 
 		// Simulate Keycloak returning login_required (user has no session)
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/oauth/callback?error=login_required&state=upstream-state", http.NoBody)
@@ -755,7 +755,7 @@ func TestHandleCallbackEndpointLoginRequired(t *testing.T) {
 			PromptNoneAttempted: true,
 			CreatedAt:           time.Now(),
 		}
-		_ = server.stateStore.Save("loop-state", state)
+		_ = server.stateStore.SaveState(context.Background(), "loop-state", state)
 
 		// login_required again after retry — should fall through to generic error handler
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/oauth/callback?error=login_required&state=loop-state", http.NoBody)

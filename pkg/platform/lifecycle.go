@@ -4,56 +4,76 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"slices"
 	"sync"
 )
+
+// component pairs a start callback with the stop callback that tears it
+// down. Registering both halves atomically makes the pairing structural:
+// Start, Stop, and rollback all iterate the same slice, so rollback can
+// never stop the wrong component or index out of range when a component
+// registers only one half.
+type component struct {
+	start func(context.Context) error
+	stop  func(context.Context) error
+}
 
 // Lifecycle manages the startup and shutdown of platform components.
 type Lifecycle struct {
 	mu sync.Mutex
 
-	startCallbacks []func(context.Context) error
-	stopCallbacks  []func(context.Context) error
+	components []component
 
 	started bool
 }
 
 // NewLifecycle creates a new lifecycle manager.
 func NewLifecycle() *Lifecycle {
-	return &Lifecycle{
-		startCallbacks: make([]func(context.Context) error, 0),
-		stopCallbacks:  make([]func(context.Context) error, 0),
-	}
+	return &Lifecycle{}
 }
 
-// OnStart registers a callback to run on startup.
+// OnComponent registers a component's start and stop callbacks as one unit.
+// Either callback may be nil. This is the preferred registration path: it
+// keeps the start/stop pairing structural rather than relying on matched
+// registration order across two lists.
 //
-// If the lifecycle has already been started, the callback is
-// invoked immediately with context.Background() and any error is
-// logged. This handles late-wiring paths (toolkit setup that
-// happens inside startHTTPServer, after platform.Start has
-// already run) which otherwise silently never fire.
-func (l *Lifecycle) OnStart(callback func(context.Context) error) {
+// If the lifecycle has already been started, the start callback is invoked
+// immediately with context.Background() and any error is logged. This
+// handles late-wiring paths (toolkit setup that happens inside
+// startHTTPServer, after platform.Start has already run) which otherwise
+// silently never fire. The stop callback still runs at shutdown.
+func (l *Lifecycle) OnComponent(start, stop func(context.Context) error) {
 	l.mu.Lock()
 	if !l.started {
-		l.startCallbacks = append(l.startCallbacks, callback)
+		l.components = append(l.components, component{start: start, stop: stop})
 		l.mu.Unlock()
 		return
 	}
+	// Late registration: start already happened, run the callback now and
+	// keep only the stop half for shutdown.
+	l.components = append(l.components, component{stop: stop})
 	l.mu.Unlock()
-	if err := callback(context.Background()); err != nil {
-		slog.Warn("lifecycle: late-registered OnStart callback failed", "error", err)
+	if start == nil {
+		return
+	}
+	if err := start(context.Background()); err != nil {
+		slog.Warn("lifecycle: late-registered start callback failed", "error", err)
 	}
 }
 
-// OnStop registers a callback to run on shutdown.
-func (l *Lifecycle) OnStop(callback func(context.Context) error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.stopCallbacks = append(l.stopCallbacks, callback)
+// OnStart registers a callback to run on startup. Prefer OnComponent when
+// the component also has a stop half.
+func (l *Lifecycle) OnStart(callback func(context.Context) error) {
+	l.OnComponent(callback, nil)
 }
 
-// Start runs all start callbacks.
+// OnStop registers a callback to run on shutdown. Prefer OnComponent when
+// the component also has a start half.
+func (l *Lifecycle) OnStop(callback func(context.Context) error) {
+	l.OnComponent(nil, callback)
+}
+
+// Start runs all start callbacks in registration order. If one fails,
+// already-started components are rolled back in reverse order.
 func (l *Lifecycle) Start(ctx context.Context) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -62,8 +82,11 @@ func (l *Lifecycle) Start(ctx context.Context) error {
 		return fmt.Errorf("lifecycle already started")
 	}
 
-	for i, cb := range l.startCallbacks {
-		if err := cb(ctx); err != nil {
+	for i, c := range l.components {
+		if c.start == nil {
+			continue
+		}
+		if err := c.start(ctx); err != nil {
 			l.rollback(ctx, i)
 			return fmt.Errorf("start callback %d failed: %w", i, err)
 		}
@@ -73,21 +96,23 @@ func (l *Lifecycle) Start(ctx context.Context) error {
 	return nil
 }
 
-// rollback stops already-started components in reverse order.
-// Called when a start callback fails at index failedAt.
+// rollback tears down components registered before the one that failed, in
+// reverse order. Stop-only components are torn down too: their resources
+// were created eagerly at wiring time, and registration only scheduled the
+// close.
 func (l *Lifecycle) rollback(ctx context.Context, failedAt int) {
 	for j := failedAt - 1; j >= 0; j-- {
-		if l.stopCallbacks[j] == nil {
+		if l.components[j].stop == nil {
 			continue
 		}
-		if err := l.stopCallbacks[j](ctx); err != nil {
+		if err := l.components[j].stop(ctx); err != nil {
 			slog.Warn("lifecycle rollback: stop callback failed",
 				"callback", j, "error", err)
 		}
 	}
 }
 
-// Stop runs all stop callbacks in reverse order.
+// Stop runs all stop callbacks in reverse registration order.
 func (l *Lifecycle) Stop(ctx context.Context) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -97,8 +122,11 @@ func (l *Lifecycle) Stop(ctx context.Context) error {
 	}
 
 	var errs []error
-	for i, cb := range slices.Backward(l.stopCallbacks) {
-		if err := cb(ctx); err != nil {
+	for i := len(l.components) - 1; i >= 0; i-- {
+		if l.components[i].stop == nil {
+			continue
+		}
+		if err := l.components[i].stop(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("stop callback %d: %w", i, err))
 		}
 	}
@@ -126,8 +154,7 @@ type Component interface {
 
 // RegisterComponent registers a component with the lifecycle.
 func (l *Lifecycle) RegisterComponent(c Component) {
-	l.OnStart(c.Start)
-	l.OnStop(c.Stop)
+	l.OnComponent(c.Start, c.Stop)
 }
 
 // Closer is something that can be closed.
