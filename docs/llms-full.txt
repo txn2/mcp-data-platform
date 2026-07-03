@@ -759,11 +759,14 @@ auth:
     signing_key: "${SESSION_SIGNING_KEY}"  # openssl rand -base64 32
     ttl: 8h
     secure: true
+    same_site: lax  # lax (default), strict, or none
 ```
 
 Endpoints: `/portal/auth/login` (initiate; accepts optional `return_to` site-relative path), `/portal/auth/callback` (process; redirects to `return_to` when set, otherwise `PostLoginRedirect`), `/portal/auth/logout` (clear). API key fallback always available. MCP clients unaffected.
 
 Limitations: no individual session revocation, no key rotation support (rotating invalidates all sessions), no session refresh (re-auth required after TTL).
+
+CSRF protection: cookie-authenticated state-changing requests (POST/PUT/PATCH/DELETE) to the portal, admin, and managed-resources APIs require an `X-CSRF-Token` header; missing/invalid tokens are rejected with 403. The token is stateless (an HMAC over the session subject under the signing key), returned by `GET /api/v1/portal/me` as `csrf_token` and echoed by the SPA on every mutation. Read-only requests and API-key/Bearer-authenticated requests are exempt (those credentials are not attached automatically by the browser). `SameSite=Lax` is kept as defense-in-depth; `same_site: none` disables that browser defense (requires `secure: true`) and logs a startup warning.
 
 ---
 

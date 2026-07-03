@@ -322,6 +322,9 @@ type meResponse struct {
 	IsAdmin bool     `json:"is_admin" example:"false"`
 	Persona string   `json:"persona,omitempty" example:"analyst"`
 	Tools   []string `json:"tools,omitempty" example:"trino_query,datahub_search"`
+	// CSRFToken is set only for cookie sessions; the SPA echoes it in the
+	// X-CSRF-Token header on mutations. API-key clients are exempt.
+	CSRFToken string `json:"csrf_token,omitempty"`
 }
 
 // getMe handles GET /api/v1/portal/me.
@@ -347,6 +350,11 @@ func (h *Handler) getMe(w http.ResponseWriter, r *http.Request) {
 		Email:   user.Email,
 		Roles:   user.Roles,
 		IsAdmin: hasAnyRole(user.Roles, h.deps.AdminRoles),
+	}
+	// Cookie sessions carry a CSRF token the SPA echoes on mutations; API-key
+	// callers are exempt. Issued here since only /me needs it.
+	if user.FromCookie && h.deps.Authenticator != nil {
+		resp.CSRFToken = h.deps.Authenticator.IssueCSRF(user.UserID)
 	}
 
 	if h.deps.PersonaResolver != nil {

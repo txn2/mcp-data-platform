@@ -50,6 +50,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/platform/reflexivecapture"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
+	"github.com/txn2/mcp-data-platform/pkg/portal/s3adapter"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	promptpostgres "github.com/txn2/mcp-data-platform/pkg/prompt/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/query"
@@ -1224,11 +1225,22 @@ func (p *Platform) initBrowserSession() error {
 	}
 
 	cookieCfg := browsersession.CookieConfig{
-		Name:   bsCfg.CookieName,
-		Domain: bsCfg.Domain,
-		Secure: bsCfg.Secure,
-		TTL:    bsCfg.TTL,
-		Key:    keyBytes,
+		Name:     bsCfg.CookieName,
+		Domain:   bsCfg.Domain,
+		Secure:   bsCfg.IsSecure(),
+		TTL:      bsCfg.TTL,
+		Key:      keyBytes,
+		SameSite: browsersession.ParseSameSite(bsCfg.SameSite),
+	}
+
+	// SameSite=Lax (the default) already blocks cross-site cookie submission on
+	// non-navigation requests; the X-CSRF-Token check is defense-in-depth on
+	// top of it. If an operator configures the cookie for cross-site use
+	// (SameSite=None), that browser-level defense is gone and the CSRF token
+	// becomes the sole protection — warn so the weaker posture is visible.
+	if cookieCfg.IsCrossSiteCookieMode() {
+		slog.Warn("session cookie SameSite=None permits cross-site submission; " +
+			"browser CSRF defense is disabled and the X-CSRF-Token header is the sole protection")
 	}
 
 	oidcCfg := p.config.Auth.OIDC
@@ -1968,7 +1980,7 @@ func (p *Platform) createPortalS3Client() (portal.S3Client, error) {
 	}
 
 	slog.Info("portal: using s3 connection", "connection", connName)
-	return portal.NewS3ClientAdapter(c), nil
+	return s3adapter.New(c), nil
 }
 
 // wireTrinoExport injects portal dependencies into Trino toolkits for trino_export.
@@ -2217,7 +2229,7 @@ func (p *Platform) initManagedResources() error {
 			return fmt.Errorf("creating resource s3 client for connection %q: %w", connName, err)
 		}
 
-		p.resourceS3Client = portal.NewS3ClientAdapter(c)
+		p.resourceS3Client = s3adapter.New(c)
 	} else {
 		slog.Warn("managed resources: no s3_connection configured; blob storage disabled")
 	}

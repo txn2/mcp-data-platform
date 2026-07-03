@@ -659,6 +659,7 @@ export const handlers = [
         "save_artifact",
         "manage_artifact",
       ],
+      csrf_token: "mock-csrf-token",
     }),
   ),
 

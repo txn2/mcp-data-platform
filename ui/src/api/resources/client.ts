@@ -1,4 +1,5 @@
 import { useAuthStore } from "@/stores/auth";
+import { applyCsrfHeader } from "@/api/csrf";
 
 const BASE_URL = "/api/v1/resources";
 
@@ -25,6 +26,7 @@ async function resourceFetch<T>(path: string, init?: RequestInit): Promise<T> {
   if (init?.method && init.method !== "GET") {
     headers["Content-Type"] = headers["Content-Type"] ?? "application/json";
   }
+  applyCsrfHeader(headers, init?.method);
 
   const res = await fetch(`${BASE_URL}${path}`, {
     ...init,
@@ -51,6 +53,7 @@ async function resourceFetchRaw(path: string, init?: RequestInit): Promise<Respo
   if (authMethod === "apikey" && apiKey) {
     headers["X-API-Key"] = apiKey;
   }
+  applyCsrfHeader(headers, init?.method);
   const res = await fetch(`${BASE_URL}${path}`, { ...init, headers, credentials: "include" });
   if (res.status === 401) {
     useAuthStore.getState().expireSession();

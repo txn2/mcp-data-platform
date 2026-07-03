@@ -42,11 +42,36 @@ type Deps struct {
 // Provided by the platform auth middleware.
 type ClaimsExtractor func(r *http.Request) (*Claims, error)
 
+// ErrForbidden signals that authentication succeeded at the credential level
+// but the request is refused for a policy reason the client can recover from
+// without re-authenticating — specifically a CSRF-token failure on a
+// cookie-authenticated mutation. A ClaimsExtractor returns it so the handler
+// responds 403 (not 401), matching the admin/portal surfaces and preventing
+// the SPA from force-logging-out the user on a recoverable CSRF error.
+var ErrForbidden = errors.New("forbidden")
+
 // Handler provides HTTP endpoints for resource CRUD.
 type Handler struct {
 	mux       *http.ServeMux
 	deps      Deps
 	extractFn ClaimsExtractor
+}
+
+// authenticate resolves the caller's claims, writing the appropriate HTTP
+// error and returning ok=false when authentication fails. A CSRF rejection
+// (ErrForbidden) maps to 403 so the SPA surfaces a recoverable error rather
+// than force-logging-out the user; every other failure maps to 401.
+func (h *Handler) authenticate(w http.ResponseWriter, r *http.Request) (*Claims, bool) {
+	claims, err := h.extractFn(r)
+	if err != nil {
+		if errors.Is(err, ErrForbidden) {
+			writeError(w, http.StatusForbidden, "invalid or missing CSRF token")
+			return nil, false
+		}
+		writeError(w, http.StatusUnauthorized, msgUnauthorized)
+		return nil, false
+	}
+	return claims, true
 }
 
 // notifyCreate registers a newly created resource with MCP clients.
@@ -237,9 +262,8 @@ type listResponse struct { //nolint:unused // swagger model
 // @Security     BearerAuth
 // @Router       /resources [post]
 func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
-	claims, err := h.extractFn(r)
-	if err != nil {
-		writeError(w, http.StatusUnauthorized, msgUnauthorized)
+	claims, ok := h.authenticate(w, r)
+	if !ok {
 		return
 	}
 
@@ -364,9 +388,8 @@ func narrowScopes(visible []ScopeFilter, scopeParam, scopeIDParam string) []Scop
 // @Security     BearerAuth
 // @Router       /resources [get]
 func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
-	claims, err := h.extractFn(r)
-	if err != nil {
-		writeError(w, http.StatusUnauthorized, msgUnauthorized)
+	claims, ok := h.authenticate(w, r)
+	if !ok {
 		return
 	}
 
@@ -423,9 +446,8 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 // @Security     BearerAuth
 // @Router       /resources/{id} [get]
 func (h *Handler) handleGet(w http.ResponseWriter, r *http.Request) {
-	claims, err := h.extractFn(r)
-	if err != nil {
-		writeError(w, http.StatusUnauthorized, msgUnauthorized)
+	claims, ok := h.authenticate(w, r)
+	if !ok {
 		return
 	}
 
@@ -471,9 +493,8 @@ func sanitizeContentType(ct string) string {
 // @Security     BearerAuth
 // @Router       /resources/{id}/content [get]
 func (h *Handler) handleGetContent(w http.ResponseWriter, r *http.Request) {
-	claims, err := h.extractFn(r)
-	if err != nil {
-		writeError(w, http.StatusUnauthorized, msgUnauthorized)
+	claims, ok := h.authenticate(w, r)
+	if !ok {
 		return
 	}
 
@@ -562,9 +583,8 @@ func validateUpdate(u Update) error {
 // @Security     BearerAuth
 // @Router       /resources/{id} [patch]
 func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
-	claims, err := h.extractFn(r)
-	if err != nil {
-		writeError(w, http.StatusUnauthorized, msgUnauthorized)
+	claims, ok := h.authenticate(w, r)
+	if !ok {
 		return
 	}
 
@@ -626,9 +646,8 @@ func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 // @Security     BearerAuth
 // @Router       /resources/{id} [delete]
 func (h *Handler) handleDelete(w http.ResponseWriter, r *http.Request) {
-	claims, err := h.extractFn(r)
-	if err != nil {
-		writeError(w, http.StatusUnauthorized, msgUnauthorized)
+	claims, ok := h.authenticate(w, r)
+	if !ok {
 		return
 	}
 

@@ -16128,6 +16128,10 @@ const docTemplate = `{
         "portal.meResponse": {
             "type": "object",
             "properties": {
+                "csrf_token": {
+                    "description": "CSRFToken is set only for cookie sessions; the SPA echoes it in the\nX-CSRF-Token header on mutations. API-key clients are exempt.",
+                    "type": "string"
+                },
                 "email": {
                     "type": "string",
                     "example": "analyst@example.com"

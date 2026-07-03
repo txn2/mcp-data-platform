@@ -2,6 +2,7 @@ package portal
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -20,6 +21,9 @@ type User struct {
 	UserID string
 	Email  string
 	Roles  []string
+	// FromCookie is true for browser-session (cookie) auth; only such requests
+	// are CSRF-enforced (API-key / Bearer auth is exempt).
+	FromCookie bool
 }
 
 // GetUser returns the User from context, or nil if not set.
@@ -62,38 +66,35 @@ func WithBrowserAuth(ba *browsersession.Authenticator) AuthenticatorOption {
 	}
 }
 
-// Authenticate extracts credentials from the HTTP request and delegates
-// to the platform authenticator. It checks browser session cookies first,
-// then falls back to token-based authentication.
+// Authenticate resolves the caller via session cookie (CSRF-enforced on
+// state-changing methods) first, then falls back to token auth. A CSRF failure
+// on a valid cookie is deferred, not fatal: a CSRF-exempt token (which a
+// cross-site attacker cannot supply) may still authenticate the request, and
+// only when none does is the rejection surfaced (→ 403).
 func (pa *Authenticator) Authenticate(r *http.Request) (*User, error) {
-	// Try cookie-based auth first (browser sessions).
+	var csrfErr error
 	if pa.browserAuth != nil {
 		if info, err := pa.browserAuth.AuthenticateHTTP(r); err == nil && info != nil {
-			return &User{UserID: info.UserID, Email: info.Email, Roles: info.Roles}, nil
+			if csrfErr = pa.browserAuth.ValidateCSRFRequest(r, info.UserID); csrfErr == nil {
+				return &User{UserID: info.UserID, Email: info.Email, Roles: info.Roles, FromCookie: true}, nil
+			}
 		}
 	}
 
 	// Fall back to token-based auth (API key or Bearer token).
 	token := extractPortalToken(r)
 	if token == "" {
-		return nil, nil //nolint:nilnil // no credentials
+		return nil, csrfErr
 	}
-
-	ctx := middleware.WithToken(r.Context(), token)
-	info, err := pa.authenticator.Authenticate(ctx)
+	info, err := pa.authenticator.Authenticate(middleware.WithToken(r.Context(), token))
 	if err != nil {
 		slog.Warn("portal auth failed", "error", err)
-		return nil, nil //nolint:nilnil // auth failure → unauthenticated
+		return nil, csrfErr
 	}
 	if info == nil {
-		return nil, nil //nolint:nilnil // authenticator rejected
+		return nil, csrfErr
 	}
-
-	return &User{
-		UserID: info.UserID,
-		Email:  info.Email,
-		Roles:  info.Roles,
-	}, nil
+	return &User{UserID: info.UserID, Email: info.Email, Roles: info.Roles}, nil
 }
 
 // extractPortalToken extracts an authentication token from X-API-Key or Authorization headers.
@@ -108,12 +109,25 @@ func extractPortalToken(r *http.Request) string {
 	return ""
 }
 
+// IssueCSRF returns a CSRF token bound to subject, or "" when cookie auth is
+// not configured.
+func (pa *Authenticator) IssueCSRF(subject string) string {
+	if pa.browserAuth == nil {
+		return ""
+	}
+	return pa.browserAuth.IssueCSRFToken(subject)
+}
+
 // RequirePortalAuth creates middleware that enforces portal authentication.
 func RequirePortalAuth(auth *Authenticator) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			user, err := auth.Authenticate(r)
 			if err != nil {
+				if errors.Is(err, browsersession.ErrCSRFInvalid) {
+					writeError(w, http.StatusForbidden, "invalid or missing CSRF token")
+					return
+				}
 				writeError(w, http.StatusInternalServerError, "authentication error")
 				return
 			}

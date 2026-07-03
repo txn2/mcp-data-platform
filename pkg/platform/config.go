@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"net/http"
 	"os"
 	"reflect"
 	"regexp"
@@ -14,6 +15,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/platform/dedup"
 	"github.com/txn2/mcp-data-platform/pkg/platform/reflexivecapture"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
@@ -340,8 +342,25 @@ type BrowserSessionConfig struct {
 	CookieName string        `yaml:"cookie_name"` // default: "mcp_session"
 	TTL        time.Duration `yaml:"ttl"`         // default: 8h
 	SigningKey string        `yaml:"signing_key"` // base64-encoded HMAC key
-	Secure     bool          `yaml:"secure"`      // default: true
+	Secure     *bool         `yaml:"secure"`      // HTTPS-only cookie; defaults to true, set false only for local HTTP
 	Domain     string        `yaml:"domain"`
+	// SameSite controls the session cookie's SameSite attribute:
+	// "lax" (default), "strict", or "none". "none" disables the browser's
+	// built-in cross-site cookie defense and requires Secure=true; the
+	// X-CSRF-Token check then becomes the sole CSRF protection, and the
+	// platform logs a startup warning.
+	SameSite string `yaml:"same_site"`
+}
+
+// IsSecure reports whether the session cookie should carry the Secure
+// attribute. It defaults to true (nil), so production over HTTPS is protected
+// without configuration; an operator must set secure: false explicitly to opt
+// out for local HTTP.
+func (b *BrowserSessionConfig) IsSecure() bool {
+	if b.Secure == nil {
+		return true
+	}
+	return *b.Secure
 }
 
 // APIKeyAuthConfig configures API key authentication.
@@ -1500,6 +1519,23 @@ func (c *Config) validateBrowserSession(errs []string) []string {
 	}
 	if c.Auth.BrowserSession.SigningKey == "" {
 		errs = append(errs, "auth.browser_session.signing_key is required")
+	}
+	// Reject an unrecognized same_site value at startup. ParseSameSite maps any
+	// typo to the zero value, which resolves to Lax, so without this check a
+	// misspelled "strict" would silently run as Lax and weaken the intended
+	// cross-site posture with no error.
+	if !browsersession.IsValidSameSite(c.Auth.BrowserSession.SameSite) {
+		errs = append(errs, fmt.Sprintf(
+			"auth.browser_session.same_site=%q is invalid (want \"lax\", \"strict\", or \"none\")",
+			c.Auth.BrowserSession.SameSite))
+	}
+	// SameSite=None requires the Secure attribute; browsers silently drop a
+	// SameSite=None cookie that is not Secure, which would break all portal
+	// login. Reject the combination at startup rather than ship a session
+	// that never persists.
+	if browsersession.ParseSameSite(c.Auth.BrowserSession.SameSite) == http.SameSiteNoneMode &&
+		!c.Auth.BrowserSession.IsSecure() {
+		errs = append(errs, "auth.browser_session.same_site=none requires auth.browser_session.secure=true")
 	}
 	return errs
 }
