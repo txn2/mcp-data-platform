@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -171,7 +172,7 @@ func (pa *PlatformAuthenticator) authenticateViaCookie(r *http.Request) (*User, 
 	}
 	info, err := pa.browserAuth.AuthenticateHTTP(r)
 	if err != nil || info == nil {
-		return nil, nil //nolint:nilnil // no valid cookie → fall back to token
+		return nil, nil //nolint:nilnil,nilerr // cookie auth failure falls back to token, not a fatal error
 	}
 	resolved, ok := pa.registry.GetForRoles(info.Roles)
 	if !ok || resolved.Name != pa.adminPersona {
@@ -180,7 +181,7 @@ func (pa *PlatformAuthenticator) authenticateViaCookie(r *http.Request) (*User, 
 	// The request is authenticated by a cookie the browser attached
 	// automatically; enforce CSRF on state-changing methods.
 	if err := pa.browserAuth.ValidateCSRFRequest(r, info.UserID); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("admin cookie csrf: %w", err)
 	}
 	return &User{UserID: info.UserID, Email: info.Email, Roles: info.Roles, FromCookie: true}, nil
 }

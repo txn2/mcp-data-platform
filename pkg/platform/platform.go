@@ -47,6 +47,7 @@ import (
 	oauthpostgres "github.com/txn2/mcp-data-platform/pkg/oauth/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
+	"github.com/txn2/mcp-data-platform/pkg/platform/fieldcrypt"
 	"github.com/txn2/mcp-data-platform/pkg/platform/reflexivecapture"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
@@ -140,7 +141,7 @@ type Platform struct {
 	authEventStore     *authevents.PostgresStore
 	authEventWriter    *authevents.Writer
 	connOAuthRefresher *connoauth.Refresher
-	restEncryptor      *RestFieldEncryptor
+	restEncryptor      *fieldcrypt.RestFieldEncryptor
 	personaStore       PersonaStore
 	apiKeyStore        APIKeyStore
 
@@ -561,7 +562,7 @@ func (p *Platform) initConnectionStore(opts *Options) error {
 	if err != nil {
 		return err
 	}
-	p.restEncryptor = &RestFieldEncryptor{enc: encryptor}
+	p.restEncryptor = fieldcrypt.NewRestFieldEncryptor(encryptor)
 	p.connectionStore = NewPostgresConnectionStore(p.db, encryptor)
 	p.enrichmentStore = enrichment.NewPostgresStore(p.db)
 	p.connOAuthStore = connoauth.NewPostgresStore(p.db, p.restEncryptor)
@@ -582,51 +583,6 @@ func (p *Platform) initConnectionStore(opts *Options) error {
 // always answer "what happened to this connection's tokens in the last
 // quarter" by reading the History panel.
 const authEventsRetention = 90 * 24 * time.Hour
-
-// RestFieldEncryptor adapts the platform's FieldEncryptor to the
-// generic Encrypt/Decrypt interface used by sub-package stores
-// (gateway OAuth tokens, PKCE state, etc.) so every at-rest secret
-// uses the same key, algorithm, and enc:base64(nonce|cipher) prefix
-// as connection credentials.
-//
-// Exported so consumers like main.go can pass it to constructors
-// (e.g., pkcestore.NewPostgresStore) without importing internal
-// platform types.
-type RestFieldEncryptor struct {
-	enc *FieldEncryptor
-}
-
-// Encrypt wraps a string with the same enc:base64(nonce|cipher) prefix
-// the field encryptor uses for sensitive config map values.
-func (g *RestFieldEncryptor) Encrypt(plaintext string) (string, error) {
-	if g.enc == nil || plaintext == "" {
-		return plaintext, nil
-	}
-	if strings.HasPrefix(plaintext, encryptedPrefix) {
-		return plaintext, nil // idempotent: already encrypted
-	}
-	out, err := g.enc.encrypt(plaintext)
-	if err != nil {
-		return "", fmt.Errorf("rest field encrypt: %w", err)
-	}
-	return encryptedPrefix + out, nil
-}
-
-// Decrypt reverses Encrypt. Plaintext (no enc: prefix) is returned
-// unchanged so legacy/unencrypted rows degrade gracefully.
-func (g *RestFieldEncryptor) Decrypt(ciphertext string) (string, error) {
-	if g.enc == nil || ciphertext == "" {
-		return ciphertext, nil
-	}
-	if !strings.HasPrefix(ciphertext, encryptedPrefix) {
-		return ciphertext, nil
-	}
-	out, err := g.enc.decrypt(strings.TrimPrefix(ciphertext, encryptedPrefix))
-	if err != nil {
-		return "", fmt.Errorf("rest field decrypt: %w", err)
-	}
-	return out, nil
-}
 
 // ConnOAuthStore returns the unified OAuth-token store backing the
 // connection_oauth_tokens table. Used by the admin layer's unified
@@ -696,7 +652,7 @@ func (p *Platform) StopConnOAuthRefresher(ctx context.Context) error {
 // adapter, or nil when no database is configured. Sub-package stores
 // can pass this to their constructors so secrets they persist use the
 // same key and format as connection credentials.
-func (p *Platform) RestEncryptor() *RestFieldEncryptor {
+func (p *Platform) RestEncryptor() *fieldcrypt.RestFieldEncryptor {
 	return p.restEncryptor
 }
 
@@ -1016,7 +972,7 @@ func (p *Platform) initPromptStore() {
 // buildFieldEncryptor creates a FieldEncryptor from the ENCRYPTION_KEY env var.
 // The key can be provided as hex (64 hex chars), base64 (44 chars), or raw bytes (32 bytes).
 // Returns nil encryptor (encryption disabled) if the env var is not set.
-func buildFieldEncryptor() (*FieldEncryptor, error) {
+func buildFieldEncryptor() (*fieldcrypt.FieldEncryptor, error) {
 	keyStr := os.Getenv("ENCRYPTION_KEY")
 	if keyStr == "" {
 		slog.Warn("connection store: ENCRYPTION_KEY not set — sensitive fields stored in plain text")
@@ -1025,7 +981,7 @@ func buildFieldEncryptor() (*FieldEncryptor, error) {
 
 	key := decodeEncryptionKey(keyStr)
 
-	encryptor, err := NewFieldEncryptor(key)
+	encryptor, err := fieldcrypt.NewFieldEncryptor(key)
 	if err != nil {
 		return nil, fmt.Errorf("initializing field encryptor: %w", err)
 	}
@@ -1036,12 +992,12 @@ func buildFieldEncryptor() (*FieldEncryptor, error) {
 // decodeEncryptionKey tries hex, then base64, then raw bytes to decode the key.
 func decodeEncryptionKey(keyStr string) []byte {
 	// Try hex first (64 hex chars = 32 bytes).
-	if key, err := hex.DecodeString(keyStr); err == nil && len(key) == aes256KeyLength {
+	if key, err := hex.DecodeString(keyStr); err == nil && len(key) == fieldcrypt.KeyLength {
 		return key
 	}
 
 	// Try base64 (44 chars = 32 bytes).
-	if key, err := base64.StdEncoding.DecodeString(keyStr); err == nil && len(key) == aes256KeyLength {
+	if key, err := base64.StdEncoding.DecodeString(keyStr); err == nil && len(key) == fieldcrypt.KeyLength {
 		return key
 	}
 
@@ -1233,14 +1189,11 @@ func (p *Platform) initBrowserSession() error {
 		SameSite: browsersession.ParseSameSite(bsCfg.SameSite),
 	}
 
-	// SameSite=Lax (the default) already blocks cross-site cookie submission on
-	// non-navigation requests; the X-CSRF-Token check is defense-in-depth on
-	// top of it. If an operator configures the cookie for cross-site use
-	// (SameSite=None), that browser-level defense is gone and the CSRF token
-	// becomes the sole protection — warn so the weaker posture is visible.
+	// SameSite=None disables the browser's built-in cross-site cookie defense,
+	// leaving the X-CSRF-Token check as the sole protection; warn on it.
 	if cookieCfg.IsCrossSiteCookieMode() {
 		slog.Warn("session cookie SameSite=None permits cross-site submission; " +
-			"browser CSRF defense is disabled and the X-CSRF-Token header is the sole protection")
+			"the X-CSRF-Token header is the sole CSRF protection")
 	}
 
 	oidcCfg := p.config.Auth.OIDC
@@ -3839,7 +3792,7 @@ func (p *Platform) getDataHubConfig(instanceName string) *datahubConfig {
 
 	cfg := &datahubConfig{
 		URL:     cfgString(instanceCfg, "url"),
-		Token:   cfgString(instanceCfg, cfgKeyToken),
+		Token:   cfgString(instanceCfg, fieldcrypt.CfgKeyToken),
 		Timeout: cfgDuration(instanceCfg, "timeout", 30*time.Second),
 		Debug:   cfgBoolDefault(instanceCfg, "debug", false),
 	}
@@ -3863,7 +3816,7 @@ func (p *Platform) getTrinoConfig(instanceName string) *trinoConfig {
 		Host:           cfgString(instanceCfg, "host"),
 		Port:           cfgInt(instanceCfg, "port", defaultTrinoPort),
 		User:           cfgString(instanceCfg, "user"),
-		Password:       cfgString(instanceCfg, configKeyPassword),
+		Password:       cfgString(instanceCfg, fieldcrypt.CfgKeyPassword),
 		Catalog:        cfgString(instanceCfg, "catalog"),
 		Schema:         cfgString(instanceCfg, "schema"),
 		SSL:            cfgBool(instanceCfg, "ssl"),
@@ -3887,7 +3840,7 @@ func (p *Platform) getS3Config(instanceName string) *s3Config {
 		Region:         cfgString(instanceCfg, "region"),
 		Endpoint:       cfgString(instanceCfg, "endpoint"),
 		AccessKeyID:    cfgString(instanceCfg, "access_key_id"),
-		SecretKey:      cfgString(instanceCfg, cfgKeySecretAccessKey),
+		SecretKey:      cfgString(instanceCfg, fieldcrypt.CfgKeySecretAccessKey),
 		BucketPrefix:   cfgString(instanceCfg, "bucket_prefix"),
 		ConnectionName: cfgString(instanceCfg, "connection_name"),
 		UsePathStyle:   cfgBool(instanceCfg, "use_path_style"),

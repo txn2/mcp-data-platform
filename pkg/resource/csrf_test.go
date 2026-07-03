@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -19,7 +20,7 @@ func TestHandleForbiddenMapsTo403(t *testing.T) {
 	forbidden := func(_ *http.Request) (*Claims, error) { return nil, ErrForbidden }
 	h := newTestHandler(store, s3, forbidden)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/resources/some-id", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/resources/some-id", http.NoBody)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
@@ -50,7 +51,7 @@ func TestResourcesCSRFEnforcement(t *testing.T) {
 	h := newTestHandler(newMockStore(), newMockS3(), extract)
 
 	t.Run("DELETE without CSRF token is 403", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodDelete, "/api/v1/resources/some-id", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/resources/some-id", http.NoBody)
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
 		if rec.Code != http.StatusForbidden {
@@ -59,7 +60,7 @@ func TestResourcesCSRFEnforcement(t *testing.T) {
 	})
 
 	t.Run("DELETE with valid CSRF token passes the auth gate", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodDelete, "/api/v1/resources/some-id", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/resources/some-id", http.NoBody)
 		req.Header.Set(csrfHeaderName, "valid-token")
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
@@ -71,7 +72,7 @@ func TestResourcesCSRFEnforcement(t *testing.T) {
 	})
 
 	t.Run("GET is exempt (safe method)", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/resources/some-id", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/resources/some-id", http.NoBody)
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
 		if rec.Code == http.StatusForbidden || rec.Code == http.StatusUnauthorized {

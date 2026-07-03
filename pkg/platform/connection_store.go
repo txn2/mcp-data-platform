@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/pkg/platform/fieldcrypt"
 )
 
 // ErrConnectionNotFound is returned when a connection instance does not exist.
@@ -51,12 +53,12 @@ type ConnectionStore interface {
 // encrypted at rest using AES-256-GCM when an encryption key is configured.
 type PostgresConnectionStore struct {
 	db        *sql.DB
-	encryptor *FieldEncryptor
+	encryptor *fieldcrypt.FieldEncryptor
 }
 
 // NewPostgresConnectionStore creates a new PostgreSQL-backed connection store.
 // The encryptor may be nil (encryption disabled — values stored in plain text).
-func NewPostgresConnectionStore(db *sql.DB, encryptor *FieldEncryptor) *PostgresConnectionStore {
+func NewPostgresConnectionStore(db *sql.DB, encryptor *fieldcrypt.FieldEncryptor) *PostgresConnectionStore {
 	return &PostgresConnectionStore{db: db, encryptor: encryptor}
 }
 

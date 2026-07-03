@@ -344,18 +344,14 @@ type BrowserSessionConfig struct {
 	SigningKey string        `yaml:"signing_key"` // base64-encoded HMAC key
 	Secure     *bool         `yaml:"secure"`      // HTTPS-only cookie; defaults to true, set false only for local HTTP
 	Domain     string        `yaml:"domain"`
-	// SameSite controls the session cookie's SameSite attribute:
-	// "lax" (default), "strict", or "none". "none" disables the browser's
-	// built-in cross-site cookie defense and requires Secure=true; the
-	// X-CSRF-Token check then becomes the sole CSRF protection, and the
-	// platform logs a startup warning.
+	// SameSite is the cookie SameSite attribute: "lax" (default), "strict", or
+	// "none". "none" requires secure=true and makes X-CSRF-Token the sole CSRF
+	// defense (a startup warning is logged).
 	SameSite string `yaml:"same_site"`
 }
 
-// IsSecure reports whether the session cookie should carry the Secure
-// attribute. It defaults to true (nil), so production over HTTPS is protected
-// without configuration; an operator must set secure: false explicitly to opt
-// out for local HTTP.
+// IsSecure reports whether the session cookie carries the Secure attribute,
+// defaulting to true (nil); set secure: false only for local HTTP.
 func (b *BrowserSessionConfig) IsSecure() bool {
 	if b.Secure == nil {
 		return true

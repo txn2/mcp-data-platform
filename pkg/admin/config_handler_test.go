@@ -15,6 +15,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/configstore"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
+	"github.com/txn2/mcp-data-platform/pkg/platform/fieldcrypt"
 )
 
 func TestGetAgentInstructionsBaseline(t *testing.T) {
@@ -562,12 +563,12 @@ func TestIsSensitiveKey(t *testing.T) {
 // TestSensitiveKeysCoverFieldcryptSet locks in the invariant that the
 // admin redaction list (sensitiveKeys / isSensitiveKey) is a superset
 // of the at-rest encryption layer's set
-// (platform.SensitiveConfigKeyList). Any field the encryption layer
+// (fieldcrypt.SensitiveConfigKeyList). Any field the encryption layer
 // treats as a secret must also be redacted by admin endpoints, or a
 // misconfigured deployment (ENCRYPTION_KEY unset, plaintext at rest)
 // leaks through /api/admin/config.
 func TestSensitiveKeysCoverFieldcryptSet(t *testing.T) {
-	for _, k := range platform.SensitiveConfigKeyList() {
+	for _, k := range fieldcrypt.SensitiveConfigKeyList() {
 		t.Run(k, func(t *testing.T) {
 			assert.True(t, isSensitiveKey(k),
 				"admin redaction list (sensitiveKeys) must cover encryption-layer key %q — missing entry would leak plaintext when at-rest encryption is disabled", k)

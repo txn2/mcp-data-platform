@@ -1,6 +1,7 @@
 package browsersession
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -63,7 +64,7 @@ func TestValidateCSRFRequest(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			r := httptest.NewRequest(tc.method, "/api/v1/portal/assets", http.NoBody)
+			r := httptest.NewRequestWithContext(context.Background(), tc.method, "/api/v1/portal/assets", http.NoBody)
 			if tc.header != "" {
 				r.Header.Set(CSRFHeaderName, tc.header)
 			}

@@ -1,4 +1,4 @@
-package platform
+package fieldcrypt
 
 import (
 	"crypto/rand"

@@ -3,6 +3,7 @@ package portal
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -75,9 +76,11 @@ func (pa *Authenticator) Authenticate(r *http.Request) (*User, error) {
 	var csrfErr error
 	if pa.browserAuth != nil {
 		if info, err := pa.browserAuth.AuthenticateHTTP(r); err == nil && info != nil {
-			if csrfErr = pa.browserAuth.ValidateCSRFRequest(r, info.UserID); csrfErr == nil {
+			verr := pa.browserAuth.ValidateCSRFRequest(r, info.UserID)
+			if verr == nil {
 				return &User{UserID: info.UserID, Email: info.Email, Roles: info.Roles, FromCookie: true}, nil
 			}
+			csrfErr = fmt.Errorf("portal cookie csrf: %w", verr)
 		}
 	}
 

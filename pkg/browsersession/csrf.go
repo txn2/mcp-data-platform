@@ -17,10 +17,10 @@ import (
 // valid value.
 const CSRFHeaderName = "X-CSRF-Token" //nolint:gosec // header name, not a credential
 
-// csrfTokenPrefix domain-separates the CSRF HMAC from the session-signing
+// csrfDomainPrefix domain-separates the CSRF HMAC from the session-signing
 // HMAC so the two can never produce interchangeable values despite sharing
 // the same signing key.
-const csrfTokenPrefix = "csrf:v1:"
+const csrfDomainPrefix = "csrf:v1:"
 
 // ErrCSRFInvalid is returned when a cookie-authenticated, state-changing
 // request is missing a valid X-CSRF-Token header.
@@ -72,7 +72,7 @@ func (c *CookieConfig) IsCrossSiteCookieMode() bool {
 // computeCSRFToken returns base64url(HMAC-SHA256(key, prefix+subject)).
 func computeCSRFToken(key []byte, subject string) string {
 	mac := hmac.New(sha256.New, key)
-	_, _ = mac.Write([]byte(csrfTokenPrefix + subject))
+	_, _ = mac.Write([]byte(csrfDomainPrefix + subject))
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 

@@ -15,11 +15,14 @@ import (
 	mw "github.com/txn2/mcp-data-platform/pkg/middleware"
 )
 
-// cookieRequest builds a request carrying a valid session cookie for subject.
-func cookieRequest(t *testing.T, cfg browsersession.CookieConfig, method, subject string) *http.Request {
+// cookieSubject is the session subject every CSRF test authenticates as.
+const cookieSubject = "cookie-user"
+
+// cookieRequest builds a request carrying a valid session cookie for cookieSubject.
+func cookieRequest(t *testing.T, cfg browsersession.CookieConfig, method string) *http.Request {
 	t.Helper()
 	token, err := browsersession.SignSession(
-		browsersession.SessionClaims{UserID: subject, Roles: []string{"analyst"}},
+		browsersession.SessionClaims{UserID: cookieSubject, Roles: []string{"analyst"}},
 		&cfg,
 	)
 	require.NoError(t, err)
@@ -34,23 +37,23 @@ func TestPortalAuthenticateCSRF(t *testing.T) {
 	cfg := browsersession.CookieConfig{Key: testSessionKey(), TTL: time.Hour}
 	ba := browsersession.NewAuthenticator(cfg)
 	pa := NewAuthenticator(&mockAuthenticator{}, WithBrowserAuth(ba))
-	validToken := ba.IssueCSRFToken("cookie-user")
+	validToken := ba.IssueCSRFToken(cookieSubject)
 
 	t.Run("GET passes without CSRF header", func(t *testing.T) {
-		user, err := pa.Authenticate(cookieRequest(t, cfg, http.MethodGet, "cookie-user"))
+		user, err := pa.Authenticate(cookieRequest(t, cfg, http.MethodGet))
 		require.NoError(t, err)
 		require.NotNil(t, user)
 		assert.True(t, user.FromCookie)
 	})
 
 	t.Run("POST without CSRF header is rejected", func(t *testing.T) {
-		user, err := pa.Authenticate(cookieRequest(t, cfg, http.MethodPost, "cookie-user"))
+		user, err := pa.Authenticate(cookieRequest(t, cfg, http.MethodPost))
 		assert.Nil(t, user)
 		assert.True(t, errors.Is(err, browsersession.ErrCSRFInvalid))
 	})
 
 	t.Run("POST with valid CSRF header passes", func(t *testing.T) {
-		r := cookieRequest(t, cfg, http.MethodPost, "cookie-user")
+		r := cookieRequest(t, cfg, http.MethodPost)
 		r.Header.Set(browsersession.CSRFHeaderName, validToken)
 		user, err := pa.Authenticate(r)
 		require.NoError(t, err)
@@ -59,7 +62,7 @@ func TestPortalAuthenticateCSRF(t *testing.T) {
 	})
 
 	t.Run("POST with wrong CSRF header is rejected", func(t *testing.T) {
-		r := cookieRequest(t, cfg, http.MethodPost, "cookie-user")
+		r := cookieRequest(t, cfg, http.MethodPost)
 		r.Header.Set(browsersession.CSRFHeaderName, "bogus")
 		user, err := pa.Authenticate(r)
 		assert.Nil(t, user)
@@ -100,7 +103,7 @@ func TestPortalCookieCSRFFailsOverToToken(t *testing.T) {
 		WithBrowserAuth(ba),
 	)
 
-	r := cookieRequest(t, cfg, http.MethodPost, "cookie-user") // cookie present, no CSRF header
+	r := cookieRequest(t, cfg, http.MethodPost) // cookie present, no CSRF header
 	r.Header.Set("X-API-Key", "key")
 
 	user, err := pa.Authenticate(r)
@@ -125,19 +128,19 @@ func TestRequirePortalAuthCSRFIntegration(t *testing.T) {
 
 	t.Run("cookie GET is allowed", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		handler.ServeHTTP(w, cookieRequest(t, cfg, http.MethodGet, "cookie-user"))
+		handler.ServeHTTP(w, cookieRequest(t, cfg, http.MethodGet))
 		assert.Equal(t, http.StatusOK, w.Code)
 	})
 
 	t.Run("cookie POST without header is 403", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		handler.ServeHTTP(w, cookieRequest(t, cfg, http.MethodPost, "cookie-user"))
+		handler.ServeHTTP(w, cookieRequest(t, cfg, http.MethodPost))
 		assert.Equal(t, http.StatusForbidden, w.Code)
 	})
 
 	t.Run("cookie POST with valid token is allowed", func(t *testing.T) {
-		r := cookieRequest(t, cfg, http.MethodPost, "cookie-user")
-		r.Header.Set(browsersession.CSRFHeaderName, ba.IssueCSRFToken("cookie-user"))
+		r := cookieRequest(t, cfg, http.MethodPost)
+		r.Header.Set(browsersession.CSRFHeaderName, ba.IssueCSRFToken(cookieSubject))
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, r)
 		assert.Equal(t, http.StatusOK, w.Code)
@@ -153,12 +156,12 @@ func TestGetMeReturnsCSRFTokenForCookie(t *testing.T) {
 	h := NewHandler(Deps{Authenticator: pa}, RequirePortalAuth(pa))
 
 	t.Run("cookie session gets a token", func(t *testing.T) {
-		r := cookieRequest(t, cfg, http.MethodGet, "cookie-user")
+		r := cookieRequest(t, cfg, http.MethodGet)
 		r.URL.Path = "/api/v1/portal/me"
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, r)
 		require.Equal(t, http.StatusOK, w.Code)
-		assert.Contains(t, w.Body.String(), ba.IssueCSRFToken("cookie-user"))
+		assert.Contains(t, w.Body.String(), ba.IssueCSRFToken(cookieSubject))
 	})
 
 	t.Run("token session gets no CSRF token", func(t *testing.T) {
