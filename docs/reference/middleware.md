@@ -160,6 +160,13 @@ func MCPWorkflowGateMiddleware(tracker *SessionWorkflowTracker) mcp.Middleware
 
 Modeled on `MCPSessionGateMiddleware`: it is positioned inner to `MCPToolCallMiddleware` (so `PlatformContext` is populated and the current call is recorded on the tracker) and outer to audit/enrichment (so a blocked call never reaches those layers). Enabled by default; disabled only when `workflow.require_search: false` leaves the tracker unconfigured. The former `MCPRuleEnforcementMiddleware` (a warn-after-execution mechanism) and the static `tuning.rules.require_datahub_check` hint have been removed.
 
+**Replica-shared discovery state (#789):** the per-session "has performed discovery" signal lives in a `searchgate.Store`. When a database is configured the tracker uses the Postgres store (`pkg/searchgate/postgres`), so discovery recorded on one replica is visible to a query handled by another; without a database it uses an in-memory store, which is correct only for single-replica deployments. Semantics:
+
+- **Single source of truth:** the shared store is authoritative; the tracker holds no replica-local "discovered" bit that could diverge from it, so the gate is consistent across replicas.
+- **Sliding window:** ongoing query activity by a discovered session refreshes the shared record (store writes throttled to at most once per half of the session timeout), so a long active session is not re-gated mid-workflow.
+- **Write resilience:** a failed discovery write persists nothing (there is no divergent local state), but the throttle is cleared so the agent's next `search` retries; the worst case is one repeated `SEARCH_REQUIRED`, which self-heals, never a permanent or cross-replica-inconsistent block.
+- **Fail-open on read error (deliberate):** the gate is a workflow quality guard, not a security boundary, so a database outage allows queries (logged) rather than blocking every one.
+
 ### MCPDescriptionOverrideMiddleware
 
 Replaces tool descriptions in `tools/list` responses to inject workflow guidance (e.g., "call datahub_search first"). Built-in overrides for `trino_query` and `trino_execute` are always active; config overrides take precedence.

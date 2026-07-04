@@ -150,7 +150,7 @@ AI-generated prose (PR descriptions, commit messages, reviews, explanations) is 
 
 ## Project Structure
 
-`pkg/` holds 39 top-level packages (all public API). Depth-2 subdirectories are
+`pkg/` holds 40 top-level packages (all public API). Depth-2 subdirectories are
 shown where they represent a distinct implementation (a storage backend, an
 adapter, an indexjobs consumer); helper subpackages are omitted for brevity.
 Regenerate this list with `find pkg -mindepth 1 -maxdepth 1 -type d | sort` and
@@ -159,7 +159,7 @@ diff against the packages below when adding or removing a `pkg/` directory.
 ```
 mcp-data-platform/
 ├── cmd/mcp-data-platform/          # Entry point (main.go)
-├── pkg/                            # PUBLIC API (39 top-level packages)
+├── pkg/                            # PUBLIC API (40 top-level packages)
 │   ├── admin/                      # REST API endpoints for administrative operations
 │   ├── audit/                      # Audit logging (postgres/ = PostgreSQL implementation)
 │   ├── auth/                       # Authentication: OIDC, API keys, claims, middleware
@@ -191,6 +191,7 @@ mcp-data-platform/
 │   ├── query/                      # Query execution provider abstraction (trino/ = Trino adapter)
 │   ├── registry/                   # Toolkit registration and management
 │   ├── resource/                   # Managed resources: human-uploaded reference files
+│   ├── searchgate/                 # Per-session discovery signal for the search-first gate (postgres/ = replica-shared backend)
 │   ├── semantic/                   # Semantic layer abstraction (datahub/ = DataHub adapter)
 │   ├── session/                    # Session externalization (postgres/ = multi-replica backend)
 │   ├── storage/                    # Storage provider abstraction (s3/ = S3 adapter)
