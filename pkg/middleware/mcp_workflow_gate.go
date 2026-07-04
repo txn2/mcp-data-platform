@@ -34,7 +34,7 @@ func MCPWorkflowGateMiddleware(tracker *SessionWorkflowTracker) mcp.Middleware {
 			if pc == nil {
 				return next(ctx, method, req)
 			}
-			if errResult := checkWorkflowGate(tracker, pc); errResult != nil {
+			if errResult := checkWorkflowGate(ctx, tracker, pc); errResult != nil {
 				return errResult, nil
 			}
 			return next(ctx, method, req)
@@ -45,13 +45,13 @@ func MCPWorkflowGateMiddleware(tracker *SessionWorkflowTracker) mcp.Middleware {
 // checkWorkflowGate evaluates whether a query tool call should proceed or be
 // gated. It returns nil when the call is allowed and an error result when the
 // session has not yet performed discovery.
-func checkWorkflowGate(tracker *SessionWorkflowTracker, pc *PlatformContext) mcp.Result {
+func checkWorkflowGate(ctx context.Context, tracker *SessionWorkflowTracker, pc *PlatformContext) mcp.Result {
 	// Only query tools are gated; everything else passes through.
 	if !tracker.IsQueryTool(pc.ToolName) {
 		return nil
 	}
 	// Once discovery has happened in the session, the gate stays open.
-	if tracker.HasPerformedDiscovery(pc.SessionID) {
+	if tracker.HasPerformedDiscovery(ctx, pc.SessionID) {
 		return nil
 	}
 

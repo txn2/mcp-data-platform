@@ -1939,7 +1939,7 @@ func TestMiddlewareChain_ToolVisibility_NoPatterns(t *testing.T) {
 // and a SEARCH_REQUIRED error result is returned instructing the agent to call
 // search first. This exercises the real assembled middleware chain.
 func TestWorkflowGating_NoDiscovery(t *testing.T) {
-	tracker := middleware.NewSessionWorkflowTracker(nil, nil, 30*time.Minute)
+	tracker := middleware.NewSessionWorkflowTracker(nil, nil, nil, 30*time.Minute)
 	authenticator := &testAuthenticator{
 		userInfo: &middleware.UserInfo{UserID: chainTestUser, Roles: []string{chainTestAnalyst}},
 	}
@@ -1988,7 +1988,7 @@ func TestWorkflowGating_NoDiscovery(t *testing.T) {
 // TestWorkflowGating_WithDiscovery verifies that calling search
 // then trino_query produces no warning.
 func TestWorkflowGating_WithDiscovery(t *testing.T) {
-	tracker := middleware.NewSessionWorkflowTracker(nil, nil, 30*time.Minute)
+	tracker := middleware.NewSessionWorkflowTracker(nil, nil, nil, 30*time.Minute)
 	authenticator := &testAuthenticator{
 		userInfo: &middleware.UserInfo{UserID: chainTestUser, Roles: []string{chainTestAnalyst}},
 	}
@@ -2054,7 +2054,7 @@ func TestWorkflowGating_WithDiscovery(t *testing.T) {
 // where a persona granted datahub_* but not search could never satisfy a
 // narrower gate and would be locked out of query tools forever.
 func TestWorkflowGating_DataHubDiscoveryOpensGate(t *testing.T) {
-	tracker := middleware.NewSessionWorkflowTracker(nil, nil, 30*time.Minute)
+	tracker := middleware.NewSessionWorkflowTracker(nil, nil, nil, 30*time.Minute)
 	authenticator := &testAuthenticator{
 		userInfo: &middleware.UserInfo{UserID: chainTestUser, Roles: []string{chainTestAnalyst}},
 	}

@@ -58,6 +58,8 @@ import (
 	trinoquery "github.com/txn2/mcp-data-platform/pkg/query/trino"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
+	"github.com/txn2/mcp-data-platform/pkg/searchgate"
+	searchgatepostgres "github.com/txn2/mcp-data-platform/pkg/searchgate/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	datahubsemantic "github.com/txn2/mcp-data-platform/pkg/semantic/datahub"
 	"github.com/txn2/mcp-data-platform/pkg/session"
@@ -1528,9 +1530,22 @@ func (p *Platform) initWorkflow() {
 		sessionTimeout = defaultSessionTimeout
 	}
 
+	// The discovery signal must be shared across replicas: with only an
+	// in-memory store, a query load-balanced to a replica that did not handle
+	// the search is wrongly refused (#789). Use the Postgres store whenever a
+	// database is available (the same condition under which sessions
+	// externalize); fall back to in-memory for single-replica / no-DB runs.
+	var store searchgate.Store
+	if p.db != nil {
+		store = searchgatepostgres.New(p.db, sessionTimeout)
+	} else {
+		store = searchgate.NewMemoryStore(sessionTimeout)
+	}
+
 	p.workflowTracker = middleware.NewSessionWorkflowTracker(
 		p.config.Workflow.DiscoveryTools,
 		p.config.Workflow.QueryTools,
+		store,
 		sessionTimeout,
 	)
 	p.workflowTracker.StartCleanup(1 * time.Minute)
@@ -1538,7 +1553,16 @@ func (p *Platform) initWorkflow() {
 	slog.Info("search-first gate enabled",
 		"discovery_tools", len(p.workflowTracker.DiscoveryToolNames()),
 		"query_tools", len(p.workflowTracker.QueryToolNames()),
+		"store", searchgateStoreKind(p.db),
 	)
+}
+
+// searchgateStoreKind names the discovery store backing for logging.
+func searchgateStoreKind(db *sql.DB) string {
+	if db != nil {
+		return "postgres"
+	}
+	return "memory"
 }
 
 // initSessionGate initializes the session initialization gate if configured.

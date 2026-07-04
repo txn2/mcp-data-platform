@@ -405,7 +405,7 @@ func TestMCPSemanticEnrichmentMiddleware_NoEnrichmentAppliedForUnknownTool(t *te
 
 func TestAppendDiscoveryNoteIfNeeded(t *testing.T) {
 	t.Run("no discovery appends note", func(t *testing.T) {
-		tracker := NewSessionWorkflowTracker(nil, nil, 30*time.Minute)
+		tracker := NewSessionWorkflowTracker(nil, nil, nil, 30*time.Minute)
 		pc := NewPlatformContext("req")
 		pc.SessionID = "s1"
 		pc.EnrichmentApplied = true
@@ -413,7 +413,7 @@ func TestAppendDiscoveryNoteIfNeeded(t *testing.T) {
 		result := &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: "data"}},
 		}
-		appendDiscoveryNoteIfNeeded(result, pc, tracker)
+		appendDiscoveryNoteIfNeeded(context.Background(), result, pc, tracker)
 
 		require.Len(t, result.Content, 2)
 		tc, ok := result.Content[1].(*mcp.TextContent)
@@ -423,8 +423,8 @@ func TestAppendDiscoveryNoteIfNeeded(t *testing.T) {
 	})
 
 	t.Run("discovery done skips note", func(t *testing.T) {
-		tracker := NewSessionWorkflowTracker(nil, nil, 30*time.Minute)
-		tracker.RecordToolCall("s1", "search")
+		tracker := NewSessionWorkflowTracker(nil, nil, nil, 30*time.Minute)
+		tracker.RecordToolCall(context.Background(), "s1", "search")
 
 		pc := NewPlatformContext("req")
 		pc.SessionID = "s1"
@@ -433,13 +433,13 @@ func TestAppendDiscoveryNoteIfNeeded(t *testing.T) {
 		result := &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: "data"}},
 		}
-		appendDiscoveryNoteIfNeeded(result, pc, tracker)
+		appendDiscoveryNoteIfNeeded(context.Background(), result, pc, tracker)
 
 		assert.Len(t, result.Content, 1, "no note after discovery")
 	})
 
 	t.Run("no enrichment applied skips note", func(t *testing.T) {
-		tracker := NewSessionWorkflowTracker(nil, nil, 30*time.Minute)
+		tracker := NewSessionWorkflowTracker(nil, nil, nil, 30*time.Minute)
 		pc := NewPlatformContext("req")
 		pc.SessionID = "s1"
 		pc.EnrichmentApplied = false
@@ -447,7 +447,7 @@ func TestAppendDiscoveryNoteIfNeeded(t *testing.T) {
 		result := &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: "data"}},
 		}
-		appendDiscoveryNoteIfNeeded(result, pc, tracker)
+		appendDiscoveryNoteIfNeeded(context.Background(), result, pc, tracker)
 
 		assert.Len(t, result.Content, 1, "no note when enrichment not applied")
 	})
@@ -460,7 +460,7 @@ func TestAppendDiscoveryNoteIfNeeded(t *testing.T) {
 		result := &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: "data"}},
 		}
-		appendDiscoveryNoteIfNeeded(result, pc, nil)
+		appendDiscoveryNoteIfNeeded(context.Background(), result, pc, nil)
 
 		assert.Len(t, result.Content, 1, "no note with nil tracker")
 	})

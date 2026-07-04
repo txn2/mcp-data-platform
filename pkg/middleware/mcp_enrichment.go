@@ -138,7 +138,7 @@ func applyEnrichment(
 	// Attach the canonical knowledge pages that document the named entities (#634).
 	enrichedResult = enrichWithKnowledgePages(ctx, enricher.pageProvider, enrichedResult, entityURNs)
 
-	appendDiscoveryNoteIfNeeded(enrichedResult, pc, enricher.cfg.WorkflowTracker)
+	appendDiscoveryNoteIfNeeded(ctx, enrichedResult, pc, enricher.cfg.WorkflowTracker)
 
 	// Mirror every platform-added enrichment block into the structured result so
 	// MCP clients that render only structured output still receive the semantic
@@ -205,11 +205,11 @@ func structuredAsMap(sc any) map[string]any {
 
 // appendDiscoveryNoteIfNeeded appends a soft discovery note to enriched results
 // when the session has not yet performed DataHub discovery.
-func appendDiscoveryNoteIfNeeded(result *mcp.CallToolResult, pc *PlatformContext, tracker *SessionWorkflowTracker) {
+func appendDiscoveryNoteIfNeeded(ctx context.Context, result *mcp.CallToolResult, pc *PlatformContext, tracker *SessionWorkflowTracker) {
 	if tracker == nil || !pc.EnrichmentApplied {
 		return
 	}
-	if tracker.HasPerformedDiscovery(pc.SessionID) {
+	if tracker.HasPerformedDiscovery(ctx, pc.SessionID) {
 		return
 	}
 

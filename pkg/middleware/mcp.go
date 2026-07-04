@@ -313,7 +313,7 @@ func authenticateAndAuthorize(
 
 	// Record tool call for workflow tracking (after successful auth)
 	if params.workflowTracker != nil {
-		params.workflowTracker.RecordToolCall(params.pc.SessionID, params.toolName)
+		params.workflowTracker.RecordToolCall(ctx, params.pc.SessionID, params.toolName)
 	}
 
 	return next(ctx, method, req)
