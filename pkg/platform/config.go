@@ -899,19 +899,34 @@ type CustomResourceDef struct {
 }
 
 // ProgressConfig configures progress notifications during tool execution.
+// Enabled by default (nil = enabled); set enabled: false to disable.
 type ProgressConfig struct {
-	Enabled bool `yaml:"enabled"`
+	Enabled *bool `yaml:"enabled"`
+}
+
+// IsEnabled reports whether progress notifications are enabled, defaulting
+// to true when not explicitly set.
+func (c *ProgressConfig) IsEnabled() bool {
+	return !isExplicitlyDisabled(c.Enabled)
 }
 
 // ClientLoggingConfig configures server-to-client log message notifications.
+// Enabled by default (nil = enabled); set enabled: false to disable.
 type ClientLoggingConfig struct {
-	Enabled bool `yaml:"enabled"`
+	Enabled *bool `yaml:"enabled"`
+}
+
+// IsEnabled reports whether client logging is enabled, defaulting to true
+// when not explicitly set.
+func (c *ClientLoggingConfig) IsEnabled() bool {
+	return !isExplicitlyDisabled(c.Enabled)
 }
 
 // IconsConfig configures visual metadata for tools, resources, and prompts.
 type IconsConfig struct {
 	// Enabled is the master switch for icon injection.
-	Enabled bool `yaml:"enabled"`
+	// Enabled by default (nil = enabled); set enabled: false to disable.
+	Enabled *bool `yaml:"enabled"`
 
 	// Tools maps tool names to their icon definitions.
 	Tools map[string]IconDef `yaml:"tools"`
@@ -921,6 +936,12 @@ type IconsConfig struct {
 
 	// Prompts maps prompt names to their icon definitions.
 	Prompts map[string]IconDef `yaml:"prompts"`
+}
+
+// IsEnabled reports whether icon injection is enabled, defaulting to true
+// when not explicitly set.
+func (c *IconsConfig) IsEnabled() bool {
+	return !isExplicitlyDisabled(c.Enabled)
 }
 
 // IconDef defines an icon for config-driven injection.
@@ -935,7 +956,8 @@ type IconDef struct {
 // ElicitationConfig configures user confirmation for expensive operations.
 type ElicitationConfig struct {
 	// Enabled is the master switch for all elicitation features.
-	Enabled bool `yaml:"enabled"`
+	// Enabled by default (nil = enabled); set enabled: false to disable.
+	Enabled *bool `yaml:"enabled"`
 
 	// CostEstimation configures query cost estimation and confirmation.
 	CostEstimation CostEstimationConfig `yaml:"cost_estimation"`
@@ -944,20 +966,40 @@ type ElicitationConfig struct {
 	PIIConsent PIIConsentConfig `yaml:"pii_consent"`
 }
 
+// IsEnabled reports whether elicitation is enabled, defaulting to true when
+// not explicitly set.
+func (c *ElicitationConfig) IsEnabled() bool {
+	return !isExplicitlyDisabled(c.Enabled)
+}
+
 // CostEstimationConfig configures query cost estimation.
 type CostEstimationConfig struct {
 	// Enabled controls whether query cost estimation triggers elicitation.
-	Enabled bool `yaml:"enabled"`
+	// Enabled by default (nil = enabled); set enabled: false to disable.
+	Enabled *bool `yaml:"enabled"`
 
 	// RowThreshold is the estimated row count above which confirmation is requested.
 	// Default: 1000000 (1 million rows).
 	RowThreshold int64 `yaml:"row_threshold"`
 }
 
+// IsEnabled reports whether cost estimation is enabled, defaulting to true
+// when not explicitly set.
+func (c *CostEstimationConfig) IsEnabled() bool {
+	return !isExplicitlyDisabled(c.Enabled)
+}
+
 // PIIConsentConfig configures PII access consent.
 type PIIConsentConfig struct {
 	// Enabled controls whether PII table access triggers elicitation.
-	Enabled bool `yaml:"enabled"`
+	// Enabled by default (nil = enabled); set enabled: false to disable.
+	Enabled *bool `yaml:"enabled"`
+}
+
+// IsEnabled reports whether PII consent prompting is enabled, defaulting to
+// true when not explicitly set.
+func (c *PIIConsentConfig) IsEnabled() bool {
+	return !isExplicitlyDisabled(c.Enabled)
 }
 
 // WorkflowConfig configures session-aware workflow gating that encourages

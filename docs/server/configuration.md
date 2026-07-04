@@ -1008,65 +1008,68 @@ resources:
 
 ## Progress Notifications Configuration
 
-Progress notifications send granular updates to MCP clients during long-running Trino queries. The client must include `_meta.progressToken` in the request to receive updates.
+Progress notifications send granular updates to MCP clients during long-running Trino queries. The client must include `_meta.progressToken` in the request to receive updates. Enabled by default; set `enabled: false` to opt out.
 
 ```yaml
 progress:
-  enabled: true
+  enabled: false   # only needed to opt out; defaults to true
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `enabled` | bool | `false` | Enable progress notifications |
+| `enabled` | `*bool` | `true` (nil = enabled) | Enable progress notifications |
 
 When enabled, Trino query execution sends progress updates including rows scanned, bytes processed, and query stage information. Clients that don't send a `progressToken` receive no notifications (zero overhead).
 
 ## Client Logging Configuration
 
-Client logging sends server-to-client log messages via the MCP `logging/setLevel` protocol. Messages include enrichment decisions, timing data, and platform diagnostics.
+Client logging sends server-to-client log messages via the MCP `logging/setLevel` protocol. Messages include enrichment decisions, timing data, and platform diagnostics. Enabled by default; set `enabled: false` to opt out.
 
 ```yaml
 client_logging:
-  enabled: true
+  enabled: false   # only needed to opt out; defaults to true
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `enabled` | bool | `false` | Enable client logging |
+| `enabled` | `*bool` | `true` (nil = enabled) | Enable client logging |
 
 Zero overhead if the client hasn't subscribed via `logging/setLevel`. When active, log messages report semantic cache hits/misses, enrichment timing, and cross-enrichment decisions.
 
 ## Elicitation Configuration
 
-Elicitation requests user confirmation before potentially expensive or sensitive operations. Requires client-side elicitation support (e.g., Claude Desktop). Gracefully degrades to a no-op if the client doesn't support elicitation.
+Elicitation requests user confirmation before potentially expensive or sensitive operations. Requires client-side elicitation support (e.g., Claude Desktop). Gracefully degrades to a no-op if the client doesn't support elicitation. Enabled by default (including `cost_estimation` and `pii_consent`); set `enabled: false` at any level to opt out.
 
 ```yaml
 elicitation:
-  enabled: true
+  enabled: false        # only needed to opt out; defaults to true
   cost_estimation:
-    enabled: true
+    enabled: false      # only needed to opt out; defaults to true
     row_threshold: 1000000
   pii_consent:
-    enabled: true
+    enabled: false      # only needed to opt out; defaults to true
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `enabled` | bool | `false` | Enable elicitation |
-| `cost_estimation.enabled` | bool | `false` | Prompt before expensive queries |
+| `enabled` | `*bool` | `true` (nil = enabled) | Enable elicitation |
+| `cost_estimation.enabled` | `*bool` | `true` (nil = enabled) | Prompt before expensive queries |
 | `cost_estimation.row_threshold` | int | `1000000` | Row count threshold from `EXPLAIN` IO estimates |
-| `pii_consent.enabled` | bool | `false` | Prompt when query accesses PII-tagged columns |
+| `pii_consent.enabled` | `*bool` | `true` (nil = enabled) | Prompt when query accesses PII-tagged columns |
 
 !!! note "Client support required"
     Elicitation uses the MCP `elicitation/create` capability. Clients that don't support elicitation will not receive prompts — queries proceed without confirmation.
 
+!!! warning "Behavior change for existing deployments"
+    Elicitation is user-facing: with no `elicitation` block at all, cost-estimation and PII-consent prompts now fire out of the box. `cost_estimation` still respects `row_threshold` (default 1,000,000 rows), so it only prompts on large queries. Deployments that relied on the previous silent-off default should add `elicitation.enabled: false` (or disable the sub-features individually) to keep the prior behavior.
+
 ## Icons Configuration
 
-Icons add visual metadata to tools, resources, and prompts in MCP list responses. Upstream toolkits (Trino, DataHub, S3) provide default icons; this configuration overrides or extends them.
+Icons add visual metadata to tools, resources, and prompts in MCP list responses. Upstream toolkits (Trino, DataHub, S3) provide default icons; this configuration overrides or extends them. Enabled by default; set `enabled: false` to opt out.
 
 ```yaml
 icons:
-  enabled: true
+  enabled: false   # only needed to opt out; defaults to true
   tools:
     trino_query:
       src: "https://example.com/custom-trino.svg"
@@ -1081,7 +1084,7 @@ icons:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `enabled` | bool | `false` | Enable icon injection middleware |
+| `enabled` | `*bool` | `true` (nil = enabled) | Enable icon injection middleware |
 | `tools` | map | - | Icon overrides keyed by tool name |
 | `resources` | map | - | Icon overrides keyed by resource URI |
 | `prompts` | map | - | Icon overrides keyed by prompt name |
@@ -1211,17 +1214,9 @@ enrichment:
 resources:
   enabled: true
 
-progress:
-  enabled: true
-
-client_logging:
-  enabled: true
-
-elicitation:
-  enabled: true
-  cost_estimation:
-    enabled: true
-    row_threshold: 1000000
+# progress, client_logging, and elicitation (with cost_estimation and
+# pii_consent) are all enabled by default, so no block is needed here unless
+# you want to opt out or customize (e.g. a lower cost_estimation.row_threshold).
 
 personas:
   analyst:

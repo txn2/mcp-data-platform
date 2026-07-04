@@ -84,9 +84,8 @@ enrichment:
   column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
 
 elicitation:
-  enabled: true
   pii_consent:
-    enabled: true   # Require confirmation before a tool call touches a PII-tagged table
+    enabled: true   # Enabled by default; explicit here for clarity, confirms before a tool call touches a PII-tagged table
 
 personas:
   analyst:

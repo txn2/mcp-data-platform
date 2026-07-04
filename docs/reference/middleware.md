@@ -230,7 +230,7 @@ func MCPIconMiddleware(cfg IconsMiddlewareConfig) mcp.Middleware
 3. Appends configured icons to matching entries
 4. Passes through all other methods unchanged
 
-Only registered when `icons.enabled: true` in configuration.
+Registered by default (`icons.enabled` defaults to `true`); set `icons.enabled: false` to disable.
 
 ### MCPClientLoggingMiddleware
 
@@ -243,7 +243,7 @@ Sends server-to-client log messages via the MCP `logging/setLevel` protocol. Rep
 3. Messages include enrichment details, query timing, and semantic cache hits
 4. No-op if the client hasn't subscribed via `logging/setLevel`
 
-Only registered when `client_logging.enabled: true` in configuration.
+Registered by default (`client_logging.enabled` defaults to `true`); set `client_logging.enabled: false` to disable.
 
 ### ToolMetadataMiddleware (MCP Apps)
 

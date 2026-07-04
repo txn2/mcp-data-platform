@@ -3227,7 +3227,7 @@ func TestPlatformTools(t *testing.T) {
 func TestInjectToolkitPlatformConfig(t *testing.T) {
 	t.Run("nil toolkits", func(_ *testing.T) {
 		p := &Platform{config: &Config{
-			Progress: ProgressConfig{Enabled: true},
+			Progress: ProgressConfig{Enabled: new(true)},
 		}}
 		// Should not panic when Toolkits is nil.
 		p.injectToolkitPlatformConfig()
@@ -3242,7 +3242,7 @@ func TestInjectToolkitPlatformConfig(t *testing.T) {
 					},
 				},
 			},
-			Progress: ProgressConfig{Enabled: false},
+			Progress: ProgressConfig{Enabled: new(false)},
 		}}
 		p.injectToolkitPlatformConfig()
 
@@ -3260,7 +3260,7 @@ func TestInjectToolkitPlatformConfig(t *testing.T) {
 			Toolkits: map[string]any{
 				"datahub": map[string]any{},
 			},
-			Progress: ProgressConfig{Enabled: true},
+			Progress: ProgressConfig{Enabled: new(true)},
 		}}
 		// Should not panic when no trino toolkit exists.
 		p.injectToolkitPlatformConfig()
@@ -3271,7 +3271,7 @@ func TestInjectToolkitPlatformConfig(t *testing.T) {
 			Toolkits: map[string]any{
 				"trino": "invalid",
 			},
-			Progress: ProgressConfig{Enabled: true},
+			Progress: ProgressConfig{Enabled: new(true)},
 		}}
 		// Should not panic when trino config is not a map.
 		p.injectToolkitPlatformConfig()
@@ -3284,7 +3284,7 @@ func TestInjectToolkitPlatformConfig(t *testing.T) {
 					"instances": "invalid",
 				},
 			},
-			Progress: ProgressConfig{Enabled: true},
+			Progress: ProgressConfig{Enabled: new(true)},
 		}}
 		// Should not panic when instances is not a map.
 		p.injectToolkitPlatformConfig()
@@ -3300,7 +3300,7 @@ func TestInjectToolkitPlatformConfig(t *testing.T) {
 					},
 				},
 			},
-			Progress: ProgressConfig{Enabled: true},
+			Progress: ProgressConfig{Enabled: new(true)},
 		}}
 		p.injectToolkitPlatformConfig()
 
@@ -3320,6 +3320,41 @@ func TestInjectToolkitPlatformConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("respects explicit per-instance progress_enabled override", func(t *testing.T) {
+		p := &Platform{config: &Config{
+			Toolkits: map[string]any{
+				"trino": map[string]any{
+					"instances": map[string]any{
+						"legacy":  map[string]any{"host": "host1", "progress_enabled": false},
+						"default": map[string]any{"host": "host2"},
+					},
+				},
+			},
+			// Progress defaults to enabled (nil), matching a config with no
+			// top-level progress: block — the case that regressed in #784.
+		}}
+		p.injectToolkitPlatformConfig()
+
+		instances, ok := p.config.Toolkits["trino"].(map[string]any)["instances"].(map[string]any) //nolint:errcheck // test assertion chain
+		if !ok {
+			t.Fatal("unexpected config structure")
+		}
+		legacyCfg, ok := instances["legacy"].(map[string]any) //nolint:errcheck // test assertion chain
+		if !ok {
+			t.Fatal("legacy instance config not found")
+		}
+		if got, _ := legacyCfg["progress_enabled"].(bool); got {
+			t.Error("legacy instance's explicit progress_enabled: false was overwritten by the platform default")
+		}
+		defaultCfg, ok := instances["default"].(map[string]any) //nolint:errcheck // test assertion chain
+		if !ok {
+			t.Fatal("default instance config not found")
+		}
+		if got, gotOK := defaultCfg["progress_enabled"].(bool); !gotOK || !got {
+			t.Errorf("default instance: progress_enabled = %v, want true", got)
+		}
+	})
+
 	t.Run("instance not map skipped", func(t *testing.T) {
 		p := &Platform{config: &Config{
 			Toolkits: map[string]any{
@@ -3330,7 +3365,7 @@ func TestInjectToolkitPlatformConfig(t *testing.T) {
 					},
 				},
 			},
-			Progress: ProgressConfig{Enabled: true},
+			Progress: ProgressConfig{Enabled: new(true)},
 		}}
 		// Should not panic when an instance is not a map.
 		p.injectToolkitPlatformConfig()
@@ -3494,7 +3529,7 @@ func TestConvertIconDefs(t *testing.T) {
 func TestAddIconMiddleware(t *testing.T) {
 	t.Run("disabled does nothing", func(_ *testing.T) {
 		p := &Platform{
-			config: &Config{Icons: IconsConfig{Enabled: false}},
+			config: &Config{Icons: IconsConfig{Enabled: new(false)}},
 		}
 		// Should not panic even without mcpServer
 		p.addIconMiddleware()
@@ -3505,7 +3540,7 @@ func TestAddIconMiddleware(t *testing.T) {
 		p := &Platform{
 			config: &Config{
 				Icons: IconsConfig{
-					Enabled: true,
+					Enabled: new(true),
 					Tools: map[string]IconDef{
 						"trino_query": {Source: "https://example.com/trino.svg", MIMEType: "image/svg+xml"},
 					},
@@ -3529,12 +3564,12 @@ func TestInjectToolkitPlatformConfig_Elicitation(t *testing.T) {
 		p := &Platform{
 			config: &Config{
 				Elicitation: ElicitationConfig{
-					Enabled: true,
+					Enabled: new(true),
 					CostEstimation: CostEstimationConfig{
-						Enabled:      true,
+						Enabled:      new(true),
 						RowThreshold: 500000,
 					},
-					PIIConsent: PIIConsentConfig{Enabled: true},
+					PIIConsent: PIIConsentConfig{Enabled: new(true)},
 				},
 				Toolkits: map[string]any{
 					toolkitKindTrino: map[string]any{
@@ -3583,11 +3618,62 @@ func TestInjectToolkitPlatformConfig_Elicitation(t *testing.T) {
 		}
 	})
 
+	t.Run("respects explicit per-instance elicitation override", func(t *testing.T) {
+		p := &Platform{
+			config: &Config{
+				// Elicitation defaults to enabled (nil), matching a config with
+				// no top-level elicitation: block — the case that regressed in #784.
+				Toolkits: map[string]any{
+					toolkitKindTrino: map[string]any{
+						"instances": map[string]any{
+							"trusted": map[string]any{
+								"host": "localhost",
+								"elicitation": map[string]any{
+									cfgKeyEnabled: false,
+								},
+							},
+							"default": map[string]any{
+								"host": "other-host",
+							},
+						},
+					},
+				},
+			},
+		}
+
+		p.injectToolkitPlatformConfig()
+
+		instances := p.trinoInstanceConfigs()
+		trustedCfg, ok := instances["trusted"].(map[string]any)
+		if !ok {
+			t.Fatal("trusted instance config not found")
+		}
+		trustedElicit, ok := trustedCfg["elicitation"].(map[string]any)
+		if !ok {
+			t.Fatal("trusted instance elicitation config missing")
+		}
+		if enabled, _ := trustedElicit[cfgKeyEnabled].(bool); enabled {
+			t.Error("trusted instance's explicit elicitation.enabled: false was overwritten by the platform default")
+		}
+
+		defaultCfg, ok := instances["default"].(map[string]any)
+		if !ok {
+			t.Fatal("default instance config not found")
+		}
+		defaultElicit, ok := defaultCfg["elicitation"].(map[string]any)
+		if !ok {
+			t.Fatal("elicitation config not injected for default instance")
+		}
+		if enabled, _ := defaultElicit[cfgKeyEnabled].(bool); !enabled {
+			t.Error("default instance should get the platform-derived elicitation config")
+		}
+	})
+
 	t.Run("both progress and elicitation", func(t *testing.T) {
 		p := &Platform{
 			config: &Config{
-				Progress:    ProgressConfig{Enabled: true},
-				Elicitation: ElicitationConfig{Enabled: true},
+				Progress:    ProgressConfig{Enabled: new(true)},
+				Elicitation: ElicitationConfig{Enabled: new(true)},
 				Toolkits: map[string]any{
 					toolkitKindTrino: map[string]any{
 						"instances": map[string]any{

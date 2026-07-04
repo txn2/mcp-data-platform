@@ -1847,3 +1847,304 @@ func TestToolDescriptionKey(t *testing.T) {
 		}
 	}
 }
+
+func TestProgressConfig_IsEnabled(t *testing.T) {
+	t.Run("nil defaults to true", func(t *testing.T) {
+		cfg := &ProgressConfig{}
+		if !cfg.IsEnabled() {
+			t.Error("expected nil Enabled to default to true")
+		}
+	})
+
+	t.Run("explicit true", func(t *testing.T) {
+		cfg := &ProgressConfig{Enabled: new(true)}
+		if !cfg.IsEnabled() {
+			t.Error("expected explicit true to return true")
+		}
+	})
+
+	t.Run("explicit false", func(t *testing.T) {
+		cfg := &ProgressConfig{Enabled: new(false)}
+		if cfg.IsEnabled() {
+			t.Error("expected explicit false to return false")
+		}
+	})
+
+	t.Run("YAML loading with progress.enabled false", func(t *testing.T) {
+		cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+progress:
+  enabled: false
+`)
+		if cfg.Progress.IsEnabled() {
+			t.Error("expected progress.enabled: false to disable progress notifications")
+		}
+	})
+
+	t.Run("YAML loading without progress block", func(t *testing.T) {
+		cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+`)
+		if !cfg.Progress.IsEnabled() {
+			t.Error("expected missing progress block to default to true")
+		}
+	})
+}
+
+func TestClientLoggingConfig_IsEnabled(t *testing.T) {
+	t.Run("nil defaults to true", func(t *testing.T) {
+		cfg := &ClientLoggingConfig{}
+		if !cfg.IsEnabled() {
+			t.Error("expected nil Enabled to default to true")
+		}
+	})
+
+	t.Run("explicit true", func(t *testing.T) {
+		cfg := &ClientLoggingConfig{Enabled: new(true)}
+		if !cfg.IsEnabled() {
+			t.Error("expected explicit true to return true")
+		}
+	})
+
+	t.Run("explicit false", func(t *testing.T) {
+		cfg := &ClientLoggingConfig{Enabled: new(false)}
+		if cfg.IsEnabled() {
+			t.Error("expected explicit false to return false")
+		}
+	})
+
+	t.Run("YAML loading with client_logging.enabled false", func(t *testing.T) {
+		cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+client_logging:
+  enabled: false
+`)
+		if cfg.ClientLogging.IsEnabled() {
+			t.Error("expected client_logging.enabled: false to disable client logging")
+		}
+	})
+
+	t.Run("YAML loading without client_logging block", func(t *testing.T) {
+		cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+`)
+		if !cfg.ClientLogging.IsEnabled() {
+			t.Error("expected missing client_logging block to default to true")
+		}
+	})
+}
+
+func TestIconsConfig_IsEnabled(t *testing.T) {
+	t.Run("nil defaults to true", func(t *testing.T) {
+		cfg := &IconsConfig{}
+		if !cfg.IsEnabled() {
+			t.Error("expected nil Enabled to default to true")
+		}
+	})
+
+	t.Run("explicit true", func(t *testing.T) {
+		cfg := &IconsConfig{Enabled: new(true)}
+		if !cfg.IsEnabled() {
+			t.Error("expected explicit true to return true")
+		}
+	})
+
+	t.Run("explicit false", func(t *testing.T) {
+		cfg := &IconsConfig{Enabled: new(false)}
+		if cfg.IsEnabled() {
+			t.Error("expected explicit false to return false")
+		}
+	})
+
+	t.Run("YAML loading with icons.enabled false", func(t *testing.T) {
+		cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+icons:
+  enabled: false
+`)
+		if cfg.Icons.IsEnabled() {
+			t.Error("expected icons.enabled: false to disable icon injection")
+		}
+	})
+
+	t.Run("YAML loading without icons block", func(t *testing.T) {
+		cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+`)
+		if !cfg.Icons.IsEnabled() {
+			t.Error("expected missing icons block to default to true")
+		}
+	})
+}
+
+func TestElicitationConfig_IsEnabled(t *testing.T) {
+	t.Run("nil defaults to true", func(t *testing.T) {
+		cfg := &ElicitationConfig{}
+		if !cfg.IsEnabled() {
+			t.Error("expected nil Enabled to default to true")
+		}
+	})
+
+	t.Run("explicit true", func(t *testing.T) {
+		cfg := &ElicitationConfig{Enabled: new(true)}
+		if !cfg.IsEnabled() {
+			t.Error("expected explicit true to return true")
+		}
+	})
+
+	t.Run("explicit false", func(t *testing.T) {
+		cfg := &ElicitationConfig{Enabled: new(false)}
+		if cfg.IsEnabled() {
+			t.Error("expected explicit false to return false")
+		}
+	})
+
+	t.Run("YAML loading with elicitation.enabled false", func(t *testing.T) {
+		cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+elicitation:
+  enabled: false
+`)
+		if cfg.Elicitation.IsEnabled() {
+			t.Error("expected elicitation.enabled: false to disable elicitation")
+		}
+	})
+
+	t.Run("YAML loading without elicitation block", func(t *testing.T) {
+		cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+`)
+		if !cfg.Elicitation.IsEnabled() {
+			t.Error("expected missing elicitation block to default to true")
+		}
+	})
+}
+
+func TestCostEstimationConfig_IsEnabled(t *testing.T) {
+	t.Run("nil defaults to true", func(t *testing.T) {
+		cfg := &CostEstimationConfig{}
+		if !cfg.IsEnabled() {
+			t.Error("expected nil Enabled to default to true")
+		}
+	})
+
+	t.Run("explicit true", func(t *testing.T) {
+		cfg := &CostEstimationConfig{Enabled: new(true)}
+		if !cfg.IsEnabled() {
+			t.Error("expected explicit true to return true")
+		}
+	})
+
+	t.Run("explicit false", func(t *testing.T) {
+		cfg := &CostEstimationConfig{Enabled: new(false)}
+		if cfg.IsEnabled() {
+			t.Error("expected explicit false to return false")
+		}
+	})
+
+	t.Run("YAML loading with cost_estimation.enabled false", func(t *testing.T) {
+		cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+elicitation:
+  cost_estimation:
+    enabled: false
+`)
+		if cfg.Elicitation.CostEstimation.IsEnabled() {
+			t.Error("expected cost_estimation.enabled: false to disable cost estimation")
+		}
+	})
+
+	t.Run("YAML loading without cost_estimation block", func(t *testing.T) {
+		cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+`)
+		if !cfg.Elicitation.CostEstimation.IsEnabled() {
+			t.Error("expected missing cost_estimation block to default to true")
+		}
+	})
+}
+
+func TestPIIConsentConfig_IsEnabled(t *testing.T) {
+	t.Run("nil defaults to true", func(t *testing.T) {
+		cfg := &PIIConsentConfig{}
+		if !cfg.IsEnabled() {
+			t.Error("expected nil Enabled to default to true")
+		}
+	})
+
+	t.Run("explicit true", func(t *testing.T) {
+		cfg := &PIIConsentConfig{Enabled: new(true)}
+		if !cfg.IsEnabled() {
+			t.Error("expected explicit true to return true")
+		}
+	})
+
+	t.Run("explicit false", func(t *testing.T) {
+		cfg := &PIIConsentConfig{Enabled: new(false)}
+		if cfg.IsEnabled() {
+			t.Error("expected explicit false to return false")
+		}
+	})
+
+	t.Run("YAML loading with pii_consent.enabled false", func(t *testing.T) {
+		cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+elicitation:
+  pii_consent:
+    enabled: false
+`)
+		if cfg.Elicitation.PIIConsent.IsEnabled() {
+			t.Error("expected pii_consent.enabled: false to disable PII consent prompts")
+		}
+	})
+
+	t.Run("YAML loading without pii_consent block", func(t *testing.T) {
+		cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+`)
+		if !cfg.Elicitation.PIIConsent.IsEnabled() {
+			t.Error("expected missing pii_consent block to default to true")
+		}
+	})
+}
+
+// TestDefaultOnFeatures_NoConfigBlocks is the acceptance test for issue #784:
+// with none of progress/client_logging/icons/elicitation present in config,
+// all six gated switches must resolve active.
+func TestDefaultOnFeatures_NoConfigBlocks(t *testing.T) {
+	cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+`)
+
+	if !cfg.Progress.IsEnabled() {
+		t.Error("progress should default to enabled")
+	}
+	if !cfg.ClientLogging.IsEnabled() {
+		t.Error("client_logging should default to enabled")
+	}
+	if !cfg.Icons.IsEnabled() {
+		t.Error("icons should default to enabled")
+	}
+	if !cfg.Elicitation.IsEnabled() {
+		t.Error("elicitation should default to enabled")
+	}
+	if !cfg.Elicitation.CostEstimation.IsEnabled() {
+		t.Error("elicitation.cost_estimation should default to enabled")
+	}
+	if !cfg.Elicitation.PIIConsent.IsEnabled() {
+		t.Error("elicitation.pii_consent should default to enabled")
+	}
+}
