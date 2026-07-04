@@ -2589,7 +2589,7 @@ func (p *Platform) finalizeSetup() {
 	p.addManagedResourceMiddleware()
 
 	// 2. Client logging - sends enrichment info to client via session.Log()
-	if p.config.ClientLogging.Enabled {
+	if p.config.ClientLogging.IsEnabled() {
 		p.mcpServer.AddReceivingMiddleware(
 			middleware.MCPClientLoggingMiddleware(middleware.ClientLoggingConfig{
 				Enabled: true,
@@ -2875,7 +2875,7 @@ func (p *Platform) addDescriptionOverrideMiddleware() {
 
 // addIconMiddleware registers icon injection middleware when icons are configured.
 func (p *Platform) addIconMiddleware() {
-	if !p.config.Icons.Enabled {
+	if !p.config.Icons.IsEnabled() {
 		return
 	}
 	cfg := middleware.IconsMiddlewareConfig{
@@ -3906,14 +3906,19 @@ func resolveDefaultInstance(kindCfg, instances map[string]any) string {
 // toolkit instance config maps before the registry loader processes them.
 // This allows platform-wide settings (e.g., progress.enabled, elicitation)
 // to reach toolkit factories via the normal config parsing path.
+//
+// Both progress.enabled and elicitation.enabled default to true, so this
+// runs on nearly every config. It must not clobber an instance that already
+// sets progress_enabled or elicitation explicitly under
+// toolkits.trino.instances.<name> — those per-instance overrides win.
 func (p *Platform) injectToolkitPlatformConfig() {
 	instances := p.trinoInstanceConfigs()
 	if instances == nil {
 		return
 	}
 
-	needsProgress := p.config.Progress.Enabled
-	needsElicitation := p.config.Elicitation.Enabled
+	needsProgress := p.config.Progress.IsEnabled()
+	needsElicitation := p.config.Elicitation.IsEnabled()
 
 	if !needsProgress && !needsElicitation {
 		return
@@ -3925,18 +3930,22 @@ func (p *Platform) injectToolkitPlatformConfig() {
 			continue
 		}
 		if needsProgress {
-			instanceCfg["progress_enabled"] = true
+			if _, exists := instanceCfg["progress_enabled"]; !exists {
+				instanceCfg["progress_enabled"] = true
+			}
 		}
 		if needsElicitation {
-			instanceCfg["elicitation"] = map[string]any{
-				cfgKeyEnabled: true,
-				"cost_estimation": map[string]any{
-					cfgKeyEnabled:   p.config.Elicitation.CostEstimation.Enabled,
-					"row_threshold": p.config.Elicitation.CostEstimation.RowThreshold,
-				},
-				"pii_consent": map[string]any{
-					cfgKeyEnabled: p.config.Elicitation.PIIConsent.Enabled,
-				},
+			if _, exists := instanceCfg["elicitation"]; !exists {
+				instanceCfg["elicitation"] = map[string]any{
+					cfgKeyEnabled: true,
+					"cost_estimation": map[string]any{
+						cfgKeyEnabled:   p.config.Elicitation.CostEstimation.IsEnabled(),
+						"row_threshold": p.config.Elicitation.CostEstimation.RowThreshold,
+					},
+					"pii_consent": map[string]any{
+						cfgKeyEnabled: p.config.Elicitation.PIIConsent.IsEnabled(),
+					},
+				}
 			}
 		}
 		instances[name] = instanceCfg

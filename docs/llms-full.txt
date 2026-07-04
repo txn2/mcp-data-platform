@@ -30,13 +30,13 @@ The only requirement is DataHub (https://datahubproject.io/). Add Trino (https:/
 
 - **Managed Resources**: Human-uploaded reference material (samples, playbooks, templates, references) surfaced directly to AI assistants via MCP `resources/list` and `resources/read`. Three visibility scopes: global, persona, and user. PostgreSQL metadata with S3 blob storage. REST API for CRUD, Admin Portal page for management. Auto-enabled when a database is available.
 
-- **Progress Notifications**: Long-running Trino queries send granular progress updates (executing, formatting, complete) to clients that provide `_meta.progressToken`. Zero overhead when disabled.
+- **Progress Notifications**: Long-running Trino queries send granular progress updates (executing, formatting, complete) to clients that provide `_meta.progressToken`. Zero overhead when the client doesn't send a token. Enabled by default; set `progress.enabled: false` to opt out.
 
-- **Client Logging**: Server-to-client log messages for platform decisions (enrichment, timing) via MCP `logging/setLevel` protocol. Zero overhead if the client hasn't opted in.
+- **Client Logging**: Server-to-client log messages for platform decisions (enrichment, timing) via MCP `logging/setLevel` protocol. Zero overhead if the client hasn't opted in. Enabled by default; set `client_logging.enabled: false` to opt out.
 
-- **Elicitation**: User confirmation prompts before expensive queries (EXPLAIN IO cost estimation) or PII access (sensitive column detection). Requires client-side elicitation support; gracefully degrades when unavailable.
+- **Elicitation**: User confirmation prompts before expensive queries (EXPLAIN IO cost estimation) or PII access (sensitive column detection). Requires client-side elicitation support; gracefully degrades when unavailable. Enabled by default, including `cost_estimation` and `pii_consent`; set `enabled: false` at any level to opt out.
 
-- **Icons**: Visual metadata for tools, resources, and prompts. Upstream toolkits provide default icons; deployers can override via configuration.
+- **Icons**: Visual metadata for tools, resources, and prompts. Upstream toolkits provide default icons; deployers can override via configuration. Enabled by default; set `icons.enabled: false` to opt out.
 
 - **Dynamic Prompts**: Three-tier prompt system: auto-registered `platform-overview` built from description and enabled toolkits, operator-configured prompts with `{placeholder}` argument substitution, and conditional workflow prompts (explore-available-data, create-interactive-dashboard, create-a-report, trace-data-lineage) registered when required toolkits are present. Toolkits implement `PromptDescriber` to advertise their own prompts. Operator prompts override auto-registered ones by name. All prompts included in `platform_info` response and the platform-info app Prompts tab.
 
@@ -533,40 +533,42 @@ The Admin Portal includes a Resources page for uploading, browsing, editing, and
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `progress.enabled` | bool | `false` | Enable progress notifications for Trino queries |
+| `progress.enabled` | `*bool` | `true` (nil = enabled) | Enable progress notifications for Trino queries |
 
-When enabled, Trino query tools send three progress notifications per query: before execution, after query returns, and after formatting. Clients must include `_meta.progressToken` in their tool call to receive notifications.
+Enabled by default; set `enabled: false` to opt out. When enabled, Trino query tools send three progress notifications per query: before execution, after query returns, and after formatting. Clients must include `_meta.progressToken` in their tool call to receive notifications.
 
 ## Client Logging Configuration
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `client_logging.enabled` | bool | `false` | Enable server-to-client log messages |
+| `client_logging.enabled` | `*bool` | `true` (nil = enabled) | Enable server-to-client log messages |
 
-When enabled, the platform sends log notifications to clients after enrichment is applied (tool name, duration). Uses MCP `logging/setLevel` protocol — zero overhead if the client hasn't called `setLevel`.
+Enabled by default; set `enabled: false` to opt out. When enabled, the platform sends log notifications to clients after enrichment is applied (tool name, duration). Uses MCP `logging/setLevel` protocol, with zero overhead if the client hasn't called `setLevel`.
 
 ## Elicitation Configuration
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `elicitation.enabled` | bool | `false` | Enable user confirmation prompts |
-| `elicitation.cost_estimation.enabled` | bool | `false` | Prompt when EXPLAIN IO estimates exceed the row threshold |
+| `elicitation.enabled` | `*bool` | `true` (nil = enabled) | Enable user confirmation prompts |
+| `elicitation.cost_estimation.enabled` | `*bool` | `true` (nil = enabled) | Prompt when EXPLAIN IO estimates exceed the row threshold |
 | `elicitation.cost_estimation.row_threshold` | int | `1000000` | Row estimate threshold for cost prompts |
-| `elicitation.pii_consent.enabled` | bool | `false` | Prompt when query accesses PII-tagged columns |
+| `elicitation.pii_consent.enabled` | `*bool` | `true` (nil = enabled) | Prompt when query accesses PII-tagged columns |
 
-Elicitation requires client-side support (MCP `elicitation/create` capability). When the client doesn't support it, elicitation gracefully degrades to a no-op. If a user declines the confirmation, the tool returns an informational message instead of executing the query.
+Enabled by default (including `cost_estimation` and `pii_consent`); set `enabled: false` at any level to opt out. Elicitation requires client-side support (MCP `elicitation/create` capability). When the client doesn't support it, elicitation gracefully degrades to a no-op. If a user declines the confirmation, the tool returns an informational message instead of executing the query.
+
+Behavior change: with no `elicitation` block at all, cost-estimation and PII-consent prompts now fire out of the box (`cost_estimation` still respects `row_threshold`, default 1,000,000 rows, so it only prompts on large queries). Deployments that relied on the previous silent-off default should add `elicitation.enabled: false` to keep the prior behavior.
 
 ## Icons Configuration
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `icons.enabled` | bool | `false` | Enable icon enrichment middleware |
+| `icons.enabled` | `*bool` | `true` (nil = enabled) | Enable icon enrichment middleware |
 | `icons.tools.<name>.src` | string | - | Icon URI for a tool |
 | `icons.tools.<name>.mime_type` | string | - | Icon MIME type |
 | `icons.resources.<uri>.src` | string | - | Icon URI for a resource template |
 | `icons.prompts.<name>.src` | string | - | Icon URI for a prompt |
 
-Upstream toolkits (Trino, DataHub, S3) provide default icons on all tools. This configuration overrides or adds icons for tools, resource templates, and prompts in list responses.
+Enabled by default; set `enabled: false` to opt out. Upstream toolkits (Trino, DataHub, S3) provide default icons on all tools. This configuration overrides or adds icons for tools, resource templates, and prompts in list responses.
 
 ## Audit Configuration
 

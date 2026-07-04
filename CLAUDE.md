@@ -345,6 +345,31 @@ database:
   dsn: "${DATABASE_URL}"
 ```
 
+### Progress, Client Logging, Icons & Elicitation
+
+All four are enabled by default (`*bool` field, nil = enabled); set `enabled: false` to opt out. No block is needed to turn them on.
+
+```yaml
+progress:
+  enabled: false        # opt out of Trino query progress notifications
+
+client_logging:
+  enabled: false        # opt out of server-to-client log messages
+
+icons:
+  enabled: false        # opt out of icon injection middleware
+
+elicitation:
+  enabled: false        # opt out of all elicitation (also disables the two below)
+  cost_estimation:
+    enabled: false      # opt out of pre-query cost-estimation prompts
+    row_threshold: 1000000
+  pii_consent:
+    enabled: false      # opt out of PII-access consent prompts
+```
+
+Elicitation is user-facing: with no config at all, cost-estimation and PII-consent prompts fire out of the box (`cost_estimation` still respects `row_threshold`, so it only prompts above 1M estimated rows).
+
 ## Core Interfaces
 
 ### SemanticMetadataProvider
