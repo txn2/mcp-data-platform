@@ -11,16 +11,16 @@ graph LR
     DescOverrides --> ToolVisibility
     ToolVisibility --> AppsMetadata
     AppsMetadata --> MCPToolCall
-    MCPToolCall --> MCPAudit
-    MCPAudit --> MCPRules
-    MCPRules --> ClientLogging
+    MCPToolCall --> MCPWorkflowGate
+    MCPWorkflowGate --> MCPAudit
+    MCPAudit --> ClientLogging
     ClientLogging --> MCPEnrichment
     MCPEnrichment --> Handler
     Handler --> MCPEnrichment
     MCPEnrichment --> ClientLogging
-    ClientLogging --> MCPRules
-    MCPRules --> MCPAudit
-    MCPAudit --> MCPToolCall
+    ClientLogging --> MCPAudit
+    MCPAudit --> MCPWorkflowGate
+    MCPWorkflowGate --> MCPToolCall
     MCPToolCall --> AppsMetadata
     AppsMetadata --> ToolVisibility
     ToolVisibility --> DescOverrides
@@ -46,14 +46,14 @@ type MethodHandler func(ctx context.Context, method string, req Request) (Result
 To achieve the desired execution order, middleware must be added innermost-first:
 
 ```go
-// Desired execution: Visibility → Apps → Auth → Audit → Rules → Enrichment → handler
+// Desired execution: Visibility → Apps → Auth → WorkflowGate → Audit → Enrichment → handler
 // Add order (innermost first):
-server.AddReceivingMiddleware(enrichment)   // innermost
-server.AddReceivingMiddleware(rules)
+server.AddReceivingMiddleware(enrichment)    // innermost
 server.AddReceivingMiddleware(audit)
-server.AddReceivingMiddleware(auth)         // outermost for tools/call
-server.AddReceivingMiddleware(apps)         // apps metadata
-server.AddReceivingMiddleware(visibility)   // overall outermost (if configured)
+server.AddReceivingMiddleware(workflowGate)  // search-first gate (#787)
+server.AddReceivingMiddleware(auth)          // outermost for tools/call
+server.AddReceivingMiddleware(apps)          // apps metadata
+server.AddReceivingMiddleware(visibility)    // overall outermost (if configured)
 ```
 
 This ordering is critical for context propagation. Go's `context.WithValue` creates a new context. Values set in an outer middleware (like `PlatformContext` set by Auth) are visible to inner middleware (like Audit), but not the other way around.
@@ -143,21 +143,22 @@ func MCPAuditMiddleware(logger AuditLogger) mcp.Middleware
 
 If PlatformContext is `nil` (auth middleware didn't run or middleware is misordered), audit logging is skipped with a warning.
 
-### MCPRuleEnforcementMiddleware
+### MCPWorkflowGateMiddleware
 
-Adds operational guidance and warnings to tool responses based on configured rules and session-aware workflow gating.
+Enforces the search-first hard gate (issue #787): a query tool call is **refused** until a discovery tool (`search`, by default) has been called at least once in the session.
 
 ```go
-func MCPRuleEnforcementMiddleware(cfg RuleEnforcementConfig) mcp.Middleware
+func MCPWorkflowGateMiddleware(tracker *SessionWorkflowTracker) mcp.Middleware
 ```
 
 **Behavior:**
 
 1. Only intercepts `tools/call` requests
-2. **Session-aware path** (when `WorkflowTracker` is configured): checks if the session has called a discovery tool before a query tool. If not, prepends a warning. After the escalation threshold, the message becomes more urgent.
-3. **Static fallback path** (no tracker): uses `engine.ShouldRequireDataHubCheck()` to prepend a static hint to every query tool call — the original behavior.
-4. Calls next handler to get result
-5. Appends collected hints/warnings to result content
+2. If the tool is not a gated query tool, or the session has already performed discovery, the call proceeds unchanged
+3. Otherwise the middleware short-circuits with a `SEARCH_REQUIRED` error result and **never invokes the tool handler**, so the query does not execute
+4. Once `search` has been called once in a session, all subsequent query tool calls in that session proceed with no further check
+
+Modeled on `MCPSessionGateMiddleware`: it is positioned inner to `MCPToolCallMiddleware` (so `PlatformContext` is populated and the current call is recorded on the tracker) and outer to audit/enrichment (so a blocked call never reaches those layers). Enabled by default; disabled only when `workflow.require_search: false` leaves the tracker unconfigured. The former `MCPRuleEnforcementMiddleware` (a warn-after-execution mechanism) and the static `tuning.rules.require_datahub_check` hint have been removed.
 
 ### MCPDescriptionOverrideMiddleware
 
@@ -283,26 +284,22 @@ if needsEnrichment {
     )
 }
 
-// 2. Rule enforcement - adds operational guidance (session-aware workflow gating)
-if p.ruleEngine != nil {
-    ruleCfg := middleware.RuleEnforcementConfig{
-        Engine:          p.ruleEngine,
-        WorkflowTracker: p.workflowTracker, // nil = static fallback
-        WorkflowConfig:  middleware.WorkflowRulesConfig{...},
-    }
-    p.mcpServer.AddReceivingMiddleware(
-        middleware.MCPRuleEnforcementMiddleware(ruleCfg),
-    )
-}
-
-// 3. Audit - logs tool calls (reads PlatformContext from Auth)
-if p.config.Audit.Enabled && p.config.Audit.LogToolCalls {
+// 2. Audit - logs tool calls (reads PlatformContext from Auth)
+if p.config.Audit.IsToolCallLoggingEnabled() {
     p.mcpServer.AddReceivingMiddleware(
         middleware.MCPAuditMiddleware(p.auditLogger),
     )
 }
 
-// 4. Auth/Authz - creates PlatformContext (must be outer to Audit)
+// 3. Search-first gate - refuses query tools until search is called (#787).
+//    Short-circuits a blocked call before audit/enrichment; outer to Audit.
+if p.workflowTracker != nil {
+    p.mcpServer.AddReceivingMiddleware(
+        middleware.MCPWorkflowGateMiddleware(p.workflowTracker),
+    )
+}
+
+// 4. Auth/Authz - creates PlatformContext (must be outer to Audit and gate)
 p.mcpServer.AddReceivingMiddleware(
     middleware.MCPToolCallMiddleware(p.authenticator, p.authorizer, p.toolkitRegistry),
 )

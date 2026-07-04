@@ -202,7 +202,7 @@ func TestNew_WithInjectedAuthComponents(t *testing.T) {
 }
 
 func TestNew_WithInjectedRuleEngine(t *testing.T) {
-	engine := tuning.NewRuleEngine(&tuning.Rules{WarnOnDeprecated: true})
+	engine := tuning.NewRuleEngine(&tuning.Rules{QualityThreshold: 0.7})
 
 	p := newTestPlatform(t, WithRuleEngine(engine))
 
@@ -2083,7 +2083,7 @@ func TestInitAuditNoopWithoutDatabase(t *testing.T) {
 		Storage:  StorageConfig{Provider: testProviderNoop},
 		Audit: AuditConfig{
 			Enabled:       new(true),
-			LogToolCalls:  true,
+			LogToolCalls:  new(true),
 			RetentionDays: testRetentionDays,
 		},
 		// Database DSN intentionally left empty
@@ -2866,7 +2866,7 @@ func TestInitKnowledge_ApplyEnabled_NoDatabase(t *testing.T) {
 		Knowledge: KnowledgeConfig{
 			Enabled: new(true),
 			Apply: KnowledgeApplyConfig{
-				Enabled:             true,
+				Enabled:             new(true),
 				DataHubConnection:   "primary",
 				RequireConfirmation: true,
 			},
@@ -2901,7 +2901,7 @@ func TestInitKnowledge_ApplyWithDataHubConnection(t *testing.T) {
 		Knowledge: KnowledgeConfig{
 			Enabled: new(true),
 			Apply: KnowledgeApplyConfig{
-				Enabled:             true,
+				Enabled:             new(true),
 				DataHubConnection:   testInstanceDefault,
 				RequireConfirmation: true,
 			},
@@ -3710,10 +3710,7 @@ func TestNew_WorkflowGatingEnabled(t *testing.T) {
 		Query:    QueryConfig{Provider: testProviderNoop},
 		Storage:  StorageConfig{Provider: testProviderNoop},
 		Workflow: WorkflowConfig{
-			RequireDiscoveryBeforeQuery: true,
-			Escalation: EscalationConfig{
-				AfterWarnings: 5,
-			},
+			RequireSearch: new(true),
 		},
 	}
 
@@ -3724,7 +3721,7 @@ func TestNew_WorkflowGatingEnabled(t *testing.T) {
 	defer func() { _ = p.Close() }()
 
 	if p.workflowTracker == nil {
-		t.Fatal("workflowTracker should be initialized when workflow gating is enabled")
+		t.Fatal("workflowTracker should be initialized when the search-first gate is enabled")
 	}
 
 	// Verify tracker has default tools configured
@@ -4019,7 +4016,8 @@ func TestNew_WorkflowGatingDisabled(t *testing.T) {
 		Semantic: SemanticConfig{Provider: testProviderNoop},
 		Query:    QueryConfig{Provider: testProviderNoop},
 		Storage:  StorageConfig{Provider: testProviderNoop},
-		// Workflow not set — disabled by default
+		// require_search: false explicitly disables the search-first gate.
+		Workflow: WorkflowConfig{RequireSearch: new(false)},
 	}
 
 	p, err := New(WithConfig(cfg))
@@ -4029,7 +4027,29 @@ func TestNew_WorkflowGatingDisabled(t *testing.T) {
 	defer func() { _ = p.Close() }()
 
 	if p.workflowTracker != nil {
-		t.Error("workflowTracker should be nil when workflow gating is disabled")
+		t.Error("workflowTracker should be nil when require_search is false")
+	}
+}
+
+// TestNew_WorkflowGatingDefaultOn verifies the search-first gate is enabled by
+// default: with no workflow config at all, the tracker is constructed.
+func TestNew_WorkflowGatingDefaultOn(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+		// Workflow not set — the gate defaults to enabled.
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf(testNewErrFmt, err)
+	}
+	defer func() { _ = p.Close() }()
+
+	if p.workflowTracker == nil {
+		t.Error("workflowTracker should be initialized by default (require_search defaults on)")
 	}
 }
 

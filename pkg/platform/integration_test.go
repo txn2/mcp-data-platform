@@ -174,39 +174,14 @@ func TestAuditAdapter_Integration(t *testing.T) {
 // TestRuleEngine_Integration tests that rule engine actually affects behavior.
 func TestRuleEngine_Integration(t *testing.T) {
 	rules := &tuning.Rules{
-		RequireDataHubCheck: true,
-		WarnOnDeprecated:    true,
-		QualityThreshold:    0.7,
-		MaxQueryLimit:       10000,
+		QualityThreshold: 0.7,
+		MaxQueryLimit:    10000,
 	}
 
 	engine := tuning.NewRuleEngine(rules)
 
-	// Verify rule engine configuration
-	assert.True(t, engine.ShouldRequireDataHubCheck())
+	// Verify rule engine configuration surfaces the configured limits.
 	assert.Equal(t, 10000, engine.GetMaxQueryLimit())
-
-	// Test rule violations
-	metadata := tuning.QueryMetadata{
-		QualityScore: floatPtr(0.5), // Below threshold
-		IsDeprecated: true,
-	}
-
-	violations := engine.CheckQueryExecution(metadata)
-	assert.Len(t, violations, 2, "expected 2 violations")
-
-	// Verify violation types
-	var hasQualityViolation, hasDeprecatedViolation bool
-	for _, v := range violations {
-		if v.Rule == "quality_threshold" {
-			hasQualityViolation = true
-		}
-		if v.Rule == "deprecated_data" {
-			hasDeprecatedViolation = true
-		}
-	}
-	assert.True(t, hasQualityViolation, "expected quality threshold violation")
-	assert.True(t, hasDeprecatedViolation, "expected deprecated data violation")
 }
 
 // TestPersonaContext_Integration tests that persona context overrides work correctly.
@@ -286,7 +261,7 @@ func TestPlatform_WithDatabase(t *testing.T) {
 		},
 		Audit: platform.AuditConfig{
 			Enabled:       boolPtr(true),
-			LogToolCalls:  true,
+			LogToolCalls:  boolPtr(true),
 			RetentionDays: 30,
 		},
 	}
@@ -302,8 +277,3 @@ func TestPlatform_WithDatabase(t *testing.T) {
 }
 
 func boolPtr(v bool) *bool { return &v }
-
-// floatPtr returns a pointer to a float64 value.
-func floatPtr(v float64) *float64 {
-	return &v
-}

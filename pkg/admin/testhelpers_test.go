@@ -431,7 +431,7 @@ func testConfig() *platform.Config {
 			Transport: "http",
 		},
 		Admin: platform.AdminConfig{
-			Enabled: true,
+			Enabled: new(true),
 			Persona: "admin",
 		},
 	}

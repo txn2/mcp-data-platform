@@ -280,7 +280,9 @@ personas:
     display_name: "Data Analyst"
     roles: ["analyst", "data_engineer"]
     tools:
-      allow: ["trino_*", "datahub_*"]
+      # Grant "search": with the search-first gate on by default, a query-capable
+      # persona must be able to call the discovery front door it is steered to.
+      allow: ["search", "trino_*", "datahub_*"]
       deny: ["*_delete_*"]
     context:
       description_prefix: "You are helping a data analyst."
@@ -335,10 +337,13 @@ portal:
 ```
 
 ### Audit Logging
+
+Both `enabled` and `log_tool_calls` are `*bool` defaulting to on when a database is available; with no `audit:` block a DB-backed deployment logs tool calls out of the box. Set `enabled: false` to disable audit entirely, or `log_tool_calls: false` to keep audit on but skip per-tool-call rows.
+
 ```yaml
 audit:
-  enabled: true
-  log_tool_calls: true
+  enabled: false          # opt out of audit logging
+  log_tool_calls: false   # keep audit on but skip per-tool-call rows
   retention_days: 90
 
 database:
@@ -433,11 +438,11 @@ Request processing flows through MCP protocol-level middleware registered via `s
 Execution order (outermost to innermost):
 1. **MCPAppsMetadataMiddleware** - Injects `_meta.ui` into tools/list responses
 2. **MCPToolCallMiddleware** - Authenticates user, authorizes tool access, creates PlatformContext
-3. **MCPAuditMiddleware** - Logs tool calls asynchronously (reads PlatformContext from ctx)
-4. **MCPRuleEnforcementMiddleware** - Adds operational guidance to responses
+3. **MCPWorkflowGateMiddleware** - Search-first hard gate (#787): refuses query tools until `search` is called in the session, short-circuiting with a `SEARCH_REQUIRED` error before the handler runs. Default-on; disabled by `workflow.require_search: false`.
+4. **MCPAuditMiddleware** - Logs tool calls asynchronously (reads PlatformContext from ctx)
 5. **MCPSemanticEnrichmentMiddleware** - Adds cross-service context to results
 
-All middleware intercepts `tools/call` requests at the MCP protocol level. MCPToolCallMiddleware must be **outer** to MCPAuditMiddleware so that `PlatformContext` (set via `context.WithValue`) is present in the `ctx` that MCPAuditMiddleware receives.
+All middleware intercepts `tools/call` requests at the MCP protocol level. MCPToolCallMiddleware must be **outer** to MCPAuditMiddleware so that `PlatformContext` (set via `context.WithValue`) is present in the `ctx` that MCPAuditMiddleware receives. MCPWorkflowGateMiddleware is inner to MCPToolCallMiddleware (needs PlatformContext and the recorded tool call) and outer to Audit/enrichment so a gated call never reaches them, mirroring the session gate.
 
 ## Testing
 

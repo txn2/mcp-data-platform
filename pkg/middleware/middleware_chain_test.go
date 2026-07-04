@@ -19,7 +19,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
 	"github.com/txn2/mcp-data-platform/pkg/storage"
-	"github.com/txn2/mcp-data-platform/pkg/tuning"
 )
 
 // Test constants for middleware chain integration tests.
@@ -719,11 +718,6 @@ func TestMiddlewareChain_FullStack(t *testing.T) {
 		},
 	}
 
-	ruleEngine := tuning.NewRuleEngine(&tuning.Rules{
-		RequireDataHubCheck: true,
-		WarnOnDeprecated:    true,
-	})
-
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "test-platform",
 		Version: "v0.0.1",
@@ -745,9 +739,7 @@ func TestMiddlewareChain_FullStack(t *testing.T) {
 		semProvider, nil, nil,
 		middleware.EnrichmentConfig{EnrichTrinoResults: true}, nil,
 	))
-	// 2. Rules
-	server.AddReceivingMiddleware(middleware.MCPRuleEnforcementMiddleware(middleware.RuleEnforcementConfig{Engine: ruleEngine}))
-	// 3. Audit
+	// 2. Audit
 	server.AddReceivingMiddleware(middleware.MCPAuditMiddleware(auditStore))
 	// 4. Auth/Authz (outermost)
 	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, middleware.ToolCallConfig{Transport: chainTestStdio, AdminPersona: "admin"}))
@@ -1942,8 +1934,10 @@ func TestMiddlewareChain_ToolVisibility_NoPatterns(t *testing.T) {
 	}
 }
 
-// TestWorkflowGating_NoDiscovery verifies that calling trino_query without
-// prior discovery produces a warning in the response.
+// TestWorkflowGating_NoDiscovery verifies the search-first hard gate: calling
+// trino_query without prior discovery is refused — the tool handler never runs
+// and a SEARCH_REQUIRED error result is returned instructing the agent to call
+// search first. This exercises the real assembled middleware chain.
 func TestWorkflowGating_NoDiscovery(t *testing.T) {
 	tracker := middleware.NewSessionWorkflowTracker(nil, nil, 30*time.Minute)
 	authenticator := &testAuthenticator{
@@ -1951,24 +1945,19 @@ func TestWorkflowGating_NoDiscovery(t *testing.T) {
 	}
 	authorizer := &testAuthorizer{persona: chainTestAnalyst}
 
+	var handlerRan bool
 	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "v0.0.1"}, nil)
 	server.AddTool(&mcp.Tool{
 		Name:        chainTestTrinoQuery,
 		Description: "Query",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"sql":{"type":"string"}}}`),
 	}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		handlerRan = true
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "data"}}}, nil
 	})
 
-	// Innermost first: rules with workflow tracker
-	ruleCfg := middleware.RuleEnforcementConfig{
-		WorkflowTracker: tracker,
-		WorkflowConfig: middleware.WorkflowRulesConfig{
-			RequireDiscoveryBeforeQuery: true,
-			EscalationAfterWarnings:     3,
-		},
-	}
-	server.AddReceivingMiddleware(middleware.MCPRuleEnforcementMiddleware(ruleCfg))
+	// Innermost first: workflow gate, then auth (which records the tool call).
+	server.AddReceivingMiddleware(middleware.MCPWorkflowGateMiddleware(tracker))
 	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil, middleware.ToolCallConfig{Transport: chainTestStdio, AdminPersona: "admin", WorkflowTracker: tracker}))
 
 	ctx := context.Background()
@@ -1986,10 +1975,13 @@ func TestWorkflowGating_NoDiscovery(t *testing.T) {
 		t.Fatalf(chainTestCallingTool, err)
 	}
 
-	// Should have warning prepended + original content
-	if len(result.Content) < 2 {
-		t.Fatalf("expected at least 2 content items (warning + data), got %d", len(result.Content))
+	if !result.IsError {
+		t.Fatal("expected an error result when querying before search")
 	}
+	if handlerRan {
+		t.Fatal("query handler must not run when the gate blocks the call")
+	}
+	assertContentContainsText(t, result, "SEARCH_REQUIRED")
 	assertContentContainsText(t, result, "search")
 }
 
@@ -2020,14 +2012,7 @@ func TestWorkflowGating_WithDiscovery(t *testing.T) {
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "data"}}}, nil
 	})
 
-	ruleCfg := middleware.RuleEnforcementConfig{
-		WorkflowTracker: tracker,
-		WorkflowConfig: middleware.WorkflowRulesConfig{
-			RequireDiscoveryBeforeQuery: true,
-			EscalationAfterWarnings:     3,
-		},
-	}
-	server.AddReceivingMiddleware(middleware.MCPRuleEnforcementMiddleware(ruleCfg))
+	server.AddReceivingMiddleware(middleware.MCPWorkflowGateMiddleware(tracker))
 	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil, middleware.ToolCallConfig{Transport: chainTestStdio, AdminPersona: "admin", WorkflowTracker: tracker}))
 
 	ctx := context.Background()
@@ -2046,7 +2031,8 @@ func TestWorkflowGating_WithDiscovery(t *testing.T) {
 		t.Fatalf("calling search: %v", err)
 	}
 
-	// Then query — should have NO warning
+	// Then query — should succeed with the handler's own single content item
+	// and no error, since the gate is now open for the session.
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      chainTestTrinoQuery,
 		Arguments: map[string]any{"sql": "SELECT 1"},
@@ -2055,14 +2041,19 @@ func TestWorkflowGating_WithDiscovery(t *testing.T) {
 		t.Fatalf(chainTestCallingTool, err)
 	}
 
+	if result.IsError {
+		t.Fatal("query after search should not be gated")
+	}
 	if len(result.Content) != 1 {
-		t.Errorf("expected 1 content item (no warning), got %d", len(result.Content))
+		t.Errorf("expected 1 content item (no gate injection), got %d", len(result.Content))
 	}
 }
 
-// TestWorkflowGating_Escalation verifies that repeated queries without
-// discovery escalate the warning after the threshold.
-func TestWorkflowGating_Escalation(t *testing.T) {
+// TestWorkflowGating_DataHubDiscoveryOpensGate proves that a datahub_* discovery
+// tool (not just search) opens the gate. This is the guard against the deadlock
+// where a persona granted datahub_* but not search could never satisfy a
+// narrower gate and would be locked out of query tools forever.
+func TestWorkflowGating_DataHubDiscoveryOpensGate(t *testing.T) {
 	tracker := middleware.NewSessionWorkflowTracker(nil, nil, 30*time.Minute)
 	authenticator := &testAuthenticator{
 		userInfo: &middleware.UserInfo{UserID: chainTestUser, Roles: []string{chainTestAnalyst}},
@@ -2071,6 +2062,13 @@ func TestWorkflowGating_Escalation(t *testing.T) {
 
 	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "v0.0.1"}, nil)
 	server.AddTool(&mcp.Tool{
+		Name:        "datahub_get_entity",
+		Description: "Get entity",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"urn":{"type":"string"}}}`),
+	}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: `{"entity":{}}`}}}, nil
+	})
+	server.AddTool(&mcp.Tool{
 		Name:        chainTestTrinoQuery,
 		Description: "Query",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"sql":{"type":"string"}}}`),
@@ -2078,14 +2076,7 @@ func TestWorkflowGating_Escalation(t *testing.T) {
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "data"}}}, nil
 	})
 
-	ruleCfg := middleware.RuleEnforcementConfig{
-		WorkflowTracker: tracker,
-		WorkflowConfig: middleware.WorkflowRulesConfig{
-			RequireDiscoveryBeforeQuery: true,
-			EscalationAfterWarnings:     3, // escalate after 3
-		},
-	}
-	server.AddReceivingMiddleware(middleware.MCPRuleEnforcementMiddleware(ruleCfg))
+	server.AddReceivingMiddleware(middleware.MCPWorkflowGateMiddleware(tracker))
 	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil, middleware.ToolCallConfig{Transport: chainTestStdio, AdminPersona: "admin", WorkflowTracker: tracker}))
 
 	ctx := context.Background()
@@ -2095,27 +2086,25 @@ func TestWorkflowGating_Escalation(t *testing.T) {
 	}
 	defer func() { _ = session.Close() }()
 
-	// First 3 calls should get standard warning
-	for i := range 3 {
-		result, callErr := session.CallTool(ctx, &mcp.CallToolParams{
-			Name:      chainTestTrinoQuery,
-			Arguments: map[string]any{"sql": "SELECT 1"},
-		})
-		if callErr != nil {
-			t.Fatalf("call %d: %v", i+1, callErr)
-		}
-		assertContentContainsText(t, result, "REQUIRED")
+	// Discover via a datahub_* tool (no search call at all).
+	if _, err = session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "datahub_get_entity",
+		Arguments: map[string]any{"urn": "urn:li:dataset:x"},
+	}); err != nil {
+		t.Fatalf("calling datahub_get_entity: %v", err)
 	}
 
-	// 4th call should get escalated message
+	// The query must now be allowed — the datahub tool opened the gate.
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      chainTestTrinoQuery,
 		Arguments: map[string]any{"sql": "SELECT 1"},
 	})
 	if err != nil {
-		t.Fatalf("call 4: %v", err)
+		t.Fatalf(chainTestCallingTool, err)
 	}
-	assertContentContainsText(t, result, "MANDATORY")
+	if result.IsError {
+		t.Fatal("query after datahub discovery should not be gated")
+	}
 }
 
 // TestDescriptionOverrides_ToolsList verifies that the description override
@@ -2167,48 +2156,6 @@ func TestDescriptionOverrides_ToolsList(t *testing.T) {
 		}
 	}
 	t.Error("trino_query tool not found in list")
-}
-
-// TestWorkflowGating_BackwardCompat verifies that without a workflow tracker,
-// the static RequireDataHubCheck rule still works.
-func TestWorkflowGating_BackwardCompat(t *testing.T) {
-	ruleEngine := tuning.NewRuleEngine(&tuning.Rules{RequireDataHubCheck: true})
-	authenticator := &testAuthenticator{
-		userInfo: &middleware.UserInfo{UserID: chainTestUser, Roles: []string{chainTestAnalyst}},
-	}
-	authorizer := &testAuthorizer{persona: chainTestAnalyst}
-
-	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "v0.0.1"}, nil)
-	server.AddTool(&mcp.Tool{
-		Name:        chainTestTrinoQuery,
-		Description: "Query",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"sql":{"type":"string"}}}`),
-	}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "data"}}}, nil
-	})
-
-	// No workflow tracker — static fallback
-	ruleCfg := middleware.RuleEnforcementConfig{Engine: ruleEngine}
-	server.AddReceivingMiddleware(middleware.MCPRuleEnforcementMiddleware(ruleCfg))
-	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil, middleware.ToolCallConfig{Transport: chainTestStdio, AdminPersona: "admin"}))
-
-	ctx := context.Background()
-	session, err := connectClientServer(ctx, server)
-	if err != nil {
-		t.Fatalf(chainTestConnecting, err)
-	}
-	defer func() { _ = session.Close() }()
-
-	result, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name:      chainTestTrinoQuery,
-		Arguments: map[string]any{"sql": "SELECT 1"},
-	})
-	if err != nil {
-		t.Fatalf(chainTestCallingTool, err)
-	}
-
-	// Should have the static hint
-	assertContentContainsText(t, result, "search")
 }
 
 // TestMiddlewareChain_AwareHandler_ProvenanceSessionID verifies that session

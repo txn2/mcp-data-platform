@@ -34,6 +34,7 @@ const (
 	CodeUnauthenticated    = "unauthenticated"
 	CodeUnauthorized       = "unauthorized"
 	CodeSetupRequired      = "setup_required"
+	CodeSearchRequired     = "search_required"
 	CodeFeatureUnavailable = "feature_unavailable"
 	CodeInternalError      = "internal_error"
 	CodeToolError          = "tool_error"

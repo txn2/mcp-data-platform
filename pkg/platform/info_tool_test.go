@@ -41,7 +41,7 @@ func requireInfoFromResult(t *testing.T, result *mcp.CallToolResult) Info {
 // must not advertise the knowledge lifecycle to a persona that cannot drive it.
 func TestBuildFeatures_GatesKnowledgeByPersonaTools(t *testing.T) {
 	p := &Platform{config: &Config{
-		Knowledge: KnowledgeConfig{Apply: KnowledgeApplyConfig{Enabled: true, DataHubConnection: "primary"}},
+		Knowledge: KnowledgeConfig{Apply: KnowledgeApplyConfig{Enabled: new(true), DataHubConnection: "primary"}},
 	}}
 
 	t.Run("persona with the tools sees the knowledge features", func(t *testing.T) {

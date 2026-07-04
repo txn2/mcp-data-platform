@@ -422,7 +422,7 @@ admin:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `enabled` | bool | `false` | Enable admin REST API |
+| `enabled` | bool | `true` | Enable admin REST API. Set `false` to disable. The routes always require admin-role auth to use, so enabling exposes the route, not open access. |
 | `persona` | string | `admin` | Persona required for admin access |
 | `path_prefix` | string | `/api/v1/admin` | URL prefix for admin endpoints |
 
@@ -505,12 +505,12 @@ audit:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `enabled` | bool | `false` | Enable audit logging |
-| `log_tool_calls` | bool | `false` | Log MCP tool call events |
+| `enabled` | bool | `true` (when a database is available) | Enable audit logging. Set `false` to disable. |
+| `log_tool_calls` | bool | `true` | Log MCP tool call events. Set `false` to keep audit on but skip per-tool-call rows. |
 | `retention_days` | int | `90` | Days to retain audit events |
 
 !!! note "Requires database"
-    Audit logging requires `database.dsn` to be configured. Both `enabled` and `log_tool_calls` must be `true` for tool call events to be recorded.
+    Audit logging requires `database.dsn` to be configured. With a database available and no `audit:` block, both audit and per-tool-call logging are on by default. Setting `enabled: false` disables audit entirely; `log_tool_calls: false` keeps audit on but stops recording per-tool-call events.
 
 See [Audit Logging](audit.md) for query examples and retention details.
 
@@ -723,44 +723,34 @@ Static operational rules that shape agent behavior via `platform_info` guidance 
 ```yaml
 tuning:
   rules:
-    require_datahub_check: true
-    warn_on_deprecated: true
     quality_threshold: 0.7
   prompts_dir: "/etc/mcp/prompts"
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `rules.require_datahub_check` | bool | `false` | Static hint for query tools encouraging DataHub discovery first. Superseded by the session-aware [Workflow Gating](#workflow-gating-configuration) below for actual enforcement |
-| `rules.warn_on_deprecated` | bool | `false` | Warn when a query touches a table marked deprecated in DataHub |
 | `rules.quality_threshold` | float | `0.7` | Minimum DataHub quality score below which a warning is surfaced |
 | `prompts_dir` | string | - | Directory of additional prompt resource files |
 
-## Workflow Gating Configuration
+## Search-First Gate Configuration
 
-Session-aware enforcement that agents call DataHub discovery tools before running Trino queries. Unlike the static `tuning.rules.require_datahub_check` hint above (which fires on every query), workflow gating tracks discovery per session and only warns when discovery hasn't occurred yet.
+A hard gate that refuses query tools until the agent calls `search` in the session. When a query tool (`trino_query`, `trino_execute`) is called before any discovery tool, the tool handler **does not run**; a `SEARCH_REQUIRED` error result is returned instructing the agent to call `search` first. Once `search` has been called at least once in a session, every subsequent query tool call in that session proceeds normally with no further check. The gate is enabled by default; set `require_search: false` to disable gating (and hinting) entirely.
 
 ```yaml
 workflow:
-  require_discovery_before_query: true
-  # discovery_tools: []             # Defaults to all datahub_* tools
-  # query_tools: []                 # Defaults to trino_query, trino_execute
-  # warning_message: ""             # Custom warning (default: built-in REQUIRED message)
-  escalation:
-    after_warnings: 3               # Switch to escalated message after N warnings
-    # escalation_message: ""        # Custom escalation (use {count} for warning number)
+  require_search: false             # Default: true (gate on). false disables it entirely.
+  # discovery_tools: []             # Tools that satisfy the gate (defaults to search + the datahub_* tools)
+  # query_tools: []                 # Tools that are gated (defaults to trino_query, trino_execute)
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `require_discovery_before_query` | bool | `false` | Enable session-aware workflow gating |
-| `discovery_tools` | array | all `datahub_*` tools | Tool names that count as discovery |
+| `require_search` | bool | `true` | Enable the search-first hard gate. `false` disables gating with no block and no hint. |
+| `discovery_tools` | array | `search` + the `datahub_*` tools | Tool names that satisfy the gate. `search` is the front door agents are steered toward, and the `datahub_*` discovery tools also count so a persona granted `datahub_*` (but not `search`) is not locked out. |
 | `query_tools` | array | `trino_query`, `trino_execute` | Tool names gated by discovery |
-| `warning_message` | string | built-in | Message prepended to query results when no discovery has occurred |
-| `escalation.after_warnings` | int | `3` | Number of standard warnings before escalation |
-| `escalation.escalation_message` | string | built-in | Escalated message (supports `{count}` placeholder) |
 
-When enabled, a standard warning is prepended to the first N query results (where N = `escalation.after_warnings`). After the threshold, an escalated message replaces the standard warning. Calling any discovery tool resets the warning count for that session.
+!!! warning "Behavior change"
+    `require_search` replaces the former `workflow.require_discovery_before_query` and its warn-after-execution behavior. It is a breaking rename (not aliased) and a hard gate: a deployment that never touched workflow gating will begin refusing `trino_query`/`trino_execute` until `search` is called once per session. The older `tuning.rules.require_datahub_check` static hint has been removed.
 
 ## Semantic and Query Provider Configuration
 
@@ -809,7 +799,7 @@ personas:
     display_name: "Data Analyst"
     roles: ["analyst", "data_engineer"]
     tools:
-      allow: ["trino_*", "datahub_*"]
+      allow: ["search", "trino_*", "datahub_*"]
       deny: ["*_delete_*", "*_drop_*"]
   admin:
     display_name: "Administrator"
@@ -852,8 +842,8 @@ knowledge:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `enabled` | bool | `false` | Enable the knowledge review and write-back toolkit (`apply_knowledge`). Knowledge capture lives in the memory toolkit (`memory_capture`) and is enabled with the memory layer, not this flag |
-| `apply.enabled` | bool | `false` | Enable the `apply_knowledge` tool for admin review and catalog write-back |
+| `enabled` | bool | `true` (when a database is available) | Enable the knowledge review and write-back toolkit (`apply_knowledge`). Knowledge capture lives in the memory toolkit (`memory_capture`) and is enabled with the memory layer, not this flag |
+| `apply.enabled` | bool | `true` (when a database is available) | Enable the `apply_knowledge` tool for admin review and catalog write-back. Set `false` to disable. Still gated behind database availability. |
 | `apply.datahub_connection` | string | - | DataHub instance name for write-back operations |
 | `apply.require_confirmation` | bool | `false` | Require explicit `confirm: true` on apply actions |
 | `reflexive_capture.enabled` | bool | `true` | Auto-capture a "misconception + fix" correction when a Trino query errors and a later related same-session query on the same connection succeeds (#635). Source `automation`, reviewed sink-class (enters review, never live), gated by the persona's `memory_capture` grant. Default-on when the memory subsystem is available; set `false` to disable |
@@ -1223,7 +1213,7 @@ personas:
     display_name: "Data Analyst"
     roles: ["analyst"]
     tools:
-      allow: ["trino_query", "trino_execute", "trino_explain", "datahub_*"]
+      allow: ["search", "trino_query", "trino_execute", "trino_explain", "datahub_*"]
       deny: ["*_delete_*"]
   admin:
     display_name: "Administrator"

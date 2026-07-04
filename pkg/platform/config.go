@@ -221,10 +221,19 @@ func decodeConfigStrict(expanded []byte) (*Config, error) {
 const defaultAdminPersona = "admin"
 
 // AdminConfig configures the admin REST API.
+// Enabled by default (nil = enabled); set enabled: false to disable. The mounted
+// routes still sit behind the platform's normal persona/role auth, so enabling
+// exposes the route, not unauthenticated access.
 type AdminConfig struct {
-	Enabled    bool   `yaml:"enabled"`
+	Enabled    *bool  `yaml:"enabled"`
 	Persona    string `yaml:"persona"`     // required admin persona (default: "admin")
 	PathPrefix string `yaml:"path_prefix"` // URL prefix (default: "/api/v1/admin")
+}
+
+// IsEnabled reports whether the admin REST API is enabled, defaulting to true
+// when not explicitly set.
+func (c *AdminConfig) IsEnabled() bool {
+	return !isExplicitlyDisabled(c.Enabled)
 }
 
 // KnowledgeConfig configures the knowledge capture feature.
@@ -243,10 +252,18 @@ type KnowledgeConfig struct {
 }
 
 // KnowledgeApplyConfig configures the apply_knowledge tool.
+// Enabled by default when a database is available (nil = enabled); set
+// enabled: false to disable. Still gated behind database availability.
 type KnowledgeApplyConfig struct {
-	Enabled             bool   `yaml:"enabled"`
+	Enabled             *bool  `yaml:"enabled"`
 	DataHubConnection   string `yaml:"datahub_connection"`
 	RequireConfirmation bool   `yaml:"require_confirmation"`
+}
+
+// IsEnabled reports whether apply_knowledge is enabled, defaulting to true when
+// not explicitly set.
+func (c *KnowledgeApplyConfig) IsEnabled() bool {
+	return !isExplicitlyDisabled(c.Enabled)
 }
 
 // MemoryConfig configures the persistent memory layer.
@@ -758,17 +775,24 @@ type TuningConfig struct {
 
 // RulesConfig configures operational rules.
 type RulesConfig struct {
-	RequireDataHubCheck bool    `yaml:"require_datahub_check"`
-	WarnOnDeprecated    bool    `yaml:"warn_on_deprecated"`
-	QualityThreshold    float64 `yaml:"quality_threshold"`
+	QualityThreshold float64 `yaml:"quality_threshold"`
 }
 
 // AuditConfig configures audit logging.
 // Enabled by default when a database is available. Set enabled: false to disable.
+// LogToolCalls is also enabled by default (nil = enabled) whenever audit is
+// enabled; set log_tool_calls: false to keep audit on but skip per-tool-call rows.
 type AuditConfig struct {
 	Enabled       *bool `yaml:"enabled"`
-	LogToolCalls  bool  `yaml:"log_tool_calls"`
+	LogToolCalls  *bool `yaml:"log_tool_calls"`
 	RetentionDays int   `yaml:"retention_days"`
+}
+
+// IsToolCallLoggingEnabled reports whether per-tool-call audit logging is
+// enabled. It requires audit itself to be enabled and defaults to true when
+// log_tool_calls is not explicitly set.
+func (c *AuditConfig) IsToolCallLoggingEnabled() bool {
+	return !isExplicitlyDisabled(c.Enabled) && !isExplicitlyDisabled(c.LogToolCalls)
 }
 
 // ObservabilityConfig configures the portal-facing observability
@@ -1002,42 +1026,29 @@ func (c *PIIConsentConfig) IsEnabled() bool {
 	return !isExplicitlyDisabled(c.Enabled)
 }
 
-// WorkflowConfig configures session-aware workflow gating that encourages
-// agents to perform DataHub discovery before running Trino queries.
+// WorkflowConfig configures the search-first gate that refuses Trino query
+// tools until a discovery tool has been called in the session.
 type WorkflowConfig struct {
-	// RequireDiscoveryBeforeQuery enables session-aware gating.
-	// When true, query tools get a warning if no discovery tool has been
-	// called in the current session.
-	RequireDiscoveryBeforeQuery bool `yaml:"require_discovery_before_query"`
+	// RequireSearch is the search-first hard gate. Enabled by default
+	// (nil = enabled); set require_search: false to fully disable gating.
+	// When enabled, query tools are refused (the handler never runs) until a
+	// discovery tool has been called at least once in the session.
+	RequireSearch *bool `yaml:"require_search"`
 
-	// DiscoveryTools lists tool names that count as discovery.
-	// Defaults to all datahub_* tools.
+	// DiscoveryTools lists tool names that satisfy the gate.
+	// Defaults to just "search", the universal discovery front door.
 	DiscoveryTools []string `yaml:"discovery_tools"`
 
 	// QueryTools lists tool names that are gated by discovery.
 	// Defaults to trino_query and trino_execute.
 	QueryTools []string `yaml:"query_tools"`
-
-	// WarningMessage is prepended to query results when discovery hasn't occurred.
-	WarningMessage string `yaml:"warning_message"`
-
-	// Escalation configures progressive escalation after repeated warnings.
-	Escalation EscalationConfig `yaml:"escalation"`
 }
 
-// EscalationConfig configures progressive escalation for workflow gating.
-type EscalationConfig struct {
-	// AfterWarnings is the number of standard warnings before escalation.
-	// Defaults to 3.
-	AfterWarnings int `yaml:"after_warnings"`
-
-	// EscalationMessage replaces the standard warning after the threshold.
-	// The placeholder {count} is replaced with the current warning count.
-	EscalationMessage string `yaml:"escalation_message"`
+// IsRequireSearchEnabled reports whether the search-first gate is enabled,
+// defaulting to true when not explicitly set.
+func (c *WorkflowConfig) IsRequireSearchEnabled() bool {
+	return !isExplicitlyDisabled(c.RequireSearch)
 }
-
-// defaultEscalationAfterWarnings is the default number of warnings before escalation.
-const defaultEscalationAfterWarnings = 3
 
 // SessionGateConfig configures the session initialization gate that requires
 // agents to call platform_info before using any other tool.
@@ -1335,7 +1346,6 @@ func applyDefaults(cfg *Config) {
 	applyPortalDefaults(cfg)
 	applyResourceDefaults(cfg)
 	applyElicitationDefaults(cfg)
-	applyWorkflowDefaults(cfg)
 	applySessionGateDefaults(cfg)
 }
 
@@ -1389,13 +1399,6 @@ const defaultInitTool = "platform_info"
 func applySessionGateDefaults(cfg *Config) {
 	if cfg.SessionGate.InitTool == "" {
 		cfg.SessionGate.InitTool = defaultInitTool
-	}
-}
-
-// applyWorkflowDefaults sets defaults for workflow gating config.
-func applyWorkflowDefaults(cfg *Config) {
-	if cfg.Workflow.Escalation.AfterWarnings == 0 {
-		cfg.Workflow.Escalation.AfterWarnings = defaultEscalationAfterWarnings
 	}
 }
 

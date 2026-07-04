@@ -402,7 +402,7 @@ func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Pla
 	// meaningful when the admin API is actually mounted, hence gated on
 	// admin.enabled here; the wiring itself no-ops without a catalog store
 	// or api-gateway toolkit. opts.address supplies the loopback port.
-	if p != nil && p.Config().Admin.Enabled {
+	if p != nil && p.Config().Admin.IsEnabled() {
 		p.WireAdminSelfConnection(opts.address)
 	}
 
@@ -657,13 +657,27 @@ func runMigrateConfig(args []string) error {
 	return nil
 }
 
+// defaultAdminPathPrefix and defaultAdminPersona mirror applyAdminDefaults for
+// configs injected directly (via WithConfig) that never ran through
+// applyDefaults. Now that admin defaults to enabled, an empty prefix would mount
+// the admin API at "/" and collide with the root MCP handler, and an empty
+// persona would reject every admin request (buildAdminHandler compares the
+// caller's persona against it), locking admins out.
+const (
+	defaultAdminPathPrefix = "/api/v1/admin"
+	defaultAdminPersona    = "admin"
+)
+
 // mountAdminAPI registers the admin REST API on the mux if enabled.
 func mountAdminAPI(mux *http.ServeMux, p *platform.Platform) {
-	if p == nil || !p.Config().Admin.Enabled {
+	if p == nil || !p.Config().Admin.IsEnabled() {
 		return
 	}
 	adminHandler := buildAdminHandler(p)
 	prefix := p.Config().Admin.PathPrefix
+	if prefix == "" {
+		prefix = defaultAdminPathPrefix
+	}
 	mux.Handle(prefix+"/", adminHandler)
 	log.Println("Admin API enabled on", prefix)
 }
@@ -1132,9 +1146,13 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 	if p.BrowserSessionAuth() != nil {
 		authOpts = append(authOpts, admin.WithBrowserSessionAuth(p.BrowserSessionAuth()))
 	}
+	adminPersona := p.Config().Admin.Persona
+	if adminPersona == "" {
+		adminPersona = defaultAdminPersona
+	}
 	platAuth := admin.NewPlatformAuthenticator(
 		p.Authenticator(),
-		p.Config().Admin.Persona,
+		adminPersona,
 		p.PersonaRegistry(),
 		authOpts...,
 	)

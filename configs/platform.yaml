@@ -74,6 +74,7 @@ personas:
       - data_engineer
     tools:
       allow:
+        - "search"
         - "trino_*"
         - "datahub_*"
         - "s3_list_*"
@@ -90,7 +91,8 @@ personas:
         You are helping a data analyst explore and query data.
         Always check DataHub for context before writing SQL.
       agent_instructions_suffix: |
-        Start with datahub_search to discover datasets.
+        Start with search to discover datasets. The search-first gate refuses
+        trino_query/trino_execute until you have called search in the session.
         Use trino_describe_table to get schema with business context.
 
   executive:
@@ -100,7 +102,7 @@ personas:
       - business_analyst
     tools:
       allow:
-        - "datahub_search"
+        - "search"
         - "datahub_get_entity"
         - "datahub_browse"
       deny: []
@@ -310,24 +312,20 @@ enrichment:
     # entry_ttl: 5m             # How long a table stays "already sent" (defaults to semantic.cache.ttl)
     # session_timeout: 30m      # Idle session cleanup (defaults to server.streamable.session_timeout)
 
-# Workflow gating
-# Session-aware enforcement that agents call DataHub discovery tools before
-# running Trino queries. When enabled, query results are annotated with
-# warnings if no discovery has occurred in the current session.
+# Search-first gate (workflow)
+# A hard gate: query tools (trino_query, trino_execute) are refused until the
+# agent calls search at least once in the session — the tool handler never runs
+# and a SEARCH_REQUIRED error is returned. Once search has been called, the gate
+# stays open for the life of the session. Enabled by default; set
+# require_search: false to disable gating entirely.
 # workflow:
-#   require_discovery_before_query: true
-#   # discovery_tools: []           # Defaults to all datahub_* tools
-#   # query_tools: []               # Defaults to trino_query, trino_execute
-#   # warning_message: ""           # Custom warning (default: built-in REQUIRED message)
-#   escalation:
-#     after_warnings: 3             # Switch to escalated message after N warnings
-#     # escalation_message: ""      # Custom escalation (use {count} for warning number)
+#   require_search: false           # Default: true (gate on). false disables it.
+#   # discovery_tools: []           # Tools that satisfy the gate (defaults to search + the datahub_* tools)
+#   # query_tools: []               # Tools that are gated (defaults to trino_query, trino_execute)
 
 # Tuning
 tuning:
   rules:
-    require_datahub_check: true
-    warn_on_deprecated: true
     quality_threshold: 0.7
   prompts_dir: ""
 
@@ -337,7 +335,7 @@ tuning:
 # knowledge:
 #   enabled: true
 #   apply:
-#     enabled: true                # Enable apply_knowledge tool (default: false)
+#     enabled: false               # apply_knowledge tool (default: true when a database is available)
 #     datahub_connection: primary  # Which DataHub instance to write to
 #     require_confirmation: true   # Require confirm: true on apply (default: false)
 #   pages:                         # Knowledge-page write guards (#705)
@@ -385,8 +383,10 @@ tuning:
 #     max_timeout: "10m"                                        # maximum allowed timeout (default: 10m)
 
 # Admin REST API
+# Enabled by default; set enabled: false to disable. The routes still require
+# admin-role auth to use — enabling exposes the route, not open access.
 # admin:
-#   enabled: true
+#   enabled: false              # default: true
 #   persona: admin              # persona required for admin access (default: "admin")
 #   path_prefix: /api/v1/admin  # URL prefix for admin endpoints
 
@@ -461,6 +461,9 @@ tuning:
 #       src: "https://example.com/knowledge.svg"
 
 # Audit logging
+# Both audit and per-tool-call logging are enabled by default when a database is
+# available. Set enabled: false to disable audit entirely, or log_tool_calls:
+# false to keep audit on but skip per-tool-call rows.
 audit:
   enabled: false
   log_tool_calls: true
