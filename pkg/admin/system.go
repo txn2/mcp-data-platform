@@ -70,7 +70,7 @@ func (h *Handler) getSystemInfo(w http.ResponseWriter, _ *http.Request) {
 			Audit:     h.deps.AuditQuerier != nil,
 			OAuth:     cfg.OAuth.Enabled,
 			Knowledge: h.deps.Knowledge != nil,
-			Admin:     cfg.Admin.Enabled,
+			Admin:     cfg.Admin.IsEnabled(),
 			Database:  h.deps.DatabaseAvailable,
 		}
 	}

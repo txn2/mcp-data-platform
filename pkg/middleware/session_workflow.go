@@ -5,9 +5,15 @@ import (
 	"time"
 )
 
-// DefaultDiscoveryTools lists the tool names that count as discovery before a
-// query. search is the universal discovery entry point; the remaining
-// datahub_* tools are structured catalog navigation that also counts.
+// DefaultDiscoveryTools lists the tool names that satisfy the search-first gate.
+// search is the universal discovery front door and the tool every description
+// override and discovery note steers agents toward; the datahub_* tools are
+// structured catalog navigation that also genuinely discovers an entity's
+// business context, so they satisfy the gate too. Keeping the datahub_* tools in
+// the default set is important now that the gate is a hard block: the shipped
+// personas (and the documented examples) grant datahub_* without search, so a
+// narrower set would deadlock any such persona out of query tools. Teams can
+// override with workflow.discovery_tools.
 var DefaultDiscoveryTools = []string{
 	toolNameSearch,
 	toolNameDatahubGetEntity,
@@ -29,7 +35,6 @@ var DefaultQueryTools = []string{
 type workflowState struct {
 	discoveryTools map[string]time.Time
 	queryTools     map[string]time.Time
-	warningCount   int
 	lastAccess     time.Time
 }
 
@@ -42,6 +47,7 @@ type SessionWorkflowTracker struct {
 	discoverySet   map[string]bool
 	querySet       map[string]bool
 	done           chan struct{}
+	stopOnce       sync.Once
 }
 
 // NewSessionWorkflowTracker creates a new tracker. If discoveryTools or
@@ -72,8 +78,7 @@ func NewSessionWorkflowTracker(discoveryTools, queryTools []string, sessionTimeo
 	}
 }
 
-// RecordToolCall records a tool invocation for the session. If the tool is
-// a discovery tool, the warning count is reset to zero.
+// RecordToolCall records a tool invocation for the session.
 func (t *SessionWorkflowTracker) RecordToolCall(sessionID, toolName string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -84,7 +89,6 @@ func (t *SessionWorkflowTracker) RecordToolCall(sessionID, toolName string) {
 
 	if t.discoverySet[toolName] {
 		state.discoveryTools[toolName] = now
-		state.warningCount = 0
 	}
 	if t.querySet[toolName] {
 		state.queryTools[toolName] = now
@@ -115,28 +119,6 @@ func (t *SessionWorkflowTracker) DiscoveryToolCount(sessionID string) int {
 		return 0
 	}
 	return len(state.discoveryTools)
-}
-
-// IncrementWarningCount increments the warning counter and returns the new count.
-func (t *SessionWorkflowTracker) IncrementWarningCount(sessionID string) int {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	state := t.getOrCreate(sessionID)
-	state.warningCount++
-	return state.warningCount
-}
-
-// WarningCount returns the current warning count for the session.
-func (t *SessionWorkflowTracker) WarningCount(sessionID string) int {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-
-	state, ok := t.sessions[sessionID]
-	if !ok {
-		return 0
-	}
-	return state.warningCount
 }
 
 // IsQueryTool returns true if the given tool name is in the query tool set.
@@ -179,9 +161,12 @@ func (t *SessionWorkflowTracker) StartCleanup(interval time.Duration) {
 	}()
 }
 
-// Stop stops the background cleanup goroutine.
+// Stop stops the background cleanup goroutine. It is idempotent: calling it
+// more than once (e.g. Close called twice) is safe.
 func (t *SessionWorkflowTracker) Stop() {
-	close(t.done)
+	t.stopOnce.Do(func() {
+		close(t.done)
+	})
 }
 
 // getOrCreate returns the session state, creating it if needed.

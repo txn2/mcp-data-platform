@@ -30,29 +30,11 @@ func TestSessionWorkflowTracker_RecordQuery(t *testing.T) {
 	assert.False(t, tracker.HasPerformedDiscovery("s1"), "query tool should not count as discovery")
 }
 
-func TestSessionWorkflowTracker_WarningResetOnDiscovery(t *testing.T) {
-	tracker := NewSessionWorkflowTracker(nil, nil, 30*time.Minute)
-
-	// Simulate 3 warnings from queries without discovery
-	count := tracker.IncrementWarningCount("s1")
-	assert.Equal(t, 1, count)
-	count = tracker.IncrementWarningCount("s1")
-	assert.Equal(t, 2, count)
-	count = tracker.IncrementWarningCount("s1")
-	assert.Equal(t, 3, count)
-	assert.Equal(t, 3, tracker.WarningCount("s1"))
-
-	// Discovery resets warning count
-	tracker.RecordToolCall("s1", "search")
-	assert.Equal(t, 0, tracker.WarningCount("s1"))
-}
-
 func TestSessionWorkflowTracker_EmptySession(t *testing.T) {
 	tracker := NewSessionWorkflowTracker(nil, nil, 30*time.Minute)
 
 	assert.False(t, tracker.HasPerformedDiscovery("nonexistent"))
 	assert.Equal(t, 0, tracker.DiscoveryToolCount("nonexistent"))
-	assert.Equal(t, 0, tracker.WarningCount("nonexistent"))
 }
 
 func TestSessionWorkflowTracker_IsQueryTool(t *testing.T) {
@@ -101,10 +83,8 @@ func TestSessionWorkflowTracker_ConcurrentAccess(t *testing.T) {
 				tracker.RecordToolCall(sid, "search")
 			} else {
 				tracker.RecordToolCall(sid, "trino_query")
-				tracker.IncrementWarningCount(sid)
 			}
 			_ = tracker.HasPerformedDiscovery(sid)
-			_ = tracker.WarningCount(sid)
 		}(i)
 	}
 	wg.Wait()
@@ -145,7 +125,8 @@ func TestSessionWorkflowTracker_StartCleanupAndStop(t *testing.T) {
 }
 
 func TestDefaultDiscoveryTools(t *testing.T) {
-	// Verify all datahub_* tools are in the default list
+	// search is the front door; the datahub_* tools also satisfy the gate so
+	// personas granted datahub_* (but not search) are not deadlocked.
 	assert.Contains(t, DefaultDiscoveryTools, "search")
 	assert.Contains(t, DefaultDiscoveryTools, "datahub_get_entity")
 	assert.Contains(t, DefaultDiscoveryTools, "datahub_get_schema")

@@ -245,7 +245,7 @@ p.Run(ctx)</pre>
         <span class="stack__num">005</span>
         <div class="stack__main">
           <a class="stack__name" href="server/audit/">audit &amp; observability</a>
-          <p class="stack__desc">Every tool call is logged to PostgreSQL with user, persona, tool, parameters (sanitized), duration, enrichment metrics, and result hash. SOC2 and HIPAA-friendly retention. Searchable from the admin portal with event-detail drawers. Activity dashboards for personas, tools, and connections. Discovery-before-query workflow gating with escalation.</p>
+          <p class="stack__desc">Every tool call is logged to PostgreSQL with user, persona, tool, parameters (sanitized), duration, enrichment metrics, and result hash. SOC2 and HIPAA-friendly retention. Searchable from the admin portal with event-detail drawers. Activity dashboards for personas, tools, and connections. A search-first gate that refuses query tools until the agent discovers table context.</p>
         </div>
         <span class="stack__tag">audit</span>
         <span class="stack__year" aria-hidden="true">↗</span>

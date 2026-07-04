@@ -35,7 +35,7 @@ func TestGetSystemInfo(t *testing.T) {
 		cfg.Audit.Enabled = new(true)
 		cfg.OAuth.Enabled = true
 		cfg.Knowledge.Enabled = new(true)
-		cfg.Admin.Enabled = true
+		cfg.Admin.Enabled = new(true)
 		cfg.Portal.Logo = "https://cdn.example.com/logo.svg"
 		cfg.Portal.LogoLight = "https://cdn.example.com/logo-light.svg"
 		cfg.Portal.LogoDark = "https://cdn.example.com/logo-dark.svg"

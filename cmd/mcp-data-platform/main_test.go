@@ -977,7 +977,7 @@ func TestMountAdminAPI(t *testing.T) {
 	t.Run("skips when admin not enabled", func(t *testing.T) {
 		p := newTestPlatform(t, &platform.Config{
 			Server: platform.ServerConfig{Name: "test"},
-			Admin:  platform.AdminConfig{Enabled: false},
+			Admin:  platform.AdminConfig{Enabled: new(false)},
 		})
 		defer func() { _ = p.Close() }()
 
@@ -991,7 +991,7 @@ func TestMountAdminAPI(t *testing.T) {
 			Semantic: platform.SemanticConfig{Provider: "noop"},
 			Query:    platform.QueryConfig{Provider: "noop"},
 			Storage:  platform.StorageConfig{Provider: "noop"},
-			Admin:    platform.AdminConfig{Enabled: true, Persona: "admin"},
+			Admin:    platform.AdminConfig{Enabled: new(true), Persona: "admin"},
 			Personas: platform.PersonasConfig{
 				Definitions: map[string]platform.PersonaDef{
 					"admin": {
@@ -1182,7 +1182,7 @@ func TestBuildAdminHandler(t *testing.T) {
 		Query:    platform.QueryConfig{Provider: "noop"},
 		Storage:  platform.StorageConfig{Provider: "noop"},
 		Admin: platform.AdminConfig{
-			Enabled: true,
+			Enabled: new(true),
 			Persona: "admin",
 		},
 		Auth: platform.AuthConfig{

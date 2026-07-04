@@ -97,7 +97,7 @@ func (p *Platform) buildFeatures(accessibleTools []string) Features {
 		ManagedResources:  p.resourceStore != nil,
 	}
 
-	if p.config.Knowledge.Apply.Enabled && canReach(toolApplyKnowledge) {
+	if p.config.Knowledge.Apply.IsEnabled() && canReach(toolApplyKnowledge) {
 		f.KnowledgeApply = &KnowledgeApplyInfo{
 			Enabled:           true,
 			DataHubConnection: p.config.Knowledge.Apply.DataHubConnection,

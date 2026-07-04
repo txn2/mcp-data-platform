@@ -1261,7 +1261,7 @@ func (p *Platform) initAudit(opts *Options) error {
 
 	slog.Info("audit logging enabled",
 		"retention_days", p.config.Audit.RetentionDays,
-		"log_tool_calls", p.config.Audit.LogToolCalls,
+		"log_tool_calls", p.config.Audit.IsToolCallLoggingEnabled(),
 	)
 	return nil
 }
@@ -1506,9 +1506,7 @@ func (p *Platform) initTuning(opts *Options) {
 		p.ruleEngine = opts.RuleEngine
 	} else {
 		rules := &tuning.Rules{
-			RequireDataHubCheck: p.config.Tuning.Rules.RequireDataHubCheck,
-			WarnOnDeprecated:    p.config.Tuning.Rules.WarnOnDeprecated,
-			QualityThreshold:    p.config.Tuning.Rules.QualityThreshold,
+			QualityThreshold: p.config.Tuning.Rules.QualityThreshold,
 		}
 		p.ruleEngine = tuning.NewRuleEngine(rules)
 	}
@@ -1518,9 +1516,10 @@ func (p *Platform) initTuning(opts *Options) {
 	})
 }
 
-// initWorkflow initializes the session workflow tracker if configured.
+// initWorkflow initializes the session workflow tracker for the search-first
+// gate. Enabled by default; only require_search: false skips it.
 func (p *Platform) initWorkflow() {
-	if !p.config.Workflow.RequireDiscoveryBeforeQuery {
+	if !p.config.Workflow.IsRequireSearchEnabled() {
 		return
 	}
 
@@ -1536,10 +1535,9 @@ func (p *Platform) initWorkflow() {
 	)
 	p.workflowTracker.StartCleanup(1 * time.Minute)
 
-	slog.Info("workflow gating enabled",
+	slog.Info("search-first gate enabled",
 		"discovery_tools", len(p.workflowTracker.DiscoveryToolNames()),
 		"query_tools", len(p.workflowTracker.QueryToolNames()),
-		"escalation_after", p.config.Workflow.Escalation.AfterWarnings,
 	)
 }
 
@@ -1792,7 +1790,7 @@ func (p *Platform) appendFederationSearchProviders(providers []knowledge.Provide
 
 // configureKnowledgeApply sets up the apply_knowledge tool dependencies if enabled.
 func (p *Platform) configureKnowledgeApply(tk *knowledgekit.Toolkit) error {
-	if !p.config.Knowledge.Apply.Enabled {
+	if !p.config.Knowledge.Apply.IsEnabled() {
 		return nil
 	}
 
@@ -2597,23 +2595,6 @@ func (p *Platform) finalizeSetup() {
 		)
 	}
 
-	// 3. Rule enforcement - adds operational guidance to responses
-	if p.ruleEngine != nil {
-		ruleCfg := middleware.RuleEnforcementConfig{
-			Engine:          p.ruleEngine,
-			WorkflowTracker: p.workflowTracker,
-			WorkflowConfig: middleware.WorkflowRulesConfig{
-				RequireDiscoveryBeforeQuery: p.config.Workflow.RequireDiscoveryBeforeQuery,
-				WarningMessage:              p.config.Workflow.WarningMessage,
-				EscalationAfterWarnings:     p.config.Workflow.Escalation.AfterWarnings,
-				EscalationMessage:           p.config.Workflow.Escalation.EscalationMessage,
-			},
-		}
-		p.mcpServer.AddReceivingMiddleware(
-			middleware.MCPRuleEnforcementMiddleware(ruleCfg),
-		)
-	}
-
 	// 3.5. Error contract - normalizes every tools/call error result into a
 	// self-describing {code, category, message, hint} envelope and recovers a
 	// panicking handler into a categorized internal error (#539). Registered
@@ -2625,7 +2606,7 @@ func (p *Platform) finalizeSetup() {
 	)
 
 	// 4. Audit - logs tool calls (reads PlatformContext set by Auth/Authz above)
-	if !isExplicitlyDisabled(p.config.Audit.Enabled) && p.config.Audit.LogToolCalls {
+	if p.config.Audit.IsToolCallLoggingEnabled() {
 		p.mcpServer.AddReceivingMiddleware(
 			middleware.MCPAuditMiddleware(p.auditLogger),
 		)
@@ -2665,7 +2646,18 @@ func (p *Platform) finalizeSetup() {
 	// normalized error. Strictly observational: never mutates request or result.
 	p.addReflexiveCaptureMiddleware()
 
-	// 5. Session gate - blocks non-exempt tools until platform_info is called.
+	// 5. Search-first gate - refuses query tools until search has been called in
+	// the session (issue #787). Modeled on the session gate: it short-circuits a
+	// blocked call with a SEARCH_REQUIRED error result and never runs the handler.
+	// Inner to the session gate so platform_info takes precedence, but outer to
+	// Audit/enrichment so blocked calls don't produce audit events or enrichment.
+	if p.workflowTracker != nil {
+		p.mcpServer.AddReceivingMiddleware(
+			middleware.MCPWorkflowGateMiddleware(p.workflowTracker),
+		)
+	}
+
+	// 6. Session gate - blocks non-exempt tools until platform_info is called.
 	// Inner to Auth/Authz so PlatformContext is available; outer to Audit so
 	// gated calls don't produce audit events.
 	if p.sessionGate != nil {
@@ -2674,7 +2666,7 @@ func (p *Platform) finalizeSetup() {
 		)
 	}
 
-	// 6. Auth/Authz (outermost for tools/call) - authenticates and authorizes
+	// 7. Auth/Authz (outermost for tools/call) - authenticates and authorizes
 	// users, creates PlatformContext. Must be outer to Audit so PlatformContext
 	// is available in the ctx that Audit receives.
 	p.mcpServer.AddReceivingMiddleware(
@@ -2685,17 +2677,17 @@ func (p *Platform) finalizeSetup() {
 		}),
 	)
 
-	// 7. MCP Apps metadata - injects _meta.ui into tools/list
+	// 8. MCP Apps metadata - injects _meta.ui into tools/list
 	p.addMCPAppsMiddleware()
 
-	// 8. Tool visibility - reduces tools/list for token savings
+	// 9. Tool visibility - reduces tools/list for token savings
 	p.addToolVisibilityMiddleware()
 	p.addPromptVisibilityMiddleware()
 
-	// 8.5 Description overrides - replaces tool descriptions with workflow guidance
+	// 9.5 Description overrides - replaces tool descriptions with workflow guidance
 	p.addDescriptionOverrideMiddleware()
 
-	// 9. Icons (outermost list decoration) - injects icons into list responses
+	// 10. Icons (outermost list decoration) - injects icons into list responses
 	p.addIconMiddleware()
 }
 

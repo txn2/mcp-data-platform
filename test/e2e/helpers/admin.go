@@ -713,13 +713,13 @@ func baseAdminConfig() *platform.Config {
 			DefaultPersona: "analyst",
 		},
 		Admin: platform.AdminConfig{
-			Enabled:    true,
+			Enabled:    boolPtr(true),
 			Persona:    "admin",
 			PathPrefix: "/api/v1/admin",
 		},
 		Audit: platform.AuditConfig{
 			Enabled:      boolPtr(true),
-			LogToolCalls: true,
+			LogToolCalls: boolPtr(true),
 		},
 		Knowledge: platform.KnowledgeConfig{
 			Enabled: boolPtr(true),

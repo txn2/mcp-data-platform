@@ -670,14 +670,12 @@ func TestConfigTypes_EnrichmentConfig(t *testing.T) {
 func TestConfigTypes_TuningConfig(t *testing.T) {
 	cfg := TuningConfig{
 		Rules: RulesConfig{
-			RequireDataHubCheck: true,
-			WarnOnDeprecated:    true,
-			QualityThreshold:    cfgTestQualityThreshold,
+			QualityThreshold: cfgTestQualityThreshold,
 		},
 		PromptsDir: "/prompts",
 	}
-	if !cfg.Rules.RequireDataHubCheck {
-		t.Error("Rules.RequireDataHubCheck = false")
+	if cfg.Rules.QualityThreshold != cfgTestQualityThreshold {
+		t.Error("Rules.QualityThreshold mismatch")
 	}
 	if cfg.PromptsDir != "/prompts" {
 		t.Errorf("PromptsDir = %q", cfg.PromptsDir)
@@ -687,7 +685,7 @@ func TestConfigTypes_TuningConfig(t *testing.T) {
 func TestConfigTypes_AuditConfig(t *testing.T) {
 	cfg := AuditConfig{
 		Enabled:       new(true),
-		LogToolCalls:  true,
+		LogToolCalls:  new(true),
 		RetentionDays: cfgTestRetentionDays,
 	}
 	if cfg.Enabled == nil || !*cfg.Enabled {
@@ -1075,7 +1073,7 @@ func TestApplyDefaults_AdminConfig(t *testing.T) {
 	t.Run("custom values preserved", func(t *testing.T) {
 		cfg := &Config{
 			Admin: AdminConfig{
-				Enabled:    true,
+				Enabled:    new(true),
 				Persona:    cfgTestPersonaSuperadmin,
 				PathPrefix: "/admin/v2",
 			},
@@ -1099,8 +1097,8 @@ admin:
   persona: superadmin
   path_prefix: /admin/v2
 `)
-	if !cfg.Admin.Enabled {
-		t.Error("Admin.Enabled = false, want true")
+	if !cfg.Admin.IsEnabled() {
+		t.Error("Admin.IsEnabled() = false, want true")
 	}
 	if cfg.Admin.Persona != cfgTestPersonaSuperadmin {
 		t.Errorf("Admin.Persona = %q, want %q", cfg.Admin.Persona, cfgTestPersonaSuperadmin)
@@ -1889,6 +1887,107 @@ server:
 `)
 		if !cfg.Progress.IsEnabled() {
 			t.Error("expected missing progress block to default to true")
+		}
+	})
+}
+
+func TestAdminConfig_IsEnabled(t *testing.T) {
+	t.Run("nil defaults to true", func(t *testing.T) {
+		if !(&AdminConfig{}).IsEnabled() {
+			t.Error("expected nil Enabled to default to true")
+		}
+	})
+	t.Run("explicit true", func(t *testing.T) {
+		if !(&AdminConfig{Enabled: new(true)}).IsEnabled() {
+			t.Error("expected explicit true to return true")
+		}
+	})
+	t.Run("explicit false", func(t *testing.T) {
+		if (&AdminConfig{Enabled: new(false)}).IsEnabled() {
+			t.Error("expected explicit false to return false")
+		}
+	})
+	t.Run("YAML admin.enabled false", func(t *testing.T) {
+		cfg := loadTestConfig(t, "server:\n  name: test-platform\nadmin:\n  enabled: false\n")
+		if cfg.Admin.IsEnabled() {
+			t.Error("expected admin.enabled: false to disable the admin API")
+		}
+	})
+	t.Run("YAML without admin block", func(t *testing.T) {
+		cfg := loadTestConfig(t, "server:\n  name: test-platform\n")
+		if !cfg.Admin.IsEnabled() {
+			t.Error("expected missing admin block to default to enabled")
+		}
+	})
+}
+
+func TestKnowledgeApplyConfig_IsEnabled(t *testing.T) {
+	t.Run("nil defaults to true", func(t *testing.T) {
+		if !(&KnowledgeApplyConfig{}).IsEnabled() {
+			t.Error("expected nil Enabled to default to true")
+		}
+	})
+	t.Run("explicit true", func(t *testing.T) {
+		if !(&KnowledgeApplyConfig{Enabled: new(true)}).IsEnabled() {
+			t.Error("expected explicit true to return true")
+		}
+	})
+	t.Run("explicit false", func(t *testing.T) {
+		if (&KnowledgeApplyConfig{Enabled: new(false)}).IsEnabled() {
+			t.Error("expected explicit false to return false")
+		}
+	})
+}
+
+func TestAuditConfig_IsToolCallLoggingEnabled(t *testing.T) {
+	t.Run("both nil defaults to enabled", func(t *testing.T) {
+		if !(&AuditConfig{}).IsToolCallLoggingEnabled() {
+			t.Error("expected nil audit + nil log_tool_calls to default to enabled")
+		}
+	})
+	t.Run("log_tool_calls explicit false", func(t *testing.T) {
+		if (&AuditConfig{LogToolCalls: new(false)}).IsToolCallLoggingEnabled() {
+			t.Error("expected log_tool_calls: false to disable per-call logging")
+		}
+	})
+	t.Run("audit explicit false disables tool-call logging", func(t *testing.T) {
+		if (&AuditConfig{Enabled: new(false)}).IsToolCallLoggingEnabled() {
+			t.Error("expected audit.enabled: false to disable per-call logging even with log_tool_calls nil")
+		}
+	})
+	t.Run("both explicit true", func(t *testing.T) {
+		if !(&AuditConfig{Enabled: new(true), LogToolCalls: new(true)}).IsToolCallLoggingEnabled() {
+			t.Error("expected both true to enable per-call logging")
+		}
+	})
+}
+
+func TestWorkflowConfig_IsRequireSearchEnabled(t *testing.T) {
+	t.Run("nil defaults to true", func(t *testing.T) {
+		if !(&WorkflowConfig{}).IsRequireSearchEnabled() {
+			t.Error("expected nil RequireSearch to default to true")
+		}
+	})
+	t.Run("explicit true", func(t *testing.T) {
+		if !(&WorkflowConfig{RequireSearch: new(true)}).IsRequireSearchEnabled() {
+			t.Error("expected explicit true to return true")
+		}
+	})
+	t.Run("explicit false", func(t *testing.T) {
+		if (&WorkflowConfig{RequireSearch: new(false)}).IsRequireSearchEnabled() {
+			t.Error("expected explicit false to return false")
+		}
+	})
+	t.Run("YAML workflow.require_search false", func(t *testing.T) {
+		cfg := loadTestConfig(t, "server:\n  name: test-platform\nworkflow:\n  require_search: false\n")
+		if cfg.Workflow.IsRequireSearchEnabled() {
+			t.Error("expected require_search: false to disable the gate")
+		}
+	})
+	t.Run("YAML without workflow block", func(t *testing.T) {
+		cfg := loadTestConfig(t, "server:\n  name: test-platform\n")
+		if !cfg.Workflow.IsRequireSearchEnabled() {
+			t.Error("expected missing workflow block to default to enabled")
 		}
 	})
 }
