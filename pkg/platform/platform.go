@@ -1571,14 +1571,12 @@ func (p *Platform) initSessionGate() {
 		return
 	}
 
-	// Explicit session handles (#792) supersede the legacy transport-keyed
-	// session gate and enforce platform_info-first more strongly. Running both
-	// double-gates (platform_info records init under the transport session while
-	// later calls carry the handle), so skip the legacy gate when handles are on.
+	// Explicit session handles (#792) supersede the legacy transport-keyed gate:
+	// running both double-gates (platform_info records init under the transport
+	// session while later calls carry the handle), so skip it when handles are on.
+	// The gate's exempt_tools are carried into the handle resolver instead.
 	if p.config.Sessions.Handles.IsEnabled() {
-		slog.Info("session gate: superseded by explicit session handles (sessions.handles); "+
-			"not registering the legacy transport-keyed session gate. Its exempt_tools are "+
-			"carried into the handle resolver's SESSION_REQUIRED exemptions.",
+		slog.Info("session gate: superseded by explicit session handles (sessions.handles)",
 			"exempt_tools", p.config.SessionGate.ExemptTools)
 		return
 	}
@@ -1741,6 +1739,7 @@ func (p *Platform) initSearch() error {
 	}
 
 	router := knowledge.NewRouter(p.embeddingProv, lineage, providers...)
+	router.SetProviderTimeout(p.config.Knowledge.SearchProviderTimeout) // 0 keeps the 5s default
 	p.knowledgeRouter = router
 	tk := searchkit.New(instanceDefault, router)
 	if err := p.toolkitRegistry.Register(tk); err != nil {
@@ -2705,9 +2704,8 @@ func (p *Platform) finalizeSetup() {
 	// 7. Auth/Authz (outermost for tools/call) - authenticates and authorizes
 	// users, creates PlatformContext. Must be outer to Audit so PlatformContext
 	// is available in the ctx that Audit receives. The session-handle resolver
-	// (#792) runs inside this middleware after authentication so it can adopt
-	// the explicit handle onto pc.SessionID before the gates and audit observe
-	// it.
+	// (#792) runs inside it, adopting the explicit handle onto pc.SessionID
+	// before the gates and audit observe it.
 	p.mcpServer.AddReceivingMiddleware(
 		middleware.MCPToolCallMiddleware(p.authenticator, p.authorizer, p.toolkitRegistry, middleware.ToolCallConfig{
 			Transport:       p.config.Server.Transport,
@@ -2720,9 +2718,8 @@ func (p *Platform) finalizeSetup() {
 	// 8. MCP Apps metadata - injects _meta.ui into tools/list
 	p.addMCPAppsMiddleware()
 
-	// 8.5 Session-handle schema injection (#792) - advertises the session_id
-	// argument on every tool except platform_info. A list decorator like the
-	// apps-metadata middleware, so upstream toolkits are never modified.
+	// 8.5 Session-handle schema injection (#792) - advertises session_id on every
+	// tool except platform_info. A list decorator; upstream toolkits are untouched.
 	p.addSessionHandleSchemaMiddleware()
 
 	// 9. Tool visibility - reduces tools/list for token savings
@@ -2850,8 +2847,7 @@ func (p *Platform) buildSessionResolver() *middleware.SessionResolver {
 		return nil
 	}
 	metrics := p.metrics
-	// Carry the superseded legacy gate's exempt_tools forward so operator
-	// exemptions are honored rather than silently dropped.
+	// Carry the superseded legacy gate's exempt_tools forward (not silently dropped).
 	var exempt []string
 	if p.config.SessionGate.Enabled {
 		exempt = p.config.SessionGate.ExemptTools
@@ -2871,8 +2867,8 @@ func (p *Platform) buildSessionResolver() *middleware.SessionResolver {
 // addSessionHandleSchemaMiddleware advertises the session_id argument on every
 // tool's input schema (except platform_info) when explicit handles are enabled.
 func (p *Platform) addSessionHandleSchemaMiddleware() {
-	// Gate on the same conditions as buildSessionResolver / mintSessionHandle so
-	// a tool never advertises a session_id the platform neither issues nor validates.
+	// Same gate as buildSessionResolver: never advertise a session_id the platform
+	// neither issues nor validates.
 	if !p.config.Sessions.Handles.IsEnabled() || p.sessionStore == nil {
 		return
 	}

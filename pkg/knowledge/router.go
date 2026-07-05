@@ -8,9 +8,19 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 )
+
+// defaultProviderSearchTimeout bounds each knowledge provider's search arm (and
+// the intent-embedding step) in the fan-out. Without a per-provider deadline the
+// fan-out is only as fast as its slowest source: a WaitGroup awaits every arm,
+// so one slow store (a lagging catalog index, an unreachable embedder) stalls
+// the whole search until the client's own timeout fires. Five seconds is well
+// above a healthy provider's latency yet bounds the worst case; override with
+// knowledge.search.provider_timeout.
+const defaultProviderSearchTimeout = 5 * time.Second
 
 // Result ranking modes, reported so the caller knows how results were ranked:
 // semantically, by keyword, or by exact entity lookup (no text arm).
@@ -68,18 +78,46 @@ type LineageExpander interface {
 // both the search tool and (later) push injection, so the scope and
 // fusion rules live here once rather than in each surface.
 type Router struct {
-	embedder  embedding.Provider
-	lineage   LineageExpander
-	providers []Provider
+	embedder        embedding.Provider
+	lineage         LineageExpander
+	providers       []Provider
+	providerTimeout time.Duration
 }
 
 // NewRouter builds a router over an embedder, an optional lineage expander, and
 // a set of providers. The embedder may be nil or the noop placeholder; the
 // router then ranks lexically. lineage may be nil, leaving entity-keyed lookups
 // unexpanded. Provider order does not affect ranking (scores are fused), only
-// the deterministic tie-break.
+// the deterministic tie-break. The per-provider fan-out timeout defaults to
+// defaultProviderSearchTimeout; override with SetProviderTimeout.
 func NewRouter(embedder embedding.Provider, lineage LineageExpander, providers ...Provider) *Router {
-	return &Router{embedder: embedder, lineage: lineage, providers: providers}
+	return &Router{
+		embedder:        embedder,
+		lineage:         lineage,
+		providers:       providers,
+		providerTimeout: defaultProviderSearchTimeout,
+	}
+}
+
+// SetProviderTimeout overrides the per-provider fan-out deadline. A zero
+// duration leaves the default in place (so callers can pass an unset config
+// value unconditionally); a negative duration disables the bound (each provider
+// then runs under the request context only), matching the pre-timeout behavior.
+// Not safe for concurrent use with Search; call once at wiring time.
+func (r *Router) SetProviderTimeout(d time.Duration) {
+	if d != 0 {
+		r.providerTimeout = d
+	}
+}
+
+// providerContext derives the per-provider context: the request context bounded
+// by providerTimeout, or the request context unchanged (with a no-op cancel)
+// when the bound is disabled.
+func (r *Router) providerContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if r.providerTimeout <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, r.providerTimeout)
 }
 
 // Providers returns the registered providers, for introspection and wiring
@@ -196,7 +234,11 @@ func (r *Router) Search(ctx context.Context, q Query) (Result, error) {
 
 	ranking := rankingEntity
 	if q.Intent != "" {
-		q.Embedding = embedding.EmbedForSearch(ctx, r.embedder, q.Intent)
+		// Bound the embedding call: a slow or unreachable embedder must degrade to
+		// lexical ranking, not stall the whole search before the fan-out even runs.
+		embCtx, cancel := r.providerContext(ctx)
+		q.Embedding = embedding.EmbedForSearch(embCtx, r.embedder, q.Intent)
+		cancel()
 		if len(q.Embedding) > 0 {
 			ranking = rankingHybrid
 		} else {
@@ -287,7 +329,14 @@ func (r *Router) fanOut(ctx context.Context, q Query) (perProvider [][]Hit, atte
 					results[i] = providerResult{err: fmt.Errorf("provider %s panicked: %v", p.Name(), rec)}
 				}
 			}()
-			hits, err := p.Search(ctx, q)
+			// Bound this arm so a single slow provider cannot stall the fan-out:
+			// its call is canceled at the deadline and surfaces as this provider's
+			// error (collected and logged like any other), while the remaining
+			// providers still return. Providers thread this ctx into their DB and
+			// network calls, so cancellation unblocks the WaitGroup promptly.
+			pctx, cancel := r.providerContext(ctx)
+			defer cancel()
+			hits, err := p.Search(pctx, q)
 			results[i] = providerResult{hits: hits, err: err}
 		}(i, selected[i])
 	}

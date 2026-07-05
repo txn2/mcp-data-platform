@@ -249,6 +249,10 @@ type KnowledgeConfig struct {
 	// a pending insight, not live catalog state. Auto-enabled with the memory
 	// subsystem; see pkg/platform/reflexivecapture.
 	ReflexiveCapture reflexivecapture.Config `yaml:"reflexive_capture"`
+
+	// SearchProviderTimeout bounds each knowledge provider (and the intent
+	// embedding) in the `search` fan-out; default 5s, a negative value disables it.
+	SearchProviderTimeout time.Duration `yaml:"search_provider_timeout"`
 }
 
 // KnowledgeApplyConfig configures the apply_knowledge tool.
