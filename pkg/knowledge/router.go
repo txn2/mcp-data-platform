@@ -13,14 +13,25 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 )
 
-// defaultProviderSearchTimeout bounds each knowledge provider's search arm (and
-// the intent-embedding step) in the fan-out. Without a per-provider deadline the
-// fan-out is only as fast as its slowest source: a WaitGroup awaits every arm,
-// so one slow store (a lagging catalog index, an unreachable embedder) stalls
-// the whole search until the client's own timeout fires. Five seconds is well
-// above a healthy provider's latency yet bounds the worst case; override with
-// knowledge.search.provider_timeout.
+// defaultProviderSearchTimeout bounds each knowledge provider's search arm in
+// the fan-out. Without a per-provider deadline the fan-out is only as fast as
+// its slowest source: a WaitGroup awaits every arm, so one slow store (a lagging
+// catalog index, an unreachable provider) stalls the whole search until the
+// client's own timeout fires. Five seconds is well above a healthy provider's
+// latency yet bounds the worst case; override with
+// knowledge.search_provider_timeout.
 const defaultProviderSearchTimeout = 5 * time.Second
+
+// defaultSearchEmbedTimeout bounds the serial intent-embedding step in Search.
+// It is a distinct knob from the fan-out timeout because the two have different
+// failure semantics: a slow fan-out arm should drop out quickly so it does not
+// hold up the others, whereas cutting the embedding short silently downgrades
+// ranking from hybrid to lexical and loses semantic relevance. Keeping the same
+// 5s default preserves v1.98.2 behavior byte-for-byte; operators who want to
+// protect ranking quality on a slow (e.g. cold, CPU-only) embedder can raise
+// knowledge.search_embed_timeout without loosening the fan-out bound. Override
+// with knowledge.search_embed_timeout.
+const defaultSearchEmbedTimeout = 5 * time.Second
 
 // Result ranking modes, reported so the caller knows how results were ranked:
 // semantically, by keyword, or by exact entity lookup (no text arm).
@@ -82,6 +93,7 @@ type Router struct {
 	lineage         LineageExpander
 	providers       []Provider
 	providerTimeout time.Duration
+	embedTimeout    time.Duration
 }
 
 // NewRouter builds a router over an embedder, an optional lineage expander, and
@@ -89,13 +101,16 @@ type Router struct {
 // router then ranks lexically. lineage may be nil, leaving entity-keyed lookups
 // unexpanded. Provider order does not affect ranking (scores are fused), only
 // the deterministic tie-break. The per-provider fan-out timeout defaults to
-// defaultProviderSearchTimeout; override with SetProviderTimeout.
+// defaultProviderSearchTimeout and the search-embedding timeout to
+// defaultSearchEmbedTimeout; override with SetProviderTimeout and
+// SetEmbedTimeout respectively.
 func NewRouter(embedder embedding.Provider, lineage LineageExpander, providers ...Provider) *Router {
 	return &Router{
 		embedder:        embedder,
 		lineage:         lineage,
 		providers:       providers,
 		providerTimeout: defaultProviderSearchTimeout,
+		embedTimeout:    defaultSearchEmbedTimeout,
 	}
 }
 
@@ -118,6 +133,29 @@ func (r *Router) providerContext(ctx context.Context) (context.Context, context.
 		return ctx, func() {}
 	}
 	return context.WithTimeout(ctx, r.providerTimeout)
+}
+
+// SetEmbedTimeout overrides the deadline on the serial search-embedding step. It
+// mirrors SetProviderTimeout's semantics: a zero duration leaves the default in
+// place (so callers can pass an unset config value unconditionally); a negative
+// duration disables the bound (the embed then runs under the request context
+// only). It is a separate knob from SetProviderTimeout so an operator can give a
+// slow embedder headroom without loosening the fan-out bound. Not safe for
+// concurrent use with Search; call once at wiring time.
+func (r *Router) SetEmbedTimeout(d time.Duration) {
+	if d != 0 {
+		r.embedTimeout = d
+	}
+}
+
+// embedContext derives the context for the intent-embedding call: the request
+// context bounded by embedTimeout, or the request context unchanged (with a
+// no-op cancel) when the bound is disabled.
+func (r *Router) embedContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if r.embedTimeout <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, r.embedTimeout)
 }
 
 // Providers returns the registered providers, for introspection and wiring
@@ -234,9 +272,12 @@ func (r *Router) Search(ctx context.Context, q Query) (Result, error) {
 
 	ranking := rankingEntity
 	if q.Intent != "" {
-		// Bound the embedding call: a slow or unreachable embedder must degrade to
-		// lexical ranking, not stall the whole search before the fan-out even runs.
-		embCtx, cancel := r.providerContext(ctx)
+		// Bound the embedding call with its own timeout (separate from the fan-out
+		// bound): a slow or unreachable embedder must degrade to lexical ranking,
+		// not stall the whole search before the fan-out even runs. The embed step
+		// is serial and downgrading it loses semantic relevance, so it gets its own
+		// knob and can be given more headroom than a fan-out arm.
+		embCtx, cancel := r.embedContext(ctx)
 		q.Embedding = embedding.EmbedForSearch(embCtx, r.embedder, q.Intent)
 		cancel()
 		if len(q.Embedding) > 0 {

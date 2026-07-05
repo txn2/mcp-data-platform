@@ -24,6 +24,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/pkcestore"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
+	"github.com/txn2/mcp-data-platform/pkg/platform/personastore"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
@@ -134,7 +135,7 @@ type Deps struct {
 	ConnectionStore     ConnectionStore
 	ConnectionSources   *platform.ConnectionSourceMap
 	ToolkitsConfig      map[string]any
-	PersonaStore        platform.PersonaStore
+	PersonaStore        personastore.Store
 	APIKeyStore         platform.APIKeyStore
 	// UserStore is the known-users directory (#614). nil disables the
 	// /api/v1/admin/users routes (no database configured).

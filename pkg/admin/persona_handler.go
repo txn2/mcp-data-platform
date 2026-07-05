@@ -10,6 +10,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
+	"github.com/txn2/mcp-data-platform/pkg/platform/personastore"
 )
 
 // personaSummary is a lightweight persona representation for list responses.
@@ -227,7 +228,7 @@ func (h *Handler) createPersona(w http.ResponseWriter, r *http.Request) {
 	// Persist to database FIRST — if it fails, don't register in-memory.
 	if h.deps.PersonaStore != nil {
 		author := extractAuthor(r)
-		def := platform.PersonaDefinitionFromPersona(p, author)
+		def := personastore.DefinitionFromPersona(p, author)
 		if err := h.deps.PersonaStore.Set(r.Context(), def); err != nil {
 			slog.Warn("failed to persist persona", logKeyName, p.Name, logKeyError, err)
 			writeError(w, http.StatusInternalServerError, "failed to persist persona")
@@ -287,7 +288,7 @@ func (h *Handler) updatePersona(w http.ResponseWriter, r *http.Request) {
 	// Persist to database FIRST — if it fails, don't update in-memory.
 	if h.deps.PersonaStore != nil {
 		author := extractAuthor(r)
-		def := platform.PersonaDefinitionFromPersona(p, author)
+		def := personastore.DefinitionFromPersona(p, author)
 		if err := h.deps.PersonaStore.Set(r.Context(), def); err != nil {
 			slog.Warn("failed to persist persona update", logKeyName, p.Name, logKeyError, err)
 			writeError(w, http.StatusInternalServerError, "failed to persist persona")
@@ -380,7 +381,7 @@ func (h *Handler) deletePersonaFromStore(r *http.Request, name string) error {
 	}
 	// Tolerate "not found" when a file fallback exists — the DB entry
 	// may have already been removed or never existed.
-	if errors.Is(err, platform.ErrPersonaNotFound) && h.deps.FilePersonaNames[name] {
+	if errors.Is(err, personastore.ErrNotFound) && h.deps.FilePersonaNames[name] {
 		return nil
 	}
 	slog.Warn("failed to delete persona from database", logKeyName, sanitizeLogValue(name), logKeyError, err) // #nosec G706 -- name is sanitized

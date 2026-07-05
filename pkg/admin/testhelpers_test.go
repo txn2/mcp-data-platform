@@ -15,6 +15,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/configstore"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
+	"github.com/txn2/mcp-data-platform/pkg/platform/personastore"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
@@ -392,23 +393,23 @@ var _ ConfigStore = (*mockConfigStore)(nil)
 // --- Mock PersonaStore ---
 
 type mockPersonaStore struct {
-	listResult  []platform.PersonaDefinition
+	listResult  []personastore.Definition
 	listErr     error
 	setErr      error
 	deleteErr   error
-	setCalls    []platform.PersonaDefinition
+	setCalls    []personastore.Definition
 	deleteCalls []string
 }
 
-func (m *mockPersonaStore) List(_ context.Context) ([]platform.PersonaDefinition, error) {
+func (m *mockPersonaStore) List(_ context.Context) ([]personastore.Definition, error) {
 	return m.listResult, m.listErr
 }
 
-func (*mockPersonaStore) Get(_ context.Context, _ string) (*platform.PersonaDefinition, error) {
-	return nil, platform.ErrPersonaNotFound
+func (*mockPersonaStore) Get(_ context.Context, _ string) (*personastore.Definition, error) {
+	return nil, personastore.ErrNotFound
 }
 
-func (m *mockPersonaStore) Set(_ context.Context, def platform.PersonaDefinition) error {
+func (m *mockPersonaStore) Set(_ context.Context, def personastore.Definition) error {
 	m.setCalls = append(m.setCalls, def)
 	return m.setErr
 }
@@ -419,7 +420,7 @@ func (m *mockPersonaStore) Delete(_ context.Context, name string) error {
 }
 
 // Verify interface compliance.
-var _ platform.PersonaStore = (*mockPersonaStore)(nil)
+var _ personastore.Store = (*mockPersonaStore)(nil)
 
 // --- Test helpers ---
 

@@ -14,6 +14,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
+	"github.com/txn2/mcp-data-platform/pkg/platform/personastore"
 )
 
 const testPriority = 10
@@ -659,7 +660,7 @@ func TestPersonaSourceTracking(t *testing.T) {
 		p.Source = "both"
 		pReg := &mockPersonaRegistry{allResult: []*persona.Persona{p}}
 		cs := &mockConfigStore{mode: "database"}
-		ps := &mockPersonaStore{deleteErr: platform.ErrPersonaNotFound}
+		ps := &mockPersonaStore{deleteErr: personastore.ErrNotFound}
 		cfg := testConfig()
 		cfg.Personas.Definitions = map[string]platform.PersonaDef{
 			"analyst": {

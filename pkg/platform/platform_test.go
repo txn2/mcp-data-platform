@@ -23,6 +23,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform/instructions"
+	"github.com/txn2/mcp-data-platform/pkg/platform/personastore"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
@@ -4494,22 +4495,22 @@ func (m *mockConnectionStoreForTest) Persistent() bool {
 
 // mockPersonaStoreForTest is a simple mock for testing loadDBPersonas.
 type mockPersonaStoreForTest struct {
-	defs    []PersonaDefinition
+	defs    []personastore.Definition
 	listErr error
 }
 
-func (m *mockPersonaStoreForTest) List(_ context.Context) ([]PersonaDefinition, error) {
+func (m *mockPersonaStoreForTest) List(_ context.Context) ([]personastore.Definition, error) {
 	return m.defs, m.listErr
 }
 
-func (*mockPersonaStoreForTest) Get(_ context.Context, _ string) (*PersonaDefinition, error) {
-	return nil, ErrPersonaNotFound
+func (*mockPersonaStoreForTest) Get(_ context.Context, _ string) (*personastore.Definition, error) {
+	return nil, personastore.ErrNotFound
 }
 
-func (*mockPersonaStoreForTest) Set(_ context.Context, _ PersonaDefinition) error { return nil }
+func (*mockPersonaStoreForTest) Set(_ context.Context, _ personastore.Definition) error { return nil }
 
 func (*mockPersonaStoreForTest) Delete(_ context.Context, _ string) error {
-	return ErrPersonaNotFound
+	return personastore.ErrNotFound
 }
 
 func TestLoadDBPersonas(t *testing.T) {
@@ -4520,7 +4521,7 @@ func TestLoadDBPersonas(t *testing.T) {
 		p := &Platform{
 			personaRegistry: reg,
 			personaStore: &mockPersonaStoreForTest{
-				defs: []PersonaDefinition{
+				defs: []personastore.Definition{
 					{
 						Name:        "analyst",
 						DisplayName: "Data Analyst",
@@ -4551,7 +4552,7 @@ func TestLoadDBPersonas(t *testing.T) {
 		p := &Platform{
 			personaRegistry: reg,
 			personaStore: &mockPersonaStoreForTest{
-				defs: []PersonaDefinition{
+				defs: []personastore.Definition{
 					{
 						Name:        "analyst",
 						DisplayName: "New Name",
@@ -4600,8 +4601,8 @@ func TestInitPersonaStore(t *testing.T) {
 		if p.personaStore == nil {
 			t.Fatal("personaStore should not be nil")
 		}
-		if _, ok := p.personaStore.(*NoopPersonaStore); !ok {
-			t.Error("expected NoopPersonaStore when db is nil")
+		if _, ok := p.personaStore.(*personastore.NoopStore); !ok {
+			t.Error("expected personastore.NoopStore when db is nil")
 		}
 	})
 
@@ -4618,14 +4619,14 @@ func TestInitPersonaStore(t *testing.T) {
 		if p.personaStore == nil {
 			t.Fatal("personaStore should not be nil")
 		}
-		if _, ok := p.personaStore.(*PostgresPersonaStore); !ok {
-			t.Error("expected PostgresPersonaStore when db is set")
+		if _, ok := p.personaStore.(*personastore.PostgresStore); !ok {
+			t.Error("expected personastore.PostgresStore when db is set")
 		}
 	})
 }
 
 func TestPersonaStoreAccessor(t *testing.T) {
-	noop := &NoopPersonaStore{}
+	noop := &personastore.NoopStore{}
 	p := &Platform{personaStore: noop}
 	if p.PersonaStore() != noop {
 		t.Error("PersonaStore() should return the assigned store")
