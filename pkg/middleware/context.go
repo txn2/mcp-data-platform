@@ -51,6 +51,7 @@ type PlatformContext struct {
 	UserClaims  map[string]any
 	Roles       []string
 	PersonaName string
+	AuthType    string // "oidc", "oauth", "apikey", "anonymous", "noop"
 
 	// Tool information
 	ToolName    string
@@ -92,6 +93,50 @@ func NewPlatformContext(requestID string) *PlatformContext {
 		RequestID:  requestID,
 		StartTime:  time.Now(),
 		UserClaims: make(map[string]any),
+	}
+}
+
+// nonDistinctAuthTypes are AuthType values that do NOT identify a specific
+// principal. AuthTypeAnonymous (the allowed-anonymous fallback) and AuthTypeNoop
+// (auth disabled) both assign every caller the SAME UserID, so keying discovery
+// on that UserID would let one caller's search open the gate for every other
+// caller. The empty string is treated the same way defensively: an unset
+// AuthType is not proof of a distinct identity. For these, the gate falls back
+// to the per-session key instead. Keep this in sync with the AuthType constants
+// (see pkg/middleware/auth.go): a new shared-identity AuthType must be added here.
+var nonDistinctAuthTypes = map[string]bool{"": true, AuthTypeAnonymous: true, AuthTypeNoop: true}
+
+// DiscoveryScopeKey returns the identifier under which the search-first gate
+// records and checks discovery for this call.
+//
+// It prefers the authenticated user identity because that stays stable even
+// when a client opens a brand-new MCP session for every tool call — claude.ai's
+// web connector does exactly this, minting (and discarding) a fresh session per
+// request. Keying discovery on the session ID would then record a search under
+// one throwaway session and check the follow-up query under a different one, so
+// the gate could never be satisfied (a 100% false SEARCH_REQUIRED). Keying on
+// the user makes a search open the gate for that user's subsequent per-call
+// sessions.
+//
+// The user identity is only used when it is genuinely distinct (a real
+// authenticator identified this principal); the shared "anonymous"/"noop"
+// identity used when auth is disabled is NOT distinct, so those callers fall
+// back to the per-session key rather than all collapsing onto one shared scope.
+//
+// It also falls back to the session ID for callers with no user identity at
+// all, and returns "" when neither is known. The tracker treats an empty key as
+// ungateable and allows the call (fail-open): with no stable identity there is
+// nothing to track discovery against, and the gate is a workflow-quality guard,
+// not a security boundary. The "user:"/"session:" prefixes keep the two
+// namespaces from ever colliding.
+func (pc *PlatformContext) DiscoveryScopeKey() string {
+	switch {
+	case pc.UserID != "" && !nonDistinctAuthTypes[pc.AuthType]:
+		return "user:" + pc.UserID
+	case pc.SessionID != "":
+		return "session:" + pc.SessionID
+	default:
+		return ""
 	}
 }
 

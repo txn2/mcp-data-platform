@@ -132,7 +132,7 @@ func (a *OIDCAuthenticator) Authenticate(ctx context.Context) (*middleware.UserI
 		Name:     uc.Name,
 		Claims:   uc.Claims,
 		Roles:    uc.Roles,
-		AuthType: authTypeOIDC,
+		AuthType: middleware.AuthTypeOIDC,
 	}, nil
 }
 

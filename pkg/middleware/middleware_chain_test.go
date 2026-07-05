@@ -2107,6 +2107,125 @@ func TestWorkflowGating_DataHubDiscoveryOpensGate(t *testing.T) {
 	}
 }
 
+// TestWorkflowGating_SurvivesPerCallSessionChurn_StreamableHTTP is the
+// regression test for the production failure where the search-first gate
+// refused every trino_query with SEARCH_REQUIRED even after search was called.
+// Root cause: claude.ai's web connector opens a brand-new MCP session for every
+// tool call, so a gate keyed on the session ID recorded discovery under the
+// search call's throwaway session and checked the query under a different one —
+// a 100% false block. The gate is now keyed on the authenticated user
+// (DiscoveryScopeKey), so discovery survives the churn.
+//
+// This drives the REAL assembled chain (auth + gate middleware + tracker) over a
+// real Streamable HTTP transport, using two separate client connections to model
+// the per-call sessions: the two calls resolve to DIFFERENT session IDs but the
+// SAME user, and the second call's query must be allowed.
+func TestWorkflowGating_SurvivesPerCallSessionChurn_StreamableHTTP(t *testing.T) {
+	const churnUser = "churn-user"
+
+	tracker := middleware.NewSessionWorkflowTracker(nil, nil, nil, 30*time.Minute)
+	authenticator := &testAuthenticator{
+		// AuthType "oauth" models claude.ai's OAuth: a genuinely distinct
+		// identity, so the gate keys on the user (not the per-call session).
+		userInfo: &middleware.UserInfo{UserID: churnUser, AuthType: "oauth", Roles: []string{chainTestAnalyst}},
+	}
+	authorizer := &testAuthorizer{persona: chainTestAnalyst}
+
+	// Capture the session ID the chain resolved for each tool call so the test
+	// can prove the two calls really landed on different sessions (the churn),
+	// rather than trusting the transport to behave that way.
+	var mu sync.Mutex
+	seenSession := map[string]string{}
+	capture := func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			if pc := middleware.GetPlatformContext(ctx); pc != nil && pc.ToolName != "" {
+				mu.Lock()
+				seenSession[pc.ToolName] = pc.SessionID
+				mu.Unlock()
+			}
+			return next(ctx, method, req)
+		}
+	}
+
+	server := mcp.NewServer(&mcp.Implementation{Name: "test-churn", Version: "v0.0.1"}, nil)
+	server.AddTool(&mcp.Tool{
+		Name:        "search",
+		Description: "Search",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"}}}`),
+	}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: `{"results":[]}`}}}, nil
+	})
+	server.AddTool(&mcp.Tool{
+		Name:        chainTestTrinoQuery,
+		Description: "Query",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"sql":{"type":"string"}}}`),
+	}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "data"}}}, nil
+	})
+
+	// Innermost first: capture, gate, then auth (outermost, records the call).
+	server.AddReceivingMiddleware(capture)
+	server.AddReceivingMiddleware(middleware.MCPWorkflowGateMiddleware(tracker))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil, middleware.ToolCallConfig{Transport: "http", AdminPersona: "admin", WorkflowTracker: tracker}))
+
+	// One server instance behind the handler so both connections share the
+	// tracker (as the two replicas share the Postgres store in production).
+	ts := httptest.NewServer(mcp.NewStreamableHTTPHandler(
+		func(*http.Request) *mcp.Server { return server },
+		&mcp.StreamableHTTPOptions{SessionTimeout: 30 * time.Minute},
+	))
+	defer ts.Close()
+
+	ctx := context.Background()
+	callOnFreshSession := func(label string, params *mcp.CallToolParams) *mcp.CallToolResult {
+		client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "v0.0.1"}, nil)
+		session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: ts.URL}, nil)
+		if err != nil {
+			t.Fatalf("%s: connecting: %v", label, err)
+		}
+		defer func() { _ = session.Close() }()
+		result, err := session.CallTool(ctx, params)
+		if err != nil {
+			t.Fatalf("%s: calling tool: %v", label, err)
+		}
+		return result
+	}
+
+	// Call 1: search on one session.
+	callOnFreshSession("search", &mcp.CallToolParams{
+		Name:      "search",
+		Arguments: map[string]any{"query": "orders"},
+	})
+
+	// Call 2: query on a brand-new session (the churn). Must be allowed because
+	// the same user already searched.
+	result := callOnFreshSession("query", &mcp.CallToolParams{
+		Name:      chainTestTrinoQuery,
+		Arguments: map[string]any{"sql": "SELECT 1"},
+	})
+	if result.IsError {
+		var dump strings.Builder
+		for _, c := range result.Content {
+			if tc, ok := c.(*mcp.TextContent); ok {
+				dump.WriteString(tc.Text)
+			}
+		}
+		t.Fatalf("query on a new session after search by the same user must not be gated; got error result: %s", dump.String())
+	}
+
+	// Prove the two calls really used different sessions (otherwise this test
+	// would pass even under the old session-keyed code and prove nothing).
+	mu.Lock()
+	searchSess, querySess := seenSession["search"], seenSession[chainTestTrinoQuery]
+	mu.Unlock()
+	if searchSess == "" || querySess == "" {
+		t.Fatalf("expected both calls to resolve a session ID, got search=%q query=%q", searchSess, querySess)
+	}
+	if searchSess == querySess {
+		t.Fatalf("expected different session IDs across connections (to model per-call churn), both were %q", searchSess)
+	}
+}
+
 // TestDescriptionOverrides_ToolsList verifies that the description override
 // middleware modifies tool descriptions in tools/list responses.
 func TestDescriptionOverrides_ToolsList(t *testing.T) {

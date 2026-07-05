@@ -68,6 +68,102 @@ func TestPlatformContext(t *testing.T) {
 	})
 }
 
+func TestPlatformContext_DiscoveryScopeKey(t *testing.T) {
+	tests := []struct {
+		name     string
+		userID   string
+		authType string
+		session  string
+		want     string
+	}{
+		{
+			name:     "distinct authenticated user preferred over session",
+			userID:   "alice",
+			authType: "oidc",
+			session:  "sess-1",
+			want:     "user:alice",
+		},
+		{
+			name:     "oauth user (claude.ai) preferred over session",
+			userID:   "alice",
+			authType: "oauth",
+			session:  "sess-1",
+			want:     "user:alice",
+		},
+		{
+			name:     "anonymous identity falls back to session (no collapse)",
+			userID:   "anonymous",
+			authType: "anonymous",
+			session:  "sess-1",
+			want:     "session:sess-1",
+		},
+		{
+			name:     "noop identity falls back to session (no collapse)",
+			userID:   "anonymous",
+			authType: "noop",
+			session:  "sess-1",
+			want:     "session:sess-1",
+		},
+		{
+			name:     "user id without auth type falls back to session (defensive)",
+			userID:   "alice",
+			authType: "",
+			session:  "sess-1",
+			want:     "session:sess-1",
+		},
+		{
+			name:     "falls back to session when no user",
+			userID:   "",
+			authType: "",
+			session:  "sess-1",
+			want:     "session:sess-1",
+		},
+		{
+			name:     "empty when neither is known",
+			userID:   "",
+			authType: "",
+			session:  "",
+			want:     "",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pc := &PlatformContext{UserID: tc.userID, AuthType: tc.authType, SessionID: tc.session}
+			if got := pc.DiscoveryScopeKey(); got != tc.want {
+				t.Errorf("DiscoveryScopeKey() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+
+	// The whole point of preferring the user: two calls that carry different
+	// session IDs (a client opening a fresh session per tool call) but the same
+	// authenticated user must resolve to the SAME scope key, while the raw
+	// session IDs differ. This is what keeps the search-first gate from falsely
+	// re-gating such a client.
+	t.Run("stable across per-call session churn for one authenticated user", func(t *testing.T) {
+		a := &PlatformContext{UserID: "bob", AuthType: "oauth", SessionID: "throwaway-1"}
+		b := &PlatformContext{UserID: "bob", AuthType: "oauth", SessionID: "throwaway-2"}
+		if a.SessionID == b.SessionID {
+			t.Fatal("test setup: session IDs must differ to model churn")
+		}
+		if a.DiscoveryScopeKey() != b.DiscoveryScopeKey() {
+			t.Errorf("same user, different sessions produced different scope keys: %q vs %q",
+				a.DiscoveryScopeKey(), b.DiscoveryScopeKey())
+		}
+	})
+
+	// Conversely, distinct anonymous callers (auth disabled: same "anonymous"
+	// UserID, different sessions) must NOT collapse onto one scope, or a single
+	// caller's search would open the gate for everyone.
+	t.Run("distinct anonymous callers do not collapse", func(t *testing.T) {
+		a := &PlatformContext{UserID: "anonymous", AuthType: "anonymous", SessionID: "sess-a"}
+		b := &PlatformContext{UserID: "anonymous", AuthType: "anonymous", SessionID: "sess-b"}
+		if a.DiscoveryScopeKey() == b.DiscoveryScopeKey() {
+			t.Errorf("distinct anonymous callers collapsed onto one scope: %q", a.DiscoveryScopeKey())
+		}
+	})
+}
+
 func TestTokenContext(t *testing.T) {
 	t.Run("WithToken and GetToken", func(t *testing.T) {
 		ctx := WithToken(context.Background(), "test-token-123")

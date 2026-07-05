@@ -110,7 +110,7 @@ func (a *OAuthJWTAuthenticator) Authenticate(ctx context.Context) (*middleware.U
 		Name:     name,
 		Claims:   userClaims,
 		Roles:    roles,
-		AuthType: "oauth",
+		AuthType: middleware.AuthTypeOAuth,
 	}, nil
 }
 

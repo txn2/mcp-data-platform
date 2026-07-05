@@ -332,7 +332,7 @@ The platform ships with built-in description overrides for `trino_query` and `tr
 
 ## Search-First Gate Configuration
 
-A hard gate that refuses query tools until the agent calls `search` in the session. When a query tool (`trino_query`, `trino_execute`) is called before any discovery tool, the tool handler does not run; a `SEARCH_REQUIRED` error result is returned instructing the agent to call `search` first. Once `search` has been called at least once in a session, every subsequent query tool call in that session proceeds normally. Enabled by default; set `require_search: false` to disable gating (and hinting) entirely.
+A hard gate that refuses query tools until the agent calls `search`. When a query tool (`trino_query`, `trino_execute`) is called before any discovery tool, the tool handler does not run; a `SEARCH_REQUIRED` error result is returned instructing the agent to call `search` first. Once `search` has been called at least once, every subsequent query tool call by the same authenticated user proceeds normally. Discovery is tracked per authenticated user (not per raw MCP session), so the gate is not falsely re-triggered by clients that open a new session for every tool call (for example claude.ai's web connector); it falls back to the session ID for unauthenticated callers. Enabled by default; set `require_search: false` to disable gating (and hinting) entirely.
 
 ```yaml
 workflow:

@@ -29,8 +29,25 @@ type UserInfo struct {
 	Name     string // display name from claims (empty for API keys); may be a full name
 	Claims   map[string]any
 	Roles    []string
-	AuthType string // "oidc", "apikey", etc.
+	AuthType string // one of the AuthType* constants below
 }
+
+// AuthType values set by the authenticators, identifying HOW a caller was
+// authenticated. They are defined here (rather than as scattered string
+// literals) so producers in pkg/auth and the distinct-identity guard in
+// DiscoveryScopeKey (nonDistinctAuthTypes) reference one source of truth.
+//
+// IMPORTANT: any new AuthType that assigns every caller the SAME shared UserID
+// (a guest / shared-token identity, like anonymous and noop) MUST be added to
+// nonDistinctAuthTypes, or one such caller's search would open the search-first
+// gate for all of them.
+const (
+	AuthTypeOIDC      = "oidc"
+	AuthTypeOAuth     = "oauth"
+	AuthTypeAPIKey    = "apikey"
+	AuthTypeAnonymous = "anonymous" // shared fallback identity when auth is allowed-anonymous
+	AuthTypeNoop      = "noop"      // shared identity from NoopAuthenticator (auth disabled)
+)
 
 // NewToolResultError creates an error result using the SDK's SetError method.
 // The underlying error is retrievable via CallToolResult.GetError().
@@ -66,6 +83,6 @@ func (n *NoopAuthenticator) Authenticate(_ context.Context) (*UserInfo, error) {
 		Email:    userID + "@localhost",
 		Claims:   make(map[string]any),
 		Roles:    n.DefaultRoles,
-		AuthType: "noop",
+		AuthType: AuthTypeNoop,
 	}, nil
 }

@@ -49,6 +49,28 @@ func TestSessionWorkflowTracker_EmptySession(t *testing.T) {
 	assert.False(t, tracker.HasPerformedDiscovery(context.Background(), "nonexistent"))
 }
 
+// TestSessionWorkflowTracker_UngateableEmptyKey covers the fail-open path for a
+// caller with no stable identity (empty scope key): the gate cannot track
+// discovery for it, so it must allow the call rather than block forever, and a
+// record for the empty key must not pollute another scope's state.
+func TestSessionWorkflowTracker_UngateableEmptyKey(t *testing.T) {
+	ctx := context.Background()
+	tracker := NewSessionWorkflowTracker(nil, nil, nil, 30*time.Minute)
+
+	// An empty scope key is ungateable and fails open.
+	assert.True(t, tracker.HasPerformedDiscovery(ctx, ""),
+		"empty scope key must fail open (no identity to gate on)")
+
+	// Recording under the empty key is a no-op: it must not mark discovery for a
+	// real scope, and must not make the empty key itself look discovered via the
+	// throttle map (locallyKnownDiscovered stays false).
+	tracker.RecordToolCall(ctx, "", toolNameSearch)
+	assert.False(t, tracker.locallyKnownDiscovered(""),
+		"empty scope key must not be recorded in the throttle map")
+	assert.False(t, tracker.HasPerformedDiscovery(ctx, "real-scope"),
+		"recording under the empty key must not open the gate for another scope")
+}
+
 func TestSessionWorkflowTracker_IsQueryTool(t *testing.T) {
 	tracker := NewSessionWorkflowTracker(nil, nil, nil, 30*time.Minute)
 
@@ -142,10 +164,12 @@ func (f *flakyStore) HasDiscovered(_ context.Context, s string) (bool, error) {
 func (*flakyStore) Cleanup(context.Context) error { return nil }
 func (*flakyStore) Close() error                  { return nil }
 
-// TestSessionWorkflowTracker_RetriesAfterWriteFailure covers #789 review
-// finding: because the store is the single source of truth (no divergent
-// replica-local bit), a failed discovery write is not yet visible anywhere, but
-// the throttle is cleared so the agent's next search retries and persists it.
+// TestSessionWorkflowTracker_RetriesAfterWriteFailure covers the write-failure
+// path: because the store is the single source of truth (no divergent
+// replica-local bit), a failed discovery write persists nothing, so the gate
+// stays CLOSED (fail-closed, SEARCH_REQUIRED) rather than bypassing on a write
+// error; a forced write always re-attempts, so the agent's next search persists
+// once writes recover and opens the gate on every replica.
 func TestSessionWorkflowTracker_RetriesAfterWriteFailure(t *testing.T) {
 	store := &flakyStore{failWrites: 1}
 	tracker := NewSessionWorkflowTracker(nil, nil, store, 30*time.Minute)
@@ -153,11 +177,34 @@ func TestSessionWorkflowTracker_RetriesAfterWriteFailure(t *testing.T) {
 
 	tracker.RecordToolCall(ctx, "s", "search") // write 1 fails, nothing persisted
 	assert.False(t, tracker.HasPerformedDiscovery(ctx, "s"),
-		"a failed write leaves no shared record; the gate stays closed until it persists")
+		"a failed write leaves no shared record; the gate stays closed (never bypasses on a write error)")
 
-	tracker.RecordToolCall(ctx, "s", "search") // write 2 succeeds (throttle was cleared)
+	tracker.RecordToolCall(ctx, "s", "search") // write 2 succeeds (force always re-attempts)
 	assert.True(t, tracker.HasPerformedDiscovery(ctx, "s"),
 		"re-searching after a failed write persists and opens the gate on every replica")
+}
+
+// TestSessionWorkflowTracker_ExpiredRecordNotResurrectedBySlide is the
+// regression test for the finding that a non-discovery tool call could
+// resurrect an EXPIRED discovery record via a stale local throttle stamp,
+// opening the gate for a query that should be re-gated after inactivity. Once
+// the shared record's TTL lapses, a non-discovery slide must NOT recreate it.
+func TestSessionWorkflowTracker_ExpiredRecordNotResurrectedBySlide(t *testing.T) {
+	const ttl = 40 * time.Millisecond
+	store := searchgate.NewMemoryStore(ttl)
+	tracker := NewSessionWorkflowTracker(nil, nil, store, ttl)
+	ctx := context.Background()
+
+	tracker.RecordToolCall(ctx, "user:alice", "search") // discover: stamp + record
+	require.True(t, tracker.HasPerformedDiscovery(ctx, "user:alice"))
+
+	time.Sleep(60 * time.Millisecond) // exceed the record TTL: the shared record expires
+
+	// A non-discovery tool call by the same scope must not resurrect the expired
+	// record off the lingering local stamp; the scope is re-gated.
+	tracker.RecordToolCall(ctx, "user:alice", "some_other_tool")
+	assert.False(t, tracker.HasPerformedDiscovery(ctx, "user:alice"),
+		"an expired discovery record must not be resurrected by a non-discovery slide")
 }
 
 // TestSessionWorkflowTracker_FailsOpenOnReadError covers the deliberate

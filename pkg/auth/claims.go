@@ -3,20 +3,20 @@ package auth
 import (
 	"fmt"
 	"strings"
+
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
 
-// Standard JWT/OIDC claim names and the auth-type label used for users
-// authenticated via an OIDC provider. Defined as package-private
-// constants so the same literal does not appear repeatedly across
-// claims.go, oauth.go, and oidc.go.
+// Standard JWT/OIDC claim names. Defined as package-private constants so the
+// same literal does not appear repeatedly across claims.go, oauth.go, and
+// oidc.go. Auth-type labels live in pkg/middleware (the AuthType* constants), the
+// single source of truth shared with the DiscoveryScopeKey guard.
 const (
-	claimSubject   = "sub"
-	claimEmail     = "email"
-	claimName      = "name"
-	claimRoles     = "roles"
-	claimGroups    = "groups"
-	authTypeOIDC   = "oidc"
-	authTypeAPIKey = "apikey"
+	claimSubject = "sub"
+	claimEmail   = "email"
+	claimName    = "name"
+	claimRoles   = "roles"
+	claimGroups  = "groups"
 )
 
 // ClaimsExtractor extracts values from JWT claims.
@@ -56,7 +56,7 @@ func DefaultClaimsExtractor() *ClaimsExtractor {
 func (e *ClaimsExtractor) Extract(claims map[string]any) (*UserContext, error) {
 	uc := &UserContext{
 		Claims:   claims,
-		AuthType: authTypeOIDC,
+		AuthType: middleware.AuthTypeOIDC,
 	}
 
 	// Extract subject (user ID)

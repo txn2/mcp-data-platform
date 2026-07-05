@@ -117,7 +117,7 @@ func (c *ChainedAuthenticator) Authenticate(ctx context.Context) (*middleware.Us
 	if c.allowAnonymous {
 		return &middleware.UserInfo{
 			UserID:   "anonymous",
-			AuthType: "anonymous",
+			AuthType: middleware.AuthTypeAnonymous,
 			Claims:   make(map[string]any),
 		}, nil
 	}

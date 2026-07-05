@@ -209,7 +209,7 @@ func appendDiscoveryNoteIfNeeded(ctx context.Context, result *mcp.CallToolResult
 	if tracker == nil || !pc.EnrichmentApplied {
 		return
 	}
-	if tracker.HasPerformedDiscovery(ctx, pc.SessionID) {
+	if tracker.HasPerformedDiscovery(ctx, pc.DiscoveryScopeKey()) {
 		return
 	}
 
