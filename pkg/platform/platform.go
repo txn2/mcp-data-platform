@@ -48,6 +48,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform/fieldcrypt"
+	"github.com/txn2/mcp-data-platform/pkg/platform/personastore"
 	"github.com/txn2/mcp-data-platform/pkg/platform/reflexivecapture"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
@@ -144,7 +145,7 @@ type Platform struct {
 	authEventWriter    *authevents.Writer
 	connOAuthRefresher *connoauth.Refresher
 	restEncryptor      *fieldcrypt.RestFieldEncryptor
-	personaStore       PersonaStore
+	personaStore       personastore.Store
 	apiKeyStore        APIKeyStore
 
 	// Providers
@@ -944,10 +945,10 @@ func (p *Platform) DB() *sql.DB {
 // initPersonaStore initializes the persona definition store.
 func (p *Platform) initPersonaStore() {
 	if p.db != nil {
-		p.personaStore = NewPostgresPersonaStore(p.db)
+		p.personaStore = personastore.NewPostgresStore(p.db)
 		slog.Info("persona store: postgres")
 	} else {
-		p.personaStore = &NoopPersonaStore{}
+		p.personaStore = &personastore.NoopStore{}
 		slog.Info("persona store: noop (no database)")
 	}
 }
@@ -1740,6 +1741,7 @@ func (p *Platform) initSearch() error {
 
 	router := knowledge.NewRouter(p.embeddingProv, lineage, providers...)
 	router.SetProviderTimeout(p.config.Knowledge.SearchProviderTimeout) // 0 keeps the 5s default
+	router.SetEmbedTimeout(p.config.Knowledge.SearchEmbedTimeout)       // 0 keeps the 5s default
 	p.knowledgeRouter = router
 	tk := searchkit.New(instanceDefault, router)
 	if err := p.toolkitRegistry.Register(tk); err != nil {
@@ -3533,7 +3535,7 @@ func (p *Platform) ConfigStore() configstore.Store {
 }
 
 // PersonaStore returns the persona definition store, or nil if not initialized.
-func (p *Platform) PersonaStore() PersonaStore {
+func (p *Platform) PersonaStore() personastore.Store {
 	return p.personaStore
 }
 

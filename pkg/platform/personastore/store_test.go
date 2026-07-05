@@ -1,4 +1,4 @@
-package platform
+package personastore
 
 import (
 	"context"
@@ -23,18 +23,18 @@ var personaColumns = []string{
 	"connections_allow", "connections_deny", "context", "priority", "created_by", "updated_at",
 }
 
-func newTestPersonaStore(t *testing.T) (*PostgresPersonaStore, sqlmock.Sqlmock) {
+func newTestPersonaStore(t *testing.T) (*PostgresStore, sqlmock.Sqlmock) {
 	t.Helper()
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("creating sqlmock: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	return NewPostgresPersonaStore(db), mock
+	return NewPostgresStore(db), mock
 }
 
 func TestToPersona(t *testing.T) {
-	def := &PersonaDefinition{
+	def := &Definition{
 		Name:        "analyst",
 		DisplayName: "Data Analyst",
 		Description: "Analyzes data",
@@ -72,7 +72,7 @@ func TestToPersona(t *testing.T) {
 }
 
 func TestToPersona_EmptyFields(t *testing.T) {
-	def := &PersonaDefinition{
+	def := &Definition{
 		Name: "minimal",
 	}
 
@@ -88,7 +88,7 @@ func TestToPersona_EmptyFields(t *testing.T) {
 	assert.Equal(t, 0, p.Priority)
 }
 
-func TestPersonaDefinitionFromPersona(t *testing.T) {
+func TestDefinitionFromPersona(t *testing.T) {
 	p := &persona.Persona{
 		Name:        "engineer",
 		DisplayName: "Data Engineer",
@@ -111,7 +111,7 @@ func TestPersonaDefinitionFromPersona(t *testing.T) {
 		Priority: 5,
 	}
 
-	def := PersonaDefinitionFromPersona(p, "creator@example.com")
+	def := DefinitionFromPersona(p, "creator@example.com")
 
 	assert.Equal(t, "engineer", def.Name)
 	assert.Equal(t, "Data Engineer", def.DisplayName)
@@ -141,7 +141,7 @@ func TestUnmarshalPersonaJSON(t *testing.T) {
 		contextJSON []byte
 		wantErr     bool
 		errContains string
-		check       func(t *testing.T, d *PersonaDefinition)
+		check       func(t *testing.T, d *Definition)
 	}{
 		{
 			name:        "valid JSON for all fields",
@@ -151,7 +151,7 @@ func TestUnmarshalPersonaJSON(t *testing.T) {
 			connsAllow:  []byte(`["prod_*"]`),
 			connsDeny:   []byte(`["staging_*"]`),
 			contextJSON: []byte(`{"description_prefix":"Hello"}`),
-			check: func(t *testing.T, d *PersonaDefinition) {
+			check: func(t *testing.T, d *Definition) {
 				t.Helper()
 				assert.Equal(t, []string{"analyst", "viewer"}, d.Roles)
 				assert.Equal(t, []string{"trino_*"}, d.ToolsAllow)
@@ -169,7 +169,7 @@ func TestUnmarshalPersonaJSON(t *testing.T) {
 			connsAllow:  []byte(`[]`),
 			connsDeny:   []byte(`[]`),
 			contextJSON: []byte{},
-			check: func(t *testing.T, d *PersonaDefinition) {
+			check: func(t *testing.T, d *Definition) {
 				t.Helper()
 				assert.Empty(t, d.Roles)
 				assert.Equal(t, persona.ContextOverrides{}, d.Context)
@@ -239,7 +239,7 @@ func TestUnmarshalPersonaJSON(t *testing.T) {
 			connsDeny:   []byte(`[]`),
 			contextJSON: []byte(`{bad`),
 			wantErr:     false,
-			check: func(t *testing.T, d *PersonaDefinition) {
+			check: func(t *testing.T, d *Definition) {
 				t.Helper()
 				// Context should remain zero-value since unmarshal failed silently.
 				assert.Equal(t, persona.ContextOverrides{}, d.Context)
@@ -249,8 +249,8 @@ func TestUnmarshalPersonaJSON(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var d PersonaDefinition
-			err := unmarshalPersonaJSON(&d, personaJSONFields{
+			var d Definition
+			err := unmarshalJSON(&d, jsonFields{
 				roles: tt.roles, toolsAllow: tt.toolsAllow, toolsDeny: tt.toolsDeny,
 				connsAllow: tt.connsAllow, connsDeny: tt.connsDeny, contextJSON: tt.contextJSON,
 			})
@@ -267,8 +267,8 @@ func TestUnmarshalPersonaJSON(t *testing.T) {
 	}
 }
 
-func TestNoopPersonaStore(t *testing.T) {
-	store := &NoopPersonaStore{}
+func TestNoopStore(t *testing.T) {
+	store := &NoopStore{}
 	ctx := context.Background()
 
 	t.Run("List returns nil nil", func(t *testing.T) {
@@ -277,30 +277,30 @@ func TestNoopPersonaStore(t *testing.T) {
 		assert.Nil(t, defs)
 	})
 
-	t.Run("Get returns ErrPersonaNotFound", func(t *testing.T) {
+	t.Run("Get returns ErrNotFound", func(t *testing.T) {
 		def, err := store.Get(ctx, "anything")
 		assert.Nil(t, def)
-		assert.ErrorIs(t, err, ErrPersonaNotFound)
+		assert.ErrorIs(t, err, ErrNotFound)
 	})
 
 	t.Run("Set returns nil", func(t *testing.T) {
-		err := store.Set(ctx, PersonaDefinition{Name: "test"})
+		err := store.Set(ctx, Definition{Name: "test"})
 		assert.NoError(t, err)
 	})
 
-	t.Run("Delete returns ErrPersonaNotFound", func(t *testing.T) {
+	t.Run("Delete returns ErrNotFound", func(t *testing.T) {
 		err := store.Delete(ctx, "anything")
-		assert.ErrorIs(t, err, ErrPersonaNotFound)
+		assert.ErrorIs(t, err, ErrNotFound)
 	})
 }
 
-func TestNewPostgresPersonaStore(t *testing.T) {
-	store := NewPostgresPersonaStore(nil)
+func TestNewPostgresStore(t *testing.T) {
+	store := NewPostgresStore(nil)
 	require.NotNil(t, store)
 	assert.Nil(t, store.db)
 }
 
-func TestPersonaDefinitionRoundTrip(t *testing.T) {
+func TestDefinitionRoundTrip(t *testing.T) {
 	original := &persona.Persona{
 		Name:        "roundtrip",
 		DisplayName: "Round Trip Test",
@@ -321,7 +321,7 @@ func TestPersonaDefinitionRoundTrip(t *testing.T) {
 		Priority: 42,
 	}
 
-	def := PersonaDefinitionFromPersona(original, "tester@example.com")
+	def := DefinitionFromPersona(original, "tester@example.com")
 	converted := def.ToPersona()
 
 	assert.Equal(t, original.Name, converted.Name)
@@ -334,9 +334,9 @@ func TestPersonaDefinitionRoundTrip(t *testing.T) {
 	assert.Equal(t, original.Priority, converted.Priority)
 }
 
-// --- PostgresPersonaStore sqlmock tests ---
+// --- PostgresStore sqlmock tests ---
 
-func TestPostgresPersonaStoreList(t *testing.T) {
+func TestPostgresStoreList(t *testing.T) {
 	store, mock := newTestPersonaStore(t)
 	now := time.Now()
 
@@ -382,7 +382,7 @@ func TestPostgresPersonaStoreList(t *testing.T) {
 	}
 }
 
-func TestPostgresPersonaStoreList_QueryError(t *testing.T) {
+func TestPostgresStoreList_QueryError(t *testing.T) {
 	store, mock := newTestPersonaStore(t)
 
 	mock.ExpectQuery("SELECT name, display_name, description, roles, tools_allow, tools_deny").
@@ -399,7 +399,7 @@ func TestPostgresPersonaStoreList_QueryError(t *testing.T) {
 	}
 }
 
-func TestPostgresPersonaStoreGet(t *testing.T) {
+func TestPostgresStoreGet(t *testing.T) {
 	store, mock := newTestPersonaStore(t)
 	now := time.Now()
 
@@ -435,7 +435,7 @@ func TestPostgresPersonaStoreGet(t *testing.T) {
 	}
 }
 
-func TestPostgresPersonaStoreGet_NotFound(t *testing.T) {
+func TestPostgresStoreGet_NotFound(t *testing.T) {
 	store, mock := newTestPersonaStore(t)
 
 	rows := sqlmock.NewRows(personaColumns) // empty result set
@@ -445,18 +445,18 @@ func TestPostgresPersonaStoreGet_NotFound(t *testing.T) {
 
 	def, err := store.Get(context.Background(), "nonexistent")
 	assert.Nil(t, def)
-	assert.ErrorIs(t, err, ErrPersonaNotFound)
+	assert.ErrorIs(t, err, ErrNotFound)
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf(personaFmtUnmetExpect, err)
 	}
 }
 
-func TestPostgresPersonaStoreSet(t *testing.T) {
+func TestPostgresStoreSet(t *testing.T) {
 	store, mock := newTestPersonaStore(t)
 	now := time.Now()
 
-	def := PersonaDefinition{
+	def := Definition{
 		Name:        "analyst",
 		DisplayName: "Data Analyst",
 		Description: "Analyzes data",
@@ -488,7 +488,7 @@ func TestPostgresPersonaStoreSet(t *testing.T) {
 	}
 }
 
-func TestPostgresPersonaStoreDelete(t *testing.T) {
+func TestPostgresStoreDelete(t *testing.T) {
 	store, mock := newTestPersonaStore(t)
 
 	mock.ExpectExec("DELETE FROM persona_definitions WHERE name").
@@ -503,7 +503,7 @@ func TestPostgresPersonaStoreDelete(t *testing.T) {
 	}
 }
 
-func TestPostgresPersonaStoreDelete_NotFound(t *testing.T) {
+func TestPostgresStoreDelete_NotFound(t *testing.T) {
 	store, mock := newTestPersonaStore(t)
 
 	mock.ExpectExec("DELETE FROM persona_definitions WHERE name").
@@ -511,14 +511,14 @@ func TestPostgresPersonaStoreDelete_NotFound(t *testing.T) {
 		WillReturnResult(driver.RowsAffected(0))
 
 	err := store.Delete(context.Background(), "nonexistent")
-	assert.ErrorIs(t, err, ErrPersonaNotFound)
+	assert.ErrorIs(t, err, ErrNotFound)
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf(personaFmtUnmetExpect, err)
 	}
 }
 
-func TestPostgresPersonaStoreDelete_ExecError(t *testing.T) {
+func TestPostgresStoreDelete_ExecError(t *testing.T) {
 	store, mock := newTestPersonaStore(t)
 
 	mock.ExpectExec("DELETE FROM persona_definitions WHERE name").
@@ -534,7 +534,7 @@ func TestPostgresPersonaStoreDelete_ExecError(t *testing.T) {
 	}
 }
 
-func TestPostgresPersonaStoreList_ScanError(t *testing.T) {
+func TestPostgresStoreList_ScanError(t *testing.T) {
 	store, mock := newTestPersonaStore(t)
 
 	// Return a row with invalid data types to trigger scan error
@@ -551,7 +551,7 @@ func TestPostgresPersonaStoreList_ScanError(t *testing.T) {
 	}
 }
 
-func TestPostgresPersonaStoreGet_QueryError(t *testing.T) {
+func TestPostgresStoreGet_QueryError(t *testing.T) {
 	store, mock := newTestPersonaStore(t)
 
 	mock.ExpectQuery("SELECT .+ FROM persona_definitions WHERE name").

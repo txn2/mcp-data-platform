@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/auth"
+	"github.com/txn2/mcp-data-platform/pkg/platform/personastore"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/session"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
@@ -48,7 +49,7 @@ func TestPlatform_ReloadWiring(t *testing.T) {
 		config:          &Config{},
 		toolkitRegistry: reg,
 		connectionStore: fakeConnStore{cfg: map[string]any{"base_url": "https://x"}},
-		personaStore:    &NoopPersonaStore{},
+		personaStore:    &personastore.NoopStore{},
 		apiKeyStore:     fakeAPIKeyStore{},
 		apiKeyAuth:      auth.NewAPIKeyAuthenticator(auth.APIKeyConfig{}),
 	}

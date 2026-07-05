@@ -18,6 +18,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/configstore"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
+	"github.com/txn2/mcp-data-platform/pkg/platform/personastore"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 )
 
@@ -45,7 +46,7 @@ func TestGetToolDetail_FullJoin(t *testing.T) {
 	// connection (prod-trino) only via an explicit ConnsAllow. analyst and
 	// admin grant it; viewer is tool-denied anyway (datahub_* vs trino_query).
 	personaStore := &mockPersonaStore{
-		listResult: []platform.PersonaDefinition{
+		listResult: []personastore.Definition{
 			{Name: "analyst", ToolsAllow: []string{"trino_*"}, ToolsDeny: []string{}, ConnsAllow: []string{"prod-trino"}},
 			{Name: "viewer", ToolsAllow: []string{"datahub_*"}, ToolsDeny: []string{}},
 			{Name: "admin", ToolsAllow: []string{"*"}, ToolsDeny: []string{"*_delete_*"}, ConnsAllow: []string{"*"}},

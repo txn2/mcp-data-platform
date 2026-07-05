@@ -1,4 +1,9 @@
-package platform
+// Package personastore persists database-managed persona definitions,
+// independent of the platform assembly. It holds the persona_definitions
+// storage model (Definition), its Store interface, and the PostgreSQL and no-op
+// implementations. Extracted from pkg/platform so the persona storage layer can
+// be reasoned about (and size-budgeted) on its own.
+package personastore
 
 import (
 	"context"
@@ -11,11 +16,11 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 )
 
-// ErrPersonaNotFound is returned when a persona definition does not exist in the database.
-var ErrPersonaNotFound = errors.New("persona not found")
+// ErrNotFound is returned when a persona definition does not exist in the database.
+var ErrNotFound = errors.New("persona not found")
 
-// PersonaDefinition represents a database-managed persona.
-type PersonaDefinition struct {
+// Definition represents a database-managed persona.
+type Definition struct {
 	Name        string                   `json:"name"`
 	DisplayName string                   `json:"display_name"`
 	Description string                   `json:"description,omitempty"`
@@ -30,8 +35,8 @@ type PersonaDefinition struct {
 	UpdatedAt   time.Time                `json:"updated_at"`
 }
 
-// ToPersona converts a PersonaDefinition to a persona.Persona.
-func (d *PersonaDefinition) ToPersona() *persona.Persona {
+// ToPersona converts a Definition to a persona.Persona.
+func (d *Definition) ToPersona() *persona.Persona {
 	return &persona.Persona{
 		Name:        d.Name,
 		DisplayName: d.DisplayName,
@@ -50,9 +55,9 @@ func (d *PersonaDefinition) ToPersona() *persona.Persona {
 	}
 }
 
-// PersonaDefinitionFromPersona converts a persona.Persona to a PersonaDefinition.
-func PersonaDefinitionFromPersona(p *persona.Persona, author string) PersonaDefinition {
-	return PersonaDefinition{
+// DefinitionFromPersona converts a persona.Persona to a Definition.
+func DefinitionFromPersona(p *persona.Persona, author string) Definition {
+	return Definition{
 		Name:        p.Name,
 		DisplayName: p.DisplayName,
 		Description: p.Description,
@@ -67,26 +72,26 @@ func PersonaDefinitionFromPersona(p *persona.Persona, author string) PersonaDefi
 	}
 }
 
-// PersonaStore manages persona definition persistence.
-type PersonaStore interface {
-	List(ctx context.Context) ([]PersonaDefinition, error)
-	Get(ctx context.Context, name string) (*PersonaDefinition, error)
-	Set(ctx context.Context, def PersonaDefinition) error
+// Store manages persona definition persistence.
+type Store interface {
+	List(ctx context.Context) ([]Definition, error)
+	Get(ctx context.Context, name string) (*Definition, error)
+	Set(ctx context.Context, def Definition) error
 	Delete(ctx context.Context, name string) error
 }
 
-// PostgresPersonaStore implements PersonaStore backed by PostgreSQL.
-type PostgresPersonaStore struct {
+// PostgresStore implements Store backed by PostgreSQL.
+type PostgresStore struct {
 	db *sql.DB
 }
 
-// NewPostgresPersonaStore creates a new PostgreSQL-backed persona store.
-func NewPostgresPersonaStore(db *sql.DB) *PostgresPersonaStore {
-	return &PostgresPersonaStore{db: db}
+// NewPostgresStore creates a new PostgreSQL-backed persona store.
+func NewPostgresStore(db *sql.DB) *PostgresStore {
+	return &PostgresStore{db: db}
 }
 
 // List returns all persona definitions.
-func (s *PostgresPersonaStore) List(ctx context.Context) ([]PersonaDefinition, error) {
+func (s *PostgresStore) List(ctx context.Context) ([]Definition, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT name, display_name, description, roles, tools_allow, tools_deny,
 		        connections_allow, connections_deny, context, priority, created_by, updated_at
@@ -96,9 +101,9 @@ func (s *PostgresPersonaStore) List(ctx context.Context) ([]PersonaDefinition, e
 	}
 	defer rows.Close() //nolint:errcheck // best-effort cleanup
 
-	var defs []PersonaDefinition
+	var defs []Definition
 	for rows.Next() {
-		d, err := scanPersonaDef(rows)
+		d, err := scanDef(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -111,25 +116,25 @@ func (s *PostgresPersonaStore) List(ctx context.Context) ([]PersonaDefinition, e
 }
 
 // Get returns a single persona definition by name.
-func (s *PostgresPersonaStore) Get(ctx context.Context, name string) (*PersonaDefinition, error) {
+func (s *PostgresStore) Get(ctx context.Context, name string) (*Definition, error) {
 	row := s.db.QueryRowContext(ctx,
 		`SELECT name, display_name, description, roles, tools_allow, tools_deny,
 		        connections_allow, connections_deny, context, priority, created_by, updated_at
 		 FROM persona_definitions WHERE name = $1`, name)
 
-	var d PersonaDefinition
+	var d Definition
 	var roles, toolsAllow, toolsDeny, connsAllow, connsDeny, contextJSON []byte
 	err := row.Scan(&d.Name, &d.DisplayName, &d.Description,
 		&roles, &toolsAllow, &toolsDeny, &connsAllow, &connsDeny, &contextJSON,
 		&d.Priority, &d.CreatedBy, &d.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrPersonaNotFound
+		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("querying persona definition: %w", err)
 	}
 
-	if err := unmarshalPersonaJSON(&d, personaJSONFields{
+	if err := unmarshalJSON(&d, jsonFields{
 		roles: roles, toolsAllow: toolsAllow, toolsDeny: toolsDeny,
 		connsAllow: connsAllow, connsDeny: connsDeny, contextJSON: contextJSON,
 	}); err != nil {
@@ -139,7 +144,7 @@ func (s *PostgresPersonaStore) Get(ctx context.Context, name string) (*PersonaDe
 }
 
 // Set creates or updates a persona definition.
-func (s *PostgresPersonaStore) Set(ctx context.Context, def PersonaDefinition) error {
+func (s *PostgresStore) Set(ctx context.Context, def Definition) error {
 	roles, _ := json.Marshal(def.Roles)
 	toolsAllow, _ := json.Marshal(def.ToolsAllow)
 	toolsDeny, _ := json.Marshal(def.ToolsDeny)
@@ -167,7 +172,7 @@ func (s *PostgresPersonaStore) Set(ctx context.Context, def PersonaDefinition) e
 }
 
 // Delete removes a persona definition by name.
-func (s *PostgresPersonaStore) Delete(ctx context.Context, name string) error {
+func (s *PostgresStore) Delete(ctx context.Context, name string) error {
 	result, err := s.db.ExecContext(ctx,
 		`DELETE FROM persona_definitions WHERE name = $1`, name)
 	if err != nil {
@@ -178,21 +183,21 @@ func (s *PostgresPersonaStore) Delete(ctx context.Context, name string) error {
 		return fmt.Errorf("checking delete result: %w", err)
 	}
 	if affected == 0 {
-		return ErrPersonaNotFound
+		return ErrNotFound
 	}
 	return nil
 }
 
-// scanPersonaDef scans a row into a PersonaDefinition.
-func scanPersonaDef(rows *sql.Rows) (PersonaDefinition, error) {
-	var d PersonaDefinition
+// scanDef scans a row into a Definition.
+func scanDef(rows *sql.Rows) (Definition, error) {
+	var d Definition
 	var roles, toolsAllow, toolsDeny, connsAllow, connsDeny, contextJSON []byte
 	if err := rows.Scan(&d.Name, &d.DisplayName, &d.Description,
 		&roles, &toolsAllow, &toolsDeny, &connsAllow, &connsDeny, &contextJSON,
 		&d.Priority, &d.CreatedBy, &d.UpdatedAt); err != nil {
 		return d, fmt.Errorf("scanning persona definition: %w", err)
 	}
-	if err := unmarshalPersonaJSON(&d, personaJSONFields{
+	if err := unmarshalJSON(&d, jsonFields{
 		roles: roles, toolsAllow: toolsAllow, toolsDeny: toolsDeny,
 		connsAllow: connsAllow, connsDeny: connsDeny, contextJSON: contextJSON,
 	}); err != nil {
@@ -201,8 +206,8 @@ func scanPersonaDef(rows *sql.Rows) (PersonaDefinition, error) {
 	return d, nil
 }
 
-// personaJSONFields holds the raw JSONB byte slices scanned from the database.
-type personaJSONFields struct {
+// jsonFields holds the raw JSONB byte slices scanned from the database.
+type jsonFields struct {
 	roles       []byte
 	toolsAllow  []byte
 	toolsDeny   []byte
@@ -211,8 +216,8 @@ type personaJSONFields struct {
 	contextJSON []byte
 }
 
-// unmarshalPersonaJSON deserializes JSONB columns into the PersonaDefinition.
-func unmarshalPersonaJSON(d *PersonaDefinition, f personaJSONFields) error {
+// unmarshalJSON deserializes JSONB columns into the Definition.
+func unmarshalJSON(d *Definition, f jsonFields) error {
 	if err := json.Unmarshal(f.roles, &d.Roles); err != nil {
 		return fmt.Errorf("unmarshaling roles: %w", err)
 	}
@@ -234,23 +239,23 @@ func unmarshalPersonaJSON(d *PersonaDefinition, f personaJSONFields) error {
 	return nil
 }
 
-// NoopPersonaStore is a no-op implementation for when no database is available.
-type NoopPersonaStore struct{}
+// NoopStore is a no-op implementation for when no database is available.
+type NoopStore struct{}
 
 // List returns an empty list (no database available).
-func (*NoopPersonaStore) List(_ context.Context) ([]PersonaDefinition, error) {
+func (*NoopStore) List(_ context.Context) ([]Definition, error) {
 	return nil, nil
 }
 
-// Get always returns ErrPersonaNotFound (no database available).
-func (*NoopPersonaStore) Get(_ context.Context, _ string) (*PersonaDefinition, error) {
-	return nil, ErrPersonaNotFound
+// Get always returns ErrNotFound (no database available).
+func (*NoopStore) Get(_ context.Context, _ string) (*Definition, error) {
+	return nil, ErrNotFound
 }
 
 // Set is a no-op (no database available).
-func (*NoopPersonaStore) Set(_ context.Context, _ PersonaDefinition) error { return nil }
+func (*NoopStore) Set(_ context.Context, _ Definition) error { return nil }
 
-// Delete always returns ErrPersonaNotFound (no database available).
-func (*NoopPersonaStore) Delete(_ context.Context, _ string) error {
-	return ErrPersonaNotFound
+// Delete always returns ErrNotFound (no database available).
+func (*NoopStore) Delete(_ context.Context, _ string) error {
+	return ErrNotFound
 }

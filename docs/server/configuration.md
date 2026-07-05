@@ -861,6 +861,7 @@ knowledge:
   reflexive_capture:
     enabled: true
   search_provider_timeout: 5s
+  search_embed_timeout: 5s
 ```
 
 | Field | Type | Default | Description |
@@ -870,7 +871,8 @@ knowledge:
 | `apply.datahub_connection` | string | - | DataHub instance name for write-back operations |
 | `apply.require_confirmation` | bool | `false` | Require explicit `confirm: true` on apply actions |
 | `reflexive_capture.enabled` | bool | `true` | Auto-capture a "misconception + fix" correction when a Trino query errors and a later related same-session query on the same connection succeeds (#635). Source `automation`, reviewed sink-class (enters review, never live), gated by the persona's `memory_capture` grant. Default-on when the memory subsystem is available; set `false` to disable |
-| `search_provider_timeout` | duration | `5s` | Per-provider deadline for the `search` fan-out. Each knowledge source (catalog, memory, insights, endpoints, …) and the intent embedding are bounded by this, so one slow source drops out as a collected error while the rest still return, instead of stalling the whole search. Set a negative duration to disable the bound (a search then waits for its slowest provider). |
+| `search_provider_timeout` | duration | `5s` | Per-provider deadline for the `search` fan-out arms. Each knowledge source (catalog, memory, insights, endpoints, …) is bounded by this, so one slow source drops out as a collected error while the rest still return, instead of stalling the whole search. Set a negative duration to disable the bound (a search then waits for its slowest provider). |
+| `search_embed_timeout` | duration | `5s` | Deadline for the serial intent-embedding step in `search`, independent of `search_provider_timeout`. A slow or unreachable embedder degrades to lexical ranking rather than stalling the search; because that silently loses semantic relevance, this knob lets you give a slow (cold or CPU-only) embedder more headroom to preserve `hybrid` ranking without loosening the fan-out bound. Set a negative duration to disable the bound. |
 
 !!! note "Prerequisites"
     Knowledge capture requires `database.dsn` to be configured. The `apply_knowledge` tool requires the admin persona.

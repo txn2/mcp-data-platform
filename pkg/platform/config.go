@@ -250,9 +250,12 @@ type KnowledgeConfig struct {
 	// subsystem; see pkg/platform/reflexivecapture.
 	ReflexiveCapture reflexivecapture.Config `yaml:"reflexive_capture"`
 
-	// SearchProviderTimeout bounds each knowledge provider (and the intent
-	// embedding) in the `search` fan-out; default 5s, a negative value disables it.
+	// SearchProviderTimeout bounds each knowledge provider arm in the `search`
+	// fan-out; default 5s, a negative value disables it.
 	SearchProviderTimeout time.Duration `yaml:"search_provider_timeout"`
+	// SearchEmbedTimeout bounds the serial intent-embedding step in `search`,
+	// independent of the fan-out bound; default 5s, a negative value disables it.
+	SearchEmbedTimeout time.Duration `yaml:"search_embed_timeout"`
 }
 
 // KnowledgeApplyConfig configures the apply_knowledge tool.
