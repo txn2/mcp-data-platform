@@ -48,6 +48,7 @@ const (
 	instToolCalls            = "mcp_tool_calls"
 	instToolCallDuration     = "mcp_tool_call_duration"
 	instInflightToolCalls    = "mcp_inflight_tool_calls"
+	instSessionResolution    = "mcp_session_resolution"
 	instAPIGwOutbound        = "apigateway_outbound"
 	instAPIGwOutboundLatency = "apigateway_outbound_duration"
 	instAPIGwInbound         = "apigateway_inbound_requests"
@@ -128,6 +129,7 @@ const (
 	attrPersona        = "persona"
 	attrStatusCategory = "status_category"
 	attrConnection     = "connection"
+	attrSource         = "source"
 	attrHTTPStatus     = "http_status_class"
 	attrOperationID    = "operation_id"
 	attrMethod         = "method"
@@ -192,6 +194,7 @@ type Metrics struct {
 	toolCallsTotal        metric.Int64Counter
 	toolCallDuration      metric.Float64Histogram
 	inflightToolCalls     metric.Int64UpDownCounter
+	sessionResolutions    metric.Int64Counter
 	apigwOutboundTotal    metric.Int64Counter
 	apigwOutboundDuration metric.Float64Histogram
 	apigwInboundTotal     metric.Int64Counter
@@ -345,6 +348,13 @@ func (m *Metrics) registerInstruments(meter metric.Meter) error {
 	if err != nil {
 		return fmt.Errorf(instErrFmt, instInflightToolCalls, err)
 	}
+	m.sessionResolutions, err = meter.Int64Counter(
+		instSessionResolution,
+		metric.WithDescription("Total MCP tool calls by how their session was resolved (explicit handle, transport session, stdio sentinel, or none), for watching migration to explicit session handles (#792)."),
+	)
+	if err != nil {
+		return fmt.Errorf(instErrFmt, instSessionResolution, err)
+	}
 	m.apigwOutboundTotal, err = meter.Int64Counter(
 		instAPIGwOutbound,
 		metric.WithDescription("Total number of outbound HTTP calls made by the apigateway toolkit, labeled by connection, http_status_class, and status_category."),
@@ -495,6 +505,15 @@ func (m *Metrics) RecordToolCall(ctx context.Context, attrs ToolCallAttrs, durat
 	)
 	m.toolCallsTotal.Add(ctx, 1, set)
 	m.toolCallDuration.Record(ctx, duration.Seconds(), set)
+}
+
+// RecordSessionResolution records one tool call labeled by how its session was
+// resolved (source: explicit, transport, stdio, or none). Nil-safe.
+func (m *Metrics) RecordSessionResolution(ctx context.Context, source string) {
+	if m == nil {
+		return
+	}
+	m.sessionResolutions.Add(ctx, 1, metric.WithAttributes(attribute.String(attrSource, source)))
 }
 
 // IncInflightToolCalls increments the in-flight gauge. Paired with

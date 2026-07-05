@@ -4,7 +4,9 @@ package platform
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"slices"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -12,6 +14,7 @@ import (
 	personapkg "github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform/instructions"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
+	"github.com/txn2/mcp-data-platform/pkg/session"
 )
 
 // resourcesDiscoverabilityNote is the runtime note appended to agent
@@ -28,6 +31,8 @@ type Info struct {
 	Version             string                `json:"version"`
 	Description         string                `json:"description,omitempty"`
 	Tags                []string              `json:"tags,omitempty"`
+	SessionID           string                `json:"session_id,omitempty"`
+	SessionExpiresAt    string                `json:"session_expires_at,omitempty"`
 	AgentInstructions   string                `json:"agent_instructions,omitempty"`
 	Toolkits            []string              `json:"toolkits"`
 	ToolkitDescriptions map[string]string     `json:"toolkit_descriptions,omitempty"`
@@ -221,12 +226,23 @@ func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp
 		notes...,
 	)
 
+	// Mint an explicit session handle (#792). platform_info is the only tool
+	// that mints; every other tool requires the returned session_id, which
+	// makes platform_info structurally unskippable and gives every downstream
+	// consumer (gates, provenance, audit) a deliberate session key.
+	sessionID, sessionExpiresAt := p.mintSessionHandle(ctx, personaName(persona))
+	if sessionID != "" {
+		agentInstructions = sessionThreadingInstruction(sessionID) + agentInstructions
+	}
+
 	reg := DefaultRegistry()
 	info := Info{
 		Name:                p.config.Server.Name,
 		Version:             p.config.Server.Version,
 		Description:         description,
 		Tags:                p.config.Server.Tags,
+		SessionID:           sessionID,
+		SessionExpiresAt:    sessionExpiresAt,
 		AgentInstructions:   agentInstructions,
 		Toolkits:            toolkits,
 		ToolkitDescriptions: toolkitDescriptions,
@@ -256,4 +272,43 @@ func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp
 			&mcp.TextContent{Text: string(data)},
 		},
 	}, nil, nil
+}
+
+// personaName returns the persona's name, or "" when no persona applies.
+func personaName(p *PersonaInfo) string {
+	if p == nil {
+		return ""
+	}
+	return p.Name
+}
+
+// sessionThreadingInstruction is the prominent header prepended to the composed
+// agent instructions telling the model to thread the minted handle on every
+// call. It is the model-facing complement to the machine-readable session_id
+// field.
+func sessionThreadingInstruction(sessionID string) string {
+	return "SESSION HANDLE: This call issued you session_id \"" + sessionID + "\". " +
+		"Pass it as the session_id argument on EVERY subsequent tool call. Tool calls " +
+		"without it are refused (SESSION_REQUIRED). Do not call platform_info again unless " +
+		"a call returns SESSION_EXPIRED.\n\n"
+}
+
+// mintSessionHandle creates an explicit session handle in the session store and
+// returns it with its RFC3339 expiry. It returns empty strings (and mints
+// nothing) when handles are disabled or no session store is configured, so the
+// caller can omit the fields for a byte-identical legacy response.
+func (p *Platform) mintSessionHandle(ctx context.Context, persona string) (id, expiresAt string) {
+	if !p.config.Sessions.Handles.IsEnabled() || p.sessionStore == nil {
+		return "", ""
+	}
+	userID := ""
+	if pc := middleware.GetPlatformContext(ctx); pc != nil {
+		userID = pc.UserID
+	}
+	sess, err := session.MintHandle(ctx, p.sessionStore, userID, persona, p.config.Sessions.Handles.HandleTTL())
+	if err != nil {
+		slog.Error("platform_info: failed to mint session handle", "error", err)
+		return "", ""
+	}
+	return sess.ID, sess.ExpiresAt.UTC().Format(time.RFC3339)
 }

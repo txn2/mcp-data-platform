@@ -536,6 +536,28 @@ sessions:
 
 See [Session Externalization](session-externalization.md) for architecture details and multi-replica considerations.
 
+### Explicit Session Handles
+
+The `sessions.handles` block controls explicit session handles (issue #792). When enabled, `platform_info` mints a `session_id` that the model passes back as an ordinary argument on every subsequent tool call. This is the pattern the [MCP 2026-07-28 release candidate](https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/) recommends after removing the protocol-level session and the `Mcp-Session-Id` header ([SEP-2567](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2567)).
+
+This makes `platform_info` structurally unskippable (no handle exists until it is called, and gated tools require one), gives audit and provenance a deliberate session key, and keeps the platform working unchanged when clients move to the sessionless protocol.
+
+```yaml
+sessions:
+  handles:
+    enabled: true      # mint, advertise, and validate handles (default on)
+    ttl: 8h            # handle lifetime, refreshed on use
+    require: true      # refuse calls with neither a handle nor a legacy transport session
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `true` | Mint a `session_id` from `platform_info`, advertise it on every tool's input schema, validate and strip it on each call. Set `false` for byte-identical legacy transport-session behavior. |
+| `ttl` | duration | `8h` | Handle lifetime, refreshed on use. |
+| `require` | bool | `true` | Refuse a tool call carrying neither a valid handle nor a legacy transport session with `SESSION_REQUIRED`. Set `false` for a softer landing during rollout. |
+
+Every tool advertises the injected `session_id` argument except `platform_info` (which mints it). Upstream toolkits never see the argument: the platform strips it before the handler runs. A handle presented by a different authenticated identity, or an unknown/expired handle, is refused with `SESSION_EXPIRED`. The `mcp_session_resolution_total{source}` metric (`explicit`, `transport`, `stdio`, `none`) shows migration progress from transport sessions to explicit handles.
+
 ## Toolkit Configuration
 
 ### Trino

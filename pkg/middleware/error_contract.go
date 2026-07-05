@@ -35,6 +35,8 @@ const (
 	CodeUnauthorized       = "unauthorized"
 	CodeSetupRequired      = "setup_required"
 	CodeSearchRequired     = "search_required"
+	CodeSessionRequired    = "session_required"
+	CodeSessionExpired     = "session_expired"
 	CodeFeatureUnavailable = "feature_unavailable"
 	CodeInternalError      = "internal_error"
 	CodeToolError          = "tool_error"

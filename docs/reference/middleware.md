@@ -120,9 +120,10 @@ func MCPToolCallMiddleware(
 4. Looks up toolkit metadata (kind, name, connection) via `ToolkitLookup`
 5. Runs authenticator to identify user (populates UserID, Email, Roles)
 6. Runs authorizer to check tool access (populates PersonaName, Authorized)
-7. Returns error result if auth fails, otherwise proceeds
+7. Resolves the explicit session handle (issue #792) via the optional `SessionResolver`: extracts the `session_id` argument, validates it against the session store (must exist, be unexpired, and belong to the same authenticated identity), adopts it onto `PlatformContext.SessionID`, and strips it before the handler runs. A missing handle (with no legacy transport session) yields `SESSION_REQUIRED`; an unknown, expired, or cross-identity handle yields `SESSION_EXPIRED`.
+8. Returns error result if auth or session resolution fails, otherwise proceeds
 
-The `toolkitLookup` parameter is optional; if `nil`, toolkit metadata fields remain empty.
+The `toolkitLookup` parameter is optional; if `nil`, toolkit metadata fields remain empty. The session resolver is supplied via `ToolCallConfig.SessionResolver` and is a valid `nil` no-op when explicit handles are disabled.
 
 ### MCPAuditMiddleware
 
@@ -169,6 +170,16 @@ Modeled on `MCPSessionGateMiddleware`: it is positioned inner to `MCPToolCallMid
 - **Write resilience:** a failed discovery write persists nothing (there is no divergent local state); a forced discovery write always re-attempts, so the agent's next `search` retries persistence once writes recover.
 - **Fail-open on read error (deliberate):** the gate decision follows the read. A total store outage (reads fail) fails open (allows queries, logged) rather than blocking every one, since the gate is a workflow quality guard, not a security boundary.
 - **Fail-closed on write outage (deliberate):** a store that accepts reads but rejects writes leaves discovery un-persisted, so the read returns not-discovered and the caller is gated (`SEARCH_REQUIRED`) until writes recover. This is intentional: failing open on a write error would let one caller's transient write blip open the gate for everyone. If queries must proceed during a store-write outage, disable the gate (`workflow.require_search: false`).
+
+### MCPSessionHandleSchemaMiddleware
+
+Advertises the explicit session handle (issue #792) by injecting a `session_id` string property into every tool's input schema on `tools/list` responses, except the init tool (`platform_info`, which mints the handle and takes no `session_id`).
+
+```go
+func MCPSessionHandleSchemaMiddleware(initTool string) mcp.Middleware
+```
+
+A list decorator like `ToolMetadataMiddleware`: it replaces each `Tool` in the response with a shallow copy carrying the augmented schema, so neither the server's shared tool registry nor upstream toolkits (mcp-trino, mcp-datahub, mcp-s3, gateway-proxied tools) are ever modified. Any schema representation (`*jsonschema.Schema`, `json.RawMessage`, or a map) is normalized via a JSON round-trip. Registered only when `sessions.handles.enabled` is on. The complementary extraction, validation, and stripping happens inside `MCPToolCallMiddleware` (see step 7 above).
 
 ### MCPDescriptionOverrideMiddleware
 

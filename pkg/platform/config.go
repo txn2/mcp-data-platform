@@ -1250,6 +1250,56 @@ type SessionsConfig struct {
 	// single postgres instance and must NOT cross-broadcast
 	// tools/list_changed events to each other's downstream agents.
 	BroadcastChannel string `yaml:"broadcast_channel"`
+
+	// Handles configures explicit session handles (issue #792). When enabled,
+	// platform_info mints a session_id that the model threads back as an
+	// ordinary argument on every subsequent tool call — the pattern the MCP
+	// 2026-07-28 spec recommends after removing the protocol-level session and
+	// the Mcp-Session-Id header (SEP-2567).
+	Handles SessionHandlesConfig `yaml:"handles"`
+}
+
+// defaultSessionHandleTTL is the lifetime of an explicit session handle when
+// sessions.handles.ttl is unset.
+const defaultSessionHandleTTL = 8 * time.Hour
+
+// SessionHandlesConfig configures explicit session handles (issue #792): the
+// platform_info-minted session_id that the model passes back on every tool
+// call, replacing reliance on the transport-level Mcp-Session-Id header.
+type SessionHandlesConfig struct {
+	// Enabled activates handle minting, schema advertisement, and validation.
+	// Default on (nil = enabled); set enabled: false for byte-identical legacy
+	// transport-session behavior.
+	Enabled *bool `yaml:"enabled"`
+
+	// TTL is the handle lifetime, refreshed on use. Defaults to 8h.
+	TTL time.Duration `yaml:"ttl"`
+
+	// Require refuses tool calls that carry neither a valid handle nor a legacy
+	// transport session (SESSION_REQUIRED). Default on (nil = required); set
+	// require: false for a softer landing during rollout.
+	Require *bool `yaml:"require"`
+}
+
+// IsEnabled reports whether explicit session handles are enabled, defaulting to
+// true when not explicitly set.
+func (c SessionHandlesConfig) IsEnabled() bool {
+	return !isExplicitlyDisabled(c.Enabled)
+}
+
+// IsRequired reports whether a handle (or legacy transport session) is required
+// on every tool call, defaulting to true when not explicitly set.
+func (c SessionHandlesConfig) IsRequired() bool {
+	return !isExplicitlyDisabled(c.Require)
+}
+
+// HandleTTL returns the configured handle lifetime, or the 8h default when
+// unset or non-positive.
+func (c SessionHandlesConfig) HandleTTL() time.Duration {
+	if c.TTL > 0 {
+		return c.TTL
+	}
+	return defaultSessionHandleTTL
 }
 
 // LoadConfig loads configuration from a file.

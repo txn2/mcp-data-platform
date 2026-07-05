@@ -29,6 +29,13 @@ server:
 #   store: memory               # "memory" (default) or "database"
 #   ttl: 30m                    # session lifetime (defaults to streamable.session_timeout)
 #   cleanup_interval: 1m        # cleanup routine frequency
+#   # Explicit session handles (#792): platform_info mints a session_id the model
+#   # threads on every subsequent tool call — the pattern the MCP 2026-07-28 spec
+#   # recommends after removing the Mcp-Session-Id header (SEP-2567).
+#   handles:
+#     enabled: false            # opt out of explicit session handles (default on)
+#     ttl: 8h                   # handle lifetime, refreshed on use (default 8h)
+#     require: false            # accept legacy transport sessions without a handle (default on)
 
 # Generic OIDC authentication
 auth:

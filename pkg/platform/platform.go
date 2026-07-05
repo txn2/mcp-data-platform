@@ -1571,6 +1571,18 @@ func (p *Platform) initSessionGate() {
 		return
 	}
 
+	// Explicit session handles (#792) supersede the legacy transport-keyed
+	// session gate and enforce platform_info-first more strongly. Running both
+	// double-gates (platform_info records init under the transport session while
+	// later calls carry the handle), so skip the legacy gate when handles are on.
+	if p.config.Sessions.Handles.IsEnabled() {
+		slog.Info("session gate: superseded by explicit session handles (sessions.handles); "+
+			"not registering the legacy transport-keyed session gate. Its exempt_tools are "+
+			"carried into the handle resolver's SESSION_REQUIRED exemptions.",
+			"exempt_tools", p.config.SessionGate.ExemptTools)
+		return
+	}
+
 	sessionTTL := p.config.Sessions.TTL
 	if sessionTTL == 0 {
 		sessionTTL = p.config.Server.Streamable.SessionTimeout
@@ -2692,17 +2704,26 @@ func (p *Platform) finalizeSetup() {
 
 	// 7. Auth/Authz (outermost for tools/call) - authenticates and authorizes
 	// users, creates PlatformContext. Must be outer to Audit so PlatformContext
-	// is available in the ctx that Audit receives.
+	// is available in the ctx that Audit receives. The session-handle resolver
+	// (#792) runs inside this middleware after authentication so it can adopt
+	// the explicit handle onto pc.SessionID before the gates and audit observe
+	// it.
 	p.mcpServer.AddReceivingMiddleware(
 		middleware.MCPToolCallMiddleware(p.authenticator, p.authorizer, p.toolkitRegistry, middleware.ToolCallConfig{
 			Transport:       p.config.Server.Transport,
 			AdminPersona:    p.config.Admin.Persona,
 			WorkflowTracker: p.workflowTracker,
+			SessionResolver: p.buildSessionResolver(),
 		}),
 	)
 
 	// 8. MCP Apps metadata - injects _meta.ui into tools/list
 	p.addMCPAppsMiddleware()
+
+	// 8.5 Session-handle schema injection (#792) - advertises the session_id
+	// argument on every tool except platform_info. A list decorator like the
+	// apps-metadata middleware, so upstream toolkits are never modified.
+	p.addSessionHandleSchemaMiddleware()
 
 	// 9. Tool visibility - reduces tools/list for token savings
 	p.addToolVisibilityMiddleware()
@@ -2820,6 +2841,44 @@ func (p *Platform) addMCPAppsMiddleware() {
 		mcpapps.ToolMetadataMiddleware(p.mcpAppsRegistry),
 	)
 	p.mcpAppsRegistry.RegisterResources(p.mcpServer)
+}
+
+// buildSessionResolver constructs the explicit session-handle resolver (#792),
+// or nil when handles are disabled (a valid no-op in MCPToolCallMiddleware).
+func (p *Platform) buildSessionResolver() *middleware.SessionResolver {
+	if !p.config.Sessions.Handles.IsEnabled() || p.sessionStore == nil {
+		return nil
+	}
+	metrics := p.metrics
+	// Carry the superseded legacy gate's exempt_tools forward so operator
+	// exemptions are honored rather than silently dropped.
+	var exempt []string
+	if p.config.SessionGate.Enabled {
+		exempt = p.config.SessionGate.ExemptTools
+	}
+	return middleware.NewSessionResolver(p.sessionStore, middleware.SessionResolverConfig{
+		Enabled:     true,
+		Require:     p.config.Sessions.Handles.IsRequired(),
+		TTL:         p.config.Sessions.Handles.HandleTTL(),
+		InitTool:    defaultInitTool,
+		ExemptTools: exempt,
+		Metric: func(ctx context.Context, source string) {
+			metrics.RecordSessionResolution(ctx, source)
+		},
+	})
+}
+
+// addSessionHandleSchemaMiddleware advertises the session_id argument on every
+// tool's input schema (except platform_info) when explicit handles are enabled.
+func (p *Platform) addSessionHandleSchemaMiddleware() {
+	// Gate on the same conditions as buildSessionResolver / mintSessionHandle so
+	// a tool never advertises a session_id the platform neither issues nor validates.
+	if !p.config.Sessions.Handles.IsEnabled() || p.sessionStore == nil {
+		return
+	}
+	p.mcpServer.AddReceivingMiddleware(
+		middleware.MCPSessionHandleSchemaMiddleware(defaultInitTool),
+	)
 }
 
 // addToolVisibilityMiddleware registers tool visibility filtering middleware.

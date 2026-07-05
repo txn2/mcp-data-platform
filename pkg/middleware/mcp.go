@@ -96,6 +96,7 @@ type ToolCallConfig struct {
 	Transport       string                  // "stdio" or "http"
 	AdminPersona    string                  // persona name that grants platform admin
 	WorkflowTracker *SessionWorkflowTracker // optional workflow tracker
+	SessionResolver *SessionResolver        // optional explicit session-handle resolver (#792)
 }
 
 // MCPToolCallMiddleware creates MCP protocol-level middleware that intercepts
@@ -142,6 +143,7 @@ func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, t
 				toolName:        toolName,
 				adminPersona:    cfg.AdminPersona,
 				workflowTracker: tracker,
+				sessionResolver: cfg.SessionResolver,
 			})
 		}
 	}
@@ -233,6 +235,7 @@ type authParams struct {
 	toolName        string
 	adminPersona    string
 	workflowTracker *SessionWorkflowTracker
+	sessionResolver *SessionResolver
 }
 
 // authenticateAndAuthorize runs authentication and authorization, returning
@@ -311,6 +314,15 @@ func authenticateAndAuthorize(
 		"auth_type", authType,
 		"request_id", params.pc.RequestID,
 	)
+
+	// Resolve and enforce the explicit session handle (#792). This runs after
+	// authentication (so pc.UserID is available for the same-identity check),
+	// updates pc.SessionID to the validated handle, strips the session_id
+	// argument before the handler sees it, and short-circuits a handle-less
+	// gated call with SESSION_REQUIRED before it is recorded or executed.
+	if errResult := params.sessionResolver.resolve(ctx, req, params.pc, params.toolName); errResult != nil {
+		return errResult, nil
+	}
 
 	// Record tool call for workflow tracking (after successful auth, so the
 	// user identity is resolved). Keyed on DiscoveryScopeKey (user-first), not
