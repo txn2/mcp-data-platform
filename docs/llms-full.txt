@@ -1703,6 +1703,7 @@ knowledge:
 | `knowledge.apply.datahub_connection` | string | - | DataHub instance name for write-back operations |
 | `knowledge.apply.require_confirmation` | bool | `false` | When true, the `apply` action requires `confirm: true` in the request |
 | `knowledge.reflexive_capture.enabled` | bool | `true` | Auto-capture a "misconception + fix" correction (source `automation`, reviewed sink-class) when a Trino query errors and a later same-session query over the same table(s) succeeds (#635). Default-on when the memory subsystem is available; set `false` to disable |
+| `knowledge.search_provider_timeout` | duration | `5s` | Per-provider deadline for the `search` fan-out and the intent embedding, so one slow knowledge source drops out as a collected error rather than stalling the whole search. Set a negative duration to disable the bound. |
 
 Prerequisites: `database.dsn` must be configured. The `apply_knowledge` tool requires the admin persona.
 
