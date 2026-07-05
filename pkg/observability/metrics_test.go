@@ -26,6 +26,7 @@ func TestNewDisabledReturnsNoOpRecorder(t *testing.T) {
 	m.IncInflightToolCalls(context.Background())
 	m.DecInflightToolCalls(context.Background())
 	m.RecordAPIGatewayOutbound(context.Background(), APIGatewayAttrs{}, time.Millisecond)
+	m.RecordSessionResolution(context.Background(), "none")
 
 	if got := m.Enabled(); got {
 		t.Errorf("Enabled() on nil = %v, want false", got)
@@ -65,6 +66,8 @@ func TestNewEnabledRecordsAllInstruments(t *testing.T) {
 	m.RecordAPIGatewayOutbound(ctx, APIGatewayAttrs{
 		Connection: "primary", HTTPStatusClass: StatusClass5xx, StatusCategory: StatusUpstreamErr,
 	}, 1200*time.Millisecond)
+	m.RecordSessionResolution(ctx, "explicit")
+	m.RecordSessionResolution(ctx, "transport")
 
 	body := scrapeMetrics(t, m.Handler())
 
@@ -81,6 +84,9 @@ func TestNewEnabledRecordsAllInstruments(t *testing.T) {
 		`http_status_class="2xx"`,
 		`http_status_class="5xx"`,
 		"apigateway_outbound_duration_seconds",
+		"mcp_session_resolution_total",
+		`source="explicit"`,
+		`source="transport"`,
 		// Go runtime collectors registered by New.
 		"go_goroutines",
 		"process_cpu_seconds_total",

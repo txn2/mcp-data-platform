@@ -580,8 +580,13 @@ Requires `database.dsn`. With a database available and no `audit:` block, both a
 | `sessions.store` | string | `memory` | Backend: `memory` or `database` |
 | `sessions.ttl` | duration | streamable session_timeout | Session lifetime |
 | `sessions.cleanup_interval` | duration | `1m` | Cleanup routine interval |
+| `sessions.handles.enabled` | bool | `true` | Explicit session handles (#792): platform_info mints a session_id the model threads on every subsequent tool call. Set false for legacy transport-session behavior. |
+| `sessions.handles.ttl` | duration | `8h` | Handle lifetime, refreshed on use |
+| `sessions.handles.require` | bool | `true` | Refuse a call with neither a valid handle nor a legacy transport session (SESSION_REQUIRED) |
 
 The `database` store requires `database.dsn`. Database-backed sessions survive restarts and support multi-replica deployments.
+
+Explicit session handles (`sessions.handles`, issue #792) adopt the pattern the MCP 2026-07-28 release candidate recommends after removing the `Mcp-Session-Id` header (SEP-2567): `platform_info` mints a `session_id`, every tool advertises it as an input argument (except `platform_info`), and `MCPToolCallMiddleware` validates it against the session store (must exist, be unexpired, and belong to the same authenticated identity), adopts it onto `PlatformContext.SessionID`, and strips it before the handler runs. This makes `platform_info` structurally unskippable and gives audit and provenance a deliberate session key. Unknown/expired/cross-identity handles are refused with `SESSION_EXPIRED`; a missing handle (with no legacy transport session and `require: true`) with `SESSION_REQUIRED`. The `mcp_session_resolution_total{source}` metric tracks migration from transport sessions to explicit handles.
 
 ## Toolkit Configuration
 
