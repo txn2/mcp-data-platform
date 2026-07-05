@@ -836,8 +836,8 @@ Manages the lifecycle of existing persistent memory. Create new memory with `mem
 | `entity_urns` | string[] | No | DataHub entity URNs this memory relates to (max 10) |
 | `metadata` | object | No | Arbitrary metadata (e.g., `suggested_actions`, `superseded_by`) |
 | `filter_*` | string | No | Filters for `list`: `filter_dimension`, `filter_category`, `filter_status`, `filter_entity_urn` |
-| `limit` | int | No | Page size for `list` (default 20, max 100) |
-| `offset` | int | No | Pagination offset for `list` |
+| `limit` | int | No | Page size for `list` (default 20, max 100); also caps `review_duplicates` pairs (may hold fewer when the byte budget hits, `more_pairs=true`) |
+| `offset` | int | No | Pagination offset for `list` (not used by `review_duplicates`) |
 
 !!! note "Memory recall moved to `search`"
     Reading memory back (relevance, entity lookup, and lineage/graph traversal)

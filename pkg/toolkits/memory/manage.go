@@ -225,6 +225,16 @@ func (t *Toolkit) handleReviewStale(ctx context.Context, input manageInput) (*mc
 // consolidate/update/forget enforce, keeping every listed pair actionable.
 // The similarity floor is the capture-time suggest threshold: the backstop
 // exists precisely for pairs below the auto-supersede bar.
+//
+// The listing is summary-first and byte-bounded (#783): each pair is a bounded
+// preview, not the two full records, and the response never exceeds
+// duplicatePairBudgetBytes. The agent reads a record in full with fetch
+// mcp:memory:<id> or memory_manage list before consolidating. It is not
+// offset-paginated — the candidate set shrinks from the top as pairs are
+// consolidated, so the correct pagination is to consolidate the surfaced pairs
+// and re-run (which always re-presents the current highest-similarity pairs);
+// more_pairs signals when the byte budget or the requested limit hid lower-scored
+// pairs. See the package comment in duplicates.go for the full rationale.
 func (t *Toolkit) handleReviewDuplicates(ctx context.Context, input manageInput) (*mcp.CallToolResult, any, error) {
 	finder, ok := t.store.(memstore.DuplicateFinder)
 	if !ok {
@@ -235,17 +245,49 @@ func (t *Toolkit) handleReviewDuplicates(ctx context.Context, input manageInput)
 		return errorResult("a user identity (email) is required to review duplicates"), nil, nil
 	}
 
-	pairs, err := finder.SimilarActivePairs(ctx, pc.UserEmail, recallSuggestThreshold, input.Limit)
+	// Over-fetch by one so an exactly-full page can be distinguished from a
+	// truncated one: len(pairs) > want means at least one more pair exists beyond
+	// the requested limit. want is capped at maxDuplicatePageSize (one below the
+	// store's MaxLimit), so want+1 never exceeds MaxLimit and the store never
+	// clamps the probe away — the more-by-count check is reliable at every page
+	// size, including the ceiling.
+	want := effectiveDuplicateLimit(input.Limit)
+	pairs, err := finder.SimilarActivePairs(ctx, pc.UserEmail, recallSuggestThreshold, want+1)
 	if err != nil {
 		return errorResult("failed to list duplicate candidates: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
 	}
+	moreByLimit := len(pairs) > want
+	if moreByLimit {
+		pairs = pairs[:want]
+	}
 
-	return jsonResult(map[string]any{
-		"pairs": pairs,
-		"total": len(pairs),
-		fieldMessage: fmt.Sprintf("%d high-similarity active pair(s) found. To consolidate a pair, use"+
-			" command=consolidate with id (the record to keep) and duplicate_id (the record it supersedes).", len(pairs)),
-	}), nil, nil
+	summaries, budgetCapped := budgetSummaries(pairs, duplicatePairBudgetBytes)
+	more := moreByLimit || budgetCapped
+	result := map[string]any{
+		"pairs":      summaries,
+		"total":      len(summaries),
+		fieldMessage: reviewDuplicatesMessage(len(summaries), more),
+	}
+	if more {
+		// The byte budget or the requested limit hid lower-scored pairs.
+		// Consolidate the shown pairs and re-run to surface the rest.
+		result["more_pairs"] = true
+	}
+	return jsonResult(result), nil, nil
+}
+
+// reviewDuplicatesMessage builds the review_duplicates guidance: the always-on
+// preview/consolidate instructions, plus a re-run nudge when more pairs were
+// hidden by the byte budget or the page limit.
+func reviewDuplicatesMessage(shown int, more bool) string {
+	const base = " Each side is a bounded preview; read the full record with fetch mcp:memory:<id>" +
+		" or memory_manage list before consolidating. To consolidate a pair, use command=consolidate" +
+		" with id (the record to keep) and duplicate_id (the record it supersedes)."
+	if more {
+		return fmt.Sprintf("Showing the %d highest-similarity active pair(s); more remain.%s"+
+			" Consolidate these and re-run review_duplicates to surface the rest.", shown, base)
+	}
+	return fmt.Sprintf("%d high-similarity active pair(s) found.%s", shown, base)
 }
 
 // handleConsolidate supersedes a duplicate record by the record being kept,

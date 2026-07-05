@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -817,15 +818,22 @@ type duplicateFinderStore struct {
 
 func (d *duplicateFinderStore) SimilarActivePairs(_ context.Context, createdBy string, minScore float64, limit int) ([]memstore.SimilarPair, error) {
 	d.gotCreatedBy, d.gotMinScore, d.gotLimit = createdBy, minScore, limit
-	return d.pairs, d.pairsErr
+	if d.pairsErr != nil {
+		return nil, d.pairsErr
+	}
+	// Mirror the real store's SQL LIMIT: never return more than requested.
+	if limit > 0 && len(d.pairs) > limit {
+		return d.pairs[:limit], nil
+	}
+	return d.pairs, nil
 }
 
 func TestHandleReviewDuplicates_ReturnsPairs(t *testing.T) {
 	t.Parallel()
 
 	store := &duplicateFinderStore{pairs: []memstore.SimilarPair{{
-		Older: memstore.Record{ID: "dup-old"},
-		Newer: memstore.Record{ID: "dup-new"},
+		Older: memstore.Record{ID: "dup-old", CreatedBy: "user@example.com", Status: memstore.StatusActive, Content: "older content"},
+		Newer: memstore.Record{ID: "dup-new", CreatedBy: "user@example.com", Status: memstore.StatusActive, Content: "newer content"},
 		Score: 0.96,
 	}}}
 	tk := newTestToolkit(store, nil)
@@ -842,10 +850,26 @@ func TestHandleReviewDuplicates_ReturnsPairs(t *testing.T) {
 	// The listing floor is the capture-time suggest threshold: the backstop
 	// exists for pairs below the auto-supersede bar.
 	assert.Equal(t, recallSuggestThreshold, store.gotMinScore)
-	assert.Equal(t, 7, store.gotLimit)
+	// The fetch over-fetches by one past the requested limit (#783) so an
+	// exactly-full page can be told apart from a truncated one.
+	assert.Equal(t, 8, store.gotLimit)
+	// One pair, well under the limit and budget: no more_pairs signal.
+	assert.NotContains(t, data, "more_pairs")
 	pairs, ok := data["pairs"].([]any)
 	require.True(t, ok)
 	require.Len(t, pairs, 1)
+	// The pair is a summary, not the two full records: preview + score, no
+	// embedding/metadata payload (#783).
+	pair, ok := pairs[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, 0.96, pair["score"])
+	older, ok := pair["older"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "dup-old", older["id"])
+	assert.Equal(t, "older content", older["content_preview"])
+	assert.NotContains(t, older, "embedding")
+	assert.NotContains(t, older, "metadata")
+	assert.NotContains(t, older, "content")
 }
 
 func TestHandleReviewDuplicates_RequiresIdentity(t *testing.T) {
@@ -883,6 +907,183 @@ func TestHandleReviewDuplicates_FinderError(t *testing.T) {
 	require.True(t, result.IsError)
 	data := extractJSON(t, result)
 	assert.Contains(t, data["error"], "failed to list duplicate candidates")
+}
+
+// bigPairs builds n candidate pairs whose per-side content is large, ordered
+// highest-similarity first, so the byte-budget path can be exercised.
+func bigPairs(n int) []memstore.SimilarPair {
+	pairs := make([]memstore.SimilarPair, n)
+	for i := range pairs {
+		content := strings.Repeat("x", 4000)
+		pairs[i] = memstore.SimilarPair{
+			Older: memstore.Record{ID: fmt.Sprintf("old-%d", i), CreatedBy: "user@example.com", Status: memstore.StatusActive, Content: content},
+			Newer: memstore.Record{ID: fmt.Sprintf("new-%d", i), CreatedBy: "user@example.com", Status: memstore.StatusActive, Content: content},
+			Score: 0.99 - float64(i)/1000,
+		}
+	}
+	return pairs
+}
+
+func TestHandleReviewDuplicates_ByteBudgetTruncates(t *testing.T) {
+	t.Parallel()
+
+	// 80 pairs at the max page size: even bounded to previewMaxLen per side, a
+	// response of 80 would exceed duplicatePairBudgetBytes, so the byte budget
+	// must truncate below the requested limit and set more_pairs.
+	store := &duplicateFinderStore{pairs: bigPairs(80)}
+	tk := newTestToolkit(store, nil)
+
+	result, _, err := tk.handleManage(ctxWithPC("user@example.com", "analyst"), nil,
+		manageInput{Command: "review_duplicates", Limit: 100})
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	data := extractJSON(t, result)
+
+	assert.Equal(t, true, data["more_pairs"])
+	pairs, ok := data["pairs"].([]any)
+	require.True(t, ok)
+	assert.Less(t, len(pairs), 80, "byte budget must truncate below the requested limit")
+	assert.NotEmpty(t, pairs, "at least one pair must be returned")
+	assert.Equal(t, float64(len(pairs)), data["total"], "total reports the number of pairs shown")
+	assert.Contains(t, data["message"], "re-run")
+
+	// The response stays bounded regardless of individual content length: this is
+	// the whole point of #783 (the full-record shape overran the client budget).
+	tc, ok := result.Content[0].(*mcp.TextContent)
+	require.True(t, ok)
+	assert.Less(t, len(tc.Text), duplicatePairBudgetBytes+4096)
+}
+
+func TestHandleReviewDuplicates_MoreByLimit(t *testing.T) {
+	t.Parallel()
+
+	// 10 candidates but only 5 requested: the over-fetch (6) sees more than the
+	// page, so more_pairs is set and exactly 5 are shown.
+	store := &duplicateFinderStore{pairs: bigPairs(10)}
+	tk := newTestToolkit(store, nil)
+
+	result, _, err := tk.handleManage(ctxWithPC("user@example.com", "analyst"), nil,
+		manageInput{Command: "review_duplicates", Limit: 5})
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	data := extractJSON(t, result)
+
+	assert.Equal(t, float64(5), data["total"])
+	assert.Equal(t, true, data["more_pairs"])
+	// Over-fetch by one past the requested limit.
+	assert.Equal(t, 6, store.gotLimit)
+	pairs, ok := data["pairs"].([]any)
+	require.True(t, ok)
+	require.Len(t, pairs, 5)
+}
+
+// TestHandleReviewDuplicates_ExactLimitNoFalseMore guards the review's finding
+// that a false "more exist" signal must not fire when the candidate set is
+// exactly the page size and nothing more exists (#783). The over-fetch by one
+// returns no extra pair, so more_pairs must be absent.
+func TestHandleReviewDuplicates_ExactLimitNoFalseMore(t *testing.T) {
+	t.Parallel()
+
+	store := &duplicateFinderStore{pairs: bigPairs(5)}
+	tk := newTestToolkit(store, nil)
+
+	result, _, err := tk.handleManage(ctxWithPC("user@example.com", "analyst"), nil,
+		manageInput{Command: "review_duplicates", Limit: 5})
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	data := extractJSON(t, result)
+
+	assert.Equal(t, float64(5), data["total"])
+	assert.NotContains(t, data, "more_pairs", "exactly-limit pairs with none beyond must not claim more exist")
+}
+
+// shortPairs builds n pairs with short content, so a page of them fits the byte
+// budget and truncation, if any, comes from the page-count probe rather than the
+// budget.
+func shortPairs(n int) []memstore.SimilarPair {
+	pairs := make([]memstore.SimilarPair, n)
+	for i := range pairs {
+		pairs[i] = memstore.SimilarPair{
+			Older: memstore.Record{ID: fmt.Sprintf("old-%d", i), CreatedBy: "user@example.com", Status: memstore.StatusActive, Content: "a"},
+			Newer: memstore.Record{ID: fmt.Sprintf("new-%d", i), CreatedBy: "user@example.com", Status: memstore.StatusActive, Content: "b"},
+			Score: 0.99 - float64(i)/1000,
+		}
+	}
+	return pairs
+}
+
+// TestHandleReviewDuplicates_CeilingSignalsMore guards the review's finding that
+// a >MaxLimit backlog must not be reported as complete at the top page size
+// (#783). With the page capped one below the store's MaxLimit, the over-fetch
+// probe detects the excess by count even when the pairs are short enough to fit
+// the byte budget, so more_pairs is set.
+func TestHandleReviewDuplicates_CeilingSignalsMore(t *testing.T) {
+	t.Parallel()
+
+	// The store holds the full MaxLimit of pairs (a proxy for "at least this
+	// many"); short content means the byte budget does not truncate.
+	store := &duplicateFinderStore{pairs: shortPairs(memstore.MaxLimit)}
+	tk := newTestToolkit(store, nil)
+
+	result, _, err := tk.handleManage(ctxWithPC("user@example.com", "analyst"), nil,
+		manageInput{Command: "review_duplicates", Limit: memstore.MaxLimit})
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	data := extractJSON(t, result)
+
+	// Over-fetch is one past the capped page, still within the store's MaxLimit.
+	assert.Equal(t, maxDuplicatePageSize+1, store.gotLimit)
+	assert.Equal(t, true, data["more_pairs"], "a full-ceiling backlog must signal more, not report complete")
+	pairs, ok := data["pairs"].([]any)
+	require.True(t, ok)
+	assert.LessOrEqual(t, len(pairs), maxDuplicatePageSize)
+	assert.NotEmpty(t, pairs)
+}
+
+func TestHandleReviewDuplicates_NoPairs(t *testing.T) {
+	t.Parallel()
+
+	store := &duplicateFinderStore{pairs: nil}
+	tk := newTestToolkit(store, nil)
+
+	result, _, err := tk.handleManage(ctxWithPC("user@example.com", "analyst"), nil,
+		manageInput{Command: "review_duplicates"})
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	data := extractJSON(t, result)
+	assert.Equal(t, float64(0), data["total"])
+	assert.NotContains(t, data, "more_pairs")
+	pairs, ok := data["pairs"].([]any)
+	require.True(t, ok)
+	assert.Empty(t, pairs)
+}
+
+func TestHandleReviewDuplicates_PreviewTruncated(t *testing.T) {
+	t.Parallel()
+
+	long := strings.Repeat("a", previewMaxLen+50)
+	store := &duplicateFinderStore{pairs: []memstore.SimilarPair{{
+		Older: memstore.Record{ID: "o", CreatedBy: "user@example.com", Status: memstore.StatusActive, Content: long},
+		Newer: memstore.Record{ID: "n", CreatedBy: "user@example.com", Status: memstore.StatusActive, Content: "short"},
+		Score: 0.9,
+	}}}
+	tk := newTestToolkit(store, nil)
+
+	result, _, err := tk.handleManage(ctxWithPC("user@example.com", "analyst"), nil,
+		manageInput{Command: "review_duplicates"})
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	data := extractJSON(t, result)
+	pairs, ok := data["pairs"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, pairs)
+	pair, ok := pairs[0].(map[string]any)
+	require.True(t, ok)
+	older, ok := pair["older"].(map[string]any)
+	require.True(t, ok)
+	preview, ok := older["content_preview"].(string)
+	require.True(t, ok)
+	assert.Equal(t, strings.Repeat("a", previewMaxLen)+"...", preview)
 }
 
 func TestHandleConsolidate_SupersedesDuplicate(t *testing.T) {
