@@ -58,11 +58,11 @@ var memoryManageSchema = json.RawMessage(`{
     },
     "limit": {
       "type": "integer",
-      "description": "Page size for 'list' (default 20, max 100)."
+      "description": "Page size for 'list' (default 20, max 100). Also caps the number of pairs 'review_duplicates' returns; that response may hold fewer when the output byte budget is hit (more_pairs=true), so consolidate the shown pairs and re-run to surface the rest."
     },
     "offset": {
       "type": "integer",
-      "description": "Offset for pagination in 'list'."
+      "description": "Offset for pagination in 'list'. Not used by 'review_duplicates', which shows the current highest-similarity pairs and is paged by consolidate-and-re-run."
     }
   }
 }`)

@@ -1501,6 +1501,8 @@ Persistent memory for agent and analyst sessions. Requires `memory.enabled: true
 
 Lifecycle operations for existing memory records; create new records with `memory_capture`. Commands: `update`, `forget` (soft-delete), `list` (persona-scoped), `review_stale` (admin review of stale memories), `review_duplicates` (list the caller's own active pairs at or above 0.75 cosine similarity, the backstop for near-duplicates the capture-time recall gate missed; requires the database-backed store with vector search), `consolidate` (supersede a duplicate by the record kept: `id` = keep, `duplicate_id` = supersede; both must belong to the caller, the record kept must be active, and the correction chain is preserved via `metadata.superseded_by`).
 
+`review_duplicates` is summary-first and byte-bounded: each pair returns ids, `score`, `status`, timestamps, owner, and a bounded `content_preview` (first ~200 characters per side), not the two full records, so its listing never overruns the MCP output budget. It is not offset-paginated: the candidate set is score-ordered and shrinks from the top as pairs are consolidated, so offset paging would skip pairs; instead it returns the current highest-similarity pairs (at most `limit`, default 20) and sets `more_pairs: true` when the byte budget or the page limit hid lower-scored pairs. The pagination is the review loop itself: consolidate the surfaced pairs and re-run to surface the rest. Read a record in full with `fetch mcp:memory:<id>` or `memory_manage list` before consolidating.
+
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `command` | string | No | update, forget, list, review_stale, review_duplicates, consolidate (create with memory_capture) |
@@ -1511,6 +1513,8 @@ Lifecycle operations for existing memory records; create new records with `memor
 | `confidence` | string | No | high, medium, low |
 | `entity_urns` | array | No | DataHub URNs (max 10) |
 | `metadata` | object | No | Arbitrary metadata |
+| `limit` | integer | No | Page size for list (default 20, max 100); also caps review_duplicates pairs (which may hold fewer when the byte budget hits, more_pairs=true) |
+| `offset` | integer | No | Pagination offset for list (not used by review_duplicates) |
 
 ### Reading memory back
 
