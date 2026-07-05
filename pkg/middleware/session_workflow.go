@@ -41,11 +41,14 @@ var DefaultQueryTools = []string{
 const defaultWorkflowSessionTimeout = 30 * time.Minute
 
 // SessionWorkflowTracker tracks whether agents perform discovery before
-// querying, per session. The shared searchgate.Store is the single source of
-// truth so the signal is consistent across replicas (#789): the tracker never
-// holds a replica-local "discovered" bit that could diverge from it. Discovery
-// reads consult the store; an active session's record is slid forward on any
-// tool activity (store writes throttled per slideEvery) so a long session is not
+// querying, per discovery scope. The scope key is chosen by the caller via
+// PlatformContext.DiscoveryScopeKey (the authenticated user when known, else the
+// session ID), so the signal survives clients that open a fresh MCP session for
+// every tool call. The shared searchgate.Store is the single source of truth so
+// the signal is consistent across replicas (#789): the tracker never holds a
+// replica-local "discovered" bit that could diverge from it. Discovery reads
+// consult the store; an active scope's record is slid forward on any tool
+// activity (store writes throttled per slideEvery) so a long session is not
 // re-gated mid-workflow. It is safe for concurrent use.
 //
 // Two costs are inherent to backing the signal with a shared store rather than a
@@ -62,9 +65,10 @@ type SessionWorkflowTracker struct {
 
 	store      searchgate.Store
 	slideEvery time.Duration
+	recordTTL  time.Duration // lifetime of a shared discovery record (= store TTL)
 
 	mu        sync.RWMutex
-	lastSlide map[string]time.Time // per-session throttle for store writes
+	lastSlide map[string]time.Time // per-scope throttle for store writes
 
 	done     chan struct{}
 	stopOnce sync.Once
@@ -104,73 +108,114 @@ func NewSessionWorkflowTracker(discoveryTools, queryTools []string, store search
 		// Refresh the shared record at least twice per session-timeout window so
 		// an active session's record never lapses before the next slide.
 		slideEvery: sessionTimeout / 2,
-		lastSlide:  make(map[string]time.Time),
-		done:       make(chan struct{}),
+		// The store is created with this same timeout as its TTL, so a throttle
+		// stamp older than recordTTL implies the shared record has expired.
+		recordTTL: sessionTimeout,
+		lastSlide: make(map[string]time.Time),
+		done:      make(chan struct{}),
 	}
 }
 
-// RecordToolCall records a tool invocation for the session. A discovery tool
+// RecordToolCall records a tool invocation for the scope. A discovery tool
 // records/refreshes discovery in the shared store. Any other tool call by a
-// session this replica already knows has discovered slides the record forward
+// scope this replica already knows has discovered slides the record forward
 // (throttled), so continuous activity of any kind keeps the gate open for the
-// life of the session rather than only query activity.
-func (t *SessionWorkflowTracker) RecordToolCall(ctx context.Context, sessionID, toolName string) {
+// life of the session rather than only query activity. An empty scopeKey (an
+// unauthenticated caller with no session) is untrackable and is ignored.
+func (t *SessionWorkflowTracker) RecordToolCall(ctx context.Context, scopeKey, toolName string) {
+	if scopeKey == "" {
+		return
+	}
 	switch {
 	case t.discoverySet[toolName]:
-		t.mark(ctx, sessionID, true) // a discovery call always (re)persists
-	case t.locallyKnownDiscovered(sessionID):
-		t.mark(ctx, sessionID, false) // other activity slides, throttled
+		t.mark(ctx, scopeKey, true) // a discovery call always (re)persists
+	case t.locallyKnownDiscovered(scopeKey):
+		t.mark(ctx, scopeKey, false) // other activity slides, throttled
 	}
 }
 
 // HasPerformedDiscovery returns true if a discovery tool has been called in the
-// session. The shared store is authoritative. On a positive result the record
-// is slid forward (throttled) so continuous query activity keeps the gate open.
-// On a store error it deliberately fails open (returns true): the gate is a
-// workflow quality guard, not a security boundary, so a database outage should
-// not wall off every query. The error is logged. (Note: a fail-open true also
-// suppresses the soft discovery note in appendDiscoveryNoteIfNeeded for the
-// outage; the nudge is non-essential and returns once the store recovers.)
-func (t *SessionWorkflowTracker) HasPerformedDiscovery(ctx context.Context, sessionID string) bool {
-	ok, err := t.store.HasDiscovered(ctx, sessionID)
+// scope. The shared store is authoritative. On a positive result the record is
+// slid forward (throttled) so continuous query activity keeps the gate open.
+//
+// The gate decision follows the read: it fails open (returns true) only when it
+// cannot read a definitive answer, never on a write problem (failing open on a
+// write error would let one caller's transient write blip open the gate for
+// others). Two fail-open cases, both deliberate — the gate is a workflow quality
+// guard, not a security boundary:
+//   - Empty scopeKey (an unauthenticated caller with no session): there is no
+//     stable identity to track discovery against.
+//   - Store read error: a total database outage should not block every query.
+//
+// A store WRITE outage (reads succeed, writes fail) is handled fail-closed: the
+// discovery simply does not persist, so the read returns false and the caller
+// is gated (SEARCH_REQUIRED) until writes recover. That is the safe direction —
+// it never bypasses the gate — and a forced discovery write always re-attempts
+// on the next search (see mark).
+//
+// Either fail-open true also suppresses the soft discovery note in
+// appendDiscoveryNoteIfNeeded: an empty-scope or read-degraded caller gets no
+// nudge. The nudge is non-essential and returns once a real scope discovers or
+// the store recovers.
+func (t *SessionWorkflowTracker) HasPerformedDiscovery(ctx context.Context, scopeKey string) bool {
+	if scopeKey == "" {
+		return true
+	}
+	ok, err := t.store.HasDiscovered(ctx, scopeKey)
 	if err != nil {
 		slog.Warn("search gate: discovery check failed; allowing the call (fail-open)",
-			"error", err, "session_id", sessionID)
+			"error", err, "scope_key", scopeKey)
 		return true
 	}
 	if ok {
-		t.mark(ctx, sessionID, false) // slide the shared TTL on active use (throttled)
+		t.mark(ctx, scopeKey, false) // slide the shared TTL on active use (throttled)
 	}
 	return ok
 }
 
-// locallyKnownDiscovered reports whether this replica has already recorded or
-// confirmed discovery for the session (a cheap read used to decide whether a
+// locallyKnownDiscovered reports whether this replica has recently recorded or
+// confirmed discovery for the scope (a cheap read used to decide whether a
 // non-discovery tool call should slide the shared record).
-func (t *SessionWorkflowTracker) locallyKnownDiscovered(sessionID string) bool {
+//
+// It requires the throttle stamp to be younger than recordTTL. A stamp older
+// than the record's lifetime means the shared record has already expired, so
+// treating the scope as "known" would let a non-discovery slide RESURRECT the
+// expired record (mark upserts), opening the gate for a query that should be
+// re-gated after inactivity — and only on the replica that still holds the stale
+// stamp, reintroducing the cross-replica divergence #789 removed. The stamp is
+// otherwise cleaned lazily (evictStaleThrottle), which can lag; this check makes
+// the decision exact.
+func (t *SessionWorkflowTracker) locallyKnownDiscovered(scopeKey string) bool {
 	t.mu.RLock()
-	_, ok := t.lastSlide[sessionID]
+	last, ok := t.lastSlide[scopeKey]
 	t.mu.RUnlock()
-	return ok
+	return ok && time.Since(last) < t.recordTTL
 }
 
-// mark records or extends the session's discovery in the shared store. A
+// mark records or extends the scope's discovery in the shared store. A
 // force=true call (a discovery tool, or a retry after a gated query) always
-// writes, so a failed discovery write is re-attempted the next time the agent
-// calls search — a failed write therefore degrades to at most one repeated
-// SEARCH_REQUIRED, never a permanent or cross-replica-inconsistent block.
-// force=false calls (activity slides) are throttled to at most once per
-// slideEvery, and a failed slide is NOT retried until the next window: this
-// keeps the gate from hammering an unhealthy database with a write on every
-// query when writes fail but reads still succeed.
-func (t *SessionWorkflowTracker) mark(ctx context.Context, sessionID string, force bool) {
+// attempts the write, so a failed discovery write is re-attempted the next time
+// the agent calls search. force=false calls (activity slides) are throttled to
+// at most once per slideEvery, and a failed slide is not retried until the next
+// window: this keeps the gate from hammering an unhealthy database with a write
+// on every query when writes fail but reads still succeed.
+//
+// If the store's writes are failing (reads still succeeding), a discovery write
+// does not persist, so HasPerformedDiscovery reads false and the caller is gated
+// (SEARCH_REQUIRED) until writes recover. That is deliberate fail-closed
+// behavior: the gate is a workflow guard, and failing open on a write error
+// would let one caller's transient write blip open the gate for every other
+// caller. During a sustained write outage that blocks otherwise-workable
+// queries; operators who need queries during a store-write outage can disable
+// the gate (workflow.require_search: false).
+func (t *SessionWorkflowTracker) mark(ctx context.Context, scopeKey string, force bool) {
 	now := time.Now()
 
 	t.mu.Lock()
-	last, seen := t.lastSlide[sessionID]
+	last, seen := t.lastSlide[scopeKey]
 	due := force || !seen || now.Sub(last) >= t.slideEvery
 	if due {
-		t.lastSlide[sessionID] = now
+		t.lastSlide[scopeKey] = now
 	}
 	t.mu.Unlock()
 
@@ -178,9 +223,9 @@ func (t *SessionWorkflowTracker) mark(ctx context.Context, sessionID string, for
 		return
 	}
 
-	if err := t.store.MarkDiscovered(ctx, sessionID); err != nil {
+	if err := t.store.MarkDiscovered(ctx, scopeKey); err != nil {
 		slog.Warn("search gate: failed to persist discovery",
-			"error", err, "session_id", sessionID, "forced", force)
+			"error", err, "scope_key", scopeKey, "forced", force)
 	}
 }
 

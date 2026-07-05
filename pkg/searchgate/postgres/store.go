@@ -1,5 +1,12 @@
 // Package postgres provides a PostgreSQL-backed searchgate.Store so the
-// search-first gate's per-session discovery signal is shared across replicas.
+// search-first gate's discovery signal is shared across replicas.
+//
+// The backing table's key column is named session_id for historical reasons
+// (migration 000077), but it holds an opaque discovery scope key, not
+// necessarily a session ID: the middleware keys discovery on the authenticated
+// user when known (see middleware.PlatformContext.DiscoveryScopeKey). Do not add
+// session-specific logic (a foreign key to sessions, a per-session join) on the
+// strength of the column name.
 package postgres
 
 import (
@@ -21,8 +28,9 @@ func New(db *sql.DB, ttl time.Duration) *Store {
 	return &Store{db: db, ttl: ttl}
 }
 
-// MarkDiscovered records discovery for the session, upserting its expiry.
-func (s *Store) MarkDiscovered(ctx context.Context, sessionID string) error {
+// MarkDiscovered records discovery for the scope, upserting its expiry. The
+// scopeKey is stored in the session_id column (see the package doc).
+func (s *Store) MarkDiscovered(ctx context.Context, scopeKey string) error {
 	const q = `
 		INSERT INTO search_gate_discovery (session_id, discovered_at, expires_at)
 		VALUES ($1, now(), now() + $2::interval)
@@ -30,20 +38,20 @@ func (s *Store) MarkDiscovered(ctx context.Context, sessionID string) error {
 			discovered_at = EXCLUDED.discovered_at,
 			expires_at = EXCLUDED.expires_at
 	`
-	if _, err := s.db.ExecContext(ctx, q, sessionID, intervalString(s.ttl)); err != nil {
+	if _, err := s.db.ExecContext(ctx, q, scopeKey, intervalString(s.ttl)); err != nil {
 		return fmt.Errorf("marking discovery: %w", err)
 	}
 	return nil
 }
 
-// HasDiscovered reports whether the session has a non-expired discovery record.
-func (s *Store) HasDiscovered(ctx context.Context, sessionID string) (bool, error) {
+// HasDiscovered reports whether the scope has a non-expired discovery record.
+func (s *Store) HasDiscovered(ctx context.Context, scopeKey string) (bool, error) {
 	const q = `SELECT EXISTS (
 		SELECT 1 FROM search_gate_discovery
 		WHERE session_id = $1 AND expires_at > now()
 	)`
 	var exists bool
-	if err := s.db.QueryRowContext(ctx, q, sessionID).Scan(&exists); err != nil {
+	if err := s.db.QueryRowContext(ctx, q, scopeKey).Scan(&exists); err != nil {
 		return false, fmt.Errorf("checking discovery: %w", err)
 	}
 	return exists, nil

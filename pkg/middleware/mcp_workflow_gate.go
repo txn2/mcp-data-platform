@@ -50,8 +50,10 @@ func checkWorkflowGate(ctx context.Context, tracker *SessionWorkflowTracker, pc 
 	if !tracker.IsQueryTool(pc.ToolName) {
 		return nil
 	}
-	// Once discovery has happened in the session, the gate stays open.
-	if tracker.HasPerformedDiscovery(ctx, pc.SessionID) {
+	// Once discovery has happened in the scope, the gate stays open. The scope
+	// is user-first (see PlatformContext.DiscoveryScopeKey) so a client that
+	// opens a fresh session per tool call is not falsely re-gated.
+	if tracker.HasPerformedDiscovery(ctx, pc.DiscoveryScopeKey()) {
 		return nil
 	}
 

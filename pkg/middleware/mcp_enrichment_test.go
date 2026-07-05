@@ -424,11 +424,14 @@ func TestAppendDiscoveryNoteIfNeeded(t *testing.T) {
 
 	t.Run("discovery done skips note", func(t *testing.T) {
 		tracker := NewSessionWorkflowTracker(nil, nil, nil, 30*time.Minute)
-		tracker.RecordToolCall(context.Background(), "s1", "search")
 
 		pc := NewPlatformContext("req")
 		pc.SessionID = "s1"
 		pc.EnrichmentApplied = true
+
+		// Record discovery under the same scope key the real chain uses, so the
+		// note check (also keyed on DiscoveryScopeKey) sees it.
+		tracker.RecordToolCall(context.Background(), pc.DiscoveryScopeKey(), "search")
 
 		result := &mcp.CallToolResult{
 			Content: []mcp.Content{&mcp.TextContent{Text: "data"}},

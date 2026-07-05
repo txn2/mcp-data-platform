@@ -273,6 +273,7 @@ func authenticateAndAuthorize(
 		params.pc.UserEmail = userInfo.Email
 		params.pc.UserClaims = userInfo.Claims
 		params.pc.Roles = userInfo.Roles
+		params.pc.AuthType = userInfo.AuthType
 	}
 
 	authorized, personaName, reason := params.authorizer.IsAuthorized(ctx, params.pc.UserID, params.pc.Roles, params.toolName, params.pc.Connection)
@@ -311,9 +312,12 @@ func authenticateAndAuthorize(
 		"request_id", params.pc.RequestID,
 	)
 
-	// Record tool call for workflow tracking (after successful auth)
+	// Record tool call for workflow tracking (after successful auth, so the
+	// user identity is resolved). Keyed on DiscoveryScopeKey (user-first), not
+	// the raw session ID, so discovery survives clients that open a new session
+	// per tool call.
 	if params.workflowTracker != nil {
-		params.workflowTracker.RecordToolCall(ctx, params.pc.SessionID, params.toolName)
+		params.workflowTracker.RecordToolCall(ctx, params.pc.DiscoveryScopeKey(), params.toolName)
 	}
 
 	return next(ctx, method, req)
