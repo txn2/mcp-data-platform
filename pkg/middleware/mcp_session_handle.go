@@ -154,7 +154,23 @@ func (r *SessionResolver) resolve(ctx context.Context, req mcp.Request, pc *Plat
 	// session as a fallback) makes the requirement real for the exact clients the
 	// feature targets, and self-heals: a compliant caller sees SESSION_REQUIRED,
 	// calls platform_info, and threads the handle.
-	if r.require && !r.exempt[toolName] {
+	//
+	// Stateless in-memory shim callers are exempt (issue #811): the gateway HTTP
+	// shim (Source=rest — NiFi's InvokeHTTP, cronjobs, curl) and the admin
+	// "Call a tool" shim (Source=admin — the portal tool runner) both drive the
+	// same assembled server over a fresh in-memory MCP session per HTTP request.
+	// There is no platform_info call to mint a handle and no way to thread one
+	// across separate, independent HTTP requests, so the handle requirement — which
+	// exists to make MCP AGENTS thread a durable session identity — is inapplicable
+	// by construction to them. This is not an agent-reachable bypass: a real MCP
+	// transport call always resolves to Source=mcp (resolveSource's default), and
+	// the shim sources are set only in-process via middleware.WithSource on the
+	// server connection context (pkg/gatewayhttp, pkg/admin), which an external
+	// caller cannot inject. An unset/unknown source stays gated (fail closed). The
+	// authenticator, not the handle, remains the security boundary; shim callers
+	// still authenticate and remain subject to persona authorization, route policy,
+	// and audit.
+	if r.require && !r.exempt[toolName] && !isStatelessShimSource(pc.Source) {
 		r.recordMetric(ctx, sessionSourceNone)
 		slog.Warn("session handle: missing on gated tool call",
 			logKeyTool, toolName, logKeyUserID, pc.UserID)
@@ -232,6 +248,17 @@ func (r *SessionResolver) recordMetric(ctx context.Context, source string) {
 	if r.metric != nil {
 		r.metric(ctx, source)
 	}
+}
+
+// isStatelessShimSource reports whether an audit source belongs to one of the
+// stateless in-memory shims that drive the assembled server over a fresh
+// per-request MCP session (the gateway REST shim, Source=rest, and the admin
+// tool-runner shim, Source=admin). Such callers cannot perform the platform_info
+// session handshake, so they are exempt from the SESSION_REQUIRED gate (issue
+// #811). A real MCP-transport agent resolves to Source=mcp and is NOT exempt; an
+// unset/unknown source is likewise not exempt, so the gate fails closed.
+func isStatelessShimSource(source string) bool {
+	return source == SourceREST || source == SourceAdmin
 }
 
 // transportSource classifies a transport-derived session ID for the metric.

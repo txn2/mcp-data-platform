@@ -227,6 +227,57 @@ func TestSessionResolver_MissingHandleRequired(t *testing.T) {
 	}
 }
 
+// TestSessionResolver_StatelessShimSourcesBypassRequire proves issue #811's fix:
+// a call from a stateless in-memory shim (Source=rest, the gateway HTTP shim; or
+// Source=admin, the admin tool-runner shim) is not refused with SESSION_REQUIRED
+// even when require is on and no handle is presented, because those callers cannot
+// perform the platform_info handshake. A real MCP-transport call (Source=mcp), and
+// an unset/unknown source, are still refused so the gate stays real for agents and
+// fails closed.
+func TestSessionResolver_StatelessShimSourcesBypassRequire(t *testing.T) {
+	store := pkgsession.NewMemoryStore(time.Hour)
+	r := newResolver(store, true)
+
+	exempt := []struct {
+		name   string
+		source string
+	}{
+		{"rest gateway shim", SourceREST},
+		{"admin tool-runner shim", SourceAdmin},
+	}
+	for _, tc := range exempt {
+		t.Run("exempt/"+tc.name, func(t *testing.T) {
+			pc := NewPlatformContext("req")
+			pc.UserID = "user-1"
+			pc.SessionID = "" // no handle, no transport session
+			pc.Source = tc.source
+			req := makeCallReq("trino_query", map[string]any{"sql": "SELECT 1"})
+			if got := r.resolve(context.Background(), req, pc, "trino_query"); got != nil {
+				t.Fatalf("%s must bypass SESSION_REQUIRED, got code=%s", tc.name, errCode(t, got))
+			}
+		})
+	}
+
+	gated := []struct {
+		name   string
+		source string
+	}{
+		{"real MCP agent", SourceMCP},
+		{"unset source fails closed", ""},
+	}
+	for _, tc := range gated {
+		t.Run("gated/"+tc.name, func(t *testing.T) {
+			pc := NewPlatformContext("req")
+			pc.UserID = "user-1"
+			pc.SessionID = ""
+			pc.Source = tc.source
+			if got := r.resolve(context.Background(), makeCallReq("trino_query", nil), pc, "trino_query"); got == nil {
+				t.Fatalf("%s must still be refused with SESSION_REQUIRED", tc.name)
+			}
+		})
+	}
+}
+
 // TestSessionResolver_ExemptToolBypassesRequire proves an exempt tool (carried
 // from the legacy gate's exempt_tools) is reachable without a handle even when
 // require is on.

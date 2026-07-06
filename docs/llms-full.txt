@@ -2797,6 +2797,8 @@ POST /api/v1/gateway/{connection}/invoke
 
 Auth uses the same headers as every other REST surface on the platform (`Authorization: Bearer ...` or `X-API-Key: ...`). The request goes through an in-memory MCP session against the assembled server, so the authenticator, persona authorization, route-policy, and audit middleware all apply identically to MCP and REST callers — no auth or audit logic is forked. Persona allowlists for `api_invoke_endpoint` govern access; tool-error envelopes from the toolkit map to HTTP status codes (`401` for auth failure, `403` for not authorized, `404` for unknown connection, `400` for validation).
 
+The REST surface is exempt from the agent-oriented session-handle requirement (`session.require`): stateless automation callers (NiFi, cronjobs, `curl`) cannot mint or thread a `platform_info` `session_id`, so they are not refused with `SESSION_REQUIRED`. The exemption is scoped to the session handshake only; authentication, persona authorization, route policy, and audit still apply.
+
 Request body mirrors `InvokeInput` (the connection is taken from the URL):
 
 ```json
