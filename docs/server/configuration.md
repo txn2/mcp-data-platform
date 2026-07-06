@@ -717,6 +717,12 @@ enrichment:
   unwrap_json: true               # Auto-unwrap single-row VARCHAR-of-JSON (default: true)
   column_context_filtering: true     # Only include SQL-referenced columns (default: true)
 
+  # Memory-enrichment payload budget (issue #761): keeps recalled memories a
+  # supporting note rather than crowding out the analyzed data.
+  memory_limit: 5                    # Max memory records recalled per tool call (default: 5)
+  memory_context_budget_bytes: 1500  # Byte budget for rendered summaries; over-budget records become fetchable stubs; 0 disables (default: 1500)
+  memory_summary_bytes: 280          # Per-record summary excerpt cap; 0 = full content (default: 280)
+
   # Session metadata deduplication (avoids repeating metadata for same table)
   session_dedup:
     enabled: true             # Default: true
@@ -733,6 +739,9 @@ enrichment:
 | `datahub_storage_enrichment` | bool | `true` | Add S3 availability to DataHub results. Default on; set `false` to disable. |
 | `unwrap_json` | bool | `true` | Auto-unwrap single-row VARCHAR-of-JSON results |
 | `column_context_filtering` | bool | `true` | Limit column enrichment to SQL-referenced columns |
+| `memory_limit` | int | `5` | Max memory records recalled and rendered into `memory_context` per tool call |
+| `memory_context_budget_bytes` | int | `1500` | Byte budget for the rendered memory summaries; records beyond it are listed as compact `id`+`reference` stubs in `memory_context_omitted` (still fetchable, at least one always rendered). `0` disables the budget |
+| `memory_summary_bytes` | int | `280` | Per-record summary-first excerpt cap; the full record is fetchable via its `mcp:memory:<id>` reference. `0` renders full content |
 | `session_dedup.enabled` | bool | `true` | Whether session dedup is active |
 | `session_dedup.mode` | string | `reference` | Repeat query content: `reference`, `summary`, `none` |
 | `session_dedup.entry_ttl` | duration | semantic cache TTL | How long a table stays "already sent" |

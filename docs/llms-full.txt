@@ -267,6 +267,9 @@ enrichment:
   column_context_filtering: true   # Only enrich columns referenced in SQL (default: true)
   semantic_fallback: false         # Fallback to similarity search on URN miss (default: false, issue #444)
   semantic_fallback_top_k: 1       # Suggested matches per miss (default: 1, max: 10)
+  memory_limit: 5                     # Max memory records recalled per tool call (default: 5, issue #761)
+  memory_context_budget_bytes: 1500   # Byte budget for rendered summaries; over-budget records become fetchable stubs; 0 disables (default: 1500)
+  memory_summary_bytes: 280           # Per-record summary excerpt cap; 0 = full content (default: 280)
 ```
 
 ## Server Configuration
@@ -642,6 +645,9 @@ Explicit session handles (`sessions.handles`, issue #792) adopt the pattern the 
 | `schema_preview_max_columns` | int | 15 | Max columns per entity in schema preview |
 | `semantic_fallback` | bool | false | When a Trino-table URN lookup misses on the semantic provider, fall back to a similarity search and surface the top-K hits as SUGGESTED matches annotated with `match_kind: semantic`. Default off; operators opt in. Issue #444. |
 | `semantic_fallback_top_k` | int | 1 | Number of similarity-search hits surfaced per URN miss when `semantic_fallback` is on. Clamped to [1, 10]. |
+| `memory_limit` | int | 5 | Max memory records recalled and rendered into `memory_context` per tool call. Issue #761. |
+| `memory_context_budget_bytes` | int | 1500 | Byte budget for the rendered memory summaries; records beyond it are listed as compact `id`+`reference` stubs in `memory_context_omitted` (still fetchable, at least one always rendered). `0` disables the budget. |
+| `memory_summary_bytes` | int | 280 | Per-record summary-first excerpt cap; the full record is fetchable via its `mcp:memory:<id>` reference. `0` renders full content. |
 
 When `semantic_fallback` fires, the appended content carries `semantic_fallback.match_kind: semantic`, a human-readable note, the queried table identifier, and a list of suggested matches (urn, name, platform, description, tags, domain). The audit row's `enrichment_match_kind` column records `semantic` for these calls and `urn` for exact lookups, so operators can compute the false-positive rate of similarity-based suggestions with a SQL aggregate.
 
@@ -911,6 +917,7 @@ Metrics are enabled by default. Configuration is environment-only for Phase 1 to
 | `mcp_tool_calls_total` | counter | `tool`, `toolkit_kind`, `persona`, `status_category` |
 | `mcp_tool_call_duration_seconds` | histogram | `tool`, `toolkit_kind`, `persona`, `status_category` |
 | `mcp_inflight_tool_calls` | gauge | (none) |
+| `mcp_enrichment_bytes_total` | counter | `tool`, `toolkit_kind`, `persona` |
 | `apigateway_outbound_total` | counter | `connection`, `http_status_class`, `status_category` |
 | `apigateway_outbound_duration_seconds` | histogram | `connection`, `http_status_class`, `status_category` |
 | `apigateway_inbound_requests_total` | counter | `connection`, `operation_id`, `method`, `status_class`, `identity` |

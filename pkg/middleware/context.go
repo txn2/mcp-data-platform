@@ -81,6 +81,19 @@ type PlatformContext struct {
 	// enrichment ran. See pkg/audit.Event.EnrichmentMatchKind.
 	EnrichmentMatchKind string
 
+	// EnrichmentBytes is the total serialized size, in bytes, of ALL
+	// enrichment content blocks the middleware appended to this call's
+	// response (semantic context, memories, knowledge pages, discovery
+	// note). Read by the metrics middleware to record the per-response
+	// enrichment overhead (issue #761). Zero when nothing was appended.
+	//
+	// This is intentionally broader than EnrichmentApplied, which flags
+	// only the semantic/query/storage enrichment step: a call that appends
+	// memory context but no semantic context has EnrichmentBytes > 0 while
+	// EnrichmentApplied stays false. EnrichmentBytes answers "how much did
+	// enrichment cost the context window", not "did semantic enrichment run".
+	EnrichmentBytes int
+
 	// Results (populated after handler)
 	Success      bool
 	ErrorMessage string

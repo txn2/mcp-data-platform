@@ -1606,6 +1606,100 @@ enrichment:
 	})
 }
 
+func TestEnrichmentConfig_EffectiveMemoryLimit(t *testing.T) {
+	t.Run("nil defaults to 5", func(t *testing.T) {
+		cfg := &EnrichmentConfig{}
+		if cfg.EffectiveMemoryLimit() != defaultMemoryLimit {
+			t.Errorf("expected %d, got %d", defaultMemoryLimit, cfg.EffectiveMemoryLimit())
+		}
+	})
+	t.Run("non-positive floors to default", func(t *testing.T) {
+		v := 0
+		cfg := &EnrichmentConfig{MemoryLimit: &v}
+		if cfg.EffectiveMemoryLimit() != defaultMemoryLimit {
+			t.Errorf("expected %d, got %d", defaultMemoryLimit, cfg.EffectiveMemoryLimit())
+		}
+	})
+	t.Run("explicit value", func(t *testing.T) {
+		v := 12
+		cfg := &EnrichmentConfig{MemoryLimit: &v}
+		if cfg.EffectiveMemoryLimit() != 12 {
+			t.Errorf("expected 12, got %d", cfg.EffectiveMemoryLimit())
+		}
+	})
+	t.Run("YAML loading", func(t *testing.T) {
+		cfg := loadTestConfig(t, `
+server:
+  name: test-platform
+enrichment:
+  memory_limit: 3
+`)
+		if cfg.Enrichment.EffectiveMemoryLimit() != 3 {
+			t.Errorf("expected 3, got %d", cfg.Enrichment.EffectiveMemoryLimit())
+		}
+	})
+}
+
+func TestEnrichmentConfig_EffectiveMemoryContextBudgetBytes(t *testing.T) {
+	t.Run("nil defaults", func(t *testing.T) {
+		cfg := &EnrichmentConfig{}
+		if cfg.EffectiveMemoryContextBudgetBytes() != defaultMemoryContextBudgetBytes {
+			t.Errorf("expected %d, got %d", defaultMemoryContextBudgetBytes, cfg.EffectiveMemoryContextBudgetBytes())
+		}
+	})
+	t.Run("zero disables the budget", func(t *testing.T) {
+		v := 0
+		cfg := &EnrichmentConfig{MemoryContextBudgetBytes: &v}
+		if cfg.EffectiveMemoryContextBudgetBytes() != 0 {
+			t.Errorf("expected 0 (disabled), got %d", cfg.EffectiveMemoryContextBudgetBytes())
+		}
+	})
+	t.Run("negative falls back to default", func(t *testing.T) {
+		v := -10
+		cfg := &EnrichmentConfig{MemoryContextBudgetBytes: &v}
+		if cfg.EffectiveMemoryContextBudgetBytes() != defaultMemoryContextBudgetBytes {
+			t.Errorf("expected %d, got %d", defaultMemoryContextBudgetBytes, cfg.EffectiveMemoryContextBudgetBytes())
+		}
+	})
+	t.Run("explicit value", func(t *testing.T) {
+		v := 4096
+		cfg := &EnrichmentConfig{MemoryContextBudgetBytes: &v}
+		if cfg.EffectiveMemoryContextBudgetBytes() != 4096 {
+			t.Errorf("expected 4096, got %d", cfg.EffectiveMemoryContextBudgetBytes())
+		}
+	})
+}
+
+func TestEnrichmentConfig_EffectiveMemorySummaryBytes(t *testing.T) {
+	t.Run("nil defaults", func(t *testing.T) {
+		cfg := &EnrichmentConfig{}
+		if cfg.EffectiveMemorySummaryBytes() != defaultMemorySummaryBytes {
+			t.Errorf("expected %d, got %d", defaultMemorySummaryBytes, cfg.EffectiveMemorySummaryBytes())
+		}
+	})
+	t.Run("zero disables truncation", func(t *testing.T) {
+		v := 0
+		cfg := &EnrichmentConfig{MemorySummaryBytes: &v}
+		if cfg.EffectiveMemorySummaryBytes() != 0 {
+			t.Errorf("expected 0 (disabled), got %d", cfg.EffectiveMemorySummaryBytes())
+		}
+	})
+	t.Run("negative falls back to default", func(t *testing.T) {
+		v := -1
+		cfg := &EnrichmentConfig{MemorySummaryBytes: &v}
+		if cfg.EffectiveMemorySummaryBytes() != defaultMemorySummaryBytes {
+			t.Errorf("expected %d, got %d", defaultMemorySummaryBytes, cfg.EffectiveMemorySummaryBytes())
+		}
+	})
+	t.Run("explicit value", func(t *testing.T) {
+		v := 500
+		cfg := &EnrichmentConfig{MemorySummaryBytes: &v}
+		if cfg.EffectiveMemorySummaryBytes() != 500 {
+			t.Errorf("expected 500, got %d", cfg.EffectiveMemorySummaryBytes())
+		}
+	})
+}
+
 func TestEnrichmentConfig_IsSemanticFallbackEnabled(t *testing.T) {
 	t.Run("nil defaults to off", func(t *testing.T) {
 		cfg := &EnrichmentConfig{}

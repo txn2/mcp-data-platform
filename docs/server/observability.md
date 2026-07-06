@@ -82,6 +82,7 @@ and a README covering how to load them and confirm scraping with
 | `mcp_tool_calls_total` | counter | `tool`, `toolkit_kind`, `persona`, `status_category` |
 | `mcp_tool_call_duration_seconds` | histogram | `tool`, `toolkit_kind`, `persona`, `status_category` |
 | `mcp_inflight_tool_calls` | gauge | (none) |
+| `mcp_enrichment_bytes_total` | counter | `tool`, `toolkit_kind`, `persona` |
 | `apigateway_outbound_total` | counter | `connection`, `http_status_class`, `status_category` |
 | `apigateway_outbound_duration_seconds` | histogram | `connection`, `http_status_class`, `status_category` |
 | `apigateway_inbound_requests_total` | counter | `connection`, `operation_id`, `method`, `status_class`, `identity` |
@@ -113,6 +114,14 @@ queries, or the metadata operation (`list_catalogs`, `list_schemas`,
 implemented: the mcp-trino client (v1.3.0) does not expose a
 bytes-scanned figure in its query stats, so there is no honest source
 for it.
+
+**Enrichment overhead**: `mcp_enrichment_bytes_total` accumulates the byte
+size of the cross-enrichment content (semantic context, memories, knowledge
+pages, discovery notes) appended to each tool response. It is recorded only on
+enriched successes, so divide by the matching `mcp_tool_calls_total` to get the
+average per-call overhead an agent's context window pays:
+`rate(mcp_enrichment_bytes_total[5m]) / rate(mcp_tool_calls_total[5m])`. Use it
+to size the memory-enrichment budget (`enrichment.memory_context_budget_bytes`).
 
 **DataHub** `operation` is one of `get_entity`, `get_schema`,
 `get_schemas`, `get_lineage`, `get_column_lineage`, `get_glossary_term`,

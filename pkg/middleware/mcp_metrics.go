@@ -53,6 +53,12 @@ func recordToolCall(
 	pc := GetPlatformContext(ctx)
 	attrs := toolCallAttrs(pc, result, err)
 	metrics.RecordToolCall(ctx, attrs, duration)
+
+	// Enrichment runs inner to this middleware, so pc.EnrichmentBytes is set
+	// on the shared PlatformContext by the time next() returns (issue #761).
+	if pc != nil && pc.EnrichmentBytes > 0 {
+		metrics.RecordEnrichmentBytes(ctx, attrs, pc.EnrichmentBytes)
+	}
 	return result, err
 }
 

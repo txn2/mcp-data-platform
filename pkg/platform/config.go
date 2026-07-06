@@ -666,6 +666,24 @@ type EnrichmentConfig struct {
 	// recall should adjust persona scope or query patterns, not
 	// flood the response with low-rank suggestions.
 	SemanticFallbackTopK *int `yaml:"semantic_fallback_top_k"`
+
+	// MemoryLimit caps how many memory records the platform recalls and
+	// renders into the memory_context enrichment block per tool call.
+	// Defaults to 5 (nil = 5). Issue #761.
+	MemoryLimit *int `yaml:"memory_limit"`
+
+	// MemoryContextBudgetBytes bounds the byte size of the rendered memory
+	// summaries appended per tool call. Records beyond the budget are listed
+	// as compact id+reference stubs (still fetchable, not dropped); at least
+	// one record is always rendered. Defaults to 1500 (nil = 1500). Set to 0
+	// to disable the budget (render every recalled record). Issue #761.
+	MemoryContextBudgetBytes *int `yaml:"memory_context_budget_bytes"`
+
+	// MemorySummaryBytes caps each rendered memory record to a summary-first
+	// excerpt so the agent fetches the full record by reference only when it
+	// matters. Defaults to 280 (nil = 280). Set to 0 to render full content.
+	// Issue #761.
+	MemorySummaryBytes *int `yaml:"memory_summary_bytes"`
 }
 
 // IsUnwrapJSONEnabled returns whether unwrap_json defaults to true,
@@ -767,6 +785,53 @@ func (c *EnrichmentConfig) EffectiveSemanticFallbackTopK() int {
 		return maxSemanticFallbackTopK
 	}
 	return k
+}
+
+// Memory-enrichment budget defaults (issue #761). The limit preserves the
+// historical hardcoded count; the byte budget and summary cap are new bounds
+// tuned so a mature deployment's per-query enrichment stays a supporting note
+// rather than crowding out the analyzed data.
+const (
+	defaultMemoryLimit              = 5
+	defaultMemoryContextBudgetBytes = 1500
+	defaultMemorySummaryBytes       = 280
+)
+
+// EffectiveMemoryLimit returns the configured memory-enrichment record limit,
+// defaulting to 5 when unset and flooring non-positive values at the default.
+func (c *EnrichmentConfig) EffectiveMemoryLimit() int {
+	if c.MemoryLimit == nil || *c.MemoryLimit <= 0 {
+		return defaultMemoryLimit
+	}
+	return *c.MemoryLimit
+}
+
+// EffectiveMemoryContextBudgetBytes returns the configured memory_context byte
+// budget, defaulting to 1500 when unset. A configured 0 disables the budget
+// (every recalled record is rendered); negative values are treated as the
+// default rather than as "disabled" to avoid a stray sign silently unbounding
+// the payload.
+func (c *EnrichmentConfig) EffectiveMemoryContextBudgetBytes() int {
+	if c.MemoryContextBudgetBytes == nil {
+		return defaultMemoryContextBudgetBytes
+	}
+	if *c.MemoryContextBudgetBytes < 0 {
+		return defaultMemoryContextBudgetBytes
+	}
+	return *c.MemoryContextBudgetBytes
+}
+
+// EffectiveMemorySummaryBytes returns the configured per-record summary cap,
+// defaulting to 280 when unset. A configured 0 disables truncation (full
+// content is rendered); negative values fall back to the default.
+func (c *EnrichmentConfig) EffectiveMemorySummaryBytes() int {
+	if c.MemorySummaryBytes == nil {
+		return defaultMemorySummaryBytes
+	}
+	if *c.MemorySummaryBytes < 0 {
+		return defaultMemorySummaryBytes
+	}
+	return *c.MemorySummaryBytes
 }
 
 // SessionDedupConfig configures session-level metadata deduplication. It lives in
