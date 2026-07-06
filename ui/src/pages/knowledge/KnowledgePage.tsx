@@ -58,6 +58,30 @@ function formatCategory(cat: string): string {
   return cat.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+const MS_PER_DAY = 86_400_000;
+const STALE_DAYS = 30;
+const AGING_DAYS = 7;
+
+// ageInDays returns the whole-day age of an ISO timestamp, floored at 0 so a
+// clock skew that puts created_at slightly in the future never goes negative.
+function ageInDays(iso: string): number {
+  return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / MS_PER_DAY));
+}
+
+// ageBucketVariant buckets an age (days) into a badge color: red past the stale
+// threshold, amber while aging, neutral when fresh (#764).
+function ageBucketVariant(days: number): BadgeVariant {
+  if (days >= STALE_DAYS) return "error";
+  if (days >= AGING_DAYS) return "warning";
+  return "neutral";
+}
+
+function formatAge(days: number): string {
+  if (days <= 0) return "today";
+  if (days === 1) return "1 day";
+  return `${days} days`;
+}
+
 // ---------------------------------------------------------------------------
 // Knowledge Capture Tab
 // ---------------------------------------------------------------------------
@@ -67,6 +91,7 @@ export function KnowledgeCaptureTab() {
   const [statusFilter, setStatusFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [confidenceFilter, setConfidenceFilter] = useState("");
+  const [order, setOrder] = useState<"newest" | "oldest">("newest");
   const [selectedInsight, setSelectedInsight] = useState<Insight | null>(null);
   const { data: filters } = useAuditFilters();
   const ul = filters?.user_labels ?? {};
@@ -78,13 +103,26 @@ export function KnowledgeCaptureTab() {
       status: statusFilter || undefined,
       category: categoryFilter || undefined,
       confidence: confidenceFilter || undefined,
+      order,
     }),
-    [page, statusFilter, categoryFilter, confidenceFilter],
+    [page, statusFilter, categoryFilter, confidenceFilter, order],
   );
 
   const { data, isLoading } = useInsights(params);
   const { data: stats } = useInsightStats();
   const totalPages = data ? Math.ceil(data.total / PER_PAGE) : 0;
+
+  // Review-queue staleness: how old the oldest pending insight is, and how much
+  // debt has crossed the 30-day threshold (#764).
+  const oldestPendingDays = stats?.oldest_pending_at
+    ? ageInDays(stats.oldest_pending_at)
+    : null;
+  const pendingOver30d = stats?.pending_over_30d ?? 0;
+  const pendingDetail =
+    oldestPendingDays !== null
+      ? `Oldest ${formatAge(oldestPendingDays)}` +
+        (pendingOver30d > 0 ? ` · ${pendingOver30d} over 30d` : "")
+      : undefined;
 
   const topCategory = useMemo(() => {
     if (!stats?.by_category) return "-";
@@ -101,8 +139,13 @@ export function KnowledgeCaptureTab() {
         <StatCard
           label="Pending Review"
           value={stats?.total_pending ?? "-"}
+          detail={pendingDetail}
           className={
-            stats && stats.total_pending > 0 ? "border-yellow-200" : undefined
+            pendingOver30d > 0
+              ? "border-red-300"
+              : stats && stats.total_pending > 0
+                ? "border-yellow-200"
+                : undefined
           }
         />
         <StatCard
@@ -169,6 +212,18 @@ export function KnowledgeCaptureTab() {
             </option>
           ))}
         </select>
+        <select
+          value={order}
+          onChange={(e) => {
+            setOrder(e.target.value as "newest" | "oldest");
+            setPage(1);
+          }}
+          className="rounded-md border bg-background px-3 py-1.5 text-sm outline-none ring-ring focus:ring-2"
+          aria-label="Sort by age"
+        >
+          <option value="newest">Newest First</option>
+          <option value="oldest">Oldest First</option>
+        </select>
       </div>
 
       {/* Table */}
@@ -177,6 +232,7 @@ export function KnowledgeCaptureTab() {
           <thead>
             <tr className="border-b bg-muted/50">
               <th className="px-3 py-2 text-left font-medium">Created At</th>
+              <th className="px-3 py-2 text-center font-medium">Age</th>
               <th className="px-3 py-2 text-left font-medium">Captured By</th>
               <th className="px-3 py-2 text-left font-medium">Category</th>
               <th className="px-3 py-2 text-center font-medium">Confidence</th>
@@ -188,7 +244,7 @@ export function KnowledgeCaptureTab() {
             {isLoading && (
               <tr>
                 <td
-                  colSpan={6}
+                  colSpan={7}
                   className="px-3 py-8 text-center text-muted-foreground"
                 >
                   Loading...
@@ -203,6 +259,19 @@ export function KnowledgeCaptureTab() {
               >
                 <td className="px-3 py-2 text-xs">
                   {new Date(insight.created_at).toLocaleString()}
+                </td>
+                <td className="px-3 py-2 text-center">
+                  {insight.status === "pending" ? (
+                    <StatusBadge
+                      variant={ageBucketVariant(ageInDays(insight.created_at))}
+                    >
+                      {formatAge(ageInDays(insight.created_at))}
+                    </StatusBadge>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">
+                      {formatAge(ageInDays(insight.created_at))}
+                    </span>
+                  )}
                 </td>
                 <td
                   className="px-3 py-2 text-xs"
@@ -239,7 +308,7 @@ export function KnowledgeCaptureTab() {
             {data?.data.length === 0 && (
               <tr>
                 <td
-                  colSpan={6}
+                  colSpan={7}
                   className="px-3 py-8 text-center text-muted-foreground"
                 >
                   No insights found

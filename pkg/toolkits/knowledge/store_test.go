@@ -675,6 +675,13 @@ func TestPostgresStore_Update_RowsAffectedError(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+// TestListOrderDirection covers the created_at sort direction toggle (#764):
+// oldest-first (ASC) when the filter opts in, newest-first (DESC) otherwise.
+func TestListOrderDirection(t *testing.T) {
+	assert.Equal(t, "ASC", listOrderDirection(InsightFilter{OrderCreatedAsc: true}))
+	assert.Equal(t, "DESC", listOrderDirection(InsightFilter{}))
+}
+
 // --- postgresStore Stats tests ---
 
 func TestPostgresStore_Stats(t *testing.T) {
@@ -706,6 +713,14 @@ func TestPostgresStore_Stats(t *testing.T) {
 	mock.ExpectQuery("SELECT confidence, COUNT\\(\\*\\) FROM knowledge_insights").
 		WillReturnRows(confRows)
 
+	// Pending-staleness query (#764): MIN(created_at) and the over-30d count,
+	// scoped to pending. The cutoff arg is time.Now()-30d, so match it loosely.
+	oldest := time.Now().Add(-94 * 24 * time.Hour)
+	staleRows := sqlmock.NewRows([]string{"min", "over30d"}).AddRow(oldest, 2)
+	mock.ExpectQuery("SELECT MIN\\(created_at\\), COUNT\\(\\*\\) FILTER").
+		WithArgs(sqlmock.AnyArg(), "pending").
+		WillReturnRows(staleRows)
+
 	stats, err := store.Stats(context.Background(), InsightFilter{})
 	require.NoError(t, err)
 	require.NotNil(t, stats)
@@ -718,6 +733,9 @@ func TestPostgresStore_Stats(t *testing.T) {
 	assert.Equal(t, 6, stats.ByCategory["business_context"]) //nolint:revive // test value
 	assert.Equal(t, 3, stats.ByConfidence["high"])           //nolint:revive // test value
 	assert.Equal(t, 7, stats.ByConfidence["medium"])         //nolint:revive // test value
+	require.NotNil(t, stats.OldestPendingAt)
+	assert.WithinDuration(t, oldest, *stats.OldestPendingAt, time.Second)
+	assert.Equal(t, 2, stats.PendingOver30d) //nolint:revive // test value
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -746,9 +764,18 @@ func TestPostgresStore_Stats_WithFilter(t *testing.T) {
 		WithArgs("pending").
 		WillReturnRows(confRows)
 
+	// Staleness query is pending-scoped; with filter.Status already pending the
+	// redundant predicate is skipped, so only the cutoff and one "pending" arg.
+	staleRows := sqlmock.NewRows([]string{"min", "over30d"}).AddRow(nil, 0)
+	mock.ExpectQuery("SELECT MIN\\(created_at\\), COUNT\\(\\*\\) FILTER").
+		WithArgs(sqlmock.AnyArg(), "pending").
+		WillReturnRows(staleRows)
+
 	stats, err := store.Stats(context.Background(), filter)
 	require.NoError(t, err)
 	assert.Equal(t, 5, stats.TotalPending) //nolint:revive // test value
+	assert.Nil(t, stats.OldestPendingAt, "NULL MIN over empty pending set yields nil")
+	assert.Equal(t, 0, stats.PendingOver30d)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -835,6 +862,121 @@ func TestPostgresStore_Stats_ScanError(t *testing.T) {
 	assert.Contains(t, err.Error(), "counting by status")
 	assert.Nil(t, stats)
 	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestPostgresStore_Stats_StalenessQueryError covers the staleness query failing
+// after the three count queries succeed (#764): Stats propagates the error.
+func TestPostgresStore_Stats_StalenessQueryError(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close() //nolint:errcheck // test cleanup
+
+	store := NewPostgresStore(db)
+
+	mock.ExpectQuery("SELECT status, COUNT\\(\\*\\) FROM knowledge_insights").
+		WillReturnRows(sqlmock.NewRows([]string{"status", "count"}).AddRow("pending", 1))
+	mock.ExpectQuery("SELECT category, COUNT\\(\\*\\) FROM knowledge_insights").
+		WillReturnRows(sqlmock.NewRows([]string{"category", "count"}))
+	mock.ExpectQuery("SELECT confidence, COUNT\\(\\*\\) FROM knowledge_insights").
+		WillReturnRows(sqlmock.NewRows([]string{"confidence", "count"}))
+	mock.ExpectQuery("SELECT MIN\\(created_at\\), COUNT\\(\\*\\) FILTER").
+		WillReturnError(errors.New("db error"))
+
+	stats, err := store.Stats(context.Background(), InsightFilter{})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "computing pending staleness")
+	assert.Nil(t, stats)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// --- PendingReviewStats / PendingReviewOf tests (#764) ---
+
+func TestPostgresStore_PendingReviewStats(t *testing.T) {
+	t.Run("populated queue returns count and staleness", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		require.NoError(t, err)
+		defer db.Close() //nolint:errcheck // test cleanup
+		store := &postgresStore{db: db}
+
+		oldest := time.Now().Add(-94 * 24 * time.Hour)
+		mock.ExpectQuery("SELECT COUNT\\(\\*\\), MIN\\(created_at\\), COUNT\\(\\*\\) FILTER").
+			WithArgs(sqlmock.AnyArg(), "pending").
+			WillReturnRows(sqlmock.NewRows([]string{"count", "min", "over30d"}).AddRow(6, oldest, 2))
+
+		review, err := store.PendingReviewStats(context.Background())
+		require.NoError(t, err)
+		assert.Equal(t, 6, review.TotalPending) //nolint:revive // test value
+		require.NotNil(t, review.OldestPendingAt)
+		assert.WithinDuration(t, oldest, *review.OldestPendingAt, time.Second)
+		assert.Equal(t, 2, review.PendingOver30d)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("empty queue yields zero count and nil oldest", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		require.NoError(t, err)
+		defer db.Close() //nolint:errcheck // test cleanup
+		store := &postgresStore{db: db}
+
+		mock.ExpectQuery("SELECT COUNT\\(\\*\\), MIN\\(created_at\\), COUNT\\(\\*\\) FILTER").
+			WillReturnRows(sqlmock.NewRows([]string{"count", "min", "over30d"}).AddRow(0, nil, 0))
+
+		review, err := store.PendingReviewStats(context.Background())
+		require.NoError(t, err)
+		assert.Equal(t, 0, review.TotalPending)
+		assert.Nil(t, review.OldestPendingAt)
+		assert.Equal(t, 0, review.PendingOver30d)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("query error is propagated", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		require.NoError(t, err)
+		defer db.Close() //nolint:errcheck // test cleanup
+		store := &postgresStore{db: db}
+
+		mock.ExpectQuery("SELECT COUNT\\(\\*\\), MIN\\(created_at\\), COUNT\\(\\*\\) FILTER").
+			WillReturnError(errors.New("db error"))
+
+		review, err := store.PendingReviewStats(context.Background())
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "scanning pending review row")
+		assert.Nil(t, review)
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+}
+
+func TestPendingReviewOf(t *testing.T) {
+	t.Run("fast path uses PendingReviewStats when available", func(t *testing.T) {
+		db, mock, err := sqlmock.New()
+		require.NoError(t, err)
+		defer db.Close()              //nolint:errcheck // test cleanup
+		store := NewPostgresStore(db) // *postgresStore implements PendingReviewStater
+
+		mock.ExpectQuery("SELECT COUNT\\(\\*\\), MIN\\(created_at\\), COUNT\\(\\*\\) FILTER").
+			WillReturnRows(sqlmock.NewRows([]string{"count", "min", "over30d"}).AddRow(3, nil, 0))
+
+		review, err := PendingReviewOf(context.Background(), store)
+		require.NoError(t, err)
+		assert.Equal(t, 3, review.TotalPending) //nolint:revive // test value
+		assert.NoError(t, mock.ExpectationsWereMet())
+	})
+
+	t.Run("falls back to Stats for stores without the fast path", func(t *testing.T) {
+		// noopStore does not implement PendingReviewStater, so PendingReviewOf
+		// falls back to its Stats (empty queue).
+		review, err := PendingReviewOf(context.Background(), NewNoopStore())
+		require.NoError(t, err)
+		assert.Equal(t, 0, review.TotalPending)
+		assert.Nil(t, review.OldestPendingAt)
+	})
+
+	t.Run("propagates the fallback Stats error", func(t *testing.T) {
+		store := &fullSpyStore{StatsErr: errors.New("boom")} // no fast path
+		review, err := PendingReviewOf(context.Background(), store)
+		assert.Error(t, err)
+		assert.Nil(t, review)
+	})
 }
 
 // --- postgresStore MarkApplied tests ---

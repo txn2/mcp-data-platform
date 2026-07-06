@@ -50,11 +50,23 @@ Response:
     "high": 3,
     "medium": 4
   },
+  "oldest_pending_at": "2025-01-15T14:30:00Z",
+  "oldest_pending_age_days": 94,
+  "pending_over_30d": 2,
   "note": "Counts are pending insights only (the global review queue). by_entity counts an insight once per entity URN it carries and omits insights that have no entity URN, so it does not sum to total_pending. Pass itemize:true to enumerate every pending insight (with id, captured_by and sink_class)."
 }
 ```
 
 The counts label their own scope: `total_pending` is the size of the global pending queue, while `by_entity` counts a multi-entity insight once per URN and omits entity-agnostic insights, so it does not sum to `total_pending`.
+
+### Review-Queue Staleness
+
+The knowledge flywheel only turns if humans work the queue, so `bulk_review` also reports how stale the pending queue is (present on both the counts and `itemize` paths, omitted when the queue is empty):
+
+- `oldest_pending_at` / `oldest_pending_age_days`: the age of the oldest pending insight, so a long-unreviewed queue is visible at a glance.
+- `pending_over_30d`: the count of pending insights aged 30 or more days (the accumulating review debt). The portal's per-row age badge flags a row stale at the same 30-day mark, so the count and the badge agree.
+
+An agent can use these to nudge a reviewer (for example, "6 insights are pending review, the oldest is 94 days old"). The same rollup appears in `platform_info` under `features.knowledge_apply.review_queue` for any caller who can reach `apply_knowledge`. In the admin portal, the review queue view badges each pending insight by age and can be sorted oldest-first (`order=oldest` on the insights API) to work the stalest debt first.
 
 ### Enumerate the Review Queue
 

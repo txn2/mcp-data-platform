@@ -175,6 +175,15 @@ func applyInsightFilter(qb sq.SelectBuilder, filter InsightFilter) sq.SelectBuil
 	return qb
 }
 
+// listOrderDirection returns the created_at sort direction for a list query:
+// ASC (oldest-first) when the filter opts into age order, DESC otherwise (#764).
+func listOrderDirection(filter InsightFilter) string {
+	if filter.OrderCreatedAsc {
+		return "ASC"
+	}
+	return "DESC"
+}
+
 // List returns insights matching the filter with pagination.
 func (s *postgresStore) List(ctx context.Context, filter InsightFilter) ([]Insight, int, error) {
 	// Count total matching rows.
@@ -197,7 +206,7 @@ func (s *postgresStore) List(ctx context.Context, filter InsightFilter) ([]Insig
 		"suggested_actions", colStatus, "reviewed_by", "reviewed_at",
 		"review_notes", colAppliedBy, "applied_at", "changeset_ref",
 	).From("knowledge_insights"), filter).
-		OrderBy(colCreatedAt + " DESC")
+		OrderBy(colCreatedAt + " " + listOrderDirection(filter))
 	if limit > 0 {
 		selectQB = selectQB.Limit(uint64(limit))
 	}
@@ -351,7 +360,109 @@ func (s *postgresStore) Stats(ctx context.Context, filter InsightFilter) (*Insig
 		return nil, fmt.Errorf("counting by confidence: %w", err)
 	}
 
+	oldest, over30d, err := s.pendingStaleness(ctx, filter, time.Now())
+	if err != nil {
+		return nil, fmt.Errorf("computing pending staleness: %w", err)
+	}
+	stats.OldestPendingAt = oldest
+	stats.PendingOver30d = over30d
+
 	return stats, nil
+}
+
+// pendingStaleness returns the oldest pending insight's created_at (nil when the
+// pending queue is empty) and the count of pending insights older than the
+// staleness threshold (#764). Both are scoped to the pending subset of filter:
+// the extra status=pending predicate is redundant when filter already selects
+// pending and yields an empty result (nil, 0) when it selects another status, so
+// the rollup always agrees with TotalPending, which is likewise pending-scoped.
+func (s *postgresStore) pendingStaleness(ctx context.Context, filter InsightFilter, now time.Time) (*time.Time, int, error) {
+	cutoff := pendingStalenessCutoff(now)
+	qb := applyInsightFilter(
+		psq.Select("MIN("+colCreatedAt+")").
+			Column("COUNT(*) FILTER (WHERE "+colCreatedAt+" <= ?)", cutoff).
+			From("knowledge_insights"),
+		filter,
+	)
+	// Scope to pending. When filter already selects pending the predicate is
+	// redundant, so skip it; when it selects another status the added predicate
+	// yields an empty result (nil, 0), matching TotalPending for that filter.
+	if filter.Status != StatusPending {
+		qb = qb.Where(sq.Eq{colStatus: StatusPending})
+	}
+
+	query, args, err := qb.ToSql()
+	if err != nil {
+		return nil, 0, fmt.Errorf("building staleness query: %w", err)
+	}
+
+	var oldest sql.NullTime
+	var over30d int
+	if err := s.db.QueryRowContext(ctx, query, args...).Scan(&oldest, &over30d); err != nil {
+		return nil, 0, fmt.Errorf("scanning staleness row: %w", err)
+	}
+	if oldest.Valid {
+		return &oldest.Time, over30d, nil
+	}
+	return nil, over30d, nil
+}
+
+// PendingReviewStater is an optional InsightStore capability: a cheap pending
+// count plus staleness rollup, without the by-category/by-confidence group-bys
+// the full Stats issues. platform_info needs only the review-debt nudge, so it
+// prefers this fast path (via PendingReviewOf) to avoid a four-query fan-out on
+// every per-session orientation call (#764).
+type PendingReviewStater interface {
+	PendingReviewStats(ctx context.Context) (*PendingReview, error)
+}
+
+// PendingReviewOf returns the lightweight review-queue summary, using the store's
+// PendingReviewStats fast path when it implements PendingReviewStater and falling
+// back to the full Stats otherwise (so every InsightStore, including test doubles
+// and the noop, is supported without change).
+func PendingReviewOf(ctx context.Context, store InsightStore) (*PendingReview, error) {
+	if fast, ok := store.(PendingReviewStater); ok {
+		review, err := fast.PendingReviewStats(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("pending review stats: %w", err)
+		}
+		return review, nil
+	}
+	stats, err := store.Stats(ctx, InsightFilter{Status: StatusPending})
+	if err != nil {
+		return nil, fmt.Errorf("pending review stats via stats fallback: %w", err)
+	}
+	return &PendingReview{
+		TotalPending:    stats.TotalPending,
+		OldestPendingAt: stats.OldestPendingAt,
+		PendingOver30d:  stats.PendingOver30d,
+	}, nil
+}
+
+// PendingReviewStats returns the pending count and staleness rollup in a single
+// aggregate query, the fast path for platform_info (#764).
+func (s *postgresStore) PendingReviewStats(ctx context.Context) (*PendingReview, error) {
+	cutoff := pendingStalenessCutoff(time.Now())
+	qb := psq.Select("COUNT(*)", "MIN("+colCreatedAt+")").
+		Column("COUNT(*) FILTER (WHERE "+colCreatedAt+" <= ?)", cutoff).
+		From("knowledge_insights").
+		Where(sq.Eq{colStatus: StatusPending})
+
+	query, args, err := qb.ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("building pending review query: %w", err)
+	}
+
+	var total, over30d int
+	var oldest sql.NullTime
+	if err := s.db.QueryRowContext(ctx, query, args...).Scan(&total, &oldest, &over30d); err != nil {
+		return nil, fmt.Errorf("scanning pending review row: %w", err)
+	}
+	review := &PendingReview{TotalPending: total, PendingOver30d: over30d}
+	if oldest.Valid {
+		review.OldestPendingAt = &oldest.Time
+	}
+	return review, nil
 }
 
 // countGroupBy queries a group-by count and populates a map.

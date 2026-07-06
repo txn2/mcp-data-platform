@@ -624,6 +624,86 @@ func TestMemoryInsightAdapter_Stats(t *testing.T) {
 	assert.Equal(t, 1, stats.ByConfidence["low"])
 }
 
+// TestMemoryInsightAdapter_Stats_Staleness verifies the pending-queue staleness
+// rollup (#764): OldestPendingAt tracks the oldest pending record and
+// PendingOver30d counts only pending records past the threshold, ignoring
+// non-pending records however old.
+func TestMemoryInsightAdapter_Stats_Staleness(t *testing.T) {
+	now := time.Now()
+	oldPending := now.Add(-94 * 24 * time.Hour)
+	midPending := now.Add(-40 * 24 * time.Hour)
+	freshPending := now.Add(-3 * 24 * time.Hour)
+	store := &mockMemoryStore{
+		listRecords: []memory.Record{
+			{ID: "p1", Status: memory.StatusActive, CreatedAt: freshPending},
+			{ID: "p2", Status: memory.StatusActive, CreatedAt: oldPending},
+			{ID: "p3", Status: memory.StatusActive, CreatedAt: midPending},
+			// Archived (rejected) and very old: must not count toward staleness.
+			{ID: "r1", Status: memory.StatusArchived, CreatedAt: now.Add(-300 * 24 * time.Hour)},
+		},
+		listTotal: 4,
+	}
+	adapter := NewMemoryInsightAdapter(store)
+
+	stats, err := adapter.Stats(context.Background(), InsightFilter{Status: StatusPending})
+	require.NoError(t, err)
+	require.NotNil(t, stats)
+
+	assert.Equal(t, 3, stats.TotalPending)
+	require.NotNil(t, stats.OldestPendingAt)
+	assert.WithinDuration(t, oldPending, *stats.OldestPendingAt, time.Second)
+	// Only the two pending records older than 30 days count; the fresh pending
+	// and the 300-day archived record do not.
+	assert.Equal(t, 2, stats.PendingOver30d)
+}
+
+// TestMemoryInsightAdapter_Stats_Staleness_EmptyQueue verifies OldestPendingAt is
+// nil and PendingOver30d is 0 when no pending records exist (#764).
+func TestMemoryInsightAdapter_Stats_Staleness_EmptyQueue(t *testing.T) {
+	store := &mockMemoryStore{
+		listRecords: []memory.Record{
+			{ID: "r1", Status: memory.StatusArchived, CreatedAt: time.Now().Add(-90 * 24 * time.Hour)},
+		},
+		listTotal: 1,
+	}
+	adapter := NewMemoryInsightAdapter(store)
+
+	stats, err := adapter.Stats(context.Background(), InsightFilter{Status: StatusPending})
+	require.NoError(t, err)
+	assert.Equal(t, 0, stats.TotalPending)
+	assert.Nil(t, stats.OldestPendingAt)
+	assert.Equal(t, 0, stats.PendingOver30d)
+}
+
+// TestMemoryInsightAdapter_List_OrderCreatedAsc verifies the oldest-first review
+// ordering reverses the store's default newest-first walk (#764).
+func TestMemoryInsightAdapter_List_OrderCreatedAsc(t *testing.T) {
+	now := time.Now()
+	// mockMemoryStore returns records verbatim; the real store yields created_at
+	// DESC, so mirror that (newest first) as the walk's input.
+	store := &mockMemoryStore{
+		listRecords: []memory.Record{
+			{ID: "newest", Status: memory.StatusActive, CreatedAt: now.Add(-1 * time.Hour)},
+			{ID: "middle", Status: memory.StatusActive, CreatedAt: now.Add(-24 * time.Hour)},
+			{ID: "oldest", Status: memory.StatusActive, CreatedAt: now.Add(-72 * time.Hour)},
+		},
+		listTotal: 3,
+	}
+	adapter := NewMemoryInsightAdapter(store)
+
+	asc, total, err := adapter.List(context.Background(), InsightFilter{OrderCreatedAsc: true})
+	require.NoError(t, err)
+	assert.Equal(t, 3, total)
+	require.Len(t, asc, 3)
+	assert.Equal(t, "oldest", asc[0].ID)
+	assert.Equal(t, "newest", asc[2].ID)
+
+	desc, _, err := adapter.List(context.Background(), InsightFilter{})
+	require.NoError(t, err)
+	require.Len(t, desc, 3)
+	assert.Equal(t, "newest", desc[0].ID, "default order stays newest-first")
+}
+
 // paginatingMemoryStore returns records in MaxLimit-sized pages so the
 // Stats pagination loop can be exercised end to end. Without this, the
 // single-page mock would never drive the offset increment, and a broken

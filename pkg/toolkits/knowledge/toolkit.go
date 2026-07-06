@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/txn2/mcp-datahub/pkg/types"
@@ -308,6 +309,32 @@ const bulkReviewScopeNote = "Counts are pending insights only (the global review
 	"that have no entity URN, so it does not sum to total_pending. " +
 	"Pass itemize:true to enumerate every pending insight (with id, captured_by and sink_class)."
 
+// addStalenessRollup adds the pending-queue staleness fields to a bulk_review
+// response so a reviewer (and an agent nudging one) can see how stale the review
+// debt is: oldest_pending_at, oldest_pending_age_days, and pending_over_30d
+// (#764). The fields are omitted for an empty queue (oldest == nil), where there
+// is no debt to report.
+func addStalenessRollup(result map[string]any, oldest *time.Time, over30d int, now time.Time) {
+	if oldest == nil {
+		return
+	}
+	result["oldest_pending_at"] = oldest.UTC().Format(time.RFC3339)
+	result["oldest_pending_age_days"] = AgeDays(*oldest, now)
+	result["pending_over_30d"] = over30d
+}
+
+// AgeDays returns the whole-day age of t relative to now, floored at 0 so a
+// clock skew that puts t slightly in the future never reports negative. It is the
+// single definition of whole-day insight age shared by bulk_review and
+// platform_info so the two never drift (#764); the portal mirrors it in TS.
+func AgeDays(t, now time.Time) int {
+	d := now.Sub(t)
+	if d < 0 {
+		return 0
+	}
+	return int(d.Hours() / 24)
+}
+
 // handleBulkReview summarizes the pending review queue. The default (counts-only)
 // path stays cheap and bounded; itemize:true enumerates the whole queue.
 func (t *Toolkit) handleBulkReview(ctx context.Context, input applyKnowledgeInput) (*mcp.CallToolResult, any, error) {
@@ -338,6 +365,7 @@ func (t *Toolkit) bulkReviewCounts(ctx context.Context) (*mcp.CallToolResult, an
 		"by_confidence": stats.ByConfidence,
 		"note":          bulkReviewScopeNote,
 	}
+	addStalenessRollup(result, stats.OldestPendingAt, stats.PendingOver30d, time.Now())
 	if stats.TotalPending > len(sample) {
 		// by_entity is built from one page, so it is a sample here; itemize:true
 		// returns every pending insight including entity-agnostic ones.
@@ -368,6 +396,8 @@ func (t *Toolkit) bulkReviewItemized(ctx context.Context, input applyKnowledgeIn
 
 	page := pageInsightsBudgeted(pending, input.Offset, input.Limit, bulkReviewItemBudgetBytes)
 	entities, entitiesTruncated := boundedEntitySummaries(pending, maxBulkReviewEntitySummaries)
+	now := time.Now()
+	oldest, over30d := pendingStalenessFromInsights(pending, pendingStalenessCutoff(now))
 	result := map[string]any{
 		"total_pending": len(pending),
 		"by_entity":     entities,
@@ -378,6 +408,7 @@ func (t *Toolkit) bulkReviewItemized(ctx context.Context, input applyKnowledgeIn
 		"returned":      len(page.insights),
 		"offset":        page.offset,
 	}
+	addStalenessRollup(result, oldest, over30d, now)
 	if entitiesTruncated {
 		// by_entity was capped to the busiest entities so the response stays
 		// bounded; the full per-insight entity_urns remain on each insight.

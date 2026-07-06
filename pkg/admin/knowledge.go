@@ -61,6 +61,7 @@ type insightListResponse struct {
 // @Param        until        query  string  false  "Insights before this time (RFC 3339)"
 // @Param        page         query  integer false  "Page number, 1-based (default: 1)"
 // @Param        per_page     query  integer false  "Results per page (default: 20)"
+// @Param        order        query  string  false  "Sort by created_at: 'oldest' for oldest-first, default newest-first"
 // @Success      200  {object}  insightListResponse
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
@@ -431,6 +432,9 @@ func parseInsightFilter(r *http.Request) knowledge.InsightFilter {
 		Since:      parseTimeParam(q, "since"),
 		Until:      parseTimeParam(q, "until"),
 		Limit:      parseLimit(q),
+		// order=oldest sorts the review queue oldest-first so reviewers can work
+		// the stalest debt first (#764); any other value keeps newest-first.
+		OrderCreatedAsc: q.Get("order") == "oldest",
 	}
 	filter.Offset = parsePageOffset(q, filter.EffectiveLimit())
 
