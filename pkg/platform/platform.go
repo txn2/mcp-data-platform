@@ -48,6 +48,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform/fieldcrypt"
+	"github.com/txn2/mcp-data-platform/pkg/platform/mwchain"
 	"github.com/txn2/mcp-data-platform/pkg/platform/personastore"
 	"github.com/txn2/mcp-data-platform/pkg/platform/reflexivecapture"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -2599,143 +2600,29 @@ func (p *Platform) finalizeSetup() {
 		Capabilities: p.buildServerCapabilities(),
 	})
 
-	// Add MCP protocol-level middleware.
+	// Add MCP protocol-level receiving middleware.
 	//
-	// IMPORTANT: AddReceivingMiddleware wraps the current handler, so each
-	// call makes its middleware the new outermost layer. The LAST middleware
-	// added runs FIRST. We add innermost middleware first and outermost last.
-	//
-	// Desired execution order (outermost → innermost → handler):
-	//   Tool visibility → Apps metadata → Auth/Authz → Session gate → Audit → Rules → Client logging → Enrichment → handler
-	//
-	// Therefore we add in reverse (innermost first):
-
-	// 0. Unwrap JSON default (innermost) — injects unwrap_json=true into trino_query
-	// and trino_execute arguments so single-row VARCHAR-of-JSON results are returned
-	// as parsed objects. Must be innermost so the modified arguments reach the handler.
-	if p.config.Enrichment.IsUnwrapJSONEnabled() {
-		p.mcpServer.AddReceivingMiddleware(middleware.MCPUnwrapJSONMiddleware())
+	// The chain order is a checked invariant, not a comment (issue #758).
+	// receivingMiddlewareChain() declares the canonical execution order
+	// (outermost first) and each middleware's ordering dependencies — the
+	// canonical case being that every PlatformContext reader (audit, metrics,
+	// tracing, reflexive capture, the gates, enrichment) must be inner to the
+	// auth/authz middleware that writes PlatformContext via context.WithValue,
+	// or the value is invisible downstream. We validate the declared order
+	// before touching the server so any accidental reorder fails fast at
+	// startup with a named error instead of silently mis-wiring the chain.
+	specs := p.receivingMiddlewareChain()
+	if err := mwchain.Validate(specs); err != nil {
+		panic(fmt.Sprintf("mcp-data-platform: invalid receiving-middleware chain order: %v", err))
 	}
 
-	// 1. Semantic enrichment - enriches responses with cross-service context.
-	p.addEnrichmentMiddleware()
-
-	// 1.5. Provenance tracking - accumulates tool calls per session for save_artifact
-	p.addProvenanceMiddleware()
-
-	// 1.6. Managed resources - injects database-backed resources into resources/list and resources/read
-	p.addManagedResourceMiddleware()
-
-	// 2. Client logging - sends enrichment info to client via session.Log()
-	if p.config.ClientLogging.IsEnabled() {
-		p.mcpServer.AddReceivingMiddleware(
-			middleware.MCPClientLoggingMiddleware(middleware.ClientLoggingConfig{
-				Enabled: true,
-			}),
-		)
+	// AddReceivingMiddleware wraps the current handler, so each call makes its
+	// middleware the new OUTERMOST layer: the last middleware added runs first.
+	// The chain is declared outermost-first, so we register it in reverse
+	// (innermost first) to realize that execution order.
+	for i := len(specs) - 1; i >= 0; i-- {
+		specs[i].Register()
 	}
-
-	// 3.5. Error contract - normalizes every tools/call error result into a
-	// self-describing {code, category, message, hint} envelope and recovers a
-	// panicking handler into a categorized internal error (#539). Registered
-	// inner to Audit/Metrics so they observe the normalized category, and outer
-	// to the handler whose results it normalizes. Always on: an uncategorized
-	// error result must never reach the agent as an opaque string.
-	p.mcpServer.AddReceivingMiddleware(
-		middleware.MCPErrorContractMiddleware(),
-	)
-
-	// 4. Audit - logs tool calls (reads PlatformContext set by Auth/Authz above)
-	if p.config.Audit.IsToolCallLoggingEnabled() {
-		p.mcpServer.AddReceivingMiddleware(
-			middleware.MCPAuditMiddleware(p.auditLogger),
-		)
-	}
-
-	// 4.5. Metrics - records tool_calls_total / tool_call_duration_seconds
-	// and the in-flight gauge. Reads PlatformContext (tool, toolkit_kind,
-	// persona) populated by MCPToolCallMiddleware, so it must be INNER
-	// to that middleware. Position next to Audit because both observe
-	// the same call boundary (outcome + duration) and both are
-	// strictly observational — neither mutates the request or result.
-	// Safe to register unconditionally: the middleware short-circuits
-	// on a nil-or-disabled recorder.
-	if p.metrics.Enabled() {
-		p.mcpServer.AddReceivingMiddleware(
-			middleware.MCPMetricsMiddleware(p.metrics),
-		)
-	}
-
-	// 4.6. Tracing - opens the per-tool-call OTel span that becomes the
-	// parent of every downstream adapter span (Trino/DataHub/S3/OAuth/
-	// enrichment) via context propagation, so one tool call is one flame
-	// graph. Like Metrics it reads PlatformContext and so sits INNER to
-	// MCPToolCallMiddleware and OUTER to the handler. Safe to register
-	// unconditionally: the middleware short-circuits on a nil/disabled
-	// tracer.
-	if p.tracer.Enabled() {
-		p.mcpServer.AddReceivingMiddleware(
-			middleware.MCPTracingMiddleware(p.tracer),
-		)
-	}
-
-	// 4.7. Reflexive capture (#635) - observes trino query outcomes and mints a
-	// correction memory when an error is followed by a same-table success in the
-	// session. Reads PlatformContext (identity/session) so it sits INNER to
-	// MCPToolCallMiddleware, and OUTER to the error contract so it sees the
-	// normalized error. Strictly observational: never mutates request or result.
-	p.addReflexiveCaptureMiddleware()
-
-	// 5. Search-first gate - refuses query tools until search has been called in
-	// the session (issue #787). Modeled on the session gate: it short-circuits a
-	// blocked call with a SEARCH_REQUIRED error result and never runs the handler.
-	// Inner to the session gate so platform_info takes precedence, but outer to
-	// Audit/enrichment so blocked calls don't produce audit events or enrichment.
-	if p.workflowTracker != nil {
-		p.mcpServer.AddReceivingMiddleware(
-			middleware.MCPWorkflowGateMiddleware(p.workflowTracker),
-		)
-	}
-
-	// 6. Session gate - blocks non-exempt tools until platform_info is called.
-	// Inner to Auth/Authz so PlatformContext is available; outer to Audit so
-	// gated calls don't produce audit events.
-	if p.sessionGate != nil {
-		p.mcpServer.AddReceivingMiddleware(
-			middleware.MCPSessionGateMiddleware(p.sessionGate),
-		)
-	}
-
-	// 7. Auth/Authz (outermost for tools/call) - authenticates and authorizes
-	// users, creates PlatformContext. Must be outer to Audit so PlatformContext
-	// is available in the ctx that Audit receives. The session-handle resolver
-	// (#792) runs inside it, adopting the explicit handle onto pc.SessionID
-	// before the gates and audit observe it.
-	p.mcpServer.AddReceivingMiddleware(
-		middleware.MCPToolCallMiddleware(p.authenticator, p.authorizer, p.toolkitRegistry, middleware.ToolCallConfig{
-			Transport:       p.config.Server.Transport,
-			AdminPersona:    p.config.Admin.Persona,
-			WorkflowTracker: p.workflowTracker,
-			SessionResolver: p.buildSessionResolver(),
-		}),
-	)
-
-	// 8. MCP Apps metadata - injects _meta.ui into tools/list
-	p.addMCPAppsMiddleware()
-
-	// 8.5 Session-handle schema injection (#792) - advertises session_id on every
-	// tool except platform_info. A list decorator; upstream toolkits are untouched.
-	p.addSessionHandleSchemaMiddleware()
-
-	// 9. Tool visibility - reduces tools/list for token savings
-	p.addToolVisibilityMiddleware()
-	p.addPromptVisibilityMiddleware()
-
-	// 9.5 Description overrides - replaces tool descriptions with workflow guidance
-	p.addDescriptionOverrideMiddleware()
-
-	// 10. Icons (outermost list decoration) - injects icons into list responses
-	p.addIconMiddleware()
 }
 
 // addReflexiveCaptureMiddleware wires reflexive query-error capture (#635) via
