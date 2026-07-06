@@ -28,9 +28,12 @@ const sessionHandleSchemaDescription = "Session handle returned by platform_info
 	"then pass the session_id it returns on every subsequent tool call so the platform can " +
 	"associate your calls, enforce workflow gates, and attribute audit and provenance records."
 
-// Session resolution sources, reported to the session_resolution_source metric
-// so operators can watch traffic move from transport sessions to explicit
-// handles during the deprecation window.
+// Session resolution sources, reported as the "source" label on the
+// mcp_session_resolution counter (Prometheus mcp_session_resolution_total{source},
+// pkg/observability/metrics.go). With require on (issue #800) only "explicit" and
+// "none" occur on gated tools; "transport" and "stdio" remain reachable on exempt
+// tools and when require is off, so operators can still see how much traffic
+// relies on a transport session.
 const (
 	sessionSourceExplicit  = "explicit"
 	sessionSourceTransport = "transport"
@@ -47,8 +50,11 @@ type SessionResolverConfig struct {
 	// false the resolver is a no-op and transport resolution stands alone.
 	Enabled bool
 
-	// Require refuses calls that carry neither a valid handle nor a legacy
-	// transport session with SESSION_REQUIRED.
+	// Require refuses any gated call that does not carry a valid
+	// platform_info-minted handle with SESSION_REQUIRED (issue #800). A
+	// transport session is not a fallback: it is the per-call value the handle
+	// exists to replace. The InitTool is always exempt (it mints the handle);
+	// tools in ExemptTools also bypass the refusal.
 	Require bool
 
 	// TTL is the handle lifetime applied on refresh-on-use. Non-positive
@@ -140,19 +146,29 @@ func (r *SessionResolver) resolve(ctx context.Context, req mcp.Request, pc *Plat
 		return r.resolveExplicit(ctx, pc, toolName, handle)
 	}
 
-	// A legacy transport session (or the stdio sentinel) satisfies require
-	// during the deprecation window; an empty SessionID means no session.
-	if pc.SessionID != "" {
-		r.recordMetric(ctx, transportSource(pc.SessionID))
-		return nil
-	}
-
-	r.recordMetric(ctx, sessionSourceNone)
+	// No valid handle presented. When required, only a platform_info-minted
+	// handle satisfies the gate (issue #800): the transport session is the
+	// churning, per-call Mcp-Session-Id that #792 exists to stop trusting, and
+	// the stdio sentinel collapses every run into one bucket — neither is a
+	// usable session identity. Refusing here (instead of accepting the transport
+	// session as a fallback) makes the requirement real for the exact clients the
+	// feature targets, and self-heals: a compliant caller sees SESSION_REQUIRED,
+	// calls platform_info, and threads the handle.
 	if r.require && !r.exempt[toolName] {
+		r.recordMetric(ctx, sessionSourceNone)
 		slog.Warn("session handle: missing on gated tool call",
 			logKeyTool, toolName, logKeyUserID, pc.UserID)
 		return createSessionRequiredError(r.initTool)
 	}
+
+	// Not required (or an exempt tool): keep whatever session identity the
+	// transport could supply so pc.SessionID stays populated for best-effort
+	// session-scoping. An empty SessionID means no session at all.
+	if pc.SessionID != "" {
+		r.recordMetric(ctx, transportSource(pc.SessionID))
+		return nil
+	}
+	r.recordMetric(ctx, sessionSourceNone)
 	return nil
 }
 

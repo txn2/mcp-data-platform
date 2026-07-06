@@ -1347,9 +1347,11 @@ type SessionHandlesConfig struct {
 	// TTL is the handle lifetime, refreshed on use. Defaults to 8h.
 	TTL time.Duration `yaml:"ttl"`
 
-	// Require refuses tool calls that carry neither a valid handle nor a legacy
-	// transport session (SESSION_REQUIRED). Default on (nil = required); set
-	// require: false for a softer landing during rollout.
+	// Require refuses any gated tool call that does not carry a valid
+	// platform_info-minted handle (SESSION_REQUIRED). A transport session is not
+	// accepted as a fallback (issue #800). Default on (nil = required); set
+	// require: false for a softer landing during rollout, where a handle-less
+	// call falls back to the transport session instead of being refused.
 	Require *bool `yaml:"require"`
 }
 
@@ -1359,8 +1361,8 @@ func (c SessionHandlesConfig) IsEnabled() bool {
 	return !isExplicitlyDisabled(c.Enabled)
 }
 
-// IsRequired reports whether a handle (or legacy transport session) is required
-// on every tool call, defaulting to true when not explicitly set.
+// IsRequired reports whether a valid platform_info-minted handle is required on
+// every gated tool call, defaulting to true when not explicitly set.
 func (c SessionHandlesConfig) IsRequired() bool {
 	return !isExplicitlyDisabled(c.Require)
 }
