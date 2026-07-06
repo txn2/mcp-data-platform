@@ -141,6 +141,25 @@ type EnrichmentConfig struct {
 	// the fallback returns per miss. Caller is expected to clamp to
 	// a sane range (the platform-level config helper does this).
 	SemanticFallbackTopK int
+
+	// MemoryLimit caps how many memory records are recalled and rendered
+	// into the memory_context enrichment block per tool call. Zero falls
+	// back to defaultMemoryEnrichmentLimit (issue #761).
+	MemoryLimit int
+
+	// MemoryContextBudgetBytes bounds the byte size of the rendered memory
+	// summaries appended per tool call. Records beyond the budget are listed
+	// as compact id+reference stubs in memory_context_omitted (still
+	// fetchable, not dropped); at least one record is always rendered so a
+	// tiny budget does not silently suppress all memory enrichment. Zero
+	// disables the budget (every recalled record is rendered). Issue #761.
+	MemoryContextBudgetBytes int
+
+	// MemorySummaryBytes caps each rendered memory record to a summary-first
+	// excerpt (first paragraph, or the first N bytes on a rune boundary), so
+	// the agent fetches the full record via its reference only when it
+	// matters. Zero disables truncation (full content is rendered). Issue #761.
+	MemorySummaryBytes int
 }
 
 // schemaPreviewColumn is a minimal column entry for search result schema previews.

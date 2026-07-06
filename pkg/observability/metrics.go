@@ -29,6 +29,7 @@ import (
 //   - mcp_tool_calls_total
 //   - mcp_tool_call_duration_seconds
 //   - mcp_inflight_tool_calls
+//   - mcp_enrichment_bytes_total{tool, toolkit_kind, persona}
 //   - apigateway_outbound_total
 //   - apigateway_outbound_duration_seconds
 //   - apigateway_inbound_requests_total{connection, operation_id, method, status_class, identity}
@@ -45,10 +46,16 @@ import (
 // to keep the histogram's bucket series from multiplying by the identity
 // dimension.
 const (
-	instToolCalls            = "mcp_tool_calls"
-	instToolCallDuration     = "mcp_tool_call_duration"
-	instInflightToolCalls    = "mcp_inflight_tool_calls"
-	instSessionResolution    = "mcp_session_resolution"
+	instToolCalls         = "mcp_tool_calls"
+	instToolCallDuration  = "mcp_tool_call_duration"
+	instInflightToolCalls = "mcp_inflight_tool_calls"
+	instSessionResolution = "mcp_session_resolution"
+	// Unit-less instrument name; the Prometheus exporter appends the "By"
+	// unit as "_bytes" (and "_total" for the counter), yielding
+	// mcp_enrichment_bytes_total — mirroring how mcp_tool_call_duration +
+	// unit "s" exports as mcp_tool_call_duration_seconds. Keeps the name from
+	// baking in the unit suffix twice.
+	instEnrichmentBytes      = "mcp_enrichment"
 	instAPIGwOutbound        = "apigateway_outbound"
 	instAPIGwOutboundLatency = "apigateway_outbound_duration"
 	instAPIGwInbound         = "apigateway_inbound_requests"
@@ -97,6 +104,10 @@ const (
 // unitSeconds is the OTel unit for duration histograms; the Prometheus exporter
 // turns it into the "_seconds" name suffix.
 const unitSeconds = "s"
+
+// unitBytes is the OTel unit for byte-count instruments; the Prometheus exporter
+// turns it into the "_bytes" name suffix.
+const unitBytes = "By"
 
 // UpstreamStatus maps an error from an external dependency (Trino, DataHub, S3,
 // an IdP) to a bounded status label: nil is StatusOK, anything else is
@@ -195,6 +206,7 @@ type Metrics struct {
 	toolCallDuration      metric.Float64Histogram
 	inflightToolCalls     metric.Int64UpDownCounter
 	sessionResolutions    metric.Int64Counter
+	enrichmentBytesTotal  metric.Int64Counter
 	apigwOutboundTotal    metric.Int64Counter
 	apigwOutboundDuration metric.Float64Histogram
 	apigwInboundTotal     metric.Int64Counter
@@ -355,6 +367,14 @@ func (m *Metrics) registerInstruments(meter metric.Meter) error {
 	if err != nil {
 		return fmt.Errorf(instErrFmt, instSessionResolution, err)
 	}
+	m.enrichmentBytesTotal, err = meter.Int64Counter(
+		instEnrichmentBytes,
+		metric.WithDescription("Total bytes of cross-enrichment content (semantic context, memories, knowledge pages, discovery notes) appended to tool responses, labeled by tool, toolkit_kind, and persona. Divide by mcp_tool_calls_total for average per-call overhead (#761)."),
+		metric.WithUnit(unitBytes),
+	)
+	if err != nil {
+		return fmt.Errorf(instErrFmt, instEnrichmentBytes, err)
+	}
 	m.apigwOutboundTotal, err = meter.Int64Counter(
 		instAPIGwOutbound,
 		metric.WithDescription("Total number of outbound HTTP calls made by the apigateway toolkit, labeled by connection, http_status_class, and status_category."),
@@ -505,6 +525,22 @@ func (m *Metrics) RecordToolCall(ctx context.Context, attrs ToolCallAttrs, durat
 	)
 	m.toolCallsTotal.Add(ctx, 1, set)
 	m.toolCallDuration.Record(ctx, duration.Seconds(), set)
+}
+
+// RecordEnrichmentBytes records the per-response cross-enrichment overhead in
+// bytes, labeled by tool, toolkit_kind, and persona (issue #761). Status is
+// deliberately omitted: enrichment only runs on successful results, so a status
+// dimension would carry no signal. Nil-safe; callers skip the call when bytes
+// is zero.
+func (m *Metrics) RecordEnrichmentBytes(ctx context.Context, attrs ToolCallAttrs, bytes int) {
+	if m == nil {
+		return
+	}
+	m.enrichmentBytesTotal.Add(ctx, int64(bytes), metric.WithAttributes(
+		attribute.String(attrTool, attrs.Tool),
+		attribute.String(attrToolkitKind, attrs.ToolkitKind),
+		attribute.String(attrPersona, attrs.Persona),
+	))
 }
 
 // RecordSessionResolution records one tool call labeled by how its session was

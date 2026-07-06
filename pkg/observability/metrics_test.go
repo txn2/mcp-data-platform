@@ -68,6 +68,9 @@ func TestNewEnabledRecordsAllInstruments(t *testing.T) {
 	}, 1200*time.Millisecond)
 	m.RecordSessionResolution(ctx, "explicit")
 	m.RecordSessionResolution(ctx, "transport")
+	m.RecordEnrichmentBytes(ctx, ToolCallAttrs{
+		Tool: "trino_query", ToolkitKind: "trino", Persona: "analyst", StatusCategory: StatusOK,
+	}, 1234)
 
 	body := scrapeMetrics(t, m.Handler())
 
@@ -79,6 +82,7 @@ func TestNewEnabledRecordsAllInstruments(t *testing.T) {
 		`status_category="ok"`,
 		"mcp_tool_call_duration_seconds",
 		"mcp_inflight_tool_calls",
+		"mcp_enrichment_bytes_total",
 		"apigateway_outbound_total",
 		`connection="primary"`,
 		`http_status_class="2xx"`,
@@ -143,6 +147,58 @@ func TestRecordAPIGatewayInbound(t *testing.T) {
 			t.Errorf("duration histogram must not carry identity label; got line: %s", line)
 		}
 	}
+}
+
+func TestRecordEnrichmentBytes(t *testing.T) {
+	m, err := New(Config{Enabled: true, ListenAddr: ":0"})
+	if err != nil {
+		t.Fatalf("New(enabled) err = %v", err)
+	}
+	if m == nil {
+		t.Fatal("New(enabled) returned nil recorder")
+	}
+	defer func() { _ = m.Shutdown(context.Background()) }()
+
+	ctx := context.Background()
+	m.RecordEnrichmentBytes(ctx, ToolCallAttrs{
+		Tool: "trino_query", ToolkitKind: "trino", Persona: "analyst", StatusCategory: StatusOK,
+	}, 1000)
+	m.RecordEnrichmentBytes(ctx, ToolCallAttrs{
+		Tool: "trino_query", ToolkitKind: "trino", Persona: "analyst", StatusCategory: StatusOK,
+	}, 500)
+
+	body := scrapeMetrics(t, m.Handler())
+
+	for _, want := range []string{
+		"mcp_enrichment_bytes_total",
+		`tool="trino_query"`,
+		`toolkit_kind="trino"`,
+		`persona="analyst"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("scrape body missing %q\n--- body ---\n%s", want, body)
+		}
+	}
+
+	// Two records of 1000 + 500 accumulate on the same series.
+	if !strings.Contains(body, "mcp_enrichment_bytes_total{") ||
+		!strings.Contains(body, "} 1500") {
+		t.Errorf("expected enrichment bytes counter to read 1500; body:\n%s", body)
+	}
+
+	// The counter deliberately omits the status_category dimension.
+	for line := range strings.SplitSeq(body, "\n") {
+		if strings.HasPrefix(line, "mcp_enrichment_bytes_total") && strings.Contains(line, "status_category=") {
+			t.Errorf("enrichment bytes counter must not carry status_category label; got line: %s", line)
+		}
+	}
+}
+
+// TestRecordEnrichmentBytesNilSafe verifies the nil-recorder no-op path: the
+// call must not panic on a nil *Metrics.
+func TestRecordEnrichmentBytesNilSafe(_ *testing.T) {
+	var m *Metrics
+	m.RecordEnrichmentBytes(context.Background(), ToolCallAttrs{Tool: "trino_query"}, 42)
 }
 
 func TestNewListenerNilWhenDisabled(t *testing.T) {

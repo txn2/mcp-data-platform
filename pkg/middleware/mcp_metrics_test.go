@@ -81,6 +81,70 @@ func TestMCPMetricsMiddleware_IntegrationRecordsToolCall(t *testing.T) {
 	}
 }
 
+// TestMCPMetricsMiddleware_RecordsEnrichmentBytes proves the issue #761 wiring
+// end-to-end: a middleware inner to the metrics middleware (mimicking the
+// enrichment middleware's position) sets PlatformContext.EnrichmentBytes on the
+// shared context, and the metrics middleware records it as mcp_enrichment_bytes
+// after the inner handler returns.
+func TestMCPMetricsMiddleware_RecordsEnrichmentBytes(t *testing.T) {
+	m, err := observability.New(observability.Config{Enabled: true})
+	if err != nil {
+		t.Fatalf("observability.New: %v", err)
+	}
+	defer func() { _ = m.Shutdown(context.Background()) }()
+
+	server := mcp.NewServer(&mcp.Implementation{Name: "enrich-bytes-test", Version: "v0.0.0"}, nil)
+	server.AddTool(&mcp.Tool{
+		Name:        "trino_query",
+		Description: "test",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
+	}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}}, nil
+	})
+
+	authenticator := &fakeAuthn{user: &middleware.UserInfo{UserID: "u1", Roles: []string{"analyst"}}}
+	authorizer := &fakeAuthz{persona: "analyst"}
+	lookup := &fakeLookup{kind: "trino", name: "prod", conn: "primary"}
+
+	// Enrichment simulator (innermost) sets EnrichmentBytes on the shared
+	// PlatformContext, exactly where the real enrichment middleware sits.
+	enrichSim := func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			if pc := middleware.GetPlatformContext(ctx); pc != nil {
+				pc.EnrichmentBytes = 777
+			}
+			return next(ctx, method, req)
+		}
+	}
+
+	// Innermost first: enrichSim, then Metrics (must be OUTER to enrichSim so it
+	// reads EnrichmentBytes after next returns), then ToolCall (outermost).
+	server.AddReceivingMiddleware(enrichSim)
+	server.AddReceivingMiddleware(middleware.MCPMetricsMiddleware(m))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(
+		authenticator, authorizer, lookup,
+		middleware.ToolCallConfig{Transport: "stdio", AdminPersona: "admin"},
+	))
+
+	ctx := context.Background()
+	sess := mustConnect(ctx, t, server)
+	defer func() { _ = sess.Close() }()
+
+	res, err := sess.CallTool(ctx, &mcp.CallToolParams{Name: "trino_query"})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("tool returned error: %v", res.Content)
+	}
+
+	body := scrape(t, m.Handler())
+	want := `mcp_enrichment_bytes_total{persona="analyst",tool="trino_query",toolkit_kind="trino"} 777`
+	if !strings.Contains(body, want) {
+		t.Errorf("scrape missing enrichment-bytes series: %q\n--- body ---\n%s", want, body)
+	}
+}
+
 // TestMCPMetricsMiddleware_DisabledIsNoOp verifies that wiring the
 // middleware with a nil recorder does not panic and does not interfere
 // with normal tool execution. This is the path operators take when

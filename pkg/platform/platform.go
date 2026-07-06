@@ -496,7 +496,10 @@ func (b *memoryMiddlewareBridge) RecallForEntities(ctx context.Context, urns []s
 	snippets := make([]middleware.MemorySnippet, len(memSnippets))
 	for i, ms := range memSnippets {
 		snippets[i] = middleware.MemorySnippet{
-			ID:         ms.ID,
+			ID: ms.ID,
+			// Canonical fetch handle (mcp:memory:<id>) so a summary-first
+			// rendering can point the agent at the full record (#761).
+			Reference:  knowledgepage.MemoryRef(ms.ID),
 			Content:    ms.Content,
 			Dimension:  ms.Dimension,
 			Category:   ms.Category,
@@ -3065,6 +3068,9 @@ func (p *Platform) buildEnrichmentConfig() middleware.EnrichmentConfig {
 		SchemaPreviewMaxColumns:     p.config.Enrichment.EffectiveSchemaPreviewMaxColumns(),
 		SemanticFallbackEnabled:     p.config.Enrichment.IsSemanticFallbackEnabled(),
 		SemanticFallbackTopK:        p.config.Enrichment.EffectiveSemanticFallbackTopK(),
+		MemoryLimit:                 p.config.Enrichment.EffectiveMemoryLimit(),
+		MemoryContextBudgetBytes:    p.config.Enrichment.EffectiveMemoryContextBudgetBytes(),
+		MemorySummaryBytes:          p.config.Enrichment.EffectiveMemorySummaryBytes(),
 	}
 
 	// Wire connection source map lookups as closures to avoid import cycles.

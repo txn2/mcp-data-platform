@@ -133,12 +133,16 @@ func applyEnrichment(
 	}
 
 	// Attach relevant memories from the memory layer.
-	enrichedResult = enrichWithMemories(ctx, enricher.memoryProvider, enrichedResult, pc)
+	enrichedResult = enrichWithMemories(ctx, enricher.memoryProvider, enrichedResult, pc, enricher.cfg)
 
 	// Attach the canonical knowledge pages that document the named entities (#634).
 	enrichedResult = enrichWithKnowledgePages(ctx, enricher.pageProvider, enrichedResult, entityURNs)
 
 	appendDiscoveryNoteIfNeeded(ctx, enrichedResult, pc, enricher.cfg.WorkflowTracker)
+
+	// Record how many bytes of enrichment this call appended so the metrics
+	// middleware can surface the per-response overhead (issue #761).
+	pc.EnrichmentBytes = enrichmentContentBytes(enrichedResult, beforeLen)
 
 	// Mirror every platform-added enrichment block into the structured result so
 	// MCP clients that render only structured output still receive the semantic
@@ -220,6 +224,23 @@ func appendDiscoveryNoteIfNeeded(ctx context.Context, result *mcp.CallToolResult
 		return
 	}
 	result.Content = append(result.Content, &mcp.TextContent{Text: string(noteJSON)})
+}
+
+// enrichmentContentBytes sums the byte length of the text content blocks the
+// enrichment pipeline appended (indices >= fromIndex), giving the per-response
+// enrichment overhead the metrics layer reports (issue #761). Non-text blocks
+// (resource links, images) carry no enrichment prose and are not counted.
+func enrichmentContentBytes(result *mcp.CallToolResult, fromIndex int) int {
+	if result == nil || fromIndex < 0 || fromIndex >= len(result.Content) {
+		return 0
+	}
+	total := 0
+	for _, c := range result.Content[fromIndex:] {
+		if tc, ok := c.(*mcp.TextContent); ok {
+			total += len(tc.Text)
+		}
+	}
+	return total
 }
 
 // inferToolkitKind determines the toolkit kind from a tool name prefix.
