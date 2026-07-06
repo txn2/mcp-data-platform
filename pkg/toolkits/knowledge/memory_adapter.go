@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
+	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 )
@@ -140,9 +142,16 @@ func (a *memoryInsightAdapter) List(ctx context.Context, filter InsightFilter) (
 		return nil, 0, err
 	}
 
+	// The walk preserves the store's created_at DESC order (newest-first). When the
+	// caller wants oldest-first (the age-ordered review queue, #764), reverse the
+	// fully materialized set before paging so every page is in ascending order.
+	if filter.OrderCreatedAsc {
+		slices.Reverse(matched)
+	}
+
 	// total is the exact matching count so the caller's pagination footer agrees
-	// with the stat card; pageInsights returns the requested window in the same
-	// created_at DESC order the walk preserved.
+	// with the stat card; pageInsights returns the requested window in the walk's
+	// order (or its reverse when oldest-first was requested).
 	page, _, _ := pageInsights(matched, filter.Offset, filter.Limit)
 	return page, len(matched), nil
 }
@@ -285,6 +294,8 @@ func (a *memoryInsightAdapter) Stats(ctx context.Context, filter InsightFilter) 
 		ByStatus:     make(map[string]int),
 	}
 
+	cutoff := pendingStalenessCutoff(time.Now())
+	var oldestPending *time.Time
 	err := a.eachActiveInsightRecord(ctx, mf, func(r memory.Record) {
 		// Recover the insight status (pending/approved/applied/...) from the lossy
 		// memory status, so the keys match what callers and the postgres store
@@ -304,11 +315,23 @@ func (a *memoryInsightAdapter) Stats(ctx context.Context, filter InsightFilter) 
 		stats.ByStatus[st]++
 		stats.ByCategory[r.Category]++
 		stats.ByConfidence[r.Confidence]++
+		// Track pending-queue staleness alongside the pending tally so the
+		// rollup always agrees with TotalPending (#764).
+		if st == StatusPending {
+			if oldestPending == nil || r.CreatedAt.Before(*oldestPending) {
+				created := r.CreatedAt
+				oldestPending = &created
+			}
+			if isStalePending(r.CreatedAt, cutoff) {
+				stats.PendingOver30d++
+			}
+		}
 	})
 	if err != nil {
 		return nil, fmt.Errorf("listing records for insight stats: %w", err)
 	}
 	stats.TotalPending = stats.ByStatus[StatusPending]
+	stats.OldestPendingAt = oldestPending
 
 	return stats, nil
 }

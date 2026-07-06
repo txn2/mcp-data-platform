@@ -217,6 +217,10 @@ export interface InsightStats {
   by_category: Record<string, number>;
   by_confidence: Record<string, number>;
   by_status: Record<string, number>;
+  /** created_at of the oldest pending insight; absent when the queue is empty. */
+  oldest_pending_at?: string;
+  /** Pending insights aged 30 or more days: the accumulating review debt. */
+  pending_over_30d?: number;
 }
 
 export interface Changeset {

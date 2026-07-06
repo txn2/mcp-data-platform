@@ -252,10 +252,19 @@ function computeInsightStats(insights: Insight[]): InsightStats {
     { count: number; categories: Set<string>; latest: string }
   >();
 
+  const staleCutoff = Date.now() - 30 * 86_400_000;
+  let oldestPendingAt: string | undefined;
+  let pendingOver30d = 0;
   for (const ins of insights) {
     byStatus[ins.status] = (byStatus[ins.status] ?? 0) + 1;
     byCategory[ins.category] = (byCategory[ins.category] ?? 0) + 1;
     byConfidence[ins.confidence] = (byConfidence[ins.confidence] ?? 0) + 1;
+    if (ins.status === "pending") {
+      if (!oldestPendingAt || ins.created_at < oldestPendingAt) {
+        oldestPendingAt = ins.created_at;
+      }
+      if (new Date(ins.created_at).getTime() <= staleCutoff) pendingOver30d++;
+    }
     for (const urn of ins.entity_urns) {
       const existing = entityMap.get(urn);
       if (existing) {
@@ -285,6 +294,8 @@ function computeInsightStats(insights: Insight[]): InsightStats {
     by_category: byCategory,
     by_confidence: byConfidence,
     by_status: byStatus,
+    oldest_pending_at: oldestPendingAt,
+    pending_over_30d: pendingOver30d,
   };
 }
 
@@ -1079,6 +1090,7 @@ export const handlers = [
     const confidence = url.searchParams.get("confidence");
     const entityUrn = url.searchParams.get("entity_urn");
     const capturedBy = url.searchParams.get("captured_by");
+    const order = url.searchParams.get("order");
 
     let filtered = [...mockInsights];
     if (status) filtered = filtered.filter((i) => i.status === status);
@@ -1089,6 +1101,11 @@ export const handlers = [
       filtered = filtered.filter((i) => i.entity_urns.includes(entityUrn));
     if (capturedBy)
       filtered = filtered.filter((i) => i.captured_by === capturedBy);
+    filtered.sort((a, b) =>
+      order === "oldest"
+        ? a.created_at.localeCompare(b.created_at)
+        : b.created_at.localeCompare(a.created_at),
+    );
 
     const start = (page - 1) * perPage;
     const data = filtered.slice(start, start + perPage);

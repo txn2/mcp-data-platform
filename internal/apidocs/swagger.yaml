@@ -2221,6 +2221,17 @@ definitions:
         additionalProperties:
           type: integer
         type: object
+      oldest_pending_at:
+        description: |-
+          OldestPendingAt is the created_at of the oldest pending insight, or nil
+          when the pending queue is empty. It surfaces review-queue staleness so
+          pending insights do not silently age (#764).
+        type: string
+      pending_over_30d:
+        description: |-
+          PendingOver30d counts pending insights older than
+          PendingStalenessThresholdDays, the accumulating review debt (#764).
+        type: integer
       total_pending:
         type: integer
     type: object
@@ -6609,6 +6620,10 @@ paths:
         in: query
         name: per_page
         type: integer
+      - description: 'Sort by created_at: ''oldest'' for oldest-first, default newest-first'
+        in: query
+        name: order
+        type: string
       produces:
       - application/json
       responses:

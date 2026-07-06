@@ -1023,6 +1023,15 @@ func TestParseInsightFilter(t *testing.T) {
 		assert.Equal(t, 10, filter.Limit)
 		// Page 3 with per_page 10 means offset = (3-1)*10 = 20
 		assert.Equal(t, 20, filter.Offset)
+		assert.False(t, filter.OrderCreatedAsc, "default order is newest-first")
+	})
+
+	t.Run("order=oldest sorts oldest-first", func(t *testing.T) {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/insights?order=oldest", http.NoBody)
+		assert.True(t, parseInsightFilter(req).OrderCreatedAsc)
+
+		req = httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/insights?order=newest", http.NoBody)
+		assert.False(t, parseInsightFilter(req).OrderCreatedAsc, "any non-oldest value stays newest-first")
 	})
 
 	t.Run("defaults for empty parameters", func(t *testing.T) {

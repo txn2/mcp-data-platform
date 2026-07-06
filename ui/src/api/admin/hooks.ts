@@ -233,6 +233,8 @@ interface InsightsParams {
   confidence?: string;
   entityUrn?: string;
   capturedBy?: string;
+  /** "oldest" sorts oldest-first (stalest review debt first); default newest-first. */
+  order?: "oldest" | "newest";
 }
 
 export function useInsights(params: InsightsParams = {}) {
@@ -244,6 +246,7 @@ export function useInsights(params: InsightsParams = {}) {
   if (params.confidence) searchParams.set("confidence", params.confidence);
   if (params.entityUrn) searchParams.set("entity_urn", params.entityUrn);
   if (params.capturedBy) searchParams.set("captured_by", params.capturedBy);
+  if (params.order) searchParams.set("order", params.order);
 
   const qs = searchParams.toString();
   return useQuery({

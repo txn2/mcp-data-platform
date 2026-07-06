@@ -185,8 +185,12 @@ func (s *fullSpyStore) Stats(_ context.Context, filter InsightFilter) (*InsightS
 		ByConfidence: map[string]int{},
 		ByStatus:     map[string]int{},
 	}
+	var pending []Insight
 	for _, ins := range s.Insights {
 		stats.ByStatus[ins.Status]++
+		if ins.Status == StatusPending {
+			pending = append(pending, ins)
+		}
 		if filter.Status != "" && ins.Status != filter.Status {
 			continue
 		}
@@ -194,6 +198,11 @@ func (s *fullSpyStore) Stats(_ context.Context, filter InsightFilter) (*InsightS
 		stats.ByConfidence[ins.Confidence]++
 	}
 	stats.TotalPending = stats.ByStatus[StatusPending]
+	// Mirror the real store's pending-queue staleness rollup (#764) so the
+	// counts path is exercised faithfully rather than stubbed.
+	stats.OldestPendingAt, stats.PendingOver30d = pendingStalenessFromInsights(
+		pending, pendingStalenessCutoff(time.Now()),
+	)
 	return stats, nil
 }
 
@@ -813,6 +822,69 @@ func TestHandleBulkReview_ReturnsSummary(t *testing.T) {
 	byEntity, ok := m["by_entity"].([]any)
 	require.True(t, ok, "by_entity should be an array")
 	assert.Len(t, byEntity, 2, "should have 2 distinct entities among pending")
+}
+
+// TestHandleBulkReview_StalenessRollup verifies the review-queue staleness
+// rollup (#764) is present on both the counts and itemized paths: the oldest
+// pending age and the over-30d count let a reviewer (and an agent nudging one)
+// see accumulating review debt.
+func TestHandleBulkReview_StalenessRollup(t *testing.T) {
+	now := time.Now()
+	oldest := now.Add(-94 * 24 * time.Hour)
+	store := &fullSpyStore{
+		Insights: []Insight{
+			{ID: "i1", Status: StatusPending, Category: "correction", Confidence: "high", CreatedAt: now.Add(-3 * 24 * time.Hour)},
+			{ID: "i2", Status: StatusPending, Category: "correction", Confidence: "low", CreatedAt: oldest},
+			{ID: "i3", Status: StatusPending, Category: "business_context", Confidence: "medium", CreatedAt: now.Add(-40 * 24 * time.Hour)},
+			// Applied and very old: excluded from the pending staleness rollup.
+			{ID: "i4", Status: StatusApplied, Category: "correction", Confidence: "high", CreatedAt: now.Add(-300 * 24 * time.Hour)},
+		},
+	}
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+
+	assertStaleness := func(t *testing.T, m map[string]any) {
+		t.Helper()
+		require.Contains(t, m, "oldest_pending_at")
+		age, ok := m["oldest_pending_age_days"].(float64)
+		require.True(t, ok, "oldest_pending_age_days should be numeric")
+		assert.InDelta(t, 94, age, 1, "oldest pending is ~94 days old")
+		assert.Equal(t, float64(2), m["pending_over_30d"], "two pending insights past 30 days")
+	}
+
+	t.Run("counts path", func(t *testing.T) {
+		result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil,
+			applyKnowledgeInput{Action: "bulk_review"})
+		require.Nil(t, callErr)
+		require.False(t, result.IsError)
+		assertStaleness(t, parseJSONResult(t, result))
+	})
+
+	t.Run("itemized path", func(t *testing.T) {
+		result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil,
+			applyKnowledgeInput{Action: "bulk_review", Itemize: true})
+		require.Nil(t, callErr)
+		require.False(t, result.IsError)
+		assertStaleness(t, parseJSONResult(t, result))
+	})
+}
+
+// TestHandleBulkReview_StalenessOmittedWhenEmpty verifies the staleness fields
+// are omitted when the pending queue is empty, so there is no false "0 days"
+// signal (#764).
+func TestHandleBulkReview_StalenessOmittedWhenEmpty(t *testing.T) {
+	store := &fullSpyStore{Insights: []Insight{
+		{ID: "i1", Status: StatusApplied, Category: "correction", Confidence: "high", CreatedAt: time.Now()},
+	}}
+	tk := newApplyToolkit(t, store, &spyChangesetStore{}, &spyWriter{})
+
+	result, _, callErr := tk.handleApplyKnowledge(context.Background(), nil,
+		applyKnowledgeInput{Action: "bulk_review"})
+	require.Nil(t, callErr)
+	require.False(t, result.IsError)
+	m := parseJSONResult(t, result)
+	assert.Equal(t, float64(0), m["total_pending"])
+	assert.NotContains(t, m, "oldest_pending_at")
+	assert.NotContains(t, m, "oldest_pending_age_days")
 }
 
 func TestHandleBulkReview_StatsError(t *testing.T) {

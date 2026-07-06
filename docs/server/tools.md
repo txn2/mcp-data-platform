@@ -781,7 +781,7 @@ Both sinks record a **changeset** (page promotions use `target_urn = "kp:<slug>"
 
 **Actions:**
 
-- **bulk_review**: Counts of all pending insights (`total_pending`, `by_entity`, `by_category`, `by_confidence`). Pass `itemize: true` to enumerate the queue itself, paginated, with each insight's full `insight_text` body, `id`, `captured_by`, `sink_class`, and `suggested_actions_count` (full `suggested_actions` omitted, `fetch` for it; the relevance-ranked `search` tool cannot list the queue completely). The response is bounded so it stays under the output limit: `page_size_capped: true` flags a short insights page (continue with `next_offset`) and `by_entity_truncated: true` flags a capped `by_entity`
+- **bulk_review**: Counts of all pending insights (`total_pending`, `by_entity`, `by_category`, `by_confidence`) plus a review-queue staleness rollup (`oldest_pending_at`, `oldest_pending_age_days`, `pending_over_30d`, omitted when the queue is empty) so aging review debt is visible. Pass `itemize: true` to enumerate the queue itself, paginated, with each insight's full `insight_text` body, `id`, `captured_by`, `sink_class`, and `suggested_actions_count` (full `suggested_actions` omitted, `fetch` for it; the relevance-ranked `search` tool cannot list the queue completely). The response is bounded so it stays under the output limit: `page_size_capped: true` flags a short insights page (continue with `next_offset`) and `by_entity_truncated: true` flags a capped `by_entity`
 - **review**: Insights for a specific entity with current DataHub metadata
 - **approve/reject**: Transition insight status with optional notes
 - **synthesize**: Structured change proposals from approved insights

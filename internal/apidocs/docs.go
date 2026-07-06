@@ -4621,6 +4621,12 @@ const docTemplate = `{
                         "description": "Results per page (default: 20)",
                         "name": "per_page",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Sort by created_at: 'oldest' for oldest-first, default newest-first",
+                        "name": "order",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -14687,6 +14693,14 @@ const docTemplate = `{
                     "additionalProperties": {
                         "type": "integer"
                     }
+                },
+                "oldest_pending_at": {
+                    "description": "OldestPendingAt is the created_at of the oldest pending insight, or nil\nwhen the pending queue is empty. It surfaces review-queue staleness so\npending insights do not silently age (#764).",
+                    "type": "string"
+                },
+                "pending_over_30d": {
+                    "description": "PendingOver30d counts pending insights older than\nPendingStalenessThresholdDays, the accumulating review debt (#764).",
+                    "type": "integer"
                 },
                 "total_pending": {
                     "type": "integer"

@@ -345,6 +345,10 @@ type InsightFilter struct {
 	Until      *time.Time
 	Limit      int
 	Offset     int
+	// OrderCreatedAsc lists insights oldest-first (created_at ASC) instead of the
+	// default newest-first (created_at DESC). The review queue uses it to work the
+	// oldest, stalest review debt first (#764).
+	OrderCreatedAsc bool
 }
 
 // DefaultLimit is the default page size for list queries.
@@ -371,6 +375,63 @@ type InsightStats struct {
 	ByCategory   map[string]int         `json:"by_category"`
 	ByConfidence map[string]int         `json:"by_confidence"`
 	ByStatus     map[string]int         `json:"by_status"`
+	// OldestPendingAt is the created_at of the oldest pending insight, or nil
+	// when the pending queue is empty. It surfaces review-queue staleness so
+	// pending insights do not silently age (#764).
+	OldestPendingAt *time.Time `json:"oldest_pending_at,omitempty"`
+	// PendingOver30d counts pending insights older than
+	// PendingStalenessThresholdDays, the accumulating review debt (#764).
+	PendingOver30d int `json:"pending_over_30d"`
+}
+
+// PendingStalenessThresholdDays is the age, in days, at or past which a pending
+// insight is counted as stale review debt (reported as pending_over_30d). An
+// unreviewed queue erodes the knowledge flywheel, so this threshold makes the
+// aging visible to reviewers and to agents nudging them (#764). "At or past"
+// (age >= threshold) matches the portal's age badge, which flags a row stale at
+// the same 30-day mark, so the count and the badge never disagree.
+const PendingStalenessThresholdDays = 30
+
+// PendingReview is the lightweight review-queue summary: the pending count and
+// its staleness rollup, without the by-category/by-confidence group-bys that the
+// full InsightStats carries. It lets platform_info surface the review-debt nudge
+// per session without the heavier Stats fan-out (#764).
+type PendingReview struct {
+	TotalPending    int        `json:"total_pending"`
+	OldestPendingAt *time.Time `json:"oldest_pending_at,omitempty"`
+	PendingOver30d  int        `json:"pending_over_30d"`
+}
+
+// pendingStalenessCutoff returns the timestamp at or before which a pending
+// insight is counted as stale review debt (aged >= PendingStalenessThresholdDays).
+func pendingStalenessCutoff(now time.Time) time.Time {
+	return now.Add(-PendingStalenessThresholdDays * 24 * time.Hour)
+}
+
+// isStalePending reports whether a pending insight created at created is stale
+// review debt relative to cutoff, i.e. aged at least the threshold. The single
+// definition (created <= cutoff) is shared by every path that counts stale debt
+// so the postgres, memory, and in-memory rollups agree at the boundary.
+func isStalePending(created, cutoff time.Time) bool {
+	return !created.After(cutoff)
+}
+
+// pendingStalenessFromInsights computes the oldest pending created_at (nil when
+// none) and the stale count from an in-memory pending set, so the itemized
+// bulk_review path (which already holds every pending insight) reports the same
+// staleness rollup as the counts path without a second store query.
+func pendingStalenessFromInsights(pending []Insight, cutoff time.Time) (oldest *time.Time, over30d int) {
+	for i := range pending {
+		created := pending[i].CreatedAt
+		if oldest == nil || created.Before(*oldest) {
+			c := created
+			oldest = &c
+		}
+		if isStalePending(created, cutoff) {
+			over30d++
+		}
+	}
+	return oldest, over30d
 }
 
 // EntityInsightSummary summarizes insights for a single entity.
