@@ -173,6 +173,32 @@ func TestIntegration_SessionHandle_ThreadedFlow(t *testing.T) {
 	assert.Contains(t, tools, "trino_query")
 }
 
+// TestIntegration_SessionHandle_NoHandleRefused is issue #800's acceptance
+// criterion through the real wired chain: with handles required, a gated query
+// carrying no session_id handle is refused with SESSION_REQUIRED and never
+// reaches the handler. (The unit test TestSessionResolver_TransportSessionDoesNotSatisfyRequire
+// covers the companion case where a non-empty transport session is present but
+// still does not satisfy the requirement.)
+func TestIntegration_SessionHandle_NoHandleRefused(t *testing.T) {
+	ctx := context.Background()
+	h := sessionHandleServer(t)
+	sess := mustConnect(ctx, t, h.server)
+	defer func() { _ = sess.Close() }()
+
+	res, err := sess.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "trino_query",
+		Arguments: map[string]any{"sql": "SELECT 1"},
+	})
+	require.NoError(t, err)
+	require.True(t, res.IsError, "a handle-less gated call must be refused")
+	assert.Equal(t, middleware.CodeSessionRequired, clientErrCode(t, res))
+
+	// Refused before the handler ran, so no execution audit row for trino_query.
+	if e, ok := waitForAuditEvent(h.audit, "trino_query", 300*time.Millisecond); ok {
+		t.Fatalf("a refused call must not produce a handler audit row: %+v", e)
+	}
+}
+
 // TestIntegration_SessionHandle_ExpiredRejectedBeforeHandler proves an unknown
 // handle is refused with SESSION_EXPIRED before the handler or audit run
 // (acceptance criterion 3's mechanism: refused before execution, no handler

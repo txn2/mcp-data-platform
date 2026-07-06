@@ -264,20 +264,46 @@ func TestSessionResolver_MissingHandleNotRequired(t *testing.T) {
 	}
 }
 
-func TestSessionResolver_LegacyTransportSessionSatisfiesRequire(t *testing.T) {
+// TestSessionResolver_TransportSessionDoesNotSatisfyRequire is issue #800's
+// central acceptance criterion: a non-empty transport Mcp-Session-Id is NOT a
+// fallback. A gated call carrying one but no handle is refused with
+// SESSION_REQUIRED, so the requirement is real for the churning-session client
+// the feature targets.
+func TestSessionResolver_TransportSessionDoesNotSatisfyRequire(t *testing.T) {
 	store := pkgsession.NewMemoryStore(time.Hour)
 	r := newResolver(store, true)
 
 	pc := NewPlatformContext("req")
 	pc.UserID = "user-1"
-	pc.SessionID = "legacy-transport-hex" // resolved from Mcp-Session-Id
+	pc.SessionID = "per-call-transport-hex" // fresh Mcp-Session-Id, non-identifying
+	req := makeCallReq("trino_query", map[string]any{"sql": "SELECT 1"})
+
+	result := r.resolve(context.Background(), req, pc, "trino_query")
+	if result == nil {
+		t.Fatal("a transport session must NOT satisfy require; the call must be refused")
+	}
+	if code := errCode(t, result); code != CodeSessionRequired {
+		t.Errorf("code = %q, want %q", code, CodeSessionRequired)
+	}
+}
+
+// TestSessionResolver_TransportSessionAdoptedWhenNotRequired proves the softer
+// rollout mode (require off): a handle-less call falls back to the transport
+// session, which is preserved as pc.SessionID for best-effort scoping.
+func TestSessionResolver_TransportSessionAdoptedWhenNotRequired(t *testing.T) {
+	store := pkgsession.NewMemoryStore(time.Hour)
+	r := newResolver(store, false)
+
+	pc := NewPlatformContext("req")
+	pc.UserID = "user-1"
+	pc.SessionID = "legacy-transport-hex"
 	req := makeCallReq("trino_query", map[string]any{"sql": "SELECT 1"})
 
 	if got := r.resolve(context.Background(), req, pc, "trino_query"); got != nil {
-		t.Fatalf("legacy transport session should satisfy require, got code=%s", errCode(t, got))
+		t.Fatalf("require=off should allow the transport fallback, got code=%s", errCode(t, got))
 	}
 	if pc.SessionID != "legacy-transport-hex" {
-		t.Errorf("transport session must be preserved, got %q", pc.SessionID)
+		t.Errorf("transport session must be preserved when require is off, got %q", pc.SessionID)
 	}
 }
 
@@ -315,16 +341,26 @@ func TestSessionResolver_InitToolExemptEvenWithStaleHandle(t *testing.T) {
 	}
 }
 
-func TestSessionResolver_StdioSentinelSatisfiesRequire(t *testing.T) {
+// TestSessionResolver_StdioSentinelDoesNotSatisfyRequire proves the stdio
+// carve-out is gone (issue #800): the "stdio" sentinel is a constant that
+// collapses every run into one bucket, not a usable session identity, so a
+// gated stdio call without a handle is refused like any other transport. stdio
+// mints and threads a handle via platform_info like every other transport.
+func TestSessionResolver_StdioSentinelDoesNotSatisfyRequire(t *testing.T) {
 	store := pkgsession.NewMemoryStore(time.Hour)
 	r := newResolver(store, true)
 
 	pc := NewPlatformContext("req")
+	pc.UserID = "user-1"
 	pc.SessionID = defaultSessionID // "stdio"
 	req := makeCallReq("trino_query", map[string]any{"sql": "SELECT 1"})
 
-	if got := r.resolve(context.Background(), req, pc, "trino_query"); got != nil {
-		t.Fatalf("stdio sentinel should keep stdio usable, got code=%s", errCode(t, got))
+	result := r.resolve(context.Background(), req, pc, "trino_query")
+	if result == nil {
+		t.Fatal("the stdio sentinel must NOT satisfy require; the call must be refused")
+	}
+	if code := errCode(t, result); code != CodeSessionRequired {
+		t.Errorf("code = %q, want %q", code, CodeSessionRequired)
 	}
 }
 
