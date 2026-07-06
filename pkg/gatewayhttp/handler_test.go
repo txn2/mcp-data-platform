@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
+	pkgsession "github.com/txn2/mcp-data-platform/pkg/session"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 )
 
@@ -836,17 +837,8 @@ func TestIntegration_SourceTaggedRest(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	tk := apigatewaykit.New("apigateway")
-	require.NoError(t, tk.AddConnection("acme", map[string]any{
-		"base_url":        upstream.URL,
-		"auth_mode":       apigatewaykit.AuthModeNone,
-		"call_timeout":    "5s",
-		"connect_timeout": "2s",
-	}))
-
 	captured := &capturedAuditSource{}
-	mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "v1"}, nil)
-	tk.RegisterTools(mcpServer)
+	mcpServer := buildAPIGatewayServer(t, upstream.URL, "acme")
 
 	// Capture middleware reads PlatformContext.Source after the tool-call
 	// middleware has populated it. Wrapping order (LAST added runs FIRST):
@@ -870,6 +862,115 @@ func TestIntegration_SourceTaggedRest(t *testing.T) {
 	require.Equal(t, http.StatusOK, status)
 	assert.Equal(t, middleware.SourceREST, captured.get(),
 		"REST shim must tag the in-memory MCP session with Source=rest")
+}
+
+// TestIntegration_SessionGateExemptsREST is the regression test for issue #811:
+// the explicit session-handle gate (Require=on, #800) refuses any agent tool
+// call that lacks a platform_info-minted handle, but a REST caller is stateless
+// and can never obtain or thread one. This drives the REAL MCPToolCallMiddleware
+// with a Require=true SessionResolver over the SAME assembled server two ways:
+//
+//  1. Through the REST shim: it must succeed (HTTP 200, upstream hit), proving
+//     Source=rest — set by the shim — reaches the resolver and is exempted.
+//  2. Directly as a real MCP agent (Source=mcp, no shim): it must be refused with
+//     SESSION_REQUIRED, proving the gate stays live for agents through the exact
+//     same wiring. Without this counter-case a regression that fails the gate open
+//     for every source would pass unnoticed here (review #811, finding 2).
+func TestIntegration_SessionGateExemptsREST(t *testing.T) {
+	upstreamHits := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		upstreamHits++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer upstream.Close()
+
+	resolver := middleware.NewSessionResolver(
+		pkgsession.NewMemoryStore(time.Hour),
+		middleware.SessionResolverConfig{
+			Enabled:  true,
+			Require:  true, // #800: agents must thread a handle
+			InitTool: "platform_info",
+		},
+	)
+
+	mcpServer := buildAPIGatewayServer(t, upstream.URL, "acme")
+	mcpServer.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(
+		&middleware.NoopAuthenticator{DefaultUserID: "u1", DefaultRoles: []string{"analyst"}},
+		middleware.AllowAllAuthorizer(),
+		nil,
+		middleware.ToolCallConfig{Transport: "http", SessionResolver: resolver},
+	))
+
+	// (1) REST shim path: exempt, reaches the upstream.
+	handler, err := NewHandler(Deps{MCPServer: mcpServer})
+	require.NoError(t, err)
+	gateway := httptest.NewServer(handler)
+	defer gateway.Close()
+
+	status, respBody := postJSON(t, gateway.URL+"/api/v1/gateway/acme/invoke",
+		`{"method":"GET","path":"/x"}`)
+
+	require.Equal(t, http.StatusOK, status,
+		"REST invoke must not be refused with SESSION_REQUIRED (issue #811); body=%s", respBody)
+	assert.Equal(t, 1, upstreamHits,
+		"the REST call must reach the upstream, proving the session gate did not short-circuit it")
+	assert.NotContains(t, string(respBody), "SESSION_REQUIRED",
+		"the REST response must not carry the agent session-gate error")
+
+	// (2) Direct agent path (Source=mcp): the gate must still refuse it. The tool
+	// never reaches the upstream, so upstreamHits stays at 1.
+	agentResult := callToolDirect(t, mcpServer, apigatewaykit.ToolInvokeEndpoint, map[string]any{
+		"connection": "acme", "method": "GET", "path": "/x",
+	})
+	require.True(t, agentResult.IsError,
+		"a real MCP agent (Source=mcp) with no handle must be refused when require=on")
+	agentText, _ := firstTextContent(agentResult.Content)
+	assert.Contains(t, agentText, "SESSION_REQUIRED",
+		"the agent refusal must be the session gate, not some other error")
+	assert.Equal(t, 1, upstreamHits,
+		"the gated agent call must not reach the upstream")
+}
+
+// buildAPIGatewayServer builds an MCP server with the apigateway toolkit and a
+// single connection named connName pointed at upstreamURL, with no middleware
+// attached — callers add whatever middleware the test needs. Shared by the
+// resolver and source-tagging integration tests so the toolkit/connection wiring
+// stays in lockstep (review #811, finding 3).
+func buildAPIGatewayServer(t *testing.T, upstreamURL, connName string) *mcp.Server {
+	t.Helper()
+	tk := apigatewaykit.New("apigateway")
+	require.NoError(t, tk.AddConnection(connName, map[string]any{
+		"base_url":        upstreamURL,
+		"auth_mode":       apigatewaykit.AuthModeNone,
+		"call_timeout":    "5s",
+		"connect_timeout": "2s",
+	}))
+	mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "v1"}, nil)
+	tk.RegisterTools(mcpServer)
+	return mcpServer
+}
+
+// callToolDirect connects an in-memory MCP client straight to the assembled
+// server (no REST shim, so no Source override) and calls one tool, returning the
+// tool result. This exercises the middleware chain as a real MCP agent would,
+// where resolveSource defaults the source to "mcp".
+func callToolDirect(t *testing.T, server *mcp.Server, tool string, args map[string]any) *mcp.CallToolResult {
+	t.Helper()
+	t1, t2 := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(context.Background(), t1, nil)
+	require.NoError(t, err)
+	defer func() { _ = serverSession.Close() }()
+	client := mcp.NewClient(&mcp.Implementation{Name: "agent", Version: "v1"}, nil)
+	clientSession, err := client.Connect(context.Background(), t2, nil)
+	require.NoError(t, err)
+	defer func() { _ = clientSession.Close() }()
+	result, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      tool,
+		Arguments: args,
+	})
+	require.NoError(t, err)
+	return result
 }
 
 // capturedAuditSource records the PlatformContext.Source value seen by a
