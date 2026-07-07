@@ -3,7 +3,6 @@ package platform
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strings"
 
@@ -126,28 +125,6 @@ func (p *Platform) initObservability() error {
 		return err //nolint:wrapcheck // obs.Assemble already wraps with the operator-facing "observability[...]" message
 	}
 	p.obs = l
-	// Register teardown with the lifecycle so metrics/tracer shutdown flows
-	// through the single Stop path instead of a separate manual close step in
-	// Close(). Runs during lifecycle.Stop (started path); on a Start failure the
-	// lifecycle's own rollback fires it.
-	p.lifecycle.OnStop(p.stopObservability)
-	return nil
-}
-
-// stopObservability tears down the metrics listener, meter provider, and tracer.
-// It is the lifecycle OnStop registered in initObservability.
-func (p *Platform) stopObservability(ctx context.Context) error {
-	slog.Debug("shutdown: stopping metrics layer")
-	var errs []error
-	if err := p.ShutdownMetricsListener(ctx); err != nil {
-		errs = append(errs, err)
-	}
-	if err := p.obs.Tracer().Shutdown(ctx); err != nil {
-		errs = append(errs, err)
-	}
-	if len(errs) > 0 {
-		return fmt.Errorf("stopping metrics layer: %v", errs)
-	}
 	return nil
 }
 

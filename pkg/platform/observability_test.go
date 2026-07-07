@@ -119,37 +119,6 @@ func TestObservability_ExplicitDisable(t *testing.T) {
 	p.WireAPIGatewayMetrics()
 }
 
-// TestObservability_TeardownViaLifecycle proves the observability teardown is
-// registered with the lifecycle (initObservability) and runs on Stop(): a
-// metrics listener started outside the lifecycle (as cmd does) is torn down
-// when the platform's lifecycle stops, with no separate Close() step. This is
-// the shutdown-consolidation contract for the observability subsystem.
-func TestObservability_TeardownViaLifecycle(t *testing.T) {
-	var lc net.ListenConfig
-	ln, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("ephemeral port: %v", err)
-	}
-	addr := ln.Addr().String()
-	_ = ln.Close()
-
-	t.Setenv("OTEL_METRICS_ENABLED", "true")
-	t.Setenv("OTEL_METRICS_ADDR", addr)
-
-	p := newTestPlatform(t)
-	if err := p.StartMetricsListener(context.Background()); err != nil {
-		t.Fatalf("StartMetricsListener: %v", err)
-	}
-	if err := p.lifecycle.Start(context.Background()); err != nil {
-		t.Fatalf("lifecycle.Start: %v", err)
-	}
-	// Stop runs the registered stopObservability, tearing down the listener and
-	// flushing the providers — proving Close() no longer needs to.
-	if err := p.Stop(context.Background()); err != nil {
-		t.Fatalf("Stop: %v", err)
-	}
-}
-
 func TestObservability_EnabledStartsListener(t *testing.T) {
 	// Find an ephemeral port and release it so the listener can bind.
 	var lc net.ListenConfig

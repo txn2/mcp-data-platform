@@ -3697,14 +3697,33 @@ func (p *Platform) Close() error {
 	p.closeAuthEventStore(&errs)
 	p.closeAuditLayer(&errs)
 	p.closeProvidersAndRegistry(&errs)
-	// Metrics/tracer teardown runs via the lifecycle OnStop registered in
-	// initObservability (p.stopObservability), invoked by Stop() before Close().
+	p.closeMetricsLayer(&errs)
 	p.closeDatabase(&errs)
 	if len(errs) > 0 {
 		return fmt.Errorf("errors closing platform: %v", errs)
 	}
 	slog.Debug("shutdown: platform closed")
 	return nil
+}
+
+// closeMetricsLayer stops the /metrics listener and flushes the OTel
+// MeterProvider and (when enabled) the TracerProvider so buffered spans
+// are exported before exit. The listener stop is bounded by a short
+// timeout so a stuck scraper cannot delay platform shutdown; the
+// provider flushes are best-effort. All calls are nil-safe.
+func (p *Platform) closeMetricsLayer(errs *[]error) {
+	if p.obs == nil {
+		return
+	}
+	slog.Debug("shutdown: stopping metrics layer")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := p.ShutdownMetricsListener(ctx); err != nil {
+		*errs = append(*errs, err)
+	}
+	if err := p.obs.Tracer().Shutdown(ctx); err != nil {
+		*errs = append(*errs, err)
+	}
 }
 
 // stopConnOAuthRefresherDuringShutdown waits up to 10s for any
