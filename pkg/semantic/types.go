@@ -47,6 +47,12 @@ type TableContext struct {
 	GlossaryTerms []GlossaryTerm `json:"glossary_terms,omitempty"`
 	Domain        *Domain        `json:"domain,omitempty"`
 
+	// TagRefs carries the same tags as Tags but as URN + display-name pairs, so a
+	// governance editor can remove or dedupe a tag by its URN (Tags holds only the
+	// display name, which is not the identifier a write needs). Populated on the
+	// entity-detail read; enrichment reads Tags, not this field (#785).
+	TagRefs []EntityRef `json:"tag_refs,omitempty"`
+
 	// Status
 	Deprecation *Deprecation `json:"deprecation,omitempty"`
 
@@ -145,6 +151,16 @@ type GlossaryTerm struct {
 
 // Domain represents a data domain.
 type Domain struct {
+	URN         string `json:"urn"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+// EntityRef is a lightweight URN + display name reference. The catalog metadata
+// pickers use it to resolve a human-readable name (e.g. "Revenue") to the DataHub
+// URN (e.g. "urn:li:glossaryTerm:Revenue") the write endpoints require, so a user
+// never types a raw URN.
+type EntityRef struct {
 	URN         string `json:"urn"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`

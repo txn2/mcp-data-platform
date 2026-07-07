@@ -13,6 +13,9 @@ vi.mock("@/api/portal/datahub", () => ({
   useUpdateOwners: vi.fn(),
   useUpdateGlossaryTerms: vi.fn(),
   useUpdateDomain: vi.fn(),
+  useTagLookup: vi.fn(),
+  useGlossaryLookup: vi.fn(),
+  useDomainLookup: vi.fn(),
 }));
 vi.mock("@/components/knowledge/DataHubConnectionSelect", () => ({
   DataHubConnectionSelect: () => null,
@@ -36,10 +39,15 @@ import {
   useUpdateOwners,
   useUpdateGlossaryTerms,
   useUpdateDomain,
+  useTagLookup,
+  useGlossaryLookup,
+  useDomainLookup,
 } from "@/api/portal/datahub";
 import { useConnectionWritable } from "@/components/knowledge/DataHubConnectionSelect";
+import { ApiError } from "@/api/portal/client";
 
 const q = (data: unknown) => ({ data, isLoading: false, isError: false }) as never;
+const lookupResult = (data: unknown) => ({ data, isFetching: false, isError: false }) as never;
 const noopMut = () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null }) as never;
 
 const daily = {
@@ -61,7 +69,8 @@ beforeEach(() => {
       context: {
         urn: daily.urn,
         description: "Daily sales.",
-        tags: ["urn:li:tag:finance"],
+        tags: ["finance"],
+        tag_refs: [{ urn: "urn:li:tag:finance", name: "finance" }],
         owners: [{ urn: "urn:li:corpuser:sarah", type: "TECHNICAL_OWNER", name: "Sarah" }],
         glossary_terms: [{ urn: "urn:li:glossaryTerm:Revenue", name: "Revenue" }],
         domain: { urn: "urn:li:domain:finance", name: "Finance" },
@@ -72,6 +81,9 @@ beforeEach(() => {
   [useUpdateDescription, useUpdateTags, useUpdateOwners, useUpdateGlossaryTerms, useUpdateDomain].forEach((h) =>
     vi.mocked(h).mockImplementation(noopMut),
   );
+  vi.mocked(useTagLookup).mockReturnValue(lookupResult([]));
+  vi.mocked(useGlossaryLookup).mockReturnValue(lookupResult([]));
+  vi.mocked(useDomainLookup).mockReturnValue(lookupResult([]));
 });
 
 describe("CatalogTab", () => {
@@ -107,6 +119,67 @@ describe("CatalogTab", () => {
       { urn: daily.urn, description: "Updated." },
       expect.anything(),
     );
+  });
+
+  it("resolves a tag name to a URN through the picker (#785)", () => {
+    const mutate = vi.fn();
+    vi.mocked(useUpdateTags).mockReturnValue({ mutate, isPending: false, isError: false, error: null } as never);
+    vi.mocked(useTagLookup).mockReturnValue(
+      lookupResult([{ urn: "urn:li:tag:PII", name: "PII", description: "personal data" }]),
+    );
+    render(<CatalogTab conn="primary" onConnChange={vi.fn()} />);
+    fireEvent.click(screen.getByText("analytics.public.daily_sales"));
+
+    // The user types a display name, never a raw URN, and picks the result.
+    const input = screen.getByPlaceholderText("Search tags by name…");
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "PI" } });
+    fireEvent.click(screen.getByRole("button", { name: /PII/ }));
+
+    expect(mutate).toHaveBeenCalledWith(
+      { urn: daily.urn, add: ["urn:li:tag:PII"] },
+      expect.anything(),
+    );
+  });
+
+  it("removes a tag by its URN, not its display name (#785 review)", () => {
+    const mutate = vi.fn();
+    vi.mocked(useUpdateTags).mockReturnValue({ mutate, isPending: false, isError: false, error: null } as never);
+    render(<CatalogTab conn="primary" onConnChange={vi.fn()} />);
+    fireEvent.click(screen.getByText("analytics.public.daily_sales"));
+    // The existing "finance" tag chip removes by URN so DataHub can match it.
+    fireEvent.click(screen.getByRole("button", { name: "Remove finance" }));
+    expect(mutate).toHaveBeenCalledWith({ urn: daily.urn, remove: ["urn:li:tag:finance"] });
+  });
+
+  it("offers an exact typed tag URN as a fallback candidate (#785 review)", () => {
+    const mutate = vi.fn();
+    vi.mocked(useUpdateTags).mockReturnValue({ mutate, isPending: false, isError: false, error: null } as never);
+    // Name search returns nothing, but the user pastes an exact URN.
+    vi.mocked(useTagLookup).mockReturnValue(lookupResult([]));
+    render(<CatalogTab conn="primary" onConnChange={vi.fn()} />);
+    fireEvent.click(screen.getByText("analytics.public.daily_sales"));
+    const input = screen.getByPlaceholderText("Search tags by name…");
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "urn:li:tag:Quarantine" } });
+    fireEvent.click(screen.getByRole("button", { name: /urn:li:tag:Quarantine/ }));
+    expect(mutate).toHaveBeenCalledWith(
+      { urn: daily.urn, add: ["urn:li:tag:Quarantine"] },
+      expect.anything(),
+    );
+  });
+
+  it("surfaces a visible inline error when an update fails", () => {
+    vi.mocked(useUpdateTags).mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+      isError: true,
+      error: new ApiError(400, 'invalid tag: "test" must be a urn:li:tag:<id> URN'),
+    } as never);
+    render(<CatalogTab conn="primary" onConnChange={vi.fn()} />);
+    fireEvent.click(screen.getByText("analytics.public.daily_sales"));
+    const alerts = screen.getAllByRole("alert");
+    expect(alerts.some((a) => /must be a urn:li:tag/.test(a.textContent ?? ""))).toBe(true);
   });
 
   it("hides all edit affordances when the connection is read-only", () => {

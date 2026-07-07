@@ -29,6 +29,8 @@ const (
 	opSearchDocuments     = "search_documents"
 	opGetRelatedDocuments = "get_related_documents"
 	opGetDocument         = "get_document"
+	opListTags            = "list_tags"
+	opListDomains         = "list_domains"
 )
 
 // SetMetrics wraps the adapter's client in an instrumenting decorator
@@ -167,4 +169,20 @@ func (c *instrumentedClient) GetRelatedDocuments(ctx context.Context, urn string
 	start := time.Now()
 	d, err := c.Client.GetRelatedDocuments(ctx, urn)
 	return d, c.finish(ctx, span, opGetRelatedDocuments, start, err)
+}
+
+// ListTags records a list_tags observation and delegates (#785 catalog picker).
+func (c *instrumentedClient) ListTags(ctx context.Context, filter string) ([]types.Tag, error) {
+	ctx, span := c.startSpan(ctx, opListTags)
+	start := time.Now()
+	t, err := c.Client.ListTags(ctx, filter)
+	return t, c.finish(ctx, span, opListTags, start, err)
+}
+
+// ListDomains records a list_domains observation and delegates (#785 catalog picker).
+func (c *instrumentedClient) ListDomains(ctx context.Context) ([]types.Domain, error) {
+	ctx, span := c.startSpan(ctx, opListDomains)
+	start := time.Now()
+	d, err := c.Client.ListDomains(ctx)
+	return d, c.finish(ctx, span, opListDomains, start, err)
 }

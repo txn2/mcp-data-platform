@@ -2,6 +2,7 @@ package datahubapi
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -87,6 +88,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+base+"/{conn}/catalog/search", h.searchCatalog)
 	mux.HandleFunc("GET "+base+"/{conn}/catalog/browse", h.browseCatalog)
 	mux.HandleFunc("GET "+base+"/{conn}/catalog/entity", h.getCatalogEntity)
+	mux.HandleFunc("GET "+base+"/{conn}/catalog/lookup/tags", h.lookupTags)
+	mux.HandleFunc("GET "+base+"/{conn}/catalog/lookup/glossary-terms", h.lookupGlossaryTerms)
+	mux.HandleFunc("GET "+base+"/{conn}/catalog/lookup/domains", h.lookupDomains)
 	mux.HandleFunc("PUT "+base+"/{conn}/catalog/entity/description", h.updateCatalogDescription)
 	mux.HandleFunc("PUT "+base+"/{conn}/catalog/entity/tags", h.updateCatalogTags)
 	mux.HandleFunc("PUT "+base+"/{conn}/catalog/entity/owners", h.updateCatalogOwners)
@@ -329,6 +333,53 @@ func (h *Handler) getCatalogEntity(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, catalogEntityResponse{URN: urn, Context: tableCtx, Columns: columns})
 }
 
+// --- catalog metadata pickers (#785) ---
+
+// lookupTags name-searches DataHub tags for the tag picker so a user selects a
+// tag by name and the UI resolves it to a urn:li:tag URN. Gated as a read.
+func (h *Handler) lookupTags(w http.ResponseWriter, r *http.Request) {
+	reader, ok := h.dataHubReader(w, r)
+	if !ok {
+		return
+	}
+	refs, err := reader.SearchTags(r.Context(), r.URL.Query().Get("q"), clampLimit(r.URL.Query().Get(qpLimit)))
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "tag lookup failed: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"results": refs})
+}
+
+// lookupGlossaryTerms name-searches DataHub glossary terms for the glossary picker.
+func (h *Handler) lookupGlossaryTerms(w http.ResponseWriter, r *http.Request) {
+	reader, ok := h.dataHubReader(w, r)
+	if !ok {
+		return
+	}
+	refs, err := reader.SearchGlossaryTerms(r.Context(), r.URL.Query().Get("q"), clampLimit(r.URL.Query().Get(qpLimit)))
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "glossary term lookup failed: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"results": refs})
+}
+
+// lookupDomains lists DataHub domains for the domain picker. DataHub has no
+// name-scoped domain search, so the full list is returned and the picker filters
+// client-side.
+func (h *Handler) lookupDomains(w http.ResponseWriter, r *http.Request) {
+	reader, ok := h.dataHubReader(w, r)
+	if !ok {
+		return
+	}
+	refs, err := reader.ListDomains(r.Context())
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "domain lookup failed: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"results": refs})
+}
+
 func (h *Handler) searchDocuments(w http.ResponseWriter, r *http.Request) {
 	reader, ok := h.dataHubReader(w, r)
 	if !ok {
@@ -391,6 +442,35 @@ type catalogChangeRequest struct {
 	ClearDomain bool          `json:"clear_domain,omitempty"`
 }
 
+// normalize trims surrounding whitespace from the URN and every add/remove/owner/
+// domain value so validation and the forwarded write operate on the same clean
+// value. Empty entries left after trimming are dropped.
+func (req *catalogChangeRequest) normalize() {
+	req.URN = strings.TrimSpace(req.URN)
+	req.Domain = strings.TrimSpace(req.Domain)
+	req.Add = trimNonEmpty(req.Add)
+	req.Remove = trimNonEmpty(req.Remove)
+	for i := range req.AddOwners {
+		req.AddOwners[i].OwnerURN = strings.TrimSpace(req.AddOwners[i].OwnerURN)
+		req.AddOwners[i].OwnershipType = strings.TrimSpace(req.AddOwners[i].OwnershipType)
+	}
+}
+
+// trimNonEmpty trims each element and drops any that become empty, returning nil
+// for an all-empty input so an add/remove of only blanks is a no-op, not a value.
+func trimNonEmpty(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, v := range in {
+		if t := strings.TrimSpace(v); t != "" {
+			out = append(out, t)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // catalogChangeAuditParams records what changed so the audit trail captures the
 // mutation, not just that one occurred. Description content is not logged.
 func catalogChangeAuditParams(field string, req catalogChangeRequest) map[string]any {
@@ -426,6 +506,10 @@ func (h *Handler) applyCatalogChange(w http.ResponseWriter, r *http.Request, fie
 	if !decodeBody(w, r, &req) {
 		return
 	}
+	// Normalize before validating so the value the validator checks is exactly the
+	// value the writer forwards to DataHub (a whitespace-padded URN would otherwise
+	// pass the trimmed validity check but be rejected by DataHub's URN parser).
+	req.normalize()
 	if req.URN == "" {
 		writeError(w, http.StatusBadRequest, errDataHubURNRequired)
 		return
@@ -452,31 +536,43 @@ func (h *Handler) updateCatalogDescription(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *Handler) updateCatalogTags(w http.ResponseWriter, r *http.Request) {
-	h.applyCatalogChange(w, r, "tags", nil, func(writer Writer, req catalogChangeRequest) error {
+	// A malformed value (e.g. "test") is a client error: reject it with a 400 here
+	// rather than forwarding it to DataHub, which would surface as a misleading 502.
+	validate := func(req catalogChangeRequest) string {
+		return validateURNValues("tag", tagURNTypes, req.Add, req.Remove)
+	}
+	h.applyCatalogChange(w, r, "tags", validate, func(writer Writer, req catalogChangeRequest) error {
 		return writer.ApplyTagChanges(r.Context(), req.URN, req.Add, req.Remove)
 	})
 }
 
 func (h *Handler) updateCatalogGlossaryTerms(w http.ResponseWriter, r *http.Request) {
-	h.applyCatalogChange(w, r, "glossary_terms", nil, func(writer Writer, req catalogChangeRequest) error {
+	validate := func(req catalogChangeRequest) string {
+		return validateURNValues("glossary term", glossaryURNTypes, req.Add, req.Remove)
+	}
+	h.applyCatalogChange(w, r, "glossary_terms", validate, func(writer Writer, req catalogChangeRequest) error {
 		return writer.ApplyGlossaryTermChanges(r.Context(), req.URN, req.Add, req.Remove)
 	})
 }
 
 func (h *Handler) updateCatalogOwners(w http.ResponseWriter, r *http.Request) {
-	h.applyCatalogChange(w, r, "owners", nil, func(writer Writer, req catalogChangeRequest) error {
+	h.applyCatalogChange(w, r, "owners", validateOwnerChange, func(writer Writer, req catalogChangeRequest) error {
 		return writer.ApplyOwnerChanges(r.Context(), req.URN, req.AddOwners, req.Remove)
 	})
 }
 
 func (h *Handler) updateCatalogDomain(w http.ResponseWriter, r *http.Request) {
-	// A set request (clear_domain=false) with an empty domain is rejected rather
-	// than silently unsetting the entity's existing domain.
+	// A set request (clear_domain=false) with an empty or malformed domain is
+	// rejected with a 400 rather than silently unsetting the domain or forwarding a
+	// bad value to DataHub (which would surface as a 502).
 	validate := func(req catalogChangeRequest) string {
-		if !req.ClearDomain && req.Domain == "" {
+		if req.ClearDomain {
+			return ""
+		}
+		if req.Domain == "" {
 			return "domain is required unless clear_domain is set"
 		}
-		return ""
+		return validateURNValues(fieldDomain, domainURNTypes, []string{req.Domain})
 	}
 	h.applyCatalogChange(w, r, fieldDomain, validate, func(writer Writer, req catalogChangeRequest) error {
 		if req.ClearDomain {
@@ -587,6 +683,64 @@ func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
 		return false
 	}
 	return true
+}
+
+// URN entity types accepted by each catalog metadata field's validator. Owners
+// may be a user or a group, matching DataHub's ownership model.
+var (
+	tagURNTypes      = []string{"tag"}
+	glossaryURNTypes = []string{"glossaryTerm"}
+	domainURNTypes   = []string{"domain"}
+	ownerURNTypes    = []string{"corpuser", "corpGroup"}
+)
+
+// validateURNValues returns a human-readable 400 message if any value across the
+// given lists is not a well-formed DataHub URN of one of the allowed entity types,
+// or "" when every value is valid. It is what turns a malformed picker/free-text
+// value (e.g. "test") into a 400 instead of a forwarded 502 (#785). label names
+// the field in the message.
+func validateURNValues(label string, allowedTypes []string, lists ...[]string) string {
+	for _, list := range lists {
+		for _, v := range list {
+			if !isURNOfType(strings.TrimSpace(v), allowedTypes) {
+				return fmt.Sprintf("invalid %s: %q must be a %s", label, v, urnHint(allowedTypes))
+			}
+		}
+	}
+	return ""
+}
+
+// validateOwnerChange validates the owner-specific payload: each added owner's URN
+// and each removed owner URN must be a well-formed corpuser or corpGroup URN.
+func validateOwnerChange(req catalogChangeRequest) string {
+	for _, o := range req.AddOwners {
+		if !isURNOfType(strings.TrimSpace(o.OwnerURN), ownerURNTypes) {
+			return fmt.Sprintf("invalid owner: %q must be a %s", o.OwnerURN, urnHint(ownerURNTypes))
+		}
+	}
+	return validateURNValues("owner", ownerURNTypes, req.Remove)
+}
+
+// isURNOfType reports whether s is a well-formed "urn:li:<type>:<id>" URN for one
+// of the allowed entity types, requiring a non-empty id so "urn:li:tag:" is rejected.
+func isURNOfType(s string, allowedTypes []string) bool {
+	for _, t := range allowedTypes {
+		prefix := "urn:li:" + t + ":"
+		if rest, ok := strings.CutPrefix(s, prefix); ok && strings.TrimSpace(rest) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// urnHint renders the allowed URN forms for an error message, e.g.
+// "urn:li:corpuser:<id> or urn:li:corpGroup:<id> URN".
+func urnHint(allowedTypes []string) string {
+	parts := make([]string, len(allowedTypes))
+	for i, t := range allowedTypes {
+		parts[i] = "urn:li:" + t + ":<id>"
+	}
+	return strings.Join(parts, " or ") + " URN"
 }
 
 // datahubEntityType extracts the entity-type segment of a DataHub URN

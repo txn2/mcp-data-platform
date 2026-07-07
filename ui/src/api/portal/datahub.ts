@@ -56,6 +56,9 @@ export interface TableContext {
   description?: string;
   owners?: Owner[];
   tags?: string[];
+  // tag_refs mirrors tags as URN + name pairs so the editor removes/dedupes a tag
+  // by its URN (tags carries only the display name). Populated on the detail read.
+  tag_refs?: EntityRef[];
   glossary_terms?: GlossaryTerm[];
   domain?: Domain | null;
   deprecation?: Deprecation | null;
@@ -96,6 +99,14 @@ export interface OwnerChange {
   ownership_type?: string;
 }
 
+// EntityRef is a URN + display-name result from a catalog metadata picker lookup
+// (#785): the user picks by name, the UI submits the urn.
+export interface EntityRef {
+  urn: string;
+  name: string;
+  description?: string;
+}
+
 // documentId extracts the bare id from a context-document URN
 // (urn:li:document:<id> -> <id>) for the update/delete paths.
 export function documentId(urn: string): string {
@@ -111,6 +122,10 @@ const keys = {
   catalogSearch: (conn: string, q: string, limit: number) =>
     ["datahub", conn, "catalog", "search", q, limit] as const,
   entity: (conn: string, urn: string) => ["datahub", conn, "catalog", "entity", urn] as const,
+  lookupTags: (conn: string, q: string) => ["datahub", conn, "catalog", "lookup", "tags", q] as const,
+  lookupGlossary: (conn: string, q: string) =>
+    ["datahub", conn, "catalog", "lookup", "glossary", q] as const,
+  lookupDomains: (conn: string) => ["datahub", conn, "catalog", "lookup", "domains"] as const,
   docsBrowse: (conn: string, limit: number, offset: number) =>
     ["datahub", conn, "documents", "browse", limit, offset] as const,
   docsSearch: (conn: string, q: string, limit: number) =>
@@ -166,6 +181,48 @@ export function useCatalogEntity(conn: string, urn: string | null) {
     queryKey: keys.entity(conn, urn ?? ""),
     enabled: !!conn && !!urn,
     queryFn: () => apiFetch<CatalogEntity>(`${base(conn)}/catalog/entity?urn=${enc(urn!)}`),
+  });
+}
+
+// --- catalog metadata pickers (#785) ---
+
+// useTagLookup name-searches tags for the tag picker. Disabled below the search
+// threshold so it does not fire on the first keystroke.
+export function useTagLookup(conn: string, query: string) {
+  const q = query.trim();
+  return useQuery({
+    queryKey: keys.lookupTags(conn, q),
+    enabled: !!conn && q.length >= MIN_SEARCH_LEN,
+    queryFn: () =>
+      apiFetch<{ results: EntityRef[] }>(
+        `${base(conn)}/catalog/lookup/tags?q=${enc(q)}&limit=10`,
+      ).then((r) => r.results ?? []),
+  });
+}
+
+// useGlossaryLookup name-searches glossary terms for the glossary picker.
+export function useGlossaryLookup(conn: string, query: string) {
+  const q = query.trim();
+  return useQuery({
+    queryKey: keys.lookupGlossary(conn, q),
+    enabled: !!conn && q.length >= MIN_SEARCH_LEN,
+    queryFn: () =>
+      apiFetch<{ results: EntityRef[] }>(
+        `${base(conn)}/catalog/lookup/glossary-terms?q=${enc(q)}&limit=10`,
+      ).then((r) => r.results ?? []),
+  });
+}
+
+// useDomainLookup lists all domains for the domain picker; DataHub has no
+// name-scoped domain search, so the picker filters the full list client-side.
+export function useDomainLookup(conn: string, enabled: boolean) {
+  return useQuery({
+    queryKey: keys.lookupDomains(conn),
+    enabled: !!conn && enabled,
+    queryFn: () =>
+      apiFetch<{ results: EntityRef[] }>(`${base(conn)}/catalog/lookup/domains`).then(
+        (r) => r.results ?? [],
+      ),
   });
 }
 

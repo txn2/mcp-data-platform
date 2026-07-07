@@ -1,5 +1,16 @@
 import { useState } from "react";
-import { ArrowLeft, Search, Tag, Users, BookMarked, Building2, Pencil, X, Plus } from "lucide-react";
+import {
+  ArrowLeft,
+  Search,
+  Tag,
+  Users,
+  BookMarked,
+  Building2,
+  Pencil,
+  X,
+  Plus,
+  AlertCircle,
+} from "lucide-react";
 import {
   useCatalogBrowse,
   useCatalogSearch,
@@ -9,9 +20,13 @@ import {
   useUpdateOwners,
   useUpdateGlossaryTerms,
   useUpdateDomain,
+  useTagLookup,
+  useGlossaryLookup,
+  useDomainLookup,
   MIN_SEARCH_LEN,
   type TableSearchResult,
   type CatalogEntity,
+  type EntityRef,
 } from "@/api/portal/datahub";
 import { DataHubConnectionSelect, useConnectionWritable } from "@/components/knowledge/DataHubConnectionSelect";
 import { useAuthStore } from "@/stores/auth";
@@ -161,10 +176,10 @@ function EntityBody({ conn, entity, canEdit }: { conn: string; entity: CatalogEn
         title="Tags"
         conn={conn}
         urn={entity.urn}
-        values={(ctx.tags ?? []).map((t) => ({ key: t, label: shortUrn(t) }))}
+        values={(ctx.tag_refs ?? []).map((t) => ({ key: t.urn, label: t.name || shortUrn(t.urn) }))}
         canEdit={canEdit}
         kind="tags"
-        placeholder="urn:li:tag:PII"
+        placeholder="Search tags by name…"
       />
 
       <ChipSetSection
@@ -175,7 +190,7 @@ function EntityBody({ conn, entity, canEdit }: { conn: string; entity: CatalogEn
         values={(ctx.glossary_terms ?? []).map((g) => ({ key: g.urn, label: g.name || shortUrn(g.urn) }))}
         canEdit={canEdit}
         kind="glossary"
-        placeholder="urn:li:glossaryTerm:Revenue"
+        placeholder="Search glossary terms by name…"
       />
 
       <OwnersSection conn={conn} urn={entity.urn} owners={ctx.owners ?? []} canEdit={canEdit} />
@@ -296,15 +311,27 @@ function ChipSetSection({
   kind: ChipKind;
   placeholder: string;
 }) {
-  const [adding, setAdding] = useState("");
+  const [query, setQuery] = useState("");
   const tags = useUpdateTags(conn);
   const glossary = useUpdateGlossaryTerms(conn);
   const mut = kind === "tags" ? tags : glossary;
 
-  const add = () => {
-    const v = adding.trim();
-    if (!v) return;
-    mut.mutate({ urn, add: [v] }, { onSuccess: () => setAdding("") });
+  // Only the active kind's lookup runs; the other gets an empty query (disabled).
+  const debounced = useDebounced(query, 250);
+  const tagLookup = useTagLookup(conn, kind === "tags" ? debounced : "");
+  const glossaryLookup = useGlossaryLookup(conn, kind === "glossary" ? debounced : "");
+  const lookup = kind === "tags" ? tagLookup : glossaryLookup;
+  const existing = new Set(values.map((v) => v.key));
+
+  // Power-user fallback: an exact, well-formed URN typed into the box is offered as
+  // a candidate so a value that name search does not surface (e.g. a brand-new tag)
+  // can still be applied without a raw free-text field (#785 review).
+  const urnType = kind === "tags" ? "tag" : "glossaryTerm";
+  const candidates = withRawUrn(lookup.data ?? [], query, urnType);
+
+  const pick = (ref: EntityRef) => {
+    if (existing.has(ref.urn)) return;
+    mut.mutate({ urn, add: [ref.urn] }, { onSuccess: () => setQuery("") });
   };
 
   return (
@@ -333,16 +360,17 @@ function ChipSetSection({
         ))}
       </div>
       {canEdit && (
-        <div className="mt-2 flex items-center gap-2">
-          <input
-            value={adding}
-            onChange={(e) => setAdding(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && add()}
-            placeholder={placeholder}
-            className="w-72 rounded-md border bg-background px-2 py-1 text-xs outline-none ring-ring focus:ring-2"
-          />
-          <AddButton disabled={mut.isPending || !adding.trim()} onClick={add} />
-        </div>
+        <MetadataPicker
+          placeholder={placeholder}
+          query={query}
+          setQuery={setQuery}
+          candidates={candidates}
+          loading={lookup.isFetching || (lookup.data === undefined && !lookup.isError)}
+          isPending={mut.isPending}
+          existingKeys={existing}
+          onPick={pick}
+          emptyHint={lookup.isError ? "Lookup failed." : "No matches."}
+        />
       )}
       <MutationError mut={mut} />
     </section>
@@ -388,31 +416,37 @@ function OwnersSection({
         ))}
       </div>
       {canEdit && (
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <input
-            value={ownerUrn}
-            onChange={(e) => setOwnerUrn(e.target.value)}
-            placeholder="urn:li:corpuser:alice"
-            className="w-64 rounded-md border bg-background px-2 py-1 text-xs outline-none ring-ring focus:ring-2"
-          />
-          <select
-            value={ownerType}
-            onChange={(e) => setOwnerType(e.target.value)}
-            className="rounded-md border bg-background px-2 py-1 text-xs outline-none ring-ring focus:ring-2"
-          >
-            <option>TECHNICAL_OWNER</option>
-            <option>BUSINESS_OWNER</option>
-            <option>DATA_STEWARD</option>
-          </select>
-          <AddButton
-            disabled={mut.isPending || !ownerUrn.trim()}
-            onClick={() =>
-              mut.mutate(
-                { urn, add_owners: [{ owner_urn: ownerUrn.trim(), ownership_type: ownerType }] },
-                { onSuccess: () => setOwnerUrn("") },
-              )
-            }
-          />
+        <div className="mt-2 space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              value={ownerUrn}
+              onChange={(e) => setOwnerUrn(e.target.value)}
+              placeholder="urn:li:corpuser:alice"
+              className="w-64 rounded-md border bg-background px-2 py-1 font-mono text-xs outline-none ring-ring focus:ring-2"
+            />
+            <select
+              value={ownerType}
+              onChange={(e) => setOwnerType(e.target.value)}
+              className="rounded-md border bg-background px-2 py-1 text-xs outline-none ring-ring focus:ring-2"
+            >
+              <option>TECHNICAL_OWNER</option>
+              <option>BUSINESS_OWNER</option>
+              <option>DATA_STEWARD</option>
+            </select>
+            <AddButton
+              disabled={mut.isPending || !ownerUrn.trim()}
+              onClick={() =>
+                mut.mutate(
+                  { urn, add_owners: [{ owner_urn: ownerUrn.trim(), ownership_type: ownerType }] },
+                  { onSuccess: () => setOwnerUrn("") },
+                )
+              }
+            />
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Enter a DataHub user or group URN, e.g. <code>urn:li:corpuser:alice</code> or{" "}
+            <code>urn:li:corpGroup:data-eng</code>.
+          </p>
         </div>
       )}
       <MutationError mut={mut} />
@@ -431,8 +465,19 @@ function DomainSection({
   domain: { urn: string; name: string } | null;
   canEdit: boolean;
 }) {
-  const [draft, setDraft] = useState("");
+  const [query, setQuery] = useState("");
   const mut = useUpdateDomain(conn);
+  // Domains have no name-scoped search upstream, so load the full list and filter
+  // client-side. Fetch only when the editor can edit.
+  const lookup = useDomainLookup(conn, canEdit);
+  // The upstream domain list is capped (100), so a domain beyond it would be
+  // unreachable; an exact urn:li:domain URN typed into the box is offered as a
+  // fallback candidate so any domain can still be set (#785 review).
+  const candidates = withRawUrn(filterDomains(lookup.data ?? [], query), query, "domain");
+
+  const pick = (ref: EntityRef) => {
+    mut.mutate({ urn, domain: ref.urn }, { onSuccess: () => setQuery("") });
+  };
 
   return (
     <section>
@@ -457,23 +502,44 @@ function DomainSection({
         )}
       </div>
       {canEdit && (
-        <div className="mt-2 flex items-center gap-2">
-          <input
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="urn:li:domain:finance"
-            className="w-64 rounded-md border bg-background px-2 py-1 text-xs outline-none ring-ring focus:ring-2"
-          />
-          <AddButton
-            label="Set"
-            disabled={mut.isPending || !draft.trim()}
-            onClick={() => mut.mutate({ urn, domain: draft.trim() }, { onSuccess: () => setDraft("") })}
-          />
-        </div>
+        <MetadataPicker
+          placeholder="Search domains by name…"
+          query={query}
+          setQuery={setQuery}
+          candidates={candidates}
+          loading={lookup.isFetching || (lookup.data === undefined && !lookup.isError)}
+          isPending={mut.isPending}
+          existingKeys={new Set(domain ? [domain.urn] : [])}
+          onPick={pick}
+          openOnFocus
+          emptyHint={lookup.isError ? "Failed to load domains." : "No domains match."}
+        />
       )}
       <MutationError mut={mut} />
     </section>
   );
+}
+
+// filterDomains narrows the full domain list to those whose name or URN contains
+// the query (case-insensitive); an empty query returns the whole list so a
+// focused picker shows every domain.
+function filterDomains(domains: EntityRef[], query: string): EntityRef[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return domains;
+  return domains.filter(
+    (d) => d.name.toLowerCase().includes(q) || d.urn.toLowerCase().includes(q),
+  );
+}
+
+// withRawUrn prepends the typed query as a candidate when it is itself a
+// well-formed `urn:li:<type>:<id>` URN not already in the list, so an exact URN a
+// user pastes (or a value name search cannot surface) stays applicable.
+function withRawUrn(candidates: EntityRef[], query: string, type: string): EntityRef[] {
+  const q = query.trim();
+  const prefix = `urn:li:${type}:`;
+  if (!q.startsWith(prefix) || q.length <= prefix.length) return candidates;
+  if (candidates.some((c) => c.urn === q)) return candidates;
+  return [{ urn: q, name: q }, ...candidates];
 }
 
 // --- small shared bits ---
@@ -555,5 +621,104 @@ function AddButton({
 function MutationError({ mut }: { mut: { isError: boolean; error: unknown } }) {
   if (!mut.isError) return null;
   const msg = mut.error instanceof ApiError ? mut.error.detail : "Update failed.";
-  return <p className="mt-1 text-xs text-destructive">{msg}</p>;
+  return (
+    <p
+      role="alert"
+      className="mt-2 flex items-start gap-1.5 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+    >
+      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+      <span>{msg}</span>
+    </p>
+  );
+}
+
+/**
+ * MetadataPicker is the shared typeahead used by the tag, glossary, and domain
+ * editors (#785): the user types a display name and picks a result that resolves
+ * to a URN, so raw URN entry is never required. Selecting a candidate does not
+ * blur the input (the list uses onMouseDown preventDefault), and the dropdown
+ * opens on focus for a preloaded list (openOnFocus) or once the query reaches the
+ * search threshold otherwise.
+ */
+function MetadataPicker({
+  placeholder,
+  query,
+  setQuery,
+  candidates,
+  loading,
+  isPending,
+  existingKeys,
+  onPick,
+  openOnFocus = false,
+  emptyHint = "No matches.",
+}: {
+  placeholder: string;
+  query: string;
+  setQuery: (v: string) => void;
+  candidates: EntityRef[];
+  loading: boolean;
+  isPending: boolean;
+  existingKeys: Set<string>;
+  onPick: (ref: EntityRef) => void;
+  openOnFocus?: boolean;
+  emptyHint?: string;
+}) {
+  const [focused, setFocused] = useState(false);
+  const open = focused && (openOnFocus || query.trim().length >= MIN_SEARCH);
+
+  return (
+    <div className="relative mt-2 w-72">
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          placeholder={placeholder}
+          disabled={isPending}
+          className="w-full rounded-md border bg-background py-1 pl-8 pr-2 text-xs outline-none ring-ring focus:ring-2 disabled:opacity-50"
+        />
+      </div>
+      {open && (
+        <ul
+          // Keep focus on the input so a click selects instead of blurring first.
+          onMouseDown={(e) => e.preventDefault()}
+          className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-md border bg-popover text-popover-foreground shadow-md"
+        >
+          {candidates.length === 0 ? (
+            <li className="px-3 py-2 text-xs text-muted-foreground">
+              {loading ? "Searching…" : emptyHint}
+            </li>
+          ) : (
+            candidates.map((c) => {
+              const already = existingKeys.has(c.urn);
+              return (
+                <li key={c.urn}>
+                  <button
+                    type="button"
+                    disabled={already || isPending}
+                    onClick={() => onPick(c)}
+                    className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-xs hover:bg-muted disabled:opacity-50"
+                  >
+                    <span className="truncate">
+                      <span className="font-medium">{c.name || shortUrn(c.urn)}</span>
+                      <span className="ml-1.5 font-mono text-[11px] text-muted-foreground">
+                        {shortUrn(c.urn)}
+                      </span>
+                    </span>
+                    {already ? (
+                      <span className="shrink-0 text-muted-foreground">added</span>
+                    ) : (
+                      <Plus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    )}
+                  </button>
+                </li>
+              );
+            })
+          )}
+        </ul>
+      )}
+    </div>
+  );
 }

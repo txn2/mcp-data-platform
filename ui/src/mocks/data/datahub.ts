@@ -5,6 +5,7 @@ import type {
   TableSearchResult,
   CatalogEntity,
   ContextDocument,
+  EntityRef,
 } from "@/api/portal/datahub";
 
 export const mockDataHubConnections: DataHubConnection[] = [
@@ -14,6 +15,43 @@ export const mockDataHubConnections: DataHubConnection[] = [
 
 const urn = (name: string) => `urn:li:dataset:(urn:li:dataPlatform:trino,${name},PROD)`;
 
+// shortName mirrors the UI's shortUrn: the last URN segment as a display name.
+const shortName = (u: string) => u.split(":").pop() ?? u;
+
+// tagRefs derives the URN + name pairs the tag chips now read (mirrors the real
+// backend's tag_refs, whose URN a governance write needs).
+const tagRefs = (tags: string[]): EntityRef[] => tags.map((u) => ({ urn: u, name: shortName(u) }));
+
+// Lookup fixtures for the metadata pickers (#785): name-searchable tags/terms/domains.
+const mockTags: EntityRef[] = [
+  { urn: "urn:li:tag:certified", name: "certified" },
+  { urn: "urn:li:tag:finance", name: "finance" },
+  { urn: "urn:li:tag:pii", name: "pii" },
+  { urn: "urn:li:tag:reviewed", name: "reviewed" },
+];
+const mockGlossaryTerms: EntityRef[] = [
+  { urn: "urn:li:glossaryTerm:Revenue", name: "Revenue" },
+  { urn: "urn:li:glossaryTerm:NetSales", name: "Net Sales" },
+];
+const mockDomains: EntityRef[] = [
+  { urn: "urn:li:domain:finance", name: "Finance" },
+  { urn: "urn:li:domain:marketing", name: "Marketing" },
+];
+
+export function lookupTags(q: string): EntityRef[] {
+  const needle = q.trim().toLowerCase();
+  return mockTags.filter((t) => t.name.toLowerCase().includes(needle) || !needle);
+}
+
+export function lookupGlossaryTerms(q: string): EntityRef[] {
+  const needle = q.trim().toLowerCase();
+  return mockGlossaryTerms.filter((t) => t.name.toLowerCase().includes(needle) || !needle);
+}
+
+export function lookupDomains(): EntityRef[] {
+  return mockDomains;
+}
+
 // A small stateful catalog so edits persist across reads within a session.
 const catalog: Record<string, CatalogEntity> = {
   [urn("analytics.public.daily_sales")]: {
@@ -22,7 +60,8 @@ const catalog: Record<string, CatalogEntity> = {
       urn: urn("analytics.public.daily_sales"),
       description: "Daily aggregated sales by store and product category.",
       owners: [{ urn: "urn:li:corpuser:sarah.chen", type: "TECHNICAL_OWNER", name: "Sarah Chen" }],
-      tags: ["urn:li:tag:certified", "urn:li:tag:finance"],
+      tags: ["certified", "finance"],
+      tag_refs: tagRefs(["urn:li:tag:certified", "urn:li:tag:finance"]),
       glossary_terms: [{ urn: "urn:li:glossaryTerm:Revenue", name: "Revenue" }],
       domain: { urn: "urn:li:domain:finance", name: "Finance" },
     },
@@ -39,7 +78,8 @@ const catalog: Record<string, CatalogEntity> = {
       urn: urn("analytics.public.customers"),
       description: "Customer master with contact and lifecycle fields.",
       owners: [],
-      tags: ["urn:li:tag:pii"],
+      tags: ["pii"],
+      tag_refs: tagRefs(["urn:li:tag:pii"]),
       glossary_terms: [],
       domain: null,
     },
@@ -111,9 +151,16 @@ export function applyCatalogChange(
     case "description":
       ctx.description = body.description ?? "";
       break;
-    case "tags":
-      ctx.tags = mergeStrings(ctx.tags ?? [], body.add, body.remove);
+    case "tags": {
+      // add/remove carry tag URNs (the picker resolves names to URNs); tag_refs is
+      // the source of truth and tags (names) is derived from it.
+      const cur = new Set((ctx.tag_refs ?? []).map((t) => t.urn));
+      (body.remove ?? []).forEach((u) => cur.delete(u));
+      (body.add ?? []).forEach((u) => cur.add(u));
+      ctx.tag_refs = tagRefs([...cur]);
+      ctx.tags = [...cur].map(shortName);
       break;
+    }
     case "glossary-terms": {
       const cur = new Set((ctx.glossary_terms ?? []).map((g) => g.urn));
       (body.remove ?? []).forEach((u) => cur.delete(u));
@@ -138,13 +185,6 @@ export function applyCatalogChange(
       return false;
   }
   return true;
-}
-
-function mergeStrings(current: string[], add?: string[], remove?: string[]): string[] {
-  const set = new Set(current);
-  (remove ?? []).forEach((x) => set.delete(x));
-  (add ?? []).forEach((x) => set.add(x));
-  return [...set];
 }
 
 // --- context documents (stateful) ---

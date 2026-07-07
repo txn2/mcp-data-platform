@@ -34,6 +34,14 @@ const (
 	// datahubPlatform is the provider name for this adapter.
 	datahubPlatform = "datahub"
 
+	// glossaryTermEntityType is the DataHub entity-type token used to scope a
+	// searchAcrossEntities query to glossary terms for the catalog picker (#785).
+	glossaryTermEntityType = "GLOSSARY_TERM"
+
+	// defaultRefLimit and maxRefLimit bound a picker lookup page.
+	defaultRefLimit = 25
+	maxRefLimit     = 100
+
 	// DataHub search-filter field names. Defined as constants because
 	// each appears in multiple places (filter mapping, lineage inheritance,
 	// query construction).
@@ -74,6 +82,8 @@ type Client interface {
 	GetColumnLineage(ctx context.Context, urn string) (*types.ColumnLineage, error)
 	GetGlossaryTerm(ctx context.Context, urn string) (*types.GlossaryTerm, error)
 	GetQueries(ctx context.Context, urn string) (*types.QueryList, error)
+	ListTags(ctx context.Context, filter string) ([]types.Tag, error)
+	ListDomains(ctx context.Context) ([]types.Domain, error)
 	Ping(ctx context.Context) error
 	Close() error
 }
@@ -268,6 +278,97 @@ func (a *Adapter) SearchTables(ctx context.Context, filter semantic.SearchFilter
 	}
 
 	return results, nil
+}
+
+// SearchTags searches DataHub tags by display name for the catalog tag picker
+// (#785), returning URN + name refs the picker resolves under the hood. It wraps
+// the upstream client's ListTags, which name-searches the TAG entity type; an
+// empty query lists tags. The returned name/URN come straight from DataHub so a
+// selected value is always a real tag URN. ListTags has no server-side limit, so
+// the page is truncated before sanitizing to avoid sanitizing discarded entries.
+func (a *Adapter) SearchTags(ctx context.Context, query string, limit int) ([]semantic.EntityRef, error) {
+	tags, err := a.client.ListTags(ctx, strings.TrimSpace(query))
+	if err != nil {
+		return nil, fmt.Errorf("listing datahub tags: %w", err)
+	}
+	if n := clampRefLimit(limit); len(tags) > n {
+		tags = tags[:n]
+	}
+	refs := make([]semantic.EntityRef, 0, len(tags))
+	for _, t := range tags {
+		refs = append(refs, a.entityRef(t.URN, t.Name, t.Description))
+	}
+	return refs, nil
+}
+
+// SearchGlossaryTerms searches DataHub glossary terms by display name for the
+// catalog glossary picker (#785). Glossary terms have no dedicated list method,
+// so this uses searchAcrossEntities scoped to the GLOSSARY_TERM entity type,
+// whose Name is resolved from the term's properties by the upstream client.
+func (a *Adapter) SearchGlossaryTerms(ctx context.Context, query string, limit int) ([]semantic.EntityRef, error) {
+	result, err := a.client.SearchAcrossEntities(ctx, strings.TrimSpace(query),
+		dhclient.WithTypes([]string{glossaryTermEntityType}), dhclient.WithLimit(clampRefLimit(limit)))
+	if err != nil {
+		return nil, fmt.Errorf("searching datahub glossary terms: %w", err)
+	}
+	refs := make([]semantic.EntityRef, 0, len(result.Entities))
+	for _, e := range result.Entities {
+		refs = append(refs, a.entityRef(e.URN, e.Name, e.Description))
+	}
+	return refs, nil
+}
+
+// ListDomains lists DataHub domains for the catalog domain picker (#785). Domains
+// are not returned by name from searchAcrossEntities (no inline fragment upstream),
+// so this wraps the client's dedicated ListDomains, which returns every domain with
+// its display name; the picker filters client-side.
+func (a *Adapter) ListDomains(ctx context.Context) ([]semantic.EntityRef, error) {
+	domains, err := a.client.ListDomains(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing datahub domains: %w", err)
+	}
+	refs := make([]semantic.EntityRef, 0, len(domains))
+	for _, d := range domains {
+		refs = append(refs, a.entityRef(d.URN, d.Name, d.Description))
+	}
+	return refs, nil
+}
+
+// convertTagRefs maps an entity's tags to URN + display-name refs for the catalog
+// editor's tag chips, preserving the URN that convertTags drops. A tag read from
+// the raw-aspect fallback has an empty Name (only the URN is present); the UI falls
+// back to the URN's short form for the label in that case.
+func (a *Adapter) convertTagRefs(tags []types.Tag) []semantic.EntityRef {
+	if len(tags) == 0 {
+		return nil
+	}
+	refs := make([]semantic.EntityRef, len(tags))
+	for i, t := range tags {
+		refs[i] = a.entityRef(t.URN, t.Name, t.Description)
+	}
+	return refs
+}
+
+// entityRef builds a sanitized URN/name/description ref, centralizing the sanitize
+// step shared by every picker lookup and the tag-ref conversion.
+func (a *Adapter) entityRef(urn, name, description string) semantic.EntityRef {
+	return semantic.EntityRef{
+		URN:         urn,
+		Name:        a.sanitizer.SanitizeString(name),
+		Description: a.sanitizer.SanitizeDescription(description),
+	}
+}
+
+// clampRefLimit bounds a picker limit to a sane positive default so an unset or
+// negative limit does not request an unbounded page.
+func clampRefLimit(limit int) int {
+	if limit <= 0 {
+		return defaultRefLimit
+	}
+	if limit > maxRefLimit {
+		return maxRefLimit
+	}
+	return limit
 }
 
 // SearchDocuments searches DataHub context documents by relevance and maps them to
@@ -619,6 +720,7 @@ func (a *Adapter) entityToTableContext(entity *types.Entity) *semantic.TableCont
 		Description:          entity.Description,
 		Owners:               convertOwners(entity.Owners),
 		Tags:                 convertTags(entity.Tags),
+		TagRefs:              a.convertTagRefs(entity.Tags),
 		GlossaryTerms:        convertGlossaryTerms(entity.GlossaryTerms),
 		Domain:               convertDomain(entity.Domain),
 		Deprecation:          convertDeprecation(entity.Deprecation),
