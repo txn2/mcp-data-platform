@@ -33,7 +33,7 @@ func Assemble() (*Layer, error) {
 	cfg := observability.ConfigFromEnv()
 	m, err := observability.New(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("metrics: %w", err)
+		return nil, fmt.Errorf("observability: %w", err)
 	}
 	l := &Layer{metrics: m, listener: observability.NewListener(m)}
 	if m != nil {
@@ -43,7 +43,7 @@ func Assemble() (*Layer, error) {
 	tcfg := observability.TracingConfigFromEnv()
 	tr, err := observability.NewTracer(tcfg)
 	if err != nil {
-		return nil, fmt.Errorf("tracing: %w", err)
+		return nil, fmt.Errorf("observability tracing: %w", err)
 	}
 	l.tracer = tr
 	if tr != nil {
@@ -53,8 +53,9 @@ func Assemble() (*Layer, error) {
 }
 
 // New builds a Layer from explicit handles, deriving the /metrics listener from
-// the recorder. Assemble is the env-driven factory; New is for callers that
-// hold the handles directly (config-driven wiring, tests).
+// the recorder. Assemble is the env-driven factory; New constructs a Layer from
+// handles the caller already holds — used by tests that inject a specific
+// recorder or tracer without going through the environment.
 func New(metrics *observability.Metrics, tracer *observability.Tracer) *Layer {
 	return &Layer{
 		metrics:  metrics,

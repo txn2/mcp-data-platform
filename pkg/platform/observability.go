@@ -122,7 +122,7 @@ func (p *Platform) ObservabilityAuthMiddleware() func(http.Handler) http.Handler
 func (p *Platform) initObservability() error {
 	l, err := obs.Assemble()
 	if err != nil {
-		return fmt.Errorf("observability: %w", err)
+		return err //nolint:wrapcheck // obs.Assemble already wraps with the operator-facing "observability[...]" message
 	}
 	p.obs = l
 	return nil
