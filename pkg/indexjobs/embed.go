@@ -3,7 +3,10 @@ package indexjobs
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
+	"net"
 
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 )
@@ -166,27 +169,81 @@ func fillFresh(ctx context.Context, req fillRequest) error {
 	return nil
 }
 
-// embedInBatches splits texts into batchSize chunks, calls
-// EmbedBatch per chunk, validates the vector count, and invokes
+// embedInBatches walks texts in chunks of at most the current size,
+// calls EmbedBatch per chunk, validates the vector count, and invokes
 // onChunk with the chunk's [start,end) bounds and vectors.
+//
+// On a timeout (see isEmbedTimeout) the current chunk is halved and
+// retried, and the reduced size is carried forward to every remaining
+// chunk, so a batch too large to embed within embed_timeout on a slow
+// (e.g. CPU-only) provider converges once to a size that completes
+// instead of failing the whole job (#799) or re-paying the full
+// timeout stall on every subsequent chunk. embed_timeout is a per-call
+// HTTP-client budget (pkg/platform/apigateway_embed_jobs.go), so a
+// smaller chunk gets a fresh budget and less work — shrinking genuinely
+// helps. The size only ratchets down within one pass; it never grows
+// back, so after the first unit-wide convergence the rest of the pass
+// runs at the discovered size. Each completed chunk flows through
+// onChunk in left-to-right order, so the worker's per-chunk persist
+// saves partial progress for the next attempt's dedup pass. A
+// non-timeout provider error (5xx, malformed response) fails fast
+// without shrinking, and a single text that still times out surfaces
+// the error cleanly at the floor.
 func embedInBatches(ctx context.Context, embedder embedding.Provider, texts []string, batchSize int, onChunk func(start, end int, vectors [][]float32) error) error {
 	if batchSize <= 0 {
 		batchSize = len(texts)
 	}
-	for start := 0; start < len(texts); start += batchSize {
-		end := min(start+batchSize, len(texts))
-		chunk := texts[start:end]
-		vectors, err := embedder.EmbedBatch(ctx, chunk)
+	size := batchSize
+	for start := 0; start < len(texts); {
+		end := min(start+size, len(texts))
+		vectors, err := embedder.EmbedBatch(ctx, texts[start:end])
 		if err != nil {
+			// Only shrink when the failing call itself timed out AND the
+			// pass's own context is still live. embed_timeout is a
+			// per-call HTTP-client budget, so a real embed timeout leaves
+			// ctx.Err() nil and a smaller chunk gets a fresh budget. A
+			// non-nil ctx.Err() means the whole job is over (shutdown, or
+			// the worker's processSafetyBound deadline) — shrinking then
+			// just fires doomed sub-calls against a dead context.
+			if isEmbedTimeout(err) && end-start > 1 && ctx.Err() == nil {
+				size = (end - start) / 2
+				slog.Warn("indexjobs: embed batch timed out, shrinking batch size",
+					"start", start, "failed_size", end-start, "next_size", size)
+				continue
+			}
 			return fmt.Errorf("batch [%d:%d]: %w", start, end, err)
 		}
-		if len(vectors) != len(chunk) {
+		if len(vectors) != end-start {
 			return fmt.Errorf("batch [%d:%d]: provider returned %d vectors for %d texts",
-				start, end, len(vectors), len(chunk))
+				start, end, len(vectors), end-start)
 		}
 		if err := onChunk(start, end, vectors); err != nil {
 			return fmt.Errorf("batch [%d:%d] callback: %w", start, end, err)
 		}
+		start = end
 	}
 	return nil
+}
+
+// isEmbedTimeout reports whether err is a request timeout worth
+// retrying at a smaller batch size, rather than a definitive provider
+// failure or a caller cancellation. A deadline is bound by how much
+// work the call attempted, so a smaller chunk may complete where a
+// larger one stalled. A context.Canceled (platform shutdown, lease
+// rotation) is deliberately NOT a timeout: subdividing a cancellation
+// just issues doomed calls against an already-canceled context. Every
+// non-timeout error (5xx, malformed body, vector-count mismatch) also
+// fails fast.
+func isEmbedTimeout(err error) bool {
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return netErr.Timeout()
+	}
+	return false
 }
