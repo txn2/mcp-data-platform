@@ -44,8 +44,13 @@ const (
 	headerContentType = "Content-Type"
 )
 
-// defaultNoticeText is the notice shown on public shares when no custom text is provided.
-const defaultNoticeText = "Proprietary & Confidential. Only share with authorized viewers."
+// DefaultNoticeText is the notice shown on public shares when no custom text is
+// provided. Exported so out-of-package share creators (e.g. the export adapters)
+// apply the same default rather than re-declaring the literal.
+const DefaultNoticeText = "Proprietary & Confidential. Only share with authorized viewers."
+
+// defaultNoticeText is the internal alias retained for existing references.
+const defaultNoticeText = DefaultNoticeText
 
 // AuditMetrics provides aggregate audit metrics scoped to individual users.
 type AuditMetrics interface {
@@ -1323,7 +1328,7 @@ type shareTarget struct {
 
 // buildShare validates the request and constructs a Share, returning an error for invalid input.
 func buildShare(target shareTarget, createdBy string, req createShareRequest) (Share, error) {
-	token, err := generateToken()
+	token, err := GenerateShareToken()
 	if err != nil {
 		return Share{}, fmt.Errorf("failed to generate share token")
 	}
@@ -2118,7 +2123,10 @@ func changeSummaryFromHeader(r *http.Request, fallback string) string {
 // tokenBytes is the number of random bytes used for share tokens (256 bits).
 const tokenBytes = 32
 
-func generateToken() (string, error) {
+// GenerateShareToken generates a cryptographically random hex token for share
+// links. Exported so out-of-package share creators (e.g. the export adapters)
+// mint tokens with the same length and encoding as portal-issued shares.
+func GenerateShareToken() (string, error) {
 	b := make([]byte, tokenBytes)
 	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("generating random token: %w", err)

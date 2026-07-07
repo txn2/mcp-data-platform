@@ -1756,14 +1756,14 @@ func TestIntParam(t *testing.T) {
 	}
 }
 
-// --- generateToken ---
+// --- GenerateShareToken ---
 
-func TestGenerateToken(t *testing.T) {
-	tok1, err := generateToken()
+func TestGenerateShareToken(t *testing.T) {
+	tok1, err := GenerateShareToken()
 	require.NoError(t, err)
 	assert.Len(t, tok1, tokenBytes*2) // hex encoding doubles length
 
-	tok2, err := generateToken()
+	tok2, err := GenerateShareToken()
 	require.NoError(t, err)
 	assert.NotEqual(t, tok1, tok2) // two tokens should be unique
 }

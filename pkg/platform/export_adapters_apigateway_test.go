@@ -2,7 +2,6 @@ package platform
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"testing"
 
@@ -14,145 +13,11 @@ import (
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 )
 
-// The trino-side adapter tests in export_adapters_test.go cover the
-// shared stubAssetStore / stubVersionStore / stubShareStore types
-// — those same stubs work here because they implement the
-// portal.* interfaces and the api gateway adapters wrap the same
-// portal stores. Each test below exercises an api gateway adapter
-// pass-through to confirm the conversion preserves field shape.
-
-func TestAPIExportAssetStoreAdapter_Insert(t *testing.T) {
-	store := &stubAssetStore{}
-	adapter := &apiExportAssetStoreAdapter{store: store}
-
-	err := adapter.InsertExportAsset(context.Background(), apigatewaykit.ExportAsset{
-		ID:      "a1",
-		OwnerID: "u1",
-		Name:    "items dump",
-		Tags:    []string{"crm", "weekly"},
-		Provenance: apigatewaykit.ExportProvenance{
-			UserID:    "u1",
-			SessionID: "s1",
-			ToolCalls: []apigatewaykit.ExportProvenanceCall{
-				{ToolName: "api_export", Timestamp: "2026-01-01T00:00:00Z"},
-			},
-		},
-		IdempotencyKey: "key1",
-	})
-	require.NoError(t, err)
-	require.NotNil(t, store.inserted)
-	assert.Equal(t, "a1", store.inserted.ID)
-	assert.Equal(t, "key1", store.inserted.IdempotencyKey)
-	assert.Len(t, store.inserted.Provenance.ToolCalls, 1)
-	assert.Equal(t, "api_export", store.inserted.Provenance.ToolCalls[0].ToolName)
-}
-
-func TestAPIExportAssetStoreAdapter_InsertError(t *testing.T) {
-	store := &stubAssetStore{insertErr: fmt.Errorf("db down")}
-	adapter := &apiExportAssetStoreAdapter{store: store}
-
-	err := adapter.InsertExportAsset(context.Background(), apigatewaykit.ExportAsset{ID: "a1"})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "inserting api_export asset")
-}
-
-func TestAPIExportAssetStoreAdapter_GetByIdempotencyKey(t *testing.T) {
-	store := &stubAssetStore{getByKey: &portal.Asset{ID: "a1", SizeBytes: 1234}}
-	adapter := &apiExportAssetStoreAdapter{store: store}
-
-	ref, err := adapter.GetByIdempotencyKey(context.Background(), "u1", "key1")
-	require.NoError(t, err)
-	assert.Equal(t, "a1", ref.ID)
-	assert.Equal(t, int64(1234), ref.SizeBytes)
-}
-
-func TestAPIExportAssetStoreAdapter_GetByIdempotencyKeyError(t *testing.T) {
-	store := &stubAssetStore{getByKeyErr: fmt.Errorf("not found")}
-	adapter := &apiExportAssetStoreAdapter{store: store}
-
-	_, err := adapter.GetByIdempotencyKey(context.Background(), "u1", "key1")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "looking up api_export idempotency key")
-}
-
-func TestAPIExportVersionStoreAdapter(t *testing.T) {
-	store := &stubVersionStore{}
-	adapter := &apiExportVersionStoreAdapter{store: store}
-
-	n, err := adapter.CreateExportVersion(context.Background(), apigatewaykit.ExportVersion{
-		ID: "v1", AssetID: "a1", S3Key: "key", S3Bucket: "b",
-		ContentType: "application/json", SizeBytes: 100,
-		CreatedBy: "alice@example.com", ChangeSummary: "Exported from API endpoint",
-	})
-	require.NoError(t, err)
-	assert.Equal(t, 1, n)
-	require.NotNil(t, store.created)
-	assert.Equal(t, "v1", store.created.ID)
-	assert.Equal(t, "a1", store.created.AssetID)
-	assert.Equal(t, "Exported from API endpoint", store.created.ChangeSummary)
-}
-
-func TestAPIExportVersionStoreAdapter_Error(t *testing.T) {
-	store := &stubVersionStore{createErr: fmt.Errorf("db down")}
-	adapter := &apiExportVersionStoreAdapter{store: store}
-
-	_, err := adapter.CreateExportVersion(context.Background(), apigatewaykit.ExportVersion{AssetID: "a1"})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "creating api_export version")
-}
-
-func TestAPIExportShareCreatorAdapter(t *testing.T) {
-	store := &stubShareStore{}
-	adapter := &apiExportShareCreatorAdapter{shareStore: store, baseURL: "https://platform.example.com"}
-
-	url, err := adapter.CreatePublicShare(context.Background(), "a1", "alice@example.com")
-	require.NoError(t, err)
-	assert.Contains(t, url, "https://platform.example.com/portal/view/")
-	require.NotNil(t, store.inserted)
-	assert.Equal(t, "a1", store.inserted.AssetID)
-	assert.Equal(t, "alice@example.com", store.inserted.CreatedBy)
-	assert.NotEmpty(t, store.inserted.Token)
-	assert.NotEmpty(t, store.inserted.NoticeText)
-}
-
-func TestAPIExportShareCreatorAdapter_NoBaseURL(t *testing.T) {
-	store := &stubShareStore{}
-	adapter := &apiExportShareCreatorAdapter{shareStore: store, baseURL: ""}
-
-	url, err := adapter.CreatePublicShare(context.Background(), "a1", "alice@example.com")
-	require.NoError(t, err)
-	// Empty baseURL → empty url; the share row is still inserted so
-	// the share token exists in the DB even if the operator hasn't
-	// configured a public-base-url for portal.
-	assert.Empty(t, url)
-	assert.NotNil(t, store.inserted)
-}
-
-func TestAPIExportShareCreatorAdapter_InsertError(t *testing.T) {
-	store := &stubShareStore{insertErr: fmt.Errorf("db error")}
-	adapter := &apiExportShareCreatorAdapter{shareStore: store, baseURL: "https://x"}
-
-	_, err := adapter.CreatePublicShare(context.Background(), "a1", "alice@example.com")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "inserting api_export share")
-}
-
-func TestConvertAPIGatewayProvenanceCalls(t *testing.T) {
-	calls := []apigatewaykit.ExportProvenanceCall{
-		{ToolName: "api_export", Timestamp: "2026-01-01T00:00:00Z", Parameters: map[string]any{"k": "v"}},
-		{ToolName: "api_invoke_endpoint", Timestamp: "2026-01-01T00:00:01Z"},
-	}
-	got := convertAPIGatewayProvenanceCalls(calls)
-	require.Len(t, got, 2)
-	assert.Equal(t, "api_export", got[0].ToolName)
-	assert.Equal(t, "v", got[0].Parameters["k"])
-	assert.Equal(t, "api_invoke_endpoint", got[1].ToolName)
-}
-
-func TestConvertAPIGatewayProvenanceCalls_Empty(t *testing.T) {
-	got := convertAPIGatewayProvenanceCalls(nil)
-	assert.Empty(t, got)
-}
+// The api-gateway export adapters live in the exportadapters subpackage,
+// where their pass-through conversion is unit-tested. The tests below cover
+// the platform-side wiring: the guards that decide whether api_export is
+// registered, and the happy-path assembly that lands SetExportDeps on the
+// toolkit.
 
 // TestWireAPIGatewayExport_DisabledByConfig proves the explicit
 // portal.export.enabled=false short-circuits before adapter
