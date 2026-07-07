@@ -47,13 +47,13 @@ import (
 	oauthpostgres "github.com/txn2/mcp-data-platform/pkg/oauth/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
-	"github.com/txn2/mcp-data-platform/pkg/platform/cfgmap"
 	"github.com/txn2/mcp-data-platform/pkg/platform/dedup"
 	"github.com/txn2/mcp-data-platform/pkg/platform/exportadapters"
 	"github.com/txn2/mcp-data-platform/pkg/platform/fieldcrypt"
 	"github.com/txn2/mcp-data-platform/pkg/platform/mwchain"
 	"github.com/txn2/mcp-data-platform/pkg/platform/personastore"
 	"github.com/txn2/mcp-data-platform/pkg/platform/reflexivecapture"
+	"github.com/txn2/mcp-data-platform/pkg/platform/toolkitcfg"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/portal/s3adapter"
@@ -106,15 +106,6 @@ const logKeyCount = "count"
 
 // builtinPlatformInfoName is the canonical name for the built-in platform-info MCP app.
 const builtinPlatformInfoName = "platform-info"
-
-// defaultTrinoPort is the default port for Trino connections.
-const defaultTrinoPort = 8080
-
-// defaultTrinoQueryLimit is the default query limit for Trino connections.
-const defaultTrinoQueryLimit = 1000
-
-// defaultTrinoMaxLimit is the maximum query limit for Trino connections.
-const defaultTrinoMaxLimit = 10000
 
 // logKeyError is the slog key for error values in log messages.
 const logKeyError = "error"
@@ -1870,7 +1861,7 @@ func (p *Platform) configureKnowledgeApply(tk *knowledgekit.Toolkit) error {
 // when a datahub_connection is configured, or falls back to a noop writer.
 func (p *Platform) createDataHubWriter() (knowledgekit.DataHubWriter, error) {
 	connName := p.config.Knowledge.Apply.DataHubConnection
-	dhCfg := p.getDataHubConfig(connName)
+	dhCfg := toolkitcfg.DataHubConfig(p.config.Toolkits, connName)
 	if dhCfg == nil {
 		slog.Warn("knowledge apply: datahub connection not found, using noop writer",
 			"connection", connName)
@@ -1962,7 +1953,7 @@ func (p *Platform) initPortal() error {
 // createPortalS3Client creates an S3Client from the referenced S3 connection config.
 func (p *Platform) createPortalS3Client() (portal.S3Client, error) {
 	connName := p.config.Portal.S3Connection
-	s3Cfg := p.getS3Config(connName)
+	s3Cfg := toolkitcfg.S3Config(p.config.Toolkits, connName)
 	if s3Cfg == nil {
 		return nil, fmt.Errorf("s3 connection %q not found in toolkits config", connName)
 	}
@@ -2084,7 +2075,7 @@ func (p *Platform) initManagedResources() error {
 
 	// Create S3 client from referenced or default S3 connection.
 	if connName := p.managedResourceS3Connection(); connName != "" {
-		s3Cfg := p.getS3Config(connName)
+		s3Cfg := toolkitcfg.S3Config(p.config.Toolkits, connName)
 		if s3Cfg == nil {
 			return fmt.Errorf("resource s3 connection %q not found in toolkits config", connName)
 		}
@@ -2158,7 +2149,7 @@ func (p *Platform) resolveDefaultS3Instance() string {
 	if !ok {
 		return ""
 	}
-	return resolveDefaultInstance(kindCfg, instances)
+	return toolkitcfg.ResolveDefaultInstance(kindCfg, instances)
 }
 
 // ResourceStore returns the managed resource store (nil if not enabled).
@@ -2881,7 +2872,7 @@ func (p *Platform) createSemanticProvider() (semantic.Provider, error) {
 	switch p.config.Semantic.Provider {
 	case kindDataHub:
 		// Get DataHub config from toolkits
-		datahubCfg := p.getDataHubConfig(p.config.Semantic.Instance)
+		datahubCfg := toolkitcfg.DataHubConfig(p.config.Toolkits, p.config.Semantic.Instance)
 		if datahubCfg == nil {
 			return nil, fmt.Errorf("datahub instance %q not found in toolkits config", p.config.Semantic.Instance)
 		}
@@ -2933,7 +2924,7 @@ func (p *Platform) createQueryProvider() (query.Provider, error) {
 	switch p.config.Query.Provider {
 	case toolkitKindTrino:
 		// Get Trino config from toolkits
-		trinoCfg := p.getTrinoConfig(p.config.Query.Instance)
+		trinoCfg := toolkitcfg.TrinoConfig(p.config.Toolkits, p.config.Query.Instance)
 		if trinoCfg == nil {
 			return nil, fmt.Errorf("trino instance %q not found in toolkits config", p.config.Query.Instance)
 		}
@@ -2976,7 +2967,7 @@ func (p *Platform) createStorageProvider() (storage.Provider, error) {
 	switch p.config.Storage.Provider {
 	case "s3":
 		// Get S3 config from toolkits
-		s3Cfg := p.getS3Config(p.config.Storage.Instance)
+		s3Cfg := toolkitcfg.S3Config(p.config.Toolkits, p.config.Storage.Instance)
 		if s3Cfg == nil {
 			return nil, fmt.Errorf("s3 instance %q not found in toolkits config", p.config.Storage.Instance)
 		}
@@ -3593,154 +3584,6 @@ func (p *Platform) PlatformTools() []ToolInfo {
 		tools = append(tools, ToolInfo{Name: "manage_prompt", Kind: kindPlatform})
 	}
 	return tools
-}
-
-// datahubConfig holds extracted DataHub configuration.
-type datahubConfig struct {
-	URL     string
-	Token   string
-	Timeout time.Duration
-	Debug   bool
-}
-
-// trinoConfig holds extracted Trino configuration.
-type trinoConfig struct {
-	Host           string
-	Port           int
-	User           string
-	Password       string // #nosec G117 -- Trino connection credential from admin config
-	Catalog        string
-	Schema         string
-	SSL            bool
-	SSLVerify      bool
-	Timeout        time.Duration
-	DefaultLimit   int
-	MaxLimit       int
-	ReadOnly       bool
-	ConnectionName string
-}
-
-// s3Config holds extracted S3 configuration.
-type s3Config struct {
-	Region         string
-	Endpoint       string
-	AccessKeyID    string
-	SecretKey      string
-	BucketPrefix   string
-	ConnectionName string
-	UsePathStyle   bool
-}
-
-// getDataHubConfig extracts DataHub configuration from toolkits config.
-func (p *Platform) getDataHubConfig(instanceName string) *datahubConfig {
-	instanceCfg := p.getInstanceConfig(kindDataHub, instanceName)
-	if instanceCfg == nil {
-		return nil
-	}
-
-	cfg := &datahubConfig{
-		URL:     cfgmap.String(instanceCfg, "url"),
-		Token:   cfgmap.String(instanceCfg, fieldcrypt.CfgKeyToken),
-		Timeout: cfgmap.Duration(instanceCfg, "timeout", 30*time.Second),
-		Debug:   cfgmap.BoolDefault(instanceCfg, "debug", false),
-	}
-
-	// Support both "url" and "endpoint" keys
-	if cfg.URL == "" {
-		cfg.URL = cfgmap.String(instanceCfg, "endpoint")
-	}
-
-	return cfg
-}
-
-// getTrinoConfig extracts Trino configuration from toolkits config.
-func (p *Platform) getTrinoConfig(instanceName string) *trinoConfig {
-	instanceCfg := p.getInstanceConfig(toolkitKindTrino, instanceName)
-	if instanceCfg == nil {
-		return nil
-	}
-
-	return &trinoConfig{
-		Host:           cfgmap.String(instanceCfg, "host"),
-		Port:           cfgmap.Int(instanceCfg, "port", defaultTrinoPort),
-		User:           cfgmap.String(instanceCfg, "user"),
-		Password:       cfgmap.String(instanceCfg, fieldcrypt.CfgKeyPassword),
-		Catalog:        cfgmap.String(instanceCfg, "catalog"),
-		Schema:         cfgmap.String(instanceCfg, "schema"),
-		SSL:            cfgmap.Bool(instanceCfg, "ssl"),
-		SSLVerify:      cfgmap.BoolDefault(instanceCfg, "ssl_verify", true),
-		Timeout:        cfgmap.Duration(instanceCfg, "timeout", 120*time.Second),
-		DefaultLimit:   cfgmap.Int(instanceCfg, "default_limit", defaultTrinoQueryLimit),
-		MaxLimit:       cfgmap.Int(instanceCfg, "max_limit", defaultTrinoMaxLimit),
-		ReadOnly:       cfgmap.Bool(instanceCfg, "read_only"),
-		ConnectionName: cfgmap.String(instanceCfg, "connection_name"),
-	}
-}
-
-// getS3Config extracts S3 configuration from toolkits config.
-func (p *Platform) getS3Config(instanceName string) *s3Config {
-	instanceCfg := p.getInstanceConfig("s3", instanceName)
-	if instanceCfg == nil {
-		return nil
-	}
-
-	cfg := &s3Config{
-		Region:         cfgmap.String(instanceCfg, "region"),
-		Endpoint:       cfgmap.String(instanceCfg, "endpoint"),
-		AccessKeyID:    cfgmap.String(instanceCfg, "access_key_id"),
-		SecretKey:      cfgmap.String(instanceCfg, fieldcrypt.CfgKeySecretAccessKey),
-		BucketPrefix:   cfgmap.String(instanceCfg, "bucket_prefix"),
-		ConnectionName: cfgmap.String(instanceCfg, "connection_name"),
-		UsePathStyle:   cfgmap.Bool(instanceCfg, "use_path_style"),
-	}
-
-	if cfg.ConnectionName == "" {
-		cfg.ConnectionName = instanceName
-	}
-
-	return cfg
-}
-
-// getInstanceConfig retrieves instance configuration from toolkits config.
-func (p *Platform) getInstanceConfig(toolkitKind, instanceName string) map[string]any {
-	toolkitsCfg, ok := p.config.Toolkits[toolkitKind]
-	if !ok {
-		return nil
-	}
-
-	kindCfg, ok := toolkitsCfg.(map[string]any)
-	if !ok {
-		return nil
-	}
-
-	instances, ok := kindCfg[cfgKeyInstances].(map[string]any)
-	if !ok {
-		return nil
-	}
-
-	// If no instance name specified, try to get the default
-	if instanceName == "" {
-		instanceName = resolveDefaultInstance(kindCfg, instances)
-	}
-
-	instanceCfg, ok := instances[instanceName].(map[string]any)
-	if !ok {
-		return nil
-	}
-
-	return instanceCfg
-}
-
-// resolveDefaultInstance determines which instance to use.
-func resolveDefaultInstance(kindCfg, instances map[string]any) string {
-	if defaultName, ok := kindCfg[cfgKeyDefault].(string); ok {
-		return defaultName
-	}
-	// Use the first instance
-	for name := range instances {
-		return name
-	}
-	return ""
 }
 
 // injectToolkitPlatformConfig injects platform-level configuration into

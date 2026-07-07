@@ -25,6 +25,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/platform/cfgmap"
 	"github.com/txn2/mcp-data-platform/pkg/platform/instructions"
 	"github.com/txn2/mcp-data-platform/pkg/platform/personastore"
+	"github.com/txn2/mcp-data-platform/pkg/platform/toolkitcfg"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
@@ -399,7 +400,7 @@ func TestGetInstanceConfig(t *testing.T) {
 	}
 
 	t.Run("get named instance", func(t *testing.T) {
-		instanceCfg := p.getInstanceConfig("trino", testInstancePrimary)
+		instanceCfg := toolkitcfg.InstanceConfig(p.config.Toolkits, "trino", testInstancePrimary)
 		if instanceCfg == nil {
 			t.Fatal("getInstanceConfig(trino, primary) = nil")
 		}
@@ -409,7 +410,7 @@ func TestGetInstanceConfig(t *testing.T) {
 	})
 
 	t.Run("get default instance", func(t *testing.T) {
-		instanceCfg := p.getInstanceConfig("trino", "")
+		instanceCfg := toolkitcfg.InstanceConfig(p.config.Toolkits, "trino", "")
 		if instanceCfg == nil {
 			t.Fatal("getInstanceConfig(trino, '') = nil")
 		}
@@ -419,14 +420,14 @@ func TestGetInstanceConfig(t *testing.T) {
 	})
 
 	t.Run("unknown toolkit kind", func(t *testing.T) {
-		instanceCfg := p.getInstanceConfig("unknown", "any")
+		instanceCfg := toolkitcfg.InstanceConfig(p.config.Toolkits, "unknown", "any")
 		if instanceCfg != nil {
 			t.Error("getInstanceConfig(unknown, any) should be nil")
 		}
 	})
 
 	t.Run("unknown instance", func(t *testing.T) {
-		instanceCfg := p.getInstanceConfig("trino", "nonexistent")
+		instanceCfg := toolkitcfg.InstanceConfig(p.config.Toolkits, "trino", "nonexistent")
 		if instanceCfg != nil {
 			t.Error("getInstanceConfig(trino, nonexistent) should be nil")
 		}
@@ -440,7 +441,7 @@ func TestResolveDefaultInstance(t *testing.T) {
 			testInstancePrimary: map[string]any{},
 			"secondary":         map[string]any{},
 		}
-		result := resolveDefaultInstance(kindCfg, instances)
+		result := toolkitcfg.ResolveDefaultInstance(kindCfg, instances)
 		if result != testInstancePrimary {
 			t.Errorf("resolveDefaultInstance = %q", result)
 		}
@@ -451,7 +452,7 @@ func TestResolveDefaultInstance(t *testing.T) {
 		instances := map[string]any{
 			"only": map[string]any{},
 		}
-		result := resolveDefaultInstance(kindCfg, instances)
+		result := toolkitcfg.ResolveDefaultInstance(kindCfg, instances)
 		if result != "only" {
 			t.Errorf("resolveDefaultInstance = %q", result)
 		}
@@ -460,7 +461,7 @@ func TestResolveDefaultInstance(t *testing.T) {
 	t.Run("empty instances", func(t *testing.T) {
 		kindCfg := map[string]any{}
 		instances := map[string]any{}
-		result := resolveDefaultInstance(kindCfg, instances)
+		result := toolkitcfg.ResolveDefaultInstance(kindCfg, instances)
 		if result != "" {
 			t.Errorf("resolveDefaultInstance = %q", result)
 		}
@@ -511,7 +512,7 @@ func TestGetDataHubConfig(t *testing.T) {
 				Toolkits: nil,
 			},
 		}
-		result := p.getDataHubConfig(testInstanceDefault)
+		result := toolkitcfg.DataHubConfig(p.config.Toolkits, testInstanceDefault)
 		if result != nil {
 			t.Error("expected nil for missing config")
 		}
@@ -533,7 +534,7 @@ func TestGetDataHubConfig(t *testing.T) {
 				},
 			},
 		}
-		result := p.getDataHubConfig(testInstanceDefault)
+		result := toolkitcfg.DataHubConfig(p.config.Toolkits, testInstanceDefault)
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -559,7 +560,7 @@ func TestGetDataHubConfig(t *testing.T) {
 				},
 			},
 		}
-		result := p.getDataHubConfig(testInstanceDefault)
+		result := toolkitcfg.DataHubConfig(p.config.Toolkits, testInstanceDefault)
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -583,7 +584,7 @@ func TestGetDataHubConfig(t *testing.T) {
 				},
 			},
 		}
-		result := p.getDataHubConfig(testInstanceDefault)
+		result := toolkitcfg.DataHubConfig(p.config.Toolkits, testInstanceDefault)
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -606,7 +607,7 @@ func TestGetDataHubConfig(t *testing.T) {
 				},
 			},
 		}
-		result := p.getDataHubConfig(testInstanceDefault)
+		result := toolkitcfg.DataHubConfig(p.config.Toolkits, testInstanceDefault)
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -623,7 +624,7 @@ func TestGetTrinoConfig(t *testing.T) {
 				Toolkits: nil,
 			},
 		}
-		result := p.getTrinoConfig(testInstanceDefault)
+		result := toolkitcfg.TrinoConfig(p.config.Toolkits, testInstanceDefault)
 		if result != nil {
 			t.Error("expected nil for missing config")
 		}
@@ -654,7 +655,7 @@ func TestGetTrinoConfig(t *testing.T) {
 				},
 			},
 		}
-		result := p.getTrinoConfig(testInstanceDefault)
+		result := toolkitcfg.TrinoConfig(p.config.Toolkits, testInstanceDefault)
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -683,7 +684,7 @@ func TestGetS3Config(t *testing.T) {
 				Toolkits: nil,
 			},
 		}
-		result := p.getS3Config(testInstanceDefault)
+		result := toolkitcfg.S3Config(p.config.Toolkits, testInstanceDefault)
 		if result != nil {
 			t.Error("expected nil for missing config")
 		}
@@ -709,7 +710,7 @@ func TestGetS3Config(t *testing.T) {
 				},
 			},
 		}
-		result := p.getS3Config(testInstanceDefault)
+		result := toolkitcfg.S3Config(p.config.Toolkits, testInstanceDefault)
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -741,7 +742,7 @@ func TestGetS3Config(t *testing.T) {
 				},
 			},
 		}
-		result := p.getS3Config("myinstance")
+		result := toolkitcfg.S3Config(p.config.Toolkits, "myinstance")
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -931,7 +932,7 @@ func TestInstanceConfigMapTypes(t *testing.T) {
 			t.Fatalf(testNewErrFmt, err)
 		}
 
-		instanceCfg := p.getInstanceConfig("trino", "any")
+		instanceCfg := toolkitcfg.InstanceConfig(p.config.Toolkits, "trino", "any")
 		if instanceCfg != nil {
 			t.Error("getInstanceConfig should return nil for wrong instances type")
 		}
@@ -953,7 +954,7 @@ func TestInstanceConfigMapTypes(t *testing.T) {
 			t.Fatalf(testNewErrFmt, err)
 		}
 
-		instanceCfg := p.getInstanceConfig("trino", "any")
+		instanceCfg := toolkitcfg.InstanceConfig(p.config.Toolkits, "trino", "any")
 		if instanceCfg != nil {
 			t.Error("getInstanceConfig should return nil for non-map kind config")
 		}
@@ -2202,7 +2203,7 @@ func TestNew_DefaultDataHubTimeout(t *testing.T) {
 		},
 	}
 
-	cfg := p.getDataHubConfig(testInstanceDefault)
+	cfg := toolkitcfg.DataHubConfig(p.config.Toolkits, testInstanceDefault)
 	if cfg == nil {
 		t.Fatal("getDataHubConfig() returned nil")
 	}
@@ -2227,7 +2228,7 @@ func TestNew_DefaultTrinoTimeout(t *testing.T) {
 		},
 	}
 
-	cfg := p.getTrinoConfig(testInstanceDefault)
+	cfg := toolkitcfg.TrinoConfig(p.config.Toolkits, testInstanceDefault)
 	if cfg == nil {
 		t.Fatal("getTrinoConfig() returned nil")
 	}
