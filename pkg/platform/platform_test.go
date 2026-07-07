@@ -4845,6 +4845,26 @@ func TestWireAPIGatewayRoutePolicy_NoToolkit_NoOp(t *testing.T) {
 	p.WireAPIGatewayRoutePolicy() // must not panic when no api toolkit registered
 }
 
+// TestWireGatewayIntegrations_NoToolkits_NoOp proves the folded wiring sequence
+// runs every step in order without panicking when no gateway/api-gateway
+// toolkit is loaded. This is the single entry point cmd calls in place of the
+// former seven-call block, so its no-op safety is the composition-root contract.
+func TestWireGatewayIntegrations_NoToolkits_NoOp(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+	}
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	p.WireGatewayIntegrations() // all seven steps no-op with no toolkits registered
+}
+
 // TestWireAPIGatewayTokenStore proves the api gateway parallel of
 // WireGatewayTokenStore: when the platform has a non-nil
 // apigatewayTokenStore, calling WireAPIGatewayTokenStore must reach

@@ -334,15 +334,9 @@ func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Pla
 	// the gateway's persisted refresh tokens and tools/list_changed
 	// fan-out are still needed.
 	if p != nil {
-		p.WireGatewayTokenStore()
-		p.WireGatewayBroadcaster()
-		p.WireAPIGatewayRoutePolicy()
-		p.WireAPIGatewayTokenStore()
-		p.WireAPIGatewayEmbeddingProvider()
-		p.WireAPIGatewayCatalogStoreFromDB()
-		// Embed-job queue depends on the catalog store + embedding
-		// provider being wired first; call last.
-		p.WireAPIGatewayEmbedJobsFromDB()
+		// Ordered, idempotent gateway/api-gateway wiring; the embed-job
+		// queue is wired last (see WireGatewayIntegrations).
+		p.WireGatewayIntegrations()
 		// Start the background OAuth refresher once toolkits and
 		// connection store are wired. Single-call here (not in the
 		// platform constructor) so the resolver can read the live

@@ -660,6 +660,27 @@ func (p *Platform) EnrichmentStore() enrichment.Store {
 	return p.enrichmentStore
 }
 
+// WireGatewayIntegrations runs the post-construction wiring the gateway and
+// api-gateway toolkits need before the HTTP root handler is built, in
+// dependency order. Every step is idempotent and no-ops when no gateway /
+// api-gateway toolkit is loaded, so an entry point calls it unconditionally.
+//
+// The order is load-bearing: the token store, broadcaster, route policy,
+// api-gateway token store, embedding provider, and catalog store are wired
+// first; the embed-job queue is wired LAST because it depends on the catalog
+// store and embedding provider already being in place. Encapsulating the
+// sequence here (rather than as a bare call list in the composition root) makes
+// the ordering contract a single testable unit and keeps cmd/main.go thin.
+func (p *Platform) WireGatewayIntegrations() {
+	p.WireGatewayTokenStore()
+	p.WireGatewayBroadcaster()
+	p.WireAPIGatewayRoutePolicy()
+	p.WireAPIGatewayTokenStore()
+	p.WireAPIGatewayEmbeddingProvider()
+	p.WireAPIGatewayCatalogStoreFromDB()
+	p.WireAPIGatewayEmbedJobsFromDB()
+}
+
 // WireGatewayTokenStore attaches the unified connoauth.Store to every
 // live gateway toolkit in the registry so authorization_code grants
 // survive process restarts. No-op when no database is configured.
