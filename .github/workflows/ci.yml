@@ -17,6 +17,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # Full history so golangci-lint's --new-from-rev (below) can diff against
+          # the base commit locally. Shallow (default depth 1) has no base to diff.
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
@@ -28,8 +32,14 @@ jobs:
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v2.11.4
-          args: --timeout=5m
-          only-new-issues: true
+          # Only NEW issues fail the build; pre-existing debt is baselined. We use
+          # golangci-lint's own git-based --new-from-rev rather than the action's
+          # only-new-issues: the latter fetches the PR diff from the GitHub API,
+          # which hard-fails on diffs over 20000 lines (large refactors) and then
+          # falls back to a full-repo scan that surfaces pre-existing issues. The
+          # git-based diff has no size cap and matches `make verify` locally.
+          # Base: the PR target tip on pull_request, the pre-push tip on push.
+          args: --timeout=5m --new-from-rev=${{ github.event.pull_request.base.sha || github.event.before }}
 
   test:
     name: Test
