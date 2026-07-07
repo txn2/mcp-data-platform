@@ -50,25 +50,31 @@ test.describe("DataHub Catalog", () => {
     await expect(page.getByText("Daily sales, refreshed at 06:00 UTC.")).toBeVisible();
   });
 
-  test("adds a tag and it appears in the tag set", async ({ page }) => {
+  test("adds a tag via the name picker and it appears in the tag set", async ({ page }) => {
     await page.getByText("analytics.public.customers").click();
-    await page.getByPlaceholder("urn:li:tag:PII").fill("urn:li:tag:reviewed");
-    await page
-      .getByRole("heading", { name: "Tags" })
-      .locator("..")
-      .getByRole("button", { name: "Add" })
-      .click();
-    await expect(page.getByText("reviewed")).toBeVisible();
+    // Type a display name and pick the resolved tag — no raw URN entry (#785). The
+    // chip's Remove button is a unique locator (dropdown candidates have no such
+    // aria-label), so it isn't ambiguous with the candidate still in the dropdown.
+    await page.getByPlaceholder("Search tags by name…").fill("review");
+    await page.getByRole("button", { name: /reviewed/ }).click();
+    await expect(page.getByRole("button", { name: "Remove reviewed" })).toBeVisible();
   });
 
-  test("sets and clears the domain", async ({ page }) => {
+  test("sets and clears the domain via the picker", async ({ page }) => {
     await page.getByText("analytics.public.customers").click();
-    await page.getByPlaceholder("urn:li:domain:finance").fill("urn:li:domain:marketing");
-    // exact: true because role-name matching is substring-based and "Set"
-    // also matches the sidebar's "Assets" and "Changesets" buttons.
-    await page.getByRole("button", { name: "Set", exact: true }).click();
-    await expect(page.getByText("marketing")).toBeVisible();
-    await page.getByRole("button", { name: "Clear", exact: true }).click();
+    await page.getByPlaceholder("Search domains by name…").fill("market");
+    await page.getByRole("button", { name: /Marketing/ }).click();
+    // The Clear button only exists once a domain is set.
+    const clear = page.getByRole("button", { name: "Clear", exact: true });
+    await expect(clear).toBeVisible();
+    await clear.click();
     await expect(page.getByText("None.").first()).toBeVisible();
+  });
+
+  test("applies an exact tag URN typed into the picker (fallback)", async ({ page }) => {
+    await page.getByText("analytics.public.customers").click();
+    await page.getByPlaceholder("Search tags by name…").fill("urn:li:tag:quarantine");
+    await page.getByRole("button", { name: /urn:li:tag:quarantine/ }).click();
+    await expect(page.getByRole("button", { name: "Remove quarantine" })).toBeVisible();
   });
 });

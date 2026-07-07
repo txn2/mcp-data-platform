@@ -43,6 +43,8 @@ type mockDataHubClient struct {
 	getColumnLineageFunc     func(ctx context.Context, urn string) (*types.ColumnLineage, error)
 	getGlossaryTermFunc      func(ctx context.Context, urn string) (*types.GlossaryTerm, error)
 	getQueriesFunc           func(ctx context.Context, urn string) (*types.QueryList, error)
+	listTagsFunc             func(ctx context.Context, filter string) ([]types.Tag, error)
+	listDomainsFunc          func(ctx context.Context) ([]types.Domain, error)
 	pingFunc                 func(ctx context.Context) error
 	closeFunc                func() error
 }
@@ -131,6 +133,20 @@ func (m *mockDataHubClient) GetQueries(ctx context.Context, urn string) (*types.
 	return &types.QueryList{}, nil
 }
 
+func (m *mockDataHubClient) ListTags(ctx context.Context, filter string) ([]types.Tag, error) {
+	if m.listTagsFunc != nil {
+		return m.listTagsFunc(ctx, filter)
+	}
+	return nil, nil
+}
+
+func (m *mockDataHubClient) ListDomains(ctx context.Context) ([]types.Domain, error) {
+	if m.listDomainsFunc != nil {
+		return m.listDomainsFunc(ctx)
+	}
+	return nil, nil
+}
+
 func (m *mockDataHubClient) Ping(ctx context.Context) error {
 	if m.pingFunc != nil {
 		return m.pingFunc(ctx)
@@ -163,6 +179,130 @@ func TestNewWithClient_ValidClient(t *testing.T) {
 	}
 	if adapter.cfg.Platform != dhAdapterTestPlatformTrino {
 		t.Errorf("expected default platform 'trino', got %q", adapter.cfg.Platform)
+	}
+}
+
+func TestAdapter_CatalogPickers(t *testing.T) {
+	mock := &mockDataHubClient{
+		listTagsFunc: func(_ context.Context, filter string) ([]types.Tag, error) {
+			if filter != "PI" {
+				t.Errorf("tag filter = %q, want PI", filter)
+			}
+			return []types.Tag{{URN: "urn:li:tag:PII", Name: "PII", Description: "personal data"}}, nil
+		},
+		searchAcrossEntitiesFunc: func(_ context.Context, query string, _ ...dhclient.SearchOption) (*types.SearchResult, error) {
+			if query != "Rev" {
+				t.Errorf("glossary query = %q, want Rev", query)
+			}
+			return &types.SearchResult{Entities: []types.SearchEntity{{URN: "urn:li:glossaryTerm:Revenue", Name: "Revenue"}}}, nil
+		},
+		listDomainsFunc: func(_ context.Context) ([]types.Domain, error) {
+			return []types.Domain{{URN: "urn:li:domain:finance", Name: "Finance", Description: "money"}}, nil
+		},
+	}
+	adapter, err := NewWithClient(Config{}, mock)
+	if err != nil {
+		t.Fatalf(dhAdapterTestUnexpectedErr, err)
+	}
+	ctx := context.Background()
+
+	tags, err := adapter.SearchTags(ctx, "PI", 5)
+	if err != nil || len(tags) != 1 || tags[0].URN != "urn:li:tag:PII" || tags[0].Name != "PII" {
+		t.Fatalf("SearchTags = %+v, err = %v", tags, err)
+	}
+	terms, err := adapter.SearchGlossaryTerms(ctx, "Rev", 5)
+	if err != nil || len(terms) != 1 || terms[0].URN != "urn:li:glossaryTerm:Revenue" || terms[0].Name != "Revenue" {
+		t.Fatalf("SearchGlossaryTerms = %+v, err = %v", terms, err)
+	}
+	domains, err := adapter.ListDomains(ctx)
+	if err != nil || len(domains) != 1 || domains[0].URN != "urn:li:domain:finance" || domains[0].Name != "Finance" {
+		t.Fatalf("ListDomains = %+v, err = %v", domains, err)
+	}
+}
+
+func TestAdapter_CatalogPickers_Errors(t *testing.T) {
+	boom := errors.New("boom")
+	mock := &mockDataHubClient{
+		listTagsFunc:             func(context.Context, string) ([]types.Tag, error) { return nil, boom },
+		searchAcrossEntitiesFunc: func(context.Context, string, ...dhclient.SearchOption) (*types.SearchResult, error) { return nil, boom },
+		listDomainsFunc:          func(context.Context) ([]types.Domain, error) { return nil, boom },
+	}
+	adapter, err := NewWithClient(Config{}, mock)
+	if err != nil {
+		t.Fatalf(dhAdapterTestUnexpectedErr, err)
+	}
+	ctx := context.Background()
+	if _, err := adapter.SearchTags(ctx, "x", 5); err == nil {
+		t.Error("SearchTags: expected error")
+	}
+	if _, err := adapter.SearchGlossaryTerms(ctx, "x", 5); err == nil {
+		t.Error("SearchGlossaryTerms: expected error")
+	}
+	if _, err := adapter.ListDomains(ctx); err == nil {
+		t.Error("ListDomains: expected error")
+	}
+}
+
+// TestClampRefLimit covers the picker page-bound helper directly.
+func TestClampRefLimit(t *testing.T) {
+	if got := clampRefLimit(0); got != defaultRefLimit {
+		t.Errorf("clampRefLimit(0) = %d, want %d", got, defaultRefLimit)
+	}
+	if got := clampRefLimit(1000); got != maxRefLimit {
+		t.Errorf("clampRefLimit(1000) = %d, want %d", got, maxRefLimit)
+	}
+	if got := clampRefLimit(7); got != 7 {
+		t.Errorf("clampRefLimit(7) = %d, want 7", got)
+	}
+}
+
+// TestSearchTags_Truncates verifies the tag lookup caps the page before returning:
+// ListTags has no server-side limit, so a large upstream result is truncated to the
+// requested limit.
+func TestSearchTags_Truncates(t *testing.T) {
+	mock := &mockDataHubClient{
+		listTagsFunc: func(context.Context, string) ([]types.Tag, error) {
+			tags := make([]types.Tag, 50)
+			for i := range tags {
+				tags[i] = types.Tag{URN: fmt.Sprintf("urn:li:tag:t%d", i), Name: fmt.Sprintf("t%d", i)}
+			}
+			return tags, nil
+		},
+	}
+	adapter, err := NewWithClient(Config{}, mock)
+	if err != nil {
+		t.Fatalf(dhAdapterTestUnexpectedErr, err)
+	}
+	got, err := adapter.SearchTags(context.Background(), "t", 10)
+	if err != nil || len(got) != 10 {
+		t.Fatalf("SearchTags len = %d, err = %v, want 10", len(got), err)
+	}
+}
+
+// TestConvertTagRefs verifies the entity-detail read preserves tag URNs (Tags keeps
+// only names, which a governance write cannot address) and tolerates a raw-aspect
+// tag whose Name is empty (#785 review fix).
+func TestConvertTagRefs(t *testing.T) {
+	adapter, err := NewWithClient(Config{}, &mockDataHubClient{})
+	if err != nil {
+		t.Fatalf(dhAdapterTestUnexpectedErr, err)
+	}
+	tc := adapter.entityToTableContext(&types.Entity{
+		URN:  "urn:li:dataset:(x)",
+		Tags: []types.Tag{{URN: "urn:li:tag:PII", Name: "PII"}, {URN: "urn:li:tag:orphan"}},
+	})
+	if len(tc.TagRefs) != 2 {
+		t.Fatalf("TagRefs len = %d, want 2 (%+v)", len(tc.TagRefs), tc.TagRefs)
+	}
+	if tc.TagRefs[0].URN != "urn:li:tag:PII" || tc.TagRefs[0].Name != "PII" {
+		t.Errorf("TagRefs[0] = %+v", tc.TagRefs[0])
+	}
+	if tc.TagRefs[1].URN != "urn:li:tag:orphan" || tc.TagRefs[1].Name != "" {
+		t.Errorf("TagRefs[1] = %+v, want urn with empty name", tc.TagRefs[1])
+	}
+	// Tags (names) is unchanged for enrichment.
+	if len(tc.Tags) != 2 || tc.Tags[0] != "PII" {
+		t.Errorf("Tags = %+v, want names preserved", tc.Tags)
 	}
 }
 

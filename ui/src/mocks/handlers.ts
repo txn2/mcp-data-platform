@@ -24,6 +24,9 @@ import {
   catalogBrowse,
   catalogSearch,
   catalogEntity,
+  lookupTags,
+  lookupGlossaryTerms,
+  lookupDomains,
   applyCatalogChange,
   docsBrowse,
   docsSearch,
@@ -765,6 +768,17 @@ export const handlers = [
     const entity = catalogEntity(u);
     return entity ? HttpResponse.json(entity) : new HttpResponse(null, { status: 502 });
   }),
+  http.get(`${PORTAL_BASE}/datahub/:conn/catalog/lookup/tags`, ({ request }) => {
+    const q = new URL(request.url).searchParams.get("q") ?? "";
+    return HttpResponse.json({ results: lookupTags(q) });
+  }),
+  http.get(`${PORTAL_BASE}/datahub/:conn/catalog/lookup/glossary-terms`, ({ request }) => {
+    const q = new URL(request.url).searchParams.get("q") ?? "";
+    return HttpResponse.json({ results: lookupGlossaryTerms(q) });
+  }),
+  http.get(`${PORTAL_BASE}/datahub/:conn/catalog/lookup/domains`, () =>
+    HttpResponse.json({ results: lookupDomains() }),
+  ),
   ...(["description", "tags", "owners", "glossary-terms", "domain"] as const).map((field) =>
     http.put(`${PORTAL_BASE}/datahub/:conn/catalog/entity/${field}`, async ({ request }) => {
       const body = (await request.json()) as Record<string, unknown>;

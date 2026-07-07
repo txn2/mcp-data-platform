@@ -33,6 +33,7 @@ type fakeDataHub struct {
 	docs         map[string]*semantic.DocumentResult
 	nextID       int
 	tables       []semantic.TableSearchResult
+	refs         []semantic.EntityRef
 	upsertErr    error
 	deleteErr    error
 	resolveErr   error
@@ -62,7 +63,17 @@ func (f *fakeDataHub) GetTableContext(_ context.Context, table semantic.TableIde
 	if f.readErr != nil {
 		return nil, f.readErr
 	}
-	return &semantic.TableContext{URN: table.Table, Description: f.descriptions[table.Table], Tags: f.tags[table.Table]}, nil
+	tags := f.tags[table.Table]
+	refs := make([]semantic.EntityRef, len(tags))
+	for i, t := range tags {
+		refs[i] = semantic.EntityRef{URN: t, Name: t}
+	}
+	return &semantic.TableContext{
+		URN:         table.Table,
+		Description: f.descriptions[table.Table],
+		Tags:        tags,
+		TagRefs:     refs,
+	}, nil
 }
 
 func (*fakeDataHub) GetColumnsContext(_ context.Context, _ semantic.TableIdentifier) (map[string]*semantic.ColumnContext, error) {
@@ -71,6 +82,18 @@ func (*fakeDataHub) GetColumnsContext(_ context.Context, _ semantic.TableIdentif
 
 func (f *fakeDataHub) SearchTables(_ context.Context, _ semantic.SearchFilter) ([]semantic.TableSearchResult, error) {
 	return f.tables, f.readErr
+}
+
+func (f *fakeDataHub) SearchTags(_ context.Context, _ string, _ int) ([]semantic.EntityRef, error) {
+	return f.refs, f.readErr
+}
+
+func (f *fakeDataHub) SearchGlossaryTerms(_ context.Context, _ string, _ int) ([]semantic.EntityRef, error) {
+	return f.refs, f.readErr
+}
+
+func (f *fakeDataHub) ListDomains(_ context.Context) ([]semantic.EntityRef, error) {
+	return f.refs, f.readErr
 }
 
 func (f *fakeDataHub) SearchDocuments(_ context.Context, _ string, _ int) ([]semantic.DocumentResult, error) {
@@ -387,6 +410,10 @@ func TestTagEditReflectedOnRead(t *testing.T) {
 	if resp.Context == nil || len(resp.Context.Tags) != 1 || resp.Context.Tags[0] != "urn:li:tag:PII" {
 		t.Fatalf("tag edit not reflected: %+v", resp.Context)
 	}
+	// tag_refs carries the URN so the editor can remove/dedupe by URN (#785 review).
+	if len(resp.Context.TagRefs) != 1 || resp.Context.TagRefs[0].URN != "urn:li:tag:PII" {
+		t.Fatalf("tag_refs not populated: %+v", resp.Context.TagRefs)
+	}
 }
 
 // --- reads + auth ---
@@ -537,24 +564,26 @@ func TestValidationErrors(t *testing.T) {
 }
 
 func TestUpstreamErrors_502(t *testing.T) {
-	writeEndpoints := []string{
-		"/api/v1/portal/datahub/primary/catalog/entity/description",
-		"/api/v1/portal/datahub/primary/catalog/entity/tags",
-		"/api/v1/portal/datahub/primary/catalog/entity/glossary-terms",
-		"/api/v1/portal/datahub/primary/catalog/entity/owners",
-		"/api/v1/portal/datahub/primary/catalog/entity/domain",
+	// Each write carries a WELL-FORMED payload so the request passes validation and
+	// reaches the writer: a 502 here proves the genuine-upstream-failure path, as
+	// distinct from the malformed-value 400 path covered by TestMalformedValue_400.
+	writeCases := []struct{ ep, body string }{
+		{"/api/v1/portal/datahub/primary/catalog/entity/description", fmt.Sprintf(`{"urn":%q,"description":"x"}`, dhTestURN)},
+		{"/api/v1/portal/datahub/primary/catalog/entity/tags", fmt.Sprintf(`{"urn":%q,"add":["urn:li:tag:PII"]}`, dhTestURN)},
+		{"/api/v1/portal/datahub/primary/catalog/entity/glossary-terms", fmt.Sprintf(`{"urn":%q,"add":["urn:li:glossaryTerm:Revenue"]}`, dhTestURN)},
+		{"/api/v1/portal/datahub/primary/catalog/entity/owners", fmt.Sprintf(`{"urn":%q,"add_owners":[{"owner_urn":"urn:li:corpuser:alice"}]}`, dhTestURN)},
+		{"/api/v1/portal/datahub/primary/catalog/entity/domain", fmt.Sprintf(`{"urn":%q,"domain":"urn:li:domain:finance"}`, dhTestURN)},
 	}
-	body := fmt.Sprintf(`{"urn":%q,"description":"x","add":["a"],"domain":"urn:li:domain:d"}`, dhTestURN)
-	for _, ep := range writeEndpoints {
+	for _, tc := range writeCases {
 		backend := newFakeDataHub()
 		backend.writeErr = fmt.Errorf("datahub down")
 		log := &fakeAuditLogger{}
 		h := newTestHandler(backend, true, writerResolver(), log)
-		if rec := serve(h, viewer, "PUT", ep, body); rec.Code != http.StatusBadGateway {
-			t.Errorf("%s status = %d, want 502", ep, rec.Code)
+		if rec := serve(h, viewer, "PUT", tc.ep, tc.body); rec.Code != http.StatusBadGateway {
+			t.Errorf("%s status = %d, want 502", tc.ep, rec.Code)
 		}
 		if ev := log.last(); ev == nil || ev.Success {
-			t.Errorf("%s: expected unsuccessful audit event", ep)
+			t.Errorf("%s: expected unsuccessful audit event", tc.ep)
 		}
 	}
 	readPaths := []string{
@@ -588,6 +617,75 @@ func TestUpstreamErrors_502(t *testing.T) {
 	h2 := newTestHandler(backend2, true, writerResolver(), &fakeAuditLogger{})
 	if rec := serve(h2, viewer, "DELETE", "/api/v1/portal/datahub/primary/documents/d1", ""); rec.Code != http.StatusBadGateway {
 		t.Errorf("delete upstream error status = %d, want 502", rec.Code)
+	}
+}
+
+// TestMalformedValue_400 is the #785 acceptance criterion: a malformed metadata
+// value (e.g. "test") is a client error rejected with 400 and a human-readable
+// message, and never reaches the writer/DataHub (which would otherwise 502).
+func TestMalformedValue_400(t *testing.T) {
+	cases := []struct{ name, ep, body string }{
+		{"tag", "/api/v1/portal/datahub/primary/catalog/entity/tags", fmt.Sprintf(`{"urn":%q,"add":["test"]}`, dhTestURN)},
+		{"tag-remove", "/api/v1/portal/datahub/primary/catalog/entity/tags", fmt.Sprintf(`{"urn":%q,"remove":["nope"]}`, dhTestURN)},
+		{"glossary", "/api/v1/portal/datahub/primary/catalog/entity/glossary-terms", fmt.Sprintf(`{"urn":%q,"add":["Revenue"]}`, dhTestURN)},
+		{"owner", "/api/v1/portal/datahub/primary/catalog/entity/owners", fmt.Sprintf(`{"urn":%q,"add_owners":[{"owner_urn":"alice"}]}`, dhTestURN)},
+		{"domain", "/api/v1/portal/datahub/primary/catalog/entity/domain", fmt.Sprintf(`{"urn":%q,"domain":"finance"}`, dhTestURN)},
+		{"empty-tag-urn", "/api/v1/portal/datahub/primary/catalog/entity/tags", fmt.Sprintf(`{"urn":%q,"add":["urn:li:tag:"]}`, dhTestURN)},
+	}
+	for _, tc := range cases {
+		backend := newFakeDataHub()
+		h := newTestHandler(backend, true, writerResolver(), &fakeAuditLogger{})
+		rec := serve(h, viewer, "PUT", tc.ep, tc.body)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: status = %d, want 400 (%s)", tc.name, rec.Code, rec.Body.String())
+		}
+		var pd problemDetail
+		_ = json.Unmarshal(rec.Body.Bytes(), &pd)
+		if !strings.Contains(pd.Detail, "must be a") {
+			t.Errorf("%s: detail = %q, want a human-readable URN hint", tc.name, pd.Detail)
+		}
+		if len(backend.calls) != 0 {
+			t.Errorf("%s: writer must not be called for a malformed value, got %v", tc.name, backend.calls)
+		}
+	}
+}
+
+// TestCatalogLookups exercises the picker lookup endpoints: name-searchable
+// results on success, read-gating, and a 502 on genuine upstream failure.
+func TestCatalogLookups(t *testing.T) {
+	refs := []semantic.EntityRef{{URN: "urn:li:tag:PII", Name: "PII"}, {URN: "urn:li:domain:finance", Name: "Finance"}}
+	paths := []string{
+		"/api/v1/portal/datahub/primary/catalog/lookup/tags?q=PI",
+		"/api/v1/portal/datahub/primary/catalog/lookup/glossary-terms?q=Rev",
+		"/api/v1/portal/datahub/primary/catalog/lookup/domains",
+	}
+	for _, p := range paths {
+		backend := newFakeDataHub()
+		backend.refs = refs
+		h := newTestHandler(backend, false, readerResolver(), &fakeAuditLogger{})
+		rec := serve(h, viewer, "GET", p, "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s status = %d (%s)", p, rec.Code, rec.Body.String())
+		}
+		var resp struct {
+			Results []semantic.EntityRef `json:"results"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &resp)
+		if len(resp.Results) != 2 || resp.Results[0].Name != "PII" {
+			t.Fatalf("%s unexpected results: %+v", p, resp.Results)
+		}
+		// no DataHub access -> 403
+		hNo := newTestHandler(backend, false, noAccessResolver(), &fakeAuditLogger{})
+		if rec := serve(hNo, viewer, "GET", p, ""); rec.Code != http.StatusForbidden {
+			t.Errorf("%s no-access status = %d, want 403", p, rec.Code)
+		}
+		// upstream failure -> 502
+		backendErr := newFakeDataHub()
+		backendErr.readErr = fmt.Errorf("datahub down")
+		hErr := newTestHandler(backendErr, false, readerResolver(), &fakeAuditLogger{})
+		if rec := serve(hErr, viewer, "GET", p, ""); rec.Code != http.StatusBadGateway {
+			t.Errorf("%s upstream-error status = %d, want 502", p, rec.Code)
+		}
 	}
 }
 
