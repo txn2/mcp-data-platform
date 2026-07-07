@@ -22,6 +22,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
+	"github.com/txn2/mcp-data-platform/pkg/platform/cfgmap"
 	"github.com/txn2/mcp-data-platform/pkg/platform/instructions"
 	"github.com/txn2/mcp-data-platform/pkg/platform/personastore"
 	"github.com/txn2/mcp-data-platform/pkg/query"
@@ -43,10 +44,6 @@ const (
 	testRoleAdmin           = "admin"
 	testRoleViewer          = "viewer"
 	testConflictNearest     = "nearest"
-	testIntVal              = 42
-	testFloatVal            = 3.14
-	testDurationIntSec      = 60
-	testDurationFloatSec    = 90.0
 	testPort                = 8080
 	testPortSecondary       = 8081
 	testDefaultMaxOpenConns = 25
@@ -67,19 +64,10 @@ const (
 	testLineageTimeout      = 5 * time.Second
 	testDefaultDataHubTO    = 30 * time.Second
 	testDefaultTrinoTO      = 120 * time.Second
-	testMissingKey          = "missing"
-	testDefaultFallback     = 100
-	testDurationDefault     = 10 * time.Second
-	testDuration30s         = 30 * time.Second
-	testDuration90s         = 90 * time.Second
 	testPriority            = 10
 	testRetentionDays       = 30
 	testMaxTableRows        = 500
 	testNewErrFmt           = "New() error = %v"
-	testFloatKeyExpected    = 3
-	testNegFloatKeyExpected = -3
-	testEdgeFallback5s      = 5 * time.Second
-	testZeroFloat           = 0.0
 	testMCPServerNilMsg     = "MCPServer() should not be nil"
 	testToolkitKeyDatahub   = "datahub"
 	testCfgKeyURL           = "url"
@@ -382,81 +370,6 @@ func TestMCPMiddlewareWithEnrichment(t *testing.T) {
 	}
 }
 
-// cfgHelpersTestData returns a shared test config map for cfg helper tests.
-func cfgHelpersTestData() map[string]any {
-	return map[string]any{
-		"string_key":      "value",
-		"int_key":         testIntVal,
-		"float_key":       testFloatVal,
-		"bool_key":        true,
-		"duration_string": "30s",
-		"duration_int":    testDurationIntSec,
-		"duration_float":  testDurationFloatSec,
-	}
-}
-
-func TestCfgString(t *testing.T) {
-	cfg := cfgHelpersTestData()
-	if v := cfgString(cfg, "string_key"); v != "value" {
-		t.Errorf("cfgString(string_key) = %q", v)
-	}
-	if v := cfgString(cfg, testMissingKey); v != "" {
-		t.Errorf("cfgString(missing) = %q", v)
-	}
-	if v := cfgString(cfg, "int_key"); v != "" {
-		t.Errorf("cfgString(int_key) = %q (should be empty)", v)
-	}
-}
-
-func TestCfgInt(t *testing.T) {
-	cfg := cfgHelpersTestData()
-	if v := cfgInt(cfg, "int_key", 0); v != testIntVal {
-		t.Errorf("cfgInt(int_key) = %d", v)
-	}
-	if v := cfgInt(cfg, "float_key", 0); v != testFloatKeyExpected {
-		t.Errorf("cfgInt(float_key) = %d", v)
-	}
-	if v := cfgInt(cfg, testMissingKey, testDefaultFallback); v != testDefaultFallback {
-		t.Errorf("cfgInt(missing) = %d", v)
-	}
-}
-
-func TestCfgBool(t *testing.T) {
-	cfg := cfgHelpersTestData()
-	if v := cfgBool(cfg, "bool_key"); !v {
-		t.Error("cfgBool(bool_key) = false")
-	}
-	if v := cfgBool(cfg, testMissingKey); v {
-		t.Error("cfgBool(missing) = true")
-	}
-}
-
-func TestCfgBoolDefault(t *testing.T) {
-	cfg := cfgHelpersTestData()
-	if v := cfgBoolDefault(cfg, "bool_key", false); !v {
-		t.Error("cfgBoolDefault(bool_key, false) = false")
-	}
-	if v := cfgBoolDefault(cfg, testMissingKey, true); !v {
-		t.Error("cfgBoolDefault(missing, true) = false")
-	}
-}
-
-func TestCfgDuration(t *testing.T) {
-	cfg := cfgHelpersTestData()
-	if v := cfgDuration(cfg, "duration_string", 0); v != testDuration30s {
-		t.Errorf("cfgDuration(duration_string) = %v", v)
-	}
-	if v := cfgDuration(cfg, "duration_int", 0); v != testDurationIntSec*time.Second {
-		t.Errorf("cfgDuration(duration_int) = %v", v)
-	}
-	if v := cfgDuration(cfg, "duration_float", 0); v != testDuration90s {
-		t.Errorf("cfgDuration(duration_float) = %v", v)
-	}
-	if v := cfgDuration(cfg, testMissingKey, testDurationDefault); v != testDurationDefault {
-		t.Errorf("cfgDuration(missing) = %v", v)
-	}
-}
-
 func TestGetInstanceConfig(t *testing.T) {
 	cfg := &Config{
 		Server: ServerConfig{Name: testServerName},
@@ -490,7 +403,7 @@ func TestGetInstanceConfig(t *testing.T) {
 		if instanceCfg == nil {
 			t.Fatal("getInstanceConfig(trino, primary) = nil")
 		}
-		if host := cfgString(instanceCfg, "host"); host != "localhost" {
+		if host := cfgmap.String(instanceCfg, "host"); host != "localhost" {
 			t.Errorf("host = %q", host)
 		}
 	})
@@ -500,7 +413,7 @@ func TestGetInstanceConfig(t *testing.T) {
 		if instanceCfg == nil {
 			t.Fatal("getInstanceConfig(trino, '') = nil")
 		}
-		if host := cfgString(instanceCfg, "host"); host != "localhost" {
+		if host := cfgmap.String(instanceCfg, "host"); host != "localhost" {
 			t.Errorf("host = %q (should be primary/localhost)", host)
 		}
 	})
@@ -997,62 +910,6 @@ func TestPlatformStartError(t *testing.T) {
 
 	// Clean up
 	_ = p.Stop(ctx)
-}
-
-// cfgHelpersEdgeCaseData returns test data for cfg helper edge case tests.
-func cfgHelpersEdgeCaseData() map[string]any {
-	return map[string]any{
-		"negative_int":    -testIntVal,
-		"zero":            0,
-		"empty_string":    "",
-		"false_bool":      false,
-		"negative_float":  -testFloatVal,
-		"zero_float":      testZeroFloat,
-		"invalid_dur_str": "invalid",
-	}
-}
-
-func TestCfgIntEdgeCases(t *testing.T) {
-	cfg := cfgHelpersEdgeCaseData()
-	if v := cfgInt(cfg, "negative_int", 0); v != -testIntVal {
-		t.Errorf("cfgInt(negative_int) = %d", v)
-	}
-	if v := cfgInt(cfg, "zero", testDefaultFallback); v != 0 {
-		t.Errorf("cfgInt(zero) = %d", v)
-	}
-	if v := cfgInt(cfg, "negative_float", 0); v != testNegFloatKeyExpected {
-		t.Errorf("cfgInt(negative_float) = %d", v)
-	}
-}
-
-func TestCfgStringEdgeCases(t *testing.T) {
-	cfg := cfgHelpersEdgeCaseData()
-	if v := cfgString(cfg, "empty_string"); v != "" {
-		t.Errorf("cfgString(empty_string) = %q", v)
-	}
-}
-
-func TestCfgBoolEdgeCases(t *testing.T) {
-	cfg := cfgHelpersEdgeCaseData()
-	if v := cfgBool(cfg, "false_bool"); v {
-		t.Error("cfgBool(false_bool) = true")
-	}
-	if v := cfgBoolDefault(cfg, "false_bool", true); v {
-		t.Error("cfgBoolDefault(false_bool, true) = true")
-	}
-}
-
-func TestCfgDurationEdgeCases(t *testing.T) {
-	cfg := cfgHelpersEdgeCaseData()
-	if v := cfgDuration(cfg, "invalid_dur_str", testEdgeFallback5s); v != testEdgeFallback5s {
-		t.Errorf("cfgDuration(invalid_dur_str) = %v", v)
-	}
-	if v := cfgDuration(cfg, "zero", testDurationDefault); v != 0 {
-		t.Errorf("cfgDuration(zero) = %v", v)
-	}
-	if v := cfgDuration(cfg, "zero_float", testDurationDefault); v != 0 {
-		t.Errorf("cfgDuration(zero_float) = %v", v)
-	}
 }
 
 func TestInstanceConfigMapTypes(t *testing.T) {

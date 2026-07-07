@@ -47,6 +47,7 @@ import (
 	oauthpostgres "github.com/txn2/mcp-data-platform/pkg/oauth/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
+	"github.com/txn2/mcp-data-platform/pkg/platform/cfgmap"
 	"github.com/txn2/mcp-data-platform/pkg/platform/dedup"
 	"github.com/txn2/mcp-data-platform/pkg/platform/exportadapters"
 	"github.com/txn2/mcp-data-platform/pkg/platform/fieldcrypt"
@@ -3638,15 +3639,15 @@ func (p *Platform) getDataHubConfig(instanceName string) *datahubConfig {
 	}
 
 	cfg := &datahubConfig{
-		URL:     cfgString(instanceCfg, "url"),
-		Token:   cfgString(instanceCfg, fieldcrypt.CfgKeyToken),
-		Timeout: cfgDuration(instanceCfg, "timeout", 30*time.Second),
-		Debug:   cfgBoolDefault(instanceCfg, "debug", false),
+		URL:     cfgmap.String(instanceCfg, "url"),
+		Token:   cfgmap.String(instanceCfg, fieldcrypt.CfgKeyToken),
+		Timeout: cfgmap.Duration(instanceCfg, "timeout", 30*time.Second),
+		Debug:   cfgmap.BoolDefault(instanceCfg, "debug", false),
 	}
 
 	// Support both "url" and "endpoint" keys
 	if cfg.URL == "" {
-		cfg.URL = cfgString(instanceCfg, "endpoint")
+		cfg.URL = cfgmap.String(instanceCfg, "endpoint")
 	}
 
 	return cfg
@@ -3660,19 +3661,19 @@ func (p *Platform) getTrinoConfig(instanceName string) *trinoConfig {
 	}
 
 	return &trinoConfig{
-		Host:           cfgString(instanceCfg, "host"),
-		Port:           cfgInt(instanceCfg, "port", defaultTrinoPort),
-		User:           cfgString(instanceCfg, "user"),
-		Password:       cfgString(instanceCfg, fieldcrypt.CfgKeyPassword),
-		Catalog:        cfgString(instanceCfg, "catalog"),
-		Schema:         cfgString(instanceCfg, "schema"),
-		SSL:            cfgBool(instanceCfg, "ssl"),
-		SSLVerify:      cfgBoolDefault(instanceCfg, "ssl_verify", true),
-		Timeout:        cfgDuration(instanceCfg, "timeout", 120*time.Second),
-		DefaultLimit:   cfgInt(instanceCfg, "default_limit", defaultTrinoQueryLimit),
-		MaxLimit:       cfgInt(instanceCfg, "max_limit", defaultTrinoMaxLimit),
-		ReadOnly:       cfgBool(instanceCfg, "read_only"),
-		ConnectionName: cfgString(instanceCfg, "connection_name"),
+		Host:           cfgmap.String(instanceCfg, "host"),
+		Port:           cfgmap.Int(instanceCfg, "port", defaultTrinoPort),
+		User:           cfgmap.String(instanceCfg, "user"),
+		Password:       cfgmap.String(instanceCfg, fieldcrypt.CfgKeyPassword),
+		Catalog:        cfgmap.String(instanceCfg, "catalog"),
+		Schema:         cfgmap.String(instanceCfg, "schema"),
+		SSL:            cfgmap.Bool(instanceCfg, "ssl"),
+		SSLVerify:      cfgmap.BoolDefault(instanceCfg, "ssl_verify", true),
+		Timeout:        cfgmap.Duration(instanceCfg, "timeout", 120*time.Second),
+		DefaultLimit:   cfgmap.Int(instanceCfg, "default_limit", defaultTrinoQueryLimit),
+		MaxLimit:       cfgmap.Int(instanceCfg, "max_limit", defaultTrinoMaxLimit),
+		ReadOnly:       cfgmap.Bool(instanceCfg, "read_only"),
+		ConnectionName: cfgmap.String(instanceCfg, "connection_name"),
 	}
 }
 
@@ -3684,13 +3685,13 @@ func (p *Platform) getS3Config(instanceName string) *s3Config {
 	}
 
 	cfg := &s3Config{
-		Region:         cfgString(instanceCfg, "region"),
-		Endpoint:       cfgString(instanceCfg, "endpoint"),
-		AccessKeyID:    cfgString(instanceCfg, "access_key_id"),
-		SecretKey:      cfgString(instanceCfg, fieldcrypt.CfgKeySecretAccessKey),
-		BucketPrefix:   cfgString(instanceCfg, "bucket_prefix"),
-		ConnectionName: cfgString(instanceCfg, "connection_name"),
-		UsePathStyle:   cfgBool(instanceCfg, "use_path_style"),
+		Region:         cfgmap.String(instanceCfg, "region"),
+		Endpoint:       cfgmap.String(instanceCfg, "endpoint"),
+		AccessKeyID:    cfgmap.String(instanceCfg, "access_key_id"),
+		SecretKey:      cfgmap.String(instanceCfg, fieldcrypt.CfgKeySecretAccessKey),
+		BucketPrefix:   cfgmap.String(instanceCfg, "bucket_prefix"),
+		ConnectionName: cfgmap.String(instanceCfg, "connection_name"),
+		UsePathStyle:   cfgmap.Bool(instanceCfg, "use_path_style"),
 	}
 
 	if cfg.ConnectionName == "" {
@@ -3810,54 +3811,6 @@ func (p *Platform) trinoInstanceConfigs() map[string]any {
 		return nil
 	}
 	return instances
-}
-
-// Configuration extraction helpers.
-
-func cfgString(cfg map[string]any, key string) string {
-	if v, ok := cfg[key].(string); ok {
-		return v
-	}
-	return ""
-}
-
-func cfgInt(cfg map[string]any, key string, defaultVal int) int {
-	if v, ok := cfg[key].(int); ok {
-		return v
-	}
-	if v, ok := cfg[key].(float64); ok {
-		return int(v)
-	}
-	return defaultVal
-}
-
-func cfgBool(cfg map[string]any, key string) bool {
-	if v, ok := cfg[key].(bool); ok {
-		return v
-	}
-	return false
-}
-
-func cfgBoolDefault(cfg map[string]any, key string, defaultVal bool) bool {
-	if v, ok := cfg[key].(bool); ok {
-		return v
-	}
-	return defaultVal
-}
-
-func cfgDuration(cfg map[string]any, key string, defaultVal time.Duration) time.Duration {
-	if v, ok := cfg[key].(string); ok {
-		if d, err := time.ParseDuration(v); err == nil {
-			return d
-		}
-	}
-	if v, ok := cfg[key].(int); ok {
-		return time.Duration(v) * time.Second
-	}
-	if v, ok := cfg[key].(float64); ok {
-		return time.Duration(v) * time.Second
-	}
-	return defaultVal
 }
 
 // closeResource closes a resource and appends any error.
