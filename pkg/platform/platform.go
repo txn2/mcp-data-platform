@@ -45,12 +45,12 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/oauth"
 	oauthpostgres "github.com/txn2/mcp-data-platform/pkg/oauth/postgres"
-	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform/dedup"
 	"github.com/txn2/mcp-data-platform/pkg/platform/exportadapters"
 	"github.com/txn2/mcp-data-platform/pkg/platform/fieldcrypt"
 	"github.com/txn2/mcp-data-platform/pkg/platform/mwchain"
+	"github.com/txn2/mcp-data-platform/pkg/platform/obs"
 	"github.com/txn2/mcp-data-platform/pkg/platform/personastore"
 	"github.com/txn2/mcp-data-platform/pkg/platform/reflexivecapture"
 	"github.com/txn2/mcp-data-platform/pkg/platform/toolkitcfg"
@@ -268,17 +268,13 @@ type Platform struct {
 	// MCP Apps
 	mcpAppsRegistry *mcpapps.Registry
 
-	// Observability (Prometheus metrics). Both fields are nil when
-	// the metrics subsystem is disabled (default); every consumer is
-	// nil-safe so no enabled checks are needed at call sites.
-	metrics         *observability.Metrics
-	metricsListener *observability.Listener
-
-	// tracer owns the OTel TracerProvider for distributed tracing. Nil
-	// when tracing is disabled (default). nil-safe; NewTracer also
-	// installs the global TracerProvider so toolkit adapters create
-	// child spans via otel.Tracer without an injected reference.
-	tracer *observability.Tracer
+	// obs owns the observability layer: the metrics recorder, its /metrics
+	// listener, and the OTel tracer. Every handle is nil-safe, so consumers
+	// record and trace unconditionally; the layer reflects the (default-off)
+	// metrics/tracing config. NewTracer installs the global TracerProvider
+	// when tracing is enabled so toolkit adapters emit nested spans without
+	// an injected reference.
+	obs *obs.Layer
 
 	// apiMemBudget is the process-wide in-flight memory budget shared by
 	// every api gateway toolkit's buffered tools (issue #535). Created
@@ -528,7 +524,7 @@ func (p *Platform) initDatabase() error {
 	p.db = db
 	// Report this pool's saturation stats under the "platform" label. All
 	// stores (connections, audit, OAuth, sessions) share this single handle.
-	p.metrics.RegisterDBPool(p.db, "platform")
+	p.obs.Metrics().RegisterDBPool(p.db, "platform")
 	slog.Info("database connected", "max_open_conns", p.config.Database.MaxOpenConns)
 
 	// Run database migrations
@@ -1473,7 +1469,7 @@ func (p *Platform) initOAuth() error {
 		slog.Info("OAuth state store: memory (single-replica)")
 	}
 
-	server.SetMetrics(p.metrics)
+	server.SetMetrics(p.obs.Metrics())
 	p.oauthServer = server
 	return nil
 }
@@ -2604,7 +2600,7 @@ func (p *Platform) buildSessionResolver() *middleware.SessionResolver {
 	if !p.config.Sessions.Handles.IsEnabled() || p.sessionStore == nil {
 		return nil
 	}
-	metrics := p.metrics
+	metrics := p.obs.Metrics()
 	// Carry the superseded legacy gate's exempt_tools forward (not silently dropped).
 	var exempt []string
 	if p.config.SessionGate.Enabled {
@@ -2900,7 +2896,7 @@ func (p *Platform) createSemanticProvider() (semantic.Provider, error) {
 		// spans are recorded on the underlying client, not skipped by
 		// cache hits. Installed only when metrics or tracing is on.
 		if p.observabilityEnabled() {
-			adapter.SetMetrics(p.metrics)
+			adapter.SetMetrics(p.obs.Metrics())
 		}
 
 		// Wrap with caching if enabled
@@ -2950,7 +2946,7 @@ func (p *Platform) createQueryProvider() (query.Provider, error) {
 			return nil, fmt.Errorf("creating trino query provider: %w", err)
 		}
 		if p.observabilityEnabled() {
-			adapter.SetMetrics(p.metrics)
+			adapter.SetMetrics(p.obs.Metrics())
 		}
 		return adapter, nil
 
@@ -3695,7 +3691,7 @@ func (p *Platform) Close() error {
 // timeout so a stuck scraper cannot delay platform shutdown; the
 // provider flushes are best-effort. All calls are nil-safe.
 func (p *Platform) closeMetricsLayer(errs *[]error) {
-	if p.metricsListener == nil && p.metrics == nil && p.tracer == nil {
+	if p.obs == nil {
 		return
 	}
 	slog.Debug("shutdown: stopping metrics layer")
@@ -3704,7 +3700,7 @@ func (p *Platform) closeMetricsLayer(errs *[]error) {
 	if err := p.ShutdownMetricsListener(ctx); err != nil {
 		*errs = append(*errs, err)
 	}
-	if err := p.tracer.Shutdown(ctx); err != nil {
+	if err := p.obs.Tracer().Shutdown(ctx); err != nil {
 		*errs = append(*errs, err)
 	}
 }

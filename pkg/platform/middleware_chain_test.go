@@ -11,6 +11,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/platform/mwchain"
+	"github.com/txn2/mcp-data-platform/pkg/platform/obs"
 )
 
 // TestReceivingMiddlewareChain_CanonicalOrder pins the exact execution order of
@@ -161,6 +162,6 @@ func TestAddTracingMiddleware(t *testing.T) {
 
 	tp := sdktrace.NewTracerProvider()
 	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
-	p.tracer = observability.NewTracerFromProvider(tp, observability.TracingConfig{Enabled: true})
+	p.obs = obs.New(nil, observability.NewTracerFromProvider(tp, observability.TracingConfig{Enabled: true}))
 	p.addTracingMiddleware() // enabled: registers without panic
 }
