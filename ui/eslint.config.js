@@ -76,11 +76,12 @@ export default tseslint.config(
       "import-x/no-cycle": ["error", { maxDepth: 4, ignoreExternal: true }],
 
       // --- Size / fan-out proxies (advisory, follow-up split signal) ---
-      // Per-file size backstop against component regrowth (#766). A warning, not
-      // an error: several large pages/fixtures pre-date the budget. Split a file
-      // by responsibility when it trips this — see pages/settings/connections/
-      // and pages/settings/persona/ for the pattern.
-      "max-lines": ["warn", 600],
+      // Per-file size backstop against component regrowth (#766). Error-level as
+      // of #819, which decomposed the last oversized pages/hooks; all non-generated
+      // source is now under the budget. Split a file by responsibility when it
+      // trips this — see pages/settings/connections/ and pages/settings/persona/
+      // for the pattern. Generated types and mock fixtures are exempt below.
+      "max-lines": ["error", 600],
       // Targets a giant component function specifically (what `max-lines` blends
       // into whole-file count). Blank lines/comments are not the smell.
       "max-lines-per-function": [

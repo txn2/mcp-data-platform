@@ -1,0 +1,316 @@
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiFetch, apiFetchRaw } from "../client";
+import type {
+  Asset,
+  AssetVersion,
+  AssetResponse,
+  Share,
+  SharedAsset,
+  PaginatedResponse,
+  ShareResponse,
+  SharePermission,
+  ScoredAsset,
+} from "../types";
+
+// --- Branding (unauthenticated) ---
+
+export interface Branding {
+  name: string;
+  version: string;
+  portal_title: string;
+  portal_tagline?: string;
+  oidc_button_label?: string;
+  portal_logo: string;
+  portal_logo_light: string;
+  portal_logo_dark: string;
+  oidc_enabled: boolean;
+}
+
+export function useBranding() {
+  return useQuery({
+    queryKey: ["branding"],
+    queryFn: async () => {
+      const res = await fetch("/api/v1/admin/public/branding");
+      if (!res.ok) return null;
+      return res.json() as Promise<Branding>;
+    },
+    staleTime: 5 * 60_000, // cache for 5 minutes
+    retry: false,
+  });
+}
+
+// --- Queries ---
+
+export function useAssets(params?: {
+  content_type?: string;
+  tag?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params?.content_type) searchParams.set("content_type", params.content_type);
+  if (params?.tag) searchParams.set("tag", params.tag);
+  if (params?.limit) searchParams.set("limit", String(params.limit));
+  if (params?.offset) searchParams.set("offset", String(params.offset));
+  const qs = searchParams.toString();
+
+  return useQuery({
+    queryKey: ["assets", params],
+    queryFn: () =>
+      apiFetch<PaginatedResponse<Asset>>(`/assets${qs ? `?${qs}` : ""}`),
+  });
+}
+
+// useSearchAssets ranks the caller's own assets by relevance to a free-text
+// query (semantic + keyword, server-side). Disabled when the query is empty so
+// the asset library falls back to the plain list. Mirrors useSearchMyMemories.
+export function useSearchAssets(query: string, params?: { limit?: number }) {
+  const q = query.trim();
+  const sp = new URLSearchParams({ q });
+  if (params?.limit) sp.set("limit", String(params.limit));
+
+  return useQuery({
+    queryKey: ["search-assets", q, params],
+    enabled: q.length > 0,
+    queryFn: () =>
+      apiFetch<PaginatedResponse<ScoredAsset>>(`/assets/search?${sp.toString()}`),
+  });
+}
+
+export function useAsset(id: string) {
+  return useQuery({
+    queryKey: ["asset", id],
+    queryFn: () => apiFetch<AssetResponse>(`/assets/${id}`),
+    enabled: !!id,
+  });
+}
+
+/**
+ * Maximum size in bytes before the viewer skips auto-loading content.
+ * Assets larger than this show a "too large to preview" message with a download button.
+ * The content can still be fetched explicitly by the user.
+ */
+export const LARGE_ASSET_THRESHOLD = 2 * 1024 * 1024; // 2 MB
+
+export function useAssetContent(id: string, sizeBytes?: number) {
+  const tooLarge = sizeBytes != null && sizeBytes > LARGE_ASSET_THRESHOLD;
+  return useQuery({
+    queryKey: ["asset-content", id],
+    queryFn: async () => {
+      const res = await apiFetchRaw(`/assets/${id}/content`);
+      if (!res.ok) throw new Error("Failed to fetch content");
+      return res.text();
+    },
+    enabled: !!id && !tooLarge,
+  });
+}
+
+export function useShares(assetId: string) {
+  return useQuery({
+    queryKey: ["shares", assetId],
+    queryFn: () => apiFetch<Share[]>(`/assets/${assetId}/shares`),
+    enabled: !!assetId,
+  });
+}
+
+export function useSharedWithMe(params?: { limit?: number; offset?: number }) {
+  const searchParams = new URLSearchParams();
+  if (params?.limit) searchParams.set("limit", String(params.limit));
+  if (params?.offset) searchParams.set("offset", String(params.offset));
+  const qs = searchParams.toString();
+
+  return useQuery({
+    queryKey: ["shared-with-me", params],
+    queryFn: () =>
+      apiFetch<PaginatedResponse<SharedAsset>>(
+        `/shared-with-me${qs ? `?${qs}` : ""}`,
+      ),
+  });
+}
+
+// --- Mutations ---
+
+export function useUpdateAsset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      ...body
+    }: {
+      id: string;
+      name?: string;
+      description?: string;
+      tags?: string[];
+    }) =>
+      apiFetch(`/assets/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["assets"] });
+      void qc.invalidateQueries({ queryKey: ["asset"] });
+    },
+  });
+}
+
+export function useDeleteAsset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/assets/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["assets"] });
+    },
+  });
+}
+
+export function useUpdateAssetContent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, content, changeSummary }: { id: string; content: string; changeSummary?: string }) => {
+      const headers: Record<string, string> = { "Content-Type": "text/plain" };
+      if (changeSummary) headers["X-Change-Summary"] = changeSummary;
+      return apiFetch(`/assets/${id}/content`, {
+        method: "PUT",
+        headers,
+        body: content,
+      });
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["asset-content"] });
+      void qc.invalidateQueries({ queryKey: ["asset"] });
+      void qc.invalidateQueries({ queryKey: ["assets"] });
+      void qc.invalidateQueries({ queryKey: ["asset-versions"] });
+    },
+  });
+}
+
+export function useUploadThumbnail() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, blob }: { id: string; blob: Blob }) => {
+      const res = await apiFetchRaw(`/assets/${id}/thumbnail`, {
+        method: "PUT",
+        headers: { "Content-Type": "image/png" },
+        body: blob,
+      });
+      if (!res.ok) throw new Error("Failed to upload thumbnail");
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["assets"] });
+      void qc.invalidateQueries({ queryKey: ["asset"] });
+    },
+  });
+}
+
+export function useCreateShare() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      assetId,
+      ...body
+    }: {
+      assetId: string;
+      expires_in?: string;
+      shared_with_user_id?: string;
+      shared_with_email?: string;
+      hide_expiration?: boolean;
+      notice_text?: string;
+      permission?: SharePermission;
+    }) =>
+      apiFetch<ShareResponse>(`/assets/${assetId}/shares`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["shares"] });
+    },
+  });
+}
+
+export function useRevokeShare() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (shareId: string) =>
+      apiFetch(`/shares/${shareId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["shares"] });
+      void qc.invalidateQueries({ queryKey: ["collection-shares"] });
+      void qc.invalidateQueries({ queryKey: ["prompt-shares"] });
+    },
+  });
+}
+
+export function useCopyAsset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<Asset>(`/assets/${id}/copy`, { method: "POST" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["assets"] });
+    },
+  });
+}
+
+export function useCreateAsset() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      name: string;
+      description?: string;
+      content_type: string;
+      content: string;
+      tags?: string[];
+    }) =>
+      apiFetch<Asset>("/assets", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["assets"] });
+    },
+  });
+}
+
+// --- Versions ---
+
+export function useAssetVersions(assetId: string) {
+  return useQuery({
+    queryKey: ["asset-versions", assetId],
+    queryFn: () =>
+      apiFetch<PaginatedResponse<AssetVersion>>(
+        `/assets/${assetId}/versions`,
+      ),
+    enabled: !!assetId,
+  });
+}
+
+export function useVersionContent(assetId: string, version: number) {
+  return useQuery({
+    queryKey: ["version-content", assetId, version],
+    queryFn: async () => {
+      const res = await apiFetchRaw(
+        `/assets/${assetId}/versions/${version}/content`,
+      );
+      if (!res.ok) throw new Error("Failed to fetch version content");
+      return res.text();
+    },
+    enabled: !!assetId && version > 0,
+  });
+}
+
+export function useRevertVersion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ assetId, version }: { assetId: string; version: number }) =>
+      apiFetch(`/assets/${assetId}/versions/${version}/revert`, {
+        method: "POST",
+      }),
+    onSuccess: (_data, { assetId }) => {
+      void qc.invalidateQueries({ queryKey: ["asset", assetId] });
+      void qc.invalidateQueries({ queryKey: ["asset-content", assetId] });
+      void qc.invalidateQueries({ queryKey: ["asset-versions", assetId] });
+      void qc.invalidateQueries({ queryKey: ["assets"] });
+    },
+  });
+}

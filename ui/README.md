@@ -33,7 +33,7 @@ side enforces in `make verify`, plus a coupling rule. These are configured in
 | `max-lines-per-function` | 250 | warn | — |
 | `max-params` | 5 | warn | — |
 | `import-x/max-dependencies` | 25 | warn | — |
-| `max-lines` | 600 | warn | `package_budget_test.go` |
+| `max-lines` | 600 | **error** | `package_budget_test.go` |
 | `sonarjs/no-identical-functions`, `sonarjs/no-collapsible-if` | — | warn | — |
 
 Generated API types (`src/api/generated/`), MSW mocks (`src/mocks/`), and test
@@ -41,8 +41,9 @@ files (`*.test.{ts,tsx}`) are exempt from the complexity and size budgets — th
 are not hand-maintained component source.
 
 **Error-level rules fail the build; warning-level rules do not.** `npm run lint`
-exits non-zero only on error-level violations, so the size/fan-out proxies flag
-regrowth for a follow-up split without blocking a PR.
+exits non-zero only on error-level violations, so the remaining warning-level
+proxies (`max-lines-per-function`, `max-params`, `import-x/max-dependencies`)
+flag regrowth for a follow-up split without blocking a PR.
 
 ### Ratchet baseline (`eslint-suppressions.json`)
 
@@ -89,8 +90,9 @@ targets (2+ violations in one file) are:
 | 17 more files with 2 violations each | — | — | 2 |
 | 38 files with 1 violation each | — | — | 1 |
 
-Separately, 15 files still exceed the 600-line `max-lines` warning backstop
-(largest: `src/pages/settings/CatalogsPanel.tsx` at 1578 lines). These are
-warnings, not gate failures; split them by responsibility (see
-`src/pages/settings/connections/` and `src/pages/settings/persona/` for the
-decomposition pattern established in #766).
+Separately, the 15 files that exceeded the 600-line `max-lines` backstop were
+decomposed in #819, and **`max-lines` is now error-level** — no non-generated
+source exceeds 600 lines, so any file that crosses the budget fails `npm run
+lint`. Each was split by responsibility into a facet directory per the #766
+pattern (see `src/pages/settings/catalogs/`, `src/pages/audit/tabs/`, and
+`src/pages/settings/connections/` for examples).
