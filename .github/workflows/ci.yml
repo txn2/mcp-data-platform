@@ -137,6 +137,15 @@ jobs:
       - name: Type check
         run: cd ui && npx tsc --noEmit
 
+      # Frontend complexity/coupling/layering gate (#816), the analog of the Go
+      # golangci-lint job. Error-level rules (complexity <= 10,
+      # cognitive-complexity <= 15, import cycles) fail the build; warning-level
+      # rules (size/fan-out proxies) do not affect the exit code. Existing
+      # error-level violations are ratcheted via ui/eslint-suppressions.json, so
+      # only NEW violations fail — mirroring golangci-lint's only-new-issues.
+      - name: Lint
+        run: cd ui && npm run lint
+
       - name: Unit tests
         run: cd ui && npm test
 

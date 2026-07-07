@@ -219,6 +219,12 @@ go test -race ./...                                     # tests
 make verify                                             # full CI-equivalent suite
 ```
 
+The React admin portal lives under [`ui/`](ui/README.md). Its CI job runs
+`npm run lint`, which enforces per-function complexity budgets that mirror the
+Go gates (`complexity <= 10` ≈ `gocyclo <= 10`, `cognitive-complexity <= 15` ≈
+`gocognit <= 15`) plus an import-cycle rule. See [`ui/README.md`](ui/README.md)
+for the thresholds and the ratchet baseline.
+
 Contributions for bug fixes, tests, and documentation are welcome. Please run `make verify` (formatting, race-detected tests, coverage, linting, security scanning) before opening a pull request.
 
 ## License

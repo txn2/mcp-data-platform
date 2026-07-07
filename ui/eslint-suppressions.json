@@ -1,0 +1,352 @@
+{
+  "src/api/admin/client.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/api/admin/hooks.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/api/portal/client.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/api/portal/hooks.ts": {
+    "complexity": {
+      "count": 2
+    }
+  },
+  "src/api/resources/client.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/api/resources/hooks.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/components/AssetViewer.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "sonarjs/cognitive-complexity": {
+      "count": 1
+    }
+  },
+  "src/components/ConfirmDialog.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/components/EventDrawer.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/components/LoadingIndicator.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/components/LoginForm.tsx": {
+    "complexity": {
+      "count": 2
+    }
+  },
+  "src/components/MarkdownEditor.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/components/ProvenancePanel.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/components/ShareDialog.tsx": {
+    "complexity": {
+      "count": 2
+    }
+  },
+  "src/components/charts/MetricTile.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "sonarjs/cognitive-complexity": {
+      "count": 1
+    }
+  },
+  "src/components/charts/Sparkline.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/components/feedback/InboxPanel.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/components/feedback/NewThreadForm.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/components/feedback/ThreadDetail.tsx": {
+    "complexity": {
+      "count": 2
+    }
+  },
+  "src/components/feedback/useTextQuoteAnchor.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/components/knowledge/EntityChip.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/components/knowledge/RefPicker.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/components/layout/AppShell.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "sonarjs/cognitive-complexity": {
+      "count": 1
+    }
+  },
+  "src/components/layout/Sidebar.tsx": {
+    "complexity": {
+      "count": 4
+    }
+  },
+  "src/lib/entityRefs.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/assets/MyAssetsPage.tsx": {
+    "complexity": {
+      "count": 4
+    },
+    "sonarjs/cognitive-complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/audit/APIGatewayView.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/audit/AuditLogPage.tsx": {
+    "complexity": {
+      "count": 2
+    }
+  },
+  "src/pages/collections/CollectionEditorPage.tsx": {
+    "complexity": {
+      "count": 2
+    }
+  },
+  "src/pages/collections/CollectionViewerPage.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/collections/CollectionsPage.tsx": {
+    "complexity": {
+      "count": 3
+    },
+    "sonarjs/cognitive-complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/indexing/IndexingPage.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/knowledge-pages/KnowledgePagesPage.tsx": {
+    "complexity": {
+      "count": 3
+    },
+    "sonarjs/cognitive-complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/knowledge/CatalogTab.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/knowledge/ContextDocsTab.tsx": {
+    "complexity": {
+      "count": 3
+    }
+  },
+  "src/pages/knowledge/KnowledgeHub.tsx": {
+    "complexity": {
+      "count": 2
+    }
+  },
+  "src/pages/knowledge/KnowledgePage.tsx": {
+    "complexity": {
+      "count": 3
+    }
+  },
+  "src/pages/knowledge/MyKnowledgePage.tsx": {
+    "complexity": {
+      "count": 2
+    }
+  },
+  "src/pages/prompts/AdminPromptsPage.tsx": {
+    "complexity": {
+      "count": 3
+    }
+  },
+  "src/pages/prompts/MyPromptsPage.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "sonarjs/cognitive-complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/prompts/PromptViewerPage.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "sonarjs/cognitive-complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/resources/ResourcesPage.tsx": {
+    "complexity": {
+      "count": 3
+    },
+    "sonarjs/cognitive-complexity": {
+      "count": 2
+    }
+  },
+  "src/pages/settings/CatalogsPanel.tsx": {
+    "complexity": {
+      "count": 8
+    }
+  },
+  "src/pages/settings/ConfigEditorPage.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/settings/ConnectionOAuthStatusCard.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/settings/ConnectionsPanel.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/settings/KeysPage.tsx": {
+    "complexity": {
+      "count": 2
+    }
+  },
+  "src/pages/settings/PersonaEditor.tsx": {
+    "complexity": {
+      "count": 2
+    }
+  },
+  "src/pages/settings/PersonasPanel.tsx": {
+    "complexity": {
+      "count": 2
+    }
+  },
+  "src/pages/settings/UsersPanel.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/settings/connections/ApiGatewayConfigForm.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/settings/connections/ConnectionEditor.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/settings/connections/ConnectionViewer.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/settings/connections/GatewayConfigForm.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/settings/connections/useConnectionForm.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/settings/persona/RuleList.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "sonarjs/cognitive-complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/settings/persona/resolve.ts": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/tools/ToolDetail.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/tools/ToolForm.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/tools/ToolResult.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/tools/tabs/OverviewTab.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/tools/tabs/TryItTab.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/tools/tabs/VisibilityTab.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/viewer/AssetViewerPage.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  }
+}

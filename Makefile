@@ -31,7 +31,7 @@ GOLINT := golangci-lint
 	tools-check dead-code mutate patch-coverage doc-check emdash-check swagger swagger-check \
 	semgrep codeql sast embed-clean migrate-check \
 	frontend-install frontend-build frontend-build-content-viewer \
-	frontend-dev frontend-mock frontend-test frontend-e2e \
+	frontend-dev frontend-mock frontend-test frontend-lint frontend-e2e \
 	e2e-up e2e-down e2e-seed e2e-test e2e e2e-logs e2e-clean \
 	dev dev-info dev-up dev-down mock-check \
 	preview-apps preview-platform-info
@@ -427,7 +427,7 @@ verify-release: verify mutate
 ## verify: Run the CI-equivalent per-commit suite (test, lint, security, SAST, coverage, release)
 ## NOTE: mutation testing is intentionally excluded — it lives in verify-release.
 ## Do not add `mutate` back to this per-commit target.
-verify: tools-check fmt swagger-check embed-clean test migrate-check test-realdb frontend-test frontend-e2e lint security semgrep codeql coverage-report patch-coverage doc-check emdash-check dead-code release-check
+verify: tools-check fmt swagger-check embed-clean test migrate-check test-realdb frontend-test frontend-lint frontend-e2e lint security semgrep codeql coverage-report patch-coverage doc-check emdash-check dead-code release-check
 	@echo ""
 	@echo "=== All checks passed ==="
 	@# Write the gate sentinel: the short SHA-256 of the working-tree diff
@@ -508,6 +508,10 @@ frontend-mock:
 ## frontend-test: Run UI tests
 frontend-test:
 	cd $(UI_DIR) && npm run test
+
+## frontend-lint: Run the UI complexity/coupling lint gate (#816, mirrors CI's frontend job lint step)
+frontend-lint:
+	cd $(UI_DIR) && npm run lint
 
 ## frontend-e2e: Run the interactive Playwright suite against the MSW-mocked dev server (mirrors CI's frontend-e2e job)
 frontend-e2e:
