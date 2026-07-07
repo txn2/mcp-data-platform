@@ -128,21 +128,6 @@ func (p *Platform) initObservability() error {
 	return nil
 }
 
-// Tracer exposes the platform's OTel tracer. Returns nil when tracing
-// is disabled; the type is nil-safe so callers can Start spans
-// unconditionally.
-func (p *Platform) Tracer() *observability.Tracer { return p.obs.Tracer() }
-
-// observabilityEnabled reports whether EITHER metrics or tracing is
-// active. It gates installation of the toolkit/provider instrumenting
-// decorators, which serve both subsystems (a nil-safe metric record plus
-// a no-op-when-untraced child span). When both are off the decorators are
-// not installed and upstream calls run undecorated, preserving the
-// zero-overhead default.
-func (p *Platform) observabilityEnabled() bool {
-	return p.obs.Enabled()
-}
-
 // Metrics exposes the platform's observability recorder. Returns nil
 // when metrics are disabled; the type is nil-safe so callers can
 // record unconditionally.
@@ -208,7 +193,7 @@ type metricsAware interface {
 // are instrumented for tracing-only deployments; each toolkit's SetMetrics
 // decides what it installs given the (possibly disabled) recorder.
 func (p *Platform) WireToolkitMetrics() {
-	if !p.observabilityEnabled() {
+	if !p.obs.Enabled() {
 		return
 	}
 	for _, tk := range p.toolkitRegistry.All() {

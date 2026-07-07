@@ -2916,7 +2916,7 @@ func (p *Platform) createSemanticProvider() (semantic.Provider, error) {
 		// Instrument before the cache wrap so DataHub request metrics and
 		// spans are recorded on the underlying client, not skipped by
 		// cache hits. Installed only when metrics or tracing is on.
-		if p.observabilityEnabled() {
+		if p.obs.Enabled() {
 			adapter.SetMetrics(p.obs.Metrics())
 		}
 
@@ -2966,7 +2966,7 @@ func (p *Platform) createQueryProvider() (query.Provider, error) {
 		if err != nil {
 			return nil, fmt.Errorf("creating trino query provider: %w", err)
 		}
-		if p.observabilityEnabled() {
+		if p.obs.Enabled() {
 			adapter.SetMetrics(p.obs.Metrics())
 		}
 		return adapter, nil

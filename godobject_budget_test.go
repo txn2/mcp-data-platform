@@ -38,7 +38,7 @@ const (
 	// maxPlatformMethods caps the number of methods with a *Platform receiver.
 	// Frozen at today's count; ratchet down as accessors move onto the
 	// subsystem owners they belong to.
-	maxPlatformMethods = 267
+	maxPlatformMethods = 265
 )
 
 // TestPlatformGodObjectBudget fails when the Platform struct grows more fields
