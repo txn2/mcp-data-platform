@@ -4,7 +4,7 @@
       "count": 1
     }
   },
-  "src/api/admin/hooks.ts": {
+  "src/api/admin/hooks/system-audit.ts": {
     "complexity": {
       "count": 1
     }
@@ -14,9 +14,14 @@
       "count": 1
     }
   },
-  "src/api/portal/hooks.ts": {
+  "src/api/portal/hooks/activity.ts": {
     "complexity": {
-      "count": 2
+      "count": 1
+    }
+  },
+  "src/api/portal/hooks/knowledge-pages.ts": {
+    "complexity": {
+      "count": 1
     }
   },
   "src/api/resources/client.ts": {
@@ -31,9 +36,6 @@
   },
   "src/components/AssetViewer.tsx": {
     "complexity": {
-      "count": 1
-    },
-    "sonarjs/cognitive-complexity": {
       "count": 1
     }
   },
@@ -70,6 +72,19 @@
   "src/components/ShareDialog.tsx": {
     "complexity": {
       "count": 2
+    }
+  },
+  "src/components/assetviewer/AssetContentView.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "sonarjs/cognitive-complexity": {
+      "count": 1
+    }
+  },
+  "src/components/assetviewer/AssetViewerModals.tsx": {
+    "complexity": {
+      "count": 1
     }
   },
   "src/components/charts/MetricTile.tsx": {
@@ -146,14 +161,19 @@
       "count": 1
     }
   },
-  "src/pages/audit/AuditLogPage.tsx": {
+  "src/pages/audit/tabs/EventsTab.tsx": {
     "complexity": {
-      "count": 2
+      "count": 1
+    }
+  },
+  "src/pages/audit/tabs/OverviewTab.tsx": {
+    "complexity": {
+      "count": 1
     }
   },
   "src/pages/collections/CollectionEditorPage.tsx": {
     "complexity": {
-      "count": 2
+      "count": 1
     }
   },
   "src/pages/collections/CollectionViewerPage.tsx": {
@@ -169,21 +189,31 @@
       "count": 1
     }
   },
+  "src/pages/collections/editor/SortableSection.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
   "src/pages/indexing/IndexingPage.tsx": {
     "complexity": {
       "count": 1
     }
   },
-  "src/pages/knowledge-pages/KnowledgePagesPage.tsx": {
+  "src/pages/knowledge-pages/parts/KnowledgePageDetail.tsx": {
     "complexity": {
-      "count": 3
-    },
-    "sonarjs/cognitive-complexity": {
       "count": 1
     }
   },
-  "src/pages/knowledge/CatalogTab.tsx": {
+  "src/pages/knowledge-pages/parts/KnowledgePageForm.tsx": {
     "complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/knowledge-pages/parts/KnowledgePageList.tsx": {
+    "complexity": {
+      "count": 1
+    },
+    "sonarjs/cognitive-complexity": {
       "count": 1
     }
   },
@@ -194,17 +224,37 @@
   },
   "src/pages/knowledge/KnowledgeHub.tsx": {
     "complexity": {
-      "count": 2
-    }
-  },
-  "src/pages/knowledge/KnowledgePage.tsx": {
-    "complexity": {
-      "count": 3
+      "count": 1
     }
   },
   "src/pages/knowledge/MyKnowledgePage.tsx": {
     "complexity": {
       "count": 2
+    }
+  },
+  "src/pages/knowledge/capture/ChangesetsTab.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/knowledge/capture/InsightDrawer.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/knowledge/capture/KnowledgeCaptureTab.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/knowledge/catalog/sections.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/knowledge/hub/UnifiedSearch.tsx": {
+    "complexity": {
+      "count": 1
     }
   },
   "src/pages/prompts/AdminPromptsPage.tsx": {
@@ -223,22 +273,32 @@
   "src/pages/prompts/PromptViewerPage.tsx": {
     "complexity": {
       "count": 1
-    },
-    "sonarjs/cognitive-complexity": {
+    }
+  },
+  "src/pages/prompts/viewer/PromptViewerHeader.tsx": {
+    "complexity": {
       "count": 1
     }
   },
   "src/pages/resources/ResourcesPage.tsx": {
     "complexity": {
-      "count": 3
+      "count": 1
     },
     "sonarjs/cognitive-complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/resources/modals/UploadModal.tsx": {
+    "complexity": {
       "count": 2
+    },
+    "sonarjs/cognitive-complexity": {
+      "count": 1
     }
   },
   "src/pages/settings/CatalogsPanel.tsx": {
     "complexity": {
-      "count": 8
+      "count": 1
     }
   },
   "src/pages/settings/ConfigEditorPage.tsx": {
@@ -274,6 +334,26 @@
   "src/pages/settings/UsersPanel.tsx": {
     "complexity": {
       "count": 1
+    }
+  },
+  "src/pages/settings/catalogs/CatalogEditor.tsx": {
+    "complexity": {
+      "count": 1
+    }
+  },
+  "src/pages/settings/catalogs/SpecModal.tsx": {
+    "complexity": {
+      "count": 2
+    }
+  },
+  "src/pages/settings/catalogs/SpecsManager.tsx": {
+    "complexity": {
+      "count": 2
+    }
+  },
+  "src/pages/settings/catalogs/badges.tsx": {
+    "complexity": {
+      "count": 2
     }
   },
   "src/pages/settings/connections/ApiGatewayConfigForm.tsx": {
