@@ -28,6 +28,25 @@ export default tseslint.config(
           destructuredArrayIgnorePattern: "^_",
         },
       ],
+      // Size ratchet against component regrowth (#766), mirroring the Go
+      // package_budget_test.go budget. A warning, not an error: it flags
+      // oversized modules for a follow-up split without blocking the build,
+      // since several large pages/fixtures pre-date the budget. Split a file
+      // by responsibility when it trips this — see pages/settings/connections/
+      // and pages/settings/persona/ for the pattern.
+      "max-lines": ["warn", 600],
     },
-  }
+  },
+  {
+    // Exempt machine-generated types and test/mock fixtures: these are not
+    // hand-maintained component source, so a line budget is noise there.
+    files: [
+      "src/api/generated/**/*.{ts,tsx}",
+      "src/mocks/**/*.{ts,tsx}",
+      "**/*.test.{ts,tsx}",
+    ],
+    rules: {
+      "max-lines": "off",
+    },
+  },
 );
