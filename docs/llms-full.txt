@@ -2974,6 +2974,72 @@ you save and share what the assistant produces.
 
 ---
 
+## Locked-down defaults and predictable performance
+- Date Range: June 29 to July 6, 2026
+- Versions: [v1.94.1](https://github.com/txn2/mcp-data-platform/releases/tag/v1.94.1), [v1.95.0](https://github.com/txn2/mcp-data-platform/releases/tag/v1.95.0), [v1.96.0](https://github.com/txn2/mcp-data-platform/releases/tag/v1.96.0), [v1.96.1](https://github.com/txn2/mcp-data-platform/releases/tag/v1.96.1), [v1.97.0](https://github.com/txn2/mcp-data-platform/releases/tag/v1.97.0), [v1.97.1](https://github.com/txn2/mcp-data-platform/releases/tag/v1.97.1), [v1.97.2](https://github.com/txn2/mcp-data-platform/releases/tag/v1.97.2), [v1.98.0](https://github.com/txn2/mcp-data-platform/releases/tag/v1.98.0), [v1.98.1](https://github.com/txn2/mcp-data-platform/releases/tag/v1.98.1), [v1.98.2](https://github.com/txn2/mcp-data-platform/releases/tag/v1.98.2), [v1.99.0](https://github.com/txn2/mcp-data-platform/releases/tag/v1.99.0), [v1.100.0](https://github.com/txn2/mcp-data-platform/releases/tag/v1.100.0), [v1.100.1](https://github.com/txn2/mcp-data-platform/releases/tag/v1.100.1)
+
+This window turned the platform's best practices into defaults and made its
+behavior predictable at scale. Discovering before querying is now enforced
+rather than suggested, more security protections are on out of the box, and the
+context the assistant adds to each answer is kept to a measured budget so it
+never crowds out the data itself.
+
+- **Discover before you query, enforced.** The assistant is now required to search or browse the catalog at least once before running a warehouse query, so answers are grounded in what actually exists rather than a guess at the data's shape. The rule holds consistently across multiple running copies of the platform and across clients that start a fresh session on every step.
+- **More secure by default.** Cross-site request protection now covers every change made through the portal, the sign-in server received a round of standards-compliance hardening, and the platform warns at startup about settings it does not recognize so silent misconfiguration surfaces early.
+- **Safer, smarter defaults.** Activity logging, the admin API, the knowledge write path, query progress, server-to-client logging, icons, and pre-query confirmation prompts now turn on automatically wherever their prerequisites are present, so a standard deployment gets the intended experience with no configuration.
+- **Curate the catalog without losing metadata.** Fixes to the catalog write path stop tags, glossary terms, and descriptions from being overwritten when the assistant makes several edits, report the full resulting state after a write, and record data-quality findings as verifiable catalog incidents. New curation actions (remove a tag, edit custom properties, bulk untag) and portal Catalog and Context Docs tabs, with per-role write permission, round out in-portal catalog editing.
+- **Predictable overhead.** Cross-enrichment now runs on a byte budget with a summary-first layout, search is bounded by a per-source timeout so one slow source cannot stall a query, and duplicate-review listings stay within a client's output limit. A new metric lets operators chart exactly how much context is added per answer.
+- **Pending knowledge no longer ages silently.** The knowledge review queue now reports how old its oldest pending item is and how much has aged past thirty days, in the assistant, the portal, and the admin screens, so nothing captured sits unreviewed and forgotten.
+
+## Canonical knowledge, linked like a wiki
+- Date Range: June 22 to 28, 2026
+- Versions: [v1.87.1](https://github.com/txn2/mcp-data-platform/releases/tag/v1.87.1), [v1.88.0](https://github.com/txn2/mcp-data-platform/releases/tag/v1.88.0), [v1.88.1](https://github.com/txn2/mcp-data-platform/releases/tag/v1.88.1), [v1.89.0](https://github.com/txn2/mcp-data-platform/releases/tag/v1.89.0), [v1.89.1](https://github.com/txn2/mcp-data-platform/releases/tag/v1.89.1), [v1.89.2](https://github.com/txn2/mcp-data-platform/releases/tag/v1.89.2), [v1.90.0](https://github.com/txn2/mcp-data-platform/releases/tag/v1.90.0), [v1.90.1](https://github.com/txn2/mcp-data-platform/releases/tag/v1.90.1), [v1.90.2](https://github.com/txn2/mcp-data-platform/releases/tag/v1.90.2), [v1.91.0](https://github.com/txn2/mcp-data-platform/releases/tag/v1.91.0), [v1.92.0](https://github.com/txn2/mcp-data-platform/releases/tag/v1.92.0), [v1.93.0](https://github.com/txn2/mcp-data-platform/releases/tag/v1.93.0), [v1.94.0](https://github.com/txn2/mcp-data-platform/releases/tag/v1.94.0)
+
+The platform's knowledge layer grew into a real, linked body of institutional
+knowledge. Captured lessons now flow into durable, human-readable pages that
+cite the exact data they describe and cross-link to each other, so knowledge
+about your business lives in one navigable place instead of scattered notes, and
+the assistant surfaces it wherever it is relevant.
+
+- **Canonical knowledge pages.** A new layer of durable, human-readable pages, written in formatted text with diagrams, version-tracked on every save, searchable by meaning, and open to feedback in place. They hold vocabulary, definitions, runbooks, and context, the knowledge that does not fit a single table's metadata.
+- **One Knowledge home.** Memory, proposed insights, and canonical knowledge are unified into a single Knowledge area that shows their shared lifecycle: a note is captured, promoted to an insight proposed for review, and finally promoted to shared, canonical knowledge, with review gated by who is allowed to apply knowledge.
+- **Knowledge linked to what it describes.** Pages and insights reference the exact assets, prompts, collections, connections, and catalog entries they are about. References render as live links that always show the current name, deep-link to the item, and work in both directions, so from any entity you can see the knowledge that documents it, and click through the whole graph like a wiki.
+- **Discover, read, then cite.** Search finds the right piece across every kind of knowledge, a new retrieve step reads any result back in full, and a canonical reference lets the assistant cite it precisely, closing the loop from finding knowledge to using it.
+- **Duplicate knowledge is prevented, not just discouraged.** When the assistant tries to create a page that closely matches an existing one, the platform steers it to update the existing page instead, so canonical knowledge consolidates rather than fragmenting.
+- **Search reaches every corner of the catalog.** Curated context documents attached to data assets are now discoverable through search alongside knowledge pages and everything else, and the assistant is guided to discover before it queries on every deployment automatically.
+
+## One front door for discovery
+- Date Range: June 15 to 21, 2026
+- Versions: [v1.86.1](https://github.com/txn2/mcp-data-platform/releases/tag/v1.86.1), [v1.86.2](https://github.com/txn2/mcp-data-platform/releases/tag/v1.86.2), [v1.86.3](https://github.com/txn2/mcp-data-platform/releases/tag/v1.86.3), [v1.86.4](https://github.com/txn2/mcp-data-platform/releases/tag/v1.86.4), [v1.87.0](https://github.com/txn2/mcp-data-platform/releases/tag/v1.87.0)
+
+Discovery got a single front door. Instead of needing to know the platform's
+shape before it could ask, the assistant now finds what exists across every
+system it can reach with one call, and records knowledge through one verb. The
+portal also got a round of visual and performance polish.
+
+- **Find anything with one search.** A single, universal search spans every source a role can reach (the catalog, memory, captured knowledge, saved assets, prompts, connected APIs, and connections) and returns a balanced set that keeps each source visible rather than letting the largest dominate, along with a summary of where the matches live.
+- **One way to record knowledge.** Capturing knowledge is now a single action that files each note in the right place and avoids re-recording something already known.
+- **A more polished portal.** Asset previews now match light and dark mode and fill the frame edge to edge, the asset grid loads noticeably faster on large libraries, the sign-in button label is customizable, and interactive results built with common React patterns render reliably.
+- **Follow any request end to end.** New distributed tracing lets operators follow a single request through sign-in, context-gathering, and the underlying data call, making performance issues easier to pinpoint.
+- **More reliable indexing of long content.** Long documents no longer fail to index for search when using a local embedding service.
+
+## A human feedback loop and easier sharing
+- Date Range: June 8 to 14, 2026
+- Versions: [v1.82.0](https://github.com/txn2/mcp-data-platform/releases/tag/v1.82.0), [v1.83.0](https://github.com/txn2/mcp-data-platform/releases/tag/v1.83.0), [v1.84.0](https://github.com/txn2/mcp-data-platform/releases/tag/v1.84.0), [v1.85.0](https://github.com/txn2/mcp-data-platform/releases/tag/v1.85.0), [v1.86.0](https://github.com/txn2/mcp-data-platform/releases/tag/v1.86.0)
+
+People and the assistant started working together on the same artifacts. A full
+feedback loop arrived, so a reviewer can comment on saved work, the assistant can
+resolve that feedback into lasting knowledge, and the original author signs off,
+all tracked in one place. Sharing with teammates also got easier, and semantic
+context turned on by default.
+
+- **Leave feedback and turn it into knowledge.** Reviewers can open a comment, question, or correction directly on a saved asset, and an agent can resolve it by capturing the lesson as knowledge. The author then confirms or disputes the resolution, and worklists keep open items visible so nothing is dropped.
+- **All your feedback in one place.** A Feedback hub gathers every comment across the assets, collections, and prompts you can see, with a badge that tells you when something is waiting, and a single tool lets the assistant review and reply to pending feedback in one pass.
+- **Business context on by default.** The platform's semantic cross-enrichment is now on out of the box and delivered in a form every client can read, so answers come with owners, definitions, and tags without any setup.
+- **Easier sharing with teammates.** A directory of known people lets the share picker suggest colleagues by name as you type while still accepting any email, and someone granted edit access can now edit an asset's details, not just its content.
+- **Prompts are searchable everywhere.** Built-in and operator-configured prompts are now indexed, so they show up in prompt search alongside the ones people create.
+- **Live connection health.** The admin connections view shows, per connection, whether it is currently reachable, when it last succeeded, and its last error.
+
 ## A first-class prompt library and relevance search everywhere
 - Date Range: June 5 to 7, 2026
 - Versions: [v1.79.2](https://github.com/txn2/mcp-data-platform/releases/tag/v1.79.2), [v1.80.0](https://github.com/txn2/mcp-data-platform/releases/tag/v1.80.0), [v1.81.0](https://github.com/txn2/mcp-data-platform/releases/tag/v1.81.0), [v1.81.1](https://github.com/txn2/mcp-data-platform/releases/tag/v1.81.1)
