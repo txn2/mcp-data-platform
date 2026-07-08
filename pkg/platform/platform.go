@@ -50,6 +50,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/platform/fieldcrypt"
 	"github.com/txn2/mcp-data-platform/pkg/platform/iam"
 	"github.com/txn2/mcp-data-platform/pkg/platform/indexqueue"
+	"github.com/txn2/mcp-data-platform/pkg/platform/memorylayer"
 	"github.com/txn2/mcp-data-platform/pkg/platform/mwchain"
 	"github.com/txn2/mcp-data-platform/pkg/platform/oauthserver"
 	"github.com/txn2/mcp-data-platform/pkg/platform/obs"
@@ -80,7 +81,6 @@ import (
 	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
-	memorykit "github.com/txn2/mcp-data-platform/pkg/toolkits/memory"
 	searchkit "github.com/txn2/mcp-data-platform/pkg/toolkits/search"
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
@@ -187,18 +187,21 @@ type Platform struct {
 	knowledgeInsightStore   knowledgekit.InsightStore
 	knowledgeChangesetStore knowledgekit.ChangesetStore
 	knowledgeToolkit        *knowledgekit.Toolkit
-	memoryToolkit           *memorykit.Toolkit
 	knowledgeDataHubWriter  knowledgekit.DataHubWriter
 	// knowledgeRouter is the unified search federation built in initSearch. It
 	// backs both the MCP search tool and the portal's GET /search REST endpoint;
 	// nil on a store-less deployment with no searchable source.
 	knowledgeRouter *knowledge.Router
 
-	// Memory layer
-	memoryStore      memory.Store
-	embeddingProv    embedding.Provider
-	stalenessWatcher *memory.StalenessWatcher
-	memoryAdapter    middleware.MemoryProvider
+	// Memory layer. The owner (pkg/platform/memorylayer) holds the memory store,
+	// memory toolkit (with its recall-first checker), enrichment adapter, and
+	// staleness watcher behind one Handle; the store / toolkit / adapter are read
+	// through its accessors. embeddingProv stays a Platform field (built by the
+	// memory owner, then handed back) because it backs many other subsystems
+	// (portalstore, indexqueue, api-gateway, search/knowledge); it is nil when
+	// memory is disabled or no database is configured.
+	memory        *memorylayer.Handle
+	embeddingProv embedding.Provider
 
 	// shared index-jobs embedding queue. The owner (pkg/platform/indexqueue)
 	// holds the store, registry, worker, reaper, reconciler, retention sweep,
@@ -367,8 +370,8 @@ func (p *Platform) initExtensions() error {
 	// same owns-or-edit access check as resolve_thread (the toolkit authorizes
 	// each thread before linking). Portal creates the toolkit, so this is wired
 	// after both init.
-	if p.memoryToolkit != nil && p.portalStore.Toolkit() != nil {
-		p.memoryToolkit.SetThreadLinker(p.portalStore.Toolkit())
+	if p.memory.Toolkit() != nil && p.portalStore.Toolkit() != nil {
+		p.memory.Toolkit().SetThreadLinker(p.portalStore.Toolkit())
 	}
 	// Unified knowledge read path (#632). Federates the stores initialized
 	// above (memory, insights, assets), so it must run after them.
@@ -381,104 +384,53 @@ func (p *Platform) initExtensions() error {
 	return p.initMCPApps()
 }
 
-// initMemory initializes the memory layer: store, embedder, toolkit, staleness watcher.
+// initMemory assembles the memory layer via the memorylayer owner: the store,
+// embedder, toolkit (with its recall-first checker), enrichment adapter, and
+// staleness watcher behind one Handle. It translates platform config into the
+// owner's Config and delegates assembly; toolkit registration stays here (a
+// registry concern), and embeddingProv is lifted back onto Platform because it
+// backs many other subsystems. No-op (nil handle, nil embedder) when memory is
+// explicitly disabled or no database is configured.
 func (p *Platform) initMemory() error {
 	if isExplicitlyDisabled(p.config.Memory.Enabled) || p.db == nil {
 		return nil
 	}
 
-	// 1. Create memory store.
-	p.memoryStore = memory.NewPostgresStore(p.db)
-
-	// 2. Create embedding provider.
-	switch p.config.Memory.Embedding.Provider {
-	case "ollama":
-		p.embeddingProv = embedding.NewOllamaProvider(embedding.OllamaConfig{
+	handle, err := memorylayer.New(p.db, p.semanticProvider, memorylayer.Config{
+		ToolkitName:       instanceDefault,
+		EmbeddingProvider: p.config.Memory.Embedding.Provider,
+		Ollama: embedding.OllamaConfig{
 			URL:           p.config.Memory.Embedding.Ollama.URL,
 			Model:         p.config.Memory.Embedding.Ollama.Model,
 			Timeout:       p.config.Memory.Embedding.Ollama.Timeout,
 			MaxInputBytes: p.config.Memory.Embedding.Ollama.MaxInputBytes,
-		})
-	default:
-		// No embedder configured. The platform still boots so Trino,
-		// S3, DataHub, OAuth, audit, and every other non-embedding
-		// feature remains available; semantic ranking degrades to the
-		// lexical fallback and memory writes persist Embedding: nil
-		// (the toolkit guards see Kind() == KindNoop). One WARN here
-		// is the operator's only signal that semantic features are
-		// off, so make it specific enough to act on (#429).
-		slog.Warn("memory.embedding.provider not configured; semantic ranking disabled (set memory.embedding.provider to 'ollama' to enable)",
-			"config_key", "memory.embedding.provider",
-			"current_value", p.config.Memory.Embedding.Provider)
-		p.embeddingProv = embedding.NewNoopProvider(embedding.DefaultDimension)
-	}
-
-	// 3. Create and register memory toolkit.
-	tk, err := memorykit.New(instanceDefault, p.memoryStore, p.embeddingProv)
+		},
+		StalenessEnabled: p.config.Memory.Staleness.Enabled,
+		Staleness: memory.StalenessConfig{
+			Interval:  p.config.Memory.Staleness.Interval,
+			BatchSize: p.config.Memory.Staleness.BatchSize,
+		},
+	})
 	if err != nil {
-		return fmt.Errorf("creating memory toolkit: %w", err)
+		return fmt.Errorf("creating memory layer: %w", err)
 	}
-	p.memoryToolkit = tk
-	// Recall-first for memory_capture (#633): supersede a near-duplicate instead
-	// of appending. Uses a raw hybrid similarity over the caller's own memory
-	// (not the normalized search fusion, whose per-provider min-max
-	// scores are not thresholdable). Nil-safe: with no real embedder the check
-	// yields no match and capture simply appends.
-	tk.SetRecallChecker(&memoryRecallChecker{store: p.memoryStore})
-	if err := p.toolkitRegistry.Register(tk); err != nil {
+	p.memory = handle
+	// embeddingProv stays a Platform field: it backs portalstore, indexqueue,
+	// the api-gateway, and the search/knowledge assembly (constraint 1).
+	p.embeddingProv = handle.EmbeddingProvider()
+
+	// Toolkit registration stays a Platform/registry concern. Register before
+	// starting the staleness watcher so a registration failure never leaves a
+	// detached watcher goroutine running (matching the original order).
+	if err := p.toolkitRegistry.Register(handle.Toolkit()); err != nil {
 		return fmt.Errorf("registering memory toolkit: %w", err)
 	}
-
-	// 4. Create middleware adapter for cross-enrichment.
-	p.memoryAdapter = &memoryMiddlewareBridge{store: p.memoryStore}
-
-	// 5. Start staleness watcher if configured.
-	if p.config.Memory.Staleness.Enabled && p.semanticProvider != nil {
-		p.stalenessWatcher = memory.NewStalenessWatcher(
-			p.memoryStore, p.semanticProvider,
-			memory.StalenessConfig{
-				Interval:  p.config.Memory.Staleness.Interval,
-				BatchSize: p.config.Memory.Staleness.BatchSize,
-			},
-		)
-		p.stalenessWatcher.Start(context.Background())
-	}
+	handle.Start()
 
 	slog.Info("memory layer enabled",
 		"embedding_provider", p.config.Memory.Embedding.Provider,
 		"staleness_enabled", p.config.Memory.Staleness.Enabled)
 	return nil
-}
-
-// memoryMiddlewareBridge adapts memory.Store to middleware.MemoryProvider,
-// converting between memory.Snippet and middleware.MemorySnippet.
-type memoryMiddlewareBridge struct {
-	store memory.Store
-}
-
-// RecallForEntities converts memory snippets to middleware format.
-func (b *memoryMiddlewareBridge) RecallForEntities(ctx context.Context, urns []string, personaName string, limit int) ([]middleware.MemorySnippet, error) {
-	adapter := memory.NewMiddlewareAdapter(b.store)
-	memSnippets, err := adapter.RecallForEntities(ctx, urns, personaName, limit)
-	if err != nil {
-		return nil, fmt.Errorf("recalling memories for entities: %w", err)
-	}
-
-	snippets := make([]middleware.MemorySnippet, len(memSnippets))
-	for i, ms := range memSnippets {
-		snippets[i] = middleware.MemorySnippet{
-			ID: ms.ID,
-			// Canonical fetch handle (mcp:memory:<id>) so a summary-first
-			// rendering can point the agent at the full record (#761).
-			Reference:  knowledgepage.MemoryRef(ms.ID),
-			Content:    ms.Content,
-			Dimension:  ms.Dimension,
-			Category:   ms.Category,
-			Confidence: ms.Confidence,
-			CreatedAt:  ms.CreatedAt,
-		}
-	}
-	return snippets, nil
 }
 
 // initDatabase initializes the database connection and runs migrations if configured.
@@ -1441,77 +1393,6 @@ func (p *Platform) initSessionGate() {
 	)
 }
 
-// recallCandidateK is how many nearest neighbors the recall-first check fetches
-// before applying the entity-URN gate. Small: a true restatement scores near the
-// top, so a handful of candidates is enough to find the right-entity match even
-// when an unrelated note about another table edges slightly higher on text alone.
-const recallCandidateK = 5
-
-// memoryRecallChecker implements memorykit.RecallChecker by running a raw cosine
-// (vector-only) similarity search over the caller's own memory and returning
-// every match clearing the threshold that also shares an entity URN with the
-// candidate (when it has any). It uses VectorSearch's raw cosine (not the
-// search router's min-max normalization, nor the fused hybrid score) so
-// MinScore reads as a true cosine. The candidate embedding is supplied by the
-// caller (memory_capture reuses the vector it already computed), so this type
-// needs no embedder of its own.
-type memoryRecallChecker struct {
-	store memory.Store
-}
-
-// Matches returns the caller's memories similar to the candidate, best first,
-// or nil when there is no precomputed embedding, no caller, or nothing clears
-// MinScore and the entity-URN gate. The caller (memory_capture) precomputes
-// the embedding and runs this BEFORE inserting the new row, so a capture never
-// matches itself. Superseded rows are excluded from the search: without that,
-// a superseded (near-identical) predecessor can outrank its active successor,
-// absorb the supersede, and leave two active duplicates standing (#762). Stale
-// rows remain matchable — a restatement is exactly how a stale record gets
-// corrected — and archived rows are excluded by the store's default.
-func (c *memoryRecallChecker) Matches(ctx context.Context, q memorykit.RecallQuery) ([]memorykit.RecallMatch, error) {
-	if q.CallerEmail == "" || c.store == nil || len(q.Embedding) == 0 {
-		return nil, nil
-	}
-	res, err := c.store.VectorSearch(ctx, memory.VectorQuery{
-		Embedding:       q.Embedding,
-		CreatedBy:       q.CallerEmail,
-		MinScore:        q.MinScore,
-		ExcludeStatuses: []string{memory.StatusSuperseded},
-		Limit:           recallCandidateK,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("recall-first similarity: %w", err)
-	}
-	// Results are sorted by descending similarity. Keep every one that clears
-	// the threshold and, when the candidate concerns specific entities, shares an
-	// entity URN — so knowledge about table A never supersedes knowledge about B.
-	var matches []memorykit.RecallMatch
-	for i := range res {
-		if res[i].Score < q.MinScore {
-			break
-		}
-		if len(q.EntityURNs) > 0 && !sharesAny(res[i].Record.EntityURNs, q.EntityURNs) {
-			continue
-		}
-		matches = append(matches, memorykit.RecallMatch{ID: res[i].Record.ID, Score: res[i].Score})
-	}
-	return matches, nil
-}
-
-// sharesAny reports whether a and b have at least one element in common.
-func sharesAny(a, b []string) bool {
-	set := make(map[string]struct{}, len(a))
-	for _, x := range a {
-		set[x] = struct{}{}
-	}
-	for _, y := range b {
-		if _, ok := set[y]; ok {
-			return true
-		}
-	}
-	return false
-}
-
 // initKnowledge initializes the knowledge capture toolkit if enabled.
 // Knowledge tools require database persistence — without a database the
 // toolkit is not registered and its tools won't appear in tools/list.
@@ -1523,8 +1404,8 @@ func (p *Platform) initKnowledge() error {
 	// Use memory-backed adapter when memory store is available (migration
 	// drops knowledge_insights in favor of memory_records).
 	var store knowledgekit.InsightStore
-	if p.memoryStore != nil {
-		store = knowledgekit.NewMemoryInsightAdapter(p.memoryStore)
+	if memStore := p.memory.MemoryStore(); memStore != nil {
+		store = knowledgekit.NewMemoryInsightAdapter(memStore)
 	} else {
 		store = knowledgekit.NewPostgresStore(p.db)
 	}
@@ -1597,11 +1478,11 @@ func (p *Platform) initSearch() error {
 func (p *Platform) storeSearchProviders() []knowledge.Provider {
 	var providers []knowledge.Provider
 
-	if p.memoryStore != nil {
+	if memStore := p.memory.MemoryStore(); memStore != nil {
 		// Lineage expansion of the entity path is the router's job (it runs once
 		// for every entity-keyed provider), so the memory provider takes the URN
 		// set as given.
-		providers = append(providers, knowledge.NewMemoryProvider(p.memoryStore))
+		providers = append(providers, knowledge.NewMemoryProvider(memStore))
 	}
 	// Insights are searchable only through the memory-backed adapter; the legacy
 	// SQL store and the noop store do not implement InsightSearcher (and so are
@@ -2326,9 +2207,9 @@ func (p *Platform) finalizeSetup() {
 // available. The tracker is retained so shutdown can Stop its cleanup loop.
 func (p *Platform) addReflexiveCaptureMiddleware() {
 	p.reflexiveErrors = reflexivecapture.Wire(reflexivecapture.Deps{
-		Enabled:           p.config.Knowledge.ReflexiveCapture.IsEnabled() && p.memoryToolkit != nil,
+		Enabled:           p.config.Knowledge.ReflexiveCapture.IsEnabled() && p.memory.Toolkit() != nil,
 		Server:            p.mcpServer,
-		Toolkit:           p.memoryToolkit,
+		Toolkit:           p.memory.Toolkit(),
 		ResolveURNMapping: p.reflexiveURNMapping,
 		PersonaAllowsTool: p.reflexivePersonaAllowsTool(),
 	})
@@ -2594,10 +2475,8 @@ func (p *Platform) addEnrichmentMiddleware() {
 
 	enrichCfg := p.buildEnrichmentConfig()
 	enrichCfg.WorkflowTracker = p.workflowTracker
-	var mp middleware.MemoryProvider
-	if p.memoryAdapter != nil {
-		mp = p.memoryAdapter
-	}
+	// Memory↔enrichment bridge, or a nil provider when memory is disabled.
+	mp := p.memory.MemoryProvider()
 	p.mcpServer.AddReceivingMiddleware(
 		middleware.MCPSemanticEnrichmentMiddleware(
 			p.semanticProvider,
@@ -3213,7 +3092,7 @@ func (p *Platform) FileDefaults() map[string]string {
 
 // MemoryStore returns the memory store, or nil if memory is disabled.
 func (p *Platform) MemoryStore() memory.Store {
-	return p.memoryStore
+	return p.memory.MemoryStore()
 }
 
 // KnowledgeInsightStore returns the insight store, or nil if knowledge is disabled.
@@ -3555,10 +3434,9 @@ func (p *Platform) stopBackgroundTrackers() {
 		slog.Debug("shutdown: stopping reflexive error tracker")
 		p.reflexiveErrors.Stop()
 	}
-	if p.stalenessWatcher != nil {
-		slog.Debug("shutdown: stopping staleness watcher")
-		p.stalenessWatcher.Stop()
-	}
+	// Stops the memory layer's staleness watcher (no-op when disabled). Runs
+	// before the DB closes, matching the prior teardown order.
+	p.memory.Stop()
 }
 
 // flushEnrichmentState persists enrichment dedup state from the session cache

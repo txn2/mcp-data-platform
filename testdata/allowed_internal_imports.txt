@@ -133,6 +133,7 @@ pkg/platform -> pkg/platform/fieldcrypt
 pkg/platform -> pkg/platform/iam
 pkg/platform -> pkg/platform/indexqueue
 pkg/platform -> pkg/platform/instructions
+pkg/platform -> pkg/platform/memorylayer
 pkg/platform -> pkg/platform/mwchain
 pkg/platform -> pkg/platform/oauthserver
 pkg/platform -> pkg/platform/obs
@@ -165,7 +166,6 @@ pkg/platform -> pkg/toolkits/apigateway/catalogindex
 pkg/platform -> pkg/toolkits/gateway
 pkg/platform -> pkg/toolkits/gateway/enrichment
 pkg/platform -> pkg/toolkits/knowledge
-pkg/platform -> pkg/toolkits/memory
 pkg/platform -> pkg/toolkits/search
 pkg/platform -> pkg/toolkits/tools/toolsindex
 pkg/platform -> pkg/toolkits/trino
@@ -196,6 +196,12 @@ pkg/platform/indexqueue -> pkg/toolkits/apigateway/catalog
 pkg/platform/indexqueue -> pkg/toolkits/apigateway/catalogindex
 pkg/platform/indexqueue -> pkg/toolkits/tools/toolsindex
 pkg/platform/instructions -> pkg/persona
+pkg/platform/memorylayer -> pkg/embedding
+pkg/platform/memorylayer -> pkg/memory
+pkg/platform/memorylayer -> pkg/middleware
+pkg/platform/memorylayer -> pkg/portal/knowledgepage
+pkg/platform/memorylayer -> pkg/semantic
+pkg/platform/memorylayer -> pkg/toolkits/memory
 pkg/platform/oauthserver -> pkg/oauth
 pkg/platform/oauthserver -> pkg/oauth/postgres
 pkg/platform/oauthserver -> pkg/observability
