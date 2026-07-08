@@ -1,23 +1,13 @@
 package platform
 
 import (
-	"context"
-	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
-	"github.com/txn2/mcp-data-platform/pkg/memory/memoryindex"
-	"github.com/txn2/mcp-data-platform/pkg/portal/assetindex"
-	"github.com/txn2/mcp-data-platform/pkg/portal/collectionindex"
-	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepageindex"
-	"github.com/txn2/mcp-data-platform/pkg/prompt/promptindex"
-	"github.com/txn2/mcp-data-platform/pkg/registry"
-	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
-	apigatewaycatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
+	"github.com/txn2/mcp-data-platform/pkg/platform/indexqueue"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalogindex"
-	"github.com/txn2/mcp-data-platform/pkg/toolkits/tools/toolsindex"
 )
 
 // defaultEmbedJobsTimeout is the fall-back timeout the index-jobs
@@ -26,6 +16,10 @@ import (
 // 32-text batch on CPU-only Ollama with margin; GPU deployments can
 // tighten this via config. See #445.
 const defaultEmbedJobsTimeout = 5 * time.Minute
+
+// providerOllama is the embedding.provider config value that selects a
+// dedicated longer-timeout worker embedder (see workerEmbedder).
+const providerOllama = "ollama"
 
 // workerEmbedder returns the embedding.Provider the index-jobs
 // worker should use. When the platform's embedder is Ollama, the
@@ -36,7 +30,7 @@ const defaultEmbedJobsTimeout = 5 * time.Minute
 // For any other provider, the shared platform Provider is returned
 // unchanged.
 func (p *Platform) workerEmbedder() embedding.Provider {
-	if p.config.Memory.Embedding.Provider != "ollama" {
+	if p.config.Memory.Embedding.Provider != providerOllama {
 		return p.embeddingProv
 	}
 	timeout := p.config.APIGateway.EmbedJobs.EmbedTimeout
@@ -52,12 +46,11 @@ func (p *Platform) workerEmbedder() embedding.Provider {
 }
 
 // WireAPIGatewayEmbedJobsFromDB initializes the shared index-jobs
-// queue (pkg/indexjobs) and registers the api-catalog consumer on
-// it: the Postgres store, the Source/Sink registry, the Worker, the
-// Reaper, the Reconciler, and the LISTEN adapter. The admin handler
-// reads its api-catalog-shaped view through an AdminStore over the
-// same generic store. Lifecycle callbacks shut every goroutine down
-// cleanly on platform Stop.
+// queue (pkg/platform/indexqueue) and wires its Start/Stop into the
+// lifecycle. It translates platform config into indexqueue.Config —
+// resolving worker tuning and retention, choosing the worker embedder,
+// and reporting which optional consumers are enabled by the presence of
+// their platform sub-store — then delegates assembly to the owner.
 //
 // No-op unless the platform has BOTH a database connection AND a
 // configured embedding provider: a queue without a worker that can
@@ -73,81 +66,46 @@ func (p *Platform) WireAPIGatewayEmbedJobsFromDB() {
 		return
 	}
 
-	leaseDuration, batchSize := p.resolveEmbedJobsTuning()
-	store := indexjobs.NewPostgresStore(p.db, indexjobs.WithLeaseDuration(leaseDuration))
-	reg := indexjobs.NewRegistry()
-	p.registerIndexConsumers(reg, store)
-	if len(reg.Kinds()) == 0 {
-		// db + embedder are present but nothing registered (no catalog
-		// store and tools registration somehow failed). A worker with
-		// no consumers has nothing to do.
-		slog.Info("index jobs: skipped (no consumers registered)")
+	lease, batch := p.resolveEmbedJobsTuning()
+	handle := indexqueue.New(indexqueue.Config{
+		DB:                p.db,
+		Embedder:          p.workerEmbedder(),
+		ModelName:         embedding.ModelName(p.embeddingProv),
+		LeaseDuration:     lease,
+		BatchSize:         batch,
+		Workers:           p.config.APIGateway.EmbedJobs.Workers,
+		RetentionDays:     p.resolveRetentionDays(),
+		DSN:               p.config.Database.DSN,
+		CatalogStore:      p.APIGatewayCatalogStore(),
+		ToolkitRegistry:   p.toolkitRegistry,
+		ToolEnumerator:    platformToolEnumerator{p: p},
+		DiscoveryToolName: platformFindToolsName,
+		Consumers: indexqueue.Consumers{
+			Memory:               p.memoryStore != nil,
+			Prompts:              p.promptStore != nil,
+			PortalAssets:         p.portalAssetStore != nil,
+			PortalCollections:    p.portalCollectionStore != nil,
+			PortalKnowledgePages: p.portalKnowledgePageStore != nil,
+		},
+	})
+	if handle == nil {
+		// db + embedder are present but nothing registered. A worker with no
+		// consumers has nothing to do; the owner already logged the skip.
 		return
 	}
-	p.indexJobsStore = store
-	p.indexJobsRegistry = reg
-
-	worker := indexjobs.NewWorker(indexjobs.WorkerConfig{
-		Store:         store,
-		Registry:      reg,
-		Embedder:      p.workerEmbedder(),
-		Concurrency:   p.config.APIGateway.EmbedJobs.Workers,
-		LeaseDuration: leaseDuration,
-		BatchSize:     batchSize,
-	})
-	p.indexJobsWorker = worker
-
-	reaper := indexjobs.NewReaper(store, 0)
-	p.indexJobsReaper = reaper
-
-	reconciler := indexjobs.NewReconciler(store, reg, 0)
-	p.indexJobsReconciler = reconciler
-
-	// Retention sweep: bound finished history so the reconciler's
-	// per-unit success rows do not accumulate unbounded (#523). A
-	// negative retention_days disables it; the worker/reaper/reconciler
-	// still run, history just never gets purged.
-	if retentionDays := p.resolveRetentionDays(); retentionDays > 0 {
-		retainer := indexjobs.NewRetainer(store, retentionDays, 0)
-		p.indexJobsRetainer = retainer
-	}
-
-	// LISTEN/NOTIFY adapter. Best-effort: if the role lacks LISTEN
-	// privilege we degrade to the worker's poll tick and continue.
-	if p.config.Database.DSN != "" {
-		p.indexJobsListener = indexjobs.NewListener(p.config.Database.DSN, indexjobs.NotifyChannel, worker)
-	}
-
-	p.lifecycle.OnComponent(func(ctx context.Context) error {
-		worker.Start(ctx)
-		reaper.Start(ctx)
-		reconciler.Start(ctx)
-		if p.indexJobsRetainer != nil {
-			p.indexJobsRetainer.Start(ctx)
-		}
-		if p.indexJobsListener != nil {
-			if err := p.indexJobsListener.Start(ctx); err != nil {
-				slog.Warn("index jobs: listener start failed; falling back to poll-only", "error", err)
-				p.indexJobsListener = nil
-			}
-		}
-		p.bootstrapToolsIndex(ctx)
-		slog.Info("index jobs: started", "kinds", reg.Kinds())
-		return nil
-	}, func(ctx context.Context) error {
-		return p.stopIndexJobs(ctx, worker, reaper, reconciler)
-	})
+	p.indexQueue = handle
+	p.lifecycle.OnComponent(handle.Start, handle.Stop)
 }
 
 // indexJobsPreconditions reports whether the shared index-jobs
 // framework should be wired. It requires a database and a configured
 // embedding provider (#429: never stand the queue up against the noop
 // provider) and must not already be wired. Which consumers actually
-// register is decided in registerIndexConsumers: api-catalog needs its
+// register is decided by the owner package: api-catalog needs its
 // catalog store, the tools consumer always registers.
 func (p *Platform) indexJobsPreconditions() bool {
 	switch {
-	case p.indexJobsStore != nil:
+	case p.indexQueue != nil:
 		return false // already wired
 	case p.db == nil:
 		slog.Info("index jobs: skipped (no database)")
@@ -157,122 +115,6 @@ func (p *Platform) indexJobsPreconditions() bool {
 		return false
 	}
 	return true
-}
-
-// registerIndexConsumers registers every available consumer on the
-// shared registry. The api-catalog consumer registers only when its
-// catalog store is present; the tools consumer always registers,
-// because the framework preconditions (database + embedding provider)
-// are all it needs to index the in-process tool registry. A
-// registration error is a wiring bug (duplicate/mismatched kind), so
-// it is logged and that consumer is skipped rather than aborting the
-// others.
-func (p *Platform) registerIndexConsumers(reg *indexjobs.Registry, store *indexjobs.PostgresStore) {
-	if catalogStore := p.APIGatewayCatalogStore(); catalogStore != nil {
-		if err := reg.Register(
-			&catalogSource{store: catalogStore, registry: p.toolkitRegistry},
-			catalogindex.NewSink(catalogStore),
-		); err != nil {
-			slog.Error("index jobs: api-catalog registration failed", "error", err)
-		} else {
-			p.apiGatewayEmbedAdminStore = catalogindex.NewAdminStore(store, p.db)
-		}
-	}
-
-	toolsStore := toolsindex.NewStore(p.db)
-	toolsSrc := &toolsSource{p: p}
-	// The Sink's gap check diffs the live tool corpus against the
-	// persisted vectors, so it needs the same items the worker indexes;
-	// LoadItems (keyed on the single tools source) is that enumeration.
-	toolsItems := func(ctx context.Context) ([]indexjobs.Item, error) {
-		return toolsSrc.LoadItems(ctx, toolsindex.SourceID)
-	}
-	if err := reg.Register(toolsSrc, toolsindex.NewSink(toolsStore, toolsItems)); err != nil {
-		slog.Error("index jobs: tools registration failed", "error", err)
-	} else {
-		p.toolsIndexStore = toolsStore
-	}
-
-	// Memory consumer: backfills embeddings the synchronous write path
-	// could not produce (saved during an embedder outage) or that a model
-	// swap left stale. Registered only when memory is enabled (its store
-	// is wired); the reconciler's FindGaps discovers gaps from the
-	// memory_records table directly, so no bootstrap enqueue is needed.
-	if p.memoryStore != nil {
-		memStore := memoryindex.NewStore(p.db)
-		if err := reg.Register(
-			memoryindex.NewSource(memStore),
-			memoryindex.NewSink(memStore, embedding.ModelName(p.embeddingProv)),
-		); err != nil {
-			slog.Error("index jobs: memory registration failed", "error", err)
-		}
-	}
-
-	// Prompts consumer: embeds approved prompts for semantic discovery (#557).
-	// Registered only when the prompt store is wired. Gap detection runs against
-	// the prompts table directly (approved + enabled rows missing a vector), and
-	// the request-path Update clears a prompt's embedding when its indexed text
-	// changes, so the reconciler is a complete backstop for every write path; no
-	// bootstrap enqueue is needed.
-	if p.promptStore != nil {
-		promptStore := promptindex.NewStore(p.db)
-		if err := reg.Register(
-			promptindex.NewSource(promptStore),
-			promptindex.NewSink(promptStore, embedding.ModelName(p.embeddingProv)),
-		); err != nil {
-			slog.Error("index jobs: prompts registration failed", logKeyError, err)
-		}
-	}
-
-	// Portal asset + collection consumers: embed saved assets and curated
-	// collections for relevance search (#550). Registered only when the portal
-	// stores are wired (initPortal). Gap detection runs against portal_assets /
-	// portal_collections directly (non-deleted rows missing a vector), and the
-	// request-path Update/SetSections clears the embedding when indexed text
-	// changes, so the reconciler is a complete backstop; no bootstrap enqueue is
-	// needed.
-	if p.portalAssetStore != nil {
-		assetStore := assetindex.NewStore(p.db)
-		if err := reg.Register(
-			assetindex.NewSource(assetStore),
-			assetindex.NewSink(assetStore, embedding.ModelName(p.embeddingProv)),
-		); err != nil {
-			slog.Error("index jobs: portal assets registration failed", logKeyError, err)
-		}
-	}
-	if p.portalCollectionStore != nil {
-		collStore := collectionindex.NewStore(p.db)
-		if err := reg.Register(
-			collectionindex.NewSource(collStore),
-			collectionindex.NewSink(collStore, embedding.ModelName(p.embeddingProv)),
-		); err != nil {
-			slog.Error("index jobs: portal collections registration failed", logKeyError, err)
-		}
-	}
-	if p.portalKnowledgePageStore != nil {
-		if err := knowledgepageindex.RegisterConsumer(reg, p.db, embedding.ModelName(p.embeddingProv)); err != nil {
-			slog.Error("index jobs: portal knowledge pages registration failed", logKeyError, err)
-		}
-	}
-}
-
-// bootstrapToolsIndex enqueues the initial tools index job at startup.
-// The tool corpus is not a DB table the reconciler can discover on its
-// own (it diffs an already-recorded expected count, which does not
-// exist until the first embed), so the first index for a fresh
-// deployment must be kicked off explicitly. Idempotent: the partial
-// unique index collapses a duplicate enqueue, and the worker's
-// text-hash dedup skips re-embedding unchanged tools, so running it on
-// every boot is cheap.
-func (p *Platform) bootstrapToolsIndex(ctx context.Context) {
-	if p.toolsIndexStore == nil || p.indexJobsStore == nil {
-		return
-	}
-	if _, err := p.indexJobsStore.Enqueue(ctx,
-		indexjobs.Key{SourceKind: toolsindex.SourceKind, SourceID: toolsindex.SourceID},
-		indexjobs.TriggerWrite); err != nil {
-		slog.Warn("index jobs: tools bootstrap enqueue failed", "error", err)
-	}
 }
 
 // resolveEmbedJobsTuning returns the worker lease duration and batch
@@ -298,7 +140,7 @@ func (p *Platform) resolveEmbedJobsTuning() (lease time.Duration, batch int) {
 // resolveRetentionDays returns the index_jobs history retention window in
 // days. Unset (zero) config falls back to indexjobs.DefaultRetentionDays;
 // a negative value passes through unchanged and signals "retention
-// disabled" to the caller (which then never wires a retainer). An
+// disabled" to the owner (which then never wires a retainer). An
 // explicit positive value flows through verbatim.
 func (p *Platform) resolveRetentionDays() int {
 	days := p.config.APIGateway.EmbedJobs.RetentionDays
@@ -308,59 +150,11 @@ func (p *Platform) resolveRetentionDays() int {
 	return days
 }
 
-// stopIndexJobs runs the index-jobs shutdown sequence inside the
-// bounded shutdown helper. Each component's Stop signals its
-// goroutines and blocks on their WaitGroup; boundedStop races the
-// sequence against ctx.Done so shutdown always returns within its
-// deadline. Abandoned work is safe: leases expire and another
-// replica reclaims any uncompleted job on its next poll.
-func (p *Platform) stopIndexJobs(
-	ctx context.Context,
-	worker *indexjobs.Worker,
-	reaper *indexjobs.Reaper,
-	reconciler *indexjobs.Reconciler,
-) error {
-	return boundedStop(ctx, "index jobs", func() {
-		if p.indexJobsListener != nil {
-			p.indexJobsListener.Stop()
-		}
-		if p.indexJobsRetainer != nil {
-			p.indexJobsRetainer.Stop()
-		}
-		reconciler.Stop()
-		reaper.Stop()
-		worker.Stop()
-	})
-}
-
-// boundedStop runs fn in a goroutine and races it against ctx.Done
-// so a hung component cannot stall lifecycle shutdown past the
-// supplied deadline. Returns nil on clean completion or ctx.Err() if
-// the deadline fires first.
-func boundedStop(ctx context.Context, component string, fn func()) error {
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		fn()
-	}()
-	select {
-	case <-done:
-		return nil
-	case <-ctx.Done():
-		slog.Warn("shutdown: bounded stop deadline reached; abandoning in-flight work",
-			"component", component, "error", ctx.Err())
-		return ctx.Err() //nolint:wrapcheck // ctx.Err() is the expected sentinel; lifecycle aggregates it
-	}
-}
-
 // APIGatewayEmbedJobsStore returns the api-catalog admin view of the
 // index-jobs queue (enqueue + read-side queries for the UI), or nil
 // when no queue is wired. The admin handler reads this.
 func (p *Platform) APIGatewayEmbedJobsStore() catalogindex.Store {
-	if p.apiGatewayEmbedAdminStore == nil {
-		return nil
-	}
-	return p.apiGatewayEmbedAdminStore
+	return p.indexQueue.AdminStore()
 }
 
 // IndexJobsReporter returns the cross-kind index-jobs reporter the
@@ -369,61 +163,5 @@ func (p *Platform) APIGatewayEmbedJobsStore() catalogindex.Store {
 // configured embedding provider). The dashboard renders a degraded
 // empty state for the nil case.
 func (p *Platform) IndexJobsReporter() *indexjobs.Reporter {
-	if p.indexJobsStore == nil || p.indexJobsRegistry == nil {
-		return nil
-	}
-	return indexjobs.NewReporter(p.indexJobsStore, p.indexJobsRegistry)
-}
-
-// catalogSource implements indexjobs.Source for the api-catalog
-// kind. LoadItems fetches the current spec content and parses it
-// into per-operation embeddable items; OnSucceeded reloads live
-// connections so their in-memory vector map picks up the new rows.
-type catalogSource struct {
-	store    apigatewaycatalog.Store
-	registry *registry.Registry
-}
-
-// Kind reports the api-catalog source kind.
-func (*catalogSource) Kind() string { return catalogindex.SourceKind }
-
-// LoadItems decodes the source_id, fetches the spec content, and
-// returns one item per operation. A missing spec surfaces as an
-// error (the worker treats it as terminal: the spec was deleted).
-func (s *catalogSource) LoadItems(ctx context.Context, sourceID string) ([]indexjobs.Item, error) {
-	catalogID, specName, ok := catalogindex.DecodeSourceID(sourceID)
-	if !ok {
-		return nil, fmt.Errorf("catalogSource: malformed source_id %q", sourceID)
-	}
-	spec, err := s.store.GetSpec(ctx, catalogID, specName)
-	if err != nil {
-		return nil, fmt.Errorf("catalogSource: get spec: %w", err)
-	}
-	ops, err := apigatewaykit.BuildOperationItems(spec.Content, specName)
-	if err != nil {
-		return nil, fmt.Errorf("catalogSource: build items: %w", err)
-	}
-	items := make([]indexjobs.Item, len(ops))
-	for i, op := range ops {
-		items[i] = indexjobs.Item{ItemID: op.OperationID, Text: op.Text}
-	}
-	return items, nil
-}
-
-// OnSucceeded asks every registered api-gateway toolkit to rebuild
-// connections that mount the catalog so their in-memory vector map
-// picks up the freshly-written rows.
-func (s *catalogSource) OnSucceeded(sourceID string) {
-	if s.registry == nil {
-		return
-	}
-	catalogID, _, ok := catalogindex.DecodeSourceID(sourceID)
-	if !ok {
-		return
-	}
-	for _, tk := range s.registry.All() {
-		if api, ok := tk.(*apigatewaykit.Toolkit); ok {
-			api.ReloadConnectionsByCatalog(catalogID)
-		}
-	}
+	return p.indexQueue.Reporter()
 }

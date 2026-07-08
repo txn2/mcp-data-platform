@@ -2,7 +2,6 @@ package platform
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -10,10 +9,11 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
+	"github.com/txn2/mcp-data-platform/pkg/platform/indexqueue"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	apigatewaycatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
-	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalogindex"
+	"github.com/txn2/mcp-data-platform/pkg/toolkits/tools/toolsindex"
 )
 
 // TestResolveEmbedJobsTuning covers the config-defaulting helper:
@@ -58,50 +58,68 @@ func TestResolveRetentionDays(t *testing.T) {
 	}
 }
 
-// TestWireIndexJobs_NegativeRetentionDisablesRetainer proves a negative
-// retention_days wires the queue but no retainer, so finished history is
-// never purged (the operator-managed-cleanup escape hatch, #523).
-func TestWireIndexJobs_NegativeRetentionDisablesRetainer(t *testing.T) {
+// TestWorkerEmbedder covers the worker-embedder selection: a non-Ollama
+// platform embedder is reused verbatim; an Ollama embedder yields a dedicated
+// longer-timeout provider (a distinct instance), so a batched embed on CPU-only
+// Ollama does not exhaust the shared 30s request-path timeout.
+func TestWorkerEmbedder(t *testing.T) {
+	t.Parallel()
+	shared := embedding.NewNoopProvider(8)
+	p := &Platform{config: &Config{}, embeddingProv: shared}
+	if got := p.workerEmbedder(); got != shared {
+		t.Error("non-ollama embedder should be reused verbatim")
+	}
+
+	p.config.Memory.Embedding.Provider = "ollama"
+	if got := p.workerEmbedder(); got == nil || got == shared {
+		t.Error("ollama embedder should yield a distinct dedicated worker provider")
+	}
+}
+
+// TestIndexJobsPreconditions_AlreadyWired covers the idempotency
+// guard: a second wiring attempt is refused once the queue handle is set.
+func TestIndexJobsPreconditions_AlreadyWired(t *testing.T) {
 	t.Parallel()
 	db, _, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("sqlmock.New: %v", err)
 	}
 	defer db.Close() //nolint:errcheck // test cleanup
-	cfg := &Config{}
-	cfg.APIGateway.EmbedJobs.RetentionDays = -1
-	p := &Platform{
-		db:              db,
-		embeddingProv:   embedding.NewOllamaProvider(embedding.OllamaConfig{}),
-		config:          cfg,
-		toolkitRegistry: registry.NewRegistry(),
-		lifecycle:       &Lifecycle{},
-	}
-	p.WireAPIGatewayEmbedJobsFromDB()
-	if p.indexJobsStore == nil {
-		t.Fatal("queue should still wire with retention disabled")
-	}
-	if p.indexJobsRetainer != nil {
-		t.Error("negative retention_days must not wire a retainer")
-	}
-}
-
-// TestIndexJobsPreconditions_AlreadyWired covers the idempotency
-// guard: a second wiring attempt is refused.
-func TestIndexJobsPreconditions_AlreadyWired(t *testing.T) {
-	t.Parallel()
-	p := &Platform{indexJobsStore: indexjobs.NewPostgresStore(nil)}
+	p := &Platform{indexQueue: indexqueue.New(indexqueue.Config{DB: db, Embedder: embedding.NewOllamaProvider(embedding.OllamaConfig{})})}
 	if p.indexJobsPreconditions() {
 		t.Error("already-wired platform should refuse to re-wire")
 	}
 }
 
-// TestWireIndexJobs_NoCatalogStore_WiresToolsOnly proves the framework
-// no longer gates on the api-catalog store: with a database and a
-// configured embedder but no catalog store, the queue still wires and
-// registers the tools consumer alone. (Before #440 a missing catalog
-// store skipped the whole queue.)
-func TestWireIndexJobs_NoCatalogStore_WiresToolsOnly(t *testing.T) {
+// TestIndexJobsPreconditions_NoDatabase and _NoEmbedder cover the two skip
+// branches: without a database, or with an unconfigured (noop) embedder, the
+// queue must not wire.
+func TestIndexJobsPreconditions_NoDatabase(t *testing.T) {
+	t.Parallel()
+	p := &Platform{embeddingProv: embedding.NewOllamaProvider(embedding.OllamaConfig{})}
+	if p.indexJobsPreconditions() {
+		t.Error("no database should skip wiring")
+	}
+}
+
+func TestIndexJobsPreconditions_NoEmbedder(t *testing.T) {
+	t.Parallel()
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close() //nolint:errcheck // test cleanup
+	p := &Platform{db: db, embeddingProv: embedding.NewNoopProvider(768)}
+	if p.indexJobsPreconditions() {
+		t.Error("noop embedder should skip wiring")
+	}
+}
+
+// TestWireAPIGatewayEmbedJobsFromDB_NoCatalogStore proves the delegation path
+// with no api-catalog store: the queue still wires (tools consumer alone), the
+// handle is set, but no admin store is exposed. Assembly detail (registered
+// kinds, retainer) is covered in pkg/platform/indexqueue.
+func TestWireAPIGatewayEmbedJobsFromDB_NoCatalogStore(t *testing.T) {
 	t.Parallel()
 	db, _, err := sqlmock.New()
 	if err != nil {
@@ -115,78 +133,43 @@ func TestWireIndexJobs_NoCatalogStore_WiresToolsOnly(t *testing.T) {
 		toolkitRegistry: registry.NewRegistry(), // no apigateway toolkit -> no catalog store
 		lifecycle:       &Lifecycle{},
 	}
-	if !p.indexJobsPreconditions() {
-		t.Fatal("db + embedder should satisfy the framework preconditions")
-	}
 	p.WireAPIGatewayEmbedJobsFromDB()
-	if p.indexJobsStore == nil {
+	if p.indexQueue == nil {
 		t.Fatal("queue should wire for the tools consumer even without a catalog store")
-	}
-	kinds := p.indexJobsRegistry.Kinds()
-	if len(kinds) != 1 || kinds[0] != "tools" {
-		t.Errorf("kinds = %v; want [tools] (no catalog store registered)", kinds)
 	}
 	if p.APIGatewayEmbedJobsStore() != nil {
 		t.Error("admin store should be nil with no catalog store")
 	}
-	// Unset retention_days defaults to a positive window, so the retainer
-	// is wired alongside the reaper/reconciler (#523).
-	if p.indexJobsRetainer == nil {
-		t.Error("default retention should wire a retainer")
+	if p.IndexJobsReporter() == nil {
+		t.Error("reporter should be exposed once the queue is wired")
 	}
 }
 
-// TestCatalogSource_OnSucceeded_WithRegistry covers the reload path:
-// with a registered api-gateway toolkit, OnSucceeded walks the
-// registry and invokes the toolkit's connection reload (a no-op with
-// zero connections, but the loop and type assertion run).
-func TestCatalogSource_OnSucceeded_WithRegistry(t *testing.T) {
-	t.Parallel()
-	reg := registry.NewRegistry()
-	if err := reg.Register(apigatewaykit.New("test")); err != nil {
-		t.Fatalf("register: %v", err)
-	}
-	s := &catalogSource{registry: reg}
-	s.OnSucceeded(catalogindex.EncodeSourceID("cat", "spec")) // must not panic; reloads the catalog
-}
-
-// TestWireAPIGatewayEmbedJobsFromDB_NoopEmbedderSkips proves the
-// wiring-layer guard for #429: when the embedder is the noop
-// placeholder AND a database is available, the entire index-jobs
-// queue (store, worker, reaper, reconciler, listener) MUST NOT be
-// wired. Standing it up against the noop would fill the vector
-// tables with zero vectors that the health endpoints report as
-// "indexed" while semantic ranking quietly degrades to nonsense.
+// TestWireAPIGatewayEmbedJobsFromDB_NoopEmbedderSkips proves the wiring-layer
+// guard for #429: with the noop placeholder embedder AND a database, the queue
+// MUST NOT wire (no handle). Standing it up against the noop would fill the
+// vector tables with zero vectors that health endpoints report as "indexed"
+// while semantic ranking quietly degrades.
 func TestWireAPIGatewayEmbedJobsFromDB_NoopEmbedderSkips(t *testing.T) {
+	t.Parallel()
 	db, _, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("sqlmock.New: %v", err)
 	}
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	p := &Platform{
-		db:            db,
-		embeddingProv: embedding.NewNoopProvider(768),
-	}
+	p := &Platform{db: db, embeddingProv: embedding.NewNoopProvider(768)}
 	p.WireAPIGatewayEmbedJobsFromDB()
-	if p.indexJobsStore != nil {
-		t.Errorf("noop embedder must not wire the job store; got %T", p.indexJobsStore)
-	}
-	if p.indexJobsWorker != nil {
-		t.Errorf("noop embedder must not start the worker")
-	}
-	if p.indexJobsReaper != nil {
-		t.Errorf("noop embedder must not start the reaper")
-	}
-	if p.indexJobsReconciler != nil {
-		t.Errorf("noop embedder must not start the reconciler")
+	if p.indexQueue != nil {
+		t.Error("noop embedder must not wire the queue")
 	}
 }
 
-// TestWireAPIGatewayEmbedJobsFromDB_NilEmbedderSkips covers the
-// nil-embedder branch, kept asserted alongside the noop branch so a
-// future refactor that collapses them does not lose either guarantee.
+// TestWireAPIGatewayEmbedJobsFromDB_NilEmbedderSkips covers the nil-embedder
+// branch, kept asserted alongside the noop branch so a future refactor that
+// collapses them does not lose either guarantee.
 func TestWireAPIGatewayEmbedJobsFromDB_NilEmbedderSkips(t *testing.T) {
+	t.Parallel()
 	db, _, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("sqlmock.New: %v", err)
@@ -195,19 +178,17 @@ func TestWireAPIGatewayEmbedJobsFromDB_NilEmbedderSkips(t *testing.T) {
 
 	p := &Platform{db: db, embeddingProv: nil}
 	p.WireAPIGatewayEmbedJobsFromDB()
-	if p.indexJobsStore != nil {
-		t.Errorf("nil embedder must not wire the job store")
+	if p.indexQueue != nil {
+		t.Error("nil embedder must not wire the queue")
 	}
 }
 
-// TestWireAPIGatewayEmbedJobsFromDB_WiresWorkerWithConfiguredConcurrency
-// proves the production-path branch (real DB + real embedder + real
-// catalog store): the store, registry, worker, reaper, reconciler, and
-// admin store all get wired, the api_catalog kind is registered, and
-// the Concurrency value flows from APIGateway.EmbedJobs.Workers into
-// the WorkerConfig. lifecycle.OnStart hooks are registered but not
-// invoked here so the goroutines never spawn.
-func TestWireAPIGatewayEmbedJobsFromDB_WiresWorkerWithConfiguredConcurrency(t *testing.T) {
+// TestWireAPIGatewayEmbedJobsFromDB_WithCatalogStore proves the production path
+// (real DB + real embedder + real catalog store): the queue wires, the handle
+// is set, the admin store is exposed for the admin handler, and a second call
+// is idempotent (the handle is not replaced).
+func TestWireAPIGatewayEmbedJobsFromDB_WithCatalogStore(t *testing.T) {
+	t.Parallel()
 	db, _, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("sqlmock.New: %v", err)
@@ -233,65 +214,70 @@ func TestWireAPIGatewayEmbedJobsFromDB_WiresWorkerWithConfiguredConcurrency(t *t
 	p.WireAPIGatewayCatalogStore(apigatewaycatalog.NewMemoryStore())
 	p.WireAPIGatewayEmbedJobsFromDB()
 
-	if p.indexJobsStore == nil {
-		t.Fatal("real embedder + DB + catalog store must wire the job store")
-	}
-	if p.indexJobsRegistry == nil {
-		t.Fatal("registry must be wired")
-	}
-	if kinds := p.indexJobsRegistry.Kinds(); len(kinds) != 2 || kinds[0] != "api_catalog" || kinds[1] != "tools" {
-		t.Errorf("registry kinds = %v; want [api_catalog tools]", kinds)
+	if p.indexQueue == nil {
+		t.Fatal("real embedder + DB + catalog store must wire the queue")
 	}
 	if p.APIGatewayEmbedJobsStore() == nil {
 		t.Fatal("admin store must be exposed for the admin handler")
 	}
-	if p.indexJobsWorker == nil {
-		t.Fatal("worker must be constructed")
-	}
-	if got := p.indexJobsWorker.Concurrency(); got != 3 {
-		t.Errorf("Concurrency = %d; want 3 (the value flowed from apigateway.embed_jobs.workers)", got)
-	}
-	if p.indexJobsReaper == nil {
-		t.Fatal("reaper must be constructed")
-	}
-	if p.indexJobsReconciler == nil {
-		t.Fatal("reconciler must be constructed")
+
+	// Idempotent: a second call is a no-op (the precondition sees the handle).
+	first := p.indexQueue
+	p.WireAPIGatewayEmbedJobsFromDB()
+	if p.indexQueue != first {
+		t.Error("second WireAPIGatewayEmbedJobsFromDB must not replace the handle")
 	}
 }
 
-// TestStopIndexJobs_CleanShutdownReturnsNil proves the happy path:
-// when Worker, Reaper, and Reconciler are constructed but never
-// Started, their Stop calls are immediate no-ops and the bounded
-// helper returns nil. This is the path taken by the OnStop callback
-// after a normal startup.
-func TestStopIndexJobs_CleanShutdownReturnsNil(t *testing.T) {
-	p := &Platform{}
-	worker := indexjobs.NewWorker(indexjobs.WorkerConfig{})
-	reaper := indexjobs.NewReaper(nil, time.Second)
-	reconciler := indexjobs.NewReconciler(nil, nil, time.Second)
-
-	if err := p.stopIndexJobs(context.Background(), worker, reaper, reconciler); err != nil {
-		t.Errorf("stopIndexJobs returned %v; want nil on clean shutdown", err)
+// TestWireAPIGatewayEmbedJobsFromDB_ToolEnumeratorSeam is the end-to-end
+// integration test for the tool-enumeration seam (CLAUDE.md rule 5): it drives
+// the real WireAPIGatewayEmbedJobsFromDB wiring against a live MCP server, then
+// reaches the tools source the assembled queue registered and enumerates it.
+// This proves platformToolEnumerator and platformFindToolsName actually reach
+// the queue through indexqueue.New — a future edit that passed the wrong Config
+// field or dropped DiscoveryToolName would fail here rather than silently
+// indexing zero (or the discovery) tools.
+func TestWireAPIGatewayEmbedJobsFromDB_ToolEnumeratorSeam(t *testing.T) {
+	t.Parallel()
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
 	}
-}
+	defer db.Close() //nolint:errcheck // test cleanup
 
-// TestStopIndexJobs_RespectsCanceledContext proves the safety-net
-// path: a pre-canceled context propagates as ctx.Err() so a hung
-// worker cannot exceed the K8s termination grace period. The select
-// inside boundedStop observes ctx.Done either before or after the
-// inner fn completes; in either case the return must be nil (race won
-// by fn) or context.Canceled (race won by ctx).
-func TestStopIndexJobs_RespectsCanceledContext(t *testing.T) {
-	p := &Platform{}
-	worker := indexjobs.NewWorker(indexjobs.WorkerConfig{})
-	reaper := indexjobs.NewReaper(nil, time.Second)
-	reconciler := indexjobs.NewReconciler(nil, nil, time.Second)
+	// A live in-memory MCP server carrying two real tools plus the discovery tool.
+	srv := findToolsTestServer("alpha", "beta")
+	p := &Platform{
+		db:              db,
+		mcpServer:       srv,
+		embeddingProv:   embedding.NewOllamaProvider(embedding.OllamaConfig{}),
+		config:          &Config{},
+		toolkitRegistry: registry.NewRegistry(),
+		lifecycle:       &Lifecycle{},
+	}
+	p.WireAPIGatewayEmbedJobsFromDB()
+	if p.indexQueue == nil {
+		t.Fatal("queue must wire for the tools consumer")
+	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	err := p.stopIndexJobs(ctx, worker, reaper, reconciler)
-	if err != nil && !errors.Is(err, context.Canceled) {
-		t.Errorf("stopIndexJobs err = %v; want nil or context.Canceled", err)
+	// Reach the tools source the assembled queue registered and drive it through
+	// the real injected enumerator.
+	src, _, ok := p.indexQueue.Registry().Lookup(toolsindex.SourceKind)
+	if !ok {
+		t.Fatal("assembled queue must register the tools source")
+	}
+	items, err := src.LoadItems(context.Background(), toolsindex.SourceID)
+	if err != nil {
+		t.Fatalf("tools source LoadItems: %v", err)
+	}
+	got := map[string]bool{}
+	for _, it := range items {
+		got[it.ItemID] = true
+	}
+	if !got["alpha"] || !got["beta"] {
+		t.Errorf("live tool corpus not enumerated through the queue: got %v; want alpha+beta", got)
+	}
+	if got[platformFindToolsName] {
+		t.Error("discovery tool must be excluded via the wired DiscoveryToolName")
 	}
 }

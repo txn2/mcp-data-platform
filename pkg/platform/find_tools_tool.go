@@ -88,9 +88,9 @@ func (p *Platform) rankFindTools(ctx context.Context, query string, limit int,
 	descByName map[string]*mcp.Tool, permit func(string) bool,
 ) findToolsOutput {
 	// No query, no embedder, or no index -> lexical only.
-	if query == "" || !embedding.IsConfigured(p.embeddingProv) || p.toolsIndexStore == nil {
+	if query == "" || !embedding.IsConfigured(p.embeddingProv) || p.indexQueue.ToolsIndexStore() == nil {
 		out := findToolsOutput{}
-		if query != "" && p.toolsIndexStore == nil {
+		if query != "" && p.indexQueue.ToolsIndexStore() == nil {
 			out.Note = "semantic ranking unavailable (tool index not enabled); returning name/description matches"
 		}
 		out.Tools = lexicalFindTools(query, descByName, permit, limit)
@@ -116,7 +116,7 @@ func (p *Platform) semanticFindTools(ctx context.Context, query string, limit in
 	if err != nil || zeroVector(qv) {
 		return nil, "semantic ranking unavailable (query could not be embedded); returning name/description matches", false
 	}
-	scored, err := p.toolsIndexStore.RankBySimilarity(ctx, toolsindex.SourceID, qv)
+	scored, err := p.indexQueue.ToolsIndexStore().RankBySimilarity(ctx, toolsindex.SourceID, qv)
 	if err != nil || len(scored) == 0 {
 		return nil, "semantic ranking unavailable (tools not indexed yet); returning name/description matches", false
 	}

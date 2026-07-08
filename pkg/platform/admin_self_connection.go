@@ -75,9 +75,11 @@ func (p *Platform) WireAdminSelfConnection(listenAddr string) {
 
 	// Pass the enqueuer as a nil interface (not a typed nil) when the
 	// embed queue is unwired, so the seed's nil check works correctly.
+	// APIGatewayEmbedJobsStore returns a true nil interface when no queue
+	// or no api-catalog consumer is wired.
 	var enqueuer embedEnqueuer
-	if p.apiGatewayEmbedAdminStore != nil {
-		enqueuer = p.apiGatewayEmbedAdminStore
+	if store := p.APIGatewayEmbedJobsStore(); store != nil {
+		enqueuer = store
 	}
 
 	p.lifecycle.OnStart(func(ctx context.Context) error {

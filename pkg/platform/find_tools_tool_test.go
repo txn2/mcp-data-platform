@@ -8,8 +8,8 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
-	"github.com/txn2/mcp-data-platform/pkg/toolkits/tools/toolsindex"
+	"github.com/txn2/mcp-data-platform/pkg/embedding"
+	"github.com/txn2/mcp-data-platform/pkg/platform/indexqueue"
 )
 
 // stubFindEmbedder is a configured (non-noop) embedding provider that
@@ -34,43 +34,6 @@ func (e *stubFindEmbedder) Dimension() int { return e.dim }
 func (*stubFindEmbedder) Kind() string     { return "fake" }
 
 func tool(name, desc string) *mcp.Tool { return &mcp.Tool{Name: name, Description: desc} }
-
-func TestToolParamSummary(t *testing.T) {
-	t.Parallel()
-	if got := toolParamSummary(nil); got != "" {
-		t.Errorf("nil schema = %q; want empty", got)
-	}
-	schema := map[string]any{
-		"properties": map[string]any{
-			"query": map[string]any{"description": "the query"},
-			"limit": map[string]any{},
-		},
-	}
-	got := toolParamSummary(schema)
-	want := "limit, query (the query)" // sorted by name
-	if got != want {
-		t.Errorf("summary = %q; want %q", got, want)
-	}
-	// Unmarshalable value (chan) -> marshal error -> empty.
-	if s := toolParamSummary(make(chan int)); s != "" {
-		t.Errorf("unmarshalable schema = %q; want empty", s)
-	}
-	// Non-object schema -> unmarshal into the properties struct fails -> empty.
-	if s := toolParamSummary(42); s != "" {
-		t.Errorf("non-object schema = %q; want empty", s)
-	}
-}
-
-func TestToolEmbedText(t *testing.T) {
-	t.Parallel()
-	if got := toolEmbedText(&mcp.Tool{Name: "x"}); got != "x" {
-		t.Errorf("name-only = %q; want x", got)
-	}
-	got := toolEmbedText(&mcp.Tool{Name: "trino_query", Description: "run SQL"})
-	if got != "trino_query\nrun SQL" {
-		t.Errorf("name+desc = %q", got)
-	}
-}
 
 func TestZeroVector(t *testing.T) {
 	t.Parallel()
@@ -142,10 +105,11 @@ func TestRankFindTools_SemanticPath(t *testing.T) {
 	}
 	defer db.Close() //nolint:errcheck // test cleanup
 
-	p := &Platform{
-		embeddingProv:   &stubFindEmbedder{dim: 3},
-		toolsIndexStore: toolsindex.NewStore(db),
-	}
+	p := &Platform{embeddingProv: &stubFindEmbedder{dim: 3}}
+	// Build a real queue handle so the tools vector store is read through the
+	// handle accessor, exactly as production does. New starts no goroutine.
+	p.indexQueue = indexqueue.New(indexqueue.Config{DB: db, Embedder: embedding.NewNoopProvider(3)})
+
 	// Ranked: trino_query (visible+permitted), hidden_tool (not in
 	// descByName -> dropped), denied_tool (permit=false -> dropped).
 	mock.ExpectQuery("ORDER BY embedding").
@@ -218,10 +182,10 @@ func TestHandleFindTools_Semantic(t *testing.T) {
 	}
 	defer db.Close() //nolint:errcheck // test cleanup
 	p := &Platform{
-		mcpServer:       findToolsTestServer("alpha", "beta"),
-		embeddingProv:   &stubFindEmbedder{dim: 3},
-		toolsIndexStore: toolsindex.NewStore(db),
+		mcpServer:     findToolsTestServer("alpha", "beta"),
+		embeddingProv: &stubFindEmbedder{dim: 3},
 	}
+	p.indexQueue = indexqueue.New(indexqueue.Config{DB: db, Embedder: embedding.NewNoopProvider(3)})
 	mock.ExpectQuery("ORDER BY embedding").
 		WillReturnRows(sqlmock.NewRows([]string{"tool_name", "score"}).AddRow("alpha", 0.95))
 	res, _, err := p.handleFindTools(context.Background(), nil, findToolsInput{Query: "do alpha", Limit: 5})
@@ -231,24 +195,4 @@ func TestHandleFindTools_Semantic(t *testing.T) {
 	if res.IsError || !strings.Contains(resultText(res), "alpha") {
 		t.Errorf("semantic result wrong: err=%v text=%s", res.IsError, resultText(res))
 	}
-}
-
-func TestBootstrapToolsIndex(t *testing.T) {
-	t.Parallel()
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("sqlmock.New: %v", err)
-	}
-	defer db.Close() //nolint:errcheck // test cleanup
-	p := &Platform{
-		indexJobsStore:  indexjobs.NewPostgresStore(db),
-		toolsIndexStore: toolsindex.NewStore(db),
-	}
-	mock.ExpectQuery("INSERT INTO index_jobs").
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(1)))
-	mock.ExpectExec("pg_notify").WillReturnResult(sqlmock.NewResult(0, 0))
-	p.bootstrapToolsIndex(context.Background())
-
-	// No-op when not wired.
-	(&Platform{}).bootstrapToolsIndex(context.Background())
 }

@@ -1,4 +1,4 @@
-package platform
+package indexqueue
 
 import (
 	"context"
@@ -8,10 +8,11 @@ import (
 	"time"
 )
 
-// TestBoundedStop_CleanCompletionReturnsNil asserts the happy path:
-// when fn returns before the context deadline, boundedStop returns
-// nil and the caller observes the stop as successful.
+// TestBoundedStop_CleanCompletionReturnsNil asserts the happy path: when fn
+// returns before the context deadline, boundedStop returns nil and the caller
+// observes the stop as successful.
 func TestBoundedStop_CleanCompletionReturnsNil(t *testing.T) {
+	t.Parallel()
 	var ran atomic.Bool
 	err := boundedStop(context.Background(), "test", func() {
 		ran.Store(true)
@@ -24,12 +25,11 @@ func TestBoundedStop_CleanCompletionReturnsNil(t *testing.T) {
 	}
 }
 
-// TestBoundedStop_DeadlineReturnsCtxErr proves the bounded-shutdown
-// invariant: a hung fn must not stall past ctx.Done. The platform
-// shutdown chain (cmd/main.go closeServer -> Platform.Stop ->
-// lifecycle.OnStop callbacks) relies on this to fit inside the K8s
-// terminationGracePeriodSeconds budget.
+// TestBoundedStop_DeadlineReturnsCtxErr proves the bounded-shutdown invariant: a
+// hung fn must not stall past ctx.Done. The platform shutdown chain relies on
+// this to fit inside the K8s terminationGracePeriodSeconds budget.
 func TestBoundedStop_DeadlineReturnsCtxErr(t *testing.T) {
+	t.Parallel()
 	release := make(chan struct{})
 	defer close(release)
 
@@ -50,12 +50,12 @@ func TestBoundedStop_DeadlineReturnsCtxErr(t *testing.T) {
 	}
 }
 
-// TestBoundedStop_PreCanceledCtxReturnsImmediately covers the edge
-// case where the caller passes an already-canceled context. fn may
-// or may not run (race between the goroutine launching and the
-// select observing ctx.Done), but boundedStop must return promptly
-// either way.
+// TestBoundedStop_PreCanceledCtxReturnsImmediately covers the edge case where
+// the caller passes an already-canceled context. fn may or may not run (race
+// between the goroutine launching and the select observing ctx.Done), but
+// boundedStop must return promptly either way.
 func TestBoundedStop_PreCanceledCtxReturnsImmediately(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -67,8 +67,8 @@ func TestBoundedStop_PreCanceledCtxReturnsImmediately(t *testing.T) {
 	elapsed := time.Since(start)
 
 	if err == nil {
-		// Race: fn finished before the select saw ctx.Done. That is
-		// still correct behavior (no leak, returned promptly).
+		// Race: fn finished before the select saw ctx.Done. That is still correct
+		// behavior (no leak, returned promptly).
 		return
 	}
 	if !errors.Is(err, context.Canceled) {
