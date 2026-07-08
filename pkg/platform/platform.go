@@ -49,6 +49,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/platform/dedup"
 	"github.com/txn2/mcp-data-platform/pkg/platform/exportadapters"
 	"github.com/txn2/mcp-data-platform/pkg/platform/fieldcrypt"
+	"github.com/txn2/mcp-data-platform/pkg/platform/iam"
 	"github.com/txn2/mcp-data-platform/pkg/platform/mwchain"
 	"github.com/txn2/mcp-data-platform/pkg/platform/obs"
 	"github.com/txn2/mcp-data-platform/pkg/platform/personastore"
@@ -1152,16 +1153,22 @@ func (p *Platform) initRegistries(opts *Options) error {
 	return nil
 }
 
-// initAuth initializes authentication and authorization components.
+// initAuth initializes authentication and authorization components. The
+// authenticator and authorizer are built by pkg/platform/iam from an
+// explicit input; each is skipped when the caller injects its own (test wiring),
+// so an override never triggers construction of the other (#756, #828).
 func (p *Platform) initAuth(opts *Options) error {
+	in := p.authInput()
+
 	if opts.Authenticator != nil {
 		p.authenticator = opts.Authenticator
 	} else {
-		authenticator, err := p.createAuthenticator()
+		identity, err := iam.NewIdentity(in)
 		if err != nil {
 			return fmt.Errorf("creating authenticator: %w", err)
 		}
-		p.authenticator = authenticator
+		p.authenticator = identity.Authenticator
+		p.apiKeyAuth = identity.APIKeyAuth
 	}
 
 	// Record every authenticated person in the known-users directory (#614).
@@ -1175,7 +1182,7 @@ func (p *Platform) initAuth(opts *Options) error {
 	if opts.Authorizer != nil {
 		p.authorizer = opts.Authorizer
 	} else {
-		p.authorizer = p.createAuthorizer()
+		p.authorizer = iam.NewAuthorizer(in)
 	}
 
 	// Initialize browser session (OIDC login + cookie auth) when enabled.
@@ -1184,6 +1191,49 @@ func (p *Platform) initAuth(opts *Options) error {
 	}
 
 	return nil
+}
+
+// authInput translates the platform config, OAuth signing key and persona
+// registry into the explicit input the iam package consumes, keeping the
+// platform-local config types on this side of the package boundary.
+func (p *Platform) authInput() iam.Input {
+	oidc := p.config.Auth.OIDC
+
+	keys := make([]auth.APIKey, 0, len(p.config.Auth.APIKeys.Keys))
+	for _, k := range p.config.Auth.APIKeys.Keys {
+		keys = append(keys, auth.APIKey{
+			Key:         k.Key,
+			Name:        k.Name,
+			Email:       k.Email,
+			Description: k.Description,
+			Roles:       k.Roles,
+		})
+	}
+
+	return iam.Input{
+		OAuthEnabled: p.config.OAuth.Enabled,
+		OAuthJWT: auth.OAuthJWTConfig{
+			Issuer:        p.config.OAuth.Issuer,
+			SigningKey:    p.oauthSigningKey,
+			RoleClaimPath: oidc.RoleClaimPath,
+			RolePrefix:    oidc.RolePrefix,
+		},
+		OIDCEnabled: oidc.Enabled,
+		OIDC: auth.OIDCConfig{
+			Issuer:        oidc.Issuer,
+			ClientID:      oidc.ClientID,
+			Audience:      oidc.Audience,
+			RoleClaimPath: oidc.RoleClaimPath,
+			RolePrefix:    oidc.RolePrefix,
+		},
+		APIKeysEnabled:  p.config.Auth.APIKeys.Enabled,
+		APIKeys:         keys,
+		AllowAnonymous:  p.config.Auth.AllowAnonymous,
+		PersonaRegistry: p.personaRegistry,
+		RoleClaimPath:   oidc.RoleClaimPath,
+		RolePrefix:      oidc.RolePrefix,
+		OIDCToPersona:   p.config.Personas.RoleMapping.OIDCToPersona,
+	}
 }
 
 // initBrowserSession sets up OIDC login flow and cookie authenticator.
@@ -3111,85 +3161,6 @@ func (p *Platform) loadDBAPIKeys() {
 	if len(defs) > 0 {
 		slog.Info("loaded DB api keys", logKeyCount, len(defs))
 	}
-}
-
-// createAuthenticator creates the authenticator based on config.
-func (p *Platform) createAuthenticator() (middleware.Authenticator, error) {
-	var authenticators []middleware.Authenticator
-
-	// OAuth JWT authenticator (for tokens issued by our OAuth server)
-	// This is checked first because OAuth tokens from Claude Desktop will use this
-	if p.config.OAuth.Enabled && len(p.oauthSigningKey) > 0 {
-		oauthAuth, err := auth.NewOAuthJWTAuthenticator(auth.OAuthJWTConfig{
-			Issuer:        p.config.OAuth.Issuer,
-			SigningKey:    p.oauthSigningKey,
-			RoleClaimPath: p.config.Auth.OIDC.RoleClaimPath,
-			RolePrefix:    p.config.Auth.OIDC.RolePrefix,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("creating OAuth JWT authenticator: %w", err)
-		}
-		authenticators = append(authenticators, oauthAuth)
-	}
-
-	// OIDC authenticator (for tokens from external IdPs like Keycloak)
-	if p.config.Auth.OIDC.Enabled {
-		oidcAuth, err := auth.NewOIDCAuthenticator(auth.OIDCConfig{
-			Issuer:        p.config.Auth.OIDC.Issuer,
-			ClientID:      p.config.Auth.OIDC.ClientID,
-			Audience:      p.config.Auth.OIDC.Audience,
-			RoleClaimPath: p.config.Auth.OIDC.RoleClaimPath,
-			RolePrefix:    p.config.Auth.OIDC.RolePrefix,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("creating OIDC authenticator: %w", err)
-		}
-		authenticators = append(authenticators, oidcAuth)
-	}
-
-	// API key authenticator
-	if p.config.Auth.APIKeys.Enabled {
-		var keys []auth.APIKey
-		for _, k := range p.config.Auth.APIKeys.Keys {
-			keys = append(keys, auth.APIKey{
-				Key:         k.Key,
-				Name:        k.Name,
-				Email:       k.Email,
-				Description: k.Description,
-				Roles:       k.Roles,
-			})
-		}
-		apiKeyAuth := auth.NewAPIKeyAuthenticator(auth.APIKeyConfig{Keys: keys})
-		p.apiKeyAuth = apiKeyAuth
-		authenticators = append(authenticators, apiKeyAuth)
-	}
-
-	// If no authenticators configured, use noop
-	if len(authenticators) == 0 {
-		return &middleware.NoopAuthenticator{
-			DefaultUserID: "anonymous",
-			DefaultRoles:  []string{},
-		}, nil
-	}
-
-	// Chain authenticators - anonymous access disabled by default
-	return auth.NewChainedAuthenticator(
-		auth.ChainedAuthConfig{AllowAnonymous: p.config.Auth.AllowAnonymous},
-		authenticators...,
-	), nil
-}
-
-// createAuthorizer creates the authorizer.
-func (p *Platform) createAuthorizer() middleware.Authorizer {
-	// Create role mapper
-	mapper := &persona.OIDCRoleMapper{
-		ClaimPath:      p.config.Auth.OIDC.RoleClaimPath,
-		RolePrefix:     p.config.Auth.OIDC.RolePrefix,
-		PersonaMapping: p.config.Personas.RoleMapping.OIDCToPersona,
-		Registry:       p.personaRegistry,
-	}
-
-	return persona.NewAuthorizer(p.personaRegistry, mapper)
 }
 
 // Start starts the platform.
