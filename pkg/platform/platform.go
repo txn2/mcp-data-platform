@@ -24,7 +24,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	dhclient "github.com/txn2/mcp-datahub/pkg/client"
 	s3client "github.com/txn2/mcp-s3/pkg/client"
-	"golang.org/x/crypto/bcrypt"
 
 	"github.com/txn2/mcp-data-platform/apps"
 	auditpostgres "github.com/txn2/mcp-data-platform/pkg/audit/postgres"
@@ -44,7 +43,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/oauth"
-	oauthpostgres "github.com/txn2/mcp-data-platform/pkg/oauth/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform/browserauth"
 	"github.com/txn2/mcp-data-platform/pkg/platform/dedup"
@@ -52,6 +50,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/platform/fieldcrypt"
 	"github.com/txn2/mcp-data-platform/pkg/platform/iam"
 	"github.com/txn2/mcp-data-platform/pkg/platform/mwchain"
+	"github.com/txn2/mcp-data-platform/pkg/platform/oauthserver"
 	"github.com/txn2/mcp-data-platform/pkg/platform/obs"
 	"github.com/txn2/mcp-data-platform/pkg/platform/personastore"
 	"github.com/txn2/mcp-data-platform/pkg/platform/reflexivecapture"
@@ -162,9 +161,8 @@ type Platform struct {
 	apiKeyAuth    *auth.APIKeyAuthenticator
 
 	// OAuth
-	oauthServer      *oauth.Server
-	oauthSigningKey  []byte
-	oauthStoreCloser interface{ Close() error }
+	oauthHandle     *oauthserver.Handle
+	oauthSigningKey []byte
 
 	// Browser session (OIDC login flow + cookie-based auth for the web UI)
 	browserSession *browserauth.Session
@@ -1360,66 +1358,37 @@ func (p *Platform) initBroadcaster() {
 	p.initReloadBus()
 }
 
-// initOAuth initializes the OAuth server if enabled.
+// initOAuth initializes the OAuth server if enabled. It translates platform
+// config into oauthserver.Config and delegates assembly to the owner package;
+// the returned Handle owns the server plus its store-closer/cleanup, closed at
+// platform shutdown.
 func (p *Platform) initOAuth() error {
 	if !p.config.OAuth.Enabled {
 		return nil
 	}
 
-	// Create storage: use PostgreSQL if database is available, otherwise in-memory.
-	var oauthStorage oauth.Storage
-	var pgStore *oauthpostgres.Store
-	if p.db != nil {
-		pgStore = oauthpostgres.New(p.db)
-		pgStore.StartCleanupRoutine(time.Minute)
-		p.oauthStoreCloser = pgStore
-		oauthStorage = pgStore
-		slog.Info("OAuth storage: database")
-	} else {
-		oauthStorage = oauth.NewMemoryStorage()
-		slog.Info("OAuth storage: memory")
-	}
-
-	// Pre-register clients from config
-	for _, clientCfg := range p.config.OAuth.Clients {
-		hashedSecret, err := bcrypt.GenerateFromPassword([]byte(clientCfg.Secret), bcrypt.DefaultCost)
-		if err != nil {
-			return fmt.Errorf("hashing client secret for %s: %w", clientCfg.ID, err)
-		}
-
-		client := &oauth.Client{
-			ID:           clientCfg.ID,
-			ClientID:     clientCfg.ID,
-			ClientSecret: string(hashedSecret),
-			Name:         clientCfg.ID,
-			RedirectURIs: clientCfg.RedirectURIs,
-			GrantTypes:   []string{"authorization_code", "refresh_token"},
-			RequirePKCE:  true,
-			CreatedAt:    time.Now(),
-			Active:       true,
-		}
-
-		if err := oauthStorage.CreateClient(context.Background(), client); err != nil {
-			return fmt.Errorf("creating client %s: %w", clientCfg.ID, err)
-		}
-	}
-
-	// Build OAuth server config
-	serverConfig := oauth.ServerConfig{
+	cfg := oauthserver.Config{
 		Issuer:         p.config.OAuth.Issuer,
 		AccessTokenTTL: 1 * time.Hour,
 		SigningKey:     p.oauthSigningKey,
-		DCR: oauth.DCRConfig{
+		Clients:        make([]oauthserver.Client, 0, len(p.config.OAuth.Clients)),
+		DCR: oauthserver.DCR{
 			Enabled:                 p.config.OAuth.DCR.Enabled,
 			AllowedRedirectPatterns: p.config.OAuth.DCR.AllowedRedirectPatterns,
 			AllowAllRedirectURIs:    p.config.OAuth.DCR.AllowAllRedirectURIs,
-			RequirePKCE:             true,
 		},
+		DB:      p.db,
+		Metrics: p.obs.Metrics(),
 	}
-
-	// Configure upstream IdP if present
+	for _, clientCfg := range p.config.OAuth.Clients {
+		cfg.Clients = append(cfg.Clients, oauthserver.Client{
+			ID:           clientCfg.ID,
+			Secret:       clientCfg.Secret,
+			RedirectURIs: clientCfg.RedirectURIs,
+		})
+	}
 	if p.config.OAuth.Upstream != nil {
-		serverConfig.Upstream = &oauth.UpstreamConfig{
+		cfg.Upstream = &oauthserver.Upstream{
 			Issuer:       p.config.OAuth.Upstream.Issuer,
 			ClientID:     p.config.OAuth.Upstream.ClientID,
 			ClientSecret: p.config.OAuth.Upstream.ClientSecret,
@@ -1427,45 +1396,22 @@ func (p *Platform) initOAuth() error {
 		}
 	}
 
-	// Create OAuth server
-	server, err := oauth.NewServer(serverConfig, oauthStorage)
+	handle, err := oauthserver.New(context.Background(), cfg)
 	if err != nil {
-		return fmt.Errorf("creating OAuth server: %w", err)
+		return fmt.Errorf("initializing OAuth server: %w", err)
 	}
+	p.oauthHandle = handle
 
-	// Surface the DCR default-deny at boot: a deployment that enabled DCR
-	// without patterns previously accepted any redirect URI and now denies
-	// all registrations. The request-time error repeats the guidance, but
-	// the operator should learn about it from the startup log, not from
-	// the first failing client.
-	if p.config.OAuth.DCR.Enabled && len(p.config.OAuth.DCR.AllowedRedirectPatterns) == 0 &&
-		!p.config.OAuth.DCR.AllowAllRedirectURIs {
-		slog.Warn("OAuth DCR is enabled without allowed_redirect_patterns: all client registrations will be denied. " +
-			"Set oauth.dcr.allowed_redirect_patterns, or oauth.dcr.allow_all_redirect_uris: true to explicitly accept any redirect URI.")
-	}
-
-	// In multi-replica deployments the upstream IdP callback can land on a
-	// different replica than the one that started the flow, so in-flight
-	// authorization state must live in the shared database when one is
-	// configured. The Postgres store's cleanup routine sweeps it; the
-	// memory path sweeps via the server's own cleanup routine, canceled
-	// at platform shutdown so repeated start/stop cycles do not leak
-	// ticker goroutines.
-	if pgStore != nil {
-		server.SetStateStore(pgStore)
-		slog.Info("OAuth state store: database")
-	} else {
-		cleanupCtx, cancelCleanup := context.WithCancel(context.Background())
-		server.StartCleanupRoutine(cleanupCtx, time.Minute)
+	// The in-memory (single-replica) state-store path runs a cleanup ticker that
+	// must be canceled when the lifecycle stops so repeated start/stop cycles do
+	// not leak the goroutine. The database path returns a nil cancel (its store
+	// sweeps itself and is closed at platform Close).
+	if cancel := handle.StateStoreCleanup(); cancel != nil {
 		p.lifecycle.OnStop(func(context.Context) error {
-			cancelCleanup()
+			cancel()
 			return nil
 		})
-		slog.Info("OAuth state store: memory (single-replica)")
 	}
-
-	server.SetMetrics(p.obs.Metrics())
-	p.oauthServer = server
 	return nil
 }
 
@@ -3182,7 +3128,7 @@ func (p *Platform) SessionStore() session.Store {
 
 // OAuthServer returns the OAuth server, or nil if not enabled.
 func (p *Platform) OAuthServer() *oauth.Server {
-	return p.oauthServer
+	return p.oauthHandle.Server()
 }
 
 // AuditStore returns the PostgreSQL audit store, or nil if audit is disabled.
@@ -3667,9 +3613,9 @@ func (p *Platform) closeSessionLayer(errs *[]error) {
 	}
 	slog.Debug("shutdown: stopping reload bus")
 	p.stopReloadBus()
-	if p.oauthStoreCloser != nil {
-		slog.Debug("shutdown: closing OAuth store")
-		closeResource(errs, p.oauthStoreCloser)
+	if p.oauthHandle != nil {
+		slog.Debug("shutdown: closing OAuth server")
+		closeResource(errs, p.oauthHandle)
 	}
 }
 

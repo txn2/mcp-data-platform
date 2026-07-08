@@ -32,7 +32,7 @@ const (
 	// maxPlatformFields caps the number of fields on the Platform struct.
 	// Frozen at today's count; ratchet down as subsystems are grouped into
 	// owner structs (a subsystem's N fields become one owner field).
-	maxPlatformFields = 83
+	maxPlatformFields = 82
 
 	// maxPlatformMethods caps the number of methods with a *Platform receiver.
 	// Frozen at today's count; ratchet down as accessors move onto the

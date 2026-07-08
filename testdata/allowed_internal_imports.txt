@@ -122,7 +122,6 @@ pkg/platform -> pkg/memory
 pkg/platform -> pkg/memory/memoryindex
 pkg/platform -> pkg/middleware
 pkg/platform -> pkg/oauth
-pkg/platform -> pkg/oauth/postgres
 pkg/platform -> pkg/observability
 pkg/platform -> pkg/observability/proxy
 pkg/platform -> pkg/persona
@@ -134,6 +133,7 @@ pkg/platform -> pkg/platform/fieldcrypt
 pkg/platform -> pkg/platform/iam
 pkg/platform -> pkg/platform/instructions
 pkg/platform -> pkg/platform/mwchain
+pkg/platform -> pkg/platform/oauthserver
 pkg/platform -> pkg/platform/obs
 pkg/platform -> pkg/platform/personastore
 pkg/platform -> pkg/platform/reflexivecapture
@@ -184,6 +184,9 @@ pkg/platform/iam -> pkg/auth
 pkg/platform/iam -> pkg/middleware
 pkg/platform/iam -> pkg/persona
 pkg/platform/instructions -> pkg/persona
+pkg/platform/oauthserver -> pkg/oauth
+pkg/platform/oauthserver -> pkg/oauth/postgres
+pkg/platform/oauthserver -> pkg/observability
 pkg/platform/obs -> pkg/observability
 pkg/platform/personastore -> pkg/persona
 pkg/platform/reflexivecapture -> pkg/memory
