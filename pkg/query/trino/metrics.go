@@ -26,11 +26,10 @@ const (
 )
 
 // SetMetrics wraps the adapter's client in an instrumenting decorator
-// that records Trino metrics AND opens a per-call span. The caller
-// installs it only when metrics OR tracing is enabled (see
-// Platform.observabilityEnabled); the decorator's metric record is
-// nil-safe and its span is a no-op outside an active trace, so whichever
-// subsystem is off costs effectively nothing.
+// that records Trino metrics AND opens a per-call span. The platform
+// installs it only when metrics OR tracing is enabled; the decorator's
+// metric record is nil-safe and its span is a no-op outside an active
+// trace, so whichever subsystem is off costs effectively nothing.
 func (a *Adapter) SetMetrics(m *observability.Metrics) {
 	a.client = &instrumentedClient{Client: a.client, metrics: m}
 }

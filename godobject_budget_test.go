@@ -98,16 +98,20 @@ func countPlatformGodObject(t *testing.T) (fields, methods int) {
 	return fields, methods
 }
 
-// isPlatformMethod reports whether fn is a method with a *Platform receiver.
+// isPlatformMethod reports whether fn is a method on Platform, counting both
+// pointer (*Platform) and value (Platform) receivers. Counting value receivers
+// too closes an escape hatch: otherwise the method ceiling could be ducked
+// under by rewriting `func (p *Platform)` as `func (p Platform)` without any
+// real decomposition.
 func isPlatformMethod(fn *ast.FuncDecl) bool {
 	if fn.Recv == nil || len(fn.Recv.List) != 1 {
 		return false
 	}
-	star, ok := fn.Recv.List[0].Type.(*ast.StarExpr)
-	if !ok {
-		return false
+	recv := fn.Recv.List[0].Type
+	if star, ok := recv.(*ast.StarExpr); ok {
+		recv = star.X // unwrap the pointer receiver to its base type
 	}
-	ident, ok := star.X.(*ast.Ident)
+	ident, ok := recv.(*ast.Ident)
 	return ok && ident.Name == "Platform"
 }
 

@@ -127,7 +127,7 @@ func TestQueryKind(t *testing.T) {
 
 // TestSetMetrics_NilRecorderTransparent confirms the new contract:
 // SetMetrics installs the instrumenting decorator unconditionally (the
-// platform gates the CALL on metrics-or-tracing via observabilityEnabled),
+// platform gates the CALL on whether metrics or tracing is enabled),
 // and with a nil/disabled recorder and no active trace the decorator is
 // behaviorally transparent — it delegates to the underlying client,
 // records nothing (nil-safe), and emits no span (ChildSpan no-op).
