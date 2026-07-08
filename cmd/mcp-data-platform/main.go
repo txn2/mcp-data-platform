@@ -455,8 +455,8 @@ func buildRootHandler(mcpServer *mcp.Server, p *platform.Platform, hcfg httpConf
 			TTL:         p.Config().Sessions.TTL,
 			Broadcaster: p.Broadcaster(),
 		})
-		// Platform.Broadcaster() is non-nil after New (initBroadcaster
-		// wires postgres or memory). The "+ broadcaster" tag is part
+		// Platform.Broadcaster() is non-nil after New (the sessionsync
+		// layer wires postgres or memory). The "+ broadcaster" tag is part
 		// of the log line so operators can grep deployments where the
 		// session-aware handler is wired with the SSE long-poll path.
 		log.Println("Session-aware handler enabled (external session store + broadcaster)")

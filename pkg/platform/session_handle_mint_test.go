@@ -13,9 +13,22 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
+	"github.com/txn2/mcp-data-platform/pkg/platform/sessionsync"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/session"
 )
+
+// mintSessionsHandle wraps an injected session store in a sessionsync handle
+// (memory broadcaster, no db) for the mint tests, closing it via t.Cleanup.
+func mintSessionsHandle(t *testing.T, store session.Store) *sessionsync.Handle {
+	t.Helper()
+	h, err := sessionsync.New(nil, sessionsync.Config{}, store, sessionsync.ReloadHandlers{})
+	if err != nil {
+		t.Fatalf("sessionsync.New: %v", err)
+	}
+	t.Cleanup(func() { _ = h.Close() })
+	return h
+}
 
 // mintTestPlatform builds a minimal Platform wired with a memory session store
 // and the given handles config, sufficient to exercise handleInfo minting.
@@ -29,7 +42,7 @@ func mintTestPlatform(t *testing.T, handles SessionHandlesConfig) (*Platform, *s
 		},
 		personaRegistry: persona.NewRegistry(),
 		toolkitRegistry: registry.NewRegistry(),
-		sessionStore:    store,
+		sessions:        mintSessionsHandle(t, store),
 	}
 	return p, store
 }
@@ -107,7 +120,7 @@ func (failCreateStore) Create(context.Context, *session.Session) error {
 // handle-less response rather than failing the whole platform_info call.
 func TestHandleInfo_MintCreateErrorOmitsHandle(t *testing.T) {
 	p, _ := mintTestPlatform(t, SessionHandlesConfig{})
-	p.sessionStore = failCreateStore{session.NewMemoryStore(time.Hour)}
+	p.sessions = mintSessionsHandle(t, failCreateStore{session.NewMemoryStore(time.Hour)})
 
 	result, _, err := p.handleInfo(ctxWithUser("u"), nil)
 	require.NoError(t, err, "a mint failure must not fail platform_info")

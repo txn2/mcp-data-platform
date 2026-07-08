@@ -25,6 +25,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/platform/connauth"
 	"github.com/txn2/mcp-data-platform/pkg/platform/instructions"
 	"github.com/txn2/mcp-data-platform/pkg/platform/personastore"
+	"github.com/txn2/mcp-data-platform/pkg/platform/sessionsync"
 	"github.com/txn2/mcp-data-platform/pkg/platform/toolkitcfg"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
@@ -2388,25 +2389,39 @@ func TestInitSessions_DatabaseWithoutDB(t *testing.T) {
 	}
 }
 
+// newTestSessions builds a sessionsync handle over an injected store with a
+// started enrichment cache, for the flush/load enrichment-state tests. The
+// returned cache is the same instance the handle exposes via SessionCache(), so
+// tests can populate it before exercising flushEnrichmentState. The handle is
+// closed via t.Cleanup (stopping its reload goroutine and closing the store).
+func newTestSessions(t *testing.T, store session.Store) (*sessionsync.Handle, *middleware.SessionEnrichmentCache) {
+	t.Helper()
+	h, err := sessionsync.New(nil, sessionsync.Config{}, store, sessionsync.ReloadHandlers{})
+	if err != nil {
+		t.Fatalf("sessionsync.New: %v", err)
+	}
+	t.Cleanup(func() { _ = h.Close() })
+	cache := h.StartCache(5*time.Minute, 30*time.Minute)
+	return h, cache
+}
+
 func TestFlushEnrichmentState(t *testing.T) {
 	t.Run("nil cache or store is no-op", func(_ *testing.T) {
 		p := &Platform{}
 		p.flushEnrichmentState() // should not panic
 	})
 
-	t.Run("empty export is no-op", func(_ *testing.T) {
-		cache := middleware.NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute)
+	t.Run("empty export is no-op", func(t *testing.T) {
 		store := session.NewMemoryStore(30 * time.Minute)
-		defer func() { _ = store.Close() }()
+		h, _ := newTestSessions(t, store)
 
-		p := &Platform{sessionCache: cache, sessionStore: store}
+		p := &Platform{sessions: h}
 		p.flushEnrichmentState() // nothing to flush
 	})
 
 	t.Run("flushes dedup state to store", func(t *testing.T) {
-		cache := middleware.NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute)
 		store := session.NewMemoryStore(30 * time.Minute)
-		defer func() { _ = store.Close() }()
+		h, cache := newTestSessions(t, store)
 
 		// Create a session in the store
 		ctx := context.Background()
@@ -2422,7 +2437,7 @@ func TestFlushEnrichmentState(t *testing.T) {
 		// Mark table as sent in cache with token count
 		cache.MarkSent("flush-sess", "catalog.schema.users", 250)
 
-		p := &Platform{sessionCache: cache, sessionStore: store}
+		p := &Platform{sessions: h}
 		p.flushEnrichmentState()
 
 		// Verify state was persisted
@@ -2458,9 +2473,8 @@ func TestLoadPersistedEnrichmentState(t *testing.T) {
 	})
 
 	t.Run("loads dedup state from store", func(t *testing.T) {
-		cache := middleware.NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute)
 		store := session.NewMemoryStore(30 * time.Minute)
-		defer func() { _ = store.Close() }()
+		h, cache := newTestSessions(t, store)
 
 		ctx := context.Background()
 		now := time.Now()
@@ -2477,7 +2491,7 @@ func TestLoadPersistedEnrichmentState(t *testing.T) {
 			t.Fatalf("create: %v", err)
 		}
 
-		p := &Platform{sessionCache: cache, sessionStore: store}
+		p := &Platform{sessions: h}
 		p.loadPersistedEnrichmentState()
 
 		// Verify cache was populated
@@ -2487,9 +2501,8 @@ func TestLoadPersistedEnrichmentState(t *testing.T) {
 	})
 
 	t.Run("skips sessions without dedup state", func(t *testing.T) {
-		cache := middleware.NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute)
 		store := session.NewMemoryStore(30 * time.Minute)
-		defer func() { _ = store.Close() }()
+		h, cache := newTestSessions(t, store)
 
 		ctx := context.Background()
 		sess := &session.Session{
@@ -2501,7 +2514,7 @@ func TestLoadPersistedEnrichmentState(t *testing.T) {
 			t.Fatalf("create: %v", err)
 		}
 
-		p := &Platform{sessionCache: cache, sessionStore: store}
+		p := &Platform{sessions: h}
 		p.loadPersistedEnrichmentState()
 
 		if cache.SessionCount() != 0 {
@@ -2527,15 +2540,15 @@ func TestFlushLoadRoundTrip(t *testing.T) {
 	}
 
 	// Phase 1: populate cache and flush
-	cache1 := middleware.NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute)
+	h1, cache1 := newTestSessions(t, store)
 	cache1.MarkSent("rt-sess", "catalog.schema.products", 350)
 
-	p1 := &Platform{sessionCache: cache1, sessionStore: store}
+	p1 := &Platform{sessions: h1}
 	p1.flushEnrichmentState()
 
 	// Phase 2: load into new cache
-	cache2 := middleware.NewSessionEnrichmentCache(5*time.Minute, 30*time.Minute)
-	p2 := &Platform{sessionCache: cache2, sessionStore: store}
+	h2, cache2 := newTestSessions(t, store)
+	p2 := &Platform{sessions: h2}
 	p2.loadPersistedEnrichmentState()
 
 	if !cache2.WasSentRecently("rt-sess", "catalog.schema.products") {
@@ -4657,8 +4670,8 @@ func (*noopResourceStore) Delete(_ context.Context, _ string) error             
 
 // TestBroadcaster_NonNilAfterNew proves Broadcaster() honors its
 // "always non-nil after New" contract — including the previously-buggy
-// path where opts.SessionStore was injected and initBroadcaster was
-// skipped, leaving the broadcaster nil.
+// path where opts.SessionStore was injected and the broadcaster wiring
+// was skipped, leaving the broadcaster nil.
 func TestBroadcaster_NonNilAfterNew(t *testing.T) {
 	cfg := &Config{
 		Server:   ServerConfig{Name: testServerName},
@@ -4677,8 +4690,8 @@ func TestBroadcaster_NonNilAfterNew(t *testing.T) {
 	}
 
 	// Inject a SessionStore and verify the broadcaster is still wired.
-	// Prior to the fix, this path early-returned in initSessions before
-	// initBroadcaster ran, leaving Broadcaster() nil.
+	// Prior to the fix, this path early-returned before the broadcaster
+	// was wired, leaving Broadcaster() nil.
 	p2, err := New(
 		WithConfig(cfg),
 		WithSessionStore(session.NewMemoryStore(time.Minute)),
@@ -4751,8 +4764,11 @@ func TestWireGatewayBroadcaster_NoBroadcaster(t *testing.T) {
 	}
 	defer func() { _ = p.Close() }()
 
-	// Force broadcaster nil to exercise the early-return.
-	p.broadcaster = nil
+	// Force the broadcaster nil (nil handle -> nil Broadcaster()) to
+	// exercise the early-return. Close the handle first so its reload and
+	// store-cleanup goroutines are torn down rather than orphaned by the nil.
+	_ = p.sessions.Close()
+	p.sessions = nil
 	p.WireGatewayBroadcaster() // must not panic
 }
 

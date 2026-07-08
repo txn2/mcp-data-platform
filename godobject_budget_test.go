@@ -40,8 +40,11 @@ const (
 	// (#841) folded eight fields (portalAssetStore, portalShareStore,
 	// portalVersionStore, portalCollectionStore, portalThreadStore,
 	// portalKnowledgePageStore, portalToolkit, portalS3Client) into one
-	// portalstore.Handle, ratcheting 71 → 64.
-	maxPlatformFields = 64
+	// portalstore.Handle, ratcheting 71 → 64; the session / cross-replica-sync
+	// extraction (#843) folded six fields (sessionStore, sessionCache,
+	// broadcaster, reloadBroadcaster, reloadBus, reloadCancel) into one
+	// sessionsync.Handle, ratcheting 64 → 59.
+	maxPlatformFields = 59
 
 	// maxPlatformMethods caps the number of methods with a *Platform receiver.
 	// Frozen at today's count; ratchet down as accessors move onto the

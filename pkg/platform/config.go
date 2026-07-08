@@ -1795,7 +1795,7 @@ func (c *Config) validateSessions(errs []string) []string {
 		errs = append(errs, "database.dsn is required when sessions.store is \"database\"")
 	}
 	// BroadcastChannel only takes effect for database-backed sessions
-	// (initBroadcaster only consults it on the postgres path). Skip
+	// (the sessionsync broadcasters consult it only on the postgres path). Skip
 	// validation entirely on memory-store deployments so an operator
 	// who set the field experimentally and switched back to memory
 	// doesn't get blocked at startup over a value the platform will
