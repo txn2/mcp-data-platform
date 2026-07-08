@@ -135,6 +135,51 @@ linters:
           deny:
             - pkg: github.com/txn2/mcp-data-platform/pkg/platform
               desc: "toolkits are a lower layer than pkg/platform; importing it inverts the toolkit->platform layering (see CONTRIBUTING.md)."
+        # cmd/ holds the composition roots (entry points). They wire the whole
+        # tree together and are the last thing built, so nothing may import
+        # them; shared code belongs in pkg/, not in a cmd main.
+        entry-point-is-a-sink:
+          list-mode: lax
+          files:
+            - "**/*.go"
+            - "!**/*_test.go"
+          deny:
+            - pkg: github.com/txn2/mcp-data-platform/cmd
+              desc: "cmd/ holds entry points (composition roots); nothing may import it. Move shared code down into pkg/ (see CONTRIBUTING.md)."
+        # pkg/toolkit holds the shared toolkit types every toolkit implements.
+        # It must stay a dependency ROOT: importing any first-party package
+        # would drag implementation detail into the base contract. When it
+        # needs behaviour from a higher layer, accept an interface instead.
+        base-types-are-a-root:
+          list-mode: lax
+          files:
+            - "**/pkg/toolkit/**"
+            - "!**/pkg/toolkits/**"
+            - "!**/*_test.go"
+          deny:
+            - pkg: github.com/txn2/mcp-data-platform
+              desc: "pkg/toolkit is a dependency root for shared toolkit types; it must import nothing first-party (invert the dependency behind an interface). See CONTRIBUTING.md."
+        # Provider abstractions (semantic, query, storage) are depended upon by
+        # the layers above them. Per the Stable Dependencies Principle they must
+        # not depend up: a provider reaching into platform/middleware/admin or a
+        # toolkit is an inverted dependency that should be an interface at the
+        # boundary instead.
+        providers-do-not-depend-up:
+          list-mode: lax
+          files:
+            - "**/pkg/semantic/**"
+            - "**/pkg/query/**"
+            - "**/pkg/storage/**"
+            - "!**/*_test.go"
+          deny:
+            - pkg: github.com/txn2/mcp-data-platform/pkg/platform
+              desc: "provider abstractions must not depend up on pkg/platform (Stable Dependencies Principle). See CONTRIBUTING.md."
+            - pkg: github.com/txn2/mcp-data-platform/pkg/middleware
+              desc: "provider abstractions must not depend up on pkg/middleware. See CONTRIBUTING.md."
+            - pkg: github.com/txn2/mcp-data-platform/pkg/admin
+              desc: "provider abstractions must not depend up on pkg/admin. See CONTRIBUTING.md."
+            - pkg: github.com/txn2/mcp-data-platform/pkg/toolkits
+              desc: "provider abstractions must not depend up on toolkits; toolkits use providers, not the reverse. See CONTRIBUTING.md."
 
     gocritic:
       enabled-tags:
