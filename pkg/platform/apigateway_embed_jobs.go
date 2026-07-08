@@ -83,9 +83,9 @@ func (p *Platform) WireAPIGatewayEmbedJobsFromDB() {
 		Consumers: indexqueue.Consumers{
 			Memory:               p.memoryStore != nil,
 			Prompts:              p.promptStore != nil,
-			PortalAssets:         p.portalAssetStore != nil,
-			PortalCollections:    p.portalCollectionStore != nil,
-			PortalKnowledgePages: p.portalKnowledgePageStore != nil,
+			PortalAssets:         p.portalStore.AssetStore() != nil,
+			PortalCollections:    p.portalStore.CollectionStore() != nil,
+			PortalKnowledgePages: p.portalStore.KnowledgePageStore() != nil,
 		},
 	})
 	if handle == nil {

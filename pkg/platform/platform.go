@@ -54,6 +54,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/platform/oauthserver"
 	"github.com/txn2/mcp-data-platform/pkg/platform/obs"
 	"github.com/txn2/mcp-data-platform/pkg/platform/personastore"
+	"github.com/txn2/mcp-data-platform/pkg/platform/portalstore"
 	"github.com/txn2/mcp-data-platform/pkg/platform/reflexivecapture"
 	"github.com/txn2/mcp-data-platform/pkg/platform/routepolicy"
 	"github.com/txn2/mcp-data-platform/pkg/platform/toolkitcfg"
@@ -80,7 +81,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 	memorykit "github.com/txn2/mcp-data-platform/pkg/toolkits/memory"
-	portalkit "github.com/txn2/mcp-data-platform/pkg/toolkits/portal"
 	searchkit "github.com/txn2/mcp-data-platform/pkg/toolkits/search"
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
@@ -218,19 +218,17 @@ type Platform struct {
 	// both a database connection and a configured embedding provider.
 	indexQueue *indexqueue.Handle
 
-	// Portal stores (exposed for REST API in Phase 3)
-	portalAssetStore         portal.AssetStore
-	portalShareStore         portal.ShareStore
-	portalVersionStore       portal.VersionStore
-	portalCollectionStore    portal.CollectionStore
-	portalThreadStore        portal.ThreadStore
-	portalKnowledgePageStore knowledgepage.Store
-	portalToolkit            *portalkit.Toolkit
-	portalS3Client           portal.S3Client
-	provenanceTracker        *middleware.ProvenanceTracker
-	resolvedBrandLogoSVG     string // cached SVG from portal.logo or mcpapps config
-	resolvedBrandURL         string // cached brand_url from mcpapps platform-info config
-	resolvedImplementorLogo  string // cached SVG fetched from portal.implementor.logo
+	// portalStore owns the asset-portal store layer: the five Postgres stores
+	// (asset, share, version, collection, thread), the knowledge-page store, the
+	// S3 blob backend, and the save/manage-artifact toolkit. nil until initPortal
+	// runs, which requires the portal enabled and a database connection. Read
+	// through its accessors by the Portal* accessors (admin/portal REST wiring),
+	// the trino/api export wiring, and the search/enrichment provider assembly.
+	portalStore             *portalstore.Handle
+	provenanceTracker       *middleware.ProvenanceTracker
+	resolvedBrandLogoSVG    string // cached SVG from portal.logo or mcpapps config
+	resolvedBrandURL        string // cached brand_url from mcpapps platform-info config
+	resolvedImplementorLogo string // cached SVG fetched from portal.implementor.logo
 
 	// Workflow gating
 	workflowTracker *middleware.SessionWorkflowTracker
@@ -379,8 +377,8 @@ func (p *Platform) initExtensions() error {
 	// same owns-or-edit access check as resolve_thread (the toolkit authorizes
 	// each thread before linking). Portal creates the toolkit, so this is wired
 	// after both init.
-	if p.memoryToolkit != nil && p.portalToolkit != nil {
-		p.memoryToolkit.SetThreadLinker(p.portalToolkit)
+	if p.memoryToolkit != nil && p.portalStore.Toolkit() != nil {
+		p.memoryToolkit.SetThreadLinker(p.portalStore.Toolkit())
 	}
 	// Unified knowledge read path (#632). Federates the stores initialized
 	// above (memory, insights, assets), so it must run after them.
@@ -1693,7 +1691,7 @@ func (p *Platform) storeSearchProviders() []knowledge.Provider {
 	}
 	// Canonical knowledge pages (the internal-knowledge home for business
 	// ontology) are shared and searchable over their full content.
-	if s, ok := p.portalKnowledgePageStore.(knowledge.PageSearcher); ok {
+	if s, ok := p.portalStore.KnowledgePageStore().(knowledge.PageSearcher); ok {
 		providers = append(providers, knowledge.NewKnowledgePagesProvider(s))
 	}
 	// Prompts are searchable and fetchable through the postgres prompt store
@@ -1702,12 +1700,12 @@ func (p *Platform) storeSearchProviders() []knowledge.Provider {
 		providers = append(providers, knowledge.NewPromptsProvider(s))
 	}
 	// Assets are searchable and fetchable only through the postgres asset store.
-	if s, ok := p.portalAssetStore.(knowledge.AssetSearcher); ok {
+	if s, ok := p.portalStore.AssetStore().(knowledge.AssetSearcher); ok {
 		providers = append(providers, knowledge.NewAssetsProvider(s))
 	}
 	// Feedback threads complete the search corpus (#686): a caller's own feedback
 	// becomes discoverable knowledge. Lexical and per-user (threads carry no embedding).
-	if s, ok := p.portalThreadStore.(knowledge.ThreadSearcher); ok {
+	if s, ok := p.portalStore.ThreadStore().(knowledge.ThreadSearcher); ok {
 		providers = append(providers, knowledge.NewThreadsProvider(s))
 	}
 	return providers
@@ -1756,9 +1754,9 @@ func (p *Platform) configureKnowledgeApply(tk *knowledgekit.Toolkit) error {
 
 	// #633 Goal 3: let apply promote business_knowledge/operational_rule captures
 	// to canonical knowledge pages. Built directly from the DB (not
-	// p.portalKnowledgePageStore) because initKnowledge runs before initPortal, so
-	// that field is not yet set here; apply requires the DB the changeset store
-	// already uses.
+	// p.portalStore.KnowledgePageStore()) because initKnowledge runs before
+	// initPortal, so the portal handle is not yet set here; apply requires the DB
+	// the changeset store already uses.
 	if p.db != nil {
 		tk.SetPageWriter(knowledgepage.NewPostgresStoreSearcher(p.db))
 	}
@@ -1803,15 +1801,9 @@ func (p *Platform) initPortal() error {
 		return nil
 	}
 
-	// Create stores
-	p.portalAssetStore = portal.NewPostgresAssetStore(p.db)
-	p.portalShareStore = portal.NewPostgresShareStore(p.db)
-	p.portalVersionStore = portal.NewPostgresVersionStore(p.db)
-	p.portalCollectionStore = portal.NewPostgresCollectionStore(p.db)
-	p.portalThreadStore = portal.NewPostgresThreadStore(p.db)
-	p.portalKnowledgePageStore = knowledgepage.NewPostgresStore(p.db)
-
-	// Create S3 client from referenced S3 connection
+	// Create S3 client from referenced S3 connection. Built here (Platform owns
+	// the toolkit config lookup) and passed into the owner; nil in database-only
+	// mode when no s3_connection is configured.
 	var s3Client portal.S3Client
 	if p.config.Portal.S3Connection != "" {
 		var clientErr error
@@ -1819,32 +1811,27 @@ func (p *Platform) initPortal() error {
 		if clientErr != nil {
 			return fmt.Errorf("creating portal S3 client: %w", clientErr)
 		}
-		p.portalS3Client = s3Client
 	} else {
 		slog.Warn("portal: no s3_connection configured; artifacts will be saved to database only")
 	}
 
-	// Create provenance tracker
+	// Assemble the portal store layer (six stores + S3 client + artifact
+	// toolkit) behind one handle from p.db + the resolved S3 client +
+	// embeddingProv (both stay owned by Platform).
+	p.portalStore = portalstore.New(p.db, s3Client, p.embeddingProv, portalstore.Config{
+		Name:           instanceDefault,
+		S3Bucket:       p.config.Portal.S3Bucket,
+		S3Prefix:       p.config.Portal.S3Prefix,
+		BaseURL:        p.config.Portal.PublicBaseURL,
+		MaxContentSize: p.config.Portal.MaxContentSize,
+	})
+
+	// provenanceTracker is a middleware primitive wired into the middleware
+	// chain, not a portal store; it stays on Platform.
 	p.provenanceTracker = middleware.NewProvenanceTracker()
 
-	// Create and register toolkit
-	tk := portalkit.New(portalkit.Config{
-		Name:            instanceDefault,
-		AssetStore:      p.portalAssetStore,
-		ShareStore:      p.portalShareStore,
-		VersionStore:    p.portalVersionStore,
-		CollectionStore: p.portalCollectionStore,
-		ThreadStore:     p.portalThreadStore,
-		S3Client:        s3Client,
-		S3Bucket:        p.config.Portal.S3Bucket,
-		S3Prefix:        p.config.Portal.S3Prefix,
-		BaseURL:         p.config.Portal.PublicBaseURL,
-		MaxContentSize:  p.config.Portal.MaxContentSize,
-		Embedder:        p.embeddingProv,
-	})
-	p.portalToolkit = tk
-
-	if err := p.toolkitRegistry.Register(tk); err != nil {
+	// Registration stays a Platform/registry concern.
+	if err := p.toolkitRegistry.Register(p.portalStore.Toolkit()); err != nil {
 		return fmt.Errorf("registering portal toolkit: %w", err)
 	}
 
@@ -1895,7 +1882,7 @@ func (p *Platform) wireTrinoExport() {
 		slog.Debug("trino_export: disabled by config")
 		return
 	}
-	if p.portalS3Client == nil || p.portalAssetStore == nil {
+	if p.portalStore.S3Client() == nil || p.portalStore.AssetStore() == nil {
 		slog.Debug("trino_export: portal S3 or asset store not configured, skipping")
 		return
 	}
@@ -1909,7 +1896,7 @@ func (p *Platform) wireTrinoExport() {
 	exportCfg := p.parseExportConfig()
 
 	trinoExporter := exportadapters.NewTrinoExporter(
-		p.portalAssetStore, p.portalVersionStore, p.portalShareStore, p.config.Portal.PublicBaseURL,
+		p.portalStore.AssetStore(), p.portalStore.VersionStore(), p.portalStore.ShareStore(), p.config.Portal.PublicBaseURL,
 	)
 
 	for _, tk := range trinoToolkits {
@@ -1920,7 +1907,7 @@ func (p *Platform) wireTrinoExport() {
 		trinoTk.SetExportDeps(trinokit.ExportDeps{
 			AssetStore:   trinoExporter,
 			VersionStore: trinoExporter,
-			S3Client:     p.portalS3Client,
+			S3Client:     p.portalStore.S3Client(),
 			ShareCreator: trinoExporter,
 			S3Bucket:     p.config.Portal.S3Bucket,
 			S3Prefix:     p.config.Portal.S3Prefix,
@@ -2493,7 +2480,7 @@ func (p *Platform) hasTrinoExport() bool {
 	if isExplicitlyDisabled(p.config.Portal.Export.Enabled) {
 		return false
 	}
-	if p.portalS3Client == nil || p.portalAssetStore == nil {
+	if p.portalStore.S3Client() == nil || p.portalStore.AssetStore() == nil {
 		return false
 	}
 	trinoToolkits := p.toolkitRegistry.GetByKind("trino")
@@ -2687,7 +2674,7 @@ func (p *Platform) addEnrichmentMiddleware() {
 			p.storageProvider,
 			enrichCfg,
 			mp,
-			knowledgePageProviders(p.portalKnowledgePageStore)...,
+			knowledgePageProviders(p.portalStore.KnowledgePageStore())...,
 		),
 	)
 }
@@ -3317,38 +3304,38 @@ func (p *Platform) KnowledgeDataHubWriter() knowledgekit.DataHubWriter {
 
 // PortalAssetStore returns the portal asset store, or nil if portal is disabled.
 func (p *Platform) PortalAssetStore() portal.AssetStore {
-	return p.portalAssetStore
+	return p.portalStore.AssetStore()
 }
 
 // PortalShareStore returns the portal share store, or nil if portal is disabled.
 func (p *Platform) PortalShareStore() portal.ShareStore {
-	return p.portalShareStore
+	return p.portalStore.ShareStore()
 }
 
 // PortalVersionStore returns the portal version store, or nil if portal is disabled.
 func (p *Platform) PortalVersionStore() portal.VersionStore {
-	return p.portalVersionStore
+	return p.portalStore.VersionStore()
 }
 
 // PortalCollectionStore returns the portal collection store, or nil if portal is disabled.
 func (p *Platform) PortalCollectionStore() portal.CollectionStore {
-	return p.portalCollectionStore
+	return p.portalStore.CollectionStore()
 }
 
 // PortalThreadStore returns the portal feedback thread store, or nil if portal is disabled.
 func (p *Platform) PortalThreadStore() portal.ThreadStore {
-	return p.portalThreadStore
+	return p.portalStore.ThreadStore()
 }
 
 // PortalKnowledgePageStore returns the canonical knowledge-page store, or nil
 // when the portal is disabled.
 func (p *Platform) PortalKnowledgePageStore() knowledgepage.Store {
-	return p.portalKnowledgePageStore
+	return p.portalStore.KnowledgePageStore()
 }
 
 // PortalS3Client returns the portal S3 client, or nil if portal is disabled.
 func (p *Platform) PortalS3Client() portal.S3Client {
-	return p.portalS3Client
+	return p.portalStore.S3Client()
 }
 
 // KnowledgeRouter returns the unified search federation, or nil when no
@@ -3620,10 +3607,7 @@ func (p *Platform) closeProvidersAndRegistry(errs *[]error) {
 	closeResource(errs, p.semanticProvider)
 	closeResource(errs, p.queryProvider)
 	closeResource(errs, p.storageProvider)
-	if p.portalS3Client != nil {
-		slog.Debug("shutdown: closing portal S3 client")
-		closeResource(errs, p.portalS3Client)
-	}
+	closeResource(errs, p.portalStore)
 	closeResource(errs, p.toolkitRegistry)
 }
 
@@ -3757,7 +3741,7 @@ func (p *Platform) wireAPIGatewayExport() {
 		slog.Debug("api_export: disabled by portal.export.enabled")
 		return
 	}
-	if p.portalS3Client == nil || p.portalAssetStore == nil {
+	if p.portalStore.S3Client() == nil || p.portalStore.AssetStore() == nil {
 		slog.Debug("api_export: portal S3 or asset store not configured, skipping")
 		return
 	}
@@ -3778,7 +3762,7 @@ func (p *Platform) wireAPIGatewayExport() {
 	}
 
 	apiExporter := exportadapters.NewAPIExporter(
-		p.portalAssetStore, p.portalVersionStore, p.portalShareStore, p.config.Portal.PublicBaseURL,
+		p.portalStore.AssetStore(), p.portalStore.VersionStore(), p.portalStore.ShareStore(), p.config.Portal.PublicBaseURL,
 	)
 
 	for _, tk := range apiToolkits {
@@ -3789,7 +3773,7 @@ func (p *Platform) wireAPIGatewayExport() {
 		apiTk.SetExportDeps(apigatewaykit.ExportDeps{
 			AssetStore:   apiExporter,
 			VersionStore: apiExporter,
-			S3Client:     p.portalS3Client,
+			S3Client:     p.portalStore.S3Client(),
 			ShareCreator: apiExporter,
 			S3Bucket:     p.config.Portal.S3Bucket,
 			S3Prefix:     p.config.Portal.S3Prefix,

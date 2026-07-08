@@ -497,10 +497,11 @@ func (p *Platform) listVisiblePrompts(ctx context.Context, email string, persona
 // shared prompts collide on bare name, the first (most recent share) wins so the
 // list and getDynamicPrompt agree.
 func (p *Platform) listSharedDescriptors(ctx context.Context, email string) []*mcp.Prompt {
-	if p.portalShareStore == nil {
+	share := p.portalStore.ShareStore()
+	if share == nil {
 		return nil
 	}
-	refs, err := p.portalShareStore.ListSharedPromptsWithUser(ctx, "", email)
+	refs, err := share.ListSharedPromptsWithUser(ctx, "", email)
 	if err != nil {
 		slog.Warn("failed to list shared prompts", logKeyError, err)
 		return nil
@@ -607,10 +608,11 @@ func (p *Platform) getDynamicPrompt(ctx context.Context, email string, personas 
 // bare name. The first matching active share wins (consistent with the dedup in
 // listSharedDescriptors).
 func (p *Platform) getSharedPrompt(ctx context.Context, email, bare string, args map[string]string) (*mcp.GetPromptResult, bool) {
-	if email == "" || p.portalShareStore == nil {
+	share := p.portalStore.ShareStore()
+	if email == "" || share == nil {
 		return nil, false
 	}
-	refs, err := p.portalShareStore.ListSharedPromptsWithUser(ctx, "", email)
+	refs, err := share.ListSharedPromptsWithUser(ctx, "", email)
 	if err != nil {
 		return nil, false
 	}

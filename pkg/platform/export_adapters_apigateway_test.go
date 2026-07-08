@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 )
@@ -37,7 +36,7 @@ func TestWireAPIGatewayExport_DisabledByConfig(_ *testing.T) {
 func TestWireAPIGatewayExport_NoPortalSkips(_ *testing.T) {
 	p := &Platform{
 		config: &Config{Portal: PortalConfig{Export: PortalExportConfig{}}},
-		// portalS3Client and portalAssetStore both nil.
+		// portalStore is nil — no S3 client and no asset store.
 	}
 	// Must not panic; toolkitRegistry stays nil because we never
 	// reach the GetByKind call.
@@ -71,11 +70,8 @@ func TestWireAPIGatewayExport_ToolAppearsInToolList(t *testing.T) {
 				PublicBaseURL: "https://platform.example.com",
 			},
 		},
-		portalAssetStore:   portal.NewNoopAssetStore(),
-		portalVersionStore: portal.NewNoopVersionStore(),
-		portalShareStore:   portal.NewNoopShareStore(),
-		portalS3Client:     &apiNoopS3Client{},
-		toolkitRegistry:    r,
+		portalStore:     newTestPortalHandle(&apiNoopS3Client{}),
+		toolkitRegistry: r,
 	}
 
 	p.wireAPIGatewayExport()

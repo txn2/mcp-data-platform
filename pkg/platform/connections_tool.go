@@ -40,8 +40,8 @@ func (p *Platform) handleListConnections(ctx context.Context, _ *mcp.CallToolReq
 		src = p.connectionSources
 	}
 	var pages connview.PageLookup
-	if p.portalKnowledgePageStore != nil {
-		pages = p.portalKnowledgePageStore
+	if kp := p.portalStore.KnowledgePageStore(); kp != nil {
+		pages = kp
 	}
 
 	out := connview.Build(ctx, p.toolkitRegistry.All(), src, pages)
