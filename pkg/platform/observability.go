@@ -3,11 +3,11 @@ package platform
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
+	"github.com/txn2/mcp-data-platform/pkg/platform/obs"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 
 	"github.com/txn2/mcp-data-platform/pkg/observability"
@@ -115,66 +115,28 @@ func (p *Platform) ObservabilityAuthMiddleware() func(http.Handler) http.Handler
 	return observabilityBrowserAuth(ba)
 }
 
-// initObservability constructs the metrics recorder and (when
-// enabled) the matching HTTP listener. Configuration is read from
-// the environment so the platform can boot with no YAML changes
-// when an operator flips OTEL_METRICS_ENABLED on.
-//
-// When metrics are disabled the recorder and listener are nil, every
-// downstream consumer is nil-safe, and the platform behaves exactly
-// as before this change.
+// initObservability assembles the observability layer (metrics recorder,
+// /metrics listener, and tracer) from environment config. The layer is
+// nil-safe throughout, so the platform boots with no YAML changes and every
+// downstream consumer records/traces unconditionally.
 func (p *Platform) initObservability() error {
-	cfg := observability.ConfigFromEnv()
-	m, err := observability.New(cfg)
+	l, err := obs.Assemble()
 	if err != nil {
-		return fmt.Errorf("observability: %w", err)
+		return err //nolint:wrapcheck // obs.Assemble already wraps with the operator-facing "observability[...]" message
 	}
-	p.metrics = m
-	p.metricsListener = observability.NewListener(m)
-	if m != nil {
-		slog.Info("observability: metrics recorder enabled", "listen", cfg.ListenAddr)
-	}
-
-	// Tracing is a separate, independently-gated subsystem (off by
-	// default; needs an OTLP collector). NewTracer installs the global
-	// OTel TracerProvider when enabled so toolkit adapters and the
-	// tracing middleware emit nested spans without an injected handle.
-	tcfg := observability.TracingConfigFromEnv()
-	tr, err := observability.NewTracer(tcfg)
-	if err != nil {
-		return fmt.Errorf("observability tracing: %w", err)
-	}
-	p.tracer = tr
-	if tr != nil {
-		slog.Info("observability: tracing enabled", "endpoint", tcfg.Endpoint, "sampler_ratio", tcfg.SamplerArg)
-	}
+	p.obs = l
 	return nil
-}
-
-// Tracer exposes the platform's OTel tracer. Returns nil when tracing
-// is disabled; the type is nil-safe so callers can Start spans
-// unconditionally.
-func (p *Platform) Tracer() *observability.Tracer { return p.tracer }
-
-// observabilityEnabled reports whether EITHER metrics or tracing is
-// active. It gates installation of the toolkit/provider instrumenting
-// decorators, which serve both subsystems (a nil-safe metric record plus
-// a no-op-when-untraced child span). When both are off the decorators are
-// not installed and upstream calls run undecorated, preserving the
-// zero-overhead default.
-func (p *Platform) observabilityEnabled() bool {
-	return p.metrics.Enabled() || p.tracer.Enabled()
 }
 
 // Metrics exposes the platform's observability recorder. Returns nil
 // when metrics are disabled; the type is nil-safe so callers can
 // record unconditionally.
-func (p *Platform) Metrics() *observability.Metrics { return p.metrics }
+func (p *Platform) Metrics() *observability.Metrics { return p.obs.Metrics() }
 
 // StartMetricsListener starts the /metrics HTTP listener if metrics
 // are enabled. Safe to call when disabled (returns nil immediately).
 func (p *Platform) StartMetricsListener(ctx context.Context) error {
-	if err := p.metricsListener.Start(ctx); err != nil {
+	if err := p.obs.Listener().Start(ctx); err != nil {
 		return fmt.Errorf("starting metrics listener: %w", err)
 	}
 	return nil
@@ -183,10 +145,10 @@ func (p *Platform) StartMetricsListener(ctx context.Context) error {
 // ShutdownMetricsListener stops the /metrics listener and flushes
 // the meter provider. Both calls are nil-safe.
 func (p *Platform) ShutdownMetricsListener(ctx context.Context) error {
-	if err := p.metricsListener.Shutdown(ctx); err != nil {
+	if err := p.obs.Listener().Shutdown(ctx); err != nil {
 		return fmt.Errorf("metrics listener shutdown: %w", err)
 	}
-	if err := p.metrics.Shutdown(ctx); err != nil {
+	if err := p.obs.Metrics().Shutdown(ctx); err != nil {
 		return fmt.Errorf("metrics provider shutdown: %w", err)
 	}
 	return nil
@@ -206,12 +168,12 @@ func (p *Platform) ShutdownMetricsListener(ctx context.Context) error {
 // instrumented because Toolkit.SetMetrics walks the existing
 // connection map.
 func (p *Platform) WireAPIGatewayMetrics() {
-	if !p.metrics.Enabled() {
+	if !p.obs.Metrics().Enabled() {
 		return
 	}
 	for _, tk := range p.toolkitRegistry.All() {
 		if api, ok := tk.(*apigatewaykit.Toolkit); ok {
-			api.SetMetrics(p.metrics)
+			api.SetMetrics(p.obs.Metrics())
 		}
 	}
 }
@@ -231,12 +193,12 @@ type metricsAware interface {
 // are instrumented for tracing-only deployments; each toolkit's SetMetrics
 // decides what it installs given the (possibly disabled) recorder.
 func (p *Platform) WireToolkitMetrics() {
-	if !p.observabilityEnabled() {
+	if !p.obs.Enabled() {
 		return
 	}
 	for _, tk := range p.toolkitRegistry.All() {
 		if ma, ok := tk.(metricsAware); ok {
-			ma.SetMetrics(p.metrics)
+			ma.SetMetrics(p.obs.Metrics())
 		}
 	}
 }

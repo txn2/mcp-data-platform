@@ -375,7 +375,7 @@ func (h *Handler) autoPromoteViewer(ctx context.Context, t promoteTarget, user *
 // given asset or collection target, or returns ok=false if a token can't be
 // generated or the target type is unsupported.
 func derivedViewerShare(t promoteTarget, user *User) (Share, bool) {
-	token, err := generateToken()
+	token, err := GenerateShareToken()
 	if err != nil {
 		slog.Warn("auto-promote: token generation failed", logKeyError, err) // #nosec G706 -- structured log
 		return Share{}, false

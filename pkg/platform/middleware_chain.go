@@ -161,9 +161,9 @@ func (p *Platform) addAuditMiddleware() {
 // Safe to register unconditionally: the middleware short-circuits on a
 // nil-or-disabled recorder.
 func (p *Platform) addMetricsMiddleware() {
-	if p.metrics.Enabled() {
+	if p.obs.Metrics().Enabled() {
 		p.mcpServer.AddReceivingMiddleware(
-			middleware.MCPMetricsMiddleware(p.metrics),
+			middleware.MCPMetricsMiddleware(p.obs.Metrics()),
 		)
 	}
 }
@@ -174,9 +174,9 @@ func (p *Platform) addMetricsMiddleware() {
 // to the handler. Safe to register unconditionally: the middleware
 // short-circuits on a nil/disabled tracer.
 func (p *Platform) addTracingMiddleware() {
-	if p.tracer.Enabled() {
+	if p.obs.Tracer().Enabled() {
 		p.mcpServer.AddReceivingMiddleware(
-			middleware.MCPTracingMiddleware(p.tracer),
+			middleware.MCPTracingMiddleware(p.obs.Tracer()),
 		)
 	}
 }

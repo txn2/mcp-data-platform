@@ -22,8 +22,10 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
+	"github.com/txn2/mcp-data-platform/pkg/platform/cfgmap"
 	"github.com/txn2/mcp-data-platform/pkg/platform/instructions"
 	"github.com/txn2/mcp-data-platform/pkg/platform/personastore"
+	"github.com/txn2/mcp-data-platform/pkg/platform/toolkitcfg"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
@@ -43,10 +45,6 @@ const (
 	testRoleAdmin           = "admin"
 	testRoleViewer          = "viewer"
 	testConflictNearest     = "nearest"
-	testIntVal              = 42
-	testFloatVal            = 3.14
-	testDurationIntSec      = 60
-	testDurationFloatSec    = 90.0
 	testPort                = 8080
 	testPortSecondary       = 8081
 	testDefaultMaxOpenConns = 25
@@ -67,19 +65,10 @@ const (
 	testLineageTimeout      = 5 * time.Second
 	testDefaultDataHubTO    = 30 * time.Second
 	testDefaultTrinoTO      = 120 * time.Second
-	testMissingKey          = "missing"
-	testDefaultFallback     = 100
-	testDurationDefault     = 10 * time.Second
-	testDuration30s         = 30 * time.Second
-	testDuration90s         = 90 * time.Second
 	testPriority            = 10
 	testRetentionDays       = 30
 	testMaxTableRows        = 500
 	testNewErrFmt           = "New() error = %v"
-	testFloatKeyExpected    = 3
-	testNegFloatKeyExpected = -3
-	testEdgeFallback5s      = 5 * time.Second
-	testZeroFloat           = 0.0
 	testMCPServerNilMsg     = "MCPServer() should not be nil"
 	testToolkitKeyDatahub   = "datahub"
 	testCfgKeyURL           = "url"
@@ -382,81 +371,6 @@ func TestMCPMiddlewareWithEnrichment(t *testing.T) {
 	}
 }
 
-// cfgHelpersTestData returns a shared test config map for cfg helper tests.
-func cfgHelpersTestData() map[string]any {
-	return map[string]any{
-		"string_key":      "value",
-		"int_key":         testIntVal,
-		"float_key":       testFloatVal,
-		"bool_key":        true,
-		"duration_string": "30s",
-		"duration_int":    testDurationIntSec,
-		"duration_float":  testDurationFloatSec,
-	}
-}
-
-func TestCfgString(t *testing.T) {
-	cfg := cfgHelpersTestData()
-	if v := cfgString(cfg, "string_key"); v != "value" {
-		t.Errorf("cfgString(string_key) = %q", v)
-	}
-	if v := cfgString(cfg, testMissingKey); v != "" {
-		t.Errorf("cfgString(missing) = %q", v)
-	}
-	if v := cfgString(cfg, "int_key"); v != "" {
-		t.Errorf("cfgString(int_key) = %q (should be empty)", v)
-	}
-}
-
-func TestCfgInt(t *testing.T) {
-	cfg := cfgHelpersTestData()
-	if v := cfgInt(cfg, "int_key", 0); v != testIntVal {
-		t.Errorf("cfgInt(int_key) = %d", v)
-	}
-	if v := cfgInt(cfg, "float_key", 0); v != testFloatKeyExpected {
-		t.Errorf("cfgInt(float_key) = %d", v)
-	}
-	if v := cfgInt(cfg, testMissingKey, testDefaultFallback); v != testDefaultFallback {
-		t.Errorf("cfgInt(missing) = %d", v)
-	}
-}
-
-func TestCfgBool(t *testing.T) {
-	cfg := cfgHelpersTestData()
-	if v := cfgBool(cfg, "bool_key"); !v {
-		t.Error("cfgBool(bool_key) = false")
-	}
-	if v := cfgBool(cfg, testMissingKey); v {
-		t.Error("cfgBool(missing) = true")
-	}
-}
-
-func TestCfgBoolDefault(t *testing.T) {
-	cfg := cfgHelpersTestData()
-	if v := cfgBoolDefault(cfg, "bool_key", false); !v {
-		t.Error("cfgBoolDefault(bool_key, false) = false")
-	}
-	if v := cfgBoolDefault(cfg, testMissingKey, true); !v {
-		t.Error("cfgBoolDefault(missing, true) = false")
-	}
-}
-
-func TestCfgDuration(t *testing.T) {
-	cfg := cfgHelpersTestData()
-	if v := cfgDuration(cfg, "duration_string", 0); v != testDuration30s {
-		t.Errorf("cfgDuration(duration_string) = %v", v)
-	}
-	if v := cfgDuration(cfg, "duration_int", 0); v != testDurationIntSec*time.Second {
-		t.Errorf("cfgDuration(duration_int) = %v", v)
-	}
-	if v := cfgDuration(cfg, "duration_float", 0); v != testDuration90s {
-		t.Errorf("cfgDuration(duration_float) = %v", v)
-	}
-	if v := cfgDuration(cfg, testMissingKey, testDurationDefault); v != testDurationDefault {
-		t.Errorf("cfgDuration(missing) = %v", v)
-	}
-}
-
 func TestGetInstanceConfig(t *testing.T) {
 	cfg := &Config{
 		Server: ServerConfig{Name: testServerName},
@@ -486,34 +400,34 @@ func TestGetInstanceConfig(t *testing.T) {
 	}
 
 	t.Run("get named instance", func(t *testing.T) {
-		instanceCfg := p.getInstanceConfig("trino", testInstancePrimary)
+		instanceCfg := toolkitcfg.InstanceConfig(p.config.Toolkits, "trino", testInstancePrimary)
 		if instanceCfg == nil {
 			t.Fatal("getInstanceConfig(trino, primary) = nil")
 		}
-		if host := cfgString(instanceCfg, "host"); host != "localhost" {
+		if host := cfgmap.String(instanceCfg, "host"); host != "localhost" {
 			t.Errorf("host = %q", host)
 		}
 	})
 
 	t.Run("get default instance", func(t *testing.T) {
-		instanceCfg := p.getInstanceConfig("trino", "")
+		instanceCfg := toolkitcfg.InstanceConfig(p.config.Toolkits, "trino", "")
 		if instanceCfg == nil {
 			t.Fatal("getInstanceConfig(trino, '') = nil")
 		}
-		if host := cfgString(instanceCfg, "host"); host != "localhost" {
+		if host := cfgmap.String(instanceCfg, "host"); host != "localhost" {
 			t.Errorf("host = %q (should be primary/localhost)", host)
 		}
 	})
 
 	t.Run("unknown toolkit kind", func(t *testing.T) {
-		instanceCfg := p.getInstanceConfig("unknown", "any")
+		instanceCfg := toolkitcfg.InstanceConfig(p.config.Toolkits, "unknown", "any")
 		if instanceCfg != nil {
 			t.Error("getInstanceConfig(unknown, any) should be nil")
 		}
 	})
 
 	t.Run("unknown instance", func(t *testing.T) {
-		instanceCfg := p.getInstanceConfig("trino", "nonexistent")
+		instanceCfg := toolkitcfg.InstanceConfig(p.config.Toolkits, "trino", "nonexistent")
 		if instanceCfg != nil {
 			t.Error("getInstanceConfig(trino, nonexistent) should be nil")
 		}
@@ -527,7 +441,7 @@ func TestResolveDefaultInstance(t *testing.T) {
 			testInstancePrimary: map[string]any{},
 			"secondary":         map[string]any{},
 		}
-		result := resolveDefaultInstance(kindCfg, instances)
+		result := toolkitcfg.ResolveDefaultInstance(kindCfg, instances)
 		if result != testInstancePrimary {
 			t.Errorf("resolveDefaultInstance = %q", result)
 		}
@@ -538,7 +452,7 @@ func TestResolveDefaultInstance(t *testing.T) {
 		instances := map[string]any{
 			"only": map[string]any{},
 		}
-		result := resolveDefaultInstance(kindCfg, instances)
+		result := toolkitcfg.ResolveDefaultInstance(kindCfg, instances)
 		if result != "only" {
 			t.Errorf("resolveDefaultInstance = %q", result)
 		}
@@ -547,7 +461,7 @@ func TestResolveDefaultInstance(t *testing.T) {
 	t.Run("empty instances", func(t *testing.T) {
 		kindCfg := map[string]any{}
 		instances := map[string]any{}
-		result := resolveDefaultInstance(kindCfg, instances)
+		result := toolkitcfg.ResolveDefaultInstance(kindCfg, instances)
 		if result != "" {
 			t.Errorf("resolveDefaultInstance = %q", result)
 		}
@@ -598,7 +512,7 @@ func TestGetDataHubConfig(t *testing.T) {
 				Toolkits: nil,
 			},
 		}
-		result := p.getDataHubConfig(testInstanceDefault)
+		result := toolkitcfg.DataHubConfig(p.config.Toolkits, testInstanceDefault)
 		if result != nil {
 			t.Error("expected nil for missing config")
 		}
@@ -620,7 +534,7 @@ func TestGetDataHubConfig(t *testing.T) {
 				},
 			},
 		}
-		result := p.getDataHubConfig(testInstanceDefault)
+		result := toolkitcfg.DataHubConfig(p.config.Toolkits, testInstanceDefault)
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -646,7 +560,7 @@ func TestGetDataHubConfig(t *testing.T) {
 				},
 			},
 		}
-		result := p.getDataHubConfig(testInstanceDefault)
+		result := toolkitcfg.DataHubConfig(p.config.Toolkits, testInstanceDefault)
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -670,7 +584,7 @@ func TestGetDataHubConfig(t *testing.T) {
 				},
 			},
 		}
-		result := p.getDataHubConfig(testInstanceDefault)
+		result := toolkitcfg.DataHubConfig(p.config.Toolkits, testInstanceDefault)
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -693,7 +607,7 @@ func TestGetDataHubConfig(t *testing.T) {
 				},
 			},
 		}
-		result := p.getDataHubConfig(testInstanceDefault)
+		result := toolkitcfg.DataHubConfig(p.config.Toolkits, testInstanceDefault)
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -710,7 +624,7 @@ func TestGetTrinoConfig(t *testing.T) {
 				Toolkits: nil,
 			},
 		}
-		result := p.getTrinoConfig(testInstanceDefault)
+		result := toolkitcfg.TrinoConfig(p.config.Toolkits, testInstanceDefault)
 		if result != nil {
 			t.Error("expected nil for missing config")
 		}
@@ -741,7 +655,7 @@ func TestGetTrinoConfig(t *testing.T) {
 				},
 			},
 		}
-		result := p.getTrinoConfig(testInstanceDefault)
+		result := toolkitcfg.TrinoConfig(p.config.Toolkits, testInstanceDefault)
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -770,7 +684,7 @@ func TestGetS3Config(t *testing.T) {
 				Toolkits: nil,
 			},
 		}
-		result := p.getS3Config(testInstanceDefault)
+		result := toolkitcfg.S3Config(p.config.Toolkits, testInstanceDefault)
 		if result != nil {
 			t.Error("expected nil for missing config")
 		}
@@ -796,7 +710,7 @@ func TestGetS3Config(t *testing.T) {
 				},
 			},
 		}
-		result := p.getS3Config(testInstanceDefault)
+		result := toolkitcfg.S3Config(p.config.Toolkits, testInstanceDefault)
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -828,7 +742,7 @@ func TestGetS3Config(t *testing.T) {
 				},
 			},
 		}
-		result := p.getS3Config("myinstance")
+		result := toolkitcfg.S3Config(p.config.Toolkits, "myinstance")
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -999,62 +913,6 @@ func TestPlatformStartError(t *testing.T) {
 	_ = p.Stop(ctx)
 }
 
-// cfgHelpersEdgeCaseData returns test data for cfg helper edge case tests.
-func cfgHelpersEdgeCaseData() map[string]any {
-	return map[string]any{
-		"negative_int":    -testIntVal,
-		"zero":            0,
-		"empty_string":    "",
-		"false_bool":      false,
-		"negative_float":  -testFloatVal,
-		"zero_float":      testZeroFloat,
-		"invalid_dur_str": "invalid",
-	}
-}
-
-func TestCfgIntEdgeCases(t *testing.T) {
-	cfg := cfgHelpersEdgeCaseData()
-	if v := cfgInt(cfg, "negative_int", 0); v != -testIntVal {
-		t.Errorf("cfgInt(negative_int) = %d", v)
-	}
-	if v := cfgInt(cfg, "zero", testDefaultFallback); v != 0 {
-		t.Errorf("cfgInt(zero) = %d", v)
-	}
-	if v := cfgInt(cfg, "negative_float", 0); v != testNegFloatKeyExpected {
-		t.Errorf("cfgInt(negative_float) = %d", v)
-	}
-}
-
-func TestCfgStringEdgeCases(t *testing.T) {
-	cfg := cfgHelpersEdgeCaseData()
-	if v := cfgString(cfg, "empty_string"); v != "" {
-		t.Errorf("cfgString(empty_string) = %q", v)
-	}
-}
-
-func TestCfgBoolEdgeCases(t *testing.T) {
-	cfg := cfgHelpersEdgeCaseData()
-	if v := cfgBool(cfg, "false_bool"); v {
-		t.Error("cfgBool(false_bool) = true")
-	}
-	if v := cfgBoolDefault(cfg, "false_bool", true); v {
-		t.Error("cfgBoolDefault(false_bool, true) = true")
-	}
-}
-
-func TestCfgDurationEdgeCases(t *testing.T) {
-	cfg := cfgHelpersEdgeCaseData()
-	if v := cfgDuration(cfg, "invalid_dur_str", testEdgeFallback5s); v != testEdgeFallback5s {
-		t.Errorf("cfgDuration(invalid_dur_str) = %v", v)
-	}
-	if v := cfgDuration(cfg, "zero", testDurationDefault); v != 0 {
-		t.Errorf("cfgDuration(zero) = %v", v)
-	}
-	if v := cfgDuration(cfg, "zero_float", testDurationDefault); v != 0 {
-		t.Errorf("cfgDuration(zero_float) = %v", v)
-	}
-}
-
 func TestInstanceConfigMapTypes(t *testing.T) {
 	t.Run("instances as slice (wrong type)", func(t *testing.T) {
 		cfg := &Config{
@@ -1074,7 +932,7 @@ func TestInstanceConfigMapTypes(t *testing.T) {
 			t.Fatalf(testNewErrFmt, err)
 		}
 
-		instanceCfg := p.getInstanceConfig("trino", "any")
+		instanceCfg := toolkitcfg.InstanceConfig(p.config.Toolkits, "trino", "any")
 		if instanceCfg != nil {
 			t.Error("getInstanceConfig should return nil for wrong instances type")
 		}
@@ -1096,7 +954,7 @@ func TestInstanceConfigMapTypes(t *testing.T) {
 			t.Fatalf(testNewErrFmt, err)
 		}
 
-		instanceCfg := p.getInstanceConfig("trino", "any")
+		instanceCfg := toolkitcfg.InstanceConfig(p.config.Toolkits, "trino", "any")
 		if instanceCfg != nil {
 			t.Error("getInstanceConfig should return nil for non-map kind config")
 		}
@@ -2345,7 +2203,7 @@ func TestNew_DefaultDataHubTimeout(t *testing.T) {
 		},
 	}
 
-	cfg := p.getDataHubConfig(testInstanceDefault)
+	cfg := toolkitcfg.DataHubConfig(p.config.Toolkits, testInstanceDefault)
 	if cfg == nil {
 		t.Fatal("getDataHubConfig() returned nil")
 	}
@@ -2370,7 +2228,7 @@ func TestNew_DefaultTrinoTimeout(t *testing.T) {
 		},
 	}
 
-	cfg := p.getTrinoConfig(testInstanceDefault)
+	cfg := toolkitcfg.TrinoConfig(p.config.Toolkits, testInstanceDefault)
 	if cfg == nil {
 		t.Fatal("getTrinoConfig() returned nil")
 	}
@@ -2510,137 +2368,6 @@ func TestInitSessions_DatabaseWithoutDB(t *testing.T) {
 	if !containsSubstr(err.Error(), "no database configured") {
 		t.Errorf("unexpected error: %v", err)
 	}
-}
-
-func TestParseDedupState(t *testing.T) {
-	t.Run("nil input", func(t *testing.T) {
-		result := parseDedupState(nil)
-		if result != nil {
-			t.Errorf("expected nil, got %v", result)
-		}
-	})
-
-	t.Run("non-map input", func(t *testing.T) {
-		result := parseDedupState("not a map")
-		if result != nil {
-			t.Errorf("expected nil, got %v", result)
-		}
-	})
-
-	t.Run("typed SentTableEntry map (memory store)", func(t *testing.T) {
-		now := time.Now()
-		input := map[string]middleware.SentTableEntry{
-			"table1": {SentAt: now, TokenCount: 100},
-			"table2": {SentAt: now.Add(-5 * time.Minute), TokenCount: 200},
-		}
-		result := parseDedupState(input)
-		if len(result) != 2 {
-			t.Fatalf("expected 2 entries, got %d", len(result))
-		}
-		if !result["table1"].SentAt.Equal(now) {
-			t.Errorf("table1 time mismatch")
-		}
-		if result["table1"].TokenCount != 100 {
-			t.Errorf("table1 token count: got %d, want 100", result["table1"].TokenCount)
-		}
-		if result["table2"].TokenCount != 200 {
-			t.Errorf("table2 token count: got %d, want 200", result["table2"].TokenCount)
-		}
-	})
-
-	t.Run("new JSON format with object values", func(t *testing.T) {
-		now := time.Now().UTC()
-		input := map[string]any{
-			"table1": map[string]any{
-				"sent_at":     now.Format(time.RFC3339Nano),
-				"token_count": float64(150),
-			},
-		}
-		result := parseDedupState(input)
-		if len(result) != 1 {
-			t.Fatalf("expected 1 entry, got %d", len(result))
-		}
-		if result["table1"].TokenCount != 150 {
-			t.Errorf("token count: got %d, want 150", result["table1"].TokenCount)
-		}
-	})
-
-	t.Run("old format: map[string]any with time.Time values", func(t *testing.T) {
-		now := time.Now()
-		input := map[string]any{
-			"table1": now,
-			"table2": now.Add(-5 * time.Minute),
-		}
-		result := parseDedupState(input)
-		if len(result) != 2 {
-			t.Fatalf("expected 2 entries, got %d", len(result))
-		}
-		if !result["table1"].SentAt.Equal(now) {
-			t.Errorf("table1 time mismatch")
-		}
-		if result["table1"].TokenCount != 0 {
-			t.Errorf("old format should have TokenCount 0, got %d", result["table1"].TokenCount)
-		}
-	})
-
-	t.Run("old format: map with RFC3339 string values", func(t *testing.T) {
-		now := time.Now().UTC().Truncate(time.Nanosecond)
-		input := map[string]any{
-			"table1": now.Format(time.RFC3339Nano),
-		}
-		result := parseDedupState(input)
-		if len(result) != 1 {
-			t.Fatalf("expected 1 entry, got %d", len(result))
-		}
-		if result["table1"].TokenCount != 0 {
-			t.Errorf("old format should have TokenCount 0, got %d", result["table1"].TokenCount)
-		}
-	})
-
-	t.Run("map with invalid string skipped", func(t *testing.T) {
-		input := map[string]any{
-			"table1": "not-a-timestamp",
-		}
-		result := parseDedupState(input)
-		if len(result) != 0 {
-			t.Errorf("expected 0 entries for bad timestamp, got %d", len(result))
-		}
-	})
-
-	t.Run("map with unsupported type skipped", func(t *testing.T) {
-		input := map[string]any{
-			"table1": 12345,
-		}
-		result := parseDedupState(input)
-		if len(result) != 0 {
-			t.Errorf("expected 0 entries for int value, got %d", len(result))
-		}
-	})
-
-	t.Run("new format: missing sent_at skipped", func(t *testing.T) {
-		input := map[string]any{
-			"table1": map[string]any{
-				"token_count": float64(100),
-			},
-		}
-		result := parseDedupState(input)
-		if len(result) != 0 {
-			t.Errorf("expected 0 entries for missing sent_at, got %d", len(result))
-		}
-	})
-
-	t.Run("new format: invalid sent_at type skipped", func(t *testing.T) {
-		input := map[string]any{
-			"table1": map[string]any{
-				"sent_at":     12345,
-				"token_count": float64(100),
-			},
-		}
-		result := parseDedupState(input)
-		if len(result) != 0 {
-			t.Errorf("expected 0 entries for invalid sent_at type, got %d", len(result))
-		}
-	})
 }
 
 func TestFlushEnrichmentState(t *testing.T) {
@@ -5116,6 +4843,26 @@ func TestWireAPIGatewayRoutePolicy_NoToolkit_NoOp(t *testing.T) {
 	defer func() { _ = p.Close() }()
 
 	p.WireAPIGatewayRoutePolicy() // must not panic when no api toolkit registered
+}
+
+// TestWireGatewayIntegrations_NoToolkits_NoOp proves the folded wiring sequence
+// runs every step in order without panicking when no gateway/api-gateway
+// toolkit is loaded. This is the single entry point cmd calls in place of the
+// former seven-call block, so its no-op safety is the composition-root contract.
+func TestWireGatewayIntegrations_NoToolkits_NoOp(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: testServerName},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+	}
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	p.WireGatewayIntegrations() // all seven steps no-op with no toolkits registered
 }
 
 // TestWireAPIGatewayTokenStore proves the api gateway parallel of

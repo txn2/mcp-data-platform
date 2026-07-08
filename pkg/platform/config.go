@@ -33,13 +33,9 @@ const defaultServerName = "mcp-data-platform"
 const (
 	// instanceDefault is the conventional instance *name* used for the
 	// default connection of any toolkit kind. This is a value, not a
-	// config-map key — see cfgKeyDefault.
+	// config-map key (the "default" schema key lives in the toolkitcfg
+	// package that resolves instance config).
 	instanceDefault = "default"
-	// cfgKeyDefault is the config-map *key* under which the default
-	// instance name is stored. Distinct from instanceDefault so a
-	// future rename of the default-instance value cannot silently
-	// break the lookup of this map key.
-	cfgKeyDefault = "default"
 	// kindPlatform identifies tools provided directly by the platform
 	// (not a toolkit), e.g. platform_info, list_connections.
 	kindPlatform = "platform"

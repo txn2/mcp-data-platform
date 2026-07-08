@@ -45,12 +45,15 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/oauth"
 	oauthpostgres "github.com/txn2/mcp-data-platform/pkg/oauth/postgres"
-	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
+	"github.com/txn2/mcp-data-platform/pkg/platform/dedup"
+	"github.com/txn2/mcp-data-platform/pkg/platform/exportadapters"
 	"github.com/txn2/mcp-data-platform/pkg/platform/fieldcrypt"
 	"github.com/txn2/mcp-data-platform/pkg/platform/mwchain"
+	"github.com/txn2/mcp-data-platform/pkg/platform/obs"
 	"github.com/txn2/mcp-data-platform/pkg/platform/personastore"
 	"github.com/txn2/mcp-data-platform/pkg/platform/reflexivecapture"
+	"github.com/txn2/mcp-data-platform/pkg/platform/toolkitcfg"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/portal/s3adapter"
@@ -103,15 +106,6 @@ const logKeyCount = "count"
 
 // builtinPlatformInfoName is the canonical name for the built-in platform-info MCP app.
 const builtinPlatformInfoName = "platform-info"
-
-// defaultTrinoPort is the default port for Trino connections.
-const defaultTrinoPort = 8080
-
-// defaultTrinoQueryLimit is the default query limit for Trino connections.
-const defaultTrinoQueryLimit = 1000
-
-// defaultTrinoMaxLimit is the maximum query limit for Trino connections.
-const defaultTrinoMaxLimit = 10000
 
 // logKeyError is the slog key for error values in log messages.
 const logKeyError = "error"
@@ -274,17 +268,13 @@ type Platform struct {
 	// MCP Apps
 	mcpAppsRegistry *mcpapps.Registry
 
-	// Observability (Prometheus metrics). Both fields are nil when
-	// the metrics subsystem is disabled (default); every consumer is
-	// nil-safe so no enabled checks are needed at call sites.
-	metrics         *observability.Metrics
-	metricsListener *observability.Listener
-
-	// tracer owns the OTel TracerProvider for distributed tracing. Nil
-	// when tracing is disabled (default). nil-safe; NewTracer also
-	// installs the global TracerProvider so toolkit adapters create
-	// child spans via otel.Tracer without an injected reference.
-	tracer *observability.Tracer
+	// obs owns the observability layer: the metrics recorder, its /metrics
+	// listener, and the OTel tracer. Every handle is nil-safe, so consumers
+	// record and trace unconditionally; the layer reflects the (default-off)
+	// metrics/tracing config. NewTracer installs the global TracerProvider
+	// when tracing is enabled so toolkit adapters emit nested spans without
+	// an injected reference.
+	obs *obs.Layer
 
 	// apiMemBudget is the process-wide in-flight memory budget shared by
 	// every api gateway toolkit's buffered tools (issue #535). Created
@@ -534,7 +524,7 @@ func (p *Platform) initDatabase() error {
 	p.db = db
 	// Report this pool's saturation stats under the "platform" label. All
 	// stores (connections, audit, OAuth, sessions) share this single handle.
-	p.metrics.RegisterDBPool(p.db, "platform")
+	p.obs.Metrics().RegisterDBPool(p.db, "platform")
 	slog.Info("database connected", "max_open_conns", p.config.Database.MaxOpenConns)
 
 	// Run database migrations
@@ -668,6 +658,27 @@ func (p *Platform) RestEncryptor() *fieldcrypt.RestFieldEncryptor {
 // enrichment rules — they're optional).
 func (p *Platform) EnrichmentStore() enrichment.Store {
 	return p.enrichmentStore
+}
+
+// WireGatewayIntegrations runs the post-construction wiring the gateway and
+// api-gateway toolkits need before the HTTP root handler is built, in
+// dependency order. Every step is idempotent and no-ops when no gateway /
+// api-gateway toolkit is loaded, so an entry point calls it unconditionally.
+//
+// The order is load-bearing: the token store, broadcaster, route policy,
+// api-gateway token store, embedding provider, and catalog store are wired
+// first; the embed-job queue is wired LAST because it depends on the catalog
+// store and embedding provider already being in place. Encapsulating the
+// sequence here (rather than as a bare call list in the composition root) makes
+// the ordering contract a single testable unit and keeps cmd/main.go thin.
+func (p *Platform) WireGatewayIntegrations() {
+	p.WireGatewayTokenStore()
+	p.WireGatewayBroadcaster()
+	p.WireAPIGatewayRoutePolicy()
+	p.WireAPIGatewayTokenStore()
+	p.WireAPIGatewayEmbeddingProvider()
+	p.WireAPIGatewayCatalogStoreFromDB()
+	p.WireAPIGatewayEmbedJobsFromDB()
 }
 
 // WireGatewayTokenStore attaches the unified connoauth.Store to every
@@ -1479,7 +1490,7 @@ func (p *Platform) initOAuth() error {
 		slog.Info("OAuth state store: memory (single-replica)")
 	}
 
-	server.SetMetrics(p.metrics)
+	server.SetMetrics(p.obs.Metrics())
 	p.oauthServer = server
 	return nil
 }
@@ -1867,7 +1878,7 @@ func (p *Platform) configureKnowledgeApply(tk *knowledgekit.Toolkit) error {
 // when a datahub_connection is configured, or falls back to a noop writer.
 func (p *Platform) createDataHubWriter() (knowledgekit.DataHubWriter, error) {
 	connName := p.config.Knowledge.Apply.DataHubConnection
-	dhCfg := p.getDataHubConfig(connName)
+	dhCfg := toolkitcfg.DataHubConfig(p.config.Toolkits, connName)
 	if dhCfg == nil {
 		slog.Warn("knowledge apply: datahub connection not found, using noop writer",
 			"connection", connName)
@@ -1959,7 +1970,7 @@ func (p *Platform) initPortal() error {
 // createPortalS3Client creates an S3Client from the referenced S3 connection config.
 func (p *Platform) createPortalS3Client() (portal.S3Client, error) {
 	connName := p.config.Portal.S3Connection
-	s3Cfg := p.getS3Config(connName)
+	s3Cfg := toolkitcfg.S3Config(p.config.Toolkits, connName)
 	if s3Cfg == nil {
 		return nil, fmt.Errorf("s3 connection %q not found in toolkits config", connName)
 	}
@@ -2001,23 +2012,24 @@ func (p *Platform) wireTrinoExport() {
 
 	exportCfg := p.parseExportConfig()
 
+	trinoExporter := exportadapters.NewTrinoExporter(
+		p.portalAssetStore, p.portalVersionStore, p.portalShareStore, p.config.Portal.PublicBaseURL,
+	)
+
 	for _, tk := range trinoToolkits {
 		trinoTk, ok := tk.(*trinokit.Toolkit)
 		if !ok {
 			continue
 		}
 		trinoTk.SetExportDeps(trinokit.ExportDeps{
-			AssetStore:   &exportAssetStoreAdapter{store: p.portalAssetStore},
-			VersionStore: &exportVersionStoreAdapter{store: p.portalVersionStore},
+			AssetStore:   trinoExporter,
+			VersionStore: trinoExporter,
 			S3Client:     p.portalS3Client,
-			ShareCreator: &exportShareCreatorAdapter{
-				shareStore: p.portalShareStore,
-				baseURL:    p.config.Portal.PublicBaseURL,
-			},
-			S3Bucket: p.config.Portal.S3Bucket,
-			S3Prefix: p.config.Portal.S3Prefix,
-			BaseURL:  p.config.Portal.PublicBaseURL,
-			Config:   exportCfg,
+			ShareCreator: trinoExporter,
+			S3Bucket:     p.config.Portal.S3Bucket,
+			S3Prefix:     p.config.Portal.S3Prefix,
+			BaseURL:      p.config.Portal.PublicBaseURL,
+			Config:       exportCfg,
 			GetUserContext: func(ctx context.Context) *trinokit.ExportUserContext {
 				pc := middleware.GetPlatformContext(ctx)
 				if pc == nil {
@@ -2069,135 +2081,6 @@ func (p *Platform) parseExportConfig() trinokit.ExportConfig {
 	return cfg
 }
 
-// exportAssetStoreAdapter adapts portal.AssetStore to trino.ExportAssetStore.
-type exportAssetStoreAdapter struct {
-	store portal.AssetStore
-}
-
-func (a *exportAssetStoreAdapter) InsertExportAsset(ctx context.Context, asset trinokit.ExportAsset) error { //nolint:revive // implements trino.ExportAssetStore
-	if err := a.store.Insert(ctx, portal.Asset{
-		ID:          asset.ID,
-		OwnerID:     asset.OwnerID,
-		OwnerEmail:  asset.OwnerEmail,
-		Name:        asset.Name,
-		Description: asset.Description,
-		ContentType: asset.ContentType,
-		S3Bucket:    asset.S3Bucket,
-		S3Key:       asset.S3Key,
-		SizeBytes:   asset.SizeBytes,
-		Tags:        asset.Tags,
-		Provenance: portal.Provenance{
-			UserID:    asset.Provenance.UserID,
-			SessionID: asset.Provenance.SessionID,
-			ToolCalls: convertProvenanceCalls(asset.Provenance.ToolCalls),
-		},
-		SessionID:      asset.SessionID,
-		IdempotencyKey: asset.IdempotencyKey,
-	}); err != nil {
-		return fmt.Errorf("inserting export asset: %w", err)
-	}
-	return nil
-}
-
-func (a *exportAssetStoreAdapter) GetByIdempotencyKey(ctx context.Context, ownerID, key string) (*trinokit.ExportAssetRef, error) { //nolint:revive // implements trino.ExportAssetStore
-	asset, err := a.store.GetByIdempotencyKey(ctx, ownerID, key)
-	if err != nil {
-		return nil, fmt.Errorf("looking up idempotency key: %w", err)
-	}
-	return &trinokit.ExportAssetRef{
-		ID:        asset.ID,
-		SizeBytes: asset.SizeBytes,
-	}, nil
-}
-
-func convertProvenanceCalls(calls []trinokit.ExportProvenanceCall) []portal.ProvenanceToolCall {
-	result := make([]portal.ProvenanceToolCall, len(calls))
-	for i, c := range calls {
-		result[i] = portal.ProvenanceToolCall{
-			ToolName:   c.ToolName,
-			Timestamp:  c.Timestamp,
-			Parameters: c.Parameters,
-		}
-	}
-	return result
-}
-
-// exportVersionStoreAdapter adapts portal.VersionStore to trino.ExportVersionStore.
-type exportVersionStoreAdapter struct {
-	store portal.VersionStore
-}
-
-func (a *exportVersionStoreAdapter) CreateExportVersion(ctx context.Context, ver trinokit.ExportVersion) (int, error) { //nolint:revive // implements trino.ExportVersionStore
-	n, err := a.store.CreateVersion(ctx, portal.AssetVersion{
-		ID:            ver.ID,
-		AssetID:       ver.AssetID,
-		S3Key:         ver.S3Key,
-		S3Bucket:      ver.S3Bucket,
-		ContentType:   ver.ContentType,
-		SizeBytes:     ver.SizeBytes,
-		CreatedBy:     ver.CreatedBy,
-		ChangeSummary: ver.ChangeSummary,
-	})
-	if err != nil {
-		return 0, fmt.Errorf("creating export version: %w", err)
-	}
-	return n, nil
-}
-
-// exportShareCreatorAdapter creates public share links for exported assets.
-type exportShareCreatorAdapter struct {
-	shareStore portal.ShareStore
-	baseURL    string
-}
-
-func (a *exportShareCreatorAdapter) CreatePublicShare(ctx context.Context, assetID, createdBy string) (string, error) { //nolint:revive // implements trino.ExportShareCreator
-	token, err := generateShareToken()
-	if err != nil {
-		return "", fmt.Errorf("generating share token: %w", err)
-	}
-
-	share := portal.Share{
-		ID:         generateUUID(),
-		AssetID:    assetID,
-		Token:      token,
-		CreatedBy:  createdBy,
-		NoticeText: "Proprietary & Confidential. Only share with authorized viewers.",
-	}
-
-	if err := a.shareStore.Insert(ctx, share); err != nil {
-		return "", fmt.Errorf("inserting share: %w", err)
-	}
-
-	if a.baseURL != "" {
-		return fmt.Sprintf("%s/portal/view/%s", a.baseURL, token), nil
-	}
-	// Empty baseURL → empty share URL. Returning the bare token
-	// here would put a non-URL value into the model-visible
-	// `share_url` field; the api-gateway-side adapter does the
-	// same thing and the JSON envelopes both use omitempty to
-	// hide the field cleanly when no URL is computable.
-	return "", nil
-}
-
-// generateShareToken generates a cryptographically random hex token for share links.
-func generateShareToken() (string, error) {
-	b := make([]byte, 32) //nolint:mnd // 256-bit token
-	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("generating random token: %w", err)
-	}
-	return hex.EncodeToString(b), nil
-}
-
-// generateUUID returns a new UUID v4 string.
-func generateUUID() string {
-	b := make([]byte, 16) //nolint:mnd // UUID is 128 bits
-	_, _ = rand.Read(b)   //nolint:errcheck // best-effort, crypto/rand failure is fatal
-	// Set version 4 and variant bits per RFC 4122
-	b[6] = (b[6] & 0x0f) | 0x40 //nolint:revive // UUID v4 version bits per RFC 4122
-	b[8] = (b[8] & 0x3f) | 0x80 //nolint:revive // UUID variant bits per RFC 4122
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
-}
-
 // initManagedResources initializes the managed resources subsystem (human-uploaded
 // reference material stored in S3 with metadata in PostgreSQL).
 func (p *Platform) initManagedResources() error {
@@ -2209,7 +2092,7 @@ func (p *Platform) initManagedResources() error {
 
 	// Create S3 client from referenced or default S3 connection.
 	if connName := p.managedResourceS3Connection(); connName != "" {
-		s3Cfg := p.getS3Config(connName)
+		s3Cfg := toolkitcfg.S3Config(p.config.Toolkits, connName)
 		if s3Cfg == nil {
 			return fmt.Errorf("resource s3 connection %q not found in toolkits config", connName)
 		}
@@ -2283,7 +2166,7 @@ func (p *Platform) resolveDefaultS3Instance() string {
 	if !ok {
 		return ""
 	}
-	return resolveDefaultInstance(kindCfg, instances)
+	return toolkitcfg.ResolveDefaultInstance(kindCfg, instances)
 }
 
 // ResourceStore returns the managed resource store (nil if not enabled).
@@ -2738,7 +2621,7 @@ func (p *Platform) buildSessionResolver() *middleware.SessionResolver {
 	if !p.config.Sessions.Handles.IsEnabled() || p.sessionStore == nil {
 		return nil
 	}
-	metrics := p.metrics
+	metrics := p.obs.Metrics()
 	// Carry the superseded legacy gate's exempt_tools forward (not silently dropped).
 	var exempt []string
 	if p.config.SessionGate.Enabled {
@@ -3006,7 +2889,7 @@ func (p *Platform) createSemanticProvider() (semantic.Provider, error) {
 	switch p.config.Semantic.Provider {
 	case kindDataHub:
 		// Get DataHub config from toolkits
-		datahubCfg := p.getDataHubConfig(p.config.Semantic.Instance)
+		datahubCfg := toolkitcfg.DataHubConfig(p.config.Toolkits, p.config.Semantic.Instance)
 		if datahubCfg == nil {
 			return nil, fmt.Errorf("datahub instance %q not found in toolkits config", p.config.Semantic.Instance)
 		}
@@ -3033,8 +2916,8 @@ func (p *Platform) createSemanticProvider() (semantic.Provider, error) {
 		// Instrument before the cache wrap so DataHub request metrics and
 		// spans are recorded on the underlying client, not skipped by
 		// cache hits. Installed only when metrics or tracing is on.
-		if p.observabilityEnabled() {
-			adapter.SetMetrics(p.metrics)
+		if p.obs.Enabled() {
+			adapter.SetMetrics(p.obs.Metrics())
 		}
 
 		// Wrap with caching if enabled
@@ -3058,7 +2941,7 @@ func (p *Platform) createQueryProvider() (query.Provider, error) {
 	switch p.config.Query.Provider {
 	case toolkitKindTrino:
 		// Get Trino config from toolkits
-		trinoCfg := p.getTrinoConfig(p.config.Query.Instance)
+		trinoCfg := toolkitcfg.TrinoConfig(p.config.Toolkits, p.config.Query.Instance)
 		if trinoCfg == nil {
 			return nil, fmt.Errorf("trino instance %q not found in toolkits config", p.config.Query.Instance)
 		}
@@ -3083,8 +2966,8 @@ func (p *Platform) createQueryProvider() (query.Provider, error) {
 		if err != nil {
 			return nil, fmt.Errorf("creating trino query provider: %w", err)
 		}
-		if p.observabilityEnabled() {
-			adapter.SetMetrics(p.metrics)
+		if p.obs.Enabled() {
+			adapter.SetMetrics(p.obs.Metrics())
 		}
 		return adapter, nil
 
@@ -3101,7 +2984,7 @@ func (p *Platform) createStorageProvider() (storage.Provider, error) {
 	switch p.config.Storage.Provider {
 	case "s3":
 		// Get S3 config from toolkits
-		s3Cfg := p.getS3Config(p.config.Storage.Instance)
+		s3Cfg := toolkitcfg.S3Config(p.config.Toolkits, p.config.Storage.Instance)
 		if s3Cfg == nil {
 			return nil, fmt.Errorf("s3 instance %q not found in toolkits config", p.config.Storage.Instance)
 		}
@@ -3720,154 +3603,6 @@ func (p *Platform) PlatformTools() []ToolInfo {
 	return tools
 }
 
-// datahubConfig holds extracted DataHub configuration.
-type datahubConfig struct {
-	URL     string
-	Token   string
-	Timeout time.Duration
-	Debug   bool
-}
-
-// trinoConfig holds extracted Trino configuration.
-type trinoConfig struct {
-	Host           string
-	Port           int
-	User           string
-	Password       string // #nosec G117 -- Trino connection credential from admin config
-	Catalog        string
-	Schema         string
-	SSL            bool
-	SSLVerify      bool
-	Timeout        time.Duration
-	DefaultLimit   int
-	MaxLimit       int
-	ReadOnly       bool
-	ConnectionName string
-}
-
-// s3Config holds extracted S3 configuration.
-type s3Config struct {
-	Region         string
-	Endpoint       string
-	AccessKeyID    string
-	SecretKey      string
-	BucketPrefix   string
-	ConnectionName string
-	UsePathStyle   bool
-}
-
-// getDataHubConfig extracts DataHub configuration from toolkits config.
-func (p *Platform) getDataHubConfig(instanceName string) *datahubConfig {
-	instanceCfg := p.getInstanceConfig(kindDataHub, instanceName)
-	if instanceCfg == nil {
-		return nil
-	}
-
-	cfg := &datahubConfig{
-		URL:     cfgString(instanceCfg, "url"),
-		Token:   cfgString(instanceCfg, fieldcrypt.CfgKeyToken),
-		Timeout: cfgDuration(instanceCfg, "timeout", 30*time.Second),
-		Debug:   cfgBoolDefault(instanceCfg, "debug", false),
-	}
-
-	// Support both "url" and "endpoint" keys
-	if cfg.URL == "" {
-		cfg.URL = cfgString(instanceCfg, "endpoint")
-	}
-
-	return cfg
-}
-
-// getTrinoConfig extracts Trino configuration from toolkits config.
-func (p *Platform) getTrinoConfig(instanceName string) *trinoConfig {
-	instanceCfg := p.getInstanceConfig(toolkitKindTrino, instanceName)
-	if instanceCfg == nil {
-		return nil
-	}
-
-	return &trinoConfig{
-		Host:           cfgString(instanceCfg, "host"),
-		Port:           cfgInt(instanceCfg, "port", defaultTrinoPort),
-		User:           cfgString(instanceCfg, "user"),
-		Password:       cfgString(instanceCfg, fieldcrypt.CfgKeyPassword),
-		Catalog:        cfgString(instanceCfg, "catalog"),
-		Schema:         cfgString(instanceCfg, "schema"),
-		SSL:            cfgBool(instanceCfg, "ssl"),
-		SSLVerify:      cfgBoolDefault(instanceCfg, "ssl_verify", true),
-		Timeout:        cfgDuration(instanceCfg, "timeout", 120*time.Second),
-		DefaultLimit:   cfgInt(instanceCfg, "default_limit", defaultTrinoQueryLimit),
-		MaxLimit:       cfgInt(instanceCfg, "max_limit", defaultTrinoMaxLimit),
-		ReadOnly:       cfgBool(instanceCfg, "read_only"),
-		ConnectionName: cfgString(instanceCfg, "connection_name"),
-	}
-}
-
-// getS3Config extracts S3 configuration from toolkits config.
-func (p *Platform) getS3Config(instanceName string) *s3Config {
-	instanceCfg := p.getInstanceConfig("s3", instanceName)
-	if instanceCfg == nil {
-		return nil
-	}
-
-	cfg := &s3Config{
-		Region:         cfgString(instanceCfg, "region"),
-		Endpoint:       cfgString(instanceCfg, "endpoint"),
-		AccessKeyID:    cfgString(instanceCfg, "access_key_id"),
-		SecretKey:      cfgString(instanceCfg, fieldcrypt.CfgKeySecretAccessKey),
-		BucketPrefix:   cfgString(instanceCfg, "bucket_prefix"),
-		ConnectionName: cfgString(instanceCfg, "connection_name"),
-		UsePathStyle:   cfgBool(instanceCfg, "use_path_style"),
-	}
-
-	if cfg.ConnectionName == "" {
-		cfg.ConnectionName = instanceName
-	}
-
-	return cfg
-}
-
-// getInstanceConfig retrieves instance configuration from toolkits config.
-func (p *Platform) getInstanceConfig(toolkitKind, instanceName string) map[string]any {
-	toolkitsCfg, ok := p.config.Toolkits[toolkitKind]
-	if !ok {
-		return nil
-	}
-
-	kindCfg, ok := toolkitsCfg.(map[string]any)
-	if !ok {
-		return nil
-	}
-
-	instances, ok := kindCfg[cfgKeyInstances].(map[string]any)
-	if !ok {
-		return nil
-	}
-
-	// If no instance name specified, try to get the default
-	if instanceName == "" {
-		instanceName = resolveDefaultInstance(kindCfg, instances)
-	}
-
-	instanceCfg, ok := instances[instanceName].(map[string]any)
-	if !ok {
-		return nil
-	}
-
-	return instanceCfg
-}
-
-// resolveDefaultInstance determines which instance to use.
-func resolveDefaultInstance(kindCfg, instances map[string]any) string {
-	if defaultName, ok := kindCfg[cfgKeyDefault].(string); ok {
-		return defaultName
-	}
-	// Use the first instance
-	for name := range instances {
-		return name
-	}
-	return ""
-}
-
 // injectToolkitPlatformConfig injects platform-level configuration into
 // toolkit instance config maps before the registry loader processes them.
 // This allows platform-wide settings (e.g., progress.enabled, elicitation)
@@ -3938,54 +3673,6 @@ func (p *Platform) trinoInstanceConfigs() map[string]any {
 	return instances
 }
 
-// Configuration extraction helpers.
-
-func cfgString(cfg map[string]any, key string) string {
-	if v, ok := cfg[key].(string); ok {
-		return v
-	}
-	return ""
-}
-
-func cfgInt(cfg map[string]any, key string, defaultVal int) int {
-	if v, ok := cfg[key].(int); ok {
-		return v
-	}
-	if v, ok := cfg[key].(float64); ok {
-		return int(v)
-	}
-	return defaultVal
-}
-
-func cfgBool(cfg map[string]any, key string) bool {
-	if v, ok := cfg[key].(bool); ok {
-		return v
-	}
-	return false
-}
-
-func cfgBoolDefault(cfg map[string]any, key string, defaultVal bool) bool {
-	if v, ok := cfg[key].(bool); ok {
-		return v
-	}
-	return defaultVal
-}
-
-func cfgDuration(cfg map[string]any, key string, defaultVal time.Duration) time.Duration {
-	if v, ok := cfg[key].(string); ok {
-		if d, err := time.ParseDuration(v); err == nil {
-			return d
-		}
-	}
-	if v, ok := cfg[key].(int); ok {
-		return time.Duration(v) * time.Second
-	}
-	if v, ok := cfg[key].(float64); ok {
-		return time.Duration(v) * time.Second
-	}
-	return defaultVal
-}
-
 // closeResource closes a resource and appends any error.
 func closeResource(errs *[]error, closer Closer) {
 	if closer == nil {
@@ -4025,7 +3712,7 @@ func (p *Platform) Close() error {
 // timeout so a stuck scraper cannot delay platform shutdown; the
 // provider flushes are best-effort. All calls are nil-safe.
 func (p *Platform) closeMetricsLayer(errs *[]error) {
-	if p.metricsListener == nil && p.metrics == nil && p.tracer == nil {
+	if p.obs == nil {
 		return
 	}
 	slog.Debug("shutdown: stopping metrics layer")
@@ -4034,7 +3721,7 @@ func (p *Platform) closeMetricsLayer(errs *[]error) {
 	if err := p.ShutdownMetricsListener(ctx); err != nil {
 		*errs = append(*errs, err)
 	}
-	if err := p.tracer.Shutdown(ctx); err != nil {
+	if err := p.obs.Tracer().Shutdown(ctx); err != nil {
 		*errs = append(*errs, err)
 	}
 }
@@ -4199,7 +3886,7 @@ func (p *Platform) loadPersistedEnrichmentState() {
 		if !ok {
 			continue
 		}
-		tables := parseDedupState(dedupRaw)
+		tables := dedup.ParseState(dedupRaw)
 		if len(tables) > 0 {
 			p.sessionCache.LoadSession(sess.ID, tables)
 			loaded++
@@ -4208,79 +3895,6 @@ func (p *Platform) loadPersistedEnrichmentState() {
 	if loaded > 0 {
 		slog.Info("loaded persisted enrichment state", "sessions", loaded)
 	}
-}
-
-// parseDedupState converts the enrichment_dedup state value into the typed
-// map the session cache expects. Handles three storage formats:
-//   - map[string]middleware.SentTableEntry (memory store preserves Go types directly)
-//   - map[string]any with object values (new JSON format: {"sent_at": ..., "token_count": ...})
-//   - map[string]any with string/time values (old JSON format: table → timestamp)
-func parseDedupState(raw any) map[string]middleware.SentTableEntry {
-	// Memory store: value is already the correct type.
-	if typed, ok := raw.(map[string]middleware.SentTableEntry); ok {
-		return typed
-	}
-
-	// Database store: JSON deserialized as map[string]any.
-	m, ok := raw.(map[string]any)
-	if !ok {
-		return nil
-	}
-	result := make(map[string]middleware.SentTableEntry, len(m))
-	for table, v := range m {
-		entry, entryOK := parseDedupEntry(v)
-		if entryOK {
-			result[table] = entry
-		}
-	}
-	return result
-}
-
-// parseDedupEntry parses a single dedup entry from either new or old format.
-func parseDedupEntry(v any) (middleware.SentTableEntry, bool) {
-	switch t := v.(type) {
-	case middleware.SentTableEntry:
-		return t, true
-	case map[string]any:
-		return parseEntryFromMap(t)
-	case time.Time:
-		return middleware.SentTableEntry{SentAt: t}, true
-	case string:
-		if parsed, err := time.Parse(time.RFC3339Nano, t); err == nil {
-			return middleware.SentTableEntry{SentAt: parsed}, true
-		}
-	}
-	return middleware.SentTableEntry{}, false
-}
-
-// parseEntryFromMap parses a SentTableEntry from a JSON-deserialized map.
-func parseEntryFromMap(m map[string]any) (middleware.SentTableEntry, bool) {
-	entry := middleware.SentTableEntry{}
-	sentAt, ok := m["sent_at"]
-	if !ok {
-		return entry, false
-	}
-	switch t := sentAt.(type) {
-	case time.Time:
-		entry.SentAt = t
-	case string:
-		parsed, err := time.Parse(time.RFC3339Nano, t)
-		if err != nil {
-			return entry, false
-		}
-		entry.SentAt = parsed
-	default:
-		return entry, false
-	}
-	if tc, ok := m["token_count"]; ok {
-		switch n := tc.(type) {
-		case float64:
-			entry.TokenCount = int(n)
-		case int:
-			entry.TokenCount = n
-		}
-	}
-	return entry, true
 }
 
 // WireAPIGatewayMemBudget creates the process-wide in-flight memory
@@ -4343,23 +3957,24 @@ func (p *Platform) wireAPIGatewayExport() {
 		MaxTimeout:     tcfg.MaxTimeout,
 	}
 
+	apiExporter := exportadapters.NewAPIExporter(
+		p.portalAssetStore, p.portalVersionStore, p.portalShareStore, p.config.Portal.PublicBaseURL,
+	)
+
 	for _, tk := range apiToolkits {
 		apiTk, ok := tk.(*apigatewaykit.Toolkit)
 		if !ok {
 			continue
 		}
 		apiTk.SetExportDeps(apigatewaykit.ExportDeps{
-			AssetStore:   &apiExportAssetStoreAdapter{store: p.portalAssetStore},
-			VersionStore: &apiExportVersionStoreAdapter{store: p.portalVersionStore},
+			AssetStore:   apiExporter,
+			VersionStore: apiExporter,
 			S3Client:     p.portalS3Client,
-			ShareCreator: &apiExportShareCreatorAdapter{
-				shareStore: p.portalShareStore,
-				baseURL:    p.config.Portal.PublicBaseURL,
-			},
-			S3Bucket: p.config.Portal.S3Bucket,
-			S3Prefix: p.config.Portal.S3Prefix,
-			BaseURL:  p.config.Portal.PublicBaseURL,
-			Config:   exportCfg,
+			ShareCreator: apiExporter,
+			S3Bucket:     p.config.Portal.S3Bucket,
+			S3Prefix:     p.config.Portal.S3Prefix,
+			BaseURL:      p.config.Portal.PublicBaseURL,
+			Config:       exportCfg,
 			GetUserContext: func(ctx context.Context) *apigatewaykit.ExportUserContext {
 				pc := middleware.GetPlatformContext(ctx)
 				if pc == nil {
@@ -4377,115 +3992,4 @@ func (p *Platform) wireAPIGatewayExport() {
 	slog.Info("api_export wired",
 		"max_bytes", exportCfg.MaxBytes,
 	)
-}
-
-// apiExportAssetStoreAdapter adapts portal.AssetStore to
-// apigatewaykit.ExportAssetStore. Mirrors exportAssetStoreAdapter
-// (the trino-side adapter) — the only divergence is the locally-
-// defined apigatewaykit.ExportAsset type that callers pass in.
-type apiExportAssetStoreAdapter struct {
-	store portal.AssetStore
-}
-
-func (a *apiExportAssetStoreAdapter) InsertExportAsset(ctx context.Context, asset apigatewaykit.ExportAsset) error { //nolint:revive // implements apigateway.ExportAssetStore
-	if err := a.store.Insert(ctx, portal.Asset{
-		ID:          asset.ID,
-		OwnerID:     asset.OwnerID,
-		OwnerEmail:  asset.OwnerEmail,
-		Name:        asset.Name,
-		Description: asset.Description,
-		ContentType: asset.ContentType,
-		S3Bucket:    asset.S3Bucket,
-		S3Key:       asset.S3Key,
-		SizeBytes:   asset.SizeBytes,
-		Tags:        asset.Tags,
-		Provenance: portal.Provenance{
-			UserID:    asset.Provenance.UserID,
-			SessionID: asset.Provenance.SessionID,
-			ToolCalls: convertAPIGatewayProvenanceCalls(asset.Provenance.ToolCalls),
-		},
-		SessionID:      asset.SessionID,
-		IdempotencyKey: asset.IdempotencyKey,
-	}); err != nil {
-		return fmt.Errorf("inserting api_export asset: %w", err)
-	}
-	return nil
-}
-
-func (a *apiExportAssetStoreAdapter) GetByIdempotencyKey(ctx context.Context, ownerID, key string) (*apigatewaykit.ExportAssetRef, error) { //nolint:revive // implements apigateway.ExportAssetStore
-	asset, err := a.store.GetByIdempotencyKey(ctx, ownerID, key)
-	if err != nil {
-		return nil, fmt.Errorf("looking up api_export idempotency key: %w", err)
-	}
-	return &apigatewaykit.ExportAssetRef{
-		ID:        asset.ID,
-		SizeBytes: asset.SizeBytes,
-	}, nil
-}
-
-// apiExportVersionStoreAdapter adapts portal.VersionStore to
-// apigatewaykit.ExportVersionStore.
-type apiExportVersionStoreAdapter struct {
-	store portal.VersionStore
-}
-
-func (a *apiExportVersionStoreAdapter) CreateExportVersion(ctx context.Context, ver apigatewaykit.ExportVersion) (int, error) { //nolint:revive // implements apigateway.ExportVersionStore
-	n, err := a.store.CreateVersion(ctx, portal.AssetVersion{
-		ID:            ver.ID,
-		AssetID:       ver.AssetID,
-		S3Key:         ver.S3Key,
-		S3Bucket:      ver.S3Bucket,
-		ContentType:   ver.ContentType,
-		SizeBytes:     ver.SizeBytes,
-		CreatedBy:     ver.CreatedBy,
-		ChangeSummary: ver.ChangeSummary,
-	})
-	if err != nil {
-		return 0, fmt.Errorf("creating api_export version: %w", err)
-	}
-	return n, nil
-}
-
-// apiExportShareCreatorAdapter creates public share links for
-// api_export assets. Same shape as the trino-side adapter; the
-// share row in the DB is identical.
-type apiExportShareCreatorAdapter struct {
-	shareStore portal.ShareStore
-	baseURL    string
-}
-
-func (a *apiExportShareCreatorAdapter) CreatePublicShare(ctx context.Context, assetID, createdBy string) (string, error) { //nolint:revive // implements apigateway.ExportShareCreator
-	token, err := generateShareToken()
-	if err != nil {
-		return "", fmt.Errorf("generating share token: %w", err)
-	}
-	share := portal.Share{
-		ID:         generateUUID(),
-		AssetID:    assetID,
-		Token:      token,
-		CreatedBy:  createdBy,
-		NoticeText: "Proprietary & Confidential. Only share with authorized viewers.",
-	}
-	if err := a.shareStore.Insert(ctx, share); err != nil {
-		return "", fmt.Errorf("inserting api_export share: %w", err)
-	}
-	if a.baseURL != "" {
-		return fmt.Sprintf("%s/portal/view/%s", a.baseURL, token), nil
-	}
-	return "", nil
-}
-
-// convertAPIGatewayProvenanceCalls is the apigateway-flavored
-// counterpart to convertProvenanceCalls. Same shape, different
-// source type.
-func convertAPIGatewayProvenanceCalls(calls []apigatewaykit.ExportProvenanceCall) []portal.ProvenanceToolCall {
-	result := make([]portal.ProvenanceToolCall, len(calls))
-	for i, c := range calls {
-		result[i] = portal.ProvenanceToolCall{
-			ToolName:   c.ToolName,
-			Timestamp:  c.Timestamp,
-			Parameters: c.Parameters,
-		}
-	}
-	return result
 }

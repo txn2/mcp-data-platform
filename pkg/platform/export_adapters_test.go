@@ -2,7 +2,6 @@ package platform
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"testing"
 
@@ -16,42 +15,9 @@ import (
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 )
 
-// --- Adapter unit tests ---
-
-type stubAssetStore struct {
-	portal.AssetStore
-	inserted    *portal.Asset
-	insertErr   error
-	getByKey    *portal.Asset
-	getByKeyErr error
-}
-
-func (s *stubAssetStore) Insert(_ context.Context, asset portal.Asset) error {
-	s.inserted = &asset
-	return s.insertErr
-}
-
-func (s *stubAssetStore) GetByIdempotencyKey(_ context.Context, _, _ string) (*portal.Asset, error) {
-	if s.getByKey != nil {
-		return s.getByKey, nil
-	}
-	return nil, s.getByKeyErr
-}
-
-type stubVersionStore struct {
-	portal.VersionStore
-	created   *portal.AssetVersion
-	createErr error
-}
-
-func (s *stubVersionStore) CreateVersion(_ context.Context, v portal.AssetVersion) (int, error) {
-	s.created = &v
-	if s.createErr != nil {
-		return 0, s.createErr
-	}
-	return 1, nil
-}
-
+// stubShareStore is consumed by prompt_shared_serving_test.go (the export
+// adapters that formerly used it now live in the exportadapters subpackage
+// with their own stubs).
 type stubShareStore struct {
 	portal.ShareStore
 	inserted      *portal.Share
@@ -72,140 +38,6 @@ func (s *stubShareStore) ListSharedPromptsWithUser(_ context.Context, _, _ strin
 
 func (s *stubShareStore) GetByToken(_ context.Context, _ string) (*portal.Share, error) {
 	return s.getByTokenRes, s.getByTokenErr
-}
-
-func TestExportAssetStoreAdapter_Insert(t *testing.T) {
-	store := &stubAssetStore{}
-	adapter := &exportAssetStoreAdapter{store: store}
-
-	err := adapter.InsertExportAsset(context.Background(), trinokit.ExportAsset{
-		ID:      "a1",
-		OwnerID: "u1",
-		Name:    "Test",
-		Tags:    []string{"tag1"},
-		Provenance: trinokit.ExportProvenance{
-			UserID:    "u1",
-			SessionID: "s1",
-			ToolCalls: []trinokit.ExportProvenanceCall{
-				{ToolName: "trino_query", Timestamp: "2026-01-01T00:00:00Z"},
-			},
-		},
-		IdempotencyKey: "key1",
-	})
-	require.NoError(t, err)
-	require.NotNil(t, store.inserted)
-	assert.Equal(t, "a1", store.inserted.ID)
-	assert.Equal(t, "key1", store.inserted.IdempotencyKey)
-	assert.Len(t, store.inserted.Provenance.ToolCalls, 1)
-}
-
-func TestExportAssetStoreAdapter_InsertError(t *testing.T) {
-	store := &stubAssetStore{insertErr: fmt.Errorf("db error")}
-	adapter := &exportAssetStoreAdapter{store: store}
-
-	err := adapter.InsertExportAsset(context.Background(), trinokit.ExportAsset{ID: "a1"})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "inserting export asset")
-}
-
-func TestExportAssetStoreAdapter_GetByIdempotencyKey(t *testing.T) {
-	store := &stubAssetStore{getByKey: &portal.Asset{ID: "a1", SizeBytes: 999}}
-	adapter := &exportAssetStoreAdapter{store: store}
-
-	ref, err := adapter.GetByIdempotencyKey(context.Background(), "u1", "key1")
-	require.NoError(t, err)
-	assert.Equal(t, "a1", ref.ID)
-	assert.Equal(t, int64(999), ref.SizeBytes)
-}
-
-func TestExportAssetStoreAdapter_GetByIdempotencyKeyNotFound(t *testing.T) {
-	store := &stubAssetStore{getByKeyErr: fmt.Errorf("not found")}
-	adapter := &exportAssetStoreAdapter{store: store}
-
-	_, err := adapter.GetByIdempotencyKey(context.Background(), "u1", "key1")
-	assert.Error(t, err)
-}
-
-func TestExportVersionStoreAdapter(t *testing.T) {
-	store := &stubVersionStore{}
-	adapter := &exportVersionStoreAdapter{store: store}
-
-	n, err := adapter.CreateExportVersion(context.Background(), trinokit.ExportVersion{
-		AssetID: "a1", S3Key: "key", S3Bucket: "b", ContentType: "text/csv",
-		SizeBytes: 100, CreatedBy: "alice@example.com", ChangeSummary: "test",
-	})
-	require.NoError(t, err)
-	assert.Equal(t, 1, n)
-	require.NotNil(t, store.created)
-	assert.Equal(t, "a1", store.created.AssetID)
-}
-
-func TestExportVersionStoreAdapter_Error(t *testing.T) {
-	store := &stubVersionStore{createErr: fmt.Errorf("db error")}
-	adapter := &exportVersionStoreAdapter{store: store}
-
-	_, err := adapter.CreateExportVersion(context.Background(), trinokit.ExportVersion{AssetID: "a1"})
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "creating export version")
-}
-
-func TestExportShareCreatorAdapter(t *testing.T) {
-	store := &stubShareStore{}
-	adapter := &exportShareCreatorAdapter{shareStore: store, baseURL: "https://example.com"}
-
-	url, err := adapter.CreatePublicShare(context.Background(), "a1", "alice@example.com")
-	require.NoError(t, err)
-	assert.Contains(t, url, "https://example.com/portal/view/")
-	require.NotNil(t, store.inserted)
-	assert.Equal(t, "a1", store.inserted.AssetID)
-	assert.Equal(t, "alice@example.com", store.inserted.CreatedBy)
-	assert.NotEmpty(t, store.inserted.Token)
-	assert.NotEmpty(t, store.inserted.NoticeText)
-}
-
-func TestExportShareCreatorAdapter_NoBaseURL(t *testing.T) {
-	store := &stubShareStore{}
-	adapter := &exportShareCreatorAdapter{shareStore: store, baseURL: ""}
-
-	url, err := adapter.CreatePublicShare(context.Background(), "a1", "alice@example.com")
-	require.NoError(t, err)
-	// Empty baseURL → empty share URL. The share row IS still
-	// inserted (token exists in DB) so the API caller can compute
-	// the URL later; surfacing a bare token in `share_url` would
-	// put a non-URL value in a URL-typed field, which is
-	// misleading. The api-gateway-side adapter behaves the same
-	// way — see TestAPIExportShareCreatorAdapter_NoBaseURL.
-	assert.Empty(t, url)
-	assert.NotNil(t, store.inserted)
-}
-
-func TestExportShareCreatorAdapter_InsertError(t *testing.T) {
-	store := &stubShareStore{insertErr: fmt.Errorf("db error")}
-	adapter := &exportShareCreatorAdapter{shareStore: store, baseURL: "https://example.com"}
-
-	_, err := adapter.CreatePublicShare(context.Background(), "a1", "alice@example.com")
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "inserting share")
-}
-
-func TestGenerateShareToken(t *testing.T) {
-	token, err := generateShareToken()
-	require.NoError(t, err)
-	assert.Len(t, token, 64) // 32 bytes = 64 hex chars
-
-	token2, err := generateShareToken()
-	require.NoError(t, err)
-	assert.NotEqual(t, token, token2)
-}
-
-func TestGenerateUUID(t *testing.T) {
-	id := generateUUID()
-	assert.Contains(t, id, "-")
-	// Should be 36 chars: 8-4-4-4-12 = 32 hex + 4 hyphens
-	assert.Len(t, id, 36)
-
-	id2 := generateUUID()
-	assert.NotEqual(t, id, id2)
 }
 
 func TestParseExportConfig(t *testing.T) {
@@ -471,13 +303,4 @@ func TestTrinoExportRegistersViaFullPlatformInit(t *testing.T) {
 	// Also verify it registers on the MCP server (simulating Start → RegisterAllTools)
 	server := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "0.1"}, nil)
 	reg.RegisterAllTools(server)
-}
-
-func TestConvertProvenanceCalls(t *testing.T) {
-	calls := convertProvenanceCalls([]trinokit.ExportProvenanceCall{
-		{ToolName: "trino_query", Timestamp: "2026-01-01T00:00:00Z", Parameters: map[string]any{"sql": "SELECT 1"}},
-	})
-	require.Len(t, calls, 1)
-	assert.Equal(t, "trino_query", calls[0].ToolName)
-	assert.Equal(t, "SELECT 1", calls[0].Parameters["sql"])
 }
