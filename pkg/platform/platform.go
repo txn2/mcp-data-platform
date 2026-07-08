@@ -46,6 +46,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/oauth"
 	oauthpostgres "github.com/txn2/mcp-data-platform/pkg/oauth/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
+	"github.com/txn2/mcp-data-platform/pkg/platform/browserauth"
 	"github.com/txn2/mcp-data-platform/pkg/platform/dedup"
 	"github.com/txn2/mcp-data-platform/pkg/platform/exportadapters"
 	"github.com/txn2/mcp-data-platform/pkg/platform/fieldcrypt"
@@ -165,9 +166,8 @@ type Platform struct {
 	oauthSigningKey  []byte
 	oauthStoreCloser interface{ Close() error }
 
-	// Browser session (OIDC login flow + cookie-based auth)
-	browserSessionFlow *browsersession.Flow
-	browserSessionAuth *browsersession.Authenticator
+	// Browser session (OIDC login flow + cookie-based auth for the web UI)
+	browserSession *browserauth.Session
 
 	// Audit
 	auditLogger middleware.AuditLogger
@@ -1189,51 +1189,34 @@ func (p *Platform) initBrowserSession() error {
 		return fmt.Errorf("decoding browser session signing key: %w", err)
 	}
 
-	cookieCfg := browsersession.CookieConfig{
-		Name:     bsCfg.CookieName,
-		Domain:   bsCfg.Domain,
-		Secure:   bsCfg.IsSecure(),
-		TTL:      bsCfg.TTL,
-		Key:      keyBytes,
-		SameSite: browsersession.ParseSameSite(bsCfg.SameSite),
-	}
-
-	// SameSite=None disables the browser's built-in cross-site cookie defense,
-	// leaving the X-CSRF-Token check as the sole protection; warn on it.
-	if cookieCfg.IsCrossSiteCookieMode() {
-		slog.Warn("session cookie SameSite=None permits cross-site submission; " +
-			"the X-CSRF-Token header is the sole CSRF protection")
-	}
-
 	oidcCfg := p.config.Auth.OIDC
-
-	// Build redirect URI from portal public base URL.
 	redirectURI := p.config.Portal.PublicBaseURL + "/portal/auth/callback"
 
-	flowCfg := browsersession.FlowConfig{
+	bs, err := browserauth.New(context.Background(), browserauth.Config{
+		CookieName:         bsCfg.CookieName,
+		Domain:             bsCfg.Domain,
+		SameSite:           bsCfg.SameSite,
+		Secure:             bsCfg.IsSecure(),
+		TTL:                bsCfg.TTL,
+		SigningKey:         keyBytes,
 		Issuer:             oidcCfg.Issuer,
 		ClientID:           oidcCfg.ClientID,
 		ClientSecret:       oidcCfg.ClientSecret,
-		RedirectURI:        redirectURI,
 		Scopes:             oidcCfg.Scopes,
 		RoleClaim:          oidcCfg.RoleClaimPath,
 		RolePrefix:         oidcCfg.RolePrefix,
-		Cookie:             cookieCfg,
-		PostLoginRedirect:  browsersession.DefaultPortalPath,
+		RedirectURI:        redirectURI,
 		PostLogoutRedirect: p.config.Portal.PublicBaseURL + browsersession.DefaultPortalPath,
-		// Record portal/admin SPA users in the known-users directory (#614) at
-		// login. The token authenticator's ObservingAuthenticator wrapper never
-		// sees these users, since they authenticate via the session cookie.
+		// Portal/admin SPA users log in via the session cookie, so the token
+		// authenticator's ObservingAuthenticator never sees them; record them
+		// here at login instead (#614).
 		OnLogin: p.observeBrowserLogin,
-	}
-
-	flow, err := browsersession.NewFlow(context.Background(), flowCfg)
+	})
 	if err != nil {
-		return fmt.Errorf("creating OIDC flow: %w", err)
+		return fmt.Errorf("initializing browser session: %w", err)
 	}
 
-	p.browserSessionFlow = flow
-	p.browserSessionAuth = browsersession.NewAuthenticator(cookieCfg)
+	p.browserSession = bs
 
 	slog.Info("browser session enabled",
 		"issuer", oidcCfg.Issuer,
@@ -3489,12 +3472,12 @@ func (p *Platform) ResolveImplementorLogo() string {
 
 // BrowserSessionFlow returns the OIDC login flow, or nil if browser sessions are disabled.
 func (p *Platform) BrowserSessionFlow() *browsersession.Flow {
-	return p.browserSessionFlow
+	return p.browserSession.Flow()
 }
 
 // BrowserSessionAuth returns the cookie-based authenticator, or nil if browser sessions are disabled.
 func (p *Platform) BrowserSessionAuth() *browsersession.Authenticator {
-	return p.browserSessionAuth
+	return p.browserSession.Authenticator()
 }
 
 // ToolInfo describes a tool registered directly on the platform (not via a toolkit).

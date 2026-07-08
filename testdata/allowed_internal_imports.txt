@@ -126,6 +126,7 @@ pkg/platform -> pkg/oauth/postgres
 pkg/platform -> pkg/observability
 pkg/platform -> pkg/observability/proxy
 pkg/platform -> pkg/persona
+pkg/platform -> pkg/platform/browserauth
 pkg/platform -> pkg/platform/connsource
 pkg/platform -> pkg/platform/dedup
 pkg/platform -> pkg/platform/exportadapters
@@ -174,6 +175,7 @@ pkg/platform -> pkg/toolkits/trino
 pkg/platform -> pkg/tuning
 pkg/platform -> pkg/urnbuild
 pkg/platform -> pkg/user
+pkg/platform/browserauth -> pkg/browsersession
 pkg/platform/dedup -> pkg/middleware
 pkg/platform/exportadapters -> pkg/portal
 pkg/platform/exportadapters -> pkg/toolkits/apigateway
