@@ -2,8 +2,7 @@
 // (#756). The package-size (LOC) gate is gameable in the direction that matters
 // here: moving code out of platform.go into sibling files or helper subpackages
 // shrinks the line count while the Platform struct keeps every field and every
-// method — the god-object is untouched. LOC rewards line-shuffling; this gate
-// rewards actually shrinking the object.
+// method. This gate caps the struct itself.
 //
 // It caps two structural metrics that directly measure the god-object:
 //   - the number of fields on the Platform struct (what it HOLDS), and

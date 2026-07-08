@@ -15,9 +15,7 @@ import (
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 )
 
-// stubShareStore is consumed by prompt_shared_serving_test.go (the export
-// adapters that formerly used it now live in the exportadapters subpackage
-// with their own stubs).
+// stubShareStore is consumed by prompt_shared_serving_test.go.
 type stubShareStore struct {
 	portal.ShareStore
 	inserted      *portal.Share

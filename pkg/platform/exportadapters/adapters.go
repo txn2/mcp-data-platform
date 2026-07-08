@@ -10,8 +10,7 @@
 // One exporter per toolkit implements all three interfaces (asset store,
 // version store, share creator), so wiring is a single construction whose
 // result is assigned to each ExportDeps field. Each exporter takes its
-// dependencies as constructor parameters, so wiring is type-checked data flow
-// rather than field access on the platform god-object (issue #756).
+// dependencies as constructor parameters (issue #756).
 //
 // TrinoExporter and APIExporter are near-identical: the two toolkits define
 // field-identical-but-distinct ExportAsset/ExportVersion DTOs in separate

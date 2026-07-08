@@ -1,13 +1,9 @@
 // Package indexjobs is the Postgres-backed, source-kind-agnostic
 // embedding-index job queue the platform's semantic-search
-// consumers share. It is the generalization of the api-catalog
-// embedding queue (formerly pkg/toolkits/apigateway/embedjobs):
-// the queue mechanics (lease-based claim with FOR UPDATE SKIP
-// LOCKED, exponential-backoff retry, reaper sweep, LISTEN/NOTIFY
-// wake-ups, periodic gap reconciliation) carry over unchanged in
-// shape, but the unit of work is keyed on an opaque
-// (source_kind, source_id) pair instead of a catalog-specific
-// (catalog_id, spec_name) pair.
+// consumers share. The queue mechanics — lease-based claim with
+// FOR UPDATE SKIP LOCKED, exponential-backoff retry, reaper sweep,
+// LISTEN/NOTIFY wake-ups, and periodic gap reconciliation — key
+// each unit of work on an opaque (source_kind, source_id) pair.
 //
 // Each consumer plugs in two small contracts:
 //

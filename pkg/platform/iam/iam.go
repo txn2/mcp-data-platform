@@ -1,13 +1,11 @@
-// Package iam assembles the platform's authentication and authorization
-// identity layer — the authenticator chain and the persona-based authorizer —
-// from explicit, foreign-typed inputs rather than by mutating fields on the
-// Platform god-object. Declaring dependencies as parameters makes the wiring
-// type-checked data flow and lets the layer be built and tested without a whole
-// Platform (issue #756).
+// Package iam builds the platform's authentication and authorization identity
+// layer: the authenticator chain (NewIdentity) and the persona authorizer
+// (NewAuthorizer).
 //
-// This package MUST NOT import pkg/platform: the platform-local config types
-// would create an import cycle, and taking narrow inputs instead is the point —
-// it makes each dependency explicit at the boundary.
+// Constructors take an explicit Input rather than the platform config, so the
+// layer can be built and tested on its own. The package must not import
+// pkg/platform: the auth config types live there, so importing it would create a
+// cycle. Callers translate their config into Input at the boundary.
 package iam
 
 import (
@@ -18,9 +16,8 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 )
 
-// Input carries everything needed to build the authentication and authorization
-// identity layer, translated from the platform config by the caller so this
-// package never depends on pkg/platform.
+// Input holds the values NewIdentity and NewAuthorizer need. Callers build it
+// from their own config, keeping platform config types out of this package.
 type Input struct {
 	// OAuthEnabled gates the OAuth JWT authenticator (for tokens issued by our
 	// own OAuth server). It is only added when a signing key is also present.
