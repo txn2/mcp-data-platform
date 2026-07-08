@@ -18,11 +18,11 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/pkg/auth"
-	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform/cfgmap"
+	"github.com/txn2/mcp-data-platform/pkg/platform/connauth"
 	"github.com/txn2/mcp-data-platform/pkg/platform/instructions"
 	"github.com/txn2/mcp-data-platform/pkg/platform/personastore"
 	"github.com/txn2/mcp-data-platform/pkg/platform/toolkitcfg"
@@ -2073,6 +2073,24 @@ func TestNew_NilToolkitsConfig(t *testing.T) {
 // (database-backed mode). The token-store retry semantics on
 // placeholders are owned by the gateway package's own tests
 // (TestSetTokenStore_RetriesAuthorizationCodePlaceholders).
+// newTestConnAuth builds a connauth.Handle over a sqlmock-backed *sql.DB so the
+// token-store wiring paths can be exercised without a live database. The prune
+// routine's first tick is 24h out, so the mock is never queried; cleanup closes
+// the handle (reaping the prune goroutine) and the mock db.
+func newTestConnAuth(t *testing.T) *connauth.Handle {
+	t.Helper()
+	db, _, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	h := connauth.New(db, nil)
+	t.Cleanup(func() {
+		_ = h.Close()
+		_ = db.Close()
+	})
+	return h
+}
+
 func TestPlatform_AutoEnabledGatewayReceivesTokenStore(t *testing.T) {
 	cfg := &Config{
 		Server:   ServerConfig{Name: testServerName},
@@ -2106,8 +2124,8 @@ func TestPlatform_AutoEnabledGatewayReceivesTokenStore(t *testing.T) {
 	// (b) WireGatewayTokenStore must be safe to call when the platform
 	// has no DB-backed connoauth store (stateless mode). Must not
 	// panic, must not error, must not crash on the nil store reference.
-	if p.connOAuthStore != nil {
-		t.Fatalf("expected nil connOAuthStore in test (no DB), got %T", p.connOAuthStore)
+	if p.connAuth != nil {
+		t.Fatalf("expected nil connAuth in test (no DB), got %v", p.connAuth)
 	}
 	p.WireGatewayTokenStore() // no-op path
 
@@ -2116,7 +2134,7 @@ func TestPlatform_AutoEnabledGatewayReceivesTokenStore(t *testing.T) {
 	// SetConnOAuthStore implementation is what handles placeholder
 	// retry — here we only assert the platform-level wiring delivers
 	// the store.
-	p.connOAuthStore = connoauth.NewMemoryStore()
+	p.connAuth = newTestConnAuth(t)
 	p.WireGatewayTokenStore() // wired path
 }
 
@@ -4904,18 +4922,17 @@ func TestWireAPIGatewayTokenStore(t *testing.T) {
 
 	// Pre-condition: no DB → connOAuthStore is nil → wire must be a
 	// safe no-op and leave the toolkit's store unset.
-	if p.connOAuthStore != nil {
-		t.Fatalf("expected nil connOAuthStore in test (no DB), got %T", p.connOAuthStore)
+	if p.connAuth != nil {
+		t.Fatalf("expected nil connAuth in test (no DB), got %v", p.connAuth)
 	}
 	p.WireAPIGatewayTokenStore()
 	if tk.ConnOAuthStore() != nil {
 		t.Error("WireAPIGatewayTokenStore set a store when platform store is nil")
 	}
 
-	// Now simulate the DB-backed mode: install a memory connoauth
-	// store and re-wire. Every api gateway toolkit must observe it.
-	want := connoauth.NewMemoryStore()
-	p.connOAuthStore = want
+	// Now simulate the DB-backed mode: install a connauth handle and
+	// re-wire. Every api gateway toolkit must observe its token store.
+	p.connAuth = newTestConnAuth(t)
 	p.WireAPIGatewayTokenStore()
 	if got := tk.ConnOAuthStore(); got == nil {
 		t.Fatal("WireAPIGatewayTokenStore did not deliver the store to the toolkit")
@@ -5031,7 +5048,7 @@ func TestWireAPIGatewayTokenStore_NoToolkit_NoOp(t *testing.T) {
 	}
 	defer func() { _ = p.Close() }()
 
-	p.connOAuthStore = connoauth.NewMemoryStore()
+	p.connAuth = newTestConnAuth(t)
 	p.WireAPIGatewayTokenStore() // no api toolkit registered → must not panic
 }
 

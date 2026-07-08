@@ -125,6 +125,7 @@ pkg/platform -> pkg/observability
 pkg/platform -> pkg/observability/proxy
 pkg/platform -> pkg/persona
 pkg/platform -> pkg/platform/browserauth
+pkg/platform -> pkg/platform/connauth
 pkg/platform -> pkg/platform/connsource
 pkg/platform -> pkg/platform/dedup
 pkg/platform -> pkg/platform/exportadapters
@@ -172,6 +173,9 @@ pkg/platform -> pkg/tuning
 pkg/platform -> pkg/urnbuild
 pkg/platform -> pkg/user
 pkg/platform/browserauth -> pkg/browsersession
+pkg/platform/connauth -> pkg/authevents
+pkg/platform/connauth -> pkg/connoauth
+pkg/platform/connauth -> pkg/platform/fieldcrypt
 pkg/platform/dedup -> pkg/middleware
 pkg/platform/exportadapters -> pkg/portal
 pkg/platform/exportadapters -> pkg/toolkits/apigateway

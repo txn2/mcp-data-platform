@@ -33,8 +33,11 @@ const (
 	// Frozen at today's count; ratchet down as subsystems are grouped into
 	// owner structs (a subsystem's N fields become one owner field). The
 	// index-jobs queue extraction (#836) folded nine fields into one
-	// indexqueue.Handle, ratcheting 82 → 74.
-	maxPlatformFields = 74
+	// indexqueue.Handle, ratcheting 82 → 74; the connection-OAuth token
+	// lifecycle extraction (#838) folded four fields (connOAuthStore,
+	// authEventStore, authEventWriter, connOAuthRefresher) into one
+	// connauth.Handle, ratcheting 74 → 71.
+	maxPlatformFields = 71
 
 	// maxPlatformMethods caps the number of methods with a *Platform receiver.
 	// Frozen at today's count; ratchet down as accessors move onto the
