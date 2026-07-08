@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/pkg/platform/portalstore"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 )
@@ -20,9 +21,11 @@ func TestSharedPrompt_VisibleAndRunnable(t *testing.T) {
 		ID: "p1", Name: "report", Scope: prompt.ScopePersonal,
 		OwnerEmail: "sarah@example.com", Content: "shared report {x}", Enabled: true,
 	}
-	p.portalShareStore = &stubShareStore{promptRefs: []portal.SharedPromptRef{
-		{PromptID: "p1", ShareID: "s1", SharedBy: "sarah@example.com", Permission: portal.PermissionViewer},
-	}}
+	p.portalStore = portalstore.NewFromStores(portalstore.Stores{
+		Share: &stubShareStore{promptRefs: []portal.SharedPromptRef{
+			{PromptID: "p1", ShareID: "s1", SharedBy: "sarah@example.com", Permission: portal.PermissionViewer},
+		}},
+	}, nil, portalstore.Config{})
 
 	ctx := context.Background()
 	// Bob (the recipient) sees it as shared-report.
@@ -52,9 +55,11 @@ func TestSharedPrompt_PromotedNotDoubleServed(t *testing.T) {
 		ID: "p1", Name: "report", Scope: prompt.ScopeGlobal, // promoted away from personal
 		OwnerEmail: "sarah@example.com", Content: "x", Enabled: true,
 	}
-	p.portalShareStore = &stubShareStore{promptRefs: []portal.SharedPromptRef{
-		{PromptID: "p1", ShareID: "s1", SharedBy: "sarah@example.com", Permission: portal.PermissionViewer},
-	}}
+	p.portalStore = portalstore.NewFromStores(portalstore.Stores{
+		Share: &stubShareStore{promptRefs: []portal.SharedPromptRef{
+			{PromptID: "p1", ShareID: "s1", SharedBy: "sarah@example.com", Permission: portal.PermissionViewer},
+		}},
+	}, nil, portalstore.Config{})
 
 	ctx := context.Background()
 	out := p.listVisiblePrompts(ctx, "bob@example.com", nil)

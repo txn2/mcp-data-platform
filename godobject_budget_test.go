@@ -36,8 +36,12 @@ const (
 	// indexqueue.Handle, ratcheting 82 → 74; the connection-OAuth token
 	// lifecycle extraction (#838) folded four fields (connOAuthStore,
 	// authEventStore, authEventWriter, connOAuthRefresher) into one
-	// connauth.Handle, ratcheting 74 → 71.
-	maxPlatformFields = 71
+	// connauth.Handle, ratcheting 74 → 71; the portal-store-layer extraction
+	// (#841) folded eight fields (portalAssetStore, portalShareStore,
+	// portalVersionStore, portalCollectionStore, portalThreadStore,
+	// portalKnowledgePageStore, portalToolkit, portalS3Client) into one
+	// portalstore.Handle, ratcheting 71 → 64.
+	maxPlatformFields = 64
 
 	// maxPlatformMethods caps the number of methods with a *Platform receiver.
 	// Frozen at today's count; ratchet down as accessors move onto the

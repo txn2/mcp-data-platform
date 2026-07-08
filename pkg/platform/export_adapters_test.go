@@ -10,10 +10,24 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/pkg/platform/portalstore"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 )
+
+// newTestPortalHandle builds a portalstore.Handle over noop stores for the
+// export-wiring tests. wireTrinoExport / wireAPIGatewayExport only check that
+// the accessors are non-nil and hand them to the export adapters, so noop
+// stores are sufficient. s3 may be nil to exercise the database-only guard.
+func newTestPortalHandle(s3 portal.S3Client) *portalstore.Handle {
+	return portalstore.NewFromStores(portalstore.Stores{
+		Asset:    portal.NewNoopAssetStore(),
+		Version:  portal.NewNoopVersionStore(),
+		Share:    portal.NewNoopShareStore(),
+		S3Client: s3,
+	}, nil, portalstore.Config{})
+}
 
 // stubShareStore is consumed by prompt_shared_serving_test.go.
 type stubShareStore struct {
@@ -87,11 +101,8 @@ func TestWireTrinoExport_ToolAppearsInToolList(t *testing.T) {
 				S3Prefix: "exports",
 			},
 		},
-		portalAssetStore:   portal.NewNoopAssetStore(),
-		portalVersionStore: portal.NewNoopVersionStore(),
-		portalShareStore:   portal.NewNoopShareStore(),
-		portalS3Client:     &noopS3Client{},
-		toolkitRegistry:    newTestRegistry(tk),
+		portalStore:     newTestPortalHandle(&noopS3Client{}),
+		toolkitRegistry: newTestRegistry(tk),
 	}
 
 	p.wireTrinoExport()
@@ -148,11 +159,8 @@ func TestWireTrinoExport_WithMultiConnectionToolkit(t *testing.T) {
 				S3Prefix: "artifacts",
 			},
 		},
-		portalAssetStore:   portal.NewNoopAssetStore(),
-		portalVersionStore: portal.NewNoopVersionStore(),
-		portalShareStore:   portal.NewNoopShareStore(),
-		portalS3Client:     &noopS3Client{},
-		toolkitRegistry:    newTestRegistry(multiTk),
+		portalStore:     newTestPortalHandle(&noopS3Client{}),
+		toolkitRegistry: newTestRegistry(multiTk),
 	}
 
 	p.wireTrinoExport()
@@ -174,11 +182,8 @@ func TestWireTrinoExport_SkipsWhenExplicitlyDisabled(t *testing.T) {
 				S3Bucket: "b",
 			},
 		},
-		portalAssetStore:   portal.NewNoopAssetStore(),
-		portalVersionStore: portal.NewNoopVersionStore(),
-		portalShareStore:   portal.NewNoopShareStore(),
-		portalS3Client:     &noopS3Client{},
-		toolkitRegistry:    newTestRegistry(tk),
+		portalStore:     newTestPortalHandle(&noopS3Client{}),
+		toolkitRegistry: newTestRegistry(tk),
 	}
 
 	p.wireTrinoExport()
@@ -191,9 +196,9 @@ func TestWireTrinoExport_SkipsWhenNoPortalS3(t *testing.T) {
 	defer tk.Close() //nolint:errcheck // test cleanup
 
 	p := &Platform{
-		config:           &Config{},
-		portalAssetStore: portal.NewNoopAssetStore(),
-		// portalS3Client is nil — no S3 configured
+		config: &Config{},
+		// S3 client is nil — no S3 configured; the asset store is still present.
+		portalStore:     newTestPortalHandle(nil),
 		toolkitRegistry: newTestRegistry(tk),
 	}
 
@@ -205,12 +210,9 @@ func TestWireTrinoExport_SkipsWhenNoPortalS3(t *testing.T) {
 
 func TestWireTrinoExport_SkipsWhenNoTrino(_ *testing.T) {
 	p := &Platform{
-		config:             &Config{Portal: PortalConfig{S3Bucket: "b"}},
-		portalAssetStore:   portal.NewNoopAssetStore(),
-		portalVersionStore: portal.NewNoopVersionStore(),
-		portalShareStore:   portal.NewNoopShareStore(),
-		portalS3Client:     &noopS3Client{},
-		toolkitRegistry:    registry.NewRegistry(), // empty — no trino
+		config:          &Config{Portal: PortalConfig{S3Bucket: "b"}},
+		portalStore:     newTestPortalHandle(&noopS3Client{}),
+		toolkitRegistry: registry.NewRegistry(), // empty — no trino
 	}
 
 	p.wireTrinoExport()

@@ -137,6 +137,7 @@ pkg/platform -> pkg/platform/mwchain
 pkg/platform -> pkg/platform/oauthserver
 pkg/platform -> pkg/platform/obs
 pkg/platform -> pkg/platform/personastore
+pkg/platform -> pkg/platform/portalstore
 pkg/platform -> pkg/platform/reflexivecapture
 pkg/platform -> pkg/platform/routepolicy
 pkg/platform -> pkg/platform/toolkitcfg
@@ -165,7 +166,6 @@ pkg/platform -> pkg/toolkits/gateway
 pkg/platform -> pkg/toolkits/gateway/enrichment
 pkg/platform -> pkg/toolkits/knowledge
 pkg/platform -> pkg/toolkits/memory
-pkg/platform -> pkg/toolkits/portal
 pkg/platform -> pkg/toolkits/search
 pkg/platform -> pkg/toolkits/tools/toolsindex
 pkg/platform -> pkg/toolkits/trino
@@ -201,6 +201,10 @@ pkg/platform/oauthserver -> pkg/oauth/postgres
 pkg/platform/oauthserver -> pkg/observability
 pkg/platform/obs -> pkg/observability
 pkg/platform/personastore -> pkg/persona
+pkg/platform/portalstore -> pkg/embedding
+pkg/platform/portalstore -> pkg/portal
+pkg/platform/portalstore -> pkg/portal/knowledgepage
+pkg/platform/portalstore -> pkg/toolkits/portal
 pkg/platform/reflexivecapture -> pkg/memory
 pkg/platform/reflexivecapture -> pkg/middleware
 pkg/platform/reflexivecapture -> pkg/toolkits/memory
