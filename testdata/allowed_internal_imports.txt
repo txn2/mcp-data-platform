@@ -130,6 +130,7 @@ pkg/platform -> pkg/platform/connsource
 pkg/platform -> pkg/platform/dedup
 pkg/platform -> pkg/platform/exportadapters
 pkg/platform -> pkg/platform/fieldcrypt
+pkg/platform -> pkg/platform/iam
 pkg/platform -> pkg/platform/instructions
 pkg/platform -> pkg/platform/mwchain
 pkg/platform -> pkg/platform/obs
@@ -176,6 +177,9 @@ pkg/platform/dedup -> pkg/middleware
 pkg/platform/exportadapters -> pkg/portal
 pkg/platform/exportadapters -> pkg/toolkits/apigateway
 pkg/platform/exportadapters -> pkg/toolkits/trino
+pkg/platform/iam -> pkg/auth
+pkg/platform/iam -> pkg/middleware
+pkg/platform/iam -> pkg/persona
 pkg/platform/instructions -> pkg/persona
 pkg/platform/obs -> pkg/observability
 pkg/platform/personastore -> pkg/persona
