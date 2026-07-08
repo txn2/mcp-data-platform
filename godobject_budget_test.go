@@ -43,8 +43,11 @@ const (
 	// portalstore.Handle, ratcheting 71 → 64; the session / cross-replica-sync
 	// extraction (#843) folded six fields (sessionStore, sessionCache,
 	// broadcaster, reloadBroadcaster, reloadBus, reloadCancel) into one
-	// sessionsync.Handle, ratcheting 64 → 59.
-	maxPlatformFields = 59
+	// sessionsync.Handle, ratcheting 64 → 59; the memory-layer extraction (#845)
+	// folded four fields (memoryStore, memoryToolkit, stalenessWatcher,
+	// memoryAdapter) into one memorylayer.Handle — embeddingProv stays on
+	// Platform because it backs many other subsystems — ratcheting 59 → 56.
+	maxPlatformFields = 56
 
 	// maxPlatformMethods caps the number of methods with a *Platform receiver.
 	// Frozen at today's count; ratchet down as accessors move onto the

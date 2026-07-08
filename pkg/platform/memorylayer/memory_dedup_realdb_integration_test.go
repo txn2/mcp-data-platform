@@ -1,11 +1,11 @@
 //go:build integration
 
-package platform
+package memorylayer
 
 // Real-Postgres acceptance test for #762: rapid restatements of the same fact
 // must consolidate to a single active record, not accumulate active
 // near-duplicates. It wires the real capture pipeline (memory toolkit ->
-// memoryRecallChecker -> postgres store with pgvector) and captures the same
+// recallChecker -> postgres store with pgvector) and captures the same
 // content three times. Before the fix, the third capture's recall could match
 // the already-superseded first record (VectorSearch had no status scope),
 // re-supersede it, and leave two active duplicates standing — exactly the pair
@@ -48,7 +48,7 @@ func TestRealDB_MemoryCaptureDedup_ConsolidatesRestatements(t *testing.T) {
 
 	tk, err := memorykit.New("memory", store, fixedVecEmbedder{vec: vec})
 	require.NoError(t, err)
-	tk.SetRecallChecker(&memoryRecallChecker{store: store})
+	tk.SetRecallChecker(&recallChecker{store: store})
 
 	const owner = "dedup@example.com"
 	capture := func(content string) *memorykit.CaptureResult {

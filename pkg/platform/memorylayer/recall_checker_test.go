@@ -1,4 +1,4 @@
-package platform
+package memorylayer
 
 import (
 	"context"
@@ -63,7 +63,7 @@ func TestMemoryRecallChecker_Matches(t *testing.T) {
 
 	t.Run("no embedding skips search", func(t *testing.T) {
 		store := &recallFakeStore{results: []memory.ScoredRecord{scoredRec("x", 0.99)}}
-		c := &memoryRecallChecker{store: store}
+		c := &recallChecker{store: store}
 		matches, err := c.Matches(context.Background(), memorykit.RecallQuery{CallerEmail: "a@x.com", MinScore: 0.9})
 		require.NoError(t, err)
 		assert.Empty(t, matches)
@@ -72,7 +72,7 @@ func TestMemoryRecallChecker_Matches(t *testing.T) {
 
 	t.Run("no caller skips search", func(t *testing.T) {
 		store := &recallFakeStore{}
-		c := &memoryRecallChecker{store: store}
+		c := &recallChecker{store: store}
 		matches, err := c.Matches(context.Background(), memorykit.RecallQuery{Embedding: emb, MinScore: 0.9})
 		require.NoError(t, err)
 		assert.Empty(t, matches)
@@ -81,7 +81,7 @@ func TestMemoryRecallChecker_Matches(t *testing.T) {
 
 	t.Run("matches returned and query scoped to caller's active records", func(t *testing.T) {
 		store := &recallFakeStore{results: []memory.ScoredRecord{scoredRec("m1", 0.95), scoredRec("m2", 0.92)}}
-		c := &memoryRecallChecker{store: store}
+		c := &recallChecker{store: store}
 		matches, err := c.Matches(context.Background(), memorykit.RecallQuery{
 			Embedding: emb, CallerEmail: "a@x.com", MinScore: 0.9,
 		})
@@ -102,7 +102,7 @@ func TestMemoryRecallChecker_Matches(t *testing.T) {
 
 	t.Run("below threshold yields no match", func(t *testing.T) {
 		store := &recallFakeStore{results: []memory.ScoredRecord{scoredRec("m1", 0.5)}}
-		c := &memoryRecallChecker{store: store}
+		c := &recallChecker{store: store}
 		matches, err := c.Matches(context.Background(), memorykit.RecallQuery{
 			Embedding: emb, CallerEmail: "a@x.com", MinScore: 0.9,
 		})
@@ -116,7 +116,7 @@ func TestMemoryRecallChecker_Matches(t *testing.T) {
 			scoredRec("other-table", 0.97, "urn:li:dataset:B"),
 			scoredRec("same-table", 0.93, "urn:li:dataset:A"),
 		}}
-		c := &memoryRecallChecker{store: store}
+		c := &recallChecker{store: store}
 		matches, err := c.Matches(context.Background(), memorykit.RecallQuery{
 			Embedding: emb, CallerEmail: "a@x.com", MinScore: 0.9,
 			EntityURNs: []string{"urn:li:dataset:A"},
@@ -128,7 +128,7 @@ func TestMemoryRecallChecker_Matches(t *testing.T) {
 
 	t.Run("entity-URN gate with no overlap yields no match", func(t *testing.T) {
 		store := &recallFakeStore{results: []memory.ScoredRecord{scoredRec("other", 0.99, "urn:li:dataset:B")}}
-		c := &memoryRecallChecker{store: store}
+		c := &recallChecker{store: store}
 		matches, err := c.Matches(context.Background(), memorykit.RecallQuery{
 			Embedding: emb, CallerEmail: "a@x.com", MinScore: 0.9,
 			EntityURNs: []string{"urn:li:dataset:A"},
@@ -139,7 +139,7 @@ func TestMemoryRecallChecker_Matches(t *testing.T) {
 
 	t.Run("store error propagates", func(t *testing.T) {
 		store := &recallFakeStore{err: errors.New("boom")}
-		c := &memoryRecallChecker{store: store}
+		c := &recallChecker{store: store}
 		_, err := c.Matches(context.Background(), memorykit.RecallQuery{
 			Embedding: emb, CallerEmail: "a@x.com", MinScore: 0.9,
 		})

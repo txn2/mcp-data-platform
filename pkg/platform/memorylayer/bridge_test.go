@@ -1,4 +1,4 @@
-package platform
+package memorylayer
 
 import (
 	"context"
@@ -30,7 +30,7 @@ func TestMemoryMiddlewareBridge_PopulatesReference(t *testing.T) {
 	store := &entityLookupStore{records: []memory.Record{
 		{ID: "mem-abc", Content: "Revenue includes deferred amounts", Dimension: "knowledge", Category: "business_context", Confidence: "high"},
 	}}
-	bridge := &memoryMiddlewareBridge{store: store}
+	bridge := &middlewareBridge{store: store}
 
 	snippets, err := bridge.RecallForEntities(
 		context.Background(),

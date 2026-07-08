@@ -1,11 +1,14 @@
 package platform
 
 import (
+	"database/sql"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	memorykit "github.com/txn2/mcp-data-platform/pkg/toolkits/memory"
+	_ "github.com/lib/pq"
+
+	"github.com/txn2/mcp-data-platform/pkg/platform/memorylayer"
 )
 
 func TestReflexiveURNMapping(t *testing.T) {
@@ -49,9 +52,19 @@ func TestReflexivePersonaAllowsTool(t *testing.T) {
 
 func TestAddReflexiveCaptureMiddleware_Gating(t *testing.T) {
 	newP := func() *Platform {
-		tk, _ := memorykit.New("test", nil, nil)
+		// A non-connecting *sql.DB is enough: memorylayer.New builds the store
+		// wrapper and toolkit without touching the database, so Toolkit() is
+		// non-nil (the reflexive-capture gate's precondition).
+		db, err := sql.Open("postgres", "postgres://localhost:5432/test?sslmode=disable")
+		if err != nil {
+			t.Fatalf("open dummy db: %v", err)
+		}
+		h, err := memorylayer.New(db, nil, memorylayer.Config{ToolkitName: "test"})
+		if err != nil {
+			t.Fatalf("build memory handle: %v", err)
+		}
 		p := &Platform{config: &Config{}}
-		p.memoryToolkit = tk
+		p.memory = h
 		p.mcpServer = mcp.NewServer(&mcp.Implementation{Name: "t", Version: "v0"}, nil)
 		return p
 	}
