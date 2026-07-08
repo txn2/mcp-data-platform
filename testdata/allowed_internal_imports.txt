@@ -116,7 +116,6 @@ pkg/platform -> pkg/database/migrate
 pkg/platform -> pkg/embedding
 pkg/platform -> pkg/indexjobs
 pkg/platform -> pkg/knowledge
-pkg/platform -> pkg/knowledge/federation
 pkg/platform -> pkg/mcpapps
 pkg/platform -> pkg/memory
 pkg/platform -> pkg/middleware
@@ -142,6 +141,7 @@ pkg/platform -> pkg/platform/personastore
 pkg/platform -> pkg/platform/portalstore
 pkg/platform -> pkg/platform/reflexivecapture
 pkg/platform -> pkg/platform/routepolicy
+pkg/platform -> pkg/platform/searchfed
 pkg/platform -> pkg/platform/sessionsync
 pkg/platform -> pkg/platform/toolkitcfg
 pkg/platform -> pkg/portal
@@ -167,7 +167,6 @@ pkg/platform -> pkg/toolkits/apigateway/catalogindex
 pkg/platform -> pkg/toolkits/gateway
 pkg/platform -> pkg/toolkits/gateway/enrichment
 pkg/platform -> pkg/toolkits/knowledge
-pkg/platform -> pkg/toolkits/search
 pkg/platform -> pkg/toolkits/tools/toolsindex
 pkg/platform -> pkg/toolkits/trino
 pkg/platform -> pkg/tuning
@@ -222,6 +221,17 @@ pkg/platform/reflexivecapture -> pkg/toolkits/memory
 pkg/platform/reflexivecapture -> pkg/urnbuild
 pkg/platform/routepolicy -> pkg/middleware
 pkg/platform/routepolicy -> pkg/persona
+pkg/platform/searchfed -> pkg/embedding
+pkg/platform/searchfed -> pkg/knowledge
+pkg/platform/searchfed -> pkg/knowledge/federation
+pkg/platform/searchfed -> pkg/memory
+pkg/platform/searchfed -> pkg/portal
+pkg/platform/searchfed -> pkg/portal/knowledgepage
+pkg/platform/searchfed -> pkg/prompt
+pkg/platform/searchfed -> pkg/registry
+pkg/platform/searchfed -> pkg/semantic
+pkg/platform/searchfed -> pkg/toolkits/knowledge
+pkg/platform/searchfed -> pkg/toolkits/search
 pkg/platform/sessionsync -> pkg/middleware
 pkg/platform/sessionsync -> pkg/session
 pkg/platform/sessionsync -> pkg/session/postgres

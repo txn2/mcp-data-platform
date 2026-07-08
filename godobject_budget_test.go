@@ -51,13 +51,18 @@ const (
 	// (knowledgeInsightStore, knowledgeChangesetStore, knowledgeToolkit,
 	// knowledgeDataHubWriter) into one knowledgelayer.Handle — knowledgeRouter
 	// (search federation) stays on Platform as a separate later seam — ratcheting
-	// 56 → 53.
+	// 56 → 53. The search-federation extraction (#849) is a method-surface seam,
+	// not a field-cluster seam: it replaces the single knowledgeRouter field with
+	// one searchfed.Handle field (field-for-field), so the field ceiling holds
+	// flat at 53.
 	maxPlatformFields = 53
 
 	// maxPlatformMethods caps the number of methods with a *Platform receiver.
 	// Frozen at today's count; ratchet down as accessors move onto the
-	// subsystem owners they belong to.
-	maxPlatformMethods = 265
+	// subsystem owners they belong to. The search-federation extraction (#849)
+	// moved two provider-selection methods (storeSearchProviders,
+	// appendFederationSearchProviders) into searchfed, ratcheting 265 → 263.
+	maxPlatformMethods = 263
 )
 
 // TestPlatformGodObjectBudget fails when the Platform struct grows more fields
