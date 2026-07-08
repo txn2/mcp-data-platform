@@ -14,6 +14,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
+	"github.com/txn2/mcp-data-platform/pkg/platform/knowledgelayer"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
@@ -65,7 +66,11 @@ func TestReviewQueueInfo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := &Platform{knowledgeInsightStore: tt.store}
+			// Build the layer handle over the injected insight store; the
+			// db/embedding inputs are unused with apply disabled.
+			handle, err := knowledgelayer.NewFromInsightStore(nil, tt.store, nil, knowledgelayer.Config{ToolkitName: instanceDefault})
+			require.NoError(t, err)
+			p := &Platform{knowledge: handle}
 			got := p.reviewQueueInfo(context.Background())
 			if tt.want == nil {
 				assert.Nil(t, got)

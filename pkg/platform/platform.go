@@ -22,7 +22,6 @@ import (
 	// PostgreSQL driver for database/sql.
 	_ "github.com/lib/pq"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	dhclient "github.com/txn2/mcp-datahub/pkg/client"
 	s3client "github.com/txn2/mcp-s3/pkg/client"
 
 	"github.com/txn2/mcp-data-platform/apps"
@@ -50,6 +49,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/platform/fieldcrypt"
 	"github.com/txn2/mcp-data-platform/pkg/platform/iam"
 	"github.com/txn2/mcp-data-platform/pkg/platform/indexqueue"
+	"github.com/txn2/mcp-data-platform/pkg/platform/knowledgelayer"
 	"github.com/txn2/mcp-data-platform/pkg/platform/memorylayer"
 	"github.com/txn2/mcp-data-platform/pkg/platform/mwchain"
 	"github.com/txn2/mcp-data-platform/pkg/platform/oauthserver"
@@ -183,11 +183,14 @@ type Platform struct {
 	ruleEngine    *tuning.RuleEngine
 	promptManager *tuning.PromptManager
 
-	// Knowledge stores (exposed for admin API)
-	knowledgeInsightStore   knowledgekit.InsightStore
-	knowledgeChangesetStore knowledgekit.ChangesetStore
-	knowledgeToolkit        *knowledgekit.Toolkit
-	knowledgeDataHubWriter  knowledgekit.DataHubWriter
+	// Knowledge-capture layer. The owner (pkg/platform/knowledgelayer) holds the
+	// insight store (the memory-backed adapter over memory_records, else the
+	// legacy Postgres store), the changeset store + DataHub writer for
+	// apply_knowledge, and the capture_insight / apply_knowledge toolkit behind
+	// one Handle; the stores / writer / toolkit are read through its accessors and
+	// surfaced by the three admin accessors below. nil when knowledge is disabled
+	// or no database is configured.
+	knowledge *knowledgelayer.Handle
 	// knowledgeRouter is the unified search federation built in initSearch. It
 	// backs both the MCP search tool and the portal's GET /search REST endpoint;
 	// nil on a store-less deployment with no searchable source.
@@ -1393,46 +1396,71 @@ func (p *Platform) initSessionGate() {
 	)
 }
 
-// initKnowledge initializes the knowledge capture toolkit if enabled.
-// Knowledge tools require database persistence — without a database the
-// toolkit is not registered and its tools won't appear in tools/list.
+// initKnowledge assembles the knowledge-capture layer via the knowledgelayer
+// owner: the insight store (the memory-backed adapter over memory_records when
+// the memory store is present, else the legacy Postgres store), the changeset
+// store + DataHub writer for apply_knowledge, and the capture_insight /
+// apply_knowledge toolkit behind one Handle. It translates platform config into
+// the owner's Config (resolving the DataHub connection through toolkitcfg so the
+// owner stays free of that coupling), delegates assembly, then keeps the
+// prompt-creator wiring and toolkit registration here (both reach back into
+// Platform / the shared registry). Knowledge tools require database persistence —
+// without a database the toolkit is not registered and its tools won't appear in
+// tools/list. Must run after initMemory so the memory store is available for the
+// insight adapter.
 func (p *Platform) initKnowledge() error {
 	if isExplicitlyDisabled(p.config.Knowledge.Enabled) || p.db == nil {
 		return nil
 	}
 
-	// Use memory-backed adapter when memory store is available (migration
-	// drops knowledge_insights in favor of memory_records).
-	var store knowledgekit.InsightStore
-	if memStore := p.memory.MemoryStore(); memStore != nil {
-		store = knowledgekit.NewMemoryInsightAdapter(memStore)
-	} else {
-		store = knowledgekit.NewPostgresStore(p.db)
-	}
-	p.knowledgeInsightStore = store
-
-	tk, err := knowledgekit.New(instanceDefault, store)
+	apply := p.config.Knowledge.Apply
+	applyEnabled := apply.IsEnabled()
+	handle, err := knowledgelayer.New(p.db, p.memory.MemoryStore(), p.embeddingProv, knowledgelayer.Config{
+		ToolkitName:              instanceDefault,
+		ApplyEnabled:             applyEnabled,
+		ApplyDataHubConnection:   apply.DataHubConnection,
+		ApplyRequireConfirmation: apply.RequireConfirmation,
+		PageGuards:               p.config.Knowledge.Pages.Resolve(),
+		DataHub:                  p.resolveKnowledgeDataHubConfig(apply.DataHubConnection, applyEnabled),
+	})
 	if err != nil {
-		return fmt.Errorf("creating knowledge toolkit: %w", err)
+		return fmt.Errorf("creating knowledge layer: %w", err)
 	}
-	p.knowledgeToolkit = tk
+	p.knowledge = handle
 
-	// Configure apply_knowledge tool if enabled.
-	if err := p.configureKnowledgeApply(tk); err != nil {
-		return err
-	}
-
-	// Wire prompt creator for add_prompt change type
+	// Wire prompt creator for add_prompt change type. This reaches back into
+	// Platform (the prompt store + a *Platform), so it stays here and is applied
+	// through the handle's toolkit.
 	if p.promptStore != nil {
-		tk.SetPromptCreator(&platformPromptCreator{store: p.promptStore, platform: p})
+		handle.Toolkit().SetPromptCreator(&platformPromptCreator{store: p.promptStore, platform: p})
 	}
 
-	if err := p.toolkitRegistry.Register(tk); err != nil {
+	// Toolkit registration stays a Platform/registry concern.
+	if err := p.toolkitRegistry.Register(handle.Toolkit()); err != nil {
 		return fmt.Errorf("registering knowledge toolkit: %w", err)
 	}
-
-	slog.Info("knowledge capture enabled")
 	return nil
+}
+
+// resolveKnowledgeDataHubConfig resolves the apply_knowledge DataHub connection
+// into the owner's config shape, keeping Platform's toolkitcfg coupling out of
+// the knowledgelayer package. It returns nil when apply is disabled or the
+// connection is not configured (the owner then selects the noop writer with a
+// WARN).
+func (p *Platform) resolveKnowledgeDataHubConfig(connName string, applyEnabled bool) *knowledgelayer.DataHubConfig {
+	if !applyEnabled {
+		return nil
+	}
+	dhCfg := toolkitcfg.DataHubConfig(p.config.Toolkits, connName)
+	if dhCfg == nil {
+		return nil
+	}
+	return &knowledgelayer.DataHubConfig{
+		URL:     dhCfg.URL,
+		Token:   dhCfg.Token,
+		Timeout: dhCfg.Timeout,
+		Debug:   dhCfg.Debug,
+	}
 }
 
 // initSearch wires the universal, topology-free discovery entry point (#645):
@@ -1487,7 +1515,7 @@ func (p *Platform) storeSearchProviders() []knowledge.Provider {
 	// Insights are searchable only through the memory-backed adapter; the legacy
 	// SQL store and the noop store do not implement InsightSearcher (and so are
 	// not SearchableInsightStores).
-	if s, ok := p.knowledgeInsightStore.(knowledgekit.SearchableInsightStore); ok {
+	if s, ok := p.knowledge.InsightStore().(knowledgekit.SearchableInsightStore); ok {
 		providers = append(providers, knowledge.NewInsightsProvider(s))
 	}
 	// The technical catalog is a knowledge sink only when a real DataHub
@@ -1543,66 +1571,6 @@ func (p *Platform) appendFederationSearchProviders(providers []knowledge.Provide
 		providers = append(providers, knowledge.NewConnectionsProvider(connLister))
 	}
 	return providers
-}
-
-// configureKnowledgeApply sets up the apply_knowledge tool dependencies if enabled.
-func (p *Platform) configureKnowledgeApply(tk *knowledgekit.Toolkit) error {
-	if !p.config.Knowledge.Apply.IsEnabled() {
-		return nil
-	}
-
-	csStore := knowledgekit.NewPostgresChangesetStore(p.db)
-	p.knowledgeChangesetStore = csStore
-
-	writer, err := p.createDataHubWriter()
-	if err != nil {
-		return fmt.Errorf("creating datahub writer: %w", err)
-	}
-	p.knowledgeDataHubWriter = writer
-
-	apply := p.config.Knowledge.Apply
-	tk.SetApplyConfig(knowledgekit.ApplyConfig{Enabled: true, DataHubConnection: apply.DataHubConnection, RequireConfirmation: apply.RequireConfirmation}, csStore, writer)
-
-	// #633 Goal 3: let apply promote business_knowledge/operational_rule captures
-	// to canonical knowledge pages. Built directly from the DB (not
-	// p.portalStore.KnowledgePageStore()) because initKnowledge runs before
-	// initPortal, so the portal handle is not yet set here; apply requires the DB
-	// the changeset store already uses.
-	if p.db != nil {
-		tk.SetPageWriter(knowledgepage.NewPostgresStoreSearcher(p.db))
-	}
-	// Knowledge-page write guards (#705); embeddingProv (from initMemory, which runs
-	// first) powers the dedup probe and is inactive under a noop provider.
-	tk.SetPageGuards(p.config.Knowledge.Pages.Resolve(), p.embeddingProv)
-
-	slog.Info("knowledge apply enabled", "datahub_connection", p.config.Knowledge.Apply.DataHubConnection, "require_confirmation", p.config.Knowledge.Apply.RequireConfirmation)
-	return nil
-}
-
-// createDataHubWriter creates a DataHubWriter backed by a real DataHub client
-// when a datahub_connection is configured, or falls back to a noop writer.
-func (p *Platform) createDataHubWriter() (knowledgekit.DataHubWriter, error) {
-	connName := p.config.Knowledge.Apply.DataHubConnection
-	dhCfg := toolkitcfg.DataHubConfig(p.config.Toolkits, connName)
-	if dhCfg == nil {
-		slog.Warn("knowledge apply: datahub connection not found, using noop writer",
-			"connection", connName)
-		return &knowledgekit.NoopDataHubWriter{}, nil
-	}
-
-	clientCfg := dhclient.DefaultConfig()
-	clientCfg.URL = dhCfg.URL
-	clientCfg.Token = dhCfg.Token
-	clientCfg.Timeout = dhCfg.Timeout
-	clientCfg.Debug = dhCfg.Debug
-
-	c, err := dhclient.New(clientCfg)
-	if err != nil {
-		return nil, fmt.Errorf("creating datahub client for connection %q: %w", connName, err)
-	}
-
-	slog.Info("knowledge apply: using datahub writer", "connection", connName)
-	return knowledgekit.NewDataHubClientWriter(c), nil
 }
 
 // initPortal initializes the asset portal toolkit if enabled.
@@ -2839,8 +2807,8 @@ func (p *Platform) Start(ctx context.Context) error {
 
 	// One-time knowledge-page reference backfill (#664 Phase 5), guarded by a
 	// sentinel and run in the background so it never delays startup.
-	if p.db != nil && p.knowledgeToolkit != nil {
-		go p.knowledgeToolkit.RunGuardedBackfill(ctx, p.db, knowledgepage.NewPostgresStore(p.db))
+	if p.db != nil && p.knowledge.Toolkit() != nil {
+		go p.knowledge.Toolkit().RunGuardedBackfill(ctx, p.db, knowledgepage.NewPostgresStore(p.db))
 	}
 
 	// Start lifecycle
@@ -3097,17 +3065,17 @@ func (p *Platform) MemoryStore() memory.Store {
 
 // KnowledgeInsightStore returns the insight store, or nil if knowledge is disabled.
 func (p *Platform) KnowledgeInsightStore() knowledgekit.InsightStore {
-	return p.knowledgeInsightStore
+	return p.knowledge.InsightStore()
 }
 
 // KnowledgeChangesetStore returns the changeset store, or nil if knowledge apply is disabled.
 func (p *Platform) KnowledgeChangesetStore() knowledgekit.ChangesetStore {
-	return p.knowledgeChangesetStore
+	return p.knowledge.ChangesetStore()
 }
 
 // KnowledgeDataHubWriter returns the DataHub writer, or nil if knowledge apply is disabled.
 func (p *Platform) KnowledgeDataHubWriter() knowledgekit.DataHubWriter {
-	return p.knowledgeDataHubWriter
+	return p.knowledge.DataHubWriter()
 }
 
 // PortalAssetStore returns the portal asset store, or nil if portal is disabled.
