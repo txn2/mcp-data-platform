@@ -140,6 +140,7 @@ pkg/platform -> pkg/platform/personastore
 pkg/platform -> pkg/platform/portalstore
 pkg/platform -> pkg/platform/reflexivecapture
 pkg/platform -> pkg/platform/routepolicy
+pkg/platform -> pkg/platform/sessionsync
 pkg/platform -> pkg/platform/toolkitcfg
 pkg/platform -> pkg/portal
 pkg/platform -> pkg/portal/knowledgepage
@@ -155,7 +156,6 @@ pkg/platform -> pkg/searchgate/postgres
 pkg/platform -> pkg/semantic
 pkg/platform -> pkg/semantic/datahub
 pkg/platform -> pkg/session
-pkg/platform -> pkg/session/postgres
 pkg/platform -> pkg/storage
 pkg/platform -> pkg/storage/s3
 pkg/platform -> pkg/toolkit
@@ -211,6 +211,9 @@ pkg/platform/reflexivecapture -> pkg/toolkits/memory
 pkg/platform/reflexivecapture -> pkg/urnbuild
 pkg/platform/routepolicy -> pkg/middleware
 pkg/platform/routepolicy -> pkg/persona
+pkg/platform/sessionsync -> pkg/middleware
+pkg/platform/sessionsync -> pkg/session
+pkg/platform/sessionsync -> pkg/session/postgres
 pkg/platform/toolkitcfg -> pkg/platform/cfgmap
 pkg/platform/toolkitcfg -> pkg/platform/fieldcrypt
 pkg/portal -> internal/contentviewer

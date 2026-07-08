@@ -57,6 +57,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/platform/portalstore"
 	"github.com/txn2/mcp-data-platform/pkg/platform/reflexivecapture"
 	"github.com/txn2/mcp-data-platform/pkg/platform/routepolicy"
+	"github.com/txn2/mcp-data-platform/pkg/platform/sessionsync"
 	"github.com/txn2/mcp-data-platform/pkg/platform/toolkitcfg"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
@@ -72,7 +73,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	datahubsemantic "github.com/txn2/mcp-data-platform/pkg/semantic/datahub"
 	"github.com/txn2/mcp-data-platform/pkg/session"
-	sessionpostgres "github.com/txn2/mcp-data-platform/pkg/session/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/storage"
 	s3storage "github.com/txn2/mcp-data-platform/pkg/storage/s3"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
@@ -171,23 +171,13 @@ type Platform struct {
 	// Audit
 	auditLogger middleware.AuditLogger
 
-	// Session management
-	sessionStore session.Store
-	sessionCache *middleware.SessionEnrichmentCache
-	// broadcaster delivers server-pushed MCP notifications (e.g.
-	// notifications/tools/list_changed) to SSE long-poll subscribers.
-	// Memory-backed for single-replica / no-DB deployments;
-	// postgres-LISTEN/NOTIFY-backed when the session store is
-	// database-backed so all replicas see every event.
-	broadcaster session.Broadcaster
-
-	// reloadBroadcaster carries server-side cross-replica reload events
-	// (connection/catalog/persona/apikey) on a dedicated channel,
-	// separate from the client-facing broadcaster, so admin config
-	// changes propagate to every replica's in-memory state (issue #501).
-	reloadBroadcaster session.Broadcaster
-	reloadBus         *reloadBus
-	reloadCancel      context.CancelFunc
+	// Session management: the externalized session store, the
+	// enrichment-dedup cache, the client-facing MCP notification
+	// broadcaster, and the dedicated cross-replica reload bus all live
+	// behind one owner handle (issue #843). Built from p.db + resolved
+	// config in initSessions; the reload re-materialization handlers
+	// (reload*Local) stay on Platform and are injected into the owner.
+	sessions *sessionsync.Handle
 
 	// Tuning
 	ruleEngine    *tuning.RuleEngine
@@ -689,7 +679,7 @@ func (p *Platform) WireGatewayTokenStore() {
 // and wires either a postgres LISTEN/NOTIFY broadcaster or an
 // in-memory one.
 func (p *Platform) Broadcaster() session.Broadcaster {
-	return p.broadcaster
+	return p.sessions.Broadcaster()
 }
 
 // gatewayListChangedNotifier adapts session.Broadcaster onto
@@ -852,10 +842,11 @@ func (p *Platform) WireAPIGatewayRoutePolicy() {
 // call before or after RegisterTools — gateway toolkits read the
 // notifier atomically per call, so wiring order does not matter.
 func (p *Platform) WireGatewayBroadcaster() {
-	if p.broadcaster == nil {
+	b := p.sessions.Broadcaster()
+	if b == nil {
 		return
 	}
-	notifier := gatewayListChangedNotifier{b: p.broadcaster}
+	notifier := gatewayListChangedNotifier{b: b}
 	for _, tk := range p.toolkitRegistry.All() {
 		if gw, ok := tk.(*gatewaykit.Toolkit); ok {
 			gw.SetToolListChangedNotifier(notifier)
@@ -1230,18 +1221,13 @@ func (p *Platform) initAudit(opts *Options) error {
 	return nil
 }
 
-// initSessions initializes the session store based on configuration.
+// initSessions assembles the session / cross-replica-sync layer (session
+// store, enrichment-dedup cache, client broadcaster, reload bus) behind the
+// sessionsync owner handle. It resolves the platform's config defaults and
+// injects the reload re-materialization handlers (which stay on Platform), then
+// applies the owner's stateless-forcing signal to the SDK's streamable config.
+// The cache is built later in buildEnrichmentConfig via the handle's StartCache.
 func (p *Platform) initSessions(opts *Options) error {
-	if opts.SessionStore != nil {
-		p.sessionStore = opts.SessionStore
-		// initBroadcaster runs even when an injected SessionStore is
-		// supplied so that Broadcaster() always returns a non-nil value
-		// after Start (matching the doc contract). The session store
-		// override doesn't override the broadcaster.
-		p.initBroadcaster()
-		return nil
-	}
-
 	ttl := p.config.Sessions.TTL
 	if ttl == 0 {
 		ttl = defaultSessionTimeout
@@ -1251,85 +1237,29 @@ func (p *Platform) initSessions(opts *Options) error {
 		cleanupInterval = defaultCleanupInterval
 	}
 
-	switch p.config.Sessions.Store {
-	case SessionStoreDatabase:
-		if p.db == nil {
-			return fmt.Errorf("sessions.store is \"database\" but no database configured")
-		}
-		store := sessionpostgres.New(p.db, sessionpostgres.Config{TTL: ttl})
-		store.StartCleanupRoutine(cleanupInterval)
-		p.sessionStore = store
-		// Force stateless mode so the SDK skips its built-in session map.
+	handle, err := sessionsync.New(p.db, sessionsync.Config{
+		Store:            p.config.Sessions.Store,
+		TTL:              ttl,
+		CleanupInterval:  cleanupInterval,
+		DSN:              p.config.Database.DSN,
+		BroadcastChannel: p.config.Sessions.BroadcastChannel,
+	}, opts.SessionStore, sessionsync.ReloadHandlers{
+		Connection: p.reloadConnectionLocal,
+		Catalog:    p.reloadCatalogLocal,
+		Persona:    p.reloadPersonaLocal,
+		APIKey:     p.reloadAPIKeyLocal,
+	})
+	if err != nil {
+		return fmt.Errorf("init sessions: %w", err)
+	}
+	p.sessions = handle
+
+	// The database store bypasses the SDK's built-in session map; the owner
+	// reports this so Platform (which owns the config) applies it.
+	if handle.StatelessForced() {
 		p.config.Server.Streamable.Stateless = true
-		slog.Info("session store: database (stateless mode enabled)",
-			"ttl", ttl, "cleanup_interval", cleanupInterval)
-	case SessionStoreMemory, "":
-		store := session.NewMemoryStore(ttl)
-		store.StartCleanupRoutine(cleanupInterval)
-		p.sessionStore = store
-		slog.Info("session store: memory",
-			"ttl", ttl, "cleanup_interval", cleanupInterval)
-	default:
-		return fmt.Errorf("unknown session store: %q", p.config.Sessions.Store)
 	}
-
-	p.initBroadcaster()
 	return nil
-}
-
-// initBroadcaster picks the right Broadcaster implementation based on
-// whether we have a database (postgres LISTEN/NOTIFY) or not (in-memory
-// fan-out for single-replica deployments). When postgres setup fails
-// we fall back to memory rather than failing platform startup —
-// tools/list_changed propagation is a UX feature, not a correctness
-// requirement, and the rest of the platform still works without it.
-func (p *Platform) initBroadcaster() {
-	wantPostgres := p.db != nil && p.config.Database.DSN != ""
-	if wantPostgres {
-		// Channel override lets operators isolate deployments that
-		// share a postgres instance — without it, both deployments
-		// would LISTEN on the same channel and cross-broadcast
-		// tools/list_changed to each other's downstream agents.
-		channel := p.config.Sessions.BroadcastChannel
-		if channel == "" {
-			channel = sessionpostgres.DefaultNotifyChannel
-			// Multiple deployments sharing a postgres instance with
-			// the default channel will cross-broadcast
-			// tools/list_changed events to each other's downstream
-			// agents. The doc tells operators to set the field per
-			// deployment when sharing a DB, but the most common
-			// operator error is forgetting to set it — surface a
-			// warning here so the misconfiguration is visible at
-			// startup rather than as a "tool list keeps changing
-			// on its own" mystery in production.
-			slog.Warn("broadcaster: using default channel; if multiple deployments share this postgres instance, set sessions.broadcast_channel per deployment to avoid cross-deployment fan-out",
-				"channel", channel)
-		}
-		b, err := sessionpostgres.NewBroadcaster(p.config.Database.DSN, p.db, channel, slog.Default())
-		if err == nil {
-			p.broadcaster = b
-			slog.Info("broadcaster: postgres LISTEN/NOTIFY",
-				"channel", channel)
-			p.initReloadBus()
-			return
-		}
-		// Fallback path: the operator configured postgres but
-		// NewBroadcaster failed (e.g., role lacks LISTEN privilege).
-		// Don't fail startup — tools/list_changed propagation is a
-		// UX feature, not a correctness requirement — but log
-		// distinguishably from the intentional single-replica path
-		// so log-grep operators can spot a degraded multi-replica
-		// deployment.
-		slog.Warn("broadcaster: postgres init failed — falling back to memory",
-			"error", err)
-	}
-	p.broadcaster = session.NewMemoryBroadcaster(slog.Default())
-	if wantPostgres {
-		slog.Info("broadcaster: memory (postgres unavailable, cross-replica fan-out disabled)")
-	} else {
-		slog.Info("broadcaster: memory (single-replica)")
-	}
-	p.initReloadBus()
 }
 
 // initOAuth initializes the OAuth server if enabled. It translates platform
@@ -2501,7 +2431,8 @@ func (p *Platform) addMCPAppsMiddleware() {
 // buildSessionResolver constructs the explicit session-handle resolver (#792),
 // or nil when handles are disabled (a valid no-op in MCPToolCallMiddleware).
 func (p *Platform) buildSessionResolver() *middleware.SessionResolver {
-	if !p.config.Sessions.Handles.IsEnabled() || p.sessionStore == nil {
+	store := p.sessions.SessionStore()
+	if !p.config.Sessions.Handles.IsEnabled() || store == nil {
 		return nil
 	}
 	metrics := p.obs.Metrics()
@@ -2510,7 +2441,7 @@ func (p *Platform) buildSessionResolver() *middleware.SessionResolver {
 	if p.config.SessionGate.Enabled {
 		exempt = p.config.SessionGate.ExemptTools
 	}
-	return middleware.NewSessionResolver(p.sessionStore, middleware.SessionResolverConfig{
+	return middleware.NewSessionResolver(store, middleware.SessionResolverConfig{
 		Enabled:     true,
 		Require:     p.config.Sessions.Handles.IsRequired(),
 		TTL:         p.config.Sessions.Handles.HandleTTL(),
@@ -2527,7 +2458,7 @@ func (p *Platform) buildSessionResolver() *middleware.SessionResolver {
 func (p *Platform) addSessionHandleSchemaMiddleware() {
 	// Same gate as buildSessionResolver: never advertise a session_id the platform
 	// neither issues nor validates.
-	if !p.config.Sessions.Handles.IsEnabled() || p.sessionStore == nil {
+	if !p.config.Sessions.Handles.IsEnabled() || p.sessions.SessionStore() == nil {
 		return
 	}
 	p.mcpServer.AddReceivingMiddleware(
@@ -2746,12 +2677,10 @@ func (p *Platform) buildEnrichmentConfig() middleware.EnrichmentConfig {
 	}
 
 	if p.config.Enrichment.SessionDedup.IsEnabled() {
-		p.sessionCache = middleware.NewSessionEnrichmentCache(
+		cfg.SessionCache = p.sessions.StartCache(
 			p.config.Enrichment.SessionDedup.EntryTTL,
 			p.config.Enrichment.SessionDedup.SessionTimeout,
 		)
-		p.sessionCache.StartCleanup(1 * time.Minute)
-		cfg.SessionCache = p.sessionCache
 		cfg.DedupMode = middleware.DedupMode(p.config.Enrichment.SessionDedup.EffectiveMode())
 
 		slog.Info("session metadata dedup enabled",
@@ -3086,7 +3015,7 @@ func (p *Platform) RuleEngine() *tuning.RuleEngine {
 
 // SessionStore returns the session store.
 func (p *Platform) SessionStore() session.Store {
-	return p.sessionStore
+	return p.sessions.SessionStore()
 }
 
 // OAuthServer returns the OAuth server, or nil if not enabled.
@@ -3560,25 +3489,13 @@ func (p *Platform) closeAuthEventStore(errs *[]error) {
 	closeResource(errs, p.connAuth)
 }
 
-// closeSessionLayer tears down the session cache, session store,
-// broadcaster, and OAuth store in that order. The broadcaster must
-// shut down before the database in Phase 4 because the postgres
-// broadcaster holds its own dedicated LISTEN connection.
+// closeSessionLayer tears down the session / cross-replica-sync layer and the
+// OAuth store in that order. The sessionsync handle closes the session cache,
+// session store, client broadcaster, and reload bus internally in the current
+// order; the broadcasters must shut down before the database in Phase 4 because
+// the postgres broadcasters hold their own dedicated LISTEN connections.
 func (p *Platform) closeSessionLayer(errs *[]error) {
-	if p.sessionCache != nil {
-		slog.Debug("shutdown: stopping session cache")
-		p.sessionCache.Stop()
-	}
-	if p.sessionStore != nil {
-		slog.Debug("shutdown: closing session store")
-		closeResource(errs, p.sessionStore)
-	}
-	if p.broadcaster != nil {
-		slog.Debug("shutdown: closing broadcaster")
-		closeResource(errs, p.broadcaster)
-	}
-	slog.Debug("shutdown: stopping reload bus")
-	p.stopReloadBus()
+	closeResource(errs, p.sessions)
 	if p.oauthHandle != nil {
 		slog.Debug("shutdown: closing OAuth server")
 		closeResource(errs, p.oauthHandle)
@@ -3647,11 +3564,13 @@ func (p *Platform) stopBackgroundTrackers() {
 // flushEnrichmentState persists enrichment dedup state from the session cache
 // to the session store for continuity across restarts.
 func (p *Platform) flushEnrichmentState() {
-	if p.sessionCache == nil || p.sessionStore == nil {
+	cache := p.sessions.SessionCache()
+	store := p.sessions.SessionStore()
+	if cache == nil || store == nil {
 		return
 	}
 
-	exported := p.sessionCache.ExportSessions()
+	exported := cache.ExportSessions()
 	if len(exported) == 0 {
 		return
 	}
@@ -3660,7 +3579,7 @@ func (p *Platform) flushEnrichmentState() {
 	flushed := 0
 	for sessionID, tables := range exported {
 		state := map[string]any{"enrichment_dedup": tables}
-		if err := p.sessionStore.UpdateState(ctx, sessionID, state); err != nil {
+		if err := store.UpdateState(ctx, sessionID, state); err != nil {
 			slog.Debug("shutdown: failed to flush enrichment state",
 				"session_id", sessionID, logKeyError, err)
 			continue
@@ -3673,12 +3592,14 @@ func (p *Platform) flushEnrichmentState() {
 // loadPersistedEnrichmentState restores enrichment dedup state from the
 // session store into the session cache on startup.
 func (p *Platform) loadPersistedEnrichmentState() {
-	if p.sessionCache == nil || p.sessionStore == nil {
+	cache := p.sessions.SessionCache()
+	store := p.sessions.SessionStore()
+	if cache == nil || store == nil {
 		return
 	}
 
 	ctx := context.Background()
-	sessions, err := p.sessionStore.List(ctx)
+	sessions, err := store.List(ctx)
 	if err != nil {
 		slog.Warn("failed to load persisted enrichment state", logKeyError, err)
 		return
@@ -3692,7 +3613,7 @@ func (p *Platform) loadPersistedEnrichmentState() {
 		}
 		tables := dedup.ParseState(dedupRaw)
 		if len(tables) > 0 {
-			p.sessionCache.LoadSession(sess.ID, tables)
+			cache.LoadSession(sess.ID, tables)
 			loaded++
 		}
 	}

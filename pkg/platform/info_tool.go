@@ -341,14 +341,15 @@ func sessionThreadingInstruction(sessionID string) string {
 // nothing) when handles are disabled or no session store is configured, so the
 // caller can omit the fields for a byte-identical legacy response.
 func (p *Platform) mintSessionHandle(ctx context.Context, persona string) (id, expiresAt string) {
-	if !p.config.Sessions.Handles.IsEnabled() || p.sessionStore == nil {
+	store := p.sessions.SessionStore()
+	if !p.config.Sessions.Handles.IsEnabled() || store == nil {
 		return "", ""
 	}
 	userID := ""
 	if pc := middleware.GetPlatformContext(ctx); pc != nil {
 		userID = pc.UserID
 	}
-	sess, err := session.MintHandle(ctx, p.sessionStore, userID, persona, p.config.Sessions.Handles.HandleTTL())
+	sess, err := session.MintHandle(ctx, store, userID, persona, p.config.Sessions.Handles.HandleTTL())
 	if err != nil {
 		slog.Error("platform_info: failed to mint session handle", "error", err)
 		return "", ""
