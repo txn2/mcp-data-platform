@@ -54,9 +54,10 @@ func TestFirstPartyEdgesAreFound(t *testing.T) {
 		"the composition root must import the platform package")
 }
 
-// loadCohesionFixture loads a single package by directory (used for the
-// testdata/ cohesion fixtures, which ./... deliberately excludes).
-func loadCohesionFixture(t *testing.T, dir string) *packages.Package {
+// loadFixturePackage loads a single package by directory, used for the
+// testdata/ fixtures that ./... deliberately excludes (cohesion and
+// exported-surface proof-of-firing).
+func loadFixturePackage(t *testing.T, dir string) *packages.Package {
 	t.Helper()
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedSyntax |
@@ -73,7 +74,7 @@ func loadCohesionFixture(t *testing.T, dir string) *packages.Package {
 // TestCohesionDetectsFragmentation proves the gate flags a package built from
 // two independent declaration islands.
 func TestCohesionDetectsFragmentation(t *testing.T) {
-	p := loadCohesionFixture(t, "testdata/cohesionfixture/fragmented")
+	p := loadFixturePackage(t, "testdata/cohesionfixture/fragmented")
 	clusters := significantClusters(p)
 	require.Len(t, clusters, 2, "fragmented fixture should surface two significant clusters")
 	// Each island has exactly five mutually-referencing declarations.
@@ -85,9 +86,20 @@ func TestCohesionDetectsFragmentation(t *testing.T) {
 // independent handlers over one Store a single cluster — the false-positive
 // case the naive call-graph definition would wrongly flag.
 func TestCohesionAcceptsSharedType(t *testing.T) {
-	p := loadCohesionFixture(t, "testdata/cohesionfixture/cohesive")
+	p := loadFixturePackage(t, "testdata/cohesionfixture/cohesive")
 	clusters := significantClusters(p)
 	assert.Len(t, clusters, 1, "handlers sharing one Store should be a single cluster")
+}
+
+// TestExportedSurfaceCounts proves exportedSurface counts exported package-scope
+// identifiers only: each exported NAME (including both names in a grouped const
+// block) counts, while methods and unexported decls do not. The fixture has six
+// exported package-scope names (Widget, New, Default, Version, Alpha, Beta), one
+// exported method (Do), and two unexported decls.
+func TestExportedSurfaceCounts(t *testing.T) {
+	p := loadFixturePackage(t, "testdata/surfacefixture")
+	assert.Equal(t, 6, exportedSurface(p),
+		"each exported package-scope name counts (grouped consts included); methods and unexported decls do not")
 }
 
 // TestPreviewTruncates pins the member-list preview at eight names.

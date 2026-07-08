@@ -210,15 +210,16 @@ maintainable as features accrete. Each was landed green against the tree at the
 time and is meant to be **ratcheted tighter in follow-up PRs**, never relaxed to
 make a violation pass.
 
-Size measures the *volume* of a package; the rest measure the *structure of its
-relationships* — which direction dependencies point (gates 1 and 4) and whether a
-package's own declarations actually cohere (gate 5). Structure is what
-distinguishes good decomposition from mechanical shattering. The direction gates
-(1 and 4) are **exact**: they cannot be satisfied by moving lines around. The
-cohesion gate (5) is a graph **heuristic** — much harder to game than size, but
-not impossible (see its section for the known blind spot). Together they raise
-the cost of the shattering move far above what the size budget alone does (issue
-#738).
+Two gates bound a package's *volume*: the LOC/file size budget (gate 3) and the
+exported-surface budget (gate 6, its harder-to-game public-API counterpart). The
+other three measure the *structure of its relationships* — which direction
+dependencies point (gates 1 and 4) and whether a package's own declarations
+actually cohere (gate 5). Structure is what distinguishes good decomposition from
+mechanical shattering. The direction gates (1 and 4) are **exact**: they cannot
+be satisfied by moving lines around. The cohesion gate (5) is a graph
+**heuristic** — much harder to game than size, but not impossible (see its
+section for the known blind spot). Together they raise the cost of the shattering
+move far above what the size budget alone does (issue #738).
 
 ### 1. Import boundaries (`depguard`)
 
@@ -332,6 +333,27 @@ author can evade it by threading one common reference through both halves. This 
 why cohesion is a heuristic backstop, not a proof; the exact direction gates (1
 and 4) are the un-gameable half. A future refinement could weight edges by the
 referenced symbol's kind (type vs. incidental value) to narrow the blind spot.
+
+### 6. Exported-surface budget (`TestPackageExportedSurfaceBudget`)
+
+The public-API counterpart to the LOC budget: where gate 3 bounds how much a
+package *weighs*, this bounds how much of it is *exported*. A small public
+surface is the idiomatic Go goal — minimal API, internals unexported — and
+unlike an LOC cap it cannot be satisfied by reshuffling whitespace or splitting
+files. The only way under the budget is to unexport helpers or move detail into
+`internal/`, which is the behaviour we want to pressure toward.
+
+`TestPackageExportedSurfaceBudget` (in `pkg_surface_budget_test.go`) counts
+**top-level exported identifiers** per `pkg/` package — exported package-scope
+funcs, types, vars and consts, one unit per exported name (each name in a grouped
+var/const block counts), regardless of a type's fields or methods — and fails any
+package exporting more than **150**. The
+ceiling sits just above today's largest surfaces (`pkg/middleware` and
+`pkg/portal` at 142, `pkg/platform` at 140). Like the LOC budget it is a
+**ceiling to ratchet down**: if a package hits it, shrink the public API
+(unexport module-internal helpers, hide detail behind interfaces or in
+`internal/`) rather than raising the constant. Run it with
+`go test -run TestPackageExportedSurfaceBudget .`.
 
 ## Security
 
