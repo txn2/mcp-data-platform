@@ -36,7 +36,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/database/migrate"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
-	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 	"github.com/txn2/mcp-data-platform/pkg/knowledge"
 	"github.com/txn2/mcp-data-platform/pkg/knowledge/federation"
 	"github.com/txn2/mcp-data-platform/pkg/mcpapps"
@@ -49,6 +48,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/platform/exportadapters"
 	"github.com/txn2/mcp-data-platform/pkg/platform/fieldcrypt"
 	"github.com/txn2/mcp-data-platform/pkg/platform/iam"
+	"github.com/txn2/mcp-data-platform/pkg/platform/indexqueue"
 	"github.com/txn2/mcp-data-platform/pkg/platform/mwchain"
 	"github.com/txn2/mcp-data-platform/pkg/platform/oauthserver"
 	"github.com/txn2/mcp-data-platform/pkg/platform/obs"
@@ -75,14 +75,12 @@ import (
 	s3storage "github.com/txn2/mcp-data-platform/pkg/storage/s3"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	apigatewaycatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
-	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalogindex"
 	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 	memorykit "github.com/txn2/mcp-data-platform/pkg/toolkits/memory"
 	portalkit "github.com/txn2/mcp-data-platform/pkg/toolkits/portal"
 	searchkit "github.com/txn2/mcp-data-platform/pkg/toolkits/search"
-	"github.com/txn2/mcp-data-platform/pkg/toolkits/tools/toolsindex"
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
 	"github.com/txn2/mcp-data-platform/pkg/user"
@@ -209,22 +207,13 @@ type Platform struct {
 	stalenessWatcher *memory.StalenessWatcher
 	memoryAdapter    middleware.MemoryProvider
 
-	// shared index-jobs embedding queue. The worker / reaper /
-	// reconciler drive the embedding pass off the request path,
-	// routing by source_kind through the registry; the admin handler
-	// reads its api-catalog-shaped view through the AdminStore over
-	// the same generic store. All are nil until
-	// WireAPIGatewayEmbedJobsFromDB runs, which requires both a
-	// database connection and a configured embedding provider.
-	indexJobsStore            *indexjobs.PostgresStore
-	indexJobsRegistry         *indexjobs.Registry
-	indexJobsWorker           *indexjobs.Worker
-	indexJobsReaper           *indexjobs.Reaper
-	indexJobsReconciler       *indexjobs.Reconciler
-	indexJobsRetainer         *indexjobs.Retainer
-	indexJobsListener         *indexjobs.Listener
-	apiGatewayEmbedAdminStore *catalogindex.AdminStore
-	toolsIndexStore           *toolsindex.Store
+	// shared index-jobs embedding queue. The owner (pkg/platform/indexqueue)
+	// holds the store, registry, worker, reaper, reconciler, retention sweep,
+	// LISTEN adapter, and every consumer behind one Handle; the admin view,
+	// cross-kind reporter, and tools vector store are read through its
+	// accessors. nil until WireAPIGatewayEmbedJobsFromDB runs, which requires
+	// both a database connection and a configured embedding provider.
+	indexQueue *indexqueue.Handle
 
 	// Portal stores (exposed for REST API in Phase 3)
 	portalAssetStore         portal.AssetStore
