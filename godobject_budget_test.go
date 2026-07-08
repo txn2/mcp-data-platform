@@ -46,8 +46,13 @@ const (
 	// sessionsync.Handle, ratcheting 64 → 59; the memory-layer extraction (#845)
 	// folded four fields (memoryStore, memoryToolkit, stalenessWatcher,
 	// memoryAdapter) into one memorylayer.Handle — embeddingProv stays on
-	// Platform because it backs many other subsystems — ratcheting 59 → 56.
-	maxPlatformFields = 56
+	// Platform because it backs many other subsystems — ratcheting 59 → 56; the
+	// knowledge-capture-layer extraction (#847) folded four fields
+	// (knowledgeInsightStore, knowledgeChangesetStore, knowledgeToolkit,
+	// knowledgeDataHubWriter) into one knowledgelayer.Handle — knowledgeRouter
+	// (search federation) stays on Platform as a separate later seam — ratcheting
+	// 56 → 53.
+	maxPlatformFields = 53
 
 	// maxPlatformMethods caps the number of methods with a *Platform receiver.
 	// Frozen at today's count; ratchet down as accessors move onto the

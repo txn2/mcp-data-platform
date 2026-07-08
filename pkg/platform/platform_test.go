@@ -35,7 +35,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/session"
 	"github.com/txn2/mcp-data-platform/pkg/storage"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
-	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
 )
 
@@ -2688,84 +2687,48 @@ func TestInitKnowledge_ApplyWithDataHubConnection(t *testing.T) {
 	}
 }
 
-func TestCreateDataHubWriter_NoConnection(t *testing.T) {
-	p := &Platform{
-		config: &Config{
-			Knowledge: KnowledgeConfig{
-				Apply: KnowledgeApplyConfig{
-					DataHubConnection: "nonexistent",
-				},
-			},
-			Toolkits: map[string]any{},
-		},
-	}
+// TestResolveKnowledgeDataHubConfig covers the connection-resolution seam that
+// translates platform toolkit config into the knowledgelayer owner's
+// DataHubConfig (the owner then selects the real vs noop writer). The writer
+// build itself is exercised in the knowledgelayer package.
+func TestResolveKnowledgeDataHubConfig(t *testing.T) {
+	t.Run("nil when apply disabled", func(t *testing.T) {
+		p := &Platform{config: &Config{Toolkits: map[string]any{}}}
+		if cfg := p.resolveKnowledgeDataHubConfig(testInstanceDefault, false); cfg != nil {
+			t.Errorf("expected nil when apply disabled, got %+v", cfg)
+		}
+	})
 
-	writer, err := p.createDataHubWriter()
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
+	t.Run("nil when connection not found", func(t *testing.T) {
+		p := &Platform{config: &Config{Toolkits: map[string]any{}}}
+		if cfg := p.resolveKnowledgeDataHubConfig("nonexistent", true); cfg != nil {
+			t.Errorf("expected nil when connection not found, got %+v", cfg)
+		}
+	})
 
-	if _, ok := writer.(*knowledgekit.NoopDataHubWriter); !ok {
-		t.Error("expected NoopDataHubWriter when connection not found")
-	}
-}
-
-func TestCreateDataHubWriter_WithConnection(t *testing.T) {
-	p := &Platform{
-		config: &Config{
-			Knowledge: KnowledgeConfig{
-				Apply: KnowledgeApplyConfig{
-					DataHubConnection: testInstanceDefault,
-				},
-			},
-			Toolkits: map[string]any{
-				testToolkitKeyDatahub: map[string]any{
-					testInstancesKey: map[string]any{
-						testInstanceDefault: map[string]any{
-							testCfgKeyURL:   "http://datahub:8080",
-							testCfgKeyToken: "test-token",
+	t.Run("populated when connection configured", func(t *testing.T) {
+		p := &Platform{
+			config: &Config{
+				Toolkits: map[string]any{
+					testToolkitKeyDatahub: map[string]any{
+						testInstancesKey: map[string]any{
+							testInstanceDefault: map[string]any{
+								testCfgKeyURL:   "http://datahub:8080",
+								testCfgKeyToken: "test-token",
+							},
 						},
 					},
 				},
 			},
-		},
-	}
-
-	writer, err := p.createDataHubWriter()
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-
-	if _, ok := writer.(*knowledgekit.DataHubClientWriter); !ok {
-		t.Errorf("expected DataHubClientWriter, got %T", writer)
-	}
-}
-
-func TestCreateDataHubWriter_InvalidConfig(t *testing.T) {
-	p := &Platform{
-		config: &Config{
-			Knowledge: KnowledgeConfig{
-				Apply: KnowledgeApplyConfig{
-					DataHubConnection: testInstanceDefault,
-				},
-			},
-			Toolkits: map[string]any{
-				testToolkitKeyDatahub: map[string]any{
-					testInstancesKey: map[string]any{
-						testInstanceDefault: map[string]any{
-							testCfgKeyURL:   "",
-							testCfgKeyToken: "",
-						},
-					},
-				},
-			},
-		},
-	}
-
-	_, err := p.createDataHubWriter()
-	if err == nil {
-		t.Error("expected error for invalid datahub config")
-	}
+		}
+		cfg := p.resolveKnowledgeDataHubConfig(testInstanceDefault, true)
+		if cfg == nil {
+			t.Fatal("expected non-nil config when connection configured")
+		}
+		if cfg.URL != "http://datahub:8080" || cfg.Token != "test-token" {
+			t.Errorf("unexpected resolved config: %+v", cfg)
+		}
+	})
 }
 
 func TestAuditStore_Accessor(t *testing.T) {

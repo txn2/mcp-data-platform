@@ -131,13 +131,14 @@ func (p *Platform) buildFeatures(ctx context.Context, accessibleTools []string) 
 // the queue is empty; a failed lookup must not fail orientation, so the error is
 // logged and swallowed rather than propagated.
 func (p *Platform) reviewQueueInfo(ctx context.Context) *ReviewQueueInfo {
-	if p.knowledgeInsightStore == nil {
+	store := p.knowledge.InsightStore()
+	if store == nil {
 		return nil
 	}
 	// Prefer the store's cheap pending-count + staleness path over the full Stats
 	// fan-out: platform_info runs once per session and needs only the review-debt
 	// nudge, not the category/confidence group-bys (#764).
-	review, err := knowledgekit.PendingReviewOf(ctx, p.knowledgeInsightStore)
+	review, err := knowledgekit.PendingReviewOf(ctx, store)
 	if err != nil {
 		slog.WarnContext(ctx, "platform_info: pending review queue stats unavailable", "error", err)
 		return nil
