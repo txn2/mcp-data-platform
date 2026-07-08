@@ -136,6 +136,7 @@ pkg/platform -> pkg/platform/mwchain
 pkg/platform -> pkg/platform/obs
 pkg/platform -> pkg/platform/personastore
 pkg/platform -> pkg/platform/reflexivecapture
+pkg/platform -> pkg/platform/routepolicy
 pkg/platform -> pkg/platform/toolkitcfg
 pkg/platform -> pkg/portal
 pkg/platform -> pkg/portal/assetindex
@@ -187,6 +188,8 @@ pkg/platform/reflexivecapture -> pkg/memory
 pkg/platform/reflexivecapture -> pkg/middleware
 pkg/platform/reflexivecapture -> pkg/toolkits/memory
 pkg/platform/reflexivecapture -> pkg/urnbuild
+pkg/platform/routepolicy -> pkg/middleware
+pkg/platform/routepolicy -> pkg/persona
 pkg/platform/toolkitcfg -> pkg/platform/cfgmap
 pkg/platform/toolkitcfg -> pkg/platform/fieldcrypt
 pkg/portal -> internal/contentviewer
