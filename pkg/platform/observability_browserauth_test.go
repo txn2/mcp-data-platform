@@ -9,6 +9,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
+	"github.com/txn2/mcp-data-platform/pkg/platform/browserauth"
 )
 
 // errNoToken simulates token authentication failing, proving the decision
@@ -161,7 +162,7 @@ func TestObservabilityAuthMiddleware(t *testing.T) {
 
 	// A zero-value authenticator is non-nil; with no cookie it resolves
 	// nobody, so the request still passes through.
-	p := &Platform{browserSessionAuth: &browsersession.Authenticator{}}
+	p := &Platform{browserSession: browserauth.NewSession(nil, &browsersession.Authenticator{})}
 	if !serve(p.ObservabilityAuthMiddleware()) {
 		t.Fatal("non-nil browser-session path did not reach next handler")
 	}
