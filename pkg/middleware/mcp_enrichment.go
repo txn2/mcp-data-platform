@@ -70,6 +70,21 @@ func enrichToolResult(ctx context.Context, enricher *semanticEnricher, req mcp.R
 		return result, nil //nolint:nilerr // enrichment is best-effort; skip if tool name extraction fails
 	}
 
+	// Export tools (trino_export, api_export, ...) return asset metadata
+	// (asset_id, portal_url, row_count, size_bytes), not query rows. Routing
+	// them through query enrichment parses the source SQL and appends a
+	// source-table semantic_context block. The export handler sets no
+	// StructuredContent, so mirrorEnrichmentToStructured then synthesizes a
+	// structured result from that appended block alone: clients that render
+	// structured output receive only semantic_context and never see the
+	// asset_id/portal_url the handler returned (the original text block is
+	// retained, but structured-output clients don't read it) (#822). Skip the
+	// whole enrichment pipeline so the export response reaches the client
+	// unchanged.
+	if isExportTool(toolName) {
+		return result, nil
+	}
+
 	toolkitKind := inferToolkitKind(toolName)
 	if toolkitKind == "" {
 		return result, nil
@@ -241,6 +256,14 @@ func enrichmentContentBytes(result *mcp.CallToolResult, fromIndex int) int {
 		}
 	}
 	return total
+}
+
+// isExportTool reports whether toolName is a stream-to-asset export tool
+// (trino_export, api_export, ...). Export tools return asset metadata rather
+// than query rows and must bypass semantic enrichment so their response
+// contract survives (#822).
+func isExportTool(toolName string) bool {
+	return strings.HasSuffix(toolName, "_export")
 }
 
 // inferToolkitKind determines the toolkit kind from a tool name prefix.
