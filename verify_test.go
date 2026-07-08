@@ -121,8 +121,7 @@ func TestNoDeadPackages(t *testing.T) {
 	projectRoot, err := filepath.Abs(".")
 	require.NoError(t, err)
 
-	modulePath := "github.com/txn2/mcp-data-platform"
-
+	// modulePath is the package-level const declared in pkg_relationship_test.go.
 	pkgDir := filepath.Join(projectRoot, "pkg")
 	allPackages, err := discoverPackages(pkgDir, projectRoot, modulePath)
 	require.NoError(t, err)

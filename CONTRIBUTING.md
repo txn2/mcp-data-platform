@@ -204,17 +204,30 @@ go test -race ./pkg/platform/...
 
 The `gocyclo`, `gocognit`, `nestif`, and `revive` rules all evaluate code
 *inside* a single function or file. They keep individual functions simple but
-say nothing about how packages relate to each other. Three additional gates
+say nothing about how packages relate to each other. Several additional gates
 police structure rather than per-function complexity, so the codebase stays
 maintainable as features accrete. Each was landed green against the tree at the
 time and is meant to be **ratcheted tighter in follow-up PRs**, never relaxed to
 make a violation pass.
 
+Size measures the *volume* of a package; the rest measure the *structure of its
+relationships* — which direction dependencies point (gates 1 and 4) and whether a
+package's own declarations actually cohere (gate 5). Structure is what
+distinguishes good decomposition from mechanical shattering. The direction gates
+(1 and 4) are **exact**: they cannot be satisfied by moving lines around. The
+cohesion gate (5) is a graph **heuristic** — much harder to game than size, but
+not impossible (see its section for the known blind spot). Together they raise
+the cost of the shattering move far above what the size budget alone does (issue
+#738).
+
 ### 1. Import boundaries (`depguard`)
 
 The Go compiler forbids import cycles but not layering violations. `depguard`
 (configured in `.golangci.yml` under `linters.settings.depguard`) declares which
-packages may import which. The current rules, derived from the real import graph:
+packages may import which. This is the **direction** half of the dependency
+contract: it encodes intent — dependencies must point toward the stable,
+abstract layers (Dependency Inversion / Stable Dependencies Principle) — which no
+volume metric can express. The current rules, derived from the real import graph:
 
 - **`admin-is-a-leaf`** — `pkg/admin` is the top composition layer, wired in only
   by `cmd/`. Nothing lower in the stack (toolkits, providers, middleware,
@@ -222,6 +235,16 @@ packages may import which. The current rules, derived from the real import graph
 - **`toolkits-do-not-import-platform`** — toolkits sit below the platform facade
   (`pkg/platform` composes toolkits, never the reverse), so a toolkit importing
   `pkg/platform` is rejected.
+- **`entry-point-is-a-sink`** — `cmd/` holds the composition roots (entry
+  points); nothing may import them. Shared code belongs in `pkg/`, not in a
+  `cmd` main.
+- **`base-types-are-a-root`** — `pkg/toolkit` holds the shared toolkit types
+  every toolkit implements and must stay a dependency root: it may import nothing
+  first-party. When it needs behaviour from a higher layer, accept an interface
+  instead of importing the implementation.
+- **`providers-do-not-depend-up`** — the provider abstractions (`pkg/semantic`,
+  `pkg/query`, `pkg/storage`) are depended upon by the layers above them, so they
+  must not import `pkg/platform`, `pkg/middleware`, `pkg/admin`, or a toolkit.
 
 To tighten: add a rule (or a `deny` entry) for the next boundary you want to
 lock down, confirm `golangci-lint run --enable-only depguard ./...` is still
@@ -254,6 +277,61 @@ sub-packages rather than bumping the constant. The budget started at 13,000 and
 was ratcheted to 11,800 after `pkg/pkcestore` was extracted from `pkg/admin`
 (#636); further ratchets drive the decomposition of `admin` and `platform`. Run
 it with `go test -run TestPackageSizeBudget .`.
+
+### 4. Import ratchet (`TestPackageImportRatchet`)
+
+The depguard rules above lock down specific *directions*. The ratchet (in
+`pkg_relationship_test.go`) is the complementary backstop: it freezes the
+**entire** first-party import graph. The allowed edges are stored in
+`testdata/allowed_internal_imports.txt`, seeded from the current graph, and the
+gate fails on **any** new edge — including a same-direction edge the depguard
+rules permit. New coupling between two internal packages is therefore never
+accidental; it is a reviewable diff to the golden file.
+
+When you genuinely need a new internal dependency, regenerate the golden and
+justify the coupling in your PR:
+
+```bash
+go test -run TestPackageImportRatchet . -args -update-imports
+```
+
+The golden is a **ceiling to ratchet down**: as coupling is removed, edges drop
+out on the next regeneration and the surface shrinks. It is not a list to pad.
+
+### 5. Package cohesion (`TestPackageCohesion`)
+
+The size budget is gamed by shattering a god-package into several tightly-coupled
+fragments — smaller by LOC, worse by design. Cohesion catches the opposite smell:
+a package whose declarations split into two or more independent islands is two
+packages sharing one import path, which the size budget cannot see.
+
+`TestPackageCohesion` (in `pkg_relationship_test.go`) builds each package's
+declaration reference graph — nodes are package-level funcs, methods, types,
+vars and consts; edges connect a declaration to every package-level identifier it
+references, so two declarations that share a common type or helper are connected
+through it. It then fails any package holding **more than one significant
+cluster** (a connected component of five or more declarations). Lone leaves and
+tiny helper groups are tolerated as appendages; two substantial islands that
+touch nothing in each other are the pathology. The failure names each cluster's
+members so the seam to cut is explicit.
+
+Packages with two or more significant clusters today are seeded into
+`cohesionAllowlist`, keeping the gate green while flagging them for decomposition
+in follow-ups. The allowlist is meant to **shrink**, never grow: once a seeded
+package is split, remove its entry (the gate fails if a stale entry no longer
+has multiple clusters). Run it with `go test -run TestPackageCohesion .`.
+
+**Known blind spot.** The shared-identifier edge is deliberate — it stops the
+gate from false-flagging independent handlers that legitimately cohere over one
+shared `Store` (issue #738 calls this out explicitly). The cost is a false
+*negative*: two genuinely-unrelated islands that both happen to touch a single
+*incidental* package-level symbol (a shared `log` var, a sentinel `errNotFound`,
+one common options struct) are joined through it and read as cohesive. So the gate
+reliably catches fragmentation where the islands share nothing, but a determined
+author can evade it by threading one common reference through both halves. This is
+why cohesion is a heuristic backstop, not a proof; the exact direction gates (1
+and 4) are the un-gameable half. A future refinement could weight edges by the
+referenced symbol's kind (type vs. incidental value) to narrow the blind spot.
 
 ## Security
 
