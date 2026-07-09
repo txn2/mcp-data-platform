@@ -1,0 +1,54 @@
+# osv-scanner.toml — documented suppressions for OpenSSF Scorecard's
+# Vulnerabilities check (osv-scanner scans the full go.sum graph, unlike
+# govulncheck which does reachability analysis and reports 0 for these).
+#
+# Every entry below was verified to be non-reachable and/or test-only:
+#   - Docker/moby findings enter via testcontainers (test-realdb only) and are
+#     NOT in the production build graph: `go list -deps ./...` returns 0 docker
+#     packages. govulncheck confirms 0 reachable vulnerabilities.
+#   - The x/crypto/openpgp finding is a subpackage we never import:
+#     `go mod why golang.org/x/crypto/openpgp` reports "main module does not
+#     need package".
+#
+# ignoreUntil forces a periodic re-review rather than a permanent silence.
+# On expiry, re-run `make osv` and confirm the finding is still unreachable
+# (or that testcontainers has bumped moby past the fixed version) before
+# extending the date.
+
+# --- Docker/moby: indirect, test-only (testcontainers), not in prod binary ---
+# Fixed upstream only in github.com/moby/moby/v2 (>= 2.0.0-beta.8 / beta.14),
+# still pre-release; cleared once testcontainers bumps its moby client.
+
+[[IgnoredVulns]]
+id = "GO-2026-4883" # CVE-2026-33997: plugin privilege off-by-one
+ignoreUntil = 2026-10-07
+reason = "docker/docker is a test-only indirect dep (testcontainers); not in the production build graph, unreachable per govulncheck."
+
+[[IgnoredVulns]]
+id = "GO-2026-5617" # CVE-2026-42306: docker cp bind-mount redirection
+ignoreUntil = 2026-10-07
+reason = "docker/docker is a test-only indirect dep (testcontainers); not in the production build graph, unreachable per govulncheck."
+
+[[IgnoredVulns]]
+id = "GO-2026-5668" # CVE-2026-41568: docker cp symlink-swap arbitrary empty file
+ignoreUntil = 2026-10-07
+reason = "docker/docker is a test-only indirect dep (testcontainers); not in the production build graph, unreachable per govulncheck."
+
+[[IgnoredVulns]]
+id = "GO-2026-4887" # CVE-2026-34040: AuthZ plugin bypass on oversized bodies
+ignoreUntil = 2026-10-07
+reason = "docker/docker is a test-only indirect dep (testcontainers); not in the production build graph, unreachable per govulncheck."
+
+[[IgnoredVulns]]
+id = "GO-2026-5746" # CVE-2026-41567: PUT archive executes container binary on host
+ignoreUntil = 2026-10-07
+reason = "docker/docker is a test-only indirect dep (testcontainers); not in the production build graph, unreachable per govulncheck."
+
+# --- x/crypto/openpgp: unmaintained subpackage we never import ---
+# No fixed version exists (unmaintained by design). We pull the x/crypto
+# module for other subpackages but do not import openpgp.
+
+[[IgnoredVulns]]
+id = "GO-2026-5932" # x/crypto/openpgp unmaintained/unsafe-by-design
+ignoreUntil = 2026-10-07
+reason = "golang.org/x/crypto/openpgp is never imported (go mod why: main module does not need package); no fixed version exists."
