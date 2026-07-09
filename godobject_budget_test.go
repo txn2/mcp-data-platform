@@ -54,15 +54,30 @@ const (
 	// 56 → 53. The search-federation extraction (#849) is a method-surface seam,
 	// not a field-cluster seam: it replaces the single knowledgeRouter field with
 	// one searchfed.Handle field (field-for-field), so the field ceiling holds
-	// flat at 53.
-	maxPlatformFields = 53
+	// flat at 53. The mechanical-cluster batch (#851) folded three clusters into
+	// three owner handles: resource (resourceStore, resourceS3Client → one
+	// resourcelayer.Handle), user (userStore, userDirectory → one userdir.Handle),
+	// and brand (resolvedBrandLogoSVG, resolvedBrandURL, resolvedImplementorLogo →
+	// one branding.Handle), ratcheting 53 → 49. The prompt cluster was split into
+	// its own follow-up seam (its ~40 methods across three files are not
+	// mechanical), so its four fields stay on Platform for now.
+	maxPlatformFields = 49
 
 	// maxPlatformMethods caps the number of methods with a *Platform receiver.
 	// Frozen at today's count; ratchet down as accessors move onto the
 	// subsystem owners they belong to. The search-federation extraction (#849)
 	// moved two provider-selection methods (storeSearchProviders,
-	// appendFederationSearchProviders) into searchfed, ratcheting 265 → 263.
-	maxPlatformMethods = 263
+	// appendFederationSearchProviders) into searchfed, ratcheting 265 → 263. The
+	// ceiling then carried 8 slack above the 255 actual — a ratchet with slack is
+	// not a ratchet, so it was pinned to the actual 255 (#851, Part 1) ahead of
+	// the mechanical-cluster extraction that re-tightens it further. That batch
+	// (#851, Part 2) then moved six methods off *Platform — resource's
+	// managedResourceURIScheme / managedResourceS3Connection / resolveDefaultS3Instance,
+	// user's observeAuthenticatedUser / observeBrowserLogin, and brand's
+	// injectPortalLogo — into their owner packages, ratcheting 255 → 249. The
+	// public accessors external callers use (ResourceStore, UserStore, BrandURL,
+	// …) stay as one-line delegators, so they still count.
+	maxPlatformMethods = 249
 )
 
 // TestPlatformGodObjectBudget fails when the Platform struct grows more fields

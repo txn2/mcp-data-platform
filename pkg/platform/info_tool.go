@@ -111,7 +111,7 @@ func (p *Platform) buildFeatures(ctx context.Context, accessibleTools []string) 
 		StorageEnrichment: p.storageProvider != nil && p.config.Enrichment.IsDataHubStorageEnrichmentEnabled(),
 		AuditLogging:      !isExplicitlyDisabled(p.config.Audit.Enabled),
 		KnowledgeCapture:  canReach(toolMemoryCapture) && !isExplicitlyDisabled(p.config.Knowledge.Enabled),
-		ManagedResources:  p.resourceStore != nil,
+		ManagedResources:  p.resources.Store() != nil,
 	}
 
 	if p.config.Knowledge.Apply.IsEnabled() && canReach(toolApplyKnowledge) {
@@ -255,7 +255,7 @@ func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp
 	// tools this caller may reach) beneath the admin business context, with the
 	// resources nudge appended as a runtime note when managed resources exist.
 	var notes []string
-	if p.resourceStore != nil {
+	if p.resources.Store() != nil {
 		notes = append(notes, resourcesDiscoverabilityNote)
 	}
 	// The tools this caller's persona may reach gate both the instruction baseline

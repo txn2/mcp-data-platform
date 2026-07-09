@@ -8,14 +8,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"io/fs"
 	"log/slog"
 	"maps"
-	"net/http"
 	"os"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -41,6 +38,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/oauth"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
+	"github.com/txn2/mcp-data-platform/pkg/platform/branding"
 	"github.com/txn2/mcp-data-platform/pkg/platform/browserauth"
 	"github.com/txn2/mcp-data-platform/pkg/platform/connauth"
 	"github.com/txn2/mcp-data-platform/pkg/platform/dedup"
@@ -56,10 +54,12 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/platform/personastore"
 	"github.com/txn2/mcp-data-platform/pkg/platform/portalstore"
 	"github.com/txn2/mcp-data-platform/pkg/platform/reflexivecapture"
+	"github.com/txn2/mcp-data-platform/pkg/platform/resourcelayer"
 	"github.com/txn2/mcp-data-platform/pkg/platform/routepolicy"
 	"github.com/txn2/mcp-data-platform/pkg/platform/searchfed"
 	"github.com/txn2/mcp-data-platform/pkg/platform/sessionsync"
 	"github.com/txn2/mcp-data-platform/pkg/platform/toolkitcfg"
+	"github.com/txn2/mcp-data-platform/pkg/platform/userdir"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/portal/s3adapter"
@@ -83,7 +83,6 @@ import (
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
-	"github.com/txn2/mcp-data-platform/pkg/user"
 )
 
 // providerNoop is the provider name for no-op (disabled) providers.
@@ -221,11 +220,14 @@ type Platform struct {
 	// runs, which requires the portal enabled and a database connection. Read
 	// through its accessors by the Portal* accessors (admin/portal REST wiring),
 	// the trino/api export wiring, and the search/enrichment provider assembly.
-	portalStore             *portalstore.Handle
-	provenanceTracker       *middleware.ProvenanceTracker
-	resolvedBrandLogoSVG    string // cached SVG from portal.logo or mcpapps config
-	resolvedBrandURL        string // cached brand_url from mcpapps platform-info config
-	resolvedImplementorLogo string // cached SVG fetched from portal.implementor.logo
+	portalStore       *portalstore.Handle
+	provenanceTracker *middleware.ProvenanceTracker
+	// Brand assets (logo SVG, brand URL, implementor logo). The owner
+	// (pkg/platform/branding) resolves each once from config and caches it behind
+	// one Handle; the caller injects the portal logo into the platform-info app
+	// config and reads the cached values through BrandLogoSVG() / BrandURL() /
+	// ResolveImplementorLogo(). Built in initMCPApps.
+	branding *branding.Handle
 
 	// Workflow gating
 	workflowTracker *middleware.SessionWorkflowTracker
@@ -238,14 +240,20 @@ type Platform struct {
 	// Session gate
 	sessionGate *middleware.SessionGate
 
-	// Resource store (managed resources)
-	resourceStore    resource.Store
-	resourceS3Client resource.S3Client
+	// Managed-resources layer. The owner (pkg/platform/resourcelayer) holds the
+	// Postgres resource store, the S3 blob client, and the MCP-server
+	// registration behind one Handle; the store / client are read through its
+	// accessors and surfaced by ResourceStore() / ResourceS3Client(). nil when
+	// managed resources are disabled or no database is configured.
+	resources *resourcelayer.Handle
 
-	// Known-users directory (#614). userStore is nil without a database;
-	// userDirectory wraps it with throttled async upserts on authentication.
-	userStore     user.Store
-	userDirectory *user.Directory
+	// Known-users directory (#614). The owner (pkg/platform/userdir) holds the
+	// user store and the throttled-async directory behind one Handle; the store
+	// is read through UserStore(), and the owner's Observe methods are wired as
+	// the authenticator's UserObserver and the browser-session login callback.
+	// nil without a database, in which case every consumer degrades cleanly to
+	// free-typed email sharing.
+	users *userdir.Handle
 
 	// Prompt store + metadata collected during registration
 	promptStore   prompt.Store
@@ -1035,8 +1043,8 @@ func (p *Platform) initAuth(opts *Options) error {
 	// Wrapping the authenticator catches all auth paths (MCP, portal, admin)
 	// at their single Authenticate() chokepoint. The observer is best-effort
 	// and asynchronous, so it never blocks or fails authentication.
-	if p.userDirectory != nil {
-		p.authenticator = auth.NewObservingAuthenticator(p.authenticator, p.observeAuthenticatedUser)
+	if p.users.Directory() != nil {
+		p.authenticator = auth.NewObservingAuthenticator(p.authenticator, p.users.ObserveAuthenticated)
 	}
 
 	if opts.Authorizer != nil {
@@ -1129,7 +1137,7 @@ func (p *Platform) initBrowserSession() error {
 		// Portal/admin SPA users log in via the session cookie, so the token
 		// authenticator's ObservingAuthenticator never sees them; record them
 		// here at login instead (#614).
-		OnLogin: p.observeBrowserLogin,
+		OnLogin: p.users.ObserveBrowserLogin,
 	})
 	if err != nil {
 		return fmt.Errorf("initializing browser session: %w", err)
@@ -1674,176 +1682,72 @@ func (p *Platform) parseExportConfig() trinokit.ExportConfig {
 	return cfg
 }
 
-// initManagedResources initializes the managed resources subsystem (human-uploaded
-// reference material stored in S3 with metadata in PostgreSQL).
+// initManagedResources assembles the managed-resources layer via the
+// resourcelayer owner: the Postgres resource store, the S3 blob client, and the
+// MCP-server registration behind one Handle. It translates platform config into
+// the owner's Config and delegates assembly. No-op (nil handle) when managed
+// resources are explicitly disabled or no database is configured. The
+// resources/read middleware wiring stays on Platform (addManagedResourceMiddleware).
 func (p *Platform) initManagedResources() error {
 	if isExplicitlyDisabled(p.config.Resources.Managed.Enabled) || p.db == nil {
 		return nil
 	}
 
-	p.resourceStore = resource.NewPostgresStore(p.db)
-
-	// Create S3 client from referenced or default S3 connection.
-	if connName := p.managedResourceS3Connection(); connName != "" {
-		s3Cfg := toolkitcfg.S3Config(p.config.Toolkits, connName)
-		if s3Cfg == nil {
-			return fmt.Errorf("resource s3 connection %q not found in toolkits config", connName)
-		}
-
-		clientCfg := &s3client.Config{
-			Region:          s3Cfg.Region,
-			Endpoint:        s3Cfg.Endpoint,
-			AccessKeyID:     s3Cfg.AccessKeyID,
-			SecretAccessKey: s3Cfg.SecretKey,
-			Name:            s3Cfg.ConnectionName,
-			UsePathStyle:    s3Cfg.UsePathStyle,
-		}
-
-		c, err := s3client.New(context.Background(), clientCfg)
-		if err != nil {
-			return fmt.Errorf("creating resource s3 client for connection %q: %w", connName, err)
-		}
-
-		p.resourceS3Client = s3adapter.New(c)
-	} else {
-		slog.Warn("managed resources: no s3_connection configured; blob storage disabled")
+	handle, err := resourcelayer.New(p.db, resourcelayer.Config{
+		S3Connection: p.config.Resources.Managed.S3Connection,
+		S3Bucket:     p.config.Resources.Managed.S3Bucket,
+		URIScheme:    p.config.Resources.Managed.URIScheme,
+		Toolkits:     p.config.Toolkits,
+	})
+	if err != nil {
+		return fmt.Errorf("creating managed-resources layer: %w", err)
 	}
-
-	slog.Info("managed resources enabled",
-		"s3_connection", p.managedResourceS3Connection(),
-		"s3_bucket", p.config.Resources.Managed.S3Bucket,
-		"uri_scheme", p.managedResourceURIScheme(),
-	)
+	p.resources = handle
 	return nil
-}
-
-// managedResourceURIScheme returns the configured URI scheme or the default.
-func (p *Platform) managedResourceURIScheme() string {
-	if s := p.config.Resources.Managed.URIScheme; s != "" {
-		return s
-	}
-	return resource.DefaultURIScheme
-}
-
-// managedResourceS3Connection returns the S3 connection name for managed
-// resources. Returns the explicit config value if set, otherwise falls back
-// to the default/first S3 toolkit instance.
-func (p *Platform) managedResourceS3Connection() string {
-	name := p.config.Resources.Managed.S3Connection
-	if name != "" {
-		return name
-	}
-	// No explicit s3_connection — resolve the default S3 toolkit instance
-	// so managed resources automatically use an available S3 backend.
-	resolved := p.resolveDefaultS3Instance()
-	if resolved == "" {
-		slog.Debug("managed resources: no S3 toolkit available for default resolution")
-		return ""
-	}
-	slog.Debug("managed resources: using default S3 connection", "s3_connection", resolved)
-	return resolved
-}
-
-// resolveDefaultS3Instance returns the name of the default/first S3 toolkit
-// instance, or "" if no S3 toolkit is configured.
-func (p *Platform) resolveDefaultS3Instance() string {
-	toolkitsCfg, ok := p.config.Toolkits["s3"]
-	if !ok {
-		return ""
-	}
-	kindCfg, ok := toolkitsCfg.(map[string]any)
-	if !ok {
-		return ""
-	}
-	instances, ok := kindCfg[cfgKeyInstances].(map[string]any)
-	if !ok {
-		return ""
-	}
-	return toolkitcfg.ResolveDefaultInstance(kindCfg, instances)
 }
 
 // ResourceStore returns the managed resource store (nil if not enabled).
 func (p *Platform) ResourceStore() resource.Store {
-	return p.resourceStore
+	return p.resources.Store()
 }
 
 // ResourceS3Client returns the S3 client for managed resources (nil if not configured).
 func (p *Platform) ResourceS3Client() resource.S3Client {
-	return p.resourceS3Client
+	return p.resources.S3Client()
 }
 
-// RegisterManagedResource registers a managed resource with the MCP server
-// so it appears in the SDK's native resource list. The handler is a no-op —
-// the middleware handles the actual resources/read with auth and S3 fetch.
-// This also triggers notifications/resources/list_changed for connected clients.
+// RegisterManagedResource registers a managed resource with the MCP server so it
+// appears in the SDK's native resource list. Delegates to the resourcelayer
+// owner, passing the live p.mcpServer (created after the resource layer is
+// built); wired as the create callback of the REST resources API.
 func (p *Platform) RegisterManagedResource(res *resource.Resource) {
-	if p.mcpServer == nil || res == nil {
-		slog.Debug("RegisterManagedResource: skipping", "server_nil", p.mcpServer == nil, "res_nil", res == nil)
-		return
-	}
-	slog.Debug("RegisterManagedResource: registering with SDK", "uri", res.URI, "name", res.DisplayName)
-	p.mcpServer.AddResource(&mcp.Resource{
-		URI:         res.URI,
-		Name:        res.DisplayName,
-		Description: res.Description,
-		MIMEType:    res.MIMEType,
-	}, func(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-		// Fallback handler — the middleware normally intercepts resources/read
-		// before this runs. If we get here, the middleware fell through (auth
-		// failure or config issue). Return a placeholder instead of nil to
-		// avoid the SDK's "nil information" error.
-		slog.Warn("managed resource: SDK fallback handler called (middleware did not intercept)", "uri", req.Params.URI)
-		return &mcp.ReadResourceResult{
-			Contents: []*mcp.ResourceContents{{
-				URI:      req.Params.URI,
-				MIMEType: res.MIMEType,
-				Text:     "(resource content unavailable — authentication required)",
-			}},
-		}, nil
-	})
+	p.resources.Register(p.mcpServer, res)
 }
 
 // UnregisterManagedResource removes a managed resource from the MCP server's
-// resource list. This also triggers notifications/resources/list_changed.
+// resource list. Delegates to the resourcelayer owner; wired as the delete
+// callback of the REST resources API.
 func (p *Platform) UnregisterManagedResource(uri string) {
-	if p.mcpServer == nil {
-		slog.Debug("UnregisterManagedResource: skipping, no server")
-		return
-	}
-	slog.Debug("UnregisterManagedResource: removing from SDK", "uri", uri)
-	p.mcpServer.RemoveResources(uri)
+	p.resources.Unregister(p.mcpServer, uri)
 }
 
-// LoadManagedResources registers all existing managed resources from the
-// database with the MCP server so they're visible on the first resources/list
-// call. Called during platform initialization.
+// LoadManagedResources registers all existing managed resources with the MCP
+// server so they're visible on the first resources/list call. Delegates to the
+// resourcelayer owner, passing the live p.mcpServer; called during platform
+// initialization after finalizeSetup has created the server.
 func (p *Platform) LoadManagedResources() {
-	if p.resourceStore == nil {
-		slog.Debug("LoadManagedResources: no resource store, skipping")
-		return
-	}
-	if p.mcpServer == nil {
-		slog.Debug("LoadManagedResources: no MCP server, skipping")
-		return
-	}
-	resources, _, err := p.resourceStore.List(context.Background(), resource.Filter{
-		Scopes: []resource.ScopeFilter{{Scope: resource.ScopeGlobal}},
-		Limit:  1000,
-	})
-	if err != nil {
-		slog.Warn("managed resources: failed to load existing resources", "error", err)
-		return
-	}
-	for i := range resources {
-		p.RegisterManagedResource(&resources[i])
-	}
-	if len(resources) > 0 {
-		slog.Info("managed resources: registered existing resources", logKeyCount, len(resources))
-	}
+	p.resources.LoadAll(p.mcpServer)
 }
 
-// initMCPApps initializes MCP Apps support.
+// initMCPApps initializes MCP Apps support. The branding owner is built first
+// (regardless of whether MCP Apps are enabled) so BrandLogoSVG() / BrandURL() /
+// ResolveImplementorLogo() resolve from config for every consumer.
 func (p *Platform) initMCPApps() error {
+	p.branding = branding.New(branding.Config{
+		PortalLogo:      p.config.Portal.Logo,
+		ImplementorLogo: p.config.Portal.Implementor.Logo,
+	})
+
 	if !p.config.MCPApps.IsEnabled() {
 		return nil
 	}
@@ -1905,7 +1809,7 @@ func (p *Platform) registerBuiltinPlatformInfo() error {
 	}
 
 	// Auto-inject portal logo when the operator hasn't set one explicitly.
-	app.Config = p.injectPortalLogo(app.Config)
+	app.Config = p.branding.InjectPortalLogo(app.Config)
 
 	if app.AssetsPath != "" {
 		if err := app.ValidateAssets(); err != nil {
@@ -1919,90 +1823,6 @@ func (p *Platform) registerBuiltinPlatformInfo() error {
 
 	slog.Info("registered MCP app", "app", builtinPlatformInfoName, "resource_uri", app.ResourceURI)
 	return nil
-}
-
-// injectPortalLogo auto-populates the logo in the platform-info app config
-// from portal.logo when the operator hasn't set logo_svg or logo_url
-// explicitly. When the logo is an SVG URL, it is fetched and inlined as
-// logo_svg so the logo renders in sandboxed contexts (MCP App iframes)
-// that block external resource loading.
-//
-// Also caches brand_url from the app config for use by BrandURL().
-func (p *Platform) injectPortalLogo(cfg any) any {
-	m, ok := cfg.(map[string]any)
-	if !ok {
-		m = make(map[string]any)
-	}
-
-	// Cache brand_url from the mcpapps platform-info config.
-	if brandURL, _ := m["brand_url"].(string); brandURL != "" {
-		p.resolvedBrandURL = brandURL
-	}
-
-	portalLogo := p.config.Portal.Logo
-	if portalLogo == "" {
-		// Still cache logo_svg if present in the app config.
-		if svg, _ := m["logo_svg"].(string); svg != "" {
-			p.resolvedBrandLogoSVG = svg
-		}
-		return m
-	}
-
-	if svg, _ := m["logo_svg"].(string); svg != "" {
-		p.resolvedBrandLogoSVG = svg
-		return m
-	}
-	if m["logo_url"] != nil {
-		return m
-	}
-
-	// Fetch SVG content for inline rendering; fall back to URL on failure.
-	if svg, err := fetchLogoSVG(portalLogo); err == nil {
-		m["logo_svg"] = svg
-		p.resolvedBrandLogoSVG = svg
-	} else {
-		slog.Debug("portal logo fetch failed, using URL", "url", portalLogo, "err", err)
-		m["logo_url"] = portalLogo
-	}
-	return m
-}
-
-// logoFetchTimeout is the maximum duration for fetching a portal logo SVG.
-const logoFetchTimeout = 10 * time.Second
-
-// logoMaxBytes is the maximum size of fetched logo content (1 MB).
-const logoMaxBytes = 1 << 20
-
-// fetchLogoSVG downloads an SVG from the given URL and returns its content.
-// Returns an error if the URL is unreachable, returns a non-SVG content type,
-// or exceeds the size limit.
-func fetchLogoSVG(url string) (string, error) {
-	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-		return "", fmt.Errorf("unsupported scheme")
-	}
-
-	client := &http.Client{Timeout: logoFetchTimeout}
-	resp, err := client.Get(url) //nolint:gosec,noctx // URL comes from operator config, not user input
-	if err != nil {
-		return "", fmt.Errorf("fetch: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("status %d", resp.StatusCode)
-	}
-
-	ct := resp.Header.Get("Content-Type")
-	if !strings.Contains(ct, "svg") {
-		return "", fmt.Errorf("not SVG: %s", ct)
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, logoMaxBytes))
-	if err != nil {
-		return "", fmt.Errorf("read: %w", err)
-	}
-
-	return string(body), nil
 }
 
 // registerMCPApp creates, validates, and registers a single MCP app.
@@ -2137,14 +1957,14 @@ func (p *Platform) reflexivePersonaAllowsTool() reflexivecapture.PersonaToolChec
 
 // addManagedResourceMiddleware registers managed resources middleware when enabled.
 func (p *Platform) addManagedResourceMiddleware() {
-	if p.resourceStore == nil {
+	if p.resources.Store() == nil {
 		return
 	}
 	cfg := middleware.ManagedResourceConfig{
-		Store:         p.resourceStore,
-		S3Client:      p.resourceS3Client,
+		Store:         p.resources.Store(),
+		S3Client:      p.resources.S3Client(),
 		S3Bucket:      p.config.Resources.Managed.S3Bucket,
-		URIScheme:     p.managedResourceURIScheme(),
+		URIScheme:     p.resources.URIScheme(),
 		Authenticator: p.authenticator,
 		AdminPersona:  p.config.Admin.Persona,
 	}
@@ -2349,7 +2169,7 @@ func (p *Platform) buildServerCapabilities() *mcp.ServerCapabilities {
 	}
 
 	// Resources are available when templates or managed resources are enabled.
-	if p.config.Resources.IsEnabled() || p.resourceStore != nil || len(p.config.Resources.Custom) > 0 {
+	if p.config.Resources.IsEnabled() || p.resources.Store() != nil || len(p.config.Resources.Custom) > 0 {
 		caps.Resources = &mcp.ResourceCapabilities{ListChanged: true}
 	}
 
@@ -3055,35 +2875,23 @@ func (p *Platform) KnowledgeRouter() *knowledge.Router {
 
 // BrandLogoSVG returns the resolved brand logo SVG content (from portal.logo
 // or mcpapps platform-info config), or empty string if none is configured.
+// Delegates to the branding owner.
 func (p *Platform) BrandLogoSVG() string {
-	return p.resolvedBrandLogoSVG
+	return p.branding.BrandLogoSVG()
 }
 
 // BrandURL returns the resolved brand URL from the mcpapps platform-info
-// config (brand_url), or empty string if not configured.
+// config (brand_url), or empty string if not configured. Delegates to the
+// branding owner.
 func (p *Platform) BrandURL() string {
-	return p.resolvedBrandURL
+	return p.branding.BrandURL()
 }
 
-// ResolveImplementorLogo fetches the implementor logo SVG from the URL
-// configured in portal.implementor.logo. The result is cached so subsequent
-// calls return the same value without another HTTP request. Returns empty
-// string if no logo URL is configured or the fetch fails.
+// ResolveImplementorLogo fetches (once, then caches) the implementor logo SVG
+// from portal.implementor.logo, or empty string if no logo URL is configured or
+// the fetch fails. Delegates to the branding owner.
 func (p *Platform) ResolveImplementorLogo() string {
-	logoURL := p.config.Portal.Implementor.Logo
-	if logoURL == "" {
-		return ""
-	}
-	if p.resolvedImplementorLogo != "" {
-		return p.resolvedImplementorLogo
-	}
-	svg, err := fetchLogoSVG(logoURL)
-	if err != nil {
-		slog.Debug("implementor logo fetch failed", "url", logoURL, "err", err)
-		return ""
-	}
-	p.resolvedImplementorLogo = svg
-	return svg
+	return p.branding.ResolveImplementorLogo()
 }
 
 // BrowserSessionFlow returns the OIDC login flow, or nil if browser sessions are disabled.
