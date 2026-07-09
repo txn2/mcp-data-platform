@@ -36,7 +36,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/database/migrate"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/knowledge"
-	"github.com/txn2/mcp-data-platform/pkg/knowledge/federation"
 	"github.com/txn2/mcp-data-platform/pkg/mcpapps"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -58,6 +57,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/platform/portalstore"
 	"github.com/txn2/mcp-data-platform/pkg/platform/reflexivecapture"
 	"github.com/txn2/mcp-data-platform/pkg/platform/routepolicy"
+	"github.com/txn2/mcp-data-platform/pkg/platform/searchfed"
 	"github.com/txn2/mcp-data-platform/pkg/platform/sessionsync"
 	"github.com/txn2/mcp-data-platform/pkg/platform/toolkitcfg"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -81,7 +81,6 @@ import (
 	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/gateway/enrichment"
 	knowledgekit "github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
-	searchkit "github.com/txn2/mcp-data-platform/pkg/toolkits/search"
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"
 	"github.com/txn2/mcp-data-platform/pkg/tuning"
 	"github.com/txn2/mcp-data-platform/pkg/user"
@@ -191,10 +190,12 @@ type Platform struct {
 	// surfaced by the three admin accessors below. nil when knowledge is disabled
 	// or no database is configured.
 	knowledge *knowledgelayer.Handle
-	// knowledgeRouter is the unified search federation built in initSearch. It
-	// backs both the MCP search tool and the portal's GET /search REST endpoint;
-	// nil on a store-less deployment with no searchable source.
-	knowledgeRouter *knowledge.Router
+	// Search-federation layer. The owner (pkg/platform/searchfed) holds the
+	// unified search router and the search toolkit behind one Handle; the router
+	// is read through its accessor and backs both the MCP search tool and the
+	// portal's GET /search REST endpoint. nil on a store-less deployment with no
+	// searchable source, so no search tool is registered.
+	searchFed *searchfed.Handle
 
 	// Memory layer. The owner (pkg/platform/memorylayer) holds the memory store,
 	// memory toolkit (with its recall-first checker), enrichment adapter, and
@@ -1471,106 +1472,36 @@ func (p *Platform) resolveKnowledgeDataHubConfig(connName string, applyEnabled b
 // at least one source is available and is skipped entirely on a store-less
 // (no-database) deployment with no catalog, endpoints, or connections.
 func (p *Platform) initSearch() error {
-	providers := p.storeSearchProviders()
-	providers = p.appendFederationSearchProviders(providers)
+	// Assemble the search federation behind one handle from the searchable source
+	// handles/stores + the shared semantic provider / registry / embedding
+	// provider (all stay owned by Platform). New returns nil when no source is
+	// searchable, so a store-less deployment with no catalog, endpoints, or
+	// connections registers no search tool.
+	p.searchFed = searchfed.New(searchfed.Config{
+		ToolkitName:        instanceDefault,
+		ProviderTimeout:    p.config.Knowledge.SearchProviderTimeout, // 0 keeps the default
+		EmbedTimeout:       p.config.Knowledge.SearchEmbedTimeout,    // 0 keeps the default
+		CatalogEnabled:     p.config.Semantic.Provider == kindDataHub,
+		SemanticProvider:   p.semanticProvider,
+		MemoryStore:        p.memory.MemoryStore(),
+		InsightStore:       p.knowledge.InsightStore(),
+		KnowledgePageStore: p.portalStore.KnowledgePageStore(),
+		AssetStore:         p.portalStore.AssetStore(),
+		ThreadStore:        p.portalStore.ThreadStore(),
+		PromptStore:        p.promptStore,
+		Registry:           p.toolkitRegistry,
+		Embedding:          p.embeddingProv,
+	})
 
-	if len(providers) == 0 {
+	if p.searchFed == nil {
 		return nil
 	}
 
-	// The lineage expander widens the entity path along DataHub lineage (the old
-	// memory_recall graph strategy) once per search, shared across every
-	// entity-keyed provider; nil when no real catalog is configured, leaving a
-	// plain entity lookup.
-	var lineage knowledge.LineageExpander
-	if p.config.Semantic.Provider == kindDataHub && p.semanticProvider != nil {
-		lineage = knowledge.NewLineageExpander(p.semanticProvider)
-	}
-
-	router := knowledge.NewRouter(p.embeddingProv, lineage, providers...)
-	router.SetProviderTimeout(p.config.Knowledge.SearchProviderTimeout) // 0 keeps the 5s default
-	router.SetEmbedTimeout(p.config.Knowledge.SearchEmbedTimeout)       // 0 keeps the 5s default
-	p.knowledgeRouter = router
-	tk := searchkit.New(instanceDefault, router)
-	if err := p.toolkitRegistry.Register(tk); err != nil {
+	// Toolkit registration stays a Platform/registry concern.
+	if err := p.toolkitRegistry.Register(p.searchFed.Toolkit()); err != nil {
 		return fmt.Errorf("registering search toolkit: %w", err)
 	}
-
-	slog.Info("search enabled", "providers", len(providers))
 	return nil
-}
-
-// storeSearchProviders builds the store-backed search providers (memory,
-// insights, technical catalog, prompts, assets), each registered only when its
-// backing store exists so the no-database deployment adds none of them.
-func (p *Platform) storeSearchProviders() []knowledge.Provider {
-	var providers []knowledge.Provider
-
-	if memStore := p.memory.MemoryStore(); memStore != nil {
-		// Lineage expansion of the entity path is the router's job (it runs once
-		// for every entity-keyed provider), so the memory provider takes the URN
-		// set as given.
-		providers = append(providers, knowledge.NewMemoryProvider(memStore))
-	}
-	// Insights are searchable only through the memory-backed adapter; the legacy
-	// SQL store and the noop store do not implement InsightSearcher (and so are
-	// not SearchableInsightStores).
-	if s, ok := p.knowledge.InsightStore().(knowledgekit.SearchableInsightStore); ok {
-		providers = append(providers, knowledge.NewInsightsProvider(s))
-	}
-	// The technical catalog is a knowledge sink only when a real DataHub
-	// semantic provider is configured (the noop fallback would add an
-	// always-empty provider).
-	if p.config.Semantic.Provider == kindDataHub && p.semanticProvider != nil {
-		providers = append(providers, knowledge.NewCatalogProvider(p.semanticProvider))
-		// Context documents: a distinct search source (#692), present only when the real catalog exposes document search.
-		if ds, ok := semantic.DocumentSearcherFrom(p.semanticProvider); ok {
-			providers = append(providers, knowledge.NewContextDocumentsProvider(ds))
-		}
-	}
-	// Canonical knowledge pages (the internal-knowledge home for business
-	// ontology) are shared and searchable over their full content.
-	if s, ok := p.portalStore.KnowledgePageStore().(knowledge.PageSearcher); ok {
-		providers = append(providers, knowledge.NewKnowledgePagesProvider(s))
-	}
-	// Prompts are searchable and fetchable through the postgres prompt store
-	// (search + read-by-id, the two halves of search/fetch).
-	if s, ok := p.promptStore.(knowledge.PromptSearcher); ok {
-		providers = append(providers, knowledge.NewPromptsProvider(s))
-	}
-	// Assets are searchable and fetchable only through the postgres asset store.
-	if s, ok := p.portalStore.AssetStore().(knowledge.AssetSearcher); ok {
-		providers = append(providers, knowledge.NewAssetsProvider(s))
-	}
-	// Feedback threads complete the search corpus (#686): a caller's own feedback
-	// becomes discoverable knowledge. Lexical and per-user (threads carry no embedding).
-	if s, ok := p.portalStore.ThreadStore().(knowledge.ThreadSearcher); ok {
-		providers = append(providers, knowledge.NewThreadsProvider(s))
-	}
-	return providers
-}
-
-// appendFederationSearchProviders adds the registry-federated search sources
-// (API endpoints and connections) to the store-backed providers. Both are in
-// the default corpus (#645): an agent should discover a relevant endpoint or
-// connection from one query without first knowing a gateway exists.
-func (p *Platform) appendFederationSearchProviders(providers []knowledge.Provider) []knowledge.Provider {
-	// API endpoints aggregate the per-connection semantic ranking of every API
-	// gateway toolkit.
-	if searchers := federation.EndpointSearchers(p.toolkitRegistry); len(searchers) > 0 {
-		providers = append(providers, knowledge.NewEndpointsProvider(searchers...))
-	}
-	// Connections are the same set list_connections enumerates, surfaced by
-	// relevance. Added whenever search will exist at all — when any other source
-	// is present, or when at least one connection exists at startup — but never on
-	// its own on a bare deployment with no other source and no connection, so such
-	// a deployment still registers no search tool. The lister stays live, so once
-	// registered, connections added later through the admin API are searchable.
-	connLister := federation.NewConnectionLister(p.toolkitRegistry)
-	if len(providers) > 0 || len(connLister.Connections()) > 0 {
-		providers = append(providers, knowledge.NewConnectionsProvider(connLister))
-	}
-	return providers
 }
 
 // initPortal initializes the asset portal toolkit if enabled.
@@ -3119,7 +3050,7 @@ func (p *Platform) PortalS3Client() portal.S3Client {
 // endpoint wraps it so the browser surfaces the same grouped, scope-enforced
 // results as the MCP search tool.
 func (p *Platform) KnowledgeRouter() *knowledge.Router {
-	return p.knowledgeRouter
+	return p.searchFed.Router()
 }
 
 // BrandLogoSVG returns the resolved brand logo SVG content (from portal.logo
