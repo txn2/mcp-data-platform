@@ -1,6 +1,6 @@
 //go:build integration
 
-package platform
+package promptlayer
 
 // Real-Postgres proof for #593: the assembled ingestion path writes the
 // platform's static prompts into the store and they become searchable, exactly
@@ -25,16 +25,16 @@ func TestIngestStaticPrompts_RealDB_Searchable(t *testing.T) {
 	store := pgstore.New(testdb.New(t))
 	ctx := context.Background()
 
-	p := &Platform{
-		promptStore:     store,
-		toolkitRegistry: registry.NewRegistry(),
+	h := &Handle{
+		store:    store,
+		registry: registry.NewRegistry(),
 		promptInfos: []registry.PromptInfo{
 			{Name: "explore-available-data", Description: "Discover what datasets are available in the catalog", Content: "Explore data about {topic}."},
 			{Name: "create-interactive-dashboard", Description: "Build a dashboard and save it", Content: "Create a dashboard about {topic}."},
 		},
 	}
 
-	p.ingestStaticPrompts(ctx)
+	h.ingestStaticPrompts(ctx)
 
 	// Stored as read-only, approved, global system rows.
 	got, err := store.Get(ctx, "explore-available-data")
@@ -57,7 +57,7 @@ func TestIngestStaticPrompts_RealDB_Searchable(t *testing.T) {
 	assert.True(t, found, "ingested static prompt is returned by the real store search")
 
 	// Re-running ingest is idempotent (no duplicate system rows).
-	p.ingestStaticPrompts(ctx)
+	h.ingestStaticPrompts(ctx)
 	system, err := store.List(ctx, prompt.ListFilter{Source: prompt.SourceSystem})
 	require.NoError(t, err)
 	assert.Len(t, system, 2, "re-ingest does not duplicate system rows")

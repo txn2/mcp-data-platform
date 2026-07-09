@@ -39,6 +39,14 @@ const (
 	// kindPlatform identifies tools provided directly by the platform
 	// (not a toolkit), e.g. platform_info, list_connections.
 	kindPlatform = "platform"
+	// Toolkit kind identifiers used across the platform for connection-source
+	// mapping, semantic-provider selection, and auto-enable defaulting. The
+	// prompt layer keeps its own copy for capability bullets and workflow gating.
+	kindDataHub = "datahub"
+	kindTrino   = "trino"
+	kindS3      = "s3"
+	kindMCP     = "mcp"
+	kindAPI     = "api"
 	// toolListConns is the unified platform-provided list-connections
 	// tool name.
 	toolListConns = "list_connections"

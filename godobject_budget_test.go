@@ -58,10 +58,10 @@ const (
 	// three owner handles: resource (resourceStore, resourceS3Client → one
 	// resourcelayer.Handle), user (userStore, userDirectory → one userdir.Handle),
 	// and brand (resolvedBrandLogoSVG, resolvedBrandURL, resolvedImplementorLogo →
-	// one branding.Handle), ratcheting 53 → 49. The prompt cluster was split into
-	// its own follow-up seam (its ~40 methods across three files are not
-	// mechanical), so its four fields stay on Platform for now.
-	maxPlatformFields = 49
+	// one branding.Handle), ratcheting 53 → 49. The prompt-seam extraction (#853)
+	// folded four fields (promptManager, promptStore, promptInfosMu, promptInfos)
+	// into one promptlayer.Handle, ratcheting 49 → 46.
+	maxPlatformFields = 46
 
 	// maxPlatformMethods caps the number of methods with a *Platform receiver.
 	// Frozen at today's count; ratchet down as accessors move onto the
@@ -76,8 +76,16 @@ const (
 	// user's observeAuthenticatedUser / observeBrowserLogin, and brand's
 	// injectPortalLogo — into their owner packages, ratcheting 255 → 249. The
 	// public accessors external callers use (ResourceStore, UserStore, BrandURL,
-	// …) stay as one-line delegators, so they still count.
-	maxPlatformMethods = 249
+	// …) stay as one-line delegators, so they still count. The prompt-seam
+	// extraction (#853) moved the ~40-method prompt cluster (static/workflow/
+	// database registration, dynamic serving, the manage_prompt tool) onto
+	// promptlayer.Handle, ratcheting 249 → 212; the four accessors external
+	// callers use (PromptStore, AllPromptInfos, RegisterRuntimePrompt,
+	// UnregisterRuntimePrompt) stay as one-line delegators, and the
+	// middleware-chain wiring (addPromptVisibilityMiddleware) plus the
+	// late-collaborator binding (bindPromptCollaborators) stay on Platform, so
+	// they still count.
+	maxPlatformMethods = 212
 )
 
 // TestPlatformGodObjectBudget fails when the Platform struct grows more fields

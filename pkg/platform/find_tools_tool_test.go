@@ -196,3 +196,16 @@ func TestHandleFindTools_Semantic(t *testing.T) {
 		t.Errorf("semantic result wrong: err=%v text=%s", res.IsError, resultText(res))
 	}
 }
+
+// resultText extracts the first text-content string from a tool result, or ""
+// when the result is nil or carries no text content.
+func resultText(r *mcp.CallToolResult) string {
+	if r == nil || len(r.Content) == 0 {
+		return ""
+	}
+	tc, ok := r.Content[0].(*mcp.TextContent)
+	if !ok {
+		return ""
+	}
+	return tc.Text
+}

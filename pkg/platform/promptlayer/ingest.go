@@ -1,4 +1,4 @@
-package platform
+package promptlayer
 
 import (
 	"context"
@@ -8,10 +8,10 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 )
 
-// ingestStaticPrompts mirrors the platform's statically-registered prompts
-// (operator config + built-in workflow + toolkit prompts) into the prompt store
-// as read-only, system-sourced rows so the existing embedding indexer and
-// manage_prompt search cover them, exactly like database-authored prompts.
+// ingestStaticPrompts mirrors the statically-registered prompts (operator config
+// + built-in workflow + toolkit prompts) into the prompt store as read-only,
+// system-sourced rows so the existing embedding indexer and manage_prompt search
+// cover them, exactly like database-authored prompts.
 //
 // Static prompts are otherwise served only as MCP protocol prompts (AddPrompt)
 // and never reach the store, so on a deployment whose prompts are all static the
@@ -24,12 +24,12 @@ import (
 // Must run after all static prompts are registered into promptInfos and before
 // registerDatabasePrompts (which would otherwise add database prompts to
 // promptInfos and cause them to be re-ingested as system rows).
-func (p *Platform) ingestStaticPrompts(ctx context.Context) {
-	if p.promptStore == nil {
+func (h *Handle) ingestStaticPrompts(ctx context.Context) {
+	if h.store == nil {
 		return
 	}
 
-	infos := p.staticPromptInfos()
+	infos := h.staticPromptInfos()
 	wanted := make(map[string]bool, len(infos))
 
 	for _, info := range infos {
@@ -37,10 +37,10 @@ func (p *Platform) ingestStaticPrompts(ctx context.Context) {
 			continue
 		}
 		wanted[info.Name] = true
-		p.upsertSystemPrompt(ctx, info)
+		h.upsertSystemPrompt(ctx, info)
 	}
 
-	p.pruneStaleSystemPrompts(ctx, wanted)
+	h.pruneStaleSystemPrompts(ctx, wanted)
 
 	if len(wanted) > 0 {
 		slog.Info("ingested static prompts for indexing and search", "count", len(wanted))
@@ -50,22 +50,22 @@ func (p *Platform) ingestStaticPrompts(ctx context.Context) {
 // upsertSystemPrompt creates or refreshes the system row for one static prompt.
 // A name already owned by a non-system prompt is left untouched so ingestion
 // never clobbers user/admin-authored prompts.
-func (p *Platform) upsertSystemPrompt(ctx context.Context, info registry.PromptInfo) {
+func (h *Handle) upsertSystemPrompt(ctx context.Context, info registry.PromptInfo) {
 	desired := systemPromptFromInfo(info)
 
-	existing, err := p.promptStore.Get(ctx, info.Name)
+	existing, err := h.store.Get(ctx, info.Name)
 	if err != nil {
 		slog.Warn("ingest static prompt: lookup failed", promptLogKey, info.Name, logKeyError, err)
 		return
 	}
 	switch {
 	case existing == nil:
-		if err := p.promptStore.Create(ctx, desired); err != nil {
+		if err := h.store.Create(ctx, desired); err != nil {
 			slog.Warn("ingest static prompt: create failed", promptLogKey, info.Name, logKeyError, err)
 		}
 	case existing.Source == prompt.SourceSystem:
 		desired.ID = existing.ID
-		if err := p.promptStore.Update(ctx, desired); err != nil {
+		if err := h.store.Update(ctx, desired); err != nil {
 			slog.Warn("ingest static prompt: update failed", promptLogKey, info.Name, logKeyError, err)
 		}
 	default:
@@ -77,12 +77,12 @@ func (p *Platform) upsertSystemPrompt(ctx context.Context, info registry.PromptI
 // staticPromptInfos is the set of statically-registered prompts (operator config
 // + workflow, held in promptInfos) plus toolkit-described prompts. It must be
 // read before registerDatabasePrompts pollutes promptInfos with database prompts.
-func (p *Platform) staticPromptInfos() []registry.PromptInfo {
-	toolkit := p.collectToolkitPromptInfos()
-	p.promptInfosMu.RLock()
-	infos := make([]registry.PromptInfo, 0, len(p.promptInfos)+len(toolkit))
-	infos = append(infos, p.promptInfos...)
-	p.promptInfosMu.RUnlock()
+func (h *Handle) staticPromptInfos() []registry.PromptInfo {
+	toolkit := h.collectToolkitPromptInfos()
+	h.promptInfosMu.RLock()
+	infos := make([]registry.PromptInfo, 0, len(h.promptInfos)+len(toolkit))
+	infos = append(infos, h.promptInfos...)
+	h.promptInfosMu.RUnlock()
 	return append(infos, toolkit...)
 }
 
@@ -110,8 +110,8 @@ func systemPromptFromInfo(info registry.PromptInfo) *prompt.Prompt {
 // pruneStaleSystemPrompts deletes system-sourced prompt rows whose name is no
 // longer in the registered static set, so removing a prompt from config or the
 // build reconciles the store on the next startup.
-func (p *Platform) pruneStaleSystemPrompts(ctx context.Context, wanted map[string]bool) {
-	rows, err := p.promptStore.List(ctx, prompt.ListFilter{Source: prompt.SourceSystem})
+func (h *Handle) pruneStaleSystemPrompts(ctx context.Context, wanted map[string]bool) {
+	rows, err := h.store.List(ctx, prompt.ListFilter{Source: prompt.SourceSystem})
 	if err != nil {
 		slog.Warn("ingest static prompt: list system prompts failed", logKeyError, err)
 		return
@@ -120,7 +120,7 @@ func (p *Platform) pruneStaleSystemPrompts(ctx context.Context, wanted map[strin
 		if wanted[rows[i].Name] {
 			continue
 		}
-		if err := p.promptStore.DeleteByID(ctx, rows[i].ID); err != nil {
+		if err := h.store.DeleteByID(ctx, rows[i].ID); err != nil {
 			slog.Warn("ingest static prompt: prune failed", "name", rows[i].Name, logKeyError, err)
 		}
 	}

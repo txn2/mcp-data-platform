@@ -1,4 +1,4 @@
-package platform
+package promptlayer
 
 import (
 	"context"
@@ -12,14 +12,14 @@ import (
 )
 
 func TestListVisiblePrompts_ScopePrefixesAndScoping(t *testing.T) {
-	p, store := newTestPlatformWithPromptStore()
+	h, store := newTestHandle()
 	store.prompts["g1"] = &prompt.Prompt{Name: "g1", Scope: prompt.ScopeGlobal, Enabled: true}
 	store.prompts["pa"] = &prompt.Prompt{Name: "pa", Scope: prompt.ScopePersona, Personas: []string{"analyst"}, Enabled: true}
 	store.prompts["pe"] = &prompt.Prompt{Name: "pe", Scope: prompt.ScopePersona, Personas: []string{"engineer"}, Enabled: true}
 	store.prompts["mine"] = &prompt.Prompt{Name: "mine", Scope: prompt.ScopePersonal, OwnerEmail: "sarah@example.com", Enabled: true}
 	store.prompts["bob"] = &prompt.Prompt{Name: "bob", Scope: prompt.ScopePersonal, OwnerEmail: "bob@example.com", Enabled: true}
 
-	out := p.listVisiblePrompts(context.Background(), "sarah@example.com", []string{"analyst"})
+	out := h.ListVisible(context.Background(), "sarah@example.com", []string{"analyst"})
 	names := map[string]bool{}
 	for _, pr := range out {
 		names[pr.Name] = true
@@ -37,11 +37,11 @@ func TestListVisiblePrompts_ScopePrefixesAndScoping(t *testing.T) {
 func TestListVisiblePrompts_ExcludesSystemRows(t *testing.T) {
 	// Ingested static prompts (source=system) are served under their bare name
 	// via AddPrompt; they must not also appear as a global- prefixed entry.
-	p, store := newTestPlatformWithPromptStore()
+	h, store := newTestHandle()
 	store.prompts["g1"] = &prompt.Prompt{Name: "g1", Scope: prompt.ScopeGlobal, Source: prompt.SourceOperator, Enabled: true}
 	store.prompts["sys"] = &prompt.Prompt{Name: "sys", Scope: prompt.ScopeGlobal, Source: prompt.SourceSystem, Enabled: true}
 
-	out := p.listVisiblePrompts(context.Background(), "", nil)
+	out := h.ListVisible(context.Background(), "", nil)
 	names := map[string]bool{}
 	for _, pr := range out {
 		names[pr.Name] = true
@@ -51,18 +51,18 @@ func TestListVisiblePrompts_ExcludesSystemRows(t *testing.T) {
 }
 
 func TestRegisterDatabasePrompts_SkipsSystemRows(t *testing.T) {
-	p, store := newTestPlatformWithPromptStore()
+	h, store := newTestHandle()
 	store.prompts["op"] = &prompt.Prompt{Name: "op", Scope: prompt.ScopeGlobal, Source: prompt.SourceOperator, Enabled: true}
 	store.prompts["sys"] = &prompt.Prompt{Name: "sys", Scope: prompt.ScopeGlobal, Source: prompt.SourceSystem, Enabled: true}
 
-	p.registerDatabasePrompts()
+	h.registerDatabasePrompts()
 
 	infos := map[string]bool{}
-	p.promptInfosMu.RLock()
-	for _, i := range p.promptInfos {
+	h.promptInfosMu.RLock()
+	for _, i := range h.promptInfos {
 		infos[i.Name] = true
 	}
-	p.promptInfosMu.RUnlock()
+	h.promptInfosMu.RUnlock()
 	assert.True(t, infos["op"], "operator database prompt registered for admin listing")
 	assert.False(t, infos["sys"], "system row must be skipped (already served via AddPrompt)")
 }
@@ -70,12 +70,12 @@ func TestRegisterDatabasePrompts_SkipsSystemRows(t *testing.T) {
 func TestPromptServing_AnonymousIsFailClosed(t *testing.T) {
 	// An anonymous caller (empty email, no personas) sees only globals and can
 	// fetch only globals, never personal or persona prompts.
-	p, store := newTestPlatformWithPromptStore()
+	h, store := newTestHandle()
 	store.prompts["g"] = &prompt.Prompt{Name: "g", Scope: prompt.ScopeGlobal, Enabled: true}
 	store.prompts["pa"] = &prompt.Prompt{Name: "pa", Scope: prompt.ScopePersona, Personas: []string{"analyst"}, Enabled: true}
 	store.prompts["mine"] = &prompt.Prompt{Name: "mine", Scope: prompt.ScopePersonal, OwnerEmail: "sarah@example.com", Enabled: true}
 
-	out := p.listVisiblePrompts(context.Background(), "", nil)
+	out := h.ListVisible(context.Background(), "", nil)
 	names := map[string]bool{}
 	for _, pr := range out {
 		names[pr.Name] = true
@@ -85,16 +85,16 @@ func TestPromptServing_AnonymousIsFailClosed(t *testing.T) {
 	assert.False(t, names["personal-mine"], "anonymous must not see personal prompts")
 	assert.Len(t, out, 1, "anonymous list contains only the global prompt")
 
-	_, ok := p.getDynamicPrompt(context.Background(), "", nil, "personal-mine", nil)
+	_, ok := h.GetByName(context.Background(), "", nil, "personal-mine", nil)
 	assert.False(t, ok, "anonymous cannot fetch a personal prompt")
-	_, ok = p.getDynamicPrompt(context.Background(), "", nil, "analyst-pa", nil)
+	_, ok = h.GetByName(context.Background(), "", nil, "analyst-pa", nil)
 	assert.False(t, ok, "anonymous cannot fetch a persona prompt")
-	_, ok = p.getDynamicPrompt(context.Background(), "", nil, "global-g", nil)
+	_, ok = h.GetByName(context.Background(), "", nil, "global-g", nil)
 	assert.True(t, ok, "anonymous can fetch a global prompt")
 }
 
 func TestGetDynamicPrompt_ResolvesByPrefix(t *testing.T) {
-	p, store := newTestPlatformWithPromptStore()
+	h, store := newTestHandle()
 	store.prompts["g1"] = &prompt.Prompt{Name: "g1", Scope: prompt.ScopeGlobal, Content: "global {x}", Enabled: true}
 	store.prompts["pa"] = &prompt.Prompt{Name: "pa", Scope: prompt.ScopePersona, Personas: []string{"analyst"}, Content: "persona", Enabled: true}
 	store.prompts["mine"] = &prompt.Prompt{Name: "mine", Scope: prompt.ScopePersonal, OwnerEmail: "sarah@example.com", Content: "personal", Enabled: true}
@@ -102,34 +102,34 @@ func TestGetDynamicPrompt_ResolvesByPrefix(t *testing.T) {
 	ctx := context.Background()
 	analyst := []string{"analyst"}
 
-	_, ok := p.getDynamicPrompt(ctx, "sarah@example.com", analyst, "personal-mine", nil)
+	_, ok := h.GetByName(ctx, "sarah@example.com", analyst, "personal-mine", nil)
 	assert.True(t, ok, "own personal prompt resolves via personal- prefix")
 
-	res, ok := p.getDynamicPrompt(ctx, "sarah@example.com", analyst, "global-g1", map[string]string{"x": "Y"})
+	res, ok := h.GetByName(ctx, "sarah@example.com", analyst, "global-g1", map[string]string{"x": "Y"})
 	require.True(t, ok, "global prompt resolves via global- prefix")
 	require.NotNil(t, res)
 
-	_, ok = p.getDynamicPrompt(ctx, "sarah@example.com", analyst, "analyst-pa", nil)
+	_, ok = h.GetByName(ctx, "sarah@example.com", analyst, "analyst-pa", nil)
 	assert.True(t, ok, "persona prompt resolves for a member via <persona>- prefix")
 
-	_, ok = p.getDynamicPrompt(ctx, "sarah@example.com", []string{"engineer"}, "analyst-pa", nil)
+	_, ok = h.GetByName(ctx, "sarah@example.com", []string{"engineer"}, "analyst-pa", nil)
 	assert.False(t, ok, "a non-member cannot resolve a persona prompt by its prefix")
 
-	_, ok = p.getDynamicPrompt(ctx, "bob@example.com", nil, "personal-mine", nil)
+	_, ok = h.GetByName(ctx, "bob@example.com", nil, "personal-mine", nil)
 	assert.False(t, ok, "another user cannot resolve someone else's personal prompt")
 
-	_, ok = p.getDynamicPrompt(ctx, "sarah@example.com", analyst, "personal-g1", nil)
+	_, ok = h.GetByName(ctx, "sarah@example.com", analyst, "personal-g1", nil)
 	assert.False(t, ok, "a global prompt is not reachable under the personal- prefix")
 
-	_, ok = p.getDynamicPrompt(ctx, "sarah@example.com", analyst, "global-nope", nil)
+	_, ok = h.GetByName(ctx, "sarah@example.com", analyst, "global-nope", nil)
 	assert.False(t, ok, "an unknown name resolves to nothing")
 }
 
 // A persona may literally be named "global" or "personal". The reserved-prefix
-// branches of getDynamicPrompt must fall through to persona resolution so such a
+// branches of GetByName must fall through to persona resolution so such a
 // persona's prompts remain fetchable.
 func TestGetDynamicPrompt_ReservedPrefixPersonaName(t *testing.T) {
-	p, store := newTestPlatformWithPromptStore()
+	h, store := newTestHandle()
 	store.prompts["report"] = &prompt.Prompt{
 		Name: "report", Scope: prompt.ScopePersona, Personas: []string{"global"},
 		Content: "persona-global report", Enabled: true,
@@ -140,9 +140,9 @@ func TestGetDynamicPrompt_ReservedPrefixPersonaName(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	_, ok := p.getDynamicPrompt(ctx, "u@example.com", []string{"global"}, "global-report", nil)
+	_, ok := h.GetByName(ctx, "u@example.com", []string{"global"}, "global-report", nil)
 	assert.True(t, ok, "a persona named 'global' resolves its prompt via fall-through")
-	_, ok = p.getDynamicPrompt(ctx, "u@example.com", []string{"personal"}, "personal-runbook", nil)
+	_, ok = h.GetByName(ctx, "u@example.com", []string{"personal"}, "personal-runbook", nil)
 	assert.True(t, ok, "a persona named 'personal' resolves its prompt via fall-through")
 }
 
@@ -150,15 +150,15 @@ func TestGetDynamicPrompt_ReservedPrefixPersonaName(t *testing.T) {
 // names collide across owners), and unregistering by name must not drop an
 // unrelated shared entry of the same name.
 func TestRuntimePromptMetadata_ExcludesPersonal(t *testing.T) {
-	p, _ := newTestPlatformWithPromptStore()
-	p.RegisterRuntimePrompt(&prompt.Prompt{Name: "g", Scope: prompt.ScopeGlobal})
-	p.RegisterRuntimePrompt(&prompt.Prompt{Name: "mine", Scope: prompt.ScopePersonal, OwnerEmail: "a@x"})
+	h, _ := newTestHandle()
+	h.RegisterRuntimePrompt(&prompt.Prompt{Name: "g", Scope: prompt.ScopeGlobal})
+	h.RegisterRuntimePrompt(&prompt.Prompt{Name: "mine", Scope: prompt.ScopePersonal, OwnerEmail: "a@x"})
 
 	tracked := func() map[string]bool {
 		names := map[string]bool{}
-		p.promptInfosMu.RLock()
-		defer p.promptInfosMu.RUnlock()
-		for _, i := range p.promptInfos {
+		h.promptInfosMu.RLock()
+		defer h.promptInfosMu.RUnlock()
+		for _, i := range h.promptInfos {
 			names[i.Name] = true
 		}
 		return names
@@ -168,8 +168,8 @@ func TestRuntimePromptMetadata_ExcludesPersonal(t *testing.T) {
 	assert.True(t, names["g"], "global prompt is tracked")
 	assert.False(t, names["mine"], "personal prompt is not tracked")
 
-	p.RegisterRuntimePrompt(&prompt.Prompt{Name: "shared", Scope: prompt.ScopeGlobal})
-	p.UnregisterRuntimePrompt("g")
+	h.RegisterRuntimePrompt(&prompt.Prompt{Name: "shared", Scope: prompt.ScopeGlobal})
+	h.UnregisterRuntimePrompt("g")
 	after := tracked()
 	assert.False(t, after["g"], "unregister drops the named global entry")
 	assert.True(t, after["shared"], "unrelated shared entries are retained")
@@ -179,7 +179,7 @@ func TestRuntimePromptMetadata_ExcludesPersonal(t *testing.T) {
 // more than one way; the most specific (longest) persona prefix must win
 // deterministically.
 func TestGetPersonaPrompt_LongestPrefixWins(t *testing.T) {
-	p, store := newTestPlatformWithPromptStore()
+	h, store := newTestHandle()
 	store.prompts["engineer-report"] = &prompt.Prompt{
 		Name: "engineer-report", Scope: prompt.ScopePersona, Personas: []string{"data"},
 		Content: "data persona", Enabled: true,
@@ -189,7 +189,7 @@ func TestGetPersonaPrompt_LongestPrefixWins(t *testing.T) {
 		Content: "data-engineer persona", Enabled: true,
 	}
 
-	res, ok := p.getDynamicPrompt(context.Background(), "u@example.com",
+	res, ok := h.GetByName(context.Background(), "u@example.com",
 		[]string{"data", "data-engineer"}, "data-engineer-report", nil)
 	require.True(t, ok)
 	require.Len(t, res.Messages, 1)
