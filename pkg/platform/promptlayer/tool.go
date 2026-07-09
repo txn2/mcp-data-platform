@@ -1,4 +1,4 @@
-package platform
+package promptlayer
 
 import (
 	"context"
@@ -20,7 +20,7 @@ const (
 	promptLogKey    = "name"
 	promptLogKeyErr = "error"
 
-	// Command names for the manage_prompt tool.
+	// Command name for the manage_prompt list command.
 	cmdList = "list"
 
 	// JSON field names used in result and schema maps. These share the
@@ -32,26 +32,6 @@ const (
 	// ("created", "updated", "deleted") returned by manage_prompt.
 	fieldStatus = "status"
 )
-
-// platformPromptCreator adapts the prompt store and platform for the
-// knowledge toolkit's PromptCreator interface.
-type platformPromptCreator struct {
-	store    prompt.Store
-	platform *Platform
-}
-
-// Create delegates prompt creation to the backing store.
-func (c *platformPromptCreator) Create(ctx context.Context, p *prompt.Prompt) error {
-	if err := c.store.Create(ctx, p); err != nil {
-		return fmt.Errorf("prompt store create: %w", err)
-	}
-	return nil
-}
-
-// RegisterRuntimePrompt delegates runtime registration to the platform.
-func (c *platformPromptCreator) RegisterRuntimePrompt(p *prompt.Prompt) {
-	c.platform.RegisterRuntimePrompt(p)
-}
 
 // managePromptInput is the input schema for the manage_prompt tool.
 type managePromptInput struct {
@@ -81,13 +61,14 @@ type managePromptInput struct {
 	RequestedPersonas []string `json:"requested_personas,omitempty"`
 }
 
-// registerPromptTool registers the manage_prompt tool with the MCP server.
-func (p *Platform) registerPromptTool() {
-	if p.promptStore == nil {
+// RegisterTool registers the manage_prompt tool with the given MCP server. No-op
+// on a nil Handle or a no-DB deployment (no store to manage prompts in).
+func (h *Handle) RegisterTool(server *mcp.Server) {
+	if h == nil || h.store == nil {
 		return
 	}
 
-	mcp.AddTool(p.mcpServer, &mcp.Tool{
+	mcp.AddTool(server, &mcp.Tool{
 		Name:  "manage_prompt",
 		Title: "Manage Prompts",
 		Description: "Create, update, delete, list, or get prompts. " +
@@ -97,30 +78,30 @@ func (p *Platform) registerPromptTool() {
 			"configuration are not listed or editable here.",
 		InputSchema: managePromptSchema(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, input managePromptInput) (*mcp.CallToolResult, any, error) {
-		return p.handleManagePrompt(ctx, input)
+		return h.handleManagePrompt(ctx, input)
 	})
 }
 
 // handleManagePrompt dispatches manage_prompt commands.
-func (p *Platform) handleManagePrompt(ctx context.Context, input managePromptInput) (*mcp.CallToolResult, any, error) {
+func (h *Handle) handleManagePrompt(ctx context.Context, input managePromptInput) (*mcp.CallToolResult, any, error) {
 	switch input.Command {
 	case "create":
-		return p.handlePromptCreate(ctx, input)
+		return h.handlePromptCreate(ctx, input)
 	case "update":
-		return p.handlePromptUpdate(ctx, input)
+		return h.handlePromptUpdate(ctx, input)
 	case "delete":
-		return p.handlePromptDelete(ctx, input)
+		return h.handlePromptDelete(ctx, input)
 	case cmdList:
-		return p.handlePromptList(ctx, input)
+		return h.handlePromptList(ctx, input)
 	case "get":
-		return p.handlePromptGet(ctx, input)
+		return h.handlePromptGet(ctx, input)
 	default:
 		return promptErrorResult(fmt.Sprintf("unknown command: %s", input.Command)), nil, nil
 	}
 }
 
 // handlePromptCreate creates a new prompt.
-func (p *Platform) handlePromptCreate(ctx context.Context, input managePromptInput) (*mcp.CallToolResult, any, error) {
+func (h *Handle) handlePromptCreate(ctx context.Context, input managePromptInput) (*mcp.CallToolResult, any, error) {
 	if err := prompt.ValidateName(input.Name); err != nil {
 		return promptErrorResult(err.Error()), nil, nil
 	}
@@ -140,7 +121,7 @@ func (p *Platform) handlePromptCreate(ctx context.Context, input managePromptInp
 	}
 
 	email := resolveEmail(ctx)
-	if !p.isAdminPersona(ctx) && scope != prompt.ScopePersonal {
+	if !h.isAdminPersona(ctx) && scope != prompt.ScopePersonal {
 		return promptErrorResult("only admins can create global or persona-scoped prompts"), nil, nil
 	}
 
@@ -164,12 +145,12 @@ func (p *Platform) handlePromptCreate(ctx context.Context, input managePromptInp
 		Enabled:     true,
 	}
 
-	if err := p.promptStore.Create(ctx, pr); err != nil {
+	if err := h.store.Create(ctx, pr); err != nil {
 		slog.Error("failed to create prompt", promptLogKey, input.Name, promptLogKeyErr, err)
-		return p.promptErrorDetail(ctx, "failed to create prompt", err), nil, nil
+		return h.promptErrorDetail(ctx, "failed to create prompt", err), nil, nil
 	}
 
-	p.RegisterRuntimePrompt(pr)
+	h.RegisterRuntimePrompt(pr)
 
 	return promptJSONResult(map[string]any{
 		fieldStatus: "created",
@@ -179,15 +160,15 @@ func (p *Platform) handlePromptCreate(ctx context.Context, input managePromptInp
 }
 
 // handlePromptUpdate updates an existing prompt.
-func (p *Platform) handlePromptUpdate(ctx context.Context, input managePromptInput) (*mcp.CallToolResult, any, error) {
+func (h *Handle) handlePromptUpdate(ctx context.Context, input managePromptInput) (*mcp.CallToolResult, any, error) {
 	if input.Name == "" {
 		return promptErrorResult("name is required"), nil, nil
 	}
 
-	existing, err := p.resolveManagedPrompt(ctx, input.Name, resolveEmail(ctx), input.Scope)
+	existing, err := h.resolveManagedPrompt(ctx, input.Name, resolveEmail(ctx), input.Scope)
 	if err != nil {
 		slog.Error(promptErrGet, promptLogKey, input.Name, promptLogKeyErr, err)
-		return p.promptErrorDetail(ctx, promptErrGet, err), nil, nil
+		return h.promptErrorDetail(ctx, promptErrGet, err), nil, nil
 	}
 	if existing == nil {
 		return promptErrorResult(fmt.Sprintf("prompt %q not found", input.Name)), nil, nil
@@ -197,44 +178,27 @@ func (p *Platform) handlePromptUpdate(ctx context.Context, input managePromptInp
 	}
 
 	email := resolveEmail(ctx)
-	if !p.isAdminPersona(ctx) {
-		if existing.Scope != prompt.ScopePersonal {
-			return promptErrorResult("non-admins can only manage personal prompts"), nil, nil
-		}
-		if existing.OwnerEmail != email {
-			return promptErrorResult("you can only update your own prompts"), nil, nil
-		}
+	if msg := authorizePromptMutation(existing, email, "update", h.isAdminPersona(ctx)); msg != "" {
+		return promptErrorResult(msg), nil, nil
 	}
 
 	oldScope := existing.Scope
-	if errMsg := applyPromptUpdates(existing, input, p.isAdminPersona(ctx)); errMsg != "" {
+	if errMsg := applyPromptUpdates(existing, input, h.isAdminPersona(ctx)); errMsg != "" {
 		return promptErrorResult(errMsg), nil, nil
 	}
-	if errMsg := applyStatusTransition(existing, input.Status, input.SupersededBy, email, p.isAdminPersona(ctx)); errMsg != "" {
+	if errMsg := applyStatusTransition(existing, input.Status, input.SupersededBy, email, h.isAdminPersona(ctx)); errMsg != "" {
 		return promptErrorResult(errMsg), nil, nil
 	}
-	// Promoting a personal prompt into the shared (global/persona) namespace
-	// requires a name that is free there; the shared names are globally unique.
-	if oldScope == prompt.ScopePersonal && existing.Scope != prompt.ScopePersonal {
-		if dup, _ := p.promptStore.Get(ctx, existing.Name); dup != nil && dup.ID != existing.ID {
-			return promptErrorResult(fmt.Sprintf(
-				"the name %q is already used by a %s prompt; rename before promoting", existing.Name, dup.Scope)), nil, nil
-		}
+	if errMsg := h.checkPromotionNameFree(ctx, existing, oldScope); errMsg != "" {
+		return promptErrorResult(errMsg), nil, nil
 	}
 
-	if err := p.promptStore.Update(ctx, existing); err != nil {
+	if err := h.store.Update(ctx, existing); err != nil {
 		slog.Error("failed to update prompt", promptLogKey, input.Name, promptLogKeyErr, err)
-		return p.promptErrorDetail(ctx, "failed to update prompt", err), nil, nil
+		return h.promptErrorDetail(ctx, "failed to update prompt", err), nil, nil
 	}
 
-	// Re-register the name-keyed metadata. Personal prompts are not tracked
-	// there (names collide across owners), so only (un)register shared scopes;
-	// RegisterRuntimePrompt self-skips personal, and unregistering the old name
-	// is gated on the old scope to avoid dropping an unrelated shared entry.
-	if oldScope != prompt.ScopePersonal {
-		p.UnregisterRuntimePrompt(existing.Name)
-	}
-	p.RegisterRuntimePrompt(existing)
+	h.reregisterAfterUpdate(existing, oldScope)
 
 	return promptJSONResult(map[string]any{
 		fieldStatus: "updated",
@@ -242,9 +206,63 @@ func (p *Platform) handlePromptUpdate(ctx context.Context, input managePromptInp
 	})
 }
 
-// applyPromptUpdates applies non-empty fields from input to existing.
-// Returns a non-empty error message if a scope check fails.
+// checkPromotionNameFree guards a personal-to-shared promotion: the shared
+// (global/persona) namespace is globally unique, so promoting requires the name
+// to be free there. Returns a non-empty user-facing error message when a
+// different prompt already owns the name, or "" when the update is not a
+// promotion or the name is free.
+func (h *Handle) checkPromotionNameFree(ctx context.Context, existing *prompt.Prompt, oldScope string) string {
+	if oldScope != prompt.ScopePersonal || existing.Scope == prompt.ScopePersonal {
+		return ""
+	}
+	dup, _ := h.store.Get(ctx, existing.Name)
+	if dup != nil && dup.ID != existing.ID {
+		return fmt.Sprintf("the name %q is already used by a %s prompt; rename before promoting", existing.Name, dup.Scope)
+	}
+	return ""
+}
+
+// reregisterAfterUpdate refreshes the name-keyed metadata after an update.
+// Personal prompts are not tracked there (names collide across owners), so only
+// (un)register shared scopes; RegisterRuntimePrompt self-skips personal, and
+// unregistering the old name is gated on the old scope to avoid dropping an
+// unrelated shared entry.
+func (h *Handle) reregisterAfterUpdate(existing *prompt.Prompt, oldScope string) {
+	if oldScope != prompt.ScopePersonal {
+		h.UnregisterRuntimePrompt(existing.Name)
+	}
+	h.RegisterRuntimePrompt(existing)
+}
+
+// authorizePromptMutation checks whether the caller may update or delete the
+// target prompt. Admins may act on any prompt; a non-admin may only act on their
+// own personal prompts. Returns a non-empty user-facing error message when the
+// action is not permitted, or "" when it is. verb ("update"/"delete") is spliced
+// into the ownership-denial message.
+func authorizePromptMutation(existing *prompt.Prompt, email, verb string, isAdmin bool) string {
+	if isAdmin {
+		return ""
+	}
+	if existing.Scope != prompt.ScopePersonal {
+		return "non-admins can only manage personal prompts"
+	}
+	if existing.OwnerEmail != email {
+		return "you can only " + verb + " your own prompts"
+	}
+	return ""
+}
+
+// applyPromptUpdates applies non-empty fields from input to existing. Returns a
+// non-empty error message when a validated field (scope, tags, promotion request)
+// fails its check; the plain fields are always applied first.
 func applyPromptUpdates(existing *prompt.Prompt, input managePromptInput, isAdmin bool) string {
+	applyPlainPromptFields(existing, input)
+	return applyValidatedPromptFields(existing, input, isAdmin)
+}
+
+// applyPlainPromptFields copies the input fields that need no validation onto
+// existing, leaving an unset (empty/nil) input field untouched.
+func applyPlainPromptFields(existing *prompt.Prompt, input managePromptInput) {
 	if input.DisplayName != "" {
 		existing.DisplayName = input.DisplayName
 	}
@@ -260,14 +278,20 @@ func applyPromptUpdates(existing *prompt.Prompt, input managePromptInput, isAdmi
 	if input.Category != "" {
 		existing.Category = input.Category
 	}
+	if input.Personas != nil {
+		existing.Personas = input.Personas
+	}
+}
+
+// applyValidatedPromptFields applies the input fields that carry authorization or
+// validation rules: scope (admin-only for shared scopes), tags (format), and a
+// promotion request. Returns a non-empty error message on the first failing check.
+func applyValidatedPromptFields(existing *prompt.Prompt, input managePromptInput, isAdmin bool) string {
 	if input.Scope != "" {
 		if !isAdmin && input.Scope != prompt.ScopePersonal {
 			return "only admins can set global or persona scope"
 		}
 		existing.Scope = input.Scope
-	}
-	if input.Personas != nil {
-		existing.Personas = input.Personas
 	}
 	if input.Tags != nil {
 		if err := prompt.ValidateTags(input.Tags); err != nil {
@@ -294,15 +318,15 @@ func applyStatusTransition(existing *prompt.Prompt, newStatus, supersededBy, act
 }
 
 // handlePromptDelete deletes a prompt.
-func (p *Platform) handlePromptDelete(ctx context.Context, input managePromptInput) (*mcp.CallToolResult, any, error) {
+func (h *Handle) handlePromptDelete(ctx context.Context, input managePromptInput) (*mcp.CallToolResult, any, error) {
 	if input.Name == "" {
 		return promptErrorResult("name is required"), nil, nil
 	}
 
-	existing, err := p.resolveManagedPrompt(ctx, input.Name, resolveEmail(ctx), input.Scope)
+	existing, err := h.resolveManagedPrompt(ctx, input.Name, resolveEmail(ctx), input.Scope)
 	if err != nil {
 		slog.Error(promptErrGet, promptLogKey, input.Name, promptLogKeyErr, err)
-		return p.promptErrorDetail(ctx, promptErrGet, err), nil, nil
+		return h.promptErrorDetail(ctx, promptErrGet, err), nil, nil
 	}
 	if existing == nil {
 		return promptErrorResult(fmt.Sprintf("prompt %q not found", input.Name)), nil, nil
@@ -312,24 +336,19 @@ func (p *Platform) handlePromptDelete(ctx context.Context, input managePromptInp
 	}
 
 	email := resolveEmail(ctx)
-	if !p.isAdminPersona(ctx) {
-		if existing.Scope != prompt.ScopePersonal {
-			return promptErrorResult("non-admins can only manage personal prompts"), nil, nil
-		}
-		if existing.OwnerEmail != email {
-			return promptErrorResult("you can only delete your own prompts"), nil, nil
-		}
+	if msg := authorizePromptMutation(existing, email, "delete", h.isAdminPersona(ctx)); msg != "" {
+		return promptErrorResult(msg), nil, nil
 	}
 
-	if err := p.promptStore.DeleteByID(ctx, existing.ID); err != nil {
+	if err := h.store.DeleteByID(ctx, existing.ID); err != nil {
 		slog.Error("failed to delete prompt", promptLogKey, input.Name, promptLogKeyErr, err)
-		return p.promptErrorDetail(ctx, "failed to delete prompt", err), nil, nil
+		return h.promptErrorDetail(ctx, "failed to delete prompt", err), nil, nil
 	}
 
 	// Personal prompts are not tracked in the name-keyed metadata; unregistering
 	// by name would drop an unrelated shared entry of the same name.
 	if existing.Scope != prompt.ScopePersonal {
-		p.UnregisterRuntimePrompt(existing.Name)
+		h.UnregisterRuntimePrompt(existing.Name)
 	}
 
 	return promptJSONResult(map[string]any{
@@ -341,9 +360,9 @@ func (p *Platform) handlePromptDelete(ctx context.Context, input managePromptInp
 // handlePromptList lists prompts visible to the current user. When a free-text
 // query is supplied it ranks visible approved prompts by relevance; otherwise
 // it returns the visible set filtered by the substring Search and scope.
-func (p *Platform) handlePromptList(ctx context.Context, input managePromptInput) (*mcp.CallToolResult, any, error) {
+func (h *Handle) handlePromptList(ctx context.Context, input managePromptInput) (*mcp.CallToolResult, any, error) {
 	if strings.TrimSpace(input.Query) != "" {
-		return p.handlePromptSearch(ctx, input)
+		return h.handlePromptSearch(ctx, input)
 	}
 
 	filter := prompt.ListFilter{
@@ -351,7 +370,7 @@ func (p *Platform) handlePromptList(ctx context.Context, input managePromptInput
 		Search: input.Search,
 	}
 
-	isAdmin := p.isAdminPersona(ctx)
+	isAdmin := h.isAdminPersona(ctx)
 	enabled := true
 	filter.Enabled = &enabled
 
@@ -366,15 +385,15 @@ func (p *Platform) handlePromptList(ctx context.Context, input managePromptInput
 		}
 	}
 
-	prompts, err := p.promptStore.List(ctx, filter)
+	prompts, err := h.store.List(ctx, filter)
 	if err != nil {
 		slog.Error("failed to list prompts", promptLogKeyErr, err)
-		return p.promptErrorDetail(ctx, "failed to list prompts", err), nil, nil
+		return h.promptErrorDetail(ctx, "failed to list prompts", err), nil, nil
 	}
 
 	// For non-admins without an explicit scope, also include global and persona-scoped prompts.
 	if !isAdmin && input.Scope == "" {
-		prompts = p.mergeExtraScopes(ctx, prompts, &enabled)
+		prompts = h.mergeExtraScopes(ctx, prompts, &enabled)
 	}
 
 	return promptJSONResult(map[string]any{
@@ -384,8 +403,8 @@ func (p *Platform) handlePromptList(ctx context.Context, input managePromptInput
 }
 
 // mergeExtraScopes appends global and persona-scoped prompts for non-admin users.
-func (p *Platform) mergeExtraScopes(ctx context.Context, prompts []prompt.Prompt, enabled *bool) []prompt.Prompt {
-	globalPrompts, globalErr := p.promptStore.List(ctx, prompt.ListFilter{
+func (h *Handle) mergeExtraScopes(ctx context.Context, prompts []prompt.Prompt, enabled *bool) []prompt.Prompt {
+	globalPrompts, globalErr := h.store.List(ctx, prompt.ListFilter{
 		Scope:   prompt.ScopeGlobal,
 		Enabled: enabled,
 	})
@@ -397,7 +416,7 @@ func (p *Platform) mergeExtraScopes(ctx context.Context, prompts []prompt.Prompt
 
 	pc := middleware.GetPlatformContext(ctx)
 	if pc != nil && pc.PersonaName != "" {
-		personaPrompts, personaErr := p.promptStore.List(ctx, prompt.ListFilter{
+		personaPrompts, personaErr := h.store.List(ctx, prompt.ListFilter{
 			Scope:    prompt.ScopePersona,
 			Personas: []string{pc.PersonaName},
 			Enabled:  enabled,
@@ -417,8 +436,8 @@ func (p *Platform) mergeExtraScopes(ctx context.Context, prompts []prompt.Prompt
 // over all approved prompts. Ranking is hybrid (semantic + lexical) when an
 // embedding provider is configured and lexical-only otherwise, reported as the
 // "ranking" field so the caller knows which path produced the results.
-func (p *Platform) handlePromptSearch(ctx context.Context, input managePromptInput) (*mcp.CallToolResult, any, error) {
-	searcher, ok := p.promptStore.(prompt.Searcher)
+func (h *Handle) handlePromptSearch(ctx context.Context, input managePromptInput) (*mcp.CallToolResult, any, error) {
+	searcher, ok := h.store.(prompt.Searcher)
 	if !ok {
 		return promptErrorResult("prompt search is unavailable: semantic discovery is not enabled"), nil, nil
 	}
@@ -429,7 +448,7 @@ func (p *Platform) handlePromptSearch(ctx context.Context, input managePromptInp
 		persona = pc.PersonaName
 	}
 
-	emb := embedding.EmbedForSearch(ctx, p.embeddingProv, query)
+	emb := embedding.EmbedForSearch(ctx, h.embedder, query)
 	ranking := "lexical"
 	if len(emb) > 0 {
 		ranking = "hybrid"
@@ -440,13 +459,13 @@ func (p *Platform) handlePromptSearch(ctx context.Context, input managePromptInp
 		QueryText:  query,
 		OwnerEmail: resolveEmail(ctx),
 		Persona:    persona,
-		IsAdmin:    p.isAdminPersona(ctx),
+		IsAdmin:    h.isAdminPersona(ctx),
 		Scope:      input.Scope,
 		Limit:      input.Limit,
 	})
 	if err != nil {
 		slog.Error("failed to search prompts", promptLogKeyErr, err)
-		return p.promptErrorDetail(ctx, "failed to search prompts", err), nil, nil
+		return h.promptErrorDetail(ctx, "failed to search prompts", err), nil, nil
 	}
 
 	return promptJSONResult(map[string]any{
@@ -457,22 +476,22 @@ func (p *Platform) handlePromptSearch(ctx context.Context, input managePromptInp
 }
 
 // handlePromptGet retrieves a single prompt by name.
-func (p *Platform) handlePromptGet(ctx context.Context, input managePromptInput) (*mcp.CallToolResult, any, error) {
+func (h *Handle) handlePromptGet(ctx context.Context, input managePromptInput) (*mcp.CallToolResult, any, error) {
 	if input.Name == "" {
 		return promptErrorResult("name is required"), nil, nil
 	}
 
-	pr, err := p.resolveManagedPrompt(ctx, input.Name, resolveEmail(ctx), input.Scope)
+	pr, err := h.resolveManagedPrompt(ctx, input.Name, resolveEmail(ctx), input.Scope)
 	if err != nil {
 		slog.Error(promptErrGet, promptLogKey, input.Name, promptLogKeyErr, err)
-		return p.promptErrorDetail(ctx, promptErrGet, err), nil, nil
+		return h.promptErrorDetail(ctx, promptErrGet, err), nil, nil
 	}
 	if pr == nil {
 		return promptErrorResult(fmt.Sprintf("prompt %q not found", input.Name)), nil, nil
 	}
 
 	// Non-admins can only see their own personal prompts or global/persona prompts
-	if !p.isAdminPersona(ctx) {
+	if !h.isAdminPersona(ctx) {
 		email := resolveEmail(ctx)
 		if pr.Scope == prompt.ScopePersonal && pr.OwnerEmail != email {
 			return promptErrorResult("you can only view your own personal prompts"), nil, nil
@@ -488,10 +507,10 @@ func (p *Platform) handlePromptGet(ctx context.Context, input managePromptInput)
 // prompt is returned. An explicit shared scope (global/persona) skips the
 // personal lookup so a caller who owns a same-named personal prompt can still
 // target the shared one.
-func (p *Platform) resolveManagedPrompt(ctx context.Context, name, email, scope string) (*prompt.Prompt, error) {
+func (h *Handle) resolveManagedPrompt(ctx context.Context, name, email, scope string) (*prompt.Prompt, error) {
 	sharedOnly := scope == prompt.ScopeGlobal || scope == prompt.ScopePersona
 	if email != "" && !sharedOnly {
-		personal, err := p.promptStore.GetPersonal(ctx, email, name)
+		personal, err := h.store.GetPersonal(ctx, email, name)
 		if err != nil {
 			return nil, fmt.Errorf("resolving personal prompt: %w", err)
 		}
@@ -499,7 +518,7 @@ func (p *Platform) resolveManagedPrompt(ctx context.Context, name, email, scope 
 			return personal, nil
 		}
 	}
-	shared, err := p.promptStore.Get(ctx, name)
+	shared, err := h.store.Get(ctx, name)
 	if err != nil {
 		return nil, fmt.Errorf("resolving shared prompt: %w", err)
 	}
@@ -516,12 +535,12 @@ func resolveEmail(ctx context.Context) string {
 }
 
 // isAdminPersona checks if the current user has the admin persona.
-func (p *Platform) isAdminPersona(ctx context.Context) bool {
+func (h *Handle) isAdminPersona(ctx context.Context) bool {
 	pc := middleware.GetPlatformContext(ctx)
 	if pc == nil {
 		return false
 	}
-	return pc.PersonaName == p.config.Admin.Persona
+	return pc.PersonaName == h.adminPersona
 }
 
 // promptErrorDetail builds a tool error for a failed store or internal
@@ -530,8 +549,8 @@ func (p *Platform) isAdminPersona(ctx context.Context) bool {
 // get only a request-id breadcrumb so an operator can correlate the failure in
 // the logs. Raw errors (which may carry SQL or schema detail) are never shown to
 // non-admins. The full error is always written to the server log by the caller.
-func (p *Platform) promptErrorDetail(ctx context.Context, public string, err error) *mcp.CallToolResult {
-	if p.isAdminPersona(ctx) {
+func (h *Handle) promptErrorDetail(ctx context.Context, public string, err error) *mcp.CallToolResult {
+	if h.isAdminPersona(ctx) {
 		return promptErrorResult(fmt.Sprintf("%s: %v", public, err))
 	}
 	if pc := middleware.GetPlatformContext(ctx); pc != nil && pc.RequestID != "" {

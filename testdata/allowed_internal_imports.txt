@@ -140,6 +140,7 @@ pkg/platform -> pkg/platform/oauthserver
 pkg/platform -> pkg/platform/obs
 pkg/platform -> pkg/platform/personastore
 pkg/platform -> pkg/platform/portalstore
+pkg/platform -> pkg/platform/promptlayer
 pkg/platform -> pkg/platform/reflexivecapture
 pkg/platform -> pkg/platform/resourcelayer
 pkg/platform -> pkg/platform/routepolicy
@@ -151,7 +152,6 @@ pkg/platform -> pkg/portal
 pkg/platform -> pkg/portal/knowledgepage
 pkg/platform -> pkg/portal/s3adapter
 pkg/platform -> pkg/prompt
-pkg/platform -> pkg/prompt/postgres
 pkg/platform -> pkg/query
 pkg/platform -> pkg/query/trino
 pkg/platform -> pkg/registry
@@ -218,6 +218,13 @@ pkg/platform/portalstore -> pkg/embedding
 pkg/platform/portalstore -> pkg/portal
 pkg/platform/portalstore -> pkg/portal/knowledgepage
 pkg/platform/portalstore -> pkg/toolkits/portal
+pkg/platform/promptlayer -> pkg/embedding
+pkg/platform/promptlayer -> pkg/middleware
+pkg/platform/promptlayer -> pkg/portal
+pkg/platform/promptlayer -> pkg/prompt
+pkg/platform/promptlayer -> pkg/prompt/postgres
+pkg/platform/promptlayer -> pkg/registry
+pkg/platform/promptlayer -> pkg/tuning
 pkg/platform/reflexivecapture -> pkg/memory
 pkg/platform/reflexivecapture -> pkg/middleware
 pkg/platform/reflexivecapture -> pkg/toolkits/memory

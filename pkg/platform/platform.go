@@ -13,7 +13,6 @@ import (
 	"maps"
 	"os"
 	"slices"
-	"sync"
 	"time"
 
 	// PostgreSQL driver for database/sql.
@@ -53,6 +52,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/platform/obs"
 	"github.com/txn2/mcp-data-platform/pkg/platform/personastore"
 	"github.com/txn2/mcp-data-platform/pkg/platform/portalstore"
+	"github.com/txn2/mcp-data-platform/pkg/platform/promptlayer"
 	"github.com/txn2/mcp-data-platform/pkg/platform/reflexivecapture"
 	"github.com/txn2/mcp-data-platform/pkg/platform/resourcelayer"
 	"github.com/txn2/mcp-data-platform/pkg/platform/routepolicy"
@@ -64,7 +64,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/portal/s3adapter"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
-	promptpostgres "github.com/txn2/mcp-data-platform/pkg/prompt/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	trinoquery "github.com/txn2/mcp-data-platform/pkg/query/trino"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
@@ -178,8 +177,17 @@ type Platform struct {
 	sessions *sessionsync.Handle
 
 	// Tuning
-	ruleEngine    *tuning.RuleEngine
-	promptManager *tuning.PromptManager
+	ruleEngine *tuning.RuleEngine
+
+	// Prompt layer. The owner (pkg/platform/promptlayer) holds the prompt store,
+	// the file-based tuning prompt manager, and the name-keyed prompt-metadata
+	// list behind one Handle, along with the static/workflow/database registration
+	// path, the per-viewer dynamic-serving callbacks, and the manage_prompt tool.
+	// The store is read through Store() and surfaced by PromptStore(); the
+	// registration/serving entry points take the *mcp.Server per call. Never nil
+	// (prompts register and serve without a database); the store is nil on a
+	// no-DB deployment.
+	prompts *promptlayer.Handle
 
 	// Knowledge-capture layer. The owner (pkg/platform/knowledgelayer) holds the
 	// insight store (the memory-backed adapter over memory_records, else the
@@ -255,11 +263,6 @@ type Platform struct {
 	// free-typed email sharing.
 	users *userdir.Handle
 
-	// Prompt store + metadata collected during registration
-	promptStore   prompt.Store
-	promptInfosMu sync.RWMutex
-	promptInfos   []registry.PromptInfo
-
 	// MCP Apps
 	mcpAppsRegistry *mcpapps.Registry
 
@@ -320,6 +323,10 @@ func (p *Platform) initializeComponents(opts *Options) error {
 	if err := p.initRegistries(opts); err != nil {
 		return err
 	}
+	// Prompt layer: assembled after the toolkit registry exists (it reads the
+	// registry for capability bullets and workflow gating) and before
+	// initExtensions, whose knowledge/search wiring reads the prompt store.
+	p.initPromptStore()
 	// Parse OAuth signing key early so auth can use it
 	if err := p.initOAuthSigningKey(); err != nil {
 		return err
@@ -359,7 +366,6 @@ func (p *Platform) initDataInfra(opts *Options) error {
 	}
 	p.initPersonaStore()
 	p.initAPIKeyStore()
-	p.initPromptStore()
 	p.initUserStore()
 	return p.initConfigStore()
 }
@@ -848,12 +854,47 @@ func (p *Platform) initAPIKeyStore() {
 	}
 }
 
-// initPromptStore initializes the prompt definition store.
+// initPromptStore assembles the prompt layer via the promptlayer owner: the
+// prompt store, the file-based tuning prompt manager, and the name-keyed
+// prompt-metadata list behind one Handle. It translates platform config into the
+// owner's Config and delegates assembly. The owner is never nil (prompts
+// register and serve without a database); the store is nil when no database is
+// configured. The embedding provider and portal share lister are bound later
+// (finalizeSetup), once those subsystems exist.
 func (p *Platform) initPromptStore() {
-	if p.db != nil {
-		p.promptStore = promptpostgres.New(p.db)
-		slog.Info("prompt store: postgres")
+	p.prompts = promptlayer.New(promptlayer.Config{
+		DB:                p.db,
+		PromptsDir:        p.config.Tuning.PromptsDir,
+		ServerName:        p.config.Server.Name,
+		ServerDescription: p.config.Server.Description,
+		AdminPersona:      p.config.Admin.Persona,
+		OperatorPrompts:   promptSpecsFromConfig(p.config.Server.Prompts),
+		BuiltinPrompts:    p.config.Server.BuiltinPrompts,
+		Registry:          p.toolkitRegistry,
+	})
+}
+
+// promptSpecsFromConfig translates operator-configured prompts into the owner's
+// caller-neutral PromptSpec shape, keeping the platform config types out of the
+// promptlayer package.
+func promptSpecsFromConfig(cfgs []PromptConfig) []promptlayer.PromptSpec {
+	specs := make([]promptlayer.PromptSpec, 0, len(cfgs))
+	for _, c := range cfgs {
+		spec := promptlayer.PromptSpec{
+			Name:        c.Name,
+			Description: c.Description,
+			Content:     c.Content,
+		}
+		for _, a := range c.Arguments {
+			spec.Arguments = append(spec.Arguments, promptlayer.PromptArgSpec{
+				Name:        a.Name,
+				Description: a.Description,
+				Required:    a.Required,
+			})
+		}
+		specs = append(specs, spec)
 	}
+	return specs
 }
 
 // buildFieldEncryptor creates a FieldEncryptor from the ENCRYPTION_KEY env var.
@@ -1306,7 +1347,9 @@ func (p *Platform) parseOrGenerateSigningKey() ([]byte, error) {
 	return key, nil
 }
 
-// initTuning initializes tuning components.
+// initTuning initializes tuning components. The file-based prompt manager is
+// owned by the prompt layer (assembled in initPromptStore), so only the rule
+// engine is built here.
 func (p *Platform) initTuning(opts *Options) {
 	if opts.RuleEngine != nil {
 		p.ruleEngine = opts.RuleEngine
@@ -1316,10 +1359,6 @@ func (p *Platform) initTuning(opts *Options) {
 		}
 		p.ruleEngine = tuning.NewRuleEngine(rules)
 	}
-
-	p.promptManager = tuning.NewPromptManager(tuning.PromptConfig{
-		PromptsDir: p.config.Tuning.PromptsDir,
-	})
 }
 
 // initWorkflow initializes the session workflow tracker for the search-first
@@ -1437,11 +1476,12 @@ func (p *Platform) initKnowledge() error {
 	}
 	p.knowledge = handle
 
-	// Wire prompt creator for add_prompt change type. This reaches back into
-	// Platform (the prompt store + a *Platform), so it stays here and is applied
-	// through the handle's toolkit.
-	if p.promptStore != nil {
-		handle.Toolkit().SetPromptCreator(&platformPromptCreator{store: p.promptStore, platform: p})
+	// Wire prompt creator for add_prompt change type through the prompt layer's
+	// adapter. Toolkit registration stays a Platform/registry concern, so this is
+	// applied here through the handle's toolkit. The adapter is nil on a no-DB
+	// deployment (no store to create into).
+	if pc := p.prompts.PromptCreator(); pc != nil {
+		handle.Toolkit().SetPromptCreator(pc)
 	}
 
 	// Toolkit registration stays a Platform/registry concern.
@@ -1496,7 +1536,7 @@ func (p *Platform) initSearch() error {
 		KnowledgePageStore: p.portalStore.KnowledgePageStore(),
 		AssetStore:         p.portalStore.AssetStore(),
 		ThreadStore:        p.portalStore.ThreadStore(),
-		PromptStore:        p.promptStore,
+		PromptStore:        p.prompts.Store(),
 		Registry:           p.toolkitRegistry,
 		Embedding:          p.embeddingProv,
 	})
@@ -1888,6 +1928,11 @@ func convertCSP(cfg *CSPAppConfig) *mcpapps.CSPConfig {
 
 // finalizeSetup completes platform initialization.
 func (p *Platform) finalizeSetup() {
+	// Bind the prompt layer's late collaborators before the middleware chain and
+	// tool are registered below, now that the subsystems that build them have
+	// initialized.
+	p.bindPromptCollaborators()
+
 	p.mcpServer = mcp.NewServer(&mcp.Implementation{
 		Name:    p.config.Server.Name,
 		Version: p.config.Server.Version,
@@ -1918,6 +1963,19 @@ func (p *Platform) finalizeSetup() {
 	// (innermost first) to realize that execution order.
 	for i := len(specs) - 1; i >= 0; i-- {
 		specs[i].Register()
+	}
+}
+
+// bindPromptCollaborators injects the prompt layer's two late collaborators, now
+// that the subsystems that build them have initialized: the embedding provider
+// (manage_prompt semantic ranking; nil falls back to lexical) and the portal
+// share lister (shared-prompt serving; nil when portal is disabled). Both feed
+// the prompts/list visibility middleware and manage_prompt tool wired later in
+// finalizeSetup, so this must run before that wiring.
+func (p *Platform) bindPromptCollaborators() {
+	p.prompts.SetEmbedder(p.embeddingProv)
+	if p.portalStore != nil {
+		p.prompts.SetShareStore(p.portalStore.ShareStore())
 	}
 }
 
@@ -2096,8 +2154,8 @@ func (p *Platform) addToolVisibilityMiddleware() {
 func (p *Platform) addPromptVisibilityMiddleware() {
 	cfg := middleware.PromptVisibilityConfig{
 		Authenticator: p.authenticator,
-		ListVisible:   p.listVisiblePrompts,
-		GetByName:     p.getDynamicPrompt,
+		ListVisible:   p.prompts.ListVisible,
+		GetByName:     p.prompts.GetByName,
 	}
 	if p.personaRegistry != nil {
 		cfg.PersonasForRoles = personasForRolesFunc(p.personaRegistry)
@@ -2526,7 +2584,7 @@ func (p *Platform) loadDBAPIKeys() {
 // Start starts the platform.
 func (p *Platform) Start(ctx context.Context) error {
 	// Load prompts from prompts_dir
-	if err := p.promptManager.LoadPrompts(); err != nil {
+	if err := p.prompts.LoadPrompts(); err != nil {
 		return fmt.Errorf("loading prompts: %w", err)
 	}
 
@@ -2542,10 +2600,10 @@ func (p *Platform) Start(ctx context.Context) error {
 	p.registerInfoTool()
 	p.registerConnectionsTool()
 	p.registerFindToolsTool()
-	p.registerPromptTool()
+	p.prompts.RegisterTool(p.mcpServer)
 
 	// Register platform-level prompts from config
-	p.registerPlatformPrompts()
+	p.prompts.RegisterPlatformPrompts(p.mcpServer)
 
 	// Register user-defined custom resources from config
 	p.registerCustomResources()
@@ -2652,8 +2710,28 @@ func (p *Platform) APIKeyStore() APIKeyStore {
 }
 
 // PromptStore returns the prompt definition store, or nil if not initialized.
+// Delegates to the prompt layer owner.
 func (p *Platform) PromptStore() prompt.Store {
-	return p.promptStore
+	return p.prompts.Store()
+}
+
+// AllPromptInfos returns all prompt metadata (platform + toolkit). Delegates to
+// the prompt layer owner; read by the admin and portal prompt REST handlers.
+func (p *Platform) AllPromptInfos() []registry.PromptInfo {
+	return p.prompts.AllPromptInfos()
+}
+
+// RegisterRuntimePrompt records a prompt's metadata at runtime after a
+// create/update. Delegates to the prompt layer owner; called by the admin and
+// portal prompt REST handlers.
+func (p *Platform) RegisterRuntimePrompt(pr *prompt.Prompt) {
+	p.prompts.RegisterRuntimePrompt(pr)
+}
+
+// UnregisterRuntimePrompt drops a database prompt's tracked metadata. Delegates
+// to the prompt layer owner; called by the admin and portal prompt REST handlers.
+func (p *Platform) UnregisterRuntimePrompt(name string) {
+	p.prompts.UnregisterRuntimePrompt(name)
 }
 
 // ConnectionStore returns the connection instance store, or nil if not initialized.
@@ -2916,7 +2994,7 @@ func (p *Platform) PlatformTools() []ToolInfo {
 		{Name: defaultInitTool, Kind: kindPlatform},
 		{Name: toolListConns, Kind: kindPlatform},
 	}
-	if p.promptStore != nil {
+	if p.prompts.Store() != nil {
 		tools = append(tools, ToolInfo{Name: "manage_prompt", Kind: kindPlatform})
 	}
 	return tools

@@ -1,4 +1,4 @@
-package platform
+package promptlayer
 
 import (
 	"context"
@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -14,160 +13,11 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 )
 
-// --- mock prompt store for platform tests ---
-
-type mockPlatformPromptStore struct {
-	prompts   map[string]*prompt.Prompt
-	createErr error
-	getErr    error
-	updateErr error
-	deleteErr error
-	listErr   error
-}
-
-func newMockPlatformPromptStore() *mockPlatformPromptStore {
-	return &mockPlatformPromptStore{prompts: make(map[string]*prompt.Prompt)}
-}
-
-func (m *mockPlatformPromptStore) Create(_ context.Context, p *prompt.Prompt) error {
-	if m.createErr != nil {
-		return m.createErr
-	}
-	p.ID = "gen-" + p.Name
-	m.prompts[p.Name] = p
-	return nil
-}
-
-func (m *mockPlatformPromptStore) Get(_ context.Context, name string) (*prompt.Prompt, error) {
-	if m.getErr != nil {
-		return nil, m.getErr
-	}
-	p := m.prompts[name]
-	return p, nil //nolint:nilnil // interface contract
-}
-
-func (m *mockPlatformPromptStore) GetPersonal(_ context.Context, ownerEmail, name string) (*prompt.Prompt, error) {
-	if m.getErr != nil {
-		return nil, m.getErr
-	}
-	for _, p := range m.prompts {
-		if p.Scope == prompt.ScopePersonal && p.OwnerEmail == ownerEmail && p.Name == name {
-			return p, nil
-		}
-	}
-	return nil, nil //nolint:nilnil // interface contract
-}
-
-func (m *mockPlatformPromptStore) GetByID(_ context.Context, id string) (*prompt.Prompt, error) {
-	for _, p := range m.prompts {
-		if p.ID == id {
-			return p, nil
-		}
-	}
-	return nil, nil //nolint:nilnil // interface contract
-}
-
-func (m *mockPlatformPromptStore) Update(_ context.Context, p *prompt.Prompt) error {
-	if m.updateErr != nil {
-		return m.updateErr
-	}
-	m.prompts[p.Name] = p
-	return nil
-}
-
-func (m *mockPlatformPromptStore) Delete(_ context.Context, name string) error {
-	if m.deleteErr != nil {
-		return m.deleteErr
-	}
-	delete(m.prompts, name)
-	return nil
-}
-
-func (m *mockPlatformPromptStore) DeleteByID(_ context.Context, id string) error {
-	if m.deleteErr != nil {
-		return m.deleteErr
-	}
-	for name, p := range m.prompts {
-		if p.ID == id {
-			delete(m.prompts, name)
-			return nil
-		}
-	}
-	return nil
-}
-
-func (m *mockPlatformPromptStore) List(_ context.Context, f prompt.ListFilter) ([]prompt.Prompt, error) { //nolint:revive // interface impl
-	if m.listErr != nil {
-		return nil, m.listErr
-	}
-	var result []prompt.Prompt
-	for _, p := range m.prompts {
-		if f.Scope != "" && p.Scope != f.Scope {
-			continue
-		}
-		if f.OwnerEmail != "" && p.OwnerEmail != f.OwnerEmail {
-			continue
-		}
-		if f.Source != "" && p.Source != f.Source {
-			continue
-		}
-		if f.ExcludeSource != "" && p.Source == f.ExcludeSource {
-			continue
-		}
-		result = append(result, *p)
-	}
-	return result, nil
-}
-
-func (m *mockPlatformPromptStore) Count(_ context.Context, _ prompt.ListFilter) (int, error) {
-	return len(m.prompts), nil
-}
-
-var _ prompt.Store = (*mockPlatformPromptStore)(nil)
-
-// --- helpers ---
-
-func newTestPlatformWithPromptStore() (*Platform, *mockPlatformPromptStore) {
-	store := newMockPlatformPromptStore()
-	srv := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "0.0.0"}, nil)
-	p := &Platform{
-		config:      &Config{Admin: AdminConfig{Persona: "admin"}},
-		mcpServer:   srv,
-		promptStore: store,
-	}
-	return p, store
-}
-
-func adminCtx() context.Context {
-	pc := middleware.NewPlatformContext("")
-	pc.PersonaName = "admin"
-	pc.UserEmail = "admin@example.com"
-	return middleware.WithPlatformContext(context.Background(), pc)
-}
-
-func userCtx(email, persona string) context.Context {
-	pc := middleware.NewPlatformContext("")
-	pc.PersonaName = persona
-	pc.UserEmail = email
-	return middleware.WithPlatformContext(context.Background(), pc)
-}
-
-func resultText(r *mcp.CallToolResult) string {
-	if r == nil || len(r.Content) == 0 {
-		return ""
-	}
-	tc, ok := r.Content[0].(*mcp.TextContent)
-	if !ok {
-		return ""
-	}
-	return tc.Text
-}
-
 // --- handleManagePrompt dispatch ---
 
 func TestHandleManagePrompt_UnknownCommand(t *testing.T) {
-	p, _ := newTestPlatformWithPromptStore()
-	r, _, _ := p.handleManagePrompt(context.Background(), managePromptInput{Command: "bogus"})
+	h, _ := newTestHandle()
+	r, _, _ := h.handleManagePrompt(context.Background(), managePromptInput{Command: "bogus"})
 	assert.True(t, r.IsError)
 	assert.Contains(t, resultText(r), "unknown command")
 }
@@ -175,8 +25,8 @@ func TestHandleManagePrompt_UnknownCommand(t *testing.T) {
 // --- handlePromptCreate ---
 
 func TestHandlePromptCreate_Success(t *testing.T) {
-	p, store := newTestPlatformWithPromptStore()
-	r, _, _ := p.handlePromptCreate(adminCtx(), managePromptInput{
+	h, store := newTestHandle()
+	r, _, _ := h.handlePromptCreate(adminCtx(), managePromptInput{
 		Name: "my-prompt", Content: "hello {topic}", Scope: "global",
 	})
 	assert.False(t, r.IsError)
@@ -185,23 +35,23 @@ func TestHandlePromptCreate_Success(t *testing.T) {
 }
 
 func TestHandlePromptCreate_InvalidName(t *testing.T) {
-	p, _ := newTestPlatformWithPromptStore()
-	r, _, _ := p.handlePromptCreate(adminCtx(), managePromptInput{
+	h, _ := newTestHandle()
+	r, _, _ := h.handlePromptCreate(adminCtx(), managePromptInput{
 		Name: "INVALID NAME!", Content: "content",
 	})
 	assert.True(t, r.IsError)
 }
 
 func TestHandlePromptCreate_MissingContent(t *testing.T) {
-	p, _ := newTestPlatformWithPromptStore()
-	r, _, _ := p.handlePromptCreate(adminCtx(), managePromptInput{Name: "test"})
+	h, _ := newTestHandle()
+	r, _, _ := h.handlePromptCreate(adminCtx(), managePromptInput{Name: "test"})
 	assert.True(t, r.IsError)
 	assert.Contains(t, resultText(r), "content is required")
 }
 
 func TestHandlePromptCreate_InvalidScope(t *testing.T) {
-	p, _ := newTestPlatformWithPromptStore()
-	r, _, _ := p.handlePromptCreate(adminCtx(), managePromptInput{
+	h, _ := newTestHandle()
+	r, _, _ := h.handlePromptCreate(adminCtx(), managePromptInput{
 		Name: "test", Content: "c", Scope: "invalid",
 	})
 	assert.True(t, r.IsError)
@@ -209,8 +59,8 @@ func TestHandlePromptCreate_InvalidScope(t *testing.T) {
 }
 
 func TestHandlePromptCreate_NonAdminDeniedGlobalScope(t *testing.T) {
-	p, _ := newTestPlatformWithPromptStore()
-	r, _, _ := p.handlePromptCreate(userCtx("user@example.com", "analyst"), managePromptInput{
+	h, _ := newTestHandle()
+	r, _, _ := h.handlePromptCreate(userCtx("user@example.com", "analyst"), managePromptInput{
 		Name: "test", Content: "c", Scope: "global",
 	})
 	assert.True(t, r.IsError)
@@ -218,8 +68,8 @@ func TestHandlePromptCreate_NonAdminDeniedGlobalScope(t *testing.T) {
 }
 
 func TestHandlePromptCreate_NonAdminPersonalOK(t *testing.T) {
-	p, store := newTestPlatformWithPromptStore()
-	r, _, _ := p.handlePromptCreate(userCtx("user@example.com", "analyst"), managePromptInput{
+	h, store := newTestHandle()
+	r, _, _ := h.handlePromptCreate(userCtx("user@example.com", "analyst"), managePromptInput{
 		Name: "my-personal", Content: "content",
 	})
 	assert.False(t, r.IsError)
@@ -228,8 +78,8 @@ func TestHandlePromptCreate_NonAdminPersonalOK(t *testing.T) {
 }
 
 func TestHandlePromptCreate_NilPersonasDefaultsToEmpty(t *testing.T) {
-	p, store := newTestPlatformWithPromptStore()
-	r, _, _ := p.handlePromptCreate(adminCtx(), managePromptInput{
+	h, store := newTestHandle()
+	r, _, _ := h.handlePromptCreate(adminCtx(), managePromptInput{
 		Name: "no-personas", Content: "content", Scope: "personal",
 		// Personas intentionally omitted (nil)
 	})
@@ -238,11 +88,11 @@ func TestHandlePromptCreate_NilPersonasDefaultsToEmpty(t *testing.T) {
 }
 
 func TestHandlePromptCreate_StoreErrorDoesNotLeakToNonAdmin(t *testing.T) {
-	p, store := newTestPlatformWithPromptStore()
+	h, store := newTestHandle()
 	store.createErr = fmt.Errorf("pq: null value in column \"personas\" violates not-null constraint (23502)")
 	// A non-admin creating a personal prompt reaches the store; the raw DB error
 	// (which carries SQL/schema detail) must not leak to a non-admin caller.
-	r, _, _ := p.handlePromptCreate(userCtx("user@example.com", "analyst"), managePromptInput{
+	r, _, _ := h.handlePromptCreate(userCtx("user@example.com", "analyst"), managePromptInput{
 		Name: "test", Content: "content",
 	})
 	assert.True(t, r.IsError)
@@ -253,11 +103,11 @@ func TestHandlePromptCreate_StoreErrorDoesNotLeakToNonAdmin(t *testing.T) {
 }
 
 func TestHandlePromptCreate_StoreErrorAdminSeesDetail(t *testing.T) {
-	p, store := newTestPlatformWithPromptStore()
+	h, store := newTestHandle()
 	store.createErr = fmt.Errorf("pq: null value in column \"personas\" violates not-null constraint (23502)")
 	// Admins are platform operators: they get the underlying error to diagnose
 	// failures (admin-gated, per the self-describing error contract).
-	r, _, _ := p.handlePromptCreate(adminCtx(), managePromptInput{
+	r, _, _ := h.handlePromptCreate(adminCtx(), managePromptInput{
 		Name: "test", Content: "content",
 	})
 	assert.True(t, r.IsError)
@@ -268,9 +118,9 @@ func TestHandlePromptCreate_StoreErrorAdminSeesDetail(t *testing.T) {
 }
 
 func TestHandlePromptCreate_StoreError(t *testing.T) {
-	p, store := newTestPlatformWithPromptStore()
+	h, store := newTestHandle()
 	store.createErr = fmt.Errorf("db down")
-	r, _, _ := p.handlePromptCreate(adminCtx(), managePromptInput{
+	r, _, _ := h.handlePromptCreate(adminCtx(), managePromptInput{
 		Name: "test", Content: "content",
 	})
 	assert.True(t, r.IsError)
@@ -280,12 +130,12 @@ func TestHandlePromptCreate_StoreError(t *testing.T) {
 // --- handlePromptUpdate ---
 
 func TestHandlePromptUpdate_Success(t *testing.T) {
-	p, store := newTestPlatformWithPromptStore()
+	h, store := newTestHandle()
 	store.prompts["old"] = &prompt.Prompt{
 		ID: "id-1", Name: "old", Content: "old-content",
 		Scope: prompt.ScopePersonal, OwnerEmail: "user@example.com", Enabled: true,
 	}
-	r, _, _ := p.handlePromptUpdate(userCtx("user@example.com", "analyst"), managePromptInput{
+	r, _, _ := h.handlePromptUpdate(userCtx("user@example.com", "analyst"), managePromptInput{
 		Name: "old", Content: "new-content",
 	})
 	assert.False(t, r.IsError)
@@ -293,18 +143,18 @@ func TestHandlePromptUpdate_Success(t *testing.T) {
 }
 
 func TestHandlePromptUpdate_NotFound(t *testing.T) {
-	p, _ := newTestPlatformWithPromptStore()
-	r, _, _ := p.handlePromptUpdate(adminCtx(), managePromptInput{Name: "missing"})
+	h, _ := newTestHandle()
+	r, _, _ := h.handlePromptUpdate(adminCtx(), managePromptInput{Name: "missing"})
 	assert.True(t, r.IsError)
 	assert.Contains(t, resultText(r), "not found")
 }
 
 func TestHandlePromptUpdate_NonAdminDeniedNonPersonal(t *testing.T) {
-	p, store := newTestPlatformWithPromptStore()
+	h, store := newTestHandle()
 	store.prompts["global"] = &prompt.Prompt{
 		ID: "id-1", Name: "global", Scope: prompt.ScopeGlobal,
 	}
-	r, _, _ := p.handlePromptUpdate(userCtx("user@example.com", "analyst"), managePromptInput{
+	r, _, _ := h.handlePromptUpdate(userCtx("user@example.com", "analyst"), managePromptInput{
 		Name: "global", Content: "hacked",
 	})
 	assert.True(t, r.IsError)
@@ -312,11 +162,11 @@ func TestHandlePromptUpdate_NonAdminDeniedNonPersonal(t *testing.T) {
 }
 
 func TestHandlePromptUpdate_NonAdminDeniedOtherUser(t *testing.T) {
-	p, store := newTestPlatformWithPromptStore()
+	h, store := newTestHandle()
 	store.prompts["other"] = &prompt.Prompt{
 		ID: "id-1", Name: "other", Scope: prompt.ScopePersonal, OwnerEmail: "bob@example.com",
 	}
-	r, _, _ := p.handlePromptUpdate(userCtx("alice@example.com", "analyst"), managePromptInput{
+	r, _, _ := h.handlePromptUpdate(userCtx("alice@example.com", "analyst"), managePromptInput{
 		Name: "other", Content: "hacked",
 	})
 	assert.True(t, r.IsError)
@@ -324,11 +174,11 @@ func TestHandlePromptUpdate_NonAdminDeniedOtherUser(t *testing.T) {
 }
 
 func TestHandlePromptUpdate_ScopeChangeByNonAdmin(t *testing.T) {
-	p, store := newTestPlatformWithPromptStore()
+	h, store := newTestHandle()
 	store.prompts["mine"] = &prompt.Prompt{
 		ID: "id-1", Name: "mine", Scope: prompt.ScopePersonal, OwnerEmail: "user@example.com",
 	}
-	r, _, _ := p.handlePromptUpdate(userCtx("user@example.com", "analyst"), managePromptInput{
+	r, _, _ := h.handlePromptUpdate(userCtx("user@example.com", "analyst"), managePromptInput{
 		Name: "mine", Scope: "global",
 	})
 	assert.True(t, r.IsError)
@@ -336,9 +186,9 @@ func TestHandlePromptUpdate_ScopeChangeByNonAdmin(t *testing.T) {
 }
 
 func TestHandlePromptUpdate_StoreGetError(t *testing.T) {
-	p, store := newTestPlatformWithPromptStore()
+	h, store := newTestHandle()
 	store.getErr = fmt.Errorf("pq: connection refused")
-	r, _, _ := p.handlePromptUpdate(adminCtx(), managePromptInput{Name: "test", Content: "c"})
+	r, _, _ := h.handlePromptUpdate(adminCtx(), managePromptInput{Name: "test", Content: "c"})
 	assert.True(t, r.IsError)
 	text := resultText(r)
 	assert.Contains(t, text, "failed to get prompt")
@@ -346,12 +196,12 @@ func TestHandlePromptUpdate_StoreGetError(t *testing.T) {
 }
 
 func TestHandlePromptUpdate_StoreUpdateError(t *testing.T) {
-	p, store := newTestPlatformWithPromptStore()
+	h, store := newTestHandle()
 	store.prompts["test"] = &prompt.Prompt{
 		ID: "id-1", Name: "test", Scope: prompt.ScopeGlobal,
 	}
 	store.updateErr = fmt.Errorf("pq: disk full")
-	r, _, _ := p.handlePromptUpdate(adminCtx(), managePromptInput{Name: "test", Content: "c"})
+	r, _, _ := h.handlePromptUpdate(adminCtx(), managePromptInput{Name: "test", Content: "c"})
 	assert.True(t, r.IsError)
 	text := resultText(r)
 	assert.Contains(t, text, "failed to update prompt")
@@ -361,36 +211,36 @@ func TestHandlePromptUpdate_StoreUpdateError(t *testing.T) {
 // --- handlePromptDelete ---
 
 func TestHandlePromptDelete_Success(t *testing.T) {
-	p, store := newTestPlatformWithPromptStore()
+	h, store := newTestHandle()
 	store.prompts["del"] = &prompt.Prompt{
 		ID: "id-1", Name: "del", Scope: prompt.ScopePersonal, OwnerEmail: "user@example.com",
 	}
-	r, _, _ := p.handlePromptDelete(userCtx("user@example.com", "analyst"), managePromptInput{Name: "del"})
+	r, _, _ := h.handlePromptDelete(userCtx("user@example.com", "analyst"), managePromptInput{Name: "del"})
 	assert.False(t, r.IsError)
 	assert.NotContains(t, store.prompts, "del")
 }
 
 func TestHandlePromptDelete_NotFound(t *testing.T) {
-	p, _ := newTestPlatformWithPromptStore()
-	r, _, _ := p.handlePromptDelete(adminCtx(), managePromptInput{Name: "missing"})
+	h, _ := newTestHandle()
+	r, _, _ := h.handlePromptDelete(adminCtx(), managePromptInput{Name: "missing"})
 	assert.True(t, r.IsError)
 	assert.Contains(t, resultText(r), "not found")
 }
 
 func TestHandlePromptDelete_NonAdminDeniedNonPersonal(t *testing.T) {
-	p, store := newTestPlatformWithPromptStore()
+	h, store := newTestHandle()
 	store.prompts["global"] = &prompt.Prompt{
 		ID: "id-1", Name: "global", Scope: prompt.ScopeGlobal,
 	}
-	r, _, _ := p.handlePromptDelete(userCtx("user@example.com", "analyst"), managePromptInput{Name: "global"})
+	r, _, _ := h.handlePromptDelete(userCtx("user@example.com", "analyst"), managePromptInput{Name: "global"})
 	assert.True(t, r.IsError)
 	assert.Contains(t, resultText(r), "non-admins")
 }
 
 func TestHandlePromptDelete_StoreGetError(t *testing.T) {
-	p, store := newTestPlatformWithPromptStore()
+	h, store := newTestHandle()
 	store.getErr = fmt.Errorf("pq: timeout")
-	r, _, _ := p.handlePromptDelete(adminCtx(), managePromptInput{Name: "test"})
+	r, _, _ := h.handlePromptDelete(adminCtx(), managePromptInput{Name: "test"})
 	assert.True(t, r.IsError)
 	text := resultText(r)
 	assert.Contains(t, text, "failed to get prompt")
@@ -398,12 +248,12 @@ func TestHandlePromptDelete_StoreGetError(t *testing.T) {
 }
 
 func TestHandlePromptDelete_StoreDeleteError(t *testing.T) {
-	p, store := newTestPlatformWithPromptStore()
+	h, store := newTestHandle()
 	store.prompts["test"] = &prompt.Prompt{
 		ID: "id-1", Name: "test", Scope: prompt.ScopeGlobal,
 	}
 	store.deleteErr = fmt.Errorf("pq: constraint violation")
-	r, _, _ := p.handlePromptDelete(adminCtx(), managePromptInput{Name: "test"})
+	r, _, _ := h.handlePromptDelete(adminCtx(), managePromptInput{Name: "test"})
 	assert.True(t, r.IsError)
 	text := resultText(r)
 	assert.Contains(t, text, "failed to delete prompt")
@@ -413,10 +263,10 @@ func TestHandlePromptDelete_StoreDeleteError(t *testing.T) {
 // --- handlePromptList ---
 
 func TestHandlePromptList_Admin(t *testing.T) {
-	p, store := newTestPlatformWithPromptStore()
+	h, store := newTestHandle()
 	store.prompts["a"] = &prompt.Prompt{ID: "1", Name: "a", Scope: prompt.ScopeGlobal, Enabled: true}
 	store.prompts["b"] = &prompt.Prompt{ID: "2", Name: "b", Scope: prompt.ScopePersonal, Enabled: true, OwnerEmail: "u@x.com"}
-	r, _, _ := p.handlePromptList(adminCtx(), managePromptInput{Command: "list"})
+	r, _, _ := h.handlePromptList(adminCtx(), managePromptInput{Command: "list"})
 	assert.False(t, r.IsError)
 
 	var resp map[string]any
@@ -427,14 +277,14 @@ func TestHandlePromptList_Admin(t *testing.T) {
 }
 
 func TestHandlePromptList_NonAdminNoScope(t *testing.T) {
-	p, store := newTestPlatformWithPromptStore()
+	h, store := newTestHandle()
 	store.prompts["personal"] = &prompt.Prompt{
 		ID: "1", Name: "personal", Scope: prompt.ScopePersonal, Enabled: true, OwnerEmail: "user@example.com",
 	}
 	store.prompts["global"] = &prompt.Prompt{
 		ID: "2", Name: "global", Scope: prompt.ScopeGlobal, Enabled: true,
 	}
-	r, _, _ := p.handlePromptList(userCtx("user@example.com", "analyst"), managePromptInput{Command: "list"})
+	r, _, _ := h.handlePromptList(userCtx("user@example.com", "analyst"), managePromptInput{Command: "list"})
 	assert.False(t, r.IsError)
 
 	var resp map[string]any
@@ -445,10 +295,10 @@ func TestHandlePromptList_NonAdminNoScope(t *testing.T) {
 }
 
 func TestHandlePromptList_NonAdminWithScope(t *testing.T) {
-	p, store := newTestPlatformWithPromptStore()
+	h, store := newTestHandle()
 	store.prompts["g1"] = &prompt.Prompt{ID: "1", Name: "g1", Scope: prompt.ScopeGlobal, Enabled: true}
 	store.prompts["p1"] = &prompt.Prompt{ID: "2", Name: "p1", Scope: prompt.ScopePersonal, Enabled: true, OwnerEmail: "user@example.com"}
-	r, _, _ := p.handlePromptList(userCtx("user@example.com", "analyst"), managePromptInput{
+	r, _, _ := h.handlePromptList(userCtx("user@example.com", "analyst"), managePromptInput{
 		Command: "list", Scope: "global",
 	})
 	assert.False(t, r.IsError)
@@ -461,9 +311,9 @@ func TestHandlePromptList_NonAdminWithScope(t *testing.T) {
 }
 
 func TestHandlePromptList_StoreError(t *testing.T) {
-	p, store := newTestPlatformWithPromptStore()
+	h, store := newTestHandle()
 	store.listErr = fmt.Errorf("pq: too many connections")
-	r, _, _ := p.handlePromptList(adminCtx(), managePromptInput{Command: "list"})
+	r, _, _ := h.handlePromptList(adminCtx(), managePromptInput{Command: "list"})
 	assert.True(t, r.IsError)
 	text := resultText(r)
 	assert.Contains(t, text, "failed to list prompts")
@@ -471,11 +321,11 @@ func TestHandlePromptList_StoreError(t *testing.T) {
 }
 
 func TestPromptErrorDetail(t *testing.T) {
-	p := &Platform{config: &Config{Admin: AdminConfig{Persona: "admin"}}}
+	h := &Handle{adminPersona: "admin"}
 	cause := fmt.Errorf("pq: null value in column \"tags\" (23502)")
 
 	t.Run("admin sees underlying detail", func(t *testing.T) {
-		r := p.promptErrorDetail(adminCtx(), "failed to create prompt", cause)
+		r := h.promptErrorDetail(adminCtx(), "failed to create prompt", cause)
 		assert.True(t, r.IsError)
 		text := resultText(r)
 		assert.Contains(t, text, "failed to create prompt")
@@ -488,7 +338,7 @@ func TestPromptErrorDetail(t *testing.T) {
 		pc.PersonaName = "analyst"
 		pc.UserEmail = "user@example.com"
 		ctx := middleware.WithPlatformContext(context.Background(), pc)
-		r := p.promptErrorDetail(ctx, "failed to create prompt", cause)
+		r := h.promptErrorDetail(ctx, "failed to create prompt", cause)
 		text := resultText(r)
 		assert.Contains(t, text, "failed to create prompt")
 		assert.Contains(t, text, "req-xyz")
@@ -497,7 +347,7 @@ func TestPromptErrorDetail(t *testing.T) {
 	})
 
 	t.Run("non-admin without request id gets generic message", func(t *testing.T) {
-		r := p.promptErrorDetail(userCtx("user@example.com", "analyst"), "failed to create prompt", cause)
+		r := h.promptErrorDetail(userCtx("user@example.com", "analyst"), "failed to create prompt", cause)
 		text := resultText(r)
 		assert.Equal(t, "failed to create prompt", text)
 		assert.NotContains(t, text, "pq:")
@@ -507,36 +357,36 @@ func TestPromptErrorDetail(t *testing.T) {
 // --- handlePromptGet ---
 
 func TestHandlePromptGet_Found(t *testing.T) {
-	p, store := newTestPlatformWithPromptStore()
+	h, store := newTestHandle()
 	store.prompts["test"] = &prompt.Prompt{
 		ID: "id-1", Name: "test", Content: "content", Scope: prompt.ScopeGlobal,
 	}
-	r, _, _ := p.handlePromptGet(adminCtx(), managePromptInput{Name: "test"})
+	r, _, _ := h.handlePromptGet(adminCtx(), managePromptInput{Name: "test"})
 	assert.False(t, r.IsError)
 	assert.Contains(t, resultText(r), "test")
 }
 
 func TestHandlePromptGet_NotFound(t *testing.T) {
-	p, _ := newTestPlatformWithPromptStore()
-	r, _, _ := p.handlePromptGet(adminCtx(), managePromptInput{Name: "missing"})
+	h, _ := newTestHandle()
+	r, _, _ := h.handlePromptGet(adminCtx(), managePromptInput{Name: "missing"})
 	assert.True(t, r.IsError)
 	assert.Contains(t, resultText(r), "not found")
 }
 
 func TestHandlePromptGet_NonAdminDeniedOtherPersonal(t *testing.T) {
-	p, store := newTestPlatformWithPromptStore()
+	h, store := newTestHandle()
 	store.prompts["secret"] = &prompt.Prompt{
 		ID: "id-1", Name: "secret", Scope: prompt.ScopePersonal, OwnerEmail: "bob@example.com",
 	}
-	r, _, _ := p.handlePromptGet(userCtx("alice@example.com", "engineer"), managePromptInput{Name: "secret"})
+	r, _, _ := h.handlePromptGet(userCtx("alice@example.com", "engineer"), managePromptInput{Name: "secret"})
 	assert.True(t, r.IsError)
 	assert.Contains(t, resultText(r), "your own")
 }
 
 func TestHandlePromptGet_StoreError(t *testing.T) {
-	p, store := newTestPlatformWithPromptStore()
+	h, store := newTestHandle()
 	store.getErr = fmt.Errorf("pq: connection reset")
-	r, _, _ := p.handlePromptGet(adminCtx(), managePromptInput{Name: "test"})
+	r, _, _ := h.handlePromptGet(adminCtx(), managePromptInput{Name: "test"})
 	assert.True(t, r.IsError)
 	text := resultText(r)
 	assert.Contains(t, text, "failed to get prompt")
@@ -613,13 +463,13 @@ func TestResolveEmail_FromContext(t *testing.T) {
 }
 
 func TestIsAdminPersona_NoContext(t *testing.T) {
-	p := &Platform{config: &Config{Admin: AdminConfig{Persona: "admin"}}}
-	assert.False(t, p.isAdminPersona(t.Context()))
+	h := &Handle{adminPersona: "admin"}
+	assert.False(t, h.isAdminPersona(t.Context()))
 }
 
 func TestIsAdminPersona_AdminContext(t *testing.T) {
-	p := &Platform{config: &Config{Admin: AdminConfig{Persona: "admin"}}}
-	assert.True(t, p.isAdminPersona(adminCtx()))
+	h := &Handle{adminPersona: "admin"}
+	assert.True(t, h.isAdminPersona(adminCtx()))
 }
 
 func TestIsBuiltinDisabled(t *testing.T) {
@@ -637,16 +487,39 @@ func TestIsBuiltinDisabled(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := &Platform{config: &Config{Server: ServerConfig{BuiltinPrompts: tt.config}}}
-			assert.Equal(t, tt.expected, p.isBuiltinDisabled(tt.prompt))
+			h := &Handle{builtinPrompts: tt.config}
+			assert.Equal(t, tt.expected, h.isBuiltinDisabled(tt.prompt))
 		})
 	}
+}
+
+func TestCheckPromotionNameFree(t *testing.T) {
+	h, store := newTestHandle()
+	ctx := context.Background()
+
+	// Not a promotion: old scope is not personal.
+	assert.Empty(t, h.checkPromotionNameFree(ctx,
+		&prompt.Prompt{ID: "g", Name: "x", Scope: prompt.ScopeGlobal}, prompt.ScopeGlobal))
+
+	// Not a promotion: still personal.
+	assert.Empty(t, h.checkPromotionNameFree(ctx,
+		&prompt.Prompt{ID: "p", Name: "x", Scope: prompt.ScopePersonal}, prompt.ScopePersonal))
+
+	// Promotion, name free in the shared namespace.
+	assert.Empty(t, h.checkPromotionNameFree(ctx,
+		&prompt.Prompt{ID: "p1", Name: "free", Scope: prompt.ScopeGlobal}, prompt.ScopePersonal))
+
+	// Promotion, name already owned by a different shared prompt.
+	store.prompts["taken"] = &prompt.Prompt{ID: "g1", Name: "taken", Scope: prompt.ScopeGlobal}
+	msg := h.checkPromotionNameFree(ctx,
+		&prompt.Prompt{ID: "p1", Name: "taken", Scope: prompt.ScopeGlobal}, prompt.ScopePersonal)
+	assert.Contains(t, msg, "already used")
 }
 
 // resolveManagedPrompt prefers the caller's personal prompt by default, but an
 // explicit shared scope targets the global/persona prompt of the same name.
 func TestResolveManagedPrompt_ScopePreference(t *testing.T) {
-	p, store := newTestPlatformWithPromptStore()
+	h, store := newTestHandle()
 	store.prompts["report"] = &prompt.Prompt{ID: "g", Name: "report", Scope: prompt.ScopeGlobal, Content: "global"}
 	store.prompts["personal:report"] = &prompt.Prompt{
 		ID: "p", Name: "report", Scope: prompt.ScopePersonal, OwnerEmail: "admin@x", Content: "personal",
@@ -654,12 +527,12 @@ func TestResolveManagedPrompt_ScopePreference(t *testing.T) {
 
 	ctx := context.Background()
 
-	got, err := p.resolveManagedPrompt(ctx, "report", "admin@x", "")
+	got, err := h.resolveManagedPrompt(ctx, "report", "admin@x", "")
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "p", got.ID, "default resolution prefers the caller's personal prompt")
 
-	got, err = p.resolveManagedPrompt(ctx, "report", "admin@x", prompt.ScopeGlobal)
+	got, err = h.resolveManagedPrompt(ctx, "report", "admin@x", prompt.ScopeGlobal)
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "g", got.ID, "explicit global scope targets the shared prompt")
@@ -668,14 +541,14 @@ func TestResolveManagedPrompt_ScopePreference(t *testing.T) {
 // manage_prompt update with requested_scope flags the owner's personal prompt
 // for the admin promotion queue without changing its scope.
 func TestManagePrompt_RequestPromotion(t *testing.T) {
-	p, store := newTestPlatformWithPromptStore()
+	h, store := newTestHandle()
 	store.prompts["report"] = &prompt.Prompt{
 		ID: "id1", Name: "report", Scope: prompt.ScopePersonal,
 		OwnerEmail: "u@x", Content: "x", Enabled: true,
 	}
 
 	ctx := userCtx("u@x", "analyst")
-	_, _, err := p.handleManagePrompt(ctx, managePromptInput{
+	_, _, err := h.handleManagePrompt(ctx, managePromptInput{
 		Command: "update", Name: "report",
 		RequestedScope: prompt.ScopePersona, RequestedPersonas: []string{"analyst"},
 	})
@@ -690,12 +563,12 @@ func TestManagePrompt_RequestPromotion(t *testing.T) {
 
 // A non-personal prompt cannot be flagged for promotion.
 func TestManagePrompt_RequestPromotion_RejectsNonPersonal(t *testing.T) {
-	p, store := newTestPlatformWithPromptStore()
+	h, store := newTestHandle()
 	store.prompts["report"] = &prompt.Prompt{
 		ID: "id1", Name: "report", Scope: prompt.ScopeGlobal, Content: "x", Enabled: true,
 	}
 
-	res, _, err := p.handleManagePrompt(adminCtx(), managePromptInput{
+	res, _, err := h.handleManagePrompt(adminCtx(), managePromptInput{
 		Command: "update", Name: "report", RequestedScope: prompt.ScopePersona, RequestedPersonas: []string{"analyst"},
 	})
 	require.NoError(t, err)

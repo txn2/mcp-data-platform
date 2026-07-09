@@ -1,4 +1,4 @@
-package platform
+package promptlayer
 
 import (
 	"context"
@@ -13,8 +13,23 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 )
 
-// connectTestClient connects an in-memory MCP client to a server and returns the session.
-// The caller must call cleanup() when done.
+// newRegisterHandle builds a Handle for the static/workflow registration path:
+// no store, the given toolkit registry, server name/description, and operator
+// prompt specs.
+func newRegisterHandle(serverName, serverDesc string, operator []PromptSpec, reg ToolkitRegistry) *Handle {
+	if reg == nil {
+		reg = registry.NewRegistry()
+	}
+	return &Handle{
+		registry:          reg,
+		serverName:        serverName,
+		serverDescription: serverDesc,
+		operatorPrompts:   operator,
+	}
+}
+
+// connectTestClient connects an in-memory MCP client to a server and returns the
+// session. The caller must call cleanup() when done.
 func connectTestClient(t *testing.T, server *mcp.Server) (session *mcp.ClientSession, cleanup func()) {
 	t.Helper()
 	ctx := context.Background()
@@ -113,100 +128,59 @@ func TestSubstituteArgs(t *testing.T) {
 
 func TestRegisterPlatformPrompts(t *testing.T) {
 	tests := []struct {
-		name        string
-		prompts     []PromptConfig
-		wantPrompts int
+		name         string
+		prompts      []PromptSpec
+		wantMetadata int
 	}{
-		{
-			name:        "no prompts configured",
-			prompts:     nil,
-			wantPrompts: 0,
-		},
-		{
-			name:        "empty prompts list",
-			prompts:     []PromptConfig{},
-			wantPrompts: 0,
-		},
+		{name: "no prompts configured", prompts: nil, wantMetadata: 0},
+		{name: "empty prompts list", prompts: []PromptSpec{}, wantMetadata: 0},
 		{
 			name: "single prompt",
-			prompts: []PromptConfig{
-				{
-					Name:        "routing_rules",
-					Description: "How to route queries between systems",
-					Content:     "Route queries based on data type.",
-				},
+			prompts: []PromptSpec{
+				{Name: "routing_rules", Description: "How to route queries between systems", Content: "Route queries based on data type."},
 			},
-			wantPrompts: 1,
+			wantMetadata: 1,
 		},
 		{
 			name: "multiple prompts",
-			prompts: []PromptConfig{
-				{
-					Name:        "routing_rules",
-					Description: "How to route queries",
-					Content:     "Route queries based on data type.",
-				},
-				{
-					Name:        "data_dictionary",
-					Description: "Key business terms",
-					Content:     "ARR: Annual Recurring Revenue",
-				},
+			prompts: []PromptSpec{
+				{Name: "routing_rules", Description: "How to route queries", Content: "Route queries based on data type."},
+				{Name: "data_dictionary", Description: "Key business terms", Content: "ARR: Annual Recurring Revenue"},
 			},
-			wantPrompts: 2,
+			wantMetadata: 2,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mcpServer := mcp.NewServer(&mcp.Implementation{
-				Name:    "test-server",
-				Version: "1.0.0",
-			}, nil)
+			mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "1.0.0"}, nil)
+			h := newRegisterHandle("", "", tt.prompts, nil)
 
-			p := &Platform{
-				mcpServer:       mcpServer,
-				toolkitRegistry: registry.NewRegistry(),
-				config: &Config{
-					Server: ServerConfig{
-						Prompts: tt.prompts,
-					},
-				},
-			}
+			h.RegisterPlatformPrompts(mcpServer)
 
-			// Should not panic
-			p.registerPlatformPrompts()
-
-			assert.NotNil(t, p.mcpServer)
+			// With no toolkits registered, workflow prompts are gated out and
+			// database prompts need a store, so only the operator prompts land in
+			// the name-keyed metadata.
+			assert.Len(t, h.AllPromptInfos(), tt.wantMetadata)
 		})
 	}
 }
 
 func TestRegisterPromptWithArguments(t *testing.T) {
-	mcpServer := mcp.NewServer(&mcp.Implementation{
-		Name:    "test-server",
-		Version: "1.0.0",
-	}, nil)
+	mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "1.0.0"}, nil)
 
-	p := &Platform{
-		mcpServer:       mcpServer,
-		toolkitRegistry: registry.NewRegistry(),
-		config: &Config{
-			Server: ServerConfig{
-				Prompts: []PromptConfig{
-					{
-						Name:        "explore-data",
-						Description: "Explore data about a topic",
-						Content:     "Explore {topic} and find insights.",
-						Arguments: []PromptArgumentConfig{
-							{Name: "topic", Description: "The topic to explore", Required: true},
-						},
-					},
-				},
+	h := newRegisterHandle("", "", []PromptSpec{
+		{
+			Name:        "explore-data",
+			Description: "Explore data about a topic",
+			Content:     "Explore {topic} and find insights.",
+			Arguments: []PromptArgSpec{
+				{Name: "topic", Description: "The topic to explore", Required: true},
 			},
 		},
-	}
+	}, nil)
 
-	p.registerPlatformPrompts()
+	h.RegisterPlatformPrompts(mcpServer)
 
 	session, cleanup := connectTestClient(t, mcpServer)
 	defer cleanup()
@@ -237,7 +211,7 @@ func TestRegisterAutoPrompt(t *testing.T) {
 		name            string
 		serverName      string
 		serverDesc      string
-		operatorPrompts []PromptConfig
+		operatorPrompts []PromptSpec
 		wantRegistered  bool
 		wantTitle       string
 	}{
@@ -258,7 +232,7 @@ func TestRegisterAutoPrompt(t *testing.T) {
 			name:       "skipped when operator already has platform-overview",
 			serverName: "My Platform",
 			serverDesc: "Covers all analytics data.",
-			operatorPrompts: []PromptConfig{
+			operatorPrompts: []PromptSpec{
 				{Name: autoPromptName, Description: "custom", Content: "custom content"},
 			},
 			wantRegistered: false,
@@ -267,7 +241,7 @@ func TestRegisterAutoPrompt(t *testing.T) {
 			name:       "registers alongside other operator prompts",
 			serverName: "My Platform",
 			serverDesc: "Covers analytics.",
-			operatorPrompts: []PromptConfig{
+			operatorPrompts: []PromptSpec{
 				{Name: "routing-guide", Description: "routing", Content: "route here"},
 			},
 			wantRegistered: true,
@@ -277,24 +251,10 @@ func TestRegisterAutoPrompt(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mcpServer := mcp.NewServer(&mcp.Implementation{
-				Name:    "test-server",
-				Version: "1.0.0",
-			}, nil)
+			mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "1.0.0"}, nil)
+			h := newRegisterHandle(tt.serverName, tt.serverDesc, tt.operatorPrompts, nil)
 
-			p := &Platform{
-				mcpServer:       mcpServer,
-				toolkitRegistry: registry.NewRegistry(),
-				config: &Config{
-					Server: ServerConfig{
-						Name:        tt.serverName,
-						Description: tt.serverDesc,
-						Prompts:     tt.operatorPrompts,
-					},
-				},
-			}
-
-			p.registerAutoPrompt()
+			h.registerAutoPrompt(mcpServer)
 
 			session, cleanup := connectTestClient(t, mcpServer)
 			defer cleanup()
@@ -319,30 +279,16 @@ func TestRegisterAutoPrompt(t *testing.T) {
 
 func TestAutoPromptContent(t *testing.T) {
 	const desc = "Covers all ACME Corp data."
-	mcpServer := mcp.NewServer(&mcp.Implementation{
-		Name:    "test-server",
-		Version: "1.0.0",
-	}, nil)
+	mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "1.0.0"}, nil)
 
-	p := &Platform{
-		mcpServer:       mcpServer,
-		toolkitRegistry: registry.NewRegistry(),
-		config: &Config{
-			Server: ServerConfig{
-				Name:        "ACME Data Platform",
-				Description: desc,
-			},
-		},
-	}
+	h := newRegisterHandle("ACME Data Platform", desc, nil, nil)
 
-	p.registerAutoPrompt()
+	h.registerAutoPrompt(mcpServer)
 
 	session, cleanup := connectTestClient(t, mcpServer)
 	defer cleanup()
 
-	resp, err := session.GetPrompt(context.Background(), &mcp.GetPromptParams{
-		Name: autoPromptName,
-	})
+	resp, err := session.GetPrompt(context.Background(), &mcp.GetPromptParams{Name: autoPromptName})
 	require.NoError(t, err)
 	require.Len(t, resp.Messages, 1)
 
@@ -358,23 +304,9 @@ func TestDynamicOverviewContentWithToolkits(t *testing.T) {
 	_ = reg.Register(&mockToolkit{kind: "datahub", name: "primary"})
 	_ = reg.Register(&mockToolkit{kind: "trino", name: "default"})
 
-	mcpServer := mcp.NewServer(&mcp.Implementation{
-		Name:    "test-server",
-		Version: "1.0.0",
-	}, nil)
+	h := newRegisterHandle("Test Platform", "Test platform for analytics.", nil, reg)
 
-	p := &Platform{
-		mcpServer:       mcpServer,
-		toolkitRegistry: reg,
-		config: &Config{
-			Server: ServerConfig{
-				Name:        "Test Platform",
-				Description: "Test platform for analytics.",
-			},
-		},
-	}
-
-	content := p.buildDynamicOverviewContent()
+	content := h.buildDynamicOverviewContent()
 
 	assert.Contains(t, content, "Test platform for analytics.")
 	assert.Contains(t, content, "Explore available data")
@@ -390,22 +322,10 @@ func TestWorkflowPromptsConditionalRegistration(t *testing.T) {
 		reg := registry.NewRegistry()
 		_ = reg.Register(&mockToolkit{kind: "datahub", name: "primary"})
 
-		mcpServer := mcp.NewServer(&mcp.Implementation{
-			Name:    "test-server",
-			Version: "1.0.0",
-		}, nil)
+		mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "1.0.0"}, nil)
+		h := newRegisterHandle("", "Test platform.", nil, reg)
 
-		p := &Platform{
-			mcpServer:       mcpServer,
-			toolkitRegistry: reg,
-			config: &Config{
-				Server: ServerConfig{
-					Description: "Test platform.",
-				},
-			},
-		}
-
-		p.registerPlatformPrompts()
+		h.RegisterPlatformPrompts(mcpServer)
 
 		session, cleanup := connectTestClient(t, mcpServer)
 		defer cleanup()
@@ -426,18 +346,10 @@ func TestWorkflowPromptsConditionalRegistration(t *testing.T) {
 		reg := registry.NewRegistry()
 		// Only trino, no datahub
 
-		mcpServer := mcp.NewServer(&mcp.Implementation{
-			Name:    "test-server",
-			Version: "1.0.0",
-		}, nil)
+		mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "1.0.0"}, nil)
+		h := newRegisterHandle("", "", nil, reg)
 
-		p := &Platform{
-			mcpServer:       mcpServer,
-			toolkitRegistry: reg,
-			config:          &Config{},
-		}
-
-		p.registerWorkflowPrompts()
+		h.registerWorkflowPrompts(mcpServer)
 
 		session, cleanup := connectTestClient(t, mcpServer)
 		defer cleanup()
@@ -452,24 +364,12 @@ func TestWorkflowPromptsConditionalRegistration(t *testing.T) {
 		reg := registry.NewRegistry()
 		_ = reg.Register(&mockToolkit{kind: "datahub", name: "primary"})
 
-		mcpServer := mcp.NewServer(&mcp.Implementation{
-			Name:    "test-server",
-			Version: "1.0.0",
-		}, nil)
+		mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "1.0.0"}, nil)
+		h := newRegisterHandle("", "", []PromptSpec{
+			{Name: "explore-available-data", Description: "Custom", Content: "Custom content."},
+		}, reg)
 
-		p := &Platform{
-			mcpServer:       mcpServer,
-			toolkitRegistry: reg,
-			config: &Config{
-				Server: ServerConfig{
-					Prompts: []PromptConfig{
-						{Name: "explore-available-data", Description: "Custom", Content: "Custom content."},
-					},
-				},
-			},
-		}
-
-		p.registerWorkflowPrompts()
+		h.registerWorkflowPrompts(mcpServer)
 
 		session, cleanup := connectTestClient(t, mcpServer)
 		defer cleanup()
@@ -490,18 +390,10 @@ func TestWorkflowPromptsConditionalRegistration(t *testing.T) {
 		_ = reg.Register(&mockToolkit{kind: "trino", name: "default"})
 		_ = reg.Register(&mockToolkit{kind: "portal", name: "default"})
 
-		mcpServer := mcp.NewServer(&mcp.Implementation{
-			Name:    "test-server",
-			Version: "1.0.0",
-		}, nil)
+		mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "1.0.0"}, nil)
+		h := newRegisterHandle("", "", nil, reg)
 
-		p := &Platform{
-			mcpServer:       mcpServer,
-			toolkitRegistry: reg,
-			config:          &Config{},
-		}
-
-		p.registerWorkflowPrompts()
+		h.registerWorkflowPrompts(mcpServer)
 
 		session, cleanup := connectTestClient(t, mcpServer)
 		defer cleanup()
@@ -521,34 +413,21 @@ func TestPromptMetadataCollection(t *testing.T) {
 	reg := registry.NewRegistry()
 	_ = reg.Register(&mockToolkit{kind: "datahub", name: "primary"})
 
-	mcpServer := mcp.NewServer(&mcp.Implementation{
-		Name:    "test-server",
-		Version: "1.0.0",
-	}, nil)
-
-	p := &Platform{
-		mcpServer:       mcpServer,
-		toolkitRegistry: reg,
-		config: &Config{
-			Server: ServerConfig{
-				Description: "Test platform.",
-				Prompts: []PromptConfig{
-					{
-						Name:        "custom-prompt",
-						Description: "A custom prompt",
-						Content:     "Do {thing}.",
-						Arguments: []PromptArgumentConfig{
-							{Name: "thing", Description: "What to do", Required: true},
-						},
-					},
-				},
+	mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "1.0.0"}, nil)
+	h := newRegisterHandle("", "Test platform.", []PromptSpec{
+		{
+			Name:        "custom-prompt",
+			Description: "A custom prompt",
+			Content:     "Do {thing}.",
+			Arguments: []PromptArgSpec{
+				{Name: "thing", Description: "What to do", Required: true},
 			},
 		},
-	}
+	}, reg)
 
-	p.registerPlatformPrompts()
+	h.RegisterPlatformPrompts(mcpServer)
 
-	infos := p.AllPromptInfos()
+	infos := h.AllPromptInfos()
 	assert.True(t, len(infos) > 0, "should have collected prompt infos")
 
 	// Find custom-prompt
@@ -582,34 +461,21 @@ func TestPromptContentInJSON(t *testing.T) {
 	reg := registry.NewRegistry()
 	_ = reg.Register(&mockToolkit{kind: "datahub", name: "primary"})
 
-	mcpServer := mcp.NewServer(&mcp.Implementation{
-		Name:    "test-server",
-		Version: "1.0.0",
-	}, nil)
-
-	p := &Platform{
-		mcpServer:       mcpServer,
-		toolkitRegistry: reg,
-		config: &Config{
-			Server: ServerConfig{
-				Description: "Test.",
-				Prompts: []PromptConfig{
-					{
-						Name:        "my-prompt",
-						Description: "My prompt",
-						Content:     "Do the thing about {topic}.",
-						Arguments: []PromptArgumentConfig{
-							{Name: "topic", Description: "The topic", Required: true},
-						},
-					},
-				},
+	mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "1.0.0"}, nil)
+	h := newRegisterHandle("", "Test.", []PromptSpec{
+		{
+			Name:        "my-prompt",
+			Description: "My prompt",
+			Content:     "Do the thing about {topic}.",
+			Arguments: []PromptArgSpec{
+				{Name: "topic", Description: "The topic", Required: true},
 			},
 		},
-	}
+	}, reg)
 
-	p.registerPlatformPrompts()
+	h.RegisterPlatformPrompts(mcpServer)
 
-	infos := p.AllPromptInfos()
+	infos := h.AllPromptInfos()
 
 	data, err := json.Marshal(infos)
 	require.NoError(t, err)
@@ -635,28 +501,18 @@ func TestCollectToolkitPromptInfos(t *testing.T) {
 		},
 	})
 
-	p := &Platform{
-		toolkitRegistry: reg,
-	}
+	h := &Handle{registry: reg}
 
-	infos := p.collectToolkitPromptInfos()
+	infos := h.collectToolkitPromptInfos()
 	require.Len(t, infos, 1)
 	assert.Equal(t, "save-this-as-an-asset", infos[0].Name)
 }
 
 func TestIsOperatorPrompt(t *testing.T) {
-	p := &Platform{
-		config: &Config{
-			Server: ServerConfig{
-				Prompts: []PromptConfig{
-					{Name: "my-prompt"},
-				},
-			},
-		},
-	}
+	h := &Handle{operatorPrompts: []PromptSpec{{Name: "my-prompt"}}}
 
-	assert.True(t, p.isOperatorPrompt("my-prompt"))
-	assert.False(t, p.isOperatorPrompt("nonexistent"))
+	assert.True(t, h.isOperatorPrompt("my-prompt"))
+	assert.False(t, h.isOperatorPrompt("nonexistent"))
 }
 
 func TestHasAllToolkitKinds(t *testing.T) {
@@ -664,12 +520,12 @@ func TestHasAllToolkitKinds(t *testing.T) {
 	_ = reg.Register(&mockToolkit{kind: "datahub", name: "primary"})
 	_ = reg.Register(&mockToolkit{kind: "trino", name: "default"})
 
-	p := &Platform{toolkitRegistry: reg}
+	h := &Handle{registry: reg}
 
-	assert.True(t, p.hasAllToolkitKinds([]string{"datahub"}))
-	assert.True(t, p.hasAllToolkitKinds([]string{"datahub", "trino"}))
-	assert.False(t, p.hasAllToolkitKinds([]string{"datahub", "portal"}))
-	assert.True(t, p.hasAllToolkitKinds([]string{}))
+	assert.True(t, h.hasAllToolkitKinds([]string{"datahub"}))
+	assert.True(t, h.hasAllToolkitKinds([]string{"datahub", "trino"}))
+	assert.False(t, h.hasAllToolkitKinds([]string{"datahub", "portal"}))
+	assert.True(t, h.hasAllToolkitKinds([]string{}))
 }
 
 func TestBuildPromptResult(t *testing.T) {
@@ -677,22 +533,10 @@ func TestBuildPromptResult(t *testing.T) {
 		name    string
 		content string
 	}{
-		{
-			name:    "simple content",
-			content: "This is a simple prompt.",
-		},
-		{
-			name:    "multiline content",
-			content: "Line 1\nLine 2\nLine 3",
-		},
-		{
-			name:    "empty content",
-			content: "",
-		},
-		{
-			name:    "content with special characters",
-			content: "Use `code` and **bold** formatting.",
-		},
+		{name: "simple content", content: "This is a simple prompt."},
+		{name: "multiline content", content: "Line 1\nLine 2\nLine 3"},
+		{name: "empty content", content: ""},
+		{name: "content with special characters", content: "Use `code` and **bold** formatting."},
 	}
 
 	for _, tt := range tests {
@@ -714,14 +558,14 @@ func TestWorkflowPromptArguments(t *testing.T) {
 	// Verify each workflow prompt has the expected argument
 	prompts := workflowPrompts()
 	for _, wp := range prompts {
-		t.Run(wp.config.Name, func(t *testing.T) {
-			require.NotEmpty(t, wp.config.Arguments, "workflow prompt should have arguments")
+		t.Run(wp.spec.Name, func(t *testing.T) {
+			require.NotEmpty(t, wp.spec.Arguments, "workflow prompt should have arguments")
 			require.NotEmpty(t, wp.requiredKinds, "workflow prompt should require toolkits")
-			assert.NotEmpty(t, wp.config.Description)
-			assert.NotEmpty(t, wp.config.Content)
+			assert.NotEmpty(t, wp.spec.Description)
+			assert.NotEmpty(t, wp.spec.Content)
 			// Verify the argument placeholder exists in the content
-			for _, arg := range wp.config.Arguments {
-				assert.Contains(t, wp.config.Content, "{"+arg.Name+"}",
+			for _, arg := range wp.spec.Arguments {
+				assert.Contains(t, wp.spec.Content, "{"+arg.Name+"}",
 					"content should contain placeholder for argument %q", arg.Name)
 			}
 		})
@@ -736,14 +580,4 @@ func promptNames(prompts []*mcp.Prompt) []string {
 		names = append(names, p.Name)
 	}
 	return names
-}
-
-// mockToolkitWithPrompts adds PromptDescriber to mockToolkit.
-type mockToolkitWithPrompts struct {
-	mockToolkit
-	prompts []registry.PromptInfo
-}
-
-func (m *mockToolkitWithPrompts) PromptInfos() []registry.PromptInfo {
-	return m.prompts
 }

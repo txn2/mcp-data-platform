@@ -1,5 +1,4 @@
-// Package platform provides the main platform orchestration.
-package platform
+package promptlayer
 
 import (
 	"context"
@@ -23,8 +22,6 @@ const (
 	kindPortal     = "portal"
 	kindKnowledge  = "knowledge"
 	kindMemory     = "memory"
-	kindMCP        = "mcp"
-	kindAPI        = "api"
 	// promptArgTopic is the argument name shared across workflow prompts
 	// that take a free-form subject ("explore", "create-dashboard", etc.).
 	promptArgTopic = "topic"
@@ -33,45 +30,67 @@ const (
 	promptRoleUser = "user"
 )
 
-// registerPlatformPrompts registers platform-level prompts from config.
-// It first registers the auto-generated platform overview prompt (if applicable),
-// then registers operator-configured prompts, then workflow prompts,
-// then database-stored prompts.
-func (p *Platform) registerPlatformPrompts() {
-	p.registerAutoPrompt()
-	for _, promptCfg := range p.config.Server.Prompts {
-		p.registerPromptWithCategory(promptCfg, "custom")
+// PromptArgSpec is one argument of an operator- or workflow-defined prompt in
+// the caller-neutral shape this package registers from. The caller translates
+// its own config type into this.
+type PromptArgSpec struct {
+	Name        string
+	Description string
+	Required    bool
+}
+
+// PromptSpec is an operator- or workflow-defined prompt in the caller-neutral
+// shape this package registers from, decoupling the layer from the caller's
+// config types and defaulting rules.
+type PromptSpec struct {
+	Name        string
+	Description string
+	Content     string
+	Arguments   []PromptArgSpec
+}
+
+// RegisterPlatformPrompts registers platform-level prompts with the given MCP
+// server. It first registers the auto-generated platform overview prompt (if
+// applicable), then operator-configured prompts, then workflow prompts, then
+// database-stored prompts. No-op on a nil Handle.
+func (h *Handle) RegisterPlatformPrompts(server *mcp.Server) {
+	if h == nil {
+		return
 	}
-	p.registerWorkflowPrompts()
+	h.registerAutoPrompt(server)
+	for _, spec := range h.operatorPrompts {
+		h.registerPromptWithCategory(server, spec, "custom")
+	}
+	h.registerWorkflowPrompts(server)
 	// Mirror the static prompts registered above into the store (as read-only
 	// system rows) so they are embedded and searchable (#593). Must run before
 	// registerDatabasePrompts so database prompts are not added to promptInfos
 	// and re-ingested as system rows.
-	p.ingestStaticPrompts(context.Background())
-	p.registerDatabasePrompts()
+	h.ingestStaticPrompts(context.Background())
+	h.registerDatabasePrompts()
 }
 
 // registerAutoPrompt registers the auto-generated "platform-overview" prompt when
-// server.description is non-empty. It is skipped if an operator-configured prompt
-// already uses the name "platform-overview".
+// the server description is non-empty. It is skipped if an operator-configured
+// prompt already uses the name "platform-overview".
 //
 // The content is built dynamically based on enabled toolkits, listing what the
 // user can do with this platform.
-func (p *Platform) registerAutoPrompt() {
-	if p.config.Server.Description == "" {
+func (h *Handle) registerAutoPrompt(server *mcp.Server) {
+	if h.serverDescription == "" {
 		return
 	}
 
 	// Skip if operator has already defined a prompt with this name.
-	if p.isOperatorPrompt(autoPromptName) {
+	if h.isOperatorPrompt(autoPromptName) {
 		return
 	}
 
-	content := p.buildDynamicOverviewContent()
+	content := h.buildDynamicOverviewContent()
 
-	p.mcpServer.AddPrompt(&mcp.Prompt{
+	server.AddPrompt(&mcp.Prompt{
 		Name:        autoPromptName,
-		Title:       p.config.Server.Name,
+		Title:       h.serverName,
 		Description: "Overview of this data platform — what it covers and how to use it",
 	}, func(_ context.Context, _ *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 		return buildPromptResult(content), nil
@@ -83,12 +102,12 @@ func (p *Platform) registerAutoPrompt() {
 
 // buildDynamicOverviewContent builds the platform overview content dynamically
 // based on the server description and enabled toolkits.
-func (p *Platform) buildDynamicOverviewContent() string {
+func (h *Handle) buildDynamicOverviewContent() string {
 	var b strings.Builder
-	b.WriteString(p.config.Server.Description)
+	b.WriteString(h.serverDescription)
 	b.WriteString("\n\n")
 
-	capabilities := p.collectCapabilityBullets()
+	capabilities := h.collectCapabilityBullets()
 	if len(capabilities) > 0 {
 		b.WriteString("With this platform you can:\n")
 		for _, bullet := range capabilities {
@@ -127,14 +146,14 @@ func capabilityTable() []capabilityEntry {
 
 // collectCapabilityBullets returns human-readable capability descriptions
 // based on which toolkits are enabled.
-func (p *Platform) collectCapabilityBullets() []string {
+func (h *Handle) collectCapabilityBullets() []string {
 	has := map[string]bool{
-		kindDataHub:   len(p.toolkitRegistry.GetByKind(kindDataHub)) > 0,
-		kindTrino:     len(p.toolkitRegistry.GetByKind(kindTrino)) > 0,
-		kindS3:        len(p.toolkitRegistry.GetByKind(kindS3)) > 0,
-		kindPortal:    len(p.toolkitRegistry.GetByKind(kindPortal)) > 0,
-		kindKnowledge: len(p.toolkitRegistry.GetByKind(kindKnowledge)) > 0,
-		kindMemory:    len(p.toolkitRegistry.GetByKind(kindMemory)) > 0,
+		kindDataHub:   len(h.registry.GetByKind(kindDataHub)) > 0,
+		kindTrino:     len(h.registry.GetByKind(kindTrino)) > 0,
+		kindS3:        len(h.registry.GetByKind(kindS3)) > 0,
+		kindPortal:    len(h.registry.GetByKind(kindPortal)) > 0,
+		kindKnowledge: len(h.registry.GetByKind(kindKnowledge)) > 0,
+		kindMemory:    len(h.registry.GetByKind(kindMemory)) > 0,
 	}
 
 	var caps []string
@@ -149,12 +168,12 @@ func (p *Platform) collectCapabilityBullets() []string {
 // registerPromptWithCategory registers a single prompt with the MCP server,
 // supporting argument substitution in content. The category is stored in
 // prompt metadata for frontend grouping (e.g., "workflow", "custom", "toolkit").
-func (p *Platform) registerPromptWithCategory(cfg PromptConfig, category string) {
-	promptContent := cfg.Content
+func (h *Handle) registerPromptWithCategory(server *mcp.Server, spec PromptSpec, category string) {
+	promptContent := spec.Content
 
 	// Build MCP prompt arguments
-	mcpArgs := make([]*mcp.PromptArgument, 0, len(cfg.Arguments))
-	for _, arg := range cfg.Arguments {
+	mcpArgs := make([]*mcp.PromptArgument, 0, len(spec.Arguments))
+	for _, arg := range spec.Arguments {
 		mcpArgs = append(mcpArgs, &mcp.PromptArgument{
 			Name:        arg.Name,
 			Description: arg.Description,
@@ -162,9 +181,9 @@ func (p *Platform) registerPromptWithCategory(cfg PromptConfig, category string)
 		})
 	}
 
-	p.mcpServer.AddPrompt(&mcp.Prompt{
-		Name:        cfg.Name,
-		Description: cfg.Description,
+	server.AddPrompt(&mcp.Prompt{
+		Name:        spec.Name,
+		Description: spec.Description,
 		Arguments:   mcpArgs,
 	}, func(_ context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
 		resolved := substituteArgs(promptContent, req.Params.Arguments)
@@ -173,29 +192,27 @@ func (p *Platform) registerPromptWithCategory(cfg PromptConfig, category string)
 
 	// Collect metadata
 	info := registry.PromptInfo{
-		Name:        cfg.Name,
-		Description: cfg.Description,
+		Name:        spec.Name,
+		Description: spec.Description,
 		Category:    category,
-		Content:     cfg.Content,
+		Content:     spec.Content,
 	}
-	for _, arg := range cfg.Arguments {
+	for _, arg := range spec.Arguments {
 		info.Arguments = append(info.Arguments, registry.PromptArgumentInfo{
 			Name:        arg.Name,
 			Description: arg.Description,
 			Required:    arg.Required,
 		})
 	}
-	p.promptInfosMu.Lock()
-	p.promptInfos = append(p.promptInfos, info)
-	p.promptInfosMu.Unlock()
+	h.promptInfosMu.Lock()
+	h.promptInfos = append(h.promptInfos, info)
+	h.promptInfosMu.Unlock()
 }
 
-// substituteArgs replaces {arg_name} placeholders in content with values from
-// the arguments map. Unresolved placeholders are left as-is. Keys are sorted
-// to ensure deterministic output when values contain other argument placeholders.
 // substituteArgs replaces both {name} and {{name}} placeholders with values
 // from args. Double-brace is processed first so that a {{name}} placeholder
-// is not accidentally consumed by a {name} replacement of a substring.
+// is not accidentally consumed by a {name} replacement of a substring. Keys are
+// sorted so output is deterministic when values contain other placeholders.
 func substituteArgs(content string, args map[string]string) string {
 	if len(args) == 0 {
 		return content
@@ -216,20 +233,19 @@ func substituteArgs(content string, args map[string]string) string {
 
 // workflowPrompt defines a platform-level workflow prompt with its required toolkits.
 type workflowPrompt struct {
-	config        PromptConfig
+	spec          PromptSpec
 	requiredKinds []string
 }
 
 // promptExploreAvailableData is the canonical name of the data-exploration
-// workflow prompt. Used by the prompt registration code and referenced by
-// the disable-prompt allowlist in tests.
+// workflow prompt.
 const promptExploreAvailableData = "explore-available-data"
 
 // workflowPrompts returns the set of platform-level workflow prompts.
 func workflowPrompts() []workflowPrompt {
 	return []workflowPrompt{
 		{
-			config: PromptConfig{
+			spec: PromptSpec{
 				Name:        promptExploreAvailableData,
 				Description: "Discover what data is available about a topic",
 				Content: `Explore what data is available about {topic}.
@@ -238,14 +254,14 @@ func workflowPrompts() []workflowPrompt {
 2. Present relevant datasets with descriptions, ownership, and quality scores
 3. Highlight data products that group related datasets
 4. Note any data quality concerns or deprecation warnings`,
-				Arguments: []PromptArgumentConfig{
+				Arguments: []PromptArgSpec{
 					{Name: promptArgTopic, Description: "What topic or subject area?", Required: true},
 				},
 			},
 			requiredKinds: []string{kindDataHub},
 		},
 		{
-			config: PromptConfig{
+			spec: PromptSpec{
 				Name:        "create-interactive-dashboard",
 				Description: "Discover data, build a visualization, and save it as a shareable asset",
 				Content: `Create an interactive dashboard about {topic}.
@@ -254,14 +270,14 @@ func workflowPrompts() []workflowPrompt {
 2. Query the most relevant datasets
 3. Build an interactive visualization with key metrics and trends
 4. Save it as an artifact I can view and share`,
-				Arguments: []PromptArgumentConfig{
+				Arguments: []PromptArgSpec{
 					{Name: promptArgTopic, Description: "What should the dashboard visualize?", Required: true},
 				},
 			},
 			requiredKinds: []string{kindDataHub, kindTrino, kindPortal},
 		},
 		{
-			config: PromptConfig{
+			spec: PromptSpec{
 				Name:        "create-a-report",
 				Description: "Analyze data and produce a structured Markdown report",
 				Content: `Generate a comprehensive report about {topic}.
@@ -270,14 +286,14 @@ func workflowPrompts() []workflowPrompt {
 2. Query and analyze the data for key findings
 3. Produce a well-structured Markdown report with tables, metrics, and insights
 4. Summarize the key takeaways`,
-				Arguments: []PromptArgumentConfig{
+				Arguments: []PromptArgSpec{
 					{Name: promptArgTopic, Description: "What should the report cover?", Required: true},
 				},
 			},
 			requiredKinds: []string{kindDataHub, kindTrino},
 		},
 		{
-			config: PromptConfig{
+			spec: PromptSpec{
 				Name:        "trace-data-lineage",
 				Description: "Trace where data comes from and what depends on it",
 				Content: `Trace the data lineage for {dataset}.
@@ -286,7 +302,7 @@ func workflowPrompts() []workflowPrompt {
 2. Map the downstream consumers that depend on it
 3. Show column-level lineage where available
 4. Highlight any transformation steps in the pipeline`,
-				Arguments: []PromptArgumentConfig{
+				Arguments: []PromptArgSpec{
 					{Name: "dataset", Description: "Which dataset or column to trace?", Required: true},
 				},
 			},
@@ -298,43 +314,42 @@ func workflowPrompts() []workflowPrompt {
 // registerWorkflowPrompts registers platform-level workflow prompts
 // conditional on the required toolkits being available.
 // Skips any prompt whose name matches an operator-configured prompt or that
-// has been explicitly disabled via server.builtin_prompts config.
-func (p *Platform) registerWorkflowPrompts() {
+// has been explicitly disabled via the built-in-prompt disable map.
+func (h *Handle) registerWorkflowPrompts(server *mcp.Server) {
 	for _, wp := range workflowPrompts() {
 		// Skip if explicitly disabled in config
-		if p.isBuiltinDisabled(wp.config.Name) {
+		if h.isBuiltinDisabled(wp.spec.Name) {
 			continue
 		}
 
 		// Skip if operator already defined this prompt
-		if p.isOperatorPrompt(wp.config.Name) {
+		if h.isOperatorPrompt(wp.spec.Name) {
 			continue
 		}
 
 		// Check all required toolkit kinds are present
-		if !p.hasAllToolkitKinds(wp.requiredKinds) {
+		if !h.hasAllToolkitKinds(wp.requiredKinds) {
 			continue
 		}
 
-		p.registerPromptWithCategory(wp.config, "workflow")
+		h.registerPromptWithCategory(server, wp.spec, "workflow")
 	}
 }
 
-// isBuiltinDisabled checks if a built-in prompt has been explicitly disabled
-// via server.builtin_prompts config. If the map is nil or the key is absent,
-// the prompt is enabled by default.
-func (p *Platform) isBuiltinDisabled(name string) bool {
-	if p.config.Server.BuiltinPrompts == nil {
+// isBuiltinDisabled checks if a built-in prompt has been explicitly disabled.
+// If the map is nil or the key is absent, the prompt is enabled by default.
+func (h *Handle) isBuiltinDisabled(name string) bool {
+	if h.builtinPrompts == nil {
 		return false
 	}
-	enabled, exists := p.config.Server.BuiltinPrompts[name]
+	enabled, exists := h.builtinPrompts[name]
 	return exists && !enabled
 }
 
 // isOperatorPrompt checks if a prompt name is already defined in operator config.
-func (p *Platform) isOperatorPrompt(name string) bool {
-	for _, cfg := range p.config.Server.Prompts {
-		if cfg.Name == name {
+func (h *Handle) isOperatorPrompt(name string) bool {
+	for _, spec := range h.operatorPrompts {
+		if spec.Name == name {
 			return true
 		}
 	}
@@ -342,9 +357,9 @@ func (p *Platform) isOperatorPrompt(name string) bool {
 }
 
 // hasAllToolkitKinds checks that every kind in the list has at least one registered toolkit.
-func (p *Platform) hasAllToolkitKinds(kinds []string) bool {
+func (h *Handle) hasAllToolkitKinds(kinds []string) bool {
 	for _, kind := range kinds {
-		if len(p.toolkitRegistry.GetByKind(kind)) == 0 {
+		if len(h.registry.GetByKind(kind)) == 0 {
 			return false
 		}
 	}
@@ -352,9 +367,9 @@ func (p *Platform) hasAllToolkitKinds(kinds []string) bool {
 }
 
 // collectToolkitPromptInfos gathers prompt metadata from toolkits that implement PromptDescriber.
-func (p *Platform) collectToolkitPromptInfos() []registry.PromptInfo {
+func (h *Handle) collectToolkitPromptInfos() []registry.PromptInfo {
 	var infos []registry.PromptInfo
-	for _, tk := range p.toolkitRegistry.All() {
+	for _, tk := range h.registry.All() {
 		if pd, ok := tk.(registry.PromptDescriber); ok {
 			infos = append(infos, pd.PromptInfos()...)
 		}
@@ -362,27 +377,31 @@ func (p *Platform) collectToolkitPromptInfos() []registry.PromptInfo {
 	return infos
 }
 
-// AllPromptInfos returns all prompt metadata (platform + toolkit).
-// Exported for the admin API to surface system prompts.
-func (p *Platform) AllPromptInfos() []registry.PromptInfo {
-	tkInfos := p.collectToolkitPromptInfos()
-	p.promptInfosMu.RLock()
-	all := make([]registry.PromptInfo, 0, len(p.promptInfos)+len(tkInfos))
-	all = append(all, p.promptInfos...)
-	p.promptInfosMu.RUnlock()
+// AllPromptInfos returns all prompt metadata (platform + toolkit), or nil on a
+// nil Handle. Read by the admin and portal prompt REST handlers to surface
+// system prompts.
+func (h *Handle) AllPromptInfos() []registry.PromptInfo {
+	if h == nil {
+		return nil
+	}
+	tkInfos := h.collectToolkitPromptInfos()
+	h.promptInfosMu.RLock()
+	all := make([]registry.PromptInfo, 0, len(h.promptInfos)+len(tkInfos))
+	all = append(all, h.promptInfos...)
+	h.promptInfosMu.RUnlock()
 	all = append(all, tkInfos...)
 	return all
 }
 
 // registerDatabasePrompts loads enabled prompts from the database and registers
-// them with the MCP server. Called during startup after the prompt store is initialized.
-func (p *Platform) registerDatabasePrompts() {
-	if p.promptStore == nil {
+// their metadata. Called during startup after the prompt store is initialized.
+func (h *Handle) registerDatabasePrompts() {
+	if h.store == nil {
 		return
 	}
 
 	enabled := true
-	prompts, err := p.promptStore.List(context.Background(), prompt.ListFilter{Enabled: &enabled})
+	prompts, err := h.store.List(context.Background(), prompt.ListFilter{Enabled: &enabled})
 	if err != nil {
 		slog.Warn("failed to load prompts from database", logKeyError, err)
 		return
@@ -396,7 +415,7 @@ func (p *Platform) registerDatabasePrompts() {
 		if prompts[i].Source == prompt.SourceSystem {
 			continue
 		}
-		p.registerDatabasePrompt(&prompts[i])
+		h.registerDatabasePrompt(&prompts[i])
 		registered++
 	}
 	if registered > 0 {
@@ -418,7 +437,7 @@ func (p *Platform) registerDatabasePrompts() {
 // create colliding entries and expose one user's personal prompts in
 // platform-wide metadata (platform_info). They are still served per-caller from
 // the store. Only globally-unique scopes (global, persona) are tracked.
-func (p *Platform) registerDatabasePrompt(pr *prompt.Prompt) {
+func (h *Handle) registerDatabasePrompt(pr *prompt.Prompt) {
 	if pr.Scope == prompt.ScopePersonal {
 		return
 	}
@@ -435,9 +454,9 @@ func (p *Platform) registerDatabasePrompt(pr *prompt.Prompt) {
 			Required:    arg.Required,
 		})
 	}
-	p.promptInfosMu.Lock()
-	p.promptInfos = append(p.promptInfos, info)
-	p.promptInfosMu.Unlock()
+	h.promptInfosMu.Lock()
+	h.promptInfos = append(h.promptInfos, info)
+	h.promptInfosMu.Unlock()
 }
 
 // toMCPPromptArgs maps prompt arguments to their MCP descriptors.
@@ -473,20 +492,20 @@ func promptDescriptor(presentedName string, pr *prompt.Prompt) *mcp.Prompt {
 	}
 }
 
-// listVisiblePrompts returns the caller's visible database prompts as MCP
-// descriptors with their scope prefix: global-<name> for globals,
-// <persona>-<name> for each persona the caller belongs to, and personal-<name>
-// for the caller's own. A persona prompt shared with several personas appears
-// once per persona the caller is in.
-func (p *Platform) listVisiblePrompts(ctx context.Context, email string, personas []string) []*mcp.Prompt {
-	if p.promptStore == nil {
+// ListVisible returns the caller's visible database prompts as MCP descriptors
+// with their scope prefix: global-<name> for globals, <persona>-<name> for each
+// persona the caller belongs to, and personal-<name> for the caller's own. A
+// persona prompt shared with several personas appears once per persona the
+// caller is in. Wired as the prompts/list visibility callback.
+func (h *Handle) ListVisible(ctx context.Context, email string, personas []string) []*mcp.Prompt {
+	if h == nil || h.store == nil {
 		return nil
 	}
-	out := p.listScopedDescriptors(ctx, prompt.ListFilter{Scope: prompt.ScopeGlobal}, promptPrefixGlobal)
-	out = append(out, p.listPersonaDescriptors(ctx, personas)...)
+	out := h.listScopedDescriptors(ctx, prompt.ListFilter{Scope: prompt.ScopeGlobal}, promptPrefixGlobal)
+	out = append(out, h.listPersonaDescriptors(ctx, personas)...)
 	if email != "" {
-		out = append(out, p.listScopedDescriptors(ctx, prompt.ListFilter{Scope: prompt.ScopePersonal, OwnerEmail: email}, promptPrefixPersonal)...)
-		out = append(out, p.listSharedDescriptors(ctx, email)...)
+		out = append(out, h.listScopedDescriptors(ctx, prompt.ListFilter{Scope: prompt.ScopePersonal, OwnerEmail: email}, promptPrefixPersonal)...)
+		out = append(out, h.listSharedDescriptors(ctx, email)...)
 	}
 	return out
 }
@@ -495,13 +514,12 @@ func (p *Platform) listVisiblePrompts(ctx context.Context, email string, persona
 // another user), presenting each as shared-<name>. Shares are looked up via the
 // portal share store and the prompt bodies fetched from the prompt store. If two
 // shared prompts collide on bare name, the first (most recent share) wins so the
-// list and getDynamicPrompt agree.
-func (p *Platform) listSharedDescriptors(ctx context.Context, email string) []*mcp.Prompt {
-	share := p.portalStore.ShareStore()
-	if share == nil {
+// list and GetByName agree.
+func (h *Handle) listSharedDescriptors(ctx context.Context, email string) []*mcp.Prompt {
+	if h.shareStore == nil {
 		return nil
 	}
-	refs, err := share.ListSharedPromptsWithUser(ctx, "", email)
+	refs, err := h.shareStore.ListSharedPromptsWithUser(ctx, "", email)
 	if err != nil {
 		slog.Warn("failed to list shared prompts", logKeyError, err)
 		return nil
@@ -509,7 +527,7 @@ func (p *Platform) listSharedDescriptors(ctx context.Context, email string) []*m
 	var out []*mcp.Prompt
 	seen := make(map[string]bool, len(refs))
 	for _, ref := range refs {
-		pr, err := p.promptStore.GetByID(ctx, ref.PromptID)
+		pr, err := h.store.GetByID(ctx, ref.PromptID)
 		// Only personal prompts are served via the shared- alias. A prompt that
 		// was promoted to a shared scope after being shared is already served
 		// under its global-/persona- prefix; serving it again as shared- would
@@ -525,10 +543,10 @@ func (p *Platform) listSharedDescriptors(ctx context.Context, email string) []*m
 
 // listScopedDescriptors lists enabled prompts matching the filter and presents
 // each under a fixed scope prefix (for global and personal scopes).
-func (p *Platform) listScopedDescriptors(ctx context.Context, filter prompt.ListFilter, prefix string) []*mcp.Prompt {
+func (h *Handle) listScopedDescriptors(ctx context.Context, filter prompt.ListFilter, prefix string) []*mcp.Prompt {
 	enabled := true
 	filter.Enabled = &enabled
-	prompts, err := p.promptStore.List(ctx, filter)
+	prompts, err := h.store.List(ctx, filter)
 	if err != nil {
 		slog.Warn("failed to list prompts", logKeyError, err, "scope", filter.Scope)
 		return nil
@@ -548,12 +566,12 @@ func (p *Platform) listScopedDescriptors(ctx context.Context, filter prompt.List
 
 // listPersonaDescriptors lists the caller's persona prompts, presenting each
 // once per persona the caller belongs to (the prefix is the persona name).
-func (p *Platform) listPersonaDescriptors(ctx context.Context, personas []string) []*mcp.Prompt {
+func (h *Handle) listPersonaDescriptors(ctx context.Context, personas []string) []*mcp.Prompt {
 	if len(personas) == 0 {
 		return nil
 	}
 	enabled := true
-	personaPrompts, err := p.promptStore.List(ctx, prompt.ListFilter{
+	personaPrompts, err := h.store.List(ctx, prompt.ListFilter{
 		Scope: prompt.ScopePersona, Personas: personas, Enabled: &enabled,
 	})
 	if err != nil {
@@ -571,84 +589,83 @@ func (p *Platform) listPersonaDescriptors(ctx context.Context, personas []string
 	return out
 }
 
-// getDynamicPrompt resolves a prefixed prompt name to the caller's visible
-// database prompt and renders it for prompts/get. It strips the scope prefix to
-// the bare stored name: personal-/global- are reserved tokens; a persona prefix
-// must be one of the caller's personas, and the target prompt must actually be
-// shared with that persona. Returns (nil, false) when no such visible prompt
-// exists.
+// GetByName resolves a prefixed prompt name to the caller's visible database
+// prompt and renders it for prompts/get. It strips the scope prefix to the bare
+// stored name: personal-/global- are reserved tokens; a persona prefix must be
+// one of the caller's personas, and the target prompt must actually be shared
+// with that persona. Returns (nil, false) when no such visible prompt exists.
+// Wired as the prompts/get visibility callback.
 //
 // The reserved-prefix branches fall through to persona resolution on a miss:
 // persona names are operator-defined and may literally be "personal" or
 // "global", so a name like "global-report" must still resolve a persona prompt
 // when no global prompt by that bare name exists.
-func (p *Platform) getDynamicPrompt(ctx context.Context, email string, personas []string, name string, args map[string]string) (*mcp.GetPromptResult, bool) {
-	if p.promptStore == nil {
+func (h *Handle) GetByName(ctx context.Context, email string, personas []string, name string, args map[string]string) (*mcp.GetPromptResult, bool) {
+	if h == nil || h.store == nil {
 		return nil, false
 	}
 	if bare, ok := strings.CutPrefix(name, promptPrefixPersonal); ok {
-		if res, found := p.getOwnedPersonalPrompt(ctx, email, bare, args); found {
+		if res, found := h.getOwnedPersonalPrompt(ctx, email, bare, args); found {
 			return res, true
 		}
 	}
 	if bare, ok := strings.CutPrefix(name, promptPrefixGlobal); ok {
-		if res, found := p.getGlobalPrompt(ctx, bare, args); found {
+		if res, found := h.getGlobalPrompt(ctx, bare, args); found {
 			return res, true
 		}
 	}
 	if bare, ok := strings.CutPrefix(name, promptPrefixShared); ok {
-		if res, found := p.getSharedPrompt(ctx, email, bare, args); found {
+		if res, found := h.getSharedPrompt(ctx, email, bare, args); found {
 			return res, true
 		}
 	}
-	return p.getPersonaPrompt(ctx, personas, name, args)
+	return h.getPersonaPrompt(ctx, personas, name, args)
 }
 
 // getSharedPrompt renders a prompt shared directly with the caller, matched by
 // bare name. The first matching active share wins (consistent with the dedup in
 // listSharedDescriptors).
-func (p *Platform) getSharedPrompt(ctx context.Context, email, bare string, args map[string]string) (*mcp.GetPromptResult, bool) {
-	share := p.portalStore.ShareStore()
-	if email == "" || share == nil {
+func (h *Handle) getSharedPrompt(ctx context.Context, email, bare string, args map[string]string) (*mcp.GetPromptResult, bool) {
+	if email == "" || h.shareStore == nil {
 		return nil, false
 	}
-	refs, err := share.ListSharedPromptsWithUser(ctx, "", email)
+	refs, err := h.shareStore.ListSharedPromptsWithUser(ctx, "", email)
 	if err != nil {
 		return nil, false
 	}
 	for _, ref := range refs {
-		pr, err := p.promptStore.GetByID(ctx, ref.PromptID)
+		pr, err := h.store.GetByID(ctx, ref.PromptID)
 		if err != nil || pr == nil || !pr.Enabled || pr.Scope != prompt.ScopePersonal {
 			continue
 		}
 		if pr.Name == bare {
-			return p.renderPrompt(pr, args)
+			return renderPrompt(pr, args)
 		}
 	}
 	return nil, false
 }
 
 // getOwnedPersonalPrompt renders the caller's own personal prompt of the bare name.
-func (p *Platform) getOwnedPersonalPrompt(ctx context.Context, email, bare string, args map[string]string) (*mcp.GetPromptResult, bool) {
+func (h *Handle) getOwnedPersonalPrompt(ctx context.Context, email, bare string, args map[string]string) (*mcp.GetPromptResult, bool) {
 	if email == "" {
 		return nil, false
 	}
-	pr, err := p.promptStore.GetPersonal(ctx, email, bare)
+	pr, err := h.store.GetPersonal(ctx, email, bare)
 	if err != nil || pr == nil || !pr.Enabled {
 		return nil, false
 	}
-	return p.renderPrompt(pr, args)
+	return renderPrompt(pr, args)
 }
 
 // getGlobalPrompt renders the global prompt of the bare name.
-func (p *Platform) getGlobalPrompt(ctx context.Context, bare string, args map[string]string) (*mcp.GetPromptResult, bool) {
-	pr, err := p.promptStore.Get(ctx, bare)
+func (h *Handle) getGlobalPrompt(ctx context.Context, bare string, args map[string]string) (*mcp.GetPromptResult, bool) {
+	pr, err := h.store.Get(ctx, bare)
 	// System rows are ingested static prompts already served under their bare
 	// name via AddPrompt; do not also serve them under the global- prefix.
 	if err != nil || pr == nil || !pr.Enabled || pr.Scope != prompt.ScopeGlobal || pr.Source == prompt.SourceSystem {
 		return nil, false
 	}
-	return p.renderPrompt(pr, args)
+	return renderPrompt(pr, args)
 }
 
 // getPersonaPrompt resolves a <persona>-<name> prompt for a caller who belongs
@@ -657,7 +674,7 @@ func (p *Platform) getGlobalPrompt(ctx context.Context, bare string, args map[st
 // way (persona "data" + "engineer-x" vs persona "data-engineer" + "x"); personas
 // are tried longest-name-first so the most specific persona prefix wins
 // deterministically.
-func (p *Platform) getPersonaPrompt(ctx context.Context, personas []string, name string, args map[string]string) (*mcp.GetPromptResult, bool) {
+func (h *Handle) getPersonaPrompt(ctx context.Context, personas []string, name string, args map[string]string) (*mcp.GetPromptResult, bool) {
 	ordered := append([]string(nil), personas...)
 	slices.SortStableFunc(ordered, func(a, b string) int { return len(b) - len(a) })
 	for _, persona := range ordered {
@@ -665,9 +682,9 @@ func (p *Platform) getPersonaPrompt(ctx context.Context, personas []string, name
 		if !ok {
 			continue
 		}
-		if pr, err := p.promptStore.Get(ctx, bare); err == nil && pr != nil && pr.Enabled &&
+		if pr, err := h.store.Get(ctx, bare); err == nil && pr != nil && pr.Enabled &&
 			pr.Scope == prompt.ScopePersona && slices.Contains(pr.Personas, persona) {
-			return p.renderPrompt(pr, args)
+			return renderPrompt(pr, args)
 		}
 	}
 	return nil, false
@@ -676,31 +693,37 @@ func (p *Platform) getPersonaPrompt(ctx context.Context, personas []string, name
 // renderPrompt substitutes the request arguments into a prompt's content.
 // Shared by every serving path so personal and global/persona prompts render
 // identically.
-func (*Platform) renderPrompt(pr *prompt.Prompt, args map[string]string) (*mcp.GetPromptResult, bool) {
+func renderPrompt(pr *prompt.Prompt, args map[string]string) (*mcp.GetPromptResult, bool) {
 	return buildPromptResult(substituteArgs(pr.Content, args)), true
 }
 
-// RegisterRuntimePrompt registers a prompt with the live MCP server at runtime.
-// Called after create/update operations on the prompt store.
-func (p *Platform) RegisterRuntimePrompt(pr *prompt.Prompt) {
-	p.registerDatabasePrompt(pr)
+// RegisterRuntimePrompt records a prompt's metadata at runtime. Called after
+// create/update operations on the prompt store. No-op on a nil Handle.
+func (h *Handle) RegisterRuntimePrompt(pr *prompt.Prompt) {
+	if h == nil {
+		return
+	}
+	h.registerDatabasePrompt(pr)
 }
 
 // UnregisterRuntimePrompt removes a database prompt's tracked metadata. It does
-// NOT call mcpServer.RemovePrompts: database prompts are never placed in the
-// static MCP registry (see registerDatabasePrompt), so removing by bare name
-// there could only ever delete an unrelated built-in/operator/toolkit prompt of
-// the same name. Only the name-keyed metadata entry (global/persona scope) is
-// dropped.
-func (p *Platform) UnregisterRuntimePrompt(name string) {
-	p.promptInfosMu.Lock()
-	for i, info := range p.promptInfos {
+// NOT remove the prompt from the static MCP registry: database prompts are never
+// placed there (see registerDatabasePrompt), so removing by bare name could only
+// ever delete an unrelated built-in/operator/toolkit prompt of the same name.
+// Only the name-keyed metadata entry (global/persona scope) is dropped. No-op
+// on a nil Handle.
+func (h *Handle) UnregisterRuntimePrompt(name string) {
+	if h == nil {
+		return
+	}
+	h.promptInfosMu.Lock()
+	for i, info := range h.promptInfos {
 		if info.Name == name {
-			p.promptInfos = append(p.promptInfos[:i], p.promptInfos[i+1:]...)
+			h.promptInfos = append(h.promptInfos[:i], h.promptInfos[i+1:]...)
 			break
 		}
 	}
-	p.promptInfosMu.Unlock()
+	h.promptInfosMu.Unlock()
 }
 
 // buildPromptResult creates a GetPromptResult with the given content.

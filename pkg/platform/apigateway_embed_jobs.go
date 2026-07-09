@@ -82,7 +82,7 @@ func (p *Platform) WireAPIGatewayEmbedJobsFromDB() {
 		DiscoveryToolName: platformFindToolsName,
 		Consumers: indexqueue.Consumers{
 			Memory:               p.memory.MemoryStore() != nil,
-			Prompts:              p.promptStore != nil,
+			Prompts:              p.prompts.Store() != nil,
 			PortalAssets:         p.portalStore.AssetStore() != nil,
 			PortalCollections:    p.portalStore.CollectionStore() != nil,
 			PortalKnowledgePages: p.portalStore.KnowledgePageStore() != nil,
