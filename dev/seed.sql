@@ -44,7 +44,13 @@ SELECT
     WHEN 'trino' THEN jsonb_build_object(
       'catalog', (ARRAY['iceberg','hive','memory'])[1 + (n % 3)],
       'schema', (ARRAY['retail','inventory','finance','analytics','staging'])[1 + (n % 5)],
-      'table', (ARRAY['daily_sales','store_transactions','inventory_levels','product_catalog','regional_performance'])[1 + (n % 5)]
+      'table', (ARRAY['daily_sales','store_transactions','inventory_levels','product_catalog','regional_performance'])[1 + (n % 5)],
+      -- 'sql' is trino_query's actual required parameter; include it so the audit
+      -- Event Detail "Replay in Inspector" action pre-fills the Try It form.
+      'sql', 'SELECT * FROM '
+        || (ARRAY['retail','inventory','finance','analytics','staging'])[1 + (n % 5)] || '.'
+        || (ARRAY['daily_sales','store_transactions','inventory_levels','product_catalog','regional_performance'])[1 + (n % 5)]
+        || ' LIMIT 100'
     )
     WHEN 'datahub' THEN jsonb_build_object(
       'query', (ARRAY['daily_sales','inventory','customer','revenue','store performance','supply chain'])[1 + (n % 6)]
@@ -177,7 +183,13 @@ SELECT
     WHEN 'trino' THEN jsonb_build_object(
       'catalog', (ARRAY['iceberg','hive','memory'])[1 + (n % 3)],
       'schema', (ARRAY['retail','inventory','finance','analytics'])[1 + (n % 4)],
-      'table', (ARRAY['daily_sales','store_transactions','inventory_levels','product_catalog'])[1 + (n % 4)]
+      'table', (ARRAY['daily_sales','store_transactions','inventory_levels','product_catalog'])[1 + (n % 4)],
+      -- 'sql' is trino_query's actual required parameter; include it so the audit
+      -- Event Detail "Replay in Inspector" action pre-fills the Try It form.
+      'sql', 'SELECT * FROM '
+        || (ARRAY['retail','inventory','finance','analytics'])[1 + (n % 4)] || '.'
+        || (ARRAY['daily_sales','store_transactions','inventory_levels','product_catalog'])[1 + (n % 4)]
+        || ' LIMIT 100'
     )
     WHEN 'datahub' THEN jsonb_build_object(
       'query', (ARRAY['daily_sales','inventory','customer','revenue','store performance'])[1 + (n % 5)]
@@ -244,7 +256,13 @@ SELECT
     WHEN 'trino' THEN jsonb_build_object(
       'catalog', (ARRAY['iceberg','hive','memory'])[1 + (n % 3)],
       'schema', (ARRAY['retail','inventory','finance','analytics','staging'])[1 + (n % 5)],
-      'table', (ARRAY['daily_sales','store_transactions','inventory_levels','product_catalog','regional_performance'])[1 + (n % 5)]
+      'table', (ARRAY['daily_sales','store_transactions','inventory_levels','product_catalog','regional_performance'])[1 + (n % 5)],
+      -- 'sql' is trino_query's actual required parameter; include it so the audit
+      -- Event Detail "Replay in Inspector" action pre-fills the Try It form.
+      'sql', 'SELECT * FROM '
+        || (ARRAY['retail','inventory','finance','analytics','staging'])[1 + (n % 5)] || '.'
+        || (ARRAY['daily_sales','store_transactions','inventory_levels','product_catalog','regional_performance'])[1 + (n % 5)]
+        || ' LIMIT 100'
     )
     WHEN 'datahub' THEN jsonb_build_object(
       'query', (ARRAY['daily_sales','inventory','customer','revenue','store performance','supply chain'])[1 + (n % 6)]

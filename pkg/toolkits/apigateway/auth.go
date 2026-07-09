@@ -107,7 +107,7 @@ func (b bearerAuth) Apply(req *http.Request) error {
 }
 
 // apiKeyAuth attaches the credential as either a header or a query
-// parameter, per the connection's APIKeyPlacement setting.
+// parameter, per the connection's CredentialPlacement setting.
 type apiKeyAuth struct {
 	credential string
 	placement  string
@@ -118,7 +118,7 @@ type apiKeyAuth struct {
 func newAPIKeyAuth(c Config) (apiKeyAuth, error) {
 	a := apiKeyAuth{
 		credential: c.Credential,
-		placement:  c.APIKeyPlacement,
+		placement:  c.CredentialPlacement,
 		header:     c.APIKeyHeader,
 		param:      c.APIKeyParam,
 	}
@@ -126,11 +126,11 @@ func newAPIKeyAuth(c Config) (apiKeyAuth, error) {
 		return apiKeyAuth{}, errors.New("apigateway: api_key credential is empty")
 	}
 	switch a.placement {
-	case APIKeyPlacementHeader:
+	case CredentialPlacementHeader:
 		if a.header == "" {
 			return apiKeyAuth{}, errors.New("apigateway: api_key_header is empty")
 		}
-	case APIKeyPlacementQuery:
+	case CredentialPlacementQuery:
 		if a.param == "" {
 			return apiKeyAuth{}, errors.New("apigateway: api_key_param is empty")
 		}
@@ -141,12 +141,12 @@ func newAPIKeyAuth(c Config) (apiKeyAuth, error) {
 }
 
 // Apply attaches the API key as either a header or a query parameter,
-// per the connection's APIKeyPlacement.
+// per the connection's CredentialPlacement.
 func (a apiKeyAuth) Apply(req *http.Request) error {
 	switch a.placement {
-	case APIKeyPlacementHeader:
+	case CredentialPlacementHeader:
 		req.Header.Set(a.header, a.credential)
-	case APIKeyPlacementQuery:
+	case CredentialPlacementQuery:
 		q := req.URL.Query()
 		q.Set(a.param, a.credential)
 		req.URL.RawQuery = q.Encode()

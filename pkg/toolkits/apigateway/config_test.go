@@ -16,8 +16,8 @@ func TestParseConfig_AppliesDefaults(t *testing.T) {
 	if c.AuthMode != AuthModeNone {
 		t.Errorf("default AuthMode = %q; want %q", c.AuthMode, AuthModeNone)
 	}
-	if c.APIKeyPlacement != APIKeyPlacementHeader {
-		t.Errorf("default APIKeyPlacement = %q; want %q", c.APIKeyPlacement, APIKeyPlacementHeader)
+	if c.CredentialPlacement != CredentialPlacementHeader {
+		t.Errorf("default CredentialPlacement = %q; want %q", c.CredentialPlacement, CredentialPlacementHeader)
 	}
 	if c.APIKeyHeader != DefaultAPIKeyHeader {
 		t.Errorf("default APIKeyHeader = %q; want %q", c.APIKeyHeader, DefaultAPIKeyHeader)
@@ -125,7 +125,7 @@ func TestParseConfig_APIKeyHeaderAuth(t *testing.T) {
 		"auth_mode":         AuthModeAPIKey,
 		"credential":        "k-1",
 		"api_key_header":    "X-Custom-Key",
-		"api_key_placement": APIKeyPlacementHeader,
+		"api_key_placement": CredentialPlacementHeader,
 	})
 	if err != nil {
 		t.Fatalf("ParseConfig: %v", err)
@@ -141,12 +141,12 @@ func TestParseConfig_APIKeyQueryAuth(t *testing.T) {
 		"auth_mode":         AuthModeAPIKey,
 		"credential":        "k-1",
 		"api_key_param":     "api_key",
-		"api_key_placement": APIKeyPlacementQuery,
+		"api_key_placement": CredentialPlacementQuery,
 	})
 	if err != nil {
 		t.Fatalf("ParseConfig: %v", err)
 	}
-	if c.APIKeyPlacement != APIKeyPlacementQuery || c.APIKeyParam != "api_key" {
+	if c.CredentialPlacement != CredentialPlacementQuery || c.APIKeyParam != "api_key" {
 		t.Errorf("placement/param mismatch: %+v", c)
 	}
 }
@@ -226,7 +226,7 @@ func TestParseConfig_ValidationErrors(t *testing.T) {
 				"base_url":          "https://x",
 				"auth_mode":         AuthModeAPIKey,
 				"credential":        "k",
-				"api_key_placement": APIKeyPlacementQuery,
+				"api_key_placement": CredentialPlacementQuery,
 			},
 			want: "api_key_param is required",
 		},

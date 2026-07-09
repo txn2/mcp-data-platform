@@ -29,7 +29,15 @@ export function EventDrawer({
       event_id: event.id,
       event_timestamp: event.timestamp,
     });
-    onNavigate?.("/admin/tools#explore");
+    // Navigate to the search-param URL the Tools page actually reads
+    // (ToolsPage.readSelectionFromURL keys on ?selected=<tool>&tab=<tab>).
+    // This selects the event's tool and opens the Try It tab so the mounted
+    // ToolDetail matches the stashed replay intent and pre-fills the form.
+    // The legacy "#explore" hash set no search params, so the page fell back
+    // to the first tool on the Overview tab and the intent was never consumed.
+    onNavigate?.(
+      `/admin/tools?selected=${encodeURIComponent(event.tool_name)}&tab=tryit`,
+    );
   };
 
   return (

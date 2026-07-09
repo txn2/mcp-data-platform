@@ -97,12 +97,12 @@ const (
 	// credential" signal.
 	AuthModeMTLS = "mtls"
 
-	// APIKeyPlacementHeader (default) sends the credential as an HTTP
+	// CredentialPlacementHeader (default) sends the credential as an HTTP
 	// header named by APIKeyHeader.
-	APIKeyPlacementHeader = "header"
-	// APIKeyPlacementQuery sends the credential as a URL query parameter
+	CredentialPlacementHeader = "header"
+	// CredentialPlacementQuery sends the credential as a URL query parameter
 	// named by APIKeyParam.
-	APIKeyPlacementQuery = "query"
+	CredentialPlacementQuery = "query"
 
 	// DefaultAPIKeyHeader is the conventional API-key header name when
 	// the connection does not specify one.
@@ -212,13 +212,13 @@ type Config struct {
 	// Credential is the bearer token or API key. Ignored when AuthMode
 	// is "none". Encrypted at rest via the platform's FieldEncryptor.
 	Credential string
-	// APIKeyPlacement is "header" (default) or "query" — only consulted
+	// CredentialPlacement is "header" (default) or "query" — only consulted
 	// when AuthMode is "api_key".
-	APIKeyPlacement string
-	// APIKeyHeader is the header name to set when APIKeyPlacement is
+	CredentialPlacement string
+	// APIKeyHeader is the header name to set when CredentialPlacement is
 	// "header". Defaults to "X-API-Key".
 	APIKeyHeader string
-	// APIKeyParam is the query parameter name when APIKeyPlacement is
+	// APIKeyParam is the query parameter name when CredentialPlacement is
 	// "query". No default — required when placement is "query".
 	APIKeyParam string
 	// Username is the userid for HTTP Basic auth (RFC 7617). Required
@@ -389,19 +389,19 @@ func ParseMultiConfig(defaultName string, raw map[string]map[string]any) (MultiC
 // defaults. The returned Config is fully validated.
 func ParseConfig(cfg map[string]any) (Config, error) {
 	c := Config{
-		AuthMode:         AuthModeNone,
-		APIKeyPlacement:  APIKeyPlacementHeader,
-		APIKeyHeader:     DefaultAPIKeyHeader,
-		ConnectTimeout:   DefaultConnectTimeout,
-		CallTimeout:      DefaultCallTimeout,
-		TrustLevel:       TrustLevelUntrusted,
-		MaxResponseBytes: DefaultMaxResponseBytes,
+		AuthMode:            AuthModeNone,
+		CredentialPlacement: CredentialPlacementHeader,
+		APIKeyHeader:        DefaultAPIKeyHeader,
+		ConnectTimeout:      DefaultConnectTimeout,
+		CallTimeout:         DefaultCallTimeout,
+		TrustLevel:          TrustLevelUntrusted,
+		MaxResponseBytes:    DefaultMaxResponseBytes,
 	}
 
 	c.BaseURL = trimTrailingSlash(getString(cfg, cfgKeyBaseURL))
 	c.AuthMode = getStringDefault(cfg, cfgKeyAuthMode, c.AuthMode)
 	c.Credential = getString(cfg, cfgKeyCredential)
-	c.APIKeyPlacement = getStringDefault(cfg, cfgKeyAPIKeyPlacement, c.APIKeyPlacement)
+	c.CredentialPlacement = getStringDefault(cfg, cfgKeyAPIKeyPlacement, c.CredentialPlacement)
 	c.APIKeyHeader = getStringDefault(cfg, cfgKeyAPIKeyHeader, c.APIKeyHeader)
 	c.APIKeyParam = getString(cfg, cfgKeyAPIKeyParam)
 	c.Username = getString(cfg, cfgKeyUsername)
@@ -651,17 +651,17 @@ func (c Config) validateAPIKeyAuth() error {
 	if c.Credential == "" {
 		return errors.New("apigateway: credential is required when auth_mode is \"api_key\"")
 	}
-	switch c.APIKeyPlacement {
-	case APIKeyPlacementHeader:
+	switch c.CredentialPlacement {
+	case CredentialPlacementHeader:
 		if c.APIKeyHeader == "" {
 			return errors.New("apigateway: api_key_header must not be empty")
 		}
-	case APIKeyPlacementQuery:
+	case CredentialPlacementQuery:
 		if c.APIKeyParam == "" {
 			return errors.New("apigateway: api_key_param is required when api_key_placement is \"query\"")
 		}
 	default:
-		return fmt.Errorf("apigateway: invalid api_key_placement %q (want header or query)", c.APIKeyPlacement)
+		return fmt.Errorf("apigateway: invalid api_key_placement %q (want header or query)", c.CredentialPlacement)
 	}
 	return nil
 }

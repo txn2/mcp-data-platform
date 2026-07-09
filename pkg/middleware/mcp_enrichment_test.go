@@ -467,6 +467,26 @@ func TestAppendDiscoveryNoteIfNeeded(t *testing.T) {
 
 		assert.Len(t, result.Content, 1, "no note with nil tracker")
 	})
+
+	// Issue #859: portal/admin (and gateway/rest) runs are exempt from the
+	// search-first gate, so the "call search first" nudge is inapplicable and
+	// must not be appended even though their isolated scope has no discovery.
+	t.Run("stateless shim source skips note", func(t *testing.T) {
+		for _, src := range []string{SourceAdmin, SourceREST} {
+			tracker := NewSessionWorkflowTracker(nil, nil, nil, 30*time.Minute)
+			pc := NewPlatformContext("req")
+			pc.SessionID = "dpp_portal"
+			pc.Source = src
+			pc.EnrichmentApplied = true
+
+			result := &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: "data"}},
+			}
+			appendDiscoveryNoteIfNeeded(context.Background(), result, pc, tracker)
+
+			assert.Len(t, result.Content, 1, "no note for gate-exempt source %q", src)
+		}
+	})
 }
 
 // Helper to create ServerRequest for testing.

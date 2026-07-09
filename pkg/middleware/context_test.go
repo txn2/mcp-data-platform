@@ -162,6 +162,44 @@ func TestPlatformContext_DiscoveryScopeKey(t *testing.T) {
 			t.Errorf("distinct anonymous callers collapsed onto one scope: %q", a.DiscoveryScopeKey())
 		}
 	})
+
+	// Issue #859: a portal run (admin source) authenticates as the operating
+	// admin, but must key on its isolated portal session id, never the admin's
+	// user identity — otherwise a portal replay would advance/read the operator's
+	// own agent-session gate state. The user-first rule is overridden ONLY for
+	// admin source, so a normal authenticated admin (Source unset, e.g. a real
+	// agent) still keys on user.
+	t.Run("admin source keys on portal session, not the operator's user", func(t *testing.T) {
+		portal := &PlatformContext{
+			UserID: "admin-1", AuthType: "oidc", SessionID: "dpp_abc", Source: SourceAdmin,
+		}
+		if got, want := portal.DiscoveryScopeKey(), "session:dpp_abc"; got != want {
+			t.Errorf("portal DiscoveryScopeKey() = %q, want %q", got, want)
+		}
+		agent := &PlatformContext{
+			UserID: "admin-1", AuthType: "oidc", SessionID: "sess-1", Source: SourceMCP,
+		}
+		if got, want := agent.DiscoveryScopeKey(), "user:admin-1"; got != want {
+			t.Errorf("agent DiscoveryScopeKey() = %q, want %q", got, want)
+		}
+		if portal.DiscoveryScopeKey() == agent.DiscoveryScopeKey() {
+			t.Errorf("portal run and the operator's agent session collapsed onto one scope: %q",
+				portal.DiscoveryScopeKey())
+		}
+	})
+
+	// Degenerate case: an admin run whose portal session id failed to mint
+	// (empty SessionID) must fall to the EMPTY ungateable scope, never the
+	// operator's user scope — otherwise a portal search would open that
+	// operator's own agent-session gate (issue #859).
+	t.Run("admin source with empty session never keys on user", func(t *testing.T) {
+		pc := &PlatformContext{
+			UserID: "admin-1", AuthType: "oidc", SessionID: "", Source: SourceAdmin,
+		}
+		if got := pc.DiscoveryScopeKey(); got != "" {
+			t.Errorf("admin+empty-session DiscoveryScopeKey() = %q, want \"\" (isolated, not user:admin-1)", got)
+		}
+	})
 }
 
 func TestTokenContext(t *testing.T) {

@@ -160,7 +160,17 @@ export function AppShell() {
     // cancelling a form that never changed the path) must not push a duplicate
     // history entry, which would make browser Back appear to do nothing. Sync the
     // in-memory path and stop. (#709)
-    if (target === window.location.pathname + window.location.hash) {
+    //
+    // The comparison MUST include window.location.search: `target` carries the
+    // query string (navigate splits only on "#", so a "?selected=..." stays in
+    // pathname), but window.location.pathname does not. Omitting search would
+    // make a navigate("/admin/tools") land as a false no-op whenever a
+    // "?selected=..." deep link is active, so the Tools nav link could never
+    // clear a deep-linked selection (issue #859).
+    if (
+      target ===
+      window.location.pathname + window.location.search + window.location.hash
+    ) {
       setCurrentPath(path);
       return;
     }
@@ -197,8 +207,15 @@ export function AppShell() {
   }, [currentPath, navigate]);
 
   const hashIdx = currentPath.indexOf("#");
-  const route = hashIdx >= 0 ? currentPath.slice(0, hashIdx) : currentPath;
   const initialTab = hashIdx >= 0 ? currentPath.slice(hashIdx + 1) : undefined;
+  // route is the pathname only: strip the query string AND the hash (whichever
+  // comes first). navigate() keeps a target's query string on currentPath so a
+  // search-param deep link (e.g. /admin/tools?selected=x&tab=tryit) survives to
+  // the page, but the page-selection matches below are exact (route === "/x"),
+  // so an unstripped query string would fail every match. ToolsPage reads its
+  // selection from window.location.search independently.
+  const sepIdx = currentPath.search(/[?#]/);
+  const route = sepIdx >= 0 ? currentPath.slice(0, sepIdx) : currentPath;
 
   // Asset viewer routes
   const collectionAssetMatch = route.match(/^\/collections\/([^/]+)\/assets\/(.+)$/);

@@ -220,7 +220,9 @@ func (h *Handler) connectInternalSession(r *http.Request) (*mcp.ClientSession, f
 	ctx := r.Context()
 	// Tag this in-memory session as originating from the admin REST API so
 	// audit rows distinguish portal-driven tool runs ("admin") from real MCP
-	// agents ("mcp") and the gateway REST shim ("rest").
+	// agents ("mcp") and the gateway REST shim ("rest"). MCPToolCallMiddleware
+	// mints a distinct portal session id for admin-source runs (issue #859), so
+	// this shim only has to declare the source; it does not know the id scheme.
 	ctx = middleware.WithSource(ctx, middleware.SourceAdmin)
 	if token := extractToken(r); token != "" {
 		// API key or Bearer token from request headers.

@@ -136,7 +136,19 @@ export function useTryItSession(toolName: string): TryItSession {
   // ── Reset on tool change ──────────────────────────────────────────
   // Tab toggles do NOT trigger this — the hook only re-fires the reset
   // on toolName change because that's the only dependency.
+  //
+  // Guarded by a per-toolName ref so it runs ONCE per distinct tool. This
+  // matters under React 18 StrictMode, which double-invokes every effect on
+  // mount (setup → cleanup → setup). Without the guard the second pass re-ran
+  // this reset and wiped the replayParams the consume effect below had already
+  // applied in the first pass (consume is ref-guarded, so it does NOT re-apply
+  // on the second pass), so an audit-event replay then landed on an EMPTY form
+  // in dev. The ref persists across StrictMode's remount, so the second pass is a
+  // no-op and the applied replay survives.
+  const resetForToolRef = useRef<string | null>(null);
   useEffect(() => {
+    if (resetForToolRef.current === toolName) return;
+    resetForToolRef.current = toolName;
     setHistory([]);
     setLatestResult(null);
     setShowRaw(false);
