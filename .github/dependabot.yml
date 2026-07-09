@@ -33,3 +33,13 @@ updates:
     labels:
       - dependencies
       - docker
+
+  - package-ecosystem: pip
+    directory: /docs
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "docs:"
+    labels:
+      - dependencies
+      - docs

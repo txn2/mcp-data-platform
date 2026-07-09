@@ -29,7 +29,7 @@ GOLINT := golangci-lint
 
 .PHONY: all build test lint lint-full fmt clean install help docs-serve docs-build verify verify-release \
 	tools-check dead-code mutate patch-coverage doc-check emdash-check swagger swagger-check \
-	semgrep codeql sast embed-clean migrate-check \
+	semgrep codeql sast osv embed-clean migrate-check \
 	frontend-install frontend-build frontend-build-content-viewer \
 	frontend-dev frontend-mock frontend-test frontend-lint frontend-e2e \
 	e2e-up e2e-down e2e-seed e2e-test e2e e2e-logs e2e-clean \
@@ -232,6 +232,15 @@ security:
 	gosec -quiet ./...
 	@echo "Running govulncheck..."
 	govulncheck ./...
+
+## osv: Run osv-scanner (informational; mirrors OpenSSF Scorecard)
+## Not part of `verify`: osv-scanner scans the whole go.sum graph regardless of
+## reachability, so it flags test-only/indirect deps that never touch the
+## binary (which govulncheck, already in `security`, correctly reports as 0).
+## Suppressions with justification + expiry live in osv-scanner.toml.
+osv:
+	@echo "Running osv-scanner (informational)..."
+	@osv-scanner scan source -r --config osv-scanner.toml . || true
 
 ## semgrep: Run Semgrep SAST with standard and custom rules
 semgrep:

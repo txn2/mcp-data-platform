@@ -1,0 +1,5 @@
+# Documentation build dependencies (mkdocs-material and transitive deps).
+# Locked + hashed into requirements.txt via pip-compile (pip-tools):
+#   pip-compile --generate-hashes --strip-extras --output-file=docs/requirements.txt docs/requirements.in
+# Dependabot (pip ecosystem, see .github/dependabot.yml) regenerates the locked file weekly.
+mkdocs-material
