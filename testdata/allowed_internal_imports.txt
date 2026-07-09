@@ -123,6 +123,7 @@ pkg/platform -> pkg/oauth
 pkg/platform -> pkg/observability
 pkg/platform -> pkg/observability/proxy
 pkg/platform -> pkg/persona
+pkg/platform -> pkg/platform/branding
 pkg/platform -> pkg/platform/browserauth
 pkg/platform -> pkg/platform/connauth
 pkg/platform -> pkg/platform/connsource
@@ -140,10 +141,12 @@ pkg/platform -> pkg/platform/obs
 pkg/platform -> pkg/platform/personastore
 pkg/platform -> pkg/platform/portalstore
 pkg/platform -> pkg/platform/reflexivecapture
+pkg/platform -> pkg/platform/resourcelayer
 pkg/platform -> pkg/platform/routepolicy
 pkg/platform -> pkg/platform/searchfed
 pkg/platform -> pkg/platform/sessionsync
 pkg/platform -> pkg/platform/toolkitcfg
+pkg/platform -> pkg/platform/userdir
 pkg/platform -> pkg/portal
 pkg/platform -> pkg/portal/knowledgepage
 pkg/platform -> pkg/portal/s3adapter
@@ -219,6 +222,9 @@ pkg/platform/reflexivecapture -> pkg/memory
 pkg/platform/reflexivecapture -> pkg/middleware
 pkg/platform/reflexivecapture -> pkg/toolkits/memory
 pkg/platform/reflexivecapture -> pkg/urnbuild
+pkg/platform/resourcelayer -> pkg/platform/toolkitcfg
+pkg/platform/resourcelayer -> pkg/portal/s3adapter
+pkg/platform/resourcelayer -> pkg/resource
 pkg/platform/routepolicy -> pkg/middleware
 pkg/platform/routepolicy -> pkg/persona
 pkg/platform/searchfed -> pkg/embedding
@@ -237,6 +243,8 @@ pkg/platform/sessionsync -> pkg/session
 pkg/platform/sessionsync -> pkg/session/postgres
 pkg/platform/toolkitcfg -> pkg/platform/cfgmap
 pkg/platform/toolkitcfg -> pkg/platform/fieldcrypt
+pkg/platform/userdir -> pkg/middleware
+pkg/platform/userdir -> pkg/user
 pkg/portal -> internal/contentviewer
 pkg/portal -> pkg/audit
 pkg/portal -> pkg/browsersession

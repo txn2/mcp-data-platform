@@ -6,8 +6,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"log/slog"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -3458,276 +3456,34 @@ func TestNew_WorkflowGatingEnabled(t *testing.T) {
 	}
 }
 
-func mustMap(t *testing.T, v any) map[string]any {
-	t.Helper()
-	m, ok := v.(map[string]any)
-	if !ok {
-		t.Fatalf("expected map[string]any, got %T", v)
-	}
-	return m
-}
-
-func TestInjectPortalLogo(t *testing.T) {
-	svgContent := `<svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="10"/></svg>`
-
-	t.Run("fetches SVG and injects as logo_svg", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("Content-Type", "image/svg+xml")
-			_, _ = w.Write([]byte(svgContent))
-		}))
-		defer srv.Close()
-
-		p := &Platform{config: &Config{
-			Portal: PortalConfig{Logo: srv.URL + "/logo.svg"},
-		}}
-		cfg := map[string]any{"brand_name": "Test"}
-		m := mustMap(t, p.injectPortalLogo(cfg))
-		if m["logo_svg"] != svgContent {
-			t.Errorf("logo_svg = %v, want %q", m["logo_svg"], svgContent)
+// TestBrandingAccessorsDelegate proves the Platform brand accessors read through
+// the branding owner built in initMCPApps (behavioral coverage of the resolve /
+// cache / fetch logic lives in pkg/platform/branding).
+func TestBrandingAccessorsDelegate(t *testing.T) {
+	t.Run("nil handle yields empty brand assets", func(t *testing.T) {
+		p := &Platform{}
+		if got := p.BrandLogoSVG(); got != "" {
+			t.Errorf("BrandLogoSVG() = %q, want empty", got)
 		}
-		if m["logo_url"] != nil {
-			t.Error("logo_url should be nil when SVG was fetched")
-		}
-	})
-
-	t.Run("falls back to logo_url on non-SVG content type", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("Content-Type", "image/png")
-			_, _ = w.Write([]byte("not-svg"))
-		}))
-		defer srv.Close()
-
-		p := &Platform{config: &Config{
-			Portal: PortalConfig{Logo: srv.URL + "/logo.png"},
-		}}
-		cfg := map[string]any{"brand_name": "Test"}
-		m := mustMap(t, p.injectPortalLogo(cfg))
-		if m["logo_url"] != srv.URL+"/logo.png" {
-			t.Errorf("logo_url = %v, want %q", m["logo_url"], srv.URL+"/logo.png")
-		}
-		if m["logo_svg"] != nil {
-			t.Error("logo_svg should be nil for non-SVG")
-		}
-	})
-
-	t.Run("falls back to logo_url on fetch error", func(t *testing.T) {
-		p := &Platform{config: &Config{
-			Portal: PortalConfig{Logo: "http://127.0.0.1:1/unreachable.svg"},
-		}}
-		cfg := map[string]any{"brand_name": "Test"}
-		m := mustMap(t, p.injectPortalLogo(cfg))
-		if m["logo_url"] != "http://127.0.0.1:1/unreachable.svg" {
-			t.Errorf("logo_url = %v, want unreachable URL", m["logo_url"])
-		}
-	})
-
-	t.Run("does not overwrite explicit logo_svg", func(t *testing.T) {
-		p := &Platform{config: &Config{
-			Portal: PortalConfig{Logo: "https://example.com/logo.svg"},
-		}}
-		cfg := map[string]any{"logo_svg": "<svg>custom</svg>"}
-		m := mustMap(t, p.injectPortalLogo(cfg))
-		if m["logo_svg"] != "<svg>custom</svg>" {
-			t.Errorf("logo_svg was overwritten: %v", m["logo_svg"])
-		}
-	})
-
-	t.Run("does not overwrite explicit logo_url", func(t *testing.T) {
-		p := &Platform{config: &Config{
-			Portal: PortalConfig{Logo: "https://example.com/logo.svg"},
-		}}
-		cfg := map[string]any{"logo_url": "https://other.com/logo.png"}
-		m := mustMap(t, p.injectPortalLogo(cfg))
-		if m["logo_url"] != "https://other.com/logo.png" {
-			t.Errorf("logo_url = %v, want %q", m["logo_url"], "https://other.com/logo.png")
-		}
-	})
-
-	t.Run("no-op when portal logo is empty", func(t *testing.T) {
-		p := &Platform{config: &Config{}}
-		cfg := map[string]any{"brand_name": "Test"}
-		m := mustMap(t, p.injectPortalLogo(cfg))
-		if m["logo_url"] != nil {
-			t.Errorf("logo_url should be nil when portal logo is empty, got %v", m["logo_url"])
-		}
-	})
-
-	t.Run("creates map when config is nil", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("Content-Type", "image/svg+xml")
-			_, _ = w.Write([]byte(svgContent))
-		}))
-		defer srv.Close()
-
-		p := &Platform{config: &Config{
-			Portal: PortalConfig{Logo: srv.URL + "/logo.svg"},
-		}}
-		m := mustMap(t, p.injectPortalLogo(nil))
-		if m["logo_svg"] != svgContent {
-			t.Errorf("logo_svg = %v, want %q", m["logo_svg"], svgContent)
-		}
-	})
-}
-
-func TestFetchLogoSVG(t *testing.T) {
-	svgContent := `<svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="10"/></svg>`
-
-	t.Run("returns SVG content", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("Content-Type", "image/svg+xml")
-			_, _ = w.Write([]byte(svgContent))
-		}))
-		defer srv.Close()
-
-		got, err := fetchLogoSVG(srv.URL + "/logo.svg")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if got != svgContent {
-			t.Errorf("got %q, want %q", got, svgContent)
-		}
-	})
-
-	t.Run("rejects non-SVG content type", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("Content-Type", "image/png")
-			_, _ = w.Write([]byte("PNG"))
-		}))
-		defer srv.Close()
-
-		_, err := fetchLogoSVG(srv.URL + "/logo.png")
-		if err == nil {
-			t.Fatal("expected error for non-SVG content type")
-		}
-	})
-
-	t.Run("rejects non-200 status", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusNotFound)
-		}))
-		defer srv.Close()
-
-		_, err := fetchLogoSVG(srv.URL + "/missing.svg")
-		if err == nil {
-			t.Fatal("expected error for 404")
-		}
-	})
-
-	t.Run("rejects non-HTTP scheme", func(t *testing.T) {
-		_, err := fetchLogoSVG("ftp://example.com/logo.svg")
-		if err == nil {
-			t.Fatal("expected error for non-HTTP scheme")
-		}
-	})
-
-	t.Run("handles SVG with charset in content type", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("Content-Type", "image/svg+xml; charset=utf-8")
-			_, _ = w.Write([]byte(svgContent))
-		}))
-		defer srv.Close()
-
-		got, err := fetchLogoSVG(srv.URL + "/logo.svg")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if got != svgContent {
-			t.Errorf("got %q, want %q", got, svgContent)
-		}
-	})
-}
-
-func TestBrandURL(t *testing.T) {
-	t.Run("returns empty when not set", func(t *testing.T) {
-		p := &Platform{config: &Config{}}
 		if got := p.BrandURL(); got != "" {
 			t.Errorf("BrandURL() = %q, want empty", got)
 		}
-	})
-
-	t.Run("returns cached value from injectPortalLogo", func(t *testing.T) {
-		p := &Platform{config: &Config{}}
-		cfg := map[string]any{"brand_url": "https://example.com"}
-		_ = p.injectPortalLogo(cfg)
-		if got := p.BrandURL(); got != "https://example.com" {
-			t.Errorf("BrandURL() = %q, want %q", got, "https://example.com")
-		}
-	})
-}
-
-func TestInjectPortalLogo_CachesBrandURL(t *testing.T) {
-	t.Run("caches brand_url from config", func(t *testing.T) {
-		p := &Platform{config: &Config{}}
-		cfg := map[string]any{"brand_url": "https://platform.io"}
-		_ = p.injectPortalLogo(cfg)
-		if p.resolvedBrandURL != "https://platform.io" {
-			t.Errorf("resolvedBrandURL = %q, want %q", p.resolvedBrandURL, "https://platform.io")
-		}
-	})
-
-	t.Run("caches brand_url even without portal logo", func(t *testing.T) {
-		p := &Platform{config: &Config{}} // no Portal.Logo
-		cfg := map[string]any{"brand_url": "https://noportallogo.io", "logo_svg": "<svg/>"}
-		_ = p.injectPortalLogo(cfg)
-		if p.resolvedBrandURL != "https://noportallogo.io" {
-			t.Errorf("resolvedBrandURL = %q, want %q", p.resolvedBrandURL, "https://noportallogo.io")
-		}
-		// Also verify logo_svg was cached even without portal.Logo
-		if p.resolvedBrandLogoSVG != "<svg/>" {
-			t.Errorf("resolvedBrandLogoSVG = %q, want %q", p.resolvedBrandLogoSVG, "<svg/>")
-		}
-	})
-
-	t.Run("does not set brand_url when absent", func(t *testing.T) {
-		p := &Platform{config: &Config{}}
-		cfg := map[string]any{"brand_name": "Test"}
-		_ = p.injectPortalLogo(cfg)
-		if p.resolvedBrandURL != "" {
-			t.Errorf("resolvedBrandURL = %q, want empty", p.resolvedBrandURL)
-		}
-	})
-}
-
-func TestResolveImplementorLogo(t *testing.T) {
-	svgContent := `<svg viewBox="0 0 32 32"><rect width="32" height="32"/></svg>`
-
-	t.Run("fetches and caches SVG", func(t *testing.T) {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("Content-Type", "image/svg+xml")
-			_, _ = w.Write([]byte(svgContent))
-		}))
-		defer srv.Close()
-
-		p := &Platform{config: &Config{
-			Portal: PortalConfig{Implementor: ImplementorConfig{Logo: srv.URL + "/impl.svg"}},
-		}}
-
-		got := p.ResolveImplementorLogo()
-		if got != svgContent {
-			t.Errorf("ResolveImplementorLogo() = %q, want %q", got, svgContent)
-		}
-
-		// Second call should return cached value (no HTTP request)
-		srv.Close()
-		got2 := p.ResolveImplementorLogo()
-		if got2 != svgContent {
-			t.Errorf("cached ResolveImplementorLogo() = %q, want %q", got2, svgContent)
-		}
-	})
-
-	t.Run("returns empty when logo URL is empty", func(t *testing.T) {
-		p := &Platform{config: &Config{}}
 		if got := p.ResolveImplementorLogo(); got != "" {
 			t.Errorf("ResolveImplementorLogo() = %q, want empty", got)
 		}
 	})
 
-	t.Run("returns empty on fetch failure", func(t *testing.T) {
+	t.Run("initMCPApps builds the branding owner from config", func(t *testing.T) {
+		mcpAppsDisabled := false
 		p := &Platform{config: &Config{
-			Portal: PortalConfig{Implementor: ImplementorConfig{Logo: "http://127.0.0.1:1/unreachable.svg"}},
+			Portal:  PortalConfig{Logo: "https://example.com/logo.svg"},
+			MCPApps: MCPAppsConfig{Enabled: &mcpAppsDisabled},
 		}}
-		if got := p.ResolveImplementorLogo(); got != "" {
-			t.Errorf("ResolveImplementorLogo() = %q, want empty on fetch failure", got)
+		if err := p.initMCPApps(); err != nil {
+			t.Fatalf("initMCPApps: %v", err)
+		}
+		if p.branding == nil {
+			t.Fatal("expected branding owner to be built even when MCP Apps are disabled")
 		}
 	})
 }
@@ -4464,99 +4220,6 @@ func TestAPIKeyStoreAccessor(t *testing.T) {
 	}
 }
 
-func TestResolvedResourceS3Connection(t *testing.T) {
-	t.Run("explicit connection returned", func(t *testing.T) {
-		p := &Platform{config: &Config{
-			Resources: ResourcesConfig{
-				Managed: ManagedResourcesCfg{S3Connection: "my-s3"},
-			},
-		}}
-		if got := p.managedResourceS3Connection(); got != "my-s3" {
-			t.Errorf("got %q, want my-s3", got)
-		}
-	})
-
-	t.Run("falls back to default S3 instance", func(t *testing.T) {
-		p := &Platform{config: &Config{
-			Toolkits: map[string]any{
-				"s3": map[string]any{
-					"instances": map[string]any{
-						"acme": map[string]any{
-							"endpoint":      "http://localhost:9000",
-							"access_key_id": "key",
-							"secret_key":    "secret",
-						},
-					},
-				},
-			},
-		}}
-		if got := p.managedResourceS3Connection(); got != "acme" {
-			t.Errorf("got %q, want acme", got)
-		}
-	})
-
-	t.Run("empty when no S3 toolkit", func(t *testing.T) {
-		p := &Platform{config: &Config{}}
-		if got := p.managedResourceS3Connection(); got != "" {
-			t.Errorf("got %q, want empty", got)
-		}
-	})
-}
-
-func TestResolveDefaultS3Instance(t *testing.T) {
-	t.Run("returns instance name", func(t *testing.T) {
-		p := &Platform{config: &Config{
-			Toolkits: map[string]any{
-				"s3": map[string]any{
-					"instances": map[string]any{
-						"mys3": map[string]any{"endpoint": "http://localhost:9000"},
-					},
-				},
-			},
-		}}
-		if got := p.resolveDefaultS3Instance(); got != "mys3" {
-			t.Errorf("got %q, want mys3", got)
-		}
-	})
-
-	t.Run("returns configured default", func(t *testing.T) {
-		p := &Platform{config: &Config{
-			Toolkits: map[string]any{
-				"s3": map[string]any{
-					"default": "second",
-					"instances": map[string]any{
-						"first":  map[string]any{"endpoint": "http://a:9000"},
-						"second": map[string]any{"endpoint": "http://b:9000"},
-					},
-				},
-			},
-		}}
-		if got := p.resolveDefaultS3Instance(); got != "second" {
-			t.Errorf("got %q, want second", got)
-		}
-	})
-
-	t.Run("empty when no S3 toolkit", func(t *testing.T) {
-		p := &Platform{config: &Config{}}
-		if got := p.resolveDefaultS3Instance(); got != "" {
-			t.Errorf("got %q, want empty", got)
-		}
-	})
-
-	t.Run("empty when instances not a map", func(t *testing.T) {
-		p := &Platform{config: &Config{
-			Toolkits: map[string]any{
-				"s3": map[string]any{
-					"instances": "invalid",
-				},
-			},
-		}}
-		if got := p.resolveDefaultS3Instance(); got != "" {
-			t.Errorf("got %q, want empty", got)
-		}
-	})
-}
-
 func TestRegisterManagedResource(t *testing.T) {
 	t.Run("nil server does not panic", func(_ *testing.T) {
 		p := &Platform{}
@@ -4598,38 +4261,11 @@ func TestUnregisterManagedResource(t *testing.T) {
 }
 
 func TestLoadManagedResources(t *testing.T) {
-	t.Run("nil store does not panic", func(_ *testing.T) {
+	t.Run("nil handle does not panic", func(_ *testing.T) {
 		p := newTestPlatform(t)
-		p.LoadManagedResources() // no store, should be no-op
-	})
-
-	t.Run("store without server does not panic", func(_ *testing.T) {
-		p := &Platform{
-			resourceStore: &noopResourceStore{},
-		}
-		p.LoadManagedResources() // store set but no server
+		p.LoadManagedResources() // no resources handle, should be no-op
 	})
 }
-
-// noopResourceStore satisfies resource.Store for guard-clause tests.
-type noopResourceStore struct{}
-
-func (*noopResourceStore) Insert(_ context.Context, _ resource.Resource) error { return nil }
-
-func (*noopResourceStore) Get(_ context.Context, _ string) (*resource.Resource, error) {
-	return &resource.Resource{}, nil
-}
-
-func (*noopResourceStore) GetByURI(_ context.Context, _ string) (*resource.Resource, error) {
-	return &resource.Resource{}, nil
-}
-
-func (*noopResourceStore) List(_ context.Context, _ resource.Filter) ([]resource.Resource, int, error) {
-	return nil, 0, nil
-}
-
-func (*noopResourceStore) Update(_ context.Context, _ string, _ resource.Update) error { return nil }
-func (*noopResourceStore) Delete(_ context.Context, _ string) error                    { return nil }
 
 // TestBroadcaster_NonNilAfterNew proves Broadcaster() honors its
 // "always non-nil after New" contract — including the previously-buggy
