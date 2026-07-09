@@ -564,3 +564,34 @@ func TestExchangeAuthorizationCode_DoesNotFollowRedirects(t *testing.T) {
 			"Following redirects on the token endpoint would leak the "+
 			"client_secret + authorization_code + code_verifier to the redirect target")
 }
+
+// TestExchangeAuthorizationCode_IdPStructuredError proves that a token
+// endpoint returning HTTP 200 with an OAuth error document (some IdPs
+// signal grant failures in-body rather than via status code) surfaces
+// as an error and does not mint a token. It also exercises the
+// structured-error log path, whose idp_error / idp_error_description
+// values flow through logsan.SanitizeForLog so a hostile IdP cannot
+// forge log lines through the diagnostic string.
+func TestExchangeAuthorizationCode_IdPStructuredError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"error":"invalid_grant","error_description":"code already redeemed\ninjected"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := gatewaykit.OAuthConfig{
+		Grant:        gatewaykit.OAuthGrantAuthorizationCode,
+		TokenURL:     srv.URL + "/token",
+		ClientID:     "id",
+		ClientSecret: "sec",
+	}
+	pending := &pkcestore.State{
+		CodeVerifier: "v-x",
+		RedirectURI:  "https://platform.example.com/cb",
+	}
+
+	_, err := exchangeAuthorizationCode(context.Background(), cfg, pending, "code-x")
+	require.Error(t, err, "an in-body OAuth error must surface as an error, not a token")
+	assert.Contains(t, err.Error(), "invalid_grant")
+}

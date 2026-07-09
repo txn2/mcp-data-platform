@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
 )
 
@@ -173,7 +174,7 @@ func (h *Handler) getIndexJobsSummary(w http.ResponseWriter, r *http.Request) {
 		summary, err := kindSummary(r.Context(), svc, kind)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to load index-jobs summary")
-			slog.Warn("admin: index-jobs summary", logKeyKind, sanitizeLogValue(kind), logKeyError, err)
+			slog.Warn("admin: index-jobs summary", logKeyKind, logsan.SanitizeForLog(kind), logKeyError, err)
 			return
 		}
 		resp.Kinds = append(resp.Kinds, summary)
@@ -326,7 +327,7 @@ func (h *Handler) dismissIndexJobsFailure(w http.ResponseWriter, r *http.Request
 	resolved, err := svc.Resolve(r.Context(), req.Kind, req.SourceID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to dismiss failure")
-		slog.Warn("admin: dismiss failure", logKeyKind, sanitizeLogValue(req.Kind), logKeyError, err)
+		slog.Warn("admin: dismiss failure", logKeyKind, logsan.SanitizeForLog(req.Kind), logKeyError, logsan.SanitizeForLog(err.Error()))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -368,11 +369,11 @@ func (h *Handler) reindexIndexJobs(w http.ResponseWriter, r *http.Request) {
 	enqueued, err := svc.Reindex(r.Context(), req.Kind, req.SourceID)
 	if err != nil {
 		if errors.Is(err, indexjobs.ErrUnknownKind) {
-			writeError(w, http.StatusNotFound, "unknown kind: "+sanitizeLogValue(req.Kind))
+			writeError(w, http.StatusNotFound, "unknown kind: "+logsan.SanitizeForLog(req.Kind))
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to enqueue re-index")
-		slog.Warn("admin: reindex", logKeyKind, sanitizeLogValue(req.Kind), logKeyError, err)
+		slog.Warn("admin: reindex", logKeyKind, logsan.SanitizeForLog(req.Kind), logKeyError, logsan.SanitizeForLog(err.Error()))
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{

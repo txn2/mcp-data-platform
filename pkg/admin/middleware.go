@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
@@ -200,7 +201,7 @@ func (pa *PlatformAuthenticator) authenticateViaToken(r *http.Request) (*User, e
 		// Auth failures (invalid keys, expired tokens) are not internal
 		// errors — treat them as "no valid credentials" so the middleware
 		// returns 401 instead of 500.
-		slog.Debug("admin auth rejected", "error", err)
+		slog.Debug("admin auth rejected", "error", logsan.SanitizeForLog(err.Error()))
 		return nil, nil //nolint:nilnil // auth failure → unauthenticated
 	}
 	if info == nil {

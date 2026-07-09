@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
@@ -327,7 +328,7 @@ func (h *Handler) getCatalogEntity(w http.ResponseWriter, r *http.Request) {
 	columns, err := reader.GetColumnsContext(r.Context(), *id)
 	if err != nil {
 		// Columns are supplementary; a failure there should not fail the read.
-		slog.Warn("portal catalog entity: columns read failed", "urn", urn, "error", err)
+		slog.Warn("portal catalog entity: columns read failed", "urn", logsan.SanitizeForLog(urn), "error", err)
 		columns = nil
 	}
 	writeJSON(w, http.StatusOK, catalogEntityResponse{URN: urn, Context: tableCtx, Columns: columns})

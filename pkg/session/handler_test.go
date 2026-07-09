@@ -3,6 +3,8 @@ package session
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,6 +21,22 @@ type errStore struct {
 	*MemoryStore
 	getErr    error
 	createErr error
+	deleteErr error
+	touchErr  error
+}
+
+func (s *errStore) Touch(ctx context.Context, id string) error {
+	if s.touchErr != nil {
+		return s.touchErr
+	}
+	return s.MemoryStore.Touch(ctx, id)
+}
+
+func (s *errStore) Delete(ctx context.Context, id string) error {
+	if s.deleteErr != nil {
+		return s.deleteErr
+	}
+	return s.MemoryStore.Delete(ctx, id)
 }
 
 func (s *errStore) Get(ctx context.Context, id string) (*Session, error) {
@@ -433,26 +451,6 @@ func TestHashToken(t *testing.T) {
 	assert.NotEqual(t, h, hashToken("other"), "different input should produce different hash")
 }
 
-func TestSanitizeLogValue(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{"clean", "abc-123", "abc-123"},
-		{"newlines", "line1\nline2\n", "line1line2"},
-		{"carriage return", "a\rb", "ab"},
-		{"tabs", "a\tb", "ab"},
-		{"mixed control chars", "a\n\r\tb", "ab"},
-		{"empty", "", ""},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, sanitizeLogValue(tt.input))
-		})
-	}
-}
-
 func TestAwareSessionID_EmptyContext(t *testing.T) {
 	got := AwareSessionID(context.Background())
 	assert.Empty(t, got, "plain context should return empty string")
@@ -697,6 +695,26 @@ func TestHandler_ReviveSession_CreateError(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
+// TestHandler_Delete_StoreError exercises the delete-failure branch: a
+// store Delete error is logged (session ID sanitized via logsan) but is
+// non-fatal, so the DELETE still forwards to the inner handler.
+func TestHandler_Delete_StoreError(t *testing.T) {
+	es := &errStore{
+		MemoryStore: NewMemoryStore(handlerTestTTL),
+		deleteErr:   errors.New("delete failed"),
+	}
+	inner := &testInnerHandler{}
+	handler := NewAwareHandler(inner, HandlerConfig{Store: es, TTL: handlerTestTTL})
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, handlerTestPath, http.NoBody)
+	req.Header.Set(sessionIDHeader, "delete-fail")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	assert.True(t, inner.wasCalled(), "DELETE should still forward to inner even when store delete fails")
+}
+
 // flushRecorder is httptest.ResponseRecorder + http.Flusher so the SSE
 // branch's flusher type assertion succeeds in tests.
 type flushRecorder struct{ *httptest.ResponseRecorder }
@@ -912,6 +930,209 @@ func TestWriteSSEEvent_FormatIsJSONRPC2(t *testing.T) {
 	assert.Contains(t, body, `"params":{"k":"v"}`)
 	// SSE frame must end with double newline per WHATWG HTML §server-sent events.
 	assert.True(t, strings.HasSuffix(body, "\n\n"), "expected SSE double-newline terminator, got %q", body)
+}
+
+// signalLogHandler is a slog.Handler that closes a channel the first
+// time a log record whose message contains a needle is emitted. It lets
+// a test wait deterministically for a specific (possibly asynchronous)
+// log line to execute rather than sleeping. Records are discarded after
+// inspection; Enabled always returns true so debug-level sites fire.
+type signalLogHandler struct {
+	needle string
+	fire   func()
+}
+
+func (*signalLogHandler) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h *signalLogHandler) Handle(_ context.Context, r slog.Record) error {
+	if strings.Contains(r.Message, h.needle) {
+		h.fire()
+	}
+	return nil
+}
+
+func (h *signalLogHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+
+func (h *signalLogHandler) WithGroup(string) slog.Handler { return h }
+
+// newLogSignal installs a default slog logger that closes the returned
+// channel the first time a record's message contains needle. The
+// previous default logger is restored via t.Cleanup. This gives tests a
+// happens-after signal tied to the exact log site under test, so
+// coverage of that line is deterministic rather than racy.
+func newLogSignal(t *testing.T, needle string) <-chan struct{} {
+	t.Helper()
+	ch := make(chan struct{})
+	var once sync.Once
+	prev := slog.Default()
+	slog.SetDefault(slog.New(&signalLogHandler{
+		needle: needle,
+		fire:   func() { once.Do(func() { close(ch) }) },
+	}))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return ch
+}
+
+// failingSSEWriter is an http.Flusher ResponseWriter whose Write fails
+// for SSE data frames (payloads containing "data:") while letting the
+// comment-frame writes (": connected", ": keepalive") succeed. This
+// drives the SSE write-failure branch without disturbing stream setup.
+type failingSSEWriter struct {
+	*httptest.ResponseRecorder
+}
+
+func (w *failingSSEWriter) Write(b []byte) (int, error) {
+	if strings.Contains(string(b), "data:") {
+		return 0, errors.New("connection reset by peer")
+	}
+	n, err := w.ResponseRecorder.Write(b)
+	if err != nil {
+		return n, fmt.Errorf("recorder write: %w", err)
+	}
+	return n, nil
+}
+
+func (failingSSEWriter) Flush() {}
+
+// TestHandler_HandleExisting_AsyncTouchError covers handler.go:220 — the
+// detached touch goroutine logs "session: touch failed" when the store's
+// Touch returns an error. The request still succeeds (the touch is
+// best-effort), so the assertion waits on the log signal to prove the
+// async branch executed before the test returns.
+func TestHandler_HandleExisting_AsyncTouchError(t *testing.T) {
+	touchLogged := newLogSignal(t, "session: touch failed")
+
+	es := &errStore{
+		MemoryStore: NewMemoryStore(handlerTestTTL),
+		touchErr:    errors.New("touch failed"),
+	}
+	ctx := context.Background()
+	sess := newTestSession("touch-sess", handlerTestTTL)
+	sess.UserID = "" // anonymous — ownership check passes, reaches touch goroutine
+	require.NoError(t, es.Create(ctx, sess))
+
+	inner := &testInnerHandler{}
+	handler := NewAwareHandler(inner, HandlerConfig{Store: es, TTL: handlerTestTTL})
+
+	req := httptest.NewRequestWithContext(ctx, http.MethodPost, handlerTestPath, http.NoBody)
+	req.Header.Set(sessionIDHeader, "touch-sess")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	assert.True(t, inner.wasCalled(), "request should still be forwarded despite touch failure")
+
+	select {
+	case <-touchLogged:
+	case <-time.After(2 * time.Second):
+		t.Fatal("async touch goroutine did not log the touch failure")
+	}
+}
+
+// TestHandler_SSE_HeartbeatTouchError covers handler.go:329 — on the
+// heartbeat tick the SSE loop touches the store; a Touch error logs
+// "session: SSE touch failed". The package heartbeat interval is
+// shortened so the tick fires deterministically within the test.
+func TestHandler_SSE_HeartbeatTouchError(t *testing.T) {
+	orig := sseHeartbeatInterval
+	sseHeartbeatInterval = 5 * time.Millisecond
+	defer func() { sseHeartbeatInterval = orig }()
+
+	touchLogged := newLogSignal(t, "session: SSE touch failed")
+
+	es := &errStore{
+		MemoryStore: NewMemoryStore(handlerTestTTL),
+		touchErr:    errors.New("touch failed"),
+	}
+	b := NewMemoryBroadcaster(nil)
+	t.Cleanup(func() { _ = b.Close() })
+	handler := NewAwareHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTeapot) // inner must not be reached for a valid SSE GET
+	}), HandlerConfig{Store: es, TTL: handlerTestTTL, Broadcaster: b})
+
+	sess := newTestSession("hb-sess", handlerTestTTL)
+	sess.UserID = ""
+	require.NoError(t, es.Create(context.Background(), sess))
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, handlerTestPath, http.NoBody)
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set(sessionIDHeader, "hb-sess")
+	w := &failingSSEWriter{ResponseRecorder: httptest.NewRecorder()}
+
+	done := make(chan struct{})
+	go func() {
+		handler.ServeHTTP(w, req)
+		close(done)
+	}()
+
+	select {
+	case <-touchLogged:
+	case <-time.After(2 * time.Second):
+		t.Fatal("SSE heartbeat touch-failure log not observed")
+	}
+
+	cancel()
+	<-done
+}
+
+// TestHandler_SSE_WriteError covers handler.go:339 — when writing a
+// broadcast event to the client fails, the SSE loop logs "session: SSE
+// write failed" and returns. A failing ResponseWriter forces the write
+// error while a published event drives the event branch.
+func TestHandler_SSE_WriteError(t *testing.T) {
+	writeLogged := newLogSignal(t, "session: SSE write failed")
+
+	store := NewMemoryStore(handlerTestTTL)
+	t.Cleanup(func() { _ = store.Close() })
+	b := NewMemoryBroadcaster(nil)
+	t.Cleanup(func() { _ = b.Close() })
+	handler := NewAwareHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	}), HandlerConfig{Store: store, TTL: handlerTestTTL, Broadcaster: b})
+
+	sess := newTestSession("write-sess", handlerTestTTL)
+	sess.UserID = ""
+	require.NoError(t, store.Create(context.Background(), sess))
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, handlerTestPath, http.NoBody)
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set(sessionIDHeader, "write-sess")
+	w := &failingSSEWriter{ResponseRecorder: httptest.NewRecorder()}
+
+	done := make(chan struct{})
+	go func() {
+		handler.ServeHTTP(w, req)
+		close(done)
+	}()
+
+	// Wait for the SSE handler to register its subscription before publishing.
+	deadline := time.After(time.Second)
+	for b.SubscriberCount() == 0 {
+		select {
+		case <-deadline:
+			t.Fatal("SSE subscription did not register")
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+
+	require.NoError(t, b.Publish(context.Background(), Event{Method: "notifications/tools/list_changed"}))
+
+	select {
+	case <-writeLogged:
+	case <-time.After(2 * time.Second):
+		t.Fatal("SSE write-failure log not observed")
+	}
+
+	// The loop returns immediately after the write failure (handler.go:341).
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("SSE handler did not return after write failure")
+	}
 }
 
 func TestAcceptsSSE(t *testing.T) {

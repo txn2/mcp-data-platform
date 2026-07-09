@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/pkcestore"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -181,8 +182,8 @@ func validateAPIGatewayCallbackQuery(w http.ResponseWriter, q url.Values, pendin
 		// it under `code` would mislead any SIEM rule grepping for
 		// authorization-code reuse.
 		slog.Warn("api-gateway oauth-callback: upstream error",
-			logKeyName, pending.Connection, "idp_error", oauthErr,
-			"idp_error_description", q.Get("error_description"))
+			logKeyName, pending.Connection, "idp_error", logsan.SanitizeForLog(oauthErr),
+			"idp_error_description", logsan.SanitizeForLog(q.Get("error_description")))
 		writeOAuthError(w, "upstream OAuth error: "+oauthErr)
 		return false
 	}

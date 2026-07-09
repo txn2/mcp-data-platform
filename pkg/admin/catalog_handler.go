@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	apicatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalogindex"
@@ -463,7 +464,7 @@ func (h *Handler) copyCatalogSpecs(w http.ResponseWriter, r *http.Request, srcID
 		if rows, err := h.deps.APICatalogStore.ListOperationEmbeddings(r.Context(), srcID, s.SpecName); err == nil && len(rows) > 0 {
 			if upErr := h.deps.APICatalogStore.UpsertOperationEmbeddings(r.Context(), dstID, s.SpecName, rows); upErr != nil {
 				slog.Warn("apigateway: clone embeddings copy failed",
-					logKeyCatalogID, dstID, logKeySpecName, s.SpecName, logKeyError, upErr)
+					logKeyCatalogID, logsan.SanitizeForLog(dstID), logKeySpecName, logsan.SanitizeForLog(s.SpecName), logKeyError, upErr)
 			}
 		} else {
 			// Vectors were missing on the source side too;
@@ -1074,7 +1075,7 @@ func (h *Handler) enqueueEmbedJob(ctx context.Context, catalogID, specName strin
 		CatalogID: catalogID, SpecName: specName,
 	}, catalogindex.KindSpecWrite); err != nil {
 		slog.Warn("apigateway: enqueue embedding job failed",
-			logKeyCatalogID, catalogID, logKeySpecName, specName, logKeyError, err)
+			logKeyCatalogID, logsan.SanitizeForLog(catalogID), logKeySpecName, logsan.SanitizeForLog(specName), logKeyError, err)
 	}
 }
 
@@ -1393,7 +1394,7 @@ func (h *Handler) validateConnectionCatalog(ctx context.Context, kind string, co
 	}
 	if err != nil {
 		slog.Warn("validateConnectionCatalog: lookup failed",
-			"catalog_id", id, logKeyError, err)
+			"catalog_id", logsan.SanitizeForLog(id), logKeyError, err)
 		return "failed to validate catalog_id", false
 	}
 	return "", true

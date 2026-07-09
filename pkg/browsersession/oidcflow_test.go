@@ -849,27 +849,6 @@ func TestHTTPClientCustom(t *testing.T) {
 	}
 }
 
-func TestSanitizeLogValue(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{"clean", "hello world", "hello world"},
-		{"newlines", "line1\nline2\r\n", "line1 line2  "},
-		{"tabs", "col1\tcol2", "col1 col2"},
-		{"empty", "", ""},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := sanitizeLogValue(tt.input)
-			if got != tt.want {
-				t.Errorf("sanitizeLogValue(%q) = %q, want %q", tt.input, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestPKCEChallenge(t *testing.T) {
 	// Verify S256 challenge is deterministic for same verifier
 	verifier := "test-verifier-value"

@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/pkcestore"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	gatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/gateway"
@@ -122,8 +123,8 @@ func (h *Handler) startGatewayOAuth(w http.ResponseWriter, r *http.Request) {
 		RedirectURI:  redirectURI,
 	}); err != nil {
 		slog.Error("oauth-start: failed to persist pkce state",
-			logKeyName, name,
-			logKeyStartedBy, startedBy,
+			logKeyName, logsan.SanitizeForLog(name),
+			logKeyStartedBy, logsan.SanitizeForLog(startedBy),
 			logKeyError, err)
 		writeError(w, http.StatusInternalServerError, "failed to record OAuth state")
 		return
@@ -134,12 +135,12 @@ func (h *Handler) startGatewayOAuth(w http.ResponseWriter, r *http.Request) {
 	// is truncated (first 8 chars) — full state is what authenticates
 	// the callback, so it must not appear in logs.
 	slog.Info("oauth-start: PKCE state issued",
-		logKeyName, name,
-		logKeyStartedBy, startedBy,
+		logKeyName, logsan.SanitizeForLog(name),
+		logKeyStartedBy, logsan.SanitizeForLog(startedBy),
 		logKeyStatePrefix, truncateForLog(state),
-		logKeyRedirectURI, redirectURI,
-		"authorization_url_host", gatewaykit.URLHost(cfg.OAuth.AuthorizationURL),
-		"return_url", body.ReturnURL,
+		logKeyRedirectURI, logsan.SanitizeForLog(redirectURI),
+		"authorization_url_host", logsan.SanitizeForLog(gatewaykit.URLHost(cfg.OAuth.AuthorizationURL)),
+		"return_url", logsan.SanitizeForLog(body.ReturnURL),
 		"ttl", pkcestore.TTL)
 
 	writeJSON(w, http.StatusOK, startGatewayOAuthResponse{
@@ -171,6 +172,9 @@ const (
 // the full secret in log files.
 func truncateForLog(s string) string {
 	const truncateLen = 8
+	// Strip control characters before truncating so a forged state value
+	// cannot inject log lines through the correlation prefix.
+	s = logsan.SanitizeForLog(s)
 	if len(s) <= truncateLen {
 		return s
 	}
@@ -274,7 +278,7 @@ func (h *Handler) gatewayOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		logKeyStatePrefix, statePrefix,
 		"has_code", q.Get("code") != "",
 		"has_error", q.Get("error") != "",
-		"client_ip", clientIP(r))
+		"client_ip", logsan.SanitizeForLog(clientIP(r)))
 	if state == "" {
 		slog.Warn("oauth-callback: missing state parameter")
 		writeOAuthError(w, "missing state parameter")
@@ -309,8 +313,8 @@ func (h *Handler) gatewayOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		errDesc := q.Get("error_description")
 		slog.Warn("oauth-callback: IdP returned error",
 			logKeyName, pending.Connection,
-			"idp_error", errCode,
-			"idp_error_description", errDesc)
+			"idp_error", logsan.SanitizeForLog(errCode),
+			"idp_error_description", logsan.SanitizeForLog(errDesc))
 		writeOAuthError(w, fmt.Sprintf("upstream returned %s: %s", errCode, errDesc))
 		return
 	}
@@ -349,7 +353,7 @@ func (h *Handler) gatewayOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("oauth-callback: returnURL rewritten by safeReturnURL guard",
 			logKeyName, pending.Connection,
 			logKeyStartedBy, pending.StartedBy,
-			"requested_return_url", pending.ReturnURL,
+			"requested_return_url", logsan.SanitizeForLog(pending.ReturnURL),
 			"rewritten_to", dest)
 	}
 	slog.Info("oauth-callback: success — tokens persisted, redirecting",
@@ -481,7 +485,7 @@ func exchangeAuthorizationCode(ctx context.Context, oc gatewaykit.OAuthConfig,
 	req.Header.Set("Accept", "application/json")
 
 	exchangeStart := time.Now()
-	tokenHost := gatewaykit.URLHost(oc.TokenURL)
+	tokenHost := logsan.SanitizeForLog(gatewaykit.URLHost(oc.TokenURL))
 	// Emit grant_type on every admin-side exchange log so operators can
 	// grep one connection's full lifecycle (admin code-exchange +
 	// gateway refresh) by `grant_type=*` regardless of which package
@@ -489,7 +493,7 @@ func exchangeAuthorizationCode(ctx context.Context, oc gatewaykit.OAuthConfig,
 	slog.Debug("oauth-exchange: posting authorization_code grant",
 		gatewaykit.LogKeyTokenURLHost, tokenHost,
 		gatewaykit.LogKeyGrantType, gatewaykit.OAuthGrantAuthorizationCode,
-		"client_id", oc.ClientID,
+		"client_id", logsan.SanitizeForLog(oc.ClientID),
 		logKeyRedirectURI, pending.RedirectURI)
 	resp, err := codeExchangeClient.Do(req)
 	if err != nil {
@@ -548,8 +552,8 @@ func exchangeAuthorizationCode(ctx context.Context, oc gatewaykit.OAuthConfig,
 		slog.Warn("oauth-exchange: structured error in token response",
 			gatewaykit.LogKeyTokenURLHost, tokenHost,
 			gatewaykit.LogKeyGrantType, gatewaykit.OAuthGrantAuthorizationCode,
-			"idp_error", tr.Error,
-			"idp_error_description", tr.ErrorDesc)
+			"idp_error", logsan.SanitizeForLog(tr.Error),
+			"idp_error_description", logsan.SanitizeForLog(tr.ErrorDesc))
 		return nil, fmt.Errorf("upstream %s: %s", tr.Error, tr.ErrorDesc)
 	}
 	if tr.AccessToken == "" {

@@ -531,6 +531,32 @@ func TestCreatePersonaWithStoreError(t *testing.T) {
 	assert.Equal(t, 0, pReg.registerCalled)
 }
 
+func TestUpdatePersonaWithStoreError(t *testing.T) {
+	pReg := &mockPersonaRegistry{allResult: testPersonas("admin", "analyst")}
+	cs := &mockConfigStore{mode: "database"}
+	ps := &mockPersonaStore{setErr: fmt.Errorf("database connection lost")}
+	h := NewHandler(Deps{
+		PersonaRegistry: pReg,
+		Config:          testConfig(),
+		ConfigStore:     cs,
+		PersonaStore:    ps,
+	}, nil)
+
+	body := `{"name":"analyst","display_name":"Data Analyst","roles":["analyst"],"allow_tools":["trino_*"]}`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/admin/personas/analyst", strings.NewReader(body))
+	req.SetPathValue("name", "analyst")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	// Store error should fail the request — DB-first two-phase commit.
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	pd := decodeProblem(w.Body.Bytes())
+	assert.Equal(t, "failed to persist persona", pd.Detail)
+	require.Len(t, ps.setCalls, 1)
+	// Registry should NOT have been updated on a persist failure.
+	assert.Equal(t, 0, pReg.registerCalled)
+}
+
 func TestDeletePersonaWithStoreError(t *testing.T) {
 	pReg := &mockPersonaRegistry{allResult: testPersonas("admin", "analyst")}
 	cs := &mockConfigStore{mode: "database"}
@@ -687,6 +713,41 @@ func TestPersonaSourceTracking(t *testing.T) {
 		reverted, ok := pReg.Get("analyst")
 		assert.True(t, ok)
 		assert.Equal(t, "file", reverted.Source)
+	})
+
+	t.Run("delete both tolerates a failed revert re-register", func(t *testing.T) {
+		p := testPersonas("analyst")[0]
+		p.Source = "both"
+		pReg := &mockPersonaRegistry{
+			allResult:   []*persona.Persona{p},
+			registerErr: fmt.Errorf("registry unavailable"),
+		}
+		cs := &mockConfigStore{mode: "database"}
+		ps := &mockPersonaStore{}
+		cfg := testConfig()
+		cfg.Personas.Definitions = map[string]platform.PersonaDef{
+			"analyst": {
+				DisplayName: "File Analyst",
+				Roles:       []string{"analyst"},
+				Tools:       platform.ToolRulesDef{Allow: []string{"*"}},
+			},
+		}
+		h := NewHandler(Deps{
+			PersonaRegistry:  pReg,
+			Config:           cfg,
+			ConfigStore:      cs,
+			PersonaStore:     ps,
+			FilePersonaNames: map[string]bool{"analyst": true},
+		}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/admin/personas/analyst", http.NoBody)
+		req.SetPathValue("name", "analyst")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		// The DB delete succeeded; a failed file-version re-register is
+		// logged (name sanitized via logsan) but does not fail the request.
+		assert.Equal(t, http.StatusOK, w.Code)
 	})
 }
 

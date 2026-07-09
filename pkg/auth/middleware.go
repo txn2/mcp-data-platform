@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
 
@@ -108,8 +109,8 @@ func (c *ChainedAuthenticator) Authenticate(ctx context.Context) (*middleware.Us
 			"index", i,
 			"type", fmt.Sprintf("%T", auth),
 			"error", err.Error(),
-			logKeyRequestID, reqID,
-			logKeyTool, tool,
+			logKeyRequestID, logsan.SanitizeForLog(reqID),
+			logKeyTool, logsan.SanitizeForLog(tool),
 		)
 		lastErr = err
 	}

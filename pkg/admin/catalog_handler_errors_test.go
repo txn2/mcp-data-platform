@@ -28,6 +28,12 @@ type errorCatalogStore struct {
 	delSpecErr  error
 	refErr      error
 
+	// listEmbRows is returned by ListOperationEmbeddings; a non-empty
+	// slice drives the clone path into the UpsertOperationEmbeddings
+	// call so upsertEmbErr can exercise the best-effort warn branch.
+	listEmbRows  []apicatalog.OperationEmbedding
+	upsertEmbErr error
+
 	catalogs map[string]apicatalog.Catalog
 	specs    map[string]map[string]apicatalog.SpecEntry
 }
@@ -134,12 +140,12 @@ func (s *errorCatalogStore) ReferencingConnections(_ context.Context, _ string) 
 	return nil, nil
 }
 
-func (*errorCatalogStore) UpsertOperationEmbeddings(_ context.Context, _, _ string, _ []apicatalog.OperationEmbedding) error {
-	return nil
+func (s *errorCatalogStore) UpsertOperationEmbeddings(_ context.Context, _, _ string, _ []apicatalog.OperationEmbedding) error {
+	return s.upsertEmbErr
 }
 
-func (*errorCatalogStore) ListOperationEmbeddings(_ context.Context, _, _ string) ([]apicatalog.OperationEmbedding, error) {
-	return nil, nil
+func (s *errorCatalogStore) ListOperationEmbeddings(_ context.Context, _, _ string) ([]apicatalog.OperationEmbedding, error) {
+	return s.listEmbRows, nil
 }
 
 func (*errorCatalogStore) SetOperationCount(_ context.Context, _, _ string, _ int) error {
@@ -397,6 +403,71 @@ func TestCatalog_CloneCopyUpsertError(t *testing.T) {
 		map[string]any{"id": "dst"})
 	if res.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 500: %d", res.Code)
+	}
+}
+
+// TestCatalog_CloneEmbeddingsCopyWarns drives the clone route into
+// the best-effort embedding-copy branch (catalog_handler.go:467):
+// the source spec has persisted vectors (ListOperationEmbeddings
+// returns rows) but the destination-side UpsertOperationEmbeddings
+// fails. The clone must still succeed (201) because the warn is
+// best-effort; the reconciler re-indexes on its next sweep.
+func TestCatalog_CloneEmbeddingsCopyWarns(t *testing.T) {
+	t.Parallel()
+	store := newErrorStore()
+	store.catalogs["src"] = apicatalog.Catalog{ID: "src", Name: "n", DisplayName: "N"}
+	store.specs["src"] = map[string]apicatalog.SpecEntry{
+		"default": {SpecName: "default", Content: "x", SourceKind: apicatalog.SourceInline},
+	}
+	// Source has vectors so the copy path (not the enqueue fallback)
+	// runs; the destination upsert fails so the warn branch executes.
+	store.listEmbRows = []apicatalog.OperationEmbedding{
+		{OperationID: "getThing", Model: "test", Dim: 1, Embedding: []float32{0.1}},
+	}
+	store.upsertEmbErr = errors.New("vector write failed")
+	h := handlerWithStore(store)
+	res := doJSON(t, h, http.MethodPost, "/api/v1/admin/api-catalogs/src/clone",
+		map[string]any{"id": "dst"})
+	if res.Code != http.StatusCreated {
+		t.Fatalf("expected 201 despite best-effort embedding copy failure: %d %s",
+			res.Code, res.Body.String())
+	}
+	// The destination catalog and spec must still be persisted.
+	if _, ok := store.catalogs["dst"]; !ok {
+		t.Error("destination catalog was not created")
+	}
+	if _, ok := store.specs["dst"]["default"]; !ok {
+		t.Error("destination spec was not copied")
+	}
+}
+
+// TestSetConnectionInstance_CatalogLookupError drives
+// validateConnectionCatalog into its non-ErrNotFound error branch
+// (catalog_handler.go:1397): the catalog store returns a transient
+// error (not ErrNotFound) while validating an api-kind connection's
+// catalog_id. The handler must reject the write with 400 and the
+// "failed to validate" detail rather than silently proceeding.
+func TestSetConnectionInstance_CatalogLookupError(t *testing.T) {
+	t.Parallel()
+	catStore := newErrorStore()
+	catStore.getErr = errors.New("db timeout")
+	h := NewHandler(Deps{
+		Config:          testConfig(),
+		ConnectionStore: &mockConnectionStore{},
+		ConfigStore:     &mockConfigStore{mode: "database"},
+		APICatalogStore: catStore,
+	}, nil)
+	body := `{"config":{"base_url":"https://x","catalog_id":"c1"},"description":""}`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut,
+		"/api/v1/admin/connection-instances/api/c", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 on catalog lookup error: %d %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "failed to validate catalog_id") {
+		t.Errorf("expected validate-failure detail, got: %s", w.Body.String())
 	}
 }
 

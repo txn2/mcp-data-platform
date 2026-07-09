@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/pkcestore"
@@ -129,19 +130,20 @@ func (h *Handler) startConnectionOAuth(w http.ResponseWriter, r *http.Request) {
 		RedirectURI:  redirectURI,
 	}); err != nil {
 		slog.Error("oauth-start: failed to persist pkce state",
-			logKeyKind, kind, logKeyName, name, logKeyStartedBy, startedBy, logKeyError, err)
+			logKeyKind, logsan.SanitizeForLog(kind), logKeyName, logsan.SanitizeForLog(name),
+			logKeyStartedBy, logsan.SanitizeForLog(startedBy), logKeyError, err)
 		writeError(w, http.StatusInternalServerError, "failed to record OAuth state")
 		return
 	}
 
 	slog.Info("oauth-start: PKCE state issued",
-		logKeyKind, kind,
-		logKeyName, name,
-		logKeyStartedBy, startedBy,
+		logKeyKind, logsan.SanitizeForLog(kind),
+		logKeyName, logsan.SanitizeForLog(name),
+		logKeyStartedBy, logsan.SanitizeForLog(startedBy),
 		logKeyStatePrefix, truncateForLog(state),
-		logKeyRedirectURI, redirectURI,
-		"authorization_url_host", urlHostForLog(cfg.AuthorizationURL),
-		"return_url", body.ReturnURL,
+		logKeyRedirectURI, logsan.SanitizeForLog(redirectURI),
+		"authorization_url_host", logsan.SanitizeForLog(urlHostForLog(cfg.AuthorizationURL)),
+		"return_url", logsan.SanitizeForLog(body.ReturnURL),
 		"ttl", pkcestore.TTL)
 	h.deps.AuthEvents.ConnectStarted(r.Context(), kind, name, startedBy, cfg.TokenURL, body.ReturnURL)
 
@@ -527,7 +529,7 @@ func (h *Handler) connectionOAuthCallback(w http.ResponseWriter, r *http.Request
 	if errCode := q.Get("error"); errCode != "" {
 		slog.Warn("oauth-callback: IdP returned error",
 			logKeyKind, pending.Kind, logKeyName, pending.Connection,
-			"idp_error", errCode, "idp_error_description", q.Get("error_description"))
+			"idp_error", logsan.SanitizeForLog(errCode), "idp_error_description", logsan.SanitizeForLog(q.Get("error_description")))
 		writeOAuthError(w, fmt.Sprintf("upstream returned %s: %s", errCode, q.Get("error_description")))
 		return
 	}

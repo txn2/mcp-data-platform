@@ -9,6 +9,7 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/auth"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
@@ -114,7 +115,7 @@ func (h *Handler) createAuthKey(w http.ResponseWriter, r *http.Request) {
 
 	// Persist to database FIRST — if it fails, return error.
 	if err := h.persistAPIKey(r, keyValue, def); err != nil {
-		slog.Warn("failed to persist api key", logKeyName, def.Name, logKeyError, err)
+		slog.Warn("failed to persist api key", logKeyName, logsan.SanitizeForLog(def.Name), logKeyError, err)
 		writeError(w, http.StatusInternalServerError, "failed to persist api key")
 		return
 	}
@@ -158,7 +159,7 @@ func (h *Handler) deleteAuthKey(w http.ResponseWriter, r *http.Request) {
 	// Delete from database FIRST — if it fails, don't remove from in-memory manager.
 	if h.deps.APIKeyStore != nil {
 		if err := h.deps.APIKeyStore.Delete(r.Context(), name); err != nil {
-			slog.Warn("failed to delete api key from database", logKeyName, sanitizeLogValue(name), logKeyError, err) // #nosec G706 -- name is sanitized
+			slog.Warn("failed to delete api key from database", logKeyName, logsan.SanitizeForLog(name), logKeyError, err) // #nosec G706 -- name is sanitized
 			writeError(w, http.StatusInternalServerError, "failed to delete api key from database")
 			return
 		}

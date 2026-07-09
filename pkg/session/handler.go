@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 )
 
 // awareSessionKey is the context key for the AwareHandler session ID.
@@ -50,13 +52,6 @@ const (
 	// touchTimeout is the maximum time for async session touch operations.
 	touchTimeout = 5 * time.Second
 
-	// sseHeartbeatInterval is the cadence at which the SSE long-poll
-	// stream emits a comment-frame keepalive. Most reverse proxies
-	// (Cloudflare, nginx, AWS ALB) terminate idle SSE connections at
-	// 30-60s; 25s gives a comfortable margin while keeping the
-	// per-connection bandwidth negligible (about 3 bytes per heartbeat).
-	sseHeartbeatInterval = 25 * time.Second
-
 	// sseAcceptType is the MIME type that signals the client wants the
 	// streamable HTTP server-push channel rather than the regular
 	// request/response RPC path. Per MCP spec §2.2.3.
@@ -68,6 +63,15 @@ const (
 	// grep `session_id=` find every event for the session.
 	sessionIDKey = "session_id"
 )
+
+// sseHeartbeatInterval is the cadence at which the SSE long-poll stream
+// emits a comment-frame keepalive. Most reverse proxies (Cloudflare,
+// nginx, AWS ALB) terminate idle SSE connections at 30-60s; 25s gives a
+// comfortable margin while keeping the per-connection bandwidth
+// negligible (about 3 bytes per heartbeat). It is a package var, not a
+// const, only so tests can shorten it to exercise the heartbeat branch
+// deterministically; runtime code never mutates it.
+var sseHeartbeatInterval = 25 * time.Second
 
 // HandlerConfig configures an AwareHandler.
 type HandlerConfig struct {
@@ -190,7 +194,7 @@ func (h *AwareHandler) handleExisting(w http.ResponseWriter, r *http.Request, se
 		// provenance tracking and enrichment dedup.
 		if extractToken(r) != "" {
 			slog.Info("session: reviving expired session",
-				sessionIDKey, sanitizeLogValue(sessionID)) // #nosec G706 -- sessionID sanitized via sanitizeLogValue
+				sessionIDKey, logsan.SanitizeForLog(sessionID)) // #nosec G706 -- sessionID sanitized via logsan.SanitizeForLog
 			if err := h.reviveSession(r.Context(), sessionID, r); err != nil {
 				slog.Error("session: failed to revive", slogKeyError, err)
 				http.Error(w, httpErrInternal, http.StatusInternalServerError)
@@ -215,7 +219,7 @@ func (h *AwareHandler) handleExisting(w http.ResponseWriter, r *http.Request, se
 		ctx, cancel := context.WithTimeout(context.Background(), touchTimeout)
 		defer cancel()
 		if err := h.store.Touch(ctx, sessionID); err != nil {
-			slog.Debug("session: touch failed", sessionIDKey, sanitizeLogValue(sessionID), slogKeyError, err) // #nosec G706 -- sessionID sanitized via sanitizeLogValue
+			slog.Debug("session: touch failed", sessionIDKey, logsan.SanitizeForLog(sessionID), slogKeyError, err) // #nosec G706 -- sessionID sanitized via logsan.SanitizeForLog
 		}
 	}()
 
@@ -324,7 +328,7 @@ func (h *AwareHandler) streamSSEEvents(ctx context.Context, w http.ResponseWrite
 			touchCtx, cancel := context.WithTimeout(context.Background(), touchTimeout)
 			if err := h.store.Touch(touchCtx, sessionID); err != nil {
 				slog.Debug("session: SSE touch failed",
-					sessionIDKey, sanitizeLogValue(sessionID),
+					sessionIDKey, logsan.SanitizeForLog(sessionID),
 					slogKeyError, err)
 			}
 			cancel()
@@ -334,7 +338,7 @@ func (h *AwareHandler) streamSSEEvents(ctx context.Context, w http.ResponseWrite
 			}
 			if err := writeSSEEvent(w, ev); err != nil {
 				slog.Debug("session: SSE write failed",
-					sessionIDKey, sanitizeLogValue(sessionID),
+					sessionIDKey, logsan.SanitizeForLog(sessionID),
 					slogKeyError, err)
 				return
 			}
@@ -370,7 +374,7 @@ func (h *AwareHandler) validateSSESession(r *http.Request, sessionID string) int
 		// — without this, only failures in the SSE revive path were
 		// visible.
 		slog.Info("session: reviving expired session (SSE)",
-			sessionIDKey, sanitizeLogValue(sessionID)) // #nosec G706 -- sessionID sanitized via sanitizeLogValue
+			sessionIDKey, logsan.SanitizeForLog(sessionID)) // #nosec G706 -- sessionID sanitized via logsan.SanitizeForLog
 		if err := h.reviveSession(r.Context(), sessionID, r); err != nil {
 			slog.Error("session: SSE revive failed", slogKeyError, err)
 			return http.StatusInternalServerError
@@ -427,7 +431,7 @@ func (h *AwareHandler) handleDelete(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get(sessionIDHeader)
 	if sessionID != "" {
 		if err := h.store.Delete(r.Context(), sessionID); err != nil {
-			slog.Debug("session: delete failed", sessionIDKey, sanitizeLogValue(sessionID), slogKeyError, err) // #nosec G706 -- sessionID sanitized via sanitizeLogValue
+			slog.Debug("session: delete failed", sessionIDKey, logsan.SanitizeForLog(sessionID), slogKeyError, err) // #nosec G706 -- sessionID sanitized via logsan.SanitizeForLog
 		}
 	}
 	h.inner.ServeHTTP(w, r)
@@ -517,12 +521,6 @@ func extractToken(r *http.Request) string {
 		return r.Header.Get("X-API-Key")
 	}
 	return auth[bearerPrefixLen:]
-}
-
-// sanitizeLogValue strips control characters (newlines, tabs, carriage returns)
-// from a string before it is used as a structured log value, preventing log injection.
-func sanitizeLogValue(s string) string {
-	return strings.NewReplacer("\n", "", "\r", "", "\t", "").Replace(s)
 }
 
 // hashToken returns the SHA-256 hex digest of a token, or empty for empty tokens.
