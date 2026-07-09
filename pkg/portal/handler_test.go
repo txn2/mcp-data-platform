@@ -85,6 +85,7 @@ type mockShareStore struct {
 	summariesErr   error
 	collAssetPerm  SharePermission
 	collAssetPermE error
+	collAssetCalls int // number of GetUserAssetPermissionViaCollection invocations
 	inserted       *Share
 	promptRefs     []SharedPromptRef
 	promptRefsErr  error
@@ -143,6 +144,7 @@ func (*mockShareStore) ListSharedCollectionsWithUser(_ context.Context, _, _ str
 }
 
 func (m *mockShareStore) GetUserAssetPermissionViaCollection(_ context.Context, _, _, _ string) (SharePermission, error) {
+	m.collAssetCalls++
 	if m.collAssetPerm != "" {
 		return m.collAssetPerm, nil
 	}
@@ -570,6 +572,177 @@ func TestGetAssetSharedWithUser(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.False(t, resp.IsOwner)
 	assert.Equal(t, PermissionViewer, resp.SharePermission)
+}
+
+// TestGetAssetSharedViaCollection reproduces issue #839: a user who holds only a
+// collection share (no direct per-asset share row) must be able to open the
+// individual-asset metadata endpoint, resolving the permission via the collection
+// cascade rather than getting 403.
+func TestGetAssetSharedViaCollection(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{ID: "a1", OwnerID: "other-user", Tags: []string{}, CreatedAt: now, UpdatedAt: now}
+	h := newTestHandler(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{listByAsset: []Share{}, collAssetPerm: PermissionViewer}, // no direct share, collection viewer
+		&mockS3Client{},
+		&User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp assetResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.False(t, resp.IsOwner)
+	assert.Equal(t, PermissionViewer, resp.SharePermission)
+}
+
+// TestGetAssetSharedViaCollectionEditor verifies an editor-level collection share
+// surfaces as editor on the individual-asset endpoint.
+func TestGetAssetSharedViaCollectionEditor(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{ID: "a1", OwnerID: "other-user", Tags: []string{}, CreatedAt: now, UpdatedAt: now}
+	h := newTestHandler(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{listByAsset: []Share{}, collAssetPerm: PermissionEditor},
+		&mockS3Client{},
+		&User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp assetResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, PermissionEditor, resp.SharePermission)
+}
+
+// TestGetAssetCollectionEditorBeatsDirectViewer verifies getAsset reports the
+// highest permission across both paths: a user holding a direct viewer share AND
+// an editor-level collection share is reported as editor, so the UI does not hide
+// edit controls the backend (canEditAsset) actually permits.
+func TestGetAssetCollectionEditorBeatsDirectViewer(t *testing.T) {
+	now := time.Now()
+	asset := &Asset{ID: "a1", OwnerID: "other-user", Tags: []string{}, CreatedAt: now, UpdatedAt: now}
+	h := newTestHandler(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{
+			listByAsset:   []Share{{ID: "s1", SharedWithUserID: "u1", Permission: PermissionViewer}},
+			collAssetPerm: PermissionEditor,
+		},
+		&mockS3Client{},
+		&User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp assetResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, PermissionEditor, resp.SharePermission)
+}
+
+// TestGetAssetForbiddenNoDirectOrCollectionShare verifies a non-owner with neither
+// a direct nor a collection share is still denied.
+func TestGetAssetForbiddenNoDirectOrCollectionShare(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "other-user"}
+	h := newTestHandler(
+		&mockAssetStore{getAsset: asset},
+		&mockShareStore{listByAsset: []Share{}}, // no direct share; mock returns no collection share
+		&mockS3Client{},
+		&User{UserID: "u1"},
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/portal/assets/a1", http.NoBody)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+// TestResolveAssetPermission covers the resolver's cross-path and error semantics.
+func TestResolveAssetPermission(t *testing.T) {
+	user := &User{UserID: "u1", Email: "u1@example.com"}
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/", http.NoBody)
+
+	t.Run("collection editor beats direct viewer", func(t *testing.T) {
+		h := newTestHandler(&mockAssetStore{}, &mockShareStore{
+			listByAsset:   []Share{{ID: "s1", SharedWithUserID: "u1", Permission: PermissionViewer}},
+			collAssetPerm: PermissionEditor,
+		}, &mockS3Client{}, user)
+		perm, err := h.resolveAssetPermission(req, "a1", user)
+		require.NoError(t, err)
+		assert.Equal(t, PermissionEditor, perm)
+	})
+
+	t.Run("direct editor short-circuits, no collection needed", func(t *testing.T) {
+		shares := &mockShareStore{
+			listByAsset: []Share{{ID: "s1", SharedWithUserID: "u1", Permission: PermissionEditor}},
+		}
+		h := newTestHandler(&mockAssetStore{}, shares, &mockS3Client{}, user)
+		perm, err := h.resolveAssetPermission(req, "a1", user)
+		require.NoError(t, err)
+		assert.Equal(t, PermissionEditor, perm)
+		// A direct editor is the ceiling: the collection cascade must not be queried.
+		assert.Equal(t, 0, shares.collAssetCalls)
+	})
+
+	t.Run("direct-share error surfaces when neither path grants", func(t *testing.T) {
+		h := newTestHandler(&mockAssetStore{}, &mockShareStore{listByAssetE: fmt.Errorf("boom")}, &mockS3Client{}, user)
+		perm, err := h.resolveAssetPermission(req, "a1", user)
+		require.Error(t, err)
+		assert.Equal(t, SharePermission(""), perm)
+	})
+
+	// Tolerant path: a transient direct-share error must not hide a
+	// collection-reachable asset — the returned permission still reflects the
+	// collection grant so userCanViewAsset (which ignores the error) allows access.
+	t.Run("collection grant survives a direct-share error", func(t *testing.T) {
+		h := newTestHandler(&mockAssetStore{}, &mockShareStore{
+			listByAssetE:  fmt.Errorf("boom"),
+			collAssetPerm: PermissionViewer,
+		}, &mockS3Client{}, user)
+		perm, err := h.resolveAssetPermission(req, "a1", user)
+		require.Error(t, err) // direct error still surfaces for HTTP callers (500)
+		assert.Equal(t, PermissionViewer, perm)
+
+		// userCanViewAsset ignores the error and grants via the collection perm.
+		asset := &Asset{ID: "a1", OwnerID: "other"}
+		assert.True(t, h.userCanViewAsset(req, "a1", asset, user))
+	})
+}
+
+// TestViewHelpersShortCircuitOnDirectShare guards the hot path: canViewAsset and
+// userCanViewAsset must not issue a collection-cascade query when a direct share
+// already grants view access (these run per-asset in the knowledge-page-ref loop).
+func TestViewHelpersShortCircuitOnDirectShare(t *testing.T) {
+	asset := &Asset{ID: "a1", OwnerID: "other"}
+	user := &User{UserID: "u1"}
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/", http.NoBody)
+	directViewer := []Share{{ID: "s1", SharedWithUserID: "u1", Permission: PermissionViewer}}
+
+	t.Run("userCanViewAsset", func(t *testing.T) {
+		shares := &mockShareStore{listByAsset: directViewer}
+		h := newTestHandler(&mockAssetStore{}, shares, &mockS3Client{}, user)
+		assert.True(t, h.userCanViewAsset(req, "a1", asset, user))
+		assert.Equal(t, 0, shares.collAssetCalls)
+	})
+
+	t.Run("canViewAsset", func(t *testing.T) {
+		shares := &mockShareStore{listByAsset: directViewer}
+		h := newTestHandler(&mockAssetStore{}, shares, &mockS3Client{}, user)
+		assert.True(t, h.canViewAsset(httptest.NewRecorder(), req, "a1", asset, user))
+		assert.Equal(t, 0, shares.collAssetCalls)
+	})
 }
 
 func TestGetAssetNoUser(t *testing.T) {
