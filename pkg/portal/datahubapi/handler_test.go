@@ -39,6 +39,7 @@ type fakeDataHub struct {
 	resolveErr   error
 	writeErr     error
 	readErr      error
+	columnsErr   error
 	calls        []string
 }
 
@@ -76,7 +77,10 @@ func (f *fakeDataHub) GetTableContext(_ context.Context, table semantic.TableIde
 	}, nil
 }
 
-func (*fakeDataHub) GetColumnsContext(_ context.Context, _ semantic.TableIdentifier) (map[string]*semantic.ColumnContext, error) {
+func (f *fakeDataHub) GetColumnsContext(_ context.Context, _ semantic.TableIdentifier) (map[string]*semantic.ColumnContext, error) {
+	if f.columnsErr != nil {
+		return nil, f.columnsErr
+	}
 	return map[string]*semantic.ColumnContext{}, nil
 }
 
@@ -698,6 +702,32 @@ func TestGetMissingDocument_404AndInvalidURN_400(t *testing.T) {
 	backend.resolveErr = fmt.Errorf("bad urn")
 	if rec := serve(h, viewer, "GET", "/api/v1/portal/datahub/primary/catalog/entity?urn=junk", ""); rec.Code != http.StatusBadRequest {
 		t.Errorf("invalid urn status = %d, want 400", rec.Code)
+	}
+}
+
+// TestCatalogEntityColumnsFailure_StillOK proves the best-effort columns read:
+// when GetTableContext succeeds but GetColumnsContext fails, the entity read still
+// returns 200 with the table context and no columns (the failure is warned and
+// swallowed, never surfaced to the caller).
+func TestCatalogEntityColumnsFailure_StillOK(t *testing.T) {
+	backend := newFakeDataHub()
+	backend.descriptions[dhTestURN] = "orders table"
+	backend.columnsErr = fmt.Errorf("columns backend unavailable")
+	h := newTestHandler(backend, true, writerResolver(), &fakeAuditLogger{})
+
+	rec := serve(h, viewer, "GET", "/api/v1/portal/datahub/primary/catalog/entity?urn="+dhTestURN, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	var resp catalogEntityResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Context == nil || resp.Context.Description != "orders table" {
+		t.Fatalf("table context not returned despite columns failure: %+v", resp.Context)
+	}
+	if resp.Columns != nil {
+		t.Fatalf("columns should be nil when the columns read fails, got %+v", resp.Columns)
 	}
 }
 

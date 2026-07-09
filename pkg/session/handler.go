@@ -52,13 +52,6 @@ const (
 	// touchTimeout is the maximum time for async session touch operations.
 	touchTimeout = 5 * time.Second
 
-	// sseHeartbeatInterval is the cadence at which the SSE long-poll
-	// stream emits a comment-frame keepalive. Most reverse proxies
-	// (Cloudflare, nginx, AWS ALB) terminate idle SSE connections at
-	// 30-60s; 25s gives a comfortable margin while keeping the
-	// per-connection bandwidth negligible (about 3 bytes per heartbeat).
-	sseHeartbeatInterval = 25 * time.Second
-
 	// sseAcceptType is the MIME type that signals the client wants the
 	// streamable HTTP server-push channel rather than the regular
 	// request/response RPC path. Per MCP spec §2.2.3.
@@ -70,6 +63,15 @@ const (
 	// grep `session_id=` find every event for the session.
 	sessionIDKey = "session_id"
 )
+
+// sseHeartbeatInterval is the cadence at which the SSE long-poll stream
+// emits a comment-frame keepalive. Most reverse proxies (Cloudflare,
+// nginx, AWS ALB) terminate idle SSE connections at 30-60s; 25s gives a
+// comfortable margin while keeping the per-connection bandwidth
+// negligible (about 3 bytes per heartbeat). It is a package var, not a
+// const, only so tests can shorten it to exercise the heartbeat branch
+// deterministically; runtime code never mutates it.
+var sseHeartbeatInterval = 25 * time.Second
 
 // HandlerConfig configures an AwareHandler.
 type HandlerConfig struct {

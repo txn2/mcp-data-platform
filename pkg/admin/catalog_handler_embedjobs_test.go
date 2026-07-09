@@ -180,6 +180,28 @@ func TestSpecUpsert_EnqueuesJob(t *testing.T) {
 	}
 }
 
+// TestSpecUpsert_EnqueueErrorIsBestEffort drives the producer hook's
+// best-effort warn branch (catalog_handler.go:1078): the spec write
+// commits but the queue Enqueue fails. The HTTP write must still
+// return 200 because a missed enqueue is non-fatal (the reconciler
+// re-detects the gap on its next sweep), and no job row is recorded
+// because Enqueue errored before appending.
+func TestSpecUpsert_EnqueueErrorIsBestEffort(t *testing.T) {
+	t.Parallel()
+	h, _, jobs := newCatalogTestHandlerWithJobs(t)
+	jobs.enqueueErr = errors.New("queue unavailable")
+	res := doJSON(t, h, http.MethodPut, "/api/v1/admin/api-catalogs/petstore/specs/default", map[string]any{
+		"source_kind": "inline",
+		"content":     minimalSpec,
+	})
+	if res.Code != http.StatusOK {
+		t.Fatalf("spec write must succeed despite enqueue failure: %d %s", res.Code, res.Body.String())
+	}
+	if len(jobs.jobs) != 0 {
+		t.Errorf("no job should be recorded when Enqueue errors, got %d", len(jobs.jobs))
+	}
+}
+
 // TestSpecUpsert_OperationCountStored proves the admin handler
 // stamps the parsed operation count onto the spec row. Without
 // this the reconciler cannot detect gaps in pure SQL.
