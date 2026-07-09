@@ -228,6 +228,15 @@ func appendDiscoveryNoteIfNeeded(ctx context.Context, result *mcp.CallToolResult
 	if tracker == nil || !pc.EnrichmentApplied {
 		return
 	}
+	// Stateless shim runs (portal/admin, gateway/rest) are exempt from the
+	// search-first gate (checkWorkflowGate), so the "call search first" nudge is
+	// misleading for them: their isolated per-run scope has performed no
+	// discovery by construction, but the gate never blocks them. Suppress the
+	// note so a portal query replay's result is not littered with an
+	// inapplicable prompt (issue #859).
+	if isStatelessShimSource(pc.Source) {
+		return
+	}
 	if tracker.HasPerformedDiscovery(ctx, pc.DiscoveryScopeKey()) {
 		return
 	}

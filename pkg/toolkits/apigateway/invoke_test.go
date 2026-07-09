@@ -153,9 +153,9 @@ func TestAuthHeaderForConfig(t *testing.T) {
 	}{
 		{"none", Config{AuthMode: AuthModeNone}, ""},
 		{"bearer", Config{AuthMode: AuthModeBearer}, "Authorization"},
-		{"api_key header default", Config{AuthMode: AuthModeAPIKey, APIKeyPlacement: APIKeyPlacementHeader, APIKeyHeader: DefaultAPIKeyHeader}, DefaultAPIKeyHeader},
-		{"api_key header custom", Config{AuthMode: AuthModeAPIKey, APIKeyPlacement: APIKeyPlacementHeader, APIKeyHeader: "X-My-Key"}, "X-My-Key"},
-		{"api_key query", Config{AuthMode: AuthModeAPIKey, APIKeyPlacement: APIKeyPlacementQuery, APIKeyParam: "key"}, ""},
+		{"api_key header default", Config{AuthMode: AuthModeAPIKey, CredentialPlacement: CredentialPlacementHeader, APIKeyHeader: DefaultAPIKeyHeader}, DefaultAPIKeyHeader},
+		{"api_key header custom", Config{AuthMode: AuthModeAPIKey, CredentialPlacement: CredentialPlacementHeader, APIKeyHeader: "X-My-Key"}, "X-My-Key"},
+		{"api_key query", Config{AuthMode: AuthModeAPIKey, CredentialPlacement: CredentialPlacementQuery, APIKeyParam: "key"}, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -725,14 +725,14 @@ func TestEncodeBody_AllowsBodyForPROPFIND(t *testing.T) {
 func TestInvoke_NetworkError_DoesNotLeakAPIKeyInQueryPlacement(t *testing.T) {
 	const secret = "supersecret-credential-9b7"
 	cfg := Config{
-		BaseURL:          "http://192.0.2.1:80", // RFC 5737 unreachable
-		AuthMode:         AuthModeAPIKey,
-		Credential:       secret,
-		APIKeyPlacement:  APIKeyPlacementQuery,
-		APIKeyParam:      "api_key",
-		ConnectTimeout:   200 * time.Millisecond,
-		CallTimeout:      time.Second,
-		MaxResponseBytes: DefaultMaxResponseBytes,
+		BaseURL:             "http://192.0.2.1:80", // RFC 5737 unreachable
+		AuthMode:            AuthModeAPIKey,
+		Credential:          secret,
+		CredentialPlacement: CredentialPlacementQuery,
+		APIKeyParam:         "api_key",
+		ConnectTimeout:      200 * time.Millisecond,
+		CallTimeout:         time.Second,
+		MaxResponseBytes:    DefaultMaxResponseBytes,
 	}
 	auth, err := NewAuthenticator(cfg)
 	if err != nil {

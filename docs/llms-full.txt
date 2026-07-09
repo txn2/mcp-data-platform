@@ -872,6 +872,8 @@ Tools on this platform are reachable through three entry points; the audit row's
 
 Both REST entry points open an in-memory MCP session against the assembled server and tag the context (`middleware.WithSource`) before the call so the existing audit middleware records the originating class. Filter via `GET /api/v1/admin/audit/events?source=...` or the **All Sources** dropdown in the portal.
 
+Portal-driven runs (`source=admin`) get a distinct portal session ID (`dpp_…` prefix), minted per request by the tool-call middleware, so they are attributable and their search-first gate, provenance, and dedup state are isolated from the operating admin's own agent session. Both stateless shims (`admin`, `rest`) are exempt from the search-first and `SESSION_REQUIRED` gates, so a portal "test this tool" / replay run of a query tool always executes.
+
 ## Event kind: MCP vs API gateway
 
 The `event_kind` field separates apigateway HTTP traffic from MCP tool calls. It is derived at write time from the toolkit kind — `apigateway_invoke` when the toolkit kind is `api`, `mcp_tool_call` otherwise — so it does not rely on tool-name matching. The split lets the MCP Activity view exclude high-volume gateway traffic by default while a dedicated gateway view includes it.

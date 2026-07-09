@@ -345,7 +345,7 @@ func authHeaderForConfig(c Config) string {
 	case AuthModeBearer:
 		return authorizationHeader
 	case AuthModeAPIKey:
-		if c.APIKeyPlacement == APIKeyPlacementHeader {
+		if c.CredentialPlacement == CredentialPlacementHeader {
 			return c.APIKeyHeader
 		}
 	}
@@ -807,7 +807,7 @@ func isTimeoutErrorMessage(msg string) bool {
 
 // scrubTransportError rewrites a transport-level error so its message
 // cannot leak credentials carried in the request URL's query string
-// (api_key=... when AuthMode is api_key + APIKeyPlacementQuery).
+// (api_key=... when AuthMode is api_key + CredentialPlacementQuery).
 //
 // Go's *http.Client returns a *url.Error whose Error() method
 // stringifies the full request URL — including any query parameters

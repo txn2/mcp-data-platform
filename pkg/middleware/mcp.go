@@ -133,6 +133,26 @@ func MCPToolCallMiddleware(authenticator Authenticator, authorizer Authorizer, t
 			pc.SessionID = resolveSessionID(ctx, req, cfg.Transport)
 			pc.Transport = cfg.Transport
 			pc.Source = resolveSource(ctx)
+			// A portal-initiated run (admin source) drives a fresh in-memory MCP
+			// session per HTTP request with no transport session id, so
+			// resolveSessionID returns "". Mint a distinct portal session id here
+			// (issue #859) so the run is attributable and its search-first gate,
+			// provenance, and dedup state key on the isolated portal session
+			// rather than collapsing onto an empty id or the operator's user
+			// scope. Session-identity assignment already lives in this middleware
+			// (resolveSessionID), so minting here keeps pkg/admin from needing to
+			// know the id scheme. Best-effort: on the (astronomically unlikely)
+			// RNG failure the run proceeds with an empty session id, which
+			// DiscoveryScopeKey routes to the empty, ungateable scope (never the
+			// operator's user scope), so isolation holds regardless.
+			if pc.SessionID == "" && pc.Source == SourceAdmin {
+				if portalID, gerr := pkgsession.GeneratePortalSessionID(); gerr == nil {
+					pc.SessionID = portalID
+				} else {
+					slog.Warn("portal session id generation failed; admin run will record an empty session id",
+						logKeyError, gerr)
+				}
+			}
 			ctx = buildToolCallContext(ctx, req, pc, toolkitLookup, toolName)
 
 			// Authenticate and authorize

@@ -143,6 +143,26 @@ var nonDistinctAuthTypes = map[string]bool{"": true, AuthTypeAnonymous: true, Au
 // not a security boundary. The "user:"/"session:" prefixes keep the two
 // namespaces from ever colliding.
 func (pc *PlatformContext) DiscoveryScopeKey() string {
+	// Portal-initiated runs (admin source, issue #859) must NEVER key on the
+	// operator's user identity. The portal tool runner authenticates as the
+	// admin, so user-first scoping would make a portal replay of a query tool
+	// advance or read that operator's OWN agent-session search-first state, and
+	// mix the portal run's discovery record into the operator's user scope. Key
+	// them on the isolated per-run portal session id instead, so portal runs
+	// never touch the operator's agent-session gate/provenance/dedup state.
+	//
+	// If the portal session id is absent — only on a crypto-RNG failure while
+	// minting it in connectInternalSession — fall through to the EMPTY,
+	// ungateable scope, NOT the user-first branch below. Returning "user:<admin>"
+	// there would reintroduce exactly the pollution this special-case exists to
+	// prevent; the empty scope keeps the degenerate case isolated (the gate
+	// treats it as ungateable and the trackers skip it) rather than leaking.
+	if pc.Source == SourceAdmin {
+		if pc.SessionID != "" {
+			return "session:" + pc.SessionID
+		}
+		return ""
+	}
 	switch {
 	case pc.UserID != "" && !nonDistinctAuthTypes[pc.AuthType]:
 		return "user:" + pc.UserID

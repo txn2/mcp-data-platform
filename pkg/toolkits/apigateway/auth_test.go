@@ -26,10 +26,10 @@ func TestNewAuthenticator_DispatchesByAuthMode(t *testing.T) {
 		{name: "none", cfg: Config{AuthMode: AuthModeNone}},
 		{name: "bearer", cfg: Config{AuthMode: AuthModeBearer, Credential: "tok"}},
 		{name: "api_key_header", cfg: Config{
-			AuthMode:        AuthModeAPIKey,
-			Credential:      "k",
-			APIKeyPlacement: APIKeyPlacementHeader,
-			APIKeyHeader:    "X-API-Key",
+			AuthMode:            AuthModeAPIKey,
+			Credential:          "k",
+			CredentialPlacement: CredentialPlacementHeader,
+			APIKeyHeader:        "X-API-Key",
 		}},
 		{name: "basic", cfg: Config{
 			AuthMode: AuthModeBasic,

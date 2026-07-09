@@ -126,7 +126,12 @@ export function Sidebar({ currentPath, onNavigate, collapsed, onToggleCollapse, 
     link.href = portalLogo;
   }, [portalLogo]);
 
-  const route = currentPath.split("#")[0] ?? "/";
+  // Strip the query string AND the hash to get the bare pathname. A search-param
+  // deep link (e.g. /admin/tools?selected=x&tab=tryit) puts a "?" on currentPath,
+  // so splitting on "#" alone would leave the query string on `route` and no nav
+  // item would match: the Tools item (and its Admin group) would lose their
+  // active highlight until the next refresh.
+  const route = currentPath.split(/[?#]/)[0] ?? "/";
 
   function isActive(itemPath: string) {
     // Hash-based sub-routes (e.g. /admin/settings#description) — compare against full path including hash.

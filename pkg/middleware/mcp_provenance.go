@@ -144,7 +144,17 @@ func MCPProvenanceMiddleware(tracker *ProvenanceTracker, harvestToolNames ...str
 			}
 
 			params := extractToolParams(req)
-			tracker.Record(sessionID, toolName, params)
+			// Stateless in-memory shim runs (portal/admin, gateway/rest) drive a
+			// fresh per-request session that is never harvested, so recording their
+			// provenance would grow the tracker's per-session map without bound —
+			// Harvest is its only pruner and CleanupBefore has no production caller.
+			// They are single-call runs with no cross-call provenance to accumulate
+			// anyway. Skipping them restores the pre-#859 behavior, when their empty
+			// session id already made Record a no-op; #859 gave them a real portal id
+			// for audit/gate isolation, which must not turn provenance into a leak.
+			if pc == nil || !isStatelessShimSource(pc.Source) {
+				tracker.Record(sessionID, toolName, params)
+			}
 
 			return next(ctx, method, req)
 		}

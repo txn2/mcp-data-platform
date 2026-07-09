@@ -50,6 +50,19 @@ func checkWorkflowGate(ctx context.Context, tracker *SessionWorkflowTracker, pc 
 	if !tracker.IsQueryTool(pc.ToolName) {
 		return nil
 	}
+	// Stateless in-memory shim runs are exempt, exactly as they are exempt from
+	// the SESSION_REQUIRED handle gate (isStatelessShimSource): the portal tool
+	// runner (Source=admin) and the gateway REST shim (Source=rest) are
+	// operator- or automation-driven direct invocations, not the MCP AGENT
+	// workflows the search-first gate exists to steer toward discovery. A portal
+	// "Try It" / replay of a query tool must always execute (issue #859), and a
+	// portal run keys on an isolated per-run portal session that has performed no
+	// discovery, so without this exemption the gate would falsely block it. A
+	// real MCP-transport agent resolves to Source=mcp and stays gated; an
+	// unset/unknown source is not exempt, so the gate fails closed.
+	if isStatelessShimSource(pc.Source) {
+		return nil
+	}
 	// Once discovery has happened in the scope, the gate stays open. The scope
 	// is user-first (see PlatformContext.DiscoveryScopeKey) so a client that
 	// opens a fresh session per tool call is not falsely re-gated.

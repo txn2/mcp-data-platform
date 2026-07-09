@@ -76,7 +76,7 @@ Every successful or failed tool call produces one row in `audit_logs`:
 | `parameters` | JSONB | Tool call arguments with sensitive values redacted. See [Parameter Sanitization](#parameter-sanitization). |
 | `success` | BOOLEAN | `true` if the tool handler returned without error and `IsError` was not set. |
 | `error_message` | TEXT | Error description if `success` is `false`. |
-| `session_id` | VARCHAR(255) | MCP session ID. Links tool calls within the same session for pattern analysis. |
+| `session_id` | VARCHAR(255) | Session identity. For agents (`source=mcp`) this is the explicit session handle (`dps_…`) or the transport session ID. Portal-driven runs (`source=admin`) carry a distinct portal session ID (`dpp_…`) so they are attributable and never collide with an agent session. Links tool calls within the same session for pattern analysis. |
 | `response_chars` | INTEGER | Character count of the tool response. |
 | `content_blocks` | INTEGER | Number of content blocks in the tool response. |
 | `request_chars` | INTEGER | Character count of the tool request parameters. |
@@ -101,6 +101,8 @@ Tools on this platform are reachable through three entry points, all of which fi
 | `admin` | Admin REST API tool execution at `POST /api/v1/admin/tools/call` | Portal UI "test this tool" buttons, ops scripts |
 
 Both the gateway REST shim (`pkg/gatewayhttp/handler.go`) and the admin tool runner (`pkg/admin/tools.go`) open an in-memory MCP session against the assembled server and call the same `api_invoke_endpoint` (or other) tool that an agent would call. The handlers tag the context with `middleware.WithSource` before opening that session so the audit middleware records the originating caller class, not just "mcp".
+
+For an admin-source run the tool-call middleware additionally mints a distinct **portal session ID** (`dpp_` prefix) per request. A portal run drives a fresh in-memory session with no transport session ID, so without this it would record an empty `session_id` and its search-first gate, provenance, and dedup state would key on the operating admin's own user scope, letting a portal "test this tool" run pollute that operator's live agent session. The portal ID keeps portal runs attributable and isolated, and (like the gateway REST shim) they are exempt from the search-first and `SESSION_REQUIRED` gates, so a portal run of a query tool always executes.
 
 Filter by source in the admin API:
 
