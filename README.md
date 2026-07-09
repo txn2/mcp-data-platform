@@ -2,10 +2,16 @@
 
 [![GitHub license](https://img.shields.io/github/license/txn2/mcp-data-platform.svg)](https://github.com/txn2/mcp-data-platform/blob/main/LICENSE)
 [![Go Reference](https://pkg.go.dev/badge/github.com/txn2/mcp-data-platform.svg)](https://pkg.go.dev/github.com/txn2/mcp-data-platform)
+[![MCP](https://img.shields.io/badge/MCP-Model_Context_Protocol-blue)](https://modelcontextprotocol.io)
+[![Release](https://img.shields.io/github/v/release/txn2/mcp-data-platform)](https://github.com/txn2/mcp-data-platform/releases/latest)
+[![CI](https://github.com/txn2/mcp-data-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/txn2/mcp-data-platform/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/txn2/mcp-data-platform/actions/workflows/codeql.yml/badge.svg)](https://github.com/txn2/mcp-data-platform/actions/workflows/codeql.yml)
 [![codecov](https://codecov.io/gh/txn2/mcp-data-platform/graph/badge.svg)](https://codecov.io/gh/txn2/mcp-data-platform)
-[![Go Report Card](https://goreportcard.com/badge/github.com/txn2/mcp-data-platform?v2)](https://goreportcard.com/report/github.com/txn2/mcp-data-platform)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13548/badge)](https://www.bestpractices.dev/projects/13548)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/txn2/mcp-data-platform/badge)](https://scorecard.dev/viewer/?uri=github.com/txn2/mcp-data-platform)
 [![SLSA 3](https://slsa.dev/images/gh-badge-level3.svg)](https://slsa.dev)
+[![Signed by Cosign](https://img.shields.io/badge/artifacts-signed_by_cosign-blue?logo=sigstore&logoColor=white)](https://github.com/sigstore/cosign)
+[![Docker](https://img.shields.io/badge/ghcr.io-txn2%2Fmcp--data--platform-blue?logo=docker)](https://github.com/txn2/mcp-data-platform/pkgs/container/mcp-data-platform)
 
 **[Documentation](https://mcp-data-platform.txn2.com/)** | **[Installation](https://mcp-data-platform.txn2.com/server/installation/)** | **[Quick Start](#quick-start)** | **[Go Library](https://mcp-data-platform.txn2.com/library/overview/)**
 
