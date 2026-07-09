@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/platform/fieldcrypt"
@@ -700,7 +699,7 @@ func (h *Handler) hotAddConnection(kind, name string, config map[string]any) {
 	}
 	if err := cm.AddConnection(name, config); err != nil { // #nosec G706 -- structured slog call, not a format string
 		slog.Warn("failed to hot-add connection",
-			logKeyKind, logsan.SanitizeForLog(kind), logKeyName, logsan.SanitizeForLog(name), logKeyError, err)
+			logKeyKind, kind, logKeyName, name, logKeyError, err)
 	}
 	// Tell peer replicas to rebuild this connection from the store too;
 	// the hot-add above only updates this replica (issue #501).

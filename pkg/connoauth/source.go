@@ -224,7 +224,7 @@ func (s *Source) Token(ctx context.Context) (string, error) {
 // operator must re-authorize.
 func (s *Source) handleRevoked(ctx context.Context, persisted *PersistedToken, refreshErr error) {
 	reason := classifyRevokedReason(refreshErr)
-	idpHost := urlHost(s.cfg.TokenURL)
+	idpHost := logsan.SanitizeForLog(urlHost(s.cfg.TokenURL))
 	s.emitRevokedLeadEvent(ctx, persisted, refreshErr, reason)
 	if delErr := s.store.Delete(ctx, s.key); delErr != nil {
 		slog.Warn("connoauth: delete revoked token row failed",

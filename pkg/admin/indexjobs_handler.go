@@ -327,7 +327,7 @@ func (h *Handler) dismissIndexJobsFailure(w http.ResponseWriter, r *http.Request
 	resolved, err := svc.Resolve(r.Context(), req.Kind, req.SourceID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to dismiss failure")
-		slog.Warn("admin: dismiss failure", logKeyKind, logsan.SanitizeForLog(req.Kind), logKeyError, err)
+		slog.Warn("admin: dismiss failure", logKeyKind, logsan.SanitizeForLog(req.Kind), logKeyError, logsan.SanitizeForLog(err.Error()))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -373,7 +373,7 @@ func (h *Handler) reindexIndexJobs(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to enqueue re-index")
-		slog.Warn("admin: reindex", logKeyKind, logsan.SanitizeForLog(req.Kind), logKeyError, err)
+		slog.Warn("admin: reindex", logKeyKind, logsan.SanitizeForLog(req.Kind), logKeyError, logsan.SanitizeForLog(err.Error()))
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{

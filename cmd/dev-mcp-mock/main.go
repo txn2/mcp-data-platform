@@ -177,7 +177,7 @@ func oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	// Log only the host of the redirect target; the rest of the URL
 	// contains query params that flowed in from the request and would
 	// otherwise allow log injection of newlines/escape sequences.
-	log.Printf("oauth: /authorize → redirect host=%s code=%s", logsan.SanitizeForLog(dest.Host), logsan.SanitizeForLog(code))
+	log.Printf("oauth: /authorize → redirect host=%s code=%s", logsan.SanitizeForLog(dest.Host), logsan.SanitizeForLog(code)) // #nosec G706 -- host and code sanitized via logsan.SanitizeForLog; gosec does not model the helper
 	// This is the OAuth /authorize endpoint — by spec it MUST redirect
 	// to the client-supplied redirect_uri. This is a dev fixture, not
 	// a production OAuth provider; no allowlist enforcement is
