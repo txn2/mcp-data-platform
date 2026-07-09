@@ -30,7 +30,7 @@ var listEndpointsSchema = json.RawMessage(`{
     "ranking": {
       "type": "string",
       "enum": ["lexical", "semantic", "hybrid"],
-      "description": "Optional ranking algorithm. \"lexical\" (default) is per-token case-insensitive substring match: fast, deterministic, but misses when your phrasing differs from the spec author's. \"semantic\" ranks by embedding cosine similarity, which finds endpoints by intent (\"create order\" finds POST /v1/orders) even when no words overlap. \"hybrid\" blends both: best for free-form intent queries that may also share path/tag vocabulary. semantic and hybrid require an embedding provider; if unavailable they fall back to lexical and a note explains the reason."
+      "description": "Optional ranking algorithm. Defaults to \"hybrid\" whenever this connection has an embedding index available (the platform default), otherwise \"lexical\". \"hybrid\" blends embedding cosine similarity with per-token substring match: best for free-form intent queries that may also share path/tag vocabulary, and the recommended choice. \"semantic\" ranks by embedding cosine similarity only, which finds endpoints by intent (\"create order\" finds POST /v1/orders) even when no words overlap. \"lexical\" is a fast, deterministic per-token substring match with no embedding dependency; pass it explicitly to opt out of semantic ranking. semantic and hybrid require an embedding provider; if unavailable they fall back to lexical and a note explains the reason."
     }
   }
 }`)
