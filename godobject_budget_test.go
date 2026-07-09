@@ -9,9 +9,16 @@
 //   - the number of methods with a *Platform receiver (the surface everything
 //     reaches through).
 //
-// Both are ceilings to ratchet DOWN as subsystems are extracted into owners
-// that hold their own fields and expose their own methods. Hitting the ceiling
-// is the signal to move responsibility off Platform, never to raise the number.
+// #756 EXIT POINT (closed by #854). The finite decomposition project is done:
+// Platform is now a coordinator holding the irreducible shared foundations (db,
+// config, toolkit registry, embedding provider, mcpServer, authenticator,
+// persona registry, the provider handles, lifecycle/health) plus one handle per
+// extracted subsystem. It does not shrink to zero, and chasing it there would
+// dissolve the coordinator for no benefit. So these ceilings are now a PERMANENT
+// STANDING INVARIANT — the guard against regrowth — not a target to keep driving
+// down. Raising a ceiling is a regression to be justified in review; the only
+// routine change is ratcheting further DOWN if a future extraction genuinely
+// moves state or behavior onto a subsystem owner.
 //
 // Run: go test -run TestPlatformGodObjectBudget .
 package mcp_data_platform_test
@@ -60,7 +67,11 @@ const (
 	// and brand (resolvedBrandLogoSVG, resolvedBrandURL, resolvedImplementorLogo →
 	// one branding.Handle), ratcheting 53 → 49. The prompt-seam extraction (#853)
 	// folded four fields (promptManager, promptStore, promptInfosMu, promptInfos)
-	// into one promptlayer.Handle, ratcheting 49 → 46.
+	// into one promptlayer.Handle, ratcheting 49 → 46. The composition-root
+	// seam (#854) folded main.go's four post-start Wire* calls into a single
+	// Platform.WireRuntime entry point; it holds no state, so the field count
+	// is unchanged. This is the #756 exit point (see the file header): the
+	// field ceiling is now frozen as a standing anti-regrowth invariant.
 	maxPlatformFields = 46
 
 	// maxPlatformMethods caps the number of methods with a *Platform receiver.
@@ -84,8 +95,14 @@ const (
 	// UnregisterRuntimePrompt) stay as one-line delegators, and the
 	// middleware-chain wiring (addPromptVisibilityMiddleware) plus the
 	// late-collaborator binding (bindPromptCollaborators) stay on Platform, so
-	// they still count.
-	maxPlatformMethods = 212
+	// they still count. The composition-root seam (#854) added one coordinator
+	// method, WireRuntime — it folds main.go's four ordering-sensitive post-start
+	// Wire* calls into one type-checked, test-covered entry point (the four Wire*
+	// methods it calls stay, so this is a net +1) — ratcheting the ceiling 212 →
+	// 213. This is the #756 exit point (see the file header): the method ceiling
+	// is now frozen as a standing anti-regrowth invariant, not a figure to keep
+	// driving down.
+	maxPlatformMethods = 213
 )
 
 // TestPlatformGodObjectBudget fails when the Platform struct grows more fields

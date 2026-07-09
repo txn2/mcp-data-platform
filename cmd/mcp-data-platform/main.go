@@ -215,20 +215,17 @@ func applyConfigOverrides(p *platform.Platform, opts *serverOptions) {
 func startServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, opts serverOptions) error {
 	// Start the /metrics listener for BOTH transports so operators get
 	// the same observability surface whether the platform is running
-	// in stdio (one-off CLI / Claude Desktop) or HTTP mode. The wire
-	// step also instruments any apigateway toolkit registered before
-	// the listener came up so existing connections start recording on
-	// the same call boundary the new ones do. Both calls are nil-safe
-	// and no-op when metrics are disabled.
+	// in stdio (one-off CLI / Claude Desktop) or HTTP mode. Then run the
+	// transport-aware runtime wiring in one call: WireRuntime owns the
+	// ordering of the api-gateway metrics/mem-budget, gateway integrations,
+	// and admin self-connection wiring so main.go no longer encodes it
+	// (#854). All of it is nil-safe and no-op when the relevant subsystems
+	// are disabled.
 	if p != nil {
 		if err := p.StartMetricsListener(ctx); err != nil {
 			return fmt.Errorf("starting metrics listener: %w", err)
 		}
-		p.WireAPIGatewayMetrics()
-		// Wire the process-wide in-flight memory budget for BOTH
-		// transports so the OOM guard (issue #535) applies whether the
-		// platform runs in stdio or HTTP mode.
-		p.WireAPIGatewayMemBudget()
+		p.WireRuntime(platform.RuntimeConfig{Transport: opts.transport, Address: opts.address})
 	}
 
 	switch opts.transport {
@@ -324,19 +321,14 @@ func resourceMetadataURL(p *platform.Platform) string {
 }
 
 func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, opts serverOptions) error {
-	// Wire platform-wide integrations BEFORE the root handler is built
-	// and before any feature-conditional setup runs. Both calls are
-	// idempotent and no-op when there are no gateway toolkits, so it
-	// is safe to do this unconditionally — and required for correctness
-	// because the SSE long-poll path needs the broadcaster wired into
-	// the gateway toolkit before AwareHandler accepts subscribers, and
-	// because admin.enabled may be false on locked-down replicas yet
-	// the gateway's persisted refresh tokens and tools/list_changed
-	// fan-out are still needed.
+	// Gateway/api-gateway integrations (broadcaster, token stores, catalog
+	// store, embed-job queue) and the admin self-connection are wired by
+	// p.WireRuntime in startServer, which runs before this HTTP setup. That
+	// keeps their ordering in one place (#854): the SSE long-poll path still
+	// gets the broadcaster wired into the gateway toolkit before the listener
+	// comes up at the end of this function, so AwareHandler never accepts a
+	// subscriber ahead of the wiring.
 	if p != nil {
-		// Ordered, idempotent gateway/api-gateway wiring; the embed-job
-		// queue is wired last (see WireGatewayIntegrations).
-		p.WireGatewayIntegrations()
 		// Start the background OAuth refresher once toolkits and
 		// connection store are wired. Single-call here (not in the
 		// platform constructor) so the resolver can read the live
@@ -391,14 +383,10 @@ func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Pla
 	// Mount admin API if enabled
 	mountAdminAPI(mux, p)
 
-	// Register the built-in platform-admin self-connection (issue #543)
-	// so an admin can drive /api/v1/admin/* through the api gateway. Only
-	// meaningful when the admin API is actually mounted, hence gated on
-	// admin.enabled here; the wiring itself no-ops without a catalog store
-	// or api-gateway toolkit. opts.address supplies the loopback port.
-	if p != nil && p.Config().Admin.IsEnabled() {
-		p.WireAdminSelfConnection(opts.address)
-	}
+	// The built-in platform-admin self-connection (issue #543) that lets an
+	// admin drive /api/v1/admin/* through the api gateway is seeded by
+	// p.WireRuntime (startServer), after the gateway integrations it depends
+	// on. The admin API mounted just above is the loopback surface it targets.
 
 	// Mount portal API if enabled
 	mountPortalAPI(mux, p)
