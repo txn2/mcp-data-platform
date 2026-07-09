@@ -486,7 +486,11 @@ func (h *Handler) getAsset(w http.ResponseWriter, r *http.Request) {
 	resp := assetResponse{Asset: *asset, IsOwner: asset.OwnerID == user.UserID}
 
 	if !resp.IsOwner {
-		perm, permErr := h.sharePermissionForUser(r, id, user)
+		// Resolve the highest permission across a direct share and the collection
+		// cascade, so a user who holds only a collection share can open the
+		// individual asset (issue #839) and a collection editor is reported as
+		// editor even when a lesser direct share also exists.
+		perm, permErr := h.resolveAssetPermission(r, id, user)
 		if permErr != nil {
 			writeError(w, http.StatusInternalServerError, "failed to check share access")
 			return
@@ -2179,11 +2183,51 @@ func (h *Handler) sharePermissionForUser(r *http.Request, assetID string, user *
 	return best, nil
 }
 
+// permissionRank orders share permissions so the highest grant wins when a user
+// holds access through more than one path (editor > viewer > none).
+func permissionRank(p SharePermission) int {
+	switch p {
+	case PermissionEditor:
+		return 2
+	case PermissionViewer:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// resolveAssetPermission returns the highest permission a non-owner user holds for
+// an asset, combining a direct share (sharePermissionForUser) with a collection
+// share (GetUserAssetPermissionViaCollection). A direct editor short-circuits the
+// collection lookup because editor is the ceiling. The returned error is the
+// direct-share store error (nil on success); a collection-lookup error is treated
+// as no collection access, matching the best-effort cascade the access helpers use.
+// Owner access must be checked by the caller, which treats a non-nil error as 500.
+//
+// This is for callers that need the effective permission value (getAsset reports it
+// as SharePermission; canEditAsset compares it to editor). The bool view helpers
+// (canViewAsset/userCanViewAsset) deliberately do not use it: they only need "any
+// grant" and short-circuit on a direct share to avoid a collection query per asset.
+func (h *Handler) resolveAssetPermission(r *http.Request, assetID string, user *User) (SharePermission, error) {
+	direct, err := h.sharePermissionForUser(r, assetID, user)
+	if err == nil && direct == PermissionEditor {
+		return direct, nil // editor is the ceiling; no need to consult the cascade
+	}
+	collPerm, _ := h.deps.ShareStore.GetUserAssetPermissionViaCollection(r.Context(), assetID, user.UserID, user.Email)
+	best := direct
+	if permissionRank(collPerm) > permissionRank(best) {
+		best = collPerm
+	}
+	return best, err
+}
+
 // canViewAsset checks owner or any share access, writing an HTTP error on failure.
 func (h *Handler) canViewAsset(w http.ResponseWriter, r *http.Request, assetID string, asset *Asset, user *User) bool {
 	if asset.OwnerID == user.UserID {
 		return true
 	}
+	// A view only needs any grant, so short-circuit on a direct share before the
+	// collection lookup — this runs per-asset in loops (e.g. knowledge-page refs).
 	perm, err := h.sharePermissionForUser(r, assetID, user)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to check share access")
@@ -2202,8 +2246,9 @@ func (h *Handler) canViewAsset(w http.ResponseWriter, r *http.Request, assetID s
 
 // userCanViewAsset reports whether the user may view the asset (owner, a direct
 // share, or a collection share) without writing an HTTP response — the pure form
-// of canViewAsset, for callers that resolve many entities in a loop. A share-store
-// error is treated as no access.
+// of canViewAsset, for callers that resolve many entities in a loop. A direct-share
+// store error is tolerated: a collection grant still allows access. Like canViewAsset
+// it short-circuits on a direct grant to avoid a collection query on the hot path.
 func (h *Handler) userCanViewAsset(r *http.Request, assetID string, asset *Asset, user *User) bool {
 	if asset.OwnerID == user.UserID {
 		return true
@@ -2220,16 +2265,12 @@ func (h *Handler) canEditAsset(w http.ResponseWriter, r *http.Request, assetID s
 	if asset.OwnerID == user.UserID {
 		return true
 	}
-	perm, err := h.sharePermissionForUser(r, assetID, user)
+	perm, err := h.resolveAssetPermission(r, assetID, user)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to check share access")
 		return false
 	}
 	if perm == PermissionEditor {
-		return true
-	}
-	collPerm, _ := h.deps.ShareStore.GetUserAssetPermissionViaCollection(r.Context(), assetID, user.UserID, user.Email)
-	if collPerm == PermissionEditor {
 		return true
 	}
 	writeError(w, http.StatusForbidden, "only the owner or an editor can update this asset")
