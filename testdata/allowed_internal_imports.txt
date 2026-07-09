@@ -1,3 +1,4 @@
+cmd/dev-mcp-mock -> internal/logsan
 cmd/mcp-data-platform -> internal/apidocs
 cmd/mcp-data-platform -> internal/server
 cmd/mcp-data-platform -> internal/ui
@@ -26,6 +27,7 @@ cmd/mcp-data-platform -> pkg/toolkits/gateway/sources
 cmd/mcp-data-platform -> pkg/toolkits/trino
 cmd/preview-content-viewer -> internal/contentviewer
 internal/server -> pkg/platform
+pkg/admin -> internal/logsan
 pkg/admin -> internal/server
 pkg/admin -> pkg/audit
 pkg/admin -> pkg/auth
@@ -54,12 +56,15 @@ pkg/admin -> pkg/toolkits/gateway/enrichment
 pkg/admin -> pkg/toolkits/knowledge
 pkg/admin -> pkg/user
 pkg/audit/postgres -> pkg/audit
+pkg/auth -> internal/logsan
 pkg/auth -> pkg/middleware
+pkg/browsersession -> internal/logsan
 pkg/browsersession -> pkg/middleware
 pkg/browsersession -> pkg/user
 pkg/configstore/postgres -> pkg/configstore
 pkg/connbackfill -> pkg/connview
 pkg/connbackfill -> pkg/registry
+pkg/connoauth -> internal/logsan
 pkg/connoauth -> pkg/authevents
 pkg/connview -> pkg/portal/knowledgepage
 pkg/connview -> pkg/registry
@@ -97,6 +102,7 @@ pkg/middleware -> pkg/semantic
 pkg/middleware -> pkg/session
 pkg/middleware -> pkg/storage
 pkg/middleware -> pkg/urnbuild
+pkg/oauth -> internal/logsan
 pkg/oauth -> pkg/observability
 pkg/oauth/postgres -> pkg/oauth
 pkg/persona -> pkg/middleware
@@ -253,6 +259,7 @@ pkg/platform/toolkitcfg -> pkg/platform/fieldcrypt
 pkg/platform/userdir -> pkg/middleware
 pkg/platform/userdir -> pkg/user
 pkg/portal -> internal/contentviewer
+pkg/portal -> internal/logsan
 pkg/portal -> pkg/audit
 pkg/portal -> pkg/browsersession
 pkg/portal -> pkg/embedding
@@ -268,6 +275,7 @@ pkg/portal/assetindex -> pkg/indexjobs
 pkg/portal/assetindex -> pkg/portal
 pkg/portal/collectionindex -> pkg/indexjobs
 pkg/portal/collectionindex -> pkg/portal
+pkg/portal/datahubapi -> internal/logsan
 pkg/portal/datahubapi -> pkg/audit
 pkg/portal/datahubapi -> pkg/portal
 pkg/portal/datahubapi -> pkg/semantic
@@ -292,9 +300,11 @@ pkg/registry -> pkg/toolkits/trino
 pkg/semantic/datahub -> pkg/observability
 pkg/semantic/datahub -> pkg/semantic
 pkg/semantic/datahub -> pkg/urnbuild
+pkg/session -> internal/logsan
 pkg/session/postgres -> pkg/session
 pkg/storage/s3 -> pkg/storage
 pkg/storage/s3 -> pkg/urnbuild
+pkg/toolkits/apigateway -> internal/logsan
 pkg/toolkits/apigateway -> pkg/authevents
 pkg/toolkits/apigateway -> pkg/connoauth
 pkg/toolkits/apigateway -> pkg/embedding
@@ -308,12 +318,14 @@ pkg/toolkits/apigateway/catalogindex -> pkg/indexjobs
 pkg/toolkits/apigateway/catalogindex -> pkg/toolkits/apigateway/catalog
 pkg/toolkits/datahub -> pkg/query
 pkg/toolkits/datahub -> pkg/semantic
+pkg/toolkits/gateway -> internal/logsan
 pkg/toolkits/gateway -> pkg/authevents
 pkg/toolkits/gateway -> pkg/connoauth
 pkg/toolkits/gateway -> pkg/query
 pkg/toolkits/gateway -> pkg/semantic
 pkg/toolkits/gateway -> pkg/toolkit
 pkg/toolkits/gateway -> pkg/toolkits/gateway/enrichment
+pkg/toolkits/gateway/enrichment -> internal/logsan
 pkg/toolkits/gateway/sources -> pkg/toolkits/gateway/enrichment
 pkg/toolkits/knowledge -> pkg/embedding
 pkg/toolkits/knowledge -> pkg/memory

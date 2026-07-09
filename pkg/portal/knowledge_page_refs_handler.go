@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
@@ -540,6 +541,6 @@ func (h *Handler) reconcileInlineRefs(ctx context.Context, pageID, body string) 
 	refs := knowledgepage.ScanBodyRefs(body)
 	if err := h.deps.KnowledgePageStore.ReplaceEntityRefsBySource(ctx, pageID, knowledgepage.RefSourceInline, refs); err != nil {
 		slog.WarnContext(ctx, "reconcile inline knowledge-page references failed",
-			"page_id", pageID, "error", err)
+			"page_id", logsan.SanitizeForLog(pageID), "error", err)
 	}
 }

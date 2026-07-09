@@ -42,6 +42,8 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 )
 
 // tokenStore is a tiny in-memory token registry for the mock OAuth
@@ -175,7 +177,7 @@ func oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	// Log only the host of the redirect target; the rest of the URL
 	// contains query params that flowed in from the request and would
 	// otherwise allow log injection of newlines/escape sequences.
-	log.Printf("oauth: /authorize → redirect host=%s code=%s", sanitizeHost(dest.Host), code)
+	log.Printf("oauth: /authorize → redirect host=%s code=%s", logsan.SanitizeForLog(dest.Host), logsan.SanitizeForLog(code))
 	// This is the OAuth /authorize endpoint — by spec it MUST redirect
 	// to the client-supplied redirect_uri. This is a dev fixture, not
 	// a production OAuth provider; no allowlist enforcement is
@@ -184,29 +186,6 @@ func oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	// fixture; spec mandates redirecting to the client-supplied
 	// redirect_uri (justification above).
 	http.Redirect(w, r, dest.String(), http.StatusFound) // nosemgrep: go.lang.security.injection.open-redirect.open-redirect
-}
-
-// asciiSpace and asciiDel are the boundaries of the printable ASCII
-// range used by sanitizeHost: anything below space or equal to DEL
-// is treated as a control character and dropped.
-const (
-	asciiSpace = 0x20
-	asciiDel   = 0x7f
-)
-
-// sanitizeHost strips control characters from a host string before
-// logging. The mock's logs are line-oriented and we don't want a
-// crafted redirect_uri header to inject newlines or terminal escapes.
-func sanitizeHost(h string) string {
-	out := make([]byte, 0, len(h))
-	for i := 0; i < len(h); i++ {
-		c := h[i]
-		if c < asciiSpace || c == asciiDel {
-			continue
-		}
-		out = append(out, c)
-	}
-	return string(out)
 }
 
 func oauthToken(w http.ResponseWriter, r *http.Request) {

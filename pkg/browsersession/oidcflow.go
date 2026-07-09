@@ -16,6 +16,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/user"
 )
 
@@ -206,8 +207,8 @@ func (f *Flow) CallbackHandler(w http.ResponseWriter, r *http.Request) {
 	// Check for errors from the OIDC provider
 	if errParam := r.URL.Query().Get(logKeyError); errParam != "" {
 		desc := r.URL.Query().Get("error_description")
-		safeErr := sanitizeLogValue(errParam)
-		safeDesc := sanitizeLogValue(desc)
+		safeErr := logsan.SanitizeForLog(errParam)
+		safeDesc := logsan.SanitizeForLog(desc)
 		slog.Warn("OIDC callback error", // #nosec G706 -- values are sanitized above
 			logKeyError, safeErr,
 			"description", safeDesc)
@@ -742,14 +743,4 @@ func randomString() (string, error) {
 		return "", fmt.Errorf("reading random bytes: %w", err)
 	}
 	return base64.RawURLEncoding.EncodeToString(b), nil
-}
-
-// sanitizeLogValue strips control characters from a string to prevent log injection.
-func sanitizeLogValue(s string) string {
-	return strings.Map(func(r rune) rune {
-		if r == '\n' || r == '\r' || r == '\t' {
-			return ' '
-		}
-		return r
-	}, s)
 }

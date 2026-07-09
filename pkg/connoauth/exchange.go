@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"golang.org/x/oauth2"
+
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 )
 
 // maxTokenResponseBytes caps the response body read from a token
@@ -149,7 +151,7 @@ func buildExchangeRequest(ctx context.Context, in ExchangeInput) (*http.Request,
 // (capped) on success so decodeExchangeResponse can JSON-decode it.
 func postExchange(client *http.Client, req *http.Request, tokenURL string) ([]byte, error) {
 	start := time.Now()
-	tokenHost := urlHost(tokenURL)
+	tokenHost := logsan.SanitizeForLog(urlHost(tokenURL))
 	// #nosec G107 G704 -- request URL is the operator-authored OAuth token
 	// endpoint from a validated connection config; client is the locally
 	// constructed newTokenExchangeClient with CheckRedirect refusing 3xx

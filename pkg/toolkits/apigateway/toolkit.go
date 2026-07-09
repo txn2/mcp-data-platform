@@ -17,6 +17,7 @@ import (
 	"github.com/getkin/kin-openapi/routers"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
@@ -938,13 +939,13 @@ func (t *Toolkit) buildConnSpecs(connName, catalogID, connBaseURL string) (
 	t.mu.RUnlock()
 	if store == nil {
 		slog.Warn("apigateway: connection references catalog but no catalog store wired",
-			logKeyConnection, connName, logKeyCatalogID, catalogID)
+			logKeyConnection, logsan.SanitizeForLog(connName), logKeyCatalogID, logsan.SanitizeForLog(catalogID))
 		return nil, nil, nil
 	}
 	entries, err := store.ListSpecs(context.Background(), catalogID)
 	if err != nil {
 		slog.Warn("apigateway: failed to load catalog specs",
-			logKeyConnection, connName, logKeyCatalogID, catalogID, logKeyError, err)
+			logKeyConnection, logsan.SanitizeForLog(connName), logKeyCatalogID, logsan.SanitizeForLog(catalogID), logKeyError, err)
 		return nil, nil, nil
 	}
 	specs = make(map[string]*specState, len(entries))
@@ -953,7 +954,7 @@ func (t *Toolkit) buildConnSpecs(connName, catalogID, connBaseURL string) (
 		doc, perr := parseOpenAPISpec(e.Content)
 		if perr != nil {
 			slog.Warn("apigateway: skipping unparseable spec",
-				logKeyConnection, connName, logKeyCatalogID, catalogID,
+				logKeyConnection, logsan.SanitizeForLog(connName), logKeyCatalogID, logsan.SanitizeForLog(catalogID),
 				"spec_name", e.SpecName, logKeyError, perr)
 			continue
 		}
@@ -985,7 +986,7 @@ func (t *Toolkit) buildConnSpecs(connName, catalogID, connBaseURL string) (
 		rows, listErr := store.ListOperationEmbeddings(context.Background(), catalogID, e.SpecName)
 		if listErr != nil {
 			slog.Warn("apigateway: failed to load operation embeddings",
-				logKeyConnection, connName, logKeyCatalogID, catalogID,
+				logKeyConnection, logsan.SanitizeForLog(connName), logKeyCatalogID, logsan.SanitizeForLog(catalogID),
 				"spec_name", e.SpecName, logKeyError, listErr)
 			continue
 		}

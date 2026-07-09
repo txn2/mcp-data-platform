@@ -16,6 +16,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/query"
@@ -785,17 +786,17 @@ func (t *Toolkit) installDialResult(r dialResult) error {
 			}
 			t.mu.Unlock()
 			slog.Warn("gateway: oauth authorization_code connection awaiting reauth",
-				logKeyConnection, cfg.ConnectionName,
-				logKeyEndpoint, cfg.Endpoint,
-				logKeyError, dialErr)
+				logKeyConnection, logsan.SanitizeForLog(cfg.ConnectionName),
+				logKeyEndpoint, logsan.SanitizeForLog(cfg.Endpoint),
+				logKeyError, logsan.SanitizeForLog(dialErr.Error()))
 			return nil
 		}
 		delete(t.connections, name)
 		t.mu.Unlock()
 		slog.Warn("gateway: upstream unavailable",
-			logKeyConnection, cfg.ConnectionName,
-			logKeyEndpoint, cfg.Endpoint,
-			logKeyError, dialErr)
+			logKeyConnection, logsan.SanitizeForLog(cfg.ConnectionName),
+			logKeyEndpoint, logsan.SanitizeForLog(cfg.Endpoint),
+			logKeyError, logsan.SanitizeForLog(dialErr.Error()))
 		return dialErr
 	}
 
@@ -816,8 +817,8 @@ func (t *Toolkit) installDialResult(r dialResult) error {
 	}
 	t.mu.Unlock()
 	slog.Info("gateway: upstream connected",
-		logKeyConnection, cfg.ConnectionName,
-		logKeyEndpoint, cfg.Endpoint,
+		logKeyConnection, logsan.SanitizeForLog(cfg.ConnectionName),
+		logKeyEndpoint, logsan.SanitizeForLog(cfg.Endpoint),
 		"tools", len(u.toolNames))
 	return nil
 }

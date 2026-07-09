@@ -17,6 +17,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
 
@@ -398,7 +399,7 @@ func (s *Server) handleAuthorizationCodeGrant(ctx context.Context, req TokenRequ
 	// invalid_grant: the code is still stored and single-use still holds.
 	if _, err := s.storage.ConsumeAuthorizationCode(ctx, code.Code); err != nil {
 		slog.Warn("oauth: authorization code consume failed",
-			paramClientID, req.ClientID, logKeyError, err.Error())
+			paramClientID, logsan.SanitizeForLog(req.ClientID), logKeyError, logsan.SanitizeForLog(err.Error()))
 		if errors.Is(err, ErrNotFound) {
 			return nil, fmt.Errorf("invalid authorization code")
 		}
@@ -445,7 +446,7 @@ func (s *Server) handleRefreshTokenGrant(ctx context.Context, req TokenRequest) 
 	// still-valid refresh token over a transient infrastructure blip.
 	if _, err := s.storage.ConsumeRefreshToken(ctx, token.Token); err != nil {
 		slog.Warn("oauth: refresh token rotation consume failed",
-			paramClientID, req.ClientID, logKeyError, err.Error())
+			paramClientID, logsan.SanitizeForLog(req.ClientID), logKeyError, logsan.SanitizeForLog(err.Error()))
 		if errors.Is(err, ErrNotFound) {
 			return nil, fmt.Errorf("invalid refresh token")
 		}
@@ -652,8 +653,8 @@ func (s *Server) handleTokenEndpoint(w http.ResponseWriter, r *http.Request) {
 		// rejected refresh tokens leave no trace and operators see
 		// users repeatedly re-authenticating with no visible cause.
 		slog.Warn("oauth: token grant rejected",
-			logKeyGrantType, req.GrantType,
-			"client_id", req.ClientID,
+			logKeyGrantType, logsan.SanitizeForLog(req.GrantType),
+			"client_id", logsan.SanitizeForLog(req.ClientID),
 			"credential_source", credentialSource,
 			"has_client_secret", req.ClientSecret != "",
 			"has_refresh_token", req.RefreshToken != "",
@@ -679,12 +680,12 @@ func (s *Server) handleTokenEndpoint(w http.ResponseWriter, r *http.Request) {
 	// this client (rules out a hypothesis where refresh tokens are
 	// silently filtered).
 	slog.Info("oauth: token grant issued",
-		logKeyGrantType, req.GrantType,
-		"client_id", req.ClientID,
+		logKeyGrantType, logsan.SanitizeForLog(req.GrantType),
+		"client_id", logsan.SanitizeForLog(req.ClientID),
 		"credential_source", credentialSource,
 		"has_refresh_token", resp.RefreshToken != "",
 		"expires_in", resp.ExpiresIn,
-		"scope", resp.Scope,
+		"scope", logsan.SanitizeForLog(resp.Scope),
 		"duration_ms", time.Since(start).Milliseconds())
 	s.writeJSON(w, http.StatusOK, resp)
 }

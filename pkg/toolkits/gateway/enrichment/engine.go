@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 )
 
 // userKeyEmail is the field name of the email value injected into rule
@@ -99,8 +101,8 @@ func (e *Engine) Apply(ctx context.Context, call CallContext, response any) Resu
 	rules, err := e.store.List(ctx, call.Connection, call.ToolName, true)
 	if err != nil {
 		slog.Warn("enrichment: failed to list rules",
-			"connection", call.Connection,
-			"tool", call.ToolName, "error", err)
+			"connection", logsan.SanitizeForLog(call.Connection),
+			"tool", logsan.SanitizeForLog(call.ToolName), "error", err)
 		return Result{Response: response, Warnings: []string{"enrichment: list rules: " + err.Error()}}
 	}
 

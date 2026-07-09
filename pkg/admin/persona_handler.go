@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sort"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/platform/personastore"
@@ -230,7 +231,7 @@ func (h *Handler) createPersona(w http.ResponseWriter, r *http.Request) {
 		author := extractAuthor(r)
 		def := personastore.DefinitionFromPersona(p, author)
 		if err := h.deps.PersonaStore.Set(r.Context(), def); err != nil {
-			slog.Warn("failed to persist persona", logKeyName, p.Name, logKeyError, err)
+			slog.Warn("failed to persist persona", logKeyName, logsan.SanitizeForLog(p.Name), logKeyError, err)
 			writeError(w, http.StatusInternalServerError, "failed to persist persona")
 			return
 		}
@@ -290,7 +291,7 @@ func (h *Handler) updatePersona(w http.ResponseWriter, r *http.Request) {
 		author := extractAuthor(r)
 		def := personastore.DefinitionFromPersona(p, author)
 		if err := h.deps.PersonaStore.Set(r.Context(), def); err != nil {
-			slog.Warn("failed to persist persona update", logKeyName, p.Name, logKeyError, err)
+			slog.Warn("failed to persist persona update", logKeyName, logsan.SanitizeForLog(p.Name), logKeyError, err)
 			writeError(w, http.StatusInternalServerError, "failed to persist persona")
 			return
 		}
@@ -384,7 +385,7 @@ func (h *Handler) deletePersonaFromStore(r *http.Request, name string) error {
 	if errors.Is(err, personastore.ErrNotFound) && h.deps.FilePersonaNames[name] {
 		return nil
 	}
-	slog.Warn("failed to delete persona from database", logKeyName, sanitizeLogValue(name), logKeyError, err) // #nosec G706 -- name is sanitized
+	slog.Warn("failed to delete persona from database", logKeyName, logsan.SanitizeForLog(name), logKeyError, err) // #nosec G706 -- name is sanitized
 	return fmt.Errorf("deleting persona %q: %w", name, err)
 }
 
@@ -421,7 +422,7 @@ func (h *Handler) revertToFilePersona(name string) {
 		Source:   platform.SourceFile,
 	}
 	if err := h.deps.PersonaRegistry.Register(p); err != nil {
-		slog.Warn("failed to revert persona to file version", logKeyName, sanitizeLogValue(name), logKeyError, err) // #nosec G706 -- name is sanitized
+		slog.Warn("failed to revert persona to file version", logKeyName, logsan.SanitizeForLog(name), logKeyError, err) // #nosec G706 -- name is sanitized
 	}
 }
 

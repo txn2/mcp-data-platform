@@ -19,6 +19,14 @@ type errStore struct {
 	*MemoryStore
 	getErr    error
 	createErr error
+	deleteErr error
+}
+
+func (s *errStore) Delete(ctx context.Context, id string) error {
+	if s.deleteErr != nil {
+		return s.deleteErr
+	}
+	return s.MemoryStore.Delete(ctx, id)
 }
 
 func (s *errStore) Get(ctx context.Context, id string) (*Session, error) {
@@ -433,26 +441,6 @@ func TestHashToken(t *testing.T) {
 	assert.NotEqual(t, h, hashToken("other"), "different input should produce different hash")
 }
 
-func TestSanitizeLogValue(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{"clean", "abc-123", "abc-123"},
-		{"newlines", "line1\nline2\n", "line1line2"},
-		{"carriage return", "a\rb", "ab"},
-		{"tabs", "a\tb", "ab"},
-		{"mixed control chars", "a\n\r\tb", "ab"},
-		{"empty", "", ""},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, sanitizeLogValue(tt.input))
-		})
-	}
-}
-
 func TestAwareSessionID_EmptyContext(t *testing.T) {
 	got := AwareSessionID(context.Background())
 	assert.Empty(t, got, "plain context should return empty string")
@@ -695,6 +683,26 @@ func TestHandler_ReviveSession_CreateError(t *testing.T) {
 
 	assert.False(t, inner.wasCalled(), "inner handler should not be called when revive fails")
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+// TestHandler_Delete_StoreError exercises the delete-failure branch: a
+// store Delete error is logged (session ID sanitized via logsan) but is
+// non-fatal, so the DELETE still forwards to the inner handler.
+func TestHandler_Delete_StoreError(t *testing.T) {
+	es := &errStore{
+		MemoryStore: NewMemoryStore(handlerTestTTL),
+		deleteErr:   errors.New("delete failed"),
+	}
+	inner := &testInnerHandler{}
+	handler := NewAwareHandler(inner, HandlerConfig{Store: es, TTL: handlerTestTTL})
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodDelete, handlerTestPath, http.NoBody)
+	req.Header.Set(sessionIDHeader, "delete-fail")
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	assert.True(t, inner.wasCalled(), "DELETE should still forward to inner even when store delete fails")
 }
 
 // flushRecorder is httptest.ResponseRecorder + http.Flusher so the SSE

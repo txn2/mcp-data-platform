@@ -7,6 +7,8 @@ import (
 	"sync"
 
 	"golang.org/x/oauth2"
+
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 )
 
 // Canonical connection-config keys for the OAuth flow. These are the
@@ -255,7 +257,7 @@ func warnLegacyOnce(kind, name string) {
 	}
 	slog.Warn("connoauth: connection uses deprecated oauth2_* config keys; "+
 		"run the unify-oauth-config migration or re-save the connection to adopt the canonical oauth_* keys",
-		"kind", kind, "name", name)
+		"kind", logsan.SanitizeForLog(kind), "name", logsan.SanitizeForLog(name))
 }
 
 // getStringValue returns cfg[key] coerced to a string, or "" when the

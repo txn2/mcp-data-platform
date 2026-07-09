@@ -14,6 +14,7 @@ import (
 
 	"golang.org/x/oauth2"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
 )
 
@@ -235,7 +236,7 @@ func (s *Source) handleRevoked(ctx context.Context, persisted *PersistedToken, r
 	// before attempting the delete, which produced a misleading
 	// audit trail when the delete itself failed.
 	slog.Info("connoauth: connection token row deleted",
-		logKeyKind, s.key.Kind, logKeyName, s.key.Name,
+		logKeyKind, logsan.SanitizeForLog(s.key.Kind), logKeyName, logsan.SanitizeForLog(s.key.Name),
 		"reason", reason, logKeyTokenURLHost, idpHost)
 	s.events.TokenDeletedRevoked(ctx, s.key.Kind, s.key.Name, s.actor, s.cfg.TokenURL, reason)
 }

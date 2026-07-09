@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
@@ -91,7 +92,7 @@ func (pa *Authenticator) Authenticate(r *http.Request) (*User, error) {
 	}
 	info, err := pa.authenticator.Authenticate(middleware.WithToken(r.Context(), token))
 	if err != nil {
-		slog.Warn("portal auth failed", "error", err)
+		slog.Warn("portal auth failed", "error", logsan.SanitizeForLog(err.Error()))
 		return nil, csrfErr
 	}
 	if info == nil {
