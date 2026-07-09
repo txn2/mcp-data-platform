@@ -284,6 +284,186 @@ func TestRanking_LexicalFallbackOnNoVectors(t *testing.T) {
 	}
 }
 
+// TestListEndpoints_DefaultOnHybridWhenEmbeddingsAvailable covers #858:
+// an omitted ranking must default to hybrid whenever the connection
+// has an embedding index, so a multi-intent query that the lexical
+// AND filter would drop to an empty set is instead ranked and
+// returned. An explicit ranking="lexical" is preserved as the
+// opt-out (the switch is offered, not the default).
+func TestListEndpoints_DefaultOnHybridWhenEmbeddingsAvailable(t *testing.T) {
+	t.Parallel()
+	tk := New("test")
+	emb := newTrackingEmbedder()
+	tk.SetEmbeddingProvider(emb)
+	store := catalog.NewMemoryStore()
+	tk.SetCatalogStore(store)
+	seedCatalogWithEmbeddings(t, store, emb, "shared", "default")
+	if err := tk.AddConnection("api", map[string]any{
+		"base_url":   "https://api.example.com",
+		"catalog_id": "shared",
+	}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	ctx := context.Background()
+
+	// "alpha bravo" has no single operation containing BOTH tokens, so
+	// the lexical AND filter matches nothing. With embeddings present
+	// the omitted ranking must resolve to hybrid and return both ops.
+	res, payload, _ := tk.handleListEndpoints(ctx, nil, ListEndpointsInput{
+		Connection: "api", Query: "alpha bravo",
+	})
+	if res == nil || res.IsError {
+		t.Fatalf("default ranking should not error: %v", res)
+	}
+	out, _ := payload.(ListEndpointsOutput)
+	if len(out.Operations) == 0 {
+		t.Fatal("omitted ranking with embeddings must default to hybrid and return ranked ops, not an empty lexical-AND result")
+	}
+	if out.Note != "" {
+		t.Errorf("hybrid default with vectors present should have no fallback Note; got %q", out.Note)
+	}
+
+	// Explicit lexical is the opt-out: the same multi-token query
+	// still AND-narrows to empty.
+	_, lexPayload, _ := tk.handleListEndpoints(ctx, nil, ListEndpointsInput{
+		Connection: "api", Query: "alpha bravo", Ranking: "lexical",
+	})
+	lexOut, _ := lexPayload.(ListEndpointsOutput)
+	if len(lexOut.Operations) != 0 {
+		t.Errorf("explicit lexical must preserve AND semantics; got %d ops", len(lexOut.Operations))
+	}
+}
+
+// TestListEndpoints_DefaultStaysLexicalWithoutEmbeddings covers the
+// other side of #858's gate: with no embedding index the omitted
+// ranking must stay on the lexical floor rather than attempting a
+// semantic path, so behavior is unchanged for un-indexed connections.
+func TestListEndpoints_DefaultStaysLexicalWithoutEmbeddings(t *testing.T) {
+	t.Parallel()
+	tk := New("test")
+	// No embedder wired -> embeddingsAvailable is false.
+	store := catalog.NewMemoryStore()
+	tk.SetCatalogStore(store)
+	ctx := context.Background()
+	_ = store.CreateCatalog(ctx, catalog.Catalog{ID: "c", Name: "c", DisplayName: "c"})
+	_ = store.UpsertSpec(ctx, "c", catalog.SpecEntry{
+		SpecName: "default", Content: persistedEmbedTestSpec, SourceKind: catalog.SourceInline,
+	})
+	if err := tk.AddConnection("api", map[string]any{
+		"base_url":   "https://api.example.com",
+		"catalog_id": "c",
+	}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	res, payload, _ := tk.handleListEndpoints(ctx, nil, ListEndpointsInput{
+		Connection: "api", Query: "alpha bravo",
+	})
+	if res == nil || res.IsError {
+		t.Fatalf("lexical default should not error: %v", res)
+	}
+	out, _ := payload.(ListEndpointsOutput)
+	if len(out.Operations) != 0 {
+		t.Errorf("without embeddings the omitted ranking stays lexical AND -> empty; got %d ops", len(out.Operations))
+	}
+}
+
+// TestListEndpoints_DefaultStaysLexicalWhenWiredButUnindexed covers
+// the middle branch of embeddingsAvailable (#858): an embedding
+// provider IS wired, but the connection has no persisted vectors, so
+// the omitted ranking must stay on the lexical floor rather than
+// upgrading to hybrid and surfacing a fallback Note on every call.
+func TestListEndpoints_DefaultStaysLexicalWhenWiredButUnindexed(t *testing.T) {
+	t.Parallel()
+	tk := New("test")
+	tk.SetEmbeddingProvider(newFakeEmbedder(32)) // embedder wired...
+	store := catalog.NewMemoryStore()
+	tk.SetCatalogStore(store)
+	ctx := context.Background()
+	_ = store.CreateCatalog(ctx, catalog.Catalog{ID: "c", Name: "c", DisplayName: "c"})
+	_ = store.UpsertSpec(ctx, "c", catalog.SpecEntry{
+		SpecName: "default", Content: persistedEmbedTestSpec, SourceKind: catalog.SourceInline,
+	})
+	// ...but no UpsertOperationEmbeddings, so the connection has no vectors.
+	if err := tk.AddConnection("api", map[string]any{
+		"base_url":   "https://api.example.com",
+		"catalog_id": "c",
+	}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	// embeddingsAvailable must be false (wired but unindexed), so the
+	// omitted ranking stays lexical and the multi-token AND query
+	// returns empty rather than a hybrid-ranked catalog, with no
+	// fallback Note (the lexical floor never attempted a semantic path).
+	res, payload, _ := tk.handleListEndpoints(ctx, nil, ListEndpointsInput{
+		Connection: "api", Query: "alpha bravo",
+	})
+	if res == nil || res.IsError {
+		t.Fatalf("unindexed default should not error: %v", res)
+	}
+	out, _ := payload.(ListEndpointsOutput)
+	if len(out.Operations) != 0 {
+		t.Errorf("wired-but-unindexed connection must stay lexical (AND -> empty); got %d ops", len(out.Operations))
+	}
+	if out.Note != "" {
+		t.Errorf("lexical floor should emit no fallback Note; got %q", out.Note)
+	}
+}
+
+// TestListEndpoints_DefaultedFallbackNoteDoesNotClaimHybrid covers
+// #858 fix for the misleading Note: when an omitted ranking is
+// auto-upgraded to hybrid and the query embed then fails at rank
+// time, the fallback Note must attribute the cause to the default
+// semantic path being unavailable, NOT to a "hybrid" mode the caller
+// never selected.
+func TestListEndpoints_DefaultedFallbackNoteDoesNotClaimHybrid(t *testing.T) {
+	t.Parallel()
+	tk := New("test")
+	emb := newFakeEmbedder(32)
+	tk.SetEmbeddingProvider(emb)
+	store := catalog.NewMemoryStore()
+	tk.SetCatalogStore(store)
+	ctx := context.Background()
+	if err := store.CreateCatalog(ctx, catalog.Catalog{ID: "shared", Name: "shared", DisplayName: "shared"}); err != nil {
+		t.Fatalf("CreateCatalog: %v", err)
+	}
+	if err := store.UpsertSpec(ctx, "shared", catalog.SpecEntry{
+		SpecName: "default", Content: persistedEmbedTestSpec, SourceKind: catalog.SourceInline,
+	}); err != nil {
+		t.Fatalf("UpsertSpec: %v", err)
+	}
+	// Seed vectors with the batch path working so the connection loads
+	// them (embeddingsAvailable -> true, omitted ranking upgrades to
+	// hybrid).
+	rows := computeEmbeddingsForTest(t, emb, persistedEmbedTestSpec, "default")
+	if err := store.UpsertOperationEmbeddings(ctx, "shared", "default", rows); err != nil {
+		t.Fatalf("UpsertOperationEmbeddings: %v", err)
+	}
+	if err := tk.AddConnection("api", map[string]any{
+		"base_url":   "https://api.example.com",
+		"catalog_id": "shared",
+	}); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	// Force the query-time embed to fail so hybrid falls back to lexical.
+	emb.failEmbed.Store(true)
+	res, payload, _ := tk.handleListEndpoints(ctx, nil, ListEndpointsInput{
+		Connection: "api", Query: "alpha",
+	})
+	if res == nil || res.IsError {
+		t.Fatalf("defaulted fallback should not error: %v", res)
+	}
+	out, _ := payload.(ListEndpointsOutput)
+	if out.Note == "" {
+		t.Fatal("a fallback at rank time should surface a Note")
+	}
+	if strings.Contains(out.Note, "hybrid") {
+		t.Errorf("defaulted fallback Note must not claim the caller requested hybrid; got %q", out.Note)
+	}
+	if !strings.Contains(out.Note, "default semantic ranking unavailable") {
+		t.Errorf("defaulted fallback Note should name the default-semantic cause; got %q", out.Note)
+	}
+}
+
 // failingEmbeddingsStore is a wrapper around catalog.MemoryStore
 // that injects an error on ListOperationEmbeddings so the toolkit's
 // addParsedConnection logs and continues without halting the

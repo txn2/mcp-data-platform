@@ -611,13 +611,25 @@ func (t *Toolkit) handleListEndpoints(ctx context.Context, _ *mcp.CallToolReques
 	if modeErr != nil {
 		return errorResult(modeErr.Error()), nil, nil
 	}
+	// Default-ON semantic ranking: when the caller does not pin a
+	// ranking, resolve an omitted value to hybrid whenever this
+	// connection has an embedding index available, so intent queries
+	// ("whoami echo status") are ranked instead of failing the
+	// lexical AND filter closed to an empty set. The lexical mode is
+	// an opt-out we offer, not the default — an explicit
+	// ranking="lexical" is preserved. Skipped for an empty query,
+	// which rankWithMode serves from the lexical "return all" path
+	// regardless of mode, so the readiness gate would be wasted work.
+	// See #858.
+	rankingDefaulted := in.Query != "" && in.Ranking == "" && t.embeddingsAvailable(c)
+	if rankingDefaulted {
+		mode = RankingHybrid
+	}
 	ranked, fallbackReason := rankWithMode(ctx, rankRequest{
 		tk: t, conn: c, ops: visible, query: in.Query, limit: limit, mode: mode,
 	})
 	out := ListEndpointsOutput{Operations: ranked}
-	if fallbackReason != "" {
-		out.Note = fmt.Sprintf("ranking %q fell back to lexical: %s", mode, fallbackReason)
-	}
+	out.Note = rankingFallbackNote(rankingDefaulted, mode, fallbackReason)
 	return jsonResult(out), out, nil
 }
 
@@ -685,11 +697,29 @@ func filterBySpec(ops []OperationSummary, spec string) []OperationSummary {
 	return out
 }
 
+// rankingFallbackNote builds the response Note when ranking fell
+// back to lexical. An empty reason yields an empty Note. When the
+// hybrid mode was auto-selected because the caller omitted ranking
+// (defaulted), the note must not attribute "hybrid" to the caller —
+// it phrases the cause as the default semantic path being
+// unavailable, so an operator is never told they requested a mode
+// they never passed (#858).
+func rankingFallbackNote(defaulted bool, mode RankingMode, reason string) string {
+	if reason == "" {
+		return ""
+	}
+	if defaulted {
+		return fmt.Sprintf("default semantic ranking unavailable, used lexical: %s", reason)
+	}
+	return fmt.Sprintf("ranking %q fell back to lexical: %s", mode, reason)
+}
+
 // parseRankingMode maps the input string to a RankingMode. Empty
-// (omitted from the call) defaults to lexical for backward
-// compatibility — adding semantic ranking to the toolkit must not
-// silently change behavior for callers that don't pass the new
-// field.
+// (omitted from the call) parses to lexical as the safe floor; the
+// list-endpoints handler then upgrades an omitted ranking to hybrid
+// when the connection has an embedding index available, so the
+// semantic path is ON by default whenever its requirement is met
+// (#858). An explicit "lexical" is preserved as an opt-out.
 func parseRankingMode(raw string) (RankingMode, error) {
 	switch raw {
 	case "", string(RankingLexical):

@@ -54,8 +54,10 @@ var (
 // RankingMode selects the algorithm api_list_endpoints uses to score
 // candidate operations against the model's query.
 //
-// Lexical (default) is the substring-match filter that v1 shipped:
-// fast, deterministic, no embedding-provider dependency. Misses on
+// Lexical is the substring-match filter that v1 shipped: fast,
+// deterministic, no embedding-provider dependency. It is the floor
+// when no embedding index is available, and the explicit opt-out
+// when a caller wants to bypass semantic ranking. Misses on
 // natural-language queries when the model's phrasing doesn't share
 // vocabulary with the spec author's (e.g. query "create order" vs
 // summary "Place a new order").
@@ -75,7 +77,9 @@ type RankingMode string
 
 // RankingMode values exposed on the api_list_endpoints schema.
 const (
-	// RankingLexical is the v1 substring-match filter (default).
+	// RankingLexical is the v1 substring-match filter. It is the
+	// floor when no embedding index is available; with embeddings
+	// present, an omitted ranking defaults to hybrid (#858).
 	RankingLexical RankingMode = "lexical"
 	// RankingSemantic ranks by embedding cosine similarity only.
 	RankingSemantic RankingMode = "semantic"
@@ -286,6 +290,25 @@ func (t *Toolkit) queryVectorFor(ctx context.Context, c *conn, query string) ([]
 		return nil, errEmbeddingsZeroVector
 	}
 	return vec, nil
+}
+
+// embeddingsAvailable reports whether this connection can be ranked
+// semantically right now: an embedding provider is wired on the
+// toolkit AND the connection has persisted operation vectors loaded.
+// It is the gate for the default-ON hybrid upgrade in
+// handleListEndpoints — when true, an omitted ranking resolves to
+// hybrid rather than lexical, so the semantic path is the default
+// whenever its requirement is met (#858). Snapshots t.embedder under
+// the read lock, mirroring queryVectorFor, so a concurrent
+// SetEmbeddingProvider cannot race the nil check.
+func (t *Toolkit) embeddingsAvailable(c *conn) bool {
+	t.mu.RLock()
+	embedder := t.embedder
+	t.mu.RUnlock()
+	if embedder == nil {
+		return false
+	}
+	return checkEmbeddingsReady(c) == nil
 }
 
 // checkEmbeddingsReady reports whether persisted operation
