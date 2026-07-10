@@ -96,7 +96,8 @@ func TestCreateClient(t *testing.T) {
 
 	mock.ExpectExec("INSERT INTO oauth_clients").
 		WithArgs(client.ID, client.ClientID, client.ClientSecret, client.Name,
-			sqlmock.AnyArg(), sqlmock.AnyArg(), client.RequirePKCE, client.CreatedAt, client.Active).
+			sqlmock.AnyArg(), sqlmock.AnyArg(), client.RequirePKCE, client.CreatedAt, client.Active,
+			client.DynamicallyRegistered).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	err = store.CreateClient(context.Background(), client)
@@ -115,7 +116,8 @@ func TestCreateClient_UpsertOnConflict(t *testing.T) {
 	// First insert succeeds
 	mock.ExpectExec("INSERT INTO oauth_clients").
 		WithArgs(client.ID, client.ClientID, client.ClientSecret, client.Name,
-			sqlmock.AnyArg(), sqlmock.AnyArg(), client.RequirePKCE, client.CreatedAt, client.Active).
+			sqlmock.AnyArg(), sqlmock.AnyArg(), client.RequirePKCE, client.CreatedAt, client.Active,
+			client.DynamicallyRegistered).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	err = store.CreateClient(context.Background(), client)
@@ -129,7 +131,8 @@ func TestCreateClient_UpsertOnConflict(t *testing.T) {
 
 	mock.ExpectExec("INSERT INTO oauth_clients").
 		WithArgs(updatedClient.ID, updatedClient.ClientID, updatedClient.ClientSecret, updatedClient.Name,
-			sqlmock.AnyArg(), sqlmock.AnyArg(), updatedClient.RequirePKCE, updatedClient.CreatedAt, updatedClient.Active).
+			sqlmock.AnyArg(), sqlmock.AnyArg(), updatedClient.RequirePKCE, updatedClient.CreatedAt, updatedClient.Active,
+			updatedClient.DynamicallyRegistered).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	err = store.CreateClient(context.Background(), updatedClient)
@@ -149,10 +152,11 @@ func TestGetClient(t *testing.T) {
 
 	rows := sqlmock.NewRows([]string{
 		"id", "client_id", "client_secret", "name", "redirect_uris",
-		"grant_types", "require_pkce", "created_at", "active",
+		"grant_types", "require_pkce", "created_at", "active", "dcr",
 	}).AddRow(
 		client.ID, client.ClientID, client.ClientSecret, client.Name,
 		redirectJSON, grantJSON, client.RequirePKCE, client.CreatedAt, client.Active,
+		client.DynamicallyRegistered,
 	)
 
 	mock.ExpectQuery("SELECT .+ FROM oauth_clients").
@@ -232,10 +236,11 @@ func TestListClients(t *testing.T) {
 
 	rows := sqlmock.NewRows([]string{
 		"id", "client_id", "client_secret", "name", "redirect_uris",
-		"grant_types", "require_pkce", "created_at", "active",
+		"grant_types", "require_pkce", "created_at", "active", "dcr",
 	}).AddRow(
 		client.ID, client.ClientID, client.ClientSecret, client.Name,
 		redirectJSON, grantJSON, client.RequirePKCE, client.CreatedAt, client.Active,
+		client.DynamicallyRegistered,
 	)
 
 	mock.ExpectQuery("SELECT .+ FROM oauth_clients").WillReturnRows(rows)
@@ -384,6 +389,11 @@ func TestSaveRefreshToken(t *testing.T) {
 		WithArgs(token.ID, hashedTokenValue, token.ClientID, token.UserID,
 			sqlmock.AnyArg(), token.Scope, token.ExpiresAt, token.CreatedAt).
 		WillReturnResult(sqlmock.NewResult(1, 1))
+	// SaveRefreshToken also stamps last_used_at on the owning client so the
+	// DCR cleanup never reaps a client that completed a token exchange.
+	mock.ExpectExec("UPDATE oauth_clients SET last_used_at").
+		WithArgs(token.ClientID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	err = store.SaveRefreshToken(context.Background(), token)
 	assert.NoError(t, err)
@@ -515,7 +525,7 @@ func TestCleanupRoutineLifecycle(t *testing.T) {
 	defer db.Close() //nolint:errcheck // sqlmock db close error is inconsequential in tests.
 
 	store := New(db)
-	store.StartCleanupRoutine(time.Hour) // long interval so it won't fire
+	store.StartCleanupRoutine(time.Hour, time.Hour) // long interval so it won't fire
 
 	err = store.Close()
 	assert.NoError(t, err)
@@ -535,7 +545,7 @@ func TestCleanupRoutine_HandlesErrors(t *testing.T) {
 	mock.ExpectExec("DELETE FROM oauth_refresh_tokens").
 		WillReturnError(errors.New("tokens cleanup error"))
 
-	store.StartCleanupRoutine(10 * time.Millisecond) // short interval to trigger quickly
+	store.StartCleanupRoutine(10*time.Millisecond, time.Hour) // short interval to trigger quickly
 
 	// Wait long enough for the ticker to fire at least once.
 	time.Sleep(50 * time.Millisecond)

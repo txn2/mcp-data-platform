@@ -116,6 +116,12 @@ oauth:
 | `oauth.dcr.enabled` | No | Enable Dynamic Client Registration |
 | `oauth.dcr.allowed_redirect_patterns` | Yes, when DCR is enabled | Regex patterns for allowed redirect URIs. Registration is denied when empty unless `allow_all_redirect_uris` is set |
 | `oauth.dcr.allow_all_redirect_uris` | No | Explicitly accept any HTTPS (or loopback HTTP) redirect URI without pattern matching. Not recommended: an attacker-controlled redirect URI enables authorization-code interception |
+| `oauth.rate_limit.enabled` | No | Rate-limit `/token` and `/register` (default: `true`) |
+| `oauth.rate_limit.trusted_proxies` | No | CIDRs whose `X-Forwarded-For` is trusted for client attribution (default: none). Empty trusts none: the direct peer address is used and forwarding headers are ignored. Set to your ingress/load-balancer CIDRs so per-client limiting works behind a proxy without being spoofable |
+| `oauth.rate_limit.token.requests_per_minute` | No | Per-IP `/token` limit (default: `60`) |
+| `oauth.rate_limit.token.burst` | No | Per-IP `/token` burst (default: `10`) |
+| `oauth.rate_limit.register.requests_per_minute` | No | Per-IP `/register` limit (default: `10`) |
+| `oauth.rate_limit.register.burst` | No | Per-IP `/register` burst (default: `3`) |
 | `oauth.upstream.issuer` | No | Upstream IdP issuer URL |
 | `oauth.upstream.client_id` | No | MCP server's client ID in the upstream IdP |
 | `oauth.upstream.client_secret` | No | MCP server's client secret |
@@ -283,6 +289,8 @@ Response:
 | **State Validation** | CSRF protection via state parameter |
 | **Token Expiration** | Access tokens expire after 1 hour |
 | **Refresh Token Rotation** | New refresh token issued on each use |
+| **Endpoint Rate Limiting** | `/token` and `/register` limited per-IP with a global backstop; trusted-proxy-aware attribution (see `oauth.rate_limit`) |
+| **DCR Registration Cleanup** | Dynamically-registered clients never issued a token are reaped 24h after registration, bounding `oauth_clients` growth |
 
 ## Troubleshooting
 

@@ -68,6 +68,11 @@ type Client struct {
 	RequirePKCE  bool      `json:"require_pkce"`
 	CreatedAt    time.Time `json:"created_at"`
 	Active       bool      `json:"active"`
+	// DynamicallyRegistered marks clients created through the unauthenticated
+	// DCR /register endpoint (RFC 7591), as opposed to pre-registered
+	// config-file clients. Only DCR clients are eligible for TTL-based cleanup
+	// of unused registrations.
+	DynamicallyRegistered bool `json:"dynamically_registered"`
 }
 
 // AuthorizationCode represents an OAuth authorization code.

@@ -112,6 +112,76 @@ func TestOAuthStore_StateStore_RealDB(t *testing.T) {
 	require.ErrorIs(t, err, oauth.ErrStateNotFound)
 }
 
+// TestOAuthStore_CleanupUnusedDCRClients_RealDB proves the DCR cleanup
+// predicate against the real schema: an aged DCR client that never completed a
+// token exchange is deleted; an aged DCR client that has (last_used_at set) is
+// retained even after its refresh token is gone; and a pre-registered
+// (dcr = false) client is retained regardless of age.
+func TestOAuthStore_CleanupUnusedDCRClients_RealDB(t *testing.T) {
+	store := New(testdb.New(t))
+	ctx := context.Background()
+
+	aged := time.Now().UTC().Add(-48 * time.Hour)
+
+	// 1. Aged DCR client, no token ever issued -> eligible for deletion.
+	unused := &oauth.Client{
+		ID: "oc_dcr_unused", ClientID: "client-dcr-unused", ClientSecret: "h",
+		Name: "unused", CreatedAt: aged, Active: true, DynamicallyRegistered: true,
+	}
+	require.NoError(t, store.CreateClient(ctx, unused))
+
+	// 2. Aged DCR client WITH a live refresh token -> retained.
+	used := &oauth.Client{
+		ID: "oc_dcr_used", ClientID: "client-dcr-used", ClientSecret: "h",
+		Name: "used", CreatedAt: aged, Active: true, DynamicallyRegistered: true,
+	}
+	require.NoError(t, store.CreateClient(ctx, used))
+	require.NoError(t, store.SaveRefreshToken(ctx, &oauth.RefreshToken{
+		ID: "rt_dcr_used", Token: "token-dcr-used", ClientID: "client-dcr-used",
+		UserID: "u", Scope: "read", ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
+		CreatedAt: time.Now().UTC(),
+	}))
+
+	// 3. Aged DCR client that WAS used but whose refresh token is now gone
+	//    (rotation window / expiry) -> retained via last_used_at. This is the
+	//    regression guard for reaping still-valid registrations.
+	usedGone := &oauth.Client{
+		ID: "oc_dcr_used_gone", ClientID: "client-dcr-used-gone", ClientSecret: "h",
+		Name: "used-gone", CreatedAt: aged, Active: true, DynamicallyRegistered: true,
+	}
+	require.NoError(t, store.CreateClient(ctx, usedGone))
+	require.NoError(t, store.SaveRefreshToken(ctx, &oauth.RefreshToken{
+		ID: "rt_dcr_used_gone", Token: "token-dcr-used-gone", ClientID: "client-dcr-used-gone",
+		UserID: "u", Scope: "read", ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
+		CreatedAt: time.Now().UTC(),
+	}))
+	require.NoError(t, store.DeleteRefreshToken(ctx, "token-dcr-used-gone"))
+
+	// 4. Aged pre-registered client (dcr = false) -> retained regardless of age.
+	preReg := &oauth.Client{
+		ID: "oc_prereg", ClientID: "client-prereg", ClientSecret: "h",
+		Name: "prereg", CreatedAt: aged, Active: true, DynamicallyRegistered: false,
+	}
+	require.NoError(t, store.CreateClient(ctx, preReg))
+
+	// Sweep clients older than 24h that never completed a token exchange.
+	require.NoError(t, store.CleanupUnusedDCRClients(ctx, 24*time.Hour))
+
+	_, err := store.GetClient(ctx, "client-dcr-unused")
+	assert.Error(t, err, "aged DCR client that never issued a token must be deleted")
+
+	got, err := store.GetClient(ctx, "client-dcr-used")
+	require.NoError(t, err, "aged DCR client with a live refresh token must be retained")
+	assert.True(t, got.DynamicallyRegistered)
+
+	_, err = store.GetClient(ctx, "client-dcr-used-gone")
+	require.NoError(t, err, "DCR client used once must be retained even after its token is gone")
+
+	got, err = store.GetClient(ctx, "client-prereg")
+	require.NoError(t, err, "pre-registered client must be retained regardless of age")
+	assert.False(t, got.DynamicallyRegistered)
+}
+
 func TestOAuthStore_CreateClient_RealDB_NilSlices(t *testing.T) {
 	store := New(testdb.New(t))
 	ctx := context.Background()

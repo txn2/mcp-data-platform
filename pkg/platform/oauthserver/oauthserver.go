@@ -39,6 +39,22 @@ type DCR struct {
 	AllowAllRedirectURIs    bool
 }
 
+// RateLimit carries the OAuth HTTP rate-limiting policy for the /token and
+// /register endpoints. It mirrors oauth.RateLimitConfig at the package
+// boundary so callers do not import pkg/oauth directly.
+type RateLimit struct {
+	Enabled        *bool
+	TrustedProxies []string
+	TokenRPM       int
+	TokenBurst     int
+	RegisterRPM    int
+	RegisterBurst  int
+}
+
+// defaultDCRUnusedTTL is the age after which an unused dynamically-registered
+// client is eligible for cleanup when Config.DCRUnusedTTL is unset.
+const defaultDCRUnusedTTL = 24 * time.Hour
+
 // Upstream identifies the upstream identity provider used for the
 // authorization-code flow, when one is configured.
 type Upstream struct {
@@ -57,7 +73,13 @@ type Config struct {
 	SigningKey     []byte
 	Clients        []Client
 	DCR            DCR
+	RateLimit      RateLimit
 	Upstream       *Upstream
+
+	// DCRUnusedTTL is the age after which an unused dynamically-registered
+	// client is reaped by the store's cleanup routine (database path only).
+	// Defaults to defaultDCRUnusedTTL when zero.
+	DCRUnusedTTL time.Duration
 
 	// DB selects Postgres-backed storage when non-nil; otherwise in-memory
 	// storage is used. Ignored when Storage is set. Only the DB path yields a
@@ -109,10 +131,18 @@ func (h *Handle) StateStoreCleanup() context.CancelFunc {
 	return h.stateCleanup
 }
 
-// Close closes the Postgres store (database path); it is nil-safe and a no-op on
-// the in-memory path, whose cleanup routine is canceled via StateStoreCleanup.
+// Close releases the Handle's resources: it stops the server's rate-limiter
+// cleanup goroutines (both storage paths) and closes the Postgres store
+// (database path only). It is nil-safe; the in-memory state-store cleanup
+// routine is canceled separately via StateStoreCleanup.
 func (h *Handle) Close() error {
-	if h == nil || h.storeCloser == nil {
+	if h == nil {
+		return nil
+	}
+	if h.server != nil {
+		_ = h.server.Close()
+	}
+	if h.storeCloser == nil {
 		return nil
 	}
 	if err := h.storeCloser.Close(); err != nil {
@@ -147,9 +177,14 @@ func (c Config) resolveStorage() (oauth.Storage, *oauthpostgres.Store) {
 func New(ctx context.Context, cfg Config) (*Handle, error) {
 	storage, pgStore := cfg.resolveStorage()
 
+	dcrTTL := cfg.DCRUnusedTTL
+	if dcrTTL <= 0 {
+		dcrTTL = defaultDCRUnusedTTL
+	}
+
 	h := &Handle{}
 	if pgStore != nil {
-		pgStore.StartCleanupRoutine(time.Minute)
+		pgStore.StartCleanupRoutine(time.Minute, dcrTTL)
 		h.storeCloser = pgStore
 		slog.Info("OAuth storage: database")
 	} else {
@@ -184,6 +219,14 @@ func New(ctx context.Context, cfg Config) (*Handle, error) {
 			AllowAllRedirectURIs:    cfg.DCR.AllowAllRedirectURIs,
 			RequirePKCE:             true,
 		},
+		RateLimit: oauth.RateLimitConfig{
+			Enabled:        cfg.RateLimit.Enabled,
+			TrustedProxies: cfg.RateLimit.TrustedProxies,
+			TokenRPM:       cfg.RateLimit.TokenRPM,
+			TokenBurst:     cfg.RateLimit.TokenBurst,
+			RegisterRPM:    cfg.RateLimit.RegisterRPM,
+			RegisterBurst:  cfg.RateLimit.RegisterBurst,
+		},
 	}
 	if cfg.Upstream != nil {
 		serverConfig.Upstream = &oauth.UpstreamConfig{
@@ -201,6 +244,7 @@ func New(ctx context.Context, cfg Config) (*Handle, error) {
 	h.server = server
 
 	warnOnDefaultDenyDCR(cfg.DCR)
+	warnOnUntrustedProxyRateLimit(cfg.RateLimit)
 
 	// In multi-replica deployments the upstream IdP callback can land on a
 	// different replica than the one that started the flow, so in-flight
@@ -254,6 +298,23 @@ func preRegisterClients(ctx context.Context, storage oauth.Storage, clients []Cl
 		}
 	}
 	return nil
+}
+
+// warnOnUntrustedProxyRateLimit surfaces a rate-limiting footgun at boot: with
+// limiting on (the default) but no trusted proxies configured, client
+// attribution falls back to the direct peer address. Behind a reverse proxy or
+// k8s ingress every client shares the proxy's IP, so the per-client limit
+// collapses onto one bucket and can throttle legitimate traffic. The global
+// backstop still bounds total load; the operator should set trusted_proxies to
+// restore per-client fairness.
+func warnOnUntrustedProxyRateLimit(rl RateLimit) {
+	enabled := rl.Enabled == nil || *rl.Enabled
+	if enabled && len(rl.TrustedProxies) == 0 {
+		slog.Warn("OAuth rate limiting is on but oauth.rate_limit.trusted_proxies is empty: " +
+			"behind a reverse proxy or ingress every client shares the proxy IP, so per-client " +
+			"limiting collapses to a single bucket. Set oauth.rate_limit.trusted_proxies to your " +
+			"proxy/ingress CIDRs (the global backstop still bounds total load meanwhile).")
+	}
 }
 
 // warnOnDefaultDenyDCR surfaces the DCR default-deny at boot: a deployment that

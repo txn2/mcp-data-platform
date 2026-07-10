@@ -62,6 +62,19 @@ oauth:
     allowed_redirect_patterns:
       - "https://.*\\.anthropic\\.com/callback"
       - "http://localhost:.*/callback"
+  # /token and /register are rate limited by default (per-IP + a global
+  # backstop). Behind a proxy/ingress, list its CIDRs under trusted_proxies so
+  # per-client attribution uses the real client IP instead of the proxy's.
+  # rate_limit:
+  #   enabled: true
+  #   trusted_proxies:
+  #     - "10.0.0.0/8"
+  #   token:
+  #     requests_per_minute: 60
+  #     burst: 10
+  #   register:
+  #     requests_per_minute: 10
+  #     burst: 3
 
 # PostgreSQL for persistence
 database:

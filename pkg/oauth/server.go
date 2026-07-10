@@ -19,6 +19,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
+	"github.com/txn2/mcp-data-platform/pkg/ratelimit"
 )
 
 // Token and crypto size constants.
@@ -131,6 +132,10 @@ type ServerConfig struct {
 
 	// Upstream configures the upstream identity provider (e.g., Keycloak).
 	Upstream *UpstreamConfig
+
+	// RateLimit configures rate limiting for the unauthenticated /token and
+	// /register endpoints. Limiting is on by default (see RateLimitConfig).
+	RateLimit RateLimitConfig
 }
 
 // UpstreamConfig configures the upstream identity provider.
@@ -156,6 +161,13 @@ type Server struct {
 	stateStore StateStore
 	httpClient *http.Client
 	metrics    *observability.Metrics
+
+	// Rate-limiting state for the unauthenticated /token and /register
+	// endpoints. Nil / false when limiting is disabled (see
+	// configureRateLimiting).
+	rlEnabled  bool
+	tokenRL    *ratelimit.HTTPLimiter
+	registerRL *ratelimit.HTTPLimiter
 }
 
 // SetMetrics attaches the observability recorder so token issuance and refresh
@@ -195,13 +207,30 @@ func NewServer(config ServerConfig, storage Storage) (*Server, error) {
 		}
 	}
 
-	return &Server{
+	srv := &Server{
 		config:     config,
 		storage:    storage,
 		dcr:        dcr,
 		stateStore: NewMemoryStateStore(),
 		httpClient: &http.Client{Timeout: defaultHTTPTimeoutSeconds * time.Second},
-	}, nil
+	}
+	if err := srv.configureRateLimiting(config.RateLimit); err != nil {
+		return nil, err
+	}
+	return srv, nil
+}
+
+// Close releases the server's background resources. It stops the rate-limiter
+// cleanup goroutines; it is nil-safe and idempotent. Storage and
+// authorization-state cleanup are owned by their respective callers.
+func (s *Server) Close() error {
+	if s.tokenRL != nil {
+		s.tokenRL.Close()
+	}
+	if s.registerRL != nil {
+		s.registerRL.Close()
+	}
+	return nil
 }
 
 // AuthorizationRequest represents an authorization request.
@@ -615,6 +644,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // and the error reason. The presence/absence of the secret and refresh
 // token are logged as booleans for diagnostics without leaking values.
 func (s *Server) handleTokenEndpoint(w http.ResponseWriter, r *http.Request) {
+	// Rate-limit before any work (including the bcrypt compare in the grant
+	// path) so a flood is bounded regardless of method or payload validity.
+	if !s.allowRequest(s.tokenRL, r) {
+		s.writeRateLimited(w, s.tokenRL)
+		return
+	}
+
 	if r.Method != http.MethodPost {
 		s.writeError(w, http.StatusMethodNotAllowed, errMethodNotAllowed, "POST required")
 		return
@@ -698,6 +734,14 @@ func (s *Server) handleTokenEndpoint(w http.ResponseWriter, r *http.Request) {
 
 // handleRegisterEndpoint handles POST /oauth/register.
 func (s *Server) handleRegisterEndpoint(w http.ResponseWriter, r *http.Request) {
+	// Rate-limit before any work (bcrypt hash + DB insert on the success
+	// path) so registration spam is bounded and unused-client growth is
+	// throttled at the front door.
+	if !s.allowRequest(s.registerRL, r) {
+		s.writeRateLimited(w, s.registerRL)
+		return
+	}
+
 	if r.Method != http.MethodPost {
 		s.writeError(w, http.StatusMethodNotAllowed, errMethodNotAllowed, "POST required")
 		return

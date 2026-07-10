@@ -104,6 +104,7 @@ pkg/middleware -> pkg/storage
 pkg/middleware -> pkg/urnbuild
 pkg/oauth -> internal/logsan
 pkg/oauth -> pkg/observability
+pkg/oauth -> pkg/ratelimit
 pkg/oauth/postgres -> pkg/oauth
 pkg/persona -> pkg/middleware
 pkg/pkcestore -> pkg/connoauth
@@ -268,6 +269,7 @@ pkg/portal -> pkg/middleware
 pkg/portal -> pkg/portal/knowledgepage
 pkg/portal -> pkg/portal/threads
 pkg/portal -> pkg/prompt
+pkg/portal -> pkg/ratelimit
 pkg/portal -> pkg/registry
 pkg/portal -> pkg/toolkits/knowledge
 pkg/portal -> pkg/user

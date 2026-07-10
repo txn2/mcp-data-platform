@@ -1,140 +1,44 @@
 package portal
 
 import (
-	"context"
-	"log/slog"
 	"net/http"
 	"strings"
-	"sync"
-	"time"
+
+	"github.com/txn2/mcp-data-platform/pkg/ratelimit"
 )
 
-// RateLimitConfig configures the rate limiter.
-type RateLimitConfig struct {
-	RequestsPerMinute int `yaml:"requests_per_minute"`
-	BurstSize         int `yaml:"burst_size"`
-}
+// RateLimitConfig configures the public portal viewer's rate limiter. It is
+// an alias for the shared ratelimit.Config so there is one config shape and
+// one token-bucket implementation across the platform.
+type RateLimitConfig = ratelimit.Config
 
-// RateLimiter provides per-IP token bucket rate limiting.
+// RateLimiter provides per-IP token-bucket rate limiting for the public
+// portal viewer, delegating the bucket accounting to the shared
+// pkg/ratelimit implementation while keeping the portal's existing
+// leftmost-X-Forwarded-For client attribution (see clientIP). The portal's
+// public endpoints serve cached asset blobs behind the same trust boundary
+// as the rest of the portal, so its abuse-protection threat model differs
+// from the OAuth endpoints, which use trusted-proxy-aware attribution.
 type RateLimiter struct {
-	mu      sync.Mutex
-	buckets map[string]*bucket
-	rate    float64 // tokens per second
-	burst   int
-	stop    context.CancelFunc
-}
-
-type bucket struct {
-	tokens   float64
-	lastSeen time.Time
+	lim *ratelimit.Limiter
 }
 
 // NewRateLimiter creates a rate limiter from config.
 func NewRateLimiter(cfg RateLimitConfig) *RateLimiter {
-	rpm := cfg.RequestsPerMinute
-	if rpm <= 0 {
-		rpm = defaultRPM
-	}
-	burst := cfg.BurstSize
-	if burst <= 0 {
-		burst = defaultBurst
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	rl := &RateLimiter{
-		buckets: make(map[string]*bucket),
-		rate:    float64(rpm) / secondsPerMinute,
-		burst:   burst,
-		stop:    cancel,
-	}
-	go rl.cleanupLoop(ctx)
-	return rl
+	return &RateLimiter{lim: ratelimit.New(cfg)}
 }
-
-const (
-	// defaultRPM is the default requests per minute.
-	defaultRPM = 60
-	// defaultBurst is the default burst size.
-	defaultBurst = 10
-	// secondsPerMinute converts RPM to per-second rate.
-	secondsPerMinute = 60.0
-	// cleanupInterval is how often the background goroutine runs.
-	cleanupInterval = 10 * time.Minute
-	// cleanupMaxAge is the max idle time before a bucket is evicted.
-	cleanupMaxAge = 30 * time.Minute
-)
 
 // Allow checks whether a request from the given IP should be allowed.
-func (rl *RateLimiter) Allow(ip string) bool {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-
-	now := time.Now()
-	b, ok := rl.buckets[ip]
-	if !ok {
-		b = &bucket{tokens: float64(rl.burst), lastSeen: now}
-		rl.buckets[ip] = b
-	}
-
-	// Refill tokens based on elapsed time.
-	elapsed := now.Sub(b.lastSeen).Seconds()
-	b.tokens += elapsed * rl.rate
-	if b.tokens > float64(rl.burst) {
-		b.tokens = float64(rl.burst)
-	}
-	b.lastSeen = now
-
-	if b.tokens < 1 {
-		return false
-	}
-	b.tokens--
-	return true
-}
-
-// Cleanup removes stale entries older than the given duration.
-func (rl *RateLimiter) Cleanup(maxAge time.Duration) {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-
-	cutoff := time.Now().Add(-maxAge)
-	for ip, b := range rl.buckets {
-		if b.lastSeen.Before(cutoff) {
-			delete(rl.buckets, ip)
-		}
-	}
-}
-
-// cleanupLoop periodically evicts stale rate-limit buckets.
-func (rl *RateLimiter) cleanupLoop(ctx context.Context) {
-	rl.runCleanupLoop(ctx, cleanupInterval, cleanupMaxAge)
-}
-
-// runCleanupLoop is the testable core of cleanupLoop.
-func (rl *RateLimiter) runCleanupLoop(ctx context.Context, interval, maxAge time.Duration) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			rl.Cleanup(maxAge)
-			slog.Debug("rate limiter cleanup completed")
-		}
-	}
-}
+func (rl *RateLimiter) Allow(ip string) bool { return rl.lim.Allow(ip) }
 
 // Close stops the background cleanup goroutine.
-func (rl *RateLimiter) Close() {
-	if rl.stop != nil {
-		rl.stop()
-	}
-}
+func (rl *RateLimiter) Close() { rl.lim.Close() }
 
 // Middleware wraps an http.Handler with rate limiting.
 func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip := clientIP(r)
-		if !rl.Allow(ip) {
+		if !rl.lim.Allow(ip) {
 			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
 			return
 		}
