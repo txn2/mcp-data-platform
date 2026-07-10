@@ -89,6 +89,7 @@ export function AssetContentView({
         {versions && versions.length > 0 && onSelectVersion && (
           <>
             <select
+              aria-label="Asset version"
               value={selectedVersion ?? asset.current_version}
               onChange={(e) => {
                 const v = Number(e.target.value);
