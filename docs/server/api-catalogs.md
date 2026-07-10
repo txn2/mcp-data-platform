@@ -120,6 +120,31 @@ Earlier revisions of this toolkit ran the embedding pass synchronously inside th
 
 The queue model collapses all three to a single design: enqueue is fast and synchronous, work is async and observable, retries are automatic, multi-replica is free.
 
+## WebDAV operations (`x-webdav-method`)
+
+WebDAV verbs (`PROPFIND`, `MKCOL`, `MOVE`, `COPY`) are not representable as OpenAPI `PathItem` methods, which are limited to `GET`, `POST`, `PUT`, `DELETE`, `PATCH`, and `HEAD`. To document a WebDAV operation, declare it under an unused carrier method sharing the same path and add an `x-webdav-method` extension naming the real verb. A caller then invokes with the real verb via `api_invoke_endpoint` (e.g. `method: PROPFIND`), which the gateway forwards upstream unchanged.
+
+```yaml
+paths:
+  /remote.php/dav/files/{username}/{path}:
+    get:    { operationId: webdav-download-file, ... }   # real GET, no extension
+    put:    { operationId: webdav-upload-file, ... }     # real PUT, no extension
+    delete: { operationId: webdav-delete, ... }          # real DELETE, no extension
+    post:                                                # POST carries PROPFIND
+      operationId: webdav-propfind
+      x-webdav-method: PROPFIND
+    patch:                                               # PATCH carries MKCOL
+      operationId: webdav-mkcol
+      x-webdav-method: MKCOL
+    head:                                                # HEAD carries MOVE and COPY
+      operationId: webdav-move-copy
+      x-webdav-method: MOVE or COPY
+```
+
+The `x-webdav-method` value is free text: a single verb (`PROPFIND`) or several in one string (`MOVE or COPY`); any recognized WebDAV verb token is honored, and a YAML/JSON sequence (`[MOVE, COPY]`) works too. `GET`, `PUT`, and `DELETE` WebDAV operations use their own standard method and need no extension.
+
+Two things resolve WebDAV requests against these operations: the inbound-metrics `operation_id` label (so REST-shim WebDAV traffic is attributed to `webdav-propfind` rather than `unknown`) and invoke-time `Content-Type` negotiation. Both honor the `x-webdav-method` carrier mapping and match a slash-bearing subpath against the trailing `{path}` variable, so a nested resource path (`.../{username}/reports/2026/report.pdf`) resolves the same as a single-segment one. A path genuinely absent from the catalog still resolves to `unknown`; nested matching applies only to WebDAV-flavored path items.
+
 ## Model-facing surface
 
 From the model's perspective, catalogs are invisible. Four tools see them through the connection:

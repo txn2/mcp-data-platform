@@ -89,7 +89,7 @@ func (*Toolkit) handleInvokeRaw(ctx context.Context, c *conn, in InvokeInput, ra
 	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	req, err := buildUpstreamRequest(callCtx, c.cfg, c.auth, c.specs, in)
+	req, err := buildUpstreamRequest(callCtx, c.cfg, c.auth, catalogView{specs: c.specs, webdavRoutes: c.webdavRoutes()}, in)
 	if err != nil {
 		return errorResult(err.Error()), nil, nil
 	}

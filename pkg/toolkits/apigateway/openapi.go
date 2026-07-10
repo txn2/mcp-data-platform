@@ -124,6 +124,19 @@ func synthesizedOperationID(method, rawPath string) string {
 	return method + " " + rawPath
 }
 
+// operationIDOrSynthesized returns op's declared operationId, or the
+// synthesized "<METHOD> <rawPath>" id when it declares none. method must
+// already be upper-cased; rawPath is spec-relative. Shared by
+// appendItemOperations (the id api_list_endpoints advertises) and the
+// WebDAV resolver (the metric label) so both are produced by one rule and
+// cannot diverge.
+func operationIDOrSynthesized(op *openapi3.Operation, method, rawPath string) string {
+	if op.OperationID != "" {
+		return op.OperationID
+	}
+	return synthesizedOperationID(method, rawPath)
+}
+
 // listableMethod reports whether m (upper-cased) is an HTTP method
 // api_list_endpoints advertises, i.e. one of pathItemMethods. The
 // resolver only synthesizes ids for these: the router also matches
@@ -171,10 +184,7 @@ func appendItemOperations(ops []OperationSummary, embedTexts []string, item *ope
 		if op == nil {
 			continue
 		}
-		id := op.OperationID
-		if id == "" {
-			id = synthesizedOperationID(m.method, c.rawPath)
-		}
+		id := operationIDOrSynthesized(op, m.method, c.rawPath)
 		summary := OperationSummary{
 			OperationID: id,
 			Method:      m.method,

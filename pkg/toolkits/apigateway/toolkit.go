@@ -308,6 +308,16 @@ type conn struct {
 	// operations with no declared operationId, matching the ids
 	// api_list_endpoints advertises. Built alongside operationRouter.
 	operationRawPaths map[string]string
+	// operationWebDAVRoutes carries the WebDAV-flavored path templates in
+	// this connection's catalog (those with an x-webdav-method carrier
+	// operation). WebDAV verbs (PROPFIND/MKCOL/MOVE/COPY) are not
+	// representable as OpenAPI PathItem methods and nested resource paths
+	// exceed a single-segment path variable, so both miss the gorillamux
+	// operationRouter; ResolveOperationID falls back to matching against
+	// these routes. Empty for connections with no WebDAV operations (the
+	// common case), in which the fallback is a no-op. Built in the same
+	// operationRouterOnce pass as operationRouter (issue #876).
+	operationWebDAVRoutes []webdavRoute
 	// testDescs is a unit-test-only aid: lets ranking_test.go's
 	// buildTestConn / populateTestEmbeddings round-trip an
 	// operation's description through buildEmbedText without making
@@ -1116,7 +1126,7 @@ func (t *Toolkit) handleInvoke(ctx context.Context, _ *mcp.CallToolRequest, in I
 	hasExport := t.exportDeps != nil
 	t.mu.RUnlock()
 
-	out, err := invoke(ctx, invocation{cfg: c.cfg, auth: c.auth, client: c.client, specs: c.specs, budget: budget}, in)
+	out, err := invoke(ctx, invocation{cfg: c.cfg, auth: c.auth, client: c.client, specs: c.specs, webdavRoutes: c.webdavRoutes(), budget: budget}, in)
 	if err != nil {
 		// A binary body refused before buffering renders as a
 		// structured 415 with a steer to api_export; budget rejections

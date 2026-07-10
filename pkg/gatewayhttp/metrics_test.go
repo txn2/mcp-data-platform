@@ -226,6 +226,119 @@ func TestIntegration_InboundMetrics_NoCatalogUnknownOperation(t *testing.T) {
 	assert.Contains(t, body, `connection="bare"`)
 }
 
+// webdavIntegrationSpec is a minimal WebDAV catalog: PROPFIND is
+// documented under a POST carrier via x-webdav-method, PUT is its own
+// real verb. Both share one resource path whose trailing {path} holds a
+// slash-bearing subpath. Exercises issue #876 through the assembled REST
+// shim -> toolkit resolver -> metric path.
+const webdavIntegrationSpec = `{
+  "openapi": "3.0.3",
+  "info": { "title": "webdav", "version": "1.0.0" },
+  "paths": {
+    "/remote.php/dav/files/{username}/{path}": {
+      "parameters": [
+        { "name": "username", "in": "path", "required": true, "schema": { "type": "string" } },
+        { "name": "path", "in": "path", "required": true, "schema": { "type": "string" } }
+      ],
+      "put": { "operationId": "webdav-upload-file", "responses": { "201": { "description": "created" } } },
+      "post": {
+        "operationId": "webdav-propfind",
+        "x-webdav-method": "PROPFIND",
+        "responses": { "207": { "description": "multistatus" } }
+      }
+    }
+  }
+}`
+
+// newWebDAVMetricsServer builds the same real handler + metrics + toolkit
+// stack as newInboundMetricsServer but with a WebDAV catalog spec so the
+// resolver's x-webdav-method + nested-tail path (issue #876) is exercised
+// end to end.
+func newWebDAVMetricsServer(t *testing.T, upstreamURL, connName string) (*httptest.Server, *observability.Metrics) {
+	t.Helper()
+
+	m, err := observability.New(observability.Config{Enabled: true, ListenAddr: ":0"})
+	require.NoError(t, err)
+	require.NotNil(t, m)
+	t.Cleanup(func() { _ = m.Shutdown(context.Background()) })
+
+	tk := apigatewaykit.New("apigateway")
+	tk.SetMetrics(m)
+
+	store := catalog.NewMemoryStore()
+	require.NoError(t, store.CreateCatalog(context.Background(), catalog.Catalog{ID: "webdav-cat", Name: "webdav-cat"}))
+	require.NoError(t, store.UpsertSpec(context.Background(), "webdav-cat", catalog.SpecEntry{
+		SpecName:   "webdav",
+		SourceKind: "inline",
+		Content:    webdavIntegrationSpec,
+	}))
+	tk.SetCatalogStore(store)
+
+	require.NoError(t, tk.AddConnection(connName, map[string]any{
+		"base_url":        upstreamURL,
+		"auth_mode":       apigatewaykit.AuthModeNone,
+		"call_timeout":    "5s",
+		"connect_timeout": "2s",
+		"catalog_id":      "webdav-cat",
+	}))
+
+	mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "v1"}, nil)
+	tk.RegisterTools(mcpServer)
+
+	handler, err := NewHandler(Deps{
+		MCPServer: mcpServer,
+		Metrics:   m,
+		Resolver:  tk,
+		Identity:  stubIdentity{id: "nifi-etl"},
+	})
+	require.NoError(t, err)
+
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+	return srv, m
+}
+
+// TestIntegration_InboundMetrics_WebDAVResolvedOperation proves the fix
+// for issue #876 through the real assembled system: a REST-shim PROPFIND
+// to a nested WebDAV path records operation_id="webdav-propfind" (not
+// "unknown"), and a PUT to a nested path records "webdav-upload-file".
+func TestIntegration_InboundMetrics_WebDAVResolvedOperation(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/xml")
+		w.WriteHeader(http.StatusMultiStatus)
+		_, _ = w.Write([]byte(`<multistatus/>`))
+	}))
+	defer upstream.Close()
+
+	gateway, m := newWebDAVMetricsServer(t, upstream.URL, "nextcloud")
+
+	nested := "/remote.php/dav/files/alice/reports/2026/q1/report.pdf"
+
+	// Root cause A: a real PROPFIND on a nested path must resolve to the
+	// carrier operation via x-webdav-method.
+	status, _ := postJSON(t, gateway.URL+"/api/v1/gateway/nextcloud/invoke",
+		`{"method":"PROPFIND","path":"`+nested+`"}`)
+	require.Equal(t, http.StatusOK, status)
+
+	// Root cause B: a standard PUT on a nested path must resolve through
+	// the multi-segment trailing match.
+	status, _ = postJSON(t, gateway.URL+"/api/v1/gateway/nextcloud/invoke",
+		`{"method":"PUT","path":"`+nested+`","body":"data"}`)
+	require.Equal(t, http.StatusOK, status)
+
+	body := scrapeInbound(t, m)
+	for _, want := range []string{
+		`connection="nextcloud"`,
+		`operation_id="webdav-propfind"`,
+		`operation_id="webdav-upload-file"`,
+		`method="PROPFIND"`,
+		`method="PUT"`,
+	} {
+		assert.Contains(t, body, want, "scrape:\n%s", body)
+	}
+	assert.NotContains(t, body, `operation_id="unknown"`, "resolvable WebDAV calls must not bucket to unknown; scrape:\n%s", body)
+}
+
 // scrapeInbound returns the /metrics scrape body, failing if no inbound
 // series is present yet (the async-free recording path is synchronous,
 // so one scrape suffices).
