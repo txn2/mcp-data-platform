@@ -8,7 +8,12 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/pkg/connreconcile"
+	"github.com/txn2/mcp-data-platform/pkg/query"
+	"github.com/txn2/mcp-data-platform/pkg/registry"
+	"github.com/txn2/mcp-data-platform/pkg/semantic"
 	"github.com/txn2/mcp-data-platform/pkg/session"
 )
 
@@ -159,7 +164,7 @@ func TestClose_NilSafe(t *testing.T) {
 		t.Error("nil-handle StatelessForced must be false")
 	}
 	// Publish delegators must be no-ops on a nil handle.
-	h.PublishConnectionReload(context.Background(), "api", "x")
+	h.PublishConnectionReload(context.Background(), "api", "x", "upsert")
 	h.PublishCatalogReload(context.Background(), "cat")
 	h.PublishPersonaReload(context.Background())
 	h.PublishAPIKeyReload(context.Background())
@@ -212,7 +217,7 @@ func TestHandle_PublishDelegatorsSafe(t *testing.T) {
 	}
 	defer func() { _ = h.Close() }()
 	ctx := context.Background()
-	h.PublishConnectionReload(ctx, "api", "c1")
+	h.PublishConnectionReload(ctx, "api", "c1", "upsert")
 	h.PublishCatalogReload(ctx, "cat-1")
 	h.PublishPersonaReload(ctx)
 	h.PublishAPIKeyReload(ctx)
@@ -223,7 +228,7 @@ func TestHandle_PublishDelegatorsSafe(t *testing.T) {
 // recordingHandlers captures reload-handler invocations on buffered
 // channels so tests can assert delivery (or non-delivery) with a timeout.
 type recordingHandlers struct {
-	conn    chan [2]string
+	conn    chan [3]string // kind, name, op
 	catalog chan string
 	persona chan struct{}
 	apiKey  chan struct{}
@@ -231,7 +236,7 @@ type recordingHandlers struct {
 
 func newRecordingHandlers() recordingHandlers {
 	return recordingHandlers{
-		conn:    make(chan [2]string, 4),
+		conn:    make(chan [3]string, 4),
 		catalog: make(chan string, 4),
 		persona: make(chan struct{}, 4),
 		apiKey:  make(chan struct{}, 4),
@@ -240,7 +245,7 @@ func newRecordingHandlers() recordingHandlers {
 
 func (r recordingHandlers) handlers() ReloadHandlers {
 	return ReloadHandlers{
-		Connection: func(kind, name string) { r.conn <- [2]string{kind, name} },
+		Connection: func(kind, name, op string) { r.conn <- [3]string{kind, name, op} },
 		Catalog:    func(id string) { r.catalog <- id },
 		Persona:    func() { r.persona <- struct{}{} },
 		APIKey:     func() { r.apiKey <- struct{}{} },
@@ -269,13 +274,13 @@ func TestReloadBus_CrossReplica(t *testing.T) {
 	waitForSubscribers(t, b, 2)
 
 	// Replica A handled the admin write and publishes the reload.
-	busA.publishConnection(t.Context(), "api", "Test API")
+	busA.publishConnection(t.Context(), "api", "Test API", "delete")
 
-	// Replica B must apply it.
+	// Replica B must apply it, including the op the publisher passed.
 	select {
 	case got := <-recB.conn:
-		if got != [2]string{"api", "Test API"} {
-			t.Fatalf("replica B reloaded %v, want [api Test API]", got)
+		if got != [3]string{"api", "Test API", "delete"} {
+			t.Fatalf("replica B reloaded %v, want [api Test API delete]", got)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("replica B never received the connection reload (the #501 bug)")
@@ -303,8 +308,10 @@ func TestReloadBus_DispatchRouting(t *testing.T) {
 	if got := <-rec.catalog; got != "cat-1" {
 		t.Errorf("catalog reload id=%q, want cat-1", got)
 	}
-	if got := <-rec.conn; got != [2]string{"mcp", "up"} {
-		t.Errorf("connection reload=%v, want [mcp up]", got)
+	// This event carries no "op" param (a legacy pre-op publisher), so op
+	// decodes to the empty string and the handler falls back to a store read.
+	if got := <-rec.conn; got != [3]string{"mcp", "up", ""} {
+		t.Errorf("connection reload=%v, want [mcp up ]", got)
 	}
 	if _, ok := <-rec.persona; !ok {
 		t.Error("persona reload not dispatched")
@@ -339,7 +346,7 @@ func TestReloadBus_NilHandlerAndUnknownMethod(_ *testing.T) {
 // no-op (single-replica deployments with no broadcaster).
 func TestReloadBus_NilBusPublishSafe(t *testing.T) {
 	var rb *reloadBus
-	rb.publishConnection(t.Context(), "api", "x") // must not panic
+	rb.publishConnection(t.Context(), "api", "x", "upsert") // must not panic
 	rb = newReloadBus(nil, "self", ReloadHandlers{}, nil)
 	rb.publishCatalog(t.Context(), "x") // nil broadcaster: must not panic
 	rb.publishPersona(t.Context())
@@ -368,4 +375,75 @@ func waitForSubscribers(t *testing.T, b *session.MemoryBroadcaster, n int) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatalf("subscribers did not reach %d", n)
+}
+
+// connMgrToolkit is a registry.Toolkit that also implements
+// toolkit.ConnectionManager, recording removals so the reload-bus integration
+// test can assert a delete op reaches a live toolkit through the real bus.
+type connMgrToolkit struct {
+	kind      string
+	present   bool
+	removedCh chan string
+}
+
+func (t *connMgrToolkit) Kind() string                          { return t.kind }
+func (*connMgrToolkit) Name() string                            { return "conn" }
+func (*connMgrToolkit) Connection() string                      { return "" }
+func (*connMgrToolkit) Tools() []string                         { return nil }
+func (*connMgrToolkit) RegisterTools(_ *mcp.Server)             {}
+func (*connMgrToolkit) SetSemanticProvider(_ semantic.Provider) {}
+func (*connMgrToolkit) SetQueryProvider(_ query.Provider)       {}
+func (*connMgrToolkit) Close() error                            { return nil }
+
+func (t *connMgrToolkit) HasConnection(string) bool                { return t.present }
+func (*connMgrToolkit) AddConnection(string, map[string]any) error { return nil }
+func (t *connMgrToolkit) RemoveConnection(name string) error {
+	t.removedCh <- name
+	return nil
+}
+
+// TestReloadBus_ConnectionDeleteAppliedThroughReconciler proves the delete op
+// travels end to end through the REAL reload bus into a connreconcile removal on
+// a live toolkit: replica A publishes a delete, and replica B — whose Connection
+// handler dispatches to a real connreconcile.Reconciler exactly as
+// Platform.reloadConnectionLocal does — removes the connection from its toolkit
+// without ever consulting a store. (The platform wrapper's op parsing is unit
+// tested in pkg/platform; sessionsync cannot import platform without a cycle.)
+func TestReloadBus_ConnectionDeleteAppliedThroughReconciler(t *testing.T) {
+	tk := &connMgrToolkit{kind: "api", present: true, removedCh: make(chan string, 1)}
+	reg := registry.NewRegistry()
+	if err := reg.Register(tk); err != nil {
+		t.Fatalf("register toolkit: %v", err)
+	}
+	rec := connreconcile.New(reg)
+
+	b := session.NewMemoryBroadcaster(nil)
+	defer func() { _ = b.Close() }()
+
+	// Replica B's handler mirrors reloadConnectionLocal's delete branch: on a
+	// delete op it removes via the reconciler with no store read.
+	handlers := ReloadHandlers{
+		Connection: func(kind, name, op string) {
+			if op == "delete" {
+				_ = rec.Remove(kind, name)
+			}
+		},
+	}
+	busA := newReloadBus(b, "replica-a", ReloadHandlers{}, nil)
+	busB := newReloadBus(b, "replica-b", handlers, nil)
+
+	ctx := t.Context()
+	go busB.run(ctx)
+	waitForSubscribers(t, b, 1)
+
+	busA.publishConnection(ctx, "api", "c1", "delete")
+
+	select {
+	case removed := <-tk.removedCh:
+		if removed != "c1" {
+			t.Fatalf("removed %q, want c1", removed)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("delete op did not reach the toolkit removal through the bus")
+	}
 }

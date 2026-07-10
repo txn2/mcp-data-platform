@@ -35,6 +35,7 @@ pkg/admin -> pkg/authevents
 pkg/admin -> pkg/browsersession
 pkg/admin -> pkg/configstore
 pkg/admin -> pkg/connoauth
+pkg/admin -> pkg/connreconcile
 pkg/admin -> pkg/embedding
 pkg/admin -> pkg/indexjobs
 pkg/admin -> pkg/middleware
@@ -67,6 +68,8 @@ pkg/connbackfill -> pkg/connview
 pkg/connbackfill -> pkg/registry
 pkg/connoauth -> internal/logsan
 pkg/connoauth -> pkg/authevents
+pkg/connreconcile -> pkg/registry
+pkg/connreconcile -> pkg/toolkit
 pkg/connview -> pkg/portal/knowledgepage
 pkg/connview -> pkg/registry
 pkg/connview -> pkg/toolkit
@@ -119,6 +122,7 @@ pkg/platform -> pkg/configstore
 pkg/platform -> pkg/configstore/postgres
 pkg/platform -> pkg/connbackfill
 pkg/platform -> pkg/connoauth
+pkg/platform -> pkg/connreconcile
 pkg/platform -> pkg/connview
 pkg/platform -> pkg/database/migrate
 pkg/platform -> pkg/embedding
@@ -171,7 +175,6 @@ pkg/platform -> pkg/semantic/datahub
 pkg/platform -> pkg/session
 pkg/platform -> pkg/storage
 pkg/platform -> pkg/storage/s3
-pkg/platform -> pkg/toolkit
 pkg/platform -> pkg/toolkits/apigateway
 pkg/platform -> pkg/toolkits/apigateway/catalog
 pkg/platform -> pkg/toolkits/apigateway/catalogindex

@@ -56,10 +56,12 @@ func newReloadBus(b session.Broadcaster, origin string, h ReloadHandlers, logger
 	return &reloadBus{b: b, origin: origin, handlers: h, logger: logger}
 }
 
-// publishConnection announces that the (kind, name) connection's stored
-// config changed and peers should rebuild it.
-func (rb *reloadBus) publishConnection(ctx context.Context, kind, name string) {
-	rb.publish(ctx, reloadMethodConnection, map[string]any{"kind": kind, "name": name})
+// publishConnection announces that the (kind, name) connection changed and
+// peers should rebuild it. op is the opaque intent string ("upsert"/"delete")
+// carried verbatim to the subscriber so a deletion is applied without a peer
+// store read.
+func (rb *reloadBus) publishConnection(ctx context.Context, kind, name, op string) {
+	rb.publish(ctx, reloadMethodConnection, map[string]any{"kind": kind, "name": name, "op": op})
 }
 
 // publishCatalog announces that an API catalog's specs changed and peers
@@ -146,13 +148,16 @@ func (rb *reloadBus) dispatch(ev session.Event) {
 	}
 }
 
-// dispatchConnection applies a peer's connection reload (kind/name).
+// dispatchConnection applies a peer's connection reload (kind/name/op). op is
+// absent for events from a pre-op replica during a rolling upgrade; it is
+// passed through empty and the handler falls back to a store read.
 func (rb *reloadBus) dispatchConnection(ev session.Event) {
 	kind, _ := ev.Params["kind"].(string)
 	name, _ := ev.Params["name"].(string)
+	op, _ := ev.Params["op"].(string)
 	if rb.handlers.Connection != nil && kind != "" && name != "" {
-		rb.logger.Info("reload-bus: reloading connection from peer", "kind", kind, "name", name)
-		rb.handlers.Connection(kind, name)
+		rb.logger.Info("reload-bus: reloading connection from peer", "kind", kind, "name", name, "op", op)
+		rb.handlers.Connection(kind, name, op)
 	}
 }
 

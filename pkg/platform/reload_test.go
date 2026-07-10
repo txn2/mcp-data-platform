@@ -60,17 +60,23 @@ func TestPlatform_ReloadWiring(t *testing.T) {
 	}
 
 	// Reloaders against the live toolkit (rebuild from the fake store).
-	p.reloadConnectionLocal("api", "c1")
+	p.reloadConnectionLocal("api", "c1", ReloadUpsert.String())
 	if !apiTk.HasConnection("c1") {
 		t.Error("reloadConnectionLocal did not add the connection")
 	}
-	p.reloadConnectionLocal("mcp", "ignored") // wrong kind: no-op, exercises the skip
-	p.reloadCatalogLocal("cat-1")             // ReloadConnectionsByCatalog on the api toolkit
-	p.reloadPersonaLocal()                    // reconcile personas from store
-	p.reloadAPIKeyLocal()                     // re-sync api keys from store
+	// A delete op removes the connection from the real toolkit (end-to-end
+	// through Platform + the live apigateway toolkit, not a fake).
+	p.reloadConnectionLocal("api", "c1", ReloadDelete.String())
+	if apiTk.HasConnection("c1") {
+		t.Error("reloadConnectionLocal(delete) did not remove the connection")
+	}
+	p.reloadConnectionLocal("mcp", "ignored", ReloadUpsert.String()) // wrong kind: no-op, exercises the skip
+	p.reloadCatalogLocal("cat-1")                                    // ReloadConnectionsByCatalog on the api toolkit
+	p.reloadPersonaLocal()                                           // reconcile personas from store
+	p.reloadAPIKeyLocal()                                            // re-sync api keys from store
 
 	// Publish delegators (memory bus; no subscriber needed for coverage).
-	p.PublishConnectionReload("api", "c1")
+	p.PublishConnectionReload("api", "c1", ReloadUpsert)
 	p.PublishCatalogReload("cat-1")
 	p.PublishPersonaReload()
 	p.PublishAPIKeyReload()
@@ -80,5 +86,5 @@ func TestPlatform_ReloadWiring(t *testing.T) {
 	}
 
 	// Publish after close must be safe (broadcaster closed).
-	p.PublishConnectionReload("api", "c1")
+	p.PublishConnectionReload("api", "c1", ReloadDelete)
 }

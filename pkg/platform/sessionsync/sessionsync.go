@@ -66,7 +66,11 @@ type Config struct {
 // subsystem does not participate in cross-replica reload"; the event is ignored.
 // This is also the reloadBus's handler type, so New passes it straight through.
 type ReloadHandlers struct {
-	Connection func(kind, name string)
+	// Connection receives (kind, name, op) where op is the opaque intent string
+	// the publisher passed to PublishConnectionReload ("upsert"/"delete", empty
+	// for a legacy pre-op event). The bus does not interpret op; the handler
+	// does.
+	Connection func(kind, name, op string)
 	Catalog    func(catalogID string)
 	Persona    func()
 	APIKey     func()
@@ -287,13 +291,14 @@ func (h *Handle) StatelessForced() bool {
 	return h != nil && h.forcedStateless
 }
 
-// PublishConnectionReload announces that the (kind, name) connection's stored
-// config changed so peers rebuild it. No-op on a nil Handle.
-func (h *Handle) PublishConnectionReload(ctx context.Context, kind, name string) {
+// PublishConnectionReload announces that the (kind, name) connection changed so
+// peers rebuild it. op is an opaque intent string ("upsert"/"delete") the bus
+// carries verbatim to the peer handler. No-op on a nil Handle.
+func (h *Handle) PublishConnectionReload(ctx context.Context, kind, name, op string) {
 	if h == nil {
 		return
 	}
-	h.reloadBus.publishConnection(ctx, kind, name)
+	h.reloadBus.publishConnection(ctx, kind, name, op)
 }
 
 // PublishCatalogReload announces that an API catalog's specs changed so peers
