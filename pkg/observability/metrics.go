@@ -61,6 +61,14 @@ const (
 	instAPIGwInbound         = "apigateway_inbound_requests"
 	instAPIGwInboundLatency  = "apigateway_inbound_duration"
 
+	// instAuditEventsDropped counts audit events lost by the bounded async
+	// writer — queue-full drops plus writes that failed or were abandoned
+	// at the per-write timeout (issue #884). Exposed name:
+	// audit_events_dropped_total. A non-zero, growing value means the audit
+	// store cannot keep up with tool-call volume and rows are being lost by
+	// design (audit delivery is best-effort).
+	instAuditEventsDropped = "audit_events_dropped"
+
 	// Toolkit and provider instruments (issue #461). Exposed names add the
 	// "_total" / "_seconds" suffixes the Prometheus exporter appends:
 	//   - trino_queries_total{status, query_kind}
@@ -211,6 +219,7 @@ type Metrics struct {
 	apigwOutboundDuration metric.Float64Histogram
 	apigwInboundTotal     metric.Int64Counter
 	apigwInboundDuration  metric.Float64Histogram
+	auditEventsDropped    metric.Int64Counter
 
 	// Toolkit / provider instruments (issue #461).
 	trinoQueriesTotal    metric.Int64Counter
@@ -404,6 +413,13 @@ func (m *Metrics) registerInstruments(meter metric.Meter) error {
 	)
 	if err != nil {
 		return fmt.Errorf(instErrFmt, instAPIGwInboundLatency, err)
+	}
+	m.auditEventsDropped, err = meter.Int64Counter(
+		instAuditEventsDropped,
+		metric.WithDescription("Total audit events lost by the bounded async writer: queue-full drops plus writes that failed or were abandoned at the per-write timeout (#884). A growing value means audit rows are being lost because the store cannot keep up; audit delivery is best-effort."),
+	)
+	if err != nil {
+		return fmt.Errorf(instErrFmt, instAuditEventsDropped, err)
 	}
 	if err := m.registerToolkitInstruments(meter); err != nil {
 		return err
@@ -608,6 +624,19 @@ func (m *Metrics) RecordAPIGatewayInbound(ctx context.Context, attrs APIGatewayI
 	)
 	m.apigwInboundTotal.Add(ctx, 1, counterSet)
 	m.apigwInboundDuration.Record(ctx, duration.Seconds(), histSet)
+}
+
+// RecordAuditEventDropped records one audit event lost by the bounded async
+// writer — a queue-full drop or a write that failed or was abandoned at the
+// per-write timeout (issue #884). Carries no labels — a single scalar is enough
+// to alert on audit loss, and tool/user dimensions live in the loss's slog
+// line, not in a high-cardinality metric. Nil-safe, so the writer records
+// unconditionally without an enabled check.
+func (m *Metrics) RecordAuditEventDropped(ctx context.Context) {
+	if m == nil {
+		return
+	}
+	m.auditEventsDropped.Add(ctx, 1)
 }
 
 // registeredPool pairs a *sql.DB with the bounded pool label it reports under.

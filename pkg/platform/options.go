@@ -37,6 +37,11 @@ type Options struct {
 	Authorizer middleware.Authorizer
 
 	// AuditLogger (optional, will be created from config if not provided).
+	// The audit middleware invokes Log synchronously on the tool-call path
+	// (the enqueue is expected to be non-blocking), so an injected logger
+	// MUST NOT block on storage — wrap a slow sink in audit.NewAsyncWriter,
+	// as the default config-created logger does (#884). The config-created
+	// path is already backed by a bounded async writer.
 	AuditLogger middleware.AuditLogger
 
 	// PersonaRegistry (optional, will be created from config if not provided).
@@ -110,7 +115,10 @@ func WithAuthorizer(authz middleware.Authorizer) Option {
 	}
 }
 
-// WithAuditLogger sets the audit logger.
+// WithAuditLogger sets the audit logger. The logger is invoked synchronously on
+// the tool-call path and must not block on storage; wrap a slow sink in
+// audit.NewAsyncWriter (see Options.AuditLogger). Supplying a logger skips the
+// platform's default async-writer wrapping.
 func WithAuditLogger(logger middleware.AuditLogger) Option {
 	return func(o *Options) {
 		o.AuditLogger = logger

@@ -96,6 +96,7 @@ and a README covering how to load them and confirm scraping with
 | `oauth_token_issuance_total` | counter | `grant_type`, `status` |
 | `oauth_token_refresh_total` | counter | `status` |
 | `oauth_token_refresh_duration_seconds` | histogram | (none) |
+| `audit_events_dropped_total` | counter | (none) |
 | `db_pool_open_connections` | gauge | `pool` |
 | `db_pool_in_use` | gauge | `pool` |
 | `db_pool_idle` | gauge | `pool` |
@@ -130,6 +131,14 @@ to size the memory-enrichment budget (`enrichment.memory_context_budget_bytes`).
 
 **S3** `operation` is the S3 tool name (`list_buckets`, `list_objects`,
 `get_object`, `get_object_metadata`, `presign_url`, ...).
+
+**Audit drops**: `audit_events_dropped_total` counts audit events lost by the
+async audit writer: queue-full drops plus writes that failed or were abandoned
+at the per-write timeout. Audit writes run through a single background goroutine
+with a per-write timeout, so a stalled database sheds audit load instead of
+blocking tool calls or leaking goroutines; a growing counter means the store
+cannot keep up and rows are being lost by design (audit delivery is
+best-effort). Alert on `rate(audit_events_dropped_total[5m]) > 0`.
 
 **Database connection pools** are reported at scrape time from each
 managed `*sql.DB`'s `Stats()`. The platform shares one pool, registered

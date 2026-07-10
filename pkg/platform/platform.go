@@ -21,6 +21,7 @@ import (
 	s3client "github.com/txn2/mcp-s3/pkg/client"
 
 	"github.com/txn2/mcp-data-platform/apps"
+	"github.com/txn2/mcp-data-platform/pkg/audit"
 	auditpostgres "github.com/txn2/mcp-data-platform/pkg/audit/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/auth"
 	"github.com/txn2/mcp-data-platform/pkg/authevents"
@@ -1196,7 +1197,10 @@ func (p *Platform) initBrowserSession() error {
 
 // initAudit initializes audit logging.
 func (p *Platform) initAudit(opts *Options) error {
-	// Use provided audit logger if available
+	// Use provided audit logger if available. An injected logger is used
+	// verbatim (no async-writer wrapping): the audit middleware calls Log
+	// synchronously, so the caller is responsible for making it non-blocking
+	// — see WithAuditLogger (#884).
 	if opts.AuditLogger != nil {
 		p.auditLogger = opts.AuditLogger
 		return nil
@@ -1216,8 +1220,16 @@ func (p *Platform) initAudit(opts *Options) error {
 	// Start background cleanup routine
 	store.StartCleanupRoutine(24 * time.Hour)
 
+	// Decouple audit emission from PostgreSQL latency: a bounded async
+	// writer with a single drain goroutine, a per-write timeout, and
+	// drain-on-shutdown replaces the middleware's old per-call detached
+	// goroutine, which grew without bound under a stalled store (#884). The
+	// adapter owns the writer and drains it on Close via the platform's
+	// existing audit-logger Closer path, so no extra Platform field is held.
+	writer := audit.NewAsyncWriter(store, audit.WithMetrics(p.obs.Metrics()))
+
 	p.auditStore = store
-	p.auditLogger = middleware.NewAuditStoreAdapter(store)
+	p.auditLogger = middleware.NewAuditStoreAdapter(writer)
 
 	slog.Info("audit logging enabled",
 		"retention_days", p.config.Audit.RetentionDays,
@@ -3174,9 +3186,13 @@ func (p *Platform) closeSessionLayer(errs *[]error) {
 	}
 }
 
-// closeAuditLayer cancels the audit logger's cleanup goroutine and
-// closes the underlying audit store. Order matters: the logger may
-// flush a final batch through the store on close.
+// closeAuditLayer closes the audit logger, then the underlying audit store.
+// Order matters: the logger is the async-writer-backed adapter, whose Close
+// drains the queue through the store before the store (and later the database)
+// is closed, so events queued at shutdown are persisted. Draining is bounded by
+// the adapter's deadline; events still queued when it expires are abandoned
+// (canceled, not written into the closing store) and counted in
+// audit_events_dropped_total — audit delivery is best-effort (#884).
 func (p *Platform) closeAuditLayer(errs *[]error) {
 	if closer, ok := p.auditLogger.(Closer); ok {
 		slog.Debug("shutdown: closing audit logger")

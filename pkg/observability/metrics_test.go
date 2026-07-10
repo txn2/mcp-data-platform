@@ -27,6 +27,7 @@ func TestNewDisabledReturnsNoOpRecorder(t *testing.T) {
 	m.DecInflightToolCalls(context.Background())
 	m.RecordAPIGatewayOutbound(context.Background(), APIGatewayAttrs{}, time.Millisecond)
 	m.RecordSessionResolution(context.Background(), "none")
+	m.RecordAuditEventDropped(context.Background())
 
 	if got := m.Enabled(); got {
 		t.Errorf("Enabled() on nil = %v, want false", got)
@@ -104,6 +105,27 @@ func TestNewEnabledRecordsAllInstruments(t *testing.T) {
 	// Inflight should be 1 after two increments and one decrement.
 	if !strings.Contains(body, "mcp_inflight_tool_calls 1") {
 		t.Errorf("expected inflight gauge to read 1; body:\n%s", body)
+	}
+}
+
+func TestRecordAuditEventDropped(t *testing.T) {
+	m, err := New(Config{Enabled: true, ListenAddr: ":0"})
+	if err != nil {
+		t.Fatalf("New(enabled) err = %v", err)
+	}
+	if m == nil {
+		t.Fatal("New(enabled) returned nil recorder")
+	}
+	defer func() { _ = m.Shutdown(context.Background()) }()
+
+	ctx := context.Background()
+	m.RecordAuditEventDropped(ctx)
+	m.RecordAuditEventDropped(ctx)
+	m.RecordAuditEventDropped(ctx)
+
+	body := scrapeMetrics(t, m.Handler())
+	if !strings.Contains(body, "audit_events_dropped_total 3") {
+		t.Errorf("expected audit_events_dropped_total 3 in scrape body:\n%s", body)
 	}
 }
 

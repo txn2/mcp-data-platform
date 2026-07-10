@@ -55,6 +55,7 @@ pkg/admin -> pkg/toolkits/gateway
 pkg/admin -> pkg/toolkits/gateway/enrichment
 pkg/admin -> pkg/toolkits/knowledge
 pkg/admin -> pkg/user
+pkg/audit -> pkg/observability
 pkg/audit/postgres -> pkg/audit
 pkg/auth -> internal/logsan
 pkg/auth -> pkg/middleware
@@ -90,7 +91,6 @@ pkg/memory -> pkg/semantic
 pkg/memory -> pkg/urnbuild
 pkg/memory/memoryindex -> pkg/indexjobs
 pkg/middleware -> pkg/audit
-pkg/middleware -> pkg/audit/postgres
 pkg/middleware -> pkg/mcpcontext
 pkg/middleware -> pkg/memory
 pkg/middleware -> pkg/observability
@@ -110,6 +110,7 @@ pkg/persona -> pkg/middleware
 pkg/pkcestore -> pkg/connoauth
 pkg/platform -> apps
 pkg/platform -> internal/apidocs
+pkg/platform -> pkg/audit
 pkg/platform -> pkg/audit/postgres
 pkg/platform -> pkg/auth
 pkg/platform -> pkg/authevents
