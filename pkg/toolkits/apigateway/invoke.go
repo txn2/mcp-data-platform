@@ -136,10 +136,27 @@ type invocation struct {
 	auth   Authenticator
 	client *http.Client
 	specs  map[string]*specState
+	// webdavRoutes is the connection's cached WebDAV route index (issue
+	// #876). Consulted by Content-Type negotiation so a real WebDAV verb
+	// or a nested subpath — which the exact-segment standard match misses —
+	// negotiates against the same operation the metric resolver labels.
+	// nil for non-WebDAV connections and test-only invocations, in which
+	// case the WebDAV fallback is a no-op.
+	webdavRoutes []webdavRoute
 	// budget is the shared in-flight memory budget the buffered read
 	// reserves against (issue #535). nil = unlimited (test-only and
 	// unconfigured deployments), in which case reservation is a no-op.
 	budget *MemBudget
+}
+
+// catalogView is the parsed OpenAPI catalog a request is built against:
+// the per-spec documents plus the derived WebDAV route index. The two
+// always travel together (Content-Type negotiation consults both), so
+// bundling them keeps buildUpstreamRequest within the argument-limit and
+// prevents a caller passing one without the other.
+type catalogView struct {
+	specs        map[string]*specState
+	webdavRoutes []webdavRoute
 }
 
 // invoke runs a single api_invoke_endpoint call against a known
@@ -151,7 +168,7 @@ func invoke(ctx context.Context, inv invocation, in InvokeInput) (InvokeOutput, 
 	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	req, err := buildUpstreamRequest(callCtx, inv.cfg, inv.auth, inv.specs, in)
+	req, err := buildUpstreamRequest(callCtx, inv.cfg, inv.auth, catalogView{specs: inv.specs, webdavRoutes: inv.webdavRoutes}, in)
 	if err != nil {
 		return InvokeOutput{}, err
 	}
@@ -174,7 +191,7 @@ func invoke(ctx context.Context, inv invocation, in InvokeInput) (InvokeOutput, 
 // api_export path, and the raw passthrough path cannot drift apart on
 // any of those rules. The caller owns the timeout context (the read can
 // outlive request construction), so ctx is passed in already scoped.
-func buildUpstreamRequest(ctx context.Context, cfg Config, auth Authenticator, specs map[string]*specState, in InvokeInput) (*http.Request, error) {
+func buildUpstreamRequest(ctx context.Context, cfg Config, auth Authenticator, cat catalogView, in InvokeInput) (*http.Request, error) {
 	method, err := validateMethod(in.Method)
 	if err != nil {
 		return nil, err
@@ -190,7 +207,7 @@ func buildUpstreamRequest(ctx context.Context, cfg Config, auth Authenticator, s
 	if err != nil {
 		return nil, err
 	}
-	declaredContentTypes := resolveDeclaredContentTypes(specs, method, in.Path)
+	declaredContentTypes := resolveDeclaredContentTypes(cat.specs, cat.webdavRoutes, method, in.Path)
 	body, contentType, err := encodeBody(method, in.Body, declaredContentTypes, in.Headers)
 	if err != nil {
 		return nil, err
@@ -556,15 +573,36 @@ func callerSetsContentType(h map[string]string) bool {
 // nil specs (test-only invocations) and operations without a
 // requestBody both return nil so encodeBody falls back to its
 // type-driven encoder.
-func resolveDeclaredContentTypes(specs map[string]*specState, method, path string) []string {
+//
+// A real WebDAV verb (documented under a carrier method) or a nested
+// subpath misses the exact-segment standard match above; it is then
+// resolved through webdavRoutes — the same cached index and ranking the
+// metric resolver uses — so the negotiated media type and the metric label
+// always come from the same operation (issue #876).
+func resolveDeclaredContentTypes(specs map[string]*specState, webdavRoutes []webdavRoute, method, path string) []string {
 	if len(specs) == 0 {
 		return nil
 	}
+	// Match on the path component alone. A collection endpoint invoked with
+	// a query string (/orders?limit=100) must negotiate against its
+	// operation, and this mirrors the metric resolver's stripQueryAndFragment
+	// so the negotiated media type and the operation_id label stay in
+	// agreement (issue #876).
+	path = stripQueryAndFragment(path)
 	upperMethod := strings.ToUpper(method)
-	for _, st := range specs {
-		if cts := resolveDeclaredContentTypesInSpec(st, upperMethod, path); cts != nil {
-			return cts
+	// A real WebDAV verb (PROPFIND/MKCOL/MOVE/COPY) is never a standard
+	// PathItem method, so the per-spec exact match below can only miss for
+	// it; skip straight to the WebDAV index. Standard verbs still try the
+	// exact match first (so a single-segment path wins its literal route).
+	if listableMethod(upperMethod) {
+		for _, st := range specs {
+			if cts := resolveDeclaredContentTypesInSpec(st, upperMethod, path); cts != nil {
+				return cts
+			}
 		}
+	}
+	if op, ok := resolveWebDAVRoute(webdavRoutes, upperMethod, path); ok {
+		return op.contentTypes
 	}
 	return nil
 }
@@ -649,23 +687,39 @@ func sortedContentTypes(content openapi3.Content) []string {
 // must match exactly. Trailing slashes are normalized away so
 // "/v1/users/" and "/v1/users" both match the same template.
 func pathMatchesTemplate(concrete, template string) bool {
-	cs := strings.Split(strings.TrimSuffix(concrete, pathSep), pathSep)
-	ts := strings.Split(strings.TrimSuffix(template, pathSep), pathSep)
+	cs := splitPathTemplate(concrete)
+	ts := splitPathTemplate(template)
 	if len(cs) != len(ts) {
 		return false
 	}
 	for i, seg := range ts {
-		if isPlaceholderSegment(seg) {
-			if cs[i] == "" {
-				return false
-			}
-			continue
-		}
-		if cs[i] != seg {
+		if !segmentMatches(cs[i], seg) {
 			return false
 		}
 	}
 	return true
+}
+
+// splitPathTemplate splits a leading-slash path or template into segments
+// after trimming a single trailing slash, so "/a/b/" and "/a/b" both
+// yield ["", "a", "b"] and align with template segment counts. Shared by
+// pathMatchesTemplate and the WebDAV route matcher so both derive
+// segments identically (issue #876).
+func splitPathTemplate(p string) []string {
+	return strings.Split(strings.TrimSuffix(p, pathSep), pathSep)
+}
+
+// segmentMatches reports whether one concrete path segment satisfies one
+// template segment: a placeholder ("{id}") matches any non-empty segment,
+// a literal must match exactly. The single per-segment rule shared by the
+// exact-length matcher (pathMatchesTemplate) and the catch-all-tail
+// matcher (webdavRoute.matches) so their placeholder/literal semantics
+// cannot drift (issue #876).
+func segmentMatches(concrete, template string) bool {
+	if isPlaceholderSegment(template) {
+		return concrete != ""
+	}
+	return concrete == template
 }
 
 // isPlaceholderSegment reports whether a path-template segment is an

@@ -413,7 +413,7 @@ func TestBuildUpstreamRequest(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			req, err := buildUpstreamRequest(context.Background(), c.cfg, c.auth, c.specs, tc.in)
+			req, err := buildUpstreamRequest(context.Background(), c.cfg, c.auth, catalogView{specs: c.specs, webdavRoutes: c.webdavRoutes()}, tc.in)
 			if tc.wantErr {
 				if err == nil {
 					t.Fatal("want error")

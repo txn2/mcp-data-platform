@@ -299,7 +299,8 @@ func (t *Toolkit) handleExport(ctx context.Context, _ *mcp.CallToolRequest, in e
 	}
 
 	out, runErr := t.runExport(ctx, runExportArgs{
-		deps: deps, cfg: c.cfg, auth: c.auth, client: c.client, specs: c.specs, uc: uc, in: in,
+		deps: deps, cfg: c.cfg, auth: c.auth, client: c.client, specs: c.specs,
+		webdavRoutes: c.webdavRoutes(), uc: uc, in: in,
 	})
 	if runErr != nil {
 		return errorResult(runErr.Error()), nil, nil
@@ -345,13 +346,14 @@ func checkExportIdempotency(ctx context.Context, deps *ExportDeps, uc *ExportUse
 // a struct keeps the function under revive's argument-limit ceiling
 // and makes the call site self-documenting.
 type runExportArgs struct {
-	deps   *ExportDeps
-	cfg    Config
-	auth   Authenticator
-	client *http.Client
-	specs  map[string]*specState
-	uc     *ExportUserContext
-	in     exportInput
+	deps         *ExportDeps
+	cfg          Config
+	auth         Authenticator
+	client       *http.Client
+	specs        map[string]*specState
+	webdavRoutes []webdavRoute
+	uc           *ExportUserContext
+	in           exportInput
 }
 
 // runExport executes the upstream call, uploads the response to
@@ -362,7 +364,7 @@ func (*Toolkit) runExport(ctx context.Context, a runExportArgs) (*exportOutput, 
 	exportCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	req, err := buildExportRequest(exportCtx, exportRequestParams{cfg: cfg, auth: auth, specs: specs, in: in})
+	req, err := buildExportRequest(exportCtx, exportRequestParams{cfg: cfg, auth: auth, specs: specs, webdavRoutes: a.webdavRoutes, in: in})
 	if err != nil {
 		return nil, err
 	}
@@ -424,10 +426,11 @@ func (*Toolkit) runExport(ctx context.Context, a runExportArgs) (*exportOutput, 
 // the connection's OpenAPI catalog (specs) participates in the
 // Content-Type decision (issue #453).
 type exportRequestParams struct {
-	cfg   Config
-	auth  Authenticator
-	specs map[string]*specState
-	in    exportInput
+	cfg          Config
+	auth         Authenticator
+	specs        map[string]*specState
+	webdavRoutes []webdavRoute
+	in           exportInput
 }
 
 // buildExportRequest assembles the *http.Request for the upstream
@@ -436,7 +439,7 @@ type exportRequestParams struct {
 // injection are byte-for-byte the same ones api_invoke_endpoint and the
 // raw passthrough use — there is exactly one place those rules live.
 func buildExportRequest(ctx context.Context, p exportRequestParams) (*http.Request, error) {
-	return buildUpstreamRequest(ctx, p.cfg, p.auth, p.specs, InvokeInput{
+	return buildUpstreamRequest(ctx, p.cfg, p.auth, catalogView{specs: p.specs, webdavRoutes: p.webdavRoutes}, InvokeInput{
 		Connection:     p.in.Connection,
 		Method:         p.in.Method,
 		Path:           p.in.Path,

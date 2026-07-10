@@ -174,15 +174,27 @@ func TestPathMatchesTemplate(t *testing.T) {
 
 func TestResolveDeclaredContentTypes_LiteralPath(t *testing.T) {
 	specs := map[string]*specState{"main": mustParseSpec(t, jsonOpSpec)}
-	got := resolveDeclaredContentTypes(specs, "POST", "/v1/query")
+	got := resolveDeclaredContentTypes(specs, nil, "POST", "/v1/query")
 	if len(got) != 1 || got[0] != "application/json" {
 		t.Errorf("declared = %v; want [application/json]", got)
 	}
 }
 
+// TestResolveDeclaredContentTypes_QueryString confirms a query string on
+// the path does not defeat negotiation: the path component alone is
+// matched, mirroring the metric resolver so the negotiated media type and
+// the operation_id label agree even for a query-bearing call (issue #876).
+func TestResolveDeclaredContentTypes_QueryString(t *testing.T) {
+	specs := map[string]*specState{"main": mustParseSpec(t, jsonOpSpec)}
+	got := resolveDeclaredContentTypes(specs, nil, "POST", "/v1/query?limit=100&offset=0")
+	if len(got) != 1 || got[0] != "application/json" {
+		t.Errorf("declared for query-bearing path = %v; want [application/json]", got)
+	}
+}
+
 func TestResolveDeclaredContentTypes_TemplatedPath(t *testing.T) {
 	specs := map[string]*specState{"main": mustParseSpec(t, jsonOpSpecTemplated)}
-	got := resolveDeclaredContentTypes(specs, "POST",
+	got := resolveDeclaredContentTypes(specs, nil, "POST",
 		"/v1/datasets/query/execute/b72dfd07-dc16-4335-b539-3badcf728959")
 	if len(got) != 1 || got[0] != "application/json" {
 		t.Errorf("declared = %v; want [application/json]", got)
@@ -191,16 +203,16 @@ func TestResolveDeclaredContentTypes_TemplatedPath(t *testing.T) {
 
 func TestResolveDeclaredContentTypes_NoMatch(t *testing.T) {
 	specs := map[string]*specState{"main": mustParseSpec(t, jsonOpSpec)}
-	if got := resolveDeclaredContentTypes(specs, "POST", "/v2/other"); got != nil {
+	if got := resolveDeclaredContentTypes(specs, nil, "POST", "/v2/other"); got != nil {
 		t.Errorf("declared = %v; want nil for unmatched path", got)
 	}
-	if got := resolveDeclaredContentTypes(specs, "GET", "/v1/query"); got != nil {
+	if got := resolveDeclaredContentTypes(specs, nil, "GET", "/v1/query"); got != nil {
 		t.Errorf("declared = %v; want nil for unmatched method", got)
 	}
 }
 
 func TestResolveDeclaredContentTypes_NilSpecs(t *testing.T) {
-	if got := resolveDeclaredContentTypes(nil, "POST", "/v1/query"); got != nil {
+	if got := resolveDeclaredContentTypes(nil, nil, "POST", "/v1/query"); got != nil {
 		t.Errorf("declared = %v; want nil for nil specs (preserves today's behavior)", got)
 	}
 }
@@ -226,6 +238,70 @@ func TestOperationForMethod_UnknownVerb(t *testing.T) {
 	}
 }
 
+// webdavContentTypeSpec documents a WebDAV resource path: PROPFIND under a
+// POST carrier (application/xml body), PUT as its own verb
+// (application/octet-stream body). Used to verify that a nested WebDAV
+// request negotiates Content-Type against the correct operation instead of
+// dropping to the type-driven default (issue #876).
+const webdavContentTypeSpec = `{
+  "openapi": "3.0.3",
+  "info": { "title": "webdav", "version": "1.0.0" },
+  "paths": {
+    "/remote.php/dav/files/{username}/{path}": {
+      "parameters": [
+        { "name": "username", "in": "path", "required": true, "schema": { "type": "string" } },
+        { "name": "path", "in": "path", "required": true, "schema": { "type": "string" } }
+      ],
+      "put": {
+        "operationId": "webdav-upload-file",
+        "requestBody": { "content": { "application/octet-stream": { "schema": { "type": "string" } } } },
+        "responses": { "201": { "description": "created" } }
+      },
+      "post": {
+        "operationId": "webdav-propfind",
+        "x-webdav-method": "PROPFIND",
+        "requestBody": { "content": { "application/xml": { "schema": { "type": "string" } } } },
+        "responses": { "207": { "description": "multistatus" } }
+      }
+    }
+  }
+}`
+
+// TestResolveDeclaredContentTypes_WebDAV proves the invoke-side
+// Content-Type negotiation resolves WebDAV operations the same way the
+// metrics resolver does: a real WebDAV verb (PROPFIND under a POST
+// carrier) and a nested (multi-segment) tail path both find the declared
+// media type rather than falling through to the type-driven default.
+func TestResolveDeclaredContentTypes_WebDAV(t *testing.T) {
+	specs := map[string]*specState{"webdav": mustParseSpec(t, webdavContentTypeSpec)}
+	routes := buildWebDAVRoutes(specs)
+	nested := "/remote.php/dav/files/alice/reports/2026/q1/report.xml"
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		want   string
+	}{
+		{"propfind carrier single segment", "PROPFIND", "/remote.php/dav/files/alice/report.xml", "application/xml"},
+		{"propfind carrier nested tail", "PROPFIND", nested, "application/xml"},
+		{"put standard verb nested tail", "PUT", nested, "application/octet-stream"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := resolveDeclaredContentTypes(specs, routes, tt.method, tt.path)
+			if len(got) != 1 || got[0] != tt.want {
+				t.Errorf("declared = %v; want [%s]", got, tt.want)
+			}
+		})
+	}
+
+	// A genuinely absent path still declares nothing.
+	if got := resolveDeclaredContentTypes(specs, routes, "PROPFIND", "/completely/different/path"); got != nil {
+		t.Errorf("declared = %v; want nil for path outside the template", got)
+	}
+}
+
 // TestResolveDeclaredContentTypes_PrefersLiteralOverTemplated runs
 // multiple times against a randomized-iteration map to confirm the
 // literal /v1/users/me wins over /v1/users/{id} deterministically.
@@ -233,7 +309,7 @@ func TestOperationForMethod_UnknownVerb(t *testing.T) {
 func TestResolveDeclaredContentTypes_PrefersLiteralOverTemplated(t *testing.T) {
 	specs := map[string]*specState{"main": mustParseSpec(t, literalVsTemplatedSpec)}
 	for i := range 50 {
-		got := resolveDeclaredContentTypes(specs, "POST", "/v1/users/me")
+		got := resolveDeclaredContentTypes(specs, nil, "POST", "/v1/users/me")
 		if len(got) != 1 || got[0] != "application/json" {
 			t.Fatalf("iteration %d: declared = %v; want [application/json] (literal path)", i, got)
 		}
@@ -244,11 +320,11 @@ func TestResolveDeclaredContentTypes_RespectsEffectiveBasePath(t *testing.T) {
 	st := mustParseSpec(t, jsonOpSpec)
 	st.effectiveBasePath = "/api"
 	specs := map[string]*specState{"main": st}
-	got := resolveDeclaredContentTypes(specs, "POST", "/api/v1/query")
+	got := resolveDeclaredContentTypes(specs, nil, "POST", "/api/v1/query")
 	if len(got) != 1 || got[0] != "application/json" {
 		t.Errorf("declared with basePath = %v; want [application/json]", got)
 	}
-	if got := resolveDeclaredContentTypes(specs, "POST", "/v1/query"); got != nil {
+	if got := resolveDeclaredContentTypes(specs, nil, "POST", "/v1/query"); got != nil {
 		t.Errorf("declared without basePath prefix = %v; want nil", got)
 	}
 }

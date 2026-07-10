@@ -35,14 +35,40 @@ func (t *Toolkit) ResolveOperationID(_ context.Context, connection, method, path
 		return ""
 	}
 
+	upper := strings.ToUpper(strings.TrimSpace(method))
+	normPath := ensureLeadingSlash(stripQueryAndFragment(path))
+
+	// Standard resolution: the gorillamux router covers the
+	// GET/POST/PUT/DELETE/PATCH/HEAD verbs on single-segment paths and
+	// does most-specific-wins between literal and templated routes.
+	if id := c.resolveViaRouter(upper, normPath); id != "" {
+		return id
+	}
+	// WebDAV + nested-path fallback (issue #876). A router miss above can
+	// mean the caller sent a real WebDAV verb (PROPFIND/MKCOL/MOVE/COPY),
+	// which the catalog documents under a carrier method via
+	// x-webdav-method and the router therefore has no route for, or a
+	// nested resource path whose slash-bearing tail exceeds the router's
+	// single-segment path variable. Both resolve here from the WebDAV
+	// route index. Returns "" for connections with no WebDAV operations,
+	// so a genuine miss still records "unknown".
+	return c.resolveWebDAVOperation(upper, normPath)
+}
+
+// resolveViaRouter runs the gorillamux operationRouter for an
+// already-normalized (upper-cased method, leading-slash, query-stripped
+// path) request and returns the matched operationId, or "" on any miss.
+// upper is the caller's real HTTP method; normPath is the runtime full
+// path. Split out from ResolveOperationID so the WebDAV fallback path is
+// a clean sibling rather than nested inside the router branch.
+func (c *conn) resolveViaRouter(upper, normPath string) string {
 	router := c.opRouter()
 	if router == nil {
 		return ""
 	}
-
 	req := &http.Request{
-		Method: strings.ToUpper(method),
-		URL:    &url.URL{Path: ensureLeadingSlash(stripQueryAndFragment(path))},
+		Method: upper,
+		URL:    &url.URL{Path: normPath},
 	}
 	route, _, err := router.FindRoute(req)
 	if err != nil || route == nil || route.Operation == nil {
@@ -60,7 +86,6 @@ func (t *Toolkit) ResolveOperationID(_ context.Context, connection, method, path
 	// carries. rawPath is spec-relative, NOT route.Path (the
 	// effectiveBasePath-prefixed router key), because that is what the list
 	// side synthesizes from.
-	upper := strings.ToUpper(method)
 	if !listableMethod(upper) {
 		return ""
 	}
@@ -91,8 +116,19 @@ func stripQueryAndFragment(p string) string {
 func (c *conn) opRouter() routers.Router {
 	c.operationRouterOnce.Do(func() {
 		c.operationRouter, c.operationRawPaths = buildOperationRouter(c.specs)
+		c.operationWebDAVRoutes = buildWebDAVRoutes(c.specs)
 	})
 	return c.operationRouter
+}
+
+// webdavRoutes returns the connection's lazily-built WebDAV route index,
+// building it (and the router) on first use. Empty for connections whose
+// catalog declares no x-webdav-method operation. Discarded with the conn
+// when ReloadConnection rebuilds it after a catalog edit, so no separate
+// invalidation path is needed (issue #876).
+func (c *conn) webdavRoutes() []webdavRoute {
+	c.opRouter() // ensure the shared operationRouterOnce has populated the index
+	return c.operationWebDAVRoutes
 }
 
 // rawPathForRoute maps a matched route's effectiveBasePath-prefixed
