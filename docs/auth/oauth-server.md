@@ -204,6 +204,24 @@ stored in PostgreSQL. This matters behind a load balancer: the callback can
 land on a different replica than the one that started the flow, and browser
 login would fail if the state lived only in one replica's memory.
 
+Refresh tokens and authorization codes are stored only as hex-encoded
+SHA-256 digests (both in PostgreSQL and in the in-memory store); the server
+hashes the presented value on lookup. A database read, backup, or replica
+therefore never yields a usable bearer credential.
+
+## Upgrade Note: Hashed Refresh Tokens
+
+Migration `000078` converts pre-existing plaintext refresh tokens and
+authorization codes to digests in place, so live sessions stay valid across
+the upgrade. During a multi-replica rolling upgrade, replicas still running
+the previous binary cannot validate the hashed rows, and any refresh token
+such a replica issues after the migration ran is invalid under the new
+binary; affected clients recover with one interactive re-authorization.
+Complete the rollout promptly to minimize that window. Rolling this
+migration back deletes all outstanding refresh tokens and authorization
+codes (hashing is one-way), which forces every client through a full
+interactive re-authorization.
+
 ## Upgrade Note: Access Token Audience
 
 Access tokens mint `aud` as the issuer URL (the platform is both the
@@ -261,6 +279,7 @@ Response:
 | **JWT Access Tokens** | Self-validating signed JWTs containing user claims and roles |
 | **PKCE Required** | All clients must use PKCE with S256 |
 | **Bcrypt Secrets** | Client secrets stored as bcrypt hashes |
+| **Hashed Credentials at Rest** | Refresh tokens and authorization codes stored only as SHA-256 digests |
 | **State Validation** | CSRF protection via state parameter |
 | **Token Expiration** | Access tokens expire after 1 hour |
 | **Refresh Token Rotation** | New refresh token issued on each use |

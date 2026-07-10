@@ -397,7 +397,9 @@ func (s *Server) handleAuthorizationCodeGrant(ctx context.Context, req TokenRequ
 	// consume fails the grant instead of replaying the code. A storage
 	// outage surfaces as server_error (retryable) rather than
 	// invalid_grant: the code is still stored and single-use still holds.
-	if _, err := s.storage.ConsumeAuthorizationCode(ctx, code.Code); err != nil {
+	// Consume takes the raw request value: the scanned code.Code holds
+	// the at-rest digest, which storage would hash again on lookup.
+	if _, err := s.storage.ConsumeAuthorizationCode(ctx, req.Code); err != nil {
 		slog.Warn("oauth: authorization code consume failed",
 			paramClientID, logsan.SanitizeForLog(req.ClientID), logKeyError, logsan.SanitizeForLog(err.Error()))
 		if errors.Is(err, ErrNotFound) {
@@ -418,7 +420,9 @@ func (s *Server) handleRefreshTokenGrant(ctx context.Context, req TokenRequest) 
 	}
 
 	if token.IsExpired() {
-		if delErr := s.storage.DeleteRefreshToken(ctx, token.Token); delErr != nil {
+		// Delete takes the raw request value: the scanned token.Token
+		// holds the at-rest digest, which storage would hash again.
+		if delErr := s.storage.DeleteRefreshToken(ctx, req.RefreshToken); delErr != nil {
 			slog.Warn("oauth: expired refresh token delete failed",
 				paramClientID, token.ClientID, logKeyError, delErr.Error())
 		}
@@ -444,7 +448,9 @@ func (s *Server) handleRefreshTokenGrant(ctx context.Context, req TokenRequest) 
 	// into two live tokens. A storage outage surfaces as server_error
 	// (retryable) so a spec-compliant client does not discard its
 	// still-valid refresh token over a transient infrastructure blip.
-	if _, err := s.storage.ConsumeRefreshToken(ctx, token.Token); err != nil {
+	// Consume takes the raw request value: the scanned token.Token holds
+	// the at-rest digest, which storage would hash again on lookup.
+	if _, err := s.storage.ConsumeRefreshToken(ctx, req.RefreshToken); err != nil {
 		slog.Warn("oauth: refresh token rotation consume failed",
 			paramClientID, logsan.SanitizeForLog(req.ClientID), logKeyError, logsan.SanitizeForLog(err.Error()))
 		if errors.Is(err, ErrNotFound) {

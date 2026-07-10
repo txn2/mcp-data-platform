@@ -301,6 +301,7 @@ pkg/semantic/datahub -> pkg/observability
 pkg/semantic/datahub -> pkg/semantic
 pkg/semantic/datahub -> pkg/urnbuild
 pkg/session -> internal/logsan
+pkg/session -> pkg/oauth
 pkg/session/postgres -> pkg/session
 pkg/storage/s3 -> pkg/storage
 pkg/storage/s3 -> pkg/urnbuild

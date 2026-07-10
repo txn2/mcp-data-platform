@@ -35,6 +35,14 @@ const (
 	testNotFoundError = "sql: no rows"
 )
 
+// hashedCodeValue and hashedTokenValue are the at-rest digests the store
+// binds in SQL: it hashes the raw credential at the persistence boundary,
+// so every code/token bind and stored column value is the digest.
+var (
+	hashedCodeValue  = oauth.HashToken(testCodeValue)
+	hashedTokenValue = oauth.HashToken(testTokenValue)
+)
+
 func testClient() *oauth.Client {
 	return &oauth.Client{
 		ID:           "id-1",
@@ -248,7 +256,7 @@ func TestSaveAuthorizationCode(t *testing.T) {
 	code := testAuthCode()
 
 	mock.ExpectExec("INSERT INTO oauth_authorization_codes").
-		WithArgs(code.ID, code.Code, code.ClientID, code.UserID,
+		WithArgs(code.ID, hashedCodeValue, code.ClientID, code.UserID,
 			sqlmock.AnyArg(), code.CodeChallenge, code.RedirectURI,
 			code.Scope, code.ExpiresAt, code.Used, code.CreatedAt).
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -271,18 +279,18 @@ func TestGetAuthorizationCode(t *testing.T) {
 		"id", "code", "client_id", "user_id", "user_claims",
 		"code_challenge", "redirect_uri", "scope", "expires_at", "used", "created_at",
 	}).AddRow(
-		code.ID, code.Code, code.ClientID, code.UserID, claimsJSON,
+		code.ID, hashedCodeValue, code.ClientID, code.UserID, claimsJSON,
 		code.CodeChallenge, code.RedirectURI, code.Scope,
 		code.ExpiresAt, code.Used, code.CreatedAt,
 	)
 
 	mock.ExpectQuery("SELECT .+ FROM oauth_authorization_codes").
-		WithArgs(testCodeValue).
+		WithArgs(hashedCodeValue).
 		WillReturnRows(rows)
 
 	result, err := store.GetAuthorizationCode(context.Background(), testCodeValue)
 	assert.NoError(t, err)
-	assert.Equal(t, code.Code, result.Code)
+	assert.Equal(t, hashedCodeValue, result.Code)
 	assert.Equal(t, code.ClientID, result.ClientID)
 	assert.Equal(t, code.UserID, result.UserID)
 	assert.NoError(t, mock.ExpectationsWereMet())
@@ -296,7 +304,7 @@ func TestDeleteAuthorizationCode(t *testing.T) {
 	store := New(db)
 
 	mock.ExpectExec("DELETE FROM oauth_authorization_codes").
-		WithArgs(testCodeValue).
+		WithArgs(hashedCodeValue).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	err = store.DeleteAuthorizationCode(context.Background(), testCodeValue)
@@ -317,18 +325,18 @@ func TestConsumeAuthorizationCode(t *testing.T) {
 		"id", "code", "client_id", "user_id", "user_claims",
 		"code_challenge", "redirect_uri", "scope", "expires_at", "used", "created_at",
 	}).AddRow(
-		code.ID, code.Code, code.ClientID, code.UserID, claimsJSON,
+		code.ID, hashedCodeValue, code.ClientID, code.UserID, claimsJSON,
 		code.CodeChallenge, code.RedirectURI, code.Scope,
 		code.ExpiresAt, code.Used, code.CreatedAt,
 	)
 
 	mock.ExpectQuery("DELETE FROM oauth_authorization_codes .+ RETURNING").
-		WithArgs(testCodeValue).
+		WithArgs(hashedCodeValue).
 		WillReturnRows(rows)
 
 	result, err := store.ConsumeAuthorizationCode(context.Background(), testCodeValue)
 	assert.NoError(t, err)
-	assert.Equal(t, code.Code, result.Code)
+	assert.Equal(t, hashedCodeValue, result.Code)
 	assert.Equal(t, code.ClientID, result.ClientID)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
@@ -341,7 +349,7 @@ func TestConsumeAuthorizationCode_NotFound(t *testing.T) {
 	store := New(db)
 
 	mock.ExpectQuery("DELETE FROM oauth_authorization_codes .+ RETURNING").
-		WithArgs(testCodeValue).
+		WithArgs(hashedCodeValue).
 		WillReturnError(sql.ErrNoRows)
 
 	_, err = store.ConsumeAuthorizationCode(context.Background(), testCodeValue)
@@ -373,7 +381,7 @@ func TestSaveRefreshToken(t *testing.T) {
 	token := testRefreshToken()
 
 	mock.ExpectExec("INSERT INTO oauth_refresh_tokens").
-		WithArgs(token.ID, token.Token, token.ClientID, token.UserID,
+		WithArgs(token.ID, hashedTokenValue, token.ClientID, token.UserID,
 			sqlmock.AnyArg(), token.Scope, token.ExpiresAt, token.CreatedAt).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
@@ -395,17 +403,17 @@ func TestGetRefreshToken(t *testing.T) {
 		"id", "token", "client_id", "user_id", "user_claims",
 		"scope", "expires_at", "created_at",
 	}).AddRow(
-		token.ID, token.Token, token.ClientID, token.UserID,
+		token.ID, hashedTokenValue, token.ClientID, token.UserID,
 		claimsJSON, token.Scope, token.ExpiresAt, token.CreatedAt,
 	)
 
 	mock.ExpectQuery("SELECT .+ FROM oauth_refresh_tokens").
-		WithArgs(testTokenValue).
+		WithArgs(hashedTokenValue).
 		WillReturnRows(rows)
 
 	result, err := store.GetRefreshToken(context.Background(), testTokenValue)
 	assert.NoError(t, err)
-	assert.Equal(t, token.Token, result.Token)
+	assert.Equal(t, hashedTokenValue, result.Token)
 	assert.Equal(t, token.ClientID, result.ClientID)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
@@ -418,7 +426,7 @@ func TestDeleteRefreshToken(t *testing.T) {
 	store := New(db)
 
 	mock.ExpectExec("DELETE FROM oauth_refresh_tokens WHERE token").
-		WithArgs(testTokenValue).
+		WithArgs(hashedTokenValue).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	err = store.DeleteRefreshToken(context.Background(), testTokenValue)
@@ -439,17 +447,17 @@ func TestConsumeRefreshToken(t *testing.T) {
 		"id", "token", "client_id", "user_id", "user_claims",
 		"scope", "expires_at", "created_at",
 	}).AddRow(
-		token.ID, token.Token, token.ClientID, token.UserID,
+		token.ID, hashedTokenValue, token.ClientID, token.UserID,
 		claimsJSON, token.Scope, token.ExpiresAt, token.CreatedAt,
 	)
 
 	mock.ExpectQuery("DELETE FROM oauth_refresh_tokens .+ RETURNING").
-		WithArgs(testTokenValue).
+		WithArgs(hashedTokenValue).
 		WillReturnRows(rows)
 
 	result, err := store.ConsumeRefreshToken(context.Background(), testTokenValue)
 	assert.NoError(t, err)
-	assert.Equal(t, token.Token, result.Token)
+	assert.Equal(t, hashedTokenValue, result.Token)
 	assert.Equal(t, token.ClientID, result.ClientID)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
@@ -462,7 +470,7 @@ func TestConsumeRefreshToken_NotFound(t *testing.T) {
 	store := New(db)
 
 	mock.ExpectQuery("DELETE FROM oauth_refresh_tokens .+ RETURNING").
-		WithArgs(testTokenValue).
+		WithArgs(hashedTokenValue).
 		WillReturnError(sql.ErrNoRows)
 
 	_, err = store.ConsumeRefreshToken(context.Background(), testTokenValue)
@@ -648,7 +656,7 @@ func TestGetAuthorizationCode_NotFound(t *testing.T) {
 	store := New(db)
 
 	mock.ExpectQuery("SELECT .+ FROM oauth_authorization_codes").
-		WithArgs("nonexistent").
+		WithArgs(oauth.HashToken("nonexistent")).
 		WillReturnError(errors.New(testNotFoundError))
 
 	_, err = store.GetAuthorizationCode(context.Background(), "nonexistent")
@@ -710,7 +718,7 @@ func TestGetRefreshToken_NotFound(t *testing.T) {
 	store := New(db)
 
 	mock.ExpectQuery("SELECT .+ FROM oauth_refresh_tokens").
-		WithArgs("nonexistent").
+		WithArgs(oauth.HashToken("nonexistent")).
 		WillReturnError(errors.New(testNotFoundError))
 
 	_, err = store.GetRefreshToken(context.Background(), "nonexistent")
