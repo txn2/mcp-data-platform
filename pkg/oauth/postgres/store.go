@@ -139,7 +139,9 @@ func (s *Store) ListClients(ctx context.Context) (_ []*oauth.Client, retErr erro
 	return clients, nil
 }
 
-// SaveAuthorizationCode stores an authorization code.
+// SaveAuthorizationCode stores an authorization code. Only the SHA-256
+// digest of the code value is persisted (oauth.HashToken), so a database
+// read never yields a usable credential.
 func (s *Store) SaveAuthorizationCode(ctx context.Context, code *oauth.AuthorizationCode) error {
 	claims, err := json.Marshal(code.UserClaims)
 	if err != nil {
@@ -149,7 +151,7 @@ func (s *Store) SaveAuthorizationCode(ctx context.Context, code *oauth.Authoriza
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO oauth_authorization_codes (id, code, client_id, user_id, user_claims, code_challenge, redirect_uri, scope, expires_at, used, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-		code.ID, code.Code, code.ClientID, code.UserID, claims,
+		code.ID, oauth.HashToken(code.Code), code.ClientID, code.UserID, claims,
 		code.CodeChallenge, code.RedirectURI, code.Scope,
 		code.ExpiresAt, code.Used, code.CreatedAt,
 	)
@@ -159,12 +161,13 @@ func (s *Store) SaveAuthorizationCode(ctx context.Context, code *oauth.Authoriza
 	return nil
 }
 
-// GetAuthorizationCode retrieves an authorization code.
+// GetAuthorizationCode retrieves an authorization code by its raw value;
+// the comparison is against the stored SHA-256 digest.
 func (s *Store) GetAuthorizationCode(ctx context.Context, code string) (*oauth.AuthorizationCode, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT id, code, client_id, user_id, user_claims, code_challenge, redirect_uri, scope, expires_at, used, created_at
 		FROM oauth_authorization_codes
-		WHERE code = $1`, code)
+		WHERE code = $1`, oauth.HashToken(code))
 	return scanAuthorizationCode(row)
 }
 
@@ -176,7 +179,7 @@ func (s *Store) ConsumeAuthorizationCode(ctx context.Context, code string) (*oau
 	row := s.db.QueryRowContext(ctx, `
 		DELETE FROM oauth_authorization_codes
 		WHERE code = $1
-		RETURNING id, code, client_id, user_id, user_claims, code_challenge, redirect_uri, scope, expires_at, used, created_at`, code)
+		RETURNING id, code, client_id, user_id, user_claims, code_challenge, redirect_uri, scope, expires_at, used, created_at`, oauth.HashToken(code))
 	ac, err := scanAuthorizationCode(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("authorization code: %w", oauth.ErrNotFound)
@@ -204,9 +207,9 @@ func scanAuthorizationCode(row *sql.Row) (*oauth.AuthorizationCode, error) {
 	return &ac, nil
 }
 
-// DeleteAuthorizationCode deletes an authorization code.
+// DeleteAuthorizationCode deletes an authorization code by its raw value.
 func (s *Store) DeleteAuthorizationCode(ctx context.Context, code string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM oauth_authorization_codes WHERE code = $1`, code)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM oauth_authorization_codes WHERE code = $1`, oauth.HashToken(code))
 	if err != nil {
 		return fmt.Errorf("deleting authorization code: %w", err)
 	}
@@ -222,7 +225,9 @@ func (s *Store) CleanupExpiredCodes(ctx context.Context) error {
 	return nil
 }
 
-// SaveRefreshToken stores a refresh token.
+// SaveRefreshToken stores a refresh token. Only the SHA-256 digest of the
+// token value is persisted (oauth.HashToken), so a database read never
+// yields a usable credential.
 func (s *Store) SaveRefreshToken(ctx context.Context, token *oauth.RefreshToken) error {
 	claims, err := json.Marshal(token.UserClaims)
 	if err != nil {
@@ -232,7 +237,7 @@ func (s *Store) SaveRefreshToken(ctx context.Context, token *oauth.RefreshToken)
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO oauth_refresh_tokens (id, token, client_id, user_id, user_claims, scope, expires_at, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		token.ID, token.Token, token.ClientID, token.UserID,
+		token.ID, oauth.HashToken(token.Token), token.ClientID, token.UserID,
 		claims, token.Scope, token.ExpiresAt, token.CreatedAt,
 	)
 	if err != nil {
@@ -241,12 +246,13 @@ func (s *Store) SaveRefreshToken(ctx context.Context, token *oauth.RefreshToken)
 	return nil
 }
 
-// GetRefreshToken retrieves a refresh token.
+// GetRefreshToken retrieves a refresh token by its raw value; the
+// comparison is against the stored SHA-256 digest.
 func (s *Store) GetRefreshToken(ctx context.Context, token string) (*oauth.RefreshToken, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT id, token, client_id, user_id, user_claims, scope, expires_at, created_at
 		FROM oauth_refresh_tokens
-		WHERE token = $1`, token)
+		WHERE token = $1`, oauth.HashToken(token))
 	return scanRefreshToken(row)
 }
 
@@ -259,7 +265,7 @@ func (s *Store) ConsumeRefreshToken(ctx context.Context, token string) (*oauth.R
 	row := s.db.QueryRowContext(ctx, `
 		DELETE FROM oauth_refresh_tokens
 		WHERE token = $1
-		RETURNING id, token, client_id, user_id, user_claims, scope, expires_at, created_at`, token)
+		RETURNING id, token, client_id, user_id, user_claims, scope, expires_at, created_at`, oauth.HashToken(token))
 	rt, err := scanRefreshToken(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("refresh token: %w", oauth.ErrNotFound)
@@ -286,9 +292,9 @@ func scanRefreshToken(row *sql.Row) (*oauth.RefreshToken, error) {
 	return &rt, nil
 }
 
-// DeleteRefreshToken deletes a refresh token.
+// DeleteRefreshToken deletes a refresh token by its raw value.
 func (s *Store) DeleteRefreshToken(ctx context.Context, token string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM oauth_refresh_tokens WHERE token = $1`, token)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM oauth_refresh_tokens WHERE token = $1`, oauth.HashToken(token))
 	if err != nil {
 		return fmt.Errorf("deleting refresh token: %w", err)
 	}

@@ -3,10 +3,21 @@ package oauth
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/url"
 	"slices"
 	"time"
 )
+
+// HashToken returns the hex-encoded SHA-256 digest of a token value.
+// Opaque bearer credentials (refresh tokens, authorization codes) are
+// stored only as digests so a database read never yields a usable
+// credential; lookups hash the presented value and compare digests.
+func HashToken(token string) string {
+	digest := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(digest[:])
+}
 
 // Storage defines the interface for OAuth data persistence.
 type Storage interface {
@@ -17,7 +28,9 @@ type Storage interface {
 	DeleteClient(ctx context.Context, clientID string) error
 	ListClients(ctx context.Context) ([]*Client, error)
 
-	// Authorization code management
+	// Authorization code management. Implementations persist only the
+	// SHA-256 digest of the code value (HashToken); the get, delete, and
+	// consume methods take the raw value and hash it before comparison.
 	SaveAuthorizationCode(ctx context.Context, code *AuthorizationCode) error
 	GetAuthorizationCode(ctx context.Context, code string) (*AuthorizationCode, error)
 	DeleteAuthorizationCode(ctx context.Context, code string) error
@@ -29,7 +42,9 @@ type Storage interface {
 	ConsumeAuthorizationCode(ctx context.Context, code string) (*AuthorizationCode, error)
 	CleanupExpiredCodes(ctx context.Context) error
 
-	// Token management
+	// Token management. Implementations persist only the SHA-256 digest
+	// of the token value (HashToken); the get, delete, and consume
+	// methods take the raw value and hash it before comparison.
 	SaveRefreshToken(ctx context.Context, token *RefreshToken) error
 	GetRefreshToken(ctx context.Context, token string) (*RefreshToken, error)
 	DeleteRefreshToken(ctx context.Context, token string) error
@@ -57,7 +72,10 @@ type Client struct {
 
 // AuthorizationCode represents an OAuth authorization code.
 type AuthorizationCode struct {
-	ID            string         `json:"id"`
+	ID string `json:"id"`
+	// Code carries the raw value when issuing; Storage implementations
+	// persist only its SHA-256 digest (HashToken), so records read back
+	// from storage hold the digest, never a usable credential.
 	Code          string         `json:"code"`
 	ClientID      string         `json:"client_id"`
 	UserID        string         `json:"user_id"`
@@ -72,7 +90,10 @@ type AuthorizationCode struct {
 
 // RefreshToken represents an OAuth refresh token.
 type RefreshToken struct {
-	ID         string         `json:"id"`
+	ID string `json:"id"`
+	// Token carries the raw value when issuing; Storage implementations
+	// persist only its SHA-256 digest (HashToken), so records read back
+	// from storage hold the digest, never a usable credential.
 	Token      string         `json:"token"`
 	ClientID   string         `json:"client_id"`
 	UserID     string         `json:"user_id"`

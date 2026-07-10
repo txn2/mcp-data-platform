@@ -11,6 +11,33 @@ const (
 	testLoopback127     = "http://127.0.0.1"
 )
 
+func TestHashToken(t *testing.T) {
+	tests := []struct {
+		name     string
+		token    string
+		expected string
+	}{
+		// FIPS 180-4 SHA-256 test vector for "abc".
+		{"known vector", "abc", "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"},
+		{"empty string", "", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := HashToken(tt.token); got != tt.expected {
+				t.Errorf("HashToken(%q) = %q, want %q", tt.token, got, tt.expected)
+			}
+		})
+	}
+
+	t.Run("digest never equals a non-empty input", func(t *testing.T) {
+		const token = "refresh-token-value"
+		if HashToken(token) == token {
+			t.Error("digest must differ from the raw token")
+		}
+	})
+}
+
 func TestClientValidRedirectURI(t *testing.T) {
 	client := &Client{
 		RedirectURIs: []string{

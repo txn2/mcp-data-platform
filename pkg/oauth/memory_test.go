@@ -139,6 +139,9 @@ func TestMemoryStorage_AuthorizationCode(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+		if code.Code != "code-123" {
+			t.Errorf("save must not mutate the caller's struct, got code %q", code.Code)
+		}
 	})
 
 	t.Run("get authorization code", func(t *testing.T) {
@@ -146,8 +149,12 @@ func TestMemoryStorage_AuthorizationCode(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if got.Code != code.Code {
-			t.Errorf("expected code %q, got %q", code.Code, got.Code)
+		// The store holds only the digest, never the raw credential.
+		if got.Code != HashToken("code-123") {
+			t.Errorf("expected stored code to be the digest %q, got %q", HashToken("code-123"), got.Code)
+		}
+		if got.UserID != code.UserID {
+			t.Errorf("expected user ID %q, got %q", code.UserID, got.UserID)
 		}
 	})
 
@@ -183,8 +190,8 @@ func TestMemoryStorage_AuthorizationCode(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if got.Code != "consume-me" {
-			t.Errorf("expected code 'consume-me', got %q", got.Code)
+		if got.Code != HashToken("consume-me") {
+			t.Errorf("expected stored code to be the digest of 'consume-me', got %q", got.Code)
 		}
 
 		// Second consume must fail: the code is single-use.
@@ -252,6 +259,9 @@ func TestMemoryStorage_RefreshToken(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+		if token.Token != "token-123" {
+			t.Errorf("save must not mutate the caller's struct, got token %q", token.Token)
+		}
 	})
 
 	t.Run("get refresh token", func(t *testing.T) {
@@ -259,8 +269,12 @@ func TestMemoryStorage_RefreshToken(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if got.Token != token.Token {
-			t.Errorf("expected token %q, got %q", token.Token, got.Token)
+		// The store holds only the digest, never the raw credential.
+		if got.Token != HashToken("token-123") {
+			t.Errorf("expected stored token to be the digest %q, got %q", HashToken("token-123"), got.Token)
+		}
+		if got.UserID != token.UserID {
+			t.Errorf("expected user ID %q, got %q", token.UserID, got.UserID)
 		}
 	})
 
@@ -296,8 +310,8 @@ func TestMemoryStorage_RefreshToken(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if got.Token != "rotate-me" {
-			t.Errorf("expected token 'rotate-me', got %q", got.Token)
+		if got.Token != HashToken("rotate-me") {
+			t.Errorf("expected stored token to be the digest of 'rotate-me', got %q", got.Token)
 		}
 
 		// Second consume must fail: rotation invalidated the token.

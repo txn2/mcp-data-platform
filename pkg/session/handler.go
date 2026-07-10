@@ -3,7 +3,6 @@ package session
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/pkg/oauth"
 )
 
 // awareSessionKey is the context key for the AwareHandler session ID.
@@ -523,11 +523,13 @@ func extractToken(r *http.Request) string {
 	return auth[bearerPrefixLen:]
 }
 
-// hashToken returns the SHA-256 hex digest of a token, or empty for empty tokens.
+// hashToken returns the SHA-256 hex digest of a token, or empty for empty
+// tokens. The empty-token guard keeps anonymous requests from all mapping
+// to the fixed digest of ""; the digest itself is the platform's shared
+// credential-hashing primitive, oauth.HashToken.
 func hashToken(token string) string {
 	if token == "" {
 		return ""
 	}
-	h := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(h[:])
+	return oauth.HashToken(token)
 }

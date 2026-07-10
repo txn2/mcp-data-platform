@@ -84,46 +84,52 @@ func (m *MemoryStorage) ListClients(_ context.Context) ([]*Client, error) {
 	return clients, nil
 }
 
-// SaveAuthorizationCode stores an authorization code.
+// SaveAuthorizationCode stores an authorization code. Only the SHA-256
+// digest of the code value is retained; the caller's struct is not
+// mutated, so the raw value it holds stays usable for issuance.
 func (m *MemoryStorage) SaveAuthorizationCode(_ context.Context, code *AuthorizationCode) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.codes[code.Code] = code
+	stored := *code
+	stored.Code = HashToken(code.Code)
+	m.codes[stored.Code] = &stored
 	return nil
 }
 
-// GetAuthorizationCode retrieves an authorization code.
+// GetAuthorizationCode retrieves an authorization code by its raw value.
 func (m *MemoryStorage) GetAuthorizationCode(_ context.Context, code string) (*AuthorizationCode, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	authCode, ok := m.codes[code]
+	authCode, ok := m.codes[HashToken(code)]
 	if !ok {
 		return nil, errors.New("authorization code not found")
 	}
 	return authCode, nil
 }
 
-// DeleteAuthorizationCode deletes an authorization code.
+// DeleteAuthorizationCode deletes an authorization code by its raw value.
 func (m *MemoryStorage) DeleteAuthorizationCode(_ context.Context, code string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	delete(m.codes, code)
+	delete(m.codes, HashToken(code))
 	return nil
 }
 
-// ConsumeAuthorizationCode atomically deletes and returns an authorization code.
+// ConsumeAuthorizationCode atomically deletes and returns an authorization
+// code by its raw value.
 func (m *MemoryStorage) ConsumeAuthorizationCode(_ context.Context, code string) (*AuthorizationCode, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	authCode, ok := m.codes[code]
+	hashed := HashToken(code)
+	authCode, ok := m.codes[hashed]
 	if !ok {
 		return nil, fmt.Errorf("authorization code: %w", ErrNotFound)
 	}
-	delete(m.codes, code)
+	delete(m.codes, hashed)
 	return authCode, nil
 }
 
@@ -141,46 +147,52 @@ func (m *MemoryStorage) CleanupExpiredCodes(_ context.Context) error {
 	return nil
 }
 
-// SaveRefreshToken stores a refresh token.
+// SaveRefreshToken stores a refresh token. Only the SHA-256 digest of the
+// token value is retained; the caller's struct is not mutated, so the raw
+// value it holds stays usable for issuance.
 func (m *MemoryStorage) SaveRefreshToken(_ context.Context, token *RefreshToken) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.refreshTokens[token.Token] = token
+	stored := *token
+	stored.Token = HashToken(token.Token)
+	m.refreshTokens[stored.Token] = &stored
 	return nil
 }
 
-// GetRefreshToken retrieves a refresh token.
+// GetRefreshToken retrieves a refresh token by its raw value.
 func (m *MemoryStorage) GetRefreshToken(_ context.Context, token string) (*RefreshToken, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	refreshToken, ok := m.refreshTokens[token]
+	refreshToken, ok := m.refreshTokens[HashToken(token)]
 	if !ok {
 		return nil, errors.New("refresh token not found")
 	}
 	return refreshToken, nil
 }
 
-// DeleteRefreshToken deletes a refresh token.
+// DeleteRefreshToken deletes a refresh token by its raw value.
 func (m *MemoryStorage) DeleteRefreshToken(_ context.Context, token string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	delete(m.refreshTokens, token)
+	delete(m.refreshTokens, HashToken(token))
 	return nil
 }
 
-// ConsumeRefreshToken atomically deletes and returns a refresh token.
+// ConsumeRefreshToken atomically deletes and returns a refresh token by
+// its raw value.
 func (m *MemoryStorage) ConsumeRefreshToken(_ context.Context, token string) (*RefreshToken, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	refreshToken, ok := m.refreshTokens[token]
+	hashed := HashToken(token)
+	refreshToken, ok := m.refreshTokens[hashed]
 	if !ok {
 		return nil, fmt.Errorf("refresh token: %w", ErrNotFound)
 	}
-	delete(m.refreshTokens, token)
+	delete(m.refreshTokens, hashed)
 	return refreshToken, nil
 }
 

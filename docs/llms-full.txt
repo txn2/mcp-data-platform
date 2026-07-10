@@ -756,6 +756,8 @@ Dynamic Client Registration (`oauth.dcr`) is off by default. Enabling it require
 
 When a database is configured, in-flight authorization state (linking `/oauth/authorize` to the upstream IdP callback) is stored in PostgreSQL so multi-replica deployments work behind a load balancer: the callback can land on a different replica than the one that started the flow.
 
+Refresh tokens and authorization codes are stored only as hex-encoded SHA-256 digests (in both the PostgreSQL and in-memory stores); the server hashes the presented value on lookup, so a database read, backup, or replica never yields a usable bearer credential. Migration 000078 converts pre-existing plaintext rows in place so live sessions survive the upgrade; rolling it back deletes all outstanding refresh tokens and authorization codes, forcing interactive re-authorization.
+
 ## Browser Sessions (OIDC Login for Portal UI)
 
 When `auth.oidc` and `auth.browser_session` are both enabled, the portal UI offers SSO login. The flow uses OIDC authorization code with PKCE. Sessions are stored as HMAC-SHA256 signed JWT cookies (stateless, no server-side store).
