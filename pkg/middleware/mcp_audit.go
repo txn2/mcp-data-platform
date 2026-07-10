@@ -19,7 +19,13 @@ import (
 //  2. Executes the tool handler
 //  3. Gets the PlatformContext (set by MCPToolCallMiddleware)
 //  4. Builds an audit event with all captured information
-//  5. Logs asynchronously (non-blocking) to avoid impacting response time
+//  5. Enqueues the event via the logger's non-blocking Log call
+//
+// The audit logger is backed by a bounded async writer (pkg/audit.AsyncWriter),
+// so Log enqueues and returns immediately: the per-write timeout, single drain
+// goroutine, and drain-on-shutdown live in the writer, not here. The middleware
+// therefore no longer spawns a goroutine per call (issue #884), which under a
+// stalled store accumulated goroutines without bound.
 func MCPAuditMiddleware(logger AuditLogger) mcp.Middleware {
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
@@ -53,18 +59,19 @@ func MCPAuditMiddleware(logger AuditLogger) mcp.Middleware {
 				Duration:  duration,
 			})
 
-			// Log asynchronously to not block the response; context.Background is
-			// intentional — the audit write must not be canceled when the request ends.
-			go func() { // #nosec G118 -- detached context is required for fire-and-forget audit logging
-				if err := logger.Log(context.Background(), event); err != nil {
-					slog.Error("failed to log audit event",
-						"error", err,
-						"tool", event.ToolName,
-						"user_id", event.UserID,
-						"request_id", event.RequestID,
-					)
-				}
-			}()
+			// Enqueue without blocking. The logger's bounded async writer
+			// owns the actual store write; context.Background is intentional
+			// so a synchronous logger's write is not canceled when the
+			// request ends. Log returns promptly (an enqueue, or a drop when
+			// the queue is full) and never fails a tool call.
+			if err := logger.Log(context.Background(), event); err != nil {
+				slog.Error("failed to log audit event",
+					"error", err,
+					"tool", event.ToolName,
+					"user_id", event.UserID,
+					"request_id", event.RequestID,
+				)
+			}
 
 			return result, err
 		}

@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -142,6 +143,102 @@ func TestAuditStoreAdapter_Close(t *testing.T) {
 	require.True(t, ok)
 	err := concreteAdapter.Close()
 	assert.NoError(t, err)
+}
+
+// drainableAuditStore is an audit.Logger whose Log records events (after an
+// optional delay) so a test can prove the adapter's Close drains the async
+// writer that wraps it.
+type drainableAuditStore struct {
+	mu     sync.Mutex
+	events []audit.Event
+	delay  time.Duration
+}
+
+func (s *drainableAuditStore) Log(_ context.Context, e audit.Event) error {
+	if s.delay > 0 {
+		time.Sleep(s.delay)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.events = append(s.events, e)
+	return nil
+}
+
+func (*drainableAuditStore) Query(_ context.Context, _ audit.QueryFilter) ([]audit.Event, error) {
+	return nil, nil
+}
+func (*drainableAuditStore) Close() error { return nil }
+
+func (s *drainableAuditStore) count() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.events)
+}
+
+// TestAuditStoreAdapter_CloseDrainsAsyncWriter proves the adapter's Close
+// flushes a wrapping async writer: events enqueued through the adapter but not
+// yet written to the slow store are all persisted by the time Close returns.
+// This is the shutdown-drain path the platform relies on via its audit-logger
+// Closer branch (#884).
+func TestAuditStoreAdapter_CloseDrainsAsyncWriter(t *testing.T) {
+	store := &drainableAuditStore{delay: time.Millisecond}
+	writer := audit.NewAsyncWriter(store)
+	adapter := NewAuditStoreAdapter(writer)
+
+	const n = 20
+	for range n {
+		if err := adapter.Log(context.Background(), AuditEvent{ToolName: "trino_query"}); err != nil {
+			t.Fatalf("Log returned error: %v", err)
+		}
+	}
+
+	closer, ok := adapter.(*auditStoreAdapter)
+	require.True(t, ok)
+	if err := closer.Close(); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+
+	if got := store.count(); got != n {
+		t.Errorf("expected %d events flushed by Close, got %d", n, got)
+	}
+}
+
+// blockingDrainStore is an audit.Logger whose Log blocks forever, so the async
+// writer wrapping it cannot drain within the adapter's shortened deadline.
+type blockingDrainStore struct{ release chan struct{} }
+
+func (s *blockingDrainStore) Log(_ context.Context, _ audit.Event) error {
+	<-s.release
+	return nil
+}
+
+func (*blockingDrainStore) Query(_ context.Context, _ audit.QueryFilter) ([]audit.Event, error) {
+	return nil, nil
+}
+func (*blockingDrainStore) Close() error { return nil }
+
+// TestAuditStoreAdapter_CloseDrainTimeout verifies Close surfaces a wrapped
+// error when the async writer cannot drain before the deadline, so shutdown
+// records the audit-loss rather than swallowing it (#884).
+func TestAuditStoreAdapter_CloseDrainTimeout(t *testing.T) {
+	orig := auditDrainTimeout
+	auditDrainTimeout = 20 * time.Millisecond
+	defer func() { auditDrainTimeout = orig }()
+
+	store := &blockingDrainStore{release: make(chan struct{})}
+	defer close(store.release)
+	writer := audit.NewAsyncWriter(store)
+	adapter := NewAuditStoreAdapter(writer)
+
+	if err := adapter.Log(context.Background(), AuditEvent{ToolName: "trino_query"}); err != nil {
+		t.Fatalf("Log returned error: %v", err)
+	}
+
+	closer, ok := adapter.(*auditStoreAdapter)
+	require.True(t, ok)
+	err := closer.Close()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "draining audit writer")
 }
 
 func TestAuditStoreAdapter_Log_PreservesTimestamp(t *testing.T) {
