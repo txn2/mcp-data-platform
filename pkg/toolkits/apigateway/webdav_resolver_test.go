@@ -310,6 +310,7 @@ func TestWebdavRouteMatches(t *testing.T) {
 		{"literal tail exact", literalTail, "/dav/alice/config", true},
 		{"literal tail mismatch", literalTail, "/dav/alice/other", false},
 		{"literal tail rejects extra segment", literalTail, "/dav/alice/config/x", false},
+		{"empty template never matches", webdavRoute{segments: nil}, "/anything", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

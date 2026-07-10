@@ -306,10 +306,18 @@ func countLiteralSegments(segments []string) int {
 // still requires an exact single-segment match.
 func (r webdavRoute) matches(concrete []string) bool {
 	t := r.segments
+	if len(t) == 0 {
+		return false
+	}
 	last := len(t) - 1
-	// Interior segments are mandatory; the catch-all tail may be empty, so
-	// the concrete path only needs the interior count, not the full length.
-	if len(t) == 0 || len(concrete) < last {
+	catchAll := isPlaceholderSegment(t[last])
+	// A trailing catch-all needs only the interior segments (it may consume
+	// zero tail segments); a trailing literal needs the exact segment count.
+	if catchAll {
+		if len(concrete) < last {
+			return false
+		}
+	} else if len(concrete) != len(t) {
 		return false
 	}
 	for i := range last {
@@ -317,11 +325,12 @@ func (r webdavRoute) matches(concrete []string) bool {
 			return false
 		}
 	}
-	if isPlaceholderSegment(t[last]) {
+	if catchAll {
 		// Catch-all tail: concrete[last:] holds the (possibly empty or
 		// nested) subpath. Any remaining segments, or none, match.
 		return true
 	}
-	// Trailing literal: exact single-segment match, no extra segments.
-	return len(concrete) == len(t) && concrete[last] == t[last]
+	// Trailing literal: exact single-segment match. len(concrete) == len(t)
+	// is guaranteed above, so concrete[last] is in bounds.
+	return concrete[last] == t[last]
 }
