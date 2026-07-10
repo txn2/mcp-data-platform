@@ -60,8 +60,8 @@ func TestTokenEndpointRateLimit(t *testing.T) {
 func TestRegisterEndpointRateLimit(t *testing.T) {
 	storage := &mockStorage{}
 	server, err := NewServer(ServerConfig{
-		Issuer:    "http://localhost:8080",
-		DCR: DCRConfig{Enabled: true, AllowAllRedirectURIs: true},
+		Issuer: "http://localhost:8080",
+		DCR:    DCRConfig{Enabled: true, AllowAllRedirectURIs: true},
 		// RPM is deliberately tiny so no token can refill while the two burst
 		// registrations run their (slow, per-call bcrypt) work: at RegisterRPM
 		// 60 a loaded CI runner spent ~4s hashing and refilled enough tokens to
