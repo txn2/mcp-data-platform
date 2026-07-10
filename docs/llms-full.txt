@@ -702,6 +702,7 @@ mcp-data-platform implements a **fail-closed** security model. Missing or invali
 ## Security Model
 
 - **Required JWT Claims**: Tokens must include `sub` (subject) and `exp` (expiration)
+- **Self-Healing JWKS Cache**: OIDC signing keys are fetched at startup and cached for one hour. The key-lookup path refreshes on demand (during that request's validation, honoring the request's deadline) when the cache expires or a token bears an unknown key ID (IdP key rotation), so validation survives rotation without a restart. Concurrent requests collapse into a single fetch that runs independently, so a slow issuer cannot pin request goroutines. Refreshes are throttled by the last fetch's outcome: at most once per minute after a success (anti-hammer), and a short recovery window after a failure so a brief issuer outage heals within seconds. A failed refresh on an expired cache rejects the token rather than accepting it unverified.
 - **Default-Deny Personas**: Users without explicit persona have no tool access
 - **Prompt Injection Protection**: DataHub metadata is sanitized before exposure
 - **Read-Only Enforcement**: Trino `read_only: true` blocks write queries at query level

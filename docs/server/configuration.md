@@ -262,8 +262,10 @@ auth:
 
 Token clock skew is a fixed 30 seconds and is not exposed as a YAML setting.
 
+The JWKS signing keys are fetched from the issuer at startup and cached for one hour. The cache self-heals on demand: a token whose key is missing because the cache has expired, or because the IdP rotated its keys, triggers a single refresh from the issuer, performed during that request's validation and honoring the request's own deadline. Concurrent requests collapse into one fetch, which runs independently so a slow issuer cannot pin request goroutines past their deadlines. Refreshes are throttled by the outcome of the last fetch: after a success the next on-demand refresh is at most once per minute, so a flood of unknown key IDs cannot hammer the issuer; after a failure a short recovery window applies so a brief issuer outage heals within seconds rather than being held down for the full minute. No restart is required after key rotation, and none of this is exposed as a YAML setting.
+
 !!! note "Fail-Closed Security"
-    Authentication follows a fail-closed model. Missing tokens, invalid signatures, expired tokens, or missing required claims (`sub`, `exp`) all result in denied access.
+    Authentication follows a fail-closed model. Missing tokens, invalid signatures, expired tokens, or missing required claims (`sub`, `exp`) all result in denied access. If a JWKS refresh fails while the cache is expired, tokens are rejected rather than accepted unverified.
 
 ### Browser Sessions (OIDC Login for Portal UI)
 
