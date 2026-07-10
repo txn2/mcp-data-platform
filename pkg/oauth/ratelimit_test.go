@@ -25,9 +25,14 @@ func postForm(t *testing.T, server *Server, path, remoteAddr, body string) *http
 
 func TestTokenEndpointRateLimit(t *testing.T) {
 	storage := &mockStorage{}
+	// RPM is deliberately tiny (1 req/min => a token refills only once every
+	// 60s) so the "third request is rejected" assertion cannot flake if the
+	// handler is slow on a loaded CI runner: with a higher rate, enough
+	// wall-clock could elapse between requests to refill a token. The burst is
+	// what this test exercises, not the refill rate.
 	server, err := NewServer(ServerConfig{
 		Issuer:    "http://localhost:8080",
-		RateLimit: RateLimitConfig{TokenRPM: 60, TokenBurst: 2},
+		RateLimit: RateLimitConfig{TokenRPM: 1, TokenBurst: 2},
 	}, storage)
 	require.NoError(t, err)
 	defer func() { _ = server.Close() }()
@@ -56,8 +61,12 @@ func TestRegisterEndpointRateLimit(t *testing.T) {
 	storage := &mockStorage{}
 	server, err := NewServer(ServerConfig{
 		Issuer:    "http://localhost:8080",
-		DCR:       DCRConfig{Enabled: true, AllowAllRedirectURIs: true},
-		RateLimit: RateLimitConfig{RegisterRPM: 60, RegisterBurst: 2},
+		DCR: DCRConfig{Enabled: true, AllowAllRedirectURIs: true},
+		// RPM is deliberately tiny so no token can refill while the two burst
+		// registrations run their (slow, per-call bcrypt) work: at RegisterRPM
+		// 60 a loaded CI runner spent ~4s hashing and refilled enough tokens to
+		// wrongly admit the over-limit request. See TestTokenEndpointRateLimit.
+		RateLimit: RateLimitConfig{RegisterRPM: 1, RegisterBurst: 2},
 	}, storage)
 	require.NoError(t, err)
 	defer func() { _ = server.Close() }()
