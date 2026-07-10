@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -537,14 +539,14 @@ func TestOIDCAuthenticator_parseAndValidateToken(t *testing.T) {
 	})
 
 	t.Run("only two parts", func(t *testing.T) {
-		_, err := auth.parseAndValidateToken("header.payload")
+		_, err := auth.parseAndValidateToken(context.Background(), "header.payload")
 		if err == nil {
 			t.Error("expected error for JWT with only two parts")
 		}
 	})
 
 	t.Run("invalid base64 payload", func(t *testing.T) {
-		_, err := auth.parseAndValidateToken("header.!!!invalid-base64!!!.sig")
+		_, err := auth.parseAndValidateToken(context.Background(), "header.!!!invalid-base64!!!.sig")
 		if err == nil {
 			t.Error("expected error for invalid base64")
 		}
@@ -552,7 +554,7 @@ func TestOIDCAuthenticator_parseAndValidateToken(t *testing.T) {
 
 	t.Run("invalid JSON payload", func(t *testing.T) {
 		payload := base64.RawURLEncoding.EncodeToString([]byte("not-json"))
-		_, err := auth.parseAndValidateToken("header." + payload + ".sig")
+		_, err := auth.parseAndValidateToken(context.Background(), "header."+payload+".sig")
 		if err == nil {
 			t.Error("expected error for invalid JSON")
 		}
@@ -719,75 +721,80 @@ func TestOIDCAuthenticator_FetchJWKS_JWKSURIEmpty(t *testing.T) {
 }
 
 func TestOIDCAuthenticator_getPublicKey(t *testing.T) {
-	t.Run("JWKS not loaded", func(t *testing.T) {
+	// brokenIssuer serves a discovery endpoint that always fails, so an
+	// on-demand refresh triggered by a cache miss fails deterministically
+	// without touching a real network.
+	brokenIssuer := func(t *testing.T) *OIDCAuthenticator {
+		t.Helper()
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "unavailable", http.StatusInternalServerError)
+		}))
+		t.Cleanup(server.Close)
+
 		auth, _ := NewOIDCAuthenticator(OIDCConfig{
-			Issuer:                    "https://issuer.example.com",
+			Issuer:                    server.URL,
 			SkipSignatureVerification: true,
 		})
-		// jwks is nil by default
+		return auth
+	}
 
-		_, err := auth.getPublicKey("test-kid")
+	t.Run("nil cache triggers refresh and fails closed", func(t *testing.T) {
+		auth := brokenIssuer(t)
+		// jwks is nil by default; the refresh attempt fails.
+
+		_, err := auth.getPublicKey(context.Background(), "test-kid")
 		if err == nil {
-			t.Error("expected error for nil JWKS")
+			t.Fatal("expected error for nil JWKS with failing refresh")
 		}
-		if err.Error() != "jwks not loaded" {
+		if !strings.Contains(err.Error(), "refreshing jwks") {
 			t.Errorf(errUnexpected, err)
 		}
 	})
 
-	t.Run("JWKS cache expired", func(t *testing.T) {
-		auth, _ := NewOIDCAuthenticator(OIDCConfig{
-			Issuer:                    "https://issuer.example.com",
-			SkipSignatureVerification: true,
-		})
-		// Set expired cache
+	t.Run("expired cache triggers refresh and fails closed", func(t *testing.T) {
+		auth := brokenIssuer(t)
 		auth.jwks = &jwksCache{
 			keys:      make(map[string]*rsa.PublicKey),
 			expiresAt: time.Now().Add(-time.Hour), // expired an hour ago
 		}
 
-		_, err := auth.getPublicKey("test-kid")
+		_, err := auth.getPublicKey(context.Background(), "test-kid")
 		if err == nil {
-			t.Error("expected error for expired cache")
+			t.Fatal("expected error for expired cache with failing refresh")
 		}
-		if err.Error() != "jwks cache expired" {
+		if !strings.Contains(err.Error(), "refreshing jwks") {
 			t.Errorf(errUnexpected, err)
 		}
 	})
 
-	t.Run("key not found", func(t *testing.T) {
-		auth, _ := NewOIDCAuthenticator(OIDCConfig{
-			Issuer:                    "https://issuer.example.com",
-			SkipSignatureVerification: true,
-		})
-		// Set valid cache but no keys
+	t.Run("unknown kid on valid cache returns key not found", func(t *testing.T) {
+		auth := brokenIssuer(t)
+		// Valid cache without the requested kid. The refresh attempt fails but
+		// the still-valid cache means the caller reports key-not-found.
 		auth.jwks = &jwksCache{
 			keys:      make(map[string]*rsa.PublicKey),
 			expiresAt: time.Now().Add(time.Hour),
 		}
 
-		_, err := auth.getPublicKey("missing-kid")
+		_, err := auth.getPublicKey(context.Background(), "missing-kid")
 		if err == nil {
-			t.Error("expected error for missing key")
+			t.Fatal("expected error for missing key")
 		}
 		if !strings.Contains(err.Error(), "key not found") {
 			t.Errorf(errUnexpected, err)
 		}
 	})
 
-	t.Run("key found", func(t *testing.T) {
-		auth, _ := NewOIDCAuthenticator(OIDCConfig{
-			Issuer:                    "https://issuer.example.com",
-			SkipSignatureVerification: true,
-		})
-		// Set valid cache with a key
+	t.Run("key found on valid cache without refresh", func(t *testing.T) {
+		auth := brokenIssuer(t)
+		// Set valid cache with a key; the fast path returns it with no refresh.
 		testKey := &rsa.PublicKey{N: big.NewInt(12345), E: 65537}
 		auth.jwks = &jwksCache{
 			keys:      map[string]*rsa.PublicKey{"test-kid": testKey},
 			expiresAt: time.Now().Add(time.Hour),
 		}
 
-		key, err := auth.getPublicKey("test-kid")
+		key, err := auth.getPublicKey(context.Background(), "test-kid")
 		if err != nil {
 			t.Fatalf(errUnexpected, err)
 		}
@@ -882,7 +889,7 @@ func TestOIDCAuthenticator_parseAndValidateToken_SignatureVerification(t *testin
 		sig := base64.RawURLEncoding.EncodeToString([]byte("fakesignature"))
 		token := header + "." + payload + "." + sig
 
-		_, err := auth.parseAndValidateToken(token)
+		_, err := auth.parseAndValidateToken(context.Background(), token)
 		if err == nil {
 			t.Fatal("expected error for token without kid")
 		}
@@ -901,7 +908,7 @@ func TestOIDCAuthenticator_parseAndValidateToken_SignatureVerification(t *testin
 		sig := base64.RawURLEncoding.EncodeToString([]byte("fakesignature"))
 		token := header + "." + payload + "." + sig
 
-		_, err := auth.parseAndValidateToken(token)
+		_, err := auth.parseAndValidateToken(context.Background(), token)
 		if err == nil {
 			t.Fatal("expected error for non-RSA signing method")
 		}
@@ -919,7 +926,7 @@ func TestOIDCAuthenticator_parseAndValidateToken_SignatureVerification(t *testin
 		sig := base64.RawURLEncoding.EncodeToString([]byte("fakesignature"))
 		token := header + "." + payload + "." + sig
 
-		_, err := auth.parseAndValidateToken(token)
+		_, err := auth.parseAndValidateToken(context.Background(), token)
 		if err == nil {
 			t.Fatal("expected error for key not found")
 		}
@@ -988,7 +995,7 @@ func TestOIDCAuthenticator_parseAndValidateToken_ValidSignature(t *testing.T) {
 	}
 
 	// Parse and validate the token
-	claims, err := auth.parseAndValidateToken(signedToken)
+	claims, err := auth.parseAndValidateToken(context.Background(), signedToken)
 	if err != nil {
 		t.Fatalf(errUnexpected, err)
 	}
@@ -1037,7 +1044,7 @@ func TestOIDCAuthenticator_parseAndValidateToken_InvalidSignature(t *testing.T) 
 	token.Header["kid"] = "test-key"
 	signedToken, _ := token.SignedString(signingKey) // Signed with wrong key
 
-	_, err := auth.parseAndValidateToken(signedToken)
+	_, err := auth.parseAndValidateToken(context.Background(), signedToken)
 	if err == nil {
 		t.Fatal("expected error for invalid signature")
 	}
@@ -1306,5 +1313,411 @@ func TestOIDCAuthenticator_FetchJWKS_MissingKid(t *testing.T) {
 	// The key is stored with empty string kid
 	if _, ok := auth.jwks.keys[""]; !ok {
 		t.Error("expected key to be stored with empty string kid")
+	}
+}
+
+// jwksTestServer is a controllable JWKS/OIDC discovery server for exercising the
+// on-demand refresh path: it counts /jwks requests, can rotate its signing key,
+// and can be made to fail the /jwks endpoint.
+type jwksTestServer struct {
+	server  *httptest.Server
+	mu      sync.Mutex
+	kid     string
+	key     *rsa.PrivateKey
+	hits    atomic.Int32
+	fail    atomic.Bool
+	delay   time.Duration
+	delayMu sync.Mutex
+}
+
+func newJWKSTestServer(t *testing.T) *jwksTestServer {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, rsaKeyBits)
+	if err != nil {
+		t.Fatalf("generating RSA key: %v", err)
+	}
+	js := &jwksTestServer{kid: "key-a", key: key}
+	js.server = httptest.NewServer(http.HandlerFunc(js.handle))
+	t.Cleanup(js.server.Close)
+	return js
+}
+
+func (j *jwksTestServer) handle(w http.ResponseWriter, r *http.Request) {
+	switch r.URL.Path {
+	case oidcDiscoveryPath:
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"jwks_uri": "` + "http://" + r.Host + `/jwks"}`))
+	case jwksPath:
+		j.hits.Add(1)
+		j.delayMu.Lock()
+		d := j.delay
+		j.delayMu.Unlock()
+		if d > 0 {
+			time.Sleep(d)
+		}
+		if j.fail.Load() {
+			http.Error(w, "unavailable", http.StatusInternalServerError)
+			return
+		}
+		j.mu.Lock()
+		kid, key := j.kid, j.key
+		j.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		nB64 := base64.RawURLEncoding.EncodeToString(key.N.Bytes())
+		eB64 := base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.PublicKey.E)).Bytes())
+		_, _ = fmt.Fprintf(w, `{"keys": [{"kty": "RSA", "kid": "%s", "use": "sig", "n": "%s", "e": "%s"}]}`, kid, nB64, eB64) //nolint:gocritic // JSON template requires literal quotes, not %q
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+// rotate replaces the server's signing key and kid, simulating IdP key rotation.
+func (j *jwksTestServer) rotate(t *testing.T, newKid string) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, rsaKeyBits)
+	if err != nil {
+		t.Fatalf("generating rotated RSA key: %v", err)
+	}
+	j.mu.Lock()
+	j.kid, j.key = newKid, key
+	j.mu.Unlock()
+}
+
+// signToken signs a valid JWT with the server's current key and kid.
+func (j *jwksTestServer) signToken(t *testing.T) string {
+	t.Helper()
+	j.mu.Lock()
+	kid, key := j.kid, j.key
+	j.mu.Unlock()
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		"sub": testUserID,
+		"exp": float64(time.Now().Add(time.Hour).Unix()),
+		"iss": j.server.URL,
+	})
+	token.Header["kid"] = kid
+	signed, err := token.SignedString(key)
+	if err != nil {
+		t.Fatalf("signing token: %v", err)
+	}
+	return signed
+}
+
+func (j *jwksTestServer) currentKid() string {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.kid
+}
+
+func (j *jwksTestServer) setDelay(d time.Duration) {
+	j.delayMu.Lock()
+	j.delay = d
+	j.delayMu.Unlock()
+}
+
+func (j *jwksTestServer) resetHits()      { j.hits.Store(0) }
+func (j *jwksTestServer) fetchCount() int { return int(j.hits.Load()) }
+
+// expireCache forces the authenticator's cached JWKS to appear stale.
+func expireCache(t *testing.T, auth *OIDCAuthenticator) {
+	t.Helper()
+	auth.mu.Lock()
+	defer auth.mu.Unlock()
+	if auth.jwks == nil {
+		t.Fatal("cannot expire a nil JWKS cache")
+	}
+	auth.jwks.expiresAt = time.Now().Add(-time.Minute)
+}
+
+func newSelfHealAuth(t *testing.T, js *jwksTestServer) *OIDCAuthenticator {
+	t.Helper()
+	auth, err := NewOIDCAuthenticator(OIDCConfig{
+		Issuer:                 js.server.URL,
+		SkipIssuerVerification: true,
+	})
+	if err != nil {
+		t.Fatalf("creating authenticator: %v", err)
+	}
+	return auth
+}
+
+// TestOIDCAuthenticator_RefreshOnExpiry verifies token verification succeeds
+// after the JWKS cache TTL has elapsed, where the pre-fix code failed with a
+// cache-expired error (issue #882 finding 1.2).
+func TestOIDCAuthenticator_RefreshOnExpiry(t *testing.T) {
+	js := newJWKSTestServer(t)
+	auth := newSelfHealAuth(t, js)
+
+	token := js.signToken(t)
+	expireCache(t, auth)
+
+	claims, err := auth.parseAndValidateToken(context.Background(), token)
+	if err != nil {
+		t.Fatalf("expected verification to succeed after expiry, got: %v", err)
+	}
+	if claims["sub"] != testUserID {
+		t.Errorf("expected sub=%q, got %v", testUserID, claims["sub"])
+	}
+	if js.fetchCount() < 2 {
+		t.Errorf("expected an on-demand refresh (>=2 total fetches), got %d", js.fetchCount())
+	}
+}
+
+// TestOIDCAuthenticator_KeyRotation verifies a token signed with a rotated key
+// and new kid verifies without a process restart.
+func TestOIDCAuthenticator_KeyRotation(t *testing.T) {
+	js := newJWKSTestServer(t)
+	auth := newSelfHealAuth(t, js)
+
+	tokenA := js.signToken(t)
+	if _, err := auth.parseAndValidateToken(context.Background(), tokenA); err != nil {
+		t.Fatalf("token A should verify from the startup cache: %v", err)
+	}
+
+	js.rotate(t, "key-b")
+	tokenB := js.signToken(t)
+	claims, err := auth.parseAndValidateToken(context.Background(), tokenB)
+	if err != nil {
+		t.Fatalf("token B should verify after on-demand refresh: %v", err)
+	}
+	if claims["sub"] != testUserID {
+		t.Errorf("expected sub=%q, got %v", testUserID, claims["sub"])
+	}
+}
+
+// TestOIDCAuthenticator_SingleFlightRefresh verifies that many concurrent
+// verifications against an expired cache collapse into exactly one JWKS fetch.
+func TestOIDCAuthenticator_SingleFlightRefresh(t *testing.T) {
+	js := newJWKSTestServer(t)
+	js.setDelay(100 * time.Millisecond) // widen the in-flight window
+	auth := newSelfHealAuth(t, js)
+
+	js.resetHits()
+	expireCache(t, auth)
+
+	const n = 50
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	errs := make([]error, n)
+	kid := js.currentKid()
+	for i := range n {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			_, errs[i] = auth.getPublicKey(context.Background(), kid)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	if got := js.fetchCount(); got != 1 {
+		t.Errorf("expected exactly 1 JWKS fetch under single-flight, got %d", got)
+	}
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("goroutine %d: unexpected error: %v", i, err)
+		}
+	}
+}
+
+// TestOIDCAuthenticator_RefreshThrottle verifies repeated unknown-kid lookups
+// within the throttle window trigger at most one additional fetch.
+func TestOIDCAuthenticator_RefreshThrottle(t *testing.T) {
+	js := newJWKSTestServer(t)
+	auth := newSelfHealAuth(t, js)
+
+	js.resetHits()
+
+	if _, err := auth.getPublicKey(context.Background(), "unknown-1"); err == nil {
+		t.Fatal("expected key-not-found for unknown-1")
+	}
+	if _, err := auth.getPublicKey(context.Background(), "unknown-2"); err == nil {
+		t.Fatal("expected key-not-found for unknown-2")
+	}
+
+	if got := js.fetchCount(); got != 1 {
+		t.Errorf("expected at most 1 additional fetch within throttle window, got %d", got)
+	}
+}
+
+// fakeClock is a manually-advanced clock for deterministic throttle-window tests.
+type fakeClock struct {
+	mu sync.Mutex
+	t  time.Time
+}
+
+func (c *fakeClock) now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.t
+}
+
+// TestOIDCAuthenticator_FailedRefreshRecoversPastShortWindow verifies that after
+// a FAILED refresh the short recovery window applies: an attempt made 10s ago
+// (within the 1-minute anti-hammer window but past the 5s recovery window) does
+// not throttle recovery, so a transient issuer blip heals quickly rather than
+// prolonging the fail-closed outage for the full minute (issue #882 findings 1 & 4).
+func TestOIDCAuthenticator_FailedRefreshRecoversPastShortWindow(t *testing.T) {
+	js := newJWKSTestServer(t)
+	auth := newSelfHealAuth(t, js)
+
+	base := time.Now()
+	auth.now = (&fakeClock{t: base}).now
+	js.resetHits()
+
+	// A refresh FAILED 10s ago and the cache is now expired.
+	auth.mu.Lock()
+	auth.lastRefreshAttempt = base.Add(-10 * time.Second)
+	auth.lastRefreshOK = false
+	auth.jwks.expiresAt = base.Add(-time.Second)
+	auth.mu.Unlock()
+
+	key, err := auth.getPublicKey(context.Background(), js.currentKid())
+	if err != nil {
+		t.Fatalf("expected recovery refresh to succeed past the short window, got: %v", err)
+	}
+	if key == nil {
+		t.Fatal("expected a key after recovery refresh")
+	}
+	if got := js.fetchCount(); got != 1 {
+		t.Errorf("expected exactly 1 recovery fetch, got %d", got)
+	}
+}
+
+// TestOIDCAuthenticator_SuccessfulRefreshUsesLongWindow verifies that after a
+// SUCCESSFUL refresh the full anti-hammer window applies: an unknown-kid lookup
+// 10s later (past the 5s recovery window but within the 1-minute window) still
+// throttles, so garbage-kid floods cannot hammer the issuer between recovery
+// intervals. This holds regardless of the caller's cache state, so single-flight
+// collapsing valid- and expired-cache callers cannot pick the wrong window.
+func TestOIDCAuthenticator_SuccessfulRefreshUsesLongWindow(t *testing.T) {
+	js := newJWKSTestServer(t)
+	auth := newSelfHealAuth(t, js)
+
+	base := time.Now()
+	auth.now = (&fakeClock{t: base}).now
+	js.resetHits()
+
+	// A refresh SUCCEEDED 10s ago; the cache remains valid.
+	auth.mu.Lock()
+	auth.lastRefreshAttempt = base.Add(-10 * time.Second)
+	auth.lastRefreshOK = true
+	auth.jwks.expiresAt = base.Add(jwksCacheTTL)
+	auth.mu.Unlock()
+
+	if _, err := auth.getPublicKey(context.Background(), "unknown-kid"); err == nil {
+		t.Fatal("expected key-not-found for unknown kid")
+	}
+	if got := js.fetchCount(); got != 0 {
+		t.Errorf("expected no fetch within the anti-hammer window, got %d", got)
+	}
+}
+
+// TestOIDCAuthenticator_ThrottledExpiredFailsClosed verifies that when the cache
+// is expired but a refresh was attempted within the throttle window, the lookup
+// fails closed without issuing another fetch.
+func TestOIDCAuthenticator_ThrottledExpiredFailsClosed(t *testing.T) {
+	js := newJWKSTestServer(t)
+	auth := newSelfHealAuth(t, js)
+
+	js.resetHits()
+	// Simulate a very recent refresh attempt so the throttle is active.
+	auth.mu.Lock()
+	auth.lastRefreshAttempt = time.Now()
+	auth.mu.Unlock()
+	expireCache(t, auth)
+
+	_, err := auth.getPublicKey(context.Background(), js.currentKid())
+	if err == nil {
+		t.Fatal("expected fail-closed error for throttled expired cache")
+	}
+	if !strings.Contains(err.Error(), "jwks cache expired") {
+		t.Errorf(errUnexpected, err)
+	}
+	if got := js.fetchCount(); got != 0 {
+		t.Errorf("expected no fetch while throttled, got %d", got)
+	}
+}
+
+// TestOIDCAuthenticator_FailClosedOnRefreshError verifies that when the JWKS
+// endpoint fails after the cache has expired, verification errors and nothing is
+// accepted unverified.
+func TestOIDCAuthenticator_FailClosedOnRefreshError(t *testing.T) {
+	js := newJWKSTestServer(t)
+	auth := newSelfHealAuth(t, js)
+
+	token := js.signToken(t)
+	js.fail.Store(true)
+	expireCache(t, auth)
+
+	if _, err := auth.parseAndValidateToken(context.Background(), token); err == nil {
+		t.Fatal("expected fail-closed error when refresh fails on expired cache")
+	}
+}
+
+// TestOIDCAuthenticator_RefreshHonorsCallerContext verifies that an on-demand
+// refresh does not pin the request goroutine to the fetch: when the caller's
+// context deadline expires while the IdP is slow, getPublicKey returns promptly
+// with the context error instead of blocking for the full fetch (issue #882
+// finding 0).
+func TestOIDCAuthenticator_RefreshHonorsCallerContext(t *testing.T) {
+	js := newJWKSTestServer(t)
+	auth := newSelfHealAuth(t, js)
+
+	// Make the JWKS endpoint slow only after the fast startup fetch.
+	js.setDelay(300 * time.Millisecond)
+	expireCache(t, auth)
+	js.resetHits()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, err := auth.getPublicKey(ctx, js.currentKid())
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected error when caller context expires during refresh")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("expected context.DeadlineExceeded, got: %v", err)
+	}
+	if elapsed >= 300*time.Millisecond {
+		t.Errorf("getPublicKey blocked for %v; should return on the caller deadline, not the fetch", elapsed)
+	}
+}
+
+// TestOIDCAuthenticator_AuthenticateHonorsCallerDeadline drives the caller
+// deadline through the real Authenticate -> parseAndValidateToken -> getPublicKey
+// chain (per CLAUDE.md rule 5), proving the request context actually propagates
+// end to end: with a slow issuer and a short deadline, Authenticate returns
+// promptly with a context error instead of blocking on the fetch.
+func TestOIDCAuthenticator_AuthenticateHonorsCallerDeadline(t *testing.T) {
+	js := newJWKSTestServer(t)
+	auth := newSelfHealAuth(t, js)
+
+	token := js.signToken(t)
+	// Make the issuer slow only after the fast startup fetch, and expire the
+	// cache so validating the token forces an on-demand refresh.
+	js.setDelay(300 * time.Millisecond)
+	expireCache(t, auth)
+	js.resetHits()
+
+	deadlineCtx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	ctx := WithToken(deadlineCtx, token)
+
+	start := time.Now()
+	_, err := auth.Authenticate(ctx)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected Authenticate to fail when the caller deadline expires during JWKS refresh")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("expected error to wrap context.DeadlineExceeded, got: %v", err)
+	}
+	if elapsed >= 300*time.Millisecond {
+		t.Errorf("Authenticate blocked for %v; the caller deadline should win over the slow fetch", elapsed)
 	}
 }
