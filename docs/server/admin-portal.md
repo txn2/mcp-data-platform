@@ -89,6 +89,8 @@ The **Indexing** tab of the Dashboard (alongside MCP, API Gateway, Health, and E
 
 It is system-wide and admin-only by platform convention (operators see all indexing; it is not a per-persona capability). All data is real `index_jobs` and vector-table state — no mocked dimensions. The page polls every 5 seconds so it reflects work as the worker, reconciler, and reaper complete it.
 
+![Indexing](../images/screenshots/light/admin-admin-audit-indexing-light.webp#only-light)![Indexing](../images/screenshots/dark/admin-admin-audit-indexing-dark.webp#only-dark)
+
 The tab includes:
 
 - **Provider health banner** — The embedding provider's kind, model, and dimension, or a clear degraded state (noop / unconfigured) since a bad provider makes the whole index meaningless and pauses indexing.
@@ -186,6 +188,8 @@ Features:
     - **Transport** — HTTP or stdio, request/response sizes, content block count
     - **Parameters** — Full request parameters as JSON
 
+![Event detail](../images/screenshots/light/admin-admin-audit-event-detail-light.webp#only-light)![Event detail](../images/screenshots/dark/admin-admin-audit-event-detail-dark.webp#only-dark)
+
 ## Knowledge & Memory (review and promotion)
 
 The separate admin Knowledge & Memory page was merged into the unified **Knowledge** page in the user portal (see [Portal User Guide](portal-user.md#knowledge)). Review and promotion gate on the `apply_knowledge` capability, not an admin role: whoever holds the tool sees the review surfaces inside the Knowledge page, whether or not they are an admin.
@@ -194,6 +198,10 @@ Inside the Knowledge page, `apply_knowledge` holders get:
 
 - **Review queue** (Insights tab) - All captured insights across users, with status/category/confidence filters and an insight detail drawer (full metadata, entity URNs, suggested actions, related columns, review notes, approve/reject actions). A pending-review count is badged on the sidebar Knowledge item and the Insights tab.
 - **Changesets** (Knowledge tab) - The record of insights promoted into knowledge: the target DataHub URN or knowledge page, change type, who applied it, and status, with rollback to revert applied changes. They sit with the promoted knowledge rather than with the unpromoted insights in the review pipeline.
+
+Opening an insight from the review queue shows the full review drawer: the captured statement, entity URNs, suggested catalog actions, related columns, the capture/review/apply audit trail, and approve/reject controls.
+
+![Insight review](../images/screenshots/light/admin-knowledge-insight-detail-light.webp#only-light)![Insight review](../images/screenshots/dark/admin-knowledge-insight-detail-dark.webp#only-dark)
 
 The Memory tab is personal to each user; there is no all-user memory view, because the only memory that crosses between users is an insight (handled in the review queue above).
 
@@ -228,6 +236,10 @@ The admin Prompts page provides global prompt management across all scopes and p
 
 ![Admin Prompts](../images/screenshots/light/admin-admin-prompts-light.webp#only-light)![Admin Prompts](../images/screenshots/dark/admin-admin-prompts-dark.webp#only-dark)
 
+The create/edit form is a markdown editor with auto-extracted `{argument}` placeholders, a scope selector (global, persona, personal), persona targeting, and lifecycle status. When an author requests promotion, a review-queue banner surfaces pending prompts for approval or rejection.
+
+![New Prompt](../images/screenshots/light/admin-admin-prompt-create-light.webp#only-light)![New Prompt](../images/screenshots/dark/admin-admin-prompt-create-dark.webp#only-dark)
+
 Features:
 
 - **Scope filter** — Dropdown to filter by Global, Persona, Personal, or System scope
@@ -239,6 +251,38 @@ Features:
 - **Lifecycle controls** — Editing a prompt exposes a status selector to move it through draft -> approved -> deprecated/superseded; approval stamps the acting admin. Selecting **superseded** reveals a field to record the replacement prompt name.
 - **Tags** — Comma-separated labels set on create and edit, shown as chips in the expanded row
 - **Promotion review queue** — A panel at the top of the page lists personal prompts whose owners have requested promotion, showing the owner, the requested scope (persona with the target personas, or global), and the description. **Approve** applies the requested scope/personas and marks the prompt approved; **Reject** clears the request and leaves it personal. If the promoted name already exists in the shared namespace, approval is blocked with a conflict so the owner renames first. The panel is hidden when no requests are pending.
+
+## Agent Instructions
+
+The Agent Instructions page edits the operating guidance every agent session receives. The editor is a split markdown view (source on the left, live preview on the right); a **Database override** badge appears when the value is stored in the database rather than the config file.
+
+![Agent Instructions](../images/screenshots/light/admin-admin-agent-instructions-light.webp#only-light)![Agent Instructions](../images/screenshots/dark/admin-admin-agent-instructions-dark.webp#only-dark)
+
+Above the editor sits the read-only **Platform baseline**: the platform-owned "how to operate" guidance composed beneath your instructions. It names only the tools this deployment exposes (search, query, save, capture), so you can see what is already covered and add only your business and deployment context on top.
+
+## Description
+
+The Description page sets the platform's identity string, surfaced to MCP clients (for example in `platform_info`). Same split markdown editor and database-override semantics as Agent Instructions.
+
+![Description](../images/screenshots/light/admin-admin-description-light.webp#only-light)![Description](../images/screenshots/dark/admin-admin-description-dark.webp#only-dark)
+
+## API Catalogs
+
+API Catalogs are versioned, globally-owned bundles of OpenAPI 3.x specs that `kind: api` connections share. One catalog can back many connections, so a single upload (for example a Salesforce or Stripe spec) documents every connection that points at that vendor.
+
+![API Catalogs](../images/screenshots/light/admin-admin-api-catalogs-light.webp#only-light)![API Catalogs](../images/screenshots/dark/admin-admin-api-catalogs-dark.webp#only-dark)
+
+**Left pane**: Catalogs grouped by name, each showing its component-spec count and how many connections reference it.
+
+**Right pane**: The selected catalog's component specs, each with an embedding-health badge (`78/78 indexed`, or a live `running` count while a spec re-embeds), source badge (URL / upload / inline), and last-fetched timestamp. A banner summarizes catalog-wide readiness ("all specs indexed; semantic ranking is active"). Per-spec actions cover refresh-from-URL, retry-embedding, edit, and delete; catalog actions are Edit, Clone, and Delete (blocked while any connection references the catalog).
+
+Ingest a spec by paste, file upload, or a public HTTPS URL (fetched once, ETag captured). Per-operation embeddings power semantic endpoint ranking in `api_list_endpoints`.
+
+![Add spec](../images/screenshots/light/admin-catalog-spec-modal-light.webp#only-light)![Add spec](../images/screenshots/dark/admin-catalog-spec-modal-dark.webp#only-dark)
+
+![New catalog](../images/screenshots/light/admin-admin-catalog-create-light.webp#only-light)![New catalog](../images/screenshots/dark/admin-admin-catalog-create-dark.webp#only-dark)
+
+See [API Catalogs](api-catalogs.md) for the full catalog model, ingestion paths, and the embedding job queue.
 
 ## Connections
 
@@ -265,6 +309,12 @@ The Connections page manages toolkit backend instances (Trino, DataHub, S3, MCP 
 - **File connections** are read-only. Editing creates a database override (source becomes "both").
 - **Deleting a "both" connection** removes the override and reverts to the file version.
 - **+ Add Connection** at the bottom creates database-only connections.
+
+Creating or editing a connection opens a kind-aware editor: a markdown description plus the configuration fields for the selected kind (Trino host/port/catalog, S3 bucket/region, DataHub server, or an API-gateway base URL and catalog picker), with TLS material and auth handled inline.
+
+![New Connection](../images/screenshots/light/admin-admin-connection-create-light.webp#only-light)![New Connection](../images/screenshots/dark/admin-admin-connection-create-dark.webp#only-dark)
+
+![Edit Connection](../images/screenshots/light/admin-admin-connection-edit-light.webp#only-light)![Edit Connection](../images/screenshots/dark/admin-admin-connection-edit-dark.webp#only-dark)
 
 ### MCP Gateway Connections
 
@@ -347,6 +397,10 @@ The Personas page manages role-based tool access rules and context overrides usi
 
 ![Personas](../images/screenshots/light/admin-admin-personas-light.webp#only-light)![Personas](../images/screenshots/dark/admin-admin-personas-dark.webp#only-dark)
 
+Creating or editing a persona opens the editor: an identity panel (name, display name, roles, priority) beside a live **Permissions** explorer that previews exactly which tools and connections the allow/deny patterns resolve to, with a running allowed/denied count and a resolution trace. Quick templates (Administrator, Read Only, Analyst, Engineer) seed common policies. A separate **AI Assistant Behavior** tab tunes the persona's prompts and hints.
+
+![New Persona](../images/screenshots/light/admin-admin-persona-create-light.webp#only-light)![New Persona](../images/screenshots/dark/admin-admin-persona-create-dark.webp#only-dark)
+
 **Left pane** — Persona list with display name, slug, role count, and resolved tool count.
 
 **Right pane** — Selected persona detail showing:
@@ -364,6 +418,10 @@ The Keys page manages API keys for programmatic authentication.
 
 ![API Keys](../images/screenshots/light/admin-admin-keys-light.webp#only-light)![API Keys](../images/screenshots/dark/admin-admin-keys-dark.webp#only-dark)
 
+The add-key form collects a name, optional owner email and description, roles (with a role browser), and an expiration. The generated key is shown once in a copy-now banner and never again.
+
+![Add API Key](../images/screenshots/light/admin-admin-key-create-light.webp#only-light)![Add API Key](../images/screenshots/dark/admin-admin-key-create-dark.webp#only-dark)
+
 Features:
 
 - **Key table** — Name, source badge (file/database), email, description, roles badge, expiration date, and actions
@@ -378,6 +436,8 @@ The Users page manages the known-users directory: a record of people (first
 name, last name, email) used to make sharing easier. It is not an
 authorization layer and grants no access; it only gives the share picker names
 to resolve and suggest.
+
+![Users](../images/screenshots/light/admin-admin-users-light.webp#only-light)![Users](../images/screenshots/dark/admin-admin-users-dark.webp#only-dark)
 
 Features:
 

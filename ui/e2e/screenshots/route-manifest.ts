@@ -78,11 +78,15 @@ export const routes: ScreenshotRoute[] = [
     path: "/portal/resources",
     category: "user",
     beforeCapture: async (page) => {
-      const btn = page.locator("button:has-text('Upload Resource')").first();
-      if (await btn.isVisible()) {
-        await btn.click();
-        await page.waitForTimeout(600);
-      }
+      // Open the Upload modal via the always-visible header "Upload" button
+      // (the empty-state "Upload Resource" button is absent once resources
+      // are populated, which previously left this capture showing the list).
+      await page
+        .getByRole("button", { name: "Upload", exact: true })
+        .first()
+        .click({ timeout: 3_000 })
+        .catch(() => {});
+      await page.waitForTimeout(700);
     },
   },
   {
@@ -128,6 +132,17 @@ export const routes: ScreenshotRoute[] = [
     path: "/portal/knowledge",
     category: "user",
     tabs: ["knowledge", "insights", "memory"],
+    beforeCapture: async (page) => {
+      // On the "Search All" sub-tab (knowledge tab default) type a query so the
+      // capture shows grouped federated results with a coverage summary instead
+      // of an empty prompt. The search box is absent on the insights/memory
+      // tabs, so this no-ops there.
+      const search = page.getByPlaceholder(/Search all knowledge/i);
+      if (await search.isVisible().catch(() => false)) {
+        await search.fill("revenue");
+        await page.waitForTimeout(900);
+      }
+    },
   },
   {
     slug: "prompts",
@@ -436,13 +451,34 @@ export const routes: ScreenshotRoute[] = [
     path: "/portal/knowledge#insights",
     category: "admin",
     beforeCapture: async (page) => {
-      // The click may no-op when a drawer is already open from the prior theme
-      // (light/dark share one page and same-hash nav doesn't reload): the
-      // drawer's overlay covers the rows. That's fine — the open drawer is
-      // exactly what we want to capture, so swallow the click failure.
+      // The insights tab defaults to "My Insights" (cards, no table). Switch to
+      // the reviewer "Review queue" sub-tab, whose table rows open the
+      // InsightDrawer. The click may no-op when a drawer is already open from
+      // the prior theme (light/dark share one page, same-hash nav doesn't
+      // reload) — the open drawer is what we want, so swallow failures.
+      await page
+        .getByRole("button", { name: /Review queue/i })
+        .click({ timeout: 3_000 })
+        .catch(() => {});
+      await page.waitForTimeout(400);
       const row = page.locator("table tbody tr").first();
-      await row.click({ timeout: 2_000 }).catch(() => {});
+      await row.click({ timeout: 3_000 }).catch(() => {});
       await page.waitForTimeout(600);
+    },
+  },
+  {
+    // Catalog "Add spec" modal (upload/paste/URL a component spec into the
+    // selected catalog). The panel auto-selects the first catalog, so open
+    // the modal directly.
+    slug: "catalog-spec-modal",
+    path: "/portal/admin/api-catalogs",
+    category: "admin",
+    beforeCapture: async (page) => {
+      await page
+        .getByRole("button", { name: /Add spec/i })
+        .click({ timeout: 3_000 })
+        .catch(() => {});
+      await page.waitForTimeout(700);
     },
   },
 ];
