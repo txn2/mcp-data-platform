@@ -1286,6 +1286,14 @@ func (p *Platform) initOAuth() error {
 			AllowedRedirectPatterns: p.config.OAuth.DCR.AllowedRedirectPatterns,
 			AllowAllRedirectURIs:    p.config.OAuth.DCR.AllowAllRedirectURIs,
 		},
+		RateLimit: oauthserver.RateLimit{
+			Enabled:        p.config.OAuth.RateLimit.Enabled,
+			TrustedProxies: p.config.OAuth.RateLimit.TrustedProxies,
+			TokenRPM:       p.config.OAuth.RateLimit.Token.RequestsPerMinute,
+			TokenBurst:     p.config.OAuth.RateLimit.Token.Burst,
+			RegisterRPM:    p.config.OAuth.RateLimit.Register.RequestsPerMinute,
+			RegisterBurst:  p.config.OAuth.RateLimit.Register.Burst,
+		},
 		DB:      p.db,
 		Metrics: p.obs.Metrics(),
 	}

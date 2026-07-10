@@ -13,6 +13,9 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/oauth"
 )
 
+// logKeyError is the structured-log field key for error values.
+const logKeyError = "error"
+
 // Store implements oauth.Storage using PostgreSQL.
 type Store struct {
 	db     *sql.DB
@@ -39,9 +42,12 @@ func (s *Store) CreateClient(ctx context.Context, client *oauth.Client) error {
 		return fmt.Errorf("marshaling grant types: %w", err)
 	}
 
+	// dcr is intentionally omitted from the ON CONFLICT update set: a
+	// pre-registered client re-inserted on restart (stable client_id) must
+	// keep its existing dcr value rather than have it reset.
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO oauth_clients (id, client_id, client_secret, name, redirect_uris, grant_types, require_pkce, created_at, active)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO oauth_clients (id, client_id, client_secret, name, redirect_uris, grant_types, require_pkce, created_at, active, dcr)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (client_id) DO UPDATE SET
 			client_secret = EXCLUDED.client_secret,
 			name = EXCLUDED.name,
@@ -51,6 +57,7 @@ func (s *Store) CreateClient(ctx context.Context, client *oauth.Client) error {
 			active = EXCLUDED.active`,
 		client.ID, client.ClientID, client.ClientSecret, client.Name,
 		redirectURIs, grantTypes, client.RequirePKCE, client.CreatedAt, client.Active,
+		client.DynamicallyRegistered,
 	)
 	if err != nil {
 		return fmt.Errorf("inserting client: %w", err)
@@ -61,7 +68,7 @@ func (s *Store) CreateClient(ctx context.Context, client *oauth.Client) error {
 // GetClient retrieves a client by client_id.
 func (s *Store) GetClient(ctx context.Context, clientID string) (*oauth.Client, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, client_id, client_secret, name, redirect_uris, grant_types, require_pkce, created_at, active
+		SELECT id, client_id, client_secret, name, redirect_uris, grant_types, require_pkce, created_at, active, dcr
 		FROM oauth_clients
 		WHERE client_id = $1 AND active = true`, clientID)
 
@@ -113,7 +120,7 @@ func (s *Store) DeleteClient(ctx context.Context, clientID string) error {
 // ListClients returns all active clients.
 func (s *Store) ListClients(ctx context.Context) (_ []*oauth.Client, retErr error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, client_id, client_secret, name, redirect_uris, grant_types, require_pkce, created_at, active
+		SELECT id, client_id, client_secret, name, redirect_uris, grant_types, require_pkce, created_at, active, dcr
 		FROM oauth_clients
 		WHERE active = true`)
 	if err != nil {
@@ -243,6 +250,18 @@ func (s *Store) SaveRefreshToken(ctx context.Context, token *oauth.RefreshToken)
 	if err != nil {
 		return fmt.Errorf("inserting refresh token: %w", err)
 	}
+
+	// Stamp last_used_at so the DCR cleanup never reaps a client that has
+	// completed a token exchange. Every issuance (authorization-code and
+	// refresh grant) flows through here, so the first successful token
+	// issuance marks the client used for good — independent of whether its
+	// refresh token later rotates or expires. Best-effort: a failure here
+	// must not fail token issuance, so it is logged rather than returned.
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE oauth_clients SET last_used_at = NOW() WHERE client_id = $1 AND last_used_at IS NULL`,
+		token.ClientID); err != nil {
+		slog.Warn("oauth store: marking client used failed", "client_id", token.ClientID, logKeyError, err)
+	}
 	return nil
 }
 
@@ -319,9 +338,32 @@ func (s *Store) CleanupExpiredTokens(ctx context.Context) error {
 	return nil
 }
 
-// StartCleanupRoutine starts a background goroutine that periodically
-// cleans up expired authorization codes and refresh tokens.
-func (s *Store) StartCleanupRoutine(interval time.Duration) {
+// CleanupUnusedDCRClients hard-deletes dynamically-registered (DCR) clients
+// created more than ttl ago that never completed a token exchange. Eligibility
+// is last_used_at IS NULL (set on first issuance by SaveRefreshToken), which is
+// race-free: a client that completed an authorization-code flow is retained for
+// good, even during the brief tokenless window of refresh-token rotation or
+// after its refresh token later expires. Pre-registered (config-file) clients
+// have dcr = false and are never eligible, so this only reaps the
+// unauthenticated /register endpoint's abandoned registrations.
+func (s *Store) CleanupUnusedDCRClients(ctx context.Context, ttl time.Duration) error {
+	cutoff := time.Now().Add(-ttl)
+	_, err := s.db.ExecContext(ctx, `
+		DELETE FROM oauth_clients
+		WHERE dcr = true
+		  AND last_used_at IS NULL
+		  AND created_at < $1`, cutoff)
+	if err != nil {
+		return fmt.Errorf("cleaning up unused DCR clients: %w", err)
+	}
+	return nil
+}
+
+// StartCleanupRoutine starts a background goroutine that periodically cleans
+// up expired authorization codes, refresh tokens, and authorization states,
+// and (when dcrTTL > 0) reaps unused dynamically-registered clients older than
+// dcrTTL.
+func (s *Store) StartCleanupRoutine(interval, dcrTTL time.Duration) {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
 	s.done = make(chan struct{})
@@ -336,18 +378,30 @@ func (s *Store) StartCleanupRoutine(interval time.Duration) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if err := s.CleanupExpiredCodes(ctx); err != nil {
-					slog.Warn("oauth store cleanup: expired codes", "error", err)
-				}
-				if err := s.CleanupExpiredTokens(ctx); err != nil {
-					slog.Warn("oauth store cleanup: expired tokens", "error", err)
-				}
-				if err := s.CleanupExpiredStates(ctx, oauth.StateMaxAge); err != nil {
-					slog.Warn("oauth store cleanup: expired states", "error", err)
-				}
+				s.runPeriodicCleanup(ctx, dcrTTL)
 			}
 		}
 	}()
+}
+
+// runPeriodicCleanup runs one sweep of the expiry/retention cleanups. DCR
+// client cleanup runs only when dcrTTL > 0. Each step logs and continues on
+// error so one failing sweep does not skip the others.
+func (s *Store) runPeriodicCleanup(ctx context.Context, dcrTTL time.Duration) {
+	if err := s.CleanupExpiredCodes(ctx); err != nil {
+		slog.Warn("oauth store cleanup: expired codes", logKeyError, err)
+	}
+	if err := s.CleanupExpiredTokens(ctx); err != nil {
+		slog.Warn("oauth store cleanup: expired tokens", logKeyError, err)
+	}
+	if err := s.CleanupExpiredStates(ctx, oauth.StateMaxAge); err != nil {
+		slog.Warn("oauth store cleanup: expired states", logKeyError, err)
+	}
+	if dcrTTL > 0 {
+		if err := s.CleanupUnusedDCRClients(ctx, dcrTTL); err != nil {
+			slog.Warn("oauth store cleanup: unused DCR clients", logKeyError, err)
+		}
+	}
 }
 
 // Close stops the cleanup routine and releases resources.
@@ -366,7 +420,7 @@ func scanClient(row *sql.Row) (*oauth.Client, error) {
 	err := row.Scan(
 		&client.ID, &client.ClientID, &client.ClientSecret, &client.Name,
 		&redirectURIsJSON, &grantTypesJSON, &client.RequirePKCE,
-		&client.CreatedAt, &client.Active,
+		&client.CreatedAt, &client.Active, &client.DynamicallyRegistered,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("scanning client: %w", err)
@@ -387,7 +441,7 @@ func scanClientRow(rows *sql.Rows) (*oauth.Client, error) {
 	err := rows.Scan(
 		&client.ID, &client.ClientID, &client.ClientSecret, &client.Name,
 		&redirectURIsJSON, &grantTypesJSON, &client.RequirePKCE,
-		&client.CreatedAt, &client.Active,
+		&client.CreatedAt, &client.Active, &client.DynamicallyRegistered,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("scanning client row: %w", err)

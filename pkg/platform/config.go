@@ -484,12 +484,34 @@ type APIKeyDef struct {
 
 // OAuthConfig configures the OAuth server.
 type OAuthConfig struct {
-	Enabled    bool                `yaml:"enabled"`
-	Issuer     string              `yaml:"issuer"`
-	SigningKey string              `yaml:"signing_key"` // Base64-encoded HMAC key for JWT signing
-	Clients    []OAuthClientConfig `yaml:"clients"`
-	DCR        DCRConfig           `yaml:"dcr"`
-	Upstream   *UpstreamIDPConfig  `yaml:"upstream,omitempty"`
+	Enabled    bool                 `yaml:"enabled"`
+	Issuer     string               `yaml:"issuer"`
+	SigningKey string               `yaml:"signing_key"` // Base64-encoded HMAC key for JWT signing
+	Clients    []OAuthClientConfig  `yaml:"clients"`
+	DCR        DCRConfig            `yaml:"dcr"`
+	RateLimit  OAuthRateLimitConfig `yaml:"rate_limit"`
+	Upstream   *UpstreamIDPConfig   `yaml:"upstream,omitempty"`
+}
+
+// OAuthRateLimitConfig configures rate limiting for the unauthenticated OAuth
+// /token and /register endpoints. Limiting is on by default (Enabled nil ==
+// enabled); each endpoint has a per-IP limit plus an internal global backstop
+// that bounds total throughput regardless of client attribution.
+type OAuthRateLimitConfig struct {
+	Enabled *bool `yaml:"enabled"`
+	// TrustedProxies lists CIDRs whose X-Forwarded-For headers are trusted for
+	// client attribution. Empty (the default) trusts none: the direct peer
+	// address is used and forwarding headers are ignored, which is the correct
+	// safe default when the deployment's proxy topology is unknown.
+	TrustedProxies []string           `yaml:"trusted_proxies"`
+	Token          OAuthRateLimitRule `yaml:"token"`    // default: 60 rpm, burst 10
+	Register       OAuthRateLimitRule `yaml:"register"` // default: 10 rpm, burst 3
+}
+
+// OAuthRateLimitRule configures a single endpoint's per-IP limit.
+type OAuthRateLimitRule struct {
+	RequestsPerMinute int `yaml:"requests_per_minute"`
+	Burst             int `yaml:"burst"`
 }
 
 // OAuthClientConfig defines a pre-registered OAuth client.

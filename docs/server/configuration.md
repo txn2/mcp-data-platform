@@ -319,6 +319,37 @@ Because portal, admin, and managed-resources mutations can be authenticated by t
 
 The built-in `oauth:` block turns the platform itself into an OAuth 2.1 authorization server, for clients like Claude Desktop that expect to sign in directly to the MCP server rather than through an existing OIDC provider. For most deployments, `auth.oidc` or `auth.api_keys` above are simpler and sufficient. See [OAuth 2.1 Server](../auth/oauth-server.md) for the full config reference, Dynamic Client Registration guidance, and setup walkthrough.
 
+#### Rate limiting
+
+The unauthenticated `/token` and `/register` endpoints are rate limited by default. `/token` runs a bcrypt compare per attempt and `/register` runs a bcrypt hash plus a database insert per request, so both are CPU (and, for `/register`, storage) amplification levers. Each endpoint has a per-client-IP limit plus an internal global backstop that bounds total throughput regardless of how requests attribute to IPs.
+
+```yaml
+oauth:
+  rate_limit:
+    enabled: true                 # default: true; set false to disable limiting
+    trusted_proxies:              # CIDRs whose X-Forwarded-For is trusted
+      - "10.0.0.0/8"
+    token:
+      requests_per_minute: 60     # default: 60
+      burst: 10                   # default: 10
+    register:
+      requests_per_minute: 10     # default: 10
+      burst: 3                    # default: 3
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `rate_limit.enabled` | bool | `true` | Enable rate limiting for `/token` and `/register` |
+| `rate_limit.trusted_proxies` | list | `[]` | CIDRs whose `X-Forwarded-For` is trusted for client attribution. Empty trusts none: the direct peer address is used and forwarding headers are ignored. Set this to your ingress/load-balancer CIDRs so per-client limiting works behind a proxy without being spoofable |
+| `rate_limit.token.requests_per_minute` | int | `60` | Per-IP `/token` limit |
+| `rate_limit.token.burst` | int | `10` | Per-IP `/token` burst allowance |
+| `rate_limit.register.requests_per_minute` | int | `10` | Per-IP `/register` limit |
+| `rate_limit.register.burst` | int | `3` | Per-IP `/register` burst allowance |
+
+On limit, the endpoint returns HTTP 429 with a `Retry-After` header and an `{"error":"slow_down"}` JSON body. The global backstop for each endpoint is sized at ten times its per-IP rate and burst.
+
+Dynamically-registered (DCR) clients that are never issued a token are reaped 24 hours after registration by the OAuth store's cleanup routine, bounding `oauth_clients` growth from the unauthenticated `/register` endpoint. Pre-registered (config-file) clients are never eligible.
+
 ## Database Configuration
 
 The `database` block configures the PostgreSQL connection used by audit logging, knowledge capture, session externalization, OAuth persistence, and (optionally) the config store.

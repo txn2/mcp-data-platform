@@ -143,15 +143,16 @@ func (s *DCRService) Register(ctx context.Context, req DCRRequest) (*DCRResponse
 
 	// Create client
 	client := &Client{
-		ID:           generateID(),
-		ClientID:     clientID,
-		ClientSecret: string(hashedSecret),
-		Name:         req.ClientName,
-		RedirectURIs: req.RedirectURIs,
-		GrantTypes:   grantTypes,
-		RequirePKCE:  s.config.RequirePKCE,
-		CreatedAt:    time.Now(),
-		Active:       true,
+		ID:                    generateID(),
+		ClientID:              clientID,
+		ClientSecret:          string(hashedSecret),
+		Name:                  req.ClientName,
+		RedirectURIs:          req.RedirectURIs,
+		GrantTypes:            grantTypes,
+		RequirePKCE:           s.config.RequirePKCE,
+		CreatedAt:             time.Now(),
+		Active:                true,
+		DynamicallyRegistered: true,
 	}
 
 	if err := s.storage.CreateClient(ctx, client); err != nil {
