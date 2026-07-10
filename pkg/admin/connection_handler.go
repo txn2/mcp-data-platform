@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/connreconcile"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -694,12 +695,12 @@ func (h *Handler) findConnectionManager(kind string) toolkit.ConnectionManager {
 func (h *Handler) hotAddConnection(kind, name string, config map[string]any) {
 	for _, f := range connreconcile.New(h.deps.ToolkitRegistry).Upsert(kind, name, config) {
 		if f.Phase == connreconcile.PhaseRemove {
-			slog.Warn("failed to hot-remove connection before re-add", // #nosec G706 -- structured slog call, not a format string
-				logKeyKind, kind, logKeyName, name, logKeyError, f.Err)
+			slog.Warn("failed to hot-remove connection before re-add", // #nosec G706 -- structured slog call; kind/name sanitized
+				logKeyKind, logsan.SanitizeForLog(kind), logKeyName, logsan.SanitizeForLog(name), logKeyError, f.Err)
 			continue
 		}
-		slog.Warn("failed to hot-add connection", // #nosec G706 -- structured slog call, not a format string
-			logKeyKind, kind, logKeyName, name, logKeyError, f.Err)
+		slog.Warn("failed to hot-add connection", // #nosec G706 -- structured slog call; kind/name sanitized
+			logKeyKind, logsan.SanitizeForLog(kind), logKeyName, logsan.SanitizeForLog(name), logKeyError, f.Err)
 	}
 	if h.deps.ReloadNotifier != nil {
 		h.deps.ReloadNotifier.PublishConnectionReload(kind, name, platform.ReloadUpsert)
@@ -711,8 +712,8 @@ func (h *Handler) hotAddConnection(kind, name string, config map[string]any) {
 // reconcile from the store (now missing this row) and drop their copy (#501).
 func (h *Handler) hotRemoveConnection(kind, name string) {
 	for _, f := range connreconcile.New(h.deps.ToolkitRegistry).Remove(kind, name) {
-		slog.Warn("failed to hot-remove connection", // #nosec G706 -- structured slog call, not a format string
-			logKeyKind, kind, logKeyName, name, logKeyError, f.Err)
+		slog.Warn("failed to hot-remove connection", // #nosec G706 -- structured slog call; kind/name sanitized
+			logKeyKind, logsan.SanitizeForLog(kind), logKeyName, logsan.SanitizeForLog(name), logKeyError, f.Err)
 	}
 	if h.deps.ReloadNotifier != nil {
 		h.deps.ReloadNotifier.PublishConnectionReload(kind, name, platform.ReloadDelete)
