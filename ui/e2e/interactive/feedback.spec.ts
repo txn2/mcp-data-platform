@@ -65,7 +65,7 @@ test.describe("Feedback panel", () => {
       page.waitForResponse(
         (r) => r.url().includes("/threads/") && r.request().method() === "PATCH",
       ),
-      page.getByRole("combobox").selectOption("resolved"),
+      page.getByRole("combobox", { name: "Set status" }).selectOption("resolved"),
     ]);
   });
 

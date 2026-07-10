@@ -273,6 +273,7 @@ export function ThreadDetail({ threadId, canModerate, onBack, onDeleted }: Props
         <div className="flex items-center gap-2 border-t p-3">
           <span className="text-xs font-medium text-muted-foreground">Set status</span>
           <select
+            aria-label="Set status"
             value={thread.status}
             onChange={(e) => changeStatus(e.target.value as ThreadStatus)}
             disabled={update.isPending}

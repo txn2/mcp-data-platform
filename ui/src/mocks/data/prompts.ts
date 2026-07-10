@@ -516,10 +516,29 @@ export const mockAdminPrompts: Prompt[] = [
   stockLevelAlert,
   revenueForecast,
   myWeeklySummary,
-  storeComparison,
+  // A small, realistic set of personal prompts whose owners have requested
+  // promotion to a shared scope. The review queue (?review_requested=true)
+  // shows only these, each with a concrete target scope/persona, rather than
+  // flagging every catalogued prompt.
+  {
+    ...storeComparison,
+    review_requested: true,
+    requested_scope: "persona",
+    requested_personas: ["analyst"],
+  },
   customSqlTemplate,
-  incidentRetro,
-  weeklyBusinessReview,
+  {
+    ...incidentRetro,
+    review_requested: true,
+    requested_scope: "global",
+    requested_personas: [],
+  },
+  {
+    ...weeklyBusinessReview,
+    review_requested: true,
+    requested_scope: "persona",
+    requested_personas: ["finance-executive"],
+  },
 ];
 
 const personalPrompts: Prompt[] = [

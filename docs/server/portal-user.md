@@ -47,6 +47,10 @@ The viewer provides:
 - **Actions** — Delete, Download, and Share buttons
 - **Owner display** — Shows the asset owner's email address
 
+The Share action opens a dialog to mint a public or user-scoped link, with an optional expiration, a copy-once token, and a per-link access count.
+
+![Share asset](../images/screenshots/light/user-asset-share-light.webp#only-light)![Share asset](../images/screenshots/dark/user-asset-share-dark.webp#only-dark)
+
 All content types are rendered inline:
 
 === "HTML"
@@ -98,6 +102,10 @@ Click a collection to open the viewer, which renders the full collection with se
 
 ![Collection Viewer](../images/screenshots/light/user-collection-view-light.webp#only-light)![Collection Viewer](../images/screenshots/dark/user-collection-view-dark.webp#only-dark)
 
+The editor arranges a collection into drag-and-drop sections of assets, with a markdown description and thumbnail-size settings.
+
+![Collection editor](../images/screenshots/light/user-collection-edit-light.webp#only-light)![Collection editor](../images/screenshots/dark/user-collection-edit-dark.webp#only-dark)
+
 - **Section navigation** — Each section has a title, markdown description, and ordered asset list
 - **Asset cards** — Thumbnail previews with name, description, content type badge, and file size
 - **Thumbnail size** — Configurable per collection (Large, Medium, Small, None) via Settings
@@ -120,6 +128,10 @@ Collections use the same sharing system as individual assets:
 Resources are human-uploaded reference materials — SQL templates, runbooks, checklists, and brand assets — that AI agents can access during sessions via the MCP `resources/read` protocol.
 
 ![Resources](../images/screenshots/light/user-resources-light.webp#only-light)![Resources](../images/screenshots/dark/user-resources-dark.webp#only-dark)
+
+Uploading opens a modal for the file plus its category, display name, description, and tags.
+
+![Upload resource](../images/screenshots/light/user-resource-upload-light.webp#only-light)![Upload resource](../images/screenshots/dark/user-resource-upload-dark.webp#only-dark)
 
 The Resources page provides:
 
@@ -185,6 +197,10 @@ The page has three tabs. Review and promote affordances appear only when your pe
 - **Browse** - With the search box empty, the tab browses the canonical knowledge pages. Personas with `apply_knowledge` can create, edit, and remove pages
 - **Changesets** (`apply_knowledge` holders) - The record of insights promoted into knowledge: the catalog and knowledge-page changes applied when your agent runs `apply_knowledge`, with rollback to undo a changeset's writes. They live here, with the promoted knowledge, rather than with the unpromoted insights in the review pipeline
 
+One query returns results grouped by source (catalog, knowledge pages, insights, memory, assets, prompts) with a per-source coverage summary and source filter chips.
+
+![Unified search](../images/screenshots/light/user-knowledge-knowledge-light.webp#only-light)![Unified search](../images/screenshots/dark/user-knowledge-knowledge-dark.webp#only-dark)
+
 ### Catalog
 
 The **Catalog** sub-tab brings the DataHub catalog into the portal: pick a DataHub connection, then browse or search its datasets and open one to see its description, tags, owners, glossary terms, domain, and columns. When your persona grants `datahub_update` and the connection is write-enabled, each metadata facet is editable inline (description, tags, owners, glossary terms, domain); otherwise the view is read-only with no edit controls. Tags, glossary terms, and domains are chosen through name-search pickers: type a display name (e.g. `Reven`) and select **Revenue**, and the URN is resolved for you. Owners are entered as a DataHub user or group URN (`urn:li:corpuser:<name>` or `urn:li:corpGroup:<name>`); an invalid value is rejected with a clearly visible inline error rather than silently failing. DataHub has no dataset create or delete (datasets originate in source systems), so this is metadata editing, not dataset lifecycle. The tab is URL-addressable at `/knowledge/catalog`.
@@ -202,11 +218,15 @@ The review pipeline for insights, which are the only memories that cross between
 - **Your insights** - The insights captured from your sessions, with status (pending, approved, applied, rejected) and relevance search
 - **Review queue** (`apply_knowledge` holders) - Every user's captured insights. Approving and rejecting curates which insights are worth promoting; the actual promotion into durable knowledge happens when you ask your agent to run `apply_knowledge`, whose synthesize step gathers the approved insights and writes business and domain facts to knowledge pages and technical and entity facts to the DataHub catalog
 
+![Insights](../images/screenshots/light/user-knowledge-insights-light.webp#only-light)![Insights](../images/screenshots/dark/user-knowledge-insights-dark.webp#only-dark)
+
 ### Memory
 
 Memory is personal: this tab is scoped to your own records. The only memory that crosses to other users is an insight, reviewed in the Insights tab.
 
 - **Your memory** - The raw substrate captured from your sessions, classified by lifecycle **class** (`sink_class`): Preference, Event, Business knowledge, Operational rule, and Schema/entity. The class is why something is "just memory" versus a candidate for promotion
+
+![Memory](../images/screenshots/light/user-knowledge-memory-light.webp#only-light)![Memory](../images/screenshots/dark/user-knowledge-memory-dark.webp#only-dark)
 
 The former Knowledge Pages, Knowledge & Memory, and admin Knowledge & Memory routes now redirect into this one page.
 
@@ -217,6 +237,14 @@ See [Knowledge Capture](../knowledge/overview.md) and [Memory Layer](../memory/o
 Prompts are reusable templates that guide AI agent behavior. Users can create personal prompts and browse available global and persona-scoped prompts.
 
 ![Prompts](../images/screenshots/light/user-prompts-light.webp#only-light)![Prompts](../images/screenshots/dark/user-prompts-dark.webp#only-dark)
+
+Creating a prompt uses an inline markdown editor that auto-extracts `{argument}` placeholders into a typed arguments table.
+
+![Create prompt](../images/screenshots/light/user-prompt-create-light.webp#only-light)![Create prompt](../images/screenshots/dark/user-prompt-create-dark.webp#only-dark)
+
+Opening a prompt shows its rendered content, arguments, and actions (copy, save-as-asset, share, request promotion, edit, delete).
+
+![Prompt viewer](../images/screenshots/light/user-prompt-view-light.webp#only-light)![Prompt viewer](../images/screenshots/dark/user-prompt-view-dark.webp#only-dark)
 
 Three tabs:
 

@@ -19,6 +19,10 @@ import { mockSystemInfo, mockTools, mockConnections } from "./data/system";
 import { mockToolSchemas, generateMockResult } from "./data/tools";
 import { mockEnrichmentRules } from "./data/enrichment";
 import { mockAssets, mockShares, mockSharedWithMe } from "./data/assets";
+import { versionsForAsset } from "./data/assetVersions";
+import { catalogHandlers } from "./handlers/catalogs";
+import { userHandlers } from "./handlers/users";
+import { connectionInstanceHandlers } from "./handlers/connections";
 import {
   mockDataHubConnections,
   catalogBrowse,
@@ -1876,12 +1880,26 @@ export const handlers = [
     return HttpResponse.json({ data, total: data.length, limit: 50, offset: 0 });
   }),
 
-  // Asset version history. Mocked (empty) so the asset viewer never falls
-  // through to the real backend, which 401s and would trip the global
-  // session-expiry logout in apiFetch mid-test.
-  http.get(`${PORTAL_BASE}/assets/:id/versions`, () =>
-    HttpResponse.json({ data: [], total: 0, limit: 50, offset: 0 }),
-  ),
+  // Asset version history. Backed by data/assetVersions so the viewer's
+  // version dropdown + revert affordance render as used (empty history is
+  // still returned for assets with no recorded versions). Mocked so the
+  // viewer never falls through to the real backend, which 401s and would
+  // trip the global session-expiry logout in apiFetch mid-test.
+  http.get(`${PORTAL_BASE}/assets/:id/versions`, ({ params }) => {
+    const data = versionsForAsset(params.id as string);
+    return HttpResponse.json({ data, total: data.length, limit: 50, offset: 0 });
+  }),
+
+  // Content of a specific asset version (viewing an older version read-only).
+  http.get(`${PORTAL_BASE}/assets/:id/versions/:version/content`, ({ params }) => {
+    const versions = versionsForAsset(params.id as string);
+    const v = versions.find((x) => String(x.version) === String(params.version));
+    const summary = v?.change_summary ?? "version";
+    return HttpResponse.text(
+      `<!-- v${params.version}: ${summary} -->\n<h1>Q4 Revenue Dashboard (v${params.version})</h1>`,
+      { headers: { "Content-Type": "text/html" } },
+    );
+  }),
 
   // Sign-off aggregation (#603).
   http.get(`${PORTAL_BASE}/assets/:id/signoff`, () => HttpResponse.json({ signed_off: 1, stakeholders: 3 })),
@@ -2152,8 +2170,38 @@ export const handlers = [
 
   http.get(
     `${PORTAL_BASE}/collections/:collectionId/shares`,
-    () => {
-      return HttpResponse.json([]);
+    ({ params }) => {
+      const collectionId = params.collectionId as string;
+      // Populate the primary demo collection so the share dialog reads as
+      // used (active link + one expired); other collections have none.
+      if (collectionId !== "col-001") return HttpResponse.json([]);
+      const shares: Share[] = [
+        {
+          id: "shr-col-001",
+          asset_id: "col-001",
+          token: "tok_col_1_h7k2m9q4",
+          created_by: "user-alice",
+          shared_with_email: "david.park@example.com",
+          permission: "viewer",
+          expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+          revoked: false,
+          access_count: 8,
+          last_accessed_at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+          created_at: "2025-01-06T15:10:00Z",
+        },
+        {
+          id: "shr-col-002",
+          asset_id: "col-001",
+          token: "tok_col_2_p3w8z1x6",
+          created_by: "user-alice",
+          permission: "viewer",
+          revoked: false,
+          access_count: 23,
+          last_accessed_at: "2025-01-08T11:02:00Z",
+          created_at: "2025-01-03T09:30:00Z",
+        },
+      ];
+      return HttpResponse.json(shares);
     },
   ),
 
@@ -2291,6 +2339,11 @@ export const handlers = [
     if (scope) filtered = filtered.filter((p) => p.scope === scope);
     if (ownerEmail)
       filtered = filtered.filter((p) => p.owner_email === ownerEmail);
+    // The review queue requests ?review_requested=true; honor it so the
+    // pending-promotions banner shows only prompts actually awaiting review,
+    // not every catalogued prompt.
+    if (url.searchParams.get("review_requested") === "true")
+      filtered = filtered.filter((p) => p.review_requested === true);
 
     return HttpResponse.json({
       data: filtered,
@@ -2348,6 +2401,36 @@ export const handlers = [
 
   http.get(`${ADMIN_BASE}/config/changelog`, () => {
     return HttpResponse.json(mockConfigChangelog);
+  }),
+
+  // Platform-owned agent-instructions baseline (#646). Rendered read-only
+  // beneath the admin's editable instructions on the Agent Instructions
+  // page; previously unhandled, so the baseline panel rendered empty.
+  http.get(`${ADMIN_BASE}/config/agent-instructions-baseline`, () => {
+    return HttpResponse.json({
+      baseline: [
+        "# How to operate this platform",
+        "",
+        "You have access to a semantic data platform. Discover before you act:",
+        "call `search` first — one query spans the catalog, knowledge pages,",
+        "captured insights, saved assets, prompts, and API connections.",
+        "",
+        "## Querying data",
+        "- Use `trino_query` for the warehouse; `trino_describe_table` first to",
+        "  confirm columns and semantics.",
+        "- Reach the DataHub catalog with `datahub_search` / `datahub_get_entity`.",
+        "- List and read S3 objects with `s3_list_objects` / `s3_get_object`.",
+        "",
+        "## Delivering work",
+        "- Persist every report, dashboard, or document with `save_artifact` so",
+        "  it lands in the portal with a shareable link.",
+        "- Capture durable findings with `memory_capture`; they enter review and",
+        "  promote to shared knowledge so no one re-teaches the same fact.",
+        "",
+        "This baseline is composed beneath the administrator's own instructions",
+        "and names only the tools this deployment exposes.",
+      ].join("\n"),
+    });
   }),
 
   // =========================================================================
@@ -2525,4 +2608,11 @@ export const handlers = [
     const count = filtered.reduce((n, g) => n + g.hits.length, 0);
     return HttpResponse.json({ groups: filtered, coverage, count, ranking: "hybrid" });
   }),
+
+  // Feature-area handler modules (issue #878). Spread last so any existing
+  // handler above wins on an overlapping path; these only cover endpoints
+  // that were previously unhandled (and rendered empty in demos/docs).
+  ...catalogHandlers,
+  ...userHandlers,
+  ...connectionInstanceHandlers,
 ];
