@@ -7,9 +7,9 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/indexqueue"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
-	"github.com/txn2/mcp-data-platform/pkg/platform/indexqueue"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 	apigatewaycatalog "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway/catalog"

@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/browserauth"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
-	"github.com/txn2/mcp-data-platform/pkg/platform/browserauth"
 )
 
 func TestNewSession_Accessors(t *testing.T) {

@@ -187,7 +187,7 @@ mcp-data-platform/
 │   ├── oidcdiscovery/              # Shared OIDC discovery-document fetch/parse (used by auth JWKS + oauth broker)
 │   ├── persona/                    # Persona-based access control and customization
 │   ├── pkcestore/                  # In-flight PKCE state for outbound OAuth (oauth-start → callback)
-│   ├── platform/                   # Core orchestration: facade, config, options, lifecycle
+│   ├── platform/                   # Core orchestration: facade, config, options, lifecycle (fieldcrypt/, instructions/, personastore/ = seams shared with pkg/admin; other facade-internal seams live under internal/platform/)
 │   ├── portal/                     # Asset portal data layer (assetindex/, collectionindex/, datahubapi/, knowledgepage/, threads/, ...)
 │   ├── prompt/                     # Prompt management for the MCP data platform
 │   ├── query/                      # Query execution provider abstraction (trino/ = Trino adapter)
@@ -213,8 +213,9 @@ mcp-data-platform/
 │   ├── tuning/                     # AI tuning: prompts, hints, operational rules
 │   ├── urnbuild/                   # Constructs DataHub dataset URNs from query-engine table identifiers
 │   └── user/                       # Directory of known people keyed by email
-├── internal/server/                # Server factory
-│   └── server.go
+├── internal/                       # Non-exported implementation (not part of the supported library surface)
+│   ├── platform/                   # Facade-internal seams composed only by pkg/platform (mwchain, iam, sessionsync, oauthserver, ... — 23 packages moved out of the public surface, #894)
+│   └── server/                     # Server factory (server.go)
 ├── configs/                        # Example configurations
 │   └── platform.yaml
 ├── go.mod

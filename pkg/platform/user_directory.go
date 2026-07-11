@@ -1,7 +1,7 @@
 package platform
 
 import (
-	"github.com/txn2/mcp-data-platform/pkg/platform/userdir"
+	"github.com/txn2/mcp-data-platform/internal/platform/userdir"
 	"github.com/txn2/mcp-data-platform/pkg/user"
 )
 

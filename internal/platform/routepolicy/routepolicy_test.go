@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/routepolicy"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
-	"github.com/txn2/mcp-data-platform/pkg/platform/routepolicy"
 )
 
 // panicAuthenticator fails the test if its Authenticate is called. It proves the

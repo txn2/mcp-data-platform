@@ -1,8 +1,8 @@
 package platform
 
 import (
+	"github.com/txn2/mcp-data-platform/internal/platform/mwchain"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
-	"github.com/txn2/mcp-data-platform/pkg/platform/mwchain"
 )
 
 // mwName identifies a receiving middleware within the canonical chain order.

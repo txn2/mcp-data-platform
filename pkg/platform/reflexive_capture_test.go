@@ -8,7 +8,7 @@ import (
 
 	_ "github.com/lib/pq"
 
-	"github.com/txn2/mcp-data-platform/pkg/platform/memorylayer"
+	"github.com/txn2/mcp-data-platform/internal/platform/memorylayer"
 )
 
 func TestReflexiveURNMapping(t *testing.T) {

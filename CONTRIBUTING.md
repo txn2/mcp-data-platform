@@ -193,6 +193,15 @@ mcp-data-platform/
 - **Authentication methods**: Add to `pkg/auth/`
 - **Configuration options**: Modify `pkg/platform/config.go`
 
+### API stability
+
+Only a defined subset of `pkg/` is a supported integration surface (`pkg/platform`,
+`pkg/toolkit`, `pkg/registry`, `pkg/semantic`, `pkg/query`, `pkg/middleware`, and the
+toolkit adapters' config types). Facade-internal seams live under `internal/platform/`
+and are unimportable from outside the module. Before moving a package into or out of
+the supported surface, read the [API stability policy](docs/library/stability.md) and
+update it in the same change.
+
 ## Testing
 
 ### Running Tests

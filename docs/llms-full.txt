@@ -1713,6 +1713,26 @@ func main() {
 }
 ```
 
+## API Stability
+
+The module is `github.com/txn2/mcp-data-platform` at major version 1 with no `/vN` suffix. This is the promise the project keeps across minor releases.
+
+Supported import surface (breaking changes only in a major release):
+
+| Package | What you import it for |
+|---------|------------------------|
+| `pkg/platform` | The facade: construct, configure, run (options and lifecycle) |
+| `pkg/toolkit` | Shared types every toolkit implements |
+| `pkg/registry` | Register and manage toolkits |
+| `pkg/semantic` | Semantic provider interface |
+| `pkg/query` | Query execution provider interface |
+| `pkg/middleware` | Request/response middleware contracts |
+| `pkg/toolkits/*` | Toolkit adapters' exported config types |
+
+Other exported packages under `pkg/` are importable but are implementation packages, not a committed integration surface; their API may change in a minor release with a release-note callout. Facade-internal seams live under `internal/platform/` and are unimportable from outside the module by Go's internal rule; they were never a supported surface.
+
+Configuration-file compatibility is handled more conservatively: additive keys ship in minor releases, and breaking renames or removals are called out in that version's release notes with an admonition (old key, new key, runtime effect). Precedent: `workflow.require_search` replaced the former `workflow.require_discovery_before_query` as a hard, non-aliased rename documented in the release notes. Set `config.strict: true` to turn an unaccounted-for rename into a hard startup error instead of a silent no-op.
+
 ---
 
 # Knowledge Capture

@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/txn2/mcp-data-platform/pkg/platform/portalstore"
+	"github.com/txn2/mcp-data-platform/internal/platform/portalstore"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	trinokit "github.com/txn2/mcp-data-platform/pkg/toolkits/trino"

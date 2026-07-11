@@ -104,6 +104,7 @@ nav:
     - Quick Start: library/quickstart.md
     - Architecture: library/architecture.md
     - Extensibility: library/extensibility.md
+    - API Stability: library/stability.md
   - Examples:
     - Gallery: examples/index.md
   - Reference:

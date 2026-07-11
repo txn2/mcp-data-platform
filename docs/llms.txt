@@ -82,6 +82,7 @@ mcp-data-platform is the orchestration layer for the txn2 MCP ecosystem. DataHub
 - [Quick Start](https://mcp-data-platform.txn2.com/library/quickstart/): Code examples for common patterns
 - [Architecture](https://mcp-data-platform.txn2.com/library/architecture/): Package structure, MCP protocol middleware, provider interfaces
 - [Extensibility](https://mcp-data-platform.txn2.com/library/extensibility/): Custom toolkits, providers, middleware
+- [API Stability](https://mcp-data-platform.txn2.com/library/stability/): Supported import surface, change policy for other pkg/ packages, config-file compatibility policy
 
 ## Reference
 

@@ -7,9 +7,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/browserauth"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
-	"github.com/txn2/mcp-data-platform/pkg/platform/browserauth"
 )
 
 // errNoToken simulates token authentication failing, proving the decision

@@ -211,7 +211,7 @@ Full documentation lives at [mcp-data-platform.txn2.com](https://mcp-data-platfo
 - [Cross-Enrichment](https://mcp-data-platform.txn2.com/cross-enrichment/overview/): how automatic enrichment works
 - [Authentication](https://mcp-data-platform.txn2.com/auth/overview/): OIDC, API keys, OAuth 2.1
 - [Knowledge Capture](https://mcp-data-platform.txn2.com/knowledge/overview/) and [Memory](https://mcp-data-platform.txn2.com/memory/overview/): the agent knowledge loop
-- [Go Library](https://mcp-data-platform.txn2.com/library/overview/): build custom MCP servers
+- [Go Library](https://mcp-data-platform.txn2.com/library/overview/): build custom MCP servers ([API stability policy](https://mcp-data-platform.txn2.com/library/stability/))
 - [Tools API Reference](https://mcp-data-platform.txn2.com/reference/tools-api/): complete tool specifications
 - [Examples Gallery](https://mcp-data-platform.txn2.com/examples/): real-world configurations
 - [Troubleshooting](https://mcp-data-platform.txn2.com/support/troubleshooting/): common issues and debugging

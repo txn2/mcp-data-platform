@@ -4,7 +4,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/txn2/mcp-data-platform/pkg/platform/connsource"
+	"github.com/txn2/mcp-data-platform/internal/platform/connsource"
 )
 
 // ConnectionSource is re-exported from the connsource package (extracted for the
