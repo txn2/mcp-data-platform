@@ -5,6 +5,8 @@ package migrate
 import (
 	"context"
 	"database/sql"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,22 +17,50 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-func TestMigrations(t *testing.T) {
+// latestMigrationVersion returns the highest version number in the embedded
+// migration set. Deriving it here keeps the round-trip assertions correct as
+// migrations are added, instead of hardcoding a count that silently rots (the
+// gap that let this test go stale at version 2 while the set grew past 79).
+func latestMigrationVersion(t *testing.T) uint {
+	t.Helper()
+	entries, err := migrations.ReadDir("migrations")
+	require.NoError(t, err)
+	var maxVersion uint
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, ".up.sql") {
+			continue
+		}
+		numStr, _, ok := strings.Cut(name, "_")
+		require.True(t, ok, "unexpected migration filename %q", name)
+		n, parseErr := strconv.ParseUint(numStr, 10, 64)
+		require.NoError(t, parseErr, "parsing version from %q", name)
+		if uint(n) > maxVersion {
+			maxVersion = uint(n)
+		}
+	}
+	require.NotZero(t, maxVersion, "should find at least one migration")
+	return maxVersion
+}
+
+func TestMigrations_RealDB(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
 	}
 
 	ctx := context.Background()
 
-	// Start PostgreSQL container
-	pgContainer, err := postgres.Run(ctx, "postgres:15",
+	// Start PostgreSQL container. The pgvector image is required because the
+	// migration set creates the `vector` extension (000031+); a plain postgres
+	// image fails the CREATE EXTENSION with "extension vector is not available".
+	pgContainer, err := postgres.Run(ctx, "pgvector/pgvector:pg16",
 		postgres.WithDatabase("testdb"),
 		postgres.WithUsername("testuser"),
 		postgres.WithPassword("testpass"),
 		testcontainers.WithWaitStrategy(
 			wait.ForLog("database system is ready to accept connections").
 				WithOccurrence(2).
-				WithStartupTimeout(30*time.Second),
+				WithStartupTimeout(5*time.Minute),
 		),
 	)
 	require.NoError(t, err)
@@ -44,6 +74,8 @@ func TestMigrations(t *testing.T) {
 	db, err := sql.Open("postgres", connStr)
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
+
+	latest := latestMigrationVersion(t)
 
 	// Test Run (up)
 	t.Run("Run applies migrations", func(t *testing.T) {
@@ -76,7 +108,7 @@ func TestMigrations(t *testing.T) {
 		version, dirty, err := Version(db)
 		require.NoError(t, err)
 		require.False(t, dirty)
-		require.Equal(t, uint(2), version)
+		require.Equal(t, latest, version)
 	})
 
 	// Test Run is idempotent
@@ -87,7 +119,7 @@ func TestMigrations(t *testing.T) {
 		version, dirty, err := Version(db)
 		require.NoError(t, err)
 		require.False(t, dirty)
-		require.Equal(t, uint(2), version)
+		require.Equal(t, latest, version)
 	})
 
 	// Test Down
@@ -179,7 +211,7 @@ func configKey(t *testing.T, db *sql.DB, name, key string) (string, bool) {
 // 000050 migration rewrites the api row onto the canonical schema,
 // leaves the mcp row untouched, preserves the encrypted secret blob
 // verbatim, is idempotent, and reverses cleanly on down.
-func TestMigration050_UnifyOAuthRoundTrip(t *testing.T) {
+func TestMigration050_UnifyOAuthRoundTrip_RealDB(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
 	}

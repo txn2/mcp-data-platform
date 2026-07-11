@@ -87,7 +87,7 @@ func (*inMemorySink) FindGaps(_ context.Context) ([]string, error)              
 // counter from the worker's chunk callback through the Postgres
 // UPDATE to the List read path (#430), now against the generic
 // index_jobs queue.
-func TestIndexJobsProgress_EndToEnd(t *testing.T) {
+func TestIndexJobsProgress_EndToEnd_RealDB(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}

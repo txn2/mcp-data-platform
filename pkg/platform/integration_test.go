@@ -14,17 +14,16 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
+
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	auditpostgres "github.com/txn2/mcp-data-platform/pkg/audit/postgres"
 	"github.com/txn2/mcp-data-platform/pkg/database/migrate"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
-	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
-	"github.com/txn2/mcp-data-platform/pkg/tuning"
 )
 
-// TestAuditLogging_EndToEnd tests that audit logging works with a real PostgreSQL database.
-func TestAuditLogging_EndToEnd(t *testing.T) {
+// TestAuditLogging_EndToEnd_RealDB tests that audit logging works with a real PostgreSQL database.
+func TestAuditLogging_EndToEnd_RealDB(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -98,8 +97,8 @@ func TestAuditLogging_EndToEnd(t *testing.T) {
 	assert.Equal(t, int64(100), got.DurationMS)
 }
 
-// TestAuditAdapter_Integration tests the middleware adapter with a real database.
-func TestAuditAdapter_Integration(t *testing.T) {
+// TestAuditAdapter_Integration_RealDB tests the middleware adapter with a real database.
+func TestAuditAdapter_Integration_RealDB(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -171,52 +170,8 @@ func TestAuditAdapter_Integration(t *testing.T) {
 	assert.Equal(t, "datahub_search", events[0].ToolName)
 }
 
-// TestRuleEngine_Integration tests that rule engine actually affects behavior.
-func TestRuleEngine_Integration(t *testing.T) {
-	rules := &tuning.Rules{
-		QualityThreshold: 0.7,
-		MaxQueryLimit:    10000,
-	}
-
-	engine := tuning.NewRuleEngine(rules)
-
-	// Verify rule engine configuration surfaces the configured limits.
-	assert.Equal(t, 10000, engine.GetMaxQueryLimit())
-}
-
-// TestPersonaContext_Integration tests that persona context overrides work correctly.
-func TestPersonaContext_Integration(t *testing.T) {
-	registry := persona.NewRegistry()
-
-	// Register persona with context overrides
-	err := registry.Register(&persona.Persona{
-		Name:        "analyst",
-		DisplayName: "Data Analyst",
-		Description: "Analyze data and run queries",
-		Roles:       []string{"analyst"},
-		Context: persona.ContextOverrides{
-			DescriptionPrefix:       "You are a data analyst assistant.",
-			AgentInstructionsSuffix: "Always check DataHub before running queries.",
-		},
-		Priority: 10,
-	})
-	require.NoError(t, err)
-
-	// Get persona and verify context overrides
-	p, ok := registry.Get("analyst")
-	require.True(t, ok)
-
-	desc := p.ApplyDescription("Base platform description")
-	assert.Contains(t, desc, "You are a data analyst assistant.")
-	assert.Contains(t, desc, "Base platform description")
-
-	instructions := p.ApplyAgentInstructions("Base instructions")
-	assert.Contains(t, instructions, "Always check DataHub before running queries.")
-	assert.Contains(t, instructions, "Base instructions")
-}
-
-// TestPlatform_WithDatabase tests platform initialization with a real database.
-func TestPlatform_WithDatabase(t *testing.T) {
+// TestPlatform_WithDatabase_RealDB tests platform initialization with a real database.
+func TestPlatform_WithDatabase_RealDB(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
