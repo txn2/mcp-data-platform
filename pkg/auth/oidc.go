@@ -17,6 +17,7 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
+	"github.com/txn2/mcp-data-platform/pkg/oidcdiscovery"
 )
 
 const (
@@ -524,35 +525,14 @@ func (a *OIDCAuthenticator) FetchJWKS(ctx context.Context) error {
 
 // discoverJWKSURI fetches the OIDC discovery document to get the JWKS URI.
 func (a *OIDCAuthenticator) discoverJWKSURI(ctx context.Context) (string, error) {
-	discoveryURL := strings.TrimSuffix(a.cfg.Issuer, "/") + "/.well-known/openid-configuration"
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, discoveryURL, http.NoBody)
+	doc, err := oidcdiscovery.Fetch(ctx, http.DefaultClient, a.cfg.Issuer)
 	if err != nil {
-		return "", fmt.Errorf("creating discovery request: %w", err)
+		return "", fmt.Errorf("discovering jwks uri: %w", err)
 	}
-
-	resp, err := http.DefaultClient.Do(req) // #nosec G704 -- URL from admin-controlled OIDC issuer config
-	if err != nil {
-		return "", fmt.Errorf("fetching discovery document: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("discovery request failed: %d", resp.StatusCode)
-	}
-
-	var discovery struct {
-		JwksURI string `json:"jwks_uri"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&discovery); err != nil {
-		return "", fmt.Errorf("parsing discovery document: %w", err)
-	}
-
-	if discovery.JwksURI == "" {
+	if doc.JWKSURI == "" {
 		return "", fmt.Errorf("jwks_uri not found in discovery document")
 	}
-
-	return discovery.JwksURI, nil
+	return doc.JWKSURI, nil
 }
 
 // fetchAndParseJWKS fetches the JWKS and parses RSA keys.

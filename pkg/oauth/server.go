@@ -55,6 +55,12 @@ const (
 	errInvalidRequest   = "invalid_request"
 	errMethodNotAllowed = "method_not_allowed"
 	errServerError      = "server_error"
+
+	// errUpstreamUnavailable is the generic client-facing description returned
+	// when upstream IdP endpoint discovery or token exchange fails. The specific
+	// cause (internal issuer URL, network error) is logged server-side rather
+	// than disclosed to the unauthenticated caller.
+	errUpstreamUnavailable = "upstream identity provider unavailable"
 )
 
 // OAuth wire-protocol form-parameter names. Used both when reading
@@ -152,6 +158,17 @@ type UpstreamConfig struct {
 
 	// RedirectURI is the callback URL for the upstream IdP.
 	RedirectURI string
+
+	// AuthorizationEndpoint, when set, is used verbatim as the upstream IdP's
+	// authorization endpoint, bypassing OIDC discovery. Empty (default) means
+	// discover it from the issuer's well-known configuration document. Provide it
+	// only for IdPs whose discovery document is broken or unreachable.
+	AuthorizationEndpoint string
+
+	// TokenEndpoint, when set, is used verbatim as the upstream IdP's token
+	// endpoint, bypassing OIDC discovery. Empty (default) means discover it.
+	// Discovery is skipped entirely only when BOTH endpoints are set.
+	TokenEndpoint string
 }
 
 // Server is an OAuth 2.1 authorization server.
@@ -162,6 +179,11 @@ type Server struct {
 	stateStore StateStore
 	httpClient *http.Client
 	metrics    *observability.Metrics
+
+	// upstreamResolver resolves the upstream IdP's authorization and token
+	// endpoints via OIDC discovery (or explicit config). Nil when no upstream
+	// IdP is configured.
+	upstreamResolver *upstreamEndpointResolver
 
 	// signingKID is the kid header stamped on newly minted access tokens,
 	// derived once from the signing key at construction. Empty when no signing
@@ -222,6 +244,9 @@ func NewServer(config ServerConfig, storage Storage) (*Server, error) {
 	}
 	if len(config.SigningKey) > 0 {
 		srv.signingKID = signkey.KeyID(config.SigningKey)
+	}
+	if config.Upstream != nil {
+		srv.upstreamResolver = newUpstreamEndpointResolver(config.Upstream, srv.httpClient)
 	}
 	if err := srv.configureRateLimiting(config.RateLimit); err != nil {
 		return nil, err
@@ -498,17 +523,25 @@ func (s *Server) handleRefreshTokenGrant(ctx context.Context, req TokenRequest) 
 		return nil, fmt.Errorf("rotating refresh token: %w", ErrStorageFailure)
 	}
 
-	// Determine the new token scope. RFC 6749 section 6: a refresh
-	// request may narrow the scope but never exceed the originally
-	// granted one.
-	scope := req.Scope
-	if scope == "" {
-		scope = token.Scope
-	} else if !isScopeSubset(scope, token.Scope) {
-		return nil, fmt.Errorf("invalid scope: exceeds originally granted scope")
+	scope, err := resolveRefreshScope(req.Scope, token.Scope)
+	if err != nil {
+		return nil, err
 	}
 
 	return s.generateTokens(ctx, client, token.UserID, token.UserClaims, scope)
+}
+
+// resolveRefreshScope determines the scope for a refreshed token. RFC 6749
+// section 6: a refresh request may narrow the granted scope but never exceed it.
+// An empty requested scope inherits the originally granted scope.
+func resolveRefreshScope(requested, granted string) (string, error) {
+	if requested == "" {
+		return granted, nil
+	}
+	if !isScopeSubset(requested, granted) {
+		return "", fmt.Errorf("invalid scope: exceeds originally granted scope")
+	}
+	return requested, nil
 }
 
 // isScopeSubset reports whether every space-delimited scope in requested is
@@ -835,8 +868,14 @@ func (s *Server) handleAuthorizeEndpoint(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Build upstream IdP authorization URL
-	upstreamURL := s.buildUpstreamAuthURL(upstreamState)
+	// Build upstream IdP authorization URL. A discovery failure here is
+	// retryable, so surface it as a 500 server_error (mirroring the storage-outage
+	// path above) rather than a hardcoded-path fallback.
+	upstreamURL, err := s.buildUpstreamAuthURL(r.Context(), upstreamState)
+	if err != nil {
+		s.writeUpstreamError(w, errServerError, err)
+		return
+	}
 	http.Redirect(w, r, upstreamURL, http.StatusFound)
 }
 
@@ -872,8 +911,14 @@ func (s *Server) handleLoginRequiredError(w http.ResponseWriter, r *http.Request
 		slog.Warn("oauth: authorization state re-save failed", logKeyError, err.Error())
 	}
 
-	// Redirect to upstream IdP without prompt=none
-	upstreamURL := s.buildUpstreamAuthURLWithPrompt(stateParam, false)
+	// Redirect to upstream IdP without prompt=none. A discovery failure here is
+	// retryable; surface it as a 500 server_error (the response is consumed, so
+	// still return true).
+	upstreamURL, err := s.buildUpstreamAuthURLWithPrompt(r.Context(), stateParam, false)
+	if err != nil {
+		s.writeUpstreamError(w, errServerError, err)
+		return true
+	}
 	// nosemgrep: go.lang.security.injection.open-redirect.open-redirect -- URL built from server OIDC config, not user input
 	http.Redirect(w, r, upstreamURL, http.StatusFound)
 	return true
@@ -919,10 +964,12 @@ func (s *Server) handleCallbackEndpoint(w http.ResponseWriter, r *http.Request) 
 		slog.Warn("oauth: authorization state delete failed", logKeyError, err.Error())
 	}
 
-	// Exchange code with upstream IdP
+	// Exchange code with upstream IdP. The underlying error can carry the
+	// internal issuer URL or the upstream response body, so it is logged
+	// server-side and the client gets a generic description.
 	upstreamToken, err := s.exchangeUpstreamCode(r.Context(), upstreamCode)
 	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, "token_exchange_failed", err.Error())
+		s.writeUpstreamError(w, "token_exchange_failed", err)
 		return
 	}
 
@@ -956,15 +1003,34 @@ func (s *Server) handleCallbackEndpoint(w http.ResponseWriter, r *http.Request) 
 // Section 3.1.2.1. If the user has an active IdP session, the IdP silently
 // issues an authorization code. If not, the IdP returns error=login_required,
 // which handleLoginRequiredError catches and retries without prompt=none.
-func (s *Server) buildUpstreamAuthURL(state string) string {
-	return s.buildUpstreamAuthURLWithPrompt(state, true)
+func (s *Server) buildUpstreamAuthURL(ctx context.Context, state string) (string, error) {
+	return s.buildUpstreamAuthURLWithPrompt(ctx, state, true)
 }
 
 // buildUpstreamAuthURLWithPrompt builds the upstream IdP authorization URL.
 // When usePromptNone is true, adds prompt=none for silent SSO.
 // When false, omits prompt so the IdP shows its login form.
-func (s *Server) buildUpstreamAuthURLWithPrompt(state string, usePromptNone bool) string {
-	params := url.Values{}
+//
+// The authorization endpoint is resolved via OIDC discovery (or explicit
+// config), so a discovery failure surfaces as an error the caller maps to a
+// retryable server_error rather than a hardcoded-path fallback.
+func (s *Server) buildUpstreamAuthURLWithPrompt(ctx context.Context, state string, usePromptNone bool) (string, error) {
+	if s.upstreamResolver == nil {
+		return "", fmt.Errorf("upstream IdP not configured")
+	}
+	authEndpoint, err := s.upstreamResolver.authorizationEndpoint(ctx)
+	if err != nil {
+		return "", fmt.Errorf("resolving upstream authorization endpoint: %w", err)
+	}
+
+	// Parse and merge into any existing query so a discovered endpoint that
+	// already carries query parameters (permitted by RFC 6749 Section 3.1) is not
+	// corrupted by naive concatenation.
+	u, err := url.Parse(authEndpoint)
+	if err != nil {
+		return "", fmt.Errorf("parsing upstream authorization endpoint: %w", err)
+	}
+	params := u.Query()
 	params.Set("response_type", paramCode)
 	params.Set(paramClientID, s.config.Upstream.ClientID)
 	params.Set(paramRedirectURI, s.config.Upstream.RedirectURI)
@@ -973,10 +1039,9 @@ func (s *Server) buildUpstreamAuthURLWithPrompt(state string, usePromptNone bool
 	if usePromptNone {
 		params.Set("prompt", "none")
 	}
+	u.RawQuery = params.Encode()
 
-	// Construct the authorization URL
-	authURL := strings.TrimSuffix(s.config.Upstream.Issuer, "/") + "/protocol/openid-connect/auth"
-	return authURL + "?" + params.Encode()
+	return u.String(), nil
 }
 
 // upstreamTokenResponse represents the token response from the upstream IdP.
@@ -990,7 +1055,13 @@ type upstreamTokenResponse struct {
 
 // exchangeUpstreamCode exchanges an authorization code with the upstream IdP.
 func (s *Server) exchangeUpstreamCode(ctx context.Context, code string) (*upstreamTokenResponse, error) {
-	tokenURL := strings.TrimSuffix(s.config.Upstream.Issuer, "/") + "/protocol/openid-connect/token"
+	if s.upstreamResolver == nil {
+		return nil, fmt.Errorf("upstream IdP not configured")
+	}
+	tokenURL, err := s.upstreamResolver.tokenEndpoint(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("resolving upstream token endpoint: %w", err)
+	}
 
 	data := url.Values{}
 	data.Set(paramGrantType, grantTypeAuthCode)
@@ -1140,6 +1211,15 @@ func (s *Server) writeError(w http.ResponseWriter, status int, err, desc string)
 	s.writeJSON(w, status, ErrorResponse{Error: err, ErrorDescription: desc})
 }
 
+// writeUpstreamError logs an upstream-IdP interaction failure server-side (the
+// underlying error can carry the internal issuer URL or the upstream response
+// body) and returns a disclosure-safe HTTP 500 to the client under the given
+// OAuth error code with a generic description.
+func (s *Server) writeUpstreamError(w http.ResponseWriter, code string, err error) {
+	slog.Error("oauth: upstream idp interaction failed", logKeyError, logsan.SanitizeForLog(err.Error()))
+	s.writeError(w, http.StatusInternalServerError, code, errUpstreamUnavailable)
+}
+
 // StartCleanupRoutine starts a background routine to clean up expired codes,
 // tokens, and in-flight authorization states.
 func (s *Server) StartCleanupRoutine(ctx context.Context, interval time.Duration) {
@@ -1152,18 +1232,25 @@ func (s *Server) StartCleanupRoutine(ctx context.Context, interval time.Duration
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if err := s.storage.CleanupExpiredCodes(ctx); err != nil {
-					slog.Warn("oauth cleanup: expired codes", "error", err)
-				}
-				if err := s.storage.CleanupExpiredTokens(ctx); err != nil {
-					slog.Warn("oauth cleanup: expired tokens", "error", err)
-				}
-				if err := s.stateStore.CleanupExpiredStates(ctx, StateMaxAge); err != nil {
-					slog.Warn("oauth cleanup: expired states", "error", err)
-				}
+				s.runCleanup(ctx)
 			}
 		}
 	}()
+}
+
+// runCleanup purges expired authorization codes, tokens, and authorization
+// states once. Each store is best-effort: a failure is logged and the others
+// still run.
+func (s *Server) runCleanup(ctx context.Context) {
+	if err := s.storage.CleanupExpiredCodes(ctx); err != nil {
+		slog.Warn("oauth cleanup: expired codes", logKeyError, err)
+	}
+	if err := s.storage.CleanupExpiredTokens(ctx); err != nil {
+		slog.Warn("oauth cleanup: expired tokens", logKeyError, err)
+	}
+	if err := s.stateStore.CleanupExpiredStates(ctx, StateMaxAge); err != nil {
+		slog.Warn("oauth cleanup: expired states", logKeyError, err)
+	}
 }
 
 // BuildAuthorizationURL builds an authorization URL.
