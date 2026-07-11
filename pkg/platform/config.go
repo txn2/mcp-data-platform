@@ -359,6 +359,14 @@ type ImplementorConfig struct {
 type PortalRateLimitConfig struct {
 	RequestsPerMinute int `yaml:"requests_per_minute"` // default: 60
 	BurstSize         int `yaml:"burst_size"`          // default: 10
+	// TrustedProxies lists CIDRs whose X-Forwarded-For headers are trusted for
+	// client attribution, mirroring oauth.rate_limit.trusted_proxies. Empty (the
+	// default) trusts none: the direct peer address is used and forwarding
+	// headers are ignored, which is the correct safe default when the
+	// deployment's proxy topology is unknown. Set this to your reverse-proxy or
+	// ingress CIDRs so per-client limiting attributes to the real client instead
+	// of collapsing onto the proxy IP.
+	TrustedProxies []string `yaml:"trusted_proxies"`
 }
 
 // defaultMaxContentSize is the default maximum artifact size (10 MB).

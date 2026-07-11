@@ -413,6 +413,11 @@ tuning:
 #     name: "ACME Corp"
 #     logo: "https://acme.com/logo.svg"
 #     url: "https://acme.com"
+#   rate_limit:                                                 # public portal viewer rate limiting (per-IP + global backstop)
+#     requests_per_minute: 60                                   # per-IP limit (default: 60)
+#     burst_size: 10                                            # per-IP burst allowance (default: 10)
+#     trusted_proxies:                                          # CIDRs whose X-Forwarded-For is trusted; empty trusts none (spoof-safe)
+#       - "10.0.0.0/8"
 #   export:                                                     # trino_export configuration
 #     enabled: true                                             # auto-enabled when portal + trino are configured
 #     max_rows: 100000                                          # hard row cap per export (default: 100000)

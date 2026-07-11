@@ -24,6 +24,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
+	"github.com/txn2/mcp-data-platform/pkg/ratelimit"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 	userdir "github.com/txn2/mcp-data-platform/pkg/user"
 )
@@ -126,18 +127,23 @@ type Deps struct {
 	S3Bucket                    string
 	PublicBaseURL               string
 	RateLimit                   RateLimitConfig
-	OIDCEnabled                 bool
-	AdminRoles                  []string // roles that grant admin access in the portal
-	PromptStore                 PromptStore
-	PromptRegistrar             PromptRegistrar
-	PromptInfoProvider          PromptInfoProvider
-	AuditMetrics                AuditMetrics
-	InsightStore                InsightReader
-	ChangesetReader             ChangesetReader
-	MemoryStore                 MemoryReader
-	MemoryWriter                MemoryWriter
-	EmbeddingProvider           embedding.Provider
-	PersonaResolver             PersonaResolver
+	// RateLimitResolver attributes the client IP for the public viewer's
+	// rate limiter with trusted-proxy awareness (#904). nil yields the safe
+	// trust-none default (direct peer address; X-Forwarded-For ignored), so an
+	// attacker cannot mint unlimited per-IP buckets with a spoofed header.
+	RateLimitResolver  *ratelimit.Resolver
+	OIDCEnabled        bool
+	AdminRoles         []string // roles that grant admin access in the portal
+	PromptStore        PromptStore
+	PromptRegistrar    PromptRegistrar
+	PromptInfoProvider PromptInfoProvider
+	AuditMetrics       AuditMetrics
+	InsightStore       InsightReader
+	ChangesetReader    ChangesetReader
+	MemoryStore        MemoryReader
+	MemoryWriter       MemoryWriter
+	EmbeddingProvider  embedding.Provider
+	PersonaResolver    PersonaResolver
 	// SearchRouter backs GET /api/v1/portal/search, the REST surface over the
 	// unified knowledge federation. nil disables the endpoint (no searchable
 	// source configured).
@@ -182,7 +188,7 @@ func NewHandler(deps Deps, authMiddle func(http.Handler) http.Handler) *Handler 
 		mux:         http.NewServeMux(),
 		publicMux:   http.NewServeMux(),
 		deps:        deps,
-		rateLimiter: NewRateLimiter(deps.RateLimit),
+		rateLimiter: NewRateLimiter(deps.RateLimit, deps.RateLimitResolver),
 	}
 	h.registerRoutes()
 
