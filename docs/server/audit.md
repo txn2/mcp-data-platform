@@ -21,6 +21,9 @@ database:
 audit:
   enabled: true
   log_tool_calls: true
+  log_parameters: true
+  redact_keys: ["password", "token"]
+  delivery: async          # async (default) | sync
   retention_days: 90
 ```
 
@@ -29,6 +32,9 @@ audit:
 | `database.dsn` | string | - | PostgreSQL connection string. Required for audit logging. |
 | `audit.enabled` | bool | `false` | Master switch for audit logging. |
 | `audit.log_tool_calls` | bool | `false` | Log every `tools/call` request. Both this and `enabled` must be `true`. |
+| `audit.log_parameters` | bool | `true` | Capture tool-call arguments. Set `false` to store a null `parameters` field. See [Parameter Sanitization](#parameter-sanitization). |
+| `audit.redact_keys` | list of strings | `[]` | Top-level argument keys whose values become `[REDACTED]` before the event leaves the request path. Case-insensitive; top-level only. See [Parameter Sanitization](#parameter-sanitization). |
+| `audit.delivery` | string | `async` | Store-write path: `async` (best-effort, never blocks the tool call) or `sync` (writes on the request goroutine for backpressure and zero queue drops). See [Delivery semantics](#delivery-semantics). |
 | `audit.retention_days` | int | `90` | Days to keep audit logs before automatic cleanup. |
 
 If `audit.enabled` is `true` but no database is configured, the platform logs a warning and falls back to a no-op logger.
@@ -135,7 +141,9 @@ GET /api/v1/admin/audit/metrics/timeseries?event_kind=mcp_tool_call
 
 ## Parameter Sanitization
 
-Tool call arguments are logged for debugging and compliance, but sensitive values are automatically redacted before storage. The following parameter keys are replaced with `[REDACTED]`:
+Tool call arguments are logged for debugging and compliance. The `parameters` field stores those arguments verbatim (including complete SQL text and anything embedded in it), so treat it as sensitive.
+
+A built-in baseline replaces the values of these well-known keys with `[REDACTED]` before storage:
 
 - `password`
 - `secret`
@@ -144,7 +152,21 @@ Tool call arguments are logged for debugging and compliance, but sensitive value
 - `authorization`
 - `credentials`
 
-Matching is case-sensitive and exact. A parameter named `user_password` would **not** be redacted (only `password` is matched).
+This baseline matching is case-sensitive and exact. A parameter named `user_password` would **not** be caught by it (only `password` is matched). It is a safety net, not a substitute for configuring your own sensitive argument names.
+
+For your own keys, set `audit.redact_keys`, a case-insensitive list of top-level argument keys whose values are masked in the middleware, before the event ever leaves the request path. Nested keys are not matched (top-level only, by design). For tools whose inputs cannot be made safe to retain even with redaction, set `audit.log_parameters: false` to drop the arguments entirely (a null `parameters` field).
+
+## Delivery semantics
+
+`audit.delivery` selects how an event travels from the middleware to the store; either mode captures the same fields.
+
+- **`async` (default).** Events are enqueued on a bounded in-memory writer and persisted by a single background goroutine, so a tool call is never blocked by store latency. This is best-effort: under a sustained store outage or a crash, queued events are dropped rather than retained. Every lost event increments the `audit_events_dropped_total` metric, which also covers writes that fail or exceed the per-write timeout.
+- **`sync`.** Each event is written on the request goroutine with a per-write timeout (5s), so a slow store applies backpressure to the tool call (it waits) rather than shedding events: there are no queue-overflow drops. Choose this when a compliance posture requires durability over latency. A store write that still fails or times out is logged and counted (`audit_events_dropped_total`) but, as in async mode, never fails the tool call: audit must not break tools.
+
+    Two operational consequences to weigh before enabling `sync`:
+
+    - **Latency under a stalled store.** When the database is slow or unreachable, every tool call blocks for up to the 5s per-write timeout before its handler returns to the client. The async writer never adds this latency (it enqueues and returns).
+    - **Shared connection pool.** Sync writes draw a connection from the same pool used for OAuth, sessions, portal, and connection queries. Under concurrent load against a stalled store, in-flight audit writes hold connections for the timeout window and can contend with those other subsystems. The single-goroutine async writer structurally caps audit at one concurrent connection and cannot cause this. A graceful shutdown cancels in-flight sync writes so teardown is not held for the full timeout. Size `database` pool limits with sync audit in mind, or keep the default `async` mode.
 
 ## Database Schema
 

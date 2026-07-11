@@ -598,9 +598,14 @@ Enabled by default; set `enabled: false` to opt out. Upstream toolkits (Trino, D
 |-------|------|---------|-------------|
 | `audit.enabled` | bool | `true` (when a database is available) | Enable audit logging. Set `false` to disable. |
 | `audit.log_tool_calls` | bool | `true` | Log MCP tool call events. Set `false` to keep audit on but skip per-tool-call rows. |
+| `audit.log_parameters` | bool | `true` | Capture tool-call arguments on each event. Set `false` to store a null `parameters` field. |
+| `audit.redact_keys` | list of strings | `[]` | Top-level argument keys whose values are replaced with `[REDACTED]` before the event leaves the request path. Case-insensitive; top-level only. |
+| `audit.delivery` | string | `async` | Store-write path: `async` (best-effort, never blocks the tool call) or `sync` (writes on the request goroutine for backpressure and zero queue drops). |
 | `audit.retention_days` | int | 90 | Days to retain audit events |
 
 Requires `database.dsn`. With a database available and no `audit:` block, both audit and per-tool-call logging are on by default. `enabled: false` disables audit entirely; `log_tool_calls: false` keeps audit on but stops recording per-tool-call events.
+
+Delivery semantics and data captured. Each event records identifiers (`id`, `request_id`, `session_id`, `user_id`, `user_email`, `persona`), the call target (`tool_name`, `toolkit_kind`, `toolkit_name`, `connection`, `event_kind`), the raw tool-call arguments (`parameters`), the outcome (`success`, `error_message`, `authorized`), timing and size (`timestamp`, `duration_ms`, `request_chars`, `response_chars`, `content_blocks`), transport (`transport`, `source`), and enrichment accounting (`enrichment_applied`, `enrichment_tokens_full`, `enrichment_tokens_dedup`, `enrichment_mode`, `enrichment_match_kind`). The `parameters` field stores arguments verbatim (including full SQL); use `redact_keys` or `log_parameters: false` for sensitive values. Async delivery is best-effort: under sustained backpressure or a crash, queued events are dropped and counted by the `audit_events_dropped_total` metric (which also covers writes that fail or exceed the per-write timeout). Sync delivery writes on the request goroutine with a per-write timeout (5s), trading latency for zero queue-overflow drops; a failed write is still logged, counted, and never fails the tool call. Under a stalled store, sync mode blocks each tool call up to the timeout and draws from the same connection pool as OAuth/sessions/portal (the async writer's single drain goroutine avoids both); graceful shutdown cancels in-flight sync writes.
 
 ## Session Configuration
 
@@ -845,6 +850,9 @@ database:
 audit:
   enabled: true
   log_tool_calls: true
+  log_parameters: true
+  redact_keys: ["password", "token"]
+  delivery: async          # async (default) | sync
   retention_days: 90
 ```
 
@@ -853,6 +861,9 @@ audit:
 | `database.dsn` | string | - | PostgreSQL connection string. Required for audit logging. |
 | `audit.enabled` | bool | `true` (when a database is available) | Master switch for audit logging. Set `false` to disable. |
 | `audit.log_tool_calls` | bool | `true` | Log every `tools/call` request. Set `false` to keep audit on but skip per-tool-call rows. |
+| `audit.log_parameters` | bool | `true` | Capture tool-call arguments. Set `false` to store a null `parameters` field. |
+| `audit.redact_keys` | list of strings | `[]` | Top-level argument keys whose values become `[REDACTED]` before the event leaves the request path. Case-insensitive; top-level only. |
+| `audit.delivery` | string | `async` | Store-write path: `async` (best-effort, never blocks the tool call) or `sync` (writes on the request goroutine for backpressure and zero queue drops). |
 | `audit.retention_days` | int | `90` | Days to keep audit logs before automatic cleanup. |
 
 ## What Gets Logged
@@ -880,7 +891,9 @@ Every tool call produces one row in `audit_logs` with these fields:
 
 ## Parameter Sanitization
 
-Sensitive parameter keys are replaced with `[REDACTED]`: `password`, `secret`, `token`, `api_key`, `authorization`, `credentials`. Matching is case-sensitive and exact.
+A built-in baseline replaces the values of these well-known keys with `[REDACTED]`: `password`, `secret`, `token`, `api_key`, `authorization`, `credentials` (case-sensitive, exact match). This is a safety net, not a substitute for configuring your own sensitive argument names.
+
+For your own keys, set `audit.redact_keys`, a case-insensitive list of top-level argument keys whose values are masked in the middleware, before the event ever leaves the request path (nested keys are not matched). To drop arguments entirely, for tools whose inputs cannot be made safe to retain even with redaction, set `audit.log_parameters: false`, which stores a null `parameters` field.
 
 ## Middleware Chain
 
@@ -894,7 +907,7 @@ For `tools/call` requests: Auth creates the `PlatformContext` (user identity, pe
 
 For `tools/list` responses: Icons, DescOverrides, and Visibility modify tool metadata and filter the tool list.
 
-Audit events are written **asynchronously** in a goroutine to avoid blocking tool responses. If the database write fails, the error is logged via `slog.Error` but the tool call still succeeds.
+Audit delivery is configurable (`audit.delivery`). In the default **async** mode, events are enqueued on a bounded writer drained by a single background goroutine, so store latency never blocks a tool response; under sustained backpressure or a crash, queued events are dropped and counted by the `audit_events_dropped_total` metric. In **sync** mode, the event is written on the request goroutine with a per-write timeout, trading latency for backpressure and zero queue-overflow drops. In either mode, a write that fails is logged via `slog.Error` but the tool call still succeeds.
 
 ### Error contract
 

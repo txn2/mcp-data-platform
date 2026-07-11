@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -10,6 +11,76 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 )
+
+// redactedPlaceholder is the sentinel stored in place of a redacted argument
+// value. It matches audit.SanitizeParameters' baseline sentinel so a redacted
+// value looks the same whether it was caught by the configured redact_keys here
+// or by the store adapter's built-in sensitive-key list.
+const redactedPlaceholder = "[REDACTED]"
+
+// auditParamPolicy governs how tool-call parameters are captured on audit
+// events. It is applied in the middleware, before the event leaves the request
+// path, so a redacted or dropped value is never enqueued or stored (issue #898).
+type auditParamPolicy struct {
+	// logParameters, when false, drops the whole Parameters map (stored null).
+	logParameters bool
+	// redactKeys holds lowercased top-level argument keys whose values are
+	// replaced with redactedPlaceholder. Empty means no configured redaction.
+	redactKeys map[string]struct{}
+}
+
+// defaultAuditParamPolicy is the policy applied when no options are supplied:
+// parameters are captured and nothing is redacted.
+func defaultAuditParamPolicy() auditParamPolicy {
+	return auditParamPolicy{logParameters: true, redactKeys: map[string]struct{}{}}
+}
+
+// AuditOption configures MCPAuditMiddleware's parameter-capture policy.
+type AuditOption func(*auditParamPolicy)
+
+// WithParameterLogging controls whether tool-call arguments are captured on the
+// audit event. When false, the event's Parameters field is stored as null
+// (issue #898).
+func WithParameterLogging(enabled bool) AuditOption {
+	return func(p *auditParamPolicy) { p.logParameters = enabled }
+}
+
+// WithRedactKeys registers top-level argument keys whose values are replaced
+// with "[REDACTED]" before the audit event is built. Matching is
+// case-insensitive; nested keys are not matched, by design (issue #898).
+// Keys are trimmed and lowercased so a stray space in the config (e.g.
+// "password ") still redacts rather than silently storing the value verbatim.
+func WithRedactKeys(keys []string) AuditOption {
+	return func(p *auditParamPolicy) {
+		for _, k := range keys {
+			norm := strings.ToLower(strings.TrimSpace(k))
+			if norm == "" {
+				continue
+			}
+			p.redactKeys[norm] = struct{}{}
+		}
+	}
+}
+
+// applyParamPolicy enforces the parameter policy on freshly extracted
+// arguments: it drops the whole map when parameter logging is disabled, and
+// otherwise replaces the values of configured top-level keys (case-insensitive)
+// with the redaction sentinel. The map is safe to mutate in place because
+// extractMCPParameters returns a fresh map per call.
+func applyParamPolicy(params map[string]any, policy auditParamPolicy) map[string]any {
+	if !policy.logParameters {
+		return nil
+	}
+	if len(params) == 0 || len(policy.redactKeys) == 0 {
+		return params
+	}
+	for k := range params {
+		if _, ok := policy.redactKeys[strings.ToLower(k)]; ok {
+			params[k] = redactedPlaceholder
+		}
+	}
+	return params
+}
 
 // MCPAuditMiddleware creates MCP protocol-level middleware that logs tool calls
 // for auditing purposes.
@@ -19,14 +90,26 @@ import (
 //  2. Executes the tool handler
 //  3. Gets the PlatformContext (set by MCPToolCallMiddleware)
 //  4. Builds an audit event with all captured information
-//  5. Enqueues the event via the logger's non-blocking Log call
+//  5. Hands the event to the logger's Log call
 //
-// The audit logger is backed by a bounded async writer (pkg/audit.AsyncWriter),
-// so Log enqueues and returns immediately: the per-write timeout, single drain
-// goroutine, and drain-on-shutdown live in the writer, not here. The middleware
-// therefore no longer spawns a goroutine per call (issue #884), which under a
-// stalled store accumulated goroutines without bound.
-func MCPAuditMiddleware(logger AuditLogger) mcp.Middleware {
+// The middleware itself spawns no goroutine (issue #884, which replaced a
+// per-call detached goroutine that grew without bound under a stalled store);
+// how Log behaves depends on the configured delivery mode. With the default
+// async writer (pkg/audit.AsyncWriter) Log enqueues and returns immediately.
+// With the sync writer (audit.delivery: sync) Log performs the store write
+// inline, so it blocks the tool call for up to the per-write timeout — this is
+// the intended backpressure of the durable mode. Either writer bounds the write
+// with its own timeout and never fails the tool call.
+//
+// Parameter capture is governed by the options: WithParameterLogging drops the
+// Parameters field entirely, and WithRedactKeys masks named top-level argument
+// values. Both are applied here, where the event is built, so a sensitive value
+// never leaves the request path (issue #898).
+func MCPAuditMiddleware(logger AuditLogger, opts ...AuditOption) mcp.Middleware {
+	policy := defaultAuditParamPolicy()
+	for _, opt := range opts {
+		opt(&policy)
+	}
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			// Only audit tools/call requests
@@ -57,13 +140,15 @@ func MCPAuditMiddleware(logger AuditLogger) mcp.Middleware {
 				Err:       err,
 				StartTime: startTime,
 				Duration:  duration,
-			})
+			}, policy)
 
-			// Enqueue without blocking. The logger's bounded async writer
-			// owns the actual store write; context.Background is intentional
-			// so a synchronous logger's write is not canceled when the
-			// request ends. Log returns promptly (an enqueue, or a drop when
-			// the queue is full) and never fails a tool call.
+			// Hand the event to the logger. context.Background is intentional:
+			// the async writer ignores this context, and the sync writer (which
+			// performs the store write inline) must not have its write canceled
+			// when the request ends — shutdown cancellation flows through the
+			// writer's Close, not the request context. Depending on delivery
+			// mode Log either enqueues (async) or writes inline within its
+			// per-write timeout (sync); neither fails the tool call.
 			if err := logger.Log(context.Background(), event); err != nil {
 				slog.Error("failed to log audit event",
 					"error", err,
@@ -88,7 +173,9 @@ type auditCallInfo struct {
 }
 
 // buildMCPAuditEvent builds an audit event from the MCP request and response.
-func buildMCPAuditEvent(pc *PlatformContext, info auditCallInfo) AuditEvent {
+// The parameter policy governs whether and how the request arguments are
+// captured on the event.
+func buildMCPAuditEvent(pc *PlatformContext, info auditCallInfo, policy auditParamPolicy) AuditEvent {
 	// Determine success and error category
 	success := info.Err == nil
 	errorMsg := ""
@@ -135,8 +222,9 @@ func buildMCPAuditEvent(pc *PlatformContext, info auditCallInfo) AuditEvent {
 		}
 	}
 
-	// Extract parameters from request
-	params := extractMCPParameters(info.Request)
+	// Extract parameters from request, then apply the capture policy
+	// (drop-all or per-key redaction) before the values reach the event.
+	params := applyParamPolicy(extractMCPParameters(info.Request), policy)
 
 	chars, blocks := calculateResponseSize(info.Result, info.Err)
 	reqChars := calculateRequestSize(info.Request)

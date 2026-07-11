@@ -509,6 +509,9 @@ audit:
   enabled: false
   log_tool_calls: true
   retention_days: 90
+  # log_parameters: true         # false stores a null parameters field
+  # redact_keys: ["password"]    # top-level arg keys masked as [REDACTED] (case-insensitive)
+  # delivery: async              # async (default, best-effort) | sync (durable, backpressure)
 
 # API Gateway embedding job queue (the worker that turns spec
 # uploads into the per-operation vectors semantic / hybrid

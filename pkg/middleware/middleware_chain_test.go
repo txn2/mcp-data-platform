@@ -304,6 +304,140 @@ func TestMiddlewareChain_AuditReceivesPlatformContext(t *testing.T) {
 	}
 }
 
+// TestMiddlewareChain_AuditRedactsParameters proves that WithRedactKeys applied
+// at the middleware option seam actually redacts the named top-level arguments
+// on the event that reaches the store, through the real assembled server +
+// client + in-memory transport — not just in a hand-built buildMCPAuditEvent
+// call (issue #898).
+func TestMiddlewareChain_AuditRedactsParameters(t *testing.T) {
+	auditStore := &testAuditStore{}
+	authenticator := &testAuthenticator{
+		userInfo: &middleware.UserInfo{
+			UserID: "test-user-42",
+			Email:  "test@example.com",
+			Roles:  []string{chainTestAnalyst},
+		},
+	}
+	authorizer := &testAuthorizer{persona: "data-analyst"}
+	toolkitLookup := &testToolkitLookup{
+		tools: map[string]struct{ kind, name, conn string }{
+			chainTestTrinoQuery: {kind: chainTestTrino, name: chainTestProduction, conn: chainTestProdTrino},
+		},
+	}
+
+	server := mcp.NewServer(&mcp.Implementation{Name: "test-platform", Version: "v0.0.1"}, nil)
+	server.AddTool(&mcp.Tool{
+		Name:        chainTestTrinoQuery,
+		Description: "Test tool",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"sql":{"type":"string"},"password":{"type":"string"},"catalog":{"type":"string"}}}`),
+	}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "query result"}},
+		}, nil
+	})
+
+	// Audit innermost with redaction configured, tool-call middleware outermost.
+	server.AddReceivingMiddleware(middleware.MCPAuditMiddleware(
+		auditStore,
+		middleware.WithRedactKeys([]string{"password", "sql"}),
+	))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, middleware.ToolCallConfig{Transport: chainTestStdio, AdminPersona: "admin"}))
+
+	ctx := context.Background()
+	session, err := connectClientServer(ctx, server)
+	if err != nil {
+		t.Fatalf(chainTestConnecting, err)
+	}
+	defer func() { _ = session.Close() }()
+
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: chainTestTrinoQuery,
+		Arguments: map[string]any{
+			"sql":      "SELECT secret FROM users",
+			"password": "hunter2",
+			"catalog":  "hive",
+		},
+	})
+	if err != nil {
+		t.Fatalf(chainTestCallingTool, err)
+	}
+	if result.IsError {
+		t.Fatalf("tool returned error: %v", result.Content)
+	}
+
+	events := waitForAuditEvents(t, auditStore)
+	params := events[0].Parameters
+	if got := params["sql"]; got != "[REDACTED]" {
+		t.Errorf("sql = %v, want [REDACTED]", got)
+	}
+	if got := params["password"]; got != "[REDACTED]" {
+		t.Errorf("password = %v, want [REDACTED]", got)
+	}
+	if got := params["catalog"]; got != "hive" {
+		t.Errorf("catalog = %v, want hive (unlisted keys pass through)", got)
+	}
+}
+
+// TestMiddlewareChain_AuditDropsParameters proves WithParameterLogging(false)
+// nulls the Parameters field on the event that reaches the store, through the
+// real assembled chain (issue #898).
+func TestMiddlewareChain_AuditDropsParameters(t *testing.T) {
+	auditStore := &testAuditStore{}
+	authenticator := &testAuthenticator{
+		userInfo: &middleware.UserInfo{
+			UserID: "test-user-42",
+			Email:  "test@example.com",
+			Roles:  []string{chainTestAnalyst},
+		},
+	}
+	authorizer := &testAuthorizer{persona: "data-analyst"}
+	toolkitLookup := &testToolkitLookup{
+		tools: map[string]struct{ kind, name, conn string }{
+			chainTestTrinoQuery: {kind: chainTestTrino, name: chainTestProduction, conn: chainTestProdTrino},
+		},
+	}
+
+	server := mcp.NewServer(&mcp.Implementation{Name: "test-platform", Version: "v0.0.1"}, nil)
+	server.AddTool(&mcp.Tool{
+		Name:        chainTestTrinoQuery,
+		Description: "Test tool",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"sql":{"type":"string"}}}`),
+	}, func(_ context.Context, _ *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "query result"}},
+		}, nil
+	})
+
+	server.AddReceivingMiddleware(middleware.MCPAuditMiddleware(
+		auditStore,
+		middleware.WithParameterLogging(false),
+	))
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, toolkitLookup, middleware.ToolCallConfig{Transport: chainTestStdio, AdminPersona: "admin"}))
+
+	ctx := context.Background()
+	session, err := connectClientServer(ctx, server)
+	if err != nil {
+		t.Fatalf(chainTestConnecting, err)
+	}
+	defer func() { _ = session.Close() }()
+
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      chainTestTrinoQuery,
+		Arguments: map[string]any{"sql": "SELECT 1"},
+	})
+	if err != nil {
+		t.Fatalf(chainTestCallingTool, err)
+	}
+	if result.IsError {
+		t.Fatalf("tool returned error: %v", result.Content)
+	}
+
+	events := waitForAuditEvents(t, auditStore)
+	if events[0].Parameters != nil {
+		t.Errorf("Parameters = %v, want nil (log_parameters: false)", events[0].Parameters)
+	}
+}
+
 // TestMiddlewareChain_WrongOrder_AuditGetsNilContext proves that if middleware
 // is added in the WRONG order (auth first, audit second — making audit
 // outermost), the audit middleware gets nil PlatformContext and skips logging.

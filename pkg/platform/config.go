@@ -918,14 +918,41 @@ type RulesConfig struct {
 	QualityThreshold float64 `yaml:"quality_threshold"`
 }
 
+// Audit delivery modes select how an audit event travels from the middleware to
+// the store. See AuditConfig.Delivery.
+const (
+	// AuditDeliveryAsync (the default) enqueues each event on the bounded async
+	// writer: the tool call is never blocked, but a sustained store outage sheds
+	// events (counted by audit_events_dropped_total).
+	AuditDeliveryAsync = "async"
+
+	// AuditDeliverySync writes each event on the request goroutine with a
+	// per-write timeout. It trades tool-call latency for backpressure and zero
+	// queue-overflow drops, which compliance deployments require.
+	AuditDeliverySync = "sync"
+)
+
 // AuditConfig configures audit logging.
 // Enabled by default when a database is available. Set enabled: false to disable.
 // LogToolCalls is also enabled by default (nil = enabled) whenever audit is
 // enabled; set log_tool_calls: false to keep audit on but skip per-tool-call rows.
 type AuditConfig struct {
-	Enabled       *bool `yaml:"enabled"`
-	LogToolCalls  *bool `yaml:"log_tool_calls"`
-	RetentionDays int   `yaml:"retention_days"`
+	Enabled      *bool `yaml:"enabled"`
+	LogToolCalls *bool `yaml:"log_tool_calls"`
+	// LogParameters controls whether tool-call arguments are stored on the
+	// event. Enabled by default (nil = enabled); set log_parameters: false to
+	// store a null Parameters field when the arguments may carry sensitive data
+	// that even redaction cannot make safe to retain.
+	LogParameters *bool `yaml:"log_parameters"`
+	// RedactKeys lists top-level argument keys whose values are replaced with
+	// "[REDACTED]" in the middleware, before the event ever leaves the request
+	// path. Matching is case-insensitive; nested keys are not matched (top-level
+	// only, by design).
+	RedactKeys []string `yaml:"redact_keys"`
+	// Delivery selects the store-write path: "async" (default) or "sync". See
+	// the Audit delivery mode constants.
+	Delivery      string `yaml:"delivery"`
+	RetentionDays int    `yaml:"retention_days"`
 }
 
 // IsToolCallLoggingEnabled reports whether per-tool-call audit logging is
@@ -933,6 +960,41 @@ type AuditConfig struct {
 // log_tool_calls is not explicitly set.
 func (c *AuditConfig) IsToolCallLoggingEnabled() bool {
 	return !isExplicitlyDisabled(c.Enabled) && !isExplicitlyDisabled(c.LogToolCalls)
+}
+
+// IsParameterLoggingEnabled reports whether tool-call parameters are stored on
+// audit events. Defaults to true (nil = enabled); set log_parameters: false to
+// store a null Parameters field.
+func (c *AuditConfig) IsParameterLoggingEnabled() bool {
+	return !isExplicitlyDisabled(c.LogParameters)
+}
+
+// normalizedDelivery returns the trimmed, lowercased delivery value.
+func (c *AuditConfig) normalizedDelivery() string {
+	return strings.ToLower(strings.TrimSpace(c.Delivery))
+}
+
+// DeliveryMode returns the effective audit delivery mode, defaulting to async
+// when unset. An unrecognized value also resolves to async here; callers that
+// must reject a typo (config validation, boot) use ValidateDelivery instead.
+func (c *AuditConfig) DeliveryMode() string {
+	if c.normalizedDelivery() == AuditDeliverySync {
+		return AuditDeliverySync
+	}
+	return AuditDeliveryAsync
+}
+
+// ValidateDelivery rejects an unrecognized audit.delivery value so a typo like
+// "synch" fails fast at boot instead of silently resolving to async and
+// dropping the durability guarantee a compliance deployment asked for.
+func (c *AuditConfig) ValidateDelivery() error {
+	switch c.normalizedDelivery() {
+	case "", AuditDeliveryAsync, AuditDeliverySync:
+		return nil
+	default:
+		return fmt.Errorf("audit.delivery=%q is invalid (want %q or %q)",
+			c.Delivery, AuditDeliveryAsync, AuditDeliverySync)
+	}
 }
 
 // ObservabilityConfig configures the portal-facing observability
@@ -1798,6 +1860,10 @@ func (c *Config) Validate() error {
 	errs = c.validateOAuth(errs)
 	errs = c.validateSessions(errs)
 	errs = c.validateBrowserSession(errs)
+
+	if err := c.Audit.ValidateDelivery(); err != nil {
+		errs = append(errs, err.Error())
+	}
 
 	if len(errs) > 0 {
 		return fmt.Errorf("config validation errors: %s", strings.Join(errs, "; "))

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/connauth"
 	"github.com/txn2/mcp-data-platform/internal/platform/sessionsync"
 	"github.com/txn2/mcp-data-platform/internal/platform/toolkitcfg"
+	"github.com/txn2/mcp-data-platform/pkg/audit"
 	"github.com/txn2/mcp-data-platform/pkg/auth"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
@@ -1955,6 +1957,76 @@ func TestInitAuditNoopWithoutDatabase(t *testing.T) {
 	// Should succeed with noop logger when DB not configured
 	if p.MCPServer() == nil {
 		t.Error(testMCPServerNilMsg)
+	}
+}
+
+// syncProbeLogger is an audit.Logger that records, at write time, whether the
+// write ran synchronously with the caller. It lets newAuditLogger's sync branch
+// be distinguished from the async branch without a database.
+type syncProbeLogger struct {
+	mu      sync.Mutex
+	events  int
+	release chan struct{} // closed to unblock a held write
+}
+
+func (l *syncProbeLogger) Log(_ context.Context, _ audit.Event) error {
+	if l.release != nil {
+		<-l.release // block until the test releases, proving sync inline write
+	}
+	l.mu.Lock()
+	l.events++
+	l.mu.Unlock()
+	return nil
+}
+
+func (*syncProbeLogger) Query(_ context.Context, _ audit.QueryFilter) ([]audit.Event, error) {
+	return nil, nil
+}
+func (*syncProbeLogger) Close() error { return nil }
+
+func (l *syncProbeLogger) count() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.events
+}
+
+func TestNewAuditLogger_SyncWritesInline(t *testing.T) {
+	store := &syncProbeLogger{}
+	logger := newAuditLogger(store, AuditDeliverySync, nil)
+
+	// A sync writer performs the store write on the caller's goroutine, so the
+	// event is visible the instant Log returns — no drain, no sleep.
+	if err := logger.Log(context.Background(), middleware.AuditEvent{ToolName: "trino_query"}); err != nil {
+		t.Fatalf("Log returned error: %v", err)
+	}
+	if got := store.count(); got != 1 {
+		t.Errorf("sync delivery: expected 1 event written inline, got %d", got)
+	}
+}
+
+func TestNewAuditLogger_AsyncEnqueues(t *testing.T) {
+	// A held write proves the async writer does NOT block the caller: Log
+	// returns immediately even though the store write is stuck.
+	store := &syncProbeLogger{release: make(chan struct{})}
+	logger := newAuditLogger(store, AuditDeliveryAsync, nil)
+
+	if err := logger.Log(context.Background(), middleware.AuditEvent{ToolName: "trino_query"}); err != nil {
+		t.Fatalf("Log returned error: %v", err)
+	}
+	// The single drain goroutine is blocked in the held write, so nothing is
+	// recorded yet; the caller was not blocked.
+	if got := store.count(); got != 0 {
+		t.Errorf("async delivery: expected caller not to block on the store, got %d written", got)
+	}
+	close(store.release)
+
+	// Draining via Close flushes the queued event through the now-unblocked
+	// store, proving the async writer was selected and wired.
+	if closer, ok := logger.(interface{ Close() error }); ok {
+		_ = closer.Close()
+	}
+	if got := store.count(); got != 1 {
+		t.Errorf("async delivery: expected 1 event after drain, got %d", got)
 	}
 }
 

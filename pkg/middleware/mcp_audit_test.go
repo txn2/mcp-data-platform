@@ -168,6 +168,127 @@ func TestMCPAuditMiddleware_LogsToolResultError(t *testing.T) {
 	assert.Equal(t, "permission denied", event.ErrorMessage)
 }
 
+// auditMWWithParams runs the audit middleware over a single tool call carrying
+// the given arguments and returns the captured event. Options configure the
+// parameter-capture policy under test.
+func auditMWWithParams(t *testing.T, args map[string]any, opts ...AuditOption) AuditEvent {
+	t.Helper()
+	mockLogger := newCapturingAuditLogger()
+	mw := MCPAuditMiddleware(mockLogger, opts...)
+
+	handler := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
+		}, nil
+	}
+
+	pc := NewPlatformContext("req-redact")
+	pc.UserID = testAuditEmail
+	pc.ToolName = testAuditToolName
+	ctx := WithPlatformContext(context.Background(), pc)
+
+	req := createAuditTestRequest(t, testAuditToolName, args)
+	_, err := mw(handler)(ctx, testAuditMethodCall, req)
+	require.NoError(t, err)
+
+	events := mockLogger.Events()
+	require.Len(t, events, 1)
+	return events[0]
+}
+
+func TestMCPAuditMiddleware_RedactKeys(t *testing.T) {
+	event := auditMWWithParams(t, map[string]any{
+		"password": "hunter2",
+		"sql":      "SELECT secret FROM users",
+		"catalog":  "hive",
+	}, WithRedactKeys([]string{"password", "sql"}))
+
+	assert.Equal(t, "[REDACTED]", event.Parameters["password"])
+	assert.Equal(t, "[REDACTED]", event.Parameters["sql"])
+	// Unlisted keys pass through intact.
+	assert.Equal(t, "hive", event.Parameters["catalog"])
+}
+
+func TestMCPAuditMiddleware_RedactKeys_SkipsEmpty(t *testing.T) {
+	// An empty configured key is ignored (never matches the empty-string arg),
+	// and real keys still redact.
+	event := auditMWWithParams(t, map[string]any{
+		"password": "hunter2",
+		"catalog":  "hive",
+	}, WithRedactKeys([]string{"", "password"}))
+
+	assert.Equal(t, "[REDACTED]", event.Parameters["password"])
+	assert.Equal(t, "hive", event.Parameters["catalog"])
+}
+
+func TestMCPAuditMiddleware_RedactKeys_TrimsWhitespace(t *testing.T) {
+	// A config key with a stray trailing space (an easy YAML slip) must still
+	// redact, not silently store the value verbatim.
+	event := auditMWWithParams(t, map[string]any{
+		"password": "hunter2",
+		"catalog":  "hive",
+	}, WithRedactKeys([]string{"  password  "}))
+
+	assert.Equal(t, "[REDACTED]", event.Parameters["password"])
+	assert.Equal(t, "hive", event.Parameters["catalog"])
+}
+
+func TestMCPAuditMiddleware_RedactKeys_CaseInsensitive(t *testing.T) {
+	// Config key "PASSWORD" must match the request arg "password", and vice
+	// versa: matching is case-insensitive on the top-level key.
+	event := auditMWWithParams(t, map[string]any{
+		"Password": "hunter2",
+		"SQL":      "SELECT 1",
+	}, WithRedactKeys([]string{"password", "sql"}))
+
+	assert.Equal(t, "[REDACTED]", event.Parameters["Password"])
+	assert.Equal(t, "[REDACTED]", event.Parameters["SQL"])
+}
+
+func TestMCPAuditMiddleware_RedactKeys_TopLevelOnly(t *testing.T) {
+	// A nested key that happens to share a redacted name is NOT matched:
+	// redaction is top-level only, by design.
+	event := auditMWWithParams(t, map[string]any{
+		"filter": map[string]any{"password": "hunter2"},
+	}, WithRedactKeys([]string{"password"}))
+
+	nested, ok := event.Parameters["filter"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "hunter2", nested["password"])
+}
+
+func TestMCPAuditMiddleware_LogParametersDisabled(t *testing.T) {
+	event := auditMWWithParams(t, map[string]any{
+		"sql": "SELECT 1",
+	}, WithParameterLogging(false))
+
+	// Parameters are dropped entirely; the row stores null.
+	assert.Nil(t, event.Parameters)
+	// Other fields are unaffected.
+	assert.Equal(t, testAuditToolName, event.ToolName)
+	assert.True(t, event.Success)
+}
+
+func TestMCPAuditMiddleware_LogParametersDisabled_BeatsRedaction(t *testing.T) {
+	// When parameter logging is off, redaction is moot: the whole map is gone.
+	event := auditMWWithParams(t, map[string]any{
+		"password": "hunter2",
+	}, WithParameterLogging(false), WithRedactKeys([]string{"password"}))
+
+	assert.Nil(t, event.Parameters)
+}
+
+func TestMCPAuditMiddleware_DefaultsCaptureParameters(t *testing.T) {
+	// With no options, parameters are captured verbatim (redaction opt-in).
+	event := auditMWWithParams(t, map[string]any{
+		"password": "hunter2",
+		"sql":      "SELECT 1",
+	})
+
+	assert.Equal(t, "hunter2", event.Parameters["password"])
+	assert.Equal(t, "SELECT 1", event.Parameters["sql"])
+}
+
 func TestMCPAuditMiddleware_NoPlatformContext(t *testing.T) {
 	mockLogger := newCapturingAuditLogger()
 	mw := MCPAuditMiddleware(mockLogger)
@@ -389,7 +510,7 @@ func TestBuildMCPAuditEvent_IncludesResponseSize(t *testing.T) {
 		Err:       nil,
 		StartTime: time.Now(),
 		Duration:  time.Millisecond,
-	})
+	}, defaultAuditParamPolicy())
 
 	assert.Equal(t, testAuditCharsHello, event.ResponseChars)
 	assert.Equal(t, 1, event.ContentBlocks)
@@ -416,7 +537,7 @@ func TestBuildMCPAuditEvent_ThreadsEnrichmentTokens(t *testing.T) {
 		Result:    result,
 		StartTime: time.Now(),
 		Duration:  time.Millisecond,
-	})
+	}, defaultAuditParamPolicy())
 
 	assert.Equal(t, 500, event.EnrichmentTokensFull)
 	assert.Equal(t, 50, event.EnrichmentTokensDedup)
@@ -576,7 +697,7 @@ func TestBuildMCPAuditEvent_ErrorCategory(t *testing.T) {
 			Result:    result,
 			StartTime: time.Now(),
 			Duration:  time.Millisecond,
-		})
+		}, defaultAuditParamPolicy())
 
 		assert.False(t, event.Success)
 		assert.Equal(t, "auth failed", event.ErrorMessage)
@@ -594,7 +715,7 @@ func TestBuildMCPAuditEvent_ErrorCategory(t *testing.T) {
 			Result:    result,
 			StartTime: time.Now(),
 			Duration:  time.Millisecond,
-		})
+		}, defaultAuditParamPolicy())
 
 		assert.False(t, event.Success)
 		assert.Equal(t, "some error", event.ErrorMessage)
@@ -613,7 +734,7 @@ func TestBuildMCPAuditEvent_ErrorCategory(t *testing.T) {
 			Result:    result,
 			StartTime: time.Now(),
 			Duration:  time.Millisecond,
-		})
+		}, defaultAuditParamPolicy())
 
 		assert.True(t, event.Success)
 		assert.Empty(t, event.ErrorMessage)
@@ -635,7 +756,7 @@ func TestBuildMCPAuditEvent_WithProtocolError(t *testing.T) {
 		Err:       protoErr,
 		StartTime: time.Now(),
 		Duration:  time.Millisecond,
-	})
+	}, defaultAuditParamPolicy())
 
 	assert.False(t, event.Success)
 	assert.Equal(t, "invalid request: missing tool name", event.ErrorMessage)
@@ -760,7 +881,7 @@ func TestBuildMCPAuditEvent_AuditOutcomeMetaOverride(t *testing.T) {
 				Result:    result,
 				StartTime: time.Now(),
 				Duration:  time.Millisecond,
-			})
+			}, defaultAuditParamPolicy())
 
 			assert.Equal(t, tc.wantSuccess, event.Success, "Success")
 			assert.Equal(t, tc.wantCategory, event.ErrorCategory, "ErrorCategory")
