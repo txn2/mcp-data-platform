@@ -40,6 +40,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/datahubapi"
+	"github.com/txn2/mcp-data-platform/pkg/ratelimit"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 	"github.com/txn2/mcp-data-platform/pkg/session"
@@ -389,7 +390,9 @@ func startHTTPServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Pla
 	// on. The admin API mounted just above is the loopback surface it targets.
 
 	// Mount portal API if enabled
-	mountPortalAPI(mux, p)
+	if err := mountPortalAPI(mux, p); err != nil {
+		return err
+	}
 
 	// Mount managed resources API if enabled
 	mountResourcesAPI(mux, p)
@@ -674,13 +677,21 @@ func portalDisabled(p *platform.Platform) bool {
 	return e != nil && !*e
 }
 
-func mountPortalAPI(mux *http.ServeMux, p *platform.Platform) {
+func mountPortalAPI(mux *http.ServeMux, p *platform.Platform) error {
 	if p == nil || portalDisabled(p) {
-		return
+		return nil
 	}
 	if p.PortalAssetStore() == nil || p.PortalShareStore() == nil {
 		log.Println("Portal enabled but stores not available (database required)")
-		return
+		return nil
+	}
+
+	// Build the trusted-proxy-aware client-IP resolver for the public viewer's
+	// rate limiter (#904). A malformed CIDR is a boot-time configuration error
+	// surfaced here, the genuine startup path for the portal.
+	rlResolver, err := portalRateLimitResolver(p.Config().Portal.RateLimit)
+	if err != nil {
+		return err
 	}
 
 	var portalAuthOpts []portal.AuthenticatorOption
@@ -696,14 +707,7 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform) {
 		}
 	}
 
-	// Platform brand (far right): prefer mcpapps platform-info config, then portal title.
-	brandName := mcpappsBrandName(p)
-	if brandName == "" {
-		brandName = p.Config().Portal.Title
-	}
-	if brandName == "" {
-		brandName = p.Config().Server.Name
-	}
+	brandName := portalBrandName(p)
 
 	deps := portal.Deps{
 		AssetStore:                  p.PortalAssetStore(),
@@ -720,6 +724,7 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform) {
 			RequestsPerMinute: p.Config().Portal.RateLimit.RequestsPerMinute,
 			BurstSize:         p.Config().Portal.RateLimit.BurstSize,
 		},
+		RateLimitResolver:  rlResolver,
 		OIDCEnabled:        p.BrowserSessionFlow() != nil,
 		AdminRoles:         adminRoles,
 		Authenticator:      portalAuth,
@@ -740,6 +745,50 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform) {
 	mux.Handle("/api/v1/portal/", handler)
 	mux.Handle("/portal/view/", handler)
 	log.Println("Portal API enabled on /api/v1/portal/")
+	return nil
+}
+
+// portalBrandName resolves the platform brand shown in the public viewer
+// header (far right): prefer the mcpapps platform-info config, then the portal
+// title, then the server name.
+func portalBrandName(p *platform.Platform) string {
+	if name := mcpappsBrandName(p); name != "" {
+		return name
+	}
+	if title := p.Config().Portal.Title; title != "" {
+		return title
+	}
+	return p.Config().Server.Name
+}
+
+// portalRateLimitResolver builds the public viewer's trusted-proxy-aware
+// client-IP resolver from the portal rate-limit config (#904). An empty
+// trusted-proxy list yields the safe trust-none default (direct peer address;
+// X-Forwarded-For ignored). A malformed CIDR is a configuration error wrapped
+// for the boot path. It also emits the untrusted-proxy footgun warning.
+func portalRateLimitResolver(cfg platform.PortalRateLimitConfig) (*ratelimit.Resolver, error) {
+	resolver, err := ratelimit.NewResolver(cfg.TrustedProxies)
+	if err != nil {
+		return nil, fmt.Errorf("portal rate limiter: %w", err)
+	}
+	warnOnUntrustedPortalRateLimit(cfg.TrustedProxies)
+	return resolver, nil
+}
+
+// warnOnUntrustedPortalRateLimit surfaces the portal rate-limiting footgun at
+// boot, mirroring the OAuth endpoints: with no trusted proxies configured,
+// client attribution falls back to the direct peer address. Behind a reverse
+// proxy or k8s ingress every client shares the proxy's IP, so the per-client
+// limit collapses onto one bucket. The global backstop still bounds total
+// load; the operator should set portal.rate_limit.trusted_proxies to restore
+// per-client fairness.
+func warnOnUntrustedPortalRateLimit(trustedProxies []string) {
+	if len(trustedProxies) == 0 {
+		log.Println("Portal rate limiting is on but portal.rate_limit.trusted_proxies is empty: " +
+			"behind a reverse proxy or ingress every client shares the proxy IP, so per-client " +
+			"limiting collapses to a single bucket. Set portal.rate_limit.trusted_proxies to your " +
+			"proxy/ingress CIDRs (the global backstop still bounds total load meanwhile).")
+	}
 }
 
 // mountResourcesAPI registers the managed resources REST API on the mux if enabled.

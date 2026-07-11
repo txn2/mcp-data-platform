@@ -16,6 +16,7 @@ cmd/mcp-data-platform -> pkg/pkcestore
 cmd/mcp-data-platform -> pkg/platform
 cmd/mcp-data-platform -> pkg/portal
 cmd/mcp-data-platform -> pkg/portal/datahubapi
+cmd/mcp-data-platform -> pkg/ratelimit
 cmd/mcp-data-platform -> pkg/registry
 cmd/mcp-data-platform -> pkg/resource
 cmd/mcp-data-platform -> pkg/session

@@ -2,62 +2,87 @@ package portal
 
 import (
 	"net/http"
-	"strings"
+	"strconv"
 
 	"github.com/txn2/mcp-data-platform/pkg/ratelimit"
 )
 
 // RateLimitConfig configures the public portal viewer's rate limiter. It is
 // an alias for the shared ratelimit.Config so there is one config shape and
-// one token-bucket implementation across the platform.
+// one token-bucket implementation across the platform. Client-IP attribution
+// is supplied separately as a ratelimit.Resolver (see NewRateLimiter) rather
+// than baked into this config, mirroring how the OAuth endpoints compose the
+// two.
 type RateLimitConfig = ratelimit.Config
 
-// RateLimiter provides per-IP token-bucket rate limiting for the public
-// portal viewer, delegating the bucket accounting to the shared
-// pkg/ratelimit implementation while keeping the portal's existing
-// leftmost-X-Forwarded-For client attribution (see clientIP). The portal's
-// public endpoints serve cached asset blobs behind the same trust boundary
-// as the rest of the portal, so its abuse-protection threat model differs
-// from the OAuth endpoints, which use trusted-proxy-aware attribution.
+// Public portal viewer per-IP rate-limit defaults, applied when the config
+// leaves a field non-positive (the common no-`portal.rate_limit`-block case:
+// applyPortalDefaults does not seed these). They must be applied BEFORE
+// building the HTTPLimiter: ratelimit.NewHTTPLimiter sizes the global backstop
+// as rate*globalBackstopFactor, so passing a zero rate would default the
+// backstop from zero to the per-IP default (60/10) instead of the intended
+// 10x (600/100), silently collapsing the aggregate cap. Mirrors the OAuth
+// path's orDefault step (pkg/oauth/ratelimit.go).
+const (
+	defaultPortalRPM   = 60
+	defaultPortalBurst = 10
+)
+
+// RateLimiter provides two-layer rate limiting for the public portal viewer:
+// a per-client-IP bucket for fairness and a global backstop that bounds total
+// throughput regardless of client attribution. It delegates both to the
+// shared ratelimit.HTTPLimiter so the portal gets the same spoof-resistant,
+// trusted-proxy-aware client attribution and global-saturation guard as the
+// OAuth endpoints (#904). The public viewer serves cached asset blobs to
+// unauthenticated callers, so an attacker who can mint unlimited per-IP
+// buckets by rotating a spoofed X-Forwarded-For would otherwise defeat the
+// per-IP limit outright; the resolver closes that hole and the global bucket
+// bounds the overflow.
 type RateLimiter struct {
-	lim *ratelimit.Limiter
+	lim *ratelimit.HTTPLimiter
 }
 
-// NewRateLimiter creates a rate limiter from config.
-func NewRateLimiter(cfg RateLimitConfig) *RateLimiter {
-	return &RateLimiter{lim: ratelimit.New(cfg)}
+// NewRateLimiter creates a rate limiter from config and a client-IP resolver.
+// A nil resolver yields the safe trust-none default: the direct peer address
+// is used and X-Forwarded-For is ignored (matching ratelimit.NewResolver(nil),
+// which never errors on nil input). Callers that trust a proxy topology build
+// the resolver from a trusted-proxy CIDR list and pass it in.
+func NewRateLimiter(cfg RateLimitConfig, resolver *ratelimit.Resolver) *RateLimiter {
+	if resolver == nil {
+		resolver, _ = ratelimit.NewResolver(nil)
+	}
+	// Apply per-IP defaults here (not inside the limiter) so the global backstop
+	// is sized off the resolved rate rather than zero. See the const block above.
+	rpm := cfg.RequestsPerMinute
+	if rpm <= 0 {
+		rpm = defaultPortalRPM
+	}
+	burst := cfg.BurstSize
+	if burst <= 0 {
+		burst = defaultPortalBurst
+	}
+	return &RateLimiter{
+		lim: ratelimit.NewHTTPLimiter(rpm, burst, resolver),
+	}
 }
 
-// Allow checks whether a request from the given IP should be allowed.
-func (rl *RateLimiter) Allow(ip string) bool { return rl.lim.Allow(ip) }
+// Allow reports whether the request should be admitted, consuming a token from
+// both the per-IP and global buckets on admission. Client-IP attribution is
+// delegated to the resolver, so a spoofed X-Forwarded-For no longer mints a
+// fresh per-IP bucket.
+func (rl *RateLimiter) Allow(r *http.Request) bool { return rl.lim.Allow(r) }
 
-// Close stops the background cleanup goroutine.
+// Close stops the background cleanup goroutines.
 func (rl *RateLimiter) Close() { rl.lim.Close() }
 
 // Middleware wraps an http.Handler with rate limiting.
 func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip := clientIP(r)
-		if !rl.lim.Allow(ip) {
+		if !rl.Allow(r) {
+			w.Header().Set("Retry-After", strconv.Itoa(rl.lim.RetryAfter()))
 			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
-}
-
-// clientIP extracts the client IP, respecting X-Forwarded-For.
-func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// First entry is the original client.
-		if ip, _, ok := strings.Cut(xff, ","); ok {
-			return strings.TrimSpace(ip)
-		}
-		return strings.TrimSpace(xff)
-	}
-	// Strip port from RemoteAddr.
-	if host, _, ok := strings.Cut(r.RemoteAddr, ":"); ok {
-		return host
-	}
-	return r.RemoteAddr
 }

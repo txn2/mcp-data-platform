@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"log/slog"
 	"net"
 	"net/http"
@@ -1419,6 +1420,90 @@ func TestMountPortalUI_NoAssets(t *testing.T) {
 	mountPortalUI(mux, p, false) // no assets available
 }
 
+func TestMountPortalAPI_Disabled(t *testing.T) {
+	p := newTestPlatform(t, &platform.Config{
+		Server: platform.ServerConfig{Name: "test"},
+		Portal: platform.PortalConfig{Enabled: new(false)},
+	})
+	defer func() { _ = p.Close() }()
+
+	mux := http.NewServeMux()
+	if err := mountPortalAPI(mux, p); err != nil {
+		t.Fatalf("mountPortalAPI() disabled = %v, want nil", err)
+	}
+}
+
+func TestMountPortalAPI_NoStores(t *testing.T) {
+	// Portal enabled but no database means no asset/share stores, so the API is
+	// not mounted and no error is returned.
+	p := newTestPlatform(t, &platform.Config{
+		Server: platform.ServerConfig{Name: "test"},
+		Portal: platform.PortalConfig{Enabled: new(true)},
+	})
+	defer func() { _ = p.Close() }()
+
+	mux := http.NewServeMux()
+	if err := mountPortalAPI(mux, p); err != nil {
+		t.Fatalf("mountPortalAPI() no stores = %v, want nil", err)
+	}
+}
+
+func TestPortalRateLimitResolver(t *testing.T) {
+	t.Run("valid trusted proxies", func(t *testing.T) {
+		r, err := portalRateLimitResolver(platform.PortalRateLimitConfig{
+			TrustedProxies: []string{"10.0.0.0/8"},
+		})
+		if err != nil {
+			t.Fatalf("portalRateLimitResolver() = %v, want nil", err)
+		}
+		if r == nil {
+			t.Fatal("portalRateLimitResolver() returned nil resolver")
+		}
+	})
+
+	t.Run("empty trusts none", func(t *testing.T) {
+		r, err := portalRateLimitResolver(platform.PortalRateLimitConfig{})
+		if err != nil {
+			t.Fatalf("portalRateLimitResolver() = %v, want nil", err)
+		}
+		if r == nil {
+			t.Fatal("portalRateLimitResolver() returned nil resolver")
+		}
+	})
+
+	t.Run("malformed CIDR errors", func(t *testing.T) {
+		_, err := portalRateLimitResolver(platform.PortalRateLimitConfig{
+			TrustedProxies: []string{"not-a-cidr"},
+		})
+		if err == nil {
+			t.Fatal("portalRateLimitResolver() malformed CIDR = nil, want error")
+		}
+		if !strings.Contains(err.Error(), "portal rate limiter") {
+			t.Errorf("error %q missing 'portal rate limiter' context", err.Error())
+		}
+	})
+}
+
+func TestWarnOnUntrustedPortalRateLimit(t *testing.T) {
+	// The warning fires only when no trusted proxies are configured. Capture the
+	// standard logger's output to assert on the message rather than just that
+	// the call does not panic.
+	var buf bytes.Buffer
+	orig := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(orig)
+
+	warnOnUntrustedPortalRateLimit([]string{"10.0.0.0/8"})
+	if buf.Len() != 0 {
+		t.Errorf("warn with trusted proxies emitted output: %q", buf.String())
+	}
+
+	warnOnUntrustedPortalRateLimit(nil)
+	if !strings.Contains(buf.String(), "trusted_proxies is empty") {
+		t.Errorf("warn with empty trusted proxies missing expected message, got: %q", buf.String())
+	}
+}
+
 func TestMcpappsBrandName(t *testing.T) {
 	t.Run("returns brand_name from mcpapps config", func(t *testing.T) {
 		p := newTestPlatform(t, &platform.Config{
@@ -1467,6 +1552,48 @@ func TestMcpappsBrandName(t *testing.T) {
 		got := mcpappsBrandName(p)
 		if got != "" {
 			t.Errorf("mcpappsBrandName() = %q, want empty", got)
+		}
+	})
+}
+
+func TestPortalBrandName(t *testing.T) {
+	t.Run("prefers mcpapps brand_name", func(t *testing.T) {
+		p := newTestPlatform(t, &platform.Config{
+			Server: platform.ServerConfig{Name: "server-name"},
+			Portal: platform.PortalConfig{Title: "portal-title"},
+			MCPApps: platform.MCPAppsConfig{
+				Apps: map[string]platform.AppConfig{
+					"platform-info": {Config: map[string]any{"brand_name": "Plexara"}},
+				},
+			},
+		})
+		defer func() { _ = p.Close() }()
+
+		if got := portalBrandName(p); got != "Plexara" {
+			t.Errorf("portalBrandName() = %q, want %q", got, "Plexara")
+		}
+	})
+
+	t.Run("falls back to portal title", func(t *testing.T) {
+		p := newTestPlatform(t, &platform.Config{
+			Server: platform.ServerConfig{Name: "server-name"},
+			Portal: platform.PortalConfig{Title: "portal-title"},
+		})
+		defer func() { _ = p.Close() }()
+
+		if got := portalBrandName(p); got != "portal-title" {
+			t.Errorf("portalBrandName() = %q, want %q", got, "portal-title")
+		}
+	})
+
+	t.Run("falls back to server name", func(t *testing.T) {
+		p := newTestPlatform(t, &platform.Config{
+			Server: platform.ServerConfig{Name: "server-name"},
+		})
+		defer func() { _ = p.Close() }()
+
+		if got := portalBrandName(p); got != "server-name" {
+			t.Errorf("portalBrandName() = %q, want %q", got, "server-name")
 		}
 	})
 }
