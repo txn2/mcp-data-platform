@@ -125,7 +125,7 @@ This stack is built for OLAP: S3 stores petabytes at low cost, Trino runs analyt
 
 ## Prerequisites
 
-- Go 1.24+ (for building from source)
+- Go 1.26+ (for building from source)
 - An MCP-compatible client (Claude Desktop, Claude Code, or custom)
 - Access to Trino, DataHub, and/or S3 services you want to connect
 
@@ -136,6 +136,14 @@ This stack is built for OLAP: S3 stores petabytes at low cost, Trino runs analyt
 ```bash
 go install github.com/txn2/mcp-data-platform/cmd/mcp-data-platform@latest
 ```
+
+Note: `go install` and plain `go build` do not embed the web portal UI. The
+portal SPA is compiled in via `//go:embed` from `internal/ui/dist/`, which is
+populated only by the release build or `make frontend-build` and is empty in a
+plain source checkout. Such a binary has a working MCP server and admin REST
+API but no portal. For the full product use the released binaries, Homebrew, the
+Docker images, or run `make frontend-build` (requires Node.js 22) before
+`go build`.
 
 ### Homebrew (macOS)
 
@@ -351,6 +359,26 @@ workflow:
 | `workflow.query_tools` | array | `trino_query`, `trino_execute` | Tool names gated by discovery |
 
 `require_search` replaces the former `workflow.require_discovery_before_query` and its warn-after-execution behavior (breaking rename, not aliased). It is a hard gate: a deployment that never touched workflow gating will begin refusing `trino_query`/`trino_execute` until `search` is called once per session. The older `tuning.rules.require_datahub_check` static hint has been removed.
+
+## Session Gate Configuration
+
+A hard gate that refuses every non-exempt tool until the agent calls the session-initialization tool (`platform_info` by default) once in the session. Before the init tool runs, any other tool call is short-circuited before its handler executes and a `SETUP_REQUIRED` error result is returned (error category `setup_required`) telling the agent to call the init tool first, then retry. Once the init tool has been called, subsequent tool calls proceed until the session TTL expires. Unlike the default-on `*bool` sections, this gate is off by default: `enabled` is a plain bool, so an absent `session_gate` block means disabled.
+
+```yaml
+session_gate:
+  enabled: true                     # Default: false. true activates the gate.
+  init_tool: platform_info          # Tool that initializes the session (default: platform_info)
+  exempt_tools:                     # Tools that bypass the gate entirely
+    - list_connections
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `session_gate.enabled` | bool | `false` | Activate the session-initialization gate. |
+| `session_gate.init_tool` | string | `platform_info` | Tool that initializes a session; always exempt from the gate. |
+| `session_gate.exempt_tools` | array | (empty) | Tool names that bypass the gate and may be called before the init tool. |
+
+The gate's session-initialized memory expires after the session TTL, derived from `sessions.ttl` (falling back to the Streamable HTTP session timeout), not from a field on this block. The session gate is distinct from the search-first gate: the session gate requires an init tool (`platform_info`) before any tool; the search-first gate requires a discovery tool (`search`) before query tools. When explicit session handles (`sessions.handles`) are enabled, the session gate is skipped and handle resolution enforces initialization instead, carrying the gate's `exempt_tools` into the handle resolver.
 
 ## Portal Configuration
 
