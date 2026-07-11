@@ -33,6 +33,16 @@ import (
 // registered on t. The test is skipped in -short mode. The pgvector image is
 // required because the migration set creates the `vector` extension (000031+).
 func New(t *testing.T) *sql.DB {
+	db, _ := NewWithDSN(t)
+	return db
+}
+
+// NewWithDSN is New that also returns the container's connection string. Use it
+// when a test needs to hand the DSN to a component that opens its own pool (for
+// example platform.New, which wires stores only from config.Database.DSN). The
+// returned *sql.DB is already migrated; a second opener re-runs the idempotent
+// migrations against the same schema.
+func NewWithDSN(t *testing.T) (*sql.DB, string) {
 	t.Helper()
 	if testing.Short() {
 		t.Skip("skipping real-DB integration test in short mode")
@@ -69,5 +79,5 @@ func New(t *testing.T) *sql.DB {
 	if err := migrate.Run(db); err != nil {
 		t.Fatalf("run migrations: %v", err)
 	}
-	return db
+	return db, dsn
 }

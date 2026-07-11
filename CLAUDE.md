@@ -214,6 +214,7 @@ mcp-data-platform/
 │   ├── urnbuild/                   # Constructs DataHub dataset URNs from query-engine table identifiers
 │   └── user/                       # Directory of known people keyed by email
 ├── internal/                       # Non-exported implementation (not part of the supported library surface)
+│   ├── httpserver/                  # HTTP composition root: mux/route assembly (MCP streamable+SSE, OAuth, admin/portal/resources/gateway/observability REST, portal UI), CORS, drain/shutdown sequencing — extracted from main.go (#895)
 │   ├── platform/                   # Facade-internal seams composed only by pkg/platform (mwchain, iam, sessionsync, oauthserver, ... — 23 packages moved out of the public surface, #894)
 │   └── server/                     # Server factory (server.go)
 ├── configs/                        # Example configurations

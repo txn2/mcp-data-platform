@@ -39,8 +39,8 @@ func NewLifecycle() *Lifecycle {
 //
 // If the lifecycle has already been started, the start callback is invoked
 // immediately with context.Background() and any error is logged. This
-// handles late-wiring paths (toolkit setup that happens inside
-// startHTTPServer, after platform.Start has already run) which otherwise
+// handles late-wiring paths (toolkit setup that happens inside the HTTP
+// server assembly, after platform.Start has already run) which otherwise
 // silently never fire. The stop callback still runs at shutdown.
 func (l *Lifecycle) OnComponent(start, stop func(context.Context) error) {
 	l.mu.Lock()
