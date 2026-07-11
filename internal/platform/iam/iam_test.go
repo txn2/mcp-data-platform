@@ -7,10 +7,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/iam"
 	"github.com/txn2/mcp-data-platform/pkg/auth"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
-	"github.com/txn2/mcp-data-platform/pkg/platform/iam"
 )
 
 // signingKey is any non-empty HMAC key; NewOAuthJWTAuthenticator only requires

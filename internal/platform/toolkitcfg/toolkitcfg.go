@@ -12,7 +12,7 @@ package toolkitcfg
 import (
 	"time"
 
-	"github.com/txn2/mcp-data-platform/pkg/platform/cfgmap"
+	"github.com/txn2/mcp-data-platform/internal/platform/cfgmap"
 	"github.com/txn2/mcp-data-platform/pkg/platform/fieldcrypt"
 )
 

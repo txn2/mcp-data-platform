@@ -8,8 +8,8 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/indexqueue"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
-	"github.com/txn2/mcp-data-platform/pkg/platform/indexqueue"
 )
 
 // stubFindEmbedder is a configured (non-noop) embedding provider that

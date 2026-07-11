@@ -17,9 +17,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/dedup"
+	"github.com/txn2/mcp-data-platform/internal/platform/reflexivecapture"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
-	"github.com/txn2/mcp-data-platform/pkg/platform/dedup"
-	"github.com/txn2/mcp-data-platform/pkg/platform/reflexivecapture"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	datahubsemantic "github.com/txn2/mcp-data-platform/pkg/semantic/datahub"
 )

@@ -35,7 +35,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	s3client "github.com/txn2/mcp-s3/pkg/client"
 
-	"github.com/txn2/mcp-data-platform/pkg/platform/toolkitcfg"
+	"github.com/txn2/mcp-data-platform/internal/platform/toolkitcfg"
 	"github.com/txn2/mcp-data-platform/pkg/portal/s3adapter"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )

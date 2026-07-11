@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/obs"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
-	"github.com/txn2/mcp-data-platform/pkg/platform/obs"
 	apigatewaykit "github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 
 	"github.com/txn2/mcp-data-platform/pkg/observability"

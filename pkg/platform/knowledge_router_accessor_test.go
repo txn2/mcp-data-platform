@@ -3,8 +3,8 @@ package platform
 import (
 	"testing"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/searchfed"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
-	"github.com/txn2/mcp-data-platform/pkg/platform/searchfed"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 )
 
