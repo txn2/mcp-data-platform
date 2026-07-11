@@ -11,10 +11,8 @@ import (
 type PKCEMethod string
 
 const (
-	// PKCEMethodPlain uses plain text (not recommended).
-	PKCEMethodPlain PKCEMethod = "plain"
-
-	// PKCEMethodS256 uses SHA-256 hashing (recommended).
+	// PKCEMethodS256 uses SHA-256 hashing. Per OAuth 2.1 it is the only
+	// supported code challenge method; the "plain" method is not accepted.
 	PKCEMethodS256 PKCEMethod = "S256"
 
 	// pkceMinLength is the minimum length for code verifiers and challenges per RFC 7636.
@@ -61,8 +59,6 @@ func GenerateCodeChallenge(verifier string, method PKCEMethod) (string, error) {
 	}
 
 	switch method {
-	case PKCEMethodPlain:
-		return verifier, nil
 	case PKCEMethodS256:
 		hash := sha256.Sum256([]byte(verifier))
 		return base64.RawURLEncoding.EncodeToString(hash[:]), nil

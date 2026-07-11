@@ -158,6 +158,68 @@ func TestHandleAuthorizeEndpoint(t *testing.T) {
 			t.Errorf("expected client_id=mcp-server, got %s", u.Query().Get("client_id"))
 		}
 	})
+
+	// #892: OAuth 2.1 supports only the S256 code challenge method. A request
+	// using code_challenge_method=plain must be rejected at /authorize with an
+	// invalid_request error; an S256 request continues to succeed.
+	const pkceChallenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+
+	t.Run("plain code_challenge_method rejected", func(t *testing.T) {
+		storage := NewMemoryStorage()
+		_ = storage.CreateClient(context.Background(), client)
+		server, _ := NewServer(ServerConfig{
+			Issuer: "http://localhost:8080",
+			Upstream: &UpstreamConfig{
+				Issuer:       "http://keycloak:8180/realms/test",
+				ClientID:     testUpstreamClient,
+				ClientSecret: "secret",
+				RedirectURI:  "http://localhost:8080/oauth/callback",
+			},
+		}, storage)
+
+		target := "/oauth/authorize?response_type=code&client_id=client-123&redirect_uri=http://localhost:8080/callback&state=mystate&code_challenge=" + pkceChallenge + "&code_challenge_method=plain"
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, target, http.NoBody)
+		w := httptest.NewRecorder()
+		server.ServeHTTP(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected status 400 for plain method, got %d", w.Code)
+		}
+
+		var errResp ErrorResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &errResp); err != nil {
+			t.Fatalf("failed to decode error response: %v", err)
+		}
+		if errResp.Error != errInvalidRequest {
+			t.Errorf("expected error=%q, got %q", errInvalidRequest, errResp.Error)
+		}
+	})
+
+	t.Run("S256 code_challenge_method succeeds", func(t *testing.T) {
+		storage := NewMemoryStorage()
+		_ = storage.CreateClient(context.Background(), client)
+		server, _ := NewServer(ServerConfig{
+			Issuer: "http://localhost:8080",
+			Upstream: &UpstreamConfig{
+				Issuer:       "http://keycloak:8180/realms/test",
+				ClientID:     testUpstreamClient,
+				ClientSecret: "secret",
+				RedirectURI:  "http://localhost:8080/oauth/callback",
+			},
+		}, storage)
+
+		target := "/oauth/authorize?response_type=code&client_id=client-123&redirect_uri=http://localhost:8080/callback&state=mystate&code_challenge=" + pkceChallenge + "&code_challenge_method=S256"
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, target, http.NoBody)
+		w := httptest.NewRecorder()
+		server.ServeHTTP(w, req)
+
+		if w.Code != http.StatusFound {
+			t.Fatalf("expected status 302 for S256 method, got %d", w.Code)
+		}
+		if u, _ := url.Parse(w.Header().Get("Location")); u.Host != testKeycloakHost {
+			t.Errorf("expected redirect to keycloak, got %s", u.Host)
+		}
+	})
 }
 
 func TestHandleCallbackEndpoint(t *testing.T) {

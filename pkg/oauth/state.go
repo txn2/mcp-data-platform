@@ -21,7 +21,7 @@ type AuthorizationState struct {
 	// CodeChallenge is the PKCE challenge from the client.
 	CodeChallenge string
 
-	// CodeChallengeMethod is the PKCE method (S256 or plain).
+	// CodeChallengeMethod is the PKCE method (S256; the only supported method).
 	CodeChallengeMethod string
 
 	// Scope is the requested scope.
