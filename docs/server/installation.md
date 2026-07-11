@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Go 1.24+ (for building from source)
+- Go 1.26+ (for building from source)
 - An MCP-compatible client (Claude Desktop, Claude Code, or custom)
 - Access to Trino, DataHub, and/or S3 services you want to connect
 
@@ -21,6 +21,20 @@ go install github.com/txn2/mcp-data-platform/cmd/mcp-data-platform@latest
 
 This installs the binary to your `$GOPATH/bin` directory.
 
+!!! warning "`go install` and `go build` omit the web portal"
+    The portal single-page app is compiled into the binary via `//go:embed`
+    from `internal/ui/dist/`, which is populated only by the release build
+    (or `make frontend-build`) and is empty in a plain source checkout.
+    A binary built with plain `go install` or `go build` therefore has a
+    fully working MCP server and admin REST API but **no embedded portal UI**.
+
+    For the full product including the portal, use one of:
+
+    - the released binaries (GitHub Releases) or Homebrew,
+    - the Docker images (`ghcr.io/txn2/mcp-data-platform`), or
+    - a source build that runs `make frontend-build` before `go build`
+      (requires Node.js 22).
+
 ### Homebrew (macOS)
 
 ```bash
@@ -34,8 +48,12 @@ Clone and build:
 ```bash
 git clone https://github.com/txn2/mcp-data-platform.git
 cd mcp-data-platform
+make frontend-build   # build the portal SPA into internal/ui/dist (requires Node.js 22)
 go build -o mcp-data-platform ./cmd/mcp-data-platform
 ```
+
+Omit `make frontend-build` and the resulting binary has no embedded portal UI
+(see the note under [Go Install](#go-install) above).
 
 ### Docker
 

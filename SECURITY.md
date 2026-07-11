@@ -4,9 +4,10 @@
 
 We release patches for security vulnerabilities in the following versions:
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 0.x.x   | :white_check_mark: |
+| Version            | Supported |
+| ------------------ | --------- |
+| 1.x (latest minor) | Yes       |
+| < 1.0              | No        |
 
 ## Reporting a Vulnerability
 

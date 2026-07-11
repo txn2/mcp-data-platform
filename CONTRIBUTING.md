@@ -10,9 +10,9 @@ By participating in this project, you agree to maintain a respectful and inclusi
 
 ### Prerequisites
 
-- Go 1.24 or later
-- golangci-lint (for linting)
-- gosec (for security scanning)
+- Go 1.26 or later
+- golangci-lint (for linting; pinned version, see below)
+- gosec (for security scanning; pinned version, see below)
 
 ### Setting Up Development Environment
 
@@ -28,11 +28,22 @@ By participating in this project, you agree to maintain a respectful and inclusi
    ```
 
 3. Install development tools:
+
+   `golangci-lint` and `gosec` must match the versions pinned in the
+   [`Makefile`](Makefile) (`GOLANGCI_LINT_VERSION` and `GOSEC_VERSION`). The
+   `tools-check` gate in `make verify` hard-fails on any mismatch, so installing
+   `@latest` will block your build. Install the pinned versions:
+
    ```bash
-   go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-   go install github.com/securego/gosec/v2/cmd/gosec@latest
+   # Versions must equal the pins in the Makefile (currently v2.11.4 / v2.27.1).
+   go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4
+   go install github.com/securego/gosec/v2/cmd/gosec@v2.27.1
    go install golang.org/x/vuln/cmd/govulncheck@latest
    ```
+
+   Run `make tools-check` to verify your installed versions match the pins; it
+   prints the exact install command for anything missing or mismatched. Treat
+   the Makefile as the source of truth if the versions above have since moved.
 
 4. Verify your setup:
    ```bash

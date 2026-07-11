@@ -820,6 +820,34 @@ workflow:
 !!! warning "Behavior change"
     `require_search` replaces the former `workflow.require_discovery_before_query` and its warn-after-execution behavior. It is a breaking rename (not aliased) and a hard gate: a deployment that never touched workflow gating will begin refusing `trino_query`/`trino_execute` until `search` is called once per session. The older `tuning.rules.require_datahub_check` static hint has been removed.
 
+## Session Gate Configuration
+
+A hard gate that refuses **every** non-exempt tool until the agent calls the session-initialization tool (`platform_info` by default) once in the session. Before the init tool has run, any other tool call is short-circuited before its handler executes and a `SETUP_REQUIRED` error result is returned (error category `setup_required`) telling the agent to call the init tool first, then retry. Once the init tool has been called in a session, subsequent tool calls proceed normally until the session's TTL expires.
+
+Unlike most platform sections, this gate is **off by default**: `enabled` is a plain `bool`, so an absent `session_gate` block means the gate is disabled (it does not follow the default-on `*bool` convention used by sections like `progress` or `audit`).
+
+```yaml
+session_gate:
+  enabled: true                     # Default: false. true activates the gate.
+  init_tool: platform_info          # Tool that initializes the session (default: platform_info)
+  exempt_tools:                     # Tools that bypass the gate entirely
+    - list_connections
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `false` | Activate the session-initialization gate. |
+| `init_tool` | string | `platform_info` | The tool that initializes a session. Calling it records the session as initialized; it is always exempt from the gate. |
+| `exempt_tools` | array | (empty) | Tool names that bypass the gate and may be called before the init tool. |
+
+The gate's memory of an initialized session expires after the session TTL, which is derived from [Session Configuration](#session-configuration) (`sessions.ttl`, falling back to the Streamable HTTP session timeout) rather than from a field on this block.
+
+!!! note "Distinct from the search-first gate"
+    The session gate and the [search-first gate](#search-first-gate-configuration) are independent. The session gate requires an **init** tool (`platform_info`) before *any* tool; the search-first gate requires a **discovery** tool (`search`) before *query* tools. Both can be enabled at once.
+
+!!! note "Superseded by explicit session handles"
+    When [explicit session handles](#explicit-session-handles) (`sessions.handles`) are enabled, the session gate is skipped: handle resolution enforces initialization instead, and the gate's `exempt_tools` are carried into the handle resolver. Enabling both does not double-gate.
+
 ## Semantic and Query Provider Configuration
 
 Specify which toolkit instance provides semantic metadata and query execution:
