@@ -10,22 +10,29 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/apigateway"
 )
+
+// connBroadcast records a single connection reload broadcast, including the
+// upsert/delete op so tests can assert the intent reaches peers.
+type connBroadcast struct {
+	kind, name, op string
+}
 
 // fakeReloadNotifier records the cross-replica reload broadcasts the
 // admin handler emits after a local config change.
 type fakeReloadNotifier struct {
 	catalogs []string
-	conns    [][2]string
+	conns    []connBroadcast
 	personas int
 	apikeys  int
 }
 
 func (f *fakeReloadNotifier) PublishCatalogReload(id string) { f.catalogs = append(f.catalogs, id) }
-func (f *fakeReloadNotifier) PublishConnectionReload(kind, name string) {
-	f.conns = append(f.conns, [2]string{kind, name})
+func (f *fakeReloadNotifier) PublishConnectionReload(kind, name string, op platform.ConnectionReloadOp) {
+	f.conns = append(f.conns, connBroadcast{kind, name, op.String()})
 }
 func (f *fakeReloadNotifier) PublishPersonaReload() { f.personas++ }
 func (f *fakeReloadNotifier) PublishAPIKeyReload()  { f.apikeys++ }
@@ -51,8 +58,11 @@ func TestReloadNotifier_PublishedOnAdminChange(t *testing.T) {
 	h.hotRemoveConnection("api", "c1")
 
 	require.Equal(t, []string{"things"}, notifier.catalogs, "catalog reload should broadcast")
-	require.Equal(t, [][2]string{{"api", "c1"}, {"api", "c1"}}, notifier.conns,
-		"connection add and remove should each broadcast")
+	require.Equal(t, []connBroadcast{
+		{"api", "c1", "upsert"},
+		{"api", "c1", "delete"},
+	}, notifier.conns,
+		"connection add broadcasts an upsert and remove broadcasts a delete")
 }
 
 // TestReloadNotifier_PersonaBroadcast proves a persona create and delete

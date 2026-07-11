@@ -2455,6 +2455,8 @@ Database-managed toolkit connections. Read endpoints always available; write end
 - `PUT /connection-instances/{kind}/{name}` — Create or update connection instance (database mode only, valid kinds: trino, datahub, s3)
 - `DELETE /connection-instances/{kind}/{name}` — Delete connection instance (database mode only)
 
+Connection changes hot-reload on the handling replica and broadcast to peers over the reload bus; the reconcile mechanics (find toolkits of the kind, remove/add) are shared by the admin path and the peer subscriber (`pkg/connreconcile`). The broadcast carries the operation: create/update makes peers read the store for the new config (a peer keeps its live config if that read transiently fails, rather than dropping it), while delete makes peers remove the connection without any store read (so a transient peer store failure can never leave a deleted connection callable). A delete broadcast from a pre-upgrade replica falls back to the read-and-decide path on newer replicas.
+
 ## Audit Endpoints
 
 Requires `audit.enabled: true` and database. Returns 409 without database.

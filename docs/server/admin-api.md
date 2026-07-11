@@ -1270,6 +1270,28 @@ Deletes a database-managed connection instance. Only available in database confi
 
 **Response:** `204 No Content` (no body)
 
+### Cross-replica hot-reload
+
+Connection create, update, and delete take effect on the handling replica
+immediately (no restart) and are broadcast to peer replicas over the reload bus
+so a multi-replica deployment does not serve stale connections. The reconcile
+mechanics (find every live toolkit of the kind, then remove/add the connection)
+are shared by the admin hot-reload path and the peer subscriber
+(`pkg/connreconcile`) so both apply changes identically.
+
+The broadcast carries the operation so peers apply it safely:
+
+- **Create/update**: peers read the connection store for the new config and
+  re-materialize it. If a peer's store read transiently fails, that peer keeps
+  its currently-live config in place (it is not dropped over a database blip)
+  and a later reload re-materializes it.
+- **Delete**: peers remove the connection from their live toolkits **without a
+  store read**, so a transient store failure on a peer can never leave a deleted
+  connection callable there.
+
+During a rolling upgrade, a delete broadcast from an older replica that predates
+the operation tag falls back to the read-and-decide path on newer replicas.
+
 ## Gateway Endpoints
 
 Gateway connections (kind `mcp`) proxy upstream MCP servers and re-expose

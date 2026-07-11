@@ -11,7 +11,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
+	"github.com/txn2/mcp-data-platform/pkg/connreconcile"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/platform/fieldcrypt"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
@@ -685,42 +687,36 @@ func (h *Handler) findConnectionManager(kind string) toolkit.ConnectionManager {
 // connection retains its registration-time config while the DB row
 // has the new one, and list_connections and api_list_endpoints
 // disagree with the admin UI until restart.
+//
+// The toolkit-reconcile mechanics are shared with the cross-replica reload bus
+// via connreconcile so the two paths cannot drift. The peer broadcast is
+// unconditional: peers rebuild from the store (already written by the caller),
+// so a local in-memory hiccup must not suppress their notification (#501).
 func (h *Handler) hotAddConnection(kind, name string, config map[string]any) {
-	cm := h.findConnectionManager(kind)
-	if cm == nil {
-		return
-	}
-	if cm.HasConnection(name) {
-		if err := cm.RemoveConnection(name); err != nil { // #nosec G706 -- structured slog call, not a format string
-			slog.Warn("failed to hot-remove connection before re-add",
-				logKeyKind, kind, logKeyName, name, logKeyError, err)
-			return
+	for _, f := range connreconcile.New(h.deps.ToolkitRegistry).Upsert(kind, name, config) {
+		if f.Phase == connreconcile.PhaseRemove {
+			slog.Warn("failed to hot-remove connection before re-add", // #nosec G706 -- structured slog call; kind/name sanitized
+				logKeyKind, logsan.SanitizeForLog(kind), logKeyName, logsan.SanitizeForLog(name), logKeyError, f.Err)
+			continue
 		}
+		slog.Warn("failed to hot-add connection", // #nosec G706 -- structured slog call; kind/name sanitized
+			logKeyKind, logsan.SanitizeForLog(kind), logKeyName, logsan.SanitizeForLog(name), logKeyError, f.Err)
 	}
-	if err := cm.AddConnection(name, config); err != nil { // #nosec G706 -- structured slog call, not a format string
-		slog.Warn("failed to hot-add connection",
-			logKeyKind, kind, logKeyName, name, logKeyError, err)
-	}
-	// Tell peer replicas to rebuild this connection from the store too;
-	// the hot-add above only updates this replica (issue #501).
 	if h.deps.ReloadNotifier != nil {
-		h.deps.ReloadNotifier.PublishConnectionReload(kind, name)
+		h.deps.ReloadNotifier.PublishConnectionReload(kind, name, platform.ReloadUpsert)
 	}
 }
 
-// hotRemoveConnection attempts to remove the connection from a live toolkit that
-// implements toolkit.ConnectionManager.
+// hotRemoveConnection removes the connection from every live toolkit of the
+// kind that implements toolkit.ConnectionManager, then broadcasts so peers
+// reconcile from the store (now missing this row) and drop their copy (#501).
 func (h *Handler) hotRemoveConnection(kind, name string) {
-	if cm := h.findConnectionManager(kind); cm != nil && cm.HasConnection(name) {
-		if err := cm.RemoveConnection(name); err != nil { // #nosec G706 -- structured slog call, not a format string
-			slog.Warn("failed to hot-remove connection",
-				logKeyKind, kind, logKeyName, name, logKeyError, err)
-		}
+	for _, f := range connreconcile.New(h.deps.ToolkitRegistry).Remove(kind, name) {
+		slog.Warn("failed to hot-remove connection", // #nosec G706 -- structured slog call; kind/name sanitized
+			logKeyKind, logsan.SanitizeForLog(kind), logKeyName, logsan.SanitizeForLog(name), logKeyError, f.Err)
 	}
-	// Always broadcast: peer replicas reconcile from the store (now
-	// missing this row) and drop their copy of the connection (#501).
 	if h.deps.ReloadNotifier != nil {
-		h.deps.ReloadNotifier.PublishConnectionReload(kind, name)
+		h.deps.ReloadNotifier.PublishConnectionReload(kind, name, platform.ReloadDelete)
 	}
 }
 

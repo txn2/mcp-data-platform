@@ -89,7 +89,7 @@ type PromptInfoProvider interface {
 // case the broadcast is skipped.
 type ReloadNotifier interface {
 	PublishCatalogReload(catalogID string)
-	PublishConnectionReload(kind, name string)
+	PublishConnectionReload(kind, name string, op platform.ConnectionReloadOp)
 	PublishPersonaReload()
 	PublishAPIKeyReload()
 }
