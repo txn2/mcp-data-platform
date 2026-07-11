@@ -96,9 +96,10 @@ AI-generated prose (PR descriptions, commit messages, reviews, explanations) is 
    - CodeQL analysis — `security-and-quality` query suite, fails on error-level findings
    - Documentation check — warns when documentation-worthy changes lack doc updates (soft warning)
    - Dead code analysis
-   - Mutation testing (`gremlins unleash --threshold-efficacy 60`) — ≥60% kill rate
    - GoReleaser dry-run — validates build, Docker, and release config
    - All checks must pass locally before considering code "tested"
+
+   Mutation testing (`gremlins unleash --threshold-efficacy 60`, ≥60% kill rate) is deliberately **not** part of `make verify` — it is too slow for a per-commit gate (the Makefile `verify` target carries a comment forbidding its re-addition). It runs in `make verify-release` (pre-tag, local) and on a weekly schedule in CI via `.github/workflows/mutation.yml`; gremlins is version-pinned by `GREMLINS_VERSION` and enforced by tools-check like the other tools.
 
    **Parity-gap incident (2026-05-08, PR #377)**: local `gosec 2.26.1` silently dropped the G704 SSRF taint rule that CI's pinned `v2.22.0` enforces. `make verify` passed locally; CI rejected the same diff with a real SSRF bug. The tools-check version pin is the structural fix — discipline alone has been insufficient.
 

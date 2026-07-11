@@ -18,6 +18,7 @@ CV_EMBED_DIR := ./internal/contentviewer/dist
 # Tool versions — keep in sync with .github/workflows/ci.yml
 GOLANGCI_LINT_VERSION := v2.11.4
 GOSEC_VERSION := v2.27.1
+GREMLINS_VERSION := v0.6.0
 
 # Go commands
 GO := go
@@ -394,7 +395,18 @@ tools-check:
 	which semgrep > /dev/null 2>&1       || missing="$$missing  semgrep: pip3 install semgrep\n"; \
 	which codeql > /dev/null 2>&1        || missing="$$missing  codeql: brew install codeql\n"; \
 	which deadcode > /dev/null 2>&1      || missing="$$missing  deadcode: go install golang.org/x/tools/cmd/deadcode@latest\n"; \
-	which gremlins > /dev/null 2>&1      || missing="$$missing  gremlins: go install github.com/go-gremlins/gremlins/cmd/gremlins@latest\n"; \
+	if ! which gremlins > /dev/null 2>&1; then \
+		missing="$$missing  gremlins: go install github.com/go-gremlins/gremlins/cmd/gremlins@$(GREMLINS_VERSION)\n"; \
+	else \
+		v=$$(go version -m $$(which gremlins) 2>/dev/null | awk '$$1=="mod" && $$2 ~ /gremlins/ {print $$3}'); \
+		if [ -z "$$v" ] || [ "$$v" = "(devel)" ]; then \
+			v=$$(gremlins --version 2>&1 | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
+			case "$$v" in v*) ;; *) v="v$$v";; esac; \
+		fi; \
+		if [ "$$v" != "$(GREMLINS_VERSION)" ]; then \
+			mismatch="$$mismatch  gremlins: have $$v, want $(GREMLINS_VERSION) — go install github.com/go-gremlins/gremlins/cmd/gremlins@$(GREMLINS_VERSION)\n"; \
+		fi; \
+	fi; \
 	which goreleaser > /dev/null 2>&1    || missing="$$missing  goreleaser: brew install goreleaser\n"; \
 	which swag > /dev/null 2>&1          || missing="$$missing  swag: go install github.com/swaggo/swag/cmd/swag@latest\n"; \
 	if [ -n "$$missing" ]; then \

@@ -191,3 +191,9 @@ release:
     cosign verify-blob --bundle mcp-data-platform_{{ .Version }}_linux_amd64.tar.gz.sigstore.json \
       mcp-data-platform_{{ .Version }}_linux_amd64.tar.gz
     ```
+
+    Archives and checksums also carry GitHub artifact attestations. Verify with:
+    ```bash
+    gh attestation verify mcp-data-platform_{{ .Version }}_linux_amd64.tar.gz \
+      --repo txn2/mcp-data-platform
+    ```
