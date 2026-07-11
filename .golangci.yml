@@ -114,18 +114,21 @@ linters:
     depguard:
       rules:
         # pkg/admin is the top composition leaf: it wires handlers onto
-        # the assembled platform and is imported ONLY by cmd/. Nothing
-        # lower in the stack (toolkits, providers, middleware, platform)
-        # may reach up into it. A toolkit importing pkg/admin fails here.
+        # the assembled platform and is imported ONLY by the composition
+        # root — cmd/ plus internal/httpserver, the HTTP-assembly package
+        # cmd/ delegates the mux and route table to (#895). Nothing lower
+        # in the stack (toolkits, providers, middleware, platform) may
+        # reach up into it. A toolkit importing pkg/admin fails here.
         admin-is-a-leaf:
           list-mode: lax
           files:
             - "**/*.go"
             - "!**/*_test.go"
             - "!**/cmd/**"
+            - "!**/internal/httpserver/**"
           deny:
             - pkg: github.com/txn2/mcp-data-platform/pkg/admin
-              desc: "pkg/admin is a top-level composition leaf wired only by cmd/; lower layers must not import it (see CONTRIBUTING.md)."
+              desc: "pkg/admin is a top-level composition leaf wired only by the cmd/ + internal/httpserver composition root; lower layers must not import it (see CONTRIBUTING.md)."
         # Toolkits sit BELOW the platform facade: platform composes
         # toolkits, never the reverse. A toolkit importing pkg/platform
         # would invert the dependency and create the kind of fan-out the

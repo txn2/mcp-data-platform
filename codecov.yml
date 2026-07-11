@@ -21,3 +21,11 @@ ignore:
   # runtime customers, and writing unit tests for a deterministic
   # mock would be cargo-cult coverage.
   - "cmd/dev-mcp-mock/**"
+  # internal/httpserver/dbmounts.go holds the two composition-root mount
+  # functions (portal + managed-resources REST) whose bodies only run once
+  # the platform has constructed its Postgres-backed stores. The project
+  # confines real-DB tests to the //go:build integration suite (make
+  # test-realdb), which emits no coverage profile, so these lines cannot be
+  # covered in the unit-test coverage report. They are exercised by the RealDB
+  # integration tests in dbmounts_realdb_integration_test.go.
+  - "internal/httpserver/dbmounts.go"

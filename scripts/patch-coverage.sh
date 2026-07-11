@@ -52,6 +52,13 @@ git diff --unified=0 "$MERGE_BASE" | awk '
         # purpose is local-dev support rather than runtime behavior.
         if (f !~ /\.go$/ || f ~ /_test\.go$/) f = ""
         if (f ~ /^cmd\/dev-mcp-mock\//) f = ""
+        # internal/httpserver/dbmounts.go holds the two composition-root mount
+        # functions whose bodies only run against a live Postgres (portal/
+        # resource store assembly). Real-DB tests are confined to the
+        # //go:build integration suite, which produces no coverage profile, so
+        # these lines can never be covered here. They are exercised by the
+        # RealDB integration tests; excluded like cmd/dev-mcp-mock above.
+        if (f == "internal/httpserver/dbmounts.go") f = ""
         next
     }
     f != "" && /^@@ / {
