@@ -150,7 +150,7 @@ AI-generated prose (PR descriptions, commit messages, reviews, explanations) is 
 
 ## Project Structure
 
-`pkg/` holds 42 top-level packages (all public API). Depth-2 subdirectories are
+`pkg/` holds 43 top-level packages (all public API). Depth-2 subdirectories are
 shown where they represent a distinct implementation (a storage backend, an
 adapter, an indexjobs consumer); helper subpackages are omitted for brevity.
 Regenerate this list with `find pkg -mindepth 1 -maxdepth 1 -type d | sort` and
@@ -159,7 +159,7 @@ diff against the packages below when adding or removing a `pkg/` directory.
 ```
 mcp-data-platform/
 ├── cmd/mcp-data-platform/          # Entry point (main.go)
-├── pkg/                            # PUBLIC API (42 top-level packages)
+├── pkg/                            # PUBLIC API (43 top-level packages)
 │   ├── admin/                      # REST API endpoints for administrative operations
 │   ├── audit/                      # Audit logging (postgres/ = PostgreSQL implementation)
 │   ├── auth/                       # Authentication: OIDC, API keys, claims, middleware
@@ -184,6 +184,7 @@ mcp-data-platform/
 │   ├── middleware/                 # MCP protocol middleware chain (auth, authz, enrichment, audit, rules)
 │   ├── oauth/                      # OAuth 2.1 authorization server (postgres/ = storage implementation)
 │   ├── observability/              # OpenTelemetry metrics (proxy/ = authenticated PromQL query proxy)
+│   ├── oidcdiscovery/              # Shared OIDC discovery-document fetch/parse (used by auth JWKS + oauth broker)
 │   ├── persona/                    # Persona-based access control and customization
 │   ├── pkcestore/                  # In-flight PKCE state for outbound OAuth (oauth-start → callback)
 │   ├── platform/                   # Core orchestration: facade, config, options, lifecycle

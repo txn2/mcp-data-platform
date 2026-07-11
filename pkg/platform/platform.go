@@ -1373,10 +1373,12 @@ func (p *Platform) initOAuth() error {
 	}
 	if p.config.OAuth.Upstream != nil {
 		cfg.Upstream = &oauthserver.Upstream{
-			Issuer:       p.config.OAuth.Upstream.Issuer,
-			ClientID:     p.config.OAuth.Upstream.ClientID,
-			ClientSecret: p.config.OAuth.Upstream.ClientSecret,
-			RedirectURI:  p.config.OAuth.Upstream.RedirectURI,
+			Issuer:                p.config.OAuth.Upstream.Issuer,
+			ClientID:              p.config.OAuth.Upstream.ClientID,
+			ClientSecret:          p.config.OAuth.Upstream.ClientSecret,
+			RedirectURI:           p.config.OAuth.Upstream.RedirectURI,
+			AuthorizationEndpoint: p.config.OAuth.Upstream.AuthorizationEndpoint,
+			TokenEndpoint:         p.config.OAuth.Upstream.TokenEndpoint,
 		}
 	}
 

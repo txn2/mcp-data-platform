@@ -62,6 +62,11 @@ type Upstream struct {
 	ClientID     string
 	ClientSecret string
 	RedirectURI  string
+
+	// AuthorizationEndpoint and TokenEndpoint optionally override OIDC discovery
+	// for IdPs with broken discovery documents. Empty means discover.
+	AuthorizationEndpoint string
+	TokenEndpoint         string
 }
 
 // Config carries the values New needs to assemble the OAuth server. Callers
@@ -230,10 +235,12 @@ func New(ctx context.Context, cfg Config) (*Handle, error) {
 	}
 	if cfg.Upstream != nil {
 		serverConfig.Upstream = &oauth.UpstreamConfig{
-			Issuer:       cfg.Upstream.Issuer,
-			ClientID:     cfg.Upstream.ClientID,
-			ClientSecret: cfg.Upstream.ClientSecret,
-			RedirectURI:  cfg.Upstream.RedirectURI,
+			Issuer:                cfg.Upstream.Issuer,
+			ClientID:              cfg.Upstream.ClientID,
+			ClientSecret:          cfg.Upstream.ClientSecret,
+			RedirectURI:           cfg.Upstream.RedirectURI,
+			AuthorizationEndpoint: cfg.Upstream.AuthorizationEndpoint,
+			TokenEndpoint:         cfg.Upstream.TokenEndpoint,
 		}
 	}
 

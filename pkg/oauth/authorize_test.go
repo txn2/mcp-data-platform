@@ -11,11 +11,21 @@ import (
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+
+	"github.com/txn2/mcp-data-platform/pkg/oidcdiscovery"
 )
 
 const (
 	testKeycloakHost   = "keycloak:8180"
 	testUpstreamClient = "mcp-server"
+
+	// Explicit upstream endpoints used by broker tests that assert URL building
+	// and prompt/loop logic without reaching the network. Setting both endpoints
+	// bypasses OIDC discovery, so these tests target an unreachable Keycloak host
+	// yet never make a discovery request. Discovery itself is covered by
+	// upstream_discovery_test.go.
+	testUpstreamAuthEndpoint  = "http://keycloak:8180/realms/test/protocol/openid-connect/auth"
+	testUpstreamTokenEndpoint = "http://keycloak:8180/realms/test/protocol/openid-connect/token"
 )
 
 func TestHandleAuthorizeEndpoint(t *testing.T) {
@@ -33,10 +43,12 @@ func TestHandleAuthorizeEndpoint(t *testing.T) {
 		server, _ := NewServer(ServerConfig{
 			Issuer: "http://localhost:8080",
 			Upstream: &UpstreamConfig{
-				Issuer:       "http://keycloak:8180/realms/test",
-				ClientID:     testUpstreamClient,
-				ClientSecret: "secret",
-				RedirectURI:  "http://localhost:8080/oauth/callback",
+				Issuer:                "http://keycloak:8180/realms/test",
+				ClientID:              testUpstreamClient,
+				ClientSecret:          "secret",
+				RedirectURI:           "http://localhost:8080/oauth/callback",
+				AuthorizationEndpoint: testUpstreamAuthEndpoint,
+				TokenEndpoint:         testUpstreamTokenEndpoint,
 			},
 		}, storage)
 
@@ -54,10 +66,12 @@ func TestHandleAuthorizeEndpoint(t *testing.T) {
 		server, _ := NewServer(ServerConfig{
 			Issuer: "http://localhost:8080",
 			Upstream: &UpstreamConfig{
-				Issuer:       "http://keycloak:8180/realms/test",
-				ClientID:     testUpstreamClient,
-				ClientSecret: "secret",
-				RedirectURI:  "http://localhost:8080/oauth/callback",
+				Issuer:                "http://keycloak:8180/realms/test",
+				ClientID:              testUpstreamClient,
+				ClientSecret:          "secret",
+				RedirectURI:           "http://localhost:8080/oauth/callback",
+				AuthorizationEndpoint: testUpstreamAuthEndpoint,
+				TokenEndpoint:         testUpstreamTokenEndpoint,
 			},
 		}, storage)
 
@@ -76,10 +90,12 @@ func TestHandleAuthorizeEndpoint(t *testing.T) {
 		server, _ := NewServer(ServerConfig{
 			Issuer: "http://localhost:8080",
 			Upstream: &UpstreamConfig{
-				Issuer:       "http://keycloak:8180/realms/test",
-				ClientID:     testUpstreamClient,
-				ClientSecret: "secret",
-				RedirectURI:  "http://localhost:8080/oauth/callback",
+				Issuer:                "http://keycloak:8180/realms/test",
+				ClientID:              testUpstreamClient,
+				ClientSecret:          "secret",
+				RedirectURI:           "http://localhost:8080/oauth/callback",
+				AuthorizationEndpoint: testUpstreamAuthEndpoint,
+				TokenEndpoint:         testUpstreamTokenEndpoint,
 			},
 		}, storage)
 
@@ -129,10 +145,12 @@ func TestHandleAuthorizeEndpoint(t *testing.T) {
 		server, _ := NewServer(ServerConfig{
 			Issuer: "http://localhost:8080",
 			Upstream: &UpstreamConfig{
-				Issuer:       "http://keycloak:8180/realms/test",
-				ClientID:     testUpstreamClient,
-				ClientSecret: "secret",
-				RedirectURI:  "http://localhost:8080/oauth/callback",
+				Issuer:                "http://keycloak:8180/realms/test",
+				ClientID:              testUpstreamClient,
+				ClientSecret:          "secret",
+				RedirectURI:           "http://localhost:8080/oauth/callback",
+				AuthorizationEndpoint: testUpstreamAuthEndpoint,
+				TokenEndpoint:         testUpstreamTokenEndpoint,
 			},
 		}, storage)
 
@@ -170,10 +188,12 @@ func TestHandleAuthorizeEndpoint(t *testing.T) {
 		server, _ := NewServer(ServerConfig{
 			Issuer: "http://localhost:8080",
 			Upstream: &UpstreamConfig{
-				Issuer:       "http://keycloak:8180/realms/test",
-				ClientID:     testUpstreamClient,
-				ClientSecret: "secret",
-				RedirectURI:  "http://localhost:8080/oauth/callback",
+				Issuer:                "http://keycloak:8180/realms/test",
+				ClientID:              testUpstreamClient,
+				ClientSecret:          "secret",
+				RedirectURI:           "http://localhost:8080/oauth/callback",
+				AuthorizationEndpoint: testUpstreamAuthEndpoint,
+				TokenEndpoint:         testUpstreamTokenEndpoint,
 			},
 		}, storage)
 
@@ -201,10 +221,12 @@ func TestHandleAuthorizeEndpoint(t *testing.T) {
 		server, _ := NewServer(ServerConfig{
 			Issuer: "http://localhost:8080",
 			Upstream: &UpstreamConfig{
-				Issuer:       "http://keycloak:8180/realms/test",
-				ClientID:     testUpstreamClient,
-				ClientSecret: "secret",
-				RedirectURI:  "http://localhost:8080/oauth/callback",
+				Issuer:                "http://keycloak:8180/realms/test",
+				ClientID:              testUpstreamClient,
+				ClientSecret:          "secret",
+				RedirectURI:           "http://localhost:8080/oauth/callback",
+				AuthorizationEndpoint: testUpstreamAuthEndpoint,
+				TokenEndpoint:         testUpstreamTokenEndpoint,
 			},
 		}, storage)
 
@@ -278,10 +300,21 @@ func TestHandleCallbackEndpoint(t *testing.T) {
 	})
 
 	t.Run("successful callback with mock keycloak", func(t *testing.T) {
-		// Create a mock Keycloak server
+		// Mock Keycloak serving both an OIDC discovery document and the token
+		// endpoint, so the callback exercises the real discovery path (no explicit
+		// endpoints configured).
 		mockKeycloak := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/realms/test/protocol/openid-connect/token" {
-				// Return mock token response
+			base := "http://" + r.Host + "/realms/test"
+			switch r.URL.Path {
+			case "/realms/test" + oidcdiscovery.WellKnownPath:
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"issuer":                 base,
+					"authorization_endpoint": base + "/protocol/openid-connect/auth",
+					"token_endpoint":         base + "/protocol/openid-connect/token",
+				})
+				return
+			case "/realms/test/protocol/openid-connect/token":
 				idToken := createMockIDToken(map[string]any{
 					"sub":   "user-123",
 					"email": "test@example.com",
@@ -360,14 +393,19 @@ func TestBuildUpstreamAuthURL(t *testing.T) {
 	server, _ := NewServer(ServerConfig{
 		Issuer: "http://localhost:8080",
 		Upstream: &UpstreamConfig{
-			Issuer:       "http://keycloak:8180/realms/test",
-			ClientID:     testUpstreamClient,
-			ClientSecret: "secret",
-			RedirectURI:  "http://localhost:8080/oauth/callback",
+			Issuer:                "http://keycloak:8180/realms/test",
+			ClientID:              testUpstreamClient,
+			ClientSecret:          "secret",
+			RedirectURI:           "http://localhost:8080/oauth/callback",
+			AuthorizationEndpoint: testUpstreamAuthEndpoint,
+			TokenEndpoint:         testUpstreamTokenEndpoint,
 		},
 	}, storage)
 
-	authURL := server.buildUpstreamAuthURL("test-state")
+	authURL, err := server.buildUpstreamAuthURL(context.Background(), "test-state")
+	if err != nil {
+		t.Fatalf("buildUpstreamAuthURL: %v", err)
+	}
 
 	u, err := url.Parse(authURL)
 	if err != nil {
@@ -600,15 +638,20 @@ func TestBuildUpstreamAuthURLWithPrompt(t *testing.T) {
 	server, _ := NewServer(ServerConfig{
 		Issuer: "http://localhost:8080",
 		Upstream: &UpstreamConfig{
-			Issuer:       "http://keycloak:8180/realms/test",
-			ClientID:     testUpstreamClient,
-			ClientSecret: "secret",
-			RedirectURI:  "http://localhost:8080/oauth/callback",
+			Issuer:                "http://keycloak:8180/realms/test",
+			ClientID:              testUpstreamClient,
+			ClientSecret:          "secret",
+			RedirectURI:           "http://localhost:8080/oauth/callback",
+			AuthorizationEndpoint: testUpstreamAuthEndpoint,
+			TokenEndpoint:         testUpstreamTokenEndpoint,
 		},
 	}, storage)
 
 	t.Run("with prompt=none", func(t *testing.T) {
-		authURL := server.buildUpstreamAuthURLWithPrompt("test-state", true)
+		authURL, err := server.buildUpstreamAuthURLWithPrompt(context.Background(), "test-state", true)
+		if err != nil {
+			t.Fatalf("buildUpstreamAuthURLWithPrompt: %v", err)
+		}
 		u, err := url.Parse(authURL)
 		if err != nil {
 			t.Fatalf("invalid URL: %v", err)
@@ -622,7 +665,10 @@ func TestBuildUpstreamAuthURLWithPrompt(t *testing.T) {
 	})
 
 	t.Run("without prompt", func(t *testing.T) {
-		authURL := server.buildUpstreamAuthURLWithPrompt("test-state", false)
+		authURL, err := server.buildUpstreamAuthURLWithPrompt(context.Background(), "test-state", false)
+		if err != nil {
+			t.Fatalf("buildUpstreamAuthURLWithPrompt: %v", err)
+		}
 		u, err := url.Parse(authURL)
 		if err != nil {
 			t.Fatalf("invalid URL: %v", err)
@@ -641,10 +687,12 @@ func TestHandleLoginRequiredError(t *testing.T) {
 	server, _ := NewServer(ServerConfig{
 		Issuer: "http://localhost:8080",
 		Upstream: &UpstreamConfig{
-			Issuer:       "http://keycloak:8180/realms/test",
-			ClientID:     testUpstreamClient,
-			ClientSecret: "secret",
-			RedirectURI:  "http://localhost:8080/oauth/callback",
+			Issuer:                "http://keycloak:8180/realms/test",
+			ClientID:              testUpstreamClient,
+			ClientSecret:          "secret",
+			RedirectURI:           "http://localhost:8080/oauth/callback",
+			AuthorizationEndpoint: testUpstreamAuthEndpoint,
+			TokenEndpoint:         testUpstreamTokenEndpoint,
 		},
 	}, storage)
 
@@ -754,10 +802,12 @@ func TestHandleCallbackEndpointLoginRequired(t *testing.T) {
 		server, _ := NewServer(ServerConfig{
 			Issuer: "http://localhost:8080",
 			Upstream: &UpstreamConfig{
-				Issuer:       "http://keycloak:8180/realms/test",
-				ClientID:     testUpstreamClient,
-				ClientSecret: "secret",
-				RedirectURI:  "http://localhost:8080/oauth/callback",
+				Issuer:                "http://keycloak:8180/realms/test",
+				ClientID:              testUpstreamClient,
+				ClientSecret:          "secret",
+				RedirectURI:           "http://localhost:8080/oauth/callback",
+				AuthorizationEndpoint: testUpstreamAuthEndpoint,
+				TokenEndpoint:         testUpstreamTokenEndpoint,
 			},
 		}, storage)
 
@@ -802,10 +852,12 @@ func TestHandleCallbackEndpointLoginRequired(t *testing.T) {
 		server, _ := NewServer(ServerConfig{
 			Issuer: "http://localhost:8080",
 			Upstream: &UpstreamConfig{
-				Issuer:       "http://keycloak:8180/realms/test",
-				ClientID:     testUpstreamClient,
-				ClientSecret: "secret",
-				RedirectURI:  "http://localhost:8080/oauth/callback",
+				Issuer:                "http://keycloak:8180/realms/test",
+				ClientID:              testUpstreamClient,
+				ClientSecret:          "secret",
+				RedirectURI:           "http://localhost:8080/oauth/callback",
+				AuthorizationEndpoint: testUpstreamAuthEndpoint,
+				TokenEndpoint:         testUpstreamTokenEndpoint,
 			},
 		}, storage)
 

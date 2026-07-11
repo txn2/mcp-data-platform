@@ -566,10 +566,18 @@ type DCRConfig struct {
 
 // UpstreamIDPConfig configures the upstream identity provider (e.g., Keycloak).
 type UpstreamIDPConfig struct {
-	Issuer       string `yaml:"issuer"`        // Keycloak issuer URL
-	ClientID     string `yaml:"client_id"`     // MCP Server's client ID in Keycloak
+	Issuer       string `yaml:"issuer"`        // OIDC issuer URL (any OIDC-compliant IdP, e.g. Keycloak)
+	ClientID     string `yaml:"client_id"`     // MCP Server's client ID in the upstream IdP
 	ClientSecret string `yaml:"client_secret"` // #nosec G117 -- MCP Server's client secret from admin YAML config
 	RedirectURI  string `yaml:"redirect_uri"`  // Callback URL (e.g., http://localhost:8080/oauth/callback)
+
+	// AuthorizationEndpoint and TokenEndpoint optionally override OIDC discovery.
+	// By default the broker discovers these from
+	// <issuer>/.well-known/openid-configuration; set them only for IdPs whose
+	// discovery document is broken or unreachable. Discovery is skipped entirely
+	// only when BOTH are set.
+	AuthorizationEndpoint string `yaml:"authorization_endpoint,omitempty"`
+	TokenEndpoint         string `yaml:"token_endpoint,omitempty"`
 }
 
 // DatabaseConfig configures the database connection.

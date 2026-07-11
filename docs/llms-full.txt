@@ -723,13 +723,13 @@ Authentication identifies who is making requests. Anonymous access is disabled b
 
 ### OAuth 2.1 for Claude Desktop
 
-For Claude Desktop connecting to a remote MCP server, the built-in OAuth 2.1 server bridges authentication:
+For Claude Desktop connecting to a remote MCP server, the built-in OAuth 2.1 server bridges authentication to any OIDC-compliant upstream identity provider (Keycloak shown):
 
 1. Claude Desktop calls `/oauth/authorize`
-2. MCP server redirects to Keycloak
-3. User logs in to Keycloak
-4. Keycloak redirects back to MCP server's `/oauth/callback`
-5. MCP server exchanges code with Keycloak, extracts user info
+2. MCP server redirects to the upstream IdP's discovered authorization endpoint
+3. User logs in to the upstream IdP
+4. Upstream IdP redirects back to MCP server's `/oauth/callback`
+5. MCP server exchanges code at the upstream IdP's discovered token endpoint, extracts user info
 6. MCP server issues its own token to Claude Desktop
 
 Configuration:
@@ -751,7 +751,12 @@ oauth:
     client_id: "mcp-data-platform"
     client_secret: "${KEYCLOAK_CLIENT_SECRET}"
     redirect_uri: "https://mcp.example.com/oauth/callback"
+    # Optional overrides; empty = discover from the issuer's well-known document.
+    # authorization_endpoint: "https://idp.example.com/authorize"
+    # token_endpoint: "https://idp.example.com/token"
 ```
+
+The broker resolves the upstream authorization and token endpoints via OIDC discovery: on first use it fetches `<upstream.issuer>/.well-known/openid-configuration` and reads `authorization_endpoint` and `token_endpoint`, so the brokered flow works with any OIDC-compliant IdP rather than assuming Keycloak's URL shape. Resolved endpoints are cached for the process lifetime; a discovery failure is not cached, so `/oauth/authorize` returns a retryable `server_error` and retries on the next request rather than falling back to a fixed path. Set `upstream.authorization_endpoint` and `upstream.token_endpoint` to bypass discovery for an IdP with a broken discovery document; discovery is skipped entirely only when both are set.
 
 Access tokens are signed JWTs whose `aud` claim is the issuer URL (the platform is both authorization server and resource server); the requesting client is carried in the `client_id` claim, and the authenticator rejects tokens minted for any other audience.
 

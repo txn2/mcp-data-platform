@@ -99,12 +99,14 @@ oauth:
       - "^http://localhost.*"
       - "^http://127.0.0.1.*"
 
-  # Keycloak as upstream IdP
+  # Upstream IdP (any OIDC-compliant provider; Keycloak shown)
   upstream:
     issuer: "https://keycloak.example.com/realms/mcp-demo"
     client_id: "mcp-data-platform"
     client_secret: "${KEYCLOAK_CLIENT_SECRET}"
     redirect_uri: "https://mcp.example.com/oauth/callback"
+    # authorization_endpoint / token_endpoint are optional overrides; by default
+    # they are discovered from the issuer's well-known document (see below).
 ```
 
 ### Configuration Reference
@@ -129,10 +131,20 @@ oauth:
 | `oauth.rate_limit.token.burst` | No | Per-IP `/token` burst (default: `10`) |
 | `oauth.rate_limit.register.requests_per_minute` | No | Per-IP `/register` limit (default: `10`) |
 | `oauth.rate_limit.register.burst` | No | Per-IP `/register` burst (default: `3`) |
-| `oauth.upstream.issuer` | No | Upstream IdP issuer URL |
+| `oauth.upstream.issuer` | No | Upstream IdP issuer URL. The authorization and token endpoints are discovered from `<issuer>/.well-known/openid-configuration` (see [Upstream endpoint discovery](#upstream-endpoint-discovery)) |
 | `oauth.upstream.client_id` | No | MCP server's client ID in the upstream IdP |
 | `oauth.upstream.client_secret` | No | MCP server's client secret |
 | `oauth.upstream.redirect_uri` | No | Callback URL for upstream IdP |
+| `oauth.upstream.authorization_endpoint` | No | Explicit authorization endpoint that bypasses discovery. Set only for IdPs with a broken or unreachable discovery document. Empty means discover |
+| `oauth.upstream.token_endpoint` | No | Explicit token endpoint that bypasses discovery. Empty means discover. Discovery is skipped entirely only when **both** endpoints are set |
+
+### Upstream endpoint discovery
+
+The broker resolves the upstream IdP's authorization and token endpoints via OIDC discovery: on first use it fetches `<oauth.upstream.issuer>/.well-known/openid-configuration` and reads the `authorization_endpoint` and `token_endpoint` from that document. This makes the brokered login flow work with any OIDC-compliant identity provider, not just Keycloak. Resolved endpoints are cached for the process lifetime.
+
+A discovery failure is not cached: if the well-known document is unreachable at request time, `/oauth/authorize` returns a retryable `server_error` (HTTP 500) and the next request retries, rather than falling back to a fixed URL shape. The client-facing response carries only a generic description (`upstream identity provider unavailable`); the specific cause is logged server-side.
+
+Each endpoint is resolved independently: an explicitly configured endpoint is used without any discovery, so a discovery outage never blocks a path whose endpoint is already known from config. For an IdP whose discovery document is broken or unreachable, set `oauth.upstream.authorization_endpoint` and `oauth.upstream.token_endpoint` explicitly. Setting **both** skips discovery entirely; setting only one lets that path work from config while the other is still discovered.
 
 ### Rotating the signing key
 

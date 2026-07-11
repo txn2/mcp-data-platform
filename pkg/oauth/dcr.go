@@ -111,11 +111,8 @@ func (s *DCRService) Register(ctx context.Context, req DCRRequest) (*DCRResponse
 		return nil, fmt.Errorf("dynamic client registration is not configured: set allowed_redirect_patterns to the redirect URIs your clients use, or set allow_all_redirect_uris: true to explicitly accept any redirect URI")
 	}
 
-	// Validate redirect URIs
-	for _, uri := range req.RedirectURIs {
-		if !s.isAllowedRedirectURI(uri) {
-			return nil, fmt.Errorf("redirect URI not allowed: %s", uri)
-		}
+	if err := s.validateRedirectURIs(req.RedirectURIs); err != nil {
+		return nil, err
 	}
 
 	// Generate client credentials
@@ -167,6 +164,17 @@ func (s *DCRService) Register(ctx context.Context, req DCRRequest) (*DCRResponse
 		GrantTypes:            grantTypes,
 		ClientSecretExpiresAt: 0,
 	}, nil
+}
+
+// validateRedirectURIs returns an error naming the first requested redirect URI
+// that the configured policy does not permit.
+func (s *DCRService) validateRedirectURIs(uris []string) error {
+	for _, uri := range uris {
+		if !s.isAllowedRedirectURI(uri) {
+			return fmt.Errorf("redirect URI not allowed: %s", uri)
+		}
+	}
+	return nil
 }
 
 // isAllowedRedirectURI checks if a redirect URI is allowed.
