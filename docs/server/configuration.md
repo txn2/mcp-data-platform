@@ -401,14 +401,10 @@ The instructions an agent receives via `platform_info` are composed in layers:
 
 The platform baseline is non-overridable and updates automatically when the platform is upgraded, so the operating model never has to be re-authored per deployment. A persona's `agent_instructions_override` replaces the admin layer only; the baseline is always present. Because the baseline names a tool (`search`, `memory_capture`) only when that tool is registered and the persona is allowed to call it, it never points an agent at a tool it cannot use. The agent receives the baseline as part of the composed `agent_instructions` in the `platform_info` response; admins can see the baseline on its own read-only in the portal's Agent Instructions screen and via `GET /api/v1/admin/config/agent-instructions-baseline`.
 
-```yaml
-config_store:
-  mode: file      # Deprecated — ignored. Presence is accepted for backward compatibility.
-```
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `config_store.mode` | string | `file` | **Deprecated.** Ignored at runtime. The config entries system activates automatically when `database.dsn` is set. Accepted without error for backward compatibility. |
+The config store is selected automatically: setting `database.dsn` makes config
+database-backed (mutations to personas, auth keys, and config entries persist to
+PostgreSQL and survive restarts); without a database the config is read-only from
+the YAML file and mutations are blocked. There is no separate mode switch.
 
 See [Operating Modes](operating-modes.md) for the full comparison of deployment configurations.
 

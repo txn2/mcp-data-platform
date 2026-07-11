@@ -150,7 +150,9 @@ func TestAdminAPI_Standalone(t *testing.T) {
 		}
 	})
 
-	t.Run("list_tools_empty", func(t *testing.T) {
+	t.Run("list_tools_platform_level", func(t *testing.T) {
+		// Standalone has no toolkits, but the platform-level tools
+		// (platform_info, list_connections) are always registered.
 		tools, status, err := client.ListTools()
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -158,8 +160,20 @@ func TestAdminAPI_Standalone(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("expected 200, got %d", status)
 		}
-		if tools.Total != 0 {
-			t.Errorf("expected 0 tools, got %d", tools.Total)
+		names := make(map[string]bool, len(tools.Tools))
+		for _, tool := range tools.Tools {
+			names[tool.Name] = true
+		}
+		for _, want := range []string{"platform_info", "list_connections"} {
+			if !names[want] {
+				t.Errorf("expected platform-level tool %q in %v", want, names)
+			}
+		}
+		// Exactly the platform-level tools and nothing else: a standalone server
+		// with no connections must not register any toolkit tool (e.g. leaking
+		// trino_execute). Asserting the exact count keeps that leakage detectable.
+		if tools.Total != 2 {
+			t.Errorf("expected only the 2 platform-level tools, got %d: %v", tools.Total, names)
 		}
 	})
 
@@ -220,14 +234,19 @@ func TestAdminAPI_Standalone(t *testing.T) {
 		}
 	})
 
-	t.Run("config_entries_empty_standalone", func(t *testing.T) {
-		// No database → config entry routes not registered; expect 405 or similar
-		status, _, err := client.RawGet("/api/v1/admin/config/entries")
+	t.Run("config_entries_standalone_file_backed", func(t *testing.T) {
+		// Even without a database the platform builds a read-only file-backed
+		// config store (configstore.NewFileStore), so GET /config/entries is
+		// registered and surfaces the file-derived mutable-config keys.
+		status, body, err := client.RawGet("/api/v1/admin/config/entries")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if status != http.StatusMethodNotAllowed && status != http.StatusNotFound {
-			t.Errorf("expected 405 or 404, got %d", status)
+		if status != http.StatusOK {
+			t.Errorf("expected 200, got %d", status)
+		}
+		if !strings.Contains(string(body), `"key"`) {
+			t.Errorf("expected file-backed config entries in body, got %q", string(body))
 		}
 	})
 
@@ -427,14 +446,18 @@ func TestAdminAPI_FileDB(t *testing.T) {
 		if !info.Features.Audit {
 			t.Error("expected audit=true")
 		}
-		if info.ConfigMode != "file" {
-			t.Errorf("expected config_mode=file, got %s", info.ConfigMode)
+		// A database makes config database-backed: the platform selects the store
+		// purely on database presence, so config_mode is "database" here. True
+		// read-only file mode is exercised by TestAdminAPI_Standalone, which runs
+		// with no database.
+		if info.ConfigMode != "database" {
+			t.Errorf("expected config_mode=database, got %s", info.ConfigMode)
 		}
 	})
 
-	// --- Config mode is file (read-only) ---
+	// --- Config mode is database (mutable) when a DB is present ---
 
-	t.Run("config_mode_file", func(t *testing.T) {
+	t.Run("config_mode_database", func(t *testing.T) {
 		mode, status, err := client.GetConfigMode()
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -442,16 +465,16 @@ func TestAdminAPI_FileDB(t *testing.T) {
 		if status != 200 {
 			t.Fatalf("expected 200, got %d", status)
 		}
-		if mode.Mode != "file" {
-			t.Errorf("expected mode=file, got %s", mode.Mode)
+		if mode.Mode != "database" {
+			t.Errorf("expected mode=database, got %s", mode.Mode)
 		}
-		if !mode.ReadOnly {
-			t.Error("expected read_only=true")
+		if mode.ReadOnly {
+			t.Error("expected read_only=false in database mode")
 		}
 	})
 
-	t.Run("config_entries_file_db_mode", func(t *testing.T) {
-		// Config store is file mode, so entry routes are read-only
+	t.Run("config_entries_db_mode", func(t *testing.T) {
+		// Database-backed config store; a fresh test DB has no overrides yet.
 		entries, status, err := client.ListConfigEntries()
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -459,23 +482,22 @@ func TestAdminAPI_FileDB(t *testing.T) {
 		if status != http.StatusOK {
 			t.Errorf("expected 200, got %d", status)
 		}
-		// Should return empty list in file mode
 		if len(entries) != 0 {
-			t.Errorf("expected 0 entries, got %d", len(entries))
+			t.Errorf("expected 0 entries on a fresh DB, got %d", len(entries))
 		}
 	})
 
-	// --- Persona writes blocked in file mode ---
+	// --- Persona writes allowed in database mode ---
 
-	t.Run("create_persona_blocked_file_mode", func(t *testing.T) {
+	t.Run("create_persona_allowed_db_mode", func(t *testing.T) {
 		status, err := client.RawPost("/api/v1/admin/personas", helpers.PersonaCreateRequest{
 			Name: "new", DisplayName: "New",
 		})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if status != http.StatusMethodNotAllowed {
-			t.Errorf("expected 405, got %d", status)
+		if status != http.StatusCreated {
+			t.Errorf("expected 201, got %d", status)
 		}
 	})
 

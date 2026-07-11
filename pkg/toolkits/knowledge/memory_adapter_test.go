@@ -535,6 +535,11 @@ func TestMemoryInsightAdapter_UpdateStatus(t *testing.T) {
 	assert.Equal(t, "reviewer@example.com", store.updateData.Metadata["reviewed_by"])
 	assert.Equal(t, "LGTM", store.updateData.Metadata["review_notes"])
 	assert.Equal(t, StatusApproved, store.updateData.Metadata["insight_status"])
+	// reviewed_at is recorded so the Insight JSON contract stays populated.
+	reviewedAt, ok := store.updateData.Metadata["reviewed_at"].(string)
+	require.True(t, ok, "reviewed_at metadata must be a string timestamp")
+	_, err = time.Parse(time.RFC3339Nano, reviewedAt)
+	require.NoError(t, err, "reviewed_at must be RFC3339")
 	// Approved maps to the active memory status column.
 	assert.Equal(t, memory.StatusActive, store.updateData.Status)
 }
@@ -807,6 +812,11 @@ func TestMemoryInsightAdapter_MarkApplied(t *testing.T) {
 	assert.Equal(t, "ins-001", store.updateID)
 	assert.Equal(t, "admin@example.com", store.updateData.Metadata["applied_by"])
 	assert.Equal(t, "cs-789", store.updateData.Metadata["changeset_ref"])
+	// applied_at is recorded so the Insight JSON contract stays populated.
+	appliedAt, ok := store.updateData.Metadata["applied_at"].(string)
+	require.True(t, ok, "applied_at metadata must be a string timestamp")
+	_, err = time.Parse(time.RFC3339Nano, appliedAt)
+	require.NoError(t, err, "applied_at must be RFC3339")
 	// Applied status must be persisted so resolveInsightStatus reports it as
 	// applied, not pending (an applied record stays StatusActive in memory).
 	assert.Equal(t, StatusApplied, store.updateData.Metadata[metaKeyInsightStatus])
@@ -872,11 +882,15 @@ func TestMemoryInsightAdapter_MarkRolledBack_Error(t *testing.T) {
 func TestMemoryInsightAdapter_Supersede(t *testing.T) {
 	store := &mockMemoryStore{
 		listRecords: []memory.Record{
-			{ID: "old-1"},
-			{ID: "old-2"},
-			{ID: "new-1"}, // This is the excludeID
+			// Active memory status maps to pending insight status -> superseded.
+			{ID: "old-1", Status: memory.StatusActive},
+			{ID: "old-2", Status: memory.StatusActive},
+			// Applied insight (still memory-active): must NOT be superseded, a
+			// newer capture cannot clobber an already-applied insight.
+			{ID: "applied-1", Status: memory.StatusActive, Metadata: map[string]any{metaKeyInsightStatus: StatusApplied}},
+			{ID: "new-1", Status: memory.StatusActive}, // This is the excludeID
 		},
-		listTotal: 3,
+		listTotal: 4,
 	}
 	adapter := NewMemoryInsightAdapter(store)
 
@@ -893,7 +907,8 @@ func TestMemoryInsightAdapter_Supersede(t *testing.T) {
 	// non-knowledge memory record that shares the entity URN.
 	assert.Equal(t, memory.DimensionKnowledge, store.listFilter.Dimension)
 
-	// Verify supersede was called for old-1 and old-2 but not new-1
+	// Only the pending records (old-1, old-2) are superseded; applied-1 (reviewed)
+	// and new-1 (excludeID) are skipped.
 	assert.Len(t, store.supersedeCalls, 2)
 	assert.Equal(t, "old-1", store.supersedeCalls[0].OldID)
 	assert.Equal(t, "new-1", store.supersedeCalls[0].NewID)
@@ -912,7 +927,7 @@ func TestMemoryInsightAdapter_Supersede_ListError(t *testing.T) {
 
 func TestMemoryInsightAdapter_Supersede_SupersedeError(t *testing.T) {
 	store := &mockMemoryStore{
-		listRecords:  []memory.Record{{ID: "old-1"}},
+		listRecords:  []memory.Record{{ID: "old-1", Status: memory.StatusActive}},
 		listTotal:    1,
 		supersedeErr: fmt.Errorf("supersede failed"),
 	}
@@ -1074,6 +1089,33 @@ func TestRecordToInsight_NilMetadata(t *testing.T) {
 	assert.Equal(t, StatusRejected, insight.Status) // archived -> rejected
 	assert.Empty(t, insight.SessionID)
 	assert.Empty(t, insight.ReviewedBy)
+	assert.Nil(t, insight.ReviewedAt)
+	assert.Nil(t, insight.AppliedAt)
+}
+
+// TestRecordToInsight_Timestamps covers extractMetadataTime: a valid RFC3339
+// value populates the field; missing, non-string, and unparseable values leave
+// it nil rather than erroring.
+func TestRecordToInsight_Timestamps(t *testing.T) {
+	reviewed := time.Date(2026, 7, 11, 10, 30, 0, 0, time.UTC)
+	record := memory.Record{
+		ID:     "rec-ts",
+		Status: memory.StatusActive,
+		Metadata: map[string]any{
+			metaKeyReviewedAt: reviewed.Format(time.RFC3339Nano), // valid
+			metaKeyAppliedAt:  "not-a-timestamp",                 // unparseable -> nil
+		},
+	}
+
+	insight := recordToInsight(record)
+
+	require.NotNil(t, insight.ReviewedAt)
+	assert.True(t, insight.ReviewedAt.Equal(reviewed))
+	assert.Nil(t, insight.AppliedAt, "unparseable applied_at must leave the field nil")
+
+	// Non-string metadata value is ignored (left nil).
+	record.Metadata[metaKeyReviewedAt] = 12345
+	assert.Nil(t, recordToInsight(record).ReviewedAt)
 }
 
 func TestResolveInsightStatus_MetadataOverride(t *testing.T) {

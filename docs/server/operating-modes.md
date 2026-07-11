@@ -1,30 +1,28 @@
 ---
-description: Three operating modes for mcp-data-platform — standalone, full-config file with database, bootstrap with database config. Feature availability comparison and example configurations.
+description: Two operating modes for mcp-data-platform: standalone (no database) and database-backed. Feature availability comparison and example configurations.
 ---
 
 # Operating Modes
 
-mcp-data-platform supports three operating modes based on available infrastructure. The mode is determined by two configuration values: whether `database.dsn` is set and the `config_store.mode` setting.
+mcp-data-platform has two operating modes, determined solely by whether `database.dsn` is set. Without a database the platform runs standalone with read-only file config; with a database the config becomes database-backed and mutable, and the persistence-dependent features (audit, knowledge, sessions, OAuth, MCP gateway) activate. There is no separate mode switch; store selection follows database presence.
 
 ## Mode Comparison
 
-| Aspect | Standalone | File + Database | Bootstrap + DB Config |
-|--------|-----------|-----------------|----------------------|
-| `database.dsn` | empty | set | set |
-| `config_store.mode` | `file` (default) | `file` (default) | `database` |
-| Config source | YAML file only | YAML file only | Bootstrap YAML + DB |
-| Config mutations | blocked | blocked | enabled |
-| Knowledge tools | hidden (not registered) | registered | registered |
-| Knowledge admin API | 409 Conflict | available | available |
-| Audit logging | noop (silent) | PostgreSQL | PostgreSQL |
-| Audit admin API | 409 Conflict | available | available |
-| Sessions | memory | database | database |
-| OAuth (downstream clients) | available (memory store) | available (DB store) | available (DB store) |
-| MCP gateway connections | not loaded (no DB to read from) | loaded; bearer/api_key only | loaded; full feature set |
-| Gateway OAuth `client_credentials` | n/a | tokens in memory only (lost on restart) | tokens encrypted in DB |
-| Gateway OAuth `authorization_code` | n/a | tokens in memory only; works for the lifetime of the process, but **operator must Connect again after every restart** | encrypted refresh tokens persist across restarts |
-| Persona/auth key CRUD | read-only | read-only | enabled |
-| Config import | blocked | blocked | enabled |
+| Aspect | Standalone (no database) | Database-backed |
+|--------|--------------------------|-----------------|
+| `database.dsn` | empty | set |
+| `config_mode` (from `system/info`) | `file` | `database` |
+| Config source | YAML file only | YAML bootstrap + database |
+| Config mutations (persona/auth-key CRUD, config import) | blocked | enabled |
+| Knowledge tools | hidden (not registered) | registered |
+| Knowledge admin API | 409 Conflict | available |
+| Audit logging | noop (silent) | PostgreSQL |
+| Audit admin API | 409 Conflict | available |
+| Sessions | memory | database |
+| OAuth (downstream clients) | available (memory store) | available (DB store) |
+| MCP gateway connections | not loaded (no DB to read from) | loaded; full feature set |
+| Gateway OAuth `client_credentials` | n/a | tokens encrypted in DB |
+| Gateway OAuth `authorization_code` | n/a | encrypted refresh tokens persist across restarts |
 
 ### MCP gateway requirements
 
@@ -45,8 +43,8 @@ requires a database for its full feature set:
   the cross-replica state. The platform automatically uses the
   Postgres-backed PKCE store when a database is configured.
 
-For production gateway deployments, run in **Bootstrap + DB Config** mode
-with `ENCRYPTION_KEY` set.
+For production gateway deployments, run in database-backed mode with
+`ENCRYPTION_KEY` set.
 
 ## Standalone (No Database)
 
@@ -116,9 +114,14 @@ The `system/info` endpoint reports:
 }
 ```
 
-## Full-Config File + Database
+## Database-Backed
 
-The production default. Complete configuration in YAML with a PostgreSQL database for persistence. Audit logs, knowledge capture, and session externalization are all available. Configuration is immutable at runtime - restart the server to apply changes.
+The production mode. Add a PostgreSQL database and the config becomes database-backed and mutable: audit logs, knowledge capture, session externalization, and the MCP gateway all activate, and the admin API can mutate personas, auth keys, and config entries at runtime (persisted to the database). The YAML file always bootstraps the base config; a subset of fields (below) is authoritative from YAML on every boot and overrides database values.
+
+There is a single runtime mode here. How much you put in YAML versus manage through the admin API is an authoring choice, not a separate mode:
+
+- **Full config in YAML**: keep the complete configuration in the YAML file, managed through your deployment pipeline (Git, CI/CD, ConfigMaps). The admin mutation API is still available but typically unused. Most teams start here.
+- **Bootstrap-minimal**: keep only connection details in YAML (server, database, auth, admin) and manage the rest through the admin API, which persists to PostgreSQL with versioning. Use this when you need to modify personas, auth keys, or import configs without restarting.
 
 ```yaml
 server:
@@ -201,52 +204,7 @@ personas:
   default_persona: analyst
 ```
 
-The `system/info` endpoint reports:
-
-```json
-{
-  "config_mode": "file",
-  "features": {
-    "audit": true,
-    "knowledge": true,
-    "database": true,
-    "oauth": false,
-    "admin": true
-  }
-}
-```
-
-## Bootstrap + Database Config
-
-Minimal YAML provides connection details (server, database, auth, admin). Full configuration is stored in PostgreSQL with versioning. The admin API enables runtime mutations for personas, auth keys, and config import. Bootstrap fields always override database values on restart.
-
-```yaml
-server:
-  name: mcp-data-platform
-  transport: http
-  address: ":8080"
-
-database:
-  dsn: ${DATABASE_URL}
-
-config_store:
-  mode: database
-
-admin:
-  enabled: true
-  persona: admin
-  path_prefix: /api/v1/admin
-
-auth:
-  api_keys:
-    enabled: true
-    keys:
-      - key: ${API_KEY_ADMIN}
-        name: admin
-        roles: ["admin"]
-```
-
-On first boot with an empty database, the platform seeds the config store with the bootstrap YAML. Subsequent boots load from the database and merge bootstrap fields on top.
+On first boot with an empty database, the platform seeds the config store with the bootstrap YAML. Subsequent boots load from the database and merge the bootstrap fields on top.
 
 Bootstrap fields that always come from YAML (never overridden by database):
 
@@ -255,7 +213,6 @@ Bootstrap fields that always come from YAML (never overridden by database):
 - `database`
 - `auth`
 - `admin`
-- `config_store`
 
 The `system/info` endpoint reports:
 
@@ -274,11 +231,9 @@ The `system/info` endpoint reports:
 
 ## Which Mode Should I Use?
 
-**Local development or single-user**: Start with Standalone. No database setup required. Add a database later when you need audit logs or knowledge capture.
+**Local development or single-user**: Use Standalone. No database setup required. Add a database later when you need audit logs, knowledge capture, or the MCP gateway.
 
-**Production with static config**: Use File + Database. Full feature set with config managed through your deployment pipeline (Git, CI/CD, ConfigMaps). Most teams start here.
-
-**Production with runtime config**: Use Bootstrap + Database Config when you need to modify personas, auth keys, or import configs without restarting. The admin API becomes a control plane for the platform.
+**Production**: Use database-backed mode. Whether you author the full config in YAML (managed through your deployment pipeline) or bootstrap-minimal and manage the rest through the admin API is an operational preference; both run the same runtime mode.
 
 ## Feature Degradation
 

@@ -40,8 +40,11 @@ func testWriter(t *testing.T) (*knowledge.DataHubClientWriter, *dhclient.Client)
 	t.Helper()
 
 	cfg := helpers.DefaultE2EConfig()
-	if !cfg.IsDataHubAvailable() {
-		t.Skip("E2E_DATAHUB_URL not configured; skipping DataHub writer integration test")
+	// IsDataHubAvailable is always true (DataHubURL has a default), so probe the
+	// real endpoint the way the other e2e suites do. This lets the nightly stack
+	// (no DataHub) skip cleanly instead of failing on "DATAHUB_TOKEN is required".
+	if helpers.SkipIfDataHubUnavailable(cfg) {
+		t.Skip("DataHub not reachable; run `datahub docker quickstart` for DataHub writer integration tests")
 	}
 
 	clientCfg := dhclient.DefaultConfig()

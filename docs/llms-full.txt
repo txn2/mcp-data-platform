@@ -310,9 +310,7 @@ When a database is available (`database.dsn` is set), individual config entries 
 
 **Whitelisted keys (phase 1):** `server.description`, `server.agent_instructions`
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `config_store.mode` | string | `file` | **Deprecated.** Ignored at runtime. Accepted for backward compatibility. |
+The config store is selected automatically by database presence: no `database.dsn` means read-only file config; setting it makes config database-backed and mutable.
 
 ## Tool Visibility Configuration
 
@@ -2378,7 +2376,7 @@ mcp-data-platform supports two operating modes based on whether `database.dsn` i
 
 ## Mode Comparison
 
-| Aspect | Standalone | File + Database |
+| Aspect | Standalone | Database-backed |
 |--------|-----------|-----------------|
 | `database.dsn` | empty | set |
 | Config source | YAML file only | YAML file + per-key DB overrides |
@@ -2393,16 +2391,11 @@ mcp-data-platform supports two operating modes based on whether `database.dsn` i
 
 **Standalone (No Database)**: Lightest deployment. No external database. Features requiring persistence (audit, knowledge) run in noop mode, tools are hidden. Admin API database-dependent endpoints return 409 Conflict.
 
-**File + Database**: Production default. Complete YAML config with database for persistence. Audit, knowledge, session externalization all available. Individual config entries for whitelisted keys (server.description, server.agent_instructions) can be overridden at runtime via the admin API with hot-reload. File defaults are preserved as fallback.
+**Database-backed**: Production mode. Complete YAML config with a database for persistence. Audit, knowledge, session externalization all available, and config becomes mutable. Individual config entries for whitelisted keys (server.description, server.agent_instructions) can be overridden at runtime via the admin API with hot-reload. File defaults are preserved as fallback.
 
 ## Config Store
 
-When `database.dsn` is set, the granular config entries system activates automatically. Per-key overrides are stored in the `config_entries` table and take effect immediately without restart. Deleting an entry restores the file default.
-
-```yaml
-config_store:
-  mode: file      # Deprecated — ignored. Accepted for backward compatibility.
-```
+When `database.dsn` is set, the granular config entries system activates automatically. Per-key overrides are stored in the `config_entries` table and take effect immediately without restart. Deleting an entry restores the file default. There is no separate mode switch; store selection follows database presence.
 
 ## Settings
 

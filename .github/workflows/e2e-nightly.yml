@@ -1,0 +1,70 @@
+# Nightly real-dependency E2E (issue #896).
+#
+# The product's core value is cross-service enrichment, yet CI otherwise proves
+# it only against mocks and in-memory middleware tests. This workflow stands up
+# the real dependency stack (PostgreSQL, Trino, SeaweedFS) from
+# docker-compose.e2e.yml and runs the integration-tagged suites in test/e2e.
+#
+# DataHub is intentionally NOT in the compose stack (it needs `datahub docker
+# quickstart`), so the DataHub-dependent suites skip cleanly via their
+# reachability guards (helpers.SkipIfDataHubUnavailable probes the real endpoint;
+# knowledge_datahub_writer_test skips when E2E_DATAHUB_URL is unset). The
+# Trino/S3/Postgres suites still run against real services.
+name: E2E Nightly
+
+on:
+  schedule:
+    # 07:00 UTC daily — a low-traffic hour for the shared runners.
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+# A slow nightly run must never pile up behind itself.
+concurrency:
+  group: e2e-nightly
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: Real-dependency E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: "1.26.5"
+          cache: true
+
+      - name: Start E2E environment
+        run: make e2e-up
+
+      - name: Run E2E tests
+        run: make e2e-test
+
+      - name: Collect compose logs
+        if: always()
+        # `make e2e-logs` follows (-f) and would hang a CI step, so capture a
+        # non-following snapshot directly. DOCKER_DEFAULT_PLATFORM is cleared to
+        # match the Makefile's E2E_COMPOSE (native platform for multi-arch images).
+        env:
+          DOCKER_DEFAULT_PLATFORM: ""
+        run: docker compose -f docker-compose.e2e.yml logs --no-color > e2e-compose-logs.txt 2>&1 || true
+
+      - name: Upload compose logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-compose-logs
+          path: e2e-compose-logs.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Tear down E2E environment
+        if: always()
+        run: make e2e-down

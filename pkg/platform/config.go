@@ -93,28 +93,22 @@ var (
 	defaultCleanupInterval  = 1 * time.Minute
 )
 
-// ConfigStoreConfig configures how configuration is stored and managed.
-type ConfigStoreConfig struct {
-	Mode string `yaml:"mode"` // "file" (default) or "database"
-}
-
 // Config holds the complete platform configuration.
 type Config struct {
-	APIVersion  string            `yaml:"apiVersion"`
-	Meta        ConfigMeta        `yaml:"config"`
-	ConfigStore ConfigStoreConfig `yaml:"config_store"`
-	Server      ServerConfig      `yaml:"server"`
-	Auth        AuthConfig        `yaml:"auth"`
-	OAuth       OAuthConfig       `yaml:"oauth"`
-	Database    DatabaseConfig    `yaml:"database"`
-	Personas    PersonasConfig    `yaml:"personas"`
-	Toolkits    map[string]any    `yaml:"toolkits"`
-	Tools       ToolsConfig       `yaml:"tools"`
-	Semantic    SemanticConfig    `yaml:"semantic"`
-	Query       QueryConfig       `yaml:"query"`
-	Storage     StorageConfig     `yaml:"storage"`
-	Enrichment  EnrichmentConfig  `yaml:"enrichment"`
-	Tuning      TuningConfig      `yaml:"tuning"`
+	APIVersion string           `yaml:"apiVersion"`
+	Meta       ConfigMeta       `yaml:"config"`
+	Server     ServerConfig     `yaml:"server"`
+	Auth       AuthConfig       `yaml:"auth"`
+	OAuth      OAuthConfig      `yaml:"oauth"`
+	Database   DatabaseConfig   `yaml:"database"`
+	Personas   PersonasConfig   `yaml:"personas"`
+	Toolkits   map[string]any   `yaml:"toolkits"`
+	Tools      ToolsConfig      `yaml:"tools"`
+	Semantic   SemanticConfig   `yaml:"semantic"`
+	Query      QueryConfig      `yaml:"query"`
+	Storage    StorageConfig    `yaml:"storage"`
+	Enrichment EnrichmentConfig `yaml:"enrichment"`
+	Tuning     TuningConfig     `yaml:"tuning"`
 
 	// EnrichmentDeprecated accepts the legacy "injection" key so configs written
 	// before the rename to "enrichment" still load. applyEnrichmentCompat folds it

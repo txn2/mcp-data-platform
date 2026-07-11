@@ -2863,9 +2863,11 @@ func containsSubstr(s, substr string) bool {
 }
 
 func TestPlatform_ConfigStore_FileMode(t *testing.T) {
+	// No database.dsn -> the platform builds a read-only file-backed config
+	// store, so ConfigStore().Mode() reports "file". Store selection is driven
+	// purely by database presence.
 	cfg := &Config{
-		ConfigStore: ConfigStoreConfig{Mode: "file"},
-		Server:      ServerConfig{Name: testServerName},
+		Server: ServerConfig{Name: testServerName},
 	}
 	applyDefaults(cfg)
 
