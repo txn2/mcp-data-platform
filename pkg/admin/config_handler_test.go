@@ -507,6 +507,33 @@ func TestRedactMap(t *testing.T) {
 		assert.Equal(t, "admin", first["name"])
 	})
 
+	t.Run("redacts a list of secrets under a sensitive key", func(t *testing.T) {
+		// previous_signing_keys is a list of HMAC keys, not a scalar, so each
+		// element must be redacted or the keys leak through /admin/config.
+		m := map[string]any{
+			"previous_signing_keys": []any{"old-key-one", "old-key-two"},
+		}
+		redactMap(m)
+
+		list, ok := m["previous_signing_keys"].([]any)
+		require.True(t, ok, "previous_signing_keys should remain a slice")
+		require.Len(t, list, 2)
+		assert.Equal(t, "[REDACTED]", list[0])
+		assert.Equal(t, "[REDACTED]", list[1])
+	})
+
+	t.Run("does not redact empty strings in a sensitive list", func(t *testing.T) {
+		m := map[string]any{
+			"previous_signing_keys": []any{"", "real-key"},
+		}
+		redactMap(m)
+
+		list, _ := m["previous_signing_keys"].([]any)
+		require.Len(t, list, 2)
+		assert.Equal(t, "", list[0])
+		assert.Equal(t, "[REDACTED]", list[1])
+	})
+
 	t.Run("does not redact empty sensitive values", func(t *testing.T) {
 		m := map[string]any{
 			"password": "",

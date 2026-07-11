@@ -332,6 +332,69 @@ func TestConfigValidate(t *testing.T) {
 		}
 	})
 
+	t.Run("http + oauth enabled + no signing key = error naming the key", func(t *testing.T) {
+		cfg := &Config{
+			Server: ServerConfig{Transport: "http"},
+			OAuth:  OAuthConfig{Enabled: true, Issuer: "https://oauth.example.com"},
+		}
+		err := cfg.Validate()
+		if err == nil {
+			t.Fatal("Validate() expected error for http + oauth + no signing key")
+		}
+		if !strings.Contains(err.Error(), "oauth.signing_key") {
+			t.Errorf("error = %v, want it to name oauth.signing_key", err)
+		}
+	})
+
+	t.Run("http + oauth + ephemeral escape hatch = no error", func(t *testing.T) {
+		cfg := &Config{
+			Server: ServerConfig{Transport: "http"},
+			OAuth: OAuthConfig{
+				Enabled:                  true,
+				Issuer:                   "https://oauth.example.com",
+				AllowEphemeralSigningKey: true,
+			},
+		}
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("Validate() error = %v, want nil with allow_ephemeral_signing_key", err)
+		}
+	})
+
+	t.Run("http + oauth + signing key configured = no error", func(t *testing.T) {
+		cfg := &Config{
+			Server: ServerConfig{Transport: "http"},
+			OAuth: OAuthConfig{
+				Enabled:    true,
+				Issuer:     "https://oauth.example.com",
+				SigningKey: "c2lnbmluZy1rZXktYXQtbGVhc3QtMzItYnl0ZXMtbG9uZw==",
+			},
+		}
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("Validate() error = %v, want nil with signing key set", err)
+		}
+	})
+
+	t.Run("stdio + oauth + no signing key = no signing-key error", func(t *testing.T) {
+		cfg := &Config{
+			Server: ServerConfig{Transport: "stdio"},
+			OAuth:  OAuthConfig{Enabled: true, Issuer: "https://oauth.example.com"},
+		}
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("Validate() error = %v, want nil — stdio keeps auto-generate behavior", err)
+		}
+	})
+
+	t.Run("sse transport is treated as http for the signing-key gate", func(t *testing.T) {
+		cfg := &Config{
+			Server: ServerConfig{Transport: "sse"},
+			OAuth:  OAuthConfig{Enabled: true, Issuer: "https://oauth.example.com"},
+		}
+		err := cfg.Validate()
+		if err == nil || !strings.Contains(err.Error(), "oauth.signing_key") {
+			t.Errorf("Validate() error = %v, want signing_key error for sse transport", err)
+		}
+	})
+
 	t.Run("BroadcastChannel under 63 bytes is accepted", func(t *testing.T) {
 		cfg := &Config{
 			Sessions: SessionsConfig{Store: SessionStoreDatabase, BroadcastChannel: "deploy_alpha_events"},

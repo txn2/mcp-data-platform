@@ -484,13 +484,45 @@ type APIKeyDef struct {
 
 // OAuthConfig configures the OAuth server.
 type OAuthConfig struct {
-	Enabled    bool                 `yaml:"enabled"`
-	Issuer     string               `yaml:"issuer"`
-	SigningKey string               `yaml:"signing_key"` // Base64-encoded HMAC key for JWT signing
-	Clients    []OAuthClientConfig  `yaml:"clients"`
-	DCR        DCRConfig            `yaml:"dcr"`
-	RateLimit  OAuthRateLimitConfig `yaml:"rate_limit"`
-	Upstream   *UpstreamIDPConfig   `yaml:"upstream,omitempty"`
+	Enabled    bool   `yaml:"enabled"`
+	Issuer     string `yaml:"issuer"`
+	SigningKey string `yaml:"signing_key"` // Base64-encoded HMAC key for JWT signing
+	// PreviousSigningKeys are base64-encoded HMAC keys retained for verification
+	// only after a signing-key rotation. New tokens are always signed with
+	// SigningKey; tokens minted with a prior key still verify while that key
+	// remains here. Rotate in two phases (add the new key here as verify-only
+	// everywhere first, then promote it to signing_key) so no replica signs with
+	// a key its peers have not yet learned; see the "Rotating the signing key"
+	// runbook in docs/auth/oauth-server.md.
+	PreviousSigningKeys []string `yaml:"previous_signing_keys"`
+	// AllowEphemeralSigningKey permits an HTTP deployment to boot without a
+	// configured signing_key, generating a per-process key instead. UNSAFE for
+	// multi-replica deployments: each replica mints tokens its peers reject.
+	// Intended only for single-replica HTTP dev setups. Default false.
+	AllowEphemeralSigningKey bool                 `yaml:"allow_ephemeral_signing_key"`
+	Clients                  []OAuthClientConfig  `yaml:"clients"`
+	DCR                      DCRConfig            `yaml:"dcr"`
+	RateLimit                OAuthRateLimitConfig `yaml:"rate_limit"`
+	Upstream                 *UpstreamIDPConfig   `yaml:"upstream,omitempty"`
+}
+
+// errOAuthSigningKeyRequiredMsg is the message emitted by both the config
+// validation gate and the boot-time signing-key gate when an HTTP OAuth
+// deployment has no configured key. Shared so the two gates stay in sync.
+const errOAuthSigningKeyRequiredMsg = "oauth.signing_key is required for http transport " +
+	"(set oauth.allow_ephemeral_signing_key: true only for a single-replica dev setup)"
+
+// requiresConfiguredSigningKey reports whether the deployment must supply an
+// explicit OAuth signing key rather than fall back to a per-process ephemeral
+// key. It is true when the OAuth server is enabled on an HTTP-family transport
+// and the ephemeral escape hatch is not set: across replicas every token must be
+// signed with the same key, or a replica rejects tokens minted by its peers
+// (an intermittent-auth-failure class of bug). stdio is single-process by
+// construction, so it keeps the auto-generate behavior.
+func (c *Config) requiresConfiguredSigningKey() bool {
+	return c.OAuth.Enabled &&
+		isHTTPTransport(c.Server.Transport) &&
+		!c.OAuth.AllowEphemeralSigningKey
 }
 
 // OAuthRateLimitConfig configures rate limiting for the unauthenticated OAuth
@@ -1771,6 +1803,12 @@ func (c *Config) validateOAuth(errs []string) []string {
 	}
 	if c.OAuth.Issuer == "" {
 		errs = append(errs, "oauth.issuer is required when OAuth is enabled")
+	}
+	// On an HTTP deployment a missing signing key would auto-generate a
+	// per-process key each replica's peers reject. Refuse to boot unless the
+	// operator opts into the ephemeral key explicitly.
+	if c.requiresConfiguredSigningKey() && c.OAuth.SigningKey == "" {
+		errs = append(errs, errOAuthSigningKeyRequiredMsg)
 	}
 	// Upstream IdP is required for the authorization flow.
 	if c.OAuth.Upstream == nil {

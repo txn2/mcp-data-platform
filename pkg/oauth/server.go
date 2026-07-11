@@ -18,6 +18,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/txn2/mcp-data-platform/internal/logsan"
+	"github.com/txn2/mcp-data-platform/pkg/oauth/signkey"
 	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/ratelimit"
 )
@@ -162,6 +163,11 @@ type Server struct {
 	httpClient *http.Client
 	metrics    *observability.Metrics
 
+	// signingKID is the kid header stamped on newly minted access tokens,
+	// derived once from the signing key at construction. Empty when no signing
+	// key is configured (opaque-token mode).
+	signingKID string
+
 	// Rate-limiting state for the unauthenticated /token and /register
 	// endpoints. Nil / false when limiting is disabled (see
 	// configureRateLimiting).
@@ -213,6 +219,9 @@ func NewServer(config ServerConfig, storage Storage) (*Server, error) {
 		dcr:        dcr,
 		stateStore: NewMemoryStateStore(),
 		httpClient: &http.Client{Timeout: defaultHTTPTimeoutSeconds * time.Second},
+	}
+	if len(config.SigningKey) > 0 {
+		srv.signingKID = signkey.KeyID(config.SigningKey)
 	}
 	if err := srv.configureRateLimiting(config.RateLimit); err != nil {
 		return nil, err
@@ -588,8 +597,11 @@ func (s *Server) generateAccessToken(clientID, userID string, userClaims map[str
 		claims["claims"] = userClaims
 	}
 
-	// Sign the token
+	// Sign the token. The kid header lets verifiers select the right key after
+	// a rotation; tokens issued before this header existed verify via the
+	// current-then-previous fallback path on the resource-server side.
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	token.Header["kid"] = s.signingKID
 	signedToken, err := token.SignedString(s.config.SigningKey)
 	if err != nil {
 		return "", fmt.Errorf("signing token: %w", err)

@@ -35,3 +35,15 @@ go/sql-injection pkg/audit/postgres/store.go:195
 # import and truncateForLog control-char stripping were added in #861;
 # same sink, same exchange, unchanged.
 go/request-forgery pkg/admin/gateway_oauth_handler.go:498
+
+# weak-sensitive-data-hashing on the OAuth signing-key kid derivation
+# (#897). KeyID hashes the HMAC signing key with SHA-256 and truncates to
+# 8 bytes to produce a public key identifier (the JWT `kid` header), the
+# same construction as an RFC 7638 JWK thumbprint or a TLS certificate
+# fingerprint. This is deliberately a fast, deterministic hash: a stable
+# identifier must be reproducible byte-for-byte across replicas, which a
+# salted/slow password hash (bcrypt/scrypt/argon2 — what the rule wants)
+# cannot provide. The kid is non-secret by design and SHA-256's preimage
+# resistance keeps the key unrecoverable from it, so the "sensitive data"
+# the rule worries about is not exposed. Not password/credential storage.
+go/weak-sensitive-data-hashing pkg/oauth/signkey/signkey.go:26
