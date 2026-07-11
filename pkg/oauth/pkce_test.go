@@ -98,13 +98,10 @@ func TestValidateCodeChallenge(t *testing.T) {
 func TestGenerateCodeChallenge(t *testing.T) {
 	verifier := strings.Repeat(pkceRepeatChar, pkceMinLen)
 
-	t.Run("plain method", func(t *testing.T) {
-		challenge, err := GenerateCodeChallenge(verifier, PKCEMethodPlain)
-		if err != nil {
-			t.Fatalf("GenerateCodeChallenge() error = %v", err)
-		}
-		if challenge != verifier {
-			t.Error("plain challenge should equal verifier")
+	t.Run("plain method rejected", func(t *testing.T) {
+		_, err := GenerateCodeChallenge(verifier, "plain")
+		if err == nil {
+			t.Error("GenerateCodeChallenge() expected error for plain method")
 		}
 	})
 
@@ -161,13 +158,10 @@ func TestVerifyCodeChallenge(t *testing.T) {
 		}
 	})
 
-	t.Run("plain valid", func(t *testing.T) {
-		valid, err := VerifyCodeChallenge(verifier, verifier, PKCEMethodPlain)
-		if err != nil {
-			t.Fatalf("VerifyCodeChallenge() error = %v", err)
-		}
-		if !valid {
-			t.Error("VerifyCodeChallenge() = false, want true")
+	t.Run("plain rejected", func(t *testing.T) {
+		_, err := VerifyCodeChallenge(verifier, verifier, "plain")
+		if err == nil {
+			t.Error("VerifyCodeChallenge() expected error for plain method")
 		}
 	})
 }

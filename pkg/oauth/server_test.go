@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -257,6 +258,39 @@ func TestServerAuthorize_Validation(t *testing.T) {
 			t.Error("expected error for invalid PKCE method")
 		}
 	})
+
+	// #892: a client that does not require PKCE but voluntarily supplies a
+	// code_challenge must still be held to S256 at /authorize. Otherwise the
+	// plain challenge passes here and only fails closed at token exchange.
+	t.Run("plain rejected even when PKCE not required", func(t *testing.T) {
+		client := &Client{
+			ClientID:     testClientID,
+			RedirectURIs: []string{testRedirectURI},
+			Active:       true,
+			RequirePKCE:  false,
+		}
+		storage := &mockStorage{
+			getClientFunc: func(_ context.Context, _ string) (*Client, error) {
+				return client, nil
+			},
+			saveAuthorizationCodeFunc: func(_ context.Context, _ *AuthorizationCode) error {
+				return nil
+			},
+		}
+		server, _ := NewServer(ServerConfig{}, storage)
+
+		_, err := server.Authorize(ctx, AuthorizationRequest{
+			ResponseType:        "code",
+			ClientID:            testClientID,
+			RedirectURI:         testRedirectURI,
+			CodeChallenge:       "challenge",
+			CodeChallengeMethod: "plain",
+		}, testServerUserID, nil)
+
+		if err == nil {
+			t.Error("expected error for plain method on non-PKCE-required client")
+		}
+	})
 }
 
 func TestServerToken(t *testing.T) {
@@ -339,6 +373,17 @@ func TestServerHTTPHandlers(t *testing.T) {
 		}
 		if !strings.Contains(w.Body.String(), "issuer") {
 			t.Error("expected issuer in response")
+		}
+
+		// #892: metadata must advertise S256 only, not plain.
+		var meta struct {
+			CodeChallengeMethodsSupported []string `json:"code_challenge_methods_supported"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &meta); err != nil {
+			t.Fatalf("failed to decode metadata: %v", err)
+		}
+		if !reflect.DeepEqual(meta.CodeChallengeMethodsSupported, []string{"S256"}) {
+			t.Errorf("expected code_challenge_methods_supported=[S256], got %v", meta.CodeChallengeMethodsSupported)
 		}
 	})
 
@@ -1768,7 +1813,7 @@ func TestGenerateTokensSaveError(t *testing.T) {
 	}
 }
 
-func TestValidatePKCEPlain(t *testing.T) {
+func TestValidatePKCEPlainRejected(t *testing.T) {
 	ctx := context.Background()
 	hashedSecret, _ := bcrypt.GenerateFromPassword([]byte(testSecret), bcrypt.MinCost)
 
@@ -1793,8 +1838,8 @@ func TestValidatePKCEPlain(t *testing.T) {
 	}
 	server, _ := NewServer(ServerConfig{}, storage)
 
-	// Authorize with plain PKCE
-	code, err := server.Authorize(ctx, AuthorizationRequest{
+	// Authorize with plain PKCE is rejected: OAuth 2.1 supports only S256.
+	_, err := server.Authorize(ctx, AuthorizationRequest{
 		ResponseType:        "code",
 		ClientID:            testClientID,
 		RedirectURI:         testRedirectURI,
@@ -1802,11 +1847,11 @@ func TestValidatePKCEPlain(t *testing.T) {
 		CodeChallenge:       codeChallenge,
 		CodeChallengeMethod: "plain",
 	}, testServerUserID, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err == nil {
+		t.Fatal("expected error for plain code_challenge_method, got nil")
 	}
-	if code == "" {
-		t.Error("expected non-empty code")
+	if !strings.Contains(err.Error(), "S256") {
+		t.Errorf("expected error to mention S256, got: %v", err)
 	}
 }
 

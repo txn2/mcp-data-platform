@@ -291,14 +291,15 @@ func (s *Server) validateAuthorizationRequest(ctx context.Context, req Authoriza
 
 // validatePKCE validates PKCE parameters if required.
 func (*Server) validatePKCE(client *Client, req AuthorizationRequest) error {
-	if !client.RequirePKCE {
-		return nil
-	}
-	if req.CodeChallenge == "" {
+	if client.RequirePKCE && req.CodeChallenge == "" {
 		return fmt.Errorf("code_challenge required")
 	}
-	if req.CodeChallengeMethod != string(PKCEMethodS256) && req.CodeChallengeMethod != string(PKCEMethodPlain) {
-		return fmt.Errorf("invalid code_challenge_method")
+	// Enforce S256 whenever a challenge is supplied, even for clients that do
+	// not require PKCE. A code_challenge stored with a non-S256 method would
+	// otherwise pass /authorize and fail closed only at token exchange, since
+	// verifyCodeChallenge hard-codes S256 (#892). OAuth 2.1 permits S256 only.
+	if req.CodeChallenge != "" && req.CodeChallengeMethod != string(PKCEMethodS256) {
+		return fmt.Errorf("code_challenge_method %q is not supported; use S256", req.CodeChallengeMethod)
 	}
 	return nil
 }
@@ -1108,7 +1109,7 @@ func (s *Server) handleMetadata(w http.ResponseWriter, _ *http.Request) {
 		"registration_endpoint":                 s.config.Issuer + "/register",
 		"response_types_supported":              []string{paramCode},
 		"grant_types_supported":                 []string{grantTypeAuthCode, grantTypeRefreshToken},
-		"code_challenge_methods_supported":      []string{string(PKCEMethodS256), "plain"},
+		"code_challenge_methods_supported":      []string{string(PKCEMethodS256)},
 		"token_endpoint_auth_methods_supported": []string{"client_secret_basic", "client_secret_post"},
 	}
 
