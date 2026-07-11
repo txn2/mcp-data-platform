@@ -2085,6 +2085,73 @@ func TestAuditConfig_IsToolCallLoggingEnabled(t *testing.T) {
 	})
 }
 
+func TestAuditConfig_IsParameterLoggingEnabled(t *testing.T) {
+	t.Run("nil defaults to enabled", func(t *testing.T) {
+		if !(&AuditConfig{}).IsParameterLoggingEnabled() {
+			t.Error("expected nil log_parameters to default to enabled")
+		}
+	})
+	t.Run("explicit false disables", func(t *testing.T) {
+		if (&AuditConfig{LogParameters: new(false)}).IsParameterLoggingEnabled() {
+			t.Error("expected log_parameters: false to disable parameter capture")
+		}
+	})
+	t.Run("explicit true enables", func(t *testing.T) {
+		if !(&AuditConfig{LogParameters: new(true)}).IsParameterLoggingEnabled() {
+			t.Error("expected log_parameters: true to enable parameter capture")
+		}
+	})
+}
+
+func TestAuditConfig_DeliveryMode(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"empty defaults to async", "", AuditDeliveryAsync},
+		{"async", "async", AuditDeliveryAsync},
+		{"sync", "sync", AuditDeliverySync},
+		{"sync mixed case", "Sync", AuditDeliverySync},
+		{"sync padded", "  sync  ", AuditDeliverySync},
+		{"unrecognized resolves to async", "synch", AuditDeliveryAsync},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := (&AuditConfig{Delivery: tc.in}).DeliveryMode()
+			if got != tc.want {
+				t.Errorf("DeliveryMode(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestAuditConfig_ValidateDelivery(t *testing.T) {
+	valid := []string{"", "async", "sync", "SYNC", " async "}
+	for _, v := range valid {
+		if err := (&AuditConfig{Delivery: v}).ValidateDelivery(); err != nil {
+			t.Errorf("ValidateDelivery(%q) unexpected error: %v", v, err)
+		}
+	}
+	invalid := []string{"synch", "asynchronous", "none", "off"}
+	for _, v := range invalid {
+		if err := (&AuditConfig{Delivery: v}).ValidateDelivery(); err == nil {
+			t.Errorf("ValidateDelivery(%q) expected error, got nil", v)
+		}
+	}
+}
+
+func TestConfigValidate_RejectsBadAuditDelivery(t *testing.T) {
+	cfg := &Config{Audit: AuditConfig{Delivery: "synch"}}
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected Validate to reject audit.delivery=synch")
+	}
+	if !strings.Contains(err.Error(), "audit.delivery") {
+		t.Errorf("expected error to mention audit.delivery, got %v", err)
+	}
+}
+
 func TestWorkflowConfig_IsRequireSearchEnabled(t *testing.T) {
 	t.Run("nil defaults to true", func(t *testing.T) {
 		if !(&WorkflowConfig{}).IsRequireSearchEnabled() {

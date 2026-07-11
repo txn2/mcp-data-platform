@@ -20,8 +20,8 @@ func TestDetectUnknownFields(t *testing.T) {
 		},
 		{
 			name:       "phantom audit key",
-			yaml:       "audit:\n  enabled: true\n  log_parameters: true\n",
-			wantSubstr: "log_parameters",
+			yaml:       "audit:\n  enabled: true\n  retention_hours: 24\n",
+			wantSubstr: "retention_hours",
 		},
 		{
 			name:       "phantom sessions key",
@@ -77,7 +77,7 @@ func TestDetectUnknownFields(t *testing.T) {
 // TestLoadConfig_UnknownKey_WarnsByDefault verifies that in this release an
 // unrecognized key does not fail the load (warn phase).
 func TestLoadConfig_UnknownKey_WarnsByDefault(t *testing.T) {
-	cfg, err := LoadConfigFromBytes([]byte("audit:\n  enabled: true\n  log_parameters: true\n"))
+	cfg, err := LoadConfigFromBytes([]byte("audit:\n  enabled: true\n  retention_hours: 24\n"))
 	if err != nil {
 		t.Fatalf("expected warn-and-continue, got error: %v", err)
 	}
@@ -90,11 +90,11 @@ func TestLoadConfig_UnknownKey_WarnsByDefault(t *testing.T) {
 // promotes unrecognized keys to a hard error.
 func TestLoadConfig_UnknownKey_StrictErrors(t *testing.T) {
 	_, err := LoadConfigFromBytes([]byte(
-		"config:\n  strict: true\naudit:\n  enabled: true\n  log_parameters: true\n"))
+		"config:\n  strict: true\naudit:\n  enabled: true\n  retention_hours: 24\n"))
 	if err == nil {
 		t.Fatal("expected strict parsing error, got nil")
 	}
-	if !strings.Contains(err.Error(), "log_parameters") {
+	if !strings.Contains(err.Error(), "retention_hours") {
 		t.Fatalf("expected error to name the offending key, got: %v", err)
 	}
 }

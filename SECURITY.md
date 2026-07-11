@@ -58,6 +58,7 @@ When deploying mcp-data-platform:
    - Use dedicated credentials for the audit database
    - Enable TLS for database connections
    - Regularly backup audit logs
+   - Audit events capture raw tool-call arguments (including full SQL) and, by default, deliver asynchronously with best-effort loss under backpressure. For sensitive-argument redaction, parameter-capture opt-out, and durable (`sync`) delivery, see the [Delivery semantics and data captured](docs/server/configuration.md#delivery-semantics-and-data-captured) section of the configuration reference.
 
 ## Security Features
 

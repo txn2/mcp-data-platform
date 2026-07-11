@@ -530,12 +530,15 @@ portal:
 
 ## Audit Configuration
 
-The `audit` block controls audit logging of MCP tool calls. Audit events are written asynchronously to PostgreSQL.
+The `audit` block controls audit logging of MCP tool calls. By default audit events are written asynchronously to PostgreSQL.
 
 ```yaml
 audit:
   enabled: true
   log_tool_calls: true
+  log_parameters: true
+  redact_keys: ["password", "token"]
+  delivery: async          # async (default) | sync
   retention_days: 90
 ```
 
@@ -543,10 +546,23 @@ audit:
 |-------|------|---------|-------------|
 | `enabled` | bool | `true` (when a database is available) | Enable audit logging. Set `false` to disable. |
 | `log_tool_calls` | bool | `true` | Log MCP tool call events. Set `false` to keep audit on but skip per-tool-call rows. |
+| `log_parameters` | bool | `true` | Capture tool-call arguments on each event. Set `false` to store a null `parameters` field when arguments may carry sensitive data that redaction cannot make safe to retain. |
+| `redact_keys` | list of strings | `[]` | Top-level argument keys whose values are replaced with `[REDACTED]` before the event leaves the request path. Matching is case-insensitive; nested keys are not matched (top-level only). |
+| `delivery` | string | `async` | Store-write path: `async` (best-effort, never blocks the tool call) or `sync` (writes on the request goroutine for backpressure and zero queue drops). See below. |
 | `retention_days` | int | `90` | Days to retain audit events |
 
 !!! note "Requires database"
     Audit logging requires `database.dsn` to be configured. With a database available and no `audit:` block, both audit and per-tool-call logging are on by default. Setting `enabled: false` disables audit entirely; `log_tool_calls: false` keeps audit on but stops recording per-tool-call events.
+
+### Delivery semantics and data captured
+
+**What is captured per event.** Each audit event records: identifiers (`id`, `request_id`, `session_id`, `user_id`, `user_email`, `persona`), the call target (`tool_name`, `toolkit_kind`, `toolkit_name`, `connection`, `event_kind`), the raw tool-call arguments (`parameters`), the outcome (`success`, `error_message`, `authorized`), timing and size (`timestamp`, `duration_ms`, `request_chars`, `response_chars`, `content_blocks`), transport metadata (`transport`, `source`), and enrichment accounting (`enrichment_applied`, `enrichment_tokens_full`, `enrichment_tokens_dedup`, `enrichment_mode`, `enrichment_match_kind`).
+
+**Sensitive data in parameters.** The `parameters` field stores tool-call arguments verbatim, including complete SQL text and anything embedded in it. Unless you set `redact_keys` (to mask named top-level values) or `log_parameters: false` (to drop the field entirely), sensitive values pasted into a query or argument are retained in the audit table. A built-in baseline additionally masks the well-known keys `password`, `secret`, `token`, `api_key`, `authorization`, and `credentials`, but this is a safety net, not a substitute for configuring `redact_keys` for your own sensitive argument names.
+
+**Async delivery (default).** Events are enqueued on a bounded in-memory writer and persisted by a single background goroutine, so a tool call is never blocked by store latency. This is best-effort: under a sustained store outage or a crash, events in the queue are dropped rather than retained. Every lost event increments the `audit_events_dropped_total` metric, which also covers writes that fail or exceed the per-write timeout.
+
+**Sync delivery.** Set `delivery: sync` when a compliance posture requires durability over latency. Each event is written on the request goroutine with a per-write timeout (5s), so a slow store applies backpressure to the tool call (it waits) rather than shedding events: there are no queue-overflow drops. A store write that still fails or times out is logged and counted (`audit_events_dropped_total`) but, as in async mode, never fails the tool call: audit must not break tools. Two tradeoffs to weigh: under a stalled store every tool call blocks for up to the timeout before returning, and sync writes draw from the same `database` connection pool as OAuth, sessions, and portal queries, so under load against a slow store they can contend with those subsystems (the async writer's single drain goroutine caps audit at one connection and avoids both). Graceful shutdown cancels in-flight sync writes.
 
 See [Audit Logging](audit.md) for query examples and retention details.
 

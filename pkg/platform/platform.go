@@ -59,6 +59,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/oauth"
+	"github.com/txn2/mcp-data-platform/pkg/observability"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/platform/fieldcrypt"
 	"github.com/txn2/mcp-data-platform/pkg/platform/personastore"
@@ -1267,6 +1268,12 @@ func (p *Platform) initAudit(opts *Options) error {
 		return nil
 	}
 
+	// Reject a typo'd delivery mode at boot rather than silently resolving it
+	// to async and dropping the durability a compliance deployment asked for.
+	if err := p.config.Audit.ValidateDelivery(); err != nil {
+		return err
+	}
+
 	// Create PostgreSQL audit store
 	store := auditpostgres.New(p.db, auditpostgres.Config{
 		RetentionDays: p.config.Audit.RetentionDays,
@@ -1275,22 +1282,36 @@ func (p *Platform) initAudit(opts *Options) error {
 	// Start background cleanup routine
 	store.StartCleanupRoutine(24 * time.Hour)
 
-	// Decouple audit emission from PostgreSQL latency: a bounded async
-	// writer with a single drain goroutine, a per-write timeout, and
-	// drain-on-shutdown replaces the middleware's old per-call detached
-	// goroutine, which grew without bound under a stalled store (#884). The
-	// adapter owns the writer and drains it on Close via the platform's
-	// existing audit-logger Closer path, so no extra Platform field is held.
-	writer := audit.NewAsyncWriter(store, audit.WithMetrics(p.obs.Metrics()))
-
+	delivery := p.config.Audit.DeliveryMode()
 	p.auditStore = store
-	p.auditLogger = middleware.NewAuditStoreAdapter(writer)
+	p.auditLogger = newAuditLogger(store, delivery, p.obs.Metrics())
 
 	slog.Info("audit logging enabled",
 		"retention_days", p.config.Audit.RetentionDays,
 		"log_tool_calls", p.config.Audit.IsToolCallLoggingEnabled(),
+		"log_parameters", p.config.Audit.IsParameterLoggingEnabled(),
+		"redact_keys", len(p.config.Audit.RedactKeys),
+		"delivery", delivery,
 	)
 	return nil
+}
+
+// newAuditLogger wraps the audit store in the writer selected by the configured
+// delivery mode (#898) and adapts it to the middleware.AuditLogger interface.
+//
+// Async (default): a bounded writer with a single drain goroutine, a per-write
+// timeout, and drain-on-shutdown replaces the middleware's old per-call detached
+// goroutine, which grew without bound under a stalled store (#884); a sustained
+// outage sheds events. Sync: write on the request goroutine with a per-write
+// timeout, trading tool-call latency for backpressure and zero queue-overflow
+// drops. Either way the adapter owns the writer; for async it drains the writer
+// on Close via the platform's existing audit-logger Closer path, so no extra
+// Platform field is held.
+func newAuditLogger(store audit.Logger, delivery string, m *observability.Metrics) middleware.AuditLogger {
+	if delivery == AuditDeliverySync {
+		return middleware.NewAuditStoreAdapter(audit.NewSyncWriter(store, audit.WithSyncMetrics(m)))
+	}
+	return middleware.NewAuditStoreAdapter(audit.NewAsyncWriter(store, audit.WithMetrics(m)))
 }
 
 // initSessions assembles the session / cross-replica-sync layer (session
