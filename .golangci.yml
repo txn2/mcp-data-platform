@@ -29,6 +29,7 @@ linters:
     - unconvert          # Unnecessary type conversions
     - whitespace         # Whitespace issues
     - godot              # Comment punctuation
+    - perfsprint         # errors.New over verb-less fmt.Errorf (#901 finding 3.9)
 
     # ===== Code Quality =====
     - gocritic           # Comprehensive checks
@@ -407,6 +408,23 @@ linters:
       errorf-multi: true
       asserts: true
       comparison: true
+
+    # perfsprint scoped to the errorf check only: a verb-less fmt.Errorf must be
+    # errors.New (the durable guard behind #901 finding 3.9). The other
+    # perfsprint nudges (strconv/concat/Sprintf simplifications) are left off to
+    # keep the linter targeted and non-noisy; CI is only-new-issues, so this
+    # gates new code without a mass rewrite of existing Sprintf usage.
+    perfsprint:
+      integer-format: false # off: strconv nudges for ints
+      int-conversion: false
+      error-format: true    # parent gate for err-error + errorf; must be on
+      err-error: false      # off: do not rewrite .Error() calls
+      errorf: true          # on: verb-less fmt.Errorf -> errors.New
+      string-format: false  # off: Sprintf1 + strconcat simplifications
+      sprintf1: false
+      strconcat: false
+      bool-format: false
+      hex-format: false
 
   exclusions:
     generated: lax
