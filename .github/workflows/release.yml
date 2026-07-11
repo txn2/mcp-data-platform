@@ -82,6 +82,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*checksums*.txt
+
       - name: Build MCPB bundles
         run: |
           # Extract version from tag (remove 'v' prefix)
@@ -145,7 +153,11 @@ jobs:
           # Publish the server to the MCP registry
           mcp-publisher publish
 
-  # NOTE: SLSA provenance job removed due to false positive "private repository" detection
+  # NOTE: The slsa-github-generator provenance job was removed due to a false
+  # positive "private repository" detection that halts on public repos.
   # See: https://github.com/slsa-framework/slsa-github-generator/issues
-  # The workflow incorrectly detects public repos as private and halts.
-  # Re-add when the upstream bug is fixed.
+  # In its place, the "Attest build provenance" step above produces GitHub
+  # artifact attestations (actions/attest-build-provenance) for the release
+  # archives and checksums, earning the granted attestations: write permission.
+  # The slsa-github-generator job can replace those attestations when the
+  # upstream bug is fixed.

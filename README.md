@@ -9,7 +9,6 @@
 [![codecov](https://codecov.io/gh/txn2/mcp-data-platform/graph/badge.svg)](https://codecov.io/gh/txn2/mcp-data-platform)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13548/badge)](https://www.bestpractices.dev/projects/13548)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/txn2/mcp-data-platform/badge)](https://scorecard.dev/viewer/?uri=github.com/txn2/mcp-data-platform)
-[![SLSA 3](https://slsa.dev/images/gh-badge-level3.svg)](https://slsa.dev)
 [![Signed by Cosign](https://img.shields.io/badge/artifacts-signed_by_cosign-blue?logo=sigstore&logoColor=white)](https://github.com/sigstore/cosign)
 [![Docker](https://img.shields.io/badge/ghcr.io-txn2%2Fmcp--data--platform-blue?logo=docker)](https://github.com/txn2/mcp-data-platform/pkgs/container/mcp-data-platform)
 
