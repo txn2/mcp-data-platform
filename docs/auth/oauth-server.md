@@ -75,9 +75,14 @@ oauth:
   enabled: true
   issuer: "https://mcp.example.com"
 
-  # JWT signing key for access tokens (REQUIRED for production)
+  # JWT signing key for access tokens (REQUIRED on http transport)
   # Generate with: openssl rand -base64 32
   signing_key: "${OAUTH_SIGNING_KEY}"
+
+  # Verify-only keys retained across a rotation (optional). See "Rotating the
+  # signing key" below.
+  # previous_signing_keys:
+  #   - "${OAUTH_SIGNING_KEY_OLD}"
 
   # Pre-registered client for Claude Desktop
   clients:
@@ -108,7 +113,9 @@ oauth:
 |-------|----------|-------------|
 | `oauth.enabled` | Yes | Enable the OAuth server |
 | `oauth.issuer` | Yes | The OAuth issuer URL (your MCP server's public URL) |
-| `oauth.signing_key` | Yes* | HMAC key for signing JWT access tokens (base64 or raw string). Required for production; auto-generated if omitted (tokens won't survive restart). Generate with: `openssl rand -base64 32` |
+| `oauth.signing_key` | Yes* | HMAC key for signing JWT access tokens (base64, 32+ bytes). *Required when `oauth.enabled` and `server.transport: http` (startup fails otherwise); on `stdio` it is auto-generated if omitted (tokens won't survive restart). Generate with: `openssl rand -base64 32` |
+| `oauth.previous_signing_keys` | No | Verify-only base64 keys retained across a signing-key rotation. New tokens are always signed with `signing_key`; tokens minted with a prior key still verify while it stays in this list. See [Rotating the signing key](#rotating-the-signing-key) |
+| `oauth.allow_ephemeral_signing_key` | No | Permit an HTTP deployment to boot without `signing_key`, generating a per-process key instead (default: `false`). **Unsafe for multi-replica deployments**: each replica mints tokens its peers reject. Single-replica HTTP dev only |
 | `oauth.clients` | No | Pre-registered OAuth clients |
 | `oauth.clients[].id` | Yes | Client ID |
 | `oauth.clients[].secret` | Yes | Client secret (use environment variable) |
@@ -126,6 +133,46 @@ oauth:
 | `oauth.upstream.client_id` | No | MCP server's client ID in the upstream IdP |
 | `oauth.upstream.client_secret` | No | MCP server's client secret |
 | `oauth.upstream.redirect_uri` | No | Callback URL for upstream IdP |
+
+### Rotating the signing key
+
+Access tokens are HS256-signed and carry a `kid` (key id) header derived from the signing key, so a verifier can pick the right key after a rotation. New tokens are always signed with `oauth.signing_key`; `oauth.previous_signing_keys` holds additional keys for verification only. This lets you rotate without invalidating live sessions.
+
+On a multi-replica deployment, rotate in **two phases** so that every replica can verify the new key *before* any replica starts signing with it. A single-phase swap (change `signing_key` and roll-restart in one step) causes intermittent 401s: during the rolling restart a not-yet-restarted replica does not yet know the new key and rejects tokens a restarted replica already signed with it.
+
+Start state (key `A` in use):
+
+```yaml
+oauth:
+  signing_key: "${OAUTH_SIGNING_KEY_A}"
+```
+
+1. Generate the new key `B`: `openssl rand -base64 32`.
+2. **Phase 1, teach every replica to verify `B`.** Add `B` to `previous_signing_keys` while keeping `A` as `signing_key`, then roll-restart all replicas. Every replica now verifies both `A` and `B`, but all still sign with `A`, so no token carries the new key yet:
+
+   ```yaml
+   oauth:
+     signing_key: "${OAUTH_SIGNING_KEY_A}"       # still signing with A
+     previous_signing_keys:
+       - "${OAUTH_SIGNING_KEY_B}"                # B is verify-only for now
+   ```
+
+3. **Phase 2, promote `B` to the signer.** Set `signing_key` to `B` and move `A` into `previous_signing_keys`, then roll-restart. Because Phase 1 already taught every replica to verify `B`, a not-yet-restarted replica accepts the `B`-signed tokens a restarted replica issues, so there are no 401s during the rollout:
+
+   ```yaml
+   oauth:
+     signing_key: "${OAUTH_SIGNING_KEY_B}"       # now signing with B
+     previous_signing_keys:
+       - "${OAUTH_SIGNING_KEY_A}"                # A retained for in-flight tokens
+   ```
+
+4. **Retire `A`.** After the access-token TTL has elapsed (1 hour) since Phase 2 completed, no live token is signed with `A`. Remove it from `previous_signing_keys` and roll-restart to complete the rotation.
+
+Tokens issued before `kid` support existed carry no `kid` and are verified against the current key, then each previous key, so an in-place upgrade to this version does not log anyone out.
+
+## Upgrade Note: Signing Key Required on HTTP
+
+Before this version, an HTTP deployment (`server.transport: http` or `sse`) with OAuth enabled but no `oauth.signing_key` booted with an auto-generated per-process key and a warning. That is unsafe for multiple replicas (each replica signs tokens its peers reject), so the platform now **fails to start** in that configuration, naming the missing `oauth.signing_key`. Fix it by configuring a persistent `oauth.signing_key` (the correct action for any real deployment). For a single-replica dev or demo install where an ephemeral key is acceptable, set `oauth.allow_ephemeral_signing_key: true` to restore the previous boot-with-warning behavior. `stdio` deployments are unaffected (single-process by construction, key still auto-generated when omitted).
 
 ## Endpoints
 

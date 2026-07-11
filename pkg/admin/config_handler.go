@@ -116,6 +116,7 @@ const (
 	sensKeyPassword        = "password"
 	sensKeyToken           = "token"
 	sensKeySigningKey      = "signing_key"
+	sensKeyPrevSigningKeys = "previous_signing_keys"
 	sensKeyDSN             = "dsn"
 	sensKeySecretAccessKey = "secret_access_key"
 	sensKeyClientSecret    = "client_secret"
@@ -139,6 +140,7 @@ var sensitiveKeys = []string{
 	sensKeyPassword,
 	sensKeyToken,
 	sensKeySigningKey,
+	sensKeyPrevSigningKeys,
 	sensKeyDSN,
 	sensKeySecretAccessKey,
 	sensKeyClientSecret,
@@ -550,9 +552,7 @@ func redactYAML(data []byte) ([]byte, error) {
 func redactMap(m map[string]any) {
 	for k, v := range m {
 		if isSensitiveKey(k) {
-			if s, ok := v.(string); ok && s != "" {
-				m[k] = redactedValue
-			}
+			redactSensitiveValue(m, k, v)
 			continue
 		}
 		switch val := v.(type) {
@@ -560,6 +560,25 @@ func redactMap(m map[string]any) {
 			redactMap(val)
 		case []any:
 			redactSlice(val)
+		}
+	}
+}
+
+// redactSensitiveValue redacts the value stored at a key already known to be
+// sensitive. It handles both a scalar secret (e.g. signing_key) and a list of
+// secrets (e.g. previous_signing_keys), redacting each non-empty string in the
+// list so no element leaks.
+func redactSensitiveValue(m map[string]any, key string, v any) {
+	switch val := v.(type) {
+	case string:
+		if val != "" {
+			m[key] = redactedValue
+		}
+	case []any:
+		for i, item := range val {
+			if s, ok := item.(string); ok && s != "" {
+				val[i] = redactedValue
+			}
 		}
 	}
 }

@@ -319,6 +319,10 @@ Because portal, admin, and managed-resources mutations can be authenticated by t
 
 The built-in `oauth:` block turns the platform itself into an OAuth 2.1 authorization server, for clients like Claude Desktop that expect to sign in directly to the MCP server rather than through an existing OIDC provider. For most deployments, `auth.oidc` or `auth.api_keys` above are simpler and sufficient. See [OAuth 2.1 Server](../auth/oauth-server.md) for the full config reference, Dynamic Client Registration guidance, and setup walkthrough.
 
+#### Signing key
+
+When `oauth.enabled` is set on `server.transport: http`, `oauth.signing_key` (base64, 32+ bytes) is **required**: startup fails without it, because an auto-generated per-process key makes each replica reject tokens minted by its peers. Set `oauth.allow_ephemeral_signing_key: true` to override this for a single-replica dev setup (unsafe for replicas). On `stdio` the key is auto-generated when omitted (single-process by construction). To rotate the key without logging users out, see [Rotating the signing key](../auth/oauth-server.md#rotating-the-signing-key).
+
 #### Rate limiting
 
 The unauthenticated `/token` and `/register` endpoints are rate limited by default. `/token` runs a bcrypt compare per attempt and `/register` runs a bcrypt hash plus a database insert per request, so both are CPU (and, for `/register`, storage) amplification levers. Each endpoint has a per-client-IP limit plus an internal global backstop that bounds total throughput regardless of how requests attribute to IPs.

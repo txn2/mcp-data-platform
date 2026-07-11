@@ -57,6 +57,15 @@ auth:
 # OAuth 2.1 server (for MCP clients like Claude)
 oauth:
   enabled: false
+  # signing_key is required when oauth is enabled on http transport (startup
+  # fails without it): an auto-generated per-process key makes each replica
+  # reject its peers' tokens. Generate with: openssl rand -base64 32
+  # signing_key: "${OAUTH_SIGNING_KEY}"
+  # To rotate without logging users out, move the old key here (verify-only)
+  # while signing_key holds the new one; drop it after the access-token TTL.
+  # previous_signing_keys:
+  #   - "${OAUTH_SIGNING_KEY_OLD}"
+  # allow_ephemeral_signing_key: true  # single-replica http dev only; unsafe for replicas
   dcr:
     enabled: true
     allowed_redirect_patterns:

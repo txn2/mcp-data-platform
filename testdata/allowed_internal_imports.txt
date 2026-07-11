@@ -60,6 +60,7 @@ pkg/audit -> pkg/observability
 pkg/audit/postgres -> pkg/audit
 pkg/auth -> internal/logsan
 pkg/auth -> pkg/middleware
+pkg/auth -> pkg/oauth/signkey
 pkg/browsersession -> internal/logsan
 pkg/browsersession -> pkg/middleware
 pkg/browsersession -> pkg/user
@@ -106,6 +107,7 @@ pkg/middleware -> pkg/session
 pkg/middleware -> pkg/storage
 pkg/middleware -> pkg/urnbuild
 pkg/oauth -> internal/logsan
+pkg/oauth -> pkg/oauth/signkey
 pkg/oauth -> pkg/observability
 pkg/oauth -> pkg/ratelimit
 pkg/oauth/postgres -> pkg/oauth

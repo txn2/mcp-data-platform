@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -160,8 +161,11 @@ type Platform struct {
 	apiKeyAuth    *auth.APIKeyAuthenticator
 
 	// OAuth
-	oauthHandle     *oauthserver.Handle
-	oauthSigningKey []byte
+	oauthHandle *oauthserver.Handle
+	// oauthKeys holds the active signing key plus verify-only previous keys.
+	// Grouped into one field so rotation support does not widen the Platform
+	// struct past its frozen field ceiling.
+	oauthKeys oauthSigningKeys
 
 	// Browser session (OIDC login flow + cookie-based auth for the web UI)
 	browserSession *browserauth.Session
@@ -980,6 +984,16 @@ func (p *Platform) applyConfigEntry(key, value string) {
 	p.config.ApplyConfigEntry(key, value)
 }
 
+// oauthSigningKeys bundles the active OAuth JWT signing key with the verify-only
+// previous keys retained across a rotation, so the Platform carries both in a
+// single field.
+type oauthSigningKeys struct {
+	// current signs new tokens and verifies tokens bearing its kid.
+	current []byte
+	// previous verify tokens minted with a prior key during a rotation window.
+	previous [][]byte
+}
+
 // initOAuthSigningKey parses or generates the OAuth signing key.
 // This must be called before initAuth so the OAuth authenticator can be configured.
 func (p *Platform) initOAuthSigningKey() error {
@@ -991,8 +1005,48 @@ func (p *Platform) initOAuthSigningKey() error {
 	if err != nil {
 		return fmt.Errorf("configuring OAuth signing key: %w", err)
 	}
-	p.oauthSigningKey = signingKey
+	p.oauthKeys.current = signingKey
+
+	previous, err := parsePreviousSigningKeys(p.config.OAuth.PreviousSigningKeys)
+	if err != nil {
+		return fmt.Errorf("configuring OAuth previous signing keys: %w", err)
+	}
+	p.oauthKeys.previous = previous
 	return nil
+}
+
+// parsePreviousSigningKeys decodes the verify-only previous signing keys used to
+// keep live sessions valid across a rotation. Each is decoded and length-checked
+// by the same decodeSigningKey helper as the active key, so both key classes
+// validate identically. A free function (not a *Platform method) so it does not
+// widen the Platform method surface.
+func parsePreviousSigningKeys(raw []string) ([][]byte, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	keys := make([][]byte, 0, len(raw))
+	for i, encoded := range raw {
+		key, err := decodeSigningKey(encoded)
+		if err != nil {
+			return nil, fmt.Errorf("previous signing key %d: %w", i, err)
+		}
+		keys = append(keys, key)
+	}
+	return keys, nil
+}
+
+// decodeSigningKey decodes a base64-encoded HMAC signing key and enforces the
+// minimum length. Shared by the active key and the verify-only previous keys so
+// the two never drift apart in how they are decoded or validated.
+func decodeSigningKey(encoded string) ([]byte, error) {
+	key, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, fmt.Errorf("decoding signing key: %w", err)
+	}
+	if len(key) < minSigningKeyLength {
+		return nil, fmt.Errorf("signing key must be at least %d bytes", minSigningKeyLength)
+	}
+	return key, nil
 }
 
 // initProviders initializes semantic, query, and storage providers.
@@ -1123,10 +1177,11 @@ func (p *Platform) authInput() iam.Input {
 	return iam.Input{
 		OAuthEnabled: p.config.OAuth.Enabled,
 		OAuthJWT: auth.OAuthJWTConfig{
-			Issuer:        p.config.OAuth.Issuer,
-			SigningKey:    p.oauthSigningKey,
-			RoleClaimPath: oidc.RoleClaimPath,
-			RolePrefix:    oidc.RolePrefix,
+			Issuer:              p.config.OAuth.Issuer,
+			SigningKey:          p.oauthKeys.current,
+			PreviousSigningKeys: p.oauthKeys.previous,
+			RoleClaimPath:       oidc.RoleClaimPath,
+			RolePrefix:          oidc.RolePrefix,
 		},
 		OIDCEnabled: oidc.Enabled,
 		OIDC: auth.OIDCConfig{
@@ -1291,7 +1346,7 @@ func (p *Platform) initOAuth() error {
 	cfg := oauthserver.Config{
 		Issuer:         p.config.OAuth.Issuer,
 		AccessTokenTTL: 1 * time.Hour,
-		SigningKey:     p.oauthSigningKey,
+		SigningKey:     p.oauthKeys.current,
 		Clients:        make([]oauthserver.Client, 0, len(p.config.OAuth.Clients)),
 		DCR: oauthserver.DCR{
 			Enabled:                 p.config.OAuth.DCR.Enabled,
@@ -1347,15 +1402,16 @@ func (p *Platform) initOAuth() error {
 // parseOrGenerateSigningKey parses the configured signing key or generates a random one.
 func (p *Platform) parseOrGenerateSigningKey() ([]byte, error) {
 	if p.config.OAuth.SigningKey != "" {
-		// Decode base64-encoded key from config
-		key, err := base64.StdEncoding.DecodeString(p.config.OAuth.SigningKey)
-		if err != nil {
-			return nil, fmt.Errorf("decoding signing key: %w", err)
-		}
-		if len(key) < minSigningKeyLength {
-			return nil, fmt.Errorf("signing key must be at least %d bytes", minSigningKeyLength)
-		}
-		return key, nil
+		return decodeSigningKey(p.config.OAuth.SigningKey)
+	}
+
+	// No key configured. On an HTTP deployment, refuse to auto-generate: a
+	// per-process key makes each replica reject tokens minted by its peers.
+	// Config.Validate reports the same condition, but Validate is not on every
+	// startup path, so this is the genuine boot-time gate. stdio and the
+	// explicit ephemeral escape hatch fall through to generation.
+	if p.config.requiresConfiguredSigningKey() {
+		return nil, errors.New(errOAuthSigningKeyRequiredMsg)
 	}
 
 	// Generate random key if not configured (not recommended for production)
@@ -1363,7 +1419,13 @@ func (p *Platform) parseOrGenerateSigningKey() ([]byte, error) {
 	if _, err := rand.Read(key); err != nil {
 		return nil, fmt.Errorf("generating random key: %w", err)
 	}
-	slog.Warn("OAuth signing key not configured, generated random key (tokens won't survive restart)")
+	if isHTTPTransport(p.config.Server.Transport) {
+		slog.Warn("OAuth signing key not configured; generated an ephemeral per-process key. " +
+			"UNSAFE for multi-replica deployments: replicas reject each other's tokens. " +
+			"Configure oauth.signing_key for production.")
+	} else {
+		slog.Warn("OAuth signing key not configured, generated random key (tokens won't survive restart)")
+	}
 	return key, nil
 }
 
