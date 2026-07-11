@@ -1,5 +1,3 @@
-//go:build integration
-
 package mcpapps_test
 
 import (
@@ -126,7 +124,10 @@ func TestMCPAppsIntegration(t *testing.T) {
 			t.Fatalf("Middleware call failed: %v", err)
 		}
 
-		listResult := result.(*mcp.ListToolsResult)
+		listResult, ok := result.(*mcp.ListToolsResult)
+		if !ok {
+			t.Fatalf("result type = %T, want *mcp.ListToolsResult", result)
+		}
 
 		// Find trino_query and verify _meta.ui
 		for _, tool := range listResult.Tools {
@@ -138,7 +139,10 @@ func TestMCPAppsIntegration(t *testing.T) {
 				if !ok {
 					t.Fatal("trino_query should have ui in Meta")
 				}
-				uiMap := ui.(map[string]string)
+				uiMap, ok := ui.(map[string]string)
+				if !ok {
+					t.Fatalf("ui meta type = %T, want map[string]string", ui)
+				}
 				if uiMap["resourceUri"] != "ui://query-results" {
 					t.Errorf("resourceUri = %q, want ui://query-results", uiMap["resourceUri"])
 				}
@@ -154,7 +158,7 @@ func TestMCPAppsIntegration(t *testing.T) {
 
 	t.Run("resource handler serves HTML", func(t *testing.T) {
 		// Read the HTML directly from the filesystem
-		content, err := os.ReadFile(filepath.Join(appsDir, "index.html"))
+		content, err := os.ReadFile(filepath.Join(appsDir, "index.html")) //nolint:gosec // test reads a fixed repo asset under apps/
 		if err != nil {
 			t.Fatalf("Failed to read index.html: %v", err)
 		}
@@ -175,7 +179,7 @@ func TestMCPAppsIntegration(t *testing.T) {
 func TestQueryResultsHTML(t *testing.T) {
 	appsDir := testAppsDir(t)
 
-	content, err := os.ReadFile(filepath.Join(appsDir, "index.html"))
+	content, err := os.ReadFile(filepath.Join(appsDir, "index.html")) //nolint:gosec // test reads a fixed repo asset under apps/
 	if err != nil {
 		t.Fatalf("Failed to read index.html: %v", err)
 	}
@@ -195,13 +199,11 @@ func TestQueryResultsHTML(t *testing.T) {
 	}
 }
 
-// TestFullPlatformIntegration tests with actual Platform config.
-func TestFullPlatformIntegration(t *testing.T) {
-	t.Log("To test the full platform integration:")
-	t.Log("1. Build: go build -o mcp-data-platform ./cmd/mcp-data-platform")
-	t.Log("2. Create config with mcpapps.enabled: true and apps configured with assets_path")
-	t.Log("3. Run: npx @anthropics/mcp-inspector ./mcp-data-platform --config <config.yaml>")
-	t.Log("4. In Inspector: List Tools -> verify trino_query has _meta.ui")
-	t.Log("5. In Inspector: List Resources -> verify ui://query-results exists")
-	t.Log("6. In Inspector: Read Resource ui://query-results -> verify HTML")
-}
+// Manual full-platform verification (no automated assertion possible without a
+// running server, so it is documented here rather than as a no-op test):
+//  1. Build: go build -o mcp-data-platform ./cmd/mcp-data-platform
+//  2. Create config with mcpapps.enabled: true and apps configured with assets_path
+//  3. Run: npx @anthropics/mcp-inspector ./mcp-data-platform --config <config.yaml>
+//  4. In Inspector: List Tools -> verify trino_query has _meta.ui
+//  5. In Inspector: List Resources -> verify ui://query-results exists
+//  6. In Inspector: Read Resource ui://query-results -> verify HTML

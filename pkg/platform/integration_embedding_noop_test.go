@@ -38,7 +38,7 @@ import (
 //
 // This proves the structural property that no zero-vector row can
 // reach the embeddings table while in the unconfigured state.
-func TestEmbeddingNoop_EndToEnd(t *testing.T) {
+func TestEmbeddingNoop_EndToEnd_RealDB(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
