@@ -18,6 +18,7 @@
 package branding
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -159,7 +160,7 @@ func (h *Handle) ResolveImplementorLogo() string {
 // or exceeds the size limit.
 func fetchLogoSVG(url string) (string, error) {
 	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-		return "", fmt.Errorf("unsupported scheme")
+		return "", errors.New("unsupported scheme")
 	}
 
 	client := &http.Client{Timeout: logoFetchTimeout}

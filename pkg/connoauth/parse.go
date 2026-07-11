@@ -1,6 +1,7 @@
 package connoauth
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -88,7 +89,7 @@ const (
 // structurally malformed (wrong value type for a key, or an
 // unrecognized grant / auth_mode). It wraps a descriptive message;
 // callers map it to a 400 / startup-skip without string-matching.
-var ErrInvalidConfig = fmt.Errorf("connoauth: invalid oauth config")
+var ErrInvalidConfig = errors.New("connoauth: invalid oauth config")
 
 // deprecationWarned dedups the legacy-key deprecation warning to one
 // emission per (kind, name) per process lifetime, so a connection read

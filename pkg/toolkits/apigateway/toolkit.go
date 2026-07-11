@@ -2,7 +2,6 @@ package apigateway
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -567,21 +566,21 @@ const defaultListEndpointsLimit = 50
 
 func (t *Toolkit) handleListEndpoints(ctx context.Context, _ *mcp.CallToolRequest, in ListEndpointsInput) (*mcp.CallToolResult, any, error) {
 	if in.Connection == "" {
-		return errorResult("connection is required"), nil, nil
+		return toolkit.ErrorResult("connection is required"), nil, nil
 	}
 	t.mu.RLock()
 	c, ok := t.connections[in.Connection]
 	policy := t.routePolicy
 	t.mu.RUnlock()
 	if !ok {
-		return errorResult(fmt.Sprintf("connection %q not found (use list_connections to discover api connections)", in.Connection)), nil, nil
+		return toolkit.ErrorResult(fmt.Sprintf("connection %q not found (use list_connections to discover api connections)", in.Connection)), nil, nil
 	}
 	if len(c.operations) == 0 {
 		out := ListEndpointsOutput{
 			Operations: []OperationSummary{},
 			Note:       "no catalog_id configured for this connection; call api_invoke_endpoint with method+path directly",
 		}
-		return jsonResult(out), out, nil
+		return toolkit.JSONResult(out), out, nil
 	}
 	// Multi-spec gate: when the connection's catalog bundles more than
 	// one component spec and the caller did not name one, return the
@@ -599,7 +598,7 @@ func (t *Toolkit) handleListEndpoints(ctx context.Context, _ *mcp.CallToolReques
 				"spec=<name> to list operations in one spec, or call api_list_specs to browse them",
 				len(summaries)),
 		}
-		return jsonResult(out), out, nil
+		return toolkit.JSONResult(out), out, nil
 	}
 	// Filter through the route policy so a persona only sees the
 	// operations it could actually invoke. Without this, a persona
@@ -620,7 +619,7 @@ func (t *Toolkit) handleListEndpoints(ctx context.Context, _ *mcp.CallToolReques
 	}
 	mode, modeErr := parseRankingMode(in.Ranking)
 	if modeErr != nil {
-		return errorResult(modeErr.Error()), nil, nil
+		return toolkit.ErrorResult(modeErr.Error()), nil, nil
 	}
 	// Default-ON semantic ranking: when the caller does not pin a
 	// ranking, resolve an omitted value to hybrid whenever this
@@ -641,7 +640,7 @@ func (t *Toolkit) handleListEndpoints(ctx context.Context, _ *mcp.CallToolReques
 	})
 	out := ListEndpointsOutput{Operations: ranked}
 	out.Note = rankingFallbackNote(rankingDefaulted, mode, fallbackReason)
-	return jsonResult(out), out, nil
+	return toolkit.JSONResult(out), out, nil
 }
 
 // handleListSpecs returns one summary per component spec in the
@@ -652,23 +651,23 @@ func (t *Toolkit) handleListEndpoints(ctx context.Context, _ *mcp.CallToolReques
 // an empty Specs list and a Note pointing at the direct-invoke path.
 func (t *Toolkit) handleListSpecs(_ context.Context, _ *mcp.CallToolRequest, in ListSpecsInput) (*mcp.CallToolResult, any, error) {
 	if in.Connection == "" {
-		return errorResult("connection is required"), nil, nil
+		return toolkit.ErrorResult("connection is required"), nil, nil
 	}
 	t.mu.RLock()
 	c, ok := t.connections[in.Connection]
 	t.mu.RUnlock()
 	if !ok {
-		return errorResult(fmt.Sprintf("connection %q not found (use list_connections to discover api connections)", in.Connection)), nil, nil
+		return toolkit.ErrorResult(fmt.Sprintf("connection %q not found (use list_connections to discover api connections)", in.Connection)), nil, nil
 	}
 	if len(c.specs) == 0 {
 		out := ListSpecsOutput{
 			Specs: []SpecSummary{},
 			Note:  "no catalog configured for this connection; call api_invoke_endpoint with method+path directly",
 		}
-		return jsonResult(out), out, nil
+		return toolkit.JSONResult(out), out, nil
 	}
 	out := ListSpecsOutput{Specs: buildSpecSummaries(c)}
-	return jsonResult(out), out, nil
+	return toolkit.JSONResult(out), out, nil
 }
 
 // buildSpecSummaries projects a connection's parsed specs into the
@@ -1092,7 +1091,7 @@ func (t *Toolkit) Close() error {
 // clients can consume it directly).
 func (t *Toolkit) handleInvoke(ctx context.Context, _ *mcp.CallToolRequest, in InvokeInput) (*mcp.CallToolResult, any, error) {
 	if in.Connection == "" {
-		return errorResult("connection is required"), nil, nil
+		return toolkit.ErrorResult("connection is required"), nil, nil
 	}
 	t.mu.RLock()
 	c, ok := t.connections[in.Connection]
@@ -1100,14 +1099,14 @@ func (t *Toolkit) handleInvoke(ctx context.Context, _ *mcp.CallToolRequest, in I
 	budget := t.memBudget
 	t.mu.RUnlock()
 	if !ok {
-		return errorResult(fmt.Sprintf("connection %q not found (use list_connections to discover api connections)", in.Connection)), nil, nil
+		return toolkit.ErrorResult(fmt.Sprintf("connection %q not found (use list_connections to discover api connections)", in.Connection)), nil, nil
 	}
 
 	// Run the route policy BEFORE invoke() so an unauthorized call
 	// never produces an outbound HTTP request — and never appears in
 	// the upstream's access log.
 	if res := checkRoutePolicy(ctx, policy, in); res != nil {
-		return res, nil, nil //nolint:nilerr // tool error surfaced via result
+		return res, nil, nil
 	}
 
 	// Raw passthrough (issue #535): when the REST shim has installed a
@@ -1136,7 +1135,7 @@ func (t *Toolkit) handleInvoke(ctx context.Context, _ *mcp.CallToolRequest, in I
 		if errors.As(err, &nb) {
 			return nb.result(hasExport), nil, nil
 		}
-		return budgetOrErrorResult(err), nil, nil //nolint:nilerr // MCP protocol — failures surfaced via result
+		return budgetOrErrorResult(err), nil, nil
 	}
 	// Clear the api_export hint when the toolkit was built without
 	// export deps — the model would otherwise be told to use a tool
@@ -1170,7 +1169,7 @@ func (t *Toolkit) handleInvoke(ctx context.Context, _ *mcp.CallToolRequest, in I
 //     successful proxies of upstream errors flow through as wire
 //     HTTP 200 with the upstream code embedded in the body.
 func buildInvokeResult(out InvokeOutput) *mcp.CallToolResult {
-	result := jsonResult(out)
+	result := toolkit.JSONResult(out)
 	outcome := ClassifyInvokeOutcome(out)
 	result.Meta = mcp.Meta{observability.MetaAuditOutcome: outcome}
 	if msg := auditOutcomeMessage(out); msg != "" {
@@ -1215,10 +1214,10 @@ func checkRoutePolicy(ctx context.Context, policy RoutePolicy, in InvokeInput) *
 	}
 	method, mErr := validateMethod(in.Method)
 	if mErr != nil {
-		return errorResult(mErr.Error())
+		return toolkit.ErrorResult(mErr.Error())
 	}
 	if pErr := validatePath(in.Path); pErr != nil {
-		return errorResult(pErr.Error())
+		return toolkit.ErrorResult(pErr.Error())
 	}
 	allowed, reason := policy.Allow(ctx, in.Connection, method, in.Path)
 	if allowed {
@@ -1228,31 +1227,7 @@ func checkRoutePolicy(ctx context.Context, policy RoutePolicy, in InvokeInput) *
 	if reason != "" {
 		msg = msg + ": " + reason
 	}
-	return errorResult(msg)
-}
-
-// jsonResult creates a successful MCP result with the JSON-encoded
-// payload as text content. Mirrors the helper used by other
-// in-repo toolkits so the chat surface formatting stays consistent.
-func jsonResult(data any) *mcp.CallToolResult {
-	b, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		return errorResult("internal error: " + err.Error())
-	}
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: string(b)}},
-	}
-}
-
-func errorResult(msg string) *mcp.CallToolResult {
-	b, err := json.Marshal(map[string]string{"error": msg})
-	if err != nil {
-		b = []byte(`{"error": "internal error"}`)
-	}
-	return &mcp.CallToolResult{
-		IsError: true,
-		Content: []mcp.Content{&mcp.TextContent{Text: string(b)}},
-	}
+	return toolkit.ErrorResult(msg)
 }
 
 // newHTTPClient builds the per-connection HTTP client. Redirects

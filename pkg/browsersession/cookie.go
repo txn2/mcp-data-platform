@@ -1,6 +1,7 @@
 package browsersession
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -68,12 +69,12 @@ func VerifySession(tokenString string, key []byte) (*SessionClaims, error) {
 	}
 
 	if !token.Valid {
-		return nil, fmt.Errorf("invalid session token")
+		return nil, errors.New("invalid session token")
 	}
 
 	mapClaims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
-		return nil, fmt.Errorf("unexpected claims type")
+		return nil, errors.New("unexpected claims type")
 	}
 
 	return extractSessionClaims(mapClaims)
@@ -83,7 +84,7 @@ func VerifySession(tokenString string, key []byte) (*SessionClaims, error) {
 func extractSessionClaims(mc jwt.MapClaims) (*SessionClaims, error) {
 	sub, _ := mc[claimSub].(string)
 	if sub == "" {
-		return nil, fmt.Errorf("missing sub claim")
+		return nil, errors.New("missing sub claim")
 	}
 
 	email, _ := mc[claimEmail].(string)

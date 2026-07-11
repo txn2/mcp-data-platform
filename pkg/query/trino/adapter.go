@@ -3,6 +3,7 @@ package trino
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -71,10 +72,10 @@ type Adapter struct {
 // New creates a new Trino adapter with a real client.
 func New(cfg Config) (*Adapter, error) {
 	if cfg.Host == "" {
-		return nil, fmt.Errorf("trino host is required")
+		return nil, errors.New("trino host is required")
 	}
 	if cfg.User == "" {
-		return nil, fmt.Errorf("trino user is required")
+		return nil, errors.New("trino user is required")
 	}
 	if cfg.Port == 0 {
 		if cfg.SSL {
@@ -120,7 +121,7 @@ func New(cfg Config) (*Adapter, error) {
 // NewWithClient creates a new Trino adapter with a provided client (for testing).
 func NewWithClient(cfg Config, client Client) (*Adapter, error) {
 	if client == nil {
-		return nil, fmt.Errorf("trino client is required")
+		return nil, errors.New("trino client is required")
 	}
 	if cfg.DefaultLimit == 0 {
 		cfg.DefaultLimit = defaultQueryLimit

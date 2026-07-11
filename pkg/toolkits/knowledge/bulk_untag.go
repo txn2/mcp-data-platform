@@ -9,6 +9,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // bulkUntagMaxEntities bounds how many entities one bulk_untag call processes, so
@@ -42,19 +43,19 @@ var bulkUntagEntityTypes = []string{
 // requires explicit confirmation because it is destructive across many entities.
 func (t *Toolkit) handleBulkUntag(ctx context.Context, input applyKnowledgeInput) (*mcp.CallToolResult, any, error) {
 	if input.TagURN == "" {
-		return errorResult("tag_urn is required for bulk_untag"), nil, nil
+		return toolkit.ErrorResult("tag_urn is required for bulk_untag"), nil, nil
 	}
 	tagURN := normalizeTagURN(input.TagURN)
 	if t.semanticProvider == nil {
-		return errorResult("bulk_untag requires a semantic search provider to enumerate entities; none is configured"), nil, nil
+		return toolkit.ErrorResult("bulk_untag requires a semantic search provider to enumerate entities; none is configured"), nil, nil
 	}
 
 	urns, truncated, err := t.enumerateTaggedEntities(ctx, tagURN)
 	if err != nil {
-		return errorResult("bulk_untag: enumerating entities for tag failed: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("bulk_untag: enumerating entities for tag failed: " + err.Error()), nil, nil
 	}
 	if len(urns) == 0 {
-		return jsonResult(map[string]any{
+		return toolkit.JSONResultTyped(map[string]any{
 			fieldTagURN:         tagURN,
 			"entities_untagged": 0,
 			fieldMessage:        "No entities carry this tag within the searchable catalog.",
@@ -69,7 +70,7 @@ func (t *Toolkit) handleBulkUntag(ctx context.Context, input applyKnowledgeInput
 
 	affected, failed := t.removeTagFromEntities(ctx, urns, tagURN)
 	if len(affected) == 0 {
-		return errorResult("bulk_untag: found entities but failed to remove the tag from any of them"), nil, nil
+		return toolkit.ErrorResult("bulk_untag: found entities but failed to remove the tag from any of them"), nil, nil
 	}
 
 	csID, err := t.recordBulkUntagChangeset(ctx, tagURN, authorFromContext(ctx), affected)
@@ -78,10 +79,10 @@ func (t *Toolkit) handleBulkUntag(ctx context.Context, input applyKnowledgeInput
 		// this as an error so the operator investigates rather than trusting a
 		// changeset_id that does not resolve.
 		slog.Error("knowledge: bulk_untag failed to record changeset", "tag_urn", tagURN, "error", err)
-		return errorResult(fmt.Sprintf(
+		return toolkit.ErrorResult(fmt.Sprintf(
 			"bulk_untag removed %s from %d entities but FAILED to record the audit changeset: %v; "+
 				"the operation is not in the audit log and has no rollback handle.",
-			tagURN, len(affected), err)), nil, nil //nolint:nilerr // MCP protocol
+			tagURN, len(affected), err)), nil, nil
 	}
 
 	return bulkUntagSuccess(bulkUntagOutcome{
@@ -192,7 +193,7 @@ func bulkUntagConfirmation(tagURN string, urns []string, truncated bool) (*mcp.C
 	if truncated {
 		resp["truncated"] = true
 	}
-	return jsonResult(resp)
+	return toolkit.JSONResultTyped(resp)
 }
 
 // bulkUntagOutcome carries the result of a bulk_untag run into the success response.
@@ -227,7 +228,7 @@ func bulkUntagSuccess(o bulkUntagOutcome) (*mcp.CallToolResult, any, error) {
 		msg += fmt.Sprintf(" Only the first %d entities were processed (the catalog holds more); re-run bulk_untag to clear the remainder.", o.attempted)
 	}
 	resp[fieldMessage] = msg
-	return jsonResult(resp)
+	return toolkit.JSONResultTyped(resp)
 }
 
 // sampleURNs returns at most bulkUntagURNSample URNs so a response never echoes an

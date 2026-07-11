@@ -7,6 +7,8 @@ import (
 	"maps"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // Structured error codes the gateway emits for memory-protection
@@ -182,5 +184,5 @@ func budgetOrErrorResult(err error) *mcp.CallToolResult {
 	if errors.As(err, &be) {
 		return be.result()
 	}
-	return errorResult(err.Error())
+	return toolkit.ErrorResult(err.Error())
 }

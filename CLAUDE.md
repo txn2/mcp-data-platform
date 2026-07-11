@@ -151,7 +151,7 @@ AI-generated prose (PR descriptions, commit messages, reviews, explanations) is 
 
 ## Project Structure
 
-`pkg/` holds 43 top-level packages (all public API). Depth-2 subdirectories are
+`pkg/` holds 42 top-level packages (all public API). Depth-2 subdirectories are
 shown where they represent a distinct implementation (a storage backend, an
 adapter, an indexjobs consumer); helper subpackages are omitted for brevity.
 Regenerate this list with `find pkg -mindepth 1 -maxdepth 1 -type d | sort` and
@@ -160,13 +160,12 @@ diff against the packages below when adding or removing a `pkg/` directory.
 ```
 mcp-data-platform/
 ├── cmd/mcp-data-platform/          # Entry point (main.go)
-├── pkg/                            # PUBLIC API (43 top-level packages)
+├── pkg/                            # PUBLIC API (42 top-level packages)
 │   ├── admin/                      # REST API endpoints for administrative operations
 │   ├── audit/                      # Audit logging (postgres/ = PostgreSQL implementation)
 │   ├── auth/                       # Authentication: OIDC, API keys, claims, middleware
 │   ├── authevents/                 # Durable audit history for the OAuth authorization flow
 │   ├── browsersession/             # Browser-based OIDC authentication (cookie sessions)
-│   ├── client/                     # Reserved placeholder (currently empty, no Go files)
 │   ├── configstore/                # Granular key/value storage for platform config (postgres/)
 │   ├── connbackfill/               # Seeds connection_instances with credential-free rows
 │   ├── connoauth/                  # Shared OAuth-to-upstream-MCP implementation across connection kinds

@@ -9,6 +9,8 @@ import (
 	"net/http"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // RawSink receives an upstream response streamed by the raw passthrough
@@ -91,7 +93,7 @@ func (*Toolkit) handleInvokeRaw(ctx context.Context, c *conn, in InvokeInput, ra
 
 	req, err := buildUpstreamRequest(callCtx, c.cfg, c.auth, catalogView{specs: c.specs, webdavRoutes: c.webdavRoutes()}, in)
 	if err != nil {
-		return errorResult(err.Error()), nil, nil
+		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
 
 	// #nosec G107 G704 -- req.URL is host-pinned by buildURL + validatePath,
@@ -100,7 +102,7 @@ func (*Toolkit) handleInvokeRaw(ctx context.Context, c *conn, in InvokeInput, ra
 	// constraint even on the streamed path.
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return errorResult(scrubTransportError(err)), nil, nil
+		return toolkit.ErrorResult(scrubTransportError(err)), nil, nil
 	}
 	defer resp.Body.Close() //nolint:errcheck // best-effort cleanup
 
@@ -170,7 +172,7 @@ func copyRawHeaders(h http.Header, sink RawSink) {
 // passthrough has begun streaming. The REST shim ignores its body when
 // the sink already wrote a response; the audit middleware records it.
 func rawStreamedResult(connection string, status int, n int64) *mcp.CallToolResult {
-	return jsonResult(map[string]any{
+	return toolkit.JSONResult(map[string]any{
 		"raw_streamed":    true,
 		"connection":      connection,
 		"upstream_status": status,

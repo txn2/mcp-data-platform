@@ -3,7 +3,9 @@ package connview
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
@@ -119,4 +121,69 @@ func TestBuild_LookupErrorSkipped(t *testing.T) {
 	out := Build(context.Background(), []registry.Toolkit{tk}, nil, fakePages{err: errors.New("boom")})
 	require.Len(t, out.Connections, 1)
 	assert.Zero(t, out.Connections[0].KnowledgePageCount, "a lookup error leaves the connection unenriched, not failed")
+}
+
+// concurrencyRecorder is a PageLookup that records the peak number of
+// simultaneously in-flight lookups. Each arm signals arrival on a barrier and
+// waits for the others, so overlap is observed deterministically; a timeout
+// stops a serial regression from hanging (it leaves maxSeen at 1 and the
+// assertion fails cleanly).
+type concurrencyRecorder struct {
+	barrier sync.WaitGroup
+	mu      sync.Mutex
+	live    int
+	maxSeen int
+	byConn  map[string][]knowledgepage.PageRef
+}
+
+func (r *concurrencyRecorder) ListPagesReferencing(_ context.Context, ref knowledgepage.EntityRef) ([]knowledgepage.PageRef, error) {
+	r.mu.Lock()
+	r.live++
+	if r.live > r.maxSeen {
+		r.maxSeen = r.live
+	}
+	r.mu.Unlock()
+
+	r.barrier.Done()
+	waited := make(chan struct{})
+	go func() { r.barrier.Wait(); close(waited) }()
+	select {
+	case <-waited:
+	case <-time.After(2 * time.Second):
+	}
+
+	r.mu.Lock()
+	r.live--
+	r.mu.Unlock()
+	return r.byConn[ref.ConnectionKind+"/"+ref.ConnectionName], nil
+}
+
+// TestBuild_KnowledgeEnrichmentFansOut proves the per-connection knowledge
+// lookups run concurrently (maxSeen > 1) while producing output identical to
+// the previous serial loop: every connection enriched, order preserved.
+func TestBuild_KnowledgeEnrichmentFansOut(t *testing.T) {
+	const n = 5
+	conns := make([]toolkit.ConnectionDetail, 0, n)
+	byConn := map[string][]knowledgepage.PageRef{}
+	for i := range n {
+		name := "c" + string(rune('0'+i))
+		conns = append(conns, toolkit.ConnectionDetail{Name: name})
+		byConn["trino/"+name] = pageRefs(2)
+	}
+	tk := &listerTK{mockTK: mockTK{kind: "trino"}, conns: conns}
+	rec := &concurrencyRecorder{byConn: byConn}
+	rec.barrier.Add(n)
+
+	out := Build(context.Background(), []registry.Toolkit{tk}, nil, rec)
+
+	require.Len(t, out.Connections, n)
+	for i, e := range out.Connections {
+		assert.Equal(t, "c"+string(rune('0'+i)), e.Name, "connection order preserved")
+		assert.Equal(t, 2, e.KnowledgePageCount)
+		assert.Len(t, e.KnowledgePages, 2)
+	}
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	assert.Greater(t, rec.maxSeen, 1, "per-connection lookups must run concurrently")
 }

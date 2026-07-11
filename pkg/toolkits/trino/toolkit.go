@@ -2,6 +2,7 @@
 package trino
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -163,7 +164,7 @@ func New(name string, cfg Config) (*Toolkit, error) {
 // toolkits that would clobber each other's tool registrations.
 func NewMulti(cfg MultiConfig) (*Toolkit, error) {
 	if len(cfg.Instances) == 0 {
-		return nil, fmt.Errorf("at least one trino instance is required")
+		return nil, errors.New("at least one trino instance is required")
 	}
 
 	// Resolve the default connection name.
@@ -329,10 +330,10 @@ func buildToolkitOptions(cfg Config, elicit *ElicitationMiddleware, connRequired
 // validateConfig validates the required configuration fields.
 func validateConfig(cfg Config) error {
 	if cfg.Host == "" {
-		return fmt.Errorf("trino host is required")
+		return errors.New("trino host is required")
 	}
 	if cfg.User == "" {
-		return fmt.Errorf("trino user is required")
+		return errors.New("trino user is required")
 	}
 	return nil
 }
@@ -415,27 +416,9 @@ func toTrinoAnnotations(m map[string]AnnotationConfig) map[trinotools.ToolName]*
 	}
 	result := make(map[trinotools.ToolName]*mcp.ToolAnnotations, len(m))
 	for k, v := range m {
-		result[trinotools.ToolName(k)] = annotationConfigToMCP(v)
+		result[trinotools.ToolName(k)] = toolkit.AnnotationsToMCP(v)
 	}
 	return result
-}
-
-// annotationConfigToMCP converts an AnnotationConfig to an mcp.ToolAnnotations.
-func annotationConfigToMCP(cfg AnnotationConfig) *mcp.ToolAnnotations {
-	ann := &mcp.ToolAnnotations{}
-	if cfg.ReadOnlyHint != nil {
-		ann.ReadOnlyHint = *cfg.ReadOnlyHint
-	}
-	if cfg.DestructiveHint != nil {
-		ann.DestructiveHint = cfg.DestructiveHint
-	}
-	if cfg.IdempotentHint != nil {
-		ann.IdempotentHint = *cfg.IdempotentHint
-	}
-	if cfg.OpenWorldHint != nil {
-		ann.OpenWorldHint = cfg.OpenWorldHint
-	}
-	return ann
 }
 
 // Kind returns the toolkit kind.
@@ -527,7 +510,7 @@ func (t *Toolkit) ListConnections() []toolkit.ConnectionDetail {
 // Requires multi-connection mode (created via NewMulti).
 func (t *Toolkit) AddConnection(name string, config map[string]any) error {
 	if t.manager == nil {
-		return fmt.Errorf("dynamic connections require multi-connection mode")
+		return errors.New("dynamic connections require multi-connection mode")
 	}
 
 	conn := multiserver.ConnectionConfig{
@@ -559,7 +542,7 @@ func (t *Toolkit) AddConnection(name string, config map[string]any) error {
 // Requires multi-connection mode (created via NewMulti).
 func (t *Toolkit) RemoveConnection(name string) error {
 	if t.manager == nil {
-		return fmt.Errorf("dynamic connections require multi-connection mode")
+		return errors.New("dynamic connections require multi-connection mode")
 	}
 	if err := t.manager.RemoveConnection(name); err != nil {
 		return fmt.Errorf("removing trino connection %s: %w", name, err)

@@ -380,7 +380,13 @@ func (*Store) scanEvent(rows *sql.Rows) (audit.Event, error) {
 	}
 
 	if len(params) > 0 {
-		_ = json.Unmarshal(params, &event.Parameters)
+		if err := json.Unmarshal(params, &event.Parameters); err != nil {
+			// A corrupt parameters blob must not break history listing:
+			// return the event with empty Parameters and record the anomaly.
+			slog.Warn("audit: corrupt parameters JSON in stored event",
+				"event_id", event.ID, slogKeyError, err)
+			event.Parameters = nil
+		}
 	}
 	if eventKind.Valid {
 		event.EventKind = audit.EventType(eventKind.String)

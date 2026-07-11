@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 
@@ -15,6 +14,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	memstore "github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 const idLength = 16
@@ -53,7 +53,7 @@ func (t *Toolkit) handleManage(ctx context.Context, _ *mcp.CallToolRequest, inpu
 	case "":
 		return helpResult(), nil, nil
 	default:
-		return errorResult(fmt.Sprintf("unknown command %q: use update, forget, list, review_stale, review_duplicates, or consolidate (create with memory_capture)", input.Command)), nil, nil
+		return toolkit.ErrorResult(fmt.Sprintf("unknown command %q: use update, forget, list, review_stale, review_duplicates, or consolidate (create with memory_capture)", input.Command)), nil, nil
 	}
 }
 
@@ -76,7 +76,7 @@ func (t *Toolkit) embeddingBreadcrumbs(emb []float32, content string) (model str
 // handleUpdate modifies an existing memory record.
 func (t *Toolkit) handleUpdate(ctx context.Context, input manageInput) (*mcp.CallToolResult, any, error) {
 	if input.ID == "" {
-		return errorResult("id is required for update"), nil, nil
+		return toolkit.ErrorResult("id is required for update"), nil, nil
 	}
 
 	if result := verifyOwnership(ctx, t.store, input.ID, cmdUpdate); result != nil {
@@ -85,14 +85,14 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageInput) (*mcp.Cal
 
 	if input.Content != "" {
 		if err := memstore.ValidateContent(input.Content); err != nil {
-			return errorResult(err.Error()), nil, nil
+			return toolkit.ErrorResult(err.Error()), nil, nil
 		}
 	}
 	if err := memstore.ValidateCategory(input.Category); err != nil {
-		return errorResult(err.Error()), nil, nil
+		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
 	if err := memstore.ValidateConfidence(input.Confidence); err != nil {
-		return errorResult(err.Error()), nil, nil
+		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
 
 	updates := memstore.RecordUpdate{
@@ -118,10 +118,10 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageInput) (*mcp.Cal
 	}
 
 	if err := t.store.Update(ctx, input.ID, updates); err != nil {
-		return errorResult("failed to update memory: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to update memory: " + err.Error()), nil, nil
 	}
 
-	return jsonResult(map[string]any{
+	return toolkit.JSONResult(map[string]any{
 		"id":         input.ID,
 		fieldMessage: "Memory updated successfully.",
 	}), nil, nil
@@ -130,7 +130,7 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageInput) (*mcp.Cal
 // handleForget soft-deletes a memory record.
 func (t *Toolkit) handleForget(ctx context.Context, input manageInput) (*mcp.CallToolResult, any, error) {
 	if input.ID == "" {
-		return errorResult("id is required for forget"), nil, nil
+		return toolkit.ErrorResult("id is required for forget"), nil, nil
 	}
 
 	if result := verifyOwnership(ctx, t.store, input.ID, "archive"); result != nil {
@@ -138,10 +138,10 @@ func (t *Toolkit) handleForget(ctx context.Context, input manageInput) (*mcp.Cal
 	}
 
 	if err := t.store.Delete(ctx, input.ID); err != nil {
-		return errorResult("failed to archive memory: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to archive memory: " + err.Error()), nil, nil
 	}
 
-	return jsonResult(map[string]any{
+	return toolkit.JSONResult(map[string]any{
 		"id":         input.ID,
 		fieldMessage: "Memory archived successfully.",
 	}), nil, nil
@@ -154,10 +154,10 @@ func verifyOwnership(ctx context.Context, store memstore.Store, id, action strin
 	pc := middleware.GetPlatformContext(ctx)
 	record, err := store.Get(ctx, id)
 	if err != nil {
-		return errorResult("memory not found")
+		return toolkit.ErrorResult("memory not found")
 	}
 	if pc.UserEmail != "" && record.CreatedBy != pc.UserEmail {
-		return errorResult("you can only " + action + " your own memories")
+		return toolkit.ErrorResult("you can only " + action + " your own memories")
 	}
 	return nil
 }
@@ -183,10 +183,10 @@ func (t *Toolkit) handleList(ctx context.Context, input manageInput) (*mcp.CallT
 
 	records, total, err := t.store.List(ctx, filter)
 	if err != nil {
-		return errorResult("failed to list memories: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to list memories: " + err.Error()), nil, nil
 	}
 
-	return jsonResult(map[string]any{
+	return toolkit.JSONResult(map[string]any{
 		"records": records,
 		"total":   total,
 		"limit":   filter.EffectiveLimit(),
@@ -206,10 +206,10 @@ func (t *Toolkit) handleReviewStale(ctx context.Context, input manageInput) (*mc
 
 	records, total, err := t.store.List(ctx, filter)
 	if err != nil {
-		return errorResult("failed to list stale memories: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to list stale memories: " + err.Error()), nil, nil
 	}
 
-	return jsonResult(map[string]any{
+	return toolkit.JSONResult(map[string]any{
 		"records":    records,
 		"total":      total,
 		"limit":      filter.EffectiveLimit(),
@@ -238,11 +238,11 @@ func (t *Toolkit) handleReviewStale(ctx context.Context, input manageInput) (*mc
 func (t *Toolkit) handleReviewDuplicates(ctx context.Context, input manageInput) (*mcp.CallToolResult, any, error) {
 	finder, ok := t.store.(memstore.DuplicateFinder)
 	if !ok {
-		return errorResult("review_duplicates requires the database-backed memory store with vector search"), nil, nil
+		return toolkit.ErrorResult("review_duplicates requires the database-backed memory store with vector search"), nil, nil
 	}
 	pc := middleware.GetPlatformContext(ctx)
 	if pc == nil || pc.UserEmail == "" {
-		return errorResult("a user identity (email) is required to review duplicates"), nil, nil
+		return toolkit.ErrorResult("a user identity (email) is required to review duplicates"), nil, nil
 	}
 
 	// Over-fetch by one so an exactly-full page can be distinguished from a
@@ -254,7 +254,7 @@ func (t *Toolkit) handleReviewDuplicates(ctx context.Context, input manageInput)
 	want := effectiveDuplicateLimit(input.Limit)
 	pairs, err := finder.SimilarActivePairs(ctx, pc.UserEmail, recallSuggestThreshold, want+1)
 	if err != nil {
-		return errorResult("failed to list duplicate candidates: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to list duplicate candidates: " + err.Error()), nil, nil
 	}
 	moreByLimit := len(pairs) > want
 	if moreByLimit {
@@ -273,7 +273,7 @@ func (t *Toolkit) handleReviewDuplicates(ctx context.Context, input manageInput)
 		// Consolidate the shown pairs and re-run to surface the rest.
 		result["more_pairs"] = true
 	}
-	return jsonResult(result), nil, nil
+	return toolkit.JSONResult(result), nil, nil
 }
 
 // reviewDuplicatesMessage builds the review_duplicates guidance: the always-on
@@ -299,10 +299,10 @@ func reviewDuplicatesMessage(shown int, more bool) string {
 // than discarding the duplicate outright.
 func (t *Toolkit) handleConsolidate(ctx context.Context, input manageInput) (*mcp.CallToolResult, any, error) {
 	if input.ID == "" || input.DuplicateID == "" {
-		return errorResult("consolidate requires id (the record to keep) and duplicate_id (the record it supersedes)"), nil, nil
+		return toolkit.ErrorResult("consolidate requires id (the record to keep) and duplicate_id (the record it supersedes)"), nil, nil
 	}
 	if input.ID == input.DuplicateID {
-		return errorResult("id and duplicate_id must differ"), nil, nil
+		return toolkit.ErrorResult("id and duplicate_id must differ"), nil, nil
 	}
 
 	keep, result := t.fetchConsolidatePair(ctx, input.ID, input.DuplicateID)
@@ -310,14 +310,14 @@ func (t *Toolkit) handleConsolidate(ctx context.Context, input manageInput) (*mc
 		return result, nil, nil
 	}
 	if keep.Status != memstore.StatusActive {
-		return errorResult("the record to keep must be active (status: " + keep.Status + ")"), nil, nil
+		return toolkit.ErrorResult("the record to keep must be active (status: " + keep.Status + ")"), nil, nil
 	}
 
 	if err := t.store.Supersede(ctx, input.DuplicateID, input.ID); err != nil {
-		return errorResult("failed to consolidate: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to consolidate: " + err.Error()), nil, nil
 	}
 
-	return jsonResult(map[string]any{
+	return toolkit.JSONResult(map[string]any{
 		"id":         input.ID,
 		"superseded": input.DuplicateID,
 		fieldMessage: "Duplicate consolidated: the kept record now supersedes it.",
@@ -348,13 +348,13 @@ func (t *Toolkit) fetchConsolidatePair(ctx context.Context, keepID, duplicateID 
 		return nil
 	})
 	if err := g.Wait(); err != nil {
-		return nil, errorResult("memory not found")
+		return nil, toolkit.ErrorResult("memory not found")
 	}
 
 	pc := middleware.GetPlatformContext(ctx)
 	for _, r := range []*memstore.Record{keep, dup} {
 		if pc != nil && pc.UserEmail != "" && r.CreatedBy != pc.UserEmail {
-			return nil, errorResult("you can only " + cmdConsolidate + " your own memories")
+			return nil, toolkit.ErrorResult("you can only " + cmdConsolidate + " your own memories")
 		}
 	}
 	return keep, nil
@@ -362,7 +362,7 @@ func (t *Toolkit) fetchConsolidatePair(ctx context.Context, keepID, duplicateID 
 
 // helpResult returns the list of available commands.
 func helpResult() *mcp.CallToolResult {
-	return jsonResult(map[string]any{
+	return toolkit.JSONResult(map[string]any{
 		"commands": map[string]string{
 			cmdUpdate:           "Update an existing memory (requires id)",
 			cmdForget:           "Archive a memory (requires id)",
@@ -381,28 +381,4 @@ func generateID() (string, error) {
 		return "", fmt.Errorf("generating random ID: %w", err)
 	}
 	return hex.EncodeToString(b), nil
-}
-
-// jsonResult creates a successful MCP result with JSON content.
-func jsonResult(data any) *mcp.CallToolResult {
-	b, err := json.MarshalIndent(data, "", "  ")
-	if err != nil {
-		return errorResult("internal error: " + err.Error())
-	}
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: string(b)}},
-	}
-}
-
-// errorResult creates an error MCP result.
-func errorResult(msg string) *mcp.CallToolResult {
-	b, err := json.Marshal(map[string]string{"error": msg})
-	if err != nil {
-		// Fallback: plain text if marshal fails (should never happen for a string).
-		b = []byte(`{"error": "internal error"}`)
-	}
-	return &mcp.CallToolResult{
-		IsError: true,
-		Content: []mcp.Content{&mcp.TextContent{Text: string(b)}},
-	}
 }

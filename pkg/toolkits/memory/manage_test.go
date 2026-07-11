@@ -16,6 +16,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	memstore "github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // ---------------------------------------------------------------------------
@@ -759,7 +760,7 @@ func TestGenerateID(t *testing.T) {
 func TestJsonResult(t *testing.T) {
 	t.Parallel()
 
-	result := jsonResult(map[string]string{"key": "value"})
+	result := toolkit.JSONResult(map[string]string{"key": "value"})
 	require.NotNil(t, result)
 	assert.False(t, result.IsError)
 	require.Len(t, result.Content, 1)
@@ -773,7 +774,7 @@ func TestJsonResult(t *testing.T) {
 func TestErrorResult(t *testing.T) {
 	t.Parallel()
 
-	result := errorResult("something went wrong")
+	result := toolkit.ErrorResult("something went wrong")
 	require.NotNil(t, result)
 	assert.True(t, result.IsError)
 	require.Len(t, result.Content, 1)

@@ -2,7 +2,7 @@ package memory
 
 import (
 	"context"
-	"fmt"
+	"errors"
 )
 
 // NewNoopStore creates a no-op Store for use when no database is available.
@@ -18,7 +18,7 @@ func (*noopStore) Insert(_ context.Context, _ Record) error { return nil }
 
 // Get always returns not-found.
 func (*noopStore) Get(_ context.Context, _ string) (*Record, error) {
-	return nil, fmt.Errorf("memory record not found")
+	return nil, errors.New("memory record not found")
 }
 
 // Update is a no-op.

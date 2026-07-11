@@ -8,6 +8,8 @@ import (
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // ToolGetEndpointSchema is the MCP tool name for the per-endpoint
@@ -113,26 +115,26 @@ const maxResponseChars = 50000
 
 func (t *Toolkit) handleGetEndpointSchema(_ context.Context, _ *mcp.CallToolRequest, in GetEndpointSchemaInput) (*mcp.CallToolResult, any, error) {
 	if in.Connection == "" {
-		return errorResult("connection is required"), nil, nil
+		return toolkit.ErrorResult("connection is required"), nil, nil
 	}
 	if in.OperationID == "" {
-		return errorResult("operation_id is required"), nil, nil
+		return toolkit.ErrorResult("operation_id is required"), nil, nil
 	}
 	t.mu.RLock()
 	c, ok := t.connections[in.Connection]
 	t.mu.RUnlock()
 	if !ok {
-		return errorResult(fmt.Sprintf("connection %q not found", in.Connection)), nil, nil
+		return toolkit.ErrorResult(fmt.Sprintf("connection %q not found", in.Connection)), nil, nil
 	}
 	if len(c.specs) == 0 {
-		return errorResult("connection has no catalog specs configured"), nil, nil
+		return toolkit.ErrorResult("connection has no catalog specs configured"), nil, nil
 	}
 	match, candidates := resolveOperation(c, in.OperationID, in.Spec)
 	if match == nil {
 		if len(candidates) > 1 {
 			return ambiguousResult(in.OperationID, candidates), nil, nil
 		}
-		return errorResult(fmt.Sprintf("operation_id %q not found", in.OperationID)), nil, nil
+		return toolkit.ErrorResult(fmt.Sprintf("operation_id %q not found", in.OperationID)), nil, nil
 	}
 	out := buildEndpointSchemaOutput(match)
 	return cappedJSONResult(out), out, nil
@@ -537,7 +539,7 @@ func addStringIfPresent(m map[string]any, key, value string) {
 func cappedJSONResult(out EndpointSchemaOutput) *mcp.CallToolResult {
 	encoded, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
-		return errorResult("internal: marshal endpoint schema: " + err.Error())
+		return toolkit.ErrorResult("internal: marshal endpoint schema: " + err.Error())
 	}
 	if len(encoded) <= maxResponseChars {
 		return &mcp.CallToolResult{
@@ -568,7 +570,7 @@ func ambiguousResult(operationID string, candidates []schemaCandidate) *mcp.Call
 	}
 	encoded, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
-		return errorResult("operation_id is ambiguous")
+		return toolkit.ErrorResult("operation_id is ambiguous")
 	}
 	return &mcp.CallToolResult{
 		IsError: true,

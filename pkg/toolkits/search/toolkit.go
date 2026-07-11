@@ -22,6 +22,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // toolName is the MCP tool name for the universal search entry point; fetchToolName
@@ -253,7 +254,7 @@ func (t *Toolkit) handleSearch(ctx context.Context, _ *mcp.CallToolRequest, inpu
 		Limit:      input.Limit,
 	})
 	if err != nil {
-		return errorResult("search failed: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol: tool errors are returned in CallToolResult.IsError
+		return toolkit.ErrorResult("search failed: " + err.Error()), nil, nil
 	}
 
 	groups := res.Groups
@@ -268,7 +269,7 @@ func (t *Toolkit) handleSearch(ctx context.Context, _ *mcp.CallToolRequest, inpu
 	for _, g := range groups {
 		shown += len(g.Hits)
 	}
-	return jsonResult(searchOutput{
+	return toolkit.JSONResultTyped(searchOutput{
 		Groups:         groups,
 		Coverage:       coverage,
 		Count:          shown,
@@ -287,23 +288,23 @@ func (t *Toolkit) handleSearch(ctx context.Context, _ *mcp.CallToolRequest, inpu
 func (t *Toolkit) handleFetch(ctx context.Context, _ *mcp.CallToolRequest, input fetchInput) (*mcp.CallToolResult, any, error) {
 	ref := strings.TrimSpace(input.Reference)
 	if ref == "" {
-		return errorResult("fetch requires a reference"), nil, nil
+		return toolkit.ErrorResult("fetch requires a reference"), nil, nil
 	}
 
 	doc, err := t.router.Fetch(ctx, ref, callerFromContext(ctx))
 	if err != nil {
 		if errors.Is(err, knowledge.ErrNotFound) {
-			return jsonResult(fetchOutput{
+			return toolkit.JSONResultTyped(fetchOutput{
 				Found:     false,
 				Reference: ref,
 				Message: "no content found for this reference; it may be stale, not a recognized " +
 					"reference form, or outside what you can access",
 			})
 		}
-		return errorResult("fetch failed: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol: tool errors are returned in CallToolResult.IsError
+		return toolkit.ErrorResult("fetch failed: " + err.Error()), nil, nil
 	}
 
-	return jsonResult(fetchOutput{
+	return toolkit.JSONResultTyped(fetchOutput{
 		Found:     true,
 		Reference: ref,
 		Document:  doc,
@@ -319,7 +320,7 @@ func (t *Toolkit) handleFetch(ctx context.Context, _ *mcp.CallToolRequest, input
 func (t *Toolkit) handleBrowse(ctx context.Context, input searchInput) (*mcp.CallToolResult, any, error) {
 	sources := nonBlank(input.Sources)
 	if len(sources) != 1 {
-		return errorResult("provide intent or entity_urns to search, or exactly one `sources` entry " +
+		return toolkit.ErrorResult("provide intent or entity_urns to search, or exactly one `sources` entry " +
 			"(with no intent/entity_urns) to browse it; browsable sources: " +
 			strings.Join(t.router.BrowsableSources(), ", ")), nil, nil
 	}
@@ -333,13 +334,13 @@ func (t *Toolkit) handleBrowse(ctx context.Context, input searchInput) (*mcp.Cal
 	if err != nil {
 		switch {
 		case errors.Is(err, knowledge.ErrUnknownSource):
-			return errorResult(fmt.Sprintf("unknown source %q; known sources: %s",
+			return toolkit.ErrorResult(fmt.Sprintf("unknown source %q; known sources: %s",
 				source, strings.Join(knowledge.KnownSources(), ", "))), nil, nil
 		case errors.Is(err, knowledge.ErrSourceNotBrowsable):
-			return errorResult(fmt.Sprintf("source %q cannot be enumerated here; browsable sources: %s",
+			return toolkit.ErrorResult(fmt.Sprintf("source %q cannot be enumerated here; browsable sources: %s",
 				source, strings.Join(t.router.BrowsableSources(), ", "))), nil, nil
 		default:
-			return errorResult("browse failed: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol: tool errors are returned in CallToolResult.IsError
+			return toolkit.ErrorResult("browse failed: " + err.Error()), nil, nil
 		}
 	}
 
@@ -347,7 +348,7 @@ func (t *Toolkit) handleBrowse(ctx context.Context, input searchInput) (*mcp.Cal
 	if items == nil {
 		items = []knowledge.Hit{}
 	}
-	return jsonResult(browseOutput{
+	return toolkit.JSONResultTyped(browseOutput{
 		Source: source,
 		Total:  page.Total,
 		Offset: page.Offset,
@@ -378,29 +379,6 @@ func callerFromContext(ctx context.Context) knowledge.Caller {
 		return knowledge.Caller{}
 	}
 	return knowledge.Caller{UserID: pc.UserID, Email: pc.UserEmail, Persona: pc.PersonaName}
-}
-
-// errorResult creates an error CallToolResult.
-func errorResult(msg string) *mcp.CallToolResult {
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			&mcp.TextContent{Text: fmt.Sprintf(`{"error": %q}`, msg)},
-		},
-		IsError: true,
-	}
-}
-
-// jsonResult marshals a value to JSON and returns it as a CallToolResult.
-func jsonResult(v any) (*mcp.CallToolResult, any, error) {
-	data, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return errorResult("internal error marshaling response"), nil, nil //nolint:nilerr // MCP protocol
-	}
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			&mcp.TextContent{Text: string(data)},
-		},
-	}, nil, nil
 }
 
 // Verify interface compliance with registry.Toolkit.

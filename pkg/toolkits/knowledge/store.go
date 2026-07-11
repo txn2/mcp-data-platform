@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -313,7 +314,7 @@ func (s *postgresStore) Update(ctx context.Context, id string, updates InsightUp
 	}
 
 	if !hasUpdates {
-		return fmt.Errorf("no fields to update")
+		return errors.New("no fields to update")
 	}
 
 	qb = qb.Where(sq.Eq{"id": id}).Where(sq.NotEq{colStatus: StatusApplied})
@@ -581,7 +582,7 @@ type noopStore struct{}
 func (*noopStore) Insert(_ context.Context, _ Insight) error { return nil } //nolint:revive // interface impl
 
 func (*noopStore) Get(_ context.Context, _ string) (*Insight, error) { //nolint:revive // interface impl
-	return nil, fmt.Errorf("insight not found")
+	return nil, errors.New("insight not found")
 }
 
 func (*noopStore) List(_ context.Context, _ InsightFilter) ([]Insight, int, error) { //nolint:revive // interface impl

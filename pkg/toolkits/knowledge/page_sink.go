@@ -12,6 +12,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // Sink discriminators for the apply action. The default (empty / sinkDataHub)
@@ -153,14 +154,14 @@ func (t *Toolkit) SetPageWriter(pw pageWriter) {
 // applied.
 func (t *Toolkit) promoteToPage(ctx context.Context, input applyKnowledgeInput) (*mcp.CallToolResult, any, error) {
 	if t.pageWriter == nil {
-		return errorResult("knowledge-page promotion is not configured on this deployment"), nil, nil
+		return toolkit.ErrorResult("knowledge-page promotion is not configured on this deployment"), nil, nil
 	}
 	page := input.Page
 	if page == nil {
-		return errorResult("page object (slug, title, body) is required for sink=knowledge_page"), nil, nil
+		return toolkit.ErrorResult("page object (slug, title, body) is required for sink=knowledge_page"), nil, nil
 	}
 	if msg := validatePagePromotion(*page); msg != "" {
-		return errorResult(msg), nil, nil
+		return toolkit.ErrorResult(msg), nil, nil
 	}
 
 	// Mis-routing guard: every source insight must be page-class. This also
@@ -168,7 +169,7 @@ func (t *Toolkit) promoteToPage(ctx context.Context, input applyKnowledgeInput) 
 	// promotion onto the page instead of being dropped (#664).
 	originClass, entityURNs, err := t.collectPageInsightRefs(ctx, input.InsightIDs)
 	if err != nil {
-		return errorResult(err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
 
 	// Parse the caller's explicit references (independent of body text, #690). A
@@ -176,14 +177,14 @@ func (t *Toolkit) promoteToPage(ctx context.Context, input applyKnowledgeInput) 
 	// than a silently dropped citation.
 	explicitRefs, err := parsePageReferences(page.References)
 	if err != nil {
-		return errorResult("invalid page reference: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("invalid page reference: " + err.Error()), nil, nil
 	}
 
 	// Look up the slug once: both the dedup gate (create vs update) and the
 	// find-or-create write below consult this single result (#705).
 	existing, err := t.lookupExistingPage(ctx, page.Slug)
 	if err != nil {
-		return errorResult(err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
 
 	// Create-time duplicate gate (#705): on a slug miss, block a near-duplicate
@@ -192,10 +193,10 @@ func (t *Toolkit) promoteToPage(ctx context.Context, input applyKnowledgeInput) 
 	// resolves the duplicate question first.
 	candidates, err := t.duplicateCandidates(ctx, *page, existing)
 	if err != nil {
-		return errorResult(err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
 	if len(candidates) > 0 {
-		return jsonResult(map[string]any{
+		return toolkit.JSONResultTyped(map[string]any{
 			"duplicate_blocked": true,
 			"candidates":        candidates,
 			fieldMessage: "A similar knowledge page already exists. Prefer updating existing knowledge over creating a duplicate: " +
@@ -204,7 +205,7 @@ func (t *Toolkit) promoteToPage(ctx context.Context, input applyKnowledgeInput) 
 	}
 
 	if t.requireConfirmation && !input.Confirm {
-		return jsonResult(map[string]any{
+		return toolkit.JSONResultTyped(map[string]any{
 			"confirmation_required": true,
 			"slug":                  page.Slug,
 			fieldMessage:            "Set confirm: true to promote this knowledge to a page.",
@@ -221,7 +222,7 @@ func (t *Toolkit) promoteToPage(ctx context.Context, input applyKnowledgeInput) 
 	// page or leave it partially written).
 	plan, err := t.preparePageRefs(ctx, *page, entityURNs, explicitRefs, appliedBy)
 	if err != nil {
-		return errorResult(err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
 
 	tags := tagsWithOrigin(page.Tags, originClass)
@@ -229,7 +230,7 @@ func (t *Toolkit) promoteToPage(ctx context.Context, input applyKnowledgeInput) 
 		input: *page, tags: tags, appliedBy: appliedBy, plan: plan, existing: existing,
 	})
 	if err != nil {
-		return errorResult(err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
 
 	return t.recordPageChangesetAndMarkApplied(ctx, input, prom, appliedBy)
@@ -568,7 +569,7 @@ func promotedRefsFromURNs(urns []string) []knowledgepage.EntityRef {
 func (t *Toolkit) recordPageChangesetAndMarkApplied(ctx context.Context, input applyKnowledgeInput, prom *pagePromotion, appliedBy string) (*mcp.CallToolResult, any, error) {
 	csID, err := generateID()
 	if err != nil {
-		return errorResult("internal error generating changeset ID"), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("internal error generating changeset ID"), nil, nil
 	}
 	insightIDs := input.InsightIDs
 	if insightIDs == nil {
@@ -584,7 +585,7 @@ func (t *Toolkit) recordPageChangesetAndMarkApplied(ctx context.Context, input a
 		AppliedBy:        appliedBy,
 	}
 	if err := t.changesetStore.InsertChangeset(ctx, cs); err != nil {
-		return errorResult("failed to record changeset: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to record changeset: " + err.Error()), nil, nil
 	}
 	for _, insID := range insightIDs {
 		if err := t.store.MarkApplied(ctx, insID, appliedBy, csID); err != nil {
@@ -625,7 +626,7 @@ func (t *Toolkit) recordPageChangesetAndMarkApplied(ctx context.Context, input a
 		}
 	}
 	result[fieldMessage] = msg
-	return jsonResult(result)
+	return toolkit.JSONResultTyped(result)
 }
 
 // collectPageInsightRefs fetches each source insight and gathers the references

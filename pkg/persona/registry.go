@@ -1,6 +1,7 @@
 package persona
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -28,7 +29,7 @@ func (r *Registry) Register(p *Persona) error {
 	defer r.mu.Unlock()
 
 	if p.Name == "" {
-		return fmt.Errorf("persona name is required")
+		return errors.New("persona name is required")
 	}
 	if err := validateAPIRoutes(p.APIRoutes); err != nil {
 		return fmt.Errorf("persona %q: %w", p.Name, err)

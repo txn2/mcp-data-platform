@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -22,6 +23,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // PromptCreator creates and registers prompts at runtime.
@@ -269,7 +271,7 @@ func (*Toolkit) Close() error {
 // handleApplyKnowledge dispatches to the appropriate action handler.
 func (t *Toolkit) handleApplyKnowledge(ctx context.Context, _ *mcp.CallToolRequest, input applyKnowledgeInput) (*mcp.CallToolResult, any, error) {
 	if err := ValidateAction(input.Action); err != nil {
-		return errorResult(err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
 	return t.dispatchApplyAction(ctx, input)
 }
@@ -296,7 +298,7 @@ func (t *Toolkit) dispatchApplyAction(ctx context.Context, input applyKnowledgeI
 	case actionBulkUntag:
 		return t.handleBulkUntag(ctx, input)
 	default:
-		return errorResult("unknown action: " + input.Action), nil, nil
+		return toolkit.ErrorResult("unknown action: " + input.Action), nil, nil
 	}
 }
 
@@ -351,11 +353,11 @@ func (t *Toolkit) handleBulkReview(ctx context.Context, input applyKnowledgeInpu
 func (t *Toolkit) bulkReviewCounts(ctx context.Context) (*mcp.CallToolResult, any, error) {
 	stats, err := t.store.Stats(ctx, InsightFilter{Status: StatusPending})
 	if err != nil {
-		return errorResult("failed to get stats: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to get stats: " + err.Error()), nil, nil
 	}
 	sample, _, err := t.store.List(ctx, InsightFilter{Status: StatusPending, Limit: MaxLimit})
 	if err != nil {
-		return errorResult("failed to list insights: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to list insights: " + err.Error()), nil, nil
 	}
 
 	result := map[string]any{
@@ -371,7 +373,7 @@ func (t *Toolkit) bulkReviewCounts(ctx context.Context) (*mcp.CallToolResult, an
 		// returns every pending insight including entity-agnostic ones.
 		result["by_entity_complete"] = false
 	}
-	return jsonResult(result)
+	return toolkit.JSONResultTyped(result)
 }
 
 // bulkReviewItemized returns the complete pending queue: aggregate counts and a
@@ -384,7 +386,7 @@ func (t *Toolkit) bulkReviewCounts(ctx context.Context) (*mcp.CallToolResult, an
 func (t *Toolkit) bulkReviewItemized(ctx context.Context, input applyKnowledgeInput) (*mcp.CallToolResult, any, error) {
 	pending, err := t.collectPending(ctx)
 	if err != nil {
-		return errorResult("failed to list pending insights: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to list pending insights: " + err.Error()), nil, nil
 	}
 
 	byCategory := make(map[string]int)
@@ -423,7 +425,7 @@ func (t *Toolkit) bulkReviewItemized(ctx context.Context, input applyKnowledgeIn
 		// Page on with next_offset to read the rest (#724).
 		result["page_size_capped"] = true
 	}
-	return jsonResult(result)
+	return toolkit.JSONResultTyped(result)
 }
 
 // bulkReviewItem is the per-insight shape returned by itemized bulk_review. It is
@@ -644,12 +646,12 @@ func buildEntitySummaries(insights []Insight) []EntityInsightSummary {
 // handleReview returns insights for a specific entity with current metadata.
 func (t *Toolkit) handleReview(ctx context.Context, input applyKnowledgeInput) (*mcp.CallToolResult, any, error) {
 	if input.EntityURN == "" {
-		return errorResult("entity_urn is required for review action"), nil, nil
+		return toolkit.ErrorResult("entity_urn is required for review action"), nil, nil
 	}
 
 	insights, _, err := t.store.List(ctx, InsightFilter{EntityURN: input.EntityURN, Limit: MaxLimit})
 	if err != nil {
-		return errorResult("failed to list insights: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to list insights: " + err.Error()), nil, nil
 	}
 
 	var currentMeta *EntityMetadata
@@ -666,13 +668,13 @@ func (t *Toolkit) handleReview(ctx context.Context, input applyKnowledgeInput) (
 		"insights":         insights,
 	}
 
-	return jsonResult(result)
+	return toolkit.JSONResultTyped(result)
 }
 
 // handleSynthesize gathers approved insights and returns a structured proposal.
 func (t *Toolkit) handleSynthesize(ctx context.Context, input applyKnowledgeInput) (*mcp.CallToolResult, any, error) {
 	if input.EntityURN == "" {
-		return errorResult("entity_urn is required for synthesize action"), nil, nil
+		return toolkit.ErrorResult("entity_urn is required for synthesize action"), nil, nil
 	}
 
 	// Get approved insights for this entity
@@ -683,7 +685,7 @@ func (t *Toolkit) handleSynthesize(ctx context.Context, input applyKnowledgeInpu
 	}
 	insights, _, err := t.store.List(ctx, filter)
 	if err != nil {
-		return errorResult("failed to list insights: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to list insights: " + err.Error()), nil, nil
 	}
 
 	// Filter by specific IDs if provided
@@ -715,7 +717,7 @@ func (t *Toolkit) handleSynthesize(ctx context.Context, input applyKnowledgeInpu
 			"Review the insight text above and the current metadata, then construct changes for the apply action."
 	}
 
-	return jsonResult(result)
+	return toolkit.JSONResultTyped(result)
 }
 
 // buildProposedChanges assembles proposed changes from insight suggested actions.
@@ -750,23 +752,23 @@ func (t *Toolkit) handleApply(ctx context.Context, input applyKnowledgeInput) (*
 	case sinkKnowledgePage:
 		return t.promoteToPage(ctx, input)
 	default:
-		return errorResult("unknown sink: " + input.Sink + " (valid: datahub, knowledge_page)"), nil, nil
+		return toolkit.ErrorResult("unknown sink: " + input.Sink + " (valid: datahub, knowledge_page)"), nil, nil
 	}
 
 	if input.EntityURN == "" {
-		return errorResult("entity_urn is required for apply action"), nil, nil
+		return toolkit.ErrorResult("entity_urn is required for apply action"), nil, nil
 	}
 	if err := ValidateApplyChanges(input.Changes); err != nil {
-		return errorResult(err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
 	// Reject unsafe change combinations up front, before the confirmation round-trip.
 	if err := validateChangeCombination(input.EntityURN, input.Changes); err != nil {
-		return errorResult(err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
 
 	// Check confirmation requirement
 	if t.requireConfirmation && !input.Confirm {
-		return jsonResult(map[string]any{
+		return toolkit.JSONResultTyped(map[string]any{
 			"confirmation_required": true,
 			fieldEntityURN:          input.EntityURN,
 			"changes_count":         len(input.Changes),
@@ -779,13 +781,13 @@ func (t *Toolkit) handleApply(ctx context.Context, input applyKnowledgeInput) (*
 	// Get current metadata for recording previous values
 	prevMeta, err := t.datahubWriter.GetCurrentMetadata(ctx, input.EntityURN)
 	if err != nil {
-		return errorResult("failed to get current metadata: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to get current metadata: " + err.Error()), nil, nil
 	}
 
 	// Apply all changes atomically — collect writes first, then execute
 	createdURNs, err := t.executeChanges(ctx, input.EntityURN, input.Changes)
 	if err != nil {
-		return errorResult(err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
 
 	return t.recordChangesetAndMarkApplied(ctx, input, prevMeta, appliedBy, createdURNs)
@@ -795,7 +797,7 @@ func (t *Toolkit) handleApply(ctx context.Context, input applyKnowledgeInput) (*
 func (t *Toolkit) recordChangesetAndMarkApplied(ctx context.Context, input applyKnowledgeInput, prevMeta *EntityMetadata, appliedBy string, createdURNs []string) (*mcp.CallToolResult, any, error) {
 	csID, err := generateID()
 	if err != nil {
-		return errorResult("internal error generating changeset ID"), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("internal error generating changeset ID"), nil, nil
 	}
 
 	insightIDs := input.InsightIDs
@@ -822,7 +824,7 @@ func (t *Toolkit) recordChangesetAndMarkApplied(ctx context.Context, input apply
 	}
 
 	if err := t.changesetStore.InsertChangeset(ctx, cs); err != nil {
-		return errorResult("failed to record changeset: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to record changeset: " + err.Error()), nil, nil
 	}
 
 	// Mark source insights as applied
@@ -853,7 +855,7 @@ func (t *Toolkit) recordChangesetAndMarkApplied(ctx context.Context, input apply
 		result["created_ids"] = createdURNs
 	}
 
-	return jsonResult(result)
+	return toolkit.JSONResultTyped(result)
 }
 
 // authorFromContext returns the acting user's identity for authorship fields
@@ -1221,7 +1223,7 @@ func (t *Toolkit) dispatchCuratedQuery(ctx context.Context, urn string, c ApplyC
 // dispatchAddPrompt handles add_prompt changes by creating a platform prompt.
 func (t *Toolkit) dispatchAddPrompt(ctx context.Context, c ApplyChange) (string, error) {
 	if t.promptCreator == nil {
-		return "", fmt.Errorf("prompt creation not available: feature not initialized")
+		return "", errors.New("prompt creation not available: feature not initialized")
 	}
 	desc := c.QueryDescription
 	if desc == "" {
@@ -1381,7 +1383,7 @@ func normalizeStructuredPropertyURN(name string) string {
 func parsePropertyValues(detail string) ([]any, error) {
 	detail = strings.TrimSpace(detail)
 	if detail == "" {
-		return nil, fmt.Errorf("detail is required for structured property values")
+		return nil, errors.New("detail is required for structured property values")
 	}
 
 	// Try parsing as JSON array first, using UseNumber to preserve int64/float64 types
@@ -1452,7 +1454,7 @@ func parseColumnTarget(target string) (string, bool) {
 // handleApproveReject transitions insight statuses.
 func (t *Toolkit) handleApproveReject(ctx context.Context, input applyKnowledgeInput, targetStatus string) (*mcp.CallToolResult, any, error) {
 	if len(input.InsightIDs) == 0 {
-		return errorResult("insight_ids is required for " + input.Action + " action"), nil, nil
+		return toolkit.ErrorResult("insight_ids is required for " + input.Action + " action"), nil, nil
 	}
 
 	pc := middleware.GetPlatformContext(ctx)
@@ -1490,7 +1492,7 @@ func (t *Toolkit) handleApproveReject(ctx context.Context, input applyKnowledgeI
 		result["errors"] = errors
 	}
 
-	return jsonResult(result)
+	return toolkit.JSONResultTyped(result)
 }
 
 // generateID generates a cryptographically random hex ID.
@@ -1500,30 +1502,6 @@ func generateID() (string, error) {
 		return "", fmt.Errorf("generating random bytes: %w", err)
 	}
 	return hex.EncodeToString(b), nil
-}
-
-// errorResult creates an error CallToolResult.
-func errorResult(msg string) *mcp.CallToolResult {
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			&mcp.TextContent{Text: fmt.Sprintf(`{"error": %q}`, msg)},
-		},
-		IsError: true,
-	}
-}
-
-// jsonResult marshals a value to JSON and returns it as a CallToolResult.
-func jsonResult(v any) (*mcp.CallToolResult, any, error) {
-	data, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return errorResult("internal error marshaling response"), nil, nil //nolint:nilerr // MCP protocol
-	}
-
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			&mcp.TextContent{Text: string(data)},
-		},
-	}, nil, nil
 }
 
 // registerPrompt registers the knowledge capture guidance prompt

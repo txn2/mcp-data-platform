@@ -187,7 +187,7 @@ type uploadedFile struct {
 func readUploadedFile(r *http.Request) (*uploadedFile, error) {
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		return nil, fmt.Errorf("file is required")
+		return nil, errors.New("file is required")
 	}
 	defer func() { _ = file.Close() }()
 

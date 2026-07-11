@@ -15,6 +15,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 func TestNew_DefaultsToKindWhenNameEmpty(t *testing.T) {
@@ -741,7 +742,7 @@ func TestInvoke_ConnectTimeout_FiresFast(t *testing.T) {
 }
 
 func TestErrorResult_ProducesIsError(t *testing.T) {
-	r := errorResult("bad thing")
+	r := toolkit.ErrorResult("bad thing")
 	if !r.IsError {
 		t.Error("IsError = false")
 	}
@@ -751,7 +752,7 @@ func TestErrorResult_ProducesIsError(t *testing.T) {
 }
 
 func TestJSONResult_EmbedsPayload(t *testing.T) {
-	r := jsonResult(map[string]any{"x": 1})
+	r := toolkit.JSONResult(map[string]any{"x": 1})
 	if r.IsError {
 		t.Error("jsonResult set IsError")
 	}

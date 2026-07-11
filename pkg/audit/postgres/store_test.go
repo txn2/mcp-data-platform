@@ -1,9 +1,11 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -434,6 +436,65 @@ func TestScanEvent_AllFields(t *testing.T) {
 
 	got := results[0]
 	assertEventEqual(t, event, got)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestScanEvent_CorruptParametersJSON verifies that a row whose parameters
+// column holds invalid JSON is still returned (with empty Parameters) and that
+// the anomaly is logged at WARN: a single corrupt row must not break the whole
+// history listing.
+func TestScanEvent_CorruptParametersJSON(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	var logs bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	defer slog.SetDefault(prev)
+
+	store := New(db, Config{RetentionDays: 90})
+	event := newTestEvent()
+
+	rows := sqlmock.NewRows(selectColumns).AddRow(
+		event.ID,
+		event.Timestamp,
+		event.DurationMS,
+		event.RequestID,
+		event.SessionID,
+		event.UserID,
+		event.UserEmail,
+		event.Persona,
+		event.ToolName,
+		event.ToolkitKind,
+		event.ToolkitName,
+		event.Connection,
+		[]byte("{not valid json"), // corrupt parameters blob
+		event.Success,
+		event.ErrorMessage,
+		event.ResponseChars,
+		event.RequestChars,
+		event.ContentBlocks,
+		event.Transport,
+		event.Source,
+		event.EnrichmentApplied,
+		event.EnrichmentTokensFull,
+		event.EnrichmentTokensDedup,
+		event.EnrichmentMode,
+		event.EnrichmentMatchKind,
+		event.Authorized,
+		string(event.EventKind),
+	)
+	mock.ExpectQuery("SELECT .+ FROM audit_logs").WillReturnRows(rows)
+
+	results, err := store.Query(context.Background(), audit.QueryFilter{})
+	require.NoError(t, err)
+	require.Len(t, results, 1, "corrupt row must still be returned")
+
+	assert.Equal(t, event.ID, results[0].ID)
+	assert.Empty(t, results[0].Parameters, "corrupt parameters must yield empty Parameters")
+	assert.Contains(t, logs.String(), "corrupt parameters JSON")
+	assert.Contains(t, logs.String(), event.ID, "warning must name the event ID")
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 

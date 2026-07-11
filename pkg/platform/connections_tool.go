@@ -48,7 +48,7 @@ func (p *Platform) handleListConnections(ctx context.Context, _ *mcp.CallToolReq
 
 	data, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
-		return &mcp.CallToolResult{ //nolint:nilerr // MCP protocol: tool errors are returned in CallToolResult.IsError, not as Go errors
+		return &mcp.CallToolResult{
 			Content: []mcp.Content{
 				&mcp.TextContent{Text: "Error: " + err.Error()},
 			},

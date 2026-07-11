@@ -329,6 +329,7 @@ pkg/toolkits/apigateway/catalogindex -> pkg/indexjobs
 pkg/toolkits/apigateway/catalogindex -> pkg/toolkits/apigateway/catalog
 pkg/toolkits/datahub -> pkg/query
 pkg/toolkits/datahub -> pkg/semantic
+pkg/toolkits/datahub -> pkg/toolkit
 pkg/toolkits/gateway -> internal/logsan
 pkg/toolkits/gateway -> pkg/authevents
 pkg/toolkits/gateway -> pkg/connoauth
@@ -346,18 +347,21 @@ pkg/toolkits/knowledge -> pkg/prompt
 pkg/toolkits/knowledge -> pkg/query
 pkg/toolkits/knowledge -> pkg/registry
 pkg/toolkits/knowledge -> pkg/semantic
+pkg/toolkits/knowledge -> pkg/toolkit
 pkg/toolkits/memory -> pkg/embedding
 pkg/toolkits/memory -> pkg/memory
 pkg/toolkits/memory -> pkg/middleware
 pkg/toolkits/memory -> pkg/query
 pkg/toolkits/memory -> pkg/registry
 pkg/toolkits/memory -> pkg/semantic
+pkg/toolkits/memory -> pkg/toolkit
 pkg/toolkits/portal -> pkg/embedding
 pkg/toolkits/portal -> pkg/middleware
 pkg/toolkits/portal -> pkg/portal
 pkg/toolkits/portal -> pkg/query
 pkg/toolkits/portal -> pkg/registry
 pkg/toolkits/portal -> pkg/semantic
+pkg/toolkits/portal -> pkg/toolkit
 pkg/toolkits/s3 -> pkg/observability
 pkg/toolkits/s3 -> pkg/query
 pkg/toolkits/s3 -> pkg/semantic
@@ -366,6 +370,7 @@ pkg/toolkits/search -> pkg/knowledge
 pkg/toolkits/search -> pkg/middleware
 pkg/toolkits/search -> pkg/query
 pkg/toolkits/search -> pkg/semantic
+pkg/toolkits/search -> pkg/toolkit
 pkg/toolkits/tools/toolsindex -> pkg/indexjobs
 pkg/toolkits/trino -> pkg/mcpcontext
 pkg/toolkits/trino -> pkg/query

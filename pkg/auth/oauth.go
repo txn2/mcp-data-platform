@@ -55,11 +55,11 @@ type OAuthJWTAuthenticator struct {
 // NewOAuthJWTAuthenticator creates a new OAuth JWT authenticator.
 func NewOAuthJWTAuthenticator(cfg OAuthJWTConfig) (*OAuthJWTAuthenticator, error) {
 	if cfg.Issuer == "" {
-		return nil, fmt.Errorf("oauth issuer is required")
+		return nil, errors.New("oauth issuer is required")
 	}
 	ring := signkey.NewRing(cfg.SigningKey, cfg.PreviousSigningKeys)
 	if ring == nil {
-		return nil, fmt.Errorf("oauth signing key is required")
+		return nil, errors.New("oauth signing key is required")
 	}
 	if cfg.Audience == "" {
 		cfg.Audience = cfg.Issuer
@@ -84,7 +84,7 @@ func NewOAuthJWTAuthenticator(cfg OAuthJWTConfig) (*OAuthJWTAuthenticator, error
 func (a *OAuthJWTAuthenticator) Authenticate(ctx context.Context) (*middleware.UserInfo, error) {
 	token := GetToken(ctx)
 	if token == "" {
-		return nil, fmt.Errorf("no token found in context")
+		return nil, errors.New("no token found in context")
 	}
 
 	// Parse and validate the JWT
@@ -96,7 +96,7 @@ func (a *OAuthJWTAuthenticator) Authenticate(ctx context.Context) (*middleware.U
 	// Extract user ID from sub claim
 	userID, _ := claims["sub"].(string)
 	if userID == "" {
-		return nil, fmt.Errorf("missing sub claim")
+		return nil, errors.New("missing sub claim")
 	}
 
 	// Extract nested user claims (from upstream IdP)
@@ -148,13 +148,13 @@ func (a *OAuthJWTAuthenticator) parseAndValidateToken(tokenString string) (map[s
 	}
 
 	if !token.Valid {
-		return nil, fmt.Errorf("invalid token")
+		return nil, errors.New("invalid token")
 	}
 
 	// Extract claims as map
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
-		return nil, fmt.Errorf("invalid claims type")
+		return nil, errors.New("invalid claims type")
 	}
 
 	// Verify issuer

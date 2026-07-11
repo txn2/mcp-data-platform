@@ -2,6 +2,7 @@
 package knowledge
 
 import (
+	"errors"
 	"fmt"
 	"time"
 )
@@ -32,7 +33,7 @@ var validCategories = map[category]bool{
 // ValidateCategory checks whether a category value is valid.
 func ValidateCategory(c string) error {
 	if c == "" {
-		return fmt.Errorf("category is required and must be one of: correction, business_context, data_quality, usage_guidance, relationship, enhancement")
+		return errors.New("category is required and must be one of: correction, business_context, data_quality, usage_guidance, relationship, enhancement")
 	}
 	if !validCategories[category(c)] {
 		return fmt.Errorf("invalid category %q: must be one of: correction, business_context, data_quality, usage_guidance, relationship, enhancement", c)
@@ -502,7 +503,7 @@ type ApplyChange struct {
 // ValidateApplyChanges validates the changes slice for the apply action.
 func ValidateApplyChanges(changes []ApplyChange) error {
 	if len(changes) == 0 {
-		return fmt.Errorf("changes is required and must not be empty")
+		return errors.New("changes is required and must not be empty")
 	}
 	if len(changes) > MaxApplyChanges {
 		return fmt.Errorf("changes exceeds maximum of %d (got %d)", MaxApplyChanges, len(changes))
@@ -530,7 +531,7 @@ func validateChangeRequiredFields(c ApplyChange) error {
 		return requireField(c.QuerySQL, "query_sql is required for add_curated_query")
 	case string(actionAddContextDocument):
 		if c.Target == "" || c.Detail == "" {
-			return fmt.Errorf("target (title) and detail (content) are required for add_context_document")
+			return errors.New("target (title) and detail (content) are required for add_context_document")
 		}
 	case string(actionUpdateContextDocument):
 		return requireField(c.Target, "target (document ID) is required for update_context_document")
@@ -540,7 +541,7 @@ func validateChangeRequiredFields(c ApplyChange) error {
 		return validateAddPromptFields(c)
 	case string(actionSetCustomProperty):
 		if c.Target == "" || c.Detail == "" {
-			return fmt.Errorf("target (property key) and detail (value) are required for set_custom_property")
+			return errors.New("target (property key) and detail (value) are required for set_custom_property")
 		}
 	case string(actionRemoveCustomProperty):
 		return requireField(c.Target, "target (property key) is required for remove_custom_property")
@@ -565,10 +566,10 @@ func requireField(value, msg string) error {
 // validateAddPromptFields validates required fields for the add_prompt change type.
 func validateAddPromptFields(c ApplyChange) error {
 	if c.Target == "" {
-		return fmt.Errorf("target (prompt name) is required for add_prompt")
+		return errors.New("target (prompt name) is required for add_prompt")
 	}
 	if c.Detail == "" {
-		return fmt.Errorf("detail (prompt content) is required for add_prompt")
+		return errors.New("detail (prompt content) is required for add_prompt")
 	}
 	return nil
 }

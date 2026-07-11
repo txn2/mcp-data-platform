@@ -2,6 +2,7 @@
 package datahub
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 const (
@@ -95,7 +97,7 @@ func New(name string, cfg Config) (*Toolkit, error) {
 // validateConfig validates the required configuration fields.
 func validateConfig(cfg Config) error {
 	if cfg.URL == "" {
-		return fmt.Errorf("datahub URL is required")
+		return errors.New("datahub URL is required")
 	}
 	return nil
 }
@@ -178,27 +180,9 @@ func toDataHubAnnotations(m map[string]AnnotationConfig) map[dhtools.ToolName]*m
 	}
 	result := make(map[dhtools.ToolName]*mcp.ToolAnnotations, len(m))
 	for k, v := range m {
-		result[dhtools.ToolName(k)] = annotationConfigToMCP(v)
+		result[dhtools.ToolName(k)] = toolkit.AnnotationsToMCP(v)
 	}
 	return result
-}
-
-// annotationConfigToMCP converts an AnnotationConfig to an mcp.ToolAnnotations.
-func annotationConfigToMCP(cfg AnnotationConfig) *mcp.ToolAnnotations {
-	ann := &mcp.ToolAnnotations{}
-	if cfg.ReadOnlyHint != nil {
-		ann.ReadOnlyHint = *cfg.ReadOnlyHint
-	}
-	if cfg.DestructiveHint != nil {
-		ann.DestructiveHint = cfg.DestructiveHint
-	}
-	if cfg.IdempotentHint != nil {
-		ann.IdempotentHint = *cfg.IdempotentHint
-	}
-	if cfg.OpenWorldHint != nil {
-		ann.OpenWorldHint = cfg.OpenWorldHint
-	}
-	return ann
 }
 
 // Kind returns the toolkit kind.

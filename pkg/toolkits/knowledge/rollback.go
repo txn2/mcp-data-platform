@@ -467,7 +467,7 @@ func stringSetField(m map[string]any, key string) map[string]bool {
 // failures uniformly (see writeRollbackError / rollbackErrorResult).
 func revertPageChangeset(ctx context.Context, deps RollbackDeps, cs *Changeset, rolledBackBy string) (*RollbackResult, error) {
 	if deps.Pages == nil {
-		return nil, fmt.Errorf("knowledge-page rollback is not configured on this deployment")
+		return nil, errors.New("knowledge-page rollback is not configured on this deployment")
 	}
 	slug := strings.TrimPrefix(cs.TargetURN, pageTargetPrefix)
 	page, err := deps.Pages.GetBySlug(ctx, slug)

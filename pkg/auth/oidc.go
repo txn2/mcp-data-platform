@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"math/big"
@@ -131,7 +132,7 @@ type jwksCache struct {
 // NewOIDCAuthenticator creates a new OIDC authenticator.
 func NewOIDCAuthenticator(cfg OIDCConfig) (*OIDCAuthenticator, error) {
 	if cfg.Issuer == "" {
-		return nil, fmt.Errorf("oidc issuer is required")
+		return nil, errors.New("oidc issuer is required")
 	}
 
 	extractor := &ClaimsExtractor{
@@ -163,7 +164,7 @@ func NewOIDCAuthenticator(cfg OIDCConfig) (*OIDCAuthenticator, error) {
 func (a *OIDCAuthenticator) Authenticate(ctx context.Context) (*middleware.UserInfo, error) {
 	token := GetToken(ctx)
 	if token == "" {
-		return nil, fmt.Errorf("no token found in context")
+		return nil, errors.New("no token found in context")
 	}
 
 	// Parse and validate the JWT
@@ -214,7 +215,7 @@ func (a *OIDCAuthenticator) parseAndValidateToken(ctx context.Context, tokenStri
 		// Get the key ID from the header
 		kid, ok := token.Header["kid"].(string)
 		if !ok {
-			return nil, fmt.Errorf("token missing kid header")
+			return nil, errors.New("token missing kid header")
 		}
 
 		// Get the public key from JWKS cache. The inbound request context is
@@ -231,13 +232,13 @@ func (a *OIDCAuthenticator) parseAndValidateToken(ctx context.Context, tokenStri
 	}
 
 	if !token.Valid {
-		return nil, fmt.Errorf("invalid token")
+		return nil, errors.New("invalid token")
 	}
 
 	// Extract claims as map
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
-		return nil, fmt.Errorf("invalid claims type")
+		return nil, errors.New("invalid claims type")
 	}
 
 	// Convert to map[string]any for compatibility
@@ -257,7 +258,7 @@ func (a *OIDCAuthenticator) parseAndValidateToken(ctx context.Context, tokenStri
 func (a *OIDCAuthenticator) parseTokenWithoutSignatureVerification(tokenString string) (map[string]any, error) {
 	parts := strings.Split(tokenString, ".")
 	if len(parts) != jwtPartCount {
-		return nil, fmt.Errorf("invalid JWT format")
+		return nil, errors.New("invalid JWT format")
 	}
 
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
@@ -300,7 +301,7 @@ func (a *OIDCAuthenticator) getPublicKey(ctx context.Context, kid string) (*rsa.
 	case found:
 		return key, nil
 	case expired:
-		return nil, fmt.Errorf("jwks cache expired")
+		return nil, errors.New("jwks cache expired")
 	default:
 		return nil, fmt.Errorf("key not found: %s", kid)
 	}
@@ -416,12 +417,12 @@ func (*OIDCAuthenticator) validateRequiredClaims(claims map[string]any) error {
 	// REQUIRE sub claim - every token must have a subject
 	sub, ok := claims["sub"].(string)
 	if !ok || sub == "" {
-		return fmt.Errorf("missing or invalid sub claim")
+		return errors.New("missing or invalid sub claim")
 	}
 
 	// REQUIRE exp claim - tokens must have an expiration
 	if _, ok := claims["exp"].(float64); !ok {
-		return fmt.Errorf("missing exp claim")
+		return errors.New("missing exp claim")
 	}
 
 	return nil
@@ -435,16 +436,16 @@ func (a *OIDCAuthenticator) validateTimeClaims(claims map[string]any) error {
 	// Check expiration with clock skew allowance
 	exp, ok := claims["exp"].(float64)
 	if !ok {
-		return fmt.Errorf("missing exp claim")
+		return errors.New("missing exp claim")
 	}
 	if now > int64(exp)+skew {
-		return fmt.Errorf("token expired")
+		return errors.New("token expired")
 	}
 
 	// Check nbf (not before) if present
 	if nbf, ok := claims["nbf"].(float64); ok {
 		if now < int64(nbf)-skew {
-			return fmt.Errorf("token not yet valid")
+			return errors.New("token not yet valid")
 		}
 	}
 
@@ -452,7 +453,7 @@ func (a *OIDCAuthenticator) validateTimeClaims(claims map[string]any) error {
 	if a.cfg.MaxTokenAge > 0 {
 		if iat, ok := claims["iat"].(float64); ok {
 			if now-int64(iat) > int64(a.cfg.MaxTokenAge.Seconds()) {
-				return fmt.Errorf("token too old")
+				return errors.New("token too old")
 			}
 		}
 	}
@@ -465,13 +466,13 @@ func (a *OIDCAuthenticator) validateIdentityClaims(claims map[string]any) error 
 	// Check issuer
 	if !a.cfg.SkipIssuerVerification {
 		if iss, ok := claims["iss"].(string); !ok || iss != a.cfg.Issuer {
-			return fmt.Errorf("invalid issuer")
+			return errors.New("invalid issuer")
 		}
 	}
 
 	// REQUIRE audience when configured
 	if a.cfg.Audience != "" && !a.checkAudience(claims) {
-		return fmt.Errorf("invalid audience")
+		return errors.New("invalid audience")
 	}
 
 	return nil
@@ -530,7 +531,7 @@ func (a *OIDCAuthenticator) discoverJWKSURI(ctx context.Context) (string, error)
 		return "", fmt.Errorf("discovering jwks uri: %w", err)
 	}
 	if doc.JWKSURI == "" {
-		return "", fmt.Errorf("jwks_uri not found in discovery document")
+		return "", errors.New("jwks_uri not found in discovery document")
 	}
 	return doc.JWKSURI, nil
 }
@@ -561,7 +562,7 @@ func (a *OIDCAuthenticator) fetchAndParseJWKS(ctx context.Context, jwksURI strin
 
 	keys, rawKeys := a.parseJWKSKeys(jwksResponse.Keys)
 	if len(keys) == 0 {
-		return nil, nil, fmt.Errorf("no valid RSA signing keys found in JWKS")
+		return nil, nil, errors.New("no valid RSA signing keys found in JWKS")
 	}
 
 	return keys, rawKeys, nil

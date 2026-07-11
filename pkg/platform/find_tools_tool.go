@@ -68,7 +68,6 @@ func (p *Platform) handleFindTools(ctx context.Context, _ *mcp.CallToolRequest, 
 
 	tools, err := p.enumerateGlobalTools(ctx)
 	if err != nil {
-		//nolint:nilerr // MCP protocol: tool errors are returned in CallToolResult.IsError, not as Go errors
 		return toolErrorResult("failed to enumerate tools: " + err.Error()), nil, nil
 	}
 	descByName := make(map[string]*mcp.Tool, len(tools))
@@ -212,7 +211,6 @@ func zeroVector(v []float32) bool {
 func marshalToolResult(out any) (*mcp.CallToolResult, any, error) {
 	data, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
-		//nolint:nilerr // MCP protocol: tool errors are returned in CallToolResult.IsError, not as Go errors
 		return toolErrorResult("failed to encode result: " + err.Error()), nil, nil
 	}
 	return &mcp.CallToolResult{

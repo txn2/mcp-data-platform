@@ -295,7 +295,7 @@ func New(opts ...Option) (*Platform, error) {
 	}
 
 	if options.Config == nil {
-		return nil, fmt.Errorf("config is required")
+		return nil, errors.New("config is required")
 	}
 
 	p := &Platform{

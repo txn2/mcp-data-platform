@@ -9,6 +9,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // Feedback thread actions for manage_artifact (Phase 2 / #602). These are
@@ -39,7 +40,7 @@ const (
 
 func (t *Toolkit) handleListThreads(ctx context.Context, input manageFeedbackInput) (*mcp.CallToolResult, any, error) {
 	if t.threadStore == nil {
-		return errorResult(threadsUnavail), nil, nil
+		return toolkit.ErrorResult(threadsUnavail), nil, nil
 	}
 	// No target at all: return the caller's pending feedback across everything
 	// (the discovery entry point — "review any pending feedback").
@@ -48,10 +49,10 @@ func (t *Toolkit) handleListThreads(ctx context.Context, input manageFeedbackInp
 	}
 	targetType, ok := threadScopeFromInput(input)
 	if !ok {
-		return errorResult(threadScopeErr), nil, nil
+		return toolkit.ErrorResult(threadScopeErr), nil, nil
 	}
 	if !t.callerCanAccessTarget(ctx, targetType, input.AssetID, input.CollectionID) {
-		return errorResult("you can only view feedback on artifacts you own or can edit"), nil, nil
+		return toolkit.ErrorResult("you can only view feedback on artifacts you own or can edit"), nil, nil
 	}
 
 	threads, total, err := t.threadStore.ListThreads(ctx, portal.ThreadFilter{
@@ -66,12 +67,12 @@ func (t *Toolkit) handleListThreads(ctx context.Context, input manageFeedbackInp
 		Offset:             input.Offset,
 	})
 	if err != nil {
-		return errorResult("failed to list threads: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol: tool errors are returned in CallToolResult.IsError
+		return toolkit.ErrorResult("failed to list threads: " + err.Error()), nil, nil
 	}
 	if threads == nil {
 		threads = []portal.ThreadWithMeta{}
 	}
-	return jsonResult(map[string]any{"threads": threads, fieldTotal: total})
+	return toolkit.JSONResultTyped(map[string]any{"threads": threads, fieldTotal: total})
 }
 
 // hasThreadTarget reports whether the input scopes feedback to a single target
@@ -98,11 +99,11 @@ func (t *Toolkit) handleListPendingFeedback(ctx context.Context, input manageFee
 	}
 	assetIDs, err := g.AssetIDs(ctx, portal.KeepEditorShares)
 	if err != nil {
-		return errorResult("failed to gather your artifacts: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to gather your artifacts: " + err.Error()), nil, nil
 	}
 	collIDs, err := g.CollectionIDs(ctx, portal.KeepEditorShares)
 	if err != nil {
-		return errorResult("failed to gather your artifacts: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to gather your artifacts: " + err.Error()), nil, nil
 	}
 
 	filter := portal.ThreadFilter{
@@ -123,12 +124,12 @@ func (t *Toolkit) handleListPendingFeedback(ctx context.Context, input manageFee
 
 	pending, pendingTotal, err := t.threadStore.ListThreads(ctx, filter)
 	if err != nil {
-		return errorResult("failed to list pending feedback: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to list pending feedback: " + err.Error()), nil, nil
 	}
 
 	awaiting, awaitingTotal := t.awaitingMyValidation(ctx, uid, email)
 
-	return jsonResult(map[string]any{
+	return toolkit.JSONResultTyped(map[string]any{
 		"pending":                   normalizeThreads(pending),
 		"pending_total":             pendingTotal,
 		"awaiting_my_validation":    normalizeThreads(awaiting),
@@ -170,17 +171,17 @@ func (t *Toolkit) handleGetThread(ctx context.Context, input manageFeedbackInput
 	}
 	events, err := t.threadStore.ListEvents(ctx, thread.ID)
 	if err != nil {
-		return errorResult("failed to load thread events: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol: tool errors are returned in CallToolResult.IsError
+		return toolkit.ErrorResult("failed to load thread events: " + err.Error()), nil, nil
 	}
 	if events == nil {
 		events = []portal.ThreadEvent{}
 	}
-	return jsonResult(map[string]any{"thread": thread, "events": events})
+	return toolkit.JSONResultTyped(map[string]any{"thread": thread, "events": events})
 }
 
 func (t *Toolkit) handleReplyThread(ctx context.Context, input manageFeedbackInput) (*mcp.CallToolResult, any, error) {
 	if strings.TrimSpace(input.Body) == "" {
-		return errorResult("body is required for the reply action"), nil, nil
+		return toolkit.ErrorResult("body is required for the reply action"), nil, nil
 	}
 	thread, errRes := t.loadThread(ctx, input.ThreadID, false)
 	if errRes != nil {
@@ -195,9 +196,9 @@ func (t *Toolkit) handleReplyThread(ctx context.Context, input manageFeedbackInp
 		Body:        input.Body,
 	})
 	if err != nil {
-		return errorResult("failed to reply: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol: tool errors are returned in CallToolResult.IsError
+		return toolkit.ErrorResult("failed to reply: " + err.Error()), nil, nil
 	}
-	return jsonResult(evt)
+	return toolkit.JSONResultTyped(evt)
 }
 
 func (t *Toolkit) handleResolveThread(ctx context.Context, input manageFeedbackInput) (*mcp.CallToolResult, any, error) {
@@ -208,9 +209,9 @@ func (t *Toolkit) handleResolveThread(ctx context.Context, input manageFeedbackI
 	resolved := portal.ThreadStatusResolved
 	if err := t.threadStore.UpdateThread(ctx, thread.ID,
 		portal.ThreadUpdate{Status: &resolved}, resolveOwnerID(ctx), resolveOwnerEmail(ctx)); err != nil {
-		return errorResult("failed to resolve thread: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol: tool errors are returned in CallToolResult.IsError
+		return toolkit.ErrorResult("failed to resolve thread: " + err.Error()), nil, nil
 	}
-	return jsonResult(map[string]any{"thread_id": thread.ID, "status": resolved})
+	return toolkit.JSONResultTyped(map[string]any{"thread_id": thread.ID, "status": resolved})
 }
 
 func (t *Toolkit) handleRequestValidation(ctx context.Context, input manageFeedbackInput) (*mcp.CallToolResult, any, error) {
@@ -219,9 +220,9 @@ func (t *Toolkit) handleRequestValidation(ctx context.Context, input manageFeedb
 		return errRes, nil, nil
 	}
 	if err := t.threadStore.RequestValidation(ctx, thread.ID, resolveOwnerID(ctx), resolveOwnerEmail(ctx)); err != nil {
-		return errorResult("failed to request validation: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol: tool errors are returned in CallToolResult.IsError
+		return toolkit.ErrorResult("failed to request validation: " + err.Error()), nil, nil
 	}
-	return jsonResult(map[string]any{"thread_id": thread.ID, "validation_state": portal.ValidationStatePending})
+	return toolkit.JSONResultTyped(map[string]any{"thread_id": thread.ID, "validation_state": portal.ValidationStatePending})
 }
 
 // handleRespondValidation records the SME's answer to a validation request.
@@ -229,26 +230,26 @@ func (t *Toolkit) handleRequestValidation(ctx context.Context, input manageFeedb
 // author (the SME the request was routed to), not the artifact owner.
 func (t *Toolkit) handleRespondValidation(ctx context.Context, input manageFeedbackInput) (*mcp.CallToolResult, any, error) {
 	if t.threadStore == nil {
-		return errorResult(threadsUnavail), nil, nil
+		return toolkit.ErrorResult(threadsUnavail), nil, nil
 	}
 	if input.ThreadID == "" {
-		return errorResult("thread_id is required"), nil, nil
+		return toolkit.ErrorResult("thread_id is required"), nil, nil
 	}
 	if input.ValidationResult != portal.ValidationStateValidated && input.ValidationResult != portal.ValidationStateDisputed {
-		return errorResult("validation_result must be 'validated' or 'disputed'"), nil, nil
+		return toolkit.ErrorResult("validation_result must be 'validated' or 'disputed'"), nil, nil
 	}
 	thread, err := t.threadStore.GetThread(ctx, input.ThreadID)
 	if err != nil {
-		return errorResult("thread not found: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol: tool errors are returned in CallToolResult.IsError
+		return toolkit.ErrorResult("thread not found: " + err.Error()), nil, nil
 	}
 	if !t.callerIsThreadAuthor(ctx, thread) {
-		return errorResult("only the feedback author can respond to a validation request"), nil, nil
+		return toolkit.ErrorResult("only the feedback author can respond to a validation request"), nil, nil
 	}
 	resp := portal.ValidationResponse{Result: input.ValidationResult, Reason: input.ValidationReason}
 	if err := t.threadStore.RespondValidation(ctx, thread.ID, resp, resolveOwnerID(ctx), resolveOwnerEmail(ctx)); err != nil {
-		return errorResult("failed to respond to validation: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol: tool errors are returned in CallToolResult.IsError
+		return toolkit.ErrorResult("failed to respond to validation: " + err.Error()), nil, nil
 	}
-	return jsonResult(map[string]any{"thread_id": thread.ID, "validation_state": input.ValidationResult})
+	return toolkit.JSONResultTyped(map[string]any{"thread_id": thread.ID, "validation_state": input.ValidationResult})
 }
 
 // callerIsThreadAuthor reports whether the caller authored the thread (or is an
@@ -320,17 +321,17 @@ func (t *Toolkit) callerMayLinkThread(ctx context.Context, id string) bool {
 // error result (and nil thread) on failure.
 func (t *Toolkit) loadThread(ctx context.Context, threadID string, moderate bool) (*portal.Thread, *mcp.CallToolResult) {
 	if t.threadStore == nil {
-		return nil, errorResult(threadsUnavail)
+		return nil, toolkit.ErrorResult(threadsUnavail)
 	}
 	if threadID == "" {
-		return nil, errorResult("thread_id is required")
+		return nil, toolkit.ErrorResult("thread_id is required")
 	}
 	thread, err := t.threadStore.GetThread(ctx, threadID)
 	if err != nil {
-		return nil, errorResult("thread not found: " + err.Error())
+		return nil, toolkit.ErrorResult("thread not found: " + err.Error())
 	}
 	if !t.callerCanActOnThread(ctx, thread, moderate) {
-		return nil, errorResult("you can only act on feedback for artifacts you own or can edit")
+		return nil, toolkit.ErrorResult("you can only act on feedback for artifacts you own or can edit")
 	}
 	return thread, nil
 }

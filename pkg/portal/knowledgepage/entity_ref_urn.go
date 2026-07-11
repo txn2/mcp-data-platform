@@ -1,6 +1,7 @@
 package knowledgepage
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -52,7 +53,7 @@ func ParseEntityRef(s string) (EntityRef, error) {
 	s = strings.TrimSpace(s)
 	switch {
 	case s == "":
-		return EntityRef{}, fmt.Errorf("empty entity reference")
+		return EntityRef{}, errors.New("empty entity reference")
 	case strings.HasPrefix(s, externalURNPrefix):
 		// A DataHub URN never embeds the internal mcp: scheme; if it does, the
 		// caller crossed the two namespaces (e.g. urn:li:mcp:connection:(x)). Reject
@@ -139,12 +140,12 @@ func parseSimpleMCPRef(typ, id, s string) (EntityRef, error) {
 // parseConnectionTuple parses the "(kind,name)" body of a connection reference.
 func parseConnectionTuple(body string) (kind, name string, err error) {
 	if !strings.HasPrefix(body, "(") || !strings.HasSuffix(body, ")") {
-		return "", "", fmt.Errorf("connection reference must be (kind,name)")
+		return "", "", errors.New("connection reference must be (kind,name)")
 	}
 	inner := body[1 : len(body)-1]
 	kind, name, ok := strings.Cut(inner, ",")
 	if !ok || kind == "" || name == "" {
-		return "", "", fmt.Errorf("connection reference must be (kind,name)")
+		return "", "", errors.New("connection reference must be (kind,name)")
 	}
 	return kind, name, nil
 }

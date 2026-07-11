@@ -303,7 +303,7 @@ func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp
 
 	data, err := json.MarshalIndent(info, "", "  ")
 	if err != nil {
-		return &mcp.CallToolResult{ //nolint:nilerr // MCP protocol: tool errors are returned in CallToolResult.IsError, not as Go errors
+		return &mcp.CallToolResult{
 			Content: []mcp.Content{
 				&mcp.TextContent{Text: "Error: " + err.Error()},
 			},

@@ -2,6 +2,7 @@ package oauth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -69,7 +70,7 @@ func (r *upstreamEndpointResolver) authorizationEndpoint(ctx context.Context) (s
 		return "", err
 	}
 	if doc.AuthorizationEndpoint == "" {
-		return "", fmt.Errorf("authorization_endpoint not found in discovery document")
+		return "", errors.New("authorization_endpoint not found in discovery document")
 	}
 	return doc.AuthorizationEndpoint, nil
 }
@@ -86,7 +87,7 @@ func (r *upstreamEndpointResolver) tokenEndpoint(ctx context.Context) (string, e
 		return "", err
 	}
 	if doc.TokenEndpoint == "" {
-		return "", fmt.Errorf("token_endpoint not found in discovery document")
+		return "", errors.New("token_endpoint not found in discovery document")
 	}
 	return doc.TokenEndpoint, nil
 }

@@ -19,6 +19,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // Test constants to avoid repeated string literals.
@@ -737,7 +738,7 @@ func TestToolkit_RegistersPrompt(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestErrorResult(t *testing.T) {
-	result := errorResult("something went wrong")
+	result := toolkit.ErrorResult("something went wrong")
 	assert.True(t, result.IsError)
 	assert.NotEmpty(t, result.Content)
 
@@ -748,7 +749,7 @@ func TestErrorResult(t *testing.T) {
 
 func TestJsonResult(t *testing.T) {
 	data := map[string]any{"key": "value", "count": float64(42)}
-	result, _, err := jsonResult(data)
+	result, _, err := toolkit.JSONResultTyped(data)
 	require.Nil(t, err)
 	require.False(t, result.IsError)
 
