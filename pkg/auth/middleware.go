@@ -126,7 +126,7 @@ func (c *ChainedAuthenticator) Authenticate(ctx context.Context) (*middleware.Us
 	if lastErr != nil {
 		return nil, lastErr
 	}
-	return nil, fmt.Errorf("authentication failed")
+	return nil, errors.New("authentication failed")
 }
 
 // Verify interface compliance.
@@ -148,7 +148,7 @@ func (*BearerTokenExtractor) Extract(ctx context.Context) (string, error) {
 	// This is a placeholder - actual extraction depends on transport
 	token := GetToken(ctx)
 	if token == "" {
-		return "", fmt.Errorf("no bearer token found")
+		return "", errors.New("no bearer token found")
 	}
 
 	// Strip "Bearer " prefix if present
@@ -170,7 +170,7 @@ func (*APIKeyExtractor) Extract(ctx context.Context) (string, error) {
 	// This is a placeholder - actual extraction depends on transport
 	token := GetToken(ctx)
 	if token == "" {
-		return "", fmt.Errorf("no API key found")
+		return "", errors.New("no API key found")
 	}
 	return token, nil
 }

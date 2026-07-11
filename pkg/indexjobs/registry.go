@@ -1,6 +1,7 @@
 package indexjobs
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -38,14 +39,14 @@ func NewRegistry() *Registry {
 // storage.
 func (r *Registry) Register(source Source, sink Sink) error {
 	if source == nil || sink == nil {
-		return fmt.Errorf("indexjobs: register: source and sink must both be non-nil")
+		return errors.New("indexjobs: register: source and sink must both be non-nil")
 	}
 	if source.Kind() != sink.Kind() {
 		return fmt.Errorf("indexjobs: register: source kind %q != sink kind %q", source.Kind(), sink.Kind())
 	}
 	kind := source.Kind()
 	if kind == "" {
-		return fmt.Errorf("indexjobs: register: empty source kind")
+		return errors.New("indexjobs: register: empty source kind")
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()

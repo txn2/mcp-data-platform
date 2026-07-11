@@ -1,6 +1,7 @@
 package user
 
 import (
+	"errors"
 	"fmt"
 	"net/mail"
 	"strings"
@@ -17,7 +18,7 @@ const MaxNameLen = 100
 func NormalizeEmail(email string) (string, error) {
 	e := strings.ToLower(strings.TrimSpace(email))
 	if e == "" {
-		return "", fmt.Errorf("email is required")
+		return "", errors.New("email is required")
 	}
 	addr, err := mail.ParseAddress(e)
 	if err != nil {

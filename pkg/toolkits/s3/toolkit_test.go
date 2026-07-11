@@ -12,6 +12,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 const (
@@ -466,7 +467,7 @@ func TestS3AnnotationConfigToMCP(t *testing.T) {
 			IdempotentHint:  &idempotent,
 			OpenWorldHint:   &openWorld,
 		}
-		ann := annotationConfigToMCP(cfg)
+		ann := toolkit.AnnotationsToMCP(cfg)
 		if !ann.ReadOnlyHint {
 			t.Error("expected ReadOnlyHint=true")
 		}
@@ -483,7 +484,7 @@ func TestS3AnnotationConfigToMCP(t *testing.T) {
 
 	t.Run("no fields set", func(t *testing.T) {
 		cfg := AnnotationConfig{}
-		ann := annotationConfigToMCP(cfg)
+		ann := toolkit.AnnotationsToMCP(cfg)
 		if ann.ReadOnlyHint {
 			t.Error("expected ReadOnlyHint=false")
 		}

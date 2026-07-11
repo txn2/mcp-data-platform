@@ -8,6 +8,8 @@ package connview
 import (
 	"context"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/toolkit"
@@ -17,6 +19,11 @@ import (
 // list_connections output stays small even when a connection is widely documented.
 // The full total is still reported via Entry.KnowledgePageCount.
 const maxKnowledgePages = 5
+
+// knowledgeEnrichConcurrency bounds the parallel per-connection knowledge-page
+// lookups in enrichWithKnowledge, so a deployment with many connections cannot
+// open an unbounded number of concurrent DB queries.
+const knowledgeEnrichConcurrency = 8
 
 // dataKinds are the toolkit kinds that represent a data connection in the fallback
 // (non-ConnectionLister) path.
@@ -123,22 +130,34 @@ func enrichWithKnowledge(ctx context.Context, pages PageLookup, entries []Entry)
 	if pages == nil {
 		return
 	}
+	// Fan out the independent per-connection reverse lookups (bounded), each
+	// writing only its own index slot so no synchronization on entries is
+	// needed (the house pattern in pkg/knowledge/router.go). errgroup provides
+	// the concurrency bound; no goroutine returns an error, because a
+	// per-connection failure degrades only that entry — it must never fail the
+	// whole view, exactly as the previous serial loop did.
+	var g errgroup.Group
+	g.SetLimit(knowledgeEnrichConcurrency)
 	for i := range entries {
-		e := &entries[i]
-		refs, err := pages.ListPagesReferencing(ctx, knowledgepage.EntityRef{
-			TargetType:     knowledgepage.RefTargetConnection,
-			ConnectionKind: e.Kind,
-			ConnectionName: e.Name,
-		})
-		if err != nil || len(refs) == 0 {
-			continue
-		}
-		e.KnowledgePageCount = len(refs)
-		for _, pg := range refs {
-			if len(e.KnowledgePages) >= maxKnowledgePages {
-				break
+		g.Go(func() error {
+			e := &entries[i]
+			refs, err := pages.ListPagesReferencing(ctx, knowledgepage.EntityRef{
+				TargetType:     knowledgepage.RefTargetConnection,
+				ConnectionKind: e.Kind,
+				ConnectionName: e.Name,
+			})
+			if err != nil || len(refs) == 0 {
+				return nil //nolint:nilerr // a per-connection lookup error degrades only this entry, never the whole view (matches the prior serial loop)
 			}
-			e.KnowledgePages = append(e.KnowledgePages, KnowledgePage{ID: pg.ID, Slug: pg.Slug, Title: pg.Title})
-		}
+			e.KnowledgePageCount = len(refs)
+			for _, pg := range refs {
+				if len(e.KnowledgePages) >= maxKnowledgePages {
+					break
+				}
+				e.KnowledgePages = append(e.KnowledgePages, KnowledgePage{ID: pg.ID, Slug: pg.Slug, Title: pg.Title})
+			}
+			return nil
+		})
 	}
+	_ = g.Wait() // no arm returns an error, so Wait cannot fail
 }

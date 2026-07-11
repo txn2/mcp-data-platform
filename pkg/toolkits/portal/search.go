@@ -9,6 +9,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // rankingLexical and rankingHybrid label which ranking path produced the
@@ -62,13 +63,13 @@ func (t *Toolkit) handleSearch(ctx context.Context, input manageArtifactInput) (
 		Limit:     input.Limit,
 	})
 	if err != nil {
-		return errorResult("failed to search assets: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to search assets: " + err.Error()), nil, nil
 	}
 	if scored == nil {
 		scored = []portal.ScoredAsset{}
 	}
 
-	return jsonResult(map[string]any{
+	return toolkit.JSONResultTyped(map[string]any{
 		"assets":     scored,
 		fieldTotal:   len(scored),
 		fieldRanking: ranking,

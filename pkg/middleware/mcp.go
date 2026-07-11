@@ -426,7 +426,7 @@ func resolveSource(ctx context.Context) string {
 func extractToolName(req mcp.Request) (string, error) {
 	params := req.GetParams()
 	if params == nil {
-		return "", fmt.Errorf("missing params")
+		return "", errors.New("missing params")
 	}
 
 	callParams, ok := params.(*mcp.CallToolParamsRaw)
@@ -436,11 +436,11 @@ func extractToolName(req mcp.Request) (string, error) {
 
 	// Check if the pointer itself is nil (type assertion can succeed with nil pointer)
 	if callParams == nil {
-		return "", fmt.Errorf("missing params")
+		return "", errors.New("missing params")
 	}
 
 	if callParams.Name == "" {
-		return "", fmt.Errorf("missing tool name")
+		return "", errors.New("missing tool name")
 	}
 
 	return callParams.Name, nil

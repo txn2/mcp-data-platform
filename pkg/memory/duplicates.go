@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -44,7 +45,7 @@ const pairNeighborK = 3
 // is seen from both sides) and returned highest-similarity first.
 func (s *postgresStore) SimilarActivePairs(ctx context.Context, createdBy string, minScore float64, limit int) ([]SimilarPair, error) {
 	if createdBy == "" {
-		return nil, fmt.Errorf("similar-pair search requires an owner scope (createdBy)")
+		return nil, errors.New("similar-pair search requires an owner scope (createdBy)")
 	}
 	limit = clampStoreLimit(limit)
 

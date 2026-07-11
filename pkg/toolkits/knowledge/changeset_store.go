@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -254,7 +255,7 @@ type noopChangesetStore struct{}
 func (*noopChangesetStore) InsertChangeset(_ context.Context, _ Changeset) error { return nil } //nolint:revive // interface impl
 
 func (*noopChangesetStore) GetChangeset(_ context.Context, _ string) (*Changeset, error) { //nolint:revive // interface impl
-	return nil, fmt.Errorf("changeset not found")
+	return nil, errors.New("changeset not found")
 }
 
 func (*noopChangesetStore) ListChangesets(_ context.Context, _ ChangesetFilter) ([]Changeset, int, error) { //nolint:revive // interface impl

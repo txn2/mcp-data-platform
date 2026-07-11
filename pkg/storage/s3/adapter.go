@@ -3,6 +3,7 @@ package s3
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -47,7 +48,7 @@ type Adapter struct {
 // New creates a new S3 adapter with an existing client.
 func New(cfg Config, client Client) (*Adapter, error) {
 	if client == nil {
-		return nil, fmt.Errorf("s3 client is required")
+		return nil, errors.New("s3 client is required")
 	}
 	return &Adapter{
 		cfg:    cfg,

@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -1334,7 +1335,7 @@ type shareTarget struct {
 func buildShare(target shareTarget, createdBy string, req createShareRequest) (Share, error) {
 	token, err := GenerateShareToken()
 	if err != nil {
-		return Share{}, fmt.Errorf("failed to generate share token")
+		return Share{}, errors.New("failed to generate share token")
 	}
 
 	email := strings.ToLower(strings.TrimSpace(req.SharedWithEmail))
@@ -1374,7 +1375,7 @@ func buildShare(target shareTarget, createdBy string, req createShareRequest) (S
 	if req.ExpiresIn != "" {
 		dur, parseErr := time.ParseDuration(req.ExpiresIn)
 		if parseErr != nil {
-			return Share{}, fmt.Errorf("invalid expires_in duration")
+			return Share{}, errors.New("invalid expires_in duration")
 		}
 		exp := time.Now().Add(dur)
 		share.ExpiresAt = &exp
@@ -2283,7 +2284,7 @@ func resolveSharePermission(req createShareRequest, email string) (SharePermissi
 	perm := PermissionViewer
 	if req.Permission != "" {
 		if !ValidSharePermission(req.Permission) {
-			return "", fmt.Errorf("invalid permission: must be viewer or editor")
+			return "", errors.New("invalid permission: must be viewer or editor")
 		}
 		perm = SharePermission(req.Permission)
 	}

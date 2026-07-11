@@ -3,6 +3,7 @@
 package portal
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -224,7 +225,7 @@ const maxTagLength = 100
 // ValidateAssetName checks that a name is non-empty and within length limits.
 func ValidateAssetName(name string) error {
 	if name == "" {
-		return fmt.Errorf("name is required")
+		return errors.New("name is required")
 	}
 	if len(name) > maxNameLength {
 		return fmt.Errorf("name exceeds %d characters", maxNameLength)
@@ -235,7 +236,7 @@ func ValidateAssetName(name string) error {
 // ValidateContentType checks that a content type is non-empty.
 func ValidateContentType(ct string) error {
 	if ct == "" {
-		return fmt.Errorf("content_type is required")
+		return errors.New("content_type is required")
 	}
 	return nil
 }
@@ -377,7 +378,7 @@ const maxItemsPerSection = 100
 // ValidateCollectionName checks that a collection name is valid.
 func ValidateCollectionName(name string) error {
 	if name == "" {
-		return fmt.Errorf("name is required")
+		return errors.New("name is required")
 	}
 	if len(name) > maxNameLength {
 		return fmt.Errorf("name exceeds %d characters", maxNameLength)
@@ -438,10 +439,10 @@ func ValidateEmail(email string) error {
 	}
 	parts := strings.SplitN(email, "@", 2)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return fmt.Errorf("invalid email address")
+		return errors.New("invalid email address")
 	}
 	if !strings.Contains(parts[1], ".") {
-		return fmt.Errorf("invalid email address")
+		return errors.New("invalid email address")
 	}
 	return nil
 }

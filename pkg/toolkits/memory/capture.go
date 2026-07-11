@@ -13,6 +13,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	memstore "github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // memoryCaptureToolName is the unified write verb (#633). It lives in the memory
@@ -157,17 +158,17 @@ type memoryCaptureOutput struct {
 func (t *Toolkit) handleMemoryCapture(ctx context.Context, _ *mcp.CallToolRequest, input memoryCaptureInput) (*mcp.CallToolResult, any, error) {
 	content := strings.TrimSpace(input.Content)
 	if msg := validateCaptureInput(input, content); msg != "" {
-		return errorResult(msg), nil, nil
+		return toolkit.ErrorResult(msg), nil, nil
 	}
 
 	pc := middleware.GetPlatformContext(ctx)
 	if pc == nil || pc.UserEmail == "" {
-		return errorResult("a user identity (email) is required to capture knowledge"), nil, nil
+		return toolkit.ErrorResult("a user identity (email) is required to capture knowledge"), nil, nil
 	}
 
 	id, err := generateID()
 	if err != nil {
-		return errorResult("failed to generate ID"), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to generate ID"), nil, nil
 	}
 
 	actor := captureActor{UserID: pc.UserID, Email: pc.UserEmail, Persona: pc.PersonaName, SessionID: pc.SessionID}
@@ -175,7 +176,7 @@ func (t *Toolkit) handleMemoryCapture(ctx context.Context, _ *mcp.CallToolReques
 
 	out, err := t.applyCapture(ctx, &rec, input.Type, actor, input.ThreadIDs)
 	if err != nil {
-		return errorResult("failed to capture: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to capture: " + err.Error()), nil, nil
 	}
 
 	return captureSuccess(rec, out)
@@ -415,7 +416,7 @@ func captureSuccess(rec memstore.Record, out captureOutcome) (*mcp.CallToolResul
 	if len(out.Superseded) > 0 {
 		best = out.Superseded[0]
 	}
-	return jsonResult(memoryCaptureOutput{
+	return toolkit.JSONResult(memoryCaptureOutput{
 		ID:                rec.ID,
 		SinkClass:         rec.SinkClass,
 		Status:            rec.Status,

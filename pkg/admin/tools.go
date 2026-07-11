@@ -2,6 +2,7 @@ package admin
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -164,7 +165,7 @@ func (h *Handler) callTool(w http.ResponseWriter, r *http.Request) {
 func decodeToolCallRequest(r *http.Request) (*toolCallRequest, error) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20)) // 1MB limit
 	if err != nil {
-		return nil, fmt.Errorf("failed to read request body")
+		return nil, errors.New("failed to read request body")
 	}
 
 	var req toolCallRequest
@@ -173,7 +174,7 @@ func decodeToolCallRequest(r *http.Request) (*toolCallRequest, error) {
 	}
 
 	if req.ToolName == "" {
-		return nil, fmt.Errorf("tool_name is required")
+		return nil, errors.New("tool_name is required")
 	}
 
 	return &req, nil

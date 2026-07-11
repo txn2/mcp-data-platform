@@ -1269,7 +1269,7 @@ func (t *Toolkit) makeForwarder(u *upstream, remoteName, localName string) mcp.T
 			if rerr != nil {
 				msg := "reconnect after dropped session failed: " + rerr.Error()
 				u.recordError(msg)
-				return upstreamErr(connection, msg), nil //nolint:nilerr // MCP protocol: tool errors are returned in CallToolResult.IsError, not as Go errors
+				return upstreamErr(connection, msg), nil
 			}
 			res, err = callTool(ctx, fresh, callTimeout, remoteName, args)
 		}

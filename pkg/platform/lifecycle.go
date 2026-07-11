@@ -2,6 +2,7 @@ package platform
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -79,7 +80,7 @@ func (l *Lifecycle) Start(ctx context.Context) error {
 	defer l.mu.Unlock()
 
 	if l.started {
-		return fmt.Errorf("lifecycle already started")
+		return errors.New("lifecycle already started")
 	}
 
 	for i, c := range l.components {

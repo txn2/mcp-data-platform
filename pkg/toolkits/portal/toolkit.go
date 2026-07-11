@@ -6,7 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"path"
@@ -19,6 +19,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/query"
 	"github.com/txn2/mcp-data-platform/pkg/registry"
 	"github.com/txn2/mcp-data-platform/pkg/semantic"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 const (
@@ -373,7 +374,7 @@ func (*Toolkit) Close() error { return nil }
 // handleSaveArtifact persists an artifact to S3 and records metadata.
 func (t *Toolkit) handleSaveArtifact(ctx context.Context, _ *mcp.CallToolRequest, input saveArtifactInput) (*mcp.CallToolResult, any, error) {
 	if err := t.validateAndCheckSize(input); err != nil {
-		return errorResult(err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult(err.Error()), nil, nil
 	}
 
 	userID := resolveOwnerID(ctx)
@@ -382,16 +383,16 @@ func (t *Toolkit) handleSaveArtifact(ctx context.Context, _ *mcp.CallToolRequest
 
 	assetID, err := generateID()
 	if err != nil {
-		return errorResult("internal error generating asset ID"), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("internal error generating asset ID"), nil, nil
 	}
 
 	s3Key := t.buildS3Key(userID, assetID, input.ContentType)
 
 	if t.s3Client == nil {
-		return errorResult("content storage not configured"), nil, nil
+		return toolkit.ErrorResult("content storage not configured"), nil, nil
 	}
 	if err := t.s3Client.PutObject(ctx, t.s3Bucket, s3Key, []byte(input.Content), input.ContentType); err != nil {
-		return errorResult("failed to upload content: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to upload content: " + err.Error()), nil, nil
 	}
 
 	prov := buildProvenance(ctx, userID, sessionID)
@@ -422,13 +423,13 @@ func (t *Toolkit) handleSaveArtifact(ctx context.Context, _ *mcp.CallToolRequest
 	}
 
 	if err := t.assetStore.Insert(ctx, asset); err != nil {
-		return errorResult("failed to save asset metadata: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to save asset metadata: " + err.Error()), nil, nil
 	}
 
 	// Create initial v1 version record.
 	versionID, err := generateID()
 	if err != nil {
-		return errorResult("failed to generate version ID: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to generate version ID: " + err.Error()), nil, nil
 	}
 	v1 := portal.AssetVersion{
 		ID:            versionID,
@@ -441,10 +442,10 @@ func (t *Toolkit) handleSaveArtifact(ctx context.Context, _ *mcp.CallToolRequest
 		ChangeSummary: "Initial version",
 	}
 	if _, err := t.versionStore.CreateVersion(ctx, v1); err != nil {
-		return errorResult("failed to create initial version record: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to create initial version record: " + err.Error()), nil, nil
 	}
 
-	return jsonResult(t.buildSaveOutput(assetID, prov))
+	return toolkit.JSONResultTyped(t.buildSaveOutput(assetID, prov))
 }
 
 // manageActionHandler is a function that handles a manage_artifact action.
@@ -457,7 +458,7 @@ type feedbackActionHandler func(ctx context.Context, input manageFeedbackInput) 
 func (t *Toolkit) handleManageFeedback(ctx context.Context, _ *mcp.CallToolRequest, input manageFeedbackInput) (*mcp.CallToolResult, any, error) {
 	handler, ok := t.feedbackActions[input.Action]
 	if !ok {
-		return errorResult(fmt.Sprintf(
+		return toolkit.ErrorResult(fmt.Sprintf(
 			"invalid action %q: must be one of: list, get, reply, resolve, request_validation, respond_validation",
 			input.Action)), nil, nil
 	}
@@ -499,7 +500,7 @@ func (t *Toolkit) buildFeedbackActions() map[string]feedbackActionHandler {
 func (t *Toolkit) handleManageArtifact(ctx context.Context, _ *mcp.CallToolRequest, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
 	handler, ok := t.actions[input.Action]
 	if !ok {
-		return errorResult(fmt.Sprintf(
+		return toolkit.ErrorResult(fmt.Sprintf(
 			"invalid action %q: must be one of: list, get, update, delete, list_versions, revert, search, "+
 				"create_collection, list_collections, get_collection, update_collection, delete_collection, set_sections",
 			input.Action)), nil, nil
@@ -515,7 +516,7 @@ func (t *Toolkit) handleList(ctx context.Context, input manageArtifactInput) (*m
 		Limit:   input.Limit,
 	})
 	if err != nil {
-		return errorResult("failed to list assets: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to list assets: " + err.Error()), nil, nil
 	}
 
 	if assets == nil {
@@ -526,39 +527,39 @@ func (t *Toolkit) handleList(ctx context.Context, input manageArtifactInput) (*m
 		"assets":   assets,
 		fieldTotal: total,
 	}
-	return jsonResult(result)
+	return toolkit.JSONResultTyped(result)
 }
 
 func (t *Toolkit) handleGet(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
 	if input.AssetID == "" {
-		return errorResult("asset_id is required for get action"), nil, nil
+		return toolkit.ErrorResult("asset_id is required for get action"), nil, nil
 	}
 
 	asset, err := t.assetStore.Get(ctx, input.AssetID)
 	if err != nil {
-		return middleware.NotFoundResult("asset not found: "+err.Error(), assetNotFoundHint), nil, nil //nolint:nilerr // MCP protocol
+		return middleware.NotFoundResult("asset not found: "+err.Error(), assetNotFoundHint), nil, nil
 	}
 
 	if asset.DeletedAt != nil {
-		return errorResult("asset has been deleted"), nil, nil
+		return toolkit.ErrorResult("asset has been deleted"), nil, nil
 	}
 
-	return jsonResult(asset)
+	return toolkit.JSONResultTyped(asset)
 }
 
 func (t *Toolkit) handleUpdate(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
 	if input.AssetID == "" {
-		return errorResult("asset_id is required for update action"), nil, nil
+		return toolkit.ErrorResult("asset_id is required for update action"), nil, nil
 	}
 
 	asset, err := t.assetStore.Get(ctx, input.AssetID)
 	if err != nil {
-		return middleware.NotFoundResult("asset not found: "+err.Error(), assetNotFoundHint), nil, nil //nolint:nilerr // MCP protocol
+		return middleware.NotFoundResult("asset not found: "+err.Error(), assetNotFoundHint), nil, nil
 	}
 
 	ownerID := resolveOwnerID(ctx)
 	if asset.OwnerID != ownerID {
-		return errorResult("you can only update your own artifacts"), nil, nil
+		return toolkit.ErrorResult("you can only update your own artifacts"), nil, nil
 	}
 
 	updates := portal.AssetUpdate{
@@ -581,22 +582,22 @@ func (t *Toolkit) handleUpdate(ctx context.Context, input manageArtifactInput) (
 	hasMetadata := updates.Name != nil || updates.Description != nil || updates.Tags != nil
 
 	if !hasContent && !hasMetadata {
-		return errorResult("no fields to update: provide content, name, description, or tags"), nil, nil
+		return toolkit.ErrorResult("no fields to update: provide content, name, description, or tags"), nil, nil
 	}
 
 	if hasContent {
 		if contentErr := t.uploadContentUpdate(ctx, asset, input); contentErr != nil {
-			return errorResult("failed to upload new content: " + contentErr.Error()), nil, nil //nolint:nilerr // MCP protocol
+			return toolkit.ErrorResult("failed to upload new content: " + contentErr.Error()), nil, nil
 		}
 	}
 
 	if hasMetadata {
 		if err := t.assetStore.Update(ctx, input.AssetID, updates); err != nil {
-			return errorResult("failed to update asset: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+			return toolkit.ErrorResult("failed to update asset: " + err.Error()), nil, nil
 		}
 	}
 
-	return jsonResult(map[string]any{
+	return toolkit.JSONResultTyped(map[string]any{
 		fieldAssetID: input.AssetID,
 		fieldMessage: "Asset updated successfully.",
 	})
@@ -619,7 +620,7 @@ func (t *Toolkit) uploadContentUpdate(ctx context.Context, asset *portal.Asset, 
 	s3Key := path.Join(t.s3Prefix, asset.OwnerID, asset.ID, versionID, "content"+ext)
 
 	if t.s3Client == nil {
-		return fmt.Errorf("content storage not configured")
+		return errors.New("content storage not configured")
 	}
 	if err := t.s3Client.PutObject(ctx, t.s3Bucket, s3Key, []byte(input.Content), ct); err != nil {
 		return fmt.Errorf("s3 put: %w", err)
@@ -644,24 +645,24 @@ func (t *Toolkit) uploadContentUpdate(ctx context.Context, asset *portal.Asset, 
 
 func (t *Toolkit) handleDelete(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
 	if input.AssetID == "" {
-		return errorResult("asset_id is required for delete action"), nil, nil
+		return toolkit.ErrorResult("asset_id is required for delete action"), nil, nil
 	}
 
 	asset, err := t.assetStore.Get(ctx, input.AssetID)
 	if err != nil {
-		return middleware.NotFoundResult("asset not found: "+err.Error(), assetNotFoundHint), nil, nil //nolint:nilerr // MCP protocol
+		return middleware.NotFoundResult("asset not found: "+err.Error(), assetNotFoundHint), nil, nil
 	}
 
 	ownerID := resolveOwnerID(ctx)
 	if asset.OwnerID != ownerID {
-		return errorResult("you can only delete your own artifacts"), nil, nil
+		return toolkit.ErrorResult("you can only delete your own artifacts"), nil, nil
 	}
 
 	if err := t.assetStore.SoftDelete(ctx, input.AssetID); err != nil {
-		return errorResult("failed to delete asset: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to delete asset: " + err.Error()), nil, nil
 	}
 
-	return jsonResult(map[string]any{
+	return toolkit.JSONResultTyped(map[string]any{
 		fieldAssetID: input.AssetID,
 		fieldMessage: "Asset deleted successfully.",
 	})
@@ -669,7 +670,7 @@ func (t *Toolkit) handleDelete(ctx context.Context, input manageArtifactInput) (
 
 func (t *Toolkit) handleListVersions(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
 	if input.AssetID == "" {
-		return errorResult("asset_id is required for list_versions action"), nil, nil
+		return toolkit.ErrorResult("asset_id is required for list_versions action"), nil, nil
 	}
 
 	limit := input.Limit
@@ -678,12 +679,12 @@ func (t *Toolkit) handleListVersions(ctx context.Context, input manageArtifactIn
 	}
 	versions, total, err := t.versionStore.ListByAsset(ctx, input.AssetID, limit, 0)
 	if err != nil {
-		return errorResult("failed to list versions: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to list versions: " + err.Error()), nil, nil
 	}
 	if versions == nil {
 		versions = []portal.AssetVersion{}
 	}
-	return jsonResult(map[string]any{
+	return toolkit.JSONResultTyped(map[string]any{
 		"versions": versions,
 		fieldTotal: total,
 	})
@@ -691,41 +692,41 @@ func (t *Toolkit) handleListVersions(ctx context.Context, input manageArtifactIn
 
 func (t *Toolkit) handleRevert(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
 	if !input.validForRevert() {
-		return errorResult("asset_id and version (> 0) are required for revert action"), nil, nil
+		return toolkit.ErrorResult("asset_id and version (> 0) are required for revert action"), nil, nil
 	}
 
 	asset, err := t.assetStore.Get(ctx, input.AssetID)
 	if err != nil {
-		return middleware.NotFoundResult("asset not found: "+err.Error(), assetNotFoundHint), nil, nil //nolint:nilerr // MCP protocol
+		return middleware.NotFoundResult("asset not found: "+err.Error(), assetNotFoundHint), nil, nil
 	}
 
 	ownerID := resolveOwnerID(ctx)
 	if asset.OwnerID != ownerID {
-		return errorResult("you can only revert your own artifacts"), nil, nil
+		return toolkit.ErrorResult("you can only revert your own artifacts"), nil, nil
 	}
 
 	targetVer, err := t.versionStore.GetByVersion(ctx, input.AssetID, input.Version)
 	if err != nil {
-		return middleware.NotFoundResult("version not found: "+err.Error(), "Call manage_artifact action=list_versions to see valid version numbers."), nil, nil //nolint:nilerr // MCP protocol
+		return middleware.NotFoundResult("version not found: "+err.Error(), "Call manage_artifact action=list_versions to see valid version numbers."), nil, nil
 	}
 
 	if t.s3Client == nil {
-		return errorResult("content storage not configured"), nil, nil
+		return toolkit.ErrorResult("content storage not configured"), nil, nil
 	}
 	data, _, err := t.s3Client.GetObject(ctx, targetVer.S3Bucket, targetVer.S3Key)
 	if err != nil {
-		return errorResult("failed to read version content: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to read version content: " + err.Error()), nil, nil
 	}
 
 	versionID, err := generateID()
 	if err != nil {
-		return errorResult("failed to generate version ID: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to generate version ID: " + err.Error()), nil, nil
 	}
 	ext := portal.ExtensionForContentType(targetVer.ContentType)
 	newKey := path.Join(t.s3Prefix, asset.OwnerID, asset.ID, versionID, "content"+ext)
 
 	if err := t.s3Client.PutObject(ctx, t.s3Bucket, newKey, data, targetVer.ContentType); err != nil {
-		return errorResult("failed to upload reverted content: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to upload reverted content: " + err.Error()), nil, nil
 	}
 
 	av := portal.AssetVersion{
@@ -741,10 +742,10 @@ func (t *Toolkit) handleRevert(ctx context.Context, input manageArtifactInput) (
 	assignedVersion, err := t.versionStore.CreateVersion(ctx, av)
 	if err != nil {
 		t.cleanupOrphanedS3(ctx, t.s3Bucket, newKey)
-		return errorResult("failed to create revert version: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to create revert version: " + err.Error()), nil, nil
 	}
 
-	return jsonResult(map[string]any{
+	return toolkit.JSONResultTyped(map[string]any{
 		fieldAssetID: input.AssetID,
 		"version":    assignedVersion,
 		fieldMessage: fmt.Sprintf("Reverted to version %d. New version: %d.", input.Version, assignedVersion),
@@ -832,7 +833,7 @@ func validateSaveInput(input saveArtifactInput) error {
 		return fmt.Errorf(validationFmt, err)
 	}
 	if input.Content == "" {
-		return fmt.Errorf("content is required")
+		return errors.New("content is required")
 	}
 	if err := portal.ValidateDescription(input.Description); err != nil {
 		return fmt.Errorf(validationFmt, err)
@@ -870,31 +871,6 @@ func generateID() (string, error) {
 		return "", fmt.Errorf("generating random bytes: %w", err)
 	}
 	return hex.EncodeToString(b), nil
-}
-
-func errorResult(msg string) *mcp.CallToolResult {
-	errObj := struct {
-		Error string `json:"error"`
-	}{Error: msg}
-	data, _ := json.Marshal(errObj) //nolint:errcheck // simple struct, cannot fail
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			&mcp.TextContent{Text: string(data)},
-		},
-		IsError: true,
-	}
-}
-
-func jsonResult(v any) (*mcp.CallToolResult, any, error) {
-	data, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return errorResult("internal error marshaling response"), nil, nil //nolint:nilerr // MCP protocol
-	}
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			&mcp.TextContent{Text: string(data)},
-		},
-	}, nil, nil
 }
 
 // Verify interface compliance.

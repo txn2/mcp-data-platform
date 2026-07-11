@@ -3,7 +3,7 @@ package trino
 
 import (
 	"context"
-	"fmt"
+	"errors"
 
 	trinotools "github.com/txn2/mcp-trino/pkg/tools"
 )
@@ -20,7 +20,7 @@ func NewReadOnlyInterceptor() *ReadOnlyInterceptor {
 // Intercept checks if the query is a write operation and blocks it in read-only mode.
 func (*ReadOnlyInterceptor) Intercept(_ context.Context, sql string, _ trinotools.ToolName) (string, error) {
 	if trinotools.IsWriteSQL(sql) {
-		return "", fmt.Errorf("write operations not allowed in read-only mode")
+		return "", errors.New("write operations not allowed in read-only mode")
 	}
 	return sql, nil
 }

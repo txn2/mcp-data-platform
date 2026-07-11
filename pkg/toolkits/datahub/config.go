@@ -1,8 +1,11 @@
 package datahub
 
 import (
+	"errors"
 	"fmt"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // ParseConfig parses a DataHub toolkit configuration from a map.
@@ -20,7 +23,7 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 		c.URL = getString(cfg, "endpoint")
 	}
 	if c.URL == "" {
-		return c, fmt.Errorf("url is required")
+		return c, errors.New("url is required")
 	}
 
 	// Optional string fields
@@ -53,12 +56,7 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 }
 
 // AnnotationConfig holds tool annotation overrides from configuration.
-type AnnotationConfig struct {
-	ReadOnlyHint    *bool `yaml:"read_only_hint"`
-	DestructiveHint *bool `yaml:"destructive_hint"`
-	IdempotentHint  *bool `yaml:"idempotent_hint"`
-	OpenWorldHint   *bool `yaml:"open_world_hint"`
-}
+type AnnotationConfig = toolkit.AnnotationConfig
 
 // getAnnotationsMap extracts annotation overrides from a config map.
 func getAnnotationsMap(cfg map[string]any, key string) map[string]AnnotationConfig { //nolint:unparam // consistent with getStringMap

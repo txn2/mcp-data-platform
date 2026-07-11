@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // changesetSummary is the discovery-surface view of a changeset, omitting the
@@ -26,10 +28,10 @@ type changesetSummary struct {
 // aspects to their pre-change state.
 func (t *Toolkit) handleRollback(ctx context.Context, input applyKnowledgeInput) (*mcp.CallToolResult, any, error) {
 	if input.ChangesetID == "" {
-		return errorResult("changeset_id is required for rollback action"), nil, nil
+		return toolkit.ErrorResult("changeset_id is required for rollback action"), nil, nil
 	}
 	if t.requireConfirmation && !input.Confirm {
-		return jsonResult(map[string]any{
+		return toolkit.JSONResultTyped(map[string]any{
 			"confirmation_required": true,
 			"changeset_id":          input.ChangesetID,
 			fieldMessage:            "Set confirm: true to roll back this changeset.",
@@ -38,10 +40,10 @@ func (t *Toolkit) handleRollback(ctx context.Context, input applyKnowledgeInput)
 
 	cs, err := t.changesetStore.GetChangeset(ctx, input.ChangesetID)
 	if err != nil {
-		return errorResult("changeset not found: " + input.ChangesetID), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("changeset not found: " + input.ChangesetID), nil, nil
 	}
 	if input.EntityURN != "" && cs.TargetURN != input.EntityURN {
-		return errorResult("changeset " + input.ChangesetID + " does not belong to entity " + input.EntityURN), nil, nil
+		return toolkit.ErrorResult("changeset " + input.ChangesetID + " does not belong to entity " + input.EntityURN), nil, nil
 	}
 
 	deps := RollbackDeps{Writer: t.datahubWriter, Changesets: t.changesetStore, Insights: t.store, Pages: t.pageWriter}
@@ -49,7 +51,7 @@ func (t *Toolkit) handleRollback(ctx context.Context, input applyKnowledgeInput)
 	if err != nil {
 		return rollbackErrorResult(err), nil, nil
 	}
-	return jsonResult(result)
+	return toolkit.JSONResultTyped(result)
 }
 
 // rollbackErrorResult maps rollback failures to user-facing tool errors with the
@@ -60,15 +62,15 @@ func rollbackErrorResult(err error) *mcp.CallToolResult {
 	var pageEdited *PageEditedError
 	switch {
 	case errors.Is(err, ErrChangesetAlreadyRolledBack):
-		return errorResult("changeset has already been rolled back")
+		return toolkit.ErrorResult("changeset has already been rolled back")
 	case errors.As(err, &unrevertible):
-		return errorResult(unrevertible.Error())
+		return toolkit.ErrorResult(unrevertible.Error())
 	case errors.As(err, &conflict):
-		return errorResult(conflict.Error())
+		return toolkit.ErrorResult(conflict.Error())
 	case errors.As(err, &pageEdited):
-		return errorResult(pageEdited.Error())
+		return toolkit.ErrorResult(pageEdited.Error())
 	default:
-		return errorResult("rollback failed: " + err.Error())
+		return toolkit.ErrorResult("rollback failed: " + err.Error())
 	}
 }
 
@@ -76,7 +78,7 @@ func rollbackErrorResult(err error) *mcp.CallToolResult {
 // discover rollback targets without already holding their ids.
 func (t *Toolkit) handleListChangesets(ctx context.Context, input applyKnowledgeInput) (*mcp.CallToolResult, any, error) {
 	if input.EntityURN == "" {
-		return errorResult("entity_urn is required for list_changesets action"), nil, nil
+		return toolkit.ErrorResult("entity_urn is required for list_changesets action"), nil, nil
 	}
 
 	changesets, total, err := t.changesetStore.ListChangesets(ctx, ChangesetFilter{
@@ -84,7 +86,7 @@ func (t *Toolkit) handleListChangesets(ctx context.Context, input applyKnowledge
 		Limit:     MaxLimit,
 	})
 	if err != nil {
-		return errorResult("failed to list changesets: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to list changesets: " + err.Error()), nil, nil
 	}
 
 	summaries := make([]changesetSummary, 0, len(changesets))
@@ -92,7 +94,7 @@ func (t *Toolkit) handleListChangesets(ctx context.Context, input applyKnowledge
 		summaries = append(summaries, toChangesetSummary(&changesets[i]))
 	}
 
-	return jsonResult(map[string]any{
+	return toolkit.JSONResultTyped(map[string]any{
 		fieldEntityURN: input.EntityURN,
 		"total":        total,
 		"changesets":   summaries,

@@ -98,7 +98,7 @@ type Adapter struct {
 // New creates a new DataHub adapter with a real client.
 func New(cfg Config) (*Adapter, error) {
 	if cfg.URL == "" {
-		return nil, fmt.Errorf("datahub URL is required")
+		return nil, errors.New("datahub URL is required")
 	}
 	if cfg.Platform == "" {
 		cfg.Platform = defaultPlatform
@@ -128,7 +128,7 @@ func New(cfg Config) (*Adapter, error) {
 // NewWithClient creates a new DataHub adapter with a provided client (for testing).
 func NewWithClient(cfg Config, client Client) (*Adapter, error) {
 	if client == nil {
-		return nil, fmt.Errorf("datahub client is required")
+		return nil, errors.New("datahub client is required")
 	}
 	if cfg.Platform == "" {
 		cfg.Platform = defaultPlatform

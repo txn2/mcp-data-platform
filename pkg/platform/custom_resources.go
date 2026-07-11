@@ -2,6 +2,7 @@ package platform
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -55,19 +56,19 @@ func buildCustomResourceResult(def CustomResourceDef) (*mcp.ReadResourceResult, 
 // validateCustomResourceDef checks that a CustomResourceDef is complete and unambiguous.
 func validateCustomResourceDef(def CustomResourceDef) error {
 	if def.URI == "" {
-		return fmt.Errorf("uri is required")
+		return errors.New("uri is required")
 	}
 	if def.Name == "" {
-		return fmt.Errorf("name is required")
+		return errors.New("name is required")
 	}
 	if def.MIMEType == "" {
-		return fmt.Errorf("mime_type is required")
+		return errors.New("mime_type is required")
 	}
 	if def.Content == "" && def.ContentFile == "" {
-		return fmt.Errorf("one of content or content_file is required")
+		return errors.New("one of content or content_file is required")
 	}
 	if def.Content != "" && def.ContentFile != "" {
-		return fmt.Errorf("content and content_file are mutually exclusive")
+		return errors.New("content and content_file are mutually exclusive")
 	}
 	return nil
 }

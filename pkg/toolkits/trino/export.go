@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"path"
@@ -542,7 +543,7 @@ func (t *Toolkit) executeExportQuery(ctx context.Context, sql, connection string
 	}
 
 	if t.client == nil {
-		return nil, fmt.Errorf("no Trino client available")
+		return nil, errors.New("no Trino client available")
 	}
 	result, err := t.client.Query(ctx, sql, opts)
 	if err != nil {
@@ -650,7 +651,7 @@ func buildExportProvenance(ctx context.Context, deps *ExportDeps, p exportProven
 // parseExportInput parses the MCP request into an exportInput.
 func parseExportInput(req mcp.CallToolRequest) (exportInput, error) {
 	if req.Params == nil || len(req.Params.Arguments) == 0 {
-		return exportInput{}, fmt.Errorf("missing arguments")
+		return exportInput{}, errors.New("missing arguments")
 	}
 	var input exportInput
 	if err := json.Unmarshal(req.Params.Arguments, &input); err != nil {
@@ -662,16 +663,16 @@ func parseExportInput(req mcp.CallToolRequest) (exportInput, error) {
 // validateExportInput validates all input fields.
 func validateExportInput(input exportInput, cfg ExportConfig) error {
 	if input.SQL == "" {
-		return fmt.Errorf("sql is required")
+		return errors.New("sql is required")
 	}
 	if input.Format == "" {
-		return fmt.Errorf("format is required")
+		return errors.New("format is required")
 	}
 	if _, err := newFormatter(input.Format); err != nil {
 		return err
 	}
 	if input.Name == "" {
-		return fmt.Errorf("name is required")
+		return errors.New("name is required")
 	}
 	if len(input.Name) > maxExportNameLength {
 		return fmt.Errorf("name exceeds %d characters", maxExportNameLength)

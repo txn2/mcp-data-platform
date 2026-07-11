@@ -309,16 +309,16 @@ type ErrorResponse struct {
 func (s *Server) validateAuthorizationRequest(ctx context.Context, req AuthorizationRequest) (*Client, error) {
 	client, err := s.storage.GetClient(ctx, req.ClientID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid client_id")
+		return nil, errors.New("invalid client_id")
 	}
 	if !client.Active {
-		return nil, fmt.Errorf("client is not active")
+		return nil, errors.New("client is not active")
 	}
 	if !client.ValidRedirectURI(req.RedirectURI) {
-		return nil, fmt.Errorf("invalid redirect_uri")
+		return nil, errors.New("invalid redirect_uri")
 	}
 	if req.ResponseType != paramCode {
-		return nil, fmt.Errorf("unsupported response_type")
+		return nil, errors.New("unsupported response_type")
 	}
 	return client, nil
 }
@@ -326,7 +326,7 @@ func (s *Server) validateAuthorizationRequest(ctx context.Context, req Authoriza
 // validatePKCE validates PKCE parameters if required.
 func (*Server) validatePKCE(client *Client, req AuthorizationRequest) error {
 	if client.RequirePKCE && req.CodeChallenge == "" {
-		return fmt.Errorf("code_challenge required")
+		return errors.New("code_challenge required")
 	}
 	// Enforce S256 whenever a challenge is supplied, even for clients that do
 	// not require PKCE. A code_challenge stored with a non-S256 method would
@@ -388,23 +388,23 @@ func (s *Server) Token(ctx context.Context, req TokenRequest) (*TokenResponse, e
 		s.metrics.RecordOAuthRefresh(ctx, observability.UpstreamStatus(err), time.Since(start))
 		return resp, err
 	default:
-		return nil, fmt.Errorf("unsupported grant_type")
+		return nil, errors.New("unsupported grant_type")
 	}
 }
 
 // validateAuthorizationCode validates the authorization code state.
 func (*Server) validateAuthorizationCode(code *AuthorizationCode, req TokenRequest) error {
 	if code.Used {
-		return fmt.Errorf("authorization code already used")
+		return errors.New("authorization code already used")
 	}
 	if code.IsExpired() {
-		return fmt.Errorf("authorization code expired")
+		return errors.New("authorization code expired")
 	}
 	if code.ClientID != req.ClientID {
-		return fmt.Errorf("client_id mismatch")
+		return errors.New("client_id mismatch")
 	}
 	if !matchesRedirectURI(code.RedirectURI, req.RedirectURI) {
-		return fmt.Errorf("redirect_uri mismatch")
+		return errors.New("redirect_uri mismatch")
 	}
 	return nil
 }
@@ -413,10 +413,10 @@ func (*Server) validateAuthorizationCode(code *AuthorizationCode, req TokenReque
 func (s *Server) validateClientCredentials(ctx context.Context, req TokenRequest) (*Client, error) {
 	client, err := s.storage.GetClient(ctx, req.ClientID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid client_id")
+		return nil, errors.New("invalid client_id")
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(client.ClientSecret), []byte(req.ClientSecret)); err != nil {
-		return nil, fmt.Errorf("invalid client credentials")
+		return nil, errors.New("invalid client credentials")
 	}
 	return client, nil
 }
@@ -427,11 +427,11 @@ func (*Server) verifyCodeChallenge(code *AuthorizationCode, req TokenRequest) er
 		return nil
 	}
 	if req.CodeVerifier == "" {
-		return fmt.Errorf("code_verifier required")
+		return errors.New("code_verifier required")
 	}
 	valid, err := VerifyCodeChallenge(req.CodeVerifier, code.CodeChallenge, PKCEMethodS256)
 	if err != nil || !valid {
-		return fmt.Errorf("invalid code_verifier")
+		return errors.New("invalid code_verifier")
 	}
 	return nil
 }
@@ -440,7 +440,7 @@ func (*Server) verifyCodeChallenge(code *AuthorizationCode, req TokenRequest) er
 func (s *Server) handleAuthorizationCodeGrant(ctx context.Context, req TokenRequest) (*TokenResponse, error) {
 	code, err := s.storage.GetAuthorizationCode(ctx, req.Code)
 	if err != nil {
-		return nil, fmt.Errorf("invalid authorization code")
+		return nil, errors.New("invalid authorization code")
 	}
 
 	if err := s.validateAuthorizationCode(code, req); err != nil {
@@ -467,7 +467,7 @@ func (s *Server) handleAuthorizationCodeGrant(ctx context.Context, req TokenRequ
 		slog.Warn("oauth: authorization code consume failed",
 			paramClientID, logsan.SanitizeForLog(req.ClientID), logKeyError, logsan.SanitizeForLog(err.Error()))
 		if errors.Is(err, ErrNotFound) {
-			return nil, fmt.Errorf("invalid authorization code")
+			return nil, errors.New("invalid authorization code")
 		}
 		return nil, fmt.Errorf("consuming authorization code: %w", ErrStorageFailure)
 	}
@@ -480,7 +480,7 @@ func (s *Server) handleRefreshTokenGrant(ctx context.Context, req TokenRequest) 
 	// Retrieve refresh token
 	token, err := s.storage.GetRefreshToken(ctx, req.RefreshToken)
 	if err != nil {
-		return nil, fmt.Errorf("invalid refresh token")
+		return nil, errors.New("invalid refresh token")
 	}
 
 	if token.IsExpired() {
@@ -490,21 +490,21 @@ func (s *Server) handleRefreshTokenGrant(ctx context.Context, req TokenRequest) 
 			slog.Warn("oauth: expired refresh token delete failed",
 				paramClientID, token.ClientID, logKeyError, delErr.Error())
 		}
-		return nil, fmt.Errorf("refresh token expired")
+		return nil, errors.New("refresh token expired")
 	}
 
 	if token.ClientID != req.ClientID {
-		return nil, fmt.Errorf("client_id mismatch")
+		return nil, errors.New("client_id mismatch")
 	}
 
 	// Validate client credentials
 	client, err := s.storage.GetClient(ctx, req.ClientID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid client_id")
+		return nil, errors.New("invalid client_id")
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(client.ClientSecret), []byte(req.ClientSecret)); err != nil {
-		return nil, fmt.Errorf("invalid client credentials")
+		return nil, errors.New("invalid client credentials")
 	}
 
 	// Rotate: atomically consume the old refresh token, failing the grant
@@ -518,7 +518,7 @@ func (s *Server) handleRefreshTokenGrant(ctx context.Context, req TokenRequest) 
 		slog.Warn("oauth: refresh token rotation consume failed",
 			paramClientID, logsan.SanitizeForLog(req.ClientID), logKeyError, logsan.SanitizeForLog(err.Error()))
 		if errors.Is(err, ErrNotFound) {
-			return nil, fmt.Errorf("invalid refresh token")
+			return nil, errors.New("invalid refresh token")
 		}
 		return nil, fmt.Errorf("rotating refresh token: %w", ErrStorageFailure)
 	}
@@ -539,7 +539,7 @@ func resolveRefreshScope(requested, granted string) (string, error) {
 		return granted, nil
 	}
 	if !isScopeSubset(requested, granted) {
-		return "", fmt.Errorf("invalid scope: exceeds originally granted scope")
+		return "", errors.New("invalid scope: exceeds originally granted scope")
 	}
 	return requested, nil
 }
@@ -657,7 +657,7 @@ func (s *Server) Issuer() string {
 // RegisterClient handles Dynamic Client Registration.
 func (s *Server) RegisterClient(ctx context.Context, req DCRRequest) (*DCRResponse, error) {
 	if s.dcr == nil {
-		return nil, fmt.Errorf("dynamic client registration is disabled")
+		return nil, errors.New("dynamic client registration is disabled")
 	}
 	return s.dcr.Register(ctx, req)
 }
@@ -1016,7 +1016,7 @@ func (s *Server) buildUpstreamAuthURL(ctx context.Context, state string) (string
 // retryable server_error rather than a hardcoded-path fallback.
 func (s *Server) buildUpstreamAuthURLWithPrompt(ctx context.Context, state string, usePromptNone bool) (string, error) {
 	if s.upstreamResolver == nil {
-		return "", fmt.Errorf("upstream IdP not configured")
+		return "", errors.New("upstream IdP not configured")
 	}
 	authEndpoint, err := s.upstreamResolver.authorizationEndpoint(ctx)
 	if err != nil {
@@ -1056,7 +1056,7 @@ type upstreamTokenResponse struct {
 // exchangeUpstreamCode exchanges an authorization code with the upstream IdP.
 func (s *Server) exchangeUpstreamCode(ctx context.Context, code string) (*upstreamTokenResponse, error) {
 	if s.upstreamResolver == nil {
-		return nil, fmt.Errorf("upstream IdP not configured")
+		return nil, errors.New("upstream IdP not configured")
 	}
 	tokenURL, err := s.upstreamResolver.tokenEndpoint(ctx)
 	if err != nil {

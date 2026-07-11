@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -53,7 +54,7 @@ func ValidateCategory(cat string) error {
 func ValidateDisplayName(name string) error {
 	n := utf8.RuneCountInString(strings.TrimSpace(name))
 	if n == 0 {
-		return fmt.Errorf("display_name is required")
+		return errors.New("display_name is required")
 	}
 	if n > MaxDisplayNameLen {
 		return fmt.Errorf("display_name exceeds %d characters", MaxDisplayNameLen)
@@ -65,7 +66,7 @@ func ValidateDisplayName(name string) error {
 func ValidateDescription(desc string) error {
 	n := utf8.RuneCountInString(strings.TrimSpace(desc))
 	if n == 0 {
-		return fmt.Errorf("description is required")
+		return errors.New("description is required")
 	}
 	if n > MaxDescriptionLen {
 		return fmt.Errorf("description exceeds %d characters", MaxDescriptionLen)
@@ -103,7 +104,7 @@ func ValidateScope(scope Scope, scopeID string) error {
 	switch scope {
 	case ScopeGlobal:
 		if scopeID != "" {
-			return fmt.Errorf("scope_id must be empty for global scope")
+			return errors.New("scope_id must be empty for global scope")
 		}
 	case ScopePersona, ScopeUser:
 		if scopeID == "" {
@@ -120,13 +121,13 @@ func ValidateScope(scope Scope, scopeID string) error {
 func SanitizeFilename(name string) (string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return "", fmt.Errorf("filename is empty")
+		return "", errors.New("filename is empty")
 	}
 
 	name = normalizeFilename(name)
 
 	if name == "" || name == "." {
-		return "", fmt.Errorf("filename contains only invalid characters")
+		return "", errors.New("filename contains only invalid characters")
 	}
 
 	ext := filepath.Ext(name)

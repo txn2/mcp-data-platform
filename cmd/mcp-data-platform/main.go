@@ -765,10 +765,10 @@ func mountResourcesAPI(mux *http.ServeMux, p *platform.Platform) {
 			if errors.Is(err, browsersession.ErrCSRFInvalid) {
 				return nil, resource.ErrForbidden
 			}
-			return nil, fmt.Errorf("authentication required")
+			return nil, errors.New("authentication required")
 		}
 		if user == nil {
-			return nil, fmt.Errorf("authentication required")
+			return nil, errors.New("authentication required")
 		}
 		return buildResourceClaims(user, pr, adminPersona), nil
 	}

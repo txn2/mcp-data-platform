@@ -428,7 +428,7 @@ func extractPersonaAdminRoles(roles []string) []string {
 // extractResourceURI extracts the URI from a resources/read request.
 func extractResourceURI(req mcp.Request) (string, error) {
 	if req == nil {
-		return "", fmt.Errorf("nil request")
+		return "", errors.New("nil request")
 	}
 	params, ok := req.GetParams().(*mcp.ReadResourceParams)
 	if !ok || params == nil {

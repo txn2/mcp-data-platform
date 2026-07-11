@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -79,7 +80,7 @@ func NewAPIKeyAuthenticator(cfg APIKeyConfig) *APIKeyAuthenticator {
 func (a *APIKeyAuthenticator) Authenticate(ctx context.Context) (*middleware.UserInfo, error) {
 	token := GetToken(ctx)
 	if token == "" {
-		return nil, fmt.Errorf("no API key found in context")
+		return nil, errors.New("no API key found in context")
 	}
 
 	a.mu.RLock()
@@ -106,7 +107,7 @@ func (a *APIKeyAuthenticator) Authenticate(ctx context.Context) (*middleware.Use
 	}
 
 	if matchedKey == nil {
-		return nil, fmt.Errorf("invalid API key")
+		return nil, errors.New("invalid API key")
 	}
 
 	if matchedKey.IsExpired() {

@@ -24,6 +24,7 @@ package knowledgelayer
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -127,7 +128,7 @@ func NewFromInsightStore(db *sql.DB, store knowledgekit.InsightStore, embeddingP
 
 	if cfg.ApplyEnabled {
 		if db == nil {
-			return nil, fmt.Errorf("knowledgelayer: apply enabled requires a non-nil database")
+			return nil, errors.New("knowledgelayer: apply enabled requires a non-nil database")
 		}
 		if err := h.configureApply(db, embeddingProv, cfg); err != nil {
 			return nil, err

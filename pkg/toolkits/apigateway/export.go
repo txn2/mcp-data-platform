@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // exportToolName is the MCP tool name. The trino_export pattern
@@ -266,27 +268,27 @@ func (t *Toolkit) handleExport(ctx context.Context, _ *mcp.CallToolRequest, in e
 	policy := t.routePolicy
 	t.mu.RUnlock()
 	if deps == nil {
-		return errorResult("api_export is not configured (portal asset store unavailable)"), nil, nil
+		return toolkit.ErrorResult("api_export is not configured (portal asset store unavailable)"), nil, nil
 	}
 	if in.Connection == "" {
-		return errorResult("connection is required"), nil, nil
+		return toolkit.ErrorResult("connection is required"), nil, nil
 	}
 	if !connOK {
-		return errorResult(fmt.Sprintf("connection %q not found", in.Connection)), nil, nil
+		return toolkit.ErrorResult(fmt.Sprintf("connection %q not found", in.Connection)), nil, nil
 	}
 	if in.Name == "" {
-		return errorResult("name is required (becomes the asset's download filename)"), nil, nil
+		return toolkit.ErrorResult("name is required (becomes the asset's download filename)"), nil, nil
 	}
 	uc := resolveExportUser(ctx, deps)
 	if uc == nil {
-		return errorResult("authentication required for api_export"), nil, nil
+		return toolkit.ErrorResult("authentication required for api_export"), nil, nil
 	}
 
 	// Honor the same route policy that api_invoke_endpoint does so
 	// a persona scoped to GET /v1/users cannot export from
 	// DELETE /v1/users/{id}.
 	if _, mErr := validateMethod(in.Method); mErr != nil {
-		return errorResult(mErr.Error()), nil, nil
+		return toolkit.ErrorResult(mErr.Error()), nil, nil
 	}
 	if denial := checkRoutePolicy(ctx, policy, InvokeInput{
 		Connection: in.Connection, Method: in.Method, Path: in.Path,
@@ -295,7 +297,7 @@ func (t *Toolkit) handleExport(ctx context.Context, _ *mcp.CallToolRequest, in e
 	}
 
 	if existing := checkExportIdempotency(ctx, deps, uc, in); existing != nil {
-		return jsonResult(existing), existing, nil
+		return toolkit.JSONResult(existing), existing, nil
 	}
 
 	out, runErr := t.runExport(ctx, runExportArgs{
@@ -303,9 +305,9 @@ func (t *Toolkit) handleExport(ctx context.Context, _ *mcp.CallToolRequest, in e
 		webdavRoutes: c.webdavRoutes(), uc: uc, in: in,
 	})
 	if runErr != nil {
-		return errorResult(runErr.Error()), nil, nil
+		return toolkit.ErrorResult(runErr.Error()), nil, nil
 	}
-	return jsonResult(out), out, nil
+	return toolkit.JSONResult(out), out, nil
 }
 
 // resolveExportUser fetches the platform-injected user context. nil

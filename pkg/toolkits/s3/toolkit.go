@@ -181,27 +181,9 @@ func toS3Annotations(m map[string]AnnotationConfig) map[s3tools.ToolName]*mcp.To
 	}
 	result := make(map[s3tools.ToolName]*mcp.ToolAnnotations, len(m))
 	for k, v := range m {
-		result[s3tools.ToolName(k)] = annotationConfigToMCP(v)
+		result[s3tools.ToolName(k)] = toolkit.AnnotationsToMCP(v)
 	}
 	return result
-}
-
-// annotationConfigToMCP converts an AnnotationConfig to an mcp.ToolAnnotations.
-func annotationConfigToMCP(cfg AnnotationConfig) *mcp.ToolAnnotations {
-	ann := &mcp.ToolAnnotations{}
-	if cfg.ReadOnlyHint != nil {
-		ann.ReadOnlyHint = *cfg.ReadOnlyHint
-	}
-	if cfg.DestructiveHint != nil {
-		ann.DestructiveHint = cfg.DestructiveHint
-	}
-	if cfg.IdempotentHint != nil {
-		ann.IdempotentHint = *cfg.IdempotentHint
-	}
-	if cfg.OpenWorldHint != nil {
-		ann.OpenWorldHint = cfg.OpenWorldHint
-	}
-	return ann
 }
 
 // Kind returns the toolkit kind.

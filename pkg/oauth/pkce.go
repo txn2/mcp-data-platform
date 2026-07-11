@@ -3,6 +3,7 @@ package oauth
 import (
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"regexp"
 )
@@ -31,7 +32,7 @@ func ValidateCodeVerifier(verifier string) error {
 
 	validPattern := regexp.MustCompile(`^[A-Za-z0-9\-._~]+$`)
 	if !validPattern.MatchString(verifier) {
-		return fmt.Errorf("code verifier contains invalid characters")
+		return errors.New("code verifier contains invalid characters")
 	}
 
 	return nil
@@ -46,7 +47,7 @@ func ValidateCodeChallenge(challenge string) error {
 	// Base64 URL-safe characters
 	validPattern := regexp.MustCompile(`^[A-Za-z0-9\-_]+$`)
 	if !validPattern.MatchString(challenge) {
-		return fmt.Errorf("code challenge contains invalid characters")
+		return errors.New("code challenge contains invalid characters")
 	}
 
 	return nil

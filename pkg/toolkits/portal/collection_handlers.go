@@ -8,6 +8,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
+	"github.com/txn2/mcp-data-platform/pkg/toolkit"
 )
 
 // collectionDeletedMsg is returned when an operation targets a soft-deleted collection.
@@ -24,17 +25,17 @@ func (t *Toolkit) getActiveCollection(ctx context.Context, id string) (*portal.C
 			"Verify the collection_id; call manage_artifact action=list_collections to see your collections.")
 	}
 	if coll.DeletedAt != nil {
-		return nil, errorResult(collectionDeletedMsg)
+		return nil, toolkit.ErrorResult(collectionDeletedMsg)
 	}
 	return coll, nil
 }
 
 func (t *Toolkit) handleCreateCollection(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
 	if err := portal.ValidateCollectionName(input.Name); err != nil {
-		return errorResult(fmt.Sprintf(validationMsgFmt, err)), nil, nil
+		return toolkit.ErrorResult(fmt.Sprintf(validationMsgFmt, err)), nil, nil
 	}
 	if err := portal.ValidateCollectionDescription(input.Description); err != nil {
-		return errorResult(fmt.Sprintf(validationMsgFmt, err)), nil, nil
+		return toolkit.ErrorResult(fmt.Sprintf(validationMsgFmt, err)), nil, nil
 	}
 
 	ownerID := resolveOwnerID(ctx)
@@ -42,7 +43,7 @@ func (t *Toolkit) handleCreateCollection(ctx context.Context, input manageArtifa
 
 	collID, err := generateID()
 	if err != nil {
-		return errorResult("internal error generating collection ID"), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("internal error generating collection ID"), nil, nil
 	}
 
 	coll := portal.Collection{
@@ -54,19 +55,19 @@ func (t *Toolkit) handleCreateCollection(ctx context.Context, input manageArtifa
 	}
 
 	if err := t.collectionStore.Insert(ctx, coll); err != nil {
-		return errorResult("failed to create collection: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to create collection: " + err.Error()), nil, nil
 	}
 
 	if len(input.Sections) > 0 {
 		sections, err := convertSections(input.Sections)
 		if err != nil {
-			return errorResult(fmt.Sprintf(validationMsgFmt, err)), nil, nil //nolint:nilerr // MCP protocol
+			return toolkit.ErrorResult(fmt.Sprintf(validationMsgFmt, err)), nil, nil
 		}
 		if err := t.collectionStore.SetSections(ctx, collID, sections); err != nil {
 			// Include collection_id so the agent can retry set_sections on the orphaned collection.
-			return errorResult(fmt.Sprintf(
+			return toolkit.ErrorResult(fmt.Sprintf(
 				"collection %s created but failed to set sections: %s", collID, err.Error(),
-			)), nil, nil //nolint:nilerr // MCP protocol
+			)), nil, nil
 		}
 	}
 
@@ -77,7 +78,7 @@ func (t *Toolkit) handleCreateCollection(ctx context.Context, input manageArtifa
 	if t.baseURL != "" {
 		result["portal_url"] = t.baseURL + "/portal/collections/" + collID
 	}
-	return jsonResult(result)
+	return toolkit.JSONResultTyped(result)
 }
 
 func (t *Toolkit) handleListCollections(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
@@ -90,14 +91,14 @@ func (t *Toolkit) handleListCollections(ctx context.Context, input manageArtifac
 		Offset:  input.Offset,
 	})
 	if err != nil {
-		return errorResult("failed to list collections: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to list collections: " + err.Error()), nil, nil
 	}
 
 	if collections == nil {
 		collections = []portal.Collection{}
 	}
 
-	return jsonResult(map[string]any{
+	return toolkit.JSONResultTyped(map[string]any{
 		"collections": collections,
 		fieldTotal:    total,
 	})
@@ -107,7 +108,7 @@ func (t *Toolkit) handleListCollections(ctx context.Context, input manageArtifac
 // access is intentionally broader than write, matching the asset get behavior.
 func (t *Toolkit) handleGetCollection(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
 	if input.CollectionID == "" {
-		return errorResult("collection_id is required for get_collection action"), nil, nil
+		return toolkit.ErrorResult("collection_id is required for get_collection action"), nil, nil
 	}
 
 	coll, errResult := t.getActiveCollection(ctx, input.CollectionID)
@@ -115,12 +116,12 @@ func (t *Toolkit) handleGetCollection(ctx context.Context, input manageArtifactI
 		return errResult, nil, nil
 	}
 
-	return jsonResult(coll)
+	return toolkit.JSONResultTyped(coll)
 }
 
 func (t *Toolkit) handleUpdateCollection(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
 	if input.CollectionID == "" {
-		return errorResult("collection_id is required for update_collection action"), nil, nil
+		return toolkit.ErrorResult("collection_id is required for update_collection action"), nil, nil
 	}
 
 	coll, errResult := t.getActiveCollection(ctx, input.CollectionID)
@@ -130,7 +131,7 @@ func (t *Toolkit) handleUpdateCollection(ctx context.Context, input manageArtifa
 
 	ownerID := resolveOwnerID(ctx)
 	if coll.OwnerID != ownerID {
-		return errorResult("you can only update your own collections"), nil, nil
+		return toolkit.ErrorResult("you can only update your own collections"), nil, nil
 	}
 
 	name := coll.Name
@@ -143,27 +144,27 @@ func (t *Toolkit) handleUpdateCollection(ctx context.Context, input manageArtifa
 	}
 
 	if err := portal.ValidateCollectionName(name); err != nil {
-		return errorResult(fmt.Sprintf(validationMsgFmt, err)), nil, nil
+		return toolkit.ErrorResult(fmt.Sprintf(validationMsgFmt, err)), nil, nil
 	}
 	if err := portal.ValidateCollectionDescription(desc); err != nil {
-		return errorResult(fmt.Sprintf(validationMsgFmt, err)), nil, nil
+		return toolkit.ErrorResult(fmt.Sprintf(validationMsgFmt, err)), nil, nil
 	}
 
 	if err := t.collectionStore.Update(ctx, input.CollectionID, name, desc); err != nil {
-		return errorResult("failed to update collection: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to update collection: " + err.Error()), nil, nil
 	}
 
 	updated, err := t.collectionStore.Get(ctx, input.CollectionID)
 	if err != nil {
-		return errorResult("updated but failed to retrieve collection: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("updated but failed to retrieve collection: " + err.Error()), nil, nil
 	}
 
-	return jsonResult(updated)
+	return toolkit.JSONResultTyped(updated)
 }
 
 func (t *Toolkit) handleDeleteCollection(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
 	if input.CollectionID == "" {
-		return errorResult("collection_id is required for delete_collection action"), nil, nil
+		return toolkit.ErrorResult("collection_id is required for delete_collection action"), nil, nil
 	}
 
 	coll, errResult := t.getActiveCollection(ctx, input.CollectionID)
@@ -173,14 +174,14 @@ func (t *Toolkit) handleDeleteCollection(ctx context.Context, input manageArtifa
 
 	ownerID := resolveOwnerID(ctx)
 	if coll.OwnerID != ownerID {
-		return errorResult("you can only delete your own collections"), nil, nil
+		return toolkit.ErrorResult("you can only delete your own collections"), nil, nil
 	}
 
 	if err := t.collectionStore.SoftDelete(ctx, input.CollectionID); err != nil {
-		return errorResult("failed to delete collection: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to delete collection: " + err.Error()), nil, nil
 	}
 
-	return jsonResult(map[string]any{
+	return toolkit.JSONResultTyped(map[string]any{
 		"collection_id": input.CollectionID,
 		fieldMessage:    "Collection deleted successfully.",
 	})
@@ -188,7 +189,7 @@ func (t *Toolkit) handleDeleteCollection(ctx context.Context, input manageArtifa
 
 func (t *Toolkit) handleSetSections(ctx context.Context, input manageArtifactInput) (*mcp.CallToolResult, any, error) {
 	if input.CollectionID == "" {
-		return errorResult("collection_id is required for set_sections action"), nil, nil
+		return toolkit.ErrorResult("collection_id is required for set_sections action"), nil, nil
 	}
 
 	coll, errResult := t.getActiveCollection(ctx, input.CollectionID)
@@ -198,24 +199,24 @@ func (t *Toolkit) handleSetSections(ctx context.Context, input manageArtifactInp
 
 	ownerID := resolveOwnerID(ctx)
 	if coll.OwnerID != ownerID {
-		return errorResult("you can only modify your own collections"), nil, nil
+		return toolkit.ErrorResult("you can only modify your own collections"), nil, nil
 	}
 
 	sections, err := convertSections(input.Sections)
 	if err != nil {
-		return errorResult(fmt.Sprintf(validationMsgFmt, err)), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult(fmt.Sprintf(validationMsgFmt, err)), nil, nil
 	}
 
 	if err := t.collectionStore.SetSections(ctx, input.CollectionID, sections); err != nil {
-		return errorResult("failed to set sections: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("failed to set sections: " + err.Error()), nil, nil
 	}
 
 	updated, err := t.collectionStore.Get(ctx, input.CollectionID)
 	if err != nil {
-		return errorResult("sections updated but failed to retrieve collection: " + err.Error()), nil, nil //nolint:nilerr // MCP protocol
+		return toolkit.ErrorResult("sections updated but failed to retrieve collection: " + err.Error()), nil, nil
 	}
 
-	return jsonResult(updated)
+	return toolkit.JSONResultTyped(updated)
 }
 
 // convertSections transforms MCP input sections into portal CollectionSection

@@ -144,7 +144,7 @@ func (s *postgresStore) Update(ctx context.Context, id string, updates RecordUpd
 	}
 
 	if !hasUpdates {
-		return fmt.Errorf("no fields to update")
+		return errors.New("no fields to update")
 	}
 
 	qb = qb.Set("updated_at", time.Now()).Where(sq.Eq{"id": id})

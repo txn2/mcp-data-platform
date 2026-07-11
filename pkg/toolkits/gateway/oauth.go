@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -128,7 +129,7 @@ func (p *clientCredentialsTokenProvider) fetchLocked(ctx context.Context) (strin
 		return "", fmt.Errorf("gateway: oauth client_credentials: %w", err)
 	}
 	if tok == nil || tok.AccessToken == "" {
-		return "", fmt.Errorf("gateway: oauth client_credentials: empty access token")
+		return "", errors.New("gateway: oauth client_credentials: empty access token")
 	}
 	p.cached = tok
 	return tok.AccessToken, nil

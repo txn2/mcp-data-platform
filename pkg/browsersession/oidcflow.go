@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -102,13 +103,13 @@ type Flow struct {
 // NewFlow creates a new OIDC flow by performing provider discovery.
 func NewFlow(ctx context.Context, cfg FlowConfig) (*Flow, error) {
 	if cfg.Issuer == "" {
-		return nil, fmt.Errorf("issuer is required")
+		return nil, errors.New("issuer is required")
 	}
 	if cfg.ClientID == "" {
-		return nil, fmt.Errorf("client_id is required")
+		return nil, errors.New("client_id is required")
 	}
 	if cfg.RedirectURI == "" {
-		return nil, fmt.Errorf("redirect_uri is required")
+		return nil, errors.New("redirect_uri is required")
 	}
 	if len(cfg.Cookie.Key) < minKeyLength {
 		return nil, fmt.Errorf("cookie signing key must be at least %d bytes", minKeyLength)
@@ -268,17 +269,17 @@ func (f *Flow) redirectWithError(w http.ResponseWriter, r *http.Request, errCode
 func (f *Flow) validateCallbackState(r *http.Request, state string) (verifier, returnTo string, err error) {
 	stateCookie, err := r.Cookie(stateCookieName)
 	if err != nil {
-		return "", "", fmt.Errorf("missing state cookie")
+		return "", "", errors.New("missing state cookie")
 	}
 
 	stateData, err := verifyStateData(stateCookie.Value, f.cfg.Cookie.Key)
 	if err != nil {
-		return "", "", fmt.Errorf("invalid state cookie")
+		return "", "", errors.New("invalid state cookie")
 	}
 
 	parsed, err := url.ParseQuery(stateData)
 	if err != nil || parsed.Get(logKeyState) != state {
-		return "", "", fmt.Errorf("state mismatch")
+		return "", "", errors.New("state mismatch")
 	}
 
 	// Re-sanitize on read: signed cookies prove integrity but the
@@ -482,7 +483,7 @@ func (f *Flow) exchangeCode(ctx context.Context, code, verifier string) (*tokenR
 	}
 
 	if tokenResp.IDToken == "" {
-		return nil, fmt.Errorf("no id_token in response")
+		return nil, errors.New("no id_token in response")
 	}
 
 	return &tokenResp, nil
@@ -496,7 +497,7 @@ func (f *Flow) exchangeCode(ctx context.Context, code, verifier string) (*tokenR
 func (f *Flow) parseIDToken(idToken string) (*SessionClaims, error) {
 	parts := strings.Split(idToken, ".")
 	if len(parts) != jwtPartCount {
-		return nil, fmt.Errorf("invalid JWT format")
+		return nil, errors.New("invalid JWT format")
 	}
 
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
@@ -526,7 +527,7 @@ func (f *Flow) parseIDToken(idToken string) (*SessionClaims, error) {
 
 	sub, _ := claims[claimSub].(string)
 	if sub == "" {
-		return nil, fmt.Errorf("missing sub claim in id_token")
+		return nil, errors.New("missing sub claim in id_token")
 	}
 
 	email, _ := claims[claimEmail].(string)
@@ -555,7 +556,7 @@ func extractName(claims map[string]any) (first, last string) {
 func (f *Flow) validateIssuer(claims map[string]any) error {
 	iss, _ := claims["iss"].(string)
 	if iss == "" {
-		return fmt.Errorf("missing iss claim in id_token")
+		return errors.New("missing iss claim in id_token")
 	}
 	if iss != f.cfg.Issuer {
 		return fmt.Errorf("id_token issuer %q does not match configured issuer %q", iss, f.cfg.Issuer)
@@ -583,7 +584,7 @@ func (f *Flow) validateAudience(claims map[string]any) error {
 			return fmt.Errorf("id_token audience does not contain client_id %q", f.cfg.ClientID)
 		}
 	default:
-		return fmt.Errorf("missing or invalid aud claim in id_token")
+		return errors.New("missing or invalid aud claim in id_token")
 	}
 	return nil
 }
@@ -592,10 +593,10 @@ func (f *Flow) validateAudience(claims map[string]any) error {
 func validateExpiration(claims map[string]any) error {
 	exp, ok := claims[claimExp].(float64)
 	if !ok {
-		return fmt.Errorf("missing exp claim in id_token")
+		return errors.New("missing exp claim in id_token")
 	}
 	if time.Now().Unix() > int64(exp) {
-		return fmt.Errorf("id_token has expired")
+		return errors.New("id_token has expired")
 	}
 	return nil
 }
@@ -671,7 +672,7 @@ func (f *Flow) discover(ctx context.Context) (oidcEndpoints, error) {
 	}
 
 	if ep.AuthorizationEndpoint == "" || ep.TokenEndpoint == "" {
-		return oidcEndpoints{}, fmt.Errorf("discovery missing required endpoints")
+		return oidcEndpoints{}, errors.New("discovery missing required endpoints")
 	}
 
 	return ep, nil
@@ -717,12 +718,12 @@ func verifyStateData(tokenString string, key []byte) (string, error) {
 
 	mc, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
-		return "", fmt.Errorf("unexpected claims type")
+		return "", errors.New("unexpected claims type")
 	}
 
 	data, ok := mc["data"].(string)
 	if !ok {
-		return "", fmt.Errorf("missing data claim")
+		return "", errors.New("missing data claim")
 	}
 
 	return data, nil

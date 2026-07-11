@@ -5,6 +5,7 @@ package prompt
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"time"
@@ -33,13 +34,13 @@ var validScopes = map[string]bool{
 // ValidateName checks that a prompt name is well-formed.
 func ValidateName(name string) error {
 	if name == "" {
-		return fmt.Errorf("name is required")
+		return errors.New("name is required")
 	}
 	if len(name) > maxNameLength {
 		return fmt.Errorf("name must be at most %d characters", maxNameLength)
 	}
 	if !validNamePattern.MatchString(name) {
-		return fmt.Errorf("name must contain only lowercase letters, digits, hyphens, and underscores")
+		return errors.New("name must contain only lowercase letters, digits, hyphens, and underscores")
 	}
 	return nil
 }
@@ -140,7 +141,7 @@ func (p *Prompt) ApplyStatusTransition(newStatus, supersededBy, actorEmail strin
 		return err
 	}
 	if newStatus == StatusApproved && !isAdmin {
-		return fmt.Errorf("only admins can approve a prompt")
+		return errors.New("only admins can approve a prompt")
 	}
 	switch newStatus {
 	case StatusApproved:
@@ -161,7 +162,7 @@ func (p *Prompt) ApplyStatusTransition(newStatus, supersededBy, actorEmail strin
 // scope does not change until an admin approves (see ApprovePromotion).
 func (p *Prompt) ApplyPromotionRequest(requestedScope string, requestedPersonas []string) error {
 	if p.Scope != ScopePersonal {
-		return fmt.Errorf("only personal prompts can request promotion")
+		return errors.New("only personal prompts can request promotion")
 	}
 	if p.Status == StatusDeprecated || p.Status == StatusSuperseded {
 		return fmt.Errorf("cannot request promotion of a %s prompt", p.Status)
@@ -170,7 +171,7 @@ func (p *Prompt) ApplyPromotionRequest(requestedScope string, requestedPersonas 
 		return fmt.Errorf("requested scope must be %q or %q", ScopePersona, ScopeGlobal)
 	}
 	if requestedScope == ScopePersona && len(requestedPersonas) == 0 {
-		return fmt.Errorf("persona promotion requires at least one persona")
+		return errors.New("persona promotion requires at least one persona")
 	}
 	p.ReviewRequested = true
 	p.RequestedScope = requestedScope
@@ -189,13 +190,13 @@ func (p *Prompt) ApplyPromotionRequest(requestedScope string, requestedPersonas 
 // request). The caller is responsible for checking the target shared name is free.
 func (p *Prompt) ApprovePromotion(actorEmail string, now time.Time) error {
 	if !p.ReviewRequested {
-		return fmt.Errorf("prompt has no pending promotion request")
+		return errors.New("prompt has no pending promotion request")
 	}
 	if p.Scope != ScopePersonal {
 		// The scope was changed (e.g. via a direct admin edit) after the request
 		// was filed; the stale request must not silently re-scope it.
 		p.clearPromotionRequest()
-		return fmt.Errorf("prompt is no longer personal; promotion request is stale")
+		return errors.New("prompt is no longer personal; promotion request is stale")
 	}
 	if p.RequestedScope != ScopePersona && p.RequestedScope != ScopeGlobal {
 		return fmt.Errorf("invalid requested scope %q", p.RequestedScope)

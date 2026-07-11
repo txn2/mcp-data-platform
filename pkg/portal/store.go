@@ -487,7 +487,7 @@ func applyUpdateFields(qb sq.UpdateBuilder, updates AssetUpdate) (sq.UpdateBuild
 		hasUpdates = true
 	}
 	if !hasUpdates {
-		return qb, fmt.Errorf("no fields to update")
+		return qb, errors.New("no fields to update")
 	}
 	// When an indexed field (name, description, tags) changes, drop the
 	// embedding so the reconciler re-embeds against the new text off the
@@ -1054,7 +1054,7 @@ func NewNoopAssetStore() AssetStore {
 func (*noopAssetStore) Insert(_ context.Context, _ Asset) error { return nil }
 
 func (*noopAssetStore) Get(_ context.Context, _ string) (*Asset, error) { //nolint:revive // interface impl
-	return nil, fmt.Errorf("asset not found")
+	return nil, errors.New("asset not found")
 }
 
 func (*noopAssetStore) GetByIDs(_ context.Context, _ []string) (map[string]*Asset, error) { //nolint:revive // interface impl
@@ -1062,7 +1062,7 @@ func (*noopAssetStore) GetByIDs(_ context.Context, _ []string) (map[string]*Asse
 }
 
 func (*noopAssetStore) GetByIdempotencyKey(_ context.Context, _, _ string) (*Asset, error) { //nolint:revive // interface impl
-	return nil, fmt.Errorf("asset not found")
+	return nil, errors.New("asset not found")
 }
 
 func (*noopAssetStore) List(_ context.Context, _ AssetFilter) ([]Asset, int, error) { //nolint:revive // interface impl
@@ -1085,11 +1085,11 @@ func NewNoopShareStore() ShareStore {
 func (*noopShareStore) Insert(_ context.Context, _ Share) error { return nil }
 
 func (*noopShareStore) GetByID(_ context.Context, _ string) (*Share, error) { //nolint:revive // interface impl
-	return nil, fmt.Errorf("share not found")
+	return nil, errors.New("share not found")
 }
 
 func (*noopShareStore) GetByToken(_ context.Context, _ string) (*Share, error) { //nolint:revive // interface impl
-	return nil, fmt.Errorf("share not found")
+	return nil, errors.New("share not found")
 }
 
 func (*noopShareStore) ListByAsset(_ context.Context, _ string) ([]Share, error) { //nolint:revive // interface impl
@@ -1109,7 +1109,7 @@ func (*noopShareStore) ListSharedPromptsWithUser(_ context.Context, _, _ string)
 }
 
 func (*noopShareStore) GetUserCollectionPermission(_ context.Context, _, _, _ string) (SharePermission, error) { //nolint:revive // interface impl
-	return "", fmt.Errorf("no shares")
+	return "", errors.New("no shares")
 }
 
 func (*noopShareStore) ListSharedWithUser(_ context.Context, _, _ string, _, _ int) ([]SharedAsset, int, error) { //nolint:revive // interface impl
@@ -1424,11 +1424,11 @@ func (*noopVersionStore) ListByAsset(_ context.Context, _ string, _, _ int) ([]A
 }
 
 func (*noopVersionStore) GetByVersion(_ context.Context, _ string, _ int) (*AssetVersion, error) { //nolint:revive // interface impl
-	return nil, fmt.Errorf("version not found")
+	return nil, errors.New("version not found")
 }
 
 func (*noopVersionStore) GetLatest(_ context.Context, _ string) (*AssetVersion, error) { //nolint:revive // interface impl
-	return nil, fmt.Errorf("version not found")
+	return nil, errors.New("version not found")
 }
 
 // Verify interface compliance.

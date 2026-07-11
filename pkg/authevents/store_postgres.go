@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -102,7 +103,7 @@ func (s *PostgresStore) Insert(ctx context.Context, ev Event) error {
 // matches the index direction so the query is index-only.
 func (s *PostgresStore) List(ctx context.Context, f Filter) ([]Event, error) {
 	if f.Limit <= 0 {
-		return nil, fmt.Errorf("authevents: List requires positive Limit")
+		return nil, errors.New("authevents: List requires positive Limit")
 	}
 	if f.Limit > maxListLimit {
 		f.Limit = maxListLimit

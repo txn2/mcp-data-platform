@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -104,11 +105,11 @@ type DCRResponse struct {
 // Register registers a new OAuth client.
 func (s *DCRService) Register(ctx context.Context, req DCRRequest) (*DCRResponse, error) {
 	if !s.config.Enabled {
-		return nil, fmt.Errorf("dynamic client registration is disabled")
+		return nil, errors.New("dynamic client registration is disabled")
 	}
 
 	if len(s.patterns) == 0 && !s.config.AllowAllRedirectURIs {
-		return nil, fmt.Errorf("dynamic client registration is not configured: set allowed_redirect_patterns to the redirect URIs your clients use, or set allow_all_redirect_uris: true to explicitly accept any redirect URI")
+		return nil, errors.New("dynamic client registration is not configured: set allowed_redirect_patterns to the redirect URIs your clients use, or set allow_all_redirect_uris: true to explicitly accept any redirect URI")
 	}
 
 	if err := s.validateRedirectURIs(req.RedirectURIs); err != nil {
