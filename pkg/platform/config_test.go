@@ -1414,40 +1414,6 @@ func TestConfigValidate_SessionsDatabaseWithDSN(t *testing.T) {
 	}
 }
 
-func TestApplyDefaults_ConfigStore(t *testing.T) {
-	t.Run("defaults to empty mode", func(t *testing.T) {
-		cfg := &Config{}
-		applyDefaults(cfg)
-		if cfg.ConfigStore.Mode != "" {
-			t.Errorf("ConfigStore.Mode = %q, want empty", cfg.ConfigStore.Mode)
-		}
-	})
-
-	t.Run("preserves explicit mode", func(t *testing.T) {
-		cfg := &Config{
-			ConfigStore: ConfigStoreConfig{Mode: "database"},
-		}
-		applyDefaults(cfg)
-		if cfg.ConfigStore.Mode != "database" {
-			t.Errorf("ConfigStore.Mode = %q, want %q", cfg.ConfigStore.Mode, "database")
-		}
-	})
-}
-
-func TestLoadConfig_ConfigStoreFromYAML(t *testing.T) {
-	cfg := loadTestConfig(t, `
-server:
-  name: test-platform
-config_store:
-  mode: database
-database:
-  dsn: "postgres://localhost/test"
-`)
-	if cfg.ConfigStore.Mode != "database" {
-		t.Errorf("ConfigStore.Mode = %q, want %q", cfg.ConfigStore.Mode, "database")
-	}
-}
-
 func TestLoadConfig_ToolsConfig(t *testing.T) {
 	t.Run("allow and deny", func(t *testing.T) {
 		cfg := loadTestConfig(t, `

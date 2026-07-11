@@ -21,7 +21,6 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/admin"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
 	auditpostgres "github.com/txn2/mcp-data-platform/pkg/audit/postgres"
-	"github.com/txn2/mcp-data-platform/pkg/database/migrate"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 )
 
@@ -652,8 +651,11 @@ func StartPostgres(t *testing.T) string {
 	t.Helper()
 	ctx := context.Background()
 
+	// pgvector image (not plain postgres): the embedded migrations create the
+	// `vector` extension (000031+), which the stock postgres image lacks. Mirrors
+	// docker-compose.e2e.yml.
 	pgContainer, err := postgres.Run(ctx,
-		"postgres:16-alpine",
+		"pgvector/pgvector:pg16",
 		postgres.WithDatabase("testdb"),
 		postgres.WithUsername("test"),
 		postgres.WithPassword("test"),
@@ -734,19 +736,21 @@ func StandaloneAdminConfig() *platform.Config {
 	return baseAdminConfig()
 }
 
-// FileDBAdminConfig returns a config for file+DB mode.
+// FileDBAdminConfig returns a DB-backed admin config. A database makes config
+// database-backed (mutable); store selection is driven purely by database
+// presence.
 func FileDBAdminConfig(pgDSN string) *platform.Config {
 	cfg := baseAdminConfig()
 	cfg.Database = platform.DatabaseConfig{DSN: pgDSN}
-	// config_store defaults to file mode
 	return cfg
 }
 
-// BootstrapDBAdminConfig returns a config for bootstrap+DB mode.
+// BootstrapDBAdminConfig returns a DB-backed admin config for the
+// bootstrap-plus-database CRUD suite. It is the same runtime mode as
+// FileDBAdminConfig (config is database-backed whenever a database is present).
 func BootstrapDBAdminConfig(pgDSN string) *platform.Config {
 	cfg := baseAdminConfig()
 	cfg.Database = platform.DatabaseConfig{DSN: pgDSN}
-	cfg.ConfigStore = platform.ConfigStoreConfig{Mode: "database"}
 	return cfg
 }
 
@@ -812,22 +816,7 @@ func NewAdminTestDB(t *testing.T, dsn string) *AdminTestDB {
 		t.Fatalf("pinging database: %v", err)
 	}
 
-	// Drop init-script tables so golang-migrate owns the schema
-	initTables := []string{
-		"oauth_refresh_tokens", "oauth_access_tokens",
-		"oauth_authorization_codes", "oauth_clients",
-		"audit_logs", "schema_migrations",
-	}
-	for _, tbl := range initTables {
-		//nolint:gosec // test-only, table names are hardcoded constants
-		if _, err := db.Exec("DROP TABLE IF EXISTS " + tbl + " CASCADE"); err != nil {
-			t.Fatalf("dropping init table %s: %v", tbl, err)
-		}
-	}
-
-	if err := migrate.Run(db); err != nil {
-		t.Fatalf("running migrations: %v", err)
-	}
+	ResetSchemaAndMigrate(t, db)
 
 	return &AdminTestDB{
 		DB:         db,
@@ -839,8 +828,10 @@ func NewAdminTestDB(t *testing.T, dsn string) *AdminTestDB {
 func (a *AdminTestDB) TruncateAdminTables(t *testing.T) {
 	t.Helper()
 
+	// CASCADE: the current schema has FK references into these tables (e.g.
+	// config_changelog -> config_entries), so a bare TRUNCATE is rejected.
 	tables := "audit_logs, config_entries, config_changelog, connection_instances, persona_definitions"
-	_, err := a.DB.Exec("TRUNCATE " + tables)
+	_, err := a.DB.Exec("TRUNCATE " + tables + " RESTART IDENTITY CASCADE")
 	if err != nil {
 		t.Fatalf("truncating admin tables: %v", err)
 	}

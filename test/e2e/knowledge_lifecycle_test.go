@@ -56,7 +56,9 @@ func TestKnowledgeLifecycle(t *testing.T) {
 			"Legacy users table has many null email addresses",
 			[]string{entityB})
 
-		if got := kdb.CountRows(t, "knowledge_insights"); got != 3 {
+		// Insights are stored as knowledge-dimension memory records; this fresh
+		// test DB has no other memory rows, so the raw count equals the inserts.
+		if got := kdb.CountRows(t, "memory_records"); got != 3 {
 			t.Fatalf("expected 3 rows, got %d", got)
 		}
 	})

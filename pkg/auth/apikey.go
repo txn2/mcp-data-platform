@@ -24,6 +24,15 @@ type APIKeyConfig struct {
 	Keys []APIKey
 }
 
+// API key provenance, surfaced in APIKeySummary.Source. Config-file keys reappear
+// on restart and are protected from admin-API deletion; database keys (including
+// admin-API-generated keys, which are persisted to the store) are deletable.
+const (
+	sourceFile     = "file"
+	sourceDatabase = "database"
+	sourceBoth     = "both"
+)
+
 // APIKey represents an API key entry.
 type APIKey struct {
 	Key         string     // The API key value (plaintext; used for file-loaded keys)
@@ -33,6 +42,10 @@ type APIKey struct {
 	Description string     // Human-readable description of what this key is for
 	Roles       []string   // Roles assigned to this key
 	ExpiresAt   *time.Time // Optional expiration time (nil = never expires)
+	// Source is the provenance reported by ListKeys for plaintext (fileKeys)
+	// entries: empty/"file" for config-file keys, "database" for admin-generated
+	// keys. It disambiguates the fileKeys map, which holds both.
+	Source string
 }
 
 // IsExpired returns true if the key has an expiration date that has passed.
@@ -177,6 +190,12 @@ func (a *APIKeyAuthenticator) ListKeys() []APIKeySummary {
 
 	byName := make(map[string]APIKeySummary, len(a.fileKeys)+len(a.hashedKeys))
 	for _, k := range a.fileKeys {
+		// fileKeys holds both config-file keys (empty Source) and admin-generated
+		// keys (Source "database"); default the empty case to "file".
+		source := k.Source
+		if source == "" {
+			source = sourceFile
+		}
 		byName[k.Name] = APIKeySummary{
 			Name:        k.Name,
 			Email:       apiKeyEmail(*k),
@@ -184,12 +203,12 @@ func (a *APIKeyAuthenticator) ListKeys() []APIKeySummary {
 			Roles:       k.Roles,
 			ExpiresAt:   k.ExpiresAt,
 			Expired:     k.IsExpired(),
-			Source:      "file",
+			Source:      source,
 		}
 	}
 	for _, k := range a.hashedKeys {
 		if existing, ok := byName[k.Name]; ok {
-			existing.Source = "both"
+			existing.Source = sourceBoth
 			byName[k.Name] = existing
 		} else {
 			byName[k.Name] = APIKeySummary{
@@ -199,7 +218,7 @@ func (a *APIKeyAuthenticator) ListKeys() []APIKeySummary {
 				Roles:       k.Roles,
 				ExpiresAt:   k.ExpiresAt,
 				Expired:     k.IsExpired(),
-				Source:      "database",
+				Source:      sourceDatabase,
 			}
 		}
 	}
@@ -270,6 +289,10 @@ func (a *APIKeyAuthenticator) GenerateKey(def APIKey) (string, error) {
 
 	def.Key = keyValue
 	def.KeyHash = "" // generated keys are plaintext (value is known)
+	// Admin-generated keys are persisted to the database by the handler, so they
+	// are database-sourced (and deletable), not config-file keys — even though
+	// they live in fileKeys for O(1) plaintext lookup this session.
+	def.Source = sourceDatabase
 	a.fileKeys[keyValue] = &def
 
 	return keyValue, nil

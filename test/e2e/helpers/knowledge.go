@@ -9,7 +9,7 @@ import (
 
 	_ "github.com/lib/pq" // PostgreSQL driver
 
-	"github.com/txn2/mcp-data-platform/pkg/database/migrate"
+	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 )
 
@@ -35,37 +35,27 @@ func NewKnowledgeTestDB(t *testing.T, dsn string) *KnowledgeTestDB {
 		t.Fatalf("pinging database: %v", err)
 	}
 
-	// The docker init script (01_init.sql) creates tables with schemas that
-	// differ from the golang-migrate migrations. Drop them so migrations own
-	// the schema. CASCADE handles FK references between init-script tables.
-	initTables := []string{
-		"oauth_refresh_tokens", "oauth_access_tokens",
-		"oauth_authorization_codes", "oauth_clients",
-		"audit_logs", "schema_migrations",
-	}
-	for _, tbl := range initTables {
-		//nolint:gosec // test-only, table names are hardcoded constants
-		if _, err := db.Exec("DROP TABLE IF EXISTS " + tbl + " CASCADE"); err != nil {
-			t.Fatalf("dropping init table %s: %v", tbl, err)
-		}
-	}
-
-	if err := migrate.Run(db); err != nil {
-		t.Fatalf("running migrations: %v", err)
-	}
+	ResetSchemaAndMigrate(t, db)
 
 	return &KnowledgeTestDB{
-		DB:             db,
-		InsightStore:   knowledge.NewPostgresStore(db),
+		DB: db,
+		// Insights are knowledge-dimension memory records: migration 000031
+		// dropped knowledge_insights and unified capture into memory_records, and
+		// the live platform wires the memory-backed adapter (knowledgelayer.New
+		// selects it whenever a memory store is available). The legacy
+		// knowledge.NewPostgresStore path targets the dropped table, so the test
+		// exercises the adapter that deployments actually run.
+		InsightStore:   knowledge.NewMemoryInsightAdapter(memory.NewPostgresStore(db)),
 		ChangesetStore: knowledge.NewPostgresChangesetStore(db),
 	}
 }
 
-// TruncateKnowledgeTables removes all rows from knowledge tables.
+// TruncateKnowledgeTables removes all rows from the knowledge-backing tables.
 func (k *KnowledgeTestDB) TruncateKnowledgeTables(t *testing.T) {
 	t.Helper()
 
-	_, err := k.DB.Exec("TRUNCATE knowledge_insights, knowledge_changesets")
+	// memory_records backs insights (knowledge dimension) since migration 000031.
+	_, err := k.DB.Exec("TRUNCATE memory_records, knowledge_changesets")
 	if err != nil {
 		t.Fatalf("truncating knowledge tables: %v", err)
 	}

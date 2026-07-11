@@ -14,6 +14,11 @@ import (
 const (
 	metaKeyReviewedBy  = "reviewed_by"
 	metaKeyReviewNotes = "review_notes"
+	// Review/apply timestamps. The postgres store had reviewed_at/applied_at
+	// columns; the memory model carries them in metadata so the Insight JSON
+	// contract (reviewed_at/applied_at) stays populated through the adapter.
+	metaKeyReviewedAt = "reviewed_at"
+	metaKeyAppliedAt  = "applied_at"
 	// metaKeyInsightStatus is the shared insight-overlay key (see pkg/memory),
 	// so memory_capture and this adapter agree on where review state lives.
 	metaKeyInsightStatus = memory.MetaKeyInsightStatus
@@ -250,6 +255,7 @@ func (a *memoryInsightAdapter) UpdateStatus(ctx context.Context, id, status, rev
 		metaKeyReviewedBy:    reviewedBy,
 		metaKeyReviewNotes:   reviewNotes,
 		metaKeyInsightStatus: status,
+		metaKeyReviewedAt:    time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	if err := a.store.Update(ctx, id, memory.RecordUpdate{
 		// Persist the mapped memory status to the column, not just the metadata:
@@ -341,6 +347,7 @@ func (a *memoryInsightAdapter) MarkApplied(ctx context.Context, id, appliedBy, c
 	meta := map[string]any{
 		colAppliedBy:        appliedBy,
 		metaKeyChangesetRef: changesetRef,
+		metaKeyAppliedAt:    time.Now().UTC().Format(time.RFC3339Nano),
 		// Persist the applied status explicitly. The memory status of an
 		// applied insight stays StatusActive (see mapInsightStatusToMemory),
 		// so without this override resolveInsightStatus would report applied
@@ -396,6 +403,13 @@ func (a *memoryInsightAdapter) Supersede(ctx context.Context, entityURN, exclude
 	count := 0
 	for _, r := range records {
 		if r.ID == excludeID {
+			continue
+		}
+		// Only pending insights are superseded, matching the postgres store
+		// (WHERE status = pending). Approved/applied/rejected insights map to
+		// memory.StatusActive too, but they have been reviewed — a newer capture
+		// must not clobber an already-applied insight for the same entity.
+		if resolveInsightStatus(r) != StatusPending {
 			continue
 		}
 		if err := a.store.Supersede(ctx, r.ID, excludeID); err != nil {
@@ -550,6 +564,8 @@ func extractInsightMetadata(meta map[string]any, insight *Insight) {
 	extractMetadataString(meta, metaKeyReviewNotes, &insight.ReviewNotes)
 	extractMetadataString(meta, colAppliedBy, &insight.AppliedBy)
 	extractMetadataString(meta, metaKeyChangesetRef, &insight.ChangesetRef)
+	extractMetadataTime(meta, metaKeyReviewedAt, &insight.ReviewedAt)
+	extractMetadataTime(meta, metaKeyAppliedAt, &insight.AppliedAt)
 
 	if sa, ok := meta["suggested_actions"]; ok {
 		b, _ := json.Marshal(sa)
@@ -562,6 +578,22 @@ func extractMetadataString(meta map[string]any, key string, target *string) {
 		if s, ok := v.(string); ok {
 			*target = s
 		}
+	}
+}
+
+// extractMetadataTime parses an RFC3339(Nano) timestamp string from metadata
+// into target. A missing or unparseable value leaves target unchanged (nil).
+func extractMetadataTime(meta map[string]any, key string, target **time.Time) {
+	v, ok := meta[key]
+	if !ok {
+		return
+	}
+	s, ok := v.(string)
+	if !ok || s == "" {
+		return
+	}
+	if ts, err := time.Parse(time.RFC3339Nano, s); err == nil {
+		*target = &ts
 	}
 }
 

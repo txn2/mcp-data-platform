@@ -284,12 +284,18 @@ func TestGenerateKey(t *testing.T) {
 		}
 	})
 
-	t.Run("appears in ListKeys", func(t *testing.T) {
+	t.Run("appears in ListKeys as database source", func(t *testing.T) {
 		summaries := auth.ListKeys()
 		found := false
 		for _, s := range summaries {
 			if s.Name == "test-gen" {
 				found = true
+				// Generated keys are persisted to the DB, so they must report
+				// "database" (deletable), not "file" (which the admin API blocks
+				// from deletion). Regression guard for the undeletable-key bug.
+				if s.Source != sourceDatabase {
+					t.Errorf("generated key Source = %q, want %q", s.Source, sourceDatabase)
+				}
 				break
 			}
 		}

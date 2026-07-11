@@ -53,15 +53,21 @@ func TestEnrichment_RealAssembledServer(t *testing.T) {
 	require.NoError(t, err, "connect in-process MCP session to the assembled server")
 	defer func() { _ = session.Close() }()
 
+	// The assembled server enables explicit session handles (#792) by default, so
+	// every gated tool call must carry a platform_info-minted session_id or be
+	// refused with SESSION_REQUIRED (#800). Perform the handshake once and thread
+	// the handle on every subsequent call, exactly as a deployed client does.
+	sessionID := establishSession(t, ctx, session)
+
 	// Documented-parameter effect: include_sample is Trino-only, so this runs
 	// with just make e2e-up and proves the real handler executed through the
 	// full middleware chain (not a mock result).
 	t.Run("include_sample parameter has an observable effect", func(t *testing.T) {
-		with := describeTable(t, ctx, session, true)
+		with := describeTable(t, ctx, session, sessionID, true)
 		sample, _ := with["sample"].([]any)
 		assert.NotEmpty(t, sample, "include_sample=true must return sample rows for a populated table")
 
-		without := describeTable(t, ctx, session, false)
+		without := describeTable(t, ctx, session, sessionID, false)
 		emptySample, _ := without["sample"].([]any)
 		assert.Empty(t, emptySample, "include_sample=false must omit sample rows")
 	})
@@ -72,7 +78,7 @@ func TestEnrichment_RealAssembledServer(t *testing.T) {
 		if helpers.SkipIfDataHubUnavailable(cfg) {
 			t.Skip("DataHub not reachable; run `datahub docker quickstart` + `make e2e-seed` for enrichment assertions")
 		}
-		res := callTool(t, ctx, session, "trino_describe_table", map[string]any{
+		res := callTool(t, ctx, session, sessionID, "trino_describe_table", map[string]any{
 			"catalog": enrichCatalog, "schema": enrichSchema, "table": enrichTable,
 		})
 		sc := helpers.AssertHasSemanticContext(t, res)
@@ -87,7 +93,7 @@ func TestEnrichment_RealAssembledServer(t *testing.T) {
 		if helpers.SkipIfDataHubUnavailable(cfg) {
 			t.Skip("DataHub not reachable; run `datahub docker quickstart` + `make e2e-seed` for enrichment assertions")
 		}
-		res := callTool(t, ctx, session, "datahub_search", map[string]any{
+		res := callTool(t, ctx, session, sessionID, "datahub_search", map[string]any{
 			"query":    "test_orders",
 			"platform": "trino",
 		})
@@ -95,11 +101,30 @@ func TestEnrichment_RealAssembledServer(t *testing.T) {
 	})
 }
 
+// establishSession performs the platform_info handshake and returns the minted
+// session_id. platform_info is the InitTool, exempt from the session gate, so it
+// succeeds without a handle; every other gated tool call then threads the
+// returned handle (#792/#800).
+func establishSession(t *testing.T, ctx context.Context, s *mcp.ClientSession) string {
+	t.Helper()
+	res, err := s.CallTool(ctx, &mcp.CallToolParams{Name: "platform_info", Arguments: map[string]any{}})
+	require.NoError(t, err, "platform_info transport error")
+	require.False(t, res.IsError, "platform_info returned a tool error: %s", firstText(res))
+	// platform_info returns its payload (including the minted session_id) as JSON
+	// text content, not StructuredContent.
+	var payload struct {
+		SessionID string `json:"session_id"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(firstText(res)), &payload), "parse platform_info JSON")
+	require.NotEmpty(t, payload.SessionID, "platform_info must mint a session_id")
+	return payload.SessionID
+}
+
 // describeTable calls trino_describe_table through the session and returns the
 // parsed structured result (columns, sample, ...).
-func describeTable(t *testing.T, ctx context.Context, s *mcp.ClientSession, includeSample bool) map[string]any {
+func describeTable(t *testing.T, ctx context.Context, s *mcp.ClientSession, sessionID string, includeSample bool) map[string]any {
 	t.Helper()
-	res := callTool(t, ctx, s, "trino_describe_table", map[string]any{
+	res := callTool(t, ctx, s, sessionID, "trino_describe_table", map[string]any{
 		"catalog":        enrichCatalog,
 		"schema":         enrichSchema,
 		"table":          enrichTable,
@@ -123,9 +148,13 @@ func structuredMap(t *testing.T, res *mcp.CallToolResult) map[string]any {
 }
 
 // callTool invokes a tool over the in-process session and fails on a transport
-// or tool-level error.
-func callTool(t *testing.T, ctx context.Context, s *mcp.ClientSession, name string, args map[string]any) *mcp.CallToolResult {
+// or tool-level error. It threads the platform_info-minted session_id (#792) so
+// the call clears the SESSION_REQUIRED gate the assembled server enforces.
+func callTool(t *testing.T, ctx context.Context, s *mcp.ClientSession, sessionID, name string, args map[string]any) *mcp.CallToolResult {
 	t.Helper()
+	if sessionID != "" {
+		args["session_id"] = sessionID
+	}
 	res, err := s.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
 	require.NoError(t, err, "%s transport error", name)
 	require.False(t, res.IsError, "%s returned a tool error: %s", name, firstText(res))
