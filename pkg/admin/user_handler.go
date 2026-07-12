@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -143,8 +142,8 @@ func (h *Handler) getUser(w http.ResponseWriter, r *http.Request) {
 // @Router       /admin/users [post]
 func (h *Handler) createUser(w http.ResponseWriter, r *http.Request) {
 	var req userCreateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+	if err := decodeStrict(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	email, err := user.NormalizeEmail(req.Email)
@@ -208,8 +207,8 @@ func (h *Handler) updateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req userUpdateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+	if err := decodeStrict(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if err := validateUserUpdate(req); err != nil {

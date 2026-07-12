@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -430,8 +429,8 @@ func (h *Handler) setConfigEntry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req setConfigEntryRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := decodeStrict(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 

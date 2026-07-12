@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
@@ -136,8 +135,8 @@ func (h *KnowledgeHandler) UpdateInsightStatus(w http.ResponseWriter, r *http.Re
 	id := r.PathValue(pathParamID)
 
 	var req statusUpdateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := decodeStrict(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -200,8 +199,8 @@ func (h *KnowledgeHandler) UpdateInsight(w http.ResponseWriter, r *http.Request)
 	id := r.PathValue(pathParamID)
 
 	var req insightUpdateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := decodeStrict(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 

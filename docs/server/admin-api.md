@@ -91,6 +91,29 @@ All errors follow [RFC 9457 Problem Details](https://www.rfc-editor.org/rfc/rfc9
 }
 ```
 
+### Request Body Validation
+
+Write endpoints decode JSON request bodies strictly: an unknown or mis-named
+field is rejected with `400 Bad Request` naming the offending field, rather than
+being silently dropped. This prevents a typo from changing behavior: for
+authorization-defining resources such as personas, a dropped `deny_tools` field
+would otherwise create a more permissive persona than intended.
+
+```json
+{
+  "type": "about:blank",
+  "title": "Bad Request",
+  "status": 400,
+  "detail": "unknown field \"tools\""
+}
+```
+
+For example, `POST /personas` with the nested config shape
+`{"tools": {"allow": [...]}}` is rejected because the documented fields are the
+flat `allow_tools`/`deny_tools`; likewise `POST /tools/call` with `arguments`
+(instead of the documented `parameters`) is rejected rather than executing the
+tool with empty parameters.
+
 ## Operating Mode Behavior
 
 Some endpoints are only available in certain [operating modes](operating-modes.md). When a feature is enabled in config but unavailable at runtime (e.g., no database), endpoints return `409 Conflict` with an explanation. When a feature is disabled in config, endpoints return `404 Not Found`.

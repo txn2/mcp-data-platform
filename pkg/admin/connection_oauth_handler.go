@@ -104,8 +104,9 @@ func (h *Handler) startConnectionOAuth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body startConnectionOAuthRequest
-	if r.Body != nil {
-		_ = json.NewDecoder(r.Body).Decode(&body)
+	if err := decodeStrictOptional(w, r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 	verifier, state, ok := generatePKCEPair(w)
 	if !ok {

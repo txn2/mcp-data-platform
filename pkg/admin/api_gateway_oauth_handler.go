@@ -60,8 +60,9 @@ func (h *Handler) startAPIGatewayOAuth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body startGatewayOAuthRequest
-	if r.Body != nil {
-		_ = json.NewDecoder(r.Body).Decode(&body)
+	if err := decodeStrictOptional(w, r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 
 	verifier, state, ok := generatePKCEPair(w)

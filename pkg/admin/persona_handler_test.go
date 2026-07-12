@@ -347,6 +347,41 @@ func TestCreatePersona(t *testing.T) {
 
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
+
+	// Issue #923: an authorization-defining resource must never silently drop a
+	// mis-named field. The nested YAML-config shape {"tools":{"allow":[...]}}
+	// would otherwise create a deny-all persona (grants dropped) with a 201, and
+	// a typo'd deny key ("deny_tols") would create a MORE permissive persona
+	// than intended. Strict decoding turns both into a named 400.
+	t.Run("rejects nested tools field from YAML-config shape", func(t *testing.T) {
+		pReg := &mockPersonaRegistry{}
+		h := NewHandler(Deps{PersonaRegistry: pReg, Config: testConfig(), ConfigStore: &mockConfigStore{mode: "database"}}, nil)
+
+		body := `{"name":"analyst","display_name":"Data Analyst","roles":["analyst"],"tools":{"allow":["trino_*"],"deny":["*_delete_*"]}}`
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/personas", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		pd := decodeProblem(w.Body.Bytes())
+		assert.Contains(t, pd.Detail, "unknown field")
+		assert.Contains(t, pd.Detail, `"tools"`)
+	})
+
+	t.Run("rejects typo'd deny_tols key", func(t *testing.T) {
+		pReg := &mockPersonaRegistry{}
+		h := NewHandler(Deps{PersonaRegistry: pReg, Config: testConfig(), ConfigStore: &mockConfigStore{mode: "database"}}, nil)
+
+		body := `{"name":"analyst","display_name":"Data Analyst","roles":["analyst"],"allow_tools":["*"],"deny_tols":["trino_execute"]}`
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/personas", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		pd := decodeProblem(w.Body.Bytes())
+		assert.Contains(t, pd.Detail, "unknown field")
+		assert.Contains(t, pd.Detail, `"deny_tols"`)
+	})
 }
 
 func TestUpdatePersona(t *testing.T) {

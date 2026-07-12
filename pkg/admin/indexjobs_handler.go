@@ -2,7 +2,6 @@ package admin
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -316,8 +315,8 @@ func (h *Handler) dismissIndexJobsFailure(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var req dismissRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := decodeStrict(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if req.Kind == "" || req.SourceID == "" {
@@ -358,8 +357,8 @@ func (h *Handler) reindexIndexJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req reindexRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := decodeStrict(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if req.Kind == "" {

@@ -2454,6 +2454,10 @@ REST endpoints for managing the platform outside the MCP protocol. Mounted under
 
 All endpoints require admin persona authentication via `X-API-Key` or `Authorization: Bearer` headers. Errors use RFC 9457 Problem Details format.
 
+## Request Body Validation
+
+Write endpoints decode JSON bodies strictly: an unknown or mis-named field is rejected with `400 Bad Request` naming the offending field (e.g. `unknown field "tools"`), rather than being silently dropped. This prevents a typo from changing behavior: for authorization-defining resources such as personas, a dropped `deny_tools` would otherwise create a more permissive persona than intended. `POST /personas` with the nested `{"tools": {"allow": [...]}}` shape (documented fields are the flat `allow_tools`/`deny_tools`) and `POST /tools/call` with `arguments` (documented field is `parameters`) are both rejected.
+
 ## Interactive API Documentation
 
 Swagger UI is served at `GET /api/v1/admin/docs/index.html`. The OpenAPI spec is auto-generated from source code annotations and available at `/api/v1/admin/docs/doc.json`. Regenerate with `make swagger`.

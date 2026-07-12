@@ -2,7 +2,6 @@ package admin
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -101,8 +100,8 @@ func (h *Handler) dryRunEnrichmentRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body dryRunEnrichmentRequest
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := decodeStrict(w, r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -242,8 +241,8 @@ func (h *Handler) createEnrichmentRule(w http.ResponseWriter, r *http.Request) {
 	connection := r.PathValue(pathKeyName)
 
 	var body enrichmentRuleBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := decodeStrict(w, r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	rule := enrichment.Rule{
@@ -303,8 +302,8 @@ func (h *Handler) updateEnrichmentRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body enrichmentRuleBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := decodeStrict(w, r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	existing.ToolName = body.ToolName
