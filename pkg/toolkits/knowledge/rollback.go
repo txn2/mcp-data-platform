@@ -215,6 +215,35 @@ func isRevertible(c recordedChange, entityType string) bool {
 	}
 }
 
+// changesetRevertibility reports whether a changeset can be rolled back
+// automatically and, when it cannot, the distinct change types that block it. It
+// mirrors RevertChangeset's gate exactly (rollback.go: refuse the whole changeset when
+// unrevertibleChangeTypes is non-empty). Rollback is all-or-nothing — it reverts
+// nothing if any single change lacks a recoverable before-image — so revertibility is
+// binary: there is no partial rollback to advertise, and a "mixed" changeset is not
+// revertible at all.
+//
+// This is STRUCTURAL revertibility (does the recorded before-image support an
+// inverse), not runtime availability: a structurally revertible changeset can still
+// be refused at rollback time because it was already rolled back or a newer changeset
+// has since mutated the same aspect. Those dynamic conditions are surfaced elsewhere
+// (the rolled_back field; the conflict error at rollback time) and are deliberately
+// not modeled here.
+func changesetRevertibility(targetURN string, changes []recordedChange) (revertible bool, blockingTypes []string) {
+	// Knowledge-page promotions (target "kp:<slug>") revert through the page sink, not
+	// the DataHub inverse path. A page changeset only exists on a deployment whose page
+	// reverter is configured (promotion fails closed otherwise, page_sink.go), so it is
+	// structurally revertible here.
+	if strings.HasPrefix(targetURN, pageTargetPrefix) {
+		return true, nil
+	}
+	// entityTypeFromURN failure leaves entityType "", which the readability predicates
+	// treat as unreadable, matching RevertChangeset's own handling.
+	entityType, _ := entityTypeFromURN(targetURN)
+	blockingTypes = unrevertibleChangeTypes(changes, entityType)
+	return len(blockingTypes) == 0, blockingTypes
+}
+
 // applyInverseChanges performs the inverse of each recorded change against
 // DataHub. It returns human-readable descriptions of the reverted and skipped
 // (pre-existing, so left untouched) changes. On the first write error it stops

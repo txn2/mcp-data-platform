@@ -835,13 +835,21 @@ func (t *Toolkit) recordChangesetAndMarkApplied(ctx context.Context, input apply
 		}
 	}
 
+	// Advertise rollback only when the changeset can actually be reverted (#922): the
+	// same all-or-nothing gate rollback enforces, evaluated over the just-recorded
+	// changeset so the success message and the eventual rollback outcome cannot disagree.
+	revertible, blockingTypes := changesetRevertibility(cs.TargetURN, parseRecordedChanges(cs.NewValue))
+
 	result := map[string]any{
 		"changeset_id":            csID,
 		fieldEntityURN:            input.EntityURN,
 		"changes_applied":         len(input.Changes),
 		"insights_marked_applied": len(input.InsightIDs),
-		fieldMessage: fmt.Sprintf("Changes applied to DataHub. Roll back with action=rollback changeset_id=%s. "+
-			"changes_applied counts requested changes; verify against resulting_state below.", csID),
+		"revertible":              revertible,
+		fieldMessage:              applyResultMessage(csID, revertible, blockingTypes),
+	}
+	if len(blockingTypes) > 0 {
+		result["unrevertible_change_types"] = blockingTypes
 	}
 
 	// Re-read the entity so the caller can verify what actually persisted without
@@ -856,6 +864,23 @@ func (t *Toolkit) recordChangesetAndMarkApplied(ctx context.Context, input apply
 	}
 
 	return toolkit.JSONResultTyped(result)
+}
+
+// applyResultMessage builds the apply success message honestly (#922): it instructs a
+// rollback only when the changeset can actually be reverted, and otherwise states why
+// it cannot (rollback is all-or-nothing, so any unrevertible change makes the whole
+// changeset unrevertible). This keeps an agent — or the admin UI reading the same
+// message — from planning on reversibility the changeset lacks. The suffix about
+// changes_applied is constant.
+func applyResultMessage(csID string, revertible bool, blockingTypes []string) string {
+	const suffix = " changes_applied counts requested changes; verify against resulting_state below."
+	if revertible {
+		return fmt.Sprintf("Changes applied to DataHub. Roll back with action=rollback changeset_id=%s.%s", csID, suffix)
+	}
+	return fmt.Sprintf("Changes applied to DataHub. Recorded as changeset %s for audit. "+
+		"This changeset cannot be rolled back automatically (%s: no before-image); "+
+		"restore prior state with a new apply if needed.%s",
+		csID, strings.Join(blockingTypes, ", "), suffix)
 }
 
 // authorFromContext returns the acting user's identity for authorship fields

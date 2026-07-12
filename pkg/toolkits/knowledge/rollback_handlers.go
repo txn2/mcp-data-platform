@@ -22,6 +22,14 @@ type changesetSummary struct {
 	RolledBack       bool       `json:"rolled_back"`
 	RolledBackBy     string     `json:"rolled_back_by,omitempty"`
 	RolledBackAt     *time.Time `json:"rolled_back_at,omitempty"`
+	// Revertible reports whether this changeset can be rolled back automatically,
+	// computed with rollback's own all-or-nothing gate (#922). It folds in the
+	// already-rolled-back state so a caller filtering on this field alone never picks a
+	// changeset the rollback would refuse. It does NOT model the newer-changeset
+	// conflict, a dynamic condition surfaced only at rollback time; when unrevertible
+	// for a structural reason, UnrevertibleChangeTypes names the blocking change types.
+	Revertible              bool     `json:"revertible"`
+	UnrevertibleChangeTypes []string `json:"unrevertible_change_types,omitempty"`
 }
 
 // handleRollback reverts a previously applied changeset, restoring the mutated
@@ -103,15 +111,23 @@ func (t *Toolkit) handleListChangesets(ctx context.Context, input applyKnowledge
 
 // toChangesetSummary projects a changeset onto the discovery view.
 func toChangesetSummary(cs *Changeset) changesetSummary {
+	revertible, blockingTypes := changesetRevertibility(cs.TargetURN, parseRecordedChanges(cs.NewValue))
+	// An already-rolled-back changeset cannot be rolled back again, so report it as not
+	// revertible regardless of its structural revertibility (#922 review).
+	if cs.RolledBack {
+		revertible = false
+	}
 	return changesetSummary{
-		ChangesetID:      cs.ID,
-		CreatedAt:        cs.CreatedAt,
-		TargetURN:        cs.TargetURN,
-		ChangeType:       cs.ChangeType,
-		AppliedBy:        cs.AppliedBy,
-		SourceInsightIDs: cs.SourceInsightIDs,
-		RolledBack:       cs.RolledBack,
-		RolledBackBy:     cs.RolledBackBy,
-		RolledBackAt:     cs.RolledBackAt,
+		ChangesetID:             cs.ID,
+		CreatedAt:               cs.CreatedAt,
+		TargetURN:               cs.TargetURN,
+		ChangeType:              cs.ChangeType,
+		AppliedBy:               cs.AppliedBy,
+		SourceInsightIDs:        cs.SourceInsightIDs,
+		RolledBack:              cs.RolledBack,
+		RolledBackBy:            cs.RolledBackBy,
+		RolledBackAt:            cs.RolledBackAt,
+		Revertible:              revertible,
+		UnrevertibleChangeTypes: blockingTypes,
 	}
 }
