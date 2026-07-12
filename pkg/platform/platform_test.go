@@ -132,6 +132,50 @@ func TestNew_MinimalConfigWithNoopProviders(t *testing.T) {
 	}
 }
 
+// TestInitializeResultCarriesBootstrapInstructions proves that a client
+// connecting over the real MCP transport receives a non-empty
+// InitializeResult.instructions pointing at platform_info (issue #924). This is
+// an end-to-end assertion through the SDK's initialize handshake, not a check of
+// the ServerOptions field in isolation: it confirms the value we set on the
+// server actually reaches the client in the protocol's designated field.
+func TestInitializeResultCarriesBootstrapInstructions(t *testing.T) {
+	cfg := &Config{
+		Server:   ServerConfig{Name: "test-platform"},
+		Semantic: SemanticConfig{Provider: testProviderNoop},
+		Query:    QueryConfig{Provider: testProviderNoop},
+		Storage:  StorageConfig{Provider: testProviderNoop},
+	}
+
+	p, err := New(WithConfig(cfg))
+	if err != nil {
+		t.Fatalf(testNewErrFmt, err)
+	}
+
+	ctx := context.Background()
+	t1, t2 := mcp.NewInMemoryTransports()
+
+	serverSession, err := p.MCPServer().Connect(ctx, t1, nil)
+	if err != nil {
+		t.Fatalf("server Connect: %v", err)
+	}
+	defer func() { _ = serverSession.Close() }()
+
+	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "1.0"}, nil)
+	clientSession, err := client.Connect(ctx, t2, nil)
+	if err != nil {
+		t.Fatalf("client Connect: %v", err)
+	}
+	defer func() { _ = clientSession.Close() }()
+
+	got := clientSession.InitializeResult().Instructions
+	if got == "" {
+		t.Fatal("InitializeResult.Instructions is empty; want a bootstrap pointer to platform_info")
+	}
+	if !strings.Contains(got, "platform_info") {
+		t.Errorf("InitializeResult.Instructions = %q; want it to mention platform_info", got)
+	}
+}
+
 func TestNew_WithInjectedProviders(t *testing.T) {
 	cfg := &Config{
 		Server: ServerConfig{Name: testServerName},
