@@ -2031,6 +2031,20 @@ func convertCSP(cfg *CSPAppConfig) *mcpapps.CSPConfig {
 	return csp
 }
 
+// initializeInstructions is the static bootstrap pointer advertised in
+// InitializeResult.instructions (the MCP protocol's designated "how to use this
+// server" field). It is deliberately a short routing hint, not the full agent
+// guidance: the initialize field is set once at server construction and cannot
+// vary per persona (initialization precedes authentication in most flows), so
+// the persona-aware, DB-editable guidance stays tool-delivered via platform_info
+// (see info_tool.go and the instructions seam). Do not inline the full
+// agent_instructions content here; a generic bootstrap sentence is the correct
+// scope. The one thing a spec-faithful client needs up front is the call order,
+// because every other tool refuses with SESSION_REQUIRED until platform_info runs.
+const initializeInstructions = "Call the platform_info tool first. It returns " +
+	"platform documentation, workflow requirements, and a session_id that every " +
+	"other tool requires. Then call search before any query tool."
+
 // finalizeSetup completes platform initialization.
 func (p *Platform) finalizeSetup() {
 	// Bind the prompt layer's late collaborators before the middleware chain and
@@ -2044,6 +2058,7 @@ func (p *Platform) finalizeSetup() {
 	}, &mcp.ServerOptions{
 		SchemaCache:  mcp.NewSchemaCache(),
 		Capabilities: p.buildServerCapabilities(),
+		Instructions: initializeInstructions,
 	})
 
 	// Add MCP protocol-level receiving middleware.
