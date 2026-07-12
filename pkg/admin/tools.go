@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"time"
 
@@ -120,7 +119,7 @@ func (h *Handler) callTool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req, err := decodeToolCallRequest(r)
+	req, err := decodeToolCallRequest(w, r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -161,16 +160,22 @@ func (h *Handler) callTool(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// decodeToolCallRequest reads and validates a toolCallRequest from an HTTP request.
-func decodeToolCallRequest(r *http.Request) (*toolCallRequest, error) {
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20)) // 1MB limit
-	if err != nil {
-		return nil, errors.New("failed to read request body")
-	}
+// decodeToolCallRequest reads and validates a toolCallRequest from an HTTP
+// request. Decoding is strict: an unknown field (e.g. "arguments" instead of
+// the documented "parameters") is rejected with a named 400 rather than
+// silently dropped, which would otherwise run the tool with empty parameters
+// and surface a confusing downstream schema error.
+func decodeToolCallRequest(w http.ResponseWriter, r *http.Request) (*toolCallRequest, error) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxAdminBodyBytes)
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
 
 	var req toolCallRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, fmt.Errorf("invalid JSON: %w", err)
+	if err := dec.Decode(&req); err != nil {
+		return nil, decodeError(err)
+	}
+	if dec.More() {
+		return nil, errors.New(errInvalidBody)
 	}
 
 	if req.ToolName == "" {

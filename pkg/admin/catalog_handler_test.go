@@ -218,6 +218,28 @@ func TestCatalog_UpsertSpecInline(t *testing.T) {
 	}
 }
 
+// TestCatalog_UpsertSpecAcceptsLargeInlineContent guards the #923 review
+// finding: the inline `content` path must not inherit the small default admin
+// body cap, since real OpenAPI specs routinely exceed 1 MiB. A >1 MiB spec must
+// still save.
+func TestCatalog_UpsertSpecAcceptsLargeInlineContent(t *testing.T) {
+	t.Parallel()
+	h, _ := newCatalogTestHandler(t)
+	doJSON(t, h, http.MethodPost, "/api/v1/admin/api-catalogs", map[string]any{
+		"id": "p", "name": "p", "display_name": "P",
+	})
+	// Valid OpenAPI YAML padded past 1 MiB via a large description scalar.
+	big := strings.Repeat("a", (1<<20)+4096)
+	content := "openapi: 3.0.0\ninfo:\n  title: x\n  version: '1'\n  description: " + big + "\npaths: {}\n"
+	res := doJSON(t, h, http.MethodPut, "/api/v1/admin/api-catalogs/p/specs/default", map[string]any{
+		"source_kind": "inline",
+		"content":     content,
+	})
+	if res.Code != http.StatusOK {
+		t.Fatalf("large inline spec upsert: %d %s", res.Code, res.Body.String())
+	}
+}
+
 func TestCatalog_UpsertSpecRejectsInvalidSource(t *testing.T) {
 	t.Parallel()
 	h, _ := newCatalogTestHandler(t)

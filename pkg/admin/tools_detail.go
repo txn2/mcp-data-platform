@@ -446,8 +446,8 @@ func (h *Handler) parseVisibilityRequest(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusNotFound, fmt.Sprintf("tool %q not found", name))
 		return "", req, false
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+	if err := decodeStrict(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return "", req, false
 	}
 	return name, req, true

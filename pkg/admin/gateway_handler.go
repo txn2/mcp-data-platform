@@ -2,7 +2,6 @@ package admin
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -217,8 +216,8 @@ func (h *Handler) tryTestLiveConnection(w http.ResponseWriter, r *http.Request, 
 // Writes the appropriate HTTP error and returns ok=false on any failure path.
 func (h *Handler) parseTestConnectionConfig(w http.ResponseWriter, r *http.Request, name string) (gatewaykit.Config, bool) {
 	var req testGatewayConnectionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := decodeStrict(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return gatewaykit.Config{}, false
 	}
 	if req.Config == nil {

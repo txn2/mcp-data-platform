@@ -3,7 +3,6 @@ package admin
 import (
 	"context"
 	"crypto/x509"
-	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"log/slog"
@@ -162,8 +161,8 @@ func (h *Handler) setConnectionInstance(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var req setConnectionInstanceRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := decodeStrict(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 

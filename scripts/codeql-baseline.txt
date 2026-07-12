@@ -32,9 +32,11 @@ go/sql-injection pkg/audit/postgres/store.go:195
 # taint surface; the runtime behavior is unchanged. The line moved from
 # 522 to 494 when the PKCE store (PKCEState struct + pkceTTL const) was
 # extracted to pkg/pkcestore (#636), then from 494 to 498 when the logsan
-# import and truncateForLog control-char stripping were added in #861;
+# import and truncateForLog control-char stripping were added in #861,
+# then from 498 to 499 when the OAuth-start handler was routed through the
+# shared strict-decode helper in #923 (one extra line above this sink);
 # same sink, same exchange, unchanged.
-go/request-forgery pkg/admin/gateway_oauth_handler.go:498
+go/request-forgery pkg/admin/gateway_oauth_handler.go:499
 
 # weak-sensitive-data-hashing on the OAuth signing-key kid derivation
 # (#897). KeyID hashes the HMAC signing key with SHA-256 and truncates to

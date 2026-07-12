@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -209,6 +210,37 @@ func TestCallTool(t *testing.T) {
 		h.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	// Issue #923: the documented field is "parameters"; sending "arguments"
+	// used to run the tool with empty parameters and produce a confusing
+	// downstream schema error. Strict decoding rejects the unknown field by name.
+	t.Run("rejects unknown arguments field naming it", func(t *testing.T) {
+		h := NewHandler(Deps{MCPServer: newTestMCPServer()}, nil)
+		body := []byte(`{"tool_name":"trino_query","arguments":{"sql":"SELECT 1"}}`)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/tools/call", bytes.NewReader(body))
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		pd := decodeProblem(w.Body.Bytes())
+		assert.Contains(t, pd.Detail, "unknown field")
+		assert.Contains(t, pd.Detail, `"arguments"`)
+	})
+
+	// Issue #923 review: an oversized tool-call body must surface as a clear
+	// "request body too large" (via MaxBytesReader), consistent with every other
+	// swept endpoint, not a misleading generic parse error from a truncated read.
+	t.Run("reports oversized body clearly", func(t *testing.T) {
+		h := NewHandler(Deps{MCPServer: newTestMCPServer()}, nil)
+		body := []byte(`{"tool_name":"trino_query","parameters":{"sql":"` + strings.Repeat("a", (1<<20)+16) + `"}}`)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/admin/tools/call", bytes.NewReader(body))
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		pd := decodeProblem(w.Body.Bytes())
+		assert.Equal(t, "request body too large", pd.Detail)
 	})
 
 	t.Run("returns error when no MCP server", func(t *testing.T) {

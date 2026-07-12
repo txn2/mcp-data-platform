@@ -203,8 +203,8 @@ func (h *Handler) getPersona(w http.ResponseWriter, r *http.Request) {
 // @Router       /admin/personas [post]
 func (h *Handler) createPersona(w http.ResponseWriter, r *http.Request) {
 	var req personaCreateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+	if err := decodeStrict(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -267,8 +267,8 @@ func (h *Handler) updatePersona(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 
 	var req personaCreateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+	if err := decodeStrict(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -557,8 +557,8 @@ func (h *Handler) testPersonaAccess(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req testPersonaAccessRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+	if err := decodeStrict(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if req.ToolName == "" {

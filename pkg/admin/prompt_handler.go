@@ -2,7 +2,6 @@ package admin
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -229,8 +228,8 @@ func (h *Handler) getPrompt(w http.ResponseWriter, r *http.Request) {
 // @Router       /admin/prompts [post]
 func (h *Handler) createPrompt(w http.ResponseWriter, r *http.Request) {
 	var req adminPromptCreateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := decodeStrict(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -339,8 +338,8 @@ func (h *Handler) updatePrompt(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req adminPromptUpdateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := decodeStrict(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 

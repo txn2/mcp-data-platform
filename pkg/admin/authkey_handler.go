@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -71,8 +70,8 @@ func (h *Handler) listAuthKeys(w http.ResponseWriter, _ *http.Request) {
 // @Router       /admin/auth/keys [post]
 func (h *Handler) createAuthKey(w http.ResponseWriter, r *http.Request) {
 	var req authKeyCreateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON body")
+	if err := decodeStrict(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 

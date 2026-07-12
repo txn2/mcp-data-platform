@@ -2,7 +2,6 @@ package admin
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -50,11 +49,6 @@ const (
 	// multipartMemoryLimit is the in-memory buffer for
 	// http.Request.ParseMultipartForm before spillover to disk.
 	multipartMemoryLimit int64 = 2 << 20 // 2 MiB
-
-	// errInvalidRequestBody is the 400 message returned when the
-	// request payload doesn't unmarshal. Centralized so revive's
-	// add-constant rule stays happy.
-	errInvalidRequestBody = "invalid request body"
 
 	// catalogPathID is the {id} path placeholder for catalog routes.
 	catalogPathID = "id"
@@ -212,8 +206,8 @@ type createCatalogRequest struct {
 // @Router       /admin/api-catalogs [post]
 func (h *Handler) createCatalog(w http.ResponseWriter, r *http.Request) {
 	var req createCatalogRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, errInvalidRequestBody)
+	if err := decodeStrict(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if req.DisplayName == "" {
@@ -281,8 +275,8 @@ type updateCatalogRequest struct {
 func (h *Handler) updateCatalog(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(catalogPathID)
 	var req updateCatalogRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, errInvalidRequestBody)
+	if err := decodeStrict(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	err := h.deps.APICatalogStore.UpdateCatalog(r.Context(), id, apicatalog.Update{
@@ -380,8 +374,8 @@ type cloneCatalogRequest struct {
 func (h *Handler) cloneCatalog(w http.ResponseWriter, r *http.Request) {
 	srcID := r.PathValue(catalogPathID)
 	var req cloneCatalogRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, errInvalidRequestBody)
+	if err := decodeStrict(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	src, err := h.deps.APICatalogStore.GetCatalog(r.Context(), srcID)
@@ -641,8 +635,12 @@ func (h *Handler) upsertCatalogSpec(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue(catalogPathID)
 	specName := r.PathValue(catalogPathSpec)
 	var req upsertCatalogSpecRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, errInvalidRequestBody)
+	// The inline `content` field carries a full OpenAPI spec, which routinely
+	// exceeds the small default admin body cap; allow the same 10 MiB bound the
+	// multipart upload path uses (plus JSON framing overhead) so large specs
+	// still save. Unknown-field rejection still applies.
+	if err := decodeStrictLimit(w, r, &req, catalogSpecMaxUploadBytes+1024); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	entry, err := h.materializeSpec(r.Context(), specName, req)
