@@ -30,6 +30,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/platform/iam"
 	"github.com/txn2/mcp-data-platform/internal/platform/indexqueue"
 	"github.com/txn2/mcp-data-platform/internal/platform/knowledgelayer"
+	"github.com/txn2/mcp-data-platform/internal/platform/listchanged"
 	"github.com/txn2/mcp-data-platform/internal/platform/memorylayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/mwchain"
 	"github.com/txn2/mcp-data-platform/internal/platform/oauthserver"
@@ -1867,6 +1868,10 @@ func (p *Platform) ResourceS3Client() resource.S3Client {
 // built); wired as the create callback of the REST resources API.
 func (p *Platform) RegisterManagedResource(res *resource.Resource) {
 	p.resources.Register(p.mcpServer, res)
+	// Emit resources/list_changed so connected clients re-list without
+	// reconnecting (#927). Wired as the REST create callback; the startup
+	// LoadAll path calls resources.Register directly and does not notify.
+	p.resources.NotifyListChanged()
 }
 
 // UnregisterManagedResource removes a managed resource from the MCP server's
@@ -1874,6 +1879,9 @@ func (p *Platform) RegisterManagedResource(res *resource.Resource) {
 // callback of the REST resources API.
 func (p *Platform) UnregisterManagedResource(uri string) {
 	p.resources.Unregister(p.mcpServer, uri)
+	// Emit resources/list_changed so connected clients re-list without
+	// reconnecting (#927). Wired as the REST delete callback.
+	p.resources.NotifyListChanged()
 }
 
 // LoadManagedResources registers all existing managed resources with the MCP
@@ -2051,6 +2059,23 @@ func (p *Platform) finalizeSetup() {
 	// tool are registered below, now that the subsystems that build them have
 	// initialized.
 	p.bindPromptCollaborators()
+
+	// Wire debounced list_changed notifiers for prompts and managed resources
+	// through the session broadcaster (cross-replica via LISTEN/NOTIFY). Owned
+	// by inline closures + lifecycle OnStop so the platform facade gains no
+	// field or method for them — mirrors the #929 rate-limiter wiring. The
+	// broadcaster is always non-nil after New (initSessions wires an in-memory
+	// or postgres broadcaster during construction); the guard keeps this robust
+	// against a future construction path that leaves it nil (#927).
+	if b := p.sessions.Broadcaster(); b != nil {
+		promptNotifier := listchanged.New(b, "notifications/prompts/list_changed")
+		p.prompts.SetListChangedNotifier(promptNotifier)
+		p.lifecycle.OnStop(func(context.Context) error { promptNotifier.Stop(); return nil })
+
+		resourceNotifier := listchanged.New(b, "notifications/resources/list_changed")
+		p.resources.SetListChangedNotifier(resourceNotifier)
+		p.lifecycle.OnStop(func(context.Context) error { resourceNotifier.Stop(); return nil })
+	}
 
 	p.mcpServer = mcp.NewServer(&mcp.Implementation{
 		Name:    p.config.Server.Name,
@@ -2351,9 +2376,14 @@ func (p *Platform) buildServerCapabilities() *mcp.ServerCapabilities {
 		caps.Resources = &mcp.ResourceCapabilities{ListChanged: true}
 	}
 
-	// Prompts are available when configured.
+	// Prompts are available when configured. ListChanged is always true when
+	// prompts are advertised: prompts are DB-backed and runtime-mutable
+	// (create/update/delete/approve/promote via manage_prompt and the admin
+	// API), and the platform emits notifications/prompts/list_changed on every
+	// such write (see the prompt layer's notifying store), so the capability is
+	// honest in both directions (#927).
 	if len(p.config.Server.Prompts) > 0 || p.config.Tuning.PromptsDir != "" || !isExplicitlyDisabled(p.config.Knowledge.Enabled) {
-		caps.Prompts = &mcp.PromptCapabilities{}
+		caps.Prompts = &mcp.PromptCapabilities{ListChanged: true}
 	}
 
 	return caps

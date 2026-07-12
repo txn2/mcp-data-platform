@@ -223,7 +223,11 @@ func TestPromptDelegators(t *testing.T) {
 		}),
 	}
 
-	assert.Same(t, store, p.PromptStore(), "PromptStore delegates to the owner's Store()")
+	// PromptStore returns the list_changed-notifying wrapper over the injected
+	// store (#927), so it is not identity-equal; assert delegation by writing
+	// through it and observing the write land in the injected store.
+	require.NoError(t, p.PromptStore().Create(context.Background(), &prompt.Prompt{Name: "delegated"}))
+	assert.Contains(t, store.prompts, "delegated", "PromptStore delegates writes to the owner's Store()")
 
 	tracked := func() map[string]bool {
 		m := map[string]bool{}

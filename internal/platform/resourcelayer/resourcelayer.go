@@ -72,9 +72,38 @@ type Config struct {
 // startup. All methods are nil-safe, so a no-DB deployment (nil Handle) degrades
 // cleanly.
 type Handle struct {
-	store     resource.Store
-	s3Client  resource.S3Client
-	uriScheme string
+	store       resource.Store
+	s3Client    resource.S3Client
+	uriScheme   string
+	listChanged ListChangedNotifier
+}
+
+// ListChangedNotifier schedules a debounced resources/list_changed notification.
+// *listchanged.Notifier satisfies it; the interface keeps this package free of
+// the notifier's transport dependencies. A nil notifier makes NotifyListChanged
+// a no-op.
+type ListChangedNotifier interface {
+	Notify()
+}
+
+// SetListChangedNotifier binds the notifier fired when a managed resource is
+// created or deleted at runtime. Called once the session broadcaster exists,
+// after construction. No-op on a nil Handle.
+func (h *Handle) SetListChangedNotifier(n ListChangedNotifier) {
+	if h == nil {
+		return
+	}
+	h.listChanged = n
+}
+
+// NotifyListChanged fires the bound notifier, if any. The caller invokes it from
+// the runtime create/delete paths (not from LoadAll at startup, before any
+// client connects). Nil-safe on a nil Handle or an unbound notifier.
+func (h *Handle) NotifyListChanged() {
+	if h == nil || h.listChanged == nil {
+		return
+	}
+	h.listChanged.Notify()
 }
 
 // New assembles the resource store and — when an S3 connection resolves — the S3
