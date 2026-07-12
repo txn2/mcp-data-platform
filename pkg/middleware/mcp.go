@@ -283,6 +283,18 @@ func authenticateAndAuthorize(
 				"request_id", params.pc.RequestID,
 				"error", err.Error(),
 			)
+			// A transient validation-unavailable failure (e.g. the OIDC JWKS
+			// endpoint is unreachable) is a server-side outage, not a credential
+			// problem: report it as retryable so a valid caller is not misdirected
+			// to re-authenticate. The HTTP gate fails open on the same signal, but
+			// tool calls still cannot be authorized until the dependency recovers.
+			if errors.Is(err, ErrValidationUnavailable) {
+				return BuildErrorResult(NewToolError(
+					CodeFeatureUnavailable, ErrCategoryUnavailable,
+					"authentication temporarily unavailable: "+err.Error(),
+					"The identity provider could not be reached to validate your credentials. This is a transient server-side condition, not a problem with your credentials. Retry shortly.",
+				)), nil
+			}
 			return BuildErrorResult(NewToolError(
 				CodeUnauthenticated, ErrCategoryAuth,
 				"authentication failed: "+err.Error(),

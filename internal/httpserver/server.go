@@ -22,6 +22,7 @@ import (
 	"github.com/txn2/mcp-data-platform/internal/ui"
 	"github.com/txn2/mcp-data-platform/pkg/health"
 	httpauth "github.com/txn2/mcp-data-platform/pkg/http"
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/session"
 )
@@ -78,6 +79,11 @@ type httpConfig struct {
 	// mcpServer is closed-out on shutdown so connected agents reconnect to the new
 	// build (#675). Carried on the config so listenAndServe stays within its arg budget.
 	mcpServer *mcp.Server
+	// authenticator is the same auth entry point the protocol middleware uses. The
+	// MCP auth gateway calls it to reject a present-but-invalid token at the HTTP
+	// layer with 401 + WWW-Authenticate (#926). Nil when the platform is nil
+	// (tests) — the gate then stays presence-only.
+	authenticator middleware.Authenticator
 }
 
 func extractHTTPConfig(p *platform.Platform) httpConfig {
@@ -91,21 +97,23 @@ func extractHTTPConfig(p *platform.Platform) httpConfig {
 		cfg.tlsKeyFile = c.Server.TLS.KeyFile
 		cfg.streamableCfg = c.Server.Streamable
 		cfg.shutdownCfg = c.Server.Shutdown
+		cfg.authenticator = p.Authenticator()
 	}
 	return cfg
 }
 
-// newSSEHandler creates an SSE handler with auth middleware.
-func newSSEHandler(mcpServer *mcp.Server, requireAuth bool, resourceMetadataURL string) http.Handler {
+// newSSEHandler creates an SSE handler with auth middleware. When auth is
+// required it always routes through RequireAuthWithOAuth so the invalid-token
+// gate (#926) fires on SSE, matching the streamable transport (mountRootHandler).
+// With no OAuth server, resourceMetadataURL is empty and the 401 simply omits the
+// resource_metadata parameter.
+func newSSEHandler(mcpServer *mcp.Server, requireAuth bool, resourceMetadataURL string, authenticator middleware.Authenticator) http.Handler {
 	sseHandler := mcp.NewSSEHandler(func(*http.Request) *mcp.Server {
 		return mcpServer
 	}, nil)
 
-	if requireAuth && resourceMetadataURL != "" {
-		return httpauth.RequireAuthWithOAuth(resourceMetadataURL)(sseHandler)
-	}
 	if requireAuth {
-		return httpauth.RequireAuth()(sseHandler)
+		return httpauth.RequireAuthWithOAuth(authenticator, resourceMetadataURL)(sseHandler)
 	}
 	return httpauth.OptionalAuth()(sseHandler)
 }
@@ -213,7 +221,7 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	mountPortalUI(mux, p, ui.Available())
 
 	// Mount SSE handler (legacy clients)
-	wrappedSSE := newSSEHandler(mcpServer, hcfg.requireAuth, rmURL)
+	wrappedSSE := newSSEHandler(mcpServer, hcfg.requireAuth, rmURL, hcfg.authenticator)
 	mux.Handle("/sse", wrappedSSE)
 	mux.Handle("/message", wrappedSSE)
 	log.Println("SSE transport enabled on /sse, /message")
@@ -264,7 +272,7 @@ func buildRootHandler(mcpServer *mcp.Server, p *platform.Platform, hcfg httpConf
 func mountRootHandler(mux *http.ServeMux, rootHandler http.Handler, hcfg httpConfig, rmURL string) {
 	handler := rootHandler
 	if hcfg.requireAuth {
-		handler = httpauth.MCPAuthGateway(rmURL)(handler)
+		handler = httpauth.MCPAuthGateway(hcfg.authenticator, rmURL)(handler)
 		log.Println("Streamable HTTP transport enabled on / (auth required)")
 	} else {
 		log.Println("Streamable HTTP transport enabled on / (anonymous)")

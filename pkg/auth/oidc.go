@@ -283,9 +283,12 @@ func (a *OIDCAuthenticator) parseTokenWithoutSignatureVerification(tokenString s
 // unknown (e.g. after IdP key rotation). Concurrent refreshes are collapsed with
 // single-flight and throttled to at most once per jwksRefreshThrottle.
 //
-// It fails closed: when the cache is expired and the refresh fails, it returns
-// an error wrapping the fetch failure and never yields a key. A throttled or
-// post-refresh miss returns the normal key-not-found error.
+// It never yields a key it cannot verify. When the cache is expired and the
+// refresh fails — the IdP is transiently unreachable — it returns an error
+// wrapping middleware.ErrValidationUnavailable so callers can distinguish "could not
+// validate" from "invalid" (the HTTP auth gate fails OPEN on it; see that
+// sentinel). A miss against a FRESH cache (unknown/retired kid) is instead a
+// definitive not-found error, which stays fail-closed (401) at every layer.
 func (a *OIDCAuthenticator) getPublicKey(ctx context.Context, kid string) (*rsa.PublicKey, error) {
 	key, expired, found := a.lookupKey(kid)
 	if found {
@@ -301,8 +304,13 @@ func (a *OIDCAuthenticator) getPublicKey(ctx context.Context, kid string) (*rsa.
 	case found:
 		return key, nil
 	case expired:
-		return nil, errors.New("jwks cache expired")
+		// Cache still stale after the refresh attempt: we could not obtain fresh
+		// keys, so validity is undetermined (transient) rather than definitively
+		// invalid. See middleware.ErrValidationUnavailable.
+		return nil, fmt.Errorf("jwks cache expired: %w", middleware.ErrValidationUnavailable)
 	default:
+		// Fresh cache, but this kid is absent: a definitive miss (unknown/retired
+		// key, or a token from another issuer), not a transient failure.
 		return nil, fmt.Errorf("key not found: %s", kid)
 	}
 }
@@ -368,7 +376,10 @@ func (a *OIDCAuthenticator) refreshForLookup(ctx context.Context, cacheExpired b
 		return fmt.Errorf("awaiting jwks refresh: %w", ctx.Err())
 	case res := <-ch:
 		if res.Err != nil && cacheExpired {
-			return fmt.Errorf("refreshing jwks: %w", res.Err)
+			// A refresh was attempted, failed, and the cache is expired: the IdP
+			// is transiently unreachable, so validity is undetermined rather than
+			// definitively invalid. Mark it so the HTTP gate can fail open.
+			return fmt.Errorf("refreshing jwks: %w: %w", middleware.ErrValidationUnavailable, res.Err)
 		}
 		return nil
 	}

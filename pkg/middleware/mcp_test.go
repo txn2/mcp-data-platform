@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
@@ -113,6 +115,55 @@ func TestMCPToolCallMiddleware_AuthenticationFailure(t *testing.T) {
 	}
 	if !toolResult.IsError {
 		t.Error("expected IsError to be true")
+	}
+}
+
+// TestMCPToolCallMiddleware_TransientAuthOutage asserts that when the
+// authenticator reports a transient validation-unavailable failure (e.g. the
+// OIDC JWKS endpoint is unreachable), the tool call is rejected as a retryable
+// outage — NOT as an identity problem — so a valid caller is not misdirected to
+// re-authenticate during a server-side dependency outage.
+func TestMCPToolCallMiddleware_TransientAuthOutage(t *testing.T) {
+	authenticator := &mcpTestAuthenticator{
+		err: fmt.Errorf("verifying token: %w", ErrValidationUnavailable),
+	}
+	authorizer := &mcpTestAuthorizer{authorized: true}
+
+	middleware := MCPToolCallMiddleware(authenticator, authorizer, nil, ToolCallConfig{Transport: mcpTestStdio, AdminPersona: "admin"})
+
+	next := func(_ context.Context, _ string, _ mcp.Request) (mcp.Result, error) {
+		t.Fatal("next should not be called on auth outage")
+		return nil, nil //nolint:nilnil // unreachable after t.Fatal
+	}
+
+	handler := middleware(next)
+	result, err := handler(context.Background(), mcpTestMethod, newMCPTestRequest(mcpTestToolName))
+	if err != nil {
+		t.Fatalf(mcpTestErrFmt, err)
+	}
+
+	toolResult, ok := result.(*mcp.CallToolResult)
+	if !ok {
+		t.Fatalf(mcpTestResultFmt, result)
+	}
+	if !toolResult.IsError {
+		t.Fatal("expected IsError to be true")
+	}
+	if len(toolResult.Content) == 0 {
+		t.Fatal("expected content in result")
+	}
+	tc, ok := toolResult.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("expected TextContent, got %T", toolResult.Content[0])
+	}
+	// The retryable-outage error carries the feature_unavailable code and must
+	// NOT carry the "identity problem" framing that would misdirect a valid
+	// caller to re-authenticate during a server-side dependency outage.
+	if !strings.Contains(tc.Text, CodeFeatureUnavailable) {
+		t.Errorf("text = %q, want it to carry code %q", tc.Text, CodeFeatureUnavailable)
+	}
+	if strings.Contains(tc.Text, "identity problem") {
+		t.Errorf("text = %q, must not misdirect a valid caller to re-authenticate during an outage", tc.Text)
 	}
 }
 

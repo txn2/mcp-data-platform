@@ -103,7 +103,7 @@ func TestStreamableHTTP_ToolCall_WithAuthGateway(t *testing.T) {
 	streamHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil)
 
 	// Wrap with MCPAuthGateway (what v0.13.2 uses)
-	handler := httpauth.MCPAuthGateway("")(streamHandler)
+	handler := httpauth.MCPAuthGateway(nil, "")(streamHandler)
 
 	httpServer := httptest.NewServer(handler)
 	defer httpServer.Close()
@@ -170,7 +170,7 @@ func TestStreamableHTTP_ToolCall_WithFullMiddleware(t *testing.T) {
 	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil, middleware.ToolCallConfig{Transport: transportHTTP, AdminPersona: "admin"}))
 
 	streamHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil)
-	handler := httpauth.MCPAuthGateway("")(streamHandler)
+	handler := httpauth.MCPAuthGateway(nil, "")(streamHandler)
 	httpServer := httptest.NewServer(handler)
 	defer httpServer.Close()
 
@@ -317,7 +317,7 @@ func TestStreamableHTTP_OAuthJWT_WithRoles(t *testing.T) {
 	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil, middleware.ToolCallConfig{Transport: transportHTTP, AdminPersona: "admin"}))
 
 	streamHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil)
-	handler := httpauth.MCPAuthGateway("")(streamHandler)
+	handler := httpauth.MCPAuthGateway(nil, "")(streamHandler)
 	httpServer := httptest.NewServer(handler)
 	defer httpServer.Close()
 
@@ -365,6 +365,150 @@ func TestStreamableHTTP_OAuthJWT_WithRoles(t *testing.T) {
 	}
 }
 
+// TestStreamableHTTP_AuthGateway_InvalidToken proves the HTTP-layer conformance
+// surface for issue #926 end-to-end: with the gateway wired to the same
+// authenticator the protocol layer uses, a present-but-invalid token (expired,
+// unknown signature, garbage) is rejected at the HTTP boundary with 401 +
+// WWW-Authenticate error="invalid_token" — the signal MCP clients key their
+// OAuth re-auth flow off — rather than passing the transport to fail in-band on
+// a 200. A valid token still reaches the protocol layer with identity intact,
+// asserted via a full tool-call round trip.
+func TestStreamableHTTP_AuthGateway_InvalidToken(t *testing.T) {
+	signingKey := []byte("test-signing-key-32-bytes-long!!")
+	issuer := "https://mcp.test/oauth"
+	rmURL := issuer + "/.well-known/oauth-protected-resource"
+
+	server := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "0.0.1"}, nil)
+	mcp.AddTool(server, &mcp.Tool{Name: "echo"}, func(_ context.Context, _ *mcp.CallToolRequest, args struct{ Message string }) (*mcp.CallToolResult, any, error) {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "echo: " + args.Message}}}, nil, nil
+	})
+
+	authenticator, authorizer := buildProductionMiddleware(t, signingKey, issuer)
+	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil, middleware.ToolCallConfig{Transport: transportHTTP, AdminPersona: "admin"}))
+
+	streamHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil)
+	// Wire the gateway with the same authenticator (production passes p.Authenticator()).
+	handler := httpauth.MCPAuthGateway(authenticator, rmURL)(streamHandler)
+	httpServer := httptest.NewServer(handler)
+	defer httpServer.Close()
+
+	// Expired token: signed with the correct key but exp in the past.
+	expiredClaims := jwt.MapClaims{
+		"iss": issuer, "sub": "user-123", "aud": issuer,
+		"exp": time.Now().Add(-time.Hour).Unix(),
+		"iat": time.Now().Add(-2 * time.Hour).Unix(),
+	}
+	expiredToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, expiredClaims).SignedString(signingKey)
+	if err != nil {
+		t.Fatalf("signing expired token: %v", err)
+	}
+	// Unknown token: valid JWT shape, signed with a foreign key.
+	unknownToken := makeTestJWT(t, []byte("a-foreign-signing-key-32-byteslong"), issuer, "user-x", nil)
+
+	// The gate validates the present credential with the same authenticator the
+	// protocol layer uses, so any invalid token — an unverifiable JWT or an
+	// unrecognized opaque credential — is rejected at the HTTP boundary.
+	reject := []struct {
+		name  string
+		token string // "" means no Authorization header
+	}{
+		{"expired", expiredToken},
+		{"unknown signature", unknownToken},
+		{"malformed jwt", "aaa.bbb.ccc"},
+		{"unrecognized credential", "not-a-known-credential"},
+	}
+	for _, tc := range reject {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := postInitialize(t, httpServer.URL, tc.token)
+			defer func() { _ = resp.Body.Close() }()
+			if resp.StatusCode != http.StatusUnauthorized {
+				t.Fatalf("status = %d, want 401", resp.StatusCode)
+			}
+			www := resp.Header.Get("WWW-Authenticate")
+			if !strings.Contains(www, `error="invalid_token"`) {
+				t.Errorf("WWW-Authenticate = %q, want error=\"invalid_token\"", www)
+			}
+			if !strings.Contains(www, `resource_metadata="`+rmURL+`"`) {
+				t.Errorf("WWW-Authenticate = %q, want resource_metadata", www)
+			}
+		})
+	}
+
+	t.Run("absent token has no invalid_token code", func(t *testing.T) {
+		resp := postInitialize(t, httpServer.URL, "")
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("status = %d, want 401", resp.StatusCode)
+		}
+		www := resp.Header.Get("WWW-Authenticate")
+		if strings.Contains(www, "invalid_token") {
+			t.Errorf("WWW-Authenticate = %q, absent credential must not report invalid_token", www)
+		}
+		if !strings.Contains(www, `resource_metadata="`+rmURL+`"`) {
+			t.Errorf("WWW-Authenticate = %q, want resource_metadata", www)
+		}
+	})
+
+	t.Run("valid token reaches protocol layer", func(t *testing.T) {
+		token := makeTestJWT(t, signingKey, issuer, "user-123", map[string]any{
+			"email":        "admin@example.com",
+			"realm_access": map[string]any{"roles": []any{"dp_admin"}},
+		})
+		httpClient := &http.Client{Transport: &authRoundTripper{token: token, base: http.DefaultTransport}}
+		client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "0.0.1"}, nil)
+		session, err := client.Connect(context.Background(), &mcp.StreamableClientTransport{
+			Endpoint:   httpServer.URL,
+			HTTPClient: httpClient,
+		}, nil)
+		if err != nil {
+			t.Fatalf(fmtConnectFailed, err)
+		}
+		defer func() { _ = session.Close() }()
+
+		result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+			Name:      "echo",
+			Arguments: map[string]any{"Message": "hello"},
+		})
+		if err != nil {
+			t.Fatalf(fmtCallToolFailed, err)
+		}
+		if result.IsError {
+			tc, _ := result.Content[0].(*mcp.TextContent)
+			t.Fatalf("tool returned error: %s", tc.Text)
+		}
+		tc, ok := result.Content[0].(*mcp.TextContent)
+		if !ok {
+			t.Fatalf(fmtWantTextContent, result.Content[0])
+		}
+		if tc.Text != wantEchoReply {
+			t.Errorf(fmtGotWant, tc.Text, wantEchoReply)
+		}
+	})
+}
+
+// postInitialize sends a raw MCP initialize POST to the streamable endpoint with
+// the given bearer token ("" omits the Authorization header). The auth gateway
+// runs before the MCP handler, so a rejected request never reaches the handler
+// and the request body is only exercised on the accepted path.
+func postInitialize(t *testing.T, url, token string) *http.Response {
+	t.Helper()
+	body := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("building request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST initialize: %v", err)
+	}
+	return resp
+}
+
 // TestStreamableHTTP_OAuthJWT_NoRoles_DeniedByPersona reproduces the
 // production bug: OAuth JWT is VALID (auth succeeds) but the Keycloak
 // user has NO dp_* roles, so Authorizer falls back to the default
@@ -385,7 +529,7 @@ func TestStreamableHTTP_OAuthJWT_NoRoles_DeniedByPersona(t *testing.T) {
 	server.AddReceivingMiddleware(middleware.MCPToolCallMiddleware(authenticator, authorizer, nil, middleware.ToolCallConfig{Transport: transportHTTP, AdminPersona: "admin"}))
 
 	streamHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil)
-	handler := httpauth.MCPAuthGateway("")(streamHandler)
+	handler := httpauth.MCPAuthGateway(nil, "")(streamHandler)
 	httpServer := httptest.NewServer(handler)
 	defer httpServer.Close()
 

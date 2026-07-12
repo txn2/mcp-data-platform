@@ -99,6 +99,42 @@ func TestChainedAuthenticator(t *testing.T) {
 	})
 }
 
+func TestChainedAuthenticator_TransientError(t *testing.T) {
+	transient := fmt.Errorf("jwks unreachable: %w", middleware.ErrValidationUnavailable)
+
+	t.Run("surfaces transient error preferentially over a definitive one", func(t *testing.T) {
+		// Order mirrors production: a JWT authenticator hits a transient JWKS
+		// failure, then the API key authenticator definitively rejects. The chain
+		// must surface the transient error so the caller can fail open.
+		jwtAuth := &mockAuthenticator{err: transient}
+		apiKeyAuth := &mockAuthenticator{err: errors.New("invalid API key")}
+
+		chained := NewChainedAuthenticator(ChainedAuthConfig{}, jwtAuth, apiKeyAuth)
+
+		_, err := chained.Authenticate(context.Background())
+		if !errors.Is(err, middleware.ErrValidationUnavailable) {
+			t.Fatalf("error = %v, want it to wrap middleware.ErrValidationUnavailable", err)
+		}
+	})
+
+	t.Run("a later success still wins over an earlier transient error", func(t *testing.T) {
+		// A valid API key must authenticate even while the OIDC JWKS endpoint is
+		// down — the transient error must not mask a real success.
+		jwtAuth := &mockAuthenticator{err: transient}
+		apiKeyAuth := &mockAuthenticator{userInfo: &middleware.UserInfo{UserID: "svc"}}
+
+		chained := NewChainedAuthenticator(ChainedAuthConfig{}, jwtAuth, apiKeyAuth)
+
+		userInfo, err := chained.Authenticate(context.Background())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if userInfo.UserID != "svc" {
+			t.Errorf("UserID = %q, want 'svc'", userInfo.UserID)
+		}
+	})
+}
+
 func TestChainedAuthenticator_EmptyChain(t *testing.T) {
 	t.Run("empty chain fails", func(t *testing.T) {
 		chained := NewChainedAuthenticator(ChainedAuthConfig{})

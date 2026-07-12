@@ -212,21 +212,21 @@ func TestNewSSEHandler(t *testing.T) {
 	mcpServer := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "0.1.0"}, nil)
 
 	t.Run("without auth", func(t *testing.T) {
-		handler := newSSEHandler(mcpServer, false, "")
+		handler := newSSEHandler(mcpServer, false, "", nil)
 		if handler == nil {
 			t.Fatal("expected non-nil handler")
 		}
 	})
 
 	t.Run("with auth no OAuth", func(t *testing.T) {
-		handler := newSSEHandler(mcpServer, true, "")
+		handler := newSSEHandler(mcpServer, true, "", nil)
 		if handler == nil {
 			t.Fatal("expected non-nil handler")
 		}
 	})
 
 	t.Run("with auth and OAuth", func(t *testing.T) {
-		handler := newSSEHandler(mcpServer, true, "https://mcp.example.com/.well-known/oauth-protected-resource")
+		handler := newSSEHandler(mcpServer, true, "https://mcp.example.com/.well-known/oauth-protected-resource", nil)
 		if handler == nil {
 			t.Fatal("expected non-nil handler")
 		}
