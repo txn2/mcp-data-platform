@@ -114,6 +114,11 @@ type Handle struct {
 	embedder   embedding.Provider
 	shareStore ShareLister
 
+	// listChanged holds the prompts/list_changed notifier, bound after
+	// construction once the session broadcaster exists. Read atomically per
+	// write by the notifying store wrapper; nil until SetListChangedNotifier.
+	listChanged atomicNotifier
+
 	promptInfosMu sync.RWMutex
 	promptInfos   []registry.PromptInfo
 }
@@ -134,12 +139,21 @@ func New(cfg Config) *Handle {
 		operatorPrompts:   cfg.OperatorPrompts,
 		builtinPrompts:    cfg.BuiltinPrompts,
 	}
+	var base prompt.Store
 	switch {
 	case cfg.Store != nil:
-		h.store = cfg.Store
+		base = cfg.Store
 	case cfg.DB != nil:
-		h.store = promptpostgres.New(cfg.DB)
+		base = promptpostgres.New(cfg.DB)
 		slog.Info("prompt store: postgres")
+	}
+	if base != nil {
+		// Wrap the backing store so every write path (manage_prompt tool,
+		// admin/portal REST, knowledge add_prompt) fires prompts/list_changed
+		// through the one shared instance — no per-handler emission to keep in
+		// sync. wrapStore preserves the store's search capability; the notifier
+		// is bound later via SetListChangedNotifier.
+		h.store = wrapStore(base, h.notifyListChanged)
 	}
 	return h
 }

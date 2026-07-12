@@ -57,6 +57,7 @@ internal/platform/knowledgelayer -> pkg/embedding
 internal/platform/knowledgelayer -> pkg/memory
 internal/platform/knowledgelayer -> pkg/portal/knowledgepage
 internal/platform/knowledgelayer -> pkg/toolkits/knowledge
+internal/platform/listchanged -> pkg/session
 internal/platform/memorylayer -> pkg/embedding
 internal/platform/memorylayer -> pkg/memory
 internal/platform/memorylayer -> pkg/middleware
@@ -209,6 +210,7 @@ pkg/platform -> internal/platform/exportadapters
 pkg/platform -> internal/platform/iam
 pkg/platform -> internal/platform/indexqueue
 pkg/platform -> internal/platform/knowledgelayer
+pkg/platform -> internal/platform/listchanged
 pkg/platform -> internal/platform/memorylayer
 pkg/platform -> internal/platform/mwchain
 pkg/platform -> internal/platform/oauthserver

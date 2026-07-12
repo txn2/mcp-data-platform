@@ -1327,7 +1327,7 @@ When `store: database`:
 
 Session hijack prevention: each session stores a SHA-256 hash of the creation token. Requests with a different token get HTTP 403.
 
-### Server-pushed notifications (`tools/list_changed`)
+### Server-pushed notifications (`tools`/`prompts`/`resources` `list_changed`)
 
 In stateless streamable HTTP mode (the production shape when `sessions.store: database`), the SDK refuses GET requests for SSE streaming and closes each session at end-of-request. Without intervention this means downstream agents (Claude.ai, Claude Desktop) never receive `notifications/tools/list_changed` — when a gateway upstream re-authenticates, agents still show the old tool list until they disconnect and reconnect.
 
@@ -1338,10 +1338,11 @@ The platform handles this with a session broadcaster:
 - Postgres `LISTEN/NOTIFY` implementation (channel `mcp_notifications`) for multi-replica. Each replica `LISTEN`s once at startup; every replica re-publishes received events to its local SSE subscribers.
 - The `AwareHandler.ServeHTTP` GET branch opens a long-lived `text/event-stream` response, subscribes to the broadcaster bound to the request's session ID, and streams every event as a JSON-RPC 2.0 notification (`data: {"jsonrpc":"2.0","method":"notifications/tools/list_changed","params":{}}\n\n`). A 25-second comment-frame heartbeat keeps the stream alive through proxy idle timeouts.
 - The gateway toolkit publishes `tools/list_changed` (debounced 50 ms — a longer window than the MCP SDK's own 10 ms internal debounce, chosen to absorb the postgres LISTEN/NOTIFY round-trip cost across replicas) after every aggregate tool-inventory change that registers or removes at least one tool: a connection coming up after re-auth, a connection being removed, the SetTokenStore retry promoting a placeholder. Zero-tool changes (placeholder upstreams, removals on connections with no live tools) are silently skipped.
+- The same broadcaster carries `prompts/list_changed` and `resources/list_changed` (also debounced 50 ms). `notifications/prompts/list_changed` fires on every prompt store write (create, update, delete, approve, scope promotion) across all write paths (`manage_prompt`, admin/portal REST, knowledge `add_prompt`), emitted from a notifying wrapper over the shared prompt store so no write path can change the prompt set without notifying; the advertised `prompts.listChanged` capability is honest. `notifications/resources/list_changed` fires when a managed resource is created or deleted through the admin REST API (startup registration of existing resources does not notify). `resources/subscribe` (per-resource `notifications/resources/updated`) is intentionally not implemented: no current client watches individual managed resources, and the coarse list_changed signal already prompts a re-list, so the capability flag is left unset to keep the contract honest.
 
-Broadcaster lifecycle is owned by the platform: `initSessions` builds it (postgres if a DSN is configured, in-memory otherwise) and `Close` shuts it down before the database connection closes. `WireGatewayBroadcaster` plugs it into every gateway toolkit, mirroring `WireGatewayTokenStore`.
+Broadcaster lifecycle is owned by the platform: `initSessions` builds it (postgres if a DSN is configured, in-memory otherwise) and `Close` shuts it down before the database connection closes. `WireGatewayBroadcaster` plugs it into every gateway toolkit, mirroring `WireGatewayTokenStore`; the prompt and managed-resource notifiers are bound during `finalizeSetup` and stopped via the platform lifecycle.
 
-If the postgres broadcaster fails at startup (e.g. role missing `LISTEN` privilege), the platform falls back to in-memory and continues — `tools/list_changed` propagation degrades to single-replica scope rather than failing platform startup.
+If the postgres broadcaster fails at startup (e.g. role missing `LISTEN` privilege), the platform falls back to in-memory and continues: `tools/list_changed`, `prompts/list_changed`, and `resources/list_changed` propagation degrades to single-replica scope rather than failing platform startup.
 
 ---
 

@@ -283,3 +283,34 @@ func (*countingStore) GetByURI(_ context.Context, _ string) (*resource.Resource,
 }
 func (*countingStore) Update(_ context.Context, _ string, _ resource.Update) error { return nil }
 func (*countingStore) Delete(_ context.Context, _ string) error                    { return nil }
+
+// fakeNotifier records Notify calls. Satisfies ListChangedNotifier.
+type fakeNotifier struct{ calls int }
+
+func (f *fakeNotifier) Notify() { f.calls++ }
+
+// TestNotifyListChanged proves the bound notifier fires and that a nil handle or
+// an unbound notifier is a safe no-op — the runtime create/delete paths call
+// this; a no-database (nil handle) deployment must not panic.
+func TestNotifyListChanged(t *testing.T) {
+	// Nil handle: no-op.
+	var nilH *Handle
+	nilH.SetListChangedNotifier(&fakeNotifier{}) // no panic
+	nilH.NotifyListChanged()                     // no panic
+
+	// Bound notifier fires.
+	h := &Handle{}
+	f := &fakeNotifier{}
+	h.SetListChangedNotifier(f)
+	h.NotifyListChanged()
+	h.NotifyListChanged()
+	if f.calls != 2 {
+		t.Errorf("notifier fired %d times, want 2", f.calls)
+	}
+
+	// Unbound notifier: no-op, no panic.
+	h2 := &Handle{}
+	h2.NotifyListChanged()
+}
+
+var _ ListChangedNotifier = (*fakeNotifier)(nil)

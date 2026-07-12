@@ -3321,8 +3321,17 @@ func TestBuildServerCapabilities(t *testing.T) {
 			if (caps.Resources != nil) != tt.wantResources {
 				t.Errorf("Resources: got %v, want present=%v", caps.Resources, tt.wantResources)
 			}
+			// When advertised, both capabilities must declare ListChanged so the
+			// contract matches reality: the platform emits prompts/list_changed and
+			// resources/list_changed on runtime writes (#927).
+			if tt.wantResources && !caps.Resources.ListChanged {
+				t.Error("Resources advertised without ListChanged: true")
+			}
 			if (caps.Prompts != nil) != tt.wantPrompts {
 				t.Errorf("Prompts: got %v, want present=%v", caps.Prompts, tt.wantPrompts)
+			}
+			if tt.wantPrompts && !caps.Prompts.ListChanged {
+				t.Error("Prompts advertised without ListChanged: true")
 			}
 		})
 	}

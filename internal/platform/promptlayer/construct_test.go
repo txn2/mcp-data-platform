@@ -17,7 +17,11 @@ func TestNew_StoreSelection(t *testing.T) {
 		store := newMockPromptStore()
 		h := New(Config{Store: store, Registry: registry.NewRegistry()})
 		require.NotNil(t, h)
-		assert.Same(t, store, h.Store())
+		// The exposed store wraps the injected one in the list_changed-notifying
+		// decorator (#927), so it is not identity-equal; assert delegation
+		// instead — a write through h.Store() must land in the injected mock.
+		require.NoError(t, h.Store().Create(context.Background(), &prompt.Prompt{Name: "delegated"}))
+		assert.Contains(t, store.prompts, "delegated", "writes delegate to the injected store")
 	})
 
 	t.Run("no store and no db leaves store nil", func(t *testing.T) {
