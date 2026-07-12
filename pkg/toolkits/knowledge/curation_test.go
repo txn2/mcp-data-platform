@@ -3,8 +3,10 @@ package knowledge
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -242,6 +244,222 @@ func TestCurationChangeTypes_NotRevertible(t *testing.T) {
 		assert.False(t, isRevertible(recordedChange{ChangeType: ct}, "dataset"),
 			"%s isRevertible must be false", ct)
 	}
+}
+
+// --- apply-time rollback advertisement honesty (#922) ---
+
+// TestChangesetRevertibility_And_Message covers the contract that fixes the #922
+// contradiction: the apply/list_changesets `revertible` field and the success message
+// must both derive from the same all-or-nothing gate rollback enforces, so a changeset
+// is never advertised as rollback-able and then refused. Rollback reverts nothing if
+// ANY change lacks a before-image, so a mixed changeset is unrevertible, not partial.
+// Table-driven over all-revertible, column-description, getter-less entity type, page
+// target, and mixed.
+func TestChangesetRevertibility_And_Message(t *testing.T) {
+	const domainURN = "urn:li:domain:marketing"
+	tests := []struct {
+		name           string
+		targetURN      string
+		changes        []recordedChange
+		wantRevertible bool
+		wantBlocking   []string
+		msgHasRollback bool // message instructs action=rollback
+		msgHasRefusal  bool // message states it cannot be rolled back
+	}{
+		{
+			name:           "all revertible",
+			targetURN:      testEntityURN,
+			changes:        []recordedChange{{ChangeType: "add_glossary_term", Detail: "urn:li:glossaryTerm:x"}},
+			wantRevertible: true,
+			msgHasRollback: true,
+		},
+		{
+			name:           "column description only",
+			targetURN:      testEntityURN,
+			changes:        []recordedChange{{ChangeType: "update_description", Target: "column:total_amount", Detail: "d"}},
+			wantRevertible: false,
+			wantBlocking:   []string{"update_description"},
+			msgHasRefusal:  true,
+		},
+		{
+			name:           "getter-less entity type",
+			targetURN:      domainURN,
+			changes:        []recordedChange{{ChangeType: "update_description", Detail: "d"}},
+			wantRevertible: false,
+			wantBlocking:   []string{"update_description"},
+			msgHasRefusal:  true,
+		},
+		{
+			// A knowledge-page promotion reverts through the page sink, not the DataHub
+			// inverse path, so it is always structurally revertible here regardless of
+			// its recorded change types.
+			name:           "page target",
+			targetURN:      "kp:sales-glossary",
+			changes:        []recordedChange{{ChangeType: "update_description", Target: "column:total_amount", Detail: "d"}},
+			wantRevertible: true,
+			msgHasRollback: true,
+		},
+		{
+			// Mixed is NOT partial: rollback is all-or-nothing, so one unrevertible
+			// change makes the whole changeset unrevertible. The message must not promise
+			// to revert the glossary term the rollback would refuse to touch.
+			name:      "mixed is unrevertible",
+			targetURN: testEntityURN,
+			changes: []recordedChange{
+				{ChangeType: "add_glossary_term", Detail: "urn:li:glossaryTerm:x"},
+				{ChangeType: "update_description", Target: "column:total_amount", Detail: "d"},
+			},
+			wantRevertible: false,
+			wantBlocking:   []string{"update_description"},
+			msgHasRefusal:  true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			revertible, blocking := changesetRevertibility(tt.targetURN, tt.changes)
+			assert.Equal(t, tt.wantRevertible, revertible)
+			assert.Equal(t, tt.wantBlocking, blocking)
+
+			msg := applyResultMessage("cs-1", revertible, blocking)
+			assert.Equal(t, tt.msgHasRollback, strings.Contains(msg, "action=rollback changeset_id=cs-1"),
+				"rollback-instruction presence mismatch: %q", msg)
+			assert.Equal(t, tt.msgHasRefusal, strings.Contains(msg, "cannot be rolled back automatically"),
+				"refusal-statement presence mismatch: %q", msg)
+			for _, ct := range tt.wantBlocking {
+				assert.Contains(t, msg, ct, "message must name the blocking change type")
+			}
+		})
+	}
+}
+
+// TestApply_ColumnDescription_DoesNotAdvertiseRollback is the #922 acceptance test:
+// an apply whose only change is a column-level update_description returns a message
+// that does NOT instruct rollback, carries revertible:false, and names the offending
+// change type — through the real handler, not just the classifier in isolation.
+func TestApply_ColumnDescription_DoesNotAdvertiseRollback(t *testing.T) {
+	writer := &spyWriter{Metadata: &EntityMetadata{}}
+	csStore := &spyChangesetStore{}
+	tk := newApplyToolkit(t, &fullSpyStore{}, csStore, writer)
+
+	result, _, err := tk.handleApplyKnowledge(context.Background(), nil, applyKnowledgeInput{
+		Action:    "apply",
+		EntityURN: testEntityURN,
+		Changes:   []ApplyChange{{ChangeType: "update_description", Target: "column:total_amount", Detail: "the order total"}},
+	})
+	require.Nil(t, err)
+	require.False(t, result.IsError, parseJSONResult(t, result))
+
+	out := parseJSONResult(t, result)
+	assert.Equal(t, false, out["revertible"])
+	msg, _ := out[fieldMessage].(string)
+	assert.NotContains(t, msg, "action=rollback", "must not instruct rollback for an unrevertible changeset")
+	assert.Contains(t, msg, "cannot be rolled back automatically")
+	unrev, _ := out["unrevertible_change_types"].([]any)
+	require.Len(t, unrev, 1)
+	assert.Equal(t, "update_description", unrev[0])
+}
+
+// TestApply_AllRevertible_AdvertisesRollback keeps the happy path honest: an
+// all-revertible apply still advertises rollback and carries revertible:true, and
+// list_changesets surfaces the same true so a caller can pick a rollback target
+// without discovering the refusal after the fact.
+func TestApply_AllRevertible_AdvertisesRollback(t *testing.T) {
+	writer := &spyWriter{Metadata: &EntityMetadata{GlossaryTerms: []string{}, Tags: []string{}, Owners: []string{}}}
+	csStore := &spyChangesetStore{}
+	tk := newApplyToolkit(t, &fullSpyStore{}, csStore, writer)
+
+	result, _, err := tk.handleApplyKnowledge(context.Background(), nil, applyKnowledgeInput{
+		Action:    "apply",
+		EntityURN: testEntityURN,
+		Changes:   []ApplyChange{{ChangeType: "add_glossary_term", Detail: "urn:li:glossaryTerm:x"}},
+	})
+	require.Nil(t, err)
+	require.False(t, result.IsError, parseJSONResult(t, result))
+
+	out := parseJSONResult(t, result)
+	assert.Equal(t, true, out["revertible"])
+	assert.NotContains(t, out, "unrevertible_change_types")
+	msg, _ := out[fieldMessage].(string)
+	assert.Contains(t, msg, "action=rollback")
+
+	listRes, _, err := tk.handleListChangesets(context.Background(), applyKnowledgeInput{
+		Action: "list_changesets", EntityURN: testEntityURN,
+	})
+	require.Nil(t, err)
+	listOut := parseJSONResult(t, listRes)
+	list, ok := listOut["changesets"].([]any)
+	require.True(t, ok)
+	require.Len(t, list, 1)
+	entry, _ := list[0].(map[string]any)
+	assert.Equal(t, true, entry["revertible"])
+}
+
+// TestApply_MixedChangeset_AdvertisesUnrevertible_ThenRollbackRefuses is the end-to-end
+// proof that the advertisement matches rollback's actual behavior (#922): a changeset
+// mixing a revertible and an unrevertible change must be advertised revertible:false
+// (rollback is all-or-nothing) AND the subsequent rollback must refuse — never the
+// advertise-then-refuse contradiction the review caught in the first cut.
+func TestApply_MixedChangeset_AdvertisesUnrevertible_ThenRollbackRefuses(t *testing.T) {
+	writer := &spyWriter{Metadata: &EntityMetadata{GlossaryTerms: []string{}, Tags: []string{}, Owners: []string{}}}
+	csStore := &spyChangesetStore{}
+	tk := newApplyToolkit(t, &fullSpyStore{}, csStore, writer)
+	ctx := context.Background()
+
+	result, _, err := tk.handleApplyKnowledge(ctx, nil, applyKnowledgeInput{
+		Action:    "apply",
+		EntityURN: testEntityURN,
+		Changes: []ApplyChange{
+			{ChangeType: "add_glossary_term", Detail: "urn:li:glossaryTerm:x"},
+			{ChangeType: "update_description", Target: "column:total_amount", Detail: "the order total"},
+		},
+	})
+	require.Nil(t, err)
+	require.False(t, result.IsError, parseJSONResult(t, result))
+
+	out := parseJSONResult(t, result)
+	assert.Equal(t, false, out["revertible"], "a mixed changeset is not partially revertible; rollback is all-or-nothing")
+	msg, _ := out[fieldMessage].(string)
+	assert.NotContains(t, msg, "action=rollback", "must not instruct a rollback rollback would refuse")
+	csID, _ := out["changeset_id"].(string)
+	require.NotEmpty(t, csID)
+
+	// The advertised refusal must actually happen: rolling back is refused, reverting
+	// nothing (not even the revertible glossary term).
+	rbRes, _, err := tk.handleRollback(ctx, applyKnowledgeInput{
+		Action: "rollback", ChangesetID: csID, Confirm: true,
+	})
+	require.Nil(t, err)
+	require.True(t, rbRes.IsError, "rollback of a mixed changeset must be refused")
+	rbText, _ := rbRes.Content[0].(*mcp.TextContent)
+	require.NotNil(t, rbText)
+	assert.Contains(t, rbText.Text, "cannot be rolled back automatically")
+	require.Len(t, csStore.Changesets, 1)
+	assert.False(t, csStore.Changesets[0].RolledBack, "a refused rollback must not mark the changeset rolled back")
+}
+
+// TestListChangesets_AlreadyRolledBack_NotRevertible covers #922 review finding: an
+// already-rolled-back changeset, though structurally revertible, must report
+// revertible:false so a caller filtering on that field alone never picks it (the
+// rollback would refuse with "already rolled back").
+func TestListChangesets_AlreadyRolledBack_NotRevertible(t *testing.T) {
+	csStore := &spyChangesetStore{Changesets: []Changeset{{
+		ID:         "cs-rolled",
+		TargetURN:  testEntityURN,
+		ChangeType: "add_glossary_term",
+		NewValue:   changesToMap([]ApplyChange{{ChangeType: "add_glossary_term", Detail: "urn:li:glossaryTerm:x"}}),
+		RolledBack: true,
+	}}}
+	tk := newApplyToolkit(t, &fullSpyStore{}, csStore, &spyWriter{Metadata: &EntityMetadata{}})
+
+	listRes, _, err := tk.handleListChangesets(context.Background(), applyKnowledgeInput{
+		Action: "list_changesets", EntityURN: testEntityURN,
+	})
+	require.Nil(t, err)
+	list, _ := parseJSONResult(t, listRes)["changesets"].([]any)
+	require.Len(t, list, 1)
+	entry, _ := list[0].(map[string]any)
+	assert.Equal(t, false, entry["revertible"], "an already-rolled-back changeset is not revertible")
+	assert.Equal(t, true, entry["rolled_back"])
 }
 
 // TestBulkUntagChangeset_IsUnrevertible guards the rollback contract: a bulk_untag

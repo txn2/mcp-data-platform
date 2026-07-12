@@ -605,6 +605,10 @@ func (t *Toolkit) recordPageChangesetAndMarkApplied(ctx context.Context, input a
 		"slug":                    prom.slug,
 		"action":                  action,
 		"insights_marked_applied": len(insightIDs),
+		// A page promotion reverts through the page sink, so it is always structurally
+		// revertible; carry the same `revertible` field the DataHub apply path and
+		// list_changesets expose so the contract is uniform across apply responses (#922).
+		"revertible": true,
 		// references_attached is always present (a count, 0 when this apply attached
 		// none) so a consumer can read it unconditionally.
 		"references_attached": prom.attached,

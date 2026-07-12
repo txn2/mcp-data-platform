@@ -218,6 +218,11 @@ func bulkUntagSuccess(o bulkUntagOutcome) (*mcp.CallToolResult, any, error) {
 		fieldTagURN:            o.tagURN,
 		"entities_untagged":    len(o.affected),
 		"affected_urns_sample": sampleURNs(o.affected),
+		// bulk_untag records a changeset for audit but is not auto-revertible (the
+		// untagged set has no captured before-image); carry the same structured field
+		// the other apply responses expose so the contract is uniform (#922).
+		"revertible":                false,
+		"unrevertible_change_types": []string{string(actionBulkUntag)},
 	}
 	if o.failed > 0 {
 		resp["failed"] = o.failed

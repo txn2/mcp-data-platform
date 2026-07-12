@@ -1104,6 +1104,7 @@ Review, synthesize, and apply captured insights to the data catalog. Admin-only.
   "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)",
   "changes_applied": 2,
   "insights_marked_applied": 1,
+  "revertible": true,
   "resulting_state": {
     "description": "Order records with gross margin amounts (before returns)",
     "tags": ["urn:li:tag:gross-margin"],
@@ -1113,6 +1114,8 @@ Review, synthesize, and apply captured insights to the data catalog. Admin-only.
   "message": "Changes applied to DataHub. Roll back with action=rollback changeset_id=cs_x1y2z3a4b5c6d7e8f9a0b1c2d3e4f5a6. changes_applied counts requested changes; verify against resulting_state below."
 }
 ```
+
+`revertible` is a boolean reflecting whether the changeset can be rolled back automatically (computed with the same all-or-nothing gate rollback enforces; any single unrevertible change makes the whole changeset `false`, so there is no partial rollback). When it is `false`, an `unrevertible_change_types` array names the change types with no before-image and the `message` states why instead of advertising a rollback. `list_changesets` entries carry the same two fields (and report `false` once a changeset has been rolled back).
 
 See [Governance Workflow](../knowledge/governance.md) for detailed examples of each action.
 

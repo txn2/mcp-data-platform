@@ -234,6 +234,7 @@ Tag names and glossary term names are automatically normalized to full DataHub U
   "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)",
   "changes_applied": 2,
   "insights_marked_applied": 1,
+  "revertible": true,
   "resulting_state": {
     "description": "Order records with gross margin amounts (before returns)",
     "tags": ["urn:li:tag:gross-margin"],
@@ -245,6 +246,10 @@ Tag names and glossary term names are automatically normalized to full DataHub U
 ```
 
 Source insights move to `applied` status with a reference to the changeset.
+
+The `revertible` boolean states whether the changeset can be rolled back automatically before you try. Rollback is all-or-nothing (it reverts nothing if any single change lacks a recoverable before-image), so revertibility is binary: `true` only when every change is revertible, `false` when any change is not (there is no partial rollback). It is computed with the same gate rollback enforces, so the response never advertises a rollback the changeset cannot perform. When `revertible` is `false`, an `unrevertible_change_types` array names the blocking change types and the `message` states why (no before-image) instead of instructing a rollback. The common case is a column-level `update_description`: the before-image captures only the entity-level description, so a column description change is recorded for audit but cannot be auto-reverted; restore prior state with a new apply.
+
+`revertible` reports *structural* revertibility (whether the recorded before-image supports an inverse), not runtime availability. A structurally revertible changeset can still be refused at rollback time because it was already rolled back or a newer changeset has since modified the same aspect. The `list_changesets` view folds the already-rolled-back state into its `revertible` flag; the newer-changeset conflict is surfaced only when the rollback is attempted.
 
 `changes_applied` counts the changes that were dispatched without error; a duplicate add (for example a tag that was already present) is a no-op upstream and still counts. The `resulting_state` field is a fresh read-back of the entity's description, tags, glossary terms, and owners after the apply, so callers can confirm what actually persisted without a follow-up call. Writes are not transactional: if a change in the middle of the list fails, earlier changes have already persisted and are reported in the error message rather than silently rolled back.
 
@@ -284,7 +289,7 @@ Use the `list_changesets` action to find an entity's changesets without already 
 { "action": "list_changesets", "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:trino,hive.sales.orders,PROD)" }
 ```
 
-Each entry returns `changeset_id`, `created_at`, `applied_by`, `change_type`, `source_insight_ids`, and the current `rolled_back` status.
+Each entry returns `changeset_id`, `created_at`, `applied_by`, `change_type`, `source_insight_ids`, the current `rolled_back` status, and the same `revertible` boolean (plus `unrevertible_change_types` when `false`) the apply response carries, so a caller can filter out structurally unrevertible or already-rolled-back changesets before issuing a rollback.
 
 ## Rollback
 
