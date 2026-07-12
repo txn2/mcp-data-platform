@@ -202,6 +202,46 @@ func TestPlatformContext_DiscoveryScopeKey(t *testing.T) {
 	})
 }
 
+// TestPlatformContext_RateLimitKey pins the per-user rate-limit key derivation
+// (issue #929): user-first when the identity is genuinely distinct, session
+// fallback for shared/anonymous identities so one caller cannot drain another's
+// bucket, and empty (fail-open) when neither is known.
+func TestPlatformContext_RateLimitKey(t *testing.T) {
+	tests := []struct {
+		name     string
+		userID   string
+		authType string
+		session  string
+		want     string
+	}{
+		{"distinct authenticated user keyed by user", "alice", "oidc", "sess-1", "user:alice"},
+		{"oauth user keyed by user", "alice", "oauth", "sess-1", "user:alice"},
+		{"anonymous falls back to session", "anonymous", "anonymous", "sess-1", "session:sess-1"},
+		{"noop falls back to session", "anonymous", "noop", "sess-1", "session:sess-1"},
+		{"user without auth type falls back to session", "alice", "", "sess-1", "session:sess-1"},
+		{"no user falls back to session", "", "", "sess-1", "session:sess-1"},
+		{"empty when neither is known (fail-open)", "", "", "", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pc := &PlatformContext{UserID: tc.userID, AuthType: tc.authType, SessionID: tc.session}
+			if got := pc.RateLimitKey(); got != tc.want {
+				t.Errorf("RateLimitKey() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+
+	// Distinct anonymous callers (auth disabled: same "anonymous" UserID,
+	// different sessions) must not share one bucket.
+	t.Run("distinct anonymous callers do not share a bucket", func(t *testing.T) {
+		a := &PlatformContext{UserID: "anonymous", AuthType: "anonymous", SessionID: "sess-a"}
+		b := &PlatformContext{UserID: "anonymous", AuthType: "anonymous", SessionID: "sess-b"}
+		if a.RateLimitKey() == b.RateLimitKey() {
+			t.Errorf("distinct anonymous callers collapsed onto one bucket key: %q", a.RateLimitKey())
+		}
+	})
+}
+
 func TestTokenContext(t *testing.T) {
 	t.Run("WithToken and GetToken", func(t *testing.T) {
 		ctx := WithToken(context.Background(), "test-token-123")

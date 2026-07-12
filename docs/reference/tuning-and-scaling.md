@@ -162,6 +162,16 @@ These caches are per-replica. They affect behavior, not correctness:
   single client sees roughly N times its configured budget. If you depend on
   the portal rate limit for SLO enforcement, terminate at an ingress-level
   rate limiter instead.
+- **Tool-call rate limiter**: token bucket keyed by authenticated user
+  (`internal/platform/toolratelimit/toolratelimit.go`), configured under the top-level
+  `rate_limit:` block. It is a safety net against a runaway agent loop or a
+  compromised account. The sizing guidance above (audit writes/second, the
+  per-replica DB pool, upstream capacity) is exactly what it protects. With N
+  replicas a single user's effective ceiling is N times the configured
+  `requests_per_minute`/`burst`; the default (240 rpm, burst 60) is deliberately
+  generous so ordinary use never touches it, so the per-replica multiplication is
+  not a concern for the backstop's purpose. Each refusal increments
+  `mcp_rate_limited_total`. See [Tool-Call Rate Limiting](../server/configuration.md#tool-call-rate-limiting).
 
 ### Replica count and PostgreSQL connections
 

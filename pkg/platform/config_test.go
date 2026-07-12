@@ -2182,6 +2182,75 @@ func TestWorkflowConfig_IsRequireSearchEnabled(t *testing.T) {
 	})
 }
 
+func TestRateLimitConfig(t *testing.T) {
+	t.Run("nil Enabled defaults to true", func(t *testing.T) {
+		if !(&RateLimitConfig{}).IsEnabled() {
+			t.Error("expected nil Enabled to default to true")
+		}
+	})
+	t.Run("explicit false disables", func(t *testing.T) {
+		if (&RateLimitConfig{Enabled: new(false)}).IsEnabled() {
+			t.Error("expected explicit false to disable")
+		}
+	})
+	t.Run("explicit true enables", func(t *testing.T) {
+		if !(&RateLimitConfig{Enabled: new(true)}).IsEnabled() {
+			t.Error("expected explicit true to enable")
+		}
+	})
+	t.Run("EffectiveRPM default when unset", func(t *testing.T) {
+		if got := (&RateLimitConfig{}).EffectiveRPM(); got != defaultRateLimitRPM {
+			t.Errorf("EffectiveRPM() = %d, want default %d", got, defaultRateLimitRPM)
+		}
+	})
+	t.Run("EffectiveRPM default when non-positive", func(t *testing.T) {
+		if got := (&RateLimitConfig{RequestsPerMinute: -5}).EffectiveRPM(); got != defaultRateLimitRPM {
+			t.Errorf("EffectiveRPM() = %d, want default %d", got, defaultRateLimitRPM)
+		}
+	})
+	t.Run("EffectiveRPM honors positive value", func(t *testing.T) {
+		if got := (&RateLimitConfig{RequestsPerMinute: 500}).EffectiveRPM(); got != 500 {
+			t.Errorf("EffectiveRPM() = %d, want 500", got)
+		}
+	})
+	t.Run("EffectiveBurst default when unset", func(t *testing.T) {
+		if got := (&RateLimitConfig{}).EffectiveBurst(); got != defaultRateLimitBurst {
+			t.Errorf("EffectiveBurst() = %d, want default %d", got, defaultRateLimitBurst)
+		}
+	})
+	t.Run("EffectiveBurst default when non-positive", func(t *testing.T) {
+		if got := (&RateLimitConfig{Burst: 0}).EffectiveBurst(); got != defaultRateLimitBurst {
+			t.Errorf("EffectiveBurst() = %d, want default %d", got, defaultRateLimitBurst)
+		}
+	})
+	t.Run("EffectiveBurst honors positive value", func(t *testing.T) {
+		if got := (&RateLimitConfig{Burst: 15}).EffectiveBurst(); got != 15 {
+			t.Errorf("EffectiveBurst() = %d, want 15", got)
+		}
+	})
+	t.Run("YAML rate_limit block parses", func(t *testing.T) {
+		cfg := loadTestConfig(t, "server:\n  name: test-platform\nrate_limit:\n  enabled: false\n  requests_per_minute: 90\n  burst: 12\n  exempt_tools: [search]\n")
+		if cfg.RateLimit.IsEnabled() {
+			t.Error("expected rate_limit.enabled: false to disable")
+		}
+		if cfg.RateLimit.EffectiveRPM() != 90 {
+			t.Errorf("EffectiveRPM() = %d, want 90", cfg.RateLimit.EffectiveRPM())
+		}
+		if cfg.RateLimit.EffectiveBurst() != 12 {
+			t.Errorf("EffectiveBurst() = %d, want 12", cfg.RateLimit.EffectiveBurst())
+		}
+		if len(cfg.RateLimit.ExemptTools) != 1 || cfg.RateLimit.ExemptTools[0] != "search" {
+			t.Errorf("ExemptTools = %v, want [search]", cfg.RateLimit.ExemptTools)
+		}
+	})
+	t.Run("missing rate_limit block defaults to enabled", func(t *testing.T) {
+		cfg := loadTestConfig(t, "server:\n  name: test-platform\n")
+		if !cfg.RateLimit.IsEnabled() {
+			t.Error("expected missing rate_limit block to default to enabled")
+		}
+	})
+}
+
 func TestClientLoggingConfig_IsEnabled(t *testing.T) {
 	t.Run("nil defaults to true", func(t *testing.T) {
 		cfg := &ClientLoggingConfig{}

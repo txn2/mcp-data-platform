@@ -1,7 +1,11 @@
 package platform
 
 import (
+	"context"
+	"log/slog"
+
 	"github.com/txn2/mcp-data-platform/internal/platform/mwchain"
+	"github.com/txn2/mcp-data-platform/internal/platform/toolratelimit"
 	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
 
@@ -20,6 +24,7 @@ const (
 	mwToolCall            mwName = "tool_call" // auth/authz; writes PlatformContext via context.WithValue
 	mwSessionGate         mwName = "session_gate"
 	mwWorkflowGate        mwName = "workflow_gate"
+	mwRateLimit           mwName = "rate_limit"
 	mwReflexiveCapture    mwName = "reflexive_capture"
 	mwTracing             mwName = "tracing"
 	mwMetrics             mwName = "metrics"
@@ -70,6 +75,37 @@ func (p *Platform) receivingMiddlewareChain() []mwSpec {
 		// platform_info takes precedence.
 		{Name: mwSessionGate, Requires: []mwName{mwToolCall}, Register: p.addSessionGateMiddleware},
 		{Name: mwWorkflowGate, Requires: []mwName{mwToolCall, mwSessionGate}, Register: p.addWorkflowGateMiddleware},
+
+		// Per-user rate limiter (#929): a safety net that refuses tools/call
+		// requests over a generous per-identity limit before they reach the
+		// observers, handler, or upstream. Inner to the gates so it only meters
+		// calls that pass them and would actually execute; outer to
+		// audit/metrics/tracing/enrichment so a refused call consumes none of
+		// their work. Reads PlatformContext (identity), so it requires the
+		// auth/authz middleware that writes it. The limiter is owned by the
+		// toolratelimit seam and its lifetime is tracked on the lifecycle, so
+		// registration is an inline closure rather than a *Platform method: the
+		// platform facade gains no field or method for this subsystem.
+		{Name: mwRateLimit, Requires: []mwName{mwToolCall}, Register: func() {
+			if !p.config.RateLimit.IsEnabled() {
+				return
+			}
+			rpm := p.config.RateLimit.EffectiveRPM()
+			burst := p.config.RateLimit.EffectiveBurst()
+			h := toolratelimit.New(rpm, burst, p.config.RateLimit.ExemptTools, p.obs.Metrics())
+			p.mcpServer.AddReceivingMiddleware(h.Middleware())
+			// Close the limiter's eviction goroutine on shutdown via the
+			// lifecycle, so no Platform field is needed to hold it for teardown.
+			p.lifecycle.OnStop(func(context.Context) error {
+				h.Close()
+				return nil
+			})
+			slog.Info("tool-call rate limiter enabled",
+				"requests_per_minute", rpm,
+				"burst", burst,
+				"exempt_tools", p.config.RateLimit.ExemptTools,
+			)
+		}},
 
 		// Observers: read PlatformContext (identity/session/tool metadata), so
 		// they require the auth/authz middleware that writes it. Reflexive

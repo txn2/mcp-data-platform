@@ -129,6 +129,33 @@ func TestRecordAuditEventDropped(t *testing.T) {
 	}
 }
 
+func TestRecordRateLimited(t *testing.T) {
+	m, err := New(Config{Enabled: true, ListenAddr: ":0"})
+	if err != nil {
+		t.Fatalf("New(enabled) err = %v", err)
+	}
+	if m == nil {
+		t.Fatal("New(enabled) returned nil recorder")
+	}
+	defer func() { _ = m.Shutdown(context.Background()) }()
+
+	ctx := context.Background()
+	m.RecordRateLimited(ctx)
+	m.RecordRateLimited(ctx)
+
+	body := scrapeMetrics(t, m.Handler())
+	if !strings.Contains(body, "mcp_rate_limited_total 2") {
+		t.Errorf("expected mcp_rate_limited_total 2 in scrape body:\n%s", body)
+	}
+}
+
+// TestRecordRateLimitedNilSafe proves the recorder is a no-op on a nil *Metrics,
+// so the middleware can record unconditionally without an enabled check.
+func TestRecordRateLimitedNilSafe(_ *testing.T) {
+	var m *Metrics
+	m.RecordRateLimited(context.Background()) // must not panic
+}
+
 func TestRecordAPIGatewayInbound(t *testing.T) {
 	m, err := New(Config{Enabled: true, ListenAddr: ":0"})
 	if err != nil {

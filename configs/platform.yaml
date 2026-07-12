@@ -359,6 +359,21 @@ enrichment:
 #   # discovery_tools: []           # Tools that satisfy the gate (defaults to search + the datahub_* tools)
 #   # query_tools: []               # Tools that are gated (defaults to trino_query, trino_execute)
 
+# Per-user tool-call rate limiting
+# A safety net on authenticated tools/call requests, keyed on the authenticated
+# user. Bounds a runaway agent loop or a compromised account before it can
+# saturate the audit pipeline, the DB pool, or an upstream. NOT a throughput
+# throttle — the default (240 rpm, burst 60 per user) is generous enough that
+# ordinary use never touches it. Over-limit calls are refused with a RATE_LIMITED
+# error before the handler, audit, or upstream run. platform_info is always
+# exempt. Enabled by default; set enabled: false to remove the limiter.
+# (Distinct from oauth.rate_limit, the per-IP limiter on the OAuth endpoints.)
+# rate_limit:
+#   enabled: true                   # Default: true. false removes the limiter.
+#   requests_per_minute: 240        # Default: 240. Sustained per-user rate (4/second).
+#   burst: 60                       # Default: 60. Largest instantaneous per-user burst.
+#   # exempt_tools: []              # Tools never limited (platform_info is always exempt)
+
 # Tuning
 tuning:
   rules:
