@@ -13,6 +13,7 @@ internal/httpserver -> pkg/gatewayhttp
 internal/httpserver -> pkg/health
 internal/httpserver -> pkg/http
 internal/httpserver -> pkg/knowledge
+internal/httpserver -> pkg/middleware
 internal/httpserver -> pkg/observability/proxy
 internal/httpserver -> pkg/persona
 internal/httpserver -> pkg/pkcestore
@@ -157,6 +158,7 @@ pkg/gatewayhttp -> pkg/middleware
 pkg/gatewayhttp -> pkg/observability
 pkg/gatewayhttp -> pkg/toolkits/apigateway
 pkg/http -> pkg/auth
+pkg/http -> pkg/middleware
 pkg/indexjobs -> pkg/embedding
 pkg/knowledge -> pkg/embedding
 pkg/knowledge -> pkg/memory

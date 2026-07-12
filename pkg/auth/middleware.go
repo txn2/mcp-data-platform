@@ -90,8 +90,15 @@ func NewChainedAuthenticator(cfg ChainedAuthConfig, authenticators ...middleware
 // lastErr tracks the most recent real (non-sentinel) error so a
 // failed-everywhere chain surfaces a meaningful reason instead of the
 // noisy ErrNotAJWT sentinel.
+//
+// transientErr separately retains a middleware.ErrValidationUnavailable (e.g.
+// OIDC JWKS unreachable). A successful authenticator still wins outright — a
+// valid API key authenticates during an IdP blip — but when nothing succeeds, a
+// transient failure is surfaced ahead of a definitive one so the caller can
+// distinguish "could not validate" from "invalid" and fail open rather than
+// hard-reject.
 func (c *ChainedAuthenticator) Authenticate(ctx context.Context) (*middleware.UserInfo, error) {
-	var lastErr error
+	var lastErr, transientErr error
 	reqID, tool := correlationFields(ctx)
 
 	for i, auth := range c.authenticators {
@@ -103,6 +110,10 @@ func (c *ChainedAuthenticator) Authenticate(ctx context.Context) (*middleware.Us
 			continue
 		}
 		if errors.Is(err, ErrNotAJWT) {
+			continue
+		}
+		if errors.Is(err, middleware.ErrValidationUnavailable) {
+			transientErr = err
 			continue
 		}
 		slog.Debug("chained auth: verification failed for this authenticator, trying next",
@@ -123,6 +134,9 @@ func (c *ChainedAuthenticator) Authenticate(ctx context.Context) (*middleware.Us
 		}, nil
 	}
 
+	if transientErr != nil {
+		return nil, transientErr
+	}
 	if lastErr != nil {
 		return nil, lastErr
 	}

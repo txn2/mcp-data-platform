@@ -15,6 +15,22 @@ type Authenticator interface {
 	Authenticate(ctx context.Context) (*UserInfo, error)
 }
 
+// ErrValidationUnavailable is the sentinel an authenticator wraps when it could
+// not COMPLETE validation because a dependency was transiently unavailable (e.g.
+// the OIDC JWKS endpoint was unreachable and the key cache had expired) — as
+// opposed to a definitive rejection (bad signature, expired token, unknown key
+// in a fresh cache). It lets a caller distinguish "this token is invalid" from
+// "I could not tell right now": the HTTP auth gate fails OPEN on it, passing the
+// request to the protocol layer rather than dropping a possibly-valid client
+// during an IdP blip, and the protocol layer reports a retryable outage rather
+// than an identity failure. This never grants access — during the same outage
+// the protocol layer cannot validate the token either, so a tool call is still
+// rejected in-band; only auth-independent requests (initialize/list) proceed.
+//
+// It lives here (not in pkg/auth) so the protocol middleware can branch on it
+// without importing pkg/auth, which would cycle.
+var ErrValidationUnavailable = errors.New("token validation temporarily unavailable")
+
 // ToolkitLookup provides toolkit metadata for a given tool name.
 type ToolkitLookup interface {
 	// GetToolkitForTool returns toolkit info (kind, name, connection) for a tool.

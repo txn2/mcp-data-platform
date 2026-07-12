@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 )
 
 const (
@@ -749,6 +751,11 @@ func TestOIDCAuthenticator_getPublicKey(t *testing.T) {
 		if !strings.Contains(err.Error(), "refreshing jwks") {
 			t.Errorf(errUnexpected, err)
 		}
+		// An unreachable IdP with no usable cache is a transient failure, so the
+		// HTTP gate can fail open rather than drop a possibly-valid client.
+		if !errors.Is(err, middleware.ErrValidationUnavailable) {
+			t.Errorf("error = %v, want it to wrap middleware.ErrValidationUnavailable", err)
+		}
 	})
 
 	t.Run("expired cache triggers refresh and fails closed", func(t *testing.T) {
@@ -764,6 +771,9 @@ func TestOIDCAuthenticator_getPublicKey(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "refreshing jwks") {
 			t.Errorf(errUnexpected, err)
+		}
+		if !errors.Is(err, middleware.ErrValidationUnavailable) {
+			t.Errorf("error = %v, want it to wrap middleware.ErrValidationUnavailable", err)
 		}
 	})
 
@@ -782,6 +792,11 @@ func TestOIDCAuthenticator_getPublicKey(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "key not found") {
 			t.Errorf(errUnexpected, err)
+		}
+		// A fresh cache that simply lacks the kid is a DEFINITIVE miss, not a
+		// transient failure: the gate must fail closed (401), not fail open.
+		if errors.Is(err, middleware.ErrValidationUnavailable) {
+			t.Errorf("error = %v, must NOT wrap middleware.ErrValidationUnavailable (definitive miss)", err)
 		}
 	})
 
@@ -932,6 +947,28 @@ func TestOIDCAuthenticator_parseAndValidateToken_SignatureVerification(t *testin
 		}
 		if !strings.Contains(err.Error(), "key not found") {
 			t.Errorf("expected 'key not found' error, got: %v", err)
+		}
+	})
+
+	t.Run("transient JWKS failure propagates middleware.ErrValidationUnavailable", func(t *testing.T) {
+		auth := createAuthWithMockJWKS(t)
+		// Expire the cache and make the IdP unreachable, so the on-demand refresh
+		// during validation fails and the cache cannot be renewed. This proves the
+		// transient sentinel survives jwt.Parse's keyfunc error wrapping all the
+		// way out of parseAndValidateToken, so the chain and HTTP gate can act on it.
+		auth.jwks.expiresAt = time.Now().Add(-time.Hour)
+		auth.cfg.Issuer = "http://127.0.0.1:1" // unreachable
+
+		header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT","kid":"test-key"}`))
+		payload := base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"user","exp":9999999999}`))
+		token := header + "." + payload + "." + base64.RawURLEncoding.EncodeToString([]byte("sig"))
+
+		_, err := auth.parseAndValidateToken(context.Background(), token)
+		if err == nil {
+			t.Fatal("expected error when JWKS is unreachable")
+		}
+		if !errors.Is(err, middleware.ErrValidationUnavailable) {
+			t.Errorf("error = %v, want it to wrap middleware.ErrValidationUnavailable", err)
 		}
 	})
 }
