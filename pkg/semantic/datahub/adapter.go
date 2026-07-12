@@ -1038,6 +1038,7 @@ func convertDataContract(dc *types.DataContract) *semantic.DataContractStatus {
 
 // Verify interface compliance.
 var (
-	_ semantic.Provider    = (*Adapter)(nil)
-	_ semantic.URNResolver = (*Adapter)(nil)
+	_ semantic.Provider      = (*Adapter)(nil)
+	_ semantic.URNResolver   = (*Adapter)(nil)
+	_ semantic.CatalogPicker = (*Adapter)(nil)
 )

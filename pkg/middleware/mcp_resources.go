@@ -369,6 +369,18 @@ func claimsFromPC(pc *PlatformContext, cfg ManagedResourceConfig) resource.Claim
 	return claims
 }
 
+// ResolvePlatformContext resolves the caller's PlatformContext for a request
+// handled outside the tools/call middleware chain — resources, prompts, and
+// completions. It returns the context-carried PlatformContext when present
+// (set by MCPToolCallMiddleware), otherwise authenticates directly from the
+// request headers, returning nil when authentication fails or no authenticator
+// is configured. It is exported so facade-internal seams (e.g. the completion
+// handler) resolve identity through the same token-bridge path as the resource
+// and prompt middleware rather than duplicating it.
+func ResolvePlatformContext(ctx context.Context, req mcp.Request, auth Authenticator, personasForRoles PersonasForRoles, adminPersona string) *PlatformContext {
+	return getOrAuthenticatePC(ctx, req, auth, personasForRoles, adminPersona)
+}
+
 // getOrAuthenticatePC returns the PlatformContext from the context if available
 // (set by MCPToolCallMiddleware for tools/call), or authenticates the user
 // directly for resources/list and resources/read methods. Returns nil if

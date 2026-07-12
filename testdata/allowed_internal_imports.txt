@@ -31,6 +31,12 @@ internal/httpserver -> pkg/toolkits/gateway/enrichment
 internal/httpserver -> pkg/toolkits/gateway/sources
 internal/httpserver -> pkg/toolkits/trino
 internal/platform/browserauth -> pkg/browsersession
+internal/platform/completionlayer -> pkg/knowledge/federation
+internal/platform/completionlayer -> pkg/middleware
+internal/platform/completionlayer -> pkg/persona
+internal/platform/completionlayer -> pkg/query
+internal/platform/completionlayer -> pkg/registry
+internal/platform/completionlayer -> pkg/semantic
 internal/platform/connauth -> pkg/authevents
 internal/platform/connauth -> pkg/connoauth
 internal/platform/connauth -> pkg/platform/fieldcrypt
@@ -203,6 +209,7 @@ pkg/platform -> apps
 pkg/platform -> internal/apidocs
 pkg/platform -> internal/platform/branding
 pkg/platform -> internal/platform/browserauth
+pkg/platform -> internal/platform/completionlayer
 pkg/platform -> internal/platform/connauth
 pkg/platform -> internal/platform/connsource
 pkg/platform -> internal/platform/dedup
