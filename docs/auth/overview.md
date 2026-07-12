@@ -253,3 +253,4 @@ Logged events include:
 - [OIDC Authentication](oidc.md) - Configure Keycloak or other providers
 - [API Keys](api-keys.md) - Service account authentication
 - [Personas](../personas/overview.md) - Role-based tool filtering
+- [Threat Model](../security/threat-model.md) - Trust boundaries, attacker analysis, and mitigations with code citations

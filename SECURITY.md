@@ -72,6 +72,10 @@ mcp-data-platform includes several security features:
 - **Input Validation**: All inputs are validated before processing
 - **PKCE Support**: Proof Key for Code Exchange for secure OAuth flows
 
+## Threat Model
+
+For the security model as a whole (trust boundaries, the attackers each mechanism is designed to stop, explicit non-goals, and a mitigations table with code citations), see the [Threat Model](https://mcp-data-platform.txn2.com/security/threat-model/) (source: [docs/security/threat-model.md](docs/security/threat-model.md)).
+
 ## Security Updates
 
 Security updates are released as patch versions and announced via:
