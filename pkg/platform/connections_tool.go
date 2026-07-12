@@ -26,7 +26,8 @@ func (p *Platform) registerConnectionsTool() {
 		Title: "List Connections",
 		Description: "List all configured data connections across toolkits (Trino, DataHub, S3, etc.). " +
 			"Each connection includes a count and a bounded sample of the canonical knowledge pages that document it.",
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+		Annotations:  &mcp.ToolAnnotations{ReadOnlyHint: true},
+		OutputSchema: connectionsOutputSchema,
 	}, func(ctx context.Context, req *mcp.CallToolRequest, _ listConnectionsInput) (*mcp.CallToolResult, any, error) {
 		return p.handleListConnections(ctx, req)
 	})
@@ -60,5 +61,6 @@ func (p *Platform) handleListConnections(ctx context.Context, _ *mcp.CallToolReq
 		Content: []mcp.Content{
 			&mcp.TextContent{Text: string(data)},
 		},
+		StructuredContent: out,
 	}, nil, nil
 }

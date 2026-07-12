@@ -194,9 +194,10 @@ const platformInfoTitle = "Platform Info"
 // registerInfoTool registers the platform_info tool with the MCP server.
 func (p *Platform) registerInfoTool() {
 	mcp.AddTool(p.mcpServer, &mcp.Tool{
-		Name:        defaultInitTool,
-		Title:       instructions.InfoToolTitle(p.config.Server.Name, defaultServerName, platformInfoTitle),
-		Description: instructions.InfoToolDescription(p.config.Server.Name, defaultServerName, p.config.Server.Tags),
+		Name:         defaultInitTool,
+		Title:        instructions.InfoToolTitle(p.config.Server.Name, defaultServerName, platformInfoTitle),
+		Description:  instructions.InfoToolDescription(p.config.Server.Name, defaultServerName, p.config.Server.Tags),
+		OutputSchema: infoOutputSchema,
 	}, func(ctx context.Context, req *mcp.CallToolRequest, _ platformInfoInput) (*mcp.CallToolResult, any, error) {
 		return p.handleInfo(ctx, req)
 	})
@@ -315,6 +316,7 @@ func (p *Platform) handleInfo(ctx context.Context, _ *mcp.CallToolRequest) (*mcp
 		Content: []mcp.Content{
 			&mcp.TextContent{Text: string(data)},
 		},
+		StructuredContent: info,
 	}, nil, nil
 }
 
