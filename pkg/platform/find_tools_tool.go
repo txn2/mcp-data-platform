@@ -46,10 +46,11 @@ type findToolsOutput struct {
 // intent instead of scanning every name.
 func (p *Platform) registerFindToolsTool() {
 	mcp.AddTool(p.mcpServer, &mcp.Tool{
-		Name:        platformFindToolsName,
-		Title:       "Find Tools",
-		Description: "Find the most relevant platform tools for a natural-language task description, ranked by semantic similarity. Call this once at the start of a task to discover which tools to use instead of reading every tool name. Returns only tools your persona is permitted to call.",
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+		Name:         platformFindToolsName,
+		Title:        "Find Tools",
+		Description:  "Find the most relevant platform tools for a natural-language task description, ranked by semantic similarity. Call this once at the start of a task to discover which tools to use instead of reading every tool name. Returns only tools your persona is permitted to call.",
+		Annotations:  &mcp.ToolAnnotations{ReadOnlyHint: true},
+		OutputSchema: findToolsOutputSchema,
 	}, func(ctx context.Context, req *mcp.CallToolRequest, input findToolsInput) (*mcp.CallToolResult, any, error) {
 		return p.handleFindTools(ctx, req, input)
 	})
@@ -207,14 +208,17 @@ func zeroVector(v []float32) bool {
 	return true
 }
 
-// marshalToolResult renders a tool output struct as a JSON text result.
+// marshalToolResult renders a tool output struct as a result carrying both a
+// JSON text block and StructuredContent, so a declared OutputSchema describes
+// what the tool actually emits.
 func marshalToolResult(out any) (*mcp.CallToolResult, any, error) {
 	data, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
 		return toolErrorResult("failed to encode result: " + err.Error()), nil, nil
 	}
 	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: string(data)}},
+		Content:           []mcp.Content{&mcp.TextContent{Text: string(data)}},
+		StructuredContent: out,
 	}, nil, nil
 }
 

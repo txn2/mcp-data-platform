@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/pkg/knowledge"
@@ -154,6 +155,55 @@ var fetchSchema = json.RawMessage(`{
   }
 }`)
 
+// searchResultSchema is the declared OutputSchema for the search tool. The
+// search tool serves both relevance mode (searchOutput) and browse mode
+// (browseOutput), so the two response shapes are merged into one open schema; see
+// mergedSearchOutputSchema. fetchResultSchema is the fetch tool's schema.
+var (
+	searchResultSchema = middleware.OpenToolOutputSchema(mergedSearchOutputSchema())
+	fetchResultSchema  = middleware.MustOutputSchema[fetchOutput]()
+)
+
+// structuredResult renders v as a search tool result: v is placed in
+// StructuredContent (so the declared OutputSchema describes what the tool
+// actually emits, and structured-output clients receive the body) and, as
+// indented JSON, in a TextContent block for content-only clients. A marshal
+// failure falls back to an in-band error result, matching how the handlers
+// report failures.
+func structuredResult(v any) (*mcp.CallToolResult, any, error) {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return toolkit.ErrorResult("internal error marshaling response: " + err.Error()), nil, nil
+	}
+	return &mcp.CallToolResult{
+		Content:           []mcp.Content{&mcp.TextContent{Text: string(b)}},
+		StructuredContent: v,
+	}, nil, nil
+}
+
+// mergedSearchOutputSchema derives a single object schema whose properties are
+// the union of searchOutput (relevance mode) and browseOutput (browse mode),
+// since both are returned by the one search tool depending on the arguments. It
+// panics on a reflection failure, a programming error covered by tests.
+func mergedSearchOutputSchema() *jsonschema.Schema {
+	s, err := jsonschema.For[searchOutput](nil)
+	if err != nil {
+		panic("search: derive searchOutput schema: " + err.Error())
+	}
+	b, err := jsonschema.For[browseOutput](nil)
+	if err != nil {
+		panic("search: derive browseOutput schema: " + err.Error())
+	}
+	for _, name := range b.PropertyOrder {
+		if _, ok := s.Properties[name]; ok {
+			continue
+		}
+		s.Properties[name] = b.Properties[name]
+		s.PropertyOrder = append(s.PropertyOrder, name)
+	}
+	return s
+}
+
 // Toolkit registers the search tool over a knowledge.Router.
 type Toolkit struct {
 	name   string
@@ -196,7 +246,8 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"a result may still show pre-edit text right after you change it. To confirm a specific entity's " +
 			"current state after a write, read it directly (datahub_get_entity, or the resulting_state in the " +
 			"apply_knowledge apply response), not search.",
-		InputSchema: searchSchema,
+		InputSchema:  searchSchema,
+		OutputSchema: searchResultSchema,
 	}, t.handleSearch)
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -213,7 +264,8 @@ func (t *Toolkit) RegisterTools(s *mcp.Server) {
 			"datahub_get_lineage or an entity_urns lookup). A reference that is stale, unknown, or outside what " +
 			"you can access returns found=false rather than an error, so a dangling citation is a clean answer. " +
 			"Personal results stay scoped to you: fetch never reads content you could not have found with search.",
-		InputSchema: fetchSchema,
+		InputSchema:  fetchSchema,
+		OutputSchema: fetchResultSchema,
 	}, t.handleFetch)
 }
 
@@ -269,7 +321,7 @@ func (t *Toolkit) handleSearch(ctx context.Context, _ *mcp.CallToolRequest, inpu
 	for _, g := range groups {
 		shown += len(g.Hits)
 	}
-	return toolkit.JSONResultTyped(searchOutput{
+	return structuredResult(searchOutput{
 		Groups:         groups,
 		Coverage:       coverage,
 		Count:          shown,
@@ -294,7 +346,7 @@ func (t *Toolkit) handleFetch(ctx context.Context, _ *mcp.CallToolRequest, input
 	doc, err := t.router.Fetch(ctx, ref, callerFromContext(ctx))
 	if err != nil {
 		if errors.Is(err, knowledge.ErrNotFound) {
-			return toolkit.JSONResultTyped(fetchOutput{
+			return structuredResult(fetchOutput{
 				Found:     false,
 				Reference: ref,
 				Message: "no content found for this reference; it may be stale, not a recognized " +
@@ -304,7 +356,7 @@ func (t *Toolkit) handleFetch(ctx context.Context, _ *mcp.CallToolRequest, input
 		return toolkit.ErrorResult("fetch failed: " + err.Error()), nil, nil
 	}
 
-	return toolkit.JSONResultTyped(fetchOutput{
+	return structuredResult(fetchOutput{
 		Found:     true,
 		Reference: ref,
 		Document:  doc,
@@ -348,7 +400,7 @@ func (t *Toolkit) handleBrowse(ctx context.Context, input searchInput) (*mcp.Cal
 	if items == nil {
 		items = []knowledge.Hit{}
 	}
-	return toolkit.JSONResultTyped(browseOutput{
+	return structuredResult(browseOutput{
 		Source: source,
 		Total:  page.Total,
 		Offset: page.Offset,

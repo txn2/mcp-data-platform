@@ -202,8 +202,16 @@ func mirrorEnrichmentToStructured(result *mcp.CallToolResult, fromIndex int) {
 // structuredAsMap returns sc as a map[string]any: the value itself if already a
 // map, a JSON round-trip of a typed struct, or a fresh map when nil or not
 // convertible. The original typed structured value is replaced by this map so
-// the enrichment keys can be added without an OutputSchema constraint (the
-// composed trino tools register none).
+// the enrichment keys can be merged in.
+//
+// Interaction with declared OutputSchemas (#925): the tools this middleware
+// enriches (trino_/datahub_/s3_, gated by inferToolkitKind) declare no
+// OutputSchema, so mirroring open-ended enrichment keys here cannot violate one.
+// The platform-owned tools that DO declare a schema (platform_info,
+// list_connections, platform_find_tools, search, fetch) are not enriched, so
+// their structuredContent is never touched here — but their schemas are still
+// built open (additionalProperties allowed; see middleware.OpenToolOutputSchema)
+// so that mirroring would remain schema-valid if any of them were ever enriched.
 func structuredAsMap(sc any) map[string]any {
 	if sc == nil {
 		return map[string]any{}
