@@ -128,6 +128,7 @@ type Config struct {
 	Elicitation          ElicitationConfig   `yaml:"elicitation"`
 	Workflow             WorkflowConfig      `yaml:"workflow"`
 	SessionGate          SessionGateConfig   `yaml:"session_gate"`
+	RateLimit            RateLimitConfig     `yaml:"rate_limit"`
 	APIGateway           APIGatewayConfig    `yaml:"apigateway"`
 	Observability        ObservabilityConfig `yaml:"observability"`
 
@@ -1263,6 +1264,81 @@ type SessionGateConfig struct {
 
 	// ExemptTools lists tool names that bypass the gate (e.g., "list_connections").
 	ExemptTools []string `yaml:"exempt_tools"`
+}
+
+// RateLimitConfig configures the per-identity token-bucket limiter on
+// authenticated MCP tools/call requests (issue #929). It is a safety net, not
+// a throughput throttle: the default limit is generous enough that ordinary
+// interactive and agent use never touches it, but a runaway agent loop or a
+// compromised account hammering an expensive tool is bounded before it can
+// saturate the audit pipeline, the shared database pool, or an upstream
+// (Trino, DataHub, S3, a proxied MCP server).
+//
+// The limit is per authenticated user (see PlatformContext.RateLimitKey), not
+// per IP: a multi-user connector delivers every user's traffic from one egress
+// address, so per-IP limiting would be both useless (one bucket for everyone)
+// and harmful (one busy user starves the rest). Keying on identity matches the
+// abuse shape the limiter exists to catch — a single runaway authenticated
+// principal — regardless of source address.
+//
+// The bucket is in-memory per replica: behind a load balancer the effective
+// ceiling is (replica count x the configured limit). This is intentional for a
+// backstop — distributed coordination (Redis/DB round-trips on the hot tool
+// path) is not warranted to bound abuse that per-replica limiting already
+// bounds. Size the limit with the per-replica semantics in mind.
+type RateLimitConfig struct {
+	// Enabled toggles the limiter. Enabled by default (nil = enabled); set
+	// enabled: false to remove the limiter from the chain entirely. The
+	// generous default keeps default-on safe for existing deployments.
+	Enabled *bool `yaml:"enabled"`
+
+	// RequestsPerMinute is the sustained per-user tools/call rate. Non-positive
+	// values fall back to the default (defaultRateLimitRPM).
+	RequestsPerMinute int `yaml:"requests_per_minute"`
+
+	// Burst is the token-bucket depth: the largest instantaneous burst a single
+	// user may issue before the sustained rate governs. Non-positive values fall
+	// back to the default (defaultRateLimitBurst).
+	Burst int `yaml:"burst"`
+
+	// ExemptTools lists tool names that are never rate limited. platform_info is
+	// always exempt (added implicitly) so a throttled agent can still re-read
+	// the platform guidance it needs to back off intelligently; add others here.
+	ExemptTools []string `yaml:"exempt_tools"`
+}
+
+// Rate-limit defaults. The limit is a backstop, so the defaults are deliberately
+// high: 240 requests/minute is 4 sustained tool calls per second per user, and a
+// burst of 60 absorbs a short flurry of parallel calls. A misbehaving agent loop
+// issuing tens of calls per second drains the burst in ~1.5s and is then held to
+// 4/s; normal interactive and agent workflows never approach either bound.
+const (
+	defaultRateLimitRPM   = 240
+	defaultRateLimitBurst = 60
+)
+
+// IsEnabled reports whether the per-user tool-call rate limiter is enabled,
+// defaulting to true when not explicitly set.
+func (c *RateLimitConfig) IsEnabled() bool {
+	return !isExplicitlyDisabled(c.Enabled)
+}
+
+// EffectiveRPM returns the configured sustained rate, or the default when the
+// operator left it unset or non-positive.
+func (c *RateLimitConfig) EffectiveRPM() int {
+	if c.RequestsPerMinute <= 0 {
+		return defaultRateLimitRPM
+	}
+	return c.RequestsPerMinute
+}
+
+// EffectiveBurst returns the configured bucket depth, or the default when the
+// operator left it unset or non-positive.
+func (c *RateLimitConfig) EffectiveBurst() int {
+	if c.Burst <= 0 {
+		return defaultRateLimitBurst
+	}
+	return c.Burst
 }
 
 // APIGatewayConfig holds platform-level tuning for the api-kind toolkit.

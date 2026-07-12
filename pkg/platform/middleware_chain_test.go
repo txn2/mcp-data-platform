@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/stretchr/testify/require"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/mwchain"
@@ -33,6 +34,7 @@ func TestReceivingMiddlewareChain_CanonicalOrder(t *testing.T) {
 		mwToolCall,
 		mwSessionGate,
 		mwWorkflowGate,
+		mwRateLimit,
 		mwReflexiveCapture,
 		mwTracing,
 		mwMetrics,
@@ -79,6 +81,7 @@ func TestReceivingMiddlewareChain_PlatformContextReadersRequireAuth(t *testing.T
 	readers := map[mwName]bool{
 		mwSessionGate:      true,
 		mwWorkflowGate:     true,
+		mwRateLimit:        true,
 		mwReflexiveCapture: true,
 		mwTracing:          true,
 		mwMetrics:          true,
@@ -113,6 +116,9 @@ func TestReceivingMiddlewareChain_DeclaredDependencies(t *testing.T) {
 	want := map[mwName][]mwName{
 		// PlatformContext readers depend on the auth/authz writer.
 		mwProvenance: {mwToolCall},
+		// The rate limiter reads PlatformContext identity to key its per-user
+		// bucket, so it depends on the auth/authz writer.
+		mwRateLimit: {mwToolCall},
 		// Observers of EnrichmentApplied (set on the way out) must be outer to
 		// enrichment; metrics is deliberately excluded (it does not read it).
 		mwEnrichment: {mwToolCall, mwTracing, mwAudit, mwClientLogging},
@@ -149,6 +155,47 @@ func TestAddSessionGateMiddleware(_ *testing.T) {
 
 	p.sessionGate = middleware.NewSessionGate(middleware.SessionGateConfig{InitTool: "platform_info"})
 	p.addSessionGateMiddleware() // enabled: registers without panic
+}
+
+// TestRateLimitMiddlewareRegister covers both branches of the inline rate-limit
+// Register closure in receivingMiddlewareChain: disabled is a no-op, enabled
+// builds the toolratelimit seam, registers its middleware, and hooks Close on
+// the lifecycle (exercised by Start+Stop, which must not error).
+func TestRateLimitMiddlewareRegister(t *testing.T) {
+	rateLimitRegister := func(p *Platform) func() {
+		for _, s := range p.receivingMiddlewareChain() {
+			if s.Name == mwRateLimit {
+				return s.Register
+			}
+		}
+		t.Fatal("rate_limit spec not found in chain")
+		return nil
+	}
+
+	newP := func(cfg RateLimitConfig) *Platform {
+		p := &Platform{config: &Config{RateLimit: cfg}}
+		p.obs = obs.New(nil, nil)
+		p.mcpServer = mcp.NewServer(&mcp.Implementation{Name: "t", Version: "v0"}, nil)
+		p.lifecycle = NewLifecycle()
+		return p
+	}
+
+	t.Run("disabled is a no-op", func(t *testing.T) {
+		off := false
+		p := newP(RateLimitConfig{Enabled: &off})
+		rateLimitRegister(p)() // must not panic and register nothing
+		require.NoError(t, p.lifecycle.Start(context.Background()))
+		require.NoError(t, p.lifecycle.Stop(context.Background()))
+	})
+
+	t.Run("enabled registers and hooks close", func(t *testing.T) {
+		p := newP(RateLimitConfig{ExemptTools: []string{"search"}})
+		rateLimitRegister(p)() // default (nil) is enabled
+		// Start then Stop drives the OnStop hook that closes the limiter's
+		// eviction goroutine; both halves must succeed.
+		require.NoError(t, p.lifecycle.Start(context.Background()))
+		require.NoError(t, p.lifecycle.Stop(context.Background()))
+	})
 }
 
 // TestAddTracingMiddleware covers both branches of the tracing registration

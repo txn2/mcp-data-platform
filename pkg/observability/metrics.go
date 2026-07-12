@@ -69,6 +69,15 @@ const (
 	// design (audit delivery is best-effort).
 	instAuditEventsDropped = "audit_events_dropped"
 
+	// instRateLimited counts authenticated tools/call requests refused by the
+	// per-user rate limiter (issue #929). Exposed name: mcp_rate_limited_total.
+	// A non-zero, growing value means a principal is hitting the tool-call
+	// backstop — a runaway agent loop or a misbehaving/compromised account —
+	// and its excess calls are being shed before they reach the handler, audit
+	// pipeline, or upstream. Carries no labels: the throttled identity and tool
+	// live in the refusal's slog line, not in a high-cardinality metric.
+	instRateLimited = "mcp_rate_limited"
+
 	// Toolkit and provider instruments (issue #461). Exposed names add the
 	// "_total" / "_seconds" suffixes the Prometheus exporter appends:
 	//   - trino_queries_total{status, query_kind}
@@ -220,6 +229,7 @@ type Metrics struct {
 	apigwInboundTotal     metric.Int64Counter
 	apigwInboundDuration  metric.Float64Histogram
 	auditEventsDropped    metric.Int64Counter
+	rateLimited           metric.Int64Counter
 
 	// Toolkit / provider instruments (issue #461).
 	trinoQueriesTotal    metric.Int64Counter
@@ -420,6 +430,13 @@ func (m *Metrics) registerInstruments(meter metric.Meter) error {
 	)
 	if err != nil {
 		return fmt.Errorf(instErrFmt, instAuditEventsDropped, err)
+	}
+	m.rateLimited, err = meter.Int64Counter(
+		instRateLimited,
+		metric.WithDescription("Total authenticated tools/call requests refused by the per-user rate limiter (#929). A growing value means a principal is hitting the tool-call backstop and its excess calls are being shed before reaching the handler, audit pipeline, or upstream."),
+	)
+	if err != nil {
+		return fmt.Errorf(instErrFmt, instRateLimited, err)
 	}
 	if err := m.registerToolkitInstruments(meter); err != nil {
 		return err
@@ -637,6 +654,19 @@ func (m *Metrics) RecordAuditEventDropped(ctx context.Context) {
 		return
 	}
 	m.auditEventsDropped.Add(ctx, 1)
+}
+
+// RecordRateLimited records one authenticated tools/call refused by the
+// per-user rate limiter (issue #929). Like RecordAuditEventDropped it carries no
+// labels — a single scalar is enough to alert on tool-call shedding, and the
+// throttled identity and tool live in the refusal's slog line, not in a
+// high-cardinality metric. Nil-safe, so the middleware records unconditionally
+// without an enabled check.
+func (m *Metrics) RecordRateLimited(ctx context.Context) {
+	if m == nil {
+		return
+	}
+	m.rateLimited.Add(ctx, 1)
 }
 
 // registeredPool pairs a *sql.DB with the bounded pool label it reports under.

@@ -103,6 +103,9 @@ internal/platform/sessionsync -> pkg/session
 internal/platform/sessionsync -> pkg/session/postgres
 internal/platform/toolkitcfg -> internal/platform/cfgmap
 internal/platform/toolkitcfg -> pkg/platform/fieldcrypt
+internal/platform/toolratelimit -> pkg/middleware
+internal/platform/toolratelimit -> pkg/observability
+internal/platform/toolratelimit -> pkg/ratelimit
 internal/platform/userdir -> pkg/middleware
 internal/platform/userdir -> pkg/user
 internal/server -> pkg/platform
@@ -218,6 +221,7 @@ pkg/platform -> internal/platform/routepolicy
 pkg/platform -> internal/platform/searchfed
 pkg/platform -> internal/platform/sessionsync
 pkg/platform -> internal/platform/toolkitcfg
+pkg/platform -> internal/platform/toolratelimit
 pkg/platform -> internal/platform/userdir
 pkg/platform -> pkg/audit
 pkg/platform -> pkg/audit/postgres

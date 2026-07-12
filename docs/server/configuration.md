@@ -863,6 +863,38 @@ The gate's memory of an initialized session expires after the session TTL, which
 !!! note "Superseded by explicit session handles"
     When [explicit session handles](#explicit-session-handles) (`sessions.handles`) are enabled, the session gate is skipped: handle resolution enforces initialization instead, and the gate's `exempt_tools` are carried into the handle resolver. Enabling both does not double-gate.
 
+## Tool-Call Rate Limiting
+
+A per-identity safety net on authenticated `tools/call` requests. It bounds a runaway agent loop or a compromised account before it can saturate the audit pipeline, the shared database pool, or an upstream (Trino, DataHub, S3, a proxied MCP server). It is **not** a throughput throttle: the default limit is generous enough that ordinary interactive and agent use never touches it. When a user exceeds the limit, the offending call is short-circuited before its handler runs and a `RATE_LIMITED` error result is returned (error category `rate_limited`) with a retry hint, so an agent backs off and retries rather than seeing a transport failure. `platform_info` is always exempt so a throttled agent can re-read platform guidance.
+
+The limit is keyed on the **authenticated user**, not the client IP. A multi-user connector delivers every user's traffic from one egress address, so per-IP limiting would be both useless (one bucket for everyone) and harmful (one busy user starves the rest); identity keying matches the abuse shape the limiter exists to catch (a single runaway authenticated principal), regardless of source address. Callers with a shared/anonymous identity (auth disabled) fall back to a per-session key; a call with no attributable identity is not limited (fail-open, since the call has already passed auth).
+
+Enabled by default; set `rate_limit.enabled: false` to remove the limiter from the chain entirely.
+
+```yaml
+rate_limit:
+  enabled: true                     # Default: true. false removes the limiter.
+  requests_per_minute: 240          # Default: 240. Sustained per-user tools/call rate.
+  burst: 60                         # Default: 60. Largest instantaneous per-user burst.
+  exempt_tools:                     # Tools never limited (platform_info is always exempt)
+    - search
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `true` | Enable the per-user tool-call limiter. `false` removes the middleware from the chain. |
+| `requests_per_minute` | int | `240` | Sustained per-user `tools/call` rate (token refill). `240` is 4 calls/second per user. |
+| `burst` | int | `60` | Token-bucket depth: the largest burst a single user may issue before the sustained rate governs. |
+| `exempt_tools` | array | (empty) | Tool names never rate limited, in addition to `platform_info` (which is always exempt). |
+
+Each refusal increments the `mcp_rate_limited_total` metric and logs a warning naming the throttled identity and tool.
+
+!!! note "Per-replica limit"
+    The token bucket is in-memory per replica: behind a load balancer the effective ceiling is (replica count x the configured limit). This is intentional for a backstop: distributed coordination (Redis/DB round-trips on the hot tool path) is not warranted to bound abuse that per-replica limiting already bounds. Size the limit with the per-replica semantics in mind; see [Tuning and Scaling](../reference/tuning-and-scaling.md).
+
+!!! note "Distinct from the OAuth endpoint limiter"
+    This top-level `rate_limit:` block governs authenticated MCP `tools/call` requests and is keyed on identity. It is unrelated to the `oauth.rate_limit` block, which is a per-IP limiter on the unauthenticated `/token` and `/register` OAuth endpoints.
+
 ## Semantic and Query Provider Configuration
 
 Specify which toolkit instance provides semantic metadata and query execution:

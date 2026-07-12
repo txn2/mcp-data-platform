@@ -173,6 +173,37 @@ func (pc *PlatformContext) DiscoveryScopeKey() string {
 	}
 }
 
+// RateLimitKey returns the identifier under which the per-user tool-call rate
+// limiter (issue #929) meters this call, or "" when the call cannot be
+// attributed to a stable principal.
+//
+// It keys on the authenticated user identity so a runaway or compromised
+// principal is bounded regardless of which MCP session or source IP its calls
+// arrive on — including clients that mint a fresh session per tool call. The
+// user identity is used only when it is genuinely distinct (a real
+// authenticator identified this principal); the shared anonymous/noop identity
+// used when auth is disabled is NOT distinct, so those callers fall back to the
+// per-session key rather than all draining one shared bucket. Callers with no
+// user identity at all fall back to the session ID.
+//
+// An empty return means there is no stable key (no distinct user and no
+// session): the limiter treats that as unlimited and lets the call through
+// (fail-open). Rate limiting is a safety net, not an authentication boundary —
+// a call with no attributable identity has already passed auth, and refusing it
+// on an un-keyable basis would penalize legitimate un-sessioned transports (a
+// single local stdio client) more than any abuser. The "user:"/"session:"
+// prefixes keep the two namespaces from colliding, matching DiscoveryScopeKey.
+func (pc *PlatformContext) RateLimitKey() string {
+	switch {
+	case pc.UserID != "" && !nonDistinctAuthTypes[pc.AuthType]:
+		return "user:" + pc.UserID
+	case pc.SessionID != "":
+		return "session:" + pc.SessionID
+	default:
+		return ""
+	}
+}
+
 // WithPlatformContext adds platform context to the context.
 func WithPlatformContext(ctx context.Context, pc *PlatformContext) context.Context {
 	return context.WithValue(ctx, platformContextKey, pc)

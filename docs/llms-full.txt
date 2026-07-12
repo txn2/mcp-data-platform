@@ -378,6 +378,26 @@ session_gate:
 
 The gate's session-initialized memory expires after the session TTL, derived from `sessions.ttl` (falling back to the Streamable HTTP session timeout), not from a field on this block. The session gate is distinct from the search-first gate: the session gate requires an init tool (`platform_info`) before any tool; the search-first gate requires a discovery tool (`search`) before query tools. When explicit session handles (`sessions.handles`) are enabled, the session gate is skipped and handle resolution enforces initialization instead, carrying the gate's `exempt_tools` into the handle resolver.
 
+## Tool-Call Rate Limiting
+
+A per-identity safety net on authenticated `tools/call` requests (top-level `rate_limit:` block). It bounds a runaway agent loop or a compromised account before it can saturate the audit pipeline, the shared database pool, or an upstream (Trino, DataHub, S3, a proxied MCP server); it is not a throughput throttle: the default limit is generous enough that ordinary interactive and agent use never touches it. Over-limit calls are short-circuited before the handler runs and outer to the audit/enrichment middleware, so a refused call consumes no handler, audit, or upstream work; the caller receives a `RATE_LIMITED` in-band error result (error category `rate_limited`) with a retry hint so an agent backs off rather than seeing a transport failure. `platform_info` is always exempt so a throttled agent can re-read platform guidance. The limit is keyed on the authenticated user (not the client IP: a multi-user connector delivers all traffic from one egress, so per-IP limiting would be useless and would let one user starve the rest); shared/anonymous identities (auth disabled) fall back to a per-session key, and a call with no attributable identity is not limited (fail-open, since it has already passed auth). The token bucket is in-memory per replica, so behind a load balancer the effective ceiling is N times the configured limit (intentional for a backstop, since distributed coordination on the hot tool path is not warranted). Each refusal increments `mcp_rate_limited_total`. Enabled by default; set `rate_limit.enabled: false` to remove the limiter from the chain. This is unrelated to `oauth.rate_limit`, the per-IP limiter on the unauthenticated `/token` and `/register` endpoints.
+
+```yaml
+rate_limit:
+  enabled: true                     # Default: true. false removes the limiter.
+  requests_per_minute: 240          # Default: 240. Sustained per-user tools/call rate (4/second).
+  burst: 60                         # Default: 60. Largest instantaneous per-user burst.
+  exempt_tools:                     # Never limited (platform_info is always exempt)
+    - search
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `rate_limit.enabled` | bool | `true` | Enable the per-user tool-call limiter. `false` removes the middleware from the chain. |
+| `rate_limit.requests_per_minute` | int | `240` | Sustained per-user `tools/call` rate (token refill). |
+| `rate_limit.burst` | int | `60` | Token-bucket depth: largest burst a single user may issue before the sustained rate governs. |
+| `rate_limit.exempt_tools` | array | (empty) | Tool names never rate limited, in addition to the always-exempt `platform_info`. |
+
 ## Portal Configuration
 
 | Field | Type | Default | Description |
