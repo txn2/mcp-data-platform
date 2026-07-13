@@ -1,0 +1,147 @@
+# Platform configuration for the load-test harness (issue #921).
+#
+# Targets the E2E compose stack (make e2e-up: Postgres, Trino, SeaweedFS) plus a
+# DataHub quickstart. Env-expanded toggles let a single binary serve every
+# scenario:
+#   API_KEY_ADMIN        admin API key the harness authenticates with (Bearer)
+#   OAUTH_RL_ENABLED     "true"/"false"/unset  -> oauth.rate_limit.enabled
+#   AUDIT_DELIVERY       "async"/"sync"/unset  -> audit.delivery
+#
+# This config is for load measurement only; it is not a production template.
+apiVersion: v1
+
+server:
+  name: mcp-data-platform-load
+  transport: http
+  address: ":8099"
+
+# Explicit session handles (#792) are not required for the harness: each MCP
+# client holds a transport session, and threading a platform_info-minted handle
+# through every tool call would add harness bookkeeping without changing the
+# measured hot path (auth, authz, search-first gate, tool, enrichment, audit).
+sessions:
+  handles:
+    require: false
+
+auth:
+  api_keys:
+    enabled: true
+    keys:
+      - key: "${API_KEY_ADMIN}"
+        name: "load-admin"
+        roles: ["admin"]
+
+# OAuth is enabled so the oauth-token (DCR) scenario can drive POST /register.
+# The upstream block is required by config validation but is never contacted:
+# upstream OIDC discovery is fetched lazily in the /authorize handler, which the
+# harness never calls (it exercises /register only). allow_ephemeral_signing_key
+# keeps this single-replica load binary from needing a managed signing key.
+oauth:
+  enabled: true
+  issuer: "http://localhost:8099"
+  allow_ephemeral_signing_key: true
+  dcr:
+    enabled: true
+    allowed_redirect_patterns:
+      - "http://localhost:.*/callback"
+  upstream:
+    issuer: "http://127.0.0.1:9/unused"
+    client_id: "load-unused"
+    redirect_uri: "http://localhost:8099/callback"
+  rate_limit:
+    enabled: ${OAUTH_RL_ENABLED}
+
+database:
+  dsn: "postgres://platform:platform_secret@localhost:5432/mcp_platform?sslmode=disable"
+  max_open_conns: 25
+
+audit:
+  enabled: true
+  log_tool_calls: true
+  delivery: ${AUDIT_DELIVERY}
+
+# The per-user tool-call rate limiter is a safety backstop (240 rpm/user), not a
+# throughput throttle. Every harness worker authenticates as the one admin user
+# and would share a single ~4/s bucket, so it is disabled here to measure the
+# platform's real per-replica ceiling. The limiter's own behavior is documented
+# separately in tuning-and-scaling.md; it is distinct from oauth.rate_limit,
+# which the oauth-token scenario exercises on purpose.
+rate_limit:
+  enabled: false
+
+personas:
+  admin:
+    display_name: "Load Admin"
+    roles: ["admin"]
+    tools:
+      allow: ["*"]
+    connections:
+      allow: ["*"]
+  default_persona: admin
+
+semantic:
+  provider: datahub
+  instance: primary
+  cache:
+    enabled: true
+    ttl: 5m
+
+query:
+  provider: trino
+  instance: e2e
+
+toolkits:
+  trino:
+    enabled: true
+    default: e2e
+    instances:
+      e2e:
+        host: "localhost"
+        port: 8090
+        user: "load-test"
+        catalog: "memory"
+        schema: "e2e_test"
+        connection_name: "e2e-trino"
+    config:
+      default_limit: 1000
+      max_limit: 10000
+      read_only: true
+
+  datahub:
+    enabled: true
+    default: primary
+    instances:
+      primary:
+        url: "http://localhost:8080/api/graphql"
+        # DataHub quickstart ships with metadata-service auth disabled; the
+        # provider requires a non-empty token, so a placeholder is supplied.
+        token: "load-placeholder-token"
+        read_only: true
+
+  s3:
+    enabled: true
+    default: e2e
+    instances:
+      e2e:
+        endpoint: "http://localhost:9000"
+        access_key_id: "admin"
+        secret_access_key: "admin_secret"
+        region: "us-east-1"
+        use_path_style: true
+        connection_name: "e2e-s3"
+
+# Portal is enabled (DB-backed) so the portal-read scenario has live endpoints.
+# s3_bucket points at a bucket the E2E SeaweedFS setup actually creates
+# (docker-compose.e2e.yml makes test-data-lake / test-analytics), so
+# save_artifact can upload content and the public-viewer share seeds.
+portal:
+  enabled: true
+  s3_connection: e2e
+  s3_bucket: test-data-lake
+  # The public-viewer path is per-IP rate limited (default 60 rpm/burst 10) as a
+  # backstop for a human-facing page. All harness load originates from one IP, so
+  # the limit is raised here to measure raw page-serving throughput rather than
+  # the limiter. It is a backstop, not the throughput under test.
+  rate_limit:
+    requests_per_minute: 100000000
+    burst_size: 100000

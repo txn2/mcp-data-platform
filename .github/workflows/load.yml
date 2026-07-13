@@ -1,0 +1,102 @@
+# Load-test workflow (issue #921).
+#
+# Two jobs:
+#   - harness: build, vet, lint, and unit-test the test/load module. Cheap and
+#     deterministic; the real regression guard for the harness code itself.
+#   - smoke:   stand up the compose stack (Postgres/Trino/SeaweedFS — no DataHub,
+#     same as e2e-nightly) and run each scenario at a short smoke scale, uploading
+#     the JSON reports as an artifact.
+#
+# GitHub runners are noisy shared hardware, so the smoke numbers are INDICATIVE
+# ONLY and are never the published reference numbers (those live in
+# docs/reference/tuning-and-scaling.md, measured on a stated environment). The
+# smoke job gates on the scenarios' functional assertions (error rate, drop
+# behavior) — loadgen exits non-zero when they fail — not on throughput
+# thresholds, which would flake on shared runners.
+#
+# Manual (workflow_dispatch) plus a weekly schedule. Not part of `make verify`.
+name: Load Test
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 08:00 UTC Mondays — after the weekly mutation run, low-traffic hour.
+    - cron: "0 8 * * 1"
+
+concurrency:
+  group: load-test
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  harness:
+    name: Harness module checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: "1.26.5"
+          cache: true
+          cache-dependency-path: test/load/go.sum
+
+      - name: Build, vet, and test the harness
+        run: make load-test
+
+      - name: Lint the harness
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.11.4
+          working-directory: test/load
+
+  smoke:
+    name: Load smoke (indicative)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      LOAD_KEY: load-admin-key
+      LOAD_CONFIG: test/load/config/platform.load-ci.yaml
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: "1.26.5"
+          cache: true
+
+      - name: Start stack and platform
+        run: make load-up
+
+      - name: Run scenarios (smoke scale)
+        run: |
+          set -e
+          for s in mcp-session-churn mcp-tool-call portal-read audit-burst oauth-token; do
+            echo "::group::scenario $s"
+            make load-run SCENARIO="$s" CONCURRENCY=4 DURATION=8s WARMUP=2s
+            echo "::endgroup::"
+          done
+
+      - name: Upload load reports (indicative)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: load-reports
+          path: build/load-reports/**
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Collect platform log
+        if: always()
+        run: cat build/mcp-data-platform-load.log || true
+
+      - name: Tear down
+        if: always()
+        run: make load-down
