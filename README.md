@@ -233,6 +233,12 @@ Go gates (`complexity <= 10` ≈ `gocyclo <= 10`, `cognitive-complexity <= 15` �
 `gocognit <= 15`) plus an import-cycle rule. See [`ui/README.md`](ui/README.md)
 for the thresholds and the ratchet baseline.
 
+Two measurement harnesses live outside `make verify` (each is its own Go
+module): [`test/load`](test/load/README.md) measures throughput and resource
+limits ("how much"), and [`bench/`](bench/README.md) measures agent
+effectiveness — arm-ablated accuracy and efficiency with audit-derived metrics
+("how well"). Run them via `make load-*` and `make bench-*` targets.
+
 Contributions for bug fixes, tests, and documentation are welcome. Please run `make verify` (formatting, race-detected tests, coverage, linting, security scanning) before opening a pull request.
 
 ## License
