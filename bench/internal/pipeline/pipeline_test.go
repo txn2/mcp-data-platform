@@ -90,13 +90,25 @@ func (fp *fakePlatform) addTrinoQuery(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{Name: "trino_query", Description: "run sql", InputSchema: schema},
 		func(_ context.Context, _ *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
 			sessionID, _ := args["session_id"].(string)
+			sql, _ := args["sql"].(string)
 			fp.record(auditapi.Event{
 				Timestamp: time.Now().UTC(), DurationMS: 7, SessionID: sessionID,
 				ToolName: "trino_query", Success: true, EventKind: "mcp_tool_call",
 				EnrichmentApplied: true, EnrichmentTokensDedup: 42,
 			})
+			// The numeric-task sentinel keeps the existing single-value path; any
+			// other query echoes its text back as structured rows so the
+			// execution-result grader sees identical rows for identical SQL and
+			// different rows for different SQL.
+			if sql == "SELECT 42.5" {
+				return &mcp.CallToolResult{
+					Content: []mcp.Content{&mcp.TextContent{Text: `[{"total_usd": 42.5}]`}},
+				}, nil, nil
+			}
+			payload := map[string]any{"rows": []map[string]any{{"echo": sql}}}
 			return &mcp.CallToolResult{
-				Content: []mcp.Content{&mcp.TextContent{Text: `[{"total_usd": 42.5}]`}},
+				Content:           []mcp.Content{&mcp.TextContent{Text: `{"rows":[{"echo":"` + sql + `"}]}`}},
+				StructuredContent: payload,
 			}, nil, nil
 		})
 }
@@ -179,6 +191,72 @@ func testScript() llm.Script {
 		"t-entity": {
 			{FinalText: "FINAL ANSWER: memory.bench.orders"},
 		},
+	}
+}
+
+// writeExecSQLTasks writes two SQL-producing tasks: one the agent answers with
+// a query equivalent to the reference, one with a divergent query.
+func writeExecSQLTasks(t *testing.T, dir string) {
+	t.Helper()
+	tasks := []task.Task{
+		{ID: "t-exec-ok", Suite: "s2", Prompt: "write sql", Arms: []string{"a0"}, BudgetToolCalls: 5,
+			ExpectedSQL: "SELECT region, COUNT(*) FROM t GROUP BY region",
+			Grading:     task.Grading{Kind: task.GradeExecSQL}},
+		{ID: "t-exec-bad", Suite: "s2", Prompt: "write sql", Arms: []string{"a0"}, BudgetToolCalls: 5,
+			ExpectedSQL: "SELECT tier, COUNT(*) FROM t GROUP BY tier",
+			Grading:     task.Grading{Kind: task.GradeExecSQL}},
+	}
+	for _, tk := range tasks {
+		raw, err := json.Marshal(tk)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, tk.ID+".yaml"), raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// TestExecSQLGrading drives the execution-result grader through the real
+// pipeline: the agent's produced query is executed and its result set compared
+// to the reference query's. The "ok" task answers with the reference query
+// (equal rows -> correct); the "bad" task answers with a different query
+// (different rows -> incorrect). Neither is a harness failure.
+func TestExecSQLGrading(t *testing.T) {
+	fp := newFakePlatform(t)
+	tasksDir := t.TempDir()
+	writeExecSQLTasks(t, tasksDir)
+	script := llm.Script{
+		"t-exec-ok":  {{FinalText: "FINAL ANSWER: SELECT region, COUNT(*) FROM t GROUP BY region"}},
+		"t-exec-bad": {{FinalText: "FINAL ANSWER: SELECT status, COUNT(*) FROM t GROUP BY status"}},
+	}
+	res, err := Run(context.Background(), Options{
+		Target:       target.Target{BaseURL: fp.httpSrv.URL, Credential: "test-key"},
+		HTTPTimeout:  10 * time.Second,
+		Arm:          "a0",
+		K:            1,
+		TasksDir:     tasksDir,
+		Factory:      func(tk task.Task) (llm.Adapter, error) { return llm.NewScripted(script[tk.ID]), nil },
+		LLMProvider:  "scripted",
+		AuditTimeout: 5 * time.Second,
+		IdentityKeys: 32,
+		Log:          slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	got := map[string]bool{}
+	for _, a := range res.Attempts {
+		if a.Error != "" {
+			t.Errorf("%s: harness error %q", a.TaskID, a.Error)
+		}
+		got[a.TaskID] = a.Correct
+	}
+	if !got["t-exec-ok"] {
+		t.Error("t-exec-ok: equivalent query graded incorrect")
+	}
+	if got["t-exec-bad"] {
+		t.Error("t-exec-bad: divergent query graded correct")
 	}
 }
 

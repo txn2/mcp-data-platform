@@ -46,7 +46,9 @@ const (
 		"totals in dollars. Use memory.bench.orders for all order analysis."
 	dailyDescription = "Pre-aggregated daily revenue by region, derived from completed orders. Values are " +
 		"GROSS of discounts (USD), so this index must not be used for policy net-revenue figures; " +
-		"use memory.bench.orders per the Revenue Reporting Policy."
+		"use memory.bench.orders per the Revenue Reporting Policy. FRESHNESS: this index is refreshed " +
+		"only through 2025-11-30; it has NO rows for dates after that cutoff, so any question about a " +
+		"period on or after 2025-12-01 must be answered from memory.bench.orders directly, not this index."
 )
 
 // DataHubMCEs emits the metadata proposals for `datahub put --file`.

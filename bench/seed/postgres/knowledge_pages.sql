@@ -31,7 +31,7 @@ INSERT INTO portal_knowledge_pages
   (id, slug, title, summary, body, tags, created_by, created_email, updated_by, current_version, created_at, updated_at)
 VALUES
   ('kp-bench-2', 'bench-warehouse-guide', 'Bench Warehouse Guide',
-   'Which bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation.',
+   'Which bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.',
    $benchkp$# Bench Warehouse Guide
 
 The bench schema (memory.bench) holds four tables:
@@ -43,8 +43,62 @@ The bench schema (memory.bench) holds four tables:
   coverage, dollar totals. Do not use; query orders instead.
 - **daily_region_revenue** — pre-aggregated daily gross revenue (USD) by region,
   completed orders only, gross of discounts. Convenient for trend charts; not
-  valid for policy revenue (see the Revenue Reporting Policy page).$benchkp$,
+  valid for policy revenue (see the Revenue Reporting Policy page). This index
+  is refreshed only through **2025-11-30**: it has no rows on or after
+  2025-12-01, so any December 2025 or later figure must come from orders
+  directly, never this index.$benchkp$,
    '["warehouse","bench"]'::jsonb, 'bench-seed@example.com', 'bench-seed@example.com', 'bench-seed@example.com', 1, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')
+ON CONFLICT (id) DO UPDATE SET
+  slug = EXCLUDED.slug, title = EXCLUDED.title, summary = EXCLUDED.summary,
+  body = EXCLUDED.body, tags = EXCLUDED.tags, updated_at = EXCLUDED.updated_at;
+
+INSERT INTO portal_knowledge_pages
+  (id, slug, title, summary, body, tags, created_by, created_email, updated_by, current_version, created_at, updated_at)
+VALUES
+  ('kp-bench-3', 'fiscal-calendar-policy', 'Fiscal Calendar Policy',
+   'The fiscal year starts February 1: fiscal year 2025 runs 2025-02-01 through 2026-01-31. Fiscal figures must not be computed over the calendar year.',
+   $benchkp$# Fiscal Calendar Policy
+
+The company fiscal year does **not** align with the calendar year. **Fiscal year
+N begins on February 1 of calendar year N and ends on January 31 of calendar
+year N+1.** Fiscal year 2025 therefore runs **2025-02-01 through 2026-01-31**.
+
+When a question asks about a "fiscal year", a "fiscal quarter", or "FY" figures,
+use these boundaries, not the calendar year:
+
+- Fiscal Q1: February – April
+- Fiscal Q2: May – July
+- Fiscal Q3: August – October
+- Fiscal Q4: November – January
+
+A figure computed over the calendar year (January – December) is a
+calendar-year figure and must not be reported as a fiscal-year figure. Revenue
+inside a fiscal window still follows the Revenue Reporting Policy (net =
+amount - discount over completed orders, amounts in US cents).$benchkp$,
+   '["finance","policy","bench"]'::jsonb, 'bench-seed@example.com', 'bench-seed@example.com', 'bench-seed@example.com', 1, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')
+ON CONFLICT (id) DO UPDATE SET
+  slug = EXCLUDED.slug, title = EXCLUDED.title, summary = EXCLUDED.summary,
+  body = EXCLUDED.body, tags = EXCLUDED.tags, updated_at = EXCLUDED.updated_at;
+
+INSERT INTO portal_knowledge_pages
+  (id, slug, title, summary, body, tags, created_by, created_email, updated_by, current_version, created_at, updated_at)
+VALUES
+  ('kp-bench-4', 'customer-tier-definitions', 'Customer Tier Definitions',
+   'A ''key account'' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.',
+   $benchkp$# Customer Tier Definitions
+
+Customers carry a tier of `basic`, `plus`, or `enterprise` in the
+customers table. Reporting uses one derived grouping that is **not** stored in
+any column:
+
+- **Key account** — any customer on the `plus` OR `enterprise` tier. "Key
+  accounts" is the standard segment for account-level reporting; it is broader
+  than the top tier alone. A figure that counts only `enterprise` customers is
+  an enterprise-tier figure, not a key-account figure.
+
+When a question refers to "key accounts", include both the plus and enterprise
+tiers. When it names a specific tier, use only that tier.$benchkp$,
+   '["reporting","policy","bench"]'::jsonb, 'bench-seed@example.com', 'bench-seed@example.com', 'bench-seed@example.com', 1, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')
 ON CONFLICT (id) DO UPDATE SET
   slug = EXCLUDED.slug, title = EXCLUDED.title, summary = EXCLUDED.summary,
   body = EXCLUDED.body, tags = EXCLUDED.tags, updated_at = EXCLUDED.updated_at;

@@ -15,6 +15,38 @@
       "final_text": "FINAL ANSWER: memory.bench.customers"
     }
   ],
+  "s1-authoritative-orders": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "Which table is the authoritative source of truth for order data in the bench warehouse?"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: memory.bench.orders"
+    }
+  ],
+  "s1-avoid-order-table": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "A colleague is about to query an order table that is no longer maintained. Which table should they avoid in favor of the current one?"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: legacy_orders"
+    }
+  ],
   "s1-current-orders": [
     {
       "tool_calls": [
@@ -47,6 +79,38 @@
       "final_text": "FINAL ANSWER: memory.bench.customers"
     }
   ],
+  "s1-customer-region": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "Which table maps each customer to their region in the bench warehouse?"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: memory.bench.customers"
+    }
+  ],
+  "s1-customer-tier": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "Where is each customer's tier (basic, plus, enterprise) stored in the bench warehouse?"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: memory.bench.customers"
+    }
+  ],
   "s1-daily-aggregate": [
     {
       "tool_calls": [
@@ -63,6 +127,70 @@
       "final_text": "FINAL ANSWER: daily_region_revenue"
     }
   ],
+  "s1-deprecated-table": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "Which table in the bench warehouse is deprecated and should NOT be used for order analysis?"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: legacy_orders"
+    }
+  ],
+  "s1-join-for-region": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "You have order rows and need each order's customer region. Which table do you join the orders table to?"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: memory.bench.customers"
+    }
+  ],
+  "s1-order-amount": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "Which table holds the per-order amount and discount for each order in the bench warehouse?"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: memory.bench.orders"
+    }
+  ],
+  "s1-order-status": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "Which table in the bench warehouse records the status (completed, refunded, pending) of each individual order?"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: memory.bench.orders"
+    }
+  ],
   "s1-order-transactions": [
     {
       "tool_calls": [
@@ -77,6 +205,1532 @@
     },
     {
       "final_text": "FINAL ANSWER: memory.bench.orders"
+    }
+  ],
+  "s1-preaggregated": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "Which bench table stores gross revenue already summarized by day and region?"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: daily_region_revenue"
+    }
+  ],
+  "s1-retired-pipeline": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "Which bench table is a partial extract left over from a retired ingestion pipeline?"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: legacy_orders"
+    }
+  ],
+  "s1-revenue-source": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "To compute company revenue per the reporting policy (net of discounts, completed orders only), which table holds the raw per-order rows you need?"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: memory.bench.orders"
+    }
+  ],
+  "s1-trend-chart": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "You want a quick daily revenue-by-region trend without scanning every order. Which pre-summarized table serves that?"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: daily_region_revenue"
+    }
+  ],
+  "s2-completed-amount-cents": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "In the bench orders table the amount column is stored as integer US cents. What is the SUM of amount (in cents, as a raw integer) over all completed orders?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT SUM(amount) AS cents FROM memory.bench.orders WHERE status = 'completed'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-completed-orders": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many orders in the bench warehouse have status 'completed'?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.orders WHERE status = 'completed'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-completed-q1-2025": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many completed orders in the bench warehouse were placed in Q1 2025 (calendar quarter)?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.orders WHERE status = 'completed' AND order_ts \u003e= TIMESTAMP '2025-01-01 00:00:00' AND order_ts \u003c TIMESTAMP '2025-04-01 00:00:00'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-completed-q2-2025": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many completed orders in the bench warehouse were placed in Q2 2025 (calendar quarter)?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.orders WHERE status = 'completed' AND order_ts \u003e= TIMESTAMP '2025-04-01 00:00:00' AND order_ts \u003c TIMESTAMP '2025-07-01 00:00:00'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-completed-q3-2025": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many completed orders in the bench warehouse were placed in Q3 2025 (calendar quarter)?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.orders WHERE status = 'completed' AND order_ts \u003e= TIMESTAMP '2025-07-01 00:00:00' AND order_ts \u003c TIMESTAMP '2025-10-01 00:00:00'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-completed-q4-2025": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many completed orders in the bench warehouse were placed in Q4 2025 (calendar quarter)?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.orders WHERE status = 'completed' AND order_ts \u003e= TIMESTAMP '2025-10-01 00:00:00' AND order_ts \u003c TIMESTAMP '2026-01-01 00:00:00'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-customers-created-2023": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many customers in the bench warehouse had their account created in calendar year 2023?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.customers WHERE created_at \u003e= TIMESTAMP '2023-01-01 00:00:00' AND created_at \u003c TIMESTAMP '2024-01-01 00:00:00'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-customers-created-2024": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many customers in the bench warehouse had their account created in calendar year 2024?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.customers WHERE created_at \u003e= TIMESTAMP '2024-01-01 00:00:00' AND created_at \u003c TIMESTAMP '2025-01-01 00:00:00'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-customers-region-east": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many customers in the bench warehouse are in the East region?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.customers WHERE region = 'East'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-customers-region-north": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many customers in the bench warehouse are in the North region?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.customers WHERE region = 'North'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-customers-region-south": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many customers in the bench warehouse are in the South region?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.customers WHERE region = 'South'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-customers-region-west": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many customers in the bench warehouse are in the West region?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.customers WHERE region = 'West'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-customers-tier-basic": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many customers in the bench warehouse are on the basic tier?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.customers WHERE tier = 'basic'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-customers-tier-enterprise": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many customers in the bench warehouse are on the enterprise tier?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.customers WHERE tier = 'enterprise'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-customers-tier-plus": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many customers in the bench warehouse are on the plus tier?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.customers WHERE tier = 'plus'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-distinct-order-customers": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many distinct customers have placed at least one order in the bench warehouse?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(DISTINCT customer_id) AS n FROM memory.bench.orders"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-large-orders": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "In the bench orders table the amount column is stored as integer US cents. How many orders have an amount of at least 100000 cents (that is, $1,000.00 or more)?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.orders WHERE amount \u003e= 100000"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-orders-december-2025": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many orders in the bench warehouse were placed in December 2025?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.orders WHERE order_ts \u003e= TIMESTAMP '2025-12-01 00:00:00' AND order_ts \u003c TIMESTAMP '2026-01-01 00:00:00'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-orders-february-2025": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many orders in the bench warehouse were placed in February 2025?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.orders WHERE order_ts \u003e= TIMESTAMP '2025-02-01 00:00:00' AND order_ts \u003c TIMESTAMP '2025-03-01 00:00:00'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-orders-january-2025": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many orders in the bench warehouse were placed in January 2025?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.orders WHERE order_ts \u003e= TIMESTAMP '2025-01-01 00:00:00' AND order_ts \u003c TIMESTAMP '2025-02-01 00:00:00'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-orders-june-2025": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many orders in the bench warehouse were placed in June 2025?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.orders WHERE order_ts \u003e= TIMESTAMP '2025-06-01 00:00:00' AND order_ts \u003c TIMESTAMP '2025-07-01 00:00:00'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-orders-november-2025": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many orders in the bench warehouse were placed in November 2025?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.orders WHERE order_ts \u003e= TIMESTAMP '2025-11-01 00:00:00' AND order_ts \u003c TIMESTAMP '2025-12-01 00:00:00'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-orders-region-east": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many orders in the bench warehouse were placed by customers in the East region?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.orders o JOIN memory.bench.customers c ON o.customer_id = c.customer_id WHERE c.region = 'East'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-orders-region-north": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many orders in the bench warehouse were placed by customers in the North region?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.orders o JOIN memory.bench.customers c ON o.customer_id = c.customer_id WHERE c.region = 'North'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-orders-region-south": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many orders in the bench warehouse were placed by customers in the South region?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.orders o JOIN memory.bench.customers c ON o.customer_id = c.customer_id WHERE c.region = 'South'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-orders-region-west": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many orders in the bench warehouse were placed by customers in the West region?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.orders o JOIN memory.bench.customers c ON o.customer_id = c.customer_id WHERE c.region = 'West'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-orders-tier-basic": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many orders in the bench warehouse were placed by basic-tier customers?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.orders o JOIN memory.bench.customers c ON o.customer_id = c.customer_id WHERE c.tier = 'basic'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-orders-tier-enterprise": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many orders in the bench warehouse were placed by enterprise-tier customers?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.orders o JOIN memory.bench.customers c ON o.customer_id = c.customer_id WHERE c.tier = 'enterprise'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-orders-tier-plus": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many orders in the bench warehouse were placed by plus-tier customers?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.orders o JOIN memory.bench.customers c ON o.customer_id = c.customer_id WHERE c.tier = 'plus'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-pending-orders": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many orders in the bench warehouse have status 'pending'?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.orders WHERE status = 'pending'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-refunded-orders": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many orders in the bench warehouse have status 'refunded'?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.orders WHERE status = 'refunded'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-sql-completed-orders-per-region": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "Write a single Trino SQL query returning the number of COMPLETED orders per region, with columns (region, order_count), joining the bench orders and customers tables. Put ONLY the SQL query on the FINAL ANSWER line."
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: SELECT c.region, COUNT(*) AS order_count FROM memory.bench.orders o JOIN memory.bench.customers c ON o.customer_id = c.customer_id WHERE o.status = 'completed' GROUP BY c.region"
+    }
+  ],
+  "s2-sql-customers-per-region": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "Write a single Trino SQL query that returns one row per region with columns (region, customer_count) over the bench customers table. Put ONLY the SQL query on the FINAL ANSWER line."
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: SELECT region, COUNT(*) AS customer_count FROM memory.bench.customers GROUP BY region"
+    }
+  ],
+  "s2-sql-customers-per-tier": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "Write a single Trino SQL query that returns one row per tier with columns (tier, customer_count) over the bench customers table. Put ONLY the SQL query on the FINAL ANSWER line."
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: SELECT tier, COUNT(*) AS customer_count FROM memory.bench.customers GROUP BY tier"
+    }
+  ],
+  "s2-sql-orders-per-status": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "Write a single Trino SQL query that returns, for the bench orders table, one row per order status with columns (status, order_count). Put ONLY the SQL query on the FINAL ANSWER line."
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: SELECT status, COUNT(*) AS order_count FROM memory.bench.orders GROUP BY status"
+    }
+  ],
+  "s2-top-region-customers": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "Which region has the most customers in the bench warehouse? Answer with the region name."
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: West"
+    }
+  ],
+  "s2-top-region-orders": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "Which region has the most orders in the bench warehouse? Answer with the region name."
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: West"
+    }
+  ],
+  "s2-top-tier-orders": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "Which customer tier accounts for the most orders in the bench warehouse? Answer with the tier name."
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: basic"
+    }
+  ],
+  "s2-total-customers": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many customers are in the bench warehouse?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.customers"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-total-orders": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many order records are in the bench orders table?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.orders"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-xtab-east-completed": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many completed orders in the bench warehouse were placed by customers in the East region?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.orders o JOIN memory.bench.customers c ON o.customer_id = c.customer_id WHERE o.status = 'completed' AND c.region = 'East'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-xtab-east-refunded": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many refunded orders in the bench warehouse were placed by customers in the East region?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.orders o JOIN memory.bench.customers c ON o.customer_id = c.customer_id WHERE o.status = 'refunded' AND c.region = 'East'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-xtab-north-pending": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many pending orders in the bench warehouse were placed by customers in the North region?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.orders o JOIN memory.bench.customers c ON o.customer_id = c.customer_id WHERE o.status = 'pending' AND c.region = 'North'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-xtab-south-completed": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many completed orders in the bench warehouse were placed by customers in the South region?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.orders o JOIN memory.bench.customers c ON o.customer_id = c.customer_id WHERE o.status = 'completed' AND c.region = 'South'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s2-xtab-west-completed": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many completed orders in the bench warehouse were placed by customers in the West region?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.orders o JOIN memory.bench.customers c ON o.customer_id = c.customer_id WHERE o.status = 'completed' AND c.region = 'West'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s3-deprecated-completed-usd": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "Using the CURRENT, supported order table (not any deprecated extract), what is the total GROSS amount in USD of completed orders? Round to the nearest cent."
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT ROUND(SUM(amount) / 100e0, 2) AS gross_usd FROM memory.bench.orders WHERE status = 'completed'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s3-deprecated-order-count": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many order records are in the CURRENT, supported order table of the bench warehouse (not any deprecated extract)?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.orders"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s3-fiscal-2025-count": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many completed orders fall within FISCAL year 2025?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.orders WHERE status = 'completed' AND order_ts \u003e= TIMESTAMP '2025-02-01 00:00:00' AND order_ts \u003c TIMESTAMP '2026-02-01 00:00:00'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s3-fiscal-2025-east": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "Per the company reporting policy, what was the East region's revenue in USD for FISCAL year 2025? Round to the nearest cent."
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT ROUND(SUM(o.amount - o.discount) / 100e0, 2) AS revenue_usd FROM memory.bench.orders o JOIN memory.bench.customers c ON o.customer_id = c.customer_id WHERE o.status = 'completed' AND c.region = 'East' AND o.order_ts \u003e= TIMESTAMP '2025-02-01 00:00:00' AND o.order_ts \u003c TIMESTAMP '2026-02-01 00:00:00'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s3-fiscal-2025-net": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "Per the company reporting policy, what was total revenue in USD for FISCAL year 2025? Round to the nearest cent."
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT ROUND(SUM(amount - discount) / 100e0, 2) AS revenue_usd FROM memory.bench.orders WHERE status = 'completed' AND order_ts \u003e= TIMESTAMP '2025-02-01 00:00:00' AND order_ts \u003c TIMESTAMP '2026-02-01 00:00:00'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s3-fiscal-q1-net": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "Per the company reporting policy, what was revenue in USD for FISCAL Q1 of fiscal year 2025? Round to the nearest cent."
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT ROUND(SUM(amount - discount) / 100e0, 2) AS revenue_usd FROM memory.bench.orders WHERE status = 'completed' AND order_ts \u003e= TIMESTAMP '2025-02-01 00:00:00' AND order_ts \u003c TIMESTAMP '2025-05-01 00:00:00'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s3-fiscal-q4-net": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "Per the company reporting policy, what was revenue in USD for FISCAL Q4 of fiscal year 2025? Round to the nearest cent."
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT ROUND(SUM(amount - discount) / 100e0, 2) AS revenue_usd FROM memory.bench.orders WHERE status = 'completed' AND order_ts \u003e= TIMESTAMP '2025-11-01 00:00:00' AND order_ts \u003c TIMESTAMP '2026-02-01 00:00:00'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s3-fresh-dec-gross": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "What was the GROSS revenue in USD (completed orders, amount only) for December 2025 in the bench warehouse? Round to the nearest cent."
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT ROUND(SUM(amount) / 100e0, 2) AS gross_usd FROM memory.bench.orders WHERE status = 'completed' AND order_ts \u003e= TIMESTAMP '2025-12-01 00:00:00' AND order_ts \u003c TIMESTAMP '2026-01-01 00:00:00'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s3-fresh-fullyear-gross": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "What was the GROSS revenue in USD (completed orders, amount only) for all of calendar year 2025 in the bench warehouse? Round to the nearest cent."
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT ROUND(SUM(amount) / 100e0, 2) AS gross_usd FROM memory.bench.orders WHERE status = 'completed' AND order_ts \u003e= TIMESTAMP '2025-01-01 00:00:00' AND order_ts \u003c TIMESTAMP '2026-01-01 00:00:00'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s3-fresh-novdec-gross": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "What was the GROSS revenue in USD (completed orders, amount only) for November and December 2025 combined in the bench warehouse? Round to the nearest cent."
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT ROUND(SUM(amount) / 100e0, 2) AS gross_usd FROM memory.bench.orders WHERE status = 'completed' AND order_ts \u003e= TIMESTAMP '2025-11-01 00:00:00' AND order_ts \u003c TIMESTAMP '2026-01-01 00:00:00'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s3-fresh-q4-gross": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "What was the GROSS revenue in USD (completed orders, amount only) for Q4 2025 (October through December) in the bench warehouse? Round to the nearest cent."
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT ROUND(SUM(amount) / 100e0, 2) AS gross_usd FROM memory.bench.orders WHERE status = 'completed' AND order_ts \u003e= TIMESTAMP '2025-10-01 00:00:00' AND order_ts \u003c TIMESTAMP '2026-01-01 00:00:00'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s3-net-east-2025": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "Per the company revenue reporting policy, what was the revenue in USD for the East region in calendar year 2025? Round to the nearest cent."
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT ROUND(SUM(o.amount - o.discount) / 100e0, 2) AS revenue_usd FROM memory.bench.orders o JOIN memory.bench.customers c ON o.customer_id = c.customer_id WHERE o.status = 'completed' AND c.region = 'East' AND o.order_ts \u003e= TIMESTAMP '2025-01-01 00:00:00' AND o.order_ts \u003c TIMESTAMP '2026-01-01 00:00:00'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
     }
   ],
   "s3-net-east-march": [
@@ -160,6 +1814,168 @@
       "final_text": "FINAL ANSWER: {{last_result}}"
     }
   ],
+  "s3-net-west-2025": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "Per the company revenue reporting policy, what was the revenue in USD for the West region in calendar year 2025? Round to the nearest cent."
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT ROUND(SUM(o.amount - o.discount) / 100e0, 2) AS revenue_usd FROM memory.bench.orders o JOIN memory.bench.customers c ON o.customer_id = c.customer_id WHERE o.status = 'completed' AND c.region = 'West' AND o.order_ts \u003e= TIMESTAMP '2025-01-01 00:00:00' AND o.order_ts \u003c TIMESTAMP '2026-01-01 00:00:00'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s3-tier-key-avg": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "What is the average order amount in USD across all orders placed by KEY ACCOUNT customers in the bench warehouse? Round to the nearest cent."
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT ROUND(AVG(o.amount) / 100e0, 2) AS avg_usd FROM memory.bench.orders o JOIN memory.bench.customers c ON o.customer_id = c.customer_id WHERE c.tier IN ('plus', 'enterprise')"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s3-tier-key-completed": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many COMPLETED orders were placed by KEY ACCOUNT customers in the bench warehouse?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.orders o JOIN memory.bench.customers c ON o.customer_id = c.customer_id WHERE o.status = 'completed' AND c.tier IN ('plus', 'enterprise')"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s3-tier-key-count": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many KEY ACCOUNT customers does the bench warehouse have?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.customers c WHERE c.tier IN ('plus', 'enterprise')"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s3-tier-key-east": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many KEY ACCOUNT customers are in the East region in the bench warehouse?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.customers c WHERE c.region = 'East' AND c.tier IN ('plus', 'enterprise')"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s3-tier-key-orders": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "How many orders were placed by KEY ACCOUNT customers in the bench warehouse?"
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(*) AS n FROM memory.bench.orders o JOIN memory.bench.customers c ON o.customer_id = c.customer_id WHERE c.tier IN ('plus', 'enterprise')"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
   "s3-units-avg-enterprise": [
     {
       "tool_calls": [
@@ -187,6 +2003,33 @@
       "final_text": "FINAL ANSWER: {{last_result}}"
     }
   ],
+  "s3-units-completed-gross": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "Using the bench warehouse, what is the total GROSS amount in USD of all completed orders (amount only, discounts not subtracted)? Round to the nearest cent."
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT ROUND(SUM(amount) / 100e0, 2) AS gross_usd FROM memory.bench.orders WHERE status = 'completed'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
   "s3-units-q1-total": [
     {
       "tool_calls": [
@@ -206,6 +2049,33 @@
           "name": "trino_query",
           "args": {
             "sql": "SELECT ROUND(SUM(amount) / 100e0, 2) AS total_usd FROM memory.bench.orders WHERE order_ts \u003e= TIMESTAMP '2025-01-01 00:00:00' AND order_ts \u003c TIMESTAMP '2025-04-01 00:00:00'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s3-units-total-all": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "Using the bench warehouse, what was the total order amount in USD across ALL orders (any status), all time? Round to the nearest cent."
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT ROUND(SUM(amount) / 100e0, 2) AS total_usd FROM memory.bench.orders"
           }
         }
       ]

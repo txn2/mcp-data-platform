@@ -5,7 +5,9 @@ suite: s1
 prompt: Which table in the bench warehouse holds customer profile attributes such as tier and region?
 arms:
     - a0
+    - a1
     - a2
+    - a3
 budget_tool_calls: 30
 grading:
     kind: entity

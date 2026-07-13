@@ -5,112 +5,155 @@ import (
 	"github.com/txn2/mcp-data-platform/bench/internal/task"
 )
 
-// pilotBudget is the per-task tool-call budget (MCP-Atlas's budget approach,
+// taskBudget is the per-task tool-call budget (MCP-Atlas's budget approach,
 // starting value from the #930 design).
-const pilotBudget = 30
+const taskBudget = 30
 
-// numericTolerance is the absolute grading tolerance for numeric tasks:
-// sums are exact to the cent, so a correct answer is within a cent.
-const numericTolerance = 0.01
+// Grading tolerances. USD sums and averages are exact to the cent (integer-cent
+// arithmetic divided by 100), so a correct answer is within a cent; counts are
+// exact integers, so half a unit absorbs a "300.0"-style decimal rendering.
+const (
+	usdTolerance   = 0.01
+	countTolerance = 0.5
+)
 
-// pilotArms is the phase-1 arm pair.
-var pilotArms = []string{"a0", "a2"}
+// allArms is the phase-2 arm set: every S1-S4 task runs under all four arms
+// (the ablation is the platform config, not the task set).
+var allArms = []string{"a0", "a1", "a2", "a3"}
 
-// Tasks derives the pilot task set (S1 discovery + S3 knowledge traps) with
-// ground truths computed from the generated rows.
+// Tasks derives the full phase-2 task set (S1 discovery, S2 analytical
+// accuracy, S3 knowledge traps) with ground truths computed from the generated
+// rows — derived, never hand-typed.
 func (d *Dataset) Tasks() []task.Task {
 	tasks := d.s1Tasks()
+	tasks = append(tasks, d.s2Tasks()...)
 	return append(tasks, d.s3Tasks()...)
 }
 
-// s1Tasks are discovery tasks graded by entity match.
+// entityTask builds an entity-graded task.
+func entityTask(id, suite, prompt string, aliases, wrong, traps []string) task.Task {
+	return task.Task{
+		ID: id, Suite: suite, Prompt: prompt, Arms: allArms, TrapClasses: traps,
+		BudgetToolCalls: taskBudget,
+		Grading:         task.Grading{Kind: task.GradeEntity, Aliases: aliases, WrongAliases: wrong},
+	}
+}
+
+// numericTask builds a numeric task with an explicit tolerance.
+func numericTask(id, suite, prompt, sql string, value, tol float64, traps []string, rubric ...task.RubricItem) task.Task {
+	return task.Task{
+		ID: id, Suite: suite, Prompt: prompt, Arms: allArms, TrapClasses: traps,
+		BudgetToolCalls: taskBudget, ExpectedSQL: sql,
+		Grading: task.Grading{Kind: task.GradeNumeric, Value: new(value), AbsTolerance: tol},
+		Rubric:  rubric,
+	}
+}
+
+// countTask builds a numeric task whose ground truth is an integer count.
+func countTask(id, suite, prompt, sql string, value int, traps []string, rubric ...task.RubricItem) task.Task {
+	return numericTask(id, suite, prompt, sql, float64(value), countTolerance, traps, rubric...)
+}
+
+// usdTask builds a numeric USD S3 task (cent-exact tolerance). USD-denominated
+// questions live only in S3 (S2 states units explicitly to avoid the units
+// trap), so the suite is fixed.
+func usdTask(id, prompt, sql string, value float64, traps []string, rubric ...task.RubricItem) task.Task {
+	return numericTask(id, "s3", prompt, sql, value, usdTolerance, traps, rubric...)
+}
+
+// ordersAliases / customersAliases are the fully-qualified alias sets for the
+// two core tables. They are fully qualified because "orders" is a substring of
+// "legacy_orders": a bare alias would match the deprecated table.
+var (
+	ordersAliases    = []string{"memory.bench.orders", "bench.orders"}
+	customersAliases = []string{"memory.bench.customers", "bench.customers"}
+	legacyWrong      = []string{"legacy_orders"}
+)
+
+// s1Tasks are discovery tasks graded by entity match: map a business need to
+// the right table. Several are knowledge-dependent (the deprecation of
+// legacy_orders, the gross-only/stale nature of the pre-aggregated index),
+// which is what separates the knowledge arms from the baseline.
 func (d *Dataset) s1Tasks() []task.Task {
-	entity := func(id, prompt string, aliases, wrongAliases []string) task.Task {
-		return task.Task{
-			ID: id, Suite: "s1", Prompt: prompt, Arms: pilotArms, BudgetToolCalls: pilotBudget,
-			Grading: task.Grading{Kind: task.GradeEntity, Aliases: aliases, WrongAliases: wrongAliases},
-		}
-	}
+	return concatTasks(d.s1OrdersTasks(), d.s1CustomerTasks(), d.s1IndexTasks(), d.s1DeprecationTasks())
+}
+
+// s1OrdersTasks are discovery tasks whose answer is the current orders table.
+func (d *Dataset) s1OrdersTasks() []task.Task {
 	return []task.Task{
-		entity("s1-order-transactions",
+		entityTask("s1-order-transactions", "s1",
 			"Which table in the bench warehouse would you query for individual customer order transactions (one row per order)?",
-			[]string{"memory.bench.orders", "bench.orders"}, []string{"legacy_orders"}),
-		entity("s1-daily-aggregate",
-			"Which table in the bench warehouse provides pre-aggregated daily revenue by region, so you do not have to aggregate raw orders yourself?",
-			[]string{"daily_region_revenue"}, nil),
-		entity("s1-customer-profile",
-			"Which table in the bench warehouse holds customer profile attributes such as tier and region?",
-			[]string{"memory.bench.customers", "bench.customers"}, nil),
-		entity("s1-current-orders",
+			ordersAliases, legacyWrong, nil),
+		entityTask("s1-current-orders", "s1",
 			"The bench warehouse contains more than one table of order data. Which one is the current, supported table for order analysis?",
-			[]string{"memory.bench.orders", "bench.orders"}, []string{"legacy_orders"}),
-		entity("s1-account-created",
-			"Which table in the bench warehouse would you use to look up when a customer's account was created?",
-			[]string{"memory.bench.customers", "bench.customers"}, nil),
+			ordersAliases, legacyWrong, []string{"deprecated_table"}),
+		entityTask("s1-order-status", "s1",
+			"Which table in the bench warehouse records the status (completed, refunded, pending) of each individual order?",
+			ordersAliases, legacyWrong, nil),
+		entityTask("s1-order-amount", "s1",
+			"Which table holds the per-order amount and discount for each order in the bench warehouse?",
+			ordersAliases, legacyWrong, nil),
+		entityTask("s1-revenue-source", "s1",
+			"To compute company revenue per the reporting policy (net of discounts, completed orders only), which table holds the raw per-order rows you need?",
+			ordersAliases, legacyWrong, []string{"net_revenue"}),
+		entityTask("s1-authoritative-orders", "s1",
+			"Which table is the authoritative source of truth for order data in the bench warehouse?",
+			ordersAliases, legacyWrong, []string{"deprecated_table"}),
 	}
 }
 
-// s3Tasks are the knowledge-trap tasks: each is answerable
-// plausibly-but-wrongly without the knowledge layer (dollars-vs-cents, gross
-// vs policy net revenue) and correctly with it.
-func (d *Dataset) s3Tasks() []task.Task {
+// s1CustomerTasks are discovery tasks whose answer is the customers table.
+func (d *Dataset) s1CustomerTasks() []task.Task {
 	return []task.Task{
-		d.numericTask("s3-units-q1-total",
-			"Using the bench warehouse, what was the total order amount in USD across ALL orders (any status) placed in Q1 2025 (2025-01-01 through 2025-03-31)? Round to the nearest cent.",
-			[]string{"units_cents"},
-			d.TotalAmountQ1USD(),
-			"SELECT ROUND(SUM(amount) / 100e0, 2) AS total_usd FROM memory.bench.orders WHERE order_ts >= TIMESTAMP '2025-01-01 00:00:00' AND order_ts < TIMESTAMP '2025-04-01 00:00:00'",
-			task.RubricItem{ID: "caveat-units", Note: "Answer should note that amounts are stored in cents and were converted to USD."}),
-		d.numericTask("s3-units-avg-enterprise",
-			"What is the average order amount in USD across all orders placed by enterprise-tier customers in the bench warehouse? Round to the nearest cent.",
-			[]string{"units_cents"},
-			d.AvgAmountEnterpriseUSD(),
-			"SELECT ROUND(AVG(o.amount) / 100e0, 2) AS avg_usd FROM memory.bench.orders o JOIN memory.bench.customers c ON o.customer_id = c.customer_id WHERE c.tier = 'enterprise'",
-			task.RubricItem{ID: "caveat-units", Note: "Answer should note that amounts are stored in cents and were converted to USD."}),
-		d.numericTask("s3-net-east-march",
-			"Per the company revenue reporting policy, what was the revenue in USD for the East region in March 2025? Round to the nearest cent.",
-			[]string{"net_revenue", "units_cents"},
-			d.NetEastMarchUSD(),
-			"SELECT ROUND(SUM(o.amount - o.discount) / 100e0, 2) AS revenue_usd FROM memory.bench.orders o JOIN memory.bench.customers c ON o.customer_id = c.customer_id WHERE o.status = 'completed' AND c.region = 'East' AND o.order_ts >= TIMESTAMP '2025-03-01 00:00:00' AND o.order_ts < TIMESTAMP '2025-04-01 00:00:00'",
-			task.RubricItem{ID: "caveat-policy", Note: "Answer should state that refunded/pending orders were excluded and discounts subtracted per policy."}),
-		d.topRegionTask(),
-		d.numericTask("s3-net-total-2025",
-			"Per the company revenue reporting policy, what was the company's total revenue in USD for calendar year 2025? Round to the nearest cent.",
-			[]string{"net_revenue", "units_cents"},
-			d.NetTotal2025USD(),
-			"SELECT ROUND(SUM(amount - discount) / 100e0, 2) AS revenue_usd FROM memory.bench.orders WHERE status = 'completed' AND order_ts >= TIMESTAMP '2025-01-01 00:00:00' AND order_ts < TIMESTAMP '2026-01-01 00:00:00'",
-			task.RubricItem{ID: "caveat-policy", Note: "Answer should state that refunded/pending orders were excluded and discounts subtracted per policy."}),
+		entityTask("s1-customer-profile", "s1",
+			"Which table in the bench warehouse holds customer profile attributes such as tier and region?",
+			customersAliases, nil, nil),
+		entityTask("s1-account-created", "s1",
+			"Which table in the bench warehouse would you use to look up when a customer's account was created?",
+			customersAliases, nil, nil),
+		entityTask("s1-customer-region", "s1",
+			"Which table maps each customer to their region in the bench warehouse?",
+			customersAliases, nil, nil),
+		entityTask("s1-customer-tier", "s1",
+			"Where is each customer's tier (basic, plus, enterprise) stored in the bench warehouse?",
+			customersAliases, nil, nil),
+		entityTask("s1-join-for-region", "s1",
+			"You have order rows and need each order's customer region. Which table do you join the orders table to?",
+			customersAliases, nil, nil),
 	}
 }
 
-// numericTask builds one numeric S3 task.
-func (d *Dataset) numericTask(id, prompt string, traps []string, value float64, sql string, rubric task.RubricItem) task.Task {
-	return task.Task{
-		ID: id, Suite: "s3", Prompt: prompt, Arms: pilotArms, TrapClasses: traps,
-		BudgetToolCalls: pilotBudget, ExpectedSQL: sql,
-		Grading: task.Grading{Kind: task.GradeNumeric, Value: new(value), AbsTolerance: numericTolerance},
-		Rubric:  []task.RubricItem{rubric},
+// s1IndexTasks are discovery tasks whose answer is the pre-aggregated index.
+func (d *Dataset) s1IndexTasks() []task.Task {
+	daily := []string{"daily_region_revenue"}
+	return []task.Task{
+		entityTask("s1-daily-aggregate", "s1",
+			"Which table in the bench warehouse provides pre-aggregated daily revenue by region, so you do not have to aggregate raw orders yourself?",
+			daily, nil, nil),
+		entityTask("s1-trend-chart", "s1",
+			"You want a quick daily revenue-by-region trend without scanning every order. Which pre-summarized table serves that?",
+			daily, nil, nil),
+		entityTask("s1-preaggregated", "s1",
+			"Which bench table stores gross revenue already summarized by day and region?",
+			daily, nil, nil),
 	}
 }
 
-// topRegionTask is the entity-graded trap: the gross leader and the policy
-// net-revenue leader differ by construction (the generator asserts it).
-func (d *Dataset) topRegionTask() task.Task {
-	return task.Task{
-		ID:    "s3-net-top-region",
-		Suite: "s3",
-		Prompt: "Per the company revenue reporting policy, which region had the highest revenue in calendar year 2025? " +
-			"Answer with the region name.",
-		Arms: pilotArms, TrapClasses: []string{"net_revenue"},
-		BudgetToolCalls: pilotBudget,
-		ExpectedSQL: "SELECT c.region FROM memory.bench.orders o JOIN memory.bench.customers c ON o.customer_id = c.customer_id " +
-			"WHERE o.status = 'completed' AND o.order_ts >= TIMESTAMP '2025-01-01 00:00:00' AND o.order_ts < TIMESTAMP '2026-01-01 00:00:00' " +
-			"GROUP BY c.region ORDER BY SUM(o.amount - o.discount) DESC LIMIT 1",
-		Grading: task.Grading{Kind: task.GradeEntity, Aliases: []string{d.TopRegionNet2025()}, WrongAliases: d.losingRegions()},
-		Rubric: []task.RubricItem{{
-			ID:   "caveat-policy",
-			Note: "Answer should state the ranking uses policy net revenue (completed orders, discounts subtracted).",
-		}},
+// s1DeprecationTasks are the knowledge-dependent discovery tasks: the answer
+// requires knowing which table is deprecated (a fact in metadata and the
+// warehouse knowledge page, not the schema).
+func (d *Dataset) s1DeprecationTasks() []task.Task {
+	legacy := []string{"legacy_orders"}
+	return []task.Task{
+		entityTask("s1-deprecated-table", "s1",
+			"Which table in the bench warehouse is deprecated and should NOT be used for order analysis?",
+			legacy, nil, []string{"deprecated_table"}),
+		entityTask("s1-retired-pipeline", "s1",
+			"Which bench table is a partial extract left over from a retired ingestion pipeline?",
+			legacy, nil, []string{"deprecated_table"}),
+		entityTask("s1-avoid-order-table", "s1",
+			"A colleague is about to query an order table that is no longer maintained. Which table should they avoid in favor of the current one?",
+			legacy, nil, []string{"deprecated_table"}),
 	}
 }
 
@@ -119,24 +162,35 @@ func (d *Dataset) topRegionTask() task.Task {
 // (validating seed data, ground truth, and grading against the running
 // platform in one pass); pure discovery tasks answer directly (validating the
 // entity grading path). Every scripted path opens with a search call so the
-// a2 arm's search-first gate is satisfied; under a0 (no search tool) that
-// call fails harmlessly and the script proceeds.
+// knowledge arms' search-first gate is satisfied; under a0/a1 (no search tool)
+// that call fails harmlessly and the script proceeds.
 func ScriptedSmoke(tasks []task.Task) llm.Script {
 	script := llm.Script{}
 	for _, t := range tasks {
 		search := llm.Step{ToolCalls: []llm.ToolCall{{Name: "search", Args: map[string]any{"intent": t.Prompt}}}}
-		if t.ExpectedSQL != "" {
+		switch {
+		case t.ExpectedSQL != "" && t.Grading.Kind == task.GradeExecSQL:
+			// Exec-SQL tasks answer with the reference SQL itself; the grader
+			// executes it and compares result sets.
+			script[t.ID] = []llm.Step{search, {FinalText: "FINAL ANSWER: " + t.ExpectedSQL}}
+		case t.ExpectedSQL != "":
 			script[t.ID] = []llm.Step{
 				search,
 				{ToolCalls: []llm.ToolCall{{Name: "trino_query", Args: map[string]any{"sql": t.ExpectedSQL}}}},
 				{FinalText: "FINAL ANSWER: {{last_result}}"},
 			}
-			continue
-		}
-		script[t.ID] = []llm.Step{
-			search,
-			{FinalText: "FINAL ANSWER: " + t.Grading.Aliases[0]},
+		default:
+			script[t.ID] = []llm.Step{search, {FinalText: "FINAL ANSWER: " + t.Grading.Aliases[0]}}
 		}
 	}
 	return script
+}
+
+// concatTasks flattens task groups.
+func concatTasks(groups ...[]task.Task) []task.Task {
+	var out []task.Task
+	for _, g := range groups {
+		out = append(out, g...)
+	}
+	return out
 }

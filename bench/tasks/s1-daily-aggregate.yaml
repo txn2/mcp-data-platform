@@ -5,7 +5,9 @@ suite: s1
 prompt: Which table in the bench warehouse provides pre-aggregated daily revenue by region, so you do not have to aggregate raw orders yourself?
 arms:
     - a0
+    - a1
     - a2
+    - a3
 budget_tool_calls: 30
 grading:
     kind: entity

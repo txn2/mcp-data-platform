@@ -35,7 +35,8 @@ type Manifest struct {
 type Attempt struct {
 	TaskID          string           `json:"task_id"`
 	Suite           string           `json:"suite"`
-	Attempt         int              `json:"attempt"` // 1..k
+	TrapClasses     []string         `json:"trap_classes,omitempty"` // S3 trap classes exercised
+	Attempt         int              `json:"attempt"`                // 1..k
 	SessionID       string           `json:"session_id"`
 	Correct         bool             `json:"correct"`
 	FinalAnswer     string           `json:"final_answer"`

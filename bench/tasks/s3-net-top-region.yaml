@@ -5,7 +5,9 @@ suite: s3
 prompt: Per the company revenue reporting policy, which region had the highest revenue in calendar year 2025? Answer with the region name.
 arms:
     - a0
+    - a1
     - a2
+    - a3
 trap_classes:
     - net_revenue
 budget_tool_calls: 30
@@ -20,4 +22,4 @@ grading:
         - East
 rubric:
     - id: caveat-policy
-      note: Answer should state the ranking uses policy net revenue (completed orders, discounts subtracted).
+      note: Answer should state that refunded/pending orders were excluded and discounts subtracted per policy.

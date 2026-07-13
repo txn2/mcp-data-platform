@@ -53,18 +53,44 @@ func TestTrapInvariants(t *testing.T) {
 func TestTasksAreValid(t *testing.T) {
 	ds := Generate()
 	tasks := ds.Tasks()
-	if len(tasks) != 10 {
-		t.Fatalf("pilot task set = %d tasks, want 10", len(tasks))
+	if len(tasks) != 87 {
+		t.Fatalf("phase-2 task set = %d tasks, want 87", len(tasks))
 	}
 	suites := map[string]int{}
+	arms := map[string]int{}
 	for _, tk := range tasks {
 		if err := tk.Validate(); err != nil {
 			t.Errorf("task %s invalid: %v", tk.ID, err)
 		}
 		suites[tk.Suite]++
+		for _, a := range tk.Arms {
+			arms[a]++
+		}
 	}
-	if suites["s1"] != 5 || suites["s3"] != 5 {
-		t.Errorf("suite split %v, want 5 s1 / 5 s3", suites)
+	if suites["s1"] != 17 || suites["s2"] != 45 || suites["s3"] != 25 {
+		t.Errorf("suite split %v, want 17 s1 / 45 s2 / 25 s3", suites)
+	}
+	// Every task must run under all four arms (the ablation is the config).
+	for _, a := range []string{"a0", "a1", "a2", "a3"} {
+		if arms[a] != len(tasks) {
+			t.Errorf("arm %s applies to %d tasks, want all %d", a, arms[a], len(tasks))
+		}
+	}
+}
+
+// TestTrapClassCoverage asserts every phase-2 trap class is represented in S3.
+func TestTrapClassCoverage(t *testing.T) {
+	ds := Generate()
+	seen := map[string]int{}
+	for _, tk := range ds.Tasks() {
+		for _, c := range tk.TrapClasses {
+			seen[c]++
+		}
+	}
+	for _, class := range []string{"units_cents", "net_revenue", "fiscal_calendar", "freshness_cutoff", "tier_boundary", "deprecated_table"} {
+		if seen[class] == 0 {
+			t.Errorf("trap class %q has no tasks", class)
+		}
 	}
 }
 
@@ -82,8 +108,16 @@ func TestScriptedSmokeCoversAllTasks(t *testing.T) {
 		if last.FinalText == "" {
 			t.Errorf("%s: smoke script does not end in a final answer", tk.ID)
 		}
-		if tk.ExpectedSQL != "" && !strings.Contains(last.FinalText, "{{last_result}}") {
-			t.Errorf("%s: sql-backed task must answer from the live result", tk.ID)
+		switch {
+		case tk.Grading.Kind == task.GradeExecSQL:
+			// Exec-SQL tasks answer with the reference SQL itself.
+			if !strings.Contains(last.FinalText, tk.ExpectedSQL) {
+				t.Errorf("%s: exec_sql task must answer with its reference SQL", tk.ID)
+			}
+		case tk.ExpectedSQL != "":
+			if !strings.Contains(last.FinalText, "{{last_result}}") {
+				t.Errorf("%s: sql-backed task must answer from the live result", tk.ID)
+			}
 		}
 	}
 }
@@ -135,13 +169,16 @@ func TestEmittedContentCarriesTraps(t *testing.T) {
 		}
 	}
 	mces, _ := ds.DataHubMCEs()
-	for _, needle := range []string{"US CENTS", "deprecation", "GROSS of discounts"} {
+	for _, needle := range []string{"US CENTS", "deprecation", "GROSS of discounts", "2025-11-30"} {
 		if !strings.Contains(string(mces), needle) {
 			t.Errorf("mces missing %q", needle)
 		}
 	}
 	kp := ds.KnowledgePagesSQL()
-	for _, needle := range []string{"revenue-reporting-policy", "bench-warehouse-guide", "ON CONFLICT"} {
+	for _, needle := range []string{
+		"revenue-reporting-policy", "bench-warehouse-guide", "fiscal-calendar-policy",
+		"customer-tier-definitions", "ON CONFLICT",
+	} {
 		if !strings.Contains(kp, needle) {
 			t.Errorf("knowledge pages missing %q", needle)
 		}

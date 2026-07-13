@@ -5,7 +5,9 @@ suite: s3
 prompt: Using the bench warehouse, what was the total order amount in USD across ALL orders (any status) placed in Q1 2025 (2025-01-01 through 2025-03-31)? Round to the nearest cent.
 arms:
     - a0
+    - a1
     - a2
+    - a3
 trap_classes:
     - units_cents
 budget_tool_calls: 30

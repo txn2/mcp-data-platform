@@ -164,14 +164,32 @@ func pickStatus(rng *rand.Rand, refundP float64) string {
 	}
 }
 
-// assertTrapInvariants verifies the properties the S3 tasks depend on.
+// assertTrapInvariants verifies the properties the S3 tasks depend on. A
+// violation is a code bug (the seed is constant), caught by the generator's own
+// tests, never a runtime roll of the dice.
 func (d *Dataset) assertTrapInvariants() {
 	grossLeader := d.topRegionGrossAll()
 	netLeader := d.TopRegionNet2025()
 	if grossLeader == netLeader {
-		panic(fmt.Sprintf("trap invariant violated: gross leader %s equals net leader %s", grossLeader, netLeader))
+		panic(fmt.Sprintf("net_revenue trap violated: gross leader %s equals net leader %s", grossLeader, netLeader))
 	}
 	if d.enterpriseOrderCount() == 0 {
-		panic("trap invariant violated: no enterprise orders")
+		panic("units trap violated: no enterprise orders")
+	}
+	// fiscal_calendar: the fiscal-2025 window excludes January 2025 (and the
+	// orders span adds nothing in January 2026), so the fiscal and calendar
+	// net-revenue answers differ iff January 2025 carried completed revenue.
+	if d.january2025NetCents() <= 0 {
+		panic("fiscal_calendar trap violated: January 2025 net revenue is not positive, so fiscal and calendar answers coincide")
+	}
+	// freshness_cutoff: December 2025 (after the index cutoff) must carry
+	// completed revenue, or the index-vs-orders answers would coincide at zero.
+	if d.decemberGrossCents() <= 0 {
+		panic("freshness_cutoff trap violated: no completed December 2025 revenue")
+	}
+	// tier_boundary: the key-account set (plus + enterprise) must exceed the
+	// single-top-tier reading (enterprise only), or the trap has no gap.
+	if d.KeyAccountCount() <= d.enterpriseCustomerCount() {
+		panic("tier_boundary trap violated: no plus-tier customers to separate key-account count from enterprise count")
 	}
 }
