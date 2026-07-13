@@ -857,9 +857,12 @@ bench-up: e2e-up
 	@echo "Platform ready (pid $$(cat $(BENCH_PID)), arm $(BENCH_ARM))."
 
 ## bench-seed-datahub: Push bench metadata into a running DataHub quickstart (a2 arm)
+BENCH_DATAHUB_GMS ?= http://localhost:8080
 bench-seed-datahub:
 	@command -v datahub >/dev/null 2>&1 || { echo "ERROR: datahub CLI not found (pip install acryl-datahub)"; exit 1; }
-	datahub put --file bench/seed/datahub/bench_mces.json
+	@mkdir -p $(BUILD_DIR)
+	@printf 'source:\n  type: file\n  config:\n    path: %s/bench/seed/datahub/bench_mces.json\nsink:\n  type: datahub-rest\n  config:\n    server: %s\n' "$$(pwd)" "$(BENCH_DATAHUB_GMS)" > $(BUILD_DIR)/bench-datahub-recipe.yml
+	datahub ingest -c $(BUILD_DIR)/bench-datahub-recipe.yml
 
 ## bench-run: Run the benchmark (ARM must match bench-up; LLM=anthropic|scripted, SUITE=, K=, MODEL=)
 bench-run:

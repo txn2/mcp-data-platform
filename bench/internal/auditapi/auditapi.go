@@ -174,7 +174,10 @@ type Metrics struct {
 	TotalDurationMS int64 `json:"total_duration_ms"`
 	// EnrichedCalls counts calls where cross-enrichment was applied.
 	EnrichedCalls int `json:"enriched_calls"`
-	// EnrichmentTokensDedup sums the deduplicated enrichment token volume.
+	// EnrichmentTokensFull sums the full enrichment token volume delivered.
+	EnrichmentTokensFull int `json:"enrichment_tokens_full"`
+	// EnrichmentTokensDedup sums the session-deduplicated enrichment token
+	// volume (zero when enrichment ran in full mode).
 	EnrichmentTokensDedup int `json:"enrichment_tokens_dedup"`
 }
 
@@ -189,6 +192,7 @@ func Summarize(events []Event) Metrics {
 		m.TotalDurationMS += e.DurationMS
 		if e.EnrichmentApplied {
 			m.EnrichedCalls++
+			m.EnrichmentTokensFull += e.EnrichmentTokensFull
 			m.EnrichmentTokensDedup += e.EnrichmentTokensDedup
 		}
 	}
