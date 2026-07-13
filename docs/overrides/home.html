@@ -63,7 +63,7 @@
 
     <div class="hero__intro">
       <p class="hero__lede">
-        <span class="dropcap">m</span>cp-data-platform is the composable MCP server platform for AI assistants that need data with context. Compose <a href="https://mcp-datahub.txn2.com">mcp-datahub</a>, <a href="https://mcp-trino.txn2.com">mcp-trino</a>, and <a href="https://mcp-s3.txn2.com">mcp-s3</a> behind one endpoint with bidirectional cross-enrichment. Query a table and get its meaning, owners, quality scores, and deprecation warnings in the same response. <strong>Semantic first</strong>: every data response includes business context from the semantic layer.
+        mcp-data-platform is the composable MCP server platform for AI assistants that need data with context. Compose <a href="https://mcp-datahub.txn2.com">mcp-datahub</a>, <a href="https://mcp-trino.txn2.com">mcp-trino</a>, and <a href="https://mcp-s3.txn2.com">mcp-s3</a> behind one endpoint with bidirectional cross-enrichment. Query a table and get its meaning, owners, quality scores, and deprecation warnings in the same response. <strong>Semantic first</strong>: every data response includes business context from the semantic layer.
       </p>
       <p class="hero__lede hero__lede--muted">
         OAuth 2.1 inbound, OAuth 2.1 outbound to upstream MCPs, OIDC, API keys, role-based personas, audit logging, admin portal, and a gateway toolkit that re-exposes any third-party MCP server through the same auth pipeline. Run as a single binary or import as a Go library to compose your own platform. Apache 2.0.
@@ -204,89 +204,71 @@ p.Run(ctx)</pre>
       </p>
     </header>
 
-    <ol class="stack">
+    <ul class="stack">
       <li class="stack__row">
-        <span class="stack__num">001</span>
         <div class="stack__main">
           <a class="stack__name" href="cross-enrichment/overview/">semantic cross-enrichment</a>
           <p class="stack__desc">Trino results include DataHub metadata (owners, tags, glossary terms, quality scores, deprecation). DataHub searches show query availability and sample SQL. S3 operations include semantic context. Lineage inheritance fills in column metadata from upstream datasets. Session dedup avoids repeating context already sent.</p>
         </div>
-        <span class="stack__tag">enrichment</span>
         <span class="stack__year" aria-hidden="true">↗</span>
       </li>
       <li class="stack__row">
-        <span class="stack__num">002</span>
         <div class="stack__main">
           <a class="stack__name" href="server/multi-provider/">composable toolkits</a>
           <p class="stack__desc">DataHub is the only required dependency (the semantic layer). Add <code>mcp-trino</code> for federated SQL and <code>mcp-s3</code> for object storage when you need them. Multi-instance per service, runtime instance selection, isolated failure domains. Add custom toolkits via the <code>Toolkit</code> interface.</p>
         </div>
-        <span class="stack__tag">compose</span>
         <span class="stack__year" aria-hidden="true">↗</span>
       </li>
       <li class="stack__row">
-        <span class="stack__num">003</span>
         <div class="stack__main">
           <a class="stack__name" href="auth/overview/">oauth 2.1, oidc, api keys</a>
           <p class="stack__desc">OAuth 2.1 server for inbound (Claude Desktop talks OAuth to the platform). OAuth 2.1 client for outbound to upstream MCPs through the gateway, with encrypted refresh tokens persisted across restarts. OIDC discovery for Keycloak, Auth0, Okta, Azure AD. API keys for service accounts. Fail-closed by default.</p>
         </div>
-        <span class="stack__tag">auth</span>
         <span class="stack__year" aria-hidden="true">↗</span>
       </li>
       <li class="stack__row">
-        <span class="stack__num">004</span>
         <div class="stack__main">
           <a class="stack__name" href="personas/overview/">personas &amp; tool filtering</a>
           <p class="stack__desc">Map OIDC roles to personas. Each persona has allow/deny patterns for tools and connections. Analysts get read access. Admins get everything. Connection-level filtering restricts which toolkit instances a persona can use. Description overrides per persona steer the model differently for different audiences.</p>
         </div>
-        <span class="stack__tag">authz</span>
         <span class="stack__year" aria-hidden="true">↗</span>
       </li>
       <li class="stack__row">
-        <span class="stack__num">005</span>
         <div class="stack__main">
           <a class="stack__name" href="server/audit/">audit &amp; observability</a>
           <p class="stack__desc">Every tool call is logged to PostgreSQL with user, persona, tool, parameters (sanitized), duration, enrichment metrics, and result hash. SOC2 and HIPAA-friendly retention. Searchable from the admin portal with event-detail drawers. Activity dashboards for personas, tools, and connections. A search-first gate that refuses query tools until the agent discovers table context.</p>
         </div>
-        <span class="stack__tag">audit</span>
         <span class="stack__year" aria-hidden="true">↗</span>
       </li>
       <li class="stack__row">
-        <span class="stack__num">006</span>
         <div class="stack__main">
           <a class="stack__name" href="server/gateway/">gateway toolkit</a>
           <p class="stack__desc">Re-expose any well-behaved third-party MCP server through the platform's auth, persona, and audit pipeline. Connections authored in the admin portal (DB-backed, encrypted credentials). Tools surface as <code>&lt;connection&gt;__&lt;remote_tool&gt;</code>. OAuth 2.1 client_credentials and authorization_code+PKCE grants. Optional declarative cross-enrichment joins proxied responses with Trino or DataHub.</p>
         </div>
-        <span class="stack__tag">gateway</span>
         <span class="stack__year" aria-hidden="true">↗</span>
       </li>
       <li class="stack__row">
-        <span class="stack__num">007</span>
         <div class="stack__main">
           <a class="stack__name" href="server/admin-portal/">admin &amp; user portal</a>
           <p class="stack__desc">Built-in web dashboard. Admins manage connections, personas, API keys, configuration entries, audit, knowledge, and gateway connections. Users see their activity, prompts, assets, collections, resources, and shared work. Configurable branding (light/dark logos, implementor brand, public-share notices). Markdown asset viewer with mermaid, GFM tables, and code highlighting.</p>
         </div>
-        <span class="stack__tag">portal</span>
         <span class="stack__year" aria-hidden="true">↗</span>
       </li>
       <li class="stack__row">
-        <span class="stack__num">008</span>
         <div class="stack__main">
           <a class="stack__name" href="knowledge/overview/">knowledge &amp; memory</a>
           <p class="stack__desc">Capture tribal knowledge during AI sessions and write it back to DataHub through a human-in-the-loop governance workflow with changeset rollback. Persistent memory layer (PostgreSQL + pgvector) accumulates preferences, corrections, and domain knowledge across sessions, with staleness detection when referenced entities change.</p>
         </div>
-        <span class="stack__tag">knowledge</span>
         <span class="stack__year" aria-hidden="true">↗</span>
       </li>
       <li class="stack__row stack__row--more">
-        <span class="stack__num">···</span>
         <div class="stack__main">
           <a class="stack__name" href="ecosystem/">part of the txn2 mcp data platform</a>
           <p class="stack__desc">Sister projects: <a href="https://mcp-datahub.txn2.com">mcp-datahub</a> for metadata catalogs, <a href="https://mcp-trino.txn2.com">mcp-trino</a> for federated SQL, <a href="https://mcp-s3.txn2.com">mcp-s3</a> for object storage. mcp-data-platform composes all three plus the operational layer that turns them into a platform.</p>
         </div>
-        <span class="stack__tag">+ ecosystem</span>
         <span class="stack__year" aria-hidden="true">↗</span>
       </li>
-    </ol>
+    </ul>
   </section>
 
   {# CODA / sister projects, context #}
@@ -354,7 +336,7 @@ p.Run(ctx)</pre>
       <p class="home-footer__label">txn2 / org</p>
       <p class="home-footer__text"><a href="https://txn2.com">txn2.com&nbsp;↗</a><br>
       <span class="home-footer__links__sub">canonical home of the txn2 open source organization</span></p>
-      <p class="home-footer__mono">apache 2.0 license <span class="dot">·</span> <span data-clock>·· UTC</span></p>
+      <p class="home-footer__mono">apache 2.0 license</p>
     </div>
   </div>
   <div class="home-footer__base">
@@ -364,30 +346,3 @@ p.Run(ctx)</pre>
 </footer>
 {% endblock %}
 
-{% block scripts %}
-{{ super() }}
-<script>
-  // Live UTC clock for rail/footer.
-  // Guarded against duplicate registration: Material's instant-nav rehydrates
-  // the body on every navigation back to the homepage; without this guard a
-  // fresh setInterval handle leaks each visit.
-  (function () {
-    if (window.__mcpDataPlatformClock) {
-      window.__mcpDataPlatformClock.tick();
-      return;
-    }
-    function tick() {
-      var now = new Date();
-      var hh = String(now.getUTCHours()).padStart(2, '0');
-      var mm = String(now.getUTCMinutes()).padStart(2, '0');
-      var stamp = hh + ':' + mm + ' UTC';
-      document.querySelectorAll('[data-clock]').forEach(function (el) {
-        el.textContent = stamp;
-      });
-    }
-    tick();
-    var handle = setInterval(tick, 30 * 1000);
-    window.__mcpDataPlatformClock = { tick: tick, handle: handle };
-  })();
-</script>
-{% endblock %}
