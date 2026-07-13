@@ -10,14 +10,26 @@ func benchURN(table string) string {
 	return fmt.Sprintf("urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.%s,PROD)", table)
 }
 
-// mcp is one metadata change proposal in the `datahub put --file` format the
-// e2e testdata uses (test/e2e/testdata/datahub/datasets.json).
+// mcp is one metadata change proposal in the MCP file format `datahub ingest`
+// consumes (file source): the aspect payload is a GenericAspect wrapped as
+// {"json": {...}}. The legacy `datahub put --file` bulk mode that the e2e
+// testdata targets no longer exists in current CLIs.
 type mcp struct {
-	EntityURN  string `json:"entityUrn"`
-	EntityType string `json:"entityType"`
-	AspectName string `json:"aspectName"`
-	ChangeType string `json:"changeType"`
-	Aspect     any    `json:"aspect"`
+	EntityURN  string        `json:"entityUrn"`
+	EntityType string        `json:"entityType"`
+	AspectName string        `json:"aspectName"`
+	ChangeType string        `json:"changeType"`
+	Aspect     genericAspect `json:"aspect"`
+}
+
+// genericAspect is the MCP file serialization of an aspect payload.
+type genericAspect struct {
+	JSON any `json:"json"`
+}
+
+// wrap boxes an aspect payload for the MCP file format.
+func wrap(aspect any) genericAspect {
+	return genericAspect{JSON: aspect}
 }
 
 // Dataset descriptions are the A2 knowledge channel: they carry the facts the
@@ -64,11 +76,11 @@ func datasetProps(table, description string, custom map[string]string) mcp {
 		EntityType: "dataset",
 		AspectName: "datasetProperties",
 		ChangeType: "UPSERT",
-		Aspect: map[string]any{
+		Aspect: wrap(map[string]any{
 			"name":             table,
 			"description":      description,
 			"customProperties": custom,
-		},
+		}),
 	}
 }
 
@@ -85,7 +97,7 @@ func editableSchema(table string, fields map[string]string) mcp {
 		EntityType: "dataset",
 		AspectName: "editableSchemaMetadata",
 		ChangeType: "UPSERT",
-		Aspect:     map[string]any{"editableSchemaFieldInfo": infos},
+		Aspect:     wrap(map[string]any{"editableSchemaFieldInfo": infos}),
 	}
 }
 
@@ -96,11 +108,11 @@ func deprecation(table, note string) mcp {
 		EntityType: "dataset",
 		AspectName: "deprecation",
 		ChangeType: "UPSERT",
-		Aspect: map[string]any{
+		Aspect: wrap(map[string]any{
 			"deprecated": true,
 			"note":       note,
 			"actor":      "urn:li:corpuser:bench-seed",
-		},
+		}),
 	}
 }
 
@@ -111,6 +123,6 @@ func tag(table string) mcp {
 		EntityType: "dataset",
 		AspectName: "globalTags",
 		ChangeType: "UPSERT",
-		Aspect:     map[string]any{"tags": []map[string]string{{"tag": "urn:li:tag:bench"}}},
+		Aspect:     wrap(map[string]any{"tags": []map[string]string{{"tag": "urn:li:tag:bench"}}}),
 	}
 }

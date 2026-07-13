@@ -80,6 +80,7 @@ type SuiteSummary struct {
 	P90ToolCalls          float64 `json:"p90_tool_calls"`
 	MedianWallMS          float64 `json:"median_wall_ms"`
 	ToolErrors            int     `json:"tool_errors"`
+	EnrichmentTokensFull  int     `json:"enrichment_tokens_full"`
 	EnrichmentTokensDedup int     `json:"enrichment_tokens_dedup"`
 }
 
@@ -165,6 +166,7 @@ func summarizeSuite(suite string, attempts []Attempt, tasks []TaskSummary) Suite
 		toolCalls = append(toolCalls, float64(a.ToolCalls))
 		wall = append(wall, float64(a.WallMS))
 		s.ToolErrors += a.ToolErrors
+		s.EnrichmentTokensFull += a.Audit.EnrichmentTokensFull
 		s.EnrichmentTokensDedup += a.Audit.EnrichmentTokensDedup
 	}
 	if s.Graded > 0 {
@@ -237,7 +239,7 @@ func (r *Results) HumanSummary() string {
 	for _, s := range r.Suites {
 		fmt.Fprintf(&b, "%-7s %5d  %6d  %7.1f%%  %5.1f%%  %9.1f  %9.1f  %11.0f  %9d  %10d  %13d\n",
 			s.Suite, s.Tasks, s.Graded, s.Accuracy*100, s.PassKRate*100,
-			s.MedianToolCalls, s.P90ToolCalls, s.MedianWallMS, s.ToolErrors, s.EnrichmentTokensDedup, s.HarnessFailures)
+			s.MedianToolCalls, s.P90ToolCalls, s.MedianWallMS, s.ToolErrors, s.EnrichmentTokensFull, s.HarnessFailures)
 	}
 	b.WriteString("\ntask                            graded  correct  pass^k\n")
 	for _, t := range r.Tasks {

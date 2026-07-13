@@ -163,12 +163,12 @@ func TestClientErrorStatus(t *testing.T) {
 
 func TestSummarize(t *testing.T) {
 	events := []Event{
-		{Success: true, DurationMS: 10, EnrichmentApplied: true, EnrichmentTokensDedup: 100},
+		{Success: true, DurationMS: 10, EnrichmentApplied: true, EnrichmentTokensFull: 300, EnrichmentTokensDedup: 100},
 		{Success: false, DurationMS: 5},
-		{Success: true, DurationMS: 20, EnrichmentApplied: true, EnrichmentTokensDedup: 50},
+		{Success: true, DurationMS: 20, EnrichmentApplied: true, EnrichmentTokensFull: 200, EnrichmentTokensDedup: 50},
 	}
 	m := Summarize(events)
-	want := Metrics{AuditedCalls: 3, Errors: 1, TotalDurationMS: 35, EnrichedCalls: 2, EnrichmentTokensDedup: 150}
+	want := Metrics{AuditedCalls: 3, Errors: 1, TotalDurationMS: 35, EnrichedCalls: 2, EnrichmentTokensFull: 500, EnrichmentTokensDedup: 150}
 	if m != want {
 		t.Errorf("Summarize = %+v, want %+v", m, want)
 	}

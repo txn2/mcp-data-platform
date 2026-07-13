@@ -5,12 +5,14 @@
     "aspectName": "datasetProperties",
     "changeType": "UPSERT",
     "aspect": {
-      "customProperties": {
-        "team": "bench",
-        "unit": "cents"
-      },
-      "description": "Current order transactions, one row per order. Monetary columns (amount, discount) are stored as INTEGERS IN US CENTS; divide by 100 for USD. Company revenue reporting policy: revenue = amount - discount, COMPLETED orders only (refunded and pending orders are excluded). See the 'Revenue Reporting Policy' knowledge page for the authoritative definition.",
-      "name": "orders"
+      "json": {
+        "customProperties": {
+          "team": "bench",
+          "unit": "cents"
+        },
+        "description": "Current order transactions, one row per order. Monetary columns (amount, discount) are stored as INTEGERS IN US CENTS; divide by 100 for USD. Company revenue reporting policy: revenue = amount - discount, COMPLETED orders only (refunded and pending orders are excluded). See the 'Revenue Reporting Policy' knowledge page for the authoritative definition.",
+        "name": "orders"
+      }
     }
   },
   {
@@ -19,16 +21,18 @@
     "aspectName": "editableSchemaMetadata",
     "changeType": "UPSERT",
     "aspect": {
-      "editableSchemaFieldInfo": [
-        {
-          "description": "Order amount in US cents (integer). Divide by 100 for USD.",
-          "fieldPath": "amount"
-        },
-        {
-          "description": "Discount in US cents (integer), non-zero on completed orders only.",
-          "fieldPath": "discount"
-        }
-      ]
+      "json": {
+        "editableSchemaFieldInfo": [
+          {
+            "description": "Order amount in US cents (integer). Divide by 100 for USD.",
+            "fieldPath": "amount"
+          },
+          {
+            "description": "Discount in US cents (integer), non-zero on completed orders only.",
+            "fieldPath": "discount"
+          }
+        ]
+      }
     }
   },
   {
@@ -37,11 +41,13 @@
     "aspectName": "datasetProperties",
     "changeType": "UPSERT",
     "aspect": {
-      "customProperties": {
-        "team": "bench"
-      },
-      "description": "Customer directory: one row per customer with profile attributes (name, region, tier, account created_at). Join key: customer_id.",
-      "name": "customers"
+      "json": {
+        "customProperties": {
+          "team": "bench"
+        },
+        "description": "Customer directory: one row per customer with profile attributes (name, region, tier, account created_at). Join key: customer_id.",
+        "name": "customers"
+      }
     }
   },
   {
@@ -50,11 +56,13 @@
     "aspectName": "datasetProperties",
     "changeType": "UPSERT",
     "aspect": {
-      "customProperties": {
-        "team": "bench"
-      },
-      "description": "DEPRECATED order extract from the retired ingestion pipeline. Partial coverage, totals in dollars. Use memory.bench.orders for all order analysis.",
-      "name": "legacy_orders"
+      "json": {
+        "customProperties": {
+          "team": "bench"
+        },
+        "description": "DEPRECATED order extract from the retired ingestion pipeline. Partial coverage, totals in dollars. Use memory.bench.orders for all order analysis.",
+        "name": "legacy_orders"
+      }
     }
   },
   {
@@ -63,9 +71,11 @@
     "aspectName": "deprecation",
     "changeType": "UPSERT",
     "aspect": {
-      "actor": "urn:li:corpuser:bench-seed",
-      "deprecated": true,
-      "note": "Deprecated. Use memory.bench.orders instead."
+      "json": {
+        "actor": "urn:li:corpuser:bench-seed",
+        "deprecated": true,
+        "note": "Deprecated. Use memory.bench.orders instead."
+      }
     }
   },
   {
@@ -74,12 +84,14 @@
     "aspectName": "datasetProperties",
     "changeType": "UPSERT",
     "aspect": {
-      "customProperties": {
-        "grain": "day,region",
-        "team": "bench"
-      },
-      "description": "Pre-aggregated daily revenue by region, derived from completed orders. Values are GROSS of discounts (USD), so this index must not be used for policy net-revenue figures; use memory.bench.orders per the Revenue Reporting Policy.",
-      "name": "daily_region_revenue"
+      "json": {
+        "customProperties": {
+          "grain": "day,region",
+          "team": "bench"
+        },
+        "description": "Pre-aggregated daily revenue by region, derived from completed orders. Values are GROSS of discounts (USD), so this index must not be used for policy net-revenue figures; use memory.bench.orders per the Revenue Reporting Policy.",
+        "name": "daily_region_revenue"
+      }
     }
   },
   {
@@ -88,11 +100,13 @@
     "aspectName": "globalTags",
     "changeType": "UPSERT",
     "aspect": {
-      "tags": [
-        {
-          "tag": "urn:li:tag:bench"
-        }
-      ]
+      "json": {
+        "tags": [
+          {
+            "tag": "urn:li:tag:bench"
+          }
+        ]
+      }
     }
   },
   {
@@ -101,11 +115,13 @@
     "aspectName": "globalTags",
     "changeType": "UPSERT",
     "aspect": {
-      "tags": [
-        {
-          "tag": "urn:li:tag:bench"
-        }
-      ]
+      "json": {
+        "tags": [
+          {
+            "tag": "urn:li:tag:bench"
+          }
+        ]
+      }
     }
   },
   {
@@ -114,11 +130,13 @@
     "aspectName": "globalTags",
     "changeType": "UPSERT",
     "aspect": {
-      "tags": [
-        {
-          "tag": "urn:li:tag:bench"
-        }
-      ]
+      "json": {
+        "tags": [
+          {
+            "tag": "urn:li:tag:bench"
+          }
+        ]
+      }
     }
   },
   {
@@ -127,11 +145,13 @@
     "aspectName": "globalTags",
     "changeType": "UPSERT",
     "aspect": {
-      "tags": [
-        {
-          "tag": "urn:li:tag:bench"
-        }
-      ]
+      "json": {
+        "tags": [
+          {
+            "tag": "urn:li:tag:bench"
+          }
+        ]
+      }
     }
   }
 ]
