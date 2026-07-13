@@ -24,6 +24,7 @@ import (
 	"github.com/txn2/mcp-data-platform/apps"
 	"github.com/txn2/mcp-data-platform/internal/platform/branding"
 	"github.com/txn2/mcp-data-platform/internal/platform/browserauth"
+	"github.com/txn2/mcp-data-platform/internal/platform/completionlayer"
 	"github.com/txn2/mcp-data-platform/internal/platform/connauth"
 	"github.com/txn2/mcp-data-platform/internal/platform/dedup"
 	"github.com/txn2/mcp-data-platform/internal/platform/exportadapters"
@@ -2077,13 +2078,37 @@ func (p *Platform) finalizeSetup() {
 		p.lifecycle.OnStop(func(context.Context) error { resourceNotifier.Stop(); return nil })
 	}
 
+	serverCaps := p.buildServerCapabilities()
+
+	// Wire the completion/complete handler on the same condition the capability
+	// is advertised, so the declared capability and the implementation stay in
+	// lockstep. The completion logic lives in the completionlayer seam so the
+	// facade gains no field or method for it (#928, #854).
+	var completionHandler func(context.Context, *mcp.CompleteRequest) (*mcp.CompleteResult, error)
+	if serverCaps.Completions != nil {
+		completionDeps := completionlayer.Deps{
+			Authenticator:   p.authenticator,
+			Authorizer:      p.authorizer,
+			AdminPersona:    p.config.Admin.Persona,
+			Semantic:        p.semanticProvider,
+			Query:           p.queryProvider,
+			Registry:        p.toolkitRegistry,
+			PersonaRegistry: p.personaRegistry,
+		}
+		if p.personaRegistry != nil {
+			completionDeps.PersonasForRoles = personasForRolesFunc(p.personaRegistry)
+		}
+		completionHandler = completionlayer.New(completionDeps).Handler()
+	}
+
 	p.mcpServer = mcp.NewServer(&mcp.Implementation{
 		Name:    p.config.Server.Name,
 		Version: p.config.Server.Version,
 	}, &mcp.ServerOptions{
-		SchemaCache:  mcp.NewSchemaCache(),
-		Capabilities: p.buildServerCapabilities(),
-		Instructions: initializeInstructions,
+		SchemaCache:       mcp.NewSchemaCache(),
+		Capabilities:      serverCaps,
+		Instructions:      initializeInstructions,
+		CompletionHandler: completionHandler,
 	})
 
 	// Add MCP protocol-level receiving middleware.
@@ -2372,7 +2397,8 @@ func (p *Platform) buildServerCapabilities() *mcp.ServerCapabilities {
 	}
 
 	// Resources are available when templates or managed resources are enabled.
-	if p.config.Resources.IsEnabled() || p.resources.Store() != nil || len(p.config.Resources.Custom) > 0 {
+	resourcesOn := p.config.Resources.IsEnabled() || p.resources.Store() != nil || len(p.config.Resources.Custom) > 0
+	if resourcesOn {
 		caps.Resources = &mcp.ResourceCapabilities{ListChanged: true}
 	}
 
@@ -2382,8 +2408,18 @@ func (p *Platform) buildServerCapabilities() *mcp.ServerCapabilities {
 	// API), and the platform emits notifications/prompts/list_changed on every
 	// such write (see the prompt layer's notifying store), so the capability is
 	// honest in both directions (#927).
-	if len(p.config.Server.Prompts) > 0 || p.config.Tuning.PromptsDir != "" || !isExplicitlyDisabled(p.config.Knowledge.Enabled) {
+	promptsOn := len(p.config.Server.Prompts) > 0 || p.config.Tuning.PromptsDir != "" || !isExplicitlyDisabled(p.config.Knowledge.Enabled)
+	if promptsOn {
 		caps.Prompts = &mcp.PromptCapabilities{ListChanged: true}
+	}
+
+	// Completions serve argument autocompletion for prompts and resource
+	// templates, so the capability is advertised exactly when there is something
+	// to complete. New wires the CompletionHandler on the same condition (a
+	// non-nil caps.Completions), so the declared capability and the
+	// implementation stay in lockstep (#928).
+	if promptsOn || resourcesOn {
+		caps.Completions = &mcp.CompletionCapabilities{}
 	}
 
 	return caps

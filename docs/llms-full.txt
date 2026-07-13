@@ -457,6 +457,10 @@ When enabled, three RFC 6570 URI templates are registered:
 - `glossary://{term}` — Glossary term definition and related assets
 - `availability://{catalog}.{schema_name}/{table}` — Data availability status and row count
 
+## Argument Autocompletion (completion/complete)
+
+The platform serves the MCP `completion/complete` request so completion-capable clients suggest valid values as a user types. The capability is advertised automatically whenever prompts or resource templates are available (no configuration). Prompt arguments are routed by name across built-in and database prompts: `dataset` gives dataset names from the semantic index; `topic` gives domains, data products, and glossary terms; `connection` gives configured connection names. Resource-template variables complete from the query engine: `schema://`/`availability://` `catalog`/`schema_name`/`table` (each variable completes once its predecessors are chosen), and `glossary://` `term` from the glossary index. Completions are persona-filtered like `tools/list` and `search` (dataset/topic/glossary require `search`; catalog/schema/table require `trino_browse`; connections require `list_connections` and are further filtered by persona connection rules); unauthenticated sessions get nothing, results are capped at 100 with `hasMore`, and each lookup runs under a short latency budget that degrades to an empty list on upstream failure.
+
 ## Custom Resources Configuration
 
 Custom resources expose arbitrary static content as named MCP resources. Registered whenever `resources.custom` is non-empty, independent of `resources.enabled`. Content can be inline (`content`) or read from a file on every request (`content_file`, supports hot-reload).

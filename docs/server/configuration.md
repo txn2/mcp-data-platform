@@ -1109,6 +1109,22 @@ When enabled, the platform registers these resource templates:
 
 Clients that support resource browsing (e.g., Claude Desktop) will show these as navigable resources alongside tools.
 
+## Argument Autocompletion
+
+The platform answers the MCP `completion/complete` request so clients that support autocompletion (the MCP Inspector, IDE clients) can suggest valid values as a user types a prompt argument or a resource-template variable. There is nothing to configure: the capability is advertised automatically whenever prompts or resource templates are available, and it uses the catalog the platform already knows.
+
+Completions are served for:
+
+- **Prompt arguments**, routed by argument name across built-in and database prompts:
+  - `dataset`: dataset names from the semantic search index (e.g. the `trace-data-lineage` prompt).
+  - `topic`: domains, data products, and glossary terms (e.g. `explore-available-data`, `create-a-report`, `create-interactive-dashboard`).
+  - `connection`: configured connection names the caller's persona may reach.
+- **Resource-template variables**:
+  - `schema://{catalog}.{schema_name}/{table}` and `availability://...`: catalog, schema, and table names from the query engine (`schema_name` completes once a `catalog` is chosen; `table` once both are).
+  - `glossary://{term}`: business glossary terms.
+
+Completions are persona-filtered exactly like `tools/list` and `search`: a caller only receives values it could already discover through the corresponding tool (dataset/topic/glossary require `search`; catalog/schema/table require `trino_browse`; connection names require `list_connections` and are further filtered by the persona's connection rules). Unauthenticated sessions receive no completions, and each lookup runs under a short latency budget so an unavailable upstream degrades to an empty list rather than an error.
+
 ## Custom Resources Configuration
 
 Custom resources let you expose arbitrary static content as named MCP resources — brand assets, operational limits, environment docs, or any structured blob that agents can read by URI. They are registered whenever `resources.custom` is non-empty, independent of `resources.enabled`.

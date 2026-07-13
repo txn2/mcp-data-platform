@@ -346,5 +346,42 @@ func (a *Adapter) Ping(ctx context.Context) error {
 	return nil
 }
 
+// ListCatalogs returns the Trino catalog names. It implements
+// query.CatalogBrowser so argument autocompletion can enumerate the namespace.
+func (a *Adapter) ListCatalogs(ctx context.Context) ([]string, error) {
+	catalogs, err := a.client.ListCatalogs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing trino catalogs: %w", err)
+	}
+	return catalogs, nil
+}
+
+// ListSchemas returns the schema names in a Trino catalog.
+func (a *Adapter) ListSchemas(ctx context.Context, catalog string) ([]string, error) {
+	schemas, err := a.client.ListSchemas(ctx, catalog)
+	if err != nil {
+		return nil, fmt.Errorf("listing trino schemas: %w", err)
+	}
+	return schemas, nil
+}
+
+// ListTables returns the table names in a Trino catalog schema. The upstream
+// client returns rich TableInfo records; only the bare name is needed for
+// autocompletion.
+func (a *Adapter) ListTables(ctx context.Context, catalog, schema string) ([]string, error) {
+	tables, err := a.client.ListTables(ctx, catalog, schema)
+	if err != nil {
+		return nil, fmt.Errorf("listing trino tables: %w", err)
+	}
+	names := make([]string, 0, len(tables))
+	for _, t := range tables {
+		names = append(names, t.Name)
+	}
+	return names, nil
+}
+
 // Verify interface compliance.
-var _ query.Provider = (*Adapter)(nil)
+var (
+	_ query.Provider       = (*Adapter)(nil)
+	_ query.CatalogBrowser = (*Adapter)(nil)
+)

@@ -100,6 +100,40 @@ func DocumentSearcherFrom(p Provider) (DocumentSearcher, bool) {
 	return ds, ok
 }
 
+// CatalogPicker enumerates business-context entities (domains, glossary terms)
+// for topic-shaped argument autocompletion. These are not part of the core
+// Provider interface — only a real semantic backend (the DataHub adapter)
+// implements them — so completion probes for the capability with
+// CatalogPickerFrom. Glossary/domain names are catalog metadata; callers apply
+// their own persona gating.
+type CatalogPicker interface {
+	// ListDomains returns every DataHub domain; the caller filters client-side.
+	ListDomains(ctx context.Context) ([]EntityRef, error)
+	// SearchGlossaryTerms name-searches glossary terms (empty query lists),
+	// bounded by limit.
+	SearchGlossaryTerms(ctx context.Context, query string, limit int) ([]EntityRef, error)
+}
+
+// CatalogPickerFrom reports the catalog-picker capability of p, returning the
+// innermost provider that implements it. Unlike DocumentSearcherFrom it returns
+// the unwrapped provider rather than p, because the caching decorator does not
+// forward these picker methods; the picker lists (domains, glossary terms) are
+// small and not per-table, so bypassing the cache is correct. ok is false when
+// no provider in the chain can pick.
+func CatalogPickerFrom(p Provider) (CatalogPicker, bool) {
+	inner := p
+	for {
+		if cp, ok := inner.(CatalogPicker); ok {
+			return cp, true
+		}
+		u, ok := inner.(interface{ Unwrap() Provider })
+		if !ok {
+			return nil, false
+		}
+		inner = u.Unwrap()
+	}
+}
+
 // URNResolver can resolve URNs to table identifiers.
 type URNResolver interface {
 	// ResolveURN converts a URN to a table identifier.
