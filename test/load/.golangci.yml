@@ -1,0 +1,97 @@
+# golangci-lint configuration for the load-test harness module (test/load).
+#
+# This is a SEPARATE module from the repository root and gets its own profile.
+# It keeps the root's correctness, security, and complexity gates (the ones that
+# catch real bugs) but drops two families that are specific to the main module
+# rather than a self-contained CLI test tool:
+#
+#   - depguard / wrapcheck: the root's import-boundary and error-wrapping gates
+#     are derived from the platform's layered package graph; they do not apply to
+#     a standalone command that imports only its own internal packages.
+#   - revive `exported` / `add-constant`: library-surface documentation pedantry
+#     (doc comments on every interface one-liner, named constants for file
+#     permissions) that adds noise without value in a test harness.
+#
+# The complexity ceilings match the root (gocyclo 10, gocognit 15).
+version: "2"
+
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - ineffassign
+    - unused
+    - bodyclose
+    - noctx
+    - nilerr
+    - nilnil
+    - durationcheck
+    - makezero
+    - wastedassign
+    - misspell
+    - unconvert
+    - whitespace
+    - perfsprint
+    - gocritic
+    - revive
+    - gocyclo
+    - gocognit
+    - nestif
+    - prealloc
+    - predeclared
+    - unparam
+    - errorlint
+    - gosec
+    - copyloopvar
+    - modernize
+
+  settings:
+    govet:
+      disable:
+        - fieldalignment
+        - shadow
+    misspell:
+      locale: US
+    gocyclo:
+      min-complexity: 10
+    gocognit:
+      min-complexity: 15
+    nestif:
+      min-complexity: 5
+    revive:
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: if-return
+        - name: increment-decrement
+        - name: var-declaration
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: indent-error-flow
+        - name: superfluous-else
+        - name: unreachable-code
+        - name: redefines-builtin-id
+
+  exclusions:
+    generated: lax
+    rules:
+      # Test files legitimately use loopback HTTP and unchecked helpers, and
+      # table-driven tests with many assertions exceed the complexity ceilings
+      # that matter for production code.
+      - path: _test\.go
+        linters:
+          - gosec
+          - noctx
+          - gocyclo
+          - gocognit

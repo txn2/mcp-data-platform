@@ -186,6 +186,12 @@ func startServer(ctx context.Context, mcpServer *mcp.Server, p *platform.Platfor
 		p.WireRuntime(platform.RuntimeConfig{Transport: opts.transport, Address: opts.address})
 	}
 
+	// Optional debug pprof listener (off unless PPROF_ADDR is set). Used by the
+	// load-test harness (test/load) to capture CPU/heap/goroutine profiles; it
+	// exposes process internals, so it is never on by default. Shut down when
+	// ctx is canceled.
+	startPprofListener(ctx, os.Getenv(pprofEnvAddr))
+
 	switch opts.transport {
 	case "stdio":
 		if err := mcpServer.Run(ctx, &mcp.StdioTransport{}); err != nil {

@@ -707,3 +707,82 @@ preview-platform-info:
 	@echo "→ Extracting preview data from $(CONFIG)"
 	@python3 scripts/extract-preview-data.py "$(CONFIG)" apps/preview-data.json
 	@$(MAKE) preview-apps
+
+# =============================================================================
+# Load Testing (issue #921)
+# =============================================================================
+#
+# The load harness lives in test/load (a separate Go module, kept out of the
+# root coverage/test/lint denominator). It drives named workloads against a
+# running platform over the MCP protocol and REST surfaces and publishes numbers
+# in docs/reference/tuning-and-scaling.md.
+#
+# Like `mutate`, load testing is DELIBERATELY NOT part of `make verify`: it
+# stands up Docker services and a real server binary and runs for tens of
+# seconds to an hour per scenario — far too slow and heavy for a per-commit
+# gate. Do NOT add load-* to the `verify` target. Run it on demand, locally or
+# via the workflow_dispatch load.yml workflow.
+
+# LOAD_KEY is the admin API key the harness authenticates with. Override for a
+# non-default deployment. LOAD_CONFIG points at the platform config for the run.
+LOAD_KEY ?= load-admin-key
+LOAD_CONFIG ?= test/load/config/platform.load.yaml
+LOAD_ADDR ?= :8099
+LOAD_METRICS_ADDR ?= :9091
+LOAD_PPROF_ADDR ?= :6060
+LOAD_URL ?= http://localhost:8099
+LOAD_PID := build/mcp-data-platform-load.pid
+LOAD_LOG := build/mcp-data-platform-load.log
+
+## load-up: Start the compose stack and a release-built platform for load tests
+load-up: e2e-up
+	@echo "Building release-style platform binary (no -race)..."
+	@mkdir -p $(BUILD_DIR)
+	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-load $(CMD_DIR)
+	@echo "Building loadgen..."
+	@cd test/load && $(GO) build -o ../../$(BUILD_DIR)/loadgen ./loadgen
+	@echo "Starting platform on $(LOAD_ADDR) (metrics $(LOAD_METRICS_ADDR), pprof $(LOAD_PPROF_ADDR))..."
+	@API_KEY_ADMIN=$(LOAD_KEY) LOG_LEVEL=info \
+		OTEL_METRICS_ADDR=$(LOAD_METRICS_ADDR) PPROF_ADDR=$(LOAD_PPROF_ADDR) \
+		OAUTH_RL_ENABLED=$(OAUTH_RL_ENABLED) AUDIT_DELIVERY=$(AUDIT_DELIVERY) \
+		$(BUILD_DIR)/$(BINARY_NAME)-load --config $(LOAD_CONFIG) --transport http --address $(LOAD_ADDR) \
+		> $(LOAD_LOG) 2>&1 & echo $$! > $(LOAD_PID)
+	@echo "Waiting for readiness on $(LOAD_URL)/readyz ..."
+	@for i in $$(seq 1 30); do \
+		if curl -fsS $(LOAD_URL)/readyz >/dev/null 2>&1; then echo "Platform ready (pid $$(cat $(LOAD_PID)))."; exit 0; fi; \
+		sleep 1; \
+	done; \
+	echo "ERROR: platform did not become ready; see $(LOAD_LOG)"; tail -20 $(LOAD_LOG); exit 1
+
+## load-run: Run one load scenario (SCENARIO=<name>; see loadgen -list)
+## Optional: CONCURRENCY=, DURATION=, WARMUP=, RATE=, OUT= override defaults.
+load-run:
+	@if [ -z "$(SCENARIO)" ]; then echo "Usage: make load-run SCENARIO=<name> (see: $(BUILD_DIR)/loadgen -list)"; exit 1; fi
+	@mkdir -p build/load-reports
+	$(BUILD_DIR)/loadgen \
+		-scenario $(SCENARIO) \
+		-url $(LOAD_URL) \
+		-metrics-url http://localhost$(LOAD_METRICS_ADDR)/metrics \
+		-pprof-url http://localhost$(LOAD_PPROF_ADDR) \
+		-credential $(LOAD_KEY) \
+		-release-build \
+		-profile-dir build/load-reports/profiles \
+		-out build/load-reports/report-$(SCENARIO).json \
+		$(if $(CONCURRENCY),-concurrency $(CONCURRENCY),) \
+		$(if $(DURATION),-duration $(DURATION),) \
+		$(if $(WARMUP),-warmup $(WARMUP),) \
+		$(if $(RATE),-rate $(RATE),)
+
+## load-down: Stop the load platform and the compose stack
+load-down:
+	@if [ -f $(LOAD_PID) ]; then \
+		echo "Stopping platform (pid $$(cat $(LOAD_PID)))..."; \
+		kill $$(cat $(LOAD_PID)) 2>/dev/null || true; \
+		rm -f $(LOAD_PID); \
+	fi
+	@$(MAKE) e2e-down
+
+## load-test: Build, vet, lint, and unit-test the harness module itself
+load-test:
+	@echo "Testing the load harness module..."
+	@cd test/load && $(GO) build ./... && $(GO) vet ./... && $(GO) test ./...

@@ -23,7 +23,188 @@ production install should run at `info`. Memory is essentially flat; the Go
 heap is bounded by short-lived per-request allocations plus a small set of
 long-lived caches.
 
-## 2. Resource requests and limits
+Section 1 is a *floor*: steady state at ~1 request/second. Section 2 below is
+the companion *ceiling*, what a single replica sustains under saturation,
+measured with the load harness.
+
+## 2. Measured limits
+
+The numbers below come from the load harness in
+[`test/load`](https://github.com/txn2/mcp-data-platform/tree/main/test/load),
+driven against a single replica. They are **actual measurements**, not
+extrapolations. Reproduce them with the commands at the end of this section.
+
+### Reference environment
+
+A single-box, co-located setup. Read the numbers as an order-of-magnitude
+ceiling for one replica on capable hardware, **not** as an SLA and **not** as a
+production-topology benchmark.
+
+| Component | Detail |
+| --- | --- |
+| Host | Apple M5 Pro, 18 cores, 48 GiB RAM, macOS 26.5 (arm64) |
+| Platform binary | native host process, Go 1.26, release-style build (no race detector), `LOG_LEVEL=info`, `GOMAXPROCS=18` (host default), single replica |
+| Backing services | PostgreSQL 16 (pgvector), Trino 453, SeaweedFS, DataHub GMS v1.5 - all co-located in Docker Desktop (8-CPU / ~12 GiB VM) on the same machine |
+| Harness | `test/load/loadgen` over MCP streamable HTTP + REST; the platform's own `/metrics` scraped before/during/after each run; pprof captured per run |
+
+Two properties of this environment shape the numbers and must be kept in mind:
+
+- **No CPU cgroup limit.** The binary saw all 18 host cores. A Kubernetes pod
+  with `limits.cpu` set (and `GOMAXPROCS` matched to it, per section 4) scales
+  CPU-bound results down roughly in proportion to the core count.
+- **Co-located datastores.** Postgres, Trino, and DataHub share the machine, so
+  their latency is best-case (loopback, warm caches). A production deployment
+  with the database and query engine across the network will see higher
+  tail latency on the data-dependent operations.
+
+### Per-scenario results
+
+Each scenario is one named workload; error rate is the share of calls that
+returned a transport or tool-level error. Throughput is per operation over the
+measured window (a scenario may issue several operations per iteration).
+
+**`mcp-tool-call`** - 16 concurrent MCP sessions, each issuing `search` then
+`trino_query`, 30s. The platform's primary hot path: auth, authz, search-first
+gate, tool execution, cross-enrichment, audit.
+
+| Operation | Sustained | p50 | p95 | p99 | Error rate |
+| --- | --- | --- | --- | --- | --- |
+| `search` | 66/s | 109 ms | 426 ms | 533 ms | 0% |
+| `trino_query` | 66/s | 56 ms | 219 ms | 303 ms | 0% |
+
+~134 tool calls/second total. Note the audit drop counter moved +2196 over this
+run: even at a moderate tool-call rate the async audit writer sheds events (see
+`audit-burst`).
+
+**`mcp-session-churn`** - 16 workers connecting a fresh MCP session (full
+`initialize` handshake), calling `platform_info`, and tearing the session down,
+30s. Pressures the session-store create/destroy path.
+
+| Operation | Sustained | p50 | p95 | p99 | Error rate |
+| --- | --- | --- | --- | --- | --- |
+| `session_connect` | 602/s | 0.3 ms | 0.7 ms | 1.7 ms | 0% |
+| `platform_info` | 602/s | 4.9 ms | 111 ms | 137 ms | 0% |
+
+~600 session lifecycles/second. Session creation itself is cheap; the tail on
+`platform_info` reflects contention, not session cost.
+
+**`portal-read`** - 16 workers rotating across the authenticated portal REST
+read endpoints plus the unauthenticated public viewer, 30s.
+
+| Operation | Sustained | p50 | p95 | p99 | Error rate |
+| --- | --- | --- | --- | --- | --- |
+| `portal_me` | 132/s | 0.2 ms | 0.5 ms | 0.7 ms | 0% |
+| `portal_assets_list` | 132/s | 100 ms | 178 ms | 221 ms | 0% |
+| `portal_collections_list` | 133/s | 3.9 ms | 28 ms | 120 ms | 0% |
+| `portal_shared_with_me` | 133/s | 7.4 ms | 41 ms | 137 ms | 0% |
+| `portal_public_view` | 132/s | 6.2 ms | 95 ms | 129 ms | 0% |
+
+The per-IP portal viewer rate limiter was raised for this run so the public path
+measures raw serving throughput rather than the limiter (all harness load
+originates from one IP).
+
+**`oauth-token`** - OAuth dynamic client registration (`POST /register`),
+8 workers, 30s. This is the headless-drivable, bcrypt-bound path on the OAuth
+server: registration runs `bcrypt.GenerateFromPassword` at the default cost and
+is governed by the same `oauth.rate_limit` limiter as the token endpoint. (The
+token endpoint itself is not headless-drivable for load: it supports only
+`authorization_code`/`refresh_token`, and `authorization_code` requires a
+browser round-trip through an upstream IdP. `/register` exercises the same
+bcrypt cost and the same limiter.)
+
+| Configuration | Result |
+| --- | --- |
+| Limiter off (raw) | **163 registrations/s**, p50 48 ms, p95 50 ms, 100% success |
+| Limiter on (default: 10 rpm / burst 3) | 10 succeeded, 28,730 refused with 429 over 30s - the limiter engages immediately |
+
+The raw path is **CPU-bound on bcrypt**: over the 30s window the process burned
+253 CPU-seconds, saturating all 18 cores. On a cgroup-limited pod the ceiling
+scales down with the core count. This is the single most CPU-intensive operation
+in the platform; size OAuth-heavy deployments accordingly.
+
+**`audit-burst`** - 64 workers issuing the audited `search` tool at high
+concurrency, 20s, sized to push past the async audit queue (default cap 1024).
+Run once per delivery mode:
+
+| Delivery mode | Sustained | p50 | `audit_events_dropped_total` over run |
+| --- | --- | --- | --- |
+| `async` (default) | 357/s | 167 ms | **+6,483** (events shed under burst) |
+| `sync` | 351/s | 168 ms | **+0** (no drops) |
+
+This confirms the documented loss model: async delivery is best-effort and sheds
+events when the single drain goroutine falls behind a burst; sync delivery drops
+nothing. On this co-located setup the sync latency penalty is negligible because
+Postgres services the write sub-millisecond over loopback - with a networked
+database, sync delivery would trade that flat drop count for measurably higher
+per-call latency.
+
+**`soak`** - 8 workers holding a fixed 5 requests/second of `search`, 15 minutes
+(the specified soak is 1 hour; this run was 15 minutes - pass `DURATION=1h` to
+reproduce the full duration). 4,500 calls, 0% errors, p50 63 ms / p95 68 ms /
+p99 74 ms, sampled every 5 seconds (181 scrapes).
+
+| Metric | Start | End | Change | Threshold |
+| --- | --- | --- | --- | --- |
+| `go_goroutines` | 40 | 49 | +9 (+22%) | +50% |
+| `process_resident_memory_bytes` | 78.2 MiB | 83.3 MiB | +5.1 MiB (+6.5%) | +25% |
+
+Both stayed well within tolerance. The small goroutine and RSS rise is pool and
+cache warm-up that settles, not unbounded growth - RSS is essentially flat and
+goroutine count plateaus. The scenario asserts these bounds and passes.
+
+### What saturates first
+
+- **The async audit writer is the first thing to give.** It is a single drain
+  goroutine behind a bounded (1024) channel; under a sustained tool-call burst it
+  falls behind and `audit_events_dropped_total` climbs while tool latency stays
+  flat - the drop is deliberate, non-blocking, best-effort. It shows up even in
+  `mcp-tool-call` at ~134 calls/s. If every audit event must be durable, set
+  `audit.delivery: sync` and budget for the per-call write latency; otherwise the
+  drop counter is the signal to watch.
+- **CPU saturates on bcrypt, not on the data path.** The tool-call path is
+  I/O-bound (Trino, DataHub GraphQL, Postgres) and cheap on CPU. The OAuth
+  registration/token path is bcrypt-bound and will pin every available core
+  first. A deployment that issues or refreshes many tokens needs CPU headroom
+  the analytics path does not.
+- **Memory and goroutines stay flat.** Across every scenario RSS and goroutine
+  count settle after warmup; the soak confirms no drift over time. The Go heap
+  is bounded by short-lived per-request allocations plus a small set of
+  long-lived caches, matching the section 1 observation.
+
+### Reproducing
+
+```bash
+# 1. Stand up the compose stack + a release-built platform binary (LOG_LEVEL=info,
+#    no race detector). Add a DataHub quickstart separately for the full stack.
+make load-up
+
+# 2. Run a scenario (see build/loadgen -list for names). Reports and pprof
+#    profiles land under build/load-reports/.
+make load-run SCENARIO=mcp-tool-call
+make load-run SCENARIO=mcp-session-churn
+make load-run SCENARIO=portal-read
+make load-run SCENARIO=audit-burst           # async (default)
+make load-run SCENARIO=oauth-token           # limiter on (default)
+
+# Variants toggled by environment on load-up:
+make load-down && AUDIT_DELIVERY=sync make load-up
+make load-run SCENARIO=audit-burst           # sync delivery
+make load-down && OAUTH_RL_ENABLED=false make load-up
+make load-run SCENARIO=oauth-token           # raw bcrypt path
+
+# Long-running soak (default 15m; the specified soak is 1h - pass DURATION=1h):
+make load-run SCENARIO=soak DURATION=15m
+
+# 3. Tear everything down.
+make load-down
+```
+
+Each run writes a self-contained JSON report (throughput, error rate, latency
+percentiles, and the scraped platform metrics) plus CPU/heap/goroutine pprof
+profiles. Load testing is deliberately not part of `make verify` - see the
+`load-*` targets in the `Makefile`.
+
+## 3. Resource requests and limits
 
 The defaults shipped in `configs/` are intentionally conservative. For higher
 traffic, scale them as follows. The "high-traffic" column targets ~10 sustained
@@ -42,7 +223,7 @@ honest picture; set `limits.cpu` 3-5x higher than steady-state to absorb burst
 without throttling. CPU throttling under burst load is the most common cause
 of latency spikes in this service.
 
-## 3. Go runtime environment
+## 4. Go runtime environment
 
 The binary is a static Go program; the Go runtime is **not cgroup-aware by
 default**. Set these env vars on the container to match the runtime to the
@@ -119,7 +300,7 @@ env:
     value: "100"        # default; document the intent
 ```
 
-## 4. Horizontal scaling
+## 5. Horizontal scaling
 
 The service is designed to run with multiple replicas behind a Kubernetes
 Service. The following components are HA-safe:
@@ -261,7 +442,7 @@ affinity:
           topologyKey: kubernetes.io/hostname
 ```
 
-## 5. Observability
+## 6. Observability
 
 Prometheus metrics are exposed on `:9090` by default
 (`OTEL_METRICS_ADDR` overrides; `OTEL_METRICS_ENABLED=false` disables
@@ -274,7 +455,7 @@ runtime collectors. With metrics on, the recommended HPA driver is
 `LOG_LEVEL=info` is the production default. `debug` adds substantial
 allocations on the hot path; only enable it temporarily.
 
-## 6. Autoscaling
+## 7. Autoscaling
 
 A horizontal pod autoscaler driven by CPU utilization works correctly once
 `GOMAXPROCS` is set:

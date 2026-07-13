@@ -1,0 +1,108 @@
+# Platform configuration for the load smoke run in CI (.github/workflows/load.yml).
+#
+# Identical intent to platform.load.yaml but tuned for a GitHub runner: DataHub is
+# NOT in the CI compose stack (it needs `datahub docker quickstart`), so the
+# semantic provider is noop here — the platform starts cleanly without a DataHub
+# endpoint and enrichment simply no-ops. Numbers from this config on a shared
+# runner are indicative only and are never the published reference numbers.
+apiVersion: v1
+
+server:
+  name: mcp-data-platform-load-ci
+  transport: http
+  address: ":8099"
+
+sessions:
+  handles:
+    require: false
+
+auth:
+  api_keys:
+    enabled: true
+    keys:
+      - key: "${API_KEY_ADMIN}"
+        name: "load-admin"
+        roles: ["admin"]
+
+oauth:
+  enabled: true
+  issuer: "http://localhost:8099"
+  allow_ephemeral_signing_key: true
+  dcr:
+    enabled: true
+    allowed_redirect_patterns:
+      - "http://localhost:.*/callback"
+  upstream:
+    issuer: "http://127.0.0.1:9/unused"
+    client_id: "load-unused"
+    redirect_uri: "http://localhost:8099/callback"
+  rate_limit:
+    enabled: ${OAUTH_RL_ENABLED}
+
+database:
+  dsn: "postgres://platform:platform_secret@localhost:5432/mcp_platform?sslmode=disable"
+  max_open_conns: 25
+
+audit:
+  enabled: true
+  log_tool_calls: true
+  delivery: ${AUDIT_DELIVERY}
+
+rate_limit:
+  enabled: false
+
+personas:
+  admin:
+    display_name: "Load Admin"
+    roles: ["admin"]
+    tools:
+      allow: ["*"]
+    connections:
+      allow: ["*"]
+  default_persona: admin
+
+# noop semantic: no DataHub dependency in CI.
+semantic:
+  provider: noop
+  instance: primary
+
+query:
+  provider: trino
+  instance: e2e
+
+toolkits:
+  trino:
+    enabled: true
+    default: e2e
+    instances:
+      e2e:
+        host: "localhost"
+        port: 8090
+        user: "load-test"
+        catalog: "memory"
+        schema: "e2e_test"
+        connection_name: "e2e-trino"
+    config:
+      default_limit: 1000
+      max_limit: 10000
+      read_only: true
+
+  s3:
+    enabled: true
+    default: e2e
+    instances:
+      e2e:
+        endpoint: "http://localhost:9000"
+        access_key_id: "admin"
+        secret_access_key: "admin_secret"
+        region: "us-east-1"
+        use_path_style: true
+        connection_name: "e2e-s3"
+
+portal:
+  enabled: true
+  s3_connection: e2e
+  s3_bucket: test-data-lake
+  rate_limit:
+    requests_per_minute: 100000000
+    burst_size: 100000
