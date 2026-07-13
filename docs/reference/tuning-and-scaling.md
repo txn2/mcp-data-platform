@@ -171,6 +171,73 @@ goroutine count plateaus. The scenario asserts these bounds and passes.
   is bounded by short-lived per-request allocations plus a small set of
   long-lived caches, matching the section 1 observation.
 
+### Capacity planning
+
+The headline for sizing: for tool-call traffic the platform is **I/O-bound, not
+CPU-bound**. A tool call costs only a couple of milliseconds of platform CPU;
+its latency is mostly waiting on Trino, DataHub, and Postgres. Dividing each
+run's `process_cpu_seconds_total` delta by the calls it served gives a stable
+unit cost:
+
+| Workload | CPU per call |
+| --- | --- |
+| `search` + `trino_query` (full enrichment) | ~3.0 ms (the heaviest normal path) |
+| `search` only | ~2.6 ms |
+| portal REST read | ~1.3 ms |
+| session connect + `platform_info` | ~1.2 ms |
+| OAuth registration (bcrypt) | ~52 ms (~20x everything else) |
+
+**Per-core rule of thumb.** One core is 1000 ms of CPU per second, so at ~3 ms
+for the heaviest call: a CPU ceiling near **330 tool-calls/s per core**, or about
+**200/s per core** planned at 60% utilization for burst headroom. OAuth is the
+exception at roughly **20 registrations/s per core** (bcrypt is single-threaded
+per hash, so about one core per concurrent hash). This per-core figure is
+extrapolated from the measured unit cost, not a measured saturation point: the
+`mcp-tool-call` run used ~0.4 cores at 132 calls/s with ample headroom, because
+something downstream binds before platform CPU does (see "what saturates first").
+
+**Translating to users.** A typical user is an agent session (Claude, Cursor).
+Agents are bursty: a few calls per turn, then seconds of model reasoning and
+human read time. A defensible central estimate is about 4 tool-calls/minute
+(0.067/s) per active session. Users supported is capacity divided by per-user
+rate. For **two 8-core replicas** (16 cores, CPU-bound capacity around 3,000
+tool-calls/s at 200/s/core):
+
+| Active-user cadence | Concurrently-active users (CPU ceiling) |
+| --- | --- |
+| Heavy agent (1 call / 3s) | ~9,000 |
+| Typical agent (1 call / 15s) | ~45,000 |
+| Light / bursty (1 call / 30s) | ~90,000 |
+
+Read those as an upper bound that proves a point, not a target: on CPU alone a
+small two-replica deployment carries tens of thousands of concurrently-active
+agent users. For any realistic user base the platform tier is not the
+constraint. Size for burst headroom and HA, then plan real capacity around the
+downstream query engines and the audit pipeline (see "what saturates first").
+
+**Replica shape: fewer-larger vs more-smaller.** The choice between, say, two
+8-core replicas (16 cores total) and three 4-core replicas (12 cores total)
+depends on what binds:
+
+- **Raw CPU** favors two 8-core (16 cores beats 12). Relevant only for a
+  CPU-bound path such as heavy OAuth bcrypt.
+- **Durable audit throughput** favors three 4-core. The async audit writer is a
+  single drain goroutine *per replica*, so three replicas give three drains
+  versus two. Audit-write capacity scales with replica count, not cores.
+- **Resilience** favors three 4-core. Losing one of three sheds 33% of capacity
+  versus 50% for one of two, and rolling updates keep more of the fleet serving.
+- **Fixed overhead** favors two 8-core. Each replica carries baseline memory,
+  per-replica caches (a sticky session re-routed to another replica re-fetches
+  enrichment), background workers, and its own DB pool (three replicas total 75
+  connections at the default 25 each, versus 50, against a default Postgres
+  `max_connections` of 100), and its own copy of the per-replica rate limiters.
+
+For this platform's typical I/O-bound, audited workload, **three 4-core replicas
+are usually the better default** for resilience and audit headroom, despite less
+total CPU. Choose **two 8-core** when a CPU-bound path (OAuth at scale, very
+heavy enrichment) needs the extra ~33% of cores. Either way, size Trino and
+DataHub first: that is the real ceiling.
+
 ### Reproducing
 
 ```bash
