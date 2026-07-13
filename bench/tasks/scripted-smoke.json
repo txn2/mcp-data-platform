@@ -1,0 +1,217 @@
+{
+  "s1-account-created": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "Which table in the bench warehouse would you use to look up when a customer's account was created?"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: memory.bench.customers"
+    }
+  ],
+  "s1-current-orders": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "The bench warehouse contains more than one table of order data. Which one is the current, supported table for order analysis?"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: memory.bench.orders"
+    }
+  ],
+  "s1-customer-profile": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "Which table in the bench warehouse holds customer profile attributes such as tier and region?"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: memory.bench.customers"
+    }
+  ],
+  "s1-daily-aggregate": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "Which table in the bench warehouse provides pre-aggregated daily revenue by region, so you do not have to aggregate raw orders yourself?"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: daily_region_revenue"
+    }
+  ],
+  "s1-order-transactions": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "Which table in the bench warehouse would you query for individual customer order transactions (one row per order)?"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: memory.bench.orders"
+    }
+  ],
+  "s3-net-east-march": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "Per the company revenue reporting policy, what was the revenue in USD for the East region in March 2025? Round to the nearest cent."
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT ROUND(SUM(o.amount - o.discount) / 100e0, 2) AS revenue_usd FROM memory.bench.orders o JOIN memory.bench.customers c ON o.customer_id = c.customer_id WHERE o.status = 'completed' AND c.region = 'East' AND o.order_ts \u003e= TIMESTAMP '2025-03-01 00:00:00' AND o.order_ts \u003c TIMESTAMP '2025-04-01 00:00:00'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s3-net-top-region": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "Per the company revenue reporting policy, which region had the highest revenue in calendar year 2025? Answer with the region name."
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT c.region FROM memory.bench.orders o JOIN memory.bench.customers c ON o.customer_id = c.customer_id WHERE o.status = 'completed' AND o.order_ts \u003e= TIMESTAMP '2025-01-01 00:00:00' AND o.order_ts \u003c TIMESTAMP '2026-01-01 00:00:00' GROUP BY c.region ORDER BY SUM(o.amount - o.discount) DESC LIMIT 1"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s3-net-total-2025": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "Per the company revenue reporting policy, what was the company's total revenue in USD for calendar year 2025? Round to the nearest cent."
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT ROUND(SUM(amount - discount) / 100e0, 2) AS revenue_usd FROM memory.bench.orders WHERE status = 'completed' AND order_ts \u003e= TIMESTAMP '2025-01-01 00:00:00' AND order_ts \u003c TIMESTAMP '2026-01-01 00:00:00'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s3-units-avg-enterprise": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "What is the average order amount in USD across all orders placed by enterprise-tier customers in the bench warehouse? Round to the nearest cent."
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT ROUND(AVG(o.amount) / 100e0, 2) AS avg_usd FROM memory.bench.orders o JOIN memory.bench.customers c ON o.customer_id = c.customer_id WHERE c.tier = 'enterprise'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ],
+  "s3-units-q1-total": [
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "search",
+          "args": {
+            "intent": "Using the bench warehouse, what was the total order amount in USD across ALL orders (any status) placed in Q1 2025 (2025-01-01 through 2025-03-31)? Round to the nearest cent."
+          }
+        }
+      ]
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT ROUND(SUM(amount) / 100e0, 2) AS total_usd FROM memory.bench.orders WHERE order_ts \u003e= TIMESTAMP '2025-01-01 00:00:00' AND order_ts \u003c TIMESTAMP '2025-04-01 00:00:00'"
+          }
+        }
+      ]
+    },
+    {
+      "final_text": "FINAL ANSWER: {{last_result}}"
+    }
+  ]
+}

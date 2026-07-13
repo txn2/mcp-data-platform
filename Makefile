@@ -786,3 +786,120 @@ load-down:
 load-test:
 	@echo "Testing the load harness module..."
 	@cd test/load && $(GO) build ./... && $(GO) vet ./... && $(GO) test ./...
+
+# =============================================================================
+# Agent-Effectiveness Benchmark (issue #930, phase 1: #942)
+# =============================================================================
+#
+# The benchmark harness lives in bench/ (a separate Go module, kept out of the
+# root coverage/test/lint denominator, like test/load). It ablates the PLATFORM
+# (arms a0/a2 as config profiles) while holding the model, prompt scaffold,
+# seed data, and task set constant, and reads efficiency metrics back from the
+# platform's own audit API.
+#
+# Like `mutate` and `load-*`, benchmarking is DELIBERATELY NOT part of
+# `make verify`: it stands up Docker services, a real server binary, and (for
+# real runs) a model API. Do NOT add bench-* to the `verify` target.
+#
+# Arms: a0 (raw tools, no enrichment/search) and a2 (full knowledge platform;
+# requires a DataHub quickstart seeded via `make bench-seed-datahub`).
+
+# BENCH_ARM selects the platform config profile; BENCH_KEY is the admin API key.
+BENCH_ARM ?= a0
+BENCH_KEY ?= bench-admin-key
+BENCH_CONFIG ?= bench/config/platform.bench.$(BENCH_ARM).yaml
+BENCH_ADDR ?= :8098
+BENCH_METRICS_ADDR ?= :9092
+BENCH_URL ?= http://localhost:8098
+BENCH_PID := build/mcp-data-platform-bench.pid
+BENCH_LOG := build/mcp-data-platform-bench.log
+BENCH_COMPOSE := DOCKER_DEFAULT_PLATFORM= docker compose -f docker-compose.e2e.yml
+
+## bench-gen: Regenerate seed artifacts and the task set from the fixed seed
+bench-gen:
+	@cd bench && $(GO) run ./seedgen -seed-dir seed -tasks-dir tasks
+
+## bench-up: Start the compose stack, seed the bench warehouse, and run the platform (ARM=a0|a2 via BENCH_ARM)
+bench-up: e2e-up
+	@echo "Seeding bench warehouse in Trino..."
+	@$(BENCH_COMPOSE) cp bench/seed/trino/setup.sql trino:/tmp/bench-setup.sql
+	@$(BENCH_COMPOSE) exec -T trino trino --file /tmp/bench-setup.sql
+	@echo "Building release-style platform binary (no -race)..."
+	@mkdir -p $(BUILD_DIR)
+	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-bench $(CMD_DIR)
+	@echo "Building benchrun..."
+	@cd bench && $(GO) build -o ../$(BUILD_DIR)/benchrun ./benchrun
+	@if [ -f $(BENCH_PID) ]; then \
+		echo "Stopping previous bench platform (pid $$(cat $(BENCH_PID)))..."; \
+		kill $$(cat $(BENCH_PID)) 2>/dev/null || true; \
+		while kill -0 $$(cat $(BENCH_PID)) 2>/dev/null; do sleep 1; done; \
+		rm -f $(BENCH_PID); \
+	fi
+	@if curl -fsS $(BENCH_URL)/readyz >/dev/null 2>&1; then \
+		echo "ERROR: something else is already serving $(BENCH_URL); run 'make bench-down' first"; exit 1; fi
+	@echo "Starting platform ($(BENCH_CONFIG)) on $(BENCH_ADDR)..."
+	@API_KEY_ADMIN=$(BENCH_KEY) LOG_LEVEL=info OTEL_METRICS_ADDR=$(BENCH_METRICS_ADDR) \
+		$(BUILD_DIR)/$(BINARY_NAME)-bench --config $(BENCH_CONFIG) --transport http --address $(BENCH_ADDR) \
+		> $(BENCH_LOG) 2>&1 & echo $$! > $(BENCH_PID)
+	@echo "Waiting for readiness on $(BENCH_URL)/readyz ..."
+	@for i in $$(seq 1 30); do \
+		if curl -fsS $(BENCH_URL)/readyz >/dev/null 2>&1; then break; fi; \
+		sleep 1; \
+	done; \
+	if ! curl -fsS $(BENCH_URL)/readyz >/dev/null 2>&1; then \
+		echo "ERROR: platform did not become ready; see $(BENCH_LOG)"; tail -20 $(BENCH_LOG); exit 1; fi; \
+	if ! kill -0 $$(cat $(BENCH_PID)) 2>/dev/null; then \
+		echo "ERROR: bench platform exited after start (another server answered readiness?); see $(BENCH_LOG)"; \
+		tail -20 $(BENCH_LOG); exit 1; fi
+	@echo "Seeding knowledge pages (requires platform migrations, just applied on boot)..."
+	@$(BENCH_COMPOSE) exec -T postgres psql -q -U platform -d mcp_platform -v ON_ERROR_STOP=1 \
+		< bench/seed/postgres/knowledge_pages.sql
+	@echo "Platform ready (pid $$(cat $(BENCH_PID)), arm $(BENCH_ARM))."
+
+## bench-seed-datahub: Push bench metadata into a running DataHub quickstart (a2 arm)
+bench-seed-datahub:
+	@command -v datahub >/dev/null 2>&1 || { echo "ERROR: datahub CLI not found (pip install acryl-datahub)"; exit 1; }
+	datahub put --file bench/seed/datahub/bench_mces.json
+
+## bench-run: Run the benchmark (ARM must match bench-up; LLM=anthropic|scripted, SUITE=, K=, MODEL=)
+bench-run:
+	@mkdir -p build/bench-results
+	@cd bench && $(GO) build -o ../$(BUILD_DIR)/benchrun ./benchrun
+	@echo "Resetting search-first gate state (discovery scopes persist in Postgres across runs)..."
+	@$(BENCH_COMPOSE) exec -T postgres psql -q -U platform -d mcp_platform -v ON_ERROR_STOP=1 \
+		-c "TRUNCATE search_gate_discovery"
+	$(BUILD_DIR)/benchrun \
+		-url $(BENCH_URL) \
+		-credential $(BENCH_KEY) \
+		-arm $(BENCH_ARM) \
+		-tasks bench/tasks \
+		-git-commit $$(git rev-parse HEAD) \
+		-out build/bench-results/results-$(BENCH_ARM).json \
+		$(if $(LLM),-llm $(LLM),) \
+		$(if $(SCRIPT),-script $(SCRIPT),) \
+		$(if $(SUITE),-suite $(SUITE),) \
+		$(if $(K),-k $(K),) \
+		$(if $(MODEL),-model $(MODEL),)
+
+## bench-smoke: Run the scripted (no-API-key) smoke against the running platform
+bench-smoke:
+	@$(MAKE) bench-run LLM=scripted SCRIPT=bench/tasks/scripted-smoke.json K=1
+
+## bench-report: Print the human summary of the last run for BENCH_ARM
+bench-report:
+	@cd bench && $(GO) build -o ../$(BUILD_DIR)/benchrun ./benchrun
+	$(BUILD_DIR)/benchrun -summarize build/bench-results/results-$(BENCH_ARM).json
+
+## bench-down: Stop the bench platform and the compose stack
+bench-down:
+	@if [ -f $(BENCH_PID) ]; then \
+		echo "Stopping platform (pid $$(cat $(BENCH_PID)))..."; \
+		kill $$(cat $(BENCH_PID)) 2>/dev/null || true; \
+		rm -f $(BENCH_PID); \
+	fi
+	@$(MAKE) e2e-down
+
+## bench-test: Build, vet, and unit-test the benchmark module itself
+bench-test:
+	@echo "Testing the benchmark module..."
+	@cd bench && $(GO) build ./... && $(GO) vet ./... && $(GO) test ./...

@@ -1,0 +1,137 @@
+[
+  {
+    "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)",
+    "entityType": "dataset",
+    "aspectName": "datasetProperties",
+    "changeType": "UPSERT",
+    "aspect": {
+      "customProperties": {
+        "team": "bench",
+        "unit": "cents"
+      },
+      "description": "Current order transactions, one row per order. Monetary columns (amount, discount) are stored as INTEGERS IN US CENTS; divide by 100 for USD. Company revenue reporting policy: revenue = amount - discount, COMPLETED orders only (refunded and pending orders are excluded). See the 'Revenue Reporting Policy' knowledge page for the authoritative definition.",
+      "name": "orders"
+    }
+  },
+  {
+    "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)",
+    "entityType": "dataset",
+    "aspectName": "editableSchemaMetadata",
+    "changeType": "UPSERT",
+    "aspect": {
+      "editableSchemaFieldInfo": [
+        {
+          "description": "Order amount in US cents (integer). Divide by 100 for USD.",
+          "fieldPath": "amount"
+        },
+        {
+          "description": "Discount in US cents (integer), non-zero on completed orders only.",
+          "fieldPath": "discount"
+        }
+      ]
+    }
+  },
+  {
+    "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)",
+    "entityType": "dataset",
+    "aspectName": "datasetProperties",
+    "changeType": "UPSERT",
+    "aspect": {
+      "customProperties": {
+        "team": "bench"
+      },
+      "description": "Customer directory: one row per customer with profile attributes (name, region, tier, account created_at). Join key: customer_id.",
+      "name": "customers"
+    }
+  },
+  {
+    "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)",
+    "entityType": "dataset",
+    "aspectName": "datasetProperties",
+    "changeType": "UPSERT",
+    "aspect": {
+      "customProperties": {
+        "team": "bench"
+      },
+      "description": "DEPRECATED order extract from the retired ingestion pipeline. Partial coverage, totals in dollars. Use memory.bench.orders for all order analysis.",
+      "name": "legacy_orders"
+    }
+  },
+  {
+    "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)",
+    "entityType": "dataset",
+    "aspectName": "deprecation",
+    "changeType": "UPSERT",
+    "aspect": {
+      "actor": "urn:li:corpuser:bench-seed",
+      "deprecated": true,
+      "note": "Deprecated. Use memory.bench.orders instead."
+    }
+  },
+  {
+    "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)",
+    "entityType": "dataset",
+    "aspectName": "datasetProperties",
+    "changeType": "UPSERT",
+    "aspect": {
+      "customProperties": {
+        "grain": "day,region",
+        "team": "bench"
+      },
+      "description": "Pre-aggregated daily revenue by region, derived from completed orders. Values are GROSS of discounts (USD), so this index must not be used for policy net-revenue figures; use memory.bench.orders per the Revenue Reporting Policy.",
+      "name": "daily_region_revenue"
+    }
+  },
+  {
+    "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)",
+    "entityType": "dataset",
+    "aspectName": "globalTags",
+    "changeType": "UPSERT",
+    "aspect": {
+      "tags": [
+        {
+          "tag": "urn:li:tag:bench"
+        }
+      ]
+    }
+  },
+  {
+    "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)",
+    "entityType": "dataset",
+    "aspectName": "globalTags",
+    "changeType": "UPSERT",
+    "aspect": {
+      "tags": [
+        {
+          "tag": "urn:li:tag:bench"
+        }
+      ]
+    }
+  },
+  {
+    "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)",
+    "entityType": "dataset",
+    "aspectName": "globalTags",
+    "changeType": "UPSERT",
+    "aspect": {
+      "tags": [
+        {
+          "tag": "urn:li:tag:bench"
+        }
+      ]
+    }
+  },
+  {
+    "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)",
+    "entityType": "dataset",
+    "aspectName": "globalTags",
+    "changeType": "UPSERT",
+    "aspect": {
+      "tags": [
+        {
+          "tag": "urn:li:tag:bench"
+        }
+      ]
+    }
+  }
+]
