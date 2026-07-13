@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/bench/internal/judge"
+	"github.com/txn2/mcp-data-platform/bench/internal/lifecycle"
 	"github.com/txn2/mcp-data-platform/bench/internal/llm"
 	"github.com/txn2/mcp-data-platform/bench/internal/pipeline"
 	"github.com/txn2/mcp-data-platform/bench/internal/report"
@@ -46,6 +47,8 @@ type config struct {
 	calibrate    bool
 	rubric       string
 	calibration  string
+	lifecycle    bool
+	protocolsDir string
 }
 
 func main() {
@@ -81,6 +84,8 @@ func parseFlags() config {
 	flag.BoolVar(&cfg.calibrate, "calibrate", false, "run the judge calibration and print its human-agreement rate")
 	flag.StringVar(&cfg.rubric, "rubric", "judge/rubric.yaml", "judge rubric file (with -calibrate)")
 	flag.StringVar(&cfg.calibration, "calibration", "judge/calibration.yaml", "judge calibration file (with -calibrate)")
+	flag.BoolVar(&cfg.lifecycle, "lifecycle", false, "run the S5 memory-insight-knowledge lifecycle protocols instead of the S1-S3 task suites")
+	flag.StringVar(&cfg.protocolsDir, "protocols", "protocols", "protocol YAML directory (with -lifecycle)")
 	flag.Parse()
 	return cfg
 }
@@ -89,6 +94,13 @@ func parseFlags() config {
 // benchmark run.
 func run(cfg config) error {
 	switch {
+	case cfg.summarize != "" && cfg.lifecycle:
+		res, err := lifecycle.LoadJSON(cfg.summarize)
+		if err != nil {
+			return err
+		}
+		fmt.Print(res.HumanSummary())
+		return nil
 	case cfg.summarize != "":
 		res, err := report.LoadJSON(cfg.summarize)
 		if err != nil {
@@ -100,8 +112,88 @@ func run(cfg config) error {
 		return runCompare(cfg)
 	case cfg.calibrate:
 		return runCalibrate(cfg)
+	case cfg.lifecycle:
+		return runLifecycle(cfg)
 	default:
 		return runBenchmark(cfg)
+	}
+}
+
+// runLifecycle executes the S5 lifecycle protocols and writes outputs. Like the
+// task benchmark, the results JSON is written even on failure so partial
+// evidence is never discarded.
+func runLifecycle(cfg config) error {
+	if cfg.arm == "" {
+		return errors.New("-arm is required")
+	}
+	factory, err := buildLifecycleFactory(cfg)
+	if err != nil {
+		return err
+	}
+	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	res, runErr := lifecycle.Run(context.Background(), lifecycle.Options{
+		Target:        target.Target{BaseURL: cfg.url, Credential: cfg.credential},
+		HTTPTimeout:   cfg.httpTimeout,
+		Arm:           cfg.arm,
+		K:             cfg.k,
+		ProtocolsDir:  cfg.protocolsDir,
+		TranscriptDir: transcriptDir(cfg.out),
+		Factory:       factory,
+		LLMProvider:   cfg.llmProvider,
+		GitCommit:     cfg.gitCommit,
+		AuditTimeout:  cfg.auditTimeout,
+		IdentityKeys:  cfg.identityKeys,
+		// Flush the results file after every protocol so an interruption (timeout,
+		// exhausted API budget, crash) never discards completed, paid-for work.
+		OnProtocol: func(r *lifecycle.Results) {
+			if err := r.WriteJSON(cfg.out); err != nil {
+				log.Warn("checkpoint write", "error", err)
+			}
+		},
+		Log: log,
+	})
+	if res != nil {
+		if err := res.WriteJSON(cfg.out); err != nil {
+			return err
+		}
+		fmt.Print(res.HumanSummary())
+		fmt.Println("results:", cfg.out)
+	}
+	return runErr
+}
+
+// buildLifecycleFactory constructs the per-episode adapter factory for the
+// selected provider: a shared stateless model adapter, or a fresh scripted
+// adapter per episode from the committed lifecycle smoke.
+func buildLifecycleFactory(cfg config) (lifecycle.AdapterFactory, error) {
+	switch cfg.llmProvider {
+	case "anthropic":
+		adapter, err := llm.NewAnthropic(cfg.model, cfg.maxTokens, cfg.llmTimeout)
+		if err != nil {
+			return nil, err
+		}
+		return func(string, string) (llm.Adapter, error) { return adapter, nil }, nil
+	case "scripted":
+		if cfg.script == "" {
+			return nil, errors.New("-script is required for -llm scripted")
+		}
+		script, err := llm.LoadLifecycleScript(cfg.script)
+		if err != nil {
+			return nil, err
+		}
+		return func(protocolID, stage string) (llm.Adapter, error) {
+			stages, ok := script[protocolID]
+			if !ok {
+				return nil, fmt.Errorf("lifecycle script has no protocol %s", protocolID)
+			}
+			steps, ok := stages[stage]
+			if !ok {
+				return nil, fmt.Errorf("lifecycle script has no %s/%s stage", protocolID, stage)
+			}
+			return llm.NewScripted(steps), nil
+		}, nil
+	default:
+		return nil, fmt.Errorf("unknown -llm provider %q", cfg.llmProvider)
 	}
 }
 
@@ -175,7 +267,14 @@ func runBenchmark(cfg config) error {
 		GitCommit:     cfg.gitCommit,
 		AuditTimeout:  cfg.auditTimeout,
 		IdentityKeys:  cfg.identityKeys,
-		Log:           log,
+		// Flush the results file after every attempt so an interruption never
+		// discards completed, paid-for work.
+		OnAttempt: func(r *report.Results) {
+			if err := r.WriteJSON(cfg.out); err != nil {
+				log.Warn("checkpoint write", "error", err)
+			}
+		},
+		Log: log,
 	})
 	if res != nil {
 		if err := res.WriteJSON(cfg.out); err != nil {

@@ -346,6 +346,19 @@ query:
 # Lifecycle surface. Memory auto-enables on the shared Postgres; knowledge.apply
 # writes promotions to the primary DataHub instance. These are the tools A3 adds
 # over A2; the persona allowlist above exposes them to the agent.
+#
+# The embedding provider is required for the S5 supersede mechanic: recall-first
+# supersede detects a restatement by vector similarity, so without embeddings a
+# corrected fact is never superseded and the update protocols always duplicate.
+# Ollama with nomic-embed-text is the same convention as a real memory-enabled
+# deployment (run `ollama serve` + `ollama pull nomic-embed-text` first).
+memory:
+  embedding:
+    provider: ollama
+    ollama:
+      url: "http://localhost:11434"
+      model: nomic-embed-text
+
 knowledge:
   enabled: true
   apply:

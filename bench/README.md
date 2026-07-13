@@ -1,7 +1,8 @@
 # Agent-effectiveness benchmark harness
 
 The benchmark for issue #930 (phase 1 pilot #942; phase 2 suites and graders
-#943). It measures whether an
+#943; phase 3 S5 memory-insight-knowledge lifecycle protocols #944). It measures
+whether an
 agent connected to this platform answers real data questions more correctly
 and more efficiently than the same agent connected to bare data tools — by
 ablating the PLATFORM, not the model: every run holds the model, prompt
@@ -40,7 +41,7 @@ surface is the ablation mechanism. All four ablate one layer at a time:
 | `a0` | `platform.bench.a0.yaml` | Raw toolkit tools only (`trino_*`, `s3_*`); no semantic provider, no search, all cross-enrichment off, search-first gate off. Equivalent to wiring the standalone toolkit libraries. |
 | `a1` | `platform.bench.a1.yaml` | A0 plus semantic cross-enrichment: `trino_*`/`s3_*` results carry DataHub context automatically, but the agent still has no `search` and no `datahub_*` tools (the persona withholds them; the datahub instance exists only to feed enrichment). Isolates enrichment from discovery. |
 | `a2` | `platform.bench.a2.yaml` | The shipped semantic-first platform: A1 plus the `search` tool, the search-first gate, and seeded knowledge pages. |
-| `a3` | `platform.bench.a3.yaml` | A2 plus the lifecycle surface: `memory_*` and `apply_knowledge`. On the single-episode S1–S4 suites A3 has nothing seeded to recall, so it tracks A2; the lifecycle's effect is measured by the S5 protocols (#944). |
+| `a3` | `platform.bench.a3.yaml` | A2 plus the lifecycle surface: `memory_*` and `apply_knowledge`. On the single-episode S1–S4 suites A3 has nothing seeded to recall, so it tracks A2; the lifecycle's effect is measured by the S5 protocols (#944, below). |
 
 The search-first gate is not persona-aware, so the arms without a discovery
 tool (`a0`, `a1`) disable `workflow.require_search`; the profiles document this.
@@ -153,6 +154,71 @@ agreement with human labels is measured over a committed calibration set
 (`judge/calibration.yaml`, 30 items) and published with any judged scores.
 `make bench-calibrate` runs the calibration.
 
+## S5 memory-insight-knowledge lifecycle (#944)
+
+The S5 suite is not single-episode questions but multi-episode **protocols**
+(`protocols/`, generated), each a sequence of fresh sessions that exercises the
+teach-once-answer-forever lifecycle and verifies every state transition through
+the platform's own admin APIs — the insights and changesets endpoints — never
+inferred from a transcript. It runs only on the `a3` arm (the lifecycle tools
+`memory_capture` and `apply_knowledge` exist there).
+
+Every protocol runs **teach**, **recall**, and **abstain**; each additionally
+runs EITHER promote+transfer OR supersede, never both (see below). The stages:
+
+1. **Teach** — an identity states a fact conversationally and saves it. The
+   harness verifies via `GET /api/v1/admin/knowledge/insights?captured_by=...`
+   that a pending insight was captured and linked to the entity.
+2. **Recall** — the same identity, a fresh session, answers a question needing
+   the fact. Graded deterministically; the run also records whether `search`
+   surfaced the memory unprompted.
+3. **Promote** — the harness plays the reviewer: it approves the insight and
+   applies it via `apply_knowledge` to one of two sinks (an entity description
+   or a knowledge page), then confirms through the changesets API that the
+   insight is `applied` and a live changeset lists it.
+4. **Transfer** — a DIFFERENT identity, a fresh session, answers the same
+   question. It can only succeed because the promotion pushed the fact into
+   shared knowledge (cross-enrichment for the entity sink, `search` for the
+   page sink): the teach-once-answer-forever claim.
+5. **Update** — the teacher corrects the fact; a later recall must flip to the
+   new value, and the taught insight must show `superseded` (not left live
+   alongside the correction, which the run flags as a duplicate).
+6. **Abstain** — a question about a fact never taught must be answered "I do
+   not know", not fabricated.
+
+**Promote and update are mutually exclusive per protocol** (enforced by the
+protocol validator). The platform deliberately never supersedes an
+already-applied insight — a newer capture must not clobber a reviewed one — so a
+fact that has been promoted (and is therefore `applied`) can no longer be cleanly
+superseded. The ten promote protocols therefore exercise stages 1–4 + 6; the five
+supersede protocols exercise stages 1, 2, 5, 6 on a fact that stays pending. Both
+mechanics are measured, on different facts.
+
+Each protocol teaches a **novel** definition — one deliberately absent from the
+seeded knowledge pages and catalog metadata — so recall and transfer are clean:
+the only way to answer is the taught memory (recall) or the promoted knowledge
+(transfer), never the pre-seeded fixtures. The five supersede protocols redefine
+a computable quantity so the corrected recall is a different, generator-computed
+value than the original (e.g. the "primary region" flips from the gross-revenue
+leader to the net-revenue leader). Ground truth is computed from the dataset,
+never hand-typed, exactly as the S1–S3 truths.
+
+Each protocol attempt consumes two identities from the pool (a teacher and a
+learner) so the search-first gate's per-user discovery scope never leaks between
+attempts; the lifecycle requires a pool (there is no single-identity mode, since
+teacher and learner must differ), and a run refuses to start when
+`protocols x k x 2` exceeds it. Capture and duplicate verification are scoped to
+the specific taught insight, so re-running against a persistent knowledge store
+that reuses pool identities does not cross-contaminate the metrics.
+
+Metrics (each a numerator/denominator over the applicable, non-harness-failed
+runs): **capture rate**, **personal recall**, **unprompted surface**, **transfer
+rate**, **update correctness**, **duplicate rate** (lower is better), and
+**abstention rate**, plus **pass^k** over protocols (all k attempts pass the full
+applicable lifecycle). Harness-level failures (connect, adapter, API read-back)
+are excluded from the metrics and reported separately, mirroring the S1–S3
+pipeline.
+
 ## Running
 
 From the repository root:
@@ -166,6 +232,24 @@ make bench-compare                # cross-arm tables + bootstrap CIs -> markdown
 make bench-calibrate              # judge-vs-human agreement rate
 make bench-down
 ```
+
+The S5 lifecycle protocols run against a booted `a3` arm (which needs the same
+DataHub quickstart as `a2`, plus the memory/knowledge Postgres tables that
+auto-enable):
+
+```bash
+make bench-up BENCH_ARM=a3        # boot the lifecycle arm
+make bench-lifecycle-smoke        # scripted no-API-key lifecycle validation
+make bench-lifecycle K=3          # real run (needs ANTHROPIC_API_KEY)
+make bench-lifecycle-report       # human summary of the last lifecycle run
+```
+
+The **scripted lifecycle smoke** (`-llm scripted`) plays
+`protocols/scripted-lifecycle-smoke.json` (generated): it captures via
+`memory_capture`, recalls by answering with each stage's computed ground truth,
+drives the reviewer-side promotion, and abstains — validating handle threading,
+the insight/changeset APIs, supersede, grading, and the metrics against the live
+platform with no API key and no model variance.
 
 For the DataHub arms (`a1`, `a2`, `a3`), start a DataHub quickstart first (same
 external convention as e2e and load), then `make bench-seed-datahub` and
@@ -203,17 +287,21 @@ bench/
 ├── config/              arm profiles (a0/a1/a2/a3 platform configs)
 ├── seed/                generated seed artifacts (committed; bench-gen)
 ├── tasks/               generated task YAML + smoke script (committed)
+├── protocols/           generated S5 lifecycle protocol YAML + smoke (committed)
 ├── judge/               versioned rubric + human-labeled calibration set
 └── internal/
-    ├── gen/             dataset model, emitters, ground-truth computation
+    ├── gen/             dataset model, emitters, ground-truth computation, protocols
     ├── task/            task schema, loader, task-set hash
+    ├── protocol/        S5 lifecycle protocol schema, loader, protocol-set hash
     ├── llm/             adapter interface + anthropic + scripted
     ├── agent/           model-driven tool loop with budget
     ├── mcpc/            MCP session, handle mint, session_id threading
     ├── auditapi/        admin audit API read-back + metrics
+    ├── lifecycleapi/    admin insights + changesets read-back, approve + apply drivers
     ├── grade/           deterministic graders (numeric, entity, execution-result)
     ├── judge/           LLM judge + calibration harness
     ├── pipeline/        task x k orchestration
+    ├── lifecycle/       S5 protocol runner, stage graders, metrics, results model
     ├── report/          results model, aggregates, cross-arm comparison
     └── target/          endpoint + Bearer auth
 ```

@@ -820,9 +820,9 @@ BENCH_PID := build/mcp-data-platform-bench.pid
 BENCH_LOG := build/mcp-data-platform-bench.log
 BENCH_COMPOSE := DOCKER_DEFAULT_PLATFORM= docker compose -f docker-compose.e2e.yml
 
-## bench-gen: Regenerate seed artifacts and the task set from the fixed seed
+## bench-gen: Regenerate seed artifacts, the task set, and the S5 protocols from the fixed seed
 bench-gen:
-	@cd bench && $(GO) run ./seedgen -seed-dir seed -tasks-dir tasks
+	@cd bench && $(GO) run ./seedgen -seed-dir seed -tasks-dir tasks -protocols-dir protocols
 
 ## bench-up: Start the compose stack, seed the bench warehouse, and run the platform (BENCH_ARM=a0|a1|a2|a3)
 bench-up: e2e-up
@@ -892,6 +892,35 @@ bench-run:
 ## bench-smoke: Run the scripted (no-API-key) smoke against the running platform
 bench-smoke:
 	@$(MAKE) bench-run LLM=scripted SCRIPT=bench/tasks/scripted-smoke.json K=1
+
+## bench-lifecycle: Run the S5 memory-insight-knowledge lifecycle protocols (needs bench-up BENCH_ARM=a3; LLM=anthropic|scripted, K=, MODEL=)
+bench-lifecycle:
+	@mkdir -p build/bench-results
+	@cd bench && $(GO) build -o ../$(BUILD_DIR)/benchrun ./benchrun
+	@echo "Resetting search-first gate state (discovery scopes persist in Postgres across runs)..."
+	@$(BENCH_COMPOSE) exec -T postgres psql -q -U platform -d mcp_platform -v ON_ERROR_STOP=1 \
+		-c "TRUNCATE search_gate_discovery"
+	$(BUILD_DIR)/benchrun \
+		-lifecycle \
+		-arm a3 \
+		-url $(BENCH_URL) \
+		-credential $(BENCH_KEY) \
+		-protocols bench/protocols \
+		-git-commit $$(git rev-parse HEAD) \
+		-out build/bench-results/lifecycle-a3.json \
+		$(if $(LLM),-llm $(LLM),) \
+		$(if $(SCRIPT),-script $(SCRIPT),) \
+		$(if $(K),-k $(K),) \
+		$(if $(MODEL),-model $(MODEL),)
+
+## bench-lifecycle-smoke: Run the scripted (no-API-key) lifecycle smoke against the running a3 platform
+bench-lifecycle-smoke:
+	@$(MAKE) bench-lifecycle LLM=scripted SCRIPT=bench/protocols/scripted-lifecycle-smoke.json K=1
+
+## bench-lifecycle-report: Print the human summary of the last lifecycle run
+bench-lifecycle-report:
+	@cd bench && $(GO) build -o ../$(BUILD_DIR)/benchrun ./benchrun
+	$(BUILD_DIR)/benchrun -lifecycle -summarize build/bench-results/lifecycle-a3.json
 
 ## bench-report: Print the human summary of the last run for BENCH_ARM
 bench-report:
