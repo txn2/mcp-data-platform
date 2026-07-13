@@ -1,0 +1,490 @@
+{
+  "manifest": {
+    "started_at": "2026-07-13T18:36:29.787862Z",
+    "finished_at": "2026-07-13T18:52:05.787707Z",
+    "git_commit": "adfb9d907a136fa31dca11915bc000c02ba87687",
+    "platform_version": "v1.102.0-9-gadfb9d90-dirty",
+    "target": "http://localhost:8098",
+    "arm": "a3",
+    "llm_provider": "anthropic",
+    "model": "claude-sonnet-5",
+    "seed": 930,
+    "protocol_set_hash": "2735289866737e5315c2d3cc153b4be350a5145bb7d70d63c7ac912a660ef89b",
+    "k": 1
+  },
+  "runs": [
+    {
+      "protocol_id": "lc-active-customers",
+      "title": "Active customers",
+      "sink": "knowledge_page",
+      "attempt": 1,
+      "insight_id": "fbab848985b4ee50a464b6d8cc16cad9",
+      "captured": true,
+      "recall_correct": true,
+      "recall_surfaced": true,
+      "promoted": true,
+      "transfer_correct": true,
+      "abstain_correct": true,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-001@apikey.local",
+          "session_id": "dps_7d1c192cb84f29f8e5549b5f66f7ec99",
+          "tool_calls": 12,
+          "tool_errors": 0,
+          "search_called": true,
+          "final_answer": "Saved. I recorded the working definition \u2014 **\"active customer = any customer who has placed at least one order\"** \u2014 as a schema_entity insight linked to the `memory.bench.customers` dataset (urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)); it's now pending review for promotion to the shared catalog/knowledge page (an existing \"Active Customer Definition\" page was also found for future consolidation).",
+          "wall_ms": 42037,
+          "audit": {
+            "audited_calls": 12,
+            "errors": 0,
+            "total_duration_ms": 822,
+            "enriched_calls": 0,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        },
+        {
+          "stage": "recall",
+          "identity": "teacher",
+          "email": "bench-agent-001@apikey.local",
+          "session_id": "dps_e92f65992ed98392cdec76672cb5617b",
+          "tool_calls": 6,
+          "tool_errors": 0,
+          "search_called": true,
+          "final_answer": "Based on the saved working definition (an \"active customer\" is any customer in `bench.customers` with at least one matching row in `bench.orders`), the count of distinct customers with at least one order is 80.\n\nFINAL ANSWER: 80",
+          "wall_ms": 29916,
+          "audit": {
+            "audited_calls": 6,
+            "errors": 0,
+            "total_duration_ms": 296,
+            "enriched_calls": 3,
+            "enrichment_tokens_full": 356,
+            "enrichment_tokens_dedup": 59
+          }
+        },
+        {
+          "stage": "transfer",
+          "identity": "learner",
+          "email": "bench-agent-002@apikey.local",
+          "session_id": "dps_57c1d74570bff18a94bbe1afda85e417",
+          "tool_calls": 12,
+          "tool_errors": 0,
+          "search_called": true,
+          "final_answer": "Based on the saved business definition (\"active customer\" = a customer with at least one order in `bench.orders`), the count of active customers is 80.\n\nFINAL ANSWER: 80",
+          "wall_ms": 46695,
+          "audit": {
+            "audited_calls": 12,
+            "errors": 0,
+            "total_duration_ms": 784,
+            "enriched_calls": 2,
+            "enrichment_tokens_full": 240,
+            "enrichment_tokens_dedup": 0
+          }
+        },
+        {
+          "stage": "abstain",
+          "identity": "teacher",
+          "email": "bench-agent-001@apikey.local",
+          "session_id": "dps_7458605dd02c190280b29b3d406ba2fc",
+          "tool_calls": 30,
+          "tool_errors": 2,
+          "search_called": true,
+          "final_answer": "FINAL ANSWER: INSUFFICIENT INFORMATION\n\nI was unable to retrieve the full definitions needed to compute this figure. I confirmed there is a knowledge page titled \"Settlement Total Definition\" and an applied insight defining \"active customer\" (any customer with \u22651 order in bench.orders), plus a \"Revenue Reporting Policy\" (revenue = amount \u2212 discount over completed orders, stored in US cents). However, I could not retrieve the actual body content of the \"Settlement Total Definition\" page (needed to confirm whether/how it maps to \"lifetime value\") before the tool budget ran out, and I did not get to run the actual aggregation query against bench.orders/bench.customers to compute an average per active customer. Without confirming that mapping and running the calculation, I cannot ground a specific USD figure in verified data or knowledge.",
+          "wall_ms": 224295,
+          "audit": {
+            "audited_calls": 30,
+            "errors": 2,
+            "total_duration_ms": 17514,
+            "enriched_calls": 2,
+            "enrichment_tokens_full": 94,
+            "enrichment_tokens_dedup": 0
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-core-market",
+      "title": "Core market order count (North then East)",
+      "sink": "knowledge_page",
+      "attempt": 1,
+      "captured": false,
+      "recall_correct": true,
+      "abstain_correct": true,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-003@apikey.local",
+          "session_id": "dps_7e8901bab75aa82c2f098c1989b672af",
+          "tool_calls": 12,
+          "tool_errors": 0,
+          "search_called": true,
+          "final_answer": "Saved: recorded the working definition \"core market = North region\" as a schema_entity memory (id `66fd9caf0f8385c799942492e3e56a05`), linked to the `memory.bench.daily_region_revenue` dataset (which has the `region` column), pending review before shared-catalog promotion.",
+          "wall_ms": 37015,
+          "audit": {
+            "audited_calls": 12,
+            "errors": 0,
+            "total_duration_ms": 514,
+            "enriched_calls": 2,
+            "enrichment_tokens_full": 219,
+            "enrichment_tokens_dedup": 0
+          }
+        },
+        {
+          "stage": "recall",
+          "identity": "teacher",
+          "email": "bench-agent-003@apikey.local",
+          "session_id": "dps_952d673824287bffd28e1e9553fec8cf",
+          "tool_calls": 6,
+          "tool_errors": 0,
+          "search_called": true,
+          "final_answer": "Based on the saved knowledge, \"core market\" refers to the North region. Joining orders to customers and filtering to region = 'North' gives the count of orders placed by customers in the core market.\n\nFINAL ANSWER: 259",
+          "wall_ms": 17730,
+          "audit": {
+            "audited_calls": 6,
+            "errors": 0,
+            "total_duration_ms": 351,
+            "enriched_calls": 3,
+            "enrichment_tokens_full": 356,
+            "enrichment_tokens_dedup": 59
+          }
+        },
+        {
+          "stage": "abstain",
+          "identity": "teacher",
+          "email": "bench-agent-003@apikey.local",
+          "session_id": "dps_38e1adc99508a74c1442157509ff66c7",
+          "tool_calls": 5,
+          "tool_errors": 0,
+          "search_called": true,
+          "final_answer": "There is no churn-related table, column, or metric anywhere in the catalog, knowledge pages, or insights (only orders, customers, daily_region_revenue, legacy_orders exist, none tracking churn). No definition or data source for \"churn rate\" is available.\n\nFINAL ANSWER: INSUFFICIENT INFORMATION",
+          "wall_ms": 14291,
+          "audit": {
+            "audited_calls": 5,
+            "errors": 0,
+            "total_duration_ms": 391,
+            "enriched_calls": 0,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-focus-month",
+      "title": "Focus month order count (June then February)",
+      "sink": "datahub",
+      "attempt": 1,
+      "insight_id": "1c622b2fc54f4efc56ea899905dabfd6",
+      "captured": true,
+      "recall_correct": true,
+      "recall_surfaced": true,
+      "update_correct": true,
+      "duplicated": false,
+      "abstain_correct": true,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-005@apikey.local",
+          "session_id": "dps_9b1afd94101c722725b5965fa46dfd78",
+          "tool_calls": 7,
+          "tool_errors": 0,
+          "search_called": true,
+          "final_answer": "Saved: the working definition \"focus month = June 2025 (2025-06-01 to 2025-06-30)\" has been captured as a schema_entity memory linked to the `orders` dataset (`urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)`), pending review for promotion to shared knowledge.",
+          "wall_ms": 29163,
+          "audit": {
+            "audited_calls": 7,
+            "errors": 0,
+            "total_duration_ms": 573,
+            "enriched_calls": 0,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        },
+        {
+          "stage": "recall",
+          "identity": "teacher",
+          "email": "bench-agent-005@apikey.local",
+          "session_id": "dps_bc5a81cc956470ff9f48ff4b8454c5cb",
+          "tool_calls": 3,
+          "tool_errors": 0,
+          "search_called": true,
+          "final_answer": "FINAL ANSWER: 109",
+          "wall_ms": 12224,
+          "audit": {
+            "audited_calls": 3,
+            "errors": 0,
+            "total_duration_ms": 185,
+            "enriched_calls": 2,
+            "enrichment_tokens_full": 94,
+            "enrichment_tokens_dedup": 0
+          }
+        },
+        {
+          "stage": "update",
+          "identity": "teacher",
+          "email": "bench-agent-005@apikey.local",
+          "session_id": "dps_e568c2ad5257617f36f4ee625102b80e",
+          "tool_calls": 2,
+          "tool_errors": 0,
+          "search_called": true,
+          "final_answer": "Saved: the \"focus month\" definition is corrected to **February 2025** (2025-02-01\u20132025-02-28), linked to the `memory.bench.orders` dataset, superseding the prior June 2025 entry.",
+          "wall_ms": 13440,
+          "audit": {
+            "audited_calls": 2,
+            "errors": 0,
+            "total_duration_ms": 184,
+            "enriched_calls": 0,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        },
+        {
+          "stage": "update_recall",
+          "identity": "teacher",
+          "email": "bench-agent-005@apikey.local",
+          "session_id": "dps_638b8760fc2779a2f4bbc0bb059eefd3",
+          "tool_calls": 3,
+          "tool_errors": 0,
+          "search_called": true,
+          "final_answer": "The corrected focus month is February 2025 (per the pending insight superseding the earlier June 2025 definition). Querying orders placed between 2025-02-01 and 2025-02-28 inclusive returns 88 orders.\n\nFINAL ANSWER: 88",
+          "wall_ms": 13509,
+          "audit": {
+            "audited_calls": 3,
+            "errors": 0,
+            "total_duration_ms": 196,
+            "enriched_calls": 2,
+            "enrichment_tokens_full": 94,
+            "enrichment_tokens_dedup": 0
+          }
+        },
+        {
+          "stage": "abstain",
+          "identity": "teacher",
+          "email": "bench-agent-005@apikey.local",
+          "session_id": "dps_f6711d7da64b4d7c05ea9d905ac339eb",
+          "tool_calls": 8,
+          "tool_errors": 0,
+          "search_called": true,
+          "final_answer": "None of the tables (orders, legacy_orders, customers, daily_region_revenue) contain any delivery date, shipping date, or delivery time column. There's no data source for \"delivery time\" available in the catalog or memory.\n\nFINAL ANSWER: INSUFFICIENT INFORMATION",
+          "wall_ms": 24247,
+          "audit": {
+            "audited_calls": 8,
+            "errors": 0,
+            "total_duration_ms": 524,
+            "enriched_calls": 4,
+            "enrichment_tokens_full": 302,
+            "enrichment_tokens_dedup": 0
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-focus-region-net",
+      "title": "Focus region net revenue (West then East)",
+      "sink": "knowledge_page",
+      "attempt": 1,
+      "captured": false,
+      "recall_correct": true,
+      "abstain_correct": true,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-007@apikey.local",
+          "session_id": "dps_32eb6b88bb877cde435a14b5197ce0ab",
+          "tool_calls": 8,
+          "tool_errors": 1,
+          "search_called": true,
+          "final_answer": "Saved: the working definition **\"focus region\" = West** for this study, linked to `memory.bench.daily_region_revenue` and `memory.bench.customers` (both have a `region` column). It's recorded as a pending business_knowledge insight (id `671663846fa200ab0df7b1846839f2c6`) for future-session recall and review/promotion.",
+          "wall_ms": 30948,
+          "audit": {
+            "audited_calls": 8,
+            "errors": 1,
+            "total_duration_ms": 432,
+            "enriched_calls": 2,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        },
+        {
+          "stage": "recall",
+          "identity": "teacher",
+          "email": "bench-agent-007@apikey.local",
+          "session_id": "dps_cc10c7aa56b741bafd2cfdd3fb136082",
+          "tool_calls": 7,
+          "tool_errors": 1,
+          "search_called": true,
+          "final_answer": "46,688,938 cents = $466,889.38, computed as SUM(amount - discount) over completed orders in memory.bench.orders joined to memory.bench.customers where region = 'West' (the established \"focus region\" for this analysis) and order_ts in calendar year 2025, across 311 qualifying orders.\n\nFINAL ANSWER: 466889.38",
+          "wall_ms": 39393,
+          "audit": {
+            "audited_calls": 7,
+            "errors": 1,
+            "total_duration_ms": 1886,
+            "enriched_calls": 3,
+            "enrichment_tokens_full": 356,
+            "enrichment_tokens_dedup": 59
+          }
+        },
+        {
+          "stage": "abstain",
+          "identity": "teacher",
+          "email": "bench-agent-007@apikey.local",
+          "session_id": "dps_e2742620092fa59cba62adb87187c4c5",
+          "tool_calls": 9,
+          "tool_errors": 0,
+          "search_called": true,
+          "final_answer": "None of the available tables (`memory.bench.orders`, `legacy_orders`, `customers`, `daily_region_revenue`) contain a shipping cost field, and no search result (catalog, knowledge pages, memory, or insights) surfaces any shipping cost data for the \"West\" focus region or any region. There is no data source available to compute this figure.\n\nFINAL ANSWER: INSUFFICIENT INFORMATION",
+          "wall_ms": 27925,
+          "audit": {
+            "audited_calls": 9,
+            "errors": 0,
+            "total_duration_ms": 542,
+            "enriched_calls": 4,
+            "enrichment_tokens_full": 427,
+            "enrichment_tokens_dedup": 0
+          }
+        }
+      ]
+    },
+    {
+      "protocol_id": "lc-house-tier",
+      "title": "House tier",
+      "sink": "knowledge_page",
+      "attempt": 1,
+      "insight_id": "ec0a87d67a3de0b10882ebdcd53a1ece",
+      "captured": true,
+      "recall_correct": true,
+      "recall_surfaced": true,
+      "promoted": true,
+      "transfer_correct": true,
+      "abstain_correct": true,
+      "episodes": [
+        {
+          "stage": "teach",
+          "identity": "teacher",
+          "email": "bench-agent-009@apikey.local",
+          "session_id": "dps_56eda28528c72a7d547a326f2d804778",
+          "tool_calls": 11,
+          "tool_errors": 0,
+          "search_called": true,
+          "final_answer": "Saved: recorded the \"house tier\" definition (the customer `tier` with the most orders, derived by joining `customers` to `orders` on `customer_id` and taking the max order-count tier) as a business_knowledge insight linked to the `memory.bench.customers` and `memory.bench.orders` datasets, pending review for promotion to shared knowledge.",
+          "wall_ms": 69931,
+          "audit": {
+            "audited_calls": 11,
+            "errors": 0,
+            "total_duration_ms": 2060,
+            "enriched_calls": 1,
+            "enrichment_tokens_full": 0,
+            "enrichment_tokens_dedup": 0
+          }
+        },
+        {
+          "stage": "recall",
+          "identity": "teacher",
+          "email": "bench-agent-009@apikey.local",
+          "session_id": "dps_6eef0e5c2546462e93a6c5804a4adfc4",
+          "tool_calls": 3,
+          "tool_errors": 0,
+          "search_called": true,
+          "final_answer": "The tier with the most orders is \"basic\" (552 orders), confirming the house tier definition.\n\nFINAL ANSWER: basic",
+          "wall_ms": 16094,
+          "audit": {
+            "audited_calls": 3,
+            "errors": 0,
+            "total_duration_ms": 266,
+            "enriched_calls": 1,
+            "enrichment_tokens_full": 156,
+            "enrichment_tokens_dedup": 0
+          }
+        },
+        {
+          "stage": "transfer",
+          "identity": "learner",
+          "email": "bench-agent-010@apikey.local",
+          "session_id": "dps_7a5fddc1c0617cee81be36037edf03de",
+          "tool_calls": 29,
+          "tool_errors": 1,
+          "search_called": true,
+          "final_answer": "The \"house tier\" is defined as the customer tier with the most orders. Query results show \"basic\" tier has 552 orders \u2014 the highest, ahead of \"plus\" (361) and \"enterprise\" (287).\n\nFINAL ANSWER: basic",
+          "wall_ms": 167375,
+          "audit": {
+            "audited_calls": 29,
+            "errors": 1,
+            "total_duration_ms": 3380,
+            "enriched_calls": 2,
+            "enrichment_tokens_full": 245,
+            "enrichment_tokens_dedup": 0
+          }
+        },
+        {
+          "stage": "abstain",
+          "identity": "teacher",
+          "email": "bench-agent-009@apikey.local",
+          "session_id": "dps_00201ff891a6cf64fd90dd9d8285a872",
+          "tool_calls": 9,
+          "tool_errors": 1,
+          "search_called": true,
+          "final_answer": "There is no data source, table column, or saved knowledge in the catalog covering a \"net promoter score\" metric \u2014 the `customers` table (customer_id, name, region, tier, created_at) and `orders` table contain no NPS-related field, and no knowledge page, insight, or memory record mentions NPS. The \"house tier\" itself is defined (the tier with the most orders \u2014 currently \"basic\"), but no net promoter score data exists to associate with it.\n\nFINAL ANSWER: INSUFFICIENT INFORMATION",
+          "wall_ms": 30236,
+          "audit": {
+            "audited_calls": 9,
+            "errors": 1,
+            "total_duration_ms": 2028,
+            "enriched_calls": 2,
+            "enrichment_tokens_full": 312,
+            "enrichment_tokens_dedup": 54
+          }
+        }
+      ]
+    }
+  ],
+  "metrics": {
+    "protocols": 5,
+    "attempts": 5,
+    "harness_failures": 0,
+    "capture_rate": {
+      "num": 3,
+      "den": 5,
+      "rate": 0.6
+    },
+    "personal_recall": {
+      "num": 5,
+      "den": 5,
+      "rate": 1
+    },
+    "unprompted_surface": {
+      "num": 3,
+      "den": 3,
+      "rate": 1
+    },
+    "transfer_rate": {
+      "num": 2,
+      "den": 2,
+      "rate": 1
+    },
+    "update_correctness": {
+      "num": 1,
+      "den": 1,
+      "rate": 1
+    },
+    "duplicate_rate": {
+      "num": 0,
+      "den": 1,
+      "rate": 0
+    },
+    "abstention_rate": {
+      "num": 5,
+      "den": 5,
+      "rate": 1
+    },
+    "pass_k": {
+      "num": 3,
+      "den": 5,
+      "rate": 0.6
+    }
+  }
+}
