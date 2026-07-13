@@ -1,0 +1,211 @@
+# Benchmark arm A2 — knowledge (issue #930 / #942).
+#
+# The full discovery-and-knowledge platform: semantic provider (DataHub),
+# cross-enrichment on (defaults), the search tool, the search-first gate on
+# (default), seeded DataHub metadata and knowledge pages live. Requires a
+# DataHub quickstart (same external convention as the e2e and load stacks)
+# seeded with bench/seed/datahub/bench_mces.json.
+#
+# Audit runs with delivery: sync so the harness's audit read-back is
+# deterministic: when a tool call returns, its audit row is committed.
+#
+# Env:
+#   API_KEY_ADMIN   admin API key the harness authenticates with (Bearer)
+apiVersion: v1
+
+server:
+  name: mcp-data-platform-bench-a2
+  transport: http
+  address: ":8098"
+
+auth:
+  api_keys:
+    enabled: true
+    keys:
+      # Base key: the harness's audit read-back (admin REST) credential.
+      - key: "${API_KEY_ADMIN}"
+        name: "bench-admin"
+        roles: ["admin"]
+      # Identity pool: one key per task attempt. The search-first gate keys
+      # discovery on the authenticated USER identity (apikey:<name>), so
+      # attempts must not share a credential or the first search would open
+      # the gate for every later attempt. The harness rotates through these
+      # (-identity-keys must match the pool size).
+      - key: "${API_KEY_ADMIN}-01"
+        name: "bench-agent-01"
+        roles: ["admin"]
+      - key: "${API_KEY_ADMIN}-02"
+        name: "bench-agent-02"
+        roles: ["admin"]
+      - key: "${API_KEY_ADMIN}-03"
+        name: "bench-agent-03"
+        roles: ["admin"]
+      - key: "${API_KEY_ADMIN}-04"
+        name: "bench-agent-04"
+        roles: ["admin"]
+      - key: "${API_KEY_ADMIN}-05"
+        name: "bench-agent-05"
+        roles: ["admin"]
+      - key: "${API_KEY_ADMIN}-06"
+        name: "bench-agent-06"
+        roles: ["admin"]
+      - key: "${API_KEY_ADMIN}-07"
+        name: "bench-agent-07"
+        roles: ["admin"]
+      - key: "${API_KEY_ADMIN}-08"
+        name: "bench-agent-08"
+        roles: ["admin"]
+      - key: "${API_KEY_ADMIN}-09"
+        name: "bench-agent-09"
+        roles: ["admin"]
+      - key: "${API_KEY_ADMIN}-10"
+        name: "bench-agent-10"
+        roles: ["admin"]
+      - key: "${API_KEY_ADMIN}-11"
+        name: "bench-agent-11"
+        roles: ["admin"]
+      - key: "${API_KEY_ADMIN}-12"
+        name: "bench-agent-12"
+        roles: ["admin"]
+      - key: "${API_KEY_ADMIN}-13"
+        name: "bench-agent-13"
+        roles: ["admin"]
+      - key: "${API_KEY_ADMIN}-14"
+        name: "bench-agent-14"
+        roles: ["admin"]
+      - key: "${API_KEY_ADMIN}-15"
+        name: "bench-agent-15"
+        roles: ["admin"]
+      - key: "${API_KEY_ADMIN}-16"
+        name: "bench-agent-16"
+        roles: ["admin"]
+      - key: "${API_KEY_ADMIN}-17"
+        name: "bench-agent-17"
+        roles: ["admin"]
+      - key: "${API_KEY_ADMIN}-18"
+        name: "bench-agent-18"
+        roles: ["admin"]
+      - key: "${API_KEY_ADMIN}-19"
+        name: "bench-agent-19"
+        roles: ["admin"]
+      - key: "${API_KEY_ADMIN}-20"
+        name: "bench-agent-20"
+        roles: ["admin"]
+      - key: "${API_KEY_ADMIN}-21"
+        name: "bench-agent-21"
+        roles: ["admin"]
+      - key: "${API_KEY_ADMIN}-22"
+        name: "bench-agent-22"
+        roles: ["admin"]
+      - key: "${API_KEY_ADMIN}-23"
+        name: "bench-agent-23"
+        roles: ["admin"]
+      - key: "${API_KEY_ADMIN}-24"
+        name: "bench-agent-24"
+        roles: ["admin"]
+      - key: "${API_KEY_ADMIN}-25"
+        name: "bench-agent-25"
+        roles: ["admin"]
+      - key: "${API_KEY_ADMIN}-26"
+        name: "bench-agent-26"
+        roles: ["admin"]
+      - key: "${API_KEY_ADMIN}-27"
+        name: "bench-agent-27"
+        roles: ["admin"]
+      - key: "${API_KEY_ADMIN}-28"
+        name: "bench-agent-28"
+        roles: ["admin"]
+      - key: "${API_KEY_ADMIN}-29"
+        name: "bench-agent-29"
+        roles: ["admin"]
+      - key: "${API_KEY_ADMIN}-30"
+        name: "bench-agent-30"
+        roles: ["admin"]
+      - key: "${API_KEY_ADMIN}-31"
+        name: "bench-agent-31"
+        roles: ["admin"]
+      - key: "${API_KEY_ADMIN}-32"
+        name: "bench-agent-32"
+        roles: ["admin"]
+
+database:
+  dsn: "postgres://platform:platform_secret@localhost:5432/mcp_platform?sslmode=disable"
+  max_open_conns: 10
+
+audit:
+  enabled: true
+  log_tool_calls: true
+  delivery: sync
+
+# The per-user tool-call limiter would throttle the single benchmark identity;
+# the benchmark measures agent effectiveness, not the limiter.
+rate_limit:
+  enabled: false
+
+# workflow.require_search and enrichment.* stay at their defaults (on): the A2
+# arm IS the shipped semantic-first configuration.
+
+# The persona is NAMED admin because the admin REST API (the harness's audit
+# read-back path) requires the caller's resolved persona to be the deployment's
+# admin persona; the name grants nothing by itself — MCP tool access is still
+# the allowlist below, which is the arm's ablation surface.
+personas:
+  admin:
+    display_name: "Bench Knowledge (A2)"
+    roles: ["admin"]
+    tools:
+      allow: ["platform_info", "search", "trino_*", "datahub_*", "s3_*"]
+    connections:
+      allow: ["*"]
+  default_persona: admin
+
+semantic:
+  provider: datahub
+  instance: primary
+  cache:
+    enabled: true
+    ttl: 5m
+
+query:
+  provider: trino
+  instance: e2e
+
+toolkits:
+  trino:
+    enabled: true
+    default: e2e
+    instances:
+      e2e:
+        host: "localhost"
+        port: 8090
+        user: "bench"
+        catalog: "memory"
+        schema: "bench"
+        connection_name: "e2e-trino"
+    config:
+      default_limit: 1000
+      max_limit: 10000
+      read_only: true
+
+  datahub:
+    enabled: true
+    default: primary
+    instances:
+      primary:
+        url: "http://localhost:8080/api/graphql"
+        # DataHub quickstart ships with metadata-service auth disabled; the
+        # provider requires a non-empty token, so a placeholder is supplied.
+        token: "bench-placeholder-token"
+        read_only: true
+
+  s3:
+    enabled: true
+    default: e2e
+    instances:
+      e2e:
+        endpoint: "http://localhost:9000"
+        access_key_id: "admin"
+        secret_access_key: "admin_secret"
+        region: "us-east-1"
+        use_path_style: true
+        connection_name: "e2e-s3"
