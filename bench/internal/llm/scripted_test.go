@@ -72,3 +72,29 @@ func TestLoadScript(t *testing.T) {
 		t.Error("expected error for malformed json")
 	}
 }
+
+func TestLoadLifecycleScript(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "lc.json")
+	content := `{"lc-a": {"teach": [{"tool_calls": [{"name": "memory_capture", "args": {}}]}], "recall": [{"final_text": "FINAL ANSWER: 42"}]}}`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	script, err := LoadLifecycleScript(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(script["lc-a"]["teach"]) != 1 || script["lc-a"]["recall"][0].FinalText != "FINAL ANSWER: 42" {
+		t.Errorf("lifecycle script parsed wrong: %+v", script)
+	}
+	if _, err := LoadLifecycleScript(filepath.Join(dir, "missing.json")); err == nil {
+		t.Error("expected error for missing file")
+	}
+	bad := filepath.Join(dir, "bad.json")
+	if err := os.WriteFile(bad, []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadLifecycleScript(bad); err == nil {
+		t.Error("expected error for malformed json")
+	}
+}

@@ -23,6 +23,10 @@ type Step struct {
 // Script maps a task ID to its ordered playback steps.
 type Script map[string][]Step
 
+// LifecycleScript maps a protocol ID to its per-stage playback (stage ->
+// steps), for the no-API-key S5 lifecycle smoke.
+type LifecycleScript map[string]Script
+
 // LoadScript reads a Script from a JSON file.
 func LoadScript(path string) (Script, error) {
 	raw, err := os.ReadFile(path) // #nosec G304 -- operator-supplied script path
@@ -32,6 +36,19 @@ func LoadScript(path string) (Script, error) {
 	var s Script
 	if err := json.Unmarshal(raw, &s); err != nil {
 		return nil, fmt.Errorf("parse script %s: %w", path, err)
+	}
+	return s, nil
+}
+
+// LoadLifecycleScript reads a LifecycleScript from a JSON file.
+func LoadLifecycleScript(path string) (LifecycleScript, error) {
+	raw, err := os.ReadFile(path) // #nosec G304 -- operator-supplied script path
+	if err != nil {
+		return nil, fmt.Errorf("read lifecycle script: %w", err)
+	}
+	var s LifecycleScript
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return nil, fmt.Errorf("parse lifecycle script %s: %w", path, err)
 	}
 	return s, nil
 }

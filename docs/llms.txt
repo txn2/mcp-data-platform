@@ -91,7 +91,7 @@ mcp-data-platform is the orchestration layer for the txn2 MCP ecosystem. DataHub
 - [Configuration Reference](https://mcp-data-platform.txn2.com/reference/configuration/): Redirect page; the full YAML schema lives at [Configuration](https://mcp-data-platform.txn2.com/server/configuration/)
 - [Providers](https://mcp-data-platform.txn2.com/reference/providers/): Semantic, query, and storage provider interfaces
 - [Middleware](https://mcp-data-platform.txn2.com/reference/middleware/): Request processing chain: tool visibility, description overrides, the search-first gate, icon enrichment, client logging, progress notifications
-- [Benchmarks](https://mcp-data-platform.txn2.com/reference/benchmarks/): Agent-effectiveness benchmark results (bench/): arm-ablated accuracy, pass^k, and audit-derived efficiency; living page updated as benchmark phases land
+- [Benchmarks](https://mcp-data-platform.txn2.com/reference/benchmarks/): Agent-effectiveness benchmark results (bench/): arm-ablated accuracy, pass^k, audit-derived efficiency, and the S5 memory-insight-knowledge lifecycle protocols (capture, personal recall, cross-identity transfer, supersede, and abstention, verified through the admin insights and changesets APIs); living page updated as benchmark phases land
 - [Tuning and Scaling](https://mcp-data-platform.txn2.com/reference/tuning-and-scaling/): Resource limits, Go runtime tuning, horizontal scaling characteristics, connection pool sizing, autoscaling guidance, and measured single-replica throughput/latency limits from the load harness (test/load); the sibling agent-effectiveness benchmark harness (bench/) measures arm-ablated accuracy and efficiency with audit-derived metrics
 
 ## Key Capabilities
