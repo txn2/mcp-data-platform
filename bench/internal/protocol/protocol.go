@@ -74,9 +74,14 @@ type Protocol struct {
 	// Recall is the personal-recall episode (same identity, fresh session).
 	Recall RecallStage `yaml:"recall" json:"recall"`
 	// Transfer is the cross-identity episode run after promotion. Optional: a
-	// protocol without it is excluded from the transfer-rate metric.
+	// protocol without it is excluded from the transfer-rate metric. Mutually
+	// exclusive with Update (see Validate): promotion makes the insight applied,
+	// and the platform deliberately never supersedes an applied insight (a newer
+	// capture must not clobber a reviewed one), so a protocol cannot both promote
+	// and then supersede the same fact.
 	Transfer *RecallStage `yaml:"transfer,omitempty" json:"transfer,omitempty"`
-	// Update is the supersede episode plus its post-correction recall. Optional.
+	// Update is the supersede episode plus its post-correction recall. Optional,
+	// and mutually exclusive with Transfer (see Transfer).
 	Update *UpdateStage `yaml:"update,omitempty" json:"update,omitempty"`
 	// Abstain is the never-taught-fact episode. Optional.
 	Abstain *AbstainStage `yaml:"abstain,omitempty" json:"abstain,omitempty"`
@@ -91,8 +96,7 @@ type PagePayload struct {
 
 // TeachStage is the fact-capture episode. The prompt states the fact
 // conversationally and instructs the agent to record it for future sessions;
-// the runner verifies an insight was captured, entity-linked, in the expected
-// category.
+// the runner verifies an insight was captured and linked to the entity.
 type TeachStage struct {
 	Prompt string `yaml:"prompt" json:"prompt"`
 }
@@ -142,6 +146,9 @@ func (p Protocol) Validate() error {
 // validateOptionalStages checks the transfer, update, and abstain stages when
 // present. Split from Validate to keep each function's branch count in bounds.
 func (p Protocol) validateOptionalStages() error {
+	if p.Transfer != nil && p.Update != nil {
+		return fmt.Errorf("protocol %s: transfer and update are mutually exclusive (an applied insight cannot be superseded)", p.ID)
+	}
 	if p.Transfer != nil {
 		if err := validateStageGrading(p.ID, "transfer", *p.Transfer); err != nil {
 			return err

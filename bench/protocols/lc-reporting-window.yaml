@@ -14,12 +14,6 @@ recall:
         kind: numeric
         value: 224
         abs_tolerance: 0.5
-transfer:
-    prompt: How many completed orders fall in the reporting window? Answer with the count.
-    grading:
-        kind: numeric
-        value: 224
-        abs_tolerance: 0.5
 update:
     prompt: Correction to the definition I gave you earlier. The 'reporting window' is now calendar quarter 3 of 2025 (July through September). Please update your saved knowledge so future answers use this corrected definition.
     fact: The 'reporting window' for this study is calendar quarter 3 of 2025 (July through September).

@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -50,8 +51,8 @@ type Options struct {
 	// IdentityKeys is the identity-pool size the arm config defines. Each
 	// protocol attempt consumes identitiesPerRun identities, so the run refuses
 	// to start when protocols x k x 2 exceeds the pool (attempts would share a
-	// discovery scope). Zero disables rotation (single identity), for targets
-	// without a pool.
+	// discovery scope). It must be positive: the lifecycle needs distinct teacher
+	// and learner identities, so there is no single-identity mode.
 	IdentityKeys int
 	Log          *slog.Logger
 }
@@ -74,8 +75,15 @@ func Run(ctx context.Context, opts Options) (*Results, error) {
 		ProtocolSetHash: protocol.Hash(protocols),
 		K:               opts.K,
 	}}
+	// The lifecycle needs distinct teacher and learner identities per attempt (the
+	// transfer stage is cross-identity by construction), so a single-identity run
+	// is invalid — unlike the S1-S3 pipeline, there is no meaningful IdentityKeys=0
+	// mode here.
+	if opts.IdentityKeys <= 0 {
+		return nil, errors.New("lifecycle requires an identity pool (-identity-keys > 0): teacher and learner must be distinct identities")
+	}
 	need := len(protocols) * opts.K * identitiesPerRun
-	if opts.IdentityKeys > 0 && need > opts.IdentityKeys {
+	if need > opts.IdentityKeys {
 		return nil, fmt.Errorf("%d identities needed (%d protocols x k=%d x %d) exceed the pool of %d; raise -identity-keys and the config pool",
 			need, len(protocols), opts.K, identitiesPerRun, opts.IdentityKeys)
 	}
@@ -146,13 +154,8 @@ func (e *runEnv) runProtocol(ctx context.Context, p protocol.Protocol, attempt, 
 	if abort := e.teachAndRecall(ctx, p, teacherSeq, &run); abort {
 		return run
 	}
-	if boolTrue(run.Captured) && run.InsightID != "" {
-		if abort := e.promoteAndTransfer(ctx, p, learnerSeq, &run); abort {
-			return run
-		}
-		if abort := e.supersede(ctx, p, teacherSeq, &run); abort {
-			return run
-		}
+	if abort := e.runAdvancedStages(ctx, p, teacherSeq, learnerSeq, &run); abort {
+		return run
 	}
 	e.abstain(ctx, p, teacherSeq, &run)
 	log.Info("protocol graded",
@@ -161,6 +164,23 @@ func (e *runEnv) runProtocol(ctx context.Context, p protocol.Protocol, attempt, 
 		"update", boolTrue(run.UpdateCorrect), "duplicated", boolTrue(run.Duplicated),
 		"abstain", boolTrue(run.AbstainCorrect))
 	return run
+}
+
+// runAdvancedStages runs the capture-dependent stages (promote+transfer OR
+// supersede, never both — enforced by protocol.Validate). It is a no-op when the
+// teach stage did not capture an insight to build on. Returns true when a harness
+// failure aborts the run.
+func (e *runEnv) runAdvancedStages(ctx context.Context, p protocol.Protocol, teacherSeq, learnerSeq int, run *ProtocolRun) bool {
+	if !boolTrue(run.Captured) || run.InsightID == "" {
+		return false
+	}
+	if p.Transfer != nil {
+		return e.promoteAndTransfer(ctx, p, learnerSeq, run)
+	}
+	if p.Update != nil {
+		return e.supersede(ctx, p, teacherSeq, run)
+	}
+	return false
 }
 
 // teachAndRecall runs the teach and personal-recall episodes and verifies
@@ -257,27 +277,39 @@ func (e *runEnv) supersede(ctx context.Context, p protocol.Protocol, teacherSeq 
 		run.Error = "update recall: " + recall.Error
 		return true
 	}
-	run.UpdateCorrect = e.gradeUpdate(ans, *p.Update)
+	run.UpdateCorrect = gradeUpdate(ans, *p.Update)
 
-	live, err := e.liveInsightCount(ctx, poolEmail(teacherSeq), p.EntityURN)
+	dup, err := e.duplicated(ctx, run.InsightID)
 	if err != nil {
 		run.Error = "duplicate check: " + err.Error()
 		return true
 	}
-	dup := live > 1
 	run.Duplicated = &dup
 	return false
 }
 
+// duplicated reports whether the supersede left the taught fact duplicated: a
+// clean supersede transitions the taught insight to superseded (so the recall
+// path surfaces only the correction), while a failure to detect the restatement
+// leaves the original insight live alongside the correction. Scoping the check to
+// the specific taught insight (not a live-count over the identity) makes it
+// immune to insights left by earlier runs that reuse the same pool identity.
+func (e *runEnv) duplicated(ctx context.Context, teachInsightID string) (bool, error) {
+	in, err := e.life.GetInsight(ctx, teachInsightID)
+	if err != nil {
+		return false, err
+	}
+	return in.Status != insightSuperseded, nil
+}
+
 // gradeUpdate scores the post-update recall: correct only when it matches the
-// new value AND, when a superseded numeric value is recorded, does not return
-// the stale value.
-func (e *runEnv) gradeUpdate(ans string, u protocol.UpdateStage) *bool {
+// new value AND, when a superseded numeric value is recorded, does not instead
+// return that stale value. The stale check reuses the numeric grader against the
+// superseded value so it shares the canonical tolerance and extraction rules.
+func gradeUpdate(ans string, u protocol.UpdateStage) *bool {
 	ok := gradeRecall(ans, u.Recall.Grading)
-	if ok && u.SupersededValue != nil {
-		if got, present := gradedNumeric(ans, u.Recall.Grading); present && withinTolerance(got, *u.SupersededValue, u.Recall.Grading.AbsTolerance) {
-			ok = false
-		}
+	if ok && u.SupersededValue != nil && gradeRecall(ans, supersededGrading(u)) {
+		ok = false
 	}
 	return &ok
 }
@@ -299,15 +331,6 @@ func (e *runEnv) abstain(ctx context.Context, p protocol.Protocol, teacherSeq in
 	}
 	ac := abstains(ans)
 	run.AbstainCorrect = &ac
-}
-
-// withinTolerance reports whether got is within tol of want.
-func withinTolerance(got, want, tol float64) bool {
-	d := got - want
-	if d < 0 {
-		d = -d
-	}
-	return d <= tol
 }
 
 // attemptClient builds the MCP client for one episode, authenticating as the

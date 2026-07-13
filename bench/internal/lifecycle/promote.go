@@ -17,13 +17,25 @@ import (
 // the loop covers request-scheduling slack only.
 const insightPollInterval = 250 * time.Millisecond
 
-// waitForInsight polls the insights API until an insight captured by the given
-// identity and anchored to the entity appears, returning the newest, or nil when
-// none lands within the audit timeout (a missed capture, not a harness error).
+// insightSuperseded is the insight status a clean recall-first supersede leaves
+// on the prior insight (mirrors knowledge.StatusSuperseded).
+const insightSuperseded = "superseded"
+
+// insightPending is the status a freshly captured, unreviewed insight carries;
+// capture verification looks for it so a prior run's applied/superseded insights
+// on the same entity are not mistaken for this episode's capture.
+const insightPending = "pending"
+
+// waitForInsight polls the insights API until a pending insight captured by the
+// given identity and anchored to the entity appears, returning the newest, or nil
+// when none lands within the audit timeout (a missed capture, not a harness
+// error). The pending filter scopes the read to this episode's fresh capture:
+// insights an earlier run left on the same entity under a reused pool identity
+// have since moved to applied or superseded and are skipped.
 func (e *runEnv) waitForInsight(ctx context.Context, email, urn string) (*lifecycleapi.Insight, error) {
 	deadline := time.Now().Add(e.opts.AuditTimeout)
 	for {
-		insights, err := e.life.ListInsights(ctx, lifecycleapi.InsightFilter{CapturedBy: email, EntityURN: urn})
+		insights, err := e.life.ListInsights(ctx, lifecycleapi.InsightFilter{CapturedBy: email, EntityURN: urn, Status: insightPending})
 		if err != nil {
 			return nil, err
 		}
@@ -51,36 +63,6 @@ func newestInsight(insights []lifecycleapi.Insight) *lifecycleapi.Insight {
 		}
 	}
 	return newest
-}
-
-// liveInsightCount returns how many of an identity's insights on the entity are
-// still in force (not rejected, superseded, or rolled back). After a supersede,
-// a clean result is exactly one; more than one is a duplicate.
-func (e *runEnv) liveInsightCount(ctx context.Context, email, urn string) (int, error) {
-	insights, err := e.life.ListInsights(ctx, lifecycleapi.InsightFilter{CapturedBy: email, EntityURN: urn})
-	if err != nil {
-		return 0, err
-	}
-	n := 0
-	for _, in := range insights {
-		if liveStatus(in.Status) {
-			n++
-		}
-	}
-	return n, nil
-}
-
-// liveStatus reports whether an insight status represents knowledge still in
-// force, mirroring the platform's isLiveInsightStatus (rejected, superseded, and
-// rolled-back are retracted). An empty status (a freshly captured, unreviewed
-// insight) is live.
-func liveStatus(status string) bool {
-	switch status {
-	case "rejected", "superseded", "rolled_back":
-		return false
-	default:
-		return true
-	}
 }
 
 // promote plays the reviewer: it approves the insight (pending -> approved) and

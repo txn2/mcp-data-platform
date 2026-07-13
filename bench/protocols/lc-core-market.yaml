@@ -21,12 +21,6 @@ recall:
         kind: numeric
         value: 259
         abs_tolerance: 0.5
-transfer:
-    prompt: How many orders were placed by customers in the core market? Answer with the count.
-    grading:
-        kind: numeric
-        value: 259
-        abs_tolerance: 0.5
 update:
     prompt: Correction to the definition I gave you earlier. The 'core market' is now the East region, not North. Please update your saved knowledge so future answers use this corrected definition.
     fact: The 'core market' is the East region.

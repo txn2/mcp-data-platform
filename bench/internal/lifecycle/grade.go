@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/txn2/mcp-data-platform/bench/internal/grade"
+	"github.com/txn2/mcp-data-platform/bench/internal/protocol"
 	"github.com/txn2/mcp-data-platform/bench/internal/task"
 )
 
@@ -49,15 +50,16 @@ func gradeRecall(finalAnswer string, g task.Grading) bool {
 	}
 }
 
-// gradedValue returns the numeric value the grader parsed from the answer and
-// whether one was present; used to confirm a post-update recall does not return
-// the superseded value.
-func gradedNumeric(finalAnswer string, g task.Grading) (float64, bool) {
-	if g.Kind != task.GradeNumeric || g.Value == nil {
-		return 0, false
+// supersededGrading builds a numeric grading that matches the update stage's
+// pre-correction value, so the same deterministic grader can tell whether a
+// post-update recall returned the stale value. It is only meaningful for a
+// numeric update (SupersededValue is numeric-only); callers guard on it.
+func supersededGrading(u protocol.UpdateStage) task.Grading {
+	return task.Grading{
+		Kind:         task.GradeNumeric,
+		Value:        u.SupersededValue,
+		AbsTolerance: u.Recall.Grading.AbsTolerance,
 	}
-	got, ok, _ := grade.Numeric(grade.ExtractFinal(finalAnswer), *g.Value, g.AbsTolerance)
-	return got, ok
 }
 
 // abstains reports whether the FINAL ANSWER is an explicit abstention rather

@@ -44,31 +44,17 @@ func TestGradeRecall(t *testing.T) {
 	}
 }
 
-func TestGradedNumeric(t *testing.T) {
-	num := task.Grading{Kind: task.GradeNumeric, Value: new(100.0), AbsTolerance: 0.5}
-	if got, ok := gradedNumeric("FINAL ANSWER: 123.45", num); !ok || got != 123.45 {
-		t.Errorf("gradedNumeric = %v, %v, want 123.45, true", got, ok)
-	}
-	if _, ok := gradedNumeric("FINAL ANSWER: none", num); ok {
-		t.Error("non-numeric answer should report absent")
-	}
-	if _, ok := gradedNumeric("FINAL ANSWER: x", task.Grading{Kind: task.GradeEntity}); ok {
-		t.Error("entity grading should report absent")
-	}
-}
-
 func TestGradeUpdate(t *testing.T) {
 	base := protocol.UpdateStage{
 		Recall:          protocol.RecallStage{Grading: task.Grading{Kind: task.GradeNumeric, Value: new(200.0), AbsTolerance: 0.5}},
 		SupersededValue: new(123.45),
 	}
-	e := &runEnv{}
 	// Correct new value, distinct from the superseded one -> pass.
-	if got := e.gradeUpdate("FINAL ANSWER: 200.0", base); !*got {
+	if got := gradeUpdate("FINAL ANSWER: 200.0", base); !*got {
 		t.Error("flipped-to-new answer should pass")
 	}
 	// Wrong value -> fail.
-	if got := e.gradeUpdate("FINAL ANSWER: 999", base); *got {
+	if got := gradeUpdate("FINAL ANSWER: 999", base); *got {
 		t.Error("wrong value should fail")
 	}
 	// New value coincides with the superseded value within tolerance -> the
@@ -76,16 +62,7 @@ func TestGradeUpdate(t *testing.T) {
 	stale := base
 	stale.Recall.Grading.Value = new(123.45)
 	stale.SupersededValue = new(123.45)
-	if got := e.gradeUpdate("FINAL ANSWER: 123.45", stale); *got {
+	if got := gradeUpdate("FINAL ANSWER: 123.45", stale); *got {
 		t.Error("answer equal to the superseded value must not pass")
-	}
-}
-
-func TestWithinTolerance(t *testing.T) {
-	if !withinTolerance(10, 10.4, 0.5) {
-		t.Error("within tolerance should be true")
-	}
-	if withinTolerance(10, 11, 0.5) {
-		t.Error("outside tolerance should be false")
 	}
 }

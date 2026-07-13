@@ -10,7 +10,8 @@ import (
 	"github.com/txn2/mcp-data-platform/bench/internal/task"
 )
 
-// validProtocol is a fully-populated protocol used as the mutation base.
+// validProtocol is a promote+transfer mutation base. Transfer and update are
+// mutually exclusive, so the base carries only transfer.
 func validProtocol() Protocol {
 	return Protocol{
 		ID:              "lc-example",
@@ -28,41 +29,48 @@ func validProtocol() Protocol {
 			Prompt:  "What is net revenue for 2025?",
 			Grading: task.Grading{Kind: task.GradeNumeric, Value: new(123.45), AbsTolerance: 1},
 		},
-		Update: &UpdateStage{
-			Prompt: "Correction: net revenue also excludes tax.",
-			Fact:   "Net revenue excludes tax.",
-			Recall: RecallStage{
-				Prompt:  "What is net revenue for 2025 now?",
-				Grading: task.Grading{Kind: task.GradeNumeric, Value: new(100.0), AbsTolerance: 1},
-			},
-			SupersededValue: new(123.45),
-		},
 		Abstain: &AbstainStage{Prompt: "What is the refund rate for the Antarctica region?"},
 	}
 }
 
-func TestValidateAcceptsCompleteProtocol(t *testing.T) {
+// validUpdateProtocol is a supersede mutation base (update, no transfer).
+func validUpdateProtocol() Protocol {
+	p := validProtocol()
+	p.ID = "lc-update"
+	p.Transfer = nil
+	p.Update = &UpdateStage{
+		Prompt: "Correction: net revenue also excludes tax.",
+		Fact:   "Net revenue excludes tax.",
+		Recall: RecallStage{
+			Prompt:  "What is net revenue for 2025 now?",
+			Grading: task.Grading{Kind: task.GradeNumeric, Value: new(100.0), AbsTolerance: 1},
+		},
+		SupersededValue: new(123.45),
+	}
+	return p
+}
+
+func TestValidateAcceptsCompleteProtocols(t *testing.T) {
 	if err := validProtocol().Validate(); err != nil {
-		t.Fatalf("valid protocol rejected: %v", err)
+		t.Fatalf("valid promote protocol rejected: %v", err)
+	}
+	if err := validUpdateProtocol().Validate(); err != nil {
+		t.Fatalf("valid update protocol rejected: %v", err)
 	}
 }
 
 func TestValidateRejects(t *testing.T) {
-	cases := map[string]func(*Protocol){
-		"empty id":     func(p *Protocol) { p.ID = "" },
-		"empty title":  func(p *Protocol) { p.Title = "" },
-		"empty fact":   func(p *Protocol) { p.Fact = "" },
-		"empty entity": func(p *Protocol) { p.EntityURN = "" },
-		"zero budget":  func(p *Protocol) { p.BudgetToolCalls = 0 },
-		"unknown sink": func(p *Protocol) { p.Sink = "email" },
-		"empty teach":  func(p *Protocol) { p.Teach.Prompt = "" },
-		"empty recall": func(p *Protocol) { p.Recall.Prompt = "" },
-		"bad recall grade": func(p *Protocol) {
-			p.Recall.Grading = task.Grading{Kind: task.GradeNumeric} // no value
-		},
-		"exec_sql recall": func(p *Protocol) {
-			p.Recall.Grading = task.Grading{Kind: task.GradeExecSQL}
-		},
+	transferCases := map[string]func(*Protocol){
+		"empty id":         func(p *Protocol) { p.ID = "" },
+		"empty title":      func(p *Protocol) { p.Title = "" },
+		"empty fact":       func(p *Protocol) { p.Fact = "" },
+		"empty entity":     func(p *Protocol) { p.EntityURN = "" },
+		"zero budget":      func(p *Protocol) { p.BudgetToolCalls = 0 },
+		"unknown sink":     func(p *Protocol) { p.Sink = "email" },
+		"empty teach":      func(p *Protocol) { p.Teach.Prompt = "" },
+		"empty recall":     func(p *Protocol) { p.Recall.Prompt = "" },
+		"bad recall grade": func(p *Protocol) { p.Recall.Grading = task.Grading{Kind: task.GradeNumeric} },
+		"exec_sql recall":  func(p *Protocol) { p.Recall.Grading = task.Grading{Kind: task.GradeExecSQL} },
 		"page sink no payload": func(p *Protocol) {
 			p.Sink = SinkKnowledgePage
 			p.Page = nil
@@ -71,19 +79,25 @@ func TestValidateRejects(t *testing.T) {
 			p.Sink = SinkKnowledgePage
 			p.Page = &PagePayload{Slug: "s", Title: "", Body: "b"}
 		},
+		"transfer bad grade":   func(p *Protocol) { p.Transfer.Grading = task.Grading{Kind: "bogus"} },
+		"abstain empty prompt": func(p *Protocol) { p.Abstain.Prompt = "" },
+		"transfer and update":  func(p *Protocol) { p.Update = validUpdateProtocol().Update },
+	}
+	runRejectCases(t, "transfer", validProtocol, transferCases)
+
+	updateCases := map[string]func(*Protocol){
 		"update empty prompt": func(p *Protocol) { p.Update.Prompt = "" },
 		"update empty fact":   func(p *Protocol) { p.Update.Fact = "" },
-		"update bad recall": func(p *Protocol) {
-			p.Update.Recall.Grading = task.Grading{Kind: task.GradeEntity} // no aliases
-		},
-		"transfer bad grade": func(p *Protocol) {
-			p.Transfer.Grading = task.Grading{Kind: "bogus"}
-		},
-		"abstain empty prompt": func(p *Protocol) { p.Abstain.Prompt = "" },
+		"update bad recall":   func(p *Protocol) { p.Update.Recall.Grading = task.Grading{Kind: task.GradeEntity} },
 	}
+	runRejectCases(t, "update", validUpdateProtocol, updateCases)
+}
+
+func runRejectCases(t *testing.T, group string, base func() Protocol, cases map[string]func(*Protocol)) {
+	t.Helper()
 	for name, mutate := range cases {
-		t.Run(name, func(t *testing.T) {
-			p := validProtocol()
+		t.Run(group+"/"+name, func(t *testing.T) {
+			p := base()
 			mutate(&p)
 			if err := p.Validate(); err == nil {
 				t.Fatalf("expected validation error for %q", name)
@@ -104,7 +118,6 @@ func TestValidatePageSinkAccepted(t *testing.T) {
 func TestOptionalStagesMayBeAbsent(t *testing.T) {
 	p := validProtocol()
 	p.Transfer = nil
-	p.Update = nil
 	p.Abstain = nil
 	if err := p.Validate(); err != nil {
 		t.Fatalf("protocol without optional stages rejected: %v", err)

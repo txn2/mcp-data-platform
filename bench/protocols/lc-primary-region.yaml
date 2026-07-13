@@ -16,14 +16,6 @@ recall:
             - East
         wrong_aliases:
             - West
-transfer:
-    prompt: Which region is the primary region? Answer with the region name.
-    grading:
-        kind: entity
-        aliases:
-            - East
-        wrong_aliases:
-            - West
 update:
     prompt: Correction to the definition I gave you earlier. The 'primary region' is actually the region with the highest NET revenue (amount minus discount over completed orders), not gross. Please update your saved knowledge so future answers use this corrected definition.
     fact: The 'primary region' is the region with the highest net revenue (amount minus discount over completed orders).

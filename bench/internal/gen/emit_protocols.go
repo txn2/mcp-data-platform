@@ -12,10 +12,13 @@ import (
 // S5 lifecycle protocols (issue #944). Each teaches a NOVEL definition — one
 // that is deliberately NOT in the seeded knowledge pages or catalog metadata, so
 // the only way to answer its recall question is the taught memory. That keeps
-// the teach-once-answer-forever measurement clean: a learner who never saw the
+// the measurement clean: in the transfer protocols a learner who never saw the
 // teach can answer only because the promote stage pushed the fact into shared
-// knowledge, not because the seed already contained it. Recall/update answers
-// are computed from the dataset (never hand-typed), like the S1-S3 truths.
+// knowledge, not because the seed already contained it. The set splits into ten
+// promote+transfer protocols and five supersede protocols (promote and update
+// are mutually exclusive — the platform never supersedes an applied insight).
+// Recall/update answers are computed from the dataset (never hand-typed), like
+// the S1-S3 truths.
 
 const protocolBudget = 30
 
@@ -89,7 +92,10 @@ func (d *Dataset) Protocols() []protocol.Protocol {
 }
 
 // updateProtocols are the five protocols that exercise the supersede stage: each
-// teaches a definition, then corrects it to a different computable value.
+// teaches a definition, then corrects it to a different computable value. They do
+// NOT promote (no transfer stage): the platform never supersedes an already-applied
+// insight, so measuring recall-first supersede requires the taught insight to stay
+// pending. The transfer mechanic is measured separately by the single-shot set.
 func (d *Dataset) updateProtocols(orders, customers, grossLeader, netLeader string) []protocol.Protocol {
 	westNet := d.NetRegion2025USD("West")
 	eastNet := d.NetRegion2025USD("East")
@@ -105,9 +111,8 @@ func (d *Dataset) updateProtocols(orders, customers, grossLeader, netLeader stri
 			ID: "lc-primary-region", Title: "Primary region (gross then net)",
 			Fact:      "The 'primary region' is the region with the highest gross revenue (sum of amount over completed orders) in memory.bench.orders.",
 			EntityURN: orders, Sink: protocol.SinkDataHub, BudgetToolCalls: protocolBudget,
-			Teach:    protocol.TeachStage{Prompt: teachPrompt("The 'primary region' is the region with the highest gross revenue (sum of the amount column over completed orders) in memory.bench.orders.")},
-			Recall:   protocol.RecallStage{Prompt: "Which region is the primary region? Answer with the region name.", Grading: entityGrade(grossLeader, netLeader)},
-			Transfer: &protocol.RecallStage{Prompt: "Which region is the primary region? Answer with the region name.", Grading: entityGrade(grossLeader, netLeader)},
+			Teach:  protocol.TeachStage{Prompt: teachPrompt("The 'primary region' is the region with the highest gross revenue (sum of the amount column over completed orders) in memory.bench.orders.")},
+			Recall: protocol.RecallStage{Prompt: "Which region is the primary region? Answer with the region name.", Grading: entityGrade(grossLeader, netLeader)},
 			Update: &protocol.UpdateStage{
 				Prompt: correctionPrompt("The 'primary region' is actually the region with the highest NET revenue (amount minus discount over completed orders), not gross."),
 				Fact:   "The 'primary region' is the region with the highest net revenue (amount minus discount over completed orders).",
@@ -119,10 +124,9 @@ func (d *Dataset) updateProtocols(orders, customers, grossLeader, netLeader stri
 			ID: "lc-focus-region-net", Title: "Focus region net revenue (West then East)",
 			Fact:      "The 'focus region' for this study is West.",
 			EntityURN: orders, Sink: protocol.SinkKnowledgePage, BudgetToolCalls: protocolBudget,
-			Page:     pagePayload("focus-region-definition", "Focus Region Definition", "The 'focus region' for this study is West."),
-			Teach:    protocol.TeachStage{Prompt: teachPrompt("The 'focus region' for this study is West.")},
-			Recall:   protocol.RecallStage{Prompt: netQuestion("What was the total net revenue for the focus region in calendar year 2025"), Grading: numericGrade(westNet)},
-			Transfer: &protocol.RecallStage{Prompt: netQuestion("What was the total net revenue for the focus region in calendar year 2025"), Grading: numericGrade(westNet)},
+			Page:   pagePayload("focus-region-definition", "Focus Region Definition", "The 'focus region' for this study is West."),
+			Teach:  protocol.TeachStage{Prompt: teachPrompt("The 'focus region' for this study is West.")},
+			Recall: protocol.RecallStage{Prompt: netQuestion("What was the total net revenue for the focus region in calendar year 2025"), Grading: numericGrade(westNet)},
 			Update: &protocol.UpdateStage{
 				Prompt:          correctionPrompt("The 'focus region' is now East, not West."),
 				Fact:            "The 'focus region' for this study is East.",
@@ -135,9 +139,8 @@ func (d *Dataset) updateProtocols(orders, customers, grossLeader, netLeader stri
 			ID: "lc-reporting-window", Title: "Reporting window completed orders (Q1 then Q3)",
 			Fact:      "The 'reporting window' for this study is calendar quarter 1 of 2025 (January through March).",
 			EntityURN: orders, Sink: protocol.SinkDataHub, BudgetToolCalls: protocolBudget,
-			Teach:    protocol.TeachStage{Prompt: teachPrompt("The 'reporting window' for this study is calendar quarter 1 of 2025 (January through March).")},
-			Recall:   protocol.RecallStage{Prompt: "How many completed orders fall in the reporting window? Answer with the count.", Grading: countGrade(q1)},
-			Transfer: &protocol.RecallStage{Prompt: "How many completed orders fall in the reporting window? Answer with the count.", Grading: countGrade(q1)},
+			Teach:  protocol.TeachStage{Prompt: teachPrompt("The 'reporting window' for this study is calendar quarter 1 of 2025 (January through March).")},
+			Recall: protocol.RecallStage{Prompt: "How many completed orders fall in the reporting window? Answer with the count.", Grading: countGrade(q1)},
 			Update: &protocol.UpdateStage{
 				Prompt:          correctionPrompt("The 'reporting window' is now calendar quarter 3 of 2025 (July through September)."),
 				Fact:            "The 'reporting window' for this study is calendar quarter 3 of 2025 (July through September).",
@@ -150,9 +153,8 @@ func (d *Dataset) updateProtocols(orders, customers, grossLeader, netLeader stri
 			ID: "lc-focus-month", Title: "Focus month order count (June then February)",
 			Fact:      "The 'focus month' for this study is June 2025.",
 			EntityURN: orders, Sink: protocol.SinkDataHub, BudgetToolCalls: protocolBudget,
-			Teach:    protocol.TeachStage{Prompt: teachPrompt("The 'focus month' for this study is June 2025.")},
-			Recall:   protocol.RecallStage{Prompt: "How many orders were placed in the focus month? Answer with the count.", Grading: countGrade(june)},
-			Transfer: &protocol.RecallStage{Prompt: "How many orders were placed in the focus month? Answer with the count.", Grading: countGrade(june)},
+			Teach:  protocol.TeachStage{Prompt: teachPrompt("The 'focus month' for this study is June 2025.")},
+			Recall: protocol.RecallStage{Prompt: "How many orders were placed in the focus month? Answer with the count.", Grading: countGrade(june)},
 			Update: &protocol.UpdateStage{
 				Prompt:          correctionPrompt("The 'focus month' is now February 2025, not June."),
 				Fact:            "The 'focus month' for this study is February 2025.",
@@ -165,10 +167,9 @@ func (d *Dataset) updateProtocols(orders, customers, grossLeader, netLeader stri
 			ID: "lc-core-market", Title: "Core market order count (North then East)",
 			Fact:      "The 'core market' is the North region.",
 			EntityURN: customers, Sink: protocol.SinkKnowledgePage, BudgetToolCalls: protocolBudget,
-			Page:     pagePayload("core-market-definition", "Core Market Definition", "The 'core market' is the North region."),
-			Teach:    protocol.TeachStage{Prompt: teachPrompt("The 'core market' is the North region.")},
-			Recall:   protocol.RecallStage{Prompt: "How many orders were placed by customers in the core market? Answer with the count.", Grading: countGrade(northOrders)},
-			Transfer: &protocol.RecallStage{Prompt: "How many orders were placed by customers in the core market? Answer with the count.", Grading: countGrade(northOrders)},
+			Page:   pagePayload("core-market-definition", "Core Market Definition", "The 'core market' is the North region."),
+			Teach:  protocol.TeachStage{Prompt: teachPrompt("The 'core market' is the North region.")},
+			Recall: protocol.RecallStage{Prompt: "How many orders were placed by customers in the core market? Answer with the count.", Grading: countGrade(northOrders)},
 			Update: &protocol.UpdateStage{
 				Prompt:          correctionPrompt("The 'core market' is now the East region, not North."),
 				Fact:            "The 'core market' is the East region.",

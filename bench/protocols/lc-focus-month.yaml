@@ -14,12 +14,6 @@ recall:
         kind: numeric
         value: 109
         abs_tolerance: 0.5
-transfer:
-    prompt: How many orders were placed in the focus month? Answer with the count.
-    grading:
-        kind: numeric
-        value: 109
-        abs_tolerance: 0.5
 update:
     prompt: Correction to the definition I gave you earlier. The 'focus month' is now February 2025, not June. Please update your saved knowledge so future answers use this corrected definition.
     fact: The 'focus month' for this study is February 2025.

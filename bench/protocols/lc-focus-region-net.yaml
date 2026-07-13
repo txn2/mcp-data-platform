@@ -21,12 +21,6 @@ recall:
         kind: numeric
         value: 466889.38
         abs_tolerance: 0.01
-transfer:
-    prompt: What was the total net revenue for the focus region in calendar year 2025? Compute net revenue as amount minus discount over completed orders only, amounts are integer US cents (divide by 100), in USD rounded to the nearest cent.
-    grading:
-        kind: numeric
-        value: 466889.38
-        abs_tolerance: 0.01
 update:
     prompt: Correction to the definition I gave you earlier. The 'focus region' is now East, not West. Please update your saved knowledge so future answers use this corrected definition.
     fact: The 'focus region' for this study is East.

@@ -163,11 +163,12 @@ the platform's own admin APIs — the insights and changesets endpoints — neve
 inferred from a transcript. It runs only on the `a3` arm (the lifecycle tools
 `memory_capture` and `apply_knowledge` exist there).
 
-Each protocol runs the canonical lifecycle once:
+Every protocol runs **teach**, **recall**, and **abstain**; each additionally
+runs EITHER promote+transfer OR supersede, never both (see below). The stages:
 
 1. **Teach** — an identity states a fact conversationally and saves it. The
    harness verifies via `GET /api/v1/admin/knowledge/insights?captured_by=...`
-   that an insight was captured and linked to the entity.
+   that a pending insight was captured and linked to the entity.
 2. **Recall** — the same identity, a fresh session, answers a question needing
    the fact. Graded deterministically; the run also records whether `search`
    surfaced the memory unprompted.
@@ -180,10 +181,18 @@ Each protocol runs the canonical lifecycle once:
    shared knowledge (cross-enrichment for the entity sink, `search` for the
    page sink): the teach-once-answer-forever claim.
 5. **Update** — the teacher corrects the fact; a later recall must flip to the
-   new value, and the insights API must show the prior insight superseded
-   (not duplicated).
+   new value, and the taught insight must show `superseded` (not left live
+   alongside the correction, which the run flags as a duplicate).
 6. **Abstain** — a question about a fact never taught must be answered "I do
    not know", not fabricated.
+
+**Promote and update are mutually exclusive per protocol** (enforced by the
+protocol validator). The platform deliberately never supersedes an
+already-applied insight — a newer capture must not clobber a reviewed one — so a
+fact that has been promoted (and is therefore `applied`) can no longer be cleanly
+superseded. The ten promote protocols therefore exercise stages 1–4 + 6; the five
+supersede protocols exercise stages 1, 2, 5, 6 on a fact that stays pending. Both
+mechanics are measured, on different facts.
 
 Each protocol teaches a **novel** definition — one deliberately absent from the
 seeded knowledge pages and catalog metadata — so recall and transfer are clean:
@@ -196,7 +205,11 @@ never hand-typed, exactly as the S1–S3 truths.
 
 Each protocol attempt consumes two identities from the pool (a teacher and a
 learner) so the search-first gate's per-user discovery scope never leaks between
-attempts; a run refuses to start when `protocols x k x 2` exceeds the pool.
+attempts; the lifecycle requires a pool (there is no single-identity mode, since
+teacher and learner must differ), and a run refuses to start when
+`protocols x k x 2` exceeds it. Capture and duplicate verification are scoped to
+the specific taught insight, so re-running against a persistent knowledge store
+that reuses pool identities does not cross-contaminate the metrics.
 
 Metrics (each a numerator/denominator over the applicable, non-harness-failed
 runs): **capture rate**, **personal recall**, **unprompted surface**, **transfer

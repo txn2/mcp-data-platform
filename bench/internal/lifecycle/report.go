@@ -72,10 +72,10 @@ type ProtocolRun struct {
 
 	InsightID string `json:"insight_id,omitempty"`
 
-	Captured        *bool `json:"captured,omitempty"`         // insight recorded, entity-linked, category ok
+	Captured        *bool `json:"captured,omitempty"`         // insight recorded and entity-linked
 	RecallCorrect   *bool `json:"recall_correct,omitempty"`   // personal recall answer correct
 	RecallSurfaced  *bool `json:"recall_surfaced,omitempty"`  // search surfaced the memory unprompted
-	Promoted        *bool `json:"promoted,omitempty"`         // applied + changeset links the insight
+	Promoted        *bool `json:"promoted,omitempty"`         // applied + changeset links the insight (nil for update protocols)
 	TransferCorrect *bool `json:"transfer_correct,omitempty"` // cross-identity recall correct
 	UpdateCorrect   *bool `json:"update_correct,omitempty"`   // recall flipped to the corrected value
 	Duplicated      *bool `json:"duplicated,omitempty"`       // supersede left more than one live insight
@@ -86,15 +86,17 @@ type ProtocolRun struct {
 }
 
 // Passed reports whether every applicable stage of this run succeeded. A
-// harness-failed run never passes. Optional stages that the protocol omits
-// (nil outcome) count as passed; update passes only when the recall flipped AND
-// no duplicate was left.
+// harness-failed run never passes. Teach and recall are always required; the
+// remaining stages are optional (a protocol either promotes+transfers OR
+// supersedes, never both), so an omitted stage (nil outcome) counts as passed.
+// Update passes only when the recall flipped AND no duplicate was left.
 func (r ProtocolRun) Passed() bool {
 	if r.Error != "" {
 		return false
 	}
-	return boolTrue(r.Captured) && boolTrue(r.RecallCorrect) && boolTrue(r.Promoted) &&
-		optPass(r.TransferCorrect) && r.updatePassed() && optPass(r.AbstainCorrect)
+	return boolTrue(r.Captured) && boolTrue(r.RecallCorrect) &&
+		optPass(r.Promoted) && optPass(r.TransferCorrect) &&
+		r.updatePassed() && optPass(r.AbstainCorrect)
 }
 
 // updatePassed reports whether the supersede stage passed, or was not run. It

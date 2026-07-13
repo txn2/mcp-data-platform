@@ -134,9 +134,11 @@ func (fp *fakePlatform) addMemoryCapture(server *mcp.Server) {
 			urn := firstURN(args["entity_urns"])
 			fp.mu.Lock()
 			if category == "correction" {
+				// Mirror the platform: recall-first supersede only retracts PENDING
+				// insights; a reviewed (applied) insight is never clobbered.
 				for i := range fp.insights {
 					in := &fp.insights[i]
-					if in.CapturedBy == email && in.LinksEntity(urn) && liveStatus(in.Status) {
+					if in.CapturedBy == email && in.LinksEntity(urn) && in.Status == "pending" {
 						in.Status = "superseded"
 					}
 				}
@@ -360,7 +362,8 @@ func numericGrade(v, tol float64) task.Grading {
 	return task.Grading{Kind: task.GradeNumeric, Value: &v, AbsTolerance: tol}
 }
 
-// okProtocol is a full-success lifecycle.
+// okProtocol is a full-success promote+transfer lifecycle (no supersede stage;
+// promote and update are mutually exclusive).
 func okProtocol() protocol.Protocol {
 	return protocol.Protocol{
 		ID: "lc-ok", Title: "OK lifecycle", Fact: "Net revenue is amount minus discount over completed orders.",
@@ -368,23 +371,42 @@ func okProtocol() protocol.Protocol {
 		Teach:    protocol.TeachStage{Prompt: "Remember: revenue is net."},
 		Recall:   protocol.RecallStage{Prompt: "net revenue 2025?", Grading: numericGrade(123.45, 0.5)},
 		Transfer: &protocol.RecallStage{Prompt: "net revenue 2025?", Grading: numericGrade(123.45, 0.5)},
-		Update: &protocol.UpdateStage{
-			Prompt: "Correction: exclude tax too.", Fact: "Net revenue excludes tax.",
-			Recall:          protocol.RecallStage{Prompt: "net revenue 2025 now?", Grading: numericGrade(200, 0.5)},
-			SupersededValue: new(123.45),
-		},
-		Abstain: &protocol.AbstainStage{Prompt: "refund rate for Antarctica?"},
+		Abstain:  &protocol.AbstainStage{Prompt: "refund rate for Antarctica?"},
 	}
 }
 
-// okScript plays a full-success run: capture, recall via search, transfer via
-// search, correction capture, flipped recall, and an abstention.
+// updateProtocol is a full-success supersede lifecycle (no promote/transfer).
+func updateProtocol() protocol.Protocol {
+	p := okProtocol()
+	p.ID = "lc-upd"
+	p.Transfer = nil
+	p.Update = &protocol.UpdateStage{
+		Prompt: "Correction: the primary region is defined by net revenue.", Fact: "Primary region is by net revenue.",
+		Recall:          protocol.RecallStage{Prompt: "net revenue 2025 now?", Grading: numericGrade(200, 0.5)},
+		SupersededValue: new(123.45),
+	}
+	return p
+}
+
+// okScript plays the promote+transfer run.
 func okScript() map[string]llm.Script {
 	return map[string]llm.Script{
 		"lc-ok": {
+			StageTeach:    {captureStep("definition"), {FinalText: "saved"}},
+			StageRecall:   {searchStep(), {FinalText: "FINAL ANSWER: 123.45"}},
+			StageTransfer: {searchStep(), {FinalText: "FINAL ANSWER: 123.45"}},
+			StageAbstain:  {{FinalText: "FINAL ANSWER: INSUFFICIENT INFORMATION"}},
+		},
+	}
+}
+
+// updateScript plays the supersede run: teach, recall, a correction capture that
+// supersedes the pending teach insight, the flipped recall, and an abstention.
+func updateScript() map[string]llm.Script {
+	return map[string]llm.Script{
+		"lc-upd": {
 			StageTeach:        {captureStep("definition"), {FinalText: "saved"}},
 			StageRecall:       {searchStep(), {FinalText: "FINAL ANSWER: 123.45"}},
-			StageTransfer:     {searchStep(), {FinalText: "FINAL ANSWER: 123.45"}},
 			StageUpdate:       {captureStep("correction"), {FinalText: "saved"}},
 			StageUpdateRecall: {searchStep(), {FinalText: "FINAL ANSWER: 200.00"}},
 			StageAbstain:      {{FinalText: "FINAL ANSWER: INSUFFICIENT INFORMATION"}},
@@ -466,9 +488,10 @@ func TestFullLifecycleSucceeds(t *testing.T) {
 	assertTrue(t, "surfaced", run.RecallSurfaced)
 	assertTrue(t, "promoted", run.Promoted)
 	assertTrue(t, "transfer", run.TransferCorrect)
-	assertTrue(t, "update", run.UpdateCorrect)
-	assertFalse(t, "duplicated", run.Duplicated)
 	assertTrue(t, "abstain", run.AbstainCorrect)
+	if run.UpdateCorrect != nil || run.Duplicated != nil {
+		t.Fatalf("promote protocol must not run the update stage: %+v", run)
+	}
 	if !run.Passed() {
 		t.Fatal("full lifecycle should pass")
 	}
@@ -481,6 +504,33 @@ func TestFullLifecycleSucceeds(t *testing.T) {
 	}
 	if res.Manifest.Model != "scripted" {
 		t.Fatalf("model = %q, want scripted", res.Manifest.Model)
+	}
+}
+
+func TestUpdateLifecycleSucceeds(t *testing.T) {
+	fp := newFakePlatform(t)
+	dir := t.TempDir()
+	writeProtocols(t, dir, updateProtocol())
+
+	res, err := Run(context.Background(), runOptions(fp, dir, scriptFactory(updateScript())))
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	run := res.Runs[0]
+	if run.Error != "" {
+		t.Fatalf("unexpected harness error: %s", run.Error)
+	}
+	assertTrue(t, "captured", run.Captured)
+	assertTrue(t, "recall", run.RecallCorrect)
+	assertTrue(t, "update", run.UpdateCorrect)
+	assertFalse(t, "duplicated", run.Duplicated)
+	assertTrue(t, "abstain", run.AbstainCorrect)
+	// A supersede protocol never promotes or transfers.
+	if run.Promoted != nil || run.TransferCorrect != nil {
+		t.Fatalf("update protocol must not promote or transfer: %+v", run)
+	}
+	if !run.Passed() {
+		t.Fatal("update lifecycle should pass")
 	}
 }
 
@@ -519,16 +569,15 @@ func TestCaptureMissAndFabrication(t *testing.T) {
 func TestSupersedeDuplicateDetected(t *testing.T) {
 	fp := newFakePlatform(t)
 	dir := t.TempDir()
-	p := okProtocol()
+	p := updateProtocol()
 	p.ID = "lc-dup"
-	p.Transfer = nil // isolate the update path
 	writeProtocols(t, dir, p)
 	scripts := map[string]llm.Script{
 		"lc-dup": {
 			StageTeach:  {captureStep("definition"), {FinalText: "saved"}},
 			StageRecall: {searchStep(), {FinalText: "FINAL ANSWER: 123.45"}},
 			// The correction is captured as a "definition", so the fake does NOT
-			// supersede the prior insight: two live insights remain -> duplicate.
+			// supersede the prior insight: the taught insight stays live -> duplicate.
 			StageUpdate:       {captureStep("definition"), {FinalText: "saved"}},
 			StageUpdateRecall: {searchStep(), {FinalText: "FINAL ANSWER: 200.00"}},
 			StageAbstain:      {{FinalText: "FINAL ANSWER: INSUFFICIENT INFORMATION"}},
@@ -543,6 +592,17 @@ func TestSupersedeDuplicateDetected(t *testing.T) {
 	assertTrue(t, "duplicated", run.Duplicated)
 	if run.Passed() {
 		t.Fatal("a duplicated supersede must not pass")
+	}
+}
+
+func TestLifecycleRequiresIdentityPool(t *testing.T) {
+	fp := newFakePlatform(t)
+	dir := t.TempDir()
+	writeProtocols(t, dir, okProtocol())
+	opts := runOptions(fp, dir, scriptFactory(okScript()))
+	opts.IdentityKeys = 0
+	if _, err := Run(context.Background(), opts); err == nil || !strings.Contains(err.Error(), "identity pool") {
+		t.Fatalf("expected identity-pool error, got %v", err)
 	}
 }
 

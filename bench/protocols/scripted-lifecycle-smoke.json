@@ -102,22 +102,6 @@
         "final_text": "saved the definition"
       }
     ],
-    "transfer": [
-      {
-        "tool_calls": [
-          {
-            "id": "",
-            "name": "search",
-            "args": {
-              "intent": "recall the saved definition"
-            }
-          }
-        ]
-      },
-      {
-        "final_text": "FINAL ANSWER: 259.00"
-      }
-    ],
     "update": [
       {
         "tool_calls": [
@@ -199,22 +183,6 @@
         "final_text": "saved the definition"
       }
     ],
-    "transfer": [
-      {
-        "tool_calls": [
-          {
-            "id": "",
-            "name": "search",
-            "args": {
-              "intent": "recall the saved definition"
-            }
-          }
-        ]
-      },
-      {
-        "final_text": "FINAL ANSWER: 109.00"
-      }
-    ],
     "update": [
       {
         "tool_calls": [
@@ -294,22 +262,6 @@
       },
       {
         "final_text": "saved the definition"
-      }
-    ],
-    "transfer": [
-      {
-        "tool_calls": [
-          {
-            "id": "",
-            "name": "search",
-            "args": {
-              "intent": "recall the saved definition"
-            }
-          }
-        ]
-      },
-      {
-        "final_text": "FINAL ANSWER: 466889.38"
       }
     ],
     "update": [
@@ -633,22 +585,6 @@
         "final_text": "saved the definition"
       }
     ],
-    "transfer": [
-      {
-        "tool_calls": [
-          {
-            "id": "",
-            "name": "search",
-            "args": {
-              "intent": "recall the saved definition"
-            }
-          }
-        ]
-      },
-      {
-        "final_text": "FINAL ANSWER: East"
-      }
-    ],
     "update": [
       {
         "tool_calls": [
@@ -848,22 +784,6 @@
       },
       {
         "final_text": "saved the definition"
-      }
-    ],
-    "transfer": [
-      {
-        "tool_calls": [
-          {
-            "id": "",
-            "name": "search",
-            "args": {
-              "intent": "recall the saved definition"
-            }
-          }
-        ]
-      },
-      {
-        "final_text": "FINAL ANSWER: 224.00"
       }
     ],
     "update": [
