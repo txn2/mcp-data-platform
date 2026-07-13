@@ -18,6 +18,38 @@ The load harness's throughput numbers are a separate concern; see
 Reading rule: the headline is always arm-vs-arm on a pinned model (the
 platform's effect). Model identity is disclosed but is never the subject.
 
+## How to read this page
+
+Every result compares the **same model on the same tasks**, changing only what
+the agent is connected to. The shorthand in the tables:
+
+**Arms** — the setup being compared:
+
+| Arm | What the agent is connected to |
+| --- | --- |
+| **A0 — raw tools** | The underlying data tools directly (Trino, DataHub, S3), with no platform in between. |
+| **A2 — platform** | This platform: the same tools plus semantic context, cross-enrichment, and the knowledge layer. |
+| **A3 — lifecycle** | A2 plus the memory / `apply_knowledge` lifecycle (used only in the S5 section). |
+
+**Suites** — tasks grouped by what they test:
+
+| Suite | Question it asks |
+| --- | --- |
+| **S1 — discovery** | Can the agent find the right table and columns? (straightforward lookups) |
+| **S3 — knowledge traps** | Questions with a plausible-but-wrong answer, where the fact that disambiguates it lives in business knowledge, not in the raw data. |
+| **S5 — memory lifecycle** | Does a fact taught in one session get captured, recalled, and reused in later, separate sessions? |
+
+**Scores:**
+
+- **`3/3`** (trap table) — passed **3 of 3** attempts on that task. **`0/3`** — failed all three. Each task is run 3 times.
+- **pass^k / pass^3** — a stricter bar than plain accuracy: a task counts as passed only if it passed **every one of the k = 3** attempts. "Accuracy" is the average across attempts; "pass^3" is all-or-nothing per task.
+- **Median / p90 tool calls** — how many tool calls the agent made to reach an answer (p90 = 90th percentile). **"budget exhausted"** means it hit the 30-call cap without answering.
+
+**Trap classes** — the specific mistake each S3 task is designed to catch:
+
+- **`units_cents`** — the values are stored in cents; without knowing that, the agent reports the number as dollars (off by 100×).
+- **`net_revenue`** — the correct figure depends on the business's net-revenue reporting policy, a knowledge-layer fact; without it the agent uses the wrong revenue definition.
+
 ## 1. Phase 1 pilot (design validation)
 
 Status: pilot-scale. Ten tasks, two trap classes, two arms, one model, no
@@ -50,7 +82,8 @@ Arm-by-suite results:
 | S3 median wall clock | 67s | 25s |
 | Arm output tokens | 88k | 33k |
 
-Trap-class breakdown (S3, 3 attempts per task per arm):
+Trap-class breakdown (S3). Each cell is passes / attempts — `3/3` means all
+three attempts passed, `0/3` means all three failed:
 
 | Task | Trap class | a0 | a2 |
 | --- | --- | --- | --- |

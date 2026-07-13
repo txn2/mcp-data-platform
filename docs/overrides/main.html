@@ -14,7 +14,7 @@
 {% block extrahead %}
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&family=Instrument+Sans:wght@400..700&family=JetBrains+Mono:wght@400..700&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
 
   <meta name="description" content="{{ config.site_description }}">
   <meta name="keywords" content="mcp, model context protocol, mcp server, mcp platform, datahub, trino, s3, semantic layer, cross-enrichment, oauth 2.1, oidc, personas, audit logging, gateway, go, claude, ai assistant, composable, governance, data platform">
@@ -90,4 +90,40 @@
 {% block content %}
 <a id="main" tabindex="-1" class="skiplink-target" aria-hidden="true"></a>
 {{ super() }}
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+  // Track the active top-rail section across navigations, including Material's
+  // instant navigation (navigation.instant), which swaps page content without
+  // re-rendering the header — so a server-rendered active state would otherwise
+  // stick on whichever page was loaded first. Each rail link owns one or more
+  // path prefixes via data-scope; the longest prefix matching the current path
+  // wins. "$home" matches only the site root.
+  (function () {
+    function trackRail() {
+      var links = document.querySelectorAll('.rail__nav a[data-scope]');
+      if (!links.length) return;
+      var path = location.pathname.replace(/^\/+/, '').replace(/index\.html$/, '');
+      var best = null, bestLen = -1;
+      links.forEach(function (a) {
+        a.removeAttribute('aria-current');
+        (a.getAttribute('data-scope') || '').split(/\s+/).forEach(function (s) {
+          if (!s) return;
+          var hit = (s === '$home') ? (path === '') : (path.indexOf(s) === 0);
+          if (hit && s.length > bestLen) { bestLen = s.length; best = a; }
+        });
+      });
+      if (best) { best.setAttribute('aria-current', 'page'); }
+    }
+    if (window.document$ && typeof window.document$.subscribe === 'function') {
+      window.document$.subscribe(trackRail);
+    } else if (document.readyState !== 'loading') {
+      trackRail();
+    } else {
+      document.addEventListener('DOMContentLoaded', trackRail);
+    }
+  })();
+</script>
 {% endblock %}

@@ -14,7 +14,7 @@ edit_uri: edit/main/docs/
 not_in_nav: |
   /research/
 
-copyright: Copyright &copy; 2025 - 2026 Craig Johnston / Deasil Works, Inc.
+copyright: Copyright &copy; 2025 - 2026 <a href="https://imti.co">Craig Johnston</a> / <a href="https://deasil.works">Deasil Works, Inc.</a> / <a href="https://plexara.io">Plexara</a>
 
 theme:
   name: material
