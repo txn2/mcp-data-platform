@@ -595,6 +595,28 @@ func TestSupersedeDuplicateDetected(t *testing.T) {
 	}
 }
 
+func TestCheckpointFlushesEachProtocol(t *testing.T) {
+	fp := newFakePlatform(t)
+	dir := t.TempDir()
+	p2 := okProtocol()
+	p2.ID = "lc-ok2"
+	writeProtocols(t, dir, okProtocol(), p2)
+	scripts := okScript()
+	scripts["lc-ok2"] = scripts["lc-ok"]
+
+	var snapshots []int
+	opts := runOptions(fp, dir, scriptFactory(scripts))
+	opts.OnProtocol = func(r *Results) { snapshots = append(snapshots, len(r.Runs)) }
+	if _, err := Run(context.Background(), opts); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	// One checkpoint per protocol, each with the growing run count, so an
+	// interruption after protocol N leaves N results on disk.
+	if len(snapshots) != 2 || snapshots[0] != 1 || snapshots[1] != 2 {
+		t.Fatalf("checkpoints = %v, want [1 2]", snapshots)
+	}
+}
+
 func TestLifecycleRequiresIdentityPool(t *testing.T) {
 	fp := newFakePlatform(t)
 	dir := t.TempDir()

@@ -260,6 +260,36 @@ func TestExecSQLGrading(t *testing.T) {
 	}
 }
 
+// TestCheckpointFlushesEachAttempt verifies the results are aggregated and
+// handed to OnAttempt after every attempt, so an interruption never discards
+// completed, paid-for work.
+func TestCheckpointFlushesEachAttempt(t *testing.T) {
+	fp := newFakePlatform(t)
+	tasksDir := t.TempDir()
+	writeTaskFiles(t, tasksDir) // two tasks
+	script := testScript()
+	var snapshots []int
+	_, err := Run(context.Background(), Options{
+		Target:       target.Target{BaseURL: fp.httpSrv.URL, Credential: "test-key"},
+		HTTPTimeout:  10 * time.Second,
+		Arm:          "a0",
+		K:            1,
+		TasksDir:     tasksDir,
+		Factory:      func(tk task.Task) (llm.Adapter, error) { return llm.NewScripted(script[tk.ID]), nil },
+		LLMProvider:  "scripted",
+		AuditTimeout: 5 * time.Second,
+		IdentityKeys: 32,
+		OnAttempt:    func(r *report.Results) { snapshots = append(snapshots, len(r.Attempts)) },
+		Log:          slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(snapshots) != 2 || snapshots[0] != 1 || snapshots[1] != 2 {
+		t.Fatalf("checkpoints = %v, want [1 2]", snapshots)
+	}
+}
+
 // TestRunRefusesUndersizedIdentityPool verifies the run fails before spending
 // any session when attempts would share a discovery scope.
 func TestRunRefusesUndersizedIdentityPool(t *testing.T) {

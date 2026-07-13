@@ -20,7 +20,12 @@ import (
 // Recall/update answers are computed from the dataset (never hand-typed), like
 // the S1-S3 truths.
 
-const protocolBudget = 30
+// protocolBudget caps tool calls per lifecycle episode. Successful episodes use
+// well under ten calls; the cap exists to stop a thrashing episode (one that
+// cannot find the memory and loops on search) from running to a large,
+// expensive budget. A tight cap bounds worst-case cost, and hitting it is itself
+// a measurable outcome (budget exhaustion in the transcript).
+const protocolBudget = 15
 
 // numeric grades an exact-cent USD sum (tolerance one cent).
 func numericGrade(v float64) task.Grading {

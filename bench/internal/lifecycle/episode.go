@@ -137,6 +137,8 @@ func (e *runEnv) runEpisode(ctx context.Context, spec episodeSpec) (EpisodeRecor
 	rec.WallMS = time.Since(start).Milliseconds()
 	rec.ToolCalls = result.ToolCalls
 	rec.ToolErrors = result.ToolErrors
+	rec.InputTokens = result.Usage.InputTokens
+	rec.OutputTokens = result.Usage.OutputTokens
 	final := result.FinalAnswer
 	rec.FinalAnswer = final
 	e.writeTranscript(spec, result)

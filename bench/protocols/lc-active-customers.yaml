@@ -12,7 +12,7 @@ page:
         # Active Customer Definition
 
         An 'active customer' is any customer who has placed at least one order.
-budget_tool_calls: 30
+budget_tool_calls: 15
 teach:
     prompt: For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. An 'active customer' is any customer who has placed at least one order. Please save this definition to memory now and link it to the dataset it concerns.
 recall:

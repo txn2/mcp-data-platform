@@ -143,7 +143,14 @@ func runLifecycle(cfg config) error {
 		GitCommit:     cfg.gitCommit,
 		AuditTimeout:  cfg.auditTimeout,
 		IdentityKeys:  cfg.identityKeys,
-		Log:           log,
+		// Flush the results file after every protocol so an interruption (timeout,
+		// exhausted API budget, crash) never discards completed, paid-for work.
+		OnProtocol: func(r *lifecycle.Results) {
+			if err := r.WriteJSON(cfg.out); err != nil {
+				log.Warn("checkpoint write", "error", err)
+			}
+		},
+		Log: log,
 	})
 	if res != nil {
 		if err := res.WriteJSON(cfg.out); err != nil {
@@ -260,7 +267,14 @@ func runBenchmark(cfg config) error {
 		GitCommit:     cfg.gitCommit,
 		AuditTimeout:  cfg.auditTimeout,
 		IdentityKeys:  cfg.identityKeys,
-		Log:           log,
+		// Flush the results file after every attempt so an interruption never
+		// discards completed, paid-for work.
+		OnAttempt: func(r *report.Results) {
+			if err := r.WriteJSON(cfg.out); err != nil {
+				log.Warn("checkpoint write", "error", err)
+			}
+		},
+		Log: log,
 	})
 	if res != nil {
 		if err := res.WriteJSON(cfg.out); err != nil {

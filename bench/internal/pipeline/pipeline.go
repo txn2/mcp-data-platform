@@ -68,7 +68,12 @@ type Options struct {
 	// smaller than tasks x k. Zero disables rotation (single identity) for
 	// targets without the pool.
 	IdentityKeys int
-	Log          *slog.Logger
+	// OnAttempt, if set, is called after every attempt with the aggregated
+	// results so far. benchrun wires it to flush the results file, so a run that
+	// spends real API budget always leaves every completed attempt on disk — an
+	// interruption never discards paid-for work.
+	OnAttempt func(*report.Results)
+	Log       *slog.Logger
 }
 
 // Run executes the benchmark and returns aggregated results. Attempts that
@@ -115,6 +120,7 @@ func Run(ctx context.Context, opts Options) (*report.Results, error) {
 				failures++
 			}
 			res.Attempts = append(res.Attempts, a)
+			checkpoint(opts.OnAttempt, res)
 		}
 	}
 	res.Manifest.FinishedAt = time.Now().UTC()
@@ -123,6 +129,17 @@ func Run(ctx context.Context, opts Options) (*report.Results, error) {
 		return res, fmt.Errorf("%d attempt(s) failed at the harness level; see results attempts[].error", failures)
 	}
 	return res, nil
+}
+
+// checkpoint flushes the results so far after each attempt so an interruption
+// never discards completed, paid-for work. It aggregates first so the on-disk
+// snapshot is a valid, self-consistent results file at every point.
+func checkpoint(onAttempt func(*report.Results), res *report.Results) {
+	if onAttempt == nil {
+		return
+	}
+	res.Aggregate()
+	onAttempt(res)
 }
 
 // loadApplicable loads the task set filtered to the run's arm and suite.

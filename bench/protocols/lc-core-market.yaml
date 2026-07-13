@@ -12,7 +12,7 @@ page:
         # Core Market Definition
 
         The 'core market' is the North region.
-budget_tool_calls: 30
+budget_tool_calls: 15
 teach:
     prompt: For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. The 'core market' is the North region. Please save this definition to memory now and link it to the dataset it concerns.
 recall:

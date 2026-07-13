@@ -55,6 +55,8 @@ type EpisodeRecord struct {
 	SearchCalled bool             `json:"search_called"`
 	FinalAnswer  string           `json:"final_answer,omitempty"`
 	WallMS       int64            `json:"wall_ms"`
+	InputTokens  int64            `json:"input_tokens"`
+	OutputTokens int64            `json:"output_tokens"`
 	Audit        auditapi.Metrics `json:"audit"`
 	Error        string           `json:"error,omitempty"`
 }
@@ -143,6 +145,12 @@ type Metrics struct {
 	Attempts        int `json:"attempts"`         // graded protocol runs (harness failures excluded)
 	HarnessFailures int `json:"harness_failures"` // runs aborted by a harness error
 
+	// Token totals across every episode of every run (including harness-failed
+	// runs — a failed episode still spent tokens), so a run self-reports its cost
+	// basis rather than needing cost reverse-engineered from transcripts.
+	TotalInputTokens  int64 `json:"total_input_tokens"`
+	TotalOutputTokens int64 `json:"total_output_tokens"`
+
 	CaptureRate       Rate `json:"capture_rate"`
 	PersonalRecall    Rate `json:"personal_recall"`
 	UnpromptedSurface Rate `json:"unprompted_surface"` // among captured runs, search surfaced the memory
@@ -171,6 +179,10 @@ func (res *Results) Aggregate() {
 			order = append(order, r.ProtocolID)
 		}
 		byProtocol[r.ProtocolID] = append(byProtocol[r.ProtocolID], r)
+		for _, e := range r.Episodes {
+			m.TotalInputTokens += e.InputTokens
+			m.TotalOutputTokens += e.OutputTokens
+		}
 		if r.Error != "" {
 			m.HarnessFailures++
 			continue
@@ -249,7 +261,8 @@ func (res *Results) HumanSummary() string {
 		m.PlatformVersion, m.Target, short(m.GitCommit), m.Seed, short(m.ProtocolSetHash))
 	fmt.Fprintf(&b, "  %s .. %s\n\n", m.StartedAt.Format(time.RFC3339), m.FinishedAt.Format(time.RFC3339))
 	mt := res.Metrics
-	fmt.Fprintf(&b, "protocols %d  attempts %d  harness failures %d\n\n", mt.Protocols, mt.Attempts, mt.HarnessFailures)
+	fmt.Fprintf(&b, "protocols %d  attempts %d  harness failures %d\n", mt.Protocols, mt.Attempts, mt.HarnessFailures)
+	fmt.Fprintf(&b, "tokens: input %d  output %d (apply current model pricing for cost)\n\n", mt.TotalInputTokens, mt.TotalOutputTokens)
 	writeMetric(&b, "capture rate", mt.CaptureRate)
 	writeMetric(&b, "personal recall", mt.PersonalRecall)
 	writeMetric(&b, "unprompted surface", mt.UnpromptedSurface)

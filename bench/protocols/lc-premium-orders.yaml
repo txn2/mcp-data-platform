@@ -12,7 +12,7 @@ page:
         # Premium Order Definition
 
         A 'premium order' is any order placed by a customer on the enterprise tier.
-budget_tool_calls: 30
+budget_tool_calls: 15
 teach:
     prompt: For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. A 'premium order' is any order placed by a customer on the enterprise tier. Please save this definition to memory now and link it to the dataset it concerns.
 recall:

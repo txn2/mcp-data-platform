@@ -86,6 +86,29 @@ func missRecall(id string, attempt int) ProtocolRun {
 	return r
 }
 
+func TestAggregateSumsTokens(t *testing.T) {
+	res := &Results{
+		Manifest: Manifest{K: 1},
+		Runs: []ProtocolRun{
+			{ProtocolID: "lc-a", Captured: new(true), RecallCorrect: new(true), Episodes: []EpisodeRecord{
+				{Stage: StageTeach, InputTokens: 1000, OutputTokens: 50},
+				{Stage: StageRecall, InputTokens: 2000, OutputTokens: 80},
+			}},
+			// A harness-failed run still spent tokens and must count toward the total.
+			{ProtocolID: "lc-b", Error: "boom", Episodes: []EpisodeRecord{
+				{Stage: StageTeach, InputTokens: 500, OutputTokens: 20},
+			}},
+		},
+	}
+	res.Aggregate()
+	if res.Metrics.TotalInputTokens != 3500 || res.Metrics.TotalOutputTokens != 150 {
+		t.Fatalf("token totals = in %d out %d, want 3500/150", res.Metrics.TotalInputTokens, res.Metrics.TotalOutputTokens)
+	}
+	if !strings.Contains(res.HumanSummary(), "input 3500") {
+		t.Errorf("summary missing token line:\n%s", res.HumanSummary())
+	}
+}
+
 func TestWriteAndLoadJSON(t *testing.T) {
 	res := &Results{
 		Manifest: Manifest{Arm: "a3", K: 1, StartedAt: time.Unix(1, 0).UTC(), FinishedAt: time.Unix(2, 0).UTC()},

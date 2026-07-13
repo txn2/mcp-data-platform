@@ -54,7 +54,12 @@ type Options struct {
 	// discovery scope). It must be positive: the lifecycle needs distinct teacher
 	// and learner identities, so there is no single-identity mode.
 	IdentityKeys int
-	Log          *slog.Logger
+	// OnProtocol, if set, is called after every protocol attempt with the
+	// aggregated results so far. benchrun wires it to flush the results file, so
+	// a run that spends real API budget always leaves every completed protocol on
+	// disk — an interruption never discards paid-for work.
+	OnProtocol func(*Results)
+	Log        *slog.Logger
 }
 
 // Run executes every protocol k times and returns the aggregated lifecycle
@@ -120,9 +125,21 @@ func (e *runEnv) runAll(ctx context.Context, protocols []protocol.Protocol, res 
 			}
 			res.Runs = append(res.Runs, run)
 			attemptIndex++
+			e.checkpoint(res)
 		}
 	}
 	return failures
+}
+
+// checkpoint flushes the results so far after each protocol so an interruption
+// never discards completed, paid-for work. It aggregates first so the on-disk
+// snapshot is a valid, self-consistent results file at every point.
+func (e *runEnv) checkpoint(res *Results) {
+	if e.opts.OnProtocol == nil {
+		return
+	}
+	res.Aggregate()
+	e.opts.OnProtocol(res)
 }
 
 // runEnv holds per-run clients and mutable manifest carry-overs.

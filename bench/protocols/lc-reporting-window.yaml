@@ -5,7 +5,7 @@ title: Reporting window completed orders (Q1 then Q3)
 fact: The 'reporting window' for this study is calendar quarter 1 of 2025 (January through March).
 entity_urn: urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)
 sink: datahub
-budget_tool_calls: 30
+budget_tool_calls: 15
 teach:
     prompt: For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. The 'reporting window' for this study is calendar quarter 1 of 2025 (January through March). Please save this definition to memory now and link it to the dataset it concerns.
 recall:
