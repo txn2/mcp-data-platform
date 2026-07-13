@@ -5,7 +5,9 @@ suite: s1
 prompt: Which table in the bench warehouse would you query for individual customer order transactions (one row per order)?
 arms:
     - a0
+    - a1
     - a2
+    - a3
 budget_tool_calls: 30
 grading:
     kind: entity

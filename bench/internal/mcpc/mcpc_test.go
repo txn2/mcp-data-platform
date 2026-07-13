@@ -92,3 +92,16 @@ func TestAllTextJoins(t *testing.T) {
 		t.Errorf("allText(nil) = %q", got)
 	}
 }
+
+func TestFirstText(t *testing.T) {
+	res := &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "hello"}, &mcp.TextContent{Text: "world"}}}
+	if got := FirstText(res); got != "hello" {
+		t.Errorf("FirstText = %q, want hello", got)
+	}
+	if got := FirstText(&mcp.CallToolResult{}); got != "" {
+		t.Errorf("FirstText(empty) = %q, want empty", got)
+	}
+	if got := FirstText(nil); got != "" {
+		t.Errorf("FirstText(nil) = %q, want empty", got)
+	}
+}

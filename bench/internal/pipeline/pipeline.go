@@ -7,6 +7,7 @@ package pipeline
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -38,6 +39,7 @@ Rules:
 const (
 	numericFormat = `- For this numeric question the FINAL ANSWER line must contain exactly one number (USD unless the question states otherwise), for example "FINAL ANSWER: 12345.67".`
 	entityFormat  = `- For this question the FINAL ANSWER line must name the single best answer: a fully qualified table name (catalog.schema.table) for dataset questions, or the exact name requested.`
+	sqlFormat     = `- For this question the FINAL ANSWER line must contain ONLY a single SQL query and no prose — either on one line, for example "FINAL ANSWER: SELECT ...", or with the query in a fenced code block on the lines after the marker.`
 )
 
 // AdapterFactory builds the model adapter for one task attempt.
@@ -98,6 +100,11 @@ func Run(ctx context.Context, opts Options) (*report.Results, error) {
 		// Audit read-back always authenticates as the base (admin) key.
 		audit: auditapi.New(opts.Target.BaseURL, opts.Target.HTTPClient(opts.HTTPTimeout)),
 	}
+	defer func() {
+		if env.sql != nil {
+			_ = env.sql.Close()
+		}
+	}()
 	failures := 0
 	seq := 0
 	for _, t := range tasks {
@@ -140,6 +147,15 @@ func loadApplicable(opts Options) ([]task.Task, error) {
 type runEnv struct {
 	opts  Options
 	audit *auditapi.Client
+	// sql is the lazily-built execution-result grader session, shared across
+	// the run and closed when it ends. It authenticates as the base credential
+	// (not an attempt identity), so its queries never touch attempt audit
+	// accounting.
+	sql SQLExecutor
+	// refRows caches each exec_sql task's reference result set by task ID. The
+	// reference query is deterministic, so it is executed once per task rather
+	// than once per attempt.
+	refRows map[string][]map[string]any
 }
 
 // attemptClient builds the MCP client for one attempt, authenticating as the
@@ -147,7 +163,9 @@ type runEnv struct {
 func (e *runEnv) attemptClient(seq int) *mcpc.Client {
 	t := e.opts.Target
 	if e.opts.IdentityKeys > 0 {
-		t.Credential = fmt.Sprintf("%s-%02d", t.Credential, seq)
+		// Zero-padded to three digits to match the arm configs' identity pool
+		// (bench-agent-001..NNN), which is sized to the phase-2 task set.
+		t.Credential = fmt.Sprintf("%s-%03d", t.Credential, seq)
 	}
 	return mcpc.New(t.BaseURL, t.HTTPClient(e.opts.HTTPTimeout))
 }
@@ -155,7 +173,7 @@ func (e *runEnv) attemptClient(seq int) *mcpc.Client {
 // runAttempt executes one task attempt end to end. Harness failures land in
 // Attempt.Error; graded outcomes (right or wrong) do not.
 func (e *runEnv) runAttempt(ctx context.Context, t task.Task, attempt, seq int, res *report.Results) report.Attempt {
-	a := report.Attempt{TaskID: t.ID, Suite: t.Suite, Attempt: attempt}
+	a := report.Attempt{TaskID: t.ID, Suite: t.Suite, TrapClasses: t.TrapClasses, Attempt: attempt}
 	log := e.opts.Log.With("task", t.ID, "attempt", attempt, "arm", e.opts.Arm)
 
 	session, err := e.attemptClient(seq).Connect(ctx)
@@ -240,7 +258,7 @@ func (e *runEnv) settleAndGrade(ctx context.Context, a *report.Attempt, t task.T
 		return
 	}
 	a.Audit = auditapi.Summarize(events)
-	gradeAttempt(a, t)
+	e.gradeAttempt(ctx, a, t, log)
 	log.Info("attempt graded", "correct", a.Correct, "tool_calls", a.ToolCalls, "wall_ms", a.WallMS)
 }
 
@@ -254,8 +272,10 @@ func fillAgentResult(a *report.Attempt, r agent.Result) {
 	a.OutputTokens = r.Usage.OutputTokens
 }
 
-// gradeAttempt applies the task's deterministic grader.
-func gradeAttempt(a *report.Attempt, t task.Task) {
+// gradeAttempt applies the task's deterministic grader. Numeric and entity
+// grading are pure over the final answer; exec_sql grading executes the
+// produced query and compares result sets (BIRD-style).
+func (e *runEnv) gradeAttempt(ctx context.Context, a *report.Attempt, t task.Task, log *slog.Logger) {
 	switch t.Grading.Kind {
 	case task.GradeNumeric:
 		got, ok, correct := grade.Numeric(a.FinalAnswer, *t.Grading.Value, t.Grading.AbsTolerance)
@@ -265,7 +285,67 @@ func gradeAttempt(a *report.Attempt, t task.Task) {
 		a.Correct = correct
 	case task.GradeEntity:
 		a.MatchedAlias, a.Correct = grade.Entity(a.FinalAnswer, t.Grading.Aliases, t.Grading.WrongAliases)
+	case task.GradeExecSQL:
+		e.gradeExecSQL(ctx, a, t, log)
 	}
+}
+
+// gradeExecSQL executes the agent's produced query and the task's reference
+// query and grades on result-set equality. A missing or invalid candidate query
+// is a graded miss (the agent's fault); a failed reference query or an
+// unavailable grader session is a harness failure (excluded from accuracy).
+func (e *runEnv) gradeExecSQL(ctx context.Context, a *report.Attempt, t task.Task, log *slog.Logger) {
+	sql, ok := grade.ExtractSQL(a.FinalAnswer)
+	if !ok {
+		a.Correct = false
+		return
+	}
+	exec, err := e.sqlExecutor(ctx)
+	if err != nil {
+		a.Error = fmt.Sprintf("exec grader session: %v", err)
+		return
+	}
+	got, err := exec.Exec(ctx, sql)
+	if err != nil {
+		var te *TransportError
+		if errors.As(err, &te) {
+			// A transport blip is a harness failure, not the agent's fault, and
+			// must not be scored as a wrong answer.
+			a.Error = fmt.Sprintf("exec grader candidate transport: %v", err)
+			return
+		}
+		// The agent produced a query that does not run: a graded miss.
+		log.Info("exec_sql candidate query failed", "error", err)
+		a.Correct = false
+		return
+	}
+	want, err := e.referenceRows(ctx, exec, t)
+	if err != nil {
+		a.Error = fmt.Sprintf("exec grader reference query: %v", err)
+		return
+	}
+	a.Correct = grade.ResultSetsEqual(got, want)
+}
+
+// referenceRows returns the task's reference result set, executing its
+// ExpectedSQL once and caching it: the reference is deterministic across
+// attempts, so re-running it per attempt is wasted warehouse I/O. A reference
+// query that does not execute is a loud harness error (surfaced by the caller
+// as an attempt failure that excludes the task from accuracy), not a silent
+// per-attempt miss — a broken reference is a generator bug, not the agent's.
+func (e *runEnv) referenceRows(ctx context.Context, exec SQLExecutor, t task.Task) ([]map[string]any, error) {
+	if rows, ok := e.refRows[t.ID]; ok {
+		return rows, nil
+	}
+	rows, err := exec.Exec(ctx, t.ExpectedSQL)
+	if err != nil {
+		return nil, fmt.Errorf("reference query for task %s: %w", t.ID, err)
+	}
+	if e.refRows == nil {
+		e.refRows = map[string][]map[string]any{}
+	}
+	e.refRows[t.ID] = rows
+	return rows, nil
 }
 
 // preAuditRefusal reports whether a structured error code marks a platform
@@ -283,10 +363,14 @@ func preAuditRefusal(code string) bool {
 
 // formatInstruction returns the per-grading-kind answer format rule.
 func formatInstruction(t task.Task) string {
-	if t.Grading.Kind == task.GradeNumeric {
+	switch t.Grading.Kind {
+	case task.GradeNumeric:
 		return numericFormat
+	case task.GradeExecSQL:
+		return sqlFormat
+	default:
+		return entityFormat
 	}
-	return entityFormat
 }
 
 // transcript is the per-attempt file layout (manual rubric review reads these).

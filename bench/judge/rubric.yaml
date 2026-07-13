@@ -1,0 +1,54 @@
+# Benchmark judge rubric (issue #943).
+#
+# The deterministic graders (numeric, entity, execution-result) score the S1/S2
+# suites and the numeric half of S3 with zero LLM involvement. This rubric
+# covers only the judgment-call items the deterministic graders cannot: whether
+# an S3 answer carried the required caveat that makes it trustworthy, not just
+# numerically right. The judge model is PINNED here and the rubric is VERSIONED;
+# any judge or wording change bumps `version` so historical scores stay
+# attributable (MCP-Atlas's cautionary tale: a silent judge upgrade moved
+# scores). The judge's human-agreement rate is measured over judge/calibration.yaml
+# and published alongside any judged results.
+version: "1.0.0"
+
+# Pinned judge model. Runs and iterations use claude-sonnet-5 (never Opus) per
+# the project's cost guidance; the published judged scores state this model.
+model: "claude-sonnet-5"
+
+# Each criterion is a single yes/no question the judge answers about an answer
+# string. Questions are written so a compliant answer is unambiguously YES and a
+# bare-number answer is unambiguously NO.
+criteria:
+  caveat-units:
+    question: >-
+      Does the answer explicitly acknowledge that the monetary amounts are
+      stored as integer US cents and were converted to US dollars (for example,
+      by dividing by 100)? Answer YES only if the cents-to-dollars conversion is
+      stated, not merely implied by a dollar figure.
+  caveat-policy:
+    question: >-
+      Does the answer state that the revenue figure follows the reporting policy
+      by counting only completed orders (excluding refunded and pending orders)
+      AND subtracting discounts? Answer YES only if both the completed-only
+      filter and the discount subtraction are mentioned.
+  caveat-fiscal:
+    question: >-
+      Does the answer state that it used the FISCAL calendar (fiscal year runs
+      February 1 through January 31) rather than the calendar year? Answer YES
+      only if the fiscal-vs-calendar distinction is explicit.
+  caveat-freshness:
+    question: >-
+      Does the answer note that the pre-aggregated daily revenue index stops at
+      the 2025-11-30 freshness cutoff, so the figure was taken from the raw
+      orders table rather than the stale index? Answer YES only if the staleness
+      of the index is acknowledged.
+  caveat-tier:
+    question: >-
+      Does the answer state that a "key account" means any customer on the plus
+      OR enterprise tier, not the enterprise tier alone? Answer YES only if the
+      plus-plus-enterprise definition is explicit.
+  caveat-deprecated:
+    question: >-
+      Does the answer state that it used the current, supported orders table and
+      avoided the deprecated legacy_orders extract? Answer YES only if the
+      deprecation of legacy_orders is acknowledged.

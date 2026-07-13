@@ -5,7 +5,11 @@ suite: s1
 prompt: The bench warehouse contains more than one table of order data. Which one is the current, supported table for order analysis?
 arms:
     - a0
+    - a1
     - a2
+    - a3
+trap_classes:
+    - deprecated_table
 budget_tool_calls: 30
 grading:
     kind: entity

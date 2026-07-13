@@ -65,9 +65,10 @@ func (d *Dataset) emitLegacyOrdersSQL(b *strings.Builder) {
 	writeInserts(b, "memory.bench.legacy_orders", rows)
 }
 
-// emitDailyRevenueSQL writes the pre-aggregated index (an S1 discovery target
-// and an S3 distractor: gross of discounts, so it cannot answer policy
-// revenue questions).
+// emitDailyRevenueSQL writes the pre-aggregated index. It is an S1 discovery
+// target and carries two S3 distractors: it is gross of discounts (so it cannot
+// answer policy net-revenue questions) and its rows stop at freshnessCutoff (so
+// it under-reports any period after the cutoff — the freshness_cutoff trap).
 func (d *Dataset) emitDailyRevenueSQL(b *strings.Builder) {
 	b.WriteString("\nDROP TABLE IF EXISTS memory.bench.daily_region_revenue;\n")
 	b.WriteString("CREATE TABLE memory.bench.daily_region_revenue (\n" +
@@ -79,7 +80,7 @@ func (d *Dataset) emitDailyRevenueSQL(b *strings.Builder) {
 	}
 	sums := map[key]int64{}
 	for _, o := range d.Orders {
-		if o.Status != "completed" {
+		if o.Status != "completed" || o.TS.After(freshnessCutoff) {
 			continue
 		}
 		sums[key{o.TS.Format("2006-01-02"), byID[o.CustomerID].Region}] += o.Amount

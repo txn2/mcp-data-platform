@@ -30,103 +30,273 @@ auth:
       # discovery on the authenticated USER identity (apikey:<name>), so
       # attempts must not share a credential or the first search would open
       # the gate for every later attempt. The harness rotates through these
-      # (-identity-keys must match the pool size).
-      - key: "${API_KEY_ADMIN}-01"
-        name: "bench-agent-01"
-        roles: ["admin"]
-      - key: "${API_KEY_ADMIN}-02"
-        name: "bench-agent-02"
-        roles: ["admin"]
-      - key: "${API_KEY_ADMIN}-03"
-        name: "bench-agent-03"
-        roles: ["admin"]
-      - key: "${API_KEY_ADMIN}-04"
-        name: "bench-agent-04"
-        roles: ["admin"]
-      - key: "${API_KEY_ADMIN}-05"
-        name: "bench-agent-05"
-        roles: ["admin"]
-      - key: "${API_KEY_ADMIN}-06"
-        name: "bench-agent-06"
-        roles: ["admin"]
-      - key: "${API_KEY_ADMIN}-07"
-        name: "bench-agent-07"
-        roles: ["admin"]
-      - key: "${API_KEY_ADMIN}-08"
-        name: "bench-agent-08"
-        roles: ["admin"]
-      - key: "${API_KEY_ADMIN}-09"
-        name: "bench-agent-09"
-        roles: ["admin"]
-      - key: "${API_KEY_ADMIN}-10"
-        name: "bench-agent-10"
-        roles: ["admin"]
-      - key: "${API_KEY_ADMIN}-11"
-        name: "bench-agent-11"
-        roles: ["admin"]
-      - key: "${API_KEY_ADMIN}-12"
-        name: "bench-agent-12"
-        roles: ["admin"]
-      - key: "${API_KEY_ADMIN}-13"
-        name: "bench-agent-13"
-        roles: ["admin"]
-      - key: "${API_KEY_ADMIN}-14"
-        name: "bench-agent-14"
-        roles: ["admin"]
-      - key: "${API_KEY_ADMIN}-15"
-        name: "bench-agent-15"
-        roles: ["admin"]
-      - key: "${API_KEY_ADMIN}-16"
-        name: "bench-agent-16"
-        roles: ["admin"]
-      - key: "${API_KEY_ADMIN}-17"
-        name: "bench-agent-17"
-        roles: ["admin"]
-      - key: "${API_KEY_ADMIN}-18"
-        name: "bench-agent-18"
-        roles: ["admin"]
-      - key: "${API_KEY_ADMIN}-19"
-        name: "bench-agent-19"
-        roles: ["admin"]
-      - key: "${API_KEY_ADMIN}-20"
-        name: "bench-agent-20"
-        roles: ["admin"]
-      - key: "${API_KEY_ADMIN}-21"
-        name: "bench-agent-21"
-        roles: ["admin"]
-      - key: "${API_KEY_ADMIN}-22"
-        name: "bench-agent-22"
-        roles: ["admin"]
-      - key: "${API_KEY_ADMIN}-23"
-        name: "bench-agent-23"
-        roles: ["admin"]
-      - key: "${API_KEY_ADMIN}-24"
-        name: "bench-agent-24"
-        roles: ["admin"]
-      - key: "${API_KEY_ADMIN}-25"
-        name: "bench-agent-25"
-        roles: ["admin"]
-      - key: "${API_KEY_ADMIN}-26"
-        name: "bench-agent-26"
-        roles: ["admin"]
-      - key: "${API_KEY_ADMIN}-27"
-        name: "bench-agent-27"
-        roles: ["admin"]
-      - key: "${API_KEY_ADMIN}-28"
-        name: "bench-agent-28"
-        roles: ["admin"]
-      - key: "${API_KEY_ADMIN}-29"
-        name: "bench-agent-29"
-        roles: ["admin"]
-      - key: "${API_KEY_ADMIN}-30"
-        name: "bench-agent-30"
-        roles: ["admin"]
-      - key: "${API_KEY_ADMIN}-31"
-        name: "bench-agent-31"
-        roles: ["admin"]
-      - key: "${API_KEY_ADMIN}-32"
-        name: "bench-agent-32"
-        roles: ["admin"]
+      # (-identity-keys must match the pool size). Sized to the phase-2 task
+      # set at k=3 (87 tasks x 3 = 261). Flow style keeps the pool compact;
+      # regenerate with the snippet in bench/README.md if tasks or k grow.
+      - {key: "${API_KEY_ADMIN}-001", name: "bench-agent-001", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-002", name: "bench-agent-002", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-003", name: "bench-agent-003", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-004", name: "bench-agent-004", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-005", name: "bench-agent-005", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-006", name: "bench-agent-006", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-007", name: "bench-agent-007", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-008", name: "bench-agent-008", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-009", name: "bench-agent-009", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-010", name: "bench-agent-010", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-011", name: "bench-agent-011", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-012", name: "bench-agent-012", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-013", name: "bench-agent-013", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-014", name: "bench-agent-014", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-015", name: "bench-agent-015", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-016", name: "bench-agent-016", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-017", name: "bench-agent-017", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-018", name: "bench-agent-018", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-019", name: "bench-agent-019", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-020", name: "bench-agent-020", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-021", name: "bench-agent-021", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-022", name: "bench-agent-022", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-023", name: "bench-agent-023", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-024", name: "bench-agent-024", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-025", name: "bench-agent-025", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-026", name: "bench-agent-026", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-027", name: "bench-agent-027", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-028", name: "bench-agent-028", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-029", name: "bench-agent-029", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-030", name: "bench-agent-030", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-031", name: "bench-agent-031", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-032", name: "bench-agent-032", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-033", name: "bench-agent-033", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-034", name: "bench-agent-034", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-035", name: "bench-agent-035", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-036", name: "bench-agent-036", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-037", name: "bench-agent-037", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-038", name: "bench-agent-038", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-039", name: "bench-agent-039", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-040", name: "bench-agent-040", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-041", name: "bench-agent-041", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-042", name: "bench-agent-042", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-043", name: "bench-agent-043", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-044", name: "bench-agent-044", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-045", name: "bench-agent-045", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-046", name: "bench-agent-046", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-047", name: "bench-agent-047", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-048", name: "bench-agent-048", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-049", name: "bench-agent-049", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-050", name: "bench-agent-050", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-051", name: "bench-agent-051", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-052", name: "bench-agent-052", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-053", name: "bench-agent-053", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-054", name: "bench-agent-054", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-055", name: "bench-agent-055", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-056", name: "bench-agent-056", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-057", name: "bench-agent-057", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-058", name: "bench-agent-058", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-059", name: "bench-agent-059", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-060", name: "bench-agent-060", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-061", name: "bench-agent-061", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-062", name: "bench-agent-062", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-063", name: "bench-agent-063", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-064", name: "bench-agent-064", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-065", name: "bench-agent-065", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-066", name: "bench-agent-066", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-067", name: "bench-agent-067", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-068", name: "bench-agent-068", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-069", name: "bench-agent-069", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-070", name: "bench-agent-070", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-071", name: "bench-agent-071", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-072", name: "bench-agent-072", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-073", name: "bench-agent-073", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-074", name: "bench-agent-074", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-075", name: "bench-agent-075", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-076", name: "bench-agent-076", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-077", name: "bench-agent-077", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-078", name: "bench-agent-078", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-079", name: "bench-agent-079", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-080", name: "bench-agent-080", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-081", name: "bench-agent-081", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-082", name: "bench-agent-082", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-083", name: "bench-agent-083", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-084", name: "bench-agent-084", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-085", name: "bench-agent-085", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-086", name: "bench-agent-086", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-087", name: "bench-agent-087", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-088", name: "bench-agent-088", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-089", name: "bench-agent-089", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-090", name: "bench-agent-090", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-091", name: "bench-agent-091", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-092", name: "bench-agent-092", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-093", name: "bench-agent-093", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-094", name: "bench-agent-094", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-095", name: "bench-agent-095", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-096", name: "bench-agent-096", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-097", name: "bench-agent-097", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-098", name: "bench-agent-098", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-099", name: "bench-agent-099", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-100", name: "bench-agent-100", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-101", name: "bench-agent-101", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-102", name: "bench-agent-102", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-103", name: "bench-agent-103", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-104", name: "bench-agent-104", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-105", name: "bench-agent-105", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-106", name: "bench-agent-106", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-107", name: "bench-agent-107", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-108", name: "bench-agent-108", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-109", name: "bench-agent-109", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-110", name: "bench-agent-110", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-111", name: "bench-agent-111", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-112", name: "bench-agent-112", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-113", name: "bench-agent-113", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-114", name: "bench-agent-114", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-115", name: "bench-agent-115", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-116", name: "bench-agent-116", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-117", name: "bench-agent-117", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-118", name: "bench-agent-118", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-119", name: "bench-agent-119", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-120", name: "bench-agent-120", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-121", name: "bench-agent-121", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-122", name: "bench-agent-122", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-123", name: "bench-agent-123", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-124", name: "bench-agent-124", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-125", name: "bench-agent-125", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-126", name: "bench-agent-126", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-127", name: "bench-agent-127", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-128", name: "bench-agent-128", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-129", name: "bench-agent-129", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-130", name: "bench-agent-130", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-131", name: "bench-agent-131", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-132", name: "bench-agent-132", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-133", name: "bench-agent-133", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-134", name: "bench-agent-134", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-135", name: "bench-agent-135", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-136", name: "bench-agent-136", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-137", name: "bench-agent-137", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-138", name: "bench-agent-138", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-139", name: "bench-agent-139", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-140", name: "bench-agent-140", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-141", name: "bench-agent-141", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-142", name: "bench-agent-142", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-143", name: "bench-agent-143", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-144", name: "bench-agent-144", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-145", name: "bench-agent-145", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-146", name: "bench-agent-146", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-147", name: "bench-agent-147", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-148", name: "bench-agent-148", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-149", name: "bench-agent-149", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-150", name: "bench-agent-150", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-151", name: "bench-agent-151", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-152", name: "bench-agent-152", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-153", name: "bench-agent-153", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-154", name: "bench-agent-154", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-155", name: "bench-agent-155", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-156", name: "bench-agent-156", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-157", name: "bench-agent-157", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-158", name: "bench-agent-158", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-159", name: "bench-agent-159", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-160", name: "bench-agent-160", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-161", name: "bench-agent-161", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-162", name: "bench-agent-162", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-163", name: "bench-agent-163", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-164", name: "bench-agent-164", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-165", name: "bench-agent-165", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-166", name: "bench-agent-166", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-167", name: "bench-agent-167", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-168", name: "bench-agent-168", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-169", name: "bench-agent-169", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-170", name: "bench-agent-170", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-171", name: "bench-agent-171", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-172", name: "bench-agent-172", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-173", name: "bench-agent-173", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-174", name: "bench-agent-174", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-175", name: "bench-agent-175", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-176", name: "bench-agent-176", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-177", name: "bench-agent-177", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-178", name: "bench-agent-178", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-179", name: "bench-agent-179", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-180", name: "bench-agent-180", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-181", name: "bench-agent-181", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-182", name: "bench-agent-182", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-183", name: "bench-agent-183", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-184", name: "bench-agent-184", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-185", name: "bench-agent-185", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-186", name: "bench-agent-186", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-187", name: "bench-agent-187", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-188", name: "bench-agent-188", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-189", name: "bench-agent-189", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-190", name: "bench-agent-190", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-191", name: "bench-agent-191", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-192", name: "bench-agent-192", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-193", name: "bench-agent-193", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-194", name: "bench-agent-194", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-195", name: "bench-agent-195", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-196", name: "bench-agent-196", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-197", name: "bench-agent-197", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-198", name: "bench-agent-198", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-199", name: "bench-agent-199", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-200", name: "bench-agent-200", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-201", name: "bench-agent-201", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-202", name: "bench-agent-202", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-203", name: "bench-agent-203", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-204", name: "bench-agent-204", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-205", name: "bench-agent-205", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-206", name: "bench-agent-206", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-207", name: "bench-agent-207", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-208", name: "bench-agent-208", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-209", name: "bench-agent-209", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-210", name: "bench-agent-210", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-211", name: "bench-agent-211", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-212", name: "bench-agent-212", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-213", name: "bench-agent-213", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-214", name: "bench-agent-214", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-215", name: "bench-agent-215", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-216", name: "bench-agent-216", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-217", name: "bench-agent-217", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-218", name: "bench-agent-218", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-219", name: "bench-agent-219", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-220", name: "bench-agent-220", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-221", name: "bench-agent-221", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-222", name: "bench-agent-222", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-223", name: "bench-agent-223", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-224", name: "bench-agent-224", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-225", name: "bench-agent-225", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-226", name: "bench-agent-226", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-227", name: "bench-agent-227", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-228", name: "bench-agent-228", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-229", name: "bench-agent-229", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-230", name: "bench-agent-230", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-231", name: "bench-agent-231", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-232", name: "bench-agent-232", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-233", name: "bench-agent-233", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-234", name: "bench-agent-234", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-235", name: "bench-agent-235", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-236", name: "bench-agent-236", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-237", name: "bench-agent-237", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-238", name: "bench-agent-238", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-239", name: "bench-agent-239", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-240", name: "bench-agent-240", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-241", name: "bench-agent-241", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-242", name: "bench-agent-242", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-243", name: "bench-agent-243", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-244", name: "bench-agent-244", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-245", name: "bench-agent-245", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-246", name: "bench-agent-246", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-247", name: "bench-agent-247", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-248", name: "bench-agent-248", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-249", name: "bench-agent-249", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-250", name: "bench-agent-250", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-251", name: "bench-agent-251", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-252", name: "bench-agent-252", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-253", name: "bench-agent-253", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-254", name: "bench-agent-254", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-255", name: "bench-agent-255", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-256", name: "bench-agent-256", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-257", name: "bench-agent-257", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-258", name: "bench-agent-258", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-259", name: "bench-agent-259", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-260", name: "bench-agent-260", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-261", name: "bench-agent-261", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-262", name: "bench-agent-262", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-263", name: "bench-agent-263", roles: ["admin"]}
+      - {key: "${API_KEY_ADMIN}-264", name: "bench-agent-264", roles: ["admin"]}
 
 database:
   dsn: "postgres://platform:platform_secret@localhost:5432/mcp_platform?sslmode=disable"

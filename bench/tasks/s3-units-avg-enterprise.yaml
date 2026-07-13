@@ -5,7 +5,9 @@ suite: s3
 prompt: What is the average order amount in USD across all orders placed by enterprise-tier customers in the bench warehouse? Round to the nearest cent.
 arms:
     - a0
+    - a1
     - a2
+    - a3
 trap_classes:
     - units_cents
 budget_tool_calls: 30

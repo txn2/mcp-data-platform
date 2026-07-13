@@ -801,8 +801,13 @@ load-test:
 # `make verify`: it stands up Docker services, a real server binary, and (for
 # real runs) a model API. Do NOT add bench-* to the `verify` target.
 #
-# Arms: a0 (raw tools, no enrichment/search) and a2 (full knowledge platform;
-# requires a DataHub quickstart seeded via `make bench-seed-datahub`).
+# Arms (config profiles selected by BENCH_ARM):
+#   a0  baseline — raw tools, no enrichment, no search
+#   a1  enrichment — a0 plus semantic cross-enrichment (needs DataHub)
+#   a2  knowledge — a1 plus search, the search-first gate, knowledge pages (needs DataHub)
+#   a3  lifecycle — a2 plus memory/insight + apply_knowledge (needs DataHub)
+# The DataHub arms (a1/a2/a3) require a DataHub quickstart seeded via
+# `make bench-seed-datahub`.
 
 # BENCH_ARM selects the platform config profile; BENCH_KEY is the admin API key.
 BENCH_ARM ?= a0
@@ -819,7 +824,7 @@ BENCH_COMPOSE := DOCKER_DEFAULT_PLATFORM= docker compose -f docker-compose.e2e.y
 bench-gen:
 	@cd bench && $(GO) run ./seedgen -seed-dir seed -tasks-dir tasks
 
-## bench-up: Start the compose stack, seed the bench warehouse, and run the platform (ARM=a0|a2 via BENCH_ARM)
+## bench-up: Start the compose stack, seed the bench warehouse, and run the platform (BENCH_ARM=a0|a1|a2|a3)
 bench-up: e2e-up
 	@echo "Seeding bench warehouse in Trino..."
 	@$(BENCH_COMPOSE) cp bench/seed/trino/setup.sql trino:/tmp/bench-setup.sql
@@ -892,6 +897,19 @@ bench-smoke:
 bench-report:
 	@cd bench && $(GO) build -o ../$(BUILD_DIR)/benchrun ./benchrun
 	$(BUILD_DIR)/benchrun -summarize build/bench-results/results-$(BENCH_ARM).json
+
+## bench-compare: Render the cross-arm comparison (arm-by-suite tables, bootstrap CIs) from all per-arm results
+BENCH_COMPARE_OUT ?= build/bench-results/comparison.md
+bench-compare:
+	@cd bench && $(GO) build -o ../$(BUILD_DIR)/benchrun ./benchrun
+	@files=$$(ls build/bench-results/results-*.json 2>/dev/null | paste -sd, -); \
+	if [ -z "$$files" ]; then echo "ERROR: no build/bench-results/results-*.json to compare"; exit 1; fi; \
+	$(BUILD_DIR)/benchrun -compare "$$files" -compare-out $(BENCH_COMPARE_OUT)
+
+## bench-calibrate: Run the judge calibration and print its human-agreement rate (needs ANTHROPIC_API_KEY; uses the rubric's pinned model)
+bench-calibrate:
+	@cd bench && $(GO) build -o ../$(BUILD_DIR)/benchrun ./benchrun
+	$(BUILD_DIR)/benchrun -calibrate -rubric bench/judge/rubric.yaml -calibration bench/judge/calibration.yaml
 
 ## bench-down: Stop the bench platform and the compose stack
 bench-down:

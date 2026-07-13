@@ -1,0 +1,116 @@
+# Benchmark judge calibration set (issue #943).
+#
+# A human-audited set of (rubric_id, answer, human_label) items. The judge is
+# run over these with the pinned rubric model and its agreement with the human
+# labels is computed and published: this is the number that tells a reader how
+# much to trust the judged caveat scores. Each item's `human` field is the
+# authoritative label a reviewer assigned; `answer` is a representative agent
+# answer (compliant or not). Both labels are well represented (12 YES / 18 NO
+# across 30 items, two YES per criterion) so agreement is not an artifact of a
+# one-sided prior.
+#
+# Update protocol: adding, removing, or relabeling an item does NOT bump the
+# rubric version (the criteria are unchanged); it does change the published
+# agreement rate, so re-run calibration and update the results page.
+items:
+  # caveat-units
+  - rubric_id: caveat-units
+    human: true
+    answer: "FINAL ANSWER: 128456.72. The amount column is stored in integer US cents, so I summed it and divided by 100 to get USD."
+  - rubric_id: caveat-units
+    human: true
+    answer: "The orders table stores amounts as cents; converting to dollars (divide by 100) gives a total of $12,345.67. FINAL ANSWER: 12345.67"
+  - rubric_id: caveat-units
+    human: false
+    answer: "FINAL ANSWER: 12345.67"
+  - rubric_id: caveat-units
+    human: false
+    answer: "I summed the amount column across all orders. FINAL ANSWER: 1234567"
+  - rubric_id: caveat-units
+    human: false
+    answer: "The total order amount is $12,345.67. FINAL ANSWER: 12345.67"
+
+  # caveat-policy
+  - rubric_id: caveat-policy
+    human: true
+    answer: "Per policy I counted only completed orders and subtracted discounts from amount. FINAL ANSWER: 84210.55"
+  - rubric_id: caveat-policy
+    human: true
+    answer: "Revenue excludes refunded and pending orders and nets out discounts, so FINAL ANSWER: 84210.55"
+  - rubric_id: caveat-policy
+    human: false
+    answer: "I summed amount for all orders in 2025. FINAL ANSWER: 210000.00"
+  - rubric_id: caveat-policy
+    human: false
+    answer: "Total revenue for the East region. FINAL ANSWER: 84210.55"
+  - rubric_id: caveat-policy
+    human: false
+    answer: "I filtered to completed orders. FINAL ANSWER: 90000.00"
+
+  # caveat-fiscal
+  - rubric_id: caveat-fiscal
+    human: true
+    answer: "Using the fiscal year (Feb 1 2025 through Jan 31 2026), not the calendar year, FINAL ANSWER: 199000.00"
+  - rubric_id: caveat-fiscal
+    human: true
+    answer: "The company fiscal year starts in February, so I windowed the data accordingly. FINAL ANSWER: 199000.00"
+  - rubric_id: caveat-fiscal
+    human: false
+    answer: "For 2025, FINAL ANSWER: 205000.00"
+  - rubric_id: caveat-fiscal
+    human: false
+    answer: "I summed net revenue over January through December 2025. FINAL ANSWER: 205000.00"
+  - rubric_id: caveat-fiscal
+    human: false
+    answer: "FINAL ANSWER: 199000.00"
+
+  # caveat-freshness
+  - rubric_id: caveat-freshness
+    human: true
+    answer: "The daily index only covers through 2025-11-30, so I computed December from the raw orders table instead. FINAL ANSWER: 15400.00"
+  - rubric_id: caveat-freshness
+    human: true
+    answer: "Because the pre-aggregated index is stale after the Nov 30 cutoff, I used memory.bench.orders directly. FINAL ANSWER: 15400.00"
+  - rubric_id: caveat-freshness
+    human: false
+    answer: "Reading from daily_region_revenue, FINAL ANSWER: 0.00"
+  - rubric_id: caveat-freshness
+    human: false
+    answer: "December gross revenue. FINAL ANSWER: 15400.00"
+  - rubric_id: caveat-freshness
+    human: false
+    answer: "I queried the daily revenue index for December. FINAL ANSWER: 15400.00"
+
+  # caveat-tier
+  - rubric_id: caveat-tier
+    human: true
+    answer: "A key account is any plus- or enterprise-tier customer, so I counted both. FINAL ANSWER: 34"
+  - rubric_id: caveat-tier
+    human: true
+    answer: "Including both plus and enterprise tiers (the key-account definition), FINAL ANSWER: 34"
+  - rubric_id: caveat-tier
+    human: false
+    answer: "FINAL ANSWER: 12"
+  - rubric_id: caveat-tier
+    human: false
+    answer: "I counted enterprise-tier customers. FINAL ANSWER: 12"
+  - rubric_id: caveat-tier
+    human: false
+    answer: "The number of key accounts. FINAL ANSWER: 34"
+
+  # caveat-deprecated
+  - rubric_id: caveat-deprecated
+    human: true
+    answer: "I used the current memory.bench.orders table and avoided the deprecated legacy_orders extract. FINAL ANSWER: 1200"
+  - rubric_id: caveat-deprecated
+    human: true
+    answer: "legacy_orders is deprecated, so I queried the supported orders table. FINAL ANSWER: 1200"
+  - rubric_id: caveat-deprecated
+    human: false
+    answer: "FINAL ANSWER: 1200"
+  - rubric_id: caveat-deprecated
+    human: false
+    answer: "I counted rows in the order table. FINAL ANSWER: 60"
+  - rubric_id: caveat-deprecated
+    human: false
+    answer: "The order table has this many records. FINAL ANSWER: 1200"

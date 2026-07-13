@@ -5,7 +5,9 @@ suite: s3
 prompt: Per the company revenue reporting policy, what was the revenue in USD for the East region in March 2025? Round to the nearest cent.
 arms:
     - a0
+    - a1
     - a2
+    - a3
 trap_classes:
     - net_revenue
     - units_cents

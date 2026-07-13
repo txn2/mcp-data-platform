@@ -86,7 +86,7 @@ func Mint(ctx context.Context, s *mcp.ClientSession) (SessionInfo, error) {
 		return SessionInfo{}, fmt.Errorf("platform_info: %w", err)
 	}
 	if res.IsError {
-		return SessionInfo{}, fmt.Errorf("platform_info returned error: %s", firstText(res))
+		return SessionInfo{}, fmt.Errorf("platform_info returned error: %s", FirstText(res))
 	}
 	var payload infoPayload
 	if res.StructuredContent != nil {
@@ -96,10 +96,10 @@ func Mint(ctx context.Context, s *mcp.ClientSession) (SessionInfo, error) {
 		}
 	}
 	if payload.SessionID == "" {
-		_ = json.Unmarshal([]byte(firstText(res)), &payload)
+		_ = json.Unmarshal([]byte(FirstText(res)), &payload)
 	}
 	if payload.SessionID == "" {
-		return SessionInfo{}, fmt.Errorf("platform_info result carries no session_id (text: %.200s)", firstText(res))
+		return SessionInfo{}, fmt.Errorf("platform_info result carries no session_id (text: %.200s)", FirstText(res))
 	}
 	return SessionInfo{Handle: payload.SessionID, PlatformVersion: payload.Version}, nil
 }
@@ -212,8 +212,8 @@ func errorCode(res *mcp.CallToolResult) string {
 	return env.Error.Code
 }
 
-// firstText returns the first text content block of a tool result, or "".
-func firstText(res *mcp.CallToolResult) string {
+// FirstText returns the first text content block of a tool result, or "".
+func FirstText(res *mcp.CallToolResult) string {
 	if res == nil {
 		return ""
 	}
