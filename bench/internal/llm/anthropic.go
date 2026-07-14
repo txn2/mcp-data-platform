@@ -46,24 +46,10 @@ func (a *Anthropic) Model() string { return a.model }
 // Complete implements Adapter with one Messages API call. The SDK retries
 // 429/5xx with backoff (default max_retries).
 func (a *Anthropic) Complete(ctx context.Context, system string, msgs []Message, tools []ToolDef) (Message, Usage, error) {
-	params := anthropic.MessageNewParams{
-		Model:     anthropic.Model(a.model),
-		MaxTokens: a.maxTokens,
-	}
-	if system != "" {
-		params.System = []anthropic.TextBlockParam{{Text: system}}
-	}
-	apiTools, err := toAPITools(tools)
+	params, err := a.buildParams(system, msgs, tools)
 	if err != nil {
 		return Message{}, Usage{}, err
 	}
-	params.Tools = apiTools
-	apiMsgs, err := toAPIMessages(msgs)
-	if err != nil {
-		return Message{}, Usage{}, err
-	}
-	params.Messages = apiMsgs
-
 	resp, err := a.client.Messages.New(ctx, params)
 	if err != nil {
 		return Message{}, Usage{}, fmt.Errorf("anthropic messages: %w", err)
@@ -73,6 +59,66 @@ func (a *Anthropic) Complete(ctx context.Context, system string, msgs []Message,
 		return Message{}, usage, errors.New("anthropic: request refused (stop_reason refusal)")
 	}
 	return fromAPIContent(resp), usage, nil
+}
+
+// buildParams assembles the Messages API request for one turn, including prompt
+// caching. Split out from Complete so the request shape (notably the cache
+// breakpoints) is unit-testable without an API call.
+//
+// The agent loop calls Complete once per turn, each time re-sending the whole
+// growing transcript (this adapter is stateless), so without caching the input
+// token cost grows roughly quadratically with the number of tool calls — the
+// dominant cost of a real run. Two ephemeral cache breakpoints cut it ~5-10x:
+//
+//  1. On the system prompt, which (with the Anthropic cache prefix order
+//     tools -> system -> messages) caches the constant tools+system block once
+//     and reads it back on every later turn.
+//  2. A rolling breakpoint on the last block of the last message, so each turn
+//     re-reads the previous turn's transcript prefix from cache and only writes
+//     the newly appended messages.
+//
+// Breakpoints below the provider's minimum cacheable length are ignored by the
+// API (no error), so short episodes simply pay the normal price.
+func (a *Anthropic) buildParams(system string, msgs []Message, tools []ToolDef) (anthropic.MessageNewParams, error) {
+	params := anthropic.MessageNewParams{
+		Model:     anthropic.Model(a.model),
+		MaxTokens: a.maxTokens,
+	}
+	if system != "" {
+		params.System = []anthropic.TextBlockParam{{
+			Text:         system,
+			CacheControl: anthropic.NewCacheControlEphemeralParam(),
+		}}
+	}
+	apiTools, err := toAPITools(tools)
+	if err != nil {
+		return anthropic.MessageNewParams{}, err
+	}
+	params.Tools = apiTools
+	apiMsgs, err := toAPIMessages(msgs)
+	if err != nil {
+		return anthropic.MessageNewParams{}, err
+	}
+	markRollingCacheBreakpoint(apiMsgs)
+	params.Messages = apiMsgs
+	return params, nil
+}
+
+// markRollingCacheBreakpoint places an ephemeral cache breakpoint on the last
+// content block of the last message, so each turn caches the growing transcript
+// prefix for the next turn to read back. A no-op when there are no messages or
+// the final block type carries no cache-control field.
+func markRollingCacheBreakpoint(msgs []anthropic.MessageParam) {
+	if len(msgs) == 0 {
+		return
+	}
+	last := msgs[len(msgs)-1].Content
+	if len(last) == 0 {
+		return
+	}
+	if cc := last[len(last)-1].GetCacheControl(); cc != nil {
+		*cc = anthropic.NewCacheControlEphemeralParam()
+	}
 }
 
 // toAPITools converts ToolDefs, passing the MCP-provided JSON Schema through
