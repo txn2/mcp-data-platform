@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/bench/internal/claudecli"
 	"github.com/txn2/mcp-data-platform/bench/internal/judge"
 	"github.com/txn2/mcp-data-platform/bench/internal/lifecycle"
 	"github.com/txn2/mcp-data-platform/bench/internal/llm"
@@ -25,30 +26,32 @@ import (
 
 // config carries the parsed flags.
 type config struct {
-	url          string
-	credential   string
-	arm          string
-	suite        string
-	k            int
-	llmProvider  string
-	model        string
-	maxTokens    int64
-	script       string
-	tasksDir     string
-	out          string
-	gitCommit    string
-	httpTimeout  time.Duration
-	llmTimeout   time.Duration
-	auditTimeout time.Duration
-	identityKeys int
-	summarize    string
-	compare      string
-	compareOut   string
-	calibrate    bool
-	rubric       string
-	calibration  string
-	lifecycle    bool
-	protocolsDir string
+	url           string
+	credential    string
+	arm           string
+	suite         string
+	k             int
+	llmProvider   string
+	model         string
+	maxTokens     int64
+	claudeBin     string
+	mcpServerName string
+	script        string
+	tasksDir      string
+	out           string
+	gitCommit     string
+	httpTimeout   time.Duration
+	llmTimeout    time.Duration
+	auditTimeout  time.Duration
+	identityKeys  int
+	summarize     string
+	compare       string
+	compareOut    string
+	calibrate     bool
+	rubric        string
+	calibration   string
+	lifecycle     bool
+	protocolsDir  string
 }
 
 func main() {
@@ -67,9 +70,11 @@ func parseFlags() config {
 	flag.StringVar(&cfg.arm, "arm", "", "benchmark arm (a0|a1|a2|a3), required")
 	flag.StringVar(&cfg.suite, "suite", "", "suite filter (s1|s2|s3), empty = all")
 	flag.IntVar(&cfg.k, "k", 3, "repeats per task (pass^k)")
-	flag.StringVar(&cfg.llmProvider, "llm", "anthropic", "model adapter: anthropic|scripted")
-	flag.StringVar(&cfg.model, "model", "claude-sonnet-5", "model id for -llm anthropic")
-	flag.Int64Var(&cfg.maxTokens, "max-tokens", 8192, "max tokens per completion")
+	flag.StringVar(&cfg.llmProvider, "llm", "anthropic", "model adapter: anthropic|scripted|claude-cli")
+	flag.StringVar(&cfg.model, "model", "claude-sonnet-5", "model id (or alias) for -llm anthropic and -llm claude-cli")
+	flag.Int64Var(&cfg.maxTokens, "max-tokens", 8192, "max tokens per completion (-llm anthropic)")
+	flag.StringVar(&cfg.claudeBin, "claude-bin", "claude", "claude executable for -llm claude-cli")
+	flag.StringVar(&cfg.mcpServerName, "mcp-server-name", "bench", "MCP server key in the generated per-attempt config for -llm claude-cli")
 	flag.StringVar(&cfg.script, "script", "", "playback script for -llm scripted")
 	flag.StringVar(&cfg.tasksDir, "tasks", "tasks", "task YAML directory")
 	flag.StringVar(&cfg.out, "out", "results.json", "results JSON output path")
@@ -126,19 +131,14 @@ func runLifecycle(cfg config) error {
 	if cfg.arm == "" {
 		return errors.New("-arm is required")
 	}
-	factory, err := buildLifecycleFactory(cfg)
-	if err != nil {
-		return err
-	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	res, runErr := lifecycle.Run(context.Background(), lifecycle.Options{
+	opts := lifecycle.Options{
 		Target:        target.Target{BaseURL: cfg.url, Credential: cfg.credential},
 		HTTPTimeout:   cfg.httpTimeout,
 		Arm:           cfg.arm,
 		K:             cfg.k,
 		ProtocolsDir:  cfg.protocolsDir,
 		TranscriptDir: transcriptDir(cfg.out),
-		Factory:       factory,
 		LLMProvider:   cfg.llmProvider,
 		GitCommit:     cfg.gitCommit,
 		AuditTimeout:  cfg.auditTimeout,
@@ -151,7 +151,21 @@ func runLifecycle(cfg config) error {
 			}
 		},
 		Log: log,
-	})
+	}
+	if cfg.llmProvider == claudeCLIProvider {
+		runner, version, err := buildClaudeRunner(cfg)
+		if err != nil {
+			return err
+		}
+		opts.ClaudeCLI, opts.ClientVersion = runner, version
+	} else {
+		factory, err := buildLifecycleFactory(cfg)
+		if err != nil {
+			return err
+		}
+		opts.Factory = factory
+	}
+	res, runErr := lifecycle.Run(context.Background(), opts)
 	if res != nil {
 		if err := res.WriteJSON(cfg.out); err != nil {
 			return err
@@ -249,12 +263,8 @@ func runBenchmark(cfg config) error {
 	if cfg.arm == "" {
 		return errors.New("-arm is required")
 	}
-	factory, err := buildFactory(cfg)
-	if err != nil {
-		return err
-	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	res, runErr := pipeline.Run(context.Background(), pipeline.Options{
+	opts := pipeline.Options{
 		Target:        target.Target{BaseURL: cfg.url, Credential: cfg.credential},
 		HTTPTimeout:   cfg.httpTimeout,
 		Arm:           cfg.arm,
@@ -262,7 +272,6 @@ func runBenchmark(cfg config) error {
 		K:             cfg.k,
 		TasksDir:      cfg.tasksDir,
 		TranscriptDir: transcriptDir(cfg.out),
-		Factory:       factory,
 		LLMProvider:   cfg.llmProvider,
 		GitCommit:     cfg.gitCommit,
 		AuditTimeout:  cfg.auditTimeout,
@@ -275,7 +284,21 @@ func runBenchmark(cfg config) error {
 			}
 		},
 		Log: log,
-	})
+	}
+	if cfg.llmProvider == claudeCLIProvider {
+		runner, version, err := buildClaudeRunner(cfg)
+		if err != nil {
+			return err
+		}
+		opts.ClaudeCLI, opts.ClientVersion = runner, version
+	} else {
+		factory, err := buildFactory(cfg)
+		if err != nil {
+			return err
+		}
+		opts.Factory = factory
+	}
+	res, runErr := pipeline.Run(context.Background(), opts)
 	if res != nil {
 		if err := res.WriteJSON(cfg.out); err != nil {
 			return err
@@ -289,6 +312,31 @@ func runBenchmark(cfg config) error {
 // transcriptDir derives the transcript directory from the results path.
 func transcriptDir(out string) string {
 	return filepath.Join(filepath.Dir(out), "transcripts")
+}
+
+// claudeCLIProvider is the -llm value selecting the real Claude Code client
+// path (see package claudecli).
+const claudeCLIProvider = "claude-cli"
+
+// buildClaudeRunner constructs the claude-cli runner and probes the Claude Code
+// version for the manifest, so a subscription run made through Claude Code is
+// never silently compared against a raw Messages API run.
+func buildClaudeRunner(cfg config) (*claudecli.Runner, string, error) {
+	runner, err := claudecli.New(claudecli.Options{
+		Bin:        cfg.claudeBin,
+		Model:      cfg.model,
+		ServerName: cfg.mcpServerName,
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	version, err := runner.Version(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	return runner, version, nil
 }
 
 // buildFactory constructs the adapter factory for the selected provider.

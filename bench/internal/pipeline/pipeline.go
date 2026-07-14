@@ -16,10 +16,12 @@ import (
 
 	"github.com/txn2/mcp-data-platform/bench/internal/agent"
 	"github.com/txn2/mcp-data-platform/bench/internal/auditapi"
+	"github.com/txn2/mcp-data-platform/bench/internal/claudecli"
 	"github.com/txn2/mcp-data-platform/bench/internal/gen"
 	"github.com/txn2/mcp-data-platform/bench/internal/grade"
 	"github.com/txn2/mcp-data-platform/bench/internal/llm"
 	"github.com/txn2/mcp-data-platform/bench/internal/mcpc"
+	"github.com/txn2/mcp-data-platform/bench/internal/pool"
 	"github.com/txn2/mcp-data-platform/bench/internal/report"
 	"github.com/txn2/mcp-data-platform/bench/internal/target"
 	"github.com/txn2/mcp-data-platform/bench/internal/task"
@@ -55,6 +57,15 @@ type Options struct {
 	TasksDir      string
 	TranscriptDir string
 	Factory       AdapterFactory
+	// ClaudeCLI, when non-nil, replaces the in-process agent loop: each attempt
+	// runs through a real `claude -p` client that connects to the platform
+	// directly and threads its own handle. Factory is unused in this mode, and
+	// audit metrics are correlated by the attempt's unique pool identity
+	// (user_id) rather than the session handle. Requires an identity pool.
+	ClaudeCLI *claudecli.Runner
+	// ClientVersion is recorded on the manifest for the ClaudeCLI path (the
+	// `claude --version` string), empty otherwise.
+	ClientVersion string
 	LLMProvider   string
 	GitCommit     string
 	AuditTimeout  time.Duration
@@ -86,15 +97,16 @@ func Run(ctx context.Context, opts Options) (*report.Results, error) {
 		return nil, err
 	}
 	res := &report.Results{Manifest: report.Manifest{
-		StartedAt:   time.Now().UTC(),
-		GitCommit:   opts.GitCommit,
-		Target:      opts.Target.BaseURL,
-		Arm:         opts.Arm,
-		LLMProvider: opts.LLMProvider,
-		Seed:        gen.Seed,
-		TaskSetHash: task.Hash(tasks),
-		K:           opts.K,
-		Suite:       opts.Suite,
+		StartedAt:     time.Now().UTC(),
+		GitCommit:     opts.GitCommit,
+		Target:        opts.Target.BaseURL,
+		Arm:           opts.Arm,
+		LLMProvider:   opts.LLMProvider,
+		ClientVersion: opts.ClientVersion,
+		Seed:          gen.Seed,
+		TaskSetHash:   task.Hash(tasks),
+		K:             opts.K,
+		Suite:         opts.Suite,
 	}}
 	total := len(tasks) * opts.K
 	if opts.IdentityKeys > 0 && total > opts.IdentityKeys {
@@ -179,17 +191,22 @@ type runEnv struct {
 // attempt's pool identity (or the base credential when rotation is off).
 func (e *runEnv) attemptClient(seq int) *mcpc.Client {
 	t := e.opts.Target
-	if e.opts.IdentityKeys > 0 {
-		// Zero-padded to three digits to match the arm configs' identity pool
-		// (bench-agent-001..NNN), which is sized to the phase-2 task set.
-		t.Credential = fmt.Sprintf("%s-%03d", t.Credential, seq)
-	}
+	t.Credential = pool.Credential(t.Credential, seq, e.opts.IdentityKeys)
 	return mcpc.New(t.BaseURL, t.HTTPClient(e.opts.HTTPTimeout))
 }
 
 // runAttempt executes one task attempt end to end. Harness failures land in
 // Attempt.Error; graded outcomes (right or wrong) do not.
 func (e *runEnv) runAttempt(ctx context.Context, t task.Task, attempt, seq int, res *report.Results) report.Attempt {
+	if e.opts.ClaudeCLI != nil {
+		return e.runClaudeCLIAttempt(ctx, t, attempt, seq, res)
+	}
+	return e.runLoopAttempt(ctx, t, attempt, seq, res)
+}
+
+// runLoopAttempt executes one attempt through the harness's in-process agent
+// loop against a harness-owned MCP session (the anthropic and scripted paths).
+func (e *runEnv) runLoopAttempt(ctx context.Context, t task.Task, attempt, seq int, res *report.Results) report.Attempt {
 	a := report.Attempt{TaskID: t.ID, Suite: t.Suite, TrapClasses: t.TrapClasses, Attempt: attempt}
 	log := e.opts.Log.With("task", t.ID, "attempt", attempt, "arm", e.opts.Arm)
 
@@ -257,12 +274,81 @@ func (e *runEnv) runAttempt(ctx context.Context, t task.Task, attempt, seq int, 
 	}, exec)
 	a.WallMS = time.Since(start).Milliseconds()
 	fillAgentResult(&a, result)
-	e.writeTranscript(&a, t, result, log)
+	e.writeTranscript(&a, t, result.Transcript, log)
 	if err != nil {
 		a.Error = fmt.Sprintf("agent loop: %v", err)
 		return a
 	}
 	e.settleAndGrade(ctx, &a, t, info.Handle, audited, audited+indeterminate, log)
+	return a
+}
+
+// runClaudeCLIAttempt executes one task attempt through a real `claude -p`
+// client instead of the in-process loop. Claude Code connects to the platform
+// directly with this attempt's pool credential, mints and threads its own dps_
+// handle, and drives the tools; the harness reconstructs the transcript from
+// the stream, correlates audit rows by that handle (which every threaded data
+// call carries, exactly as the in-process loop does), and grades. Harness
+// failures land in Attempt.Error; a wrong answer does not.
+func (e *runEnv) runClaudeCLIAttempt(ctx context.Context, t task.Task, attempt, seq int, res *report.Results) report.Attempt {
+	a := report.Attempt{TaskID: t.ID, Suite: t.Suite, TrapClasses: t.TrapClasses, Attempt: attempt}
+	log := e.opts.Log.With("task", t.ID, "attempt", attempt, "arm", e.opts.Arm)
+	if res.Manifest.Model == "" {
+		res.Manifest.Model = e.opts.ClaudeCLI.Model()
+	}
+
+	system := systemScaffold + "\n" + formatInstruction(t)
+	start := time.Now()
+	cres, err := e.opts.ClaudeCLI.Run(ctx, claudecli.Request{
+		Endpoint:   e.opts.Target.BaseURL,
+		Credential: pool.Credential(e.opts.Target.Credential, seq, e.opts.IdentityKeys),
+		System:     system,
+		Prompt:     t.Prompt,
+	})
+	a.WallMS = time.Since(start).Milliseconds()
+	if err != nil {
+		a.Error = fmt.Sprintf("claude-cli: %v", err)
+		return a
+	}
+
+	a.SessionID = cres.Handle
+	a.FinalAnswer = grade.ExtractFinal(cres.FinalText)
+	a.ToolCalls = cres.MCPCalls
+	a.ToolErrors = cres.ToolErrors
+	a.InputTokens = cres.Usage.InputTokens
+	a.OutputTokens = cres.Usage.OutputTokens
+	if res.Manifest.PlatformVersion == "" {
+		res.Manifest.PlatformVersion = cres.PlatformVersion
+	}
+	e.writeTranscript(&a, t, cres.Transcript, log)
+
+	if cres.IsError {
+		a.Error = fmt.Sprintf("claude-cli result error (subtype %q): %.300s", cres.Subtype, cres.FinalText)
+		return a
+	}
+	if !cres.ServerConnected {
+		a.Error = fmt.Sprintf("bench MCP server did not connect (status %q); claude reached no platform tools", cres.ServerStatus)
+		return a
+	}
+	if cres.Handle == "" {
+		// No handle means claude never minted one via platform_info. With no
+		// handle it cannot have threaded a successful data call (the session-gate
+		// middleware refuses un-threaded calls), so a positive success count with
+		// no handle is a harness inconsistency to surface, not audit loss.
+		if cres.SuccessfulMCPCalls > 0 {
+			a.Error = fmt.Sprintf("claude-cli reported %d successful tool call(s) but surfaced no dps_ handle to correlate audit", cres.SuccessfulMCPCalls)
+			return a
+		}
+		e.gradeAttempt(ctx, &a, t, log)
+		return a
+	}
+
+	// Correlate by the dps_ handle: confirmed successful calls are the lower
+	// bound (each must have an audit row), and total bench calls (adding errored
+	// and unresolved ones, which may or may not have produced a row) are the
+	// upper bound. platform_info's row is not under this handle, so it is
+	// naturally excluded, matching the in-process adapters.
+	e.settleAndGrade(ctx, &a, t, cres.Handle, cres.SuccessfulMCPCalls, cres.MCPCalls, log)
 	return a
 }
 
@@ -287,6 +373,8 @@ func fillAgentResult(a *report.Attempt, r agent.Result) {
 	a.BudgetExhausted = r.BudgetExhausted
 	a.InputTokens = r.Usage.InputTokens
 	a.OutputTokens = r.Usage.OutputTokens
+	a.CacheReadTokens = r.Usage.CacheReadInputTokens
+	a.CacheCreationTokens = r.Usage.CacheCreationInputTokens
 }
 
 // gradeAttempt applies the task's deterministic grader. Numeric and entity
@@ -403,7 +491,7 @@ type transcript struct {
 // writeTranscript persists the attempt transcript with the task's rubric notes
 // attached (the pilot's rubric items are reviewed manually from these files);
 // failure to write is logged, not fatal (the graded outcome stands).
-func (e *runEnv) writeTranscript(a *report.Attempt, t task.Task, r agent.Result, log *slog.Logger) {
+func (e *runEnv) writeTranscript(a *report.Attempt, t task.Task, msgs []llm.Message, log *slog.Logger) {
 	if e.opts.TranscriptDir == "" {
 		return
 	}
@@ -419,7 +507,7 @@ func (e *runEnv) writeTranscript(a *report.Attempt, t task.Task, r agent.Result,
 	raw, err := json.MarshalIndent(transcript{
 		TaskID: a.TaskID, Arm: e.opts.Arm, Attempt: a.Attempt, SessionID: a.SessionID,
 		Rubric:     rubric,
-		Transcript: r.Transcript,
+		Transcript: msgs,
 	}, "", "  ")
 	if err != nil {
 		log.Warn("marshal transcript", "error", err)

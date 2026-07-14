@@ -24,33 +24,43 @@ type Manifest struct {
 	Target          string    `json:"target"`
 	Arm             string    `json:"arm"`
 	LLMProvider     string    `json:"llm_provider"`
-	Model           string    `json:"model"`
-	Seed            int64     `json:"seed"`
-	TaskSetHash     string    `json:"task_set_hash"`
-	K               int       `json:"k"`
-	Suite           string    `json:"suite,omitempty"` // filter, "" = all
+	// ClientVersion records the client path for adapters that run through an
+	// external client (claude-cli: the `claude --version` string). It is empty
+	// for the in-process anthropic and scripted adapters. Its purpose is to keep
+	// runs made through Claude Code from being silently compared against raw
+	// Messages API runs, whose numbers move independently of the platform.
+	ClientVersion string `json:"client_version,omitempty"`
+	Model         string `json:"model"`
+	Seed          int64  `json:"seed"`
+	TaskSetHash   string `json:"task_set_hash"`
+	K             int    `json:"k"`
+	Suite         string `json:"suite,omitempty"` // filter, "" = all
 }
 
 // Attempt is one task execution.
 type Attempt struct {
-	TaskID          string           `json:"task_id"`
-	Suite           string           `json:"suite"`
-	TrapClasses     []string         `json:"trap_classes,omitempty"` // S3 trap classes exercised
-	Attempt         int              `json:"attempt"`                // 1..k
-	SessionID       string           `json:"session_id"`
-	Correct         bool             `json:"correct"`
-	FinalAnswer     string           `json:"final_answer"`
-	GotValue        *float64         `json:"got_value,omitempty"`
-	MatchedAlias    string           `json:"matched_alias,omitempty"`
-	ToolCalls       int              `json:"tool_calls"`
-	ToolErrors      int              `json:"tool_errors"`
-	BudgetExhausted bool             `json:"budget_exhausted"`
-	WallMS          int64            `json:"wall_ms"`
-	InputTokens     int64            `json:"input_tokens"`
-	OutputTokens    int64            `json:"output_tokens"`
-	Audit           auditapi.Metrics `json:"audit"`
-	TranscriptPath  string           `json:"transcript_path,omitempty"`
-	Error           string           `json:"error,omitempty"` // harness/adapter failure, not a wrong answer
+	TaskID          string   `json:"task_id"`
+	Suite           string   `json:"suite"`
+	TrapClasses     []string `json:"trap_classes,omitempty"` // S3 trap classes exercised
+	Attempt         int      `json:"attempt"`                // 1..k
+	SessionID       string   `json:"session_id"`
+	Correct         bool     `json:"correct"`
+	FinalAnswer     string   `json:"final_answer"`
+	GotValue        *float64 `json:"got_value,omitempty"`
+	MatchedAlias    string   `json:"matched_alias,omitempty"`
+	ToolCalls       int      `json:"tool_calls"`
+	ToolErrors      int      `json:"tool_errors"`
+	BudgetExhausted bool     `json:"budget_exhausted"`
+	WallMS          int64    `json:"wall_ms"`
+	InputTokens     int64    `json:"input_tokens"`
+	OutputTokens    int64    `json:"output_tokens"`
+	// Cache tokens are recorded for adapters that use prompt caching (anthropic),
+	// so the results file self-documents the run's real cost basis.
+	CacheReadTokens     int64            `json:"cache_read_tokens,omitempty"`
+	CacheCreationTokens int64            `json:"cache_creation_tokens,omitempty"`
+	Audit               auditapi.Metrics `json:"audit"`
+	TranscriptPath      string           `json:"transcript_path,omitempty"`
+	Error               string           `json:"error,omitempty"` // harness/adapter failure, not a wrong answer
 }
 
 // TaskSummary aggregates one task's k attempts. Harness-failed attempts
@@ -232,7 +242,11 @@ func LoadJSON(path string) (*Results, error) {
 func (r *Results) HumanSummary() string {
 	var b strings.Builder
 	m := r.Manifest
-	fmt.Fprintf(&b, "bench run: arm=%s model=%s (%s) k=%d\n", m.Arm, m.Model, m.LLMProvider, m.K)
+	provider := m.LLMProvider
+	if m.ClientVersion != "" {
+		provider = fmt.Sprintf("%s via %s", m.LLMProvider, m.ClientVersion)
+	}
+	fmt.Fprintf(&b, "bench run: arm=%s model=%s (%s) k=%d\n", m.Arm, m.Model, provider, m.K)
 	fmt.Fprintf(&b, "  platform %s @ %s | commit %s | seed %d | tasks %s\n",
 		m.PlatformVersion, m.Target, short(m.GitCommit), m.Seed, short(m.TaskSetHash))
 	fmt.Fprintf(&b, "  %s .. %s\n\n", m.StartedAt.Format(time.RFC3339), m.FinishedAt.Format(time.RFC3339))

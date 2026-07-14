@@ -1,0 +1,223 @@
+{
+  "task_id": "s1-retired-pipeline",
+  "arm": "a3",
+  "attempt": 1,
+  "session_id": "dps_9ab1722805649b959423a42ba55b9ee1",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "Which bench table is a partial extract left over from a retired ingestion pipeline?"
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01P3wG8ga9ZGr3KP9oAak7Yg",
+          "name": "search",
+          "args": {
+            "intent": "bench table partial extract leftover from retired ingestion pipeline"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01P3wG8ga9ZGr3KP9oAak7Yg",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:a8ca1366-a5d1-4d00-a6e3-5ffbc039cf33\"\n        },\n        {\n          \"text\": \"save-this-as-an-asset\\nSave an artifact from this conversation as a viewable, shareable asset\",\n          \"source\": \"prompts\",\n          \"ref\": \"save-this-as-an-asset\",\n          \"score\": 0.8848842702863874,\n          \"reference\": \"mcp:prompt:7952f549-c648-4984-a5d1-a945d311bdbe\"\n        },\n        {\n          \"text\": \"show-my-saved-assets\\nBrowse your saved artifacts and assets\",\n          \"source\": \"prompts\",\n          \"ref\": \"show-my-saved-assets\",\n          \"score\": 0.786834746788087,\n          \"reference\": \"mcp:prompt:b119a59c-fcd8-42d4-aa6d-d10032c79c6d\"\n        },\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.7637851259158897,\n          \"reference\": \"mcp:prompt:74f538d8-a70c-4b21-b506-5ef339f02149\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.6413973112461042,\n          \"reference\": \"mcp:prompt:17331aa1-93bc-4d18-809f-02e343570b9e\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/audit/metrics/enrichment\\nGet enrichment metrics\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/metrics/enrichment\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/portal/knowledge-pages/{id}/lineage\\nA knowledge page's source-insight lineage\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/knowledge-pages/{id}/lineage\",\n          \"score\": 0.7575974863349494\n        },\n        {\n          \"text\": \"GET /api/v1/portal/knowledge/insights\\nList my insights\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/knowledge/insights\",\n          \"score\": 0.6929662018097889\n        }\n      ]\n    },\n    {\n      \"source\": \"connections\",\n      \"hits\": [\n        {\n          \"text\": \"platform-admin (api)\\nBuilt-in self-configuration connection. Routes the API gateway to the platform's own admin REST API (`/api/v1/admin/*`) so an admin can create personas, manage connections, edit agent instructions, and manage prompts and API keys directly from an MCP session. Calls are authenticated and audited as the acting admin.\",\n          \"source\": \"connections\",\n          \"ref\": \"platform-admin\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(api,platform-admin)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 12,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"connections\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01Kz3hRifsyaqCSyojVPhpDb",
+          "name": "search",
+          "args": {
+            "intent": "bench schema tables list retired pipeline extract",
+            "sources": [
+              "catalog"
+            ]
+          }
+        },
+        {
+          "id": "toolu_01GmEVhkfeHHem69oTPpuHQC",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "bench"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01Kz3hRifsyaqCSyojVPhpDb",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01GmEVhkfeHHem69oTPpuHQC",
+          "text": "Failed to list schemas: failed to list schemas: trino: query failed (200 OK): \"USER_ERROR: Catalog 'bench' not found\" (code: tool_error)",
+          "is_error": true
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_013StGzKHbWuMLSPfWpipfb4",
+          "name": "trino_browse",
+          "args": {}
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_013StGzKHbWuMLSPfWpipfb4",
+          "text": "## Available Catalogs\n\n- `memory`\n- `system`\n\n*2 catalogs found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01Ut8x33UjTuwVb4jNh23dsF",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "memory"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01Ut8x33UjTuwVb4jNh23dsF",
+          "text": "## Schemas in `memory`\n\n- `bench`\n- `default`\n- `e2e_test`\n- `information_schema`\n\n*4 schemas found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_0193CXhAjyFZvyjbdgLtBXGZ",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "memory",
+            "schema": "bench"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_0193CXhAjyFZvyjbdgLtBXGZ",
+          "text": "## Tables in `memory.bench`\n\n- `customers`\n- `daily_region_revenue`\n- `legacy_orders`\n- `orders`\n\n*4 tables found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_011wvnqyBTcff2FzpvYYCFUw",
+          "name": "search",
+          "args": {
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+            ],
+            "intent": "customers table partial extract retired pipeline"
+          }
+        },
+        {
+          "id": "toolu_01QY1khTNcMd9Rivdo6qAm7k",
+          "name": "datahub_get_entity",
+          "args": {
+            "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_011wvnqyBTcff2FzpvYYCFUw",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Peak Region Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_0fec3450-4ca3-4438-a99e-8bba023875a8\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"reference\": \"mcp:knowledge_page:kp_0fec3450-4ca3-4438-a99e-8bba023875a8\"\n        },\n        {\n          \"text\": \"Active Customer Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_10413ea9-d2df-4a47-840e-ae5c32e81073\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"reference\": \"mcp:knowledge_page:kp_10413ea9-d2df-4a47-840e-ae5c32e81073\"\n        },\n        {\n          \"text\": \"House Tier Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_5c2d13b6-3caa-4dbb-a89c-ff4a9c3dfdf8\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"reference\": \"mcp:knowledge_page:kp_5c2d13b6-3caa-4dbb-a89c-ff4a9c3dfdf8\"\n        },\n        {\n          \"text\": \"Primary Region Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_c7c3c1e7-08e1-4197-a807-5b5d1da0203d\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"reference\": \"mcp:knowledge_page:kp_c7c3c1e7-08e1-4197-a807-5b5d1da0203d\"\n        },\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 0.7831496919393499,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/audit/metrics/enrichment\\nGet enrichment metrics\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/metrics/enrichment\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/portal/knowledge/insights\\nList my insights\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/knowledge/insights\",\n          \"score\": 0.6931662351675034\n        },\n        {\n          \"text\": \"POST /api/v1/admin/index-jobs/dismiss\\nDismiss a unit's open failures\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:POST /admin/index-jobs/dismiss\",\n          \"score\": 0.69246583102255\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"memory.bench.customers\\nThe 'target cohort' is the set of customers whose account was created during calendar year 2024.\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:a8ca1366-a5d1-4d00-a6e3-5ffbc039cf33\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 12,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01QY1khTNcMd9Rivdo6qAm7k",
+          "text": "{\n  \"urn\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n  \"type\": \"DATASET\",\n  \"name\": \"customers\",\n  \"description\": \"The 'target cohort' is the set of customers whose account was created during calendar year 2024.\",\n  \"tags\": [\n    {\n      \"urn\": \"urn:li:tag:bench\",\n      \"name\": \"bench\"\n    }\n  ],\n  \"platform\": \"trino\",\n  \"properties\": {\n    \"team\": \"bench\"\n  }\n}\n{\"query_context\":{\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\":{\"available\":true,\"query_table\":\"memory.bench.customers\",\"connection\":\"e2e-trino\",\"available_connections\":[\"e2e\"],\"schema_preview\":[{\"name\":\"customer_id\",\"type\":\"integer\"},{\"name\":\"name\",\"type\":\"varchar\"},{\"name\":\"region\",\"type\":\"varchar\"},{\"name\":\"tier\",\"type\":\"varchar\"},{\"name\":\"created_at\",\"type\":\"timestamp(3)\"}],\"total_columns\":5}}}\n{\"memory_context\":[{\"id\":\"1f2a3810a48ce2b78a6a22fba6d54c3b\",\"reference\":\"mcp:memory:1f2a3810a48ce2b78a6a22fba6d54c3b\",\"summary\":\"Working definition: the 'target cohort' is the set of customers whose account was created during calendar year 2024. Concretely, this means customers.created_at falls within [2024-01-01 00:00:00, 2025-01-01 00:00:00) (i.e. YEAR(created_at) = 2024) on the memory.bench.customers ta\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-07-13T20:15:05.439725Z\"},{\"id\":\"1718bcafa83a3032337595f45bd1607a\",\"reference\":\"mcp:memory:1718bcafa83a3032337595f45bd1607a\",\"summary\":\"Working definition: the 'leading region' is the region whose customers placed the most orders (i.e., group orders by the customer's region via customers.region joined on orders.customer_id, and take the region with the highest order count). This is a count-of-orders definition, n\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-07-13T19:48:22.763657Z\"}],\"memory_context_note\":\"1 additional related memory record(s) omitted to stay within the enrichment budget; fetch any by its reference in memory_context_omitted for full detail.\",\"memory_context_omitted\":[{\"id\":\"d1355a26725bae11b5ffab79a71e712d\",\"reference\":\"mcp:memory:d1355a26725bae11b5ffab79a71e712d\"}]}\n{\"knowledge_pages\":[{\"id\":\"kp_10413ea9-d2df-4a47-840e-ae5c32e81073\",\"slug\":\"active-customer-definition\",\"title\":\"Active Customer Definition\"},{\"id\":\"kp_5c2d13b6-3caa-4dbb-a89c-ff4a9c3dfdf8\",\"slug\":\"house-tier-definition\",\"title\":\"House Tier Definition\"},{\"id\":\"kp_0fec3450-4ca3-4438-a99e-8bba023875a8\",\"slug\":\"peak-region-definition\",\"title\":\"Peak Region Definition\"},{\"id\":\"kp_c7c3c1e7-08e1-4197-a807-5b5d1da0203d\",\"slug\":\"primary-region-definition\",\"title\":\"Primary Region Definition\"}]}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01NEqCZ1QUqRLtqTbfinqNyR",
+          "name": "datahub_get_entity",
+          "args": {
+            "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)"
+          }
+        },
+        {
+          "id": "toolu_01KiXU9Vyf7HcTf7MQxECCr9",
+          "name": "datahub_get_entity",
+          "args": {
+            "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)"
+          }
+        },
+        {
+          "id": "toolu_01T6ZLdUpbkn4QPmLP7wMN7K",
+          "name": "datahub_get_entity",
+          "args": {
+            "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01NEqCZ1QUqRLtqTbfinqNyR",
+          "text": "{\n  \"urn\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\",\n  \"type\": \"DATASET\",\n  \"name\": \"daily_region_revenue\",\n  \"description\": \"Pre-aggregated daily revenue by region, derived from completed orders. Values are GROSS of discounts (USD), so this index must not be used for policy net-revenue figures; use memory.bench.orders per the Revenue Reporting Policy.\",\n  \"tags\": [\n    {\n      \"urn\": \"urn:li:tag:bench\",\n      \"name\": \"bench\"\n    }\n  ],\n  \"platform\": \"trino\",\n  \"properties\": {\n    \"grain\": \"day,region\",\n    \"team\": \"bench\"\n  }\n}\n{\"query_context\":{\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\":{\"available\":true,\"query_table\":\"memory.bench.daily_region_revenue\",\"connection\":\"e2e-trino\",\"available_connections\":[\"e2e\"],\"schema_preview\":[{\"name\":\"day\",\"type\":\"date\"},{\"name\":\"region\",\"type\":\"varchar\"},{\"name\":\"gross_revenue_usd\",\"type\":\"double\"}],\"total_columns\":3}}}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01KiXU9Vyf7HcTf7MQxECCr9",
+          "text": "{\n  \"urn\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\",\n  \"type\": \"DATASET\",\n  \"name\": \"legacy_orders\",\n  \"description\": \"DEPRECATED order extract from the retired ingestion pipeline. Partial coverage, totals in dollars. Use memory.bench.orders for all order analysis.\",\n  \"tags\": [\n    {\n      \"urn\": \"urn:li:tag:bench\",\n      \"name\": \"bench\"\n    }\n  ],\n  \"platform\": \"trino\",\n  \"deprecation\": {\n    \"deprecated\": true,\n    \"note\": \"Deprecated. Use memory.bench.orders instead.\",\n    \"actor\": \"urn:li:corpuser:bench-seed\"\n  },\n  \"properties\": {\n    \"team\": \"bench\"\n  }\n}\n{\"query_context\":{\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\":{\"available\":true,\"query_table\":\"memory.bench.legacy_orders\",\"connection\":\"e2e-trino\",\"available_connections\":[\"e2e\"],\"schema_preview\":[{\"name\":\"order_id\",\"type\":\"integer\"},{\"name\":\"customer_id\",\"type\":\"integer\"},{\"name\":\"order_date\",\"type\":\"date\"},{\"name\":\"total\",\"type\":\"double\"}],\"total_columns\":4}}}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01T6ZLdUpbkn4QPmLP7wMN7K",
+          "text": "{\n  \"urn\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n  \"type\": \"DATASET\",\n  \"name\": \"orders\",\n  \"description\": \"The 'reporting cohort' is the set of orders placed in December 2025.\",\n  \"tags\": [\n    {\n      \"urn\": \"urn:li:tag:bench\",\n      \"name\": \"bench\"\n    }\n  ],\n  \"platform\": \"trino\",\n  \"properties\": {\n    \"team\": \"bench\",\n    \"unit\": \"cents\"\n  }\n}\n{\"query_context\":{\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\":{\"available\":true,\"query_table\":\"memory.bench.orders\",\"connection\":\"e2e-trino\",\"available_connections\":[\"e2e\"],\"schema_preview\":[{\"name\":\"order_id\",\"type\":\"integer\"},{\"name\":\"customer_id\",\"type\":\"integer\"},{\"name\":\"order_ts\",\"type\":\"timestamp(3)\"},{\"name\":\"status\",\"type\":\"varchar\"},{\"name\":\"amount\",\"type\":\"integer\"},{\"name\":\"discount\",\"type\":\"integer\"}],\"total_columns\":6}}}\n{\"memory_context\":[{\"id\":\"67810f0b8219cda9415b68fdaddaa962\",\"reference\":\"mcp:memory:67810f0b8219cda9415b68fdaddaa962\",\"summary\":\"Working definition: 'settlement total' = gross revenue (sum of `amount` column, no discount subtraction) over COMPLETED orders only, for calendar Q4 2025 (October 1, 2025 through December 31, 2025). This differs from the company's standard net Revenue Reporting Policy (amount - d\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-07-13T20:10:12.054972Z\"},{\"id\":\"28936642782ec7e10cc061d6031d5e53\",\"reference\":\"mcp:memory:28936642782ec7e10cc061d6031d5e53\",\"summary\":\"Working definition: the 'reporting cohort' refers to the set of orders placed in December 2025 (i.e., orders in the `orders` table with order placement date \\u003e= 2025-12-01 and \\u003c 2026-01-01). Use this definition consistently in later analysis sessions when 'reporting cohort' is ref\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-07-13T20:06:48.378653Z\"},{\"id\":\"a21515a08e88cfc2683c1c3dcab51a92\",\"reference\":\"mcp:memory:a21515a08e88cfc2683c1c3dcab51a92\",\"summary\":\"Working definition: a 'priority order' is any order whose amount is at least $1,000.00 (i.e., \\u003e= 100000 in the amount column, since amounts are stored as integers in US cents). Applies to the memory.bench.orders dataset.\",\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-07-13T20:04:26.575738Z\"}],\"memory_context_note\":\"2 additional related memory record(s) omitted to stay within the enrichment budget; fetch any by its reference in memory_context_omitted for full detail.\",\"memory_context_omitted\":[{\"id\":\"9435017067fc0a9fe0da4aa1a53ca9b4\",\"reference\":\"mcp:memory:9435017067fc0a9fe0da4aa1a53ca9b4\"},{\"id\":\"38d428aa9abd388166a748c68856fb17\",\"reference\":\"mcp:memory:38d428aa9abd388166a748c68856fb17\"}]}\n{\"knowledge_pages\":[{\"id\":\"kp_10413ea9-d2df-4a47-840e-ae5c32e81073\",\"slug\":\"active-customer-definition\",\"title\":\"Active Customer Definition\"},{\"id\":\"kp_5c2d13b6-3caa-4dbb-a89c-ff4a9c3dfdf8\",\"slug\":\"house-tier-definition\",\"title\":\"House Tier Definition\"},{\"id\":\"kp_a00d4aa5-0f89-4dcb-b2c3-fa25ca77219b\",\"slug\":\"premium-order-definition\",\"title\":\"Premium Order Definition\"},{\"id\":\"kp_c7c3c1e7-08e1-4197-a807-5b5d1da0203d\",\"slug\":\"primary-region-definition\",\"title\":\"Primary Region Definition\"},{\"id\":\"kp_a39437c6-af58-4abb-81b0-c904e6060a0a\",\"slug\":\"priority-order-definition\",\"title\":\"Priority Order Definition\"}]}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Found it. `memory.bench.legacy_orders` is explicitly described in DataHub as \"DEPRECATED order extract from the retired ingestion pipeline. Partial coverage, totals in dollars. Use memory.bench.orders for all order analysis.\" It's also flagged as deprecated with a note pointing to `memory.bench.orders` as the replacement.\n\nFINAL ANSWER: memory.bench.legacy_orders"
+    }
+  ]
+}

@@ -1,0 +1,217 @@
+{
+  "task_id": "s1-revenue-source",
+  "arm": "a2",
+  "attempt": 1,
+  "session_id": "dps_4b4217d1cecf945dbc8197a494fab15c",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "To compute company revenue per the reporting policy (net of discounts, completed orders only), which table holds the raw per-order rows you need?"
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01DTdcojaNCFSQuE8nAmgDYd",
+          "name": "search",
+          "args": {
+            "intent": "company revenue per reporting policy net of discounts, completed orders only - raw per-order rows table"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01DTdcojaNCFSQuE8nAmgDYd",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"connections\",\n      \"hits\": [\n        {\n          \"text\": \"platform-admin (api)\\nBuilt-in self-configuration connection. Routes the API gateway to the platform's own admin REST API (`/api/v1/admin/*`) so an admin can create personas, manage connections, edit agent instructions, and manage prompts and API keys directly from an MCP session. Calls are authenticated and audited as the acting admin.\",\n          \"source\": \"connections\",\n          \"ref\": \"platform-admin\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(api,platform-admin)\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"connections\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 1,\n  \"ranking\": \"lexical\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01FkE24NWAsY9EiegfDHjGG2",
+          "name": "search",
+          "args": {
+            "intent": "revenue reporting policy definition net of discounts completed orders"
+          }
+        },
+        {
+          "id": "toolu_01NZNJwfPBk8CFX5bs5eSGuN",
+          "name": "search",
+          "args": {
+            "intent": "orders table raw per-order rows"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01FkE24NWAsY9EiegfDHjGG2",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Primary Region Definition\\nThe 'primary region' is the region with the highest NET revenue (amount - discount) over completed orders.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_c7c3c1e7-08e1-4197-a807-5b5d1da0203d\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp_c7c3c1e7-08e1-4197-a807-5b5d1da0203d\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 1,\n  \"ranking\": \"lexical\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01NZNJwfPBk8CFX5bs5eSGuN",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"lexical\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01Nxt7SB2tFaK1VmaqeeQNSf",
+          "name": "search",
+          "args": {
+            "intent": "revenue calculation policy net of discounts completed orders table columns",
+            "sources": [
+              "catalog",
+              "context_documents",
+              "knowledge_pages"
+            ]
+          }
+        },
+        {
+          "id": "toolu_01JPdV2JaMn5o9VAkK61sapU",
+          "name": "search",
+          "args": {
+            "intent": "orders fact table amount discount status",
+            "sources": [
+              "catalog"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01Nxt7SB2tFaK1VmaqeeQNSf",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"lexical\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01JPdV2JaMn5o9VAkK61sapU",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"lexical\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01J369KCAeyTZ1CpdHPxJXy5",
+          "name": "search",
+          "args": {
+            "intent": "order line items amount discount order status completed"
+          }
+        },
+        {
+          "id": "toolu_01EvqidJ5Ly1gc7KMFuF4g5b",
+          "name": "trino_browse",
+          "args": {}
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01J369KCAeyTZ1CpdHPxJXy5",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"lexical\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01EvqidJ5Ly1gc7KMFuF4g5b",
+          "text": "## Available Catalogs\n\n- `memory`\n- `system`\n\n*2 catalogs found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_011agyX2VX983NJqee44nZmF",
+          "name": "datahub_get_glossary_term",
+          "args": {
+            "urn": "mcp:knowledge_page:kp_c7c3c1e7-08e1-4197-a807-5b5d1da0203d"
+          }
+        },
+        {
+          "id": "toolu_01TmtbvWBPxQje8cFejkuYrL",
+          "name": "search",
+          "args": {
+            "intent": "orders table",
+            "sources": [
+              "catalog"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_011agyX2VX983NJqee44nZmF",
+          "text": "GetGlossaryTerm(mcp:knowledge_page:kp_c7c3c1e7-08e1-4197-a807-5b5d1da0203d): graphql error: Failed to retrieve entities of type GlossaryTerm. Root cause: Failed to retrieve entity with urn mcp:knowledge_page:kp_c7c3c1e7-08e1-4197-a807-5b5d1da0203d, invalid urn (code: tool_error)",
+          "is_error": true
+        },
+        {
+          "call_id": "toolu_01TmtbvWBPxQje8cFejkuYrL",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"lexical\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01UZvRjr9kZ88NoqPkKEtvug",
+          "name": "search",
+          "args": {
+            "intent": "reporting policy revenue orders discount"
+          }
+        },
+        {
+          "id": "toolu_013FHCXMm874tTKavrYExVMC",
+          "name": "datahub_browse",
+          "args": {
+            "what": "domains"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01UZvRjr9kZ88NoqPkKEtvug",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Fiscal Calendar Policy\\nThe fiscal year starts February 1: fiscal year 2025 runs 2025-02-01 through 2026-01-31. Fiscal figures must not be computed over the calendar year.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-3\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-3\"\n        },\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 0.17802450105615636,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 0.09939846641309011,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        },\n        {\n          \"text\": \"Primary Region Definition\\nThe 'primary region' is the region with the highest NET revenue (amount - discount) over completed orders.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_c7c3c1e7-08e1-4197-a807-5b5d1da0203d\",\n          \"score\": 0,\n          \"reference\": \"mcp:knowledge_page:kp_c7c3c1e7-08e1-4197-a807-5b5d1da0203d\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"daily_region_revenue\\nPre-aggregated daily revenue by region, derived from completed orders. Values are GROSS of discounts (USD), so this index must not be used for policy net-revenue figures; use memory.bench.orders per the Revenue Reporting Policy.\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n        },\n        {\n          \"text\": \"orders\\nCurrent order transactions, one row per order. Monetary columns (amount, discount) are stored as INTEGERS IN US CENTS; divide by 100 for USD. Company revenue reporting policy: revenue = amount - discount, COMPLETED orders only (refunded and pending orders are excluded). See the 'Revenue Reporting Policy' knowledge page for the authoritative definition.\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n          \"score\": 0,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 4,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 2,\n      \"shown\": 2\n    }\n  ],\n  \"count\": 6,\n  \"ranking\": \"lexical\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_013FHCXMm874tTKavrYExVMC",
+          "text": "{}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "This confirms the answer clearly: `memory.bench.orders` holds the raw per-order rows (one row per order, with `amount` and `discount` in cents, and `status` field to filter completed orders), and is explicitly designated as the authoritative source for the Revenue Reporting Policy. The `daily_region_revenue` table is a gross-only pre-aggregation and must not be used, while `legacy_orders` is deprecated.\n\nFINAL ANSWER: memory.bench.orders"
+    }
+  ]
+}

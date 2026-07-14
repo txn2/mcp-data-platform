@@ -1,0 +1,175 @@
+{
+  "task_id": "s1-preaggregated",
+  "arm": "a2",
+  "attempt": 1,
+  "session_id": "dps_55ca9a0e8eaa19b86036e6e83c0b7913",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "Which bench table stores gross revenue already summarized by day and region?"
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01PbeiSC8HjXMCvdZoQh1e4H",
+          "name": "search",
+          "args": {
+            "intent": "table storing gross revenue summarized by day and region"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01PbeiSC8HjXMCvdZoQh1e4H",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"connections\",\n      \"hits\": [\n        {\n          \"text\": \"platform-admin (api)\\nBuilt-in self-configuration connection. Routes the API gateway to the platform's own admin REST API (`/api/v1/admin/*`) so an admin can create personas, manage connections, edit agent instructions, and manage prompts and API keys directly from an MCP session. Calls are authenticated and audited as the acting admin.\",\n          \"source\": \"connections\",\n          \"ref\": \"platform-admin\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(api,platform-admin)\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"connections\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 1,\n  \"ranking\": \"lexical\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01RfNiqaZisHixhiqZx5MLWm",
+          "name": "trino_browse",
+          "args": {}
+        },
+        {
+          "id": "toolu_016UkPouW5dMRpMZD4ptxcgU",
+          "name": "search",
+          "args": {
+            "intent": "daily revenue by region summary table"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01RfNiqaZisHixhiqZx5MLWm",
+          "text": "## Available Catalogs\n\n- `memory`\n- `system`\n\n*2 catalogs found*",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_016UkPouW5dMRpMZD4ptxcgU",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"lexical\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_014pCs3FKWf6TzUfi3TPZ4xL",
+          "name": "trino_browse",
+          "args": {
+            "connection": "bench"
+          }
+        },
+        {
+          "id": "toolu_018RjLpjzsNG1UbszYqcheLP",
+          "name": "datahub_browse",
+          "args": {
+            "what": "data_products"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_014pCs3FKWf6TzUfi3TPZ4xL",
+          "text": "Connection error: unknown connection: \"bench\" (available: [e2e]) (code: tool_error)",
+          "is_error": true
+        },
+        {
+          "call_id": "toolu_018RjLpjzsNG1UbszYqcheLP",
+          "text": "{}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_013vikvckGqJkg7BsY2nmiuW",
+          "name": "trino_browse",
+          "args": {
+            "connection": "e2e"
+          }
+        },
+        {
+          "id": "toolu_01NjZ6kf9DspBmTBLy7A4Sqo",
+          "name": "search",
+          "args": {
+            "intent": "gross revenue by day and region table",
+            "sources": [
+              "catalog"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_013vikvckGqJkg7BsY2nmiuW",
+          "text": "## Available Catalogs\n\n- `memory`\n- `system`\n\n*2 catalogs found*",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01NjZ6kf9DspBmTBLy7A4Sqo",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"lexical\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01NboRybdrjYpNVVvSfYEEcz",
+          "name": "search",
+          "args": {
+            "intent": "bench gross revenue by day and region"
+          }
+        },
+        {
+          "id": "toolu_014GvxHii3kSeX1VMc8n1swz",
+          "name": "datahub_browse",
+          "args": {
+            "what": "domains"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01NboRybdrjYpNVVvSfYEEcz",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"daily_region_revenue\\nPre-aggregated daily revenue by region, derived from completed orders. Values are GROSS of discounts (USD), so this index must not be used for policy net-revenue figures; use memory.bench.orders per the Revenue Reporting Policy.\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"connections\",\n      \"hits\": [\n        {\n          \"text\": \"platform-admin (api)\\nBuilt-in self-configuration connection. Routes the API gateway to the platform's own admin REST API (`/api/v1/admin/*`) so an admin can create personas, manage connections, edit agent instructions, and manage prompts and API keys directly from an MCP session. Calls are authenticated and audited as the acting admin.\",\n          \"source\": \"connections\",\n          \"ref\": \"platform-admin\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(api,platform-admin)\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"catalog\",\n      \"matched\": 1,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"connections\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 2,\n  \"ranking\": \"lexical\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_014GvxHii3kSeX1VMc8n1swz",
+          "text": "{}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Found it: `memory.bench.daily_region_revenue` — a pre-aggregated table storing daily revenue by region, derived from completed orders, with gross (of discounts) values in USD.\n\nFINAL ANSWER: memory.bench.daily_region_revenue"
+    }
+  ]
+}

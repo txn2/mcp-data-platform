@@ -14,10 +14,12 @@ import (
 
 	"github.com/txn2/mcp-data-platform/bench/internal/agent"
 	"github.com/txn2/mcp-data-platform/bench/internal/auditapi"
+	"github.com/txn2/mcp-data-platform/bench/internal/claudecli"
 	"github.com/txn2/mcp-data-platform/bench/internal/gen"
 	"github.com/txn2/mcp-data-platform/bench/internal/lifecycleapi"
 	"github.com/txn2/mcp-data-platform/bench/internal/llm"
 	"github.com/txn2/mcp-data-platform/bench/internal/mcpc"
+	"github.com/txn2/mcp-data-platform/bench/internal/pool"
 	"github.com/txn2/mcp-data-platform/bench/internal/protocol"
 	"github.com/txn2/mcp-data-platform/bench/internal/target"
 )
@@ -45,6 +47,12 @@ type Options struct {
 	ProtocolsDir  string
 	TranscriptDir string
 	Factory       AdapterFactory
+	// ClaudeCLI, when non-nil, runs each episode through a real `claude -p`
+	// client (connecting to the platform directly and threading its own handle)
+	// instead of the in-process agent loop. Factory is unused in this mode.
+	ClaudeCLI *claudecli.Runner
+	// ClientVersion is recorded on the manifest for the ClaudeCLI path.
+	ClientVersion string
 	LLMProvider   string
 	GitCommit     string
 	AuditTimeout  time.Duration
@@ -104,6 +112,7 @@ func Run(ctx context.Context, opts Options) (*Results, error) {
 	res.Manifest.FinishedAt = time.Now().UTC()
 	res.Manifest.PlatformVersion = env.platformVersion
 	res.Manifest.Model = env.model
+	res.Manifest.ClientVersion = opts.ClientVersion
 	res.Aggregate()
 	if failures > 0 {
 		return res, fmt.Errorf("%d protocol run(s) failed at the harness level; see runs[].error", failures)
@@ -354,9 +363,7 @@ func (e *runEnv) abstain(ctx context.Context, p protocol.Protocol, teacherSeq in
 // pool identity (or the base credential when rotation is off).
 func (e *runEnv) attemptClient(seq int) *mcpc.Client {
 	t := e.opts.Target
-	if e.opts.IdentityKeys > 0 {
-		t.Credential = fmt.Sprintf("%s-%03d", t.Credential, seq)
-	}
+	t.Credential = pool.Credential(t.Credential, seq, e.opts.IdentityKeys)
 	return mcpc.New(t.BaseURL, t.HTTPClient(e.opts.HTTPTimeout))
 }
 

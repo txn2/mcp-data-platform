@@ -1,0 +1,435 @@
+{
+  "task_id": "s3-tier-key-avg",
+  "arm": "a1",
+  "attempt": 1,
+  "session_id": "dps_2017ca5357977760b7f1859dad407f2e",
+  "rubric": [
+    "caveat-tier: Answer should state a key account is any plus- or enterprise-tier customer, not enterprise alone."
+  ],
+  "transcript": [
+    {
+      "role": "user",
+      "text": "What is the average order amount in USD across all orders placed by KEY ACCOUNT customers in the bench warehouse? Round to the nearest cent."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01Tn367WyYASchaWc2toGhaw",
+          "name": "trino_browse",
+          "args": {}
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01Tn367WyYASchaWc2toGhaw",
+          "text": "## Available Catalogs\n\n- `memory`\n- `system`\n\n*2 catalogs found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01ULVfi5SGt2H5F1L9DHoC91",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "memory"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01ULVfi5SGt2H5F1L9DHoC91",
+          "text": "## Schemas in `memory`\n\n- `bench`\n- `default`\n- `e2e_test`\n- `information_schema`\n\n*4 schemas found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_014eGyxkY6KFwUg3JqyyFXpo",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "memory",
+            "schema": "bench"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_014eGyxkY6KFwUg3JqyyFXpo",
+          "text": "## Tables in `memory.bench`\n\n- `customers`\n- `daily_region_revenue`\n- `legacy_orders`\n- `orders`\n\n*4 tables found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01VGP8xmqoR4jyWab8yskFP1",
+          "name": "trino_describe_table",
+          "args": {
+            "catalog": "memory",
+            "include_sample": true,
+            "schema": "bench",
+            "table": "customers"
+          }
+        },
+        {
+          "id": "toolu_017wmkaBv1qSeagvNWPzGkgS",
+          "name": "trino_describe_table",
+          "args": {
+            "catalog": "memory",
+            "include_sample": true,
+            "schema": "bench",
+            "table": "orders"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01VGP8xmqoR4jyWab8yskFP1",
+          "text": "## Table: `memory.bench.customers`\n\n### Columns\n\n| Name | Type | Nullable | Comment |\n|------|------|----------|----------|\n| `customer_id` | integer | - | - |\n| `name` | varchar | - | - |\n| `region` | varchar | - | - |\n| `tier` | varchar | - | - |\n| `created_at` | timestamp(3) | - | - |\n\n*5 columns*\n\n### Sample Data\n\n```json\n[\n  {\n    \"created_at\": \"2023-02-02T15:00:00-08:00\",\n    \"customer_id\": 1,\n    \"name\": \"Harper Silva\",\n    \"region\": \"East\",\n    \"tier\": \"basic\"\n  },\n  {\n    \"created_at\": \"2024-03-15T19:00:00-07:00\",\n    \"customer_id\": 2,\n    \"name\": \"Quinn Ramos\",\n    \"region\": \"East\",\n    \"tier\": \"basic\"\n  },\n  {\n    \"created_at\": \"2024-08-19T16:00:00-07:00\",\n    \"customer_id\": 3,\n    \"name\": \"Tatum Silva\",\n    \"region\": \"South\",\n    \"tier\": \"plus\"\n  },\n  {\n    \"created_at\": \"2023-05-15T00:00:00-07:00\",\n    \"customer_id\": 4,\n    \"name\": \"Harper Dawson\",\n    \"region\": \"North\",\n    \"tier\": \"plus\"\n  },\n  {\n    \"created_at\": \"2023-07-27T23:00:00-07:00\",\n    \"customer_id\": 5,\n    \"name\": \"Morgan Mercer\",\n    \"region\": \"South\",\n    \"tier\": \"plus\"\n  }\n]\n```\n{\"semantic_context\":{\"custom_properties\":{\"team\":\"bench\"},\"deprecation\":null,\"description\":\"The 'target cohort' is the set of customers whose account was created during calendar year 2024.\",\"domain\":null,\"owners\":null,\"quality_score\":null,\"tags\":[\"bench\"],\"urn\":\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"}}\n{\"memory_context\":[{\"id\":\"1f2a3810a48ce2b78a6a22fba6d54c3b\",\"reference\":\"mcp:memory:1f2a3810a48ce2b78a6a22fba6d54c3b\",\"summary\":\"Working definition: the 'target cohort' is the set of customers whose account was created during calendar year 2024. Concretely, this means customers.created_at falls within [2024-01-01 00:00:00, 2025-01-01 00:00:00) (i.e. YEAR(created_at) = 2024) on the memory.bench.customers ta\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-07-13T20:15:05.439725Z\"},{\"id\":\"1718bcafa83a3032337595f45bd1607a\",\"reference\":\"mcp:memory:1718bcafa83a3032337595f45bd1607a\",\"summary\":\"Working definition: the 'leading region' is the region whose customers placed the most orders (i.e., group orders by the customer's region via customers.region joined on orders.customer_id, and take the region with the highest order count). This is a count-of-orders definition, n\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-07-13T19:48:22.763657Z\"}],\"memory_context_note\":\"1 additional related memory record(s) omitted to stay within the enrichment budget; fetch any by its reference in memory_context_omitted for full detail.\",\"memory_context_omitted\":[{\"id\":\"d1355a26725bae11b5ffab79a71e712d\",\"reference\":\"mcp:memory:d1355a26725bae11b5ffab79a71e712d\"}]}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_017wmkaBv1qSeagvNWPzGkgS",
+          "text": "## Table: `memory.bench.orders`\n\n### Columns\n\n| Name | Type | Nullable | Comment |\n|------|------|----------|----------|\n| `order_id` | integer | - | - |\n| `customer_id` | integer | - | - |\n| `order_ts` | timestamp(3) | - | - |\n| `status` | varchar | - | - |\n| `amount` | integer | - | - |\n| `discount` | integer | - | - |\n\n*6 columns*\n\n### Sample Data\n\n```json\n[\n  {\n    \"amount\": 58692,\n    \"customer_id\": 71,\n    \"discount\": 13269,\n    \"order_id\": 1000,\n    \"order_ts\": \"2025-11-11T09:05:00-08:00\",\n    \"status\": \"completed\"\n  },\n  {\n    \"amount\": 252586,\n    \"customer_id\": 55,\n    \"discount\": 6080,\n    \"order_id\": 1001,\n    \"order_ts\": \"2025-11-07T12:28:00-08:00\",\n    \"status\": \"completed\"\n  },\n  {\n    \"amount\": 221661,\n    \"customer_id\": 41,\n    \"discount\": 6124,\n    \"order_id\": 1002,\n    \"order_ts\": \"2025-05-01T15:36:00-07:00\",\n    \"status\": \"completed\"\n  },\n  {\n    \"amount\": 176712,\n    \"customer_id\": 41,\n    \"discount\": 4162,\n    \"order_id\": 1003,\n    \"order_ts\": \"2025-07-15T17:18:00-07:00\",\n    \"status\": \"completed\"\n  },\n  {\n    \"amount\": 12979,\n    \"customer_id\": 3,\n    \"discount\": 1570,\n    \"order_id\": 1004,\n    \"order_ts\": \"2025-11-14T19:26:00-08:00\",\n    \"status\": \"completed\"\n  }\n]\n```\n{\"semantic_context\":{\"custom_properties\":{\"team\":\"bench\",\"unit\":\"cents\"},\"deprecation\":null,\"description\":\"The 'reporting cohort' is the set of orders placed in December 2025.\",\"domain\":null,\"owners\":null,\"quality_score\":null,\"tags\":[\"bench\"],\"urn\":\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"}}\n{\"memory_context\":[{\"id\":\"67810f0b8219cda9415b68fdaddaa962\",\"reference\":\"mcp:memory:67810f0b8219cda9415b68fdaddaa962\",\"summary\":\"Working definition: 'settlement total' = gross revenue (sum of `amount` column, no discount subtraction) over COMPLETED orders only, for calendar Q4 2025 (October 1, 2025 through December 31, 2025). This differs from the company's standard net Revenue Reporting Policy (amount - d\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-07-13T20:10:12.054972Z\"},{\"id\":\"28936642782ec7e10cc061d6031d5e53\",\"reference\":\"mcp:memory:28936642782ec7e10cc061d6031d5e53\",\"summary\":\"Working definition: the 'reporting cohort' refers to the set of orders placed in December 2025 (i.e., orders in the `orders` table with order placement date \\u003e= 2025-12-01 and \\u003c 2026-01-01). Use this definition consistently in later analysis sessions when 'reporting cohort' is ref\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-07-13T20:06:48.378653Z\"},{\"id\":\"a21515a08e88cfc2683c1c3dcab51a92\",\"reference\":\"mcp:memory:a21515a08e88cfc2683c1c3dcab51a92\",\"summary\":\"Working definition: a 'priority order' is any order whose amount is at least $1,000.00 (i.e., \\u003e= 100000 in the amount column, since amounts are stored as integers in US cents). Applies to the memory.bench.orders dataset.\",\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-07-13T20:04:26.575738Z\"}],\"memory_context_note\":\"2 additional related memory record(s) omitted to stay within the enrichment budget; fetch any by its reference in memory_context_omitted for full detail.\",\"memory_context_omitted\":[{\"id\":\"9435017067fc0a9fe0da4aa1a53ca9b4\",\"reference\":\"mcp:memory:9435017067fc0a9fe0da4aa1a53ca9b4\"},{\"id\":\"38d428aa9abd388166a748c68856fb17\",\"reference\":\"mcp:memory:38d428aa9abd388166a748c68856fb17\"}]}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01BwGewRWJHWKw6kxLc2tA4q",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT DISTINCT tier FROM memory.bench.customers"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01BwGewRWJHWKw6kxLc2tA4q",
+          "text": "{\n  \"columns\": [\n    {\n      \"name\": \"tier\",\n      \"type\": \"VARCHAR\"\n    }\n  ],\n  \"rows\": [\n    {\n      \"tier\": \"basic\"\n    },\n    {\n      \"tier\": \"enterprise\"\n    },\n    {\n      \"tier\": \"plus\"\n    }\n  ],\n  \"row_count\": 3,\n  \"stats\": {\n    \"row_count\": 3,\n    \"truncated\": false,\n    \"limit_applied\": 1000,\n    \"duration_ms\": 17\n  }\n}\n{\"metadata_reference\":{\"note\":\"Full semantic metadata was provided earlier in this session. Refer to previous responses for column descriptions, tags, owners, and glossary terms.\",\"tables\":[\"memory.bench.customers\"]}}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01Puu9AtGxhCpo9sKpWDdGFv",
+          "name": "s3_list_buckets",
+          "args": {}
+        },
+        {
+          "id": "toolu_01QnGmmYLEaqoNnbFTCduNrr",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT * FROM memory.bench.customers LIMIT 1"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01Puu9AtGxhCpo9sKpWDdGFv",
+          "text": "{\n  \"buckets\": [\n    {\n      \"name\": \"test-analytics\",\n      \"creation_date\": \"2026-07-13T06:15:57Z\"\n    },\n    {\n      \"name\": \"test-data-lake\",\n      \"creation_date\": \"2026-07-13T06:15:56Z\"\n    }\n  ],\n  \"count\": 2\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01QnGmmYLEaqoNnbFTCduNrr",
+          "text": "{\n  \"columns\": [\n    {\n      \"name\": \"customer_id\",\n      \"type\": \"INTEGER\"\n    },\n    {\n      \"name\": \"name\",\n      \"type\": \"VARCHAR\"\n    },\n    {\n      \"name\": \"region\",\n      \"type\": \"VARCHAR\"\n    },\n    {\n      \"name\": \"tier\",\n      \"type\": \"VARCHAR\"\n    },\n    {\n      \"name\": \"created_at\",\n      \"type\": \"TIMESTAMP\"\n    }\n  ],\n  \"rows\": [\n    {\n      \"created_at\": \"2023-02-02T15:00:00-08:00\",\n      \"customer_id\": 1,\n      \"name\": \"Harper Silva\",\n      \"region\": \"East\",\n      \"tier\": \"basic\"\n    }\n  ],\n  \"row_count\": 1,\n  \"stats\": {\n    \"row_count\": 1,\n    \"truncated\": false,\n    \"limit_applied\": 1000,\n    \"duration_ms\": 12\n  }\n}\n{\"metadata_reference\":{\"note\":\"Full semantic metadata was provided earlier in this session. Refer to previous responses for column descriptions, tags, owners, and glossary terms.\",\"tables\":[\"memory.bench.customers\"]}}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01JQhRmfQ89u6dUaKaUuAZzq",
+          "name": "trino_describe_table",
+          "args": {
+            "catalog": "memory",
+            "include_sample": true,
+            "schema": "bench",
+            "table": "legacy_orders"
+          }
+        },
+        {
+          "id": "toolu_01Yc4pfBCeH9quHMPoGLAiCN",
+          "name": "trino_describe_table",
+          "args": {
+            "catalog": "memory",
+            "include_sample": true,
+            "schema": "bench",
+            "table": "daily_region_revenue"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01JQhRmfQ89u6dUaKaUuAZzq",
+          "text": "## Table: `memory.bench.legacy_orders`\n\n### Columns\n\n| Name | Type | Nullable | Comment |\n|------|------|----------|----------|\n| `order_id` | integer | - | - |\n| `customer_id` | integer | - | - |\n| `order_date` | date | - | - |\n| `total` | double | - | - |\n\n*4 columns*\n\n### Sample Data\n\n```json\n[\n  {\n    \"customer_id\": 71,\n    \"order_date\": \"2025-11-11T00:00:00-08:00\",\n    \"order_id\": 1000,\n    \"total\": 586.92\n  },\n  {\n    \"customer_id\": 55,\n    \"order_date\": \"2025-11-07T00:00:00-08:00\",\n    \"order_id\": 1001,\n    \"total\": 2525.86\n  },\n  {\n    \"customer_id\": 41,\n    \"order_date\": \"2025-05-01T00:00:00-07:00\",\n    \"order_id\": 1002,\n    \"total\": 2216.61\n  },\n  {\n    \"customer_id\": 41,\n    \"order_date\": \"2025-07-15T00:00:00-07:00\",\n    \"order_id\": 1003,\n    \"total\": 1767.12\n  },\n  {\n    \"customer_id\": 3,\n    \"order_date\": \"2025-11-14T00:00:00-08:00\",\n    \"order_id\": 1004,\n    \"total\": 129.79\n  }\n]\n```\n{\"semantic_context\":{\"custom_properties\":{\"team\":\"bench\"},\"deprecation\":{\"deprecated\":true,\"note\":\"Deprecated. Use memory.bench.orders instead.\",\"actor\":\"urn:li:corpuser:bench-seed\"},\"description\":\"DEPRECATED order extract from the retired ingestion pipeline. Partial coverage, totals in dollars. Use memory.bench.orders for all order analysis.\",\"domain\":null,\"owners\":null,\"quality_score\":null,\"tags\":[\"bench\"],\"urn\":\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\"}}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01Yc4pfBCeH9quHMPoGLAiCN",
+          "text": "## Table: `memory.bench.daily_region_revenue`\n\n### Columns\n\n| Name | Type | Nullable | Comment |\n|------|------|----------|----------|\n| `day` | date | - | - |\n| `region` | varchar | - | - |\n| `gross_revenue_usd` | double | - | - |\n\n*3 columns*\n\n### Sample Data\n\n```json\n[\n  {\n    \"day\": \"2025-01-01T00:00:00-08:00\",\n    \"gross_revenue_usd\": 2825.51,\n    \"region\": \"North\"\n  },\n  {\n    \"day\": \"2025-01-01T00:00:00-08:00\",\n    \"gross_revenue_usd\": 504.41,\n    \"region\": \"South\"\n  },\n  {\n    \"day\": \"2025-01-01T00:00:00-08:00\",\n    \"gross_revenue_usd\": 5453.71,\n    \"region\": \"West\"\n  },\n  {\n    \"day\": \"2025-01-02T00:00:00-08:00\",\n    \"gross_revenue_usd\": 2137.64,\n    \"region\": \"East\"\n  },\n  {\n    \"day\": \"2025-01-02T00:00:00-08:00\",\n    \"gross_revenue_usd\": 4875.81,\n    \"region\": \"West\"\n  }\n]\n```\n{\"semantic_context\":{\"custom_properties\":{\"grain\":\"day,region\",\"team\":\"bench\"},\"deprecation\":null,\"description\":\"Pre-aggregated daily revenue by region, derived from completed orders. Values are GROSS of discounts (USD), so this index must not be used for policy net-revenue figures; use memory.bench.orders per the Revenue Reporting Policy.\",\"domain\":null,\"owners\":null,\"quality_score\":null,\"tags\":[\"bench\"],\"urn\":\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"}}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01CEjS4cKZn5UpzKLA378XGD",
+          "name": "s3_list_objects",
+          "args": {
+            "bucket": "test-analytics"
+          }
+        },
+        {
+          "id": "toolu_01Dqv5nFwmKt8PF6WKnR1vxg",
+          "name": "s3_list_objects",
+          "args": {
+            "bucket": "test-data-lake"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01CEjS4cKZn5UpzKLA378XGD",
+          "text": "{\n  \"bucket\": \"test-analytics\",\n  \"objects\": [],\n  \"count\": 0,\n  \"is_truncated\": false\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01Dqv5nFwmKt8PF6WKnR1vxg",
+          "text": "{\n  \"bucket\": \"test-data-lake\",\n  \"objects\": [\n    {\n      \"key\": \"raw/sample.parquet\",\n      \"size\": 37,\n      \"last_modified\": \"2026-07-13T18:18:07Z\",\n      \"etag\": \"\\\"cd3e1850552c76e0de8b03c99a70259c\\\"\",\n      \"storage_class\": \"STANDARD\"\n    }\n  ],\n  \"count\": 1,\n  \"is_truncated\": false\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_011qFcy1i6bGQLv9ZTNCRZFh",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "memory",
+            "schema": "default"
+          }
+        },
+        {
+          "id": "toolu_011hZ6JT6BASH8QYPvQSJZZw",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "memory",
+            "schema": "e2e_test"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_011qFcy1i6bGQLv9ZTNCRZFh",
+          "text": "## Tables in `memory.default`\n\n\n*0 tables found*",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_011hZ6JT6BASH8QYPvQSJZZw",
+          "text": "## Tables in `memory.e2e_test`\n\n- `customer_metrics`\n- `legacy_users`\n- `products`\n- `test_orders`\n\n*4 tables found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_011zaX8gidvzNZUieobEiGpi",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT tier, count(*) FROM memory.bench.customers GROUP BY tier"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_011zaX8gidvzNZUieobEiGpi",
+          "text": "{\n  \"columns\": [\n    {\n      \"name\": \"tier\",\n      \"type\": \"VARCHAR\"\n    },\n    {\n      \"name\": \"_col1\",\n      \"type\": \"BIGINT\"\n    }\n  ],\n  \"rows\": [\n    {\n      \"_col1\": 24,\n      \"tier\": \"plus\"\n    },\n    {\n      \"_col1\": 19,\n      \"tier\": \"enterprise\"\n    },\n    {\n      \"_col1\": 37,\n      \"tier\": \"basic\"\n    }\n  ],\n  \"row_count\": 3,\n  \"stats\": {\n    \"row_count\": 3,\n    \"truncated\": false,\n    \"limit_applied\": 1000,\n    \"duration_ms\": 9\n  }\n}\n{\"metadata_reference\":{\"note\":\"Full semantic metadata was provided earlier in this session. Refer to previous responses for column descriptions, tags, owners, and glossary terms.\",\"tables\":[\"memory.bench.customers\"]}}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01L9yH2aXcEhQRPyXHf94yoh",
+          "name": "trino_describe_table",
+          "args": {
+            "catalog": "memory",
+            "include_sample": true,
+            "schema": "e2e_test",
+            "table": "customer_metrics"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01L9yH2aXcEhQRPyXHf94yoh",
+          "text": "## Table: `memory.e2e_test.customer_metrics`\n\n### Columns\n\n| Name | Type | Nullable | Comment |\n|------|------|----------|----------|\n| `customer_id` | bigint | - | - |\n| `total_orders` | integer | - | - |\n| `total_spent` | decimal(12,2) | - | - |\n| `first_order_date` | date | - | - |\n| `last_order_date` | date | - | - |\n\n*5 columns*\n\n### Sample Data\n\n```json\n[\n  {\n    \"customer_id\": 100,\n    \"first_order_date\": \"2024-01-15T00:00:00-08:00\",\n    \"last_order_date\": \"2024-01-17T00:00:00-08:00\",\n    \"total_orders\": 2,\n    \"total_spent\": \"225.25\"\n  },\n  {\n    \"customer_id\": 101,\n    \"first_order_date\": \"2024-01-16T00:00:00-08:00\",\n    \"last_order_date\": \"2024-01-16T00:00:00-08:00\",\n    \"total_orders\": 1,\n    \"total_spent\": \"250.50\"\n  },\n  {\n    \"customer_id\": 102,\n    \"first_order_date\": \"2024-01-18T00:00:00-08:00\",\n    \"last_order_date\": \"2024-01-18T00:00:00-08:00\",\n    \"total_orders\": 1,\n    \"total_spent\": \"320.00\"\n  },\n  {\n    \"customer_id\": 103,\n    \"first_order_date\": \"2024-01-19T00:00:00-08:00\",\n    \"last_order_date\": \"2024-01-19T00:00:00-08:00\",\n    \"total_orders\": 1,\n    \"total_spent\": \"180.75\"\n  },\n  {\n    \"customer_id\": 100,\n    \"first_order_date\": \"2024-01-15T00:00:00-08:00\",\n    \"last_order_date\": \"2024-01-17T00:00:00-08:00\",\n    \"total_orders\": 2,\n    \"total_spent\": \"225.25\"\n  }\n]\n```\n{\"semantic_context\":{\"deprecation\":null,\"description\":\"\",\"domain\":null,\"owners\":null,\"quality_score\":null,\"tags\":null,\"urn\":\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.e2e_test.customer_metrics,PROD)\"}}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_012p4Q4VBVZvx7sCv23Ga6zh",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT * FROM memory.information_schema.tables WHERE table_schema = 'bench'"
+          }
+        },
+        {
+          "id": "toolu_01KM87SEKhVqjWfL9THCXndH",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT * FROM memory.information_schema.columns WHERE table_schema = 'bench'"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_012p4Q4VBVZvx7sCv23Ga6zh",
+          "text": "{\n  \"columns\": [\n    {\n      \"name\": \"table_catalog\",\n      \"type\": \"VARCHAR\"\n    },\n    {\n      \"name\": \"table_schema\",\n      \"type\": \"VARCHAR\"\n    },\n    {\n      \"name\": \"table_name\",\n      \"type\": \"VARCHAR\"\n    },\n    {\n      \"name\": \"table_type\",\n      \"type\": \"VARCHAR\"\n    }\n  ],\n  \"rows\": [\n    {\n      \"table_catalog\": \"memory\",\n      \"table_name\": \"daily_region_revenue\",\n      \"table_schema\": \"bench\",\n      \"table_type\": \"BASE TABLE\"\n    },\n    {\n      \"table_catalog\": \"memory\",\n      \"table_name\": \"customers\",\n      \"table_schema\": \"bench\",\n      \"table_type\": \"BASE TABLE\"\n    },\n    {\n      \"table_catalog\": \"memory\",\n      \"table_name\": \"legacy_orders\",\n      \"table_schema\": \"bench\",\n      \"table_type\": \"BASE TABLE\"\n    },\n    {\n      \"table_catalog\": \"memory\",\n      \"table_name\": \"orders\",\n      \"table_schema\": \"bench\",\n      \"table_type\": \"BASE TABLE\"\n    }\n  ],\n  \"row_count\": 4,\n  \"stats\": {\n    \"row_count\": 4,\n    \"truncated\": false,\n    \"limit_applied\": 1000,\n    \"duration_ms\": 13\n  }\n}\n{\"semantic_context\":{\"deprecation\":null,\"description\":\"\",\"domain\":null,\"owners\":null,\"quality_score\":null,\"tags\":null,\"urn\":\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.information_schema.tables,PROD)\"}}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01KM87SEKhVqjWfL9THCXndH",
+          "text": "{\n  \"columns\": [\n    {\n      \"name\": \"table_catalog\",\n      \"type\": \"VARCHAR\"\n    },\n    {\n      \"name\": \"table_schema\",\n      \"type\": \"VARCHAR\"\n    },\n    {\n      \"name\": \"table_name\",\n      \"type\": \"VARCHAR\"\n    },\n    {\n      \"name\": \"column_name\",\n      \"type\": \"VARCHAR\"\n    },\n    {\n      \"name\": \"ordinal_position\",\n      \"type\": \"BIGINT\"\n    },\n    {\n      \"name\": \"column_default\",\n      \"type\": \"VARCHAR\"\n    },\n    {\n      \"name\": \"is_nullable\",\n      \"type\": \"VARCHAR\"\n    },\n    {\n      \"name\": \"data_type\",\n      \"type\": \"VARCHAR\"\n    }\n  ],\n  \"rows\": [\n    {\n      \"column_default\": null,\n      \"column_name\": \"day\",\n      \"data_type\": \"date\",\n      \"is_nullable\": \"YES\",\n      \"ordinal_position\": 1,\n      \"table_catalog\": \"memory\",\n      \"table_name\": \"daily_region_revenue\",\n      \"table_schema\": \"bench\"\n    },\n    {\n      \"column_default\": null,\n      \"column_name\": \"region\",\n      \"data_type\": \"varchar\",\n      \"is_nullable\": \"YES\",\n      \"ordinal_position\": 2,\n      \"table_catalog\": \"memory\",\n      \"table_name\": \"daily_region_revenue\",\n      \"table_schema\": \"bench\"\n    },\n    {\n      \"column_default\": null,\n      \"column_name\": \"gross_revenue_usd\",\n      \"data_type\": \"double\",\n      \"is_nullable\": \"YES\",\n      \"ordinal_position\": 3,\n      \"table_catalog\": \"memory\",\n      \"table_name\": \"daily_region_revenue\",\n      \"table_schema\": \"bench\"\n    },\n    {\n      \"column_default\": null,\n      \"column_name\": \"customer_id\",\n      \"data_type\": \"integer\",\n      \"is_nullable\": \"YES\",\n      \"ordinal_position\": 1,\n      \"table_catalog\": \"memory\",\n      \"table_name\": \"customers\",\n      \"table_schema\": \"bench\"\n    },\n    {\n      \"column_default\": null,\n      \"column_name\": \"name\",\n      \"data_type\": \"varchar\",\n      \"is_nullable\": \"YES\",\n      \"ordinal_position\": 2,\n      \"table_catalog\": \"memory\",\n      \"table_name\": \"customers\",\n      \"table_schema\": \"bench\"\n    },\n    {\n      \"column_default\": null,\n      \"column_name\": \"region\",\n      \"data_type\": \"varchar\",\n      \"is_nullable\": \"YES\",\n      \"ordinal_position\": 3,\n      \"table_catalog\": \"memory\",\n      \"table_name\": \"customers\",\n      \"table_schema\": \"bench\"\n    },\n    {\n      \"column_default\": null,\n      \"column_name\": \"tier\",\n      \"data_type\": \"varchar\",\n      \"is_nullable\": \"YES\",\n      \"ordinal_position\": 4,\n      \"table_catalog\": \"memory\",\n      \"table_name\": \"customers\",\n      \"table_schema\": \"bench\"\n    },\n    {\n      \"column_default\": null,\n      \"column_name\": \"created_at\",\n      \"data_type\": \"timestamp(3)\",\n      \"is_nullable\": \"YES\",\n      \"ordinal_position\": 5,\n      \"table_catalog\": \"memory\",\n      \"table_name\": \"customers\",\n      \"table_schema\": \"bench\"\n    },\n    {\n      \"column_default\": null,\n      \"column_name\": \"order_id\",\n      \"data_type\": \"integer\",\n      \"is_nullable\": \"YES\",\n      \"ordinal_position\": 1,\n      \"table_catalog\": \"memory\",\n      \"table_name\": \"legacy_orders\",\n      \"table_schema\": \"bench\"\n    },\n    {\n      \"column_default\": null,\n      \"column_name\": \"customer_id\",\n      \"data_type\": \"integer\",\n      \"is_nullable\": \"YES\",\n      \"ordinal_position\": 2,\n      \"table_catalog\": \"memory\",\n      \"table_name\": \"legacy_orders\",\n      \"table_schema\": \"bench\"\n    },\n    {\n      \"column_default\": null,\n      \"column_name\": \"order_date\",\n      \"data_type\": \"date\",\n      \"is_nullable\": \"YES\",\n      \"ordinal_position\": 3,\n      \"table_catalog\": \"memory\",\n      \"table_name\": \"legacy_orders\",\n      \"table_schema\": \"bench\"\n    },\n    {\n      \"column_default\": null,\n      \"column_name\": \"total\",\n      \"data_type\": \"double\",\n      \"is_nullable\": \"YES\",\n      \"ordinal_position\": 4,\n      \"table_catalog\": \"memory\",\n      \"table_name\": \"legacy_orders\",\n      \"table_schema\": \"bench\"\n    },\n    {\n      \"column_default\": null,\n      \"column_name\": \"order_id\",\n      \"data_type\": \"integer\",\n      \"is_nullable\": \"YES\",\n      \"ordinal_position\": 1,\n      \"table_catalog\": \"memory\",\n      \"table_name\": \"orders\",\n      \"table_schema\": \"bench\"\n    },\n    {\n      \"column_default\": null,\n      \"column_name\": \"customer_id\",\n      \"data_type\": \"integer\",\n      \"is_nullable\": \"YES\",\n      \"ordinal_position\": 2,\n      \"table_catalog\": \"memory\",\n      \"table_name\": \"orders\",\n      \"table_schema\": \"bench\"\n    },\n    {\n      \"column_default\": null,\n      \"column_name\": \"order_ts\",\n      \"data_type\": \"timestamp(3)\",\n      \"is_nullable\": \"YES\",\n      \"ordinal_position\": 3,\n      \"table_catalog\": \"memory\",\n      \"table_name\": \"orders\",\n      \"table_schema\": \"bench\"\n    },\n    {\n      \"column_default\": null,\n      \"column_name\": \"status\",\n      \"data_type\": \"varchar\",\n      \"is_nullable\": \"YES\",\n      \"ordinal_position\": 4,\n      \"table_catalog\": \"memory\",\n      \"table_name\": \"orders\",\n      \"table_schema\": \"bench\"\n    },\n    {\n      \"column_default\": null,\n      \"column_name\": \"amount\",\n      \"data_type\": \"integer\",\n      \"is_nullable\": \"YES\",\n      \"ordinal_position\": 5,\n      \"table_catalog\": \"memory\",\n      \"table_name\": \"orders\",\n      \"table_schema\": \"bench\"\n    },\n    {\n      \"column_default\": null,\n      \"column_name\": \"discount\",\n      \"data_type\": \"integer\",\n      \"is_nullable\": \"YES\",\n      \"ordinal_position\": 6,\n      \"table_catalog\": \"memory\",\n      \"table_name\": \"orders\",\n      \"table_schema\": \"bench\"\n    }\n  ],\n  \"row_count\": 18,\n  \"stats\": {\n    \"row_count\": 18,\n    \"truncated\": false,\n    \"limit_applied\": 1000,\n    \"duration_ms\": 7\n  }\n}\n{\"semantic_context\":{\"deprecation\":null,\"description\":\"\",\"domain\":null,\"owners\":null,\"quality_score\":null,\"tags\":null,\"urn\":\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.information_schema.columns,PROD)\"}}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01RKotk7eTB27RDrL1Sy1z1o",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT DISTINCT tier FROM memory.bench.customers WHERE tier ILIKE '%key%' OR tier ILIKE '%account%'"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01RKotk7eTB27RDrL1Sy1z1o",
+          "text": "Query failed: query failed: trino: query failed (200 OK): \"USER_ERROR: line 1:61: mismatched input 'ILIKE'. Expecting: '%', '*', '+', '-', '.', '/', 'AND', 'AT', 'EXCEPT', 'FETCH', 'GROUP', 'HAVING', 'INTERSECT', 'LIMIT', 'OFFSET', 'OR', 'ORDER', 'UNION', 'WINDOW', '[', '||', \u003cEOF\u003e, \u003cpredicate\u003e\" (code: tool_error)",
+          "is_error": true
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01WLkNHyNWzNo2WjkZgzb53V",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT DISTINCT tier FROM memory.bench.customers WHERE lower(tier) LIKE '%key%' OR lower(tier) LIKE '%account%' OR lower(tier) LIKE '%enterprise%'"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01WLkNHyNWzNo2WjkZgzb53V",
+          "text": "{\n  \"columns\": [\n    {\n      \"name\": \"tier\",\n      \"type\": \"VARCHAR\"\n    }\n  ],\n  \"rows\": [\n    {\n      \"tier\": \"enterprise\"\n    }\n  ],\n  \"row_count\": 1,\n  \"stats\": {\n    \"row_count\": 1,\n    \"truncated\": false,\n    \"limit_applied\": 1000,\n    \"duration_ms\": 25\n  }\n}\n{\"metadata_reference\":{\"note\":\"Full semantic metadata was provided earlier in this session. Refer to previous responses for column descriptions, tags, owners, and glossary terms.\",\"tables\":[\"memory.bench.customers\"]}}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01GQmRjpHUfZ3ZCskfRvdbxC",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT round(avg(o.amount)/100.0, 2) AS avg_order_amount_usd, count(*) AS order_count\nFROM memory.bench.orders o\nJOIN memory.bench.customers c ON o.customer_id = c.customer_id\nWHERE c.tier = 'enterprise'"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01GQmRjpHUfZ3ZCskfRvdbxC",
+          "text": "{\n  \"columns\": [\n    {\n      \"name\": \"avg_order_amount_usd\",\n      \"type\": \"DOUBLE\"\n    },\n    {\n      \"name\": \"order_count\",\n      \"type\": \"BIGINT\"\n    }\n  ],\n  \"rows\": [\n    {\n      \"avg_order_amount_usd\": 1614.57,\n      \"order_count\": 287\n    }\n  ],\n  \"row_count\": 1,\n  \"stats\": {\n    \"row_count\": 1,\n    \"truncated\": false,\n    \"limit_applied\": 1000,\n    \"duration_ms\": 27\n  }\n}\n{\"metadata_reference\":{\"note\":\"Full semantic metadata was provided earlier in this session. Refer to previous responses for column descriptions, tags, owners, and glossary terms.\",\"tables\":[\"memory.bench.orders\",\"memory.bench.customers\"]}}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "I found the relevant tables. In the `memory.bench` schema, \"KEY ACCOUNT\" customers correspond to the `enterprise` tier (the only tier name matching that concept). The `orders` table stores `amount` in USD cents (per its `unit: cents` metadata), so I converted to dollars.\n\nQuery: joined `bench.orders` to `bench.customers` on `customer_id`, filtered to `tier = 'enterprise'`, and averaged `amount` (converted from cents to dollars).\n\nResult: 287 orders, average order amount = $1614.57.\n\nFINAL ANSWER: 1614.57"
+    }
+  ]
+}

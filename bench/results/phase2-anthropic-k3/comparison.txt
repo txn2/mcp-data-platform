@@ -1,0 +1,6 @@
+cross-arm comparison (baseline a0)
+suite           a0                a1                a2                a3              
+s1              98.0% [94–100]    98.0% [94–100]    100.0% [100–100]  98.0% [94–100]  
+s2              100.0% [100–100]  100.0% [100–100]  97.8% [95–100]    97.8% [95–100]  
+s3              42.7% [32–55]     57.3% [45–68]     98.7% [96–100]    98.7% [96–100]  
+comparison markdown: bench/results/phase2-anthropic-k3/comparison.md

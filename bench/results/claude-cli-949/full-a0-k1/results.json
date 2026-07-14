@@ -1,0 +1,399 @@
+{
+  "manifest": {
+    "started_at": "2026-07-14T05:43:03.88239Z",
+    "finished_at": "0001-01-01T00:00:00Z",
+    "git_commit": "a373ff7f98e33e0f347828e5aaa17c053f7fb9c9",
+    "platform_version": "v1.102.0-9-gadfb9d90-dirty",
+    "target": "http://localhost:8098",
+    "arm": "a0",
+    "llm_provider": "claude-cli",
+    "client_version": "2.1.208 (Claude Code)",
+    "model": "sonnet",
+    "seed": 930,
+    "task_set_hash": "7e727f891ee541293bec1c349e483287200ea273d526663dad48e4010c079cd7",
+    "k": 1
+  },
+  "attempts": [
+    {
+      "task_id": "s1-account-created",
+      "suite": "s1",
+      "attempt": 1,
+      "session_id": "dps_09cc0e422744c6df6f670422bfb96e78",
+      "correct": true,
+      "final_answer": "memory.bench.customers",
+      "matched_alias": "memory.bench.customers",
+      "tool_calls": 5,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 26738,
+      "input_tokens": 20,
+      "output_tokens": 1369,
+      "audit": {
+        "audited_calls": 5,
+        "errors": 0,
+        "total_duration_ms": 88,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "bench/results/claude-cli-949/full-a0-k1/transcripts/s1-account-created-a0-k1.json"
+    },
+    {
+      "task_id": "s1-authoritative-orders",
+      "suite": "s1",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 1,
+      "session_id": "dps_9f2f1cc334b00d7fd58399bb6007be89",
+      "correct": true,
+      "final_answer": "memory.bench.orders",
+      "matched_alias": "memory.bench.orders",
+      "tool_calls": 8,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 46016,
+      "input_tokens": 26,
+      "output_tokens": 3117,
+      "audit": {
+        "audited_calls": 8,
+        "errors": 0,
+        "total_duration_ms": 192,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "bench/results/claude-cli-949/full-a0-k1/transcripts/s1-authoritative-orders-a0-k1.json"
+    },
+    {
+      "task_id": "s1-avoid-order-table",
+      "suite": "s1",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 1,
+      "session_id": "dps_ed384254b9d8ad438d8d259ebbe0cfb7",
+      "correct": true,
+      "final_answer": "memory.bench.legacy_orders (avoid this — use memory.bench.orders instead)",
+      "matched_alias": "legacy_orders",
+      "tool_calls": 6,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 25343,
+      "input_tokens": 18,
+      "output_tokens": 1543,
+      "audit": {
+        "audited_calls": 6,
+        "errors": 0,
+        "total_duration_ms": 116,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "bench/results/claude-cli-949/full-a0-k1/transcripts/s1-avoid-order-table-a0-k1.json"
+    },
+    {
+      "task_id": "s1-current-orders",
+      "suite": "s1",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 1,
+      "session_id": "dps_8c56408b534d82083715ac9a7067478c",
+      "correct": true,
+      "final_answer": "memory.bench.orders",
+      "matched_alias": "memory.bench.orders",
+      "tool_calls": 8,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 56457,
+      "input_tokens": 28,
+      "output_tokens": 3722,
+      "audit": {
+        "audited_calls": 8,
+        "errors": 0,
+        "total_duration_ms": 112,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "bench/results/claude-cli-949/full-a0-k1/transcripts/s1-current-orders-a0-k1.json"
+    },
+    {
+      "task_id": "s1-customer-profile",
+      "suite": "s1",
+      "attempt": 1,
+      "session_id": "dps_ba1f4c1fe6a1a2705dead433477fd199",
+      "correct": true,
+      "final_answer": "memory.bench.customers",
+      "matched_alias": "memory.bench.customers",
+      "tool_calls": 5,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 28030,
+      "input_tokens": 18,
+      "output_tokens": 1375,
+      "audit": {
+        "audited_calls": 5,
+        "errors": 0,
+        "total_duration_ms": 86,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "bench/results/claude-cli-949/full-a0-k1/transcripts/s1-customer-profile-a0-k1.json"
+    },
+    {
+      "task_id": "s1-customer-region",
+      "suite": "s1",
+      "attempt": 1,
+      "session_id": "dps_14352f713caaa512b084d6ce535075a8",
+      "correct": true,
+      "final_answer": "memory.bench.customers",
+      "matched_alias": "memory.bench.customers",
+      "tool_calls": 5,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 29345,
+      "input_tokens": 18,
+      "output_tokens": 1589,
+      "audit": {
+        "audited_calls": 5,
+        "errors": 0,
+        "total_duration_ms": 87,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "bench/results/claude-cli-949/full-a0-k1/transcripts/s1-customer-region-a0-k1.json"
+    },
+    {
+      "task_id": "s1-customer-tier",
+      "suite": "s1",
+      "attempt": 1,
+      "session_id": "dps_550a76ff9879fd9954f4ce8b4cba497b",
+      "correct": true,
+      "final_answer": "memory.bench.customers (tier column)",
+      "matched_alias": "memory.bench.customers",
+      "tool_calls": 4,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 34143,
+      "input_tokens": 24,
+      "output_tokens": 1756,
+      "audit": {
+        "audited_calls": 4,
+        "errors": 0,
+        "total_duration_ms": 73,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "bench/results/claude-cli-949/full-a0-k1/transcripts/s1-customer-tier-a0-k1.json"
+    },
+    {
+      "task_id": "s1-daily-aggregate",
+      "suite": "s1",
+      "attempt": 1,
+      "session_id": "dps_b846349c6f996bc43c15bf58eae2be6e",
+      "correct": true,
+      "final_answer": "memory.bench.daily_region_revenue",
+      "matched_alias": "daily_region_revenue",
+      "tool_calls": 4,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 32583,
+      "input_tokens": 22,
+      "output_tokens": 1670,
+      "audit": {
+        "audited_calls": 4,
+        "errors": 0,
+        "total_duration_ms": 75,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "bench/results/claude-cli-949/full-a0-k1/transcripts/s1-daily-aggregate-a0-k1.json"
+    },
+    {
+      "task_id": "s1-deprecated-table",
+      "suite": "s1",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 1,
+      "session_id": "dps_59ae41ef417e8c8c1f14f8b058a51b2f",
+      "correct": true,
+      "final_answer": "memory.bench.legacy_orders",
+      "matched_alias": "legacy_orders",
+      "tool_calls": 12,
+      "tool_errors": 1,
+      "budget_exhausted": false,
+      "wall_ms": 60179,
+      "input_tokens": 34,
+      "output_tokens": 3866,
+      "audit": {
+        "audited_calls": 12,
+        "errors": 1,
+        "total_duration_ms": 158,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "bench/results/claude-cli-949/full-a0-k1/transcripts/s1-deprecated-table-a0-k1.json"
+    },
+    {
+      "task_id": "s1-join-for-region",
+      "suite": "s1",
+      "attempt": 1,
+      "session_id": "dps_70c8c8574ea11398da330197559806dc",
+      "correct": true,
+      "final_answer": "memory.bench.customers (join orders.customer_id = customers.customer_id to get region)",
+      "matched_alias": "memory.bench.customers",
+      "tool_calls": 7,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 28645,
+      "input_tokens": 18,
+      "output_tokens": 1755,
+      "audit": {
+        "audited_calls": 7,
+        "errors": 0,
+        "total_duration_ms": 97,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "bench/results/claude-cli-949/full-a0-k1/transcripts/s1-join-for-region-a0-k1.json"
+    },
+    {
+      "task_id": "s1-order-amount",
+      "suite": "s1",
+      "attempt": 1,
+      "session_id": "dps_56f191be53050b463390a41d26b4c54b",
+      "correct": true,
+      "final_answer": "memory.bench.orders",
+      "matched_alias": "memory.bench.orders",
+      "tool_calls": 7,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 37829,
+      "input_tokens": 24,
+      "output_tokens": 2041,
+      "audit": {
+        "audited_calls": 7,
+        "errors": 0,
+        "total_duration_ms": 112,
+        "enriched_calls": 0,
+        "enrichment_tokens_full": 0,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "bench/results/claude-cli-949/full-a0-k1/transcripts/s1-order-amount-a0-k1.json"
+    }
+  ],
+  "tasks": [
+    {
+      "task_id": "s1-account-created",
+      "suite": "s1",
+      "graded": 1,
+      "correct": 1,
+      "pass_rate": 1,
+      "pass_k": true
+    },
+    {
+      "task_id": "s1-authoritative-orders",
+      "suite": "s1",
+      "graded": 1,
+      "correct": 1,
+      "pass_rate": 1,
+      "pass_k": true
+    },
+    {
+      "task_id": "s1-avoid-order-table",
+      "suite": "s1",
+      "graded": 1,
+      "correct": 1,
+      "pass_rate": 1,
+      "pass_k": true
+    },
+    {
+      "task_id": "s1-current-orders",
+      "suite": "s1",
+      "graded": 1,
+      "correct": 1,
+      "pass_rate": 1,
+      "pass_k": true
+    },
+    {
+      "task_id": "s1-customer-profile",
+      "suite": "s1",
+      "graded": 1,
+      "correct": 1,
+      "pass_rate": 1,
+      "pass_k": true
+    },
+    {
+      "task_id": "s1-customer-region",
+      "suite": "s1",
+      "graded": 1,
+      "correct": 1,
+      "pass_rate": 1,
+      "pass_k": true
+    },
+    {
+      "task_id": "s1-customer-tier",
+      "suite": "s1",
+      "graded": 1,
+      "correct": 1,
+      "pass_rate": 1,
+      "pass_k": true
+    },
+    {
+      "task_id": "s1-daily-aggregate",
+      "suite": "s1",
+      "graded": 1,
+      "correct": 1,
+      "pass_rate": 1,
+      "pass_k": true
+    },
+    {
+      "task_id": "s1-deprecated-table",
+      "suite": "s1",
+      "graded": 1,
+      "correct": 1,
+      "pass_rate": 1,
+      "pass_k": true
+    },
+    {
+      "task_id": "s1-join-for-region",
+      "suite": "s1",
+      "graded": 1,
+      "correct": 1,
+      "pass_rate": 1,
+      "pass_k": true
+    },
+    {
+      "task_id": "s1-order-amount",
+      "suite": "s1",
+      "graded": 1,
+      "correct": 1,
+      "pass_rate": 1,
+      "pass_k": true
+    }
+  ],
+  "suites": [
+    {
+      "suite": "s1",
+      "tasks": 11,
+      "graded": 11,
+      "accuracy": 1,
+      "pass_k_rate": 1,
+      "median_tool_calls": 6,
+      "p90_tool_calls": 8,
+      "median_wall_ms": 32583,
+      "tool_errors": 1,
+      "enrichment_tokens_full": 0,
+      "enrichment_tokens_dedup": 0
+    }
+  ]
+}

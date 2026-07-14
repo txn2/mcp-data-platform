@@ -42,15 +42,22 @@ type Message struct {
 }
 
 // Usage counts tokens for one completion, for the run manifest and cost audit.
+// Cache fields are populated by adapters that use prompt caching (the anthropic
+// adapter); they let a run self-report its real cost basis, since cache reads
+// are billed at a fraction of fresh input.
 type Usage struct {
-	InputTokens  int64 `json:"input_tokens"`
-	OutputTokens int64 `json:"output_tokens"`
+	InputTokens              int64 `json:"input_tokens"`
+	OutputTokens             int64 `json:"output_tokens"`
+	CacheReadInputTokens     int64 `json:"cache_read_input_tokens,omitempty"`
+	CacheCreationInputTokens int64 `json:"cache_creation_input_tokens,omitempty"`
 }
 
 // Add accumulates another completion's usage.
 func (u *Usage) Add(o Usage) {
 	u.InputTokens += o.InputTokens
 	u.OutputTokens += o.OutputTokens
+	u.CacheReadInputTokens += o.CacheReadInputTokens
+	u.CacheCreationInputTokens += o.CacheCreationInputTokens
 }
 
 // Adapter produces one assistant turn given the system prompt, transcript, and
