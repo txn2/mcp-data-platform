@@ -267,11 +267,57 @@ real platform — with no API key and no model variance. Real runs use the
 Anthropic adapter (`-llm anthropic`, model pinned in the manifest, no sampling
 parameters; run-to-run variance is handled by k-repeats and pass^k).
 
+### claude-cli adapter (subscription, no API key)
+
+`-llm claude-cli` runs each attempt through a real Claude Code client
+(`claude -p`) instead of the harness's in-process agent loop, so a
+subscription (Pro/Max) user can run real episodes with **no metered
+`ANTHROPIC_API_KEY`**. It works for both the S1-S3 task pipeline and the S5
+lifecycle protocols.
+
+```bash
+make bench-run BENCH_ARM=a2 LLM=claude-cli MODEL=sonnet K=3        # subscription task run
+make bench-lifecycle LLM=claude-cli MODEL=sonnet K=1               # subscription lifecycle run
+```
+
+How it differs from the in-process adapters:
+
+- Each attempt gets a generated `--mcp-config` pointing Claude Code at the
+  platform's streamable endpoint, authenticated with the attempt's identity-pool
+  key (the same per-attempt Bearer rotation the loop path uses). Claude Code
+  connects directly, calls `platform_info`, and threads the minted `dps_` handle
+  itself — exercising the real handle-threading and search-first steering a
+  production agent does, rather than the harness's synthetic loop.
+- The child `claude` always runs in subscription mode: the runner strips
+  `ANTHROPIC_API_KEY` from its environment, so a key sourced for `-llm anthropic`
+  never silently bills a claude-cli run. It runs in an isolated temp working
+  directory with `--strict-mcp-config` and the built-in file/shell/web tools
+  disallowed, so only the platform's MCP tools are in play.
+- Audit-derived efficiency metrics are correlated by the `dps_` handle Claude
+  Code threads onto every data call — exactly the anchor the in-process loop
+  uses, read from the stream's `platform_info` result. This reuses the same
+  min/max read-back contract: confirmed successful calls are the lower bound
+  (each must have an audit row, or the run fails loudly), errored and unresolved
+  calls raise the upper bound, and `platform_info`'s own row is not under the
+  handle so it is naturally excluded, matching the other adapters.
+- The manifest records the client path (`llm_provider: claude-cli`), the
+  `claude --version` string (`client_version`), and the model.
+
+**Comparability caveat.** The raw `anthropic` adapter stays canonical for
+published and regression numbers. `claude -p` reinserts Claude Code's own system
+prompt, tool-use policy, context management, and retries, all of which change
+across Claude Code releases. Within one run the arm-vs-arm delta is internally
+valid (both arms see the same client), but across runs a Claude Code upgrade
+could move the numbers with no platform change, which would break the
+regression-baseline contract. `client_version` in the manifest exists so a
+claude-cli run is never silently compared against a raw Messages API run.
+
 ## Output
 
 `benchrun` writes a results JSON (manifest: git commit, platform version,
-model, dataset seed, task-set hash, arm, k; per-attempt records with their trap
-classes; per-task and per-suite aggregates) plus per-attempt transcripts, and
+model, dataset seed, task-set hash, arm, k, and — on the claude-cli path — the
+client version; per-attempt records with their trap classes; per-task and
+per-suite aggregates) plus per-attempt transcripts, and
 prints a human summary. `benchrun -compare a0.json,a1.json,...` builds the
 cross-arm comparison and `-compare-out page.md` writes the markdown page
 (`make bench-compare`); bootstrap CIs use a fixed resampling seed so identical
@@ -294,6 +340,7 @@ bench/
     ├── task/            task schema, loader, task-set hash
     ├── protocol/        S5 lifecycle protocol schema, loader, protocol-set hash
     ├── llm/             adapter interface + anthropic + scripted
+    ├── claudecli/       real Claude Code client path (claude -p) + stream parse
     ├── agent/           model-driven tool loop with budget
     ├── mcpc/            MCP session, handle mint, session_id threading
     ├── auditapi/        admin audit API read-back + metrics

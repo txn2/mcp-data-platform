@@ -869,7 +869,7 @@ bench-seed-datahub:
 	@printf 'source:\n  type: file\n  config:\n    path: %s/bench/seed/datahub/bench_mces.json\nsink:\n  type: datahub-rest\n  config:\n    server: %s\n' "$$(pwd)" "$(BENCH_DATAHUB_GMS)" > $(BUILD_DIR)/bench-datahub-recipe.yml
 	datahub ingest -c $(BUILD_DIR)/bench-datahub-recipe.yml
 
-## bench-run: Run the benchmark (ARM must match bench-up; LLM=anthropic|scripted, SUITE=, K=, MODEL=)
+## bench-run: Run the benchmark (ARM must match bench-up; LLM=anthropic|scripted|claude-cli, SUITE=, K=, MODEL=)
 bench-run:
 	@mkdir -p build/bench-results
 	@cd bench && $(GO) build -o ../$(BUILD_DIR)/benchrun ./benchrun
@@ -893,7 +893,7 @@ bench-run:
 bench-smoke:
 	@$(MAKE) bench-run LLM=scripted SCRIPT=bench/tasks/scripted-smoke.json K=1
 
-## bench-lifecycle: Run the S5 memory-insight-knowledge lifecycle protocols (needs bench-up BENCH_ARM=a3; LLM=anthropic|scripted, K=, MODEL=)
+## bench-lifecycle: Run the S5 memory-insight-knowledge lifecycle protocols (needs bench-up BENCH_ARM=a3; LLM=anthropic|scripted|claude-cli, K=, MODEL=)
 bench-lifecycle:
 	@mkdir -p build/bench-results
 	@cd bench && $(GO) build -o ../$(BUILD_DIR)/benchrun ./benchrun

@@ -37,10 +37,14 @@ type Manifest struct {
 	Target          string    `json:"target"`
 	Arm             string    `json:"arm"`
 	LLMProvider     string    `json:"llm_provider"`
-	Model           string    `json:"model"`
-	Seed            int64     `json:"seed"`
-	ProtocolSetHash string    `json:"protocol_set_hash"`
-	K               int       `json:"k"`
+	// ClientVersion records the external client path (claude-cli: the
+	// `claude --version` string), empty for in-process adapters. See the S1-S3
+	// report.Manifest for the comparability rationale.
+	ClientVersion   string `json:"client_version,omitempty"`
+	Model           string `json:"model"`
+	Seed            int64  `json:"seed"`
+	ProtocolSetHash string `json:"protocol_set_hash"`
+	K               int    `json:"k"`
 }
 
 // EpisodeRecord captures one episode's execution for the transcript and audit
@@ -256,7 +260,11 @@ func LoadJSON(path string) (*Results, error) {
 func (res *Results) HumanSummary() string {
 	var b strings.Builder
 	m := res.Manifest
-	fmt.Fprintf(&b, "bench lifecycle (S5): arm=%s model=%s (%s) k=%d\n", m.Arm, m.Model, m.LLMProvider, m.K)
+	provider := m.LLMProvider
+	if m.ClientVersion != "" {
+		provider = fmt.Sprintf("%s via %s", m.LLMProvider, m.ClientVersion)
+	}
+	fmt.Fprintf(&b, "bench lifecycle (S5): arm=%s model=%s (%s) k=%d\n", m.Arm, m.Model, provider, m.K)
 	fmt.Fprintf(&b, "  platform %s @ %s | commit %s | seed %d | protocols %s\n",
 		m.PlatformVersion, m.Target, short(m.GitCommit), m.Seed, short(m.ProtocolSetHash))
 	fmt.Fprintf(&b, "  %s .. %s\n\n", m.StartedAt.Format(time.RFC3339), m.FinishedAt.Format(time.RFC3339))

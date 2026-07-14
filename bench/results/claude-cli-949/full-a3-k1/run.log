@@ -1,0 +1,185 @@
+time=2026-07-13T20:22:15.693-07:00 level=INFO msg="attempt graded" task=s1-account-created attempt=1 arm=a3 correct=true tool_calls=2 wall_ms=20627
+time=2026-07-13T20:22:58.351-07:00 level=INFO msg="attempt graded" task=s1-authoritative-orders attempt=1 arm=a3 correct=true tool_calls=6 wall_ms=42654
+time=2026-07-13T20:23:19.538-07:00 level=INFO msg="attempt graded" task=s1-avoid-order-table attempt=1 arm=a3 correct=true tool_calls=3 wall_ms=21183
+time=2026-07-13T20:23:48.253-07:00 level=INFO msg="attempt graded" task=s1-current-orders attempt=1 arm=a3 correct=true tool_calls=4 wall_ms=28707
+time=2026-07-13T20:24:14.699-07:00 level=INFO msg="attempt graded" task=s1-customer-profile attempt=1 arm=a3 correct=true tool_calls=6 wall_ms=26440
+time=2026-07-13T20:25:12.059-07:00 level=INFO msg="attempt graded" task=s1-customer-region attempt=1 arm=a3 correct=true tool_calls=12 wall_ms=57354
+time=2026-07-13T20:25:40.407-07:00 level=INFO msg="attempt graded" task=s1-customer-tier attempt=1 arm=a3 correct=true tool_calls=4 wall_ms=28342
+time=2026-07-13T20:26:12.154-07:00 level=INFO msg="attempt graded" task=s1-daily-aggregate attempt=1 arm=a3 correct=true tool_calls=5 wall_ms=31739
+time=2026-07-13T20:26:42.472-07:00 level=INFO msg="attempt graded" task=s1-deprecated-table attempt=1 arm=a3 correct=true tool_calls=5 wall_ms=30314
+time=2026-07-13T20:27:26.712-07:00 level=INFO msg="attempt graded" task=s1-join-for-region attempt=1 arm=a3 correct=true tool_calls=7 wall_ms=44233
+time=2026-07-13T20:27:52.204-07:00 level=INFO msg="attempt graded" task=s1-order-amount attempt=1 arm=a3 correct=true tool_calls=2 wall_ms=25489
+time=2026-07-13T20:28:29.458-07:00 level=INFO msg="attempt graded" task=s1-order-status attempt=1 arm=a3 correct=true tool_calls=10 wall_ms=37247
+time=2026-07-13T20:29:35.032-07:00 level=INFO msg="attempt graded" task=s1-order-transactions attempt=1 arm=a3 correct=true tool_calls=10 wall_ms=65568
+time=2026-07-13T20:30:08.369-07:00 level=INFO msg="attempt graded" task=s1-preaggregated attempt=1 arm=a3 correct=true tool_calls=8 wall_ms=33334
+time=2026-07-13T20:30:55.104-07:00 level=INFO msg="attempt graded" task=s1-retired-pipeline attempt=1 arm=a3 correct=true tool_calls=9 wall_ms=46728
+time=2026-07-13T20:32:02.924-07:00 level=INFO msg="attempt graded" task=s1-revenue-source attempt=1 arm=a3 correct=true tool_calls=13 wall_ms=67816
+time=2026-07-13T20:32:36.401-07:00 level=INFO msg="attempt graded" task=s1-trend-chart attempt=1 arm=a3 correct=true tool_calls=2 wall_ms=33472
+time=2026-07-13T20:33:18.958-07:00 level=INFO msg="attempt graded" task=s2-completed-amount-cents attempt=1 arm=a3 correct=true tool_calls=7 wall_ms=42546
+time=2026-07-13T20:33:37.790-07:00 level=INFO msg="attempt graded" task=s2-completed-orders attempt=1 arm=a3 correct=true tool_calls=3 wall_ms=18816
+time=2026-07-13T20:34:09.640-07:00 level=INFO msg="attempt graded" task=s2-completed-q1-2025 attempt=1 arm=a3 correct=true tool_calls=8 wall_ms=31839
+time=2026-07-13T20:34:43.988-07:00 level=INFO msg="attempt graded" task=s2-completed-q2-2025 attempt=1 arm=a3 correct=true tool_calls=5 wall_ms=34343
+time=2026-07-13T20:35:15.482-07:00 level=INFO msg="attempt graded" task=s2-completed-q3-2025 attempt=1 arm=a3 correct=true tool_calls=7 wall_ms=31486
+time=2026-07-13T20:35:45.528-07:00 level=INFO msg="attempt graded" task=s2-completed-q4-2025 attempt=1 arm=a3 correct=true tool_calls=4 wall_ms=30040
+time=2026-07-13T20:36:25.090-07:00 level=INFO msg="attempt graded" task=s2-customers-created-2023 attempt=1 arm=a3 correct=true tool_calls=7 wall_ms=39555
+time=2026-07-13T20:36:58.385-07:00 level=INFO msg="attempt graded" task=s2-customers-created-2024 attempt=1 arm=a3 correct=true tool_calls=4 wall_ms=33290
+time=2026-07-13T20:37:25.990-07:00 level=INFO msg="attempt graded" task=s2-customers-region-east attempt=1 arm=a3 correct=true tool_calls=7 wall_ms=27597
+time=2026-07-13T20:37:50.373-07:00 level=INFO msg="attempt graded" task=s2-customers-region-north attempt=1 arm=a3 correct=true tool_calls=4 wall_ms=24376
+time=2026-07-13T20:38:23.930-07:00 level=INFO msg="attempt graded" task=s2-customers-region-south attempt=1 arm=a3 correct=true tool_calls=7 wall_ms=33550
+time=2026-07-13T20:39:09.245-07:00 level=INFO msg="attempt graded" task=s2-customers-region-west attempt=1 arm=a3 correct=true tool_calls=7 wall_ms=45310
+time=2026-07-13T20:41:03.585-07:00 level=INFO msg="attempt graded" task=s2-customers-tier-basic attempt=1 arm=a3 correct=true tool_calls=16 wall_ms=114331
+time=2026-07-13T20:41:30.399-07:00 level=INFO msg="attempt graded" task=s2-customers-tier-enterprise attempt=1 arm=a3 correct=true tool_calls=7 wall_ms=26806
+time=2026-07-13T20:42:23.315-07:00 level=INFO msg="attempt graded" task=s2-customers-tier-plus attempt=1 arm=a3 correct=true tool_calls=7 wall_ms=52910
+time=2026-07-13T20:42:54.741-07:00 level=INFO msg="attempt graded" task=s2-distinct-order-customers attempt=1 arm=a3 correct=true tool_calls=6 wall_ms=31422
+time=2026-07-13T20:43:21.709-07:00 level=INFO msg="attempt graded" task=s2-large-orders attempt=1 arm=a3 correct=true tool_calls=6 wall_ms=26963
+time=2026-07-13T20:44:26.105-07:00 level=INFO msg="attempt graded" task=s2-orders-december-2025 attempt=1 arm=a3 correct=true tool_calls=8 wall_ms=64389
+time=2026-07-13T20:44:54.350-07:00 level=INFO msg="attempt graded" task=s2-orders-february-2025 attempt=1 arm=a3 correct=true tool_calls=6 wall_ms=28239
+time=2026-07-13T20:45:31.404-07:00 level=INFO msg="attempt graded" task=s2-orders-january-2025 attempt=1 arm=a3 correct=true tool_calls=6 wall_ms=37048
+time=2026-07-13T20:46:02.477-07:00 level=INFO msg="attempt graded" task=s2-orders-june-2025 attempt=1 arm=a3 correct=true tool_calls=7 wall_ms=31066
+time=2026-07-13T20:46:32.770-07:00 level=INFO msg="attempt graded" task=s2-orders-november-2025 attempt=1 arm=a3 correct=true tool_calls=7 wall_ms=30286
+time=2026-07-13T20:47:19.744-07:00 level=INFO msg="attempt graded" task=s2-orders-region-east attempt=1 arm=a3 correct=true tool_calls=9 wall_ms=46967
+time=2026-07-13T20:47:56.066-07:00 level=INFO msg="attempt graded" task=s2-orders-region-north attempt=1 arm=a3 correct=true tool_calls=11 wall_ms=36317
+time=2026-07-13T20:48:29.000-07:00 level=INFO msg="attempt graded" task=s2-orders-region-south attempt=1 arm=a3 correct=true tool_calls=7 wall_ms=32928
+time=2026-07-13T20:49:09.531-07:00 level=INFO msg="attempt graded" task=s2-orders-region-west attempt=1 arm=a3 correct=true tool_calls=8 wall_ms=40526
+time=2026-07-13T20:50:00.570-07:00 level=INFO msg="attempt graded" task=s2-orders-tier-basic attempt=1 arm=a3 correct=true tool_calls=10 wall_ms=51033
+time=2026-07-13T20:51:17.773-07:00 level=INFO msg="attempt graded" task=s2-orders-tier-enterprise attempt=1 arm=a3 correct=true tool_calls=16 wall_ms=77197
+time=2026-07-13T20:52:40.185-07:00 level=INFO msg="attempt graded" task=s2-orders-tier-plus attempt=1 arm=a3 correct=true tool_calls=12 wall_ms=82392
+time=2026-07-13T20:53:08.643-07:00 level=INFO msg="attempt graded" task=s2-pending-orders attempt=1 arm=a3 correct=true tool_calls=8 wall_ms=28450
+time=2026-07-13T20:53:35.054-07:00 level=INFO msg="attempt graded" task=s2-refunded-orders attempt=1 arm=a3 correct=true tool_calls=6 wall_ms=26407
+time=2026-07-13T20:54:27.975-07:00 level=INFO msg="attempt graded" task=s2-sql-completed-orders-per-region attempt=1 arm=a3 correct=true tool_calls=9 wall_ms=52758
+time=2026-07-13T20:55:06.421-07:00 level=INFO msg="attempt graded" task=s2-sql-customers-per-region attempt=1 arm=a3 correct=true tool_calls=6 wall_ms=38398
+time=2026-07-13T20:55:59.043-07:00 level=INFO msg="attempt graded" task=s2-sql-customers-per-tier attempt=1 arm=a3 correct=true tool_calls=13 wall_ms=52584
+time=2026-07-13T20:56:23.547-07:00 level=INFO msg="attempt graded" task=s2-sql-orders-per-status attempt=1 arm=a3 correct=true tool_calls=6 wall_ms=24459
+time=2026-07-13T20:57:09.638-07:00 level=INFO msg="attempt graded" task=s2-top-region-customers attempt=1 arm=a3 correct=true tool_calls=7 wall_ms=46086
+time=2026-07-13T20:57:43.617-07:00 level=INFO msg="attempt graded" task=s2-top-region-orders attempt=1 arm=a3 correct=true tool_calls=8 wall_ms=33972
+time=2026-07-13T20:58:19.485-07:00 level=INFO msg="attempt graded" task=s2-top-tier-orders attempt=1 arm=a3 correct=true tool_calls=8 wall_ms=35861
+time=2026-07-13T20:59:04.453-07:00 level=INFO msg="attempt graded" task=s2-total-customers attempt=1 arm=a3 correct=true tool_calls=7 wall_ms=44961
+time=2026-07-13T20:59:26.409-07:00 level=INFO msg="attempt graded" task=s2-total-orders attempt=1 arm=a3 correct=true tool_calls=5 wall_ms=21950
+time=2026-07-13T21:00:10.724-07:00 level=INFO msg="attempt graded" task=s2-xtab-east-completed attempt=1 arm=a3 correct=true tool_calls=12 wall_ms=44295
+time=2026-07-13T21:00:57.838-07:00 level=INFO msg="attempt graded" task=s2-xtab-east-refunded attempt=1 arm=a3 correct=true tool_calls=13 wall_ms=46853
+time=2026-07-13T21:01:51.233-07:00 level=INFO msg="attempt graded" task=s2-xtab-north-pending attempt=1 arm=a3 correct=true tool_calls=13 wall_ms=53384
+time=2026-07-13T21:02:52.547-07:00 level=INFO msg="attempt graded" task=s2-xtab-south-completed attempt=1 arm=a3 correct=true tool_calls=14 wall_ms=61318
+time=2026-07-13T21:03:34.029-07:00 level=INFO msg="attempt graded" task=s2-xtab-west-completed attempt=1 arm=a3 correct=true tool_calls=12 wall_ms=41479
+time=2026-07-13T21:04:09.251-07:00 level=INFO msg="attempt graded" task=s3-deprecated-completed-usd attempt=1 arm=a3 correct=true tool_calls=9 wall_ms=35214
+time=2026-07-13T21:04:41.287-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=1 arm=a3 correct=true tool_calls=7 wall_ms=32028
+time=2026-07-13T21:05:30.280-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=1 arm=a3 correct=true tool_calls=8 wall_ms=48986
+time=2026-07-13T21:06:22.278-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-east attempt=1 arm=a3 correct=true tool_calls=11 wall_ms=51989
+time=2026-07-13T21:07:03.312-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=1 arm=a3 correct=true tool_calls=9 wall_ms=41027
+time=2026-07-13T21:07:47.835-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=1 arm=a3 correct=true tool_calls=10 wall_ms=44514
+time=2026-07-13T21:09:01.790-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q4-net attempt=1 arm=a3 correct=true tool_calls=11 wall_ms=73933
+time=2026-07-13T21:10:37.503-07:00 level=INFO msg="attempt graded" task=s3-fresh-dec-gross attempt=1 arm=a3 correct=true tool_calls=14 wall_ms=95707
+time=2026-07-13T21:11:25.235-07:00 level=INFO msg="attempt graded" task=s3-fresh-fullyear-gross attempt=1 arm=a3 correct=true tool_calls=11 wall_ms=47726
+time=2026-07-13T21:12:05.513-07:00 level=INFO msg="attempt graded" task=s3-fresh-novdec-gross attempt=1 arm=a3 correct=true tool_calls=8 wall_ms=40269
+time=2026-07-13T21:13:17.093-07:00 level=INFO msg="attempt graded" task=s3-fresh-q4-gross attempt=1 arm=a3 correct=true tool_calls=12 wall_ms=71560
+time=2026-07-13T21:13:59.959-07:00 level=INFO msg="attempt graded" task=s3-net-east-2025 attempt=1 arm=a3 correct=true tool_calls=12 wall_ms=42860
+time=2026-07-13T21:15:20.407-07:00 level=INFO msg="attempt graded" task=s3-net-east-march attempt=1 arm=a3 correct=true tool_calls=13 wall_ms=80183
+time=2026-07-13T21:16:00.806-07:00 level=INFO msg="attempt graded" task=s3-net-top-region attempt=1 arm=a3 correct=true tool_calls=9 wall_ms=40394
+time=2026-07-13T21:16:54.468-07:00 level=INFO msg="attempt graded" task=s3-net-total-2025 attempt=1 arm=a3 correct=true tool_calls=9 wall_ms=53656
+time=2026-07-13T21:17:39.038-07:00 level=INFO msg="attempt graded" task=s3-net-west-2025 attempt=1 arm=a3 correct=true tool_calls=12 wall_ms=44564
+time=2026-07-13T21:18:35.154-07:00 level=INFO msg="attempt graded" task=s3-tier-key-avg attempt=1 arm=a3 correct=true tool_calls=12 wall_ms=56110
+time=2026-07-13T21:19:14.312-07:00 level=INFO msg="attempt graded" task=s3-tier-key-completed attempt=1 arm=a3 correct=true tool_calls=11 wall_ms=39152
+time=2026-07-13T21:19:44.876-07:00 level=INFO msg="attempt graded" task=s3-tier-key-count attempt=1 arm=a3 correct=true tool_calls=7 wall_ms=30558
+time=2026-07-13T21:20:37.533-07:00 level=INFO msg="attempt graded" task=s3-tier-key-east attempt=1 arm=a3 correct=true tool_calls=13 wall_ms=52651
+time=2026-07-13T21:21:19.881-07:00 level=INFO msg="attempt graded" task=s3-tier-key-orders attempt=1 arm=a3 correct=true tool_calls=10 wall_ms=42341
+time=2026-07-13T21:21:59.494-07:00 level=INFO msg="attempt graded" task=s3-units-avg-enterprise attempt=1 arm=a3 correct=true tool_calls=9 wall_ms=39607
+time=2026-07-13T21:22:40.962-07:00 level=INFO msg="attempt graded" task=s3-units-completed-gross attempt=1 arm=a3 correct=true tool_calls=9 wall_ms=41462
+time=2026-07-13T21:23:40.692-07:00 level=INFO msg="attempt graded" task=s3-units-q1-total attempt=1 arm=a3 correct=true tool_calls=9 wall_ms=59722
+time=2026-07-13T21:24:13.846-07:00 level=INFO msg="attempt graded" task=s3-units-total-all attempt=1 arm=a3 correct=true tool_calls=7 wall_ms=33145
+bench run: arm=a3 model=sonnet (claude-cli via 2.1.208 (Claude Code)) k=1
+  platform v1.102.0-9-gadfb9d90-dirty @ http://localhost:8098 | commit 62f6fe68db93 | seed 930 | tasks 7e727f891ee5
+  2026-07-14T03:21:55Z .. 2026-07-14T04:24:13Z
+
+suite   tasks  graded  accuracy  pass^k  med calls  p90 calls  med wall ms  tool errs  enrich tok  harness fails
+s1         17      17    100.0%  100.0%        6.0       10.0        33334          5        1162              0
+s2         45      45    100.0%  100.0%        7.0       13.0        36317         26       11300              0
+s3         25      25    100.0%  100.0%       10.0       12.0        44514         17        8557              0
+
+task                            graded  correct  pass^k
+s1-account-created                  1        1  true
+s1-authoritative-orders             1        1  true
+s1-avoid-order-table                1        1  true
+s1-current-orders                   1        1  true
+s1-customer-profile                 1        1  true
+s1-customer-region                  1        1  true
+s1-customer-tier                    1        1  true
+s1-daily-aggregate                  1        1  true
+s1-deprecated-table                 1        1  true
+s1-join-for-region                  1        1  true
+s1-order-amount                     1        1  true
+s1-order-status                     1        1  true
+s1-order-transactions               1        1  true
+s1-preaggregated                    1        1  true
+s1-retired-pipeline                 1        1  true
+s1-revenue-source                   1        1  true
+s1-trend-chart                      1        1  true
+s2-completed-amount-cents           1        1  true
+s2-completed-orders                 1        1  true
+s2-completed-q1-2025                1        1  true
+s2-completed-q2-2025                1        1  true
+s2-completed-q3-2025                1        1  true
+s2-completed-q4-2025                1        1  true
+s2-customers-created-2023           1        1  true
+s2-customers-created-2024           1        1  true
+s2-customers-region-east            1        1  true
+s2-customers-region-north           1        1  true
+s2-customers-region-south           1        1  true
+s2-customers-region-west            1        1  true
+s2-customers-tier-basic             1        1  true
+s2-customers-tier-enterprise        1        1  true
+s2-customers-tier-plus              1        1  true
+s2-distinct-order-customers         1        1  true
+s2-large-orders                     1        1  true
+s2-orders-december-2025             1        1  true
+s2-orders-february-2025             1        1  true
+s2-orders-january-2025              1        1  true
+s2-orders-june-2025                 1        1  true
+s2-orders-november-2025             1        1  true
+s2-orders-region-east               1        1  true
+s2-orders-region-north              1        1  true
+s2-orders-region-south              1        1  true
+s2-orders-region-west               1        1  true
+s2-orders-tier-basic                1        1  true
+s2-orders-tier-enterprise           1        1  true
+s2-orders-tier-plus                 1        1  true
+s2-pending-orders                   1        1  true
+s2-refunded-orders                  1        1  true
+s2-sql-completed-orders-per-region      1        1  true
+s2-sql-customers-per-region         1        1  true
+s2-sql-customers-per-tier           1        1  true
+s2-sql-orders-per-status            1        1  true
+s2-top-region-customers             1        1  true
+s2-top-region-orders                1        1  true
+s2-top-tier-orders                  1        1  true
+s2-total-customers                  1        1  true
+s2-total-orders                     1        1  true
+s2-xtab-east-completed              1        1  true
+s2-xtab-east-refunded               1        1  true
+s2-xtab-north-pending               1        1  true
+s2-xtab-south-completed             1        1  true
+s2-xtab-west-completed              1        1  true
+s3-deprecated-completed-usd         1        1  true
+s3-deprecated-order-count           1        1  true
+s3-fiscal-2025-count                1        1  true
+s3-fiscal-2025-east                 1        1  true
+s3-fiscal-2025-net                  1        1  true
+s3-fiscal-q1-net                    1        1  true
+s3-fiscal-q4-net                    1        1  true
+s3-fresh-dec-gross                  1        1  true
+s3-fresh-fullyear-gross             1        1  true
+s3-fresh-novdec-gross               1        1  true
+s3-fresh-q4-gross                   1        1  true
+s3-net-east-2025                    1        1  true
+s3-net-east-march                   1        1  true
+s3-net-top-region                   1        1  true
+s3-net-total-2025                   1        1  true
+s3-net-west-2025                    1        1  true
+s3-tier-key-avg                     1        1  true
+s3-tier-key-completed               1        1  true
+s3-tier-key-count                   1        1  true
+s3-tier-key-east                    1        1  true
+s3-tier-key-orders                  1        1  true
+s3-units-avg-enterprise             1        1  true
+s3-units-completed-gross            1        1  true
+s3-units-q1-total                   1        1  true
+s3-units-total-all                  1        1  true
+results: build/bench-results/a3-claude-cli-full-20260713-202145/results.json

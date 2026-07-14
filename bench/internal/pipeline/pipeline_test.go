@@ -19,6 +19,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/txn2/mcp-data-platform/bench/internal/auditapi"
+	"github.com/txn2/mcp-data-platform/bench/internal/claudecli"
 	"github.com/txn2/mcp-data-platform/bench/internal/llm"
 	"github.com/txn2/mcp-data-platform/bench/internal/report"
 	"github.com/txn2/mcp-data-platform/bench/internal/target"
@@ -257,6 +258,175 @@ func TestExecSQLGrading(t *testing.T) {
 	}
 	if got["t-exec-bad"] {
 		t.Error("t-exec-bad: divergent query graded correct")
+	}
+}
+
+// claudeNumericStream is a canned `claude -p` transcript answering the numeric
+// task: mint a handle, run the query, answer 42.5.
+const claudeNumericStream = `{"type":"system","subtype":"init","mcp_servers":[{"name":"bench","status":"connected"}]}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"i0","name":"mcp__bench__platform_info","input":{}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"i0","is_error":false,"content":"{\"session_id\":\"dps_cc_1\",\"version\":\"fake-1.0.0\"}"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"q1","name":"mcp__bench__trino_query","input":{"sql":"SELECT 42.5"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"q1","is_error":false,"content":"[{\"total_usd\": 42.5}]"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"FINAL ANSWER: 42.5"}]}}
+{"type":"result","subtype":"success","is_error":false,"result":"FINAL ANSWER: 42.5","session_id":"cc-1","usage":{"input_tokens":50,"output_tokens":10}}`
+
+// TestClaudeCLIAttempt drives the claude-cli path end to end with a stubbed
+// process: the runner returns a canned transcript (one successful data call),
+// the harness correlates audit rows by the attempt's pool user_id, and grades
+// the numeric answer. It proves the branch maps the client result, reads audit
+// by identity (not handle), and produces a graded, non-harness-failed attempt.
+func TestClaudeCLIAttempt(t *testing.T) {
+	fp := newFakePlatform(t)
+	// The stubbed client never touches the MCP server, so seed the audit row the
+	// real client's successful trino_query would have produced, under the dps_
+	// handle the canned stream's platform_info result carries.
+	fp.record(auditapi.Event{
+		Timestamp: time.Now().UTC(), DurationMS: 9, SessionID: "dps_cc_1",
+		ToolName: "trino_query", Success: true, EventKind: "mcp_tool_call",
+	})
+
+	tasksDir := t.TempDir()
+	writeTaskFiles(t, tasksDir) // t-numeric (s3) + t-entity (s1)
+
+	runner, err := claudecli.New(claudecli.Options{
+		Model: "claude-sonnet-5",
+		Exec: func(context.Context, claudecli.CommandSpec) ([]byte, []byte, error) {
+			return []byte(claudeNumericStream), nil, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("claudecli.New: %v", err)
+	}
+
+	res, err := Run(context.Background(), Options{
+		Target:        target.Target{BaseURL: fp.httpSrv.URL, Credential: "test-key"},
+		HTTPTimeout:   10 * time.Second,
+		Arm:           "a0",
+		Suite:         "s3", // only the numeric task, so seq=1 -> bench-agent-001
+		K:             1,
+		TasksDir:      tasksDir,
+		ClaudeCLI:     runner,
+		ClientVersion: "2.1.208 (Claude Code)",
+		LLMProvider:   "claude-cli",
+		AuditTimeout:  5 * time.Second,
+		IdentityKeys:  32,
+		Log:           slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Manifest.ClientVersion != "2.1.208 (Claude Code)" {
+		t.Errorf("ClientVersion = %q", res.Manifest.ClientVersion)
+	}
+	if res.Manifest.Model != "claude-sonnet-5" {
+		t.Errorf("Model = %q", res.Manifest.Model)
+	}
+	if res.Manifest.PlatformVersion != "fake-1.0.0" {
+		t.Errorf("PlatformVersion = %q, want parsed from platform_info", res.Manifest.PlatformVersion)
+	}
+	if len(res.Attempts) != 1 {
+		t.Fatalf("got %d attempts, want 1", len(res.Attempts))
+	}
+	a := res.Attempts[0]
+	if a.Error != "" {
+		t.Fatalf("harness error: %s", a.Error)
+	}
+	if !a.Correct {
+		t.Errorf("numeric attempt graded incorrect (final %q)", a.FinalAnswer)
+	}
+	if a.SessionID != "dps_cc_1" {
+		t.Errorf("SessionID = %q, want parsed dps handle", a.SessionID)
+	}
+	if a.ToolCalls != 1 {
+		t.Errorf("ToolCalls = %d, want 1 (platform_info excluded)", a.ToolCalls)
+	}
+	// Audit correlated by user_id, platform_info excluded.
+	if a.Audit.AuditedCalls != 1 {
+		t.Errorf("Audit.AuditedCalls = %d, want 1", a.Audit.AuditedCalls)
+	}
+}
+
+// TestClaudeCLIServerNotConnected records a harness failure (not a wrong
+// answer) when the bench MCP server never connected, so a misconfigured target
+// is surfaced loudly rather than scored as a miss.
+func TestClaudeCLIServerNotConnected(t *testing.T) {
+	fp := newFakePlatform(t)
+	tasksDir := t.TempDir()
+	writeTaskFiles(t, tasksDir)
+	stream := `{"type":"system","subtype":"init","mcp_servers":[{"name":"bench","status":"failed"}]}
+{"type":"result","subtype":"success","is_error":false,"result":"FINAL ANSWER: 42.5","usage":{"input_tokens":1,"output_tokens":1}}`
+	runner, err := claudecli.New(claudecli.Options{
+		Model: "sonnet",
+		Exec: func(context.Context, claudecli.CommandSpec) ([]byte, []byte, error) {
+			return []byte(stream), nil, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("claudecli.New: %v", err)
+	}
+	res, runErr := Run(context.Background(), Options{
+		Target:       target.Target{BaseURL: fp.httpSrv.URL, Credential: "test-key"},
+		HTTPTimeout:  10 * time.Second,
+		Arm:          "a0",
+		Suite:        "s3",
+		K:            1,
+		TasksDir:     tasksDir,
+		ClaudeCLI:    runner,
+		LLMProvider:  "claude-cli",
+		AuditTimeout: 2 * time.Second,
+		IdentityKeys: 32,
+		Log:          slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
+	})
+	if runErr == nil {
+		t.Fatal("expected a harness-level failure to surface in the returned error")
+	}
+	if len(res.Attempts) != 1 || res.Attempts[0].Error == "" ||
+		!strings.Contains(res.Attempts[0].Error, "did not connect") {
+		t.Fatalf("want server-not-connected harness error, got %+v", res.Attempts)
+	}
+}
+
+// TestClaudeCLISuccessfulCallsButNoHandle surfaces a harness inconsistency when
+// the client reports successful tool calls but no dps_ handle to correlate them
+// (there is nothing to read audit back against, so it must fail loudly rather
+// than silently report zero-audit metrics).
+func TestClaudeCLISuccessfulCallsButNoHandle(t *testing.T) {
+	fp := newFakePlatform(t)
+	tasksDir := t.TempDir()
+	writeTaskFiles(t, tasksDir)
+	// A successful trino_query but platform_info never returned a handle.
+	stream := `{"type":"system","subtype":"init","mcp_servers":[{"name":"bench","status":"connected"}]}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"q1","name":"mcp__bench__trino_query","input":{}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"q1","is_error":false,"content":"42"}]}}
+{"type":"result","subtype":"success","is_error":false,"result":"FINAL ANSWER: 42.5","usage":{"input_tokens":1,"output_tokens":1}}`
+	runner, err := claudecli.New(claudecli.Options{
+		Model: "sonnet",
+		Exec: func(context.Context, claudecli.CommandSpec) ([]byte, []byte, error) {
+			return []byte(stream), nil, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("claudecli.New: %v", err)
+	}
+	res, runErr := Run(context.Background(), Options{
+		Target:       target.Target{BaseURL: fp.httpSrv.URL, Credential: "test-key"},
+		HTTPTimeout:  10 * time.Second,
+		Arm:          "a0",
+		Suite:        "s3",
+		K:            1,
+		TasksDir:     tasksDir,
+		ClaudeCLI:    runner,
+		LLMProvider:  "claude-cli",
+		AuditTimeout: 2 * time.Second,
+		IdentityKeys: 32,
+		Log:          slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
+	})
+	if runErr == nil {
+		t.Fatal("expected a harness failure")
+	}
+	if len(res.Attempts) != 1 || !strings.Contains(res.Attempts[0].Error, "no dps_ handle") {
+		t.Fatalf("want no-handle harness error, got %+v", res.Attempts)
 	}
 }
 

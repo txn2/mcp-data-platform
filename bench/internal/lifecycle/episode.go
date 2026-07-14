@@ -2,22 +2,20 @@ package lifecycle
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/bench/internal/agent"
 	"github.com/txn2/mcp-data-platform/bench/internal/auditapi"
+	"github.com/txn2/mcp-data-platform/bench/internal/claudecli"
 	"github.com/txn2/mcp-data-platform/bench/internal/llm"
 	"github.com/txn2/mcp-data-platform/bench/internal/mcpc"
+	"github.com/txn2/mcp-data-platform/bench/internal/pool"
 	"github.com/txn2/mcp-data-platform/bench/internal/task"
 )
-
-// poolNamePrefix is the identity-pool key NAME prefix in the arm configs
-// (bench-agent-001..NNN). An API key's email is name@apikey.local (pkg/auth),
-// so a pool identity's captured_by is derivable from its sequence number, which
-// is how the harness verifies which identity captured an insight. This couples
-// to the arm config the same way the credential rotation does.
-const poolNamePrefix = "bench-agent"
 
 // searchToolName is the discovery tool whose invocation marks that the agent
 // surfaced saved knowledge itself (unprompted surfacing).
@@ -61,7 +59,7 @@ func recallSystem(kind string) string {
 
 // poolEmail returns the captured_by email for a pool identity sequence number.
 func poolEmail(seq int) string {
-	return fmt.Sprintf("%s-%03d@apikey.local", poolNamePrefix, seq)
+	return pool.Email(seq)
 }
 
 // episodeSpec is one session's parameters.
@@ -80,6 +78,9 @@ type episodeSpec struct {
 // knowledge API, not audit), and return the record plus the raw final answer.
 // A harness failure lands in the record's Error; a graded outcome does not.
 func (e *runEnv) runEpisode(ctx context.Context, spec episodeSpec) (EpisodeRecord, string) {
+	if e.opts.ClaudeCLI != nil {
+		return e.runClaudeCLIEpisode(ctx, spec)
+	}
 	rec := EpisodeRecord{Stage: spec.stage, Identity: spec.identity, Email: poolEmail(spec.seq)}
 	client := e.attemptClient(spec.seq)
 
@@ -150,6 +151,56 @@ func (e *runEnv) runEpisode(ctx context.Context, spec episodeSpec) (EpisodeRecor
 	return rec, final
 }
 
+// runClaudeCLIEpisode drives one lifecycle episode through a real `claude -p`
+// client. Claude Code authenticates as the episode's pool identity, mints and
+// threads its own handle, and drives the tools; the harness reconstructs the
+// transcript, reads audit back best effort by the identity's user_id, and
+// returns the record plus the raw final answer. Lifecycle correctness is
+// verified through the knowledge API (keyed on the identity's email), which is
+// independent of how the episode was driven.
+func (e *runEnv) runClaudeCLIEpisode(ctx context.Context, spec episodeSpec) (EpisodeRecord, string) {
+	rec := EpisodeRecord{Stage: spec.stage, Identity: spec.identity, Email: poolEmail(spec.seq)}
+	e.recordModel(e.opts.ClaudeCLI.Model())
+
+	start := time.Now()
+	cres, err := e.opts.ClaudeCLI.Run(ctx, claudecli.Request{
+		Endpoint:   e.opts.Target.BaseURL,
+		Credential: pool.Credential(e.opts.Target.Credential, spec.seq, e.opts.IdentityKeys),
+		System:     spec.system,
+		Prompt:     spec.prompt,
+	})
+	rec.WallMS = time.Since(start).Milliseconds()
+	if err != nil {
+		rec.Error = fmt.Sprintf("claude-cli: %v", err)
+		return rec, ""
+	}
+	rec.SessionID = cres.Handle
+	rec.ToolCalls = cres.MCPCalls
+	rec.ToolErrors = cres.ToolErrors
+	rec.SearchCalled = cres.SearchCalled
+	rec.InputTokens = cres.Usage.InputTokens
+	rec.OutputTokens = cres.Usage.OutputTokens
+	rec.FinalAnswer = cres.FinalText
+	e.recordPlatformVersion(cres.PlatformVersion)
+	e.writeClaudeTranscript(spec, cres.Transcript)
+
+	if cres.IsError {
+		rec.Error = fmt.Sprintf("claude-cli result error (subtype %q): %.300s", cres.Subtype, cres.FinalText)
+		return rec, cres.FinalText
+	}
+	if !cres.ServerConnected {
+		rec.Error = fmt.Sprintf("bench MCP server did not connect (status %q)", cres.ServerStatus)
+		return rec, cres.FinalText
+	}
+	// Correlate by the dps_ handle claude threaded (each episode mints its own),
+	// so consecutive same-identity stages never fold into one another. Best
+	// effort like the loop path: S5 correctness comes from the knowledge API.
+	if cres.Handle != "" {
+		rec.Audit = e.readAudit(ctx, cres.Handle, cres.SuccessfulMCPCalls, cres.MCPCalls)
+	}
+	return rec, cres.FinalText
+}
+
 // readAudit reads the session's audit trail back best effort. Unlike the S1-S3
 // pipeline, a missing audit row does not fail an S5 run: the lifecycle state is
 // verified through the knowledge API, and audit here only enriches the
@@ -161,6 +212,32 @@ func (e *runEnv) readAudit(ctx context.Context, handle string, minAudited, maxAu
 		return auditapi.Metrics{}
 	}
 	return auditapi.Summarize(events)
+}
+
+// writeClaudeTranscript persists a claude-cli episode's reconstructed transcript
+// for manual audit, reusing the loop path's file layout.
+func (e *runEnv) writeClaudeTranscript(spec episodeSpec, msgs []llm.Message) {
+	if e.opts.TranscriptDir == "" {
+		return
+	}
+	if err := os.MkdirAll(e.opts.TranscriptDir, 0o750); err != nil {
+		e.log.Warn("transcript dir", "error", err)
+		return
+	}
+	path := filepath.Join(e.opts.TranscriptDir,
+		fmt.Sprintf("%s-%s-%s.json", e.currentProtocolID, spec.stage, poolEmail(spec.seq)))
+	payload := lifecycleTranscript{
+		ProtocolID: e.currentProtocolID, Stage: spec.stage, Identity: spec.identity,
+		Email: poolEmail(spec.seq), Transcript: msgs,
+	}
+	raw, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		e.log.Warn("marshal transcript", "error", err)
+		return
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		e.log.Warn("write transcript", "error", err)
+	}
 }
 
 // preAuditRefusal reports whether a structured error code marks a platform

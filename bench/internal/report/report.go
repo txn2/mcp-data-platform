@@ -24,11 +24,17 @@ type Manifest struct {
 	Target          string    `json:"target"`
 	Arm             string    `json:"arm"`
 	LLMProvider     string    `json:"llm_provider"`
-	Model           string    `json:"model"`
-	Seed            int64     `json:"seed"`
-	TaskSetHash     string    `json:"task_set_hash"`
-	K               int       `json:"k"`
-	Suite           string    `json:"suite,omitempty"` // filter, "" = all
+	// ClientVersion records the client path for adapters that run through an
+	// external client (claude-cli: the `claude --version` string). It is empty
+	// for the in-process anthropic and scripted adapters. Its purpose is to keep
+	// runs made through Claude Code from being silently compared against raw
+	// Messages API runs, whose numbers move independently of the platform.
+	ClientVersion string `json:"client_version,omitempty"`
+	Model         string `json:"model"`
+	Seed          int64  `json:"seed"`
+	TaskSetHash   string `json:"task_set_hash"`
+	K             int    `json:"k"`
+	Suite         string `json:"suite,omitempty"` // filter, "" = all
 }
 
 // Attempt is one task execution.
@@ -232,7 +238,11 @@ func LoadJSON(path string) (*Results, error) {
 func (r *Results) HumanSummary() string {
 	var b strings.Builder
 	m := r.Manifest
-	fmt.Fprintf(&b, "bench run: arm=%s model=%s (%s) k=%d\n", m.Arm, m.Model, m.LLMProvider, m.K)
+	provider := m.LLMProvider
+	if m.ClientVersion != "" {
+		provider = fmt.Sprintf("%s via %s", m.LLMProvider, m.ClientVersion)
+	}
+	fmt.Fprintf(&b, "bench run: arm=%s model=%s (%s) k=%d\n", m.Arm, m.Model, provider, m.K)
 	fmt.Fprintf(&b, "  platform %s @ %s | commit %s | seed %d | tasks %s\n",
 		m.PlatformVersion, m.Target, short(m.GitCommit), m.Seed, short(m.TaskSetHash))
 	fmt.Fprintf(&b, "  %s .. %s\n\n", m.StartedAt.Format(time.RFC3339), m.FinishedAt.Format(time.RFC3339))
