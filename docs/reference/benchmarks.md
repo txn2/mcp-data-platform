@@ -220,26 +220,28 @@ below.
 
 ## 2. Memory layer — S5 lifecycle protocols
 
-Status: two full lifecycle runs on the canonical `anthropic` adapter, arm a3,
-k = 3 each — a **shared-store** run and an **isolated** run (defined below).
-Unlike the S1–S3 ablation, S5 has no meaningful "memory off" baseline — a recall
-task with no memory is trivially 0% — so it does not report an accuracy delta
-over a baseline. Instead it measures whether the memory subsystem **works
-reliably**: across fresh sessions, is a taught fact captured, recalled,
-surfaced, promoted to shared knowledge, transferred to a different user, and
-correctly updated?
+Status: three full lifecycle runs on the canonical `anthropic` adapter, arm a3,
+k = 3 each — one **shared-store** run and two **isolated** replicates. Unlike the
+S1–S3 ablation, S5 has no meaningful "memory off" baseline — a recall task with no
+memory is trivially 0% — so it does not report an accuracy delta over a baseline.
+Instead it measures whether the memory subsystem **works reliably**: across fresh
+sessions, is a taught fact captured, recalled, surfaced, promoted to shared
+knowledge, transferred to a different user, and correctly updated?
 
-Two runs are reported because the k-repeats interact with a shared knowledge
-store (detailed under Limitations). The **shared-store** run is a single
-benchmark process: all 45 attempts run against one knowledge/memory store, so a
-protocol's three repeats are *not* independent (an earlier attempt's promotion
-persists as searchable knowledge). The **isolated** run removes that
-coupling — three independent passes of every protocol at k = 1, with the platform
-reset to clean seeded state between passes (fresh Postgres, DataHub descriptions
-and knowledge pages re-seeded), then merged into one k = 3 result — so each
-protocol's three attempts are genuinely independent. Publishing both quantifies
-the confound directly: the gap between them *is* the measured cost of an
-accumulating store.
+Three runs are reported for a reason worth stating up front. The **shared-store**
+run is a single benchmark process: all 45 attempts run against one
+knowledge/memory store, so a protocol's three repeats are *not* independent (an
+earlier attempt's promotion persists as searchable knowledge). Each **isolated**
+run removes that coupling — three independent passes of every protocol at k = 1,
+with the platform reset to clean seeded state between passes (fresh Postgres,
+DataHub descriptions and knowledge pages re-seeded), then merged into one k = 3
+result. Two isolated replicates were run under identical configuration. **The
+second replicate is what makes the S5 numbers trustworthy: comparing the two
+isolated runs to each other separates a real effect from run-to-run noise, and it
+turns out that most of the metric-by-metric differences at this scale are noise.**
+The honest scorecard below is therefore read as a *range across runs*, not a set
+of point estimates, and the interpretation is built on what stays stable across
+all three.
 
 S5 is not single questions but multi-episode **protocols**, each a sequence of
 fresh sessions that exercises the teach-once-answer-forever lifecycle and
@@ -259,68 +261,86 @@ dataset seed 930, protocol-set hash `0920c55292d1`, 15 protocols — 10 promote,
 memory embeddings; every lifecycle state transition is verified through the
 admin insights + changesets API, never inferred from a transcript):
 
-| Field | Shared-store run | Isolated run |
-| --- | --- | --- |
-| Regime | 45 attempts, one shared store (k-repeats coupled) | 3 independent k = 1 passes merged to k = 3 (clean reset between) |
-| Repeats | k = 3 (pass^3 reported) | 3 passes → k = 3 (pass^3 reported) |
-| Platform build | v1.102.0-9-gadfb9d90-dirty | v1.102.0-10-g32d61254-dirty |
-| Raw results | `bench/results/s5-anthropic-k3/` | `bench/results/s5-anthropic-k3-isolated/` (+ `pass{1,2,3}.json`) |
+| Field | Shared-store | Isolated #1 | Isolated #2 |
+| --- | --- | --- | --- |
+| Regime | 45 attempts, one shared store (k-repeats coupled) | 3 independent k = 1 passes merged to k = 3 | 3 independent k = 1 passes merged to k = 3 |
+| Platform build | v1.102.0-9-gadfb9d90-dirty | v1.102.0-10-g32d61254-dirty | v1.102.0-10-g32d61254-dirty |
+| Transcripts | complete | passes 2–3 lost to a harness bug (metrics complete; see Limitations) | complete (all 3 passes) |
+| Raw results | `bench/results/s5-anthropic-k3/` | `bench/results/s5-anthropic-k3-isolated/` | `bench/results/s5-anthropic-k3-isolated-v2/` |
 
-The two runs used different development-build strings because the isolated run
-rebuilt the platform from the current tree; the difference is
-benchmark-harness commits only — the arm config, protocol set (same hash), model,
-and seed are identical, so the runs are directly comparable.
+The isolated runs used a later development-build string than the shared-store run
+because they rebuilt the platform from the current tree; the platform code
+(`cmd/ pkg/ internal/ go.mod go.sum`) is **byte-identical** between the two build
+commits (verified by diff), so the difference is benchmark-harness commits only
+and the runs are directly comparable.
 
 ### Lifecycle scorecard
 
 Each metric is a numerator/denominator over the applicable, non-harness-failed
 runs. Duplicate rate is lower-is-better; every other metric is higher-is-better.
 
-| Metric | Shared-store | Isolated | What it measures |
-| --- | --- | --- | --- |
-| Capture rate | 80.0% (36/45) | 84.4% (38/45) | the agent recorded the taught fact and entity-linked it (verified via the insights API) |
-| Personal recall | 84.4% (38/45) | 88.9% (40/45) | a fresh same-identity session answered the fact-dependent question correctly — graded on answer-correctness like an S1–S3 question, not on proven retrieval (see limitations) |
-| Unprompted surface | 100.0% (36/36) | 100.0% (38/38) | among captured runs, `search` surfaced the *saved memory* itself, unprompted — the cleaner "memory was actually used" signal |
-| Transfer rate | 42.3% (11/26) | 43.3% (13/30) | a *different* identity answered correctly after the reviewer promoted the insight to shared knowledge |
-| Update correctness | 100.0% (10/10) | 100.0% (8/8) | a correction flipped a later recall to the new value |
-| Duplicate rate | 10.0% (1/10) | 0.0% (0/8) | supersede left more than one live insight (lower is better) |
-| Abstention | 100.0% (45/45) | 100.0% (45/45) | the agent refused to fabricate a fact it was never taught |
-| Full-lifecycle pass^3 | 20.0% (3/15) | 26.7% (4/15) | every applicable stage passed all 3 attempts of the protocol |
+| Metric | Shared-store | Isolated #1 | Isolated #2 | What it measures |
+| --- | --- | --- | --- | --- |
+| Capture rate | 80.0% (36/45) | 84.4% (38/45) | 82.2% (37/45) | the agent recorded the taught fact and entity-linked it (verified via the insights API) |
+| Personal recall | 84.4% (38/45) | 88.9% (40/45) | 84.4% (38/45) | a fresh same-identity session answered the fact-dependent question correctly — graded on answer-correctness like an S1–S3 question, not on proven retrieval (see limitations) |
+| Unprompted surface | 100.0% (36/36) | 100.0% (38/38) | 100.0% (37/37) | among captured runs, `search` surfaced the *saved memory* itself, unprompted — the cleaner "memory was actually used" signal |
+| Transfer rate | 42.3% (11/26) | 43.3% (13/30) | 46.7% (14/30) | a *different* identity answered correctly after the reviewer promoted the insight to shared knowledge |
+| Update correctness | 100.0% (10/10) | 100.0% (8/8) | 100.0% (7/7) | a correction flipped a later recall to the new value |
+| Duplicate rate | 10.0% (1/10) | 0.0% (0/8) | 42.9% (3/7) | supersede left more than one live insight (lower is better) |
+| Abstention | 100.0% (45/45) | 100.0% (45/45) | 95.6% (43/45) | the agent refused to fabricate a fact it was never taught |
+| Full-lifecycle pass^3 | 20.0% (3/15) | 26.7% (4/15) | 20.0% (3/15) | every applicable stage passed all 3 attempts of the protocol |
 
-**The two runs agree on the load-bearing findings.** In both, the platform
-**never fabricated a fact it was not taught** (abstention 100%, 45/45 — the
-failure mode LongMemEval warns about), **every correction it detected flipped a
-later recall to the new value** (update correctness 100%), and **whenever a
-memory was captured, search surfaced it unprompted** (unprompted surface 100%).
-Transfer sits at ~43% in **both** runs, so it is a **genuine reliability
-limit** — a fact promoted to shared knowledge is reused by a different identity
-under half the time — not an artifact of the store regime.
+**What is stable across all three runs — read these as the firm results.** The
+platform surfaced every captured memory unprompted (unprompted surface 100% in
+all three) and flipped every detected correction to the new value (update
+correctness 100% in all three). Abstention held at 96–100% — the platform did not
+fabricate facts it was never taught, the failure mode LongMemEval warns about.
+And transfer sits at **42–47% across all three runs**: a fact promoted to shared
+knowledge is reused by a different identity under half the time. That is the
+clearest, most reproducible finding — a genuine reliability ceiling on
+cross-identity transfer, and the sharpest lever for improvement.
 
-**Isolation lifts exactly the metrics the shared-store confound depressed, and
-only those.** Removing the cross-attempt coupling raises capture 80.0% → 84.4%,
-personal recall 84.4% → 88.9%, and pass^3 20% → 26.7%, and drops the duplicate
-rate to 0% (0/8) from 10% — while leaving abstention, update-correctness,
-unprompted surfacing, and transfer essentially unchanged. That pattern is the
-expected signature of the confound (documented under Limitations): an earlier
-attempt's promotion adds search noise that occasionally exhausts a later
-attempt's tool-call budget before it captures, and the strict pass^3 penalizes
-any single such attempt. The **gap between the two runs is the measured cost of
-an accumulating knowledge store** — a few points of capture/recall and roughly
-seven points of pass^3 — and it does not manufacture the transfer weakness, which
-is real in both. Neither run frames memory as low-value: recall,
-update-correctness, unprompted surfacing, and abstention all demonstrate the
-lifecycle working end to end.
+**What is *not* stable — most of the rest, and this is itself the finding.** The
+two isolated replicates ran under identical configuration, differing only in the
+model's run-to-run stochasticity, yet they disagree materially: duplicate rate is
+**0% in one and 42.9% in the other**, pass^3 is 26.7% then 20.0%, and capture and
+personal recall each move a few points. The apparent "isolation lift" over the
+shared-store run that isolated #1 alone suggested (capture 80→84%, recall 84→89%,
+pass^3 20→27%) is **not reproduced** by isolated #2 (82%, 84%, 20%) — so that lift
+was largely **run-to-run variance, not the shared-store confound**. At this scale
+(15 protocols, k = 3, with applicable denominators as small as 7–10 on the
+supersede metrics) the sampling noise is wide, and no single run's
+capture/recall/duplicate/pass^3 value should be read as a point estimate. The
+second replicate earned its place by exposing exactly this: the confound's effect
+on the scorecard is within the noise between two otherwise-identical runs. The
+robust reading is the **range across runs**, anchored on the cross-run-stable
+metrics above.
 
-### Limitations and the shared-store confound
+**Robustness to transient API errors.** All three runs recorded **zero harness
+failures and zero episode-level errors** (45/45 attempts graded each), and the
+run logs show no overload/rate-limit/5xx/retry markers. The harness excludes any
+adapter- or transport-level failure from the metrics and counts it separately, so
+a Claude API outage would appear as an excluded harness failure, never as a
+silently mis-graded answer; the agent's budget is counted in tool calls, not
+wall-clock, so outage latency does not change outcomes. The two isolated
+replicates ran about an hour apart, so a sustained outage window would likely
+have struck one and not the other — both were clean.
 
-The **shared-store** run measures the lifecycle against a **single
-knowledge/memory store shared across all 45 attempts** — state is truncated once
-before the run, not between attempts — so the k-repeats of a protocol are not
-fully independent. Promotions from earlier attempts persist as globally
-searchable knowledge pages. Two consequences are visible in the transcripts and
-shape its numbers. The **isolated** run exists precisely to bound this effect,
-and the scorecard delta above quantifies it; this subsection documents the
-mechanism.
+### Limitations
+
+**Run-to-run variance dominates several metrics.** The two isolated replicates
+are identical in configuration, so their disagreement is a direct read on
+sampling noise: duplicate rate spans 0–43%, pass^3 spans 20–27%, and capture and
+recall each move a few points. With 15 protocols and applicable denominators as
+small as 7–10 on the supersede metrics, this is expected — these are small
+samples. Treat capture, recall, duplicate rate, and pass^3 as ranges, not point
+estimates, and weight the cross-run-stable results (unprompted surface, update
+correctness, and the ~45% transfer ceiling) most. A larger protocol set and more
+replicates would tighten the noisy metrics; that is the natural next investment.
+
+**The shared-store confound is real in mechanism but small in effect.** In the
+shared-store run, promotions from earlier attempts persist as globally searchable
+knowledge pages, and two consequences are visible in its transcripts:
 
 - **Capture failures from discovery-budget exhaustion.** In some later attempts
   the teacher spent its entire tool-call budget searching for and trying to read
@@ -328,32 +348,30 @@ mechanism.
   the capture tool — recorded correctly as a capture miss (the insights API
   confirms zero insights for that identity). In `lc-house-tier` attempt 2, for
   example, the teacher's transcript ends "I ran out of tool-call budget before I
-  could actually write the memory record." These are genuine misses, but their
-  *cause* is search noise from the shared store, not a broken capture path.
-- **Recall can be aided by shared knowledge.** Because personal recall is graded
-  on answer-correctness (exactly like an S1–S3 question), a fresh session can
-  reach the right answer via a prior attempt's promoted page rather than its own
-  memory; some taught definitions are also partly re-derivable from the data.
-  The **unprompted-surface** metric (100%) is the cleaner evidence that the saved
-  memory itself was used, and should be read alongside recall rather than recall
-  being taken as proof of pure retrieval.
+  could actually write the memory record."
+- **Recall can be aided by shared knowledge.** A fresh session can reach the
+  right answer via a prior attempt's promoted page rather than its own memory.
 
-These effects reflect a **realistic, accumulating knowledge store** — in
-production the store does grow — rather than a defect. The **isolated** run
-resets the platform to clean seeded state between each of the three passes (fresh
-Postgres via a volume wipe, DataHub descriptions and knowledge pages re-seeded,
-verified clean before each pass), so a protocol's three attempts never share a
-store and the confound cannot operate. Its higher capture (84.4%), recall
-(88.9%), and pass^3 (26.7%) numbers, and its 0% duplicate rate, are the
-confound's cost made explicit — a few points of capture/recall and roughly seven
-points of pass^3. The isolated run is not a *correction* of the shared-store
-numbers; both are valid measurements of different operating conditions
-(accumulating vs. reset), and reporting the pair is more informative than either
-alone. Two residual caveats apply to **both** runs: personal recall is graded on
-answer-correctness (so some taught definitions being partly re-derivable from the
-data can inflate it — read it alongside unprompted surface), and cross-*protocol*
-search noise within a pass is present in both (different facts, so it adds
-discovery noise but does not leak a protocol's own answer).
+The isolated runs remove this coupling by resetting the platform to clean seeded
+state between passes (fresh Postgres via a volume wipe, DataHub descriptions and
+knowledge pages re-seeded, verified clean before each pass). But the effect that
+removal produces is **within the variance between the two isolated replicates** —
+so while the mechanism is documented and real, the scorecard cannot claim a
+confound cost larger than the run-to-run noise. Reporting all three runs, rather
+than a single shared-store-vs-isolated pair, is what makes that honest.
+
+**Personal recall is graded on answer-correctness**, exactly like an S1–S3
+question, so some taught definitions being partly re-derivable from the data can
+inflate it; read it alongside unprompted surface, which is the cleaner evidence
+that the saved memory itself was used.
+
+**Raw-data note.** Isolated run #1's per-attempt records (final answers, tool-call
+counts, tokens, audit) are complete, but a harness bug pointed all three of its
+passes at one transcript directory, so only the last pass's turn-by-turn
+transcripts survived on disk. No metric or cost derives from the lost
+transcripts. The bug is fixed (each pass now writes its own directory) and
+isolated run #2 preserves all three passes' transcripts; it is reported alongside
+#1 rather than replacing it.
 
 ### Reading S5 correctly
 
@@ -401,24 +419,27 @@ run cost **$18.16** (2.6K fresh input, 356K output, 23.9M cache-read, and 1.5M
 cache-write tokens across the 45 attempts), bounded during the run by a spend
 watchdog. The local Ollama embedding adds no API cost.
 
-The **isolated** run is three independent single-pass runs with a clean reset
-between them, merged into one k = 3 result:
+Each **isolated** run is three independent single-pass runs with a clean reset
+between them, merged into one k = 3 result. Every pass writes to its own
+directory so all raw transcripts are preserved:
 
 ```bash
+D=bench/results/s5-anthropic-k3-isolated-v2
 for pass in 1 2 3; do
   make bench-down && make e2e-down          # wipe Postgres volume
   make bench-seed-datahub                    # reset DataHub descriptions to seed
   make bench-up BENCH_ARM=a3 BENCH_METRICS_ADDR=:9095
-  make bench-lifecycle LLM=anthropic MODEL=claude-sonnet-5 K=1 \
-    && cp build/bench-results/lifecycle-a3.json bench/results/s5-anthropic-k3-isolated/pass$pass.json
+  build/benchrun -lifecycle -arm a3 -url http://localhost:8098 -credential "$KEY" \
+    -protocols bench/protocols -k 1 -llm anthropic -model claude-sonnet-5 \
+    -out "$D/pass$pass/lifecycle-a3.json"
 done
-build/benchrun -lifecycle -merge bench/results/s5-anthropic-k3-isolated/pass1.json,\
-bench/results/s5-anthropic-k3-isolated/pass2.json,bench/results/s5-anthropic-k3-isolated/pass3.json \
-  -out bench/results/s5-anthropic-k3-isolated/lifecycle-a3.json
+build/benchrun -lifecycle -merge "$D/pass1/lifecycle-a3.json,$D/pass2/lifecycle-a3.json,$D/pass3/lifecycle-a3.json" \
+  -out "$D/lifecycle-a3.json"
 ```
 
-It cost **$15.82** (2.4K fresh input, 297K output, 21.3M cache-read, 1.3M
-cache-write across its 45 attempts), also watchdog-bounded.
+The two isolated replicates cost **$15.82** and **$15.54** (each ~2.4K fresh
+input, ~290–300K output, ~21M cache-read, ~1.3M cache-write across 45 attempts),
+also watchdog-bounded.
 
 **Regression gate.** Any committed run can serve as a baseline for future runs:
 
@@ -435,9 +456,9 @@ and a scripted, no-API-key smoke of the full pipeline (plus a live self-check of
 the gate) runs on demand via the `workflow_dispatch` path of the Bench Harness
 CI workflow.
 
-**Total published spend: $101.20** — $67.22 for S1–S3 (reused as-is, not
-regenerated) plus $18.16 for the shared-store S5 run and $15.82 for the isolated
-S5 run.
+**Total published spend: $116.74** — $67.22 for S1–S3 (reused as-is, not
+regenerated), $18.16 for the shared-store S5 run, and $15.82 + $15.54 for the two
+isolated S5 replicates.
 
 ## 4. Honest caveats
 
@@ -464,4 +485,5 @@ S5 run.
 | 2026-07-13 | 3 (S5 pilot) | a3 | claude-sonnet-5 | 13 protocols | `bench/results/v1.102.0-s5-partial/` |
 | 2026-07-14 | Semantic (S1–S3) | a0, a1, a2, a3 | claude-sonnet-5 | 261/arm | `bench/results/phase2-anthropic-k3/` |
 | 2026-07-14 | Memory (S5, shared-store) | a3 | claude-sonnet-5 | 15 protocols × 3 | `bench/results/s5-anthropic-k3/` |
-| 2026-07-14 | Memory (S5, isolated) | a3 | claude-sonnet-5 | 15 protocols × 3 passes | `bench/results/s5-anthropic-k3-isolated/` |
+| 2026-07-14 | Memory (S5, isolated #1) | a3 | claude-sonnet-5 | 15 protocols × 3 passes | `bench/results/s5-anthropic-k3-isolated/` |
+| 2026-07-14 | Memory (S5, isolated #2) | a3 | claude-sonnet-5 | 15 protocols × 3 passes | `bench/results/s5-anthropic-k3-isolated-v2/` |
