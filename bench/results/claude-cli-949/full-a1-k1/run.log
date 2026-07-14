@@ -65,3 +65,121 @@ time=2026-07-13T22:09:52.914-07:00 level=INFO msg="attempt graded" task=s3-depre
 time=2026-07-13T22:11:11.042-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=1 arm=a1 correct=false tool_calls=14 wall_ms=78121
 time=2026-07-13T22:13:02.805-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-east attempt=1 arm=a1 correct=false tool_calls=18 wall_ms=111753
 time=2026-07-13T22:14:32.688-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=1 arm=a1 correct=false tool_calls=13 wall_ms=89874
+time=2026-07-13T22:16:47.491-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=1 arm=a1 correct=false tool_calls=13 wall_ms=134795
+time=2026-07-13T22:18:38.394-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q4-net attempt=1 arm=a1 correct=false tool_calls=15 wall_ms=110891
+time=2026-07-13T22:19:36.576-07:00 level=INFO msg="attempt graded" task=s3-fresh-dec-gross attempt=1 arm=a1 correct=true tool_calls=8 wall_ms=58174
+time=2026-07-13T22:20:35.440-07:00 level=INFO msg="attempt graded" task=s3-fresh-fullyear-gross attempt=1 arm=a1 correct=true tool_calls=9 wall_ms=58859
+time=2026-07-13T22:21:38.539-07:00 level=INFO msg="attempt graded" task=s3-fresh-novdec-gross attempt=1 arm=a1 correct=true tool_calls=10 wall_ms=63093
+time=2026-07-13T22:22:15.546-07:00 level=INFO msg="attempt graded" task=s3-fresh-q4-gross attempt=1 arm=a1 correct=true tool_calls=8 wall_ms=37000
+time=2026-07-13T22:24:07.023-07:00 level=INFO msg="attempt graded" task=s3-net-east-2025 attempt=1 arm=a1 correct=false tool_calls=15 wall_ms=111468
+time=2026-07-13T22:25:20.338-07:00 level=INFO msg="attempt graded" task=s3-net-east-march attempt=1 arm=a1 correct=true tool_calls=12 wall_ms=73308
+time=2026-07-13T22:26:26.602-07:00 level=INFO msg="attempt graded" task=s3-net-top-region attempt=1 arm=a1 correct=true tool_calls=8 wall_ms=66255
+time=2026-07-13T22:27:49.233-07:00 level=INFO msg="attempt graded" task=s3-net-total-2025 attempt=1 arm=a1 correct=true tool_calls=13 wall_ms=82624
+time=2026-07-13T22:29:26.239-07:00 level=INFO msg="attempt graded" task=s3-net-west-2025 attempt=1 arm=a1 correct=true tool_calls=14 wall_ms=96996
+time=2026-07-13T22:31:18.481-07:00 level=INFO msg="attempt graded" task=s3-tier-key-avg attempt=1 arm=a1 correct=false tool_calls=15 wall_ms=112234
+time=2026-07-13T22:32:38.253-07:00 level=INFO msg="attempt graded" task=s3-tier-key-completed attempt=1 arm=a1 correct=false tool_calls=14 wall_ms=79763
+time=2026-07-13T22:34:02.645-07:00 level=INFO msg="attempt graded" task=s3-tier-key-count attempt=1 arm=a1 correct=false tool_calls=15 wall_ms=84383
+time=2026-07-13T22:35:03.919-07:00 level=INFO msg="attempt graded" task=s3-tier-key-east attempt=1 arm=a1 correct=false tool_calls=7 wall_ms=61267
+time=2026-07-13T22:36:31.294-07:00 level=INFO msg="attempt graded" task=s3-tier-key-orders attempt=1 arm=a1 correct=false tool_calls=12 wall_ms=87367
+time=2026-07-13T22:37:05.913-07:00 level=INFO msg="attempt graded" task=s3-units-avg-enterprise attempt=1 arm=a1 correct=true tool_calls=8 wall_ms=34612
+time=2026-07-13T22:37:43.842-07:00 level=INFO msg="attempt graded" task=s3-units-completed-gross attempt=1 arm=a1 correct=true tool_calls=8 wall_ms=37924
+time=2026-07-13T22:38:42.135-07:00 level=INFO msg="attempt graded" task=s3-units-q1-total attempt=1 arm=a1 correct=true tool_calls=10 wall_ms=58285
+time=2026-07-13T22:39:37.590-07:00 level=INFO msg="attempt graded" task=s3-units-total-all attempt=1 arm=a1 correct=true tool_calls=7 wall_ms=55449
+bench run: arm=a1 model=sonnet (claude-cli via 2.1.208 (Claude Code)) k=1
+  platform v1.102.0-9-gadfb9d90-dirty @ http://localhost:8098 | commit 62f6fe68db93 | seed 930 | tasks 7e727f891ee5
+  2026-07-14T04:26:05Z .. 2026-07-14T05:39:37Z
+
+suite   tasks  graded  accuracy  pass^k  med calls  p90 calls  med wall ms  tool errs  enrich tok  harness fails
+s1         17      17    100.0%  100.0%        7.0        8.0        39590          3        3315              0
+s2         45      45    100.0%  100.0%        7.0       10.0        39182         10       13622              0
+s3         25      25     56.0%   56.0%       12.0       15.0        73308          6       14509              0
+
+task                            graded  correct  pass^k
+s1-account-created                  1        1  true
+s1-authoritative-orders             1        1  true
+s1-avoid-order-table                1        1  true
+s1-current-orders                   1        1  true
+s1-customer-profile                 1        1  true
+s1-customer-region                  1        1  true
+s1-customer-tier                    1        1  true
+s1-daily-aggregate                  1        1  true
+s1-deprecated-table                 1        1  true
+s1-join-for-region                  1        1  true
+s1-order-amount                     1        1  true
+s1-order-status                     1        1  true
+s1-order-transactions               1        1  true
+s1-preaggregated                    1        1  true
+s1-retired-pipeline                 1        1  true
+s1-revenue-source                   1        1  true
+s1-trend-chart                      1        1  true
+s2-completed-amount-cents           1        1  true
+s2-completed-orders                 1        1  true
+s2-completed-q1-2025                1        1  true
+s2-completed-q2-2025                1        1  true
+s2-completed-q3-2025                1        1  true
+s2-completed-q4-2025                1        1  true
+s2-customers-created-2023           1        1  true
+s2-customers-created-2024           1        1  true
+s2-customers-region-east            1        1  true
+s2-customers-region-north           1        1  true
+s2-customers-region-south           1        1  true
+s2-customers-region-west            1        1  true
+s2-customers-tier-basic             1        1  true
+s2-customers-tier-enterprise        1        1  true
+s2-customers-tier-plus              1        1  true
+s2-distinct-order-customers         1        1  true
+s2-large-orders                     1        1  true
+s2-orders-december-2025             1        1  true
+s2-orders-february-2025             1        1  true
+s2-orders-january-2025              1        1  true
+s2-orders-june-2025                 1        1  true
+s2-orders-november-2025             1        1  true
+s2-orders-region-east               1        1  true
+s2-orders-region-north              1        1  true
+s2-orders-region-south              1        1  true
+s2-orders-region-west               1        1  true
+s2-orders-tier-basic                1        1  true
+s2-orders-tier-enterprise           1        1  true
+s2-orders-tier-plus                 1        1  true
+s2-pending-orders                   1        1  true
+s2-refunded-orders                  1        1  true
+s2-sql-completed-orders-per-region      1        1  true
+s2-sql-customers-per-region         1        1  true
+s2-sql-customers-per-tier           1        1  true
+s2-sql-orders-per-status            1        1  true
+s2-top-region-customers             1        1  true
+s2-top-region-orders                1        1  true
+s2-top-tier-orders                  1        1  true
+s2-total-customers                  1        1  true
+s2-total-orders                     1        1  true
+s2-xtab-east-completed              1        1  true
+s2-xtab-east-refunded               1        1  true
+s2-xtab-north-pending               1        1  true
+s2-xtab-south-completed             1        1  true
+s2-xtab-west-completed              1        1  true
+s3-deprecated-completed-usd         1        1  true
+s3-deprecated-order-count           1        1  true
+s3-fiscal-2025-count                1        0  false
+s3-fiscal-2025-east                 1        0  false
+s3-fiscal-2025-net                  1        0  false
+s3-fiscal-q1-net                    1        0  false
+s3-fiscal-q4-net                    1        0  false
+s3-fresh-dec-gross                  1        1  true
+s3-fresh-fullyear-gross             1        1  true
+s3-fresh-novdec-gross               1        1  true
+s3-fresh-q4-gross                   1        1  true
+s3-net-east-2025                    1        0  false
+s3-net-east-march                   1        1  true
+s3-net-top-region                   1        1  true
+s3-net-total-2025                   1        1  true
+s3-net-west-2025                    1        1  true
+s3-tier-key-avg                     1        0  false
+s3-tier-key-completed               1        0  false
+s3-tier-key-count                   1        0  false
+s3-tier-key-east                    1        0  false
+s3-tier-key-orders                  1        0  false
+s3-units-avg-enterprise             1        1  true
+s3-units-completed-gross            1        1  true
+s3-units-q1-total                   1        1  true
+s3-units-total-all                  1        1  true
+results: bench/results/claude-cli-949/full-a1-k1/results.json

@@ -1,0 +1,172 @@
+{
+  "task_id": "s1-current-orders",
+  "arm": "a2",
+  "attempt": 1,
+  "session_id": "dps_224c77b6df306ddcb192915d80cecda5",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "The bench warehouse contains more than one table of order data. Which one is the current, supported table for order analysis?"
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01JfbtsM7qbusWFkzRKoNB9f",
+          "name": "search",
+          "args": {
+            "intent": "current supported table for order analysis in bench warehouse (multiple order tables)"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01JfbtsM7qbusWFkzRKoNB9f",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"connections\",\n      \"hits\": [\n        {\n          \"text\": \"platform-admin (api)\\nBuilt-in self-configuration connection. Routes the API gateway to the platform's own admin REST API (`/api/v1/admin/*`) so an admin can create personas, manage connections, edit agent instructions, and manage prompts and API keys directly from an MCP session. Calls are authenticated and audited as the acting admin.\",\n          \"source\": \"connections\",\n          \"ref\": \"platform-admin\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(api,platform-admin)\"\n        },\n        {\n          \"text\": \"e2e (trino)\",\n          \"source\": \"connections\",\n          \"ref\": \"e2e\",\n          \"score\": 0,\n          \"reference\": \"mcp:connection:(trino,e2e)\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"connections\",\n      \"matched\": 2,\n      \"shown\": 2\n    }\n  ],\n  \"count\": 2,\n  \"ranking\": \"lexical\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01VW9yKwotnLuTtZd53GhkMi",
+          "name": "search",
+          "args": {
+            "intent": "orders table deprecated vs current supported table"
+          }
+        },
+        {
+          "id": "toolu_01QJMEpunCfMoPDdkL5qPKPh",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "e2e"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01VW9yKwotnLuTtZd53GhkMi",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"lexical\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01QJMEpunCfMoPDdkL5qPKPh",
+          "text": "Failed to list schemas: failed to list schemas: trino: query failed (200 OK): \"USER_ERROR: Catalog 'e2e' not found\" (code: tool_error)",
+          "is_error": true
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01Ckjz5rcpDUMQ7LU6XKudEr",
+          "name": "trino_browse",
+          "args": {}
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01Ckjz5rcpDUMQ7LU6XKudEr",
+          "text": "## Available Catalogs\n\n- `memory`\n- `system`\n\n*2 catalogs found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_019V2B4s2PTQkmuxJ7EhkNi8",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "memory"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_019V2B4s2PTQkmuxJ7EhkNi8",
+          "text": "## Schemas in `memory`\n\n- `bench`\n- `default`\n- `e2e_test`\n- `information_schema`\n\n*4 schemas found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_012cQkhaGKuT7iAGCLs9Aqit",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "memory",
+            "pattern": "%order%",
+            "schema": "bench"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_012cQkhaGKuT7iAGCLs9Aqit",
+          "text": "## Tables in `memory.bench` matching '%order%'\n\n- `legacy_orders`\n- `orders`\n\n*2 tables found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01GPoPEV977PDFTQXSugM8do",
+          "name": "datahub_get_entity",
+          "args": {
+            "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+          }
+        },
+        {
+          "id": "toolu_01XJGBjTEDN4J6ur4XwrXytD",
+          "name": "datahub_get_entity",
+          "args": {
+            "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01GPoPEV977PDFTQXSugM8do",
+          "text": "{\n  \"urn\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n  \"type\": \"DATASET\",\n  \"name\": \"orders\",\n  \"description\": \"The 'reporting cohort' is the set of orders placed in December 2025.\",\n  \"tags\": [\n    {\n      \"urn\": \"urn:li:tag:bench\",\n      \"name\": \"bench\"\n    }\n  ],\n  \"platform\": \"trino\",\n  \"properties\": {\n    \"team\": \"bench\",\n    \"unit\": \"cents\"\n  }\n}\n{\"query_context\":{\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\":{\"available\":true,\"query_table\":\"memory.bench.orders\",\"connection\":\"e2e-trino\",\"available_connections\":[\"e2e\"],\"schema_preview\":[{\"name\":\"order_id\",\"type\":\"integer\"},{\"name\":\"customer_id\",\"type\":\"integer\"},{\"name\":\"order_ts\",\"type\":\"timestamp(3)\"},{\"name\":\"status\",\"type\":\"varchar\"},{\"name\":\"amount\",\"type\":\"integer\"},{\"name\":\"discount\",\"type\":\"integer\"}],\"total_columns\":6}}}\n{\"memory_context\":[{\"id\":\"67810f0b8219cda9415b68fdaddaa962\",\"reference\":\"mcp:memory:67810f0b8219cda9415b68fdaddaa962\",\"summary\":\"Working definition: 'settlement total' = gross revenue (sum of `amount` column, no discount subtraction) over COMPLETED orders only, for calendar Q4 2025 (October 1, 2025 through December 31, 2025). This differs from the company's standard net Revenue Reporting Policy (amount - d\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-07-13T20:10:12.054972Z\"},{\"id\":\"28936642782ec7e10cc061d6031d5e53\",\"reference\":\"mcp:memory:28936642782ec7e10cc061d6031d5e53\",\"summary\":\"Working definition: the 'reporting cohort' refers to the set of orders placed in December 2025 (i.e., orders in the `orders` table with order placement date \\u003e= 2025-12-01 and \\u003c 2026-01-01). Use this definition consistently in later analysis sessions when 'reporting cohort' is ref\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-07-13T20:06:48.378653Z\"},{\"id\":\"a21515a08e88cfc2683c1c3dcab51a92\",\"reference\":\"mcp:memory:a21515a08e88cfc2683c1c3dcab51a92\",\"summary\":\"Working definition: a 'priority order' is any order whose amount is at least $1,000.00 (i.e., \\u003e= 100000 in the amount column, since amounts are stored as integers in US cents). Applies to the memory.bench.orders dataset.\",\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-07-13T20:04:26.575738Z\"}],\"memory_context_note\":\"2 additional related memory record(s) omitted to stay within the enrichment budget; fetch any by its reference in memory_context_omitted for full detail.\",\"memory_context_omitted\":[{\"id\":\"9435017067fc0a9fe0da4aa1a53ca9b4\",\"reference\":\"mcp:memory:9435017067fc0a9fe0da4aa1a53ca9b4\"},{\"id\":\"38d428aa9abd388166a748c68856fb17\",\"reference\":\"mcp:memory:38d428aa9abd388166a748c68856fb17\"}]}\n{\"knowledge_pages\":[{\"id\":\"kp_10413ea9-d2df-4a47-840e-ae5c32e81073\",\"slug\":\"active-customer-definition\",\"title\":\"Active Customer Definition\"},{\"id\":\"kp_5c2d13b6-3caa-4dbb-a89c-ff4a9c3dfdf8\",\"slug\":\"house-tier-definition\",\"title\":\"House Tier Definition\"},{\"id\":\"kp_a00d4aa5-0f89-4dcb-b2c3-fa25ca77219b\",\"slug\":\"premium-order-definition\",\"title\":\"Premium Order Definition\"},{\"id\":\"kp_c7c3c1e7-08e1-4197-a807-5b5d1da0203d\",\"slug\":\"primary-region-definition\",\"title\":\"Primary Region Definition\"},{\"id\":\"kp_a39437c6-af58-4abb-81b0-c904e6060a0a\",\"slug\":\"priority-order-definition\",\"title\":\"Priority Order Definition\"}]}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01XJGBjTEDN4J6ur4XwrXytD",
+          "text": "{\n  \"urn\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\",\n  \"type\": \"DATASET\",\n  \"name\": \"legacy_orders\",\n  \"description\": \"DEPRECATED order extract from the retired ingestion pipeline. Partial coverage, totals in dollars. Use memory.bench.orders for all order analysis.\",\n  \"tags\": [\n    {\n      \"urn\": \"urn:li:tag:bench\",\n      \"name\": \"bench\"\n    }\n  ],\n  \"platform\": \"trino\",\n  \"deprecation\": {\n    \"deprecated\": true,\n    \"note\": \"Deprecated. Use memory.bench.orders instead.\",\n    \"actor\": \"urn:li:corpuser:bench-seed\"\n  },\n  \"properties\": {\n    \"team\": \"bench\"\n  }\n}\n{\"query_context\":{\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\":{\"available\":true,\"query_table\":\"memory.bench.legacy_orders\",\"connection\":\"e2e-trino\",\"available_connections\":[\"e2e\"],\"schema_preview\":[{\"name\":\"order_id\",\"type\":\"integer\"},{\"name\":\"customer_id\",\"type\":\"integer\"},{\"name\":\"order_date\",\"type\":\"date\"},{\"name\":\"total\",\"type\":\"double\"}],\"total_columns\":4}}}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "`memory.bench.legacy_orders` is explicitly marked **DEPRECATED** in DataHub, with the note \"Deprecated. Use memory.bench.orders instead.\" The `memory.bench.orders` table is the active, supported table with full schema (order_id, customer_id, order_ts, status, amount, discount) and no deprecation flag.\n\nFINAL ANSWER: memory.bench.orders"
+    }
+  ]
+}

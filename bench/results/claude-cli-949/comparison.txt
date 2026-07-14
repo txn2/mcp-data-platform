@@ -1,0 +1,6 @@
+cross-arm comparison (baseline a1)
+suite           a1                a3              
+s1              100.0% [100–100]  100.0% [100–100]
+s2              100.0% [100–100]  100.0% [100–100]
+s3              56.0% [36–76]     100.0% [100–100]
+comparison markdown: bench/results/claude-cli-949/comparison.md

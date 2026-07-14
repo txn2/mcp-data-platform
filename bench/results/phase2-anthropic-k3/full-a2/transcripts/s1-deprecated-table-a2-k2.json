@@ -1,0 +1,182 @@
+{
+  "task_id": "s1-deprecated-table",
+  "arm": "a2",
+  "attempt": 2,
+  "session_id": "dps_d7e4e4345c33888441403aa73062cf23",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "Which table in the bench warehouse is deprecated and should NOT be used for order analysis?"
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_011ZU3d4k3qe3QS6tiaeynWA",
+          "name": "search",
+          "args": {
+            "intent": "deprecated table order analysis bench warehouse"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_011ZU3d4k3qe3QS6tiaeynWA",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 1,\n  \"ranking\": \"lexical\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01X4bxEphUhVaGwKFFsBijao",
+          "name": "search",
+          "args": {
+            "intent": "legacy_orders table bench warehouse"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01X4bxEphUhVaGwKFFsBijao",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 1,\n  \"ranking\": \"lexical\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_017Jo4M7X8515J6NErxq9SaJ",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "bench"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_017Jo4M7X8515J6NErxq9SaJ",
+          "text": "Failed to list schemas: failed to list schemas: trino: query failed (200 OK): \"USER_ERROR: Catalog 'bench' not found\" (code: tool_error)",
+          "is_error": true
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_011NCaL4ZnyT1FQRnFq2pdSi",
+          "name": "trino_browse",
+          "args": {}
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_011NCaL4ZnyT1FQRnFq2pdSi",
+          "text": "## Available Catalogs\n\n- `memory`\n- `system`\n\n*2 catalogs found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_015YMsgzqzjnTjzMhqoy26dQ",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "memory"
+          }
+        },
+        {
+          "id": "toolu_01PPF3cFigRXKAKhkQtjjwF9",
+          "name": "datahub_browse",
+          "args": {
+            "what": "domains"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_015YMsgzqzjnTjzMhqoy26dQ",
+          "text": "## Schemas in `memory`\n\n- `bench`\n- `default`\n- `e2e_test`\n- `information_schema`\n\n*4 schemas found*",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01PPF3cFigRXKAKhkQtjjwF9",
+          "text": "{}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01CqsbEhrGCN9ArGSnRDaZnJ",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "memory",
+            "schema": "bench"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01CqsbEhrGCN9ArGSnRDaZnJ",
+          "text": "## Tables in `memory.bench`\n\n- `customers`\n- `daily_region_revenue`\n- `legacy_orders`\n- `orders`\n\n*4 tables found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Confirmed: `memory.bench.legacy_orders` exists alongside the current `orders` table. Per the Bench Warehouse Guide, `legacy_orders` is explicitly marked deprecated in favor of `orders`.",
+      "tool_calls": [
+        {
+          "id": "toolu_014e1oAuP47CHsdD4snvb414",
+          "name": "datahub_get_entity",
+          "args": {
+            "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,bench.legacy_orders,PROD)"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_014e1oAuP47CHsdD4snvb414",
+          "text": "{\n  \"urn\": \"urn:li:dataset:(urn:li:dataPlatform:trino,bench.legacy_orders,PROD)\",\n  \"type\": \"DATASET\",\n  \"name\": \"bench.legacy_orders\",\n  \"platform\": \"trino\"\n}\n{\"query_context\":{\"urn:li:dataset:(urn:li:dataPlatform:trino,bench.legacy_orders,PROD)\":{\"available\":true,\"query_table\":\"memory.bench.legacy_orders\",\"connection\":\"e2e-trino\",\"available_connections\":[\"e2e\"],\"schema_preview\":[{\"name\":\"order_id\",\"type\":\"integer\"},{\"name\":\"customer_id\",\"type\":\"integer\"},{\"name\":\"order_date\",\"type\":\"date\"},{\"name\":\"total\",\"type\":\"double\"}],\"total_columns\":4}}}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "This confirms `memory.bench.legacy_orders` is the deprecated order-related table in the bench warehouse — the Bench Warehouse Guide explicitly states \"orders is current, legacy_orders is deprecated,\" and it should not be used for order analysis (use `orders` instead).\n\nFINAL ANSWER: memory.bench.legacy_orders"
+    }
+  ]
+}

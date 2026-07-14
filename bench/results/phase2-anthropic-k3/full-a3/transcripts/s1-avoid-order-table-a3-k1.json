@@ -1,0 +1,63 @@
+{
+  "task_id": "s1-avoid-order-table",
+  "arm": "a3",
+  "attempt": 1,
+  "session_id": "dps_8130d339e53f2753aa9b95921474e736",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "A colleague is about to query an order table that is no longer maintained. Which table should they avoid in favor of the current one?"
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01TRgkuQvsB1QVGAqSwQKxWw",
+          "name": "search",
+          "args": {
+            "intent": "deprecated order table no longer maintained, replacement table"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01TRgkuQvsB1QVGAqSwQKxWw",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/api-catalogs/{id}/embedding-status\\nList catalog embedding statuses\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/api-catalogs/{id}/embedding-status\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/admin/knowledge/changesets\\nList changesets\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/knowledge/changesets\",\n          \"score\": 0.7550980272225569\n        },\n        {\n          \"text\": \"POST /api/v1/admin/api-catalogs/{id}/specs/{spec}/reembed\\nRetry catalog spec embedding\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:POST /admin/api-catalogs/{id}/specs/{spec}/reembed\",\n          \"score\": 0.736252879715205\n        },\n        {\n          \"text\": \"DELETE /api/v1/admin/api-catalogs/{id}\\nDelete API catalog\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:DELETE /admin/api-catalogs/{id}\",\n          \"score\": 0.6714602572891084\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Priority Order Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_a39437c6-af58-4abb-81b0-c904e6060a0a\",\n          \"score\": 0.7897968266107044,\n          \"reference\": \"mcp:knowledge_page:kp_a39437c6-af58-4abb-81b0-c904e6060a0a\"\n        },\n        {\n          \"text\": \"Premium Order Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_a00d4aa5-0f89-4dcb-b2c3-fa25ca77219b\",\n          \"score\": 0.7170768083441876,\n          \"reference\": \"mcp:knowledge_page:kp_a00d4aa5-0f89-4dcb-b2c3-fa25ca77219b\"\n        }\n      ]\n    },\n    {\n      \"source\": \"connections\",\n      \"hits\": [\n        {\n          \"text\": \"e2e (trino)\",\n          \"source\": \"connections\",\n          \"ref\": \"e2e\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(trino,e2e)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Correction: the 'focus region' definition has changed. It is now East, not West. When analysis calls for filtering or reporting on \\\"the focus region,\\\" use region = 'East' against the `region` column (present in memory.bench.customers and memory.bench.daily_region_revenue, and joinable to memory.bench.orders via customer_id). This supersedes the prior definition (West). Apply this corrected definition in all later sessions for this analysis.\",\n          \"source\": \"insights\",\n          \"ref\": \"159be94b800c915ae7715b00a17d21ca\",\n          \"score\": 1,\n          \"status\": \"pending\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-007@apikey.local\",\n          \"reference\": \"mcp:insight:159be94b800c915ae7715b00a17d21ca\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:74f538d8-a70c-4b21-b506-5ef339f02149\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 12,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"connections\",\n      \"matched\": 1,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Found it directly: the \"Bench Warehouse Guide\" knowledge page states that `orders` is current and `legacy_orders` is deprecated.\n\nLet me verify the table exists in the catalog to confirm the fully qualified name.",
+      "tool_calls": [
+        {
+          "id": "toolu_01K2NGEU4BLyBqanHenxK8n6",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "memory",
+            "pattern": "%order%",
+            "schema": "bench"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01K2NGEU4BLyBqanHenxK8n6",
+          "text": "## Tables in `memory.bench` matching '%order%'\n\n- `legacy_orders`\n- `orders`\n\n*2 tables found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Confirmed: `memory.bench.legacy_orders` is the deprecated table, and `memory.bench.orders` is the current, maintained one your colleague should use instead.\n\nFINAL ANSWER: memory.bench.legacy_orders is deprecated — use memory.bench.orders instead"
+    }
+  ]
+}

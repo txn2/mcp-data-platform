@@ -1,0 +1,359 @@
+time=2026-07-14T01:17:37.748-07:00 level=INFO msg="attempt graded" task=s1-account-created attempt=1 arm=a1 correct=true tool_calls=4 wall_ms=9525
+time=2026-07-14T01:17:46.018-07:00 level=INFO msg="attempt graded" task=s1-account-created attempt=2 arm=a1 correct=true tool_calls=4 wall_ms=8255
+time=2026-07-14T01:17:54.225-07:00 level=INFO msg="attempt graded" task=s1-account-created attempt=3 arm=a1 correct=true tool_calls=4 wall_ms=8191
+time=2026-07-14T01:18:08.471-07:00 level=INFO msg="attempt graded" task=s1-authoritative-orders attempt=1 arm=a1 correct=true tool_calls=6 wall_ms=14232
+time=2026-07-14T01:18:23.994-07:00 level=INFO msg="attempt graded" task=s1-authoritative-orders attempt=2 arm=a1 correct=true tool_calls=6 wall_ms=15509
+time=2026-07-14T01:18:35.486-07:00 level=INFO msg="attempt graded" task=s1-authoritative-orders attempt=3 arm=a1 correct=true tool_calls=5 wall_ms=11478
+time=2026-07-14T01:18:50.028-07:00 level=INFO msg="attempt graded" task=s1-avoid-order-table attempt=1 arm=a1 correct=false tool_calls=7 wall_ms=14530
+time=2026-07-14T01:19:03.921-07:00 level=INFO msg="attempt graded" task=s1-avoid-order-table attempt=2 arm=a1 correct=true tool_calls=7 wall_ms=13879
+time=2026-07-14T01:19:16.715-07:00 level=INFO msg="attempt graded" task=s1-avoid-order-table attempt=3 arm=a1 correct=true tool_calls=7 wall_ms=12779
+time=2026-07-14T01:19:27.567-07:00 level=INFO msg="attempt graded" task=s1-current-orders attempt=1 arm=a1 correct=true tool_calls=5 wall_ms=10838
+time=2026-07-14T01:19:43.097-07:00 level=INFO msg="attempt graded" task=s1-current-orders attempt=2 arm=a1 correct=true tool_calls=5 wall_ms=15516
+time=2026-07-14T01:19:53.668-07:00 level=INFO msg="attempt graded" task=s1-current-orders attempt=3 arm=a1 correct=true tool_calls=5 wall_ms=10555
+time=2026-07-14T01:20:02.787-07:00 level=INFO msg="attempt graded" task=s1-customer-profile attempt=1 arm=a1 correct=true tool_calls=5 wall_ms=9103
+time=2026-07-14T01:20:11.697-07:00 level=INFO msg="attempt graded" task=s1-customer-profile attempt=2 arm=a1 correct=true tool_calls=5 wall_ms=8894
+time=2026-07-14T01:20:22.058-07:00 level=INFO msg="attempt graded" task=s1-customer-profile attempt=3 arm=a1 correct=true tool_calls=5 wall_ms=10343
+time=2026-07-14T01:20:33.334-07:00 level=INFO msg="attempt graded" task=s1-customer-region attempt=1 arm=a1 correct=true tool_calls=6 wall_ms=11261
+time=2026-07-14T01:20:43.589-07:00 level=INFO msg="attempt graded" task=s1-customer-region attempt=2 arm=a1 correct=true tool_calls=6 wall_ms=10239
+time=2026-07-14T01:20:53.983-07:00 level=INFO msg="attempt graded" task=s1-customer-region attempt=3 arm=a1 correct=true tool_calls=5 wall_ms=10379
+time=2026-07-14T01:21:04.101-07:00 level=INFO msg="attempt graded" task=s1-customer-tier attempt=1 arm=a1 correct=true tool_calls=5 wall_ms=10105
+time=2026-07-14T01:21:13.626-07:00 level=INFO msg="attempt graded" task=s1-customer-tier attempt=2 arm=a1 correct=true tool_calls=5 wall_ms=9512
+time=2026-07-14T01:21:25.576-07:00 level=INFO msg="attempt graded" task=s1-customer-tier attempt=3 arm=a1 correct=true tool_calls=6 wall_ms=11928
+time=2026-07-14T01:21:35.108-07:00 level=INFO msg="attempt graded" task=s1-daily-aggregate attempt=1 arm=a1 correct=true tool_calls=4 wall_ms=9518
+time=2026-07-14T01:21:50.276-07:00 level=INFO msg="attempt graded" task=s1-daily-aggregate attempt=2 arm=a1 correct=true tool_calls=4 wall_ms=15153
+time=2026-07-14T01:22:01.181-07:00 level=INFO msg="attempt graded" task=s1-daily-aggregate attempt=3 arm=a1 correct=true tool_calls=4 wall_ms=10891
+time=2026-07-14T01:22:12.226-07:00 level=INFO msg="attempt graded" task=s1-deprecated-table attempt=1 arm=a1 correct=true tool_calls=5 wall_ms=11027
+time=2026-07-14T01:22:23.442-07:00 level=INFO msg="attempt graded" task=s1-deprecated-table attempt=2 arm=a1 correct=true tool_calls=5 wall_ms=11198
+time=2026-07-14T01:22:34.570-07:00 level=INFO msg="attempt graded" task=s1-deprecated-table attempt=3 arm=a1 correct=true tool_calls=5 wall_ms=11094
+time=2026-07-14T01:22:44.826-07:00 level=INFO msg="attempt graded" task=s1-join-for-region attempt=1 arm=a1 correct=true tool_calls=7 wall_ms=10239
+time=2026-07-14T01:22:57.208-07:00 level=INFO msg="attempt graded" task=s1-join-for-region attempt=2 arm=a1 correct=true tool_calls=7 wall_ms=12369
+time=2026-07-14T01:23:08.935-07:00 level=INFO msg="attempt graded" task=s1-join-for-region attempt=3 arm=a1 correct=true tool_calls=8 wall_ms=11714
+time=2026-07-14T01:23:19.270-07:00 level=INFO msg="attempt graded" task=s1-order-amount attempt=1 arm=a1 correct=true tool_calls=6 wall_ms=10316
+time=2026-07-14T01:23:35.079-07:00 level=INFO msg="attempt graded" task=s1-order-amount attempt=2 arm=a1 correct=true tool_calls=6 wall_ms=15791
+time=2026-07-14T01:23:46.882-07:00 level=INFO msg="attempt graded" task=s1-order-amount attempt=3 arm=a1 correct=true tool_calls=5 wall_ms=11785
+time=2026-07-14T01:23:57.335-07:00 level=INFO msg="attempt graded" task=s1-order-status attempt=1 arm=a1 correct=true tool_calls=5 wall_ms=10443
+time=2026-07-14T01:24:06.873-07:00 level=INFO msg="attempt graded" task=s1-order-status attempt=2 arm=a1 correct=true tool_calls=5 wall_ms=9523
+time=2026-07-14T01:24:17.943-07:00 level=INFO msg="attempt graded" task=s1-order-status attempt=3 arm=a1 correct=true tool_calls=6 wall_ms=11051
+time=2026-07-14T01:24:29.117-07:00 level=INFO msg="attempt graded" task=s1-order-transactions attempt=1 arm=a1 correct=true tool_calls=5 wall_ms=11157
+time=2026-07-14T01:24:41.515-07:00 level=INFO msg="attempt graded" task=s1-order-transactions attempt=2 arm=a1 correct=true tool_calls=6 wall_ms=12380
+time=2026-07-14T01:24:54.355-07:00 level=INFO msg="attempt graded" task=s1-order-transactions attempt=3 arm=a1 correct=true tool_calls=7 wall_ms=12819
+time=2026-07-14T01:25:06.867-07:00 level=INFO msg="attempt graded" task=s1-preaggregated attempt=1 arm=a1 correct=true tool_calls=4 wall_ms=12493
+time=2026-07-14T01:25:15.545-07:00 level=INFO msg="attempt graded" task=s1-preaggregated attempt=2 arm=a1 correct=true tool_calls=4 wall_ms=8663
+time=2026-07-14T01:25:25.966-07:00 level=INFO msg="attempt graded" task=s1-preaggregated attempt=3 arm=a1 correct=true tool_calls=4 wall_ms=10396
+time=2026-07-14T01:25:40.367-07:00 level=INFO msg="attempt graded" task=s1-retired-pipeline attempt=1 arm=a1 correct=true tool_calls=7 wall_ms=14382
+time=2026-07-14T01:25:52.142-07:00 level=INFO msg="attempt graded" task=s1-retired-pipeline attempt=2 arm=a1 correct=true tool_calls=7 wall_ms=11758
+time=2026-07-14T01:26:04.844-07:00 level=INFO msg="attempt graded" task=s1-retired-pipeline attempt=3 arm=a1 correct=true tool_calls=7 wall_ms=12682
+time=2026-07-14T01:26:22.951-07:00 level=INFO msg="attempt graded" task=s1-revenue-source attempt=1 arm=a1 correct=true tool_calls=8 wall_ms=18085
+time=2026-07-14T01:26:35.349-07:00 level=INFO msg="attempt graded" task=s1-revenue-source attempt=2 arm=a1 correct=true tool_calls=8 wall_ms=12376
+time=2026-07-14T01:26:48.947-07:00 level=INFO msg="attempt graded" task=s1-revenue-source attempt=3 arm=a1 correct=true tool_calls=8 wall_ms=13581
+time=2026-07-14T01:27:00.889-07:00 level=INFO msg="attempt graded" task=s1-trend-chart attempt=1 arm=a1 correct=true tool_calls=6 wall_ms=11925
+time=2026-07-14T01:27:12.125-07:00 level=INFO msg="attempt graded" task=s1-trend-chart attempt=2 arm=a1 correct=true tool_calls=6 wall_ms=11217
+time=2026-07-14T01:27:24.048-07:00 level=INFO msg="attempt graded" task=s1-trend-chart attempt=3 arm=a1 correct=true tool_calls=6 wall_ms=11900
+time=2026-07-14T01:27:41.990-07:00 level=INFO msg="attempt graded" task=s2-completed-amount-cents attempt=1 arm=a1 correct=true tool_calls=6 wall_ms=17923
+time=2026-07-14T01:27:56.062-07:00 level=INFO msg="attempt graded" task=s2-completed-amount-cents attempt=2 arm=a1 correct=true tool_calls=6 wall_ms=14049
+time=2026-07-14T01:28:14.696-07:00 level=INFO msg="attempt graded" task=s2-completed-amount-cents attempt=3 arm=a1 correct=true tool_calls=6 wall_ms=18614
+time=2026-07-14T01:28:27.919-07:00 level=INFO msg="attempt graded" task=s2-completed-orders attempt=1 arm=a1 correct=true tool_calls=7 wall_ms=13206
+time=2026-07-14T01:28:42.265-07:00 level=INFO msg="attempt graded" task=s2-completed-orders attempt=2 arm=a1 correct=true tool_calls=7 wall_ms=14331
+time=2026-07-14T01:28:59.289-07:00 level=INFO msg="attempt graded" task=s2-completed-orders attempt=3 arm=a1 correct=true tool_calls=6 wall_ms=17006
+time=2026-07-14T01:29:30.223-07:00 level=INFO msg="attempt graded" task=s2-completed-q1-2025 attempt=1 arm=a1 correct=true tool_calls=10 wall_ms=30917
+time=2026-07-14T01:29:49.563-07:00 level=INFO msg="attempt graded" task=s2-completed-q1-2025 attempt=2 arm=a1 correct=true tool_calls=7 wall_ms=19321
+time=2026-07-14T01:30:09.675-07:00 level=INFO msg="attempt graded" task=s2-completed-q1-2025 attempt=3 arm=a1 correct=true tool_calls=9 wall_ms=20091
+time=2026-07-14T01:30:32.483-07:00 level=INFO msg="attempt graded" task=s2-completed-q2-2025 attempt=1 arm=a1 correct=true tool_calls=9 wall_ms=22786
+time=2026-07-14T01:30:50.794-07:00 level=INFO msg="attempt graded" task=s2-completed-q2-2025 attempt=2 arm=a1 correct=true tool_calls=6 wall_ms=18296
+time=2026-07-14T01:31:09.828-07:00 level=INFO msg="attempt graded" task=s2-completed-q2-2025 attempt=3 arm=a1 correct=true tool_calls=8 wall_ms=19016
+time=2026-07-14T01:31:32.307-07:00 level=INFO msg="attempt graded" task=s2-completed-q3-2025 attempt=1 arm=a1 correct=true tool_calls=8 wall_ms=22459
+time=2026-07-14T01:31:48.975-07:00 level=INFO msg="attempt graded" task=s2-completed-q3-2025 attempt=2 arm=a1 correct=true tool_calls=8 wall_ms=16653
+time=2026-07-14T01:32:11.697-07:00 level=INFO msg="attempt graded" task=s2-completed-q3-2025 attempt=3 arm=a1 correct=true tool_calls=9 wall_ms=22704
+time=2026-07-14T01:32:36.290-07:00 level=INFO msg="attempt graded" task=s2-completed-q4-2025 attempt=1 arm=a1 correct=true tool_calls=9 wall_ms=24573
+time=2026-07-14T01:33:00.237-07:00 level=INFO msg="attempt graded" task=s2-completed-q4-2025 attempt=2 arm=a1 correct=true tool_calls=9 wall_ms=23928
+time=2026-07-14T01:33:15.560-07:00 level=INFO msg="attempt graded" task=s2-completed-q4-2025 attempt=3 arm=a1 correct=true tool_calls=7 wall_ms=15306
+time=2026-07-14T01:33:28.279-07:00 level=INFO msg="attempt graded" task=s2-customers-created-2023 attempt=1 arm=a1 correct=true tool_calls=6 wall_ms=12700
+time=2026-07-14T01:33:39.659-07:00 level=INFO msg="attempt graded" task=s2-customers-created-2023 attempt=2 arm=a1 correct=true tool_calls=6 wall_ms=11360
+time=2026-07-14T01:33:53.002-07:00 level=INFO msg="attempt graded" task=s2-customers-created-2023 attempt=3 arm=a1 correct=true tool_calls=6 wall_ms=13326
+time=2026-07-14T01:34:04.826-07:00 level=INFO msg="attempt graded" task=s2-customers-created-2024 attempt=1 arm=a1 correct=true tool_calls=6 wall_ms=11804
+time=2026-07-14T01:34:17.917-07:00 level=INFO msg="attempt graded" task=s2-customers-created-2024 attempt=2 arm=a1 correct=true tool_calls=6 wall_ms=13075
+time=2026-07-14T01:34:29.001-07:00 level=INFO msg="attempt graded" task=s2-customers-created-2024 attempt=3 arm=a1 correct=true tool_calls=6 wall_ms=11072
+time=2026-07-14T01:34:41.633-07:00 level=INFO msg="attempt graded" task=s2-customers-region-east attempt=1 arm=a1 correct=true tool_calls=6 wall_ms=12611
+time=2026-07-14T01:34:55.066-07:00 level=INFO msg="attempt graded" task=s2-customers-region-east attempt=2 arm=a1 correct=true tool_calls=6 wall_ms=13415
+time=2026-07-14T01:35:06.502-07:00 level=INFO msg="attempt graded" task=s2-customers-region-east attempt=3 arm=a1 correct=true tool_calls=6 wall_ms=11414
+time=2026-07-14T01:35:16.764-07:00 level=INFO msg="attempt graded" task=s2-customers-region-north attempt=1 arm=a1 correct=true tool_calls=6 wall_ms=10246
+time=2026-07-14T01:35:30.116-07:00 level=INFO msg="attempt graded" task=s2-customers-region-north attempt=2 arm=a1 correct=true tool_calls=5 wall_ms=13334
+time=2026-07-14T01:35:43.893-07:00 level=INFO msg="attempt graded" task=s2-customers-region-north attempt=3 arm=a1 correct=true tool_calls=6 wall_ms=13755
+time=2026-07-14T01:35:54.093-07:00 level=INFO msg="attempt graded" task=s2-customers-region-south attempt=1 arm=a1 correct=true tool_calls=6 wall_ms=10184
+time=2026-07-14T01:36:06.538-07:00 level=INFO msg="attempt graded" task=s2-customers-region-south attempt=2 arm=a1 correct=true tool_calls=5 wall_ms=12427
+time=2026-07-14T01:36:18.266-07:00 level=INFO msg="attempt graded" task=s2-customers-region-south attempt=3 arm=a1 correct=true tool_calls=5 wall_ms=11710
+time=2026-07-14T01:36:32.670-07:00 level=INFO msg="attempt graded" task=s2-customers-region-west attempt=1 arm=a1 correct=true tool_calls=6 wall_ms=14388
+time=2026-07-14T01:36:44.482-07:00 level=INFO msg="attempt graded" task=s2-customers-region-west attempt=2 arm=a1 correct=true tool_calls=6 wall_ms=11794
+time=2026-07-14T01:36:55.887-07:00 level=INFO msg="attempt graded" task=s2-customers-region-west attempt=3 arm=a1 correct=true tool_calls=6 wall_ms=11390
+time=2026-07-14T01:37:07.847-07:00 level=INFO msg="attempt graded" task=s2-customers-tier-basic attempt=1 arm=a1 correct=true tool_calls=5 wall_ms=11941
+time=2026-07-14T01:37:23.402-07:00 level=INFO msg="attempt graded" task=s2-customers-tier-basic attempt=2 arm=a1 correct=true tool_calls=6 wall_ms=15541
+time=2026-07-14T01:37:32.934-07:00 level=INFO msg="attempt graded" task=s2-customers-tier-basic attempt=3 arm=a1 correct=true tool_calls=6 wall_ms=9516
+time=2026-07-14T01:37:44.280-07:00 level=INFO msg="attempt graded" task=s2-customers-tier-enterprise attempt=1 arm=a1 correct=true tool_calls=5 wall_ms=11326
+time=2026-07-14T01:37:55.508-07:00 level=INFO msg="attempt graded" task=s2-customers-tier-enterprise attempt=2 arm=a1 correct=true tool_calls=6 wall_ms=11212
+time=2026-07-14T01:38:07.841-07:00 level=INFO msg="attempt graded" task=s2-customers-tier-enterprise attempt=3 arm=a1 correct=true tool_calls=6 wall_ms=12315
+time=2026-07-14T01:38:19.313-07:00 level=INFO msg="attempt graded" task=s2-customers-tier-plus attempt=1 arm=a1 correct=true tool_calls=5 wall_ms=11450
+time=2026-07-14T01:38:29.416-07:00 level=INFO msg="attempt graded" task=s2-customers-tier-plus attempt=2 arm=a1 correct=true tool_calls=5 wall_ms=10080
+time=2026-07-14T01:38:43.132-07:00 level=INFO msg="attempt graded" task=s2-customers-tier-plus attempt=3 arm=a1 correct=true tool_calls=6 wall_ms=13695
+time=2026-07-14T01:38:58.544-07:00 level=INFO msg="attempt graded" task=s2-distinct-order-customers attempt=1 arm=a1 correct=true tool_calls=7 wall_ms=15396
+time=2026-07-14T01:39:11.846-07:00 level=INFO msg="attempt graded" task=s2-distinct-order-customers attempt=2 arm=a1 correct=true tool_calls=6 wall_ms=13288
+time=2026-07-14T01:39:23.060-07:00 level=INFO msg="attempt graded" task=s2-distinct-order-customers attempt=3 arm=a1 correct=true tool_calls=6 wall_ms=11198
+time=2026-07-14T01:39:39.272-07:00 level=INFO msg="attempt graded" task=s2-large-orders attempt=1 arm=a1 correct=true tool_calls=5 wall_ms=16197
+time=2026-07-14T01:39:50.833-07:00 level=INFO msg="attempt graded" task=s2-large-orders attempt=2 arm=a1 correct=true tool_calls=5 wall_ms=11544
+time=2026-07-14T01:40:00.646-07:00 level=INFO msg="attempt graded" task=s2-large-orders attempt=3 arm=a1 correct=true tool_calls=5 wall_ms=9793
+time=2026-07-14T01:40:14.428-07:00 level=INFO msg="attempt graded" task=s2-orders-december-2025 attempt=1 arm=a1 correct=true tool_calls=6 wall_ms=13769
+time=2026-07-14T01:40:31.823-07:00 level=INFO msg="attempt graded" task=s2-orders-december-2025 attempt=2 arm=a1 correct=true tool_calls=7 wall_ms=17375
+time=2026-07-14T01:40:48.145-07:00 level=INFO msg="attempt graded" task=s2-orders-december-2025 attempt=3 arm=a1 correct=true tool_calls=7 wall_ms=16302
+time=2026-07-14T01:41:04.510-07:00 level=INFO msg="attempt graded" task=s2-orders-february-2025 attempt=1 arm=a1 correct=true tool_calls=7 wall_ms=16347
+time=2026-07-14T01:41:20.934-07:00 level=INFO msg="attempt graded" task=s2-orders-february-2025 attempt=2 arm=a1 correct=true tool_calls=7 wall_ms=16408
+time=2026-07-14T01:41:33.252-07:00 level=INFO msg="attempt graded" task=s2-orders-february-2025 attempt=3 arm=a1 correct=true tool_calls=6 wall_ms=12299
+time=2026-07-14T01:41:48.891-07:00 level=INFO msg="attempt graded" task=s2-orders-january-2025 attempt=1 arm=a1 correct=true tool_calls=7 wall_ms=15620
+time=2026-07-14T01:42:03.059-07:00 level=INFO msg="attempt graded" task=s2-orders-january-2025 attempt=2 arm=a1 correct=true tool_calls=7 wall_ms=14149
+time=2026-07-14T01:42:16.810-07:00 level=INFO msg="attempt graded" task=s2-orders-january-2025 attempt=3 arm=a1 correct=true tool_calls=7 wall_ms=13734
+time=2026-07-14T01:42:28.096-07:00 level=INFO msg="attempt graded" task=s2-orders-june-2025 attempt=1 arm=a1 correct=true tool_calls=6 wall_ms=11271
+time=2026-07-14T01:42:42.463-07:00 level=INFO msg="attempt graded" task=s2-orders-june-2025 attempt=2 arm=a1 correct=true tool_calls=6 wall_ms=14351
+time=2026-07-14T01:42:58.429-07:00 level=INFO msg="attempt graded" task=s2-orders-june-2025 attempt=3 arm=a1 correct=true tool_calls=7 wall_ms=15947
+time=2026-07-14T01:43:13.133-07:00 level=INFO msg="attempt graded" task=s2-orders-november-2025 attempt=1 arm=a1 correct=true tool_calls=6 wall_ms=14685
+time=2026-07-14T01:43:27.880-07:00 level=INFO msg="attempt graded" task=s2-orders-november-2025 attempt=2 arm=a1 correct=true tool_calls=6 wall_ms=14726
+time=2026-07-14T01:43:43.986-07:00 level=INFO msg="attempt graded" task=s2-orders-november-2025 attempt=3 arm=a1 correct=true tool_calls=7 wall_ms=16088
+time=2026-07-14T01:43:58.332-07:00 level=INFO msg="attempt graded" task=s2-orders-region-east attempt=1 arm=a1 correct=true tool_calls=7 wall_ms=14330
+time=2026-07-14T01:44:10.370-07:00 level=INFO msg="attempt graded" task=s2-orders-region-east attempt=2 arm=a1 correct=true tool_calls=7 wall_ms=12023
+time=2026-07-14T01:44:24.323-07:00 level=INFO msg="attempt graded" task=s2-orders-region-east attempt=3 arm=a1 correct=true tool_calls=7 wall_ms=13938
+time=2026-07-14T01:44:36.865-07:00 level=INFO msg="attempt graded" task=s2-orders-region-north attempt=1 arm=a1 correct=true tool_calls=7 wall_ms=12523
+time=2026-07-14T01:44:48.872-07:00 level=INFO msg="attempt graded" task=s2-orders-region-north attempt=2 arm=a1 correct=true tool_calls=7 wall_ms=11986
+time=2026-07-14T01:45:02.035-07:00 level=INFO msg="attempt graded" task=s2-orders-region-north attempt=3 arm=a1 correct=true tool_calls=8 wall_ms=13148
+time=2026-07-14T01:45:14.155-07:00 level=INFO msg="attempt graded" task=s2-orders-region-south attempt=1 arm=a1 correct=true tool_calls=6 wall_ms=12104
+time=2026-07-14T01:45:27.307-07:00 level=INFO msg="attempt graded" task=s2-orders-region-south attempt=2 arm=a1 correct=true tool_calls=7 wall_ms=13134
+time=2026-07-14T01:45:42.152-07:00 level=INFO msg="attempt graded" task=s2-orders-region-south attempt=3 arm=a1 correct=true tool_calls=7 wall_ms=14831
+time=2026-07-14T01:45:54.131-07:00 level=INFO msg="attempt graded" task=s2-orders-region-west attempt=1 arm=a1 correct=true tool_calls=7 wall_ms=11963
+time=2026-07-14T01:46:11.234-07:00 level=INFO msg="attempt graded" task=s2-orders-region-west attempt=2 arm=a1 correct=true tool_calls=7 wall_ms=17085
+time=2026-07-14T01:46:22.227-07:00 level=INFO msg="attempt graded" task=s2-orders-region-west attempt=3 arm=a1 correct=true tool_calls=6 wall_ms=10975
+time=2026-07-14T01:46:37.798-07:00 level=INFO msg="attempt graded" task=s2-orders-tier-basic attempt=1 arm=a1 correct=true tool_calls=6 wall_ms=15551
+time=2026-07-14T01:46:49.583-07:00 level=INFO msg="attempt graded" task=s2-orders-tier-basic attempt=2 arm=a1 correct=true tool_calls=6 wall_ms=11766
+time=2026-07-14T01:47:02.278-07:00 level=INFO msg="attempt graded" task=s2-orders-tier-basic attempt=3 arm=a1 correct=true tool_calls=6 wall_ms=12682
+time=2026-07-14T01:47:15.069-07:00 level=INFO msg="attempt graded" task=s2-orders-tier-enterprise attempt=1 arm=a1 correct=true tool_calls=8 wall_ms=12774
+time=2026-07-14T01:47:27.682-07:00 level=INFO msg="attempt graded" task=s2-orders-tier-enterprise attempt=2 arm=a1 correct=true tool_calls=8 wall_ms=12593
+time=2026-07-14T01:47:45.854-07:00 level=INFO msg="attempt graded" task=s2-orders-tier-enterprise attempt=3 arm=a1 correct=true tool_calls=7 wall_ms=18154
+time=2026-07-14T01:48:07.234-07:00 level=INFO msg="attempt graded" task=s2-orders-tier-plus attempt=1 arm=a1 correct=true tool_calls=6 wall_ms=21367
+time=2026-07-14T01:48:18.527-07:00 level=INFO msg="attempt graded" task=s2-orders-tier-plus attempt=2 arm=a1 correct=true tool_calls=6 wall_ms=11279
+time=2026-07-14T01:48:33.416-07:00 level=INFO msg="attempt graded" task=s2-orders-tier-plus attempt=3 arm=a1 correct=true tool_calls=6 wall_ms=14870
+time=2026-07-14T01:48:44.323-07:00 level=INFO msg="attempt graded" task=s2-pending-orders attempt=1 arm=a1 correct=true tool_calls=6 wall_ms=10890
+time=2026-07-14T01:48:58.565-07:00 level=INFO msg="attempt graded" task=s2-pending-orders attempt=2 arm=a1 correct=true tool_calls=7 wall_ms=14226
+time=2026-07-14T01:49:09.131-07:00 level=INFO msg="attempt graded" task=s2-pending-orders attempt=3 arm=a1 correct=true tool_calls=6 wall_ms=10554
+time=2026-07-14T01:49:19.887-07:00 level=INFO msg="attempt graded" task=s2-refunded-orders attempt=1 arm=a1 correct=true tool_calls=5 wall_ms=10740
+time=2026-07-14T01:49:33.324-07:00 level=INFO msg="attempt graded" task=s2-refunded-orders attempt=2 arm=a1 correct=true tool_calls=6 wall_ms=13426
+time=2026-07-14T01:49:45.421-07:00 level=INFO msg="attempt graded" task=s2-refunded-orders attempt=3 arm=a1 correct=true tool_calls=6 wall_ms=12081
+time=2026-07-14T01:49:55.638-07:00 level=INFO msg="attempt graded" task=s2-sql-completed-orders-per-region attempt=1 arm=a1 correct=true tool_calls=5 wall_ms=10129
+time=2026-07-14T01:50:06.152-07:00 level=INFO msg="attempt graded" task=s2-sql-completed-orders-per-region attempt=2 arm=a1 correct=true tool_calls=6 wall_ms=10465
+time=2026-07-14T01:50:16.717-07:00 level=INFO msg="attempt graded" task=s2-sql-completed-orders-per-region attempt=3 arm=a1 correct=true tool_calls=6 wall_ms=10523
+time=2026-07-14T01:50:27.515-07:00 level=INFO msg="attempt graded" task=s2-sql-customers-per-region attempt=1 arm=a1 correct=true tool_calls=5 wall_ms=10750
+time=2026-07-14T01:50:40.091-07:00 level=INFO msg="attempt graded" task=s2-sql-customers-per-region attempt=2 arm=a1 correct=true tool_calls=6 wall_ms=12537
+time=2026-07-14T01:50:54.466-07:00 level=INFO msg="attempt graded" task=s2-sql-customers-per-region attempt=3 arm=a1 correct=true tool_calls=6 wall_ms=14349
+time=2026-07-14T01:51:05.158-07:00 level=INFO msg="attempt graded" task=s2-sql-customers-per-tier attempt=1 arm=a1 correct=true tool_calls=5 wall_ms=10544
+time=2026-07-14T01:51:18.758-07:00 level=INFO msg="attempt graded" task=s2-sql-customers-per-tier attempt=2 arm=a1 correct=true tool_calls=5 wall_ms=13557
+time=2026-07-14T01:51:30.045-07:00 level=INFO msg="attempt graded" task=s2-sql-customers-per-tier attempt=3 arm=a1 correct=true tool_calls=5 wall_ms=11248
+time=2026-07-14T01:51:38.146-07:00 level=INFO msg="attempt graded" task=s2-sql-orders-per-status attempt=1 arm=a1 correct=true tool_calls=4 wall_ms=8055
+time=2026-07-14T01:51:47.940-07:00 level=INFO msg="attempt graded" task=s2-sql-orders-per-status attempt=2 arm=a1 correct=true tool_calls=6 wall_ms=9772
+time=2026-07-14T01:51:59.587-07:00 level=INFO msg="attempt graded" task=s2-sql-orders-per-status attempt=3 arm=a1 correct=true tool_calls=6 wall_ms=11618
+time=2026-07-14T01:52:11.944-07:00 level=INFO msg="attempt graded" task=s2-top-region-customers attempt=1 arm=a1 correct=true tool_calls=6 wall_ms=12346
+time=2026-07-14T01:52:23.776-07:00 level=INFO msg="attempt graded" task=s2-top-region-customers attempt=2 arm=a1 correct=true tool_calls=6 wall_ms=11816
+time=2026-07-14T01:52:38.133-07:00 level=INFO msg="attempt graded" task=s2-top-region-customers attempt=3 arm=a1 correct=true tool_calls=6 wall_ms=14338
+time=2026-07-14T01:52:55.081-07:00 level=INFO msg="attempt graded" task=s2-top-region-orders attempt=1 arm=a1 correct=true tool_calls=7 wall_ms=16930
+time=2026-07-14T01:53:08.418-07:00 level=INFO msg="attempt graded" task=s2-top-region-orders attempt=2 arm=a1 correct=true tool_calls=6 wall_ms=13323
+time=2026-07-14T01:53:21.786-07:00 level=INFO msg="attempt graded" task=s2-top-region-orders attempt=3 arm=a1 correct=true tool_calls=7 wall_ms=13353
+time=2026-07-14T01:53:35.304-07:00 level=INFO msg="attempt graded" task=s2-top-tier-orders attempt=1 arm=a1 correct=true tool_calls=7 wall_ms=13502
+time=2026-07-14T01:53:47.576-07:00 level=INFO msg="attempt graded" task=s2-top-tier-orders attempt=2 arm=a1 correct=true tool_calls=6 wall_ms=12258
+time=2026-07-14T01:53:58.049-07:00 level=INFO msg="attempt graded" task=s2-top-tier-orders attempt=3 arm=a1 correct=true tool_calls=6 wall_ms=10456
+time=2026-07-14T01:54:06.879-07:00 level=INFO msg="attempt graded" task=s2-total-customers attempt=1 arm=a1 correct=true tool_calls=4 wall_ms=8816
+time=2026-07-14T01:54:19.203-07:00 level=INFO msg="attempt graded" task=s2-total-customers attempt=2 arm=a1 correct=true tool_calls=5 wall_ms=12307
+time=2026-07-14T01:54:31.311-07:00 level=INFO msg="attempt graded" task=s2-total-customers attempt=3 arm=a1 correct=true tool_calls=5 wall_ms=12091
+time=2026-07-14T01:54:39.552-07:00 level=INFO msg="attempt graded" task=s2-total-orders attempt=1 arm=a1 correct=true tool_calls=4 wall_ms=8228
+time=2026-07-14T01:54:47.686-07:00 level=INFO msg="attempt graded" task=s2-total-orders attempt=2 arm=a1 correct=true tool_calls=4 wall_ms=8118
+time=2026-07-14T01:54:56.634-07:00 level=INFO msg="attempt graded" task=s2-total-orders attempt=3 arm=a1 correct=true tool_calls=5 wall_ms=8934
+time=2026-07-14T01:55:12.577-07:00 level=INFO msg="attempt graded" task=s2-xtab-east-completed attempt=1 arm=a1 correct=true tool_calls=7 wall_ms=15928
+time=2026-07-14T01:55:25.995-07:00 level=INFO msg="attempt graded" task=s2-xtab-east-completed attempt=2 arm=a1 correct=true tool_calls=7 wall_ms=13404
+time=2026-07-14T01:55:38.841-07:00 level=INFO msg="attempt graded" task=s2-xtab-east-completed attempt=3 arm=a1 correct=true tool_calls=7 wall_ms=12833
+time=2026-07-14T01:55:52.623-07:00 level=INFO msg="attempt graded" task=s2-xtab-east-refunded attempt=1 arm=a1 correct=true tool_calls=8 wall_ms=13770
+time=2026-07-14T01:56:06.553-07:00 level=INFO msg="attempt graded" task=s2-xtab-east-refunded attempt=2 arm=a1 correct=true tool_calls=7 wall_ms=13914
+time=2026-07-14T01:56:24.389-07:00 level=INFO msg="attempt graded" task=s2-xtab-east-refunded attempt=3 arm=a1 correct=true tool_calls=8 wall_ms=17819
+time=2026-07-14T01:56:41.246-07:00 level=INFO msg="attempt graded" task=s2-xtab-north-pending attempt=1 arm=a1 correct=true tool_calls=8 wall_ms=16842
+time=2026-07-14T01:56:56.859-07:00 level=INFO msg="attempt graded" task=s2-xtab-north-pending attempt=2 arm=a1 correct=true tool_calls=8 wall_ms=15596
+time=2026-07-14T01:57:13.192-07:00 level=INFO msg="attempt graded" task=s2-xtab-north-pending attempt=3 arm=a1 correct=true tool_calls=8 wall_ms=16319
+time=2026-07-14T01:57:29.783-07:00 level=INFO msg="attempt graded" task=s2-xtab-south-completed attempt=1 arm=a1 correct=true tool_calls=7 wall_ms=16577
+time=2026-07-14T01:57:46.511-07:00 level=INFO msg="attempt graded" task=s2-xtab-south-completed attempt=2 arm=a1 correct=true tool_calls=8 wall_ms=16713
+time=2026-07-14T01:58:04.692-07:00 level=INFO msg="attempt graded" task=s2-xtab-south-completed attempt=3 arm=a1 correct=true tool_calls=8 wall_ms=18165
+time=2026-07-14T01:58:19.240-07:00 level=INFO msg="attempt graded" task=s2-xtab-west-completed attempt=1 arm=a1 correct=true tool_calls=7 wall_ms=14532
+time=2026-07-14T01:58:32.453-07:00 level=INFO msg="attempt graded" task=s2-xtab-west-completed attempt=2 arm=a1 correct=true tool_calls=7 wall_ms=13195
+time=2026-07-14T01:58:45.076-07:00 level=INFO msg="attempt graded" task=s2-xtab-west-completed attempt=3 arm=a1 correct=true tool_calls=7 wall_ms=12606
+time=2026-07-14T01:59:02.421-07:00 level=INFO msg="attempt graded" task=s3-deprecated-completed-usd attempt=1 arm=a1 correct=true tool_calls=7 wall_ms=17323
+time=2026-07-14T01:59:15.269-07:00 level=INFO msg="attempt graded" task=s3-deprecated-completed-usd attempt=2 arm=a1 correct=true tool_calls=6 wall_ms=12828
+time=2026-07-14T01:59:29.623-07:00 level=INFO msg="attempt graded" task=s3-deprecated-completed-usd attempt=3 arm=a1 correct=true tool_calls=7 wall_ms=14342
+time=2026-07-14T01:59:42.404-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=1 arm=a1 correct=true tool_calls=7 wall_ms=12761
+time=2026-07-14T01:59:54.036-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=2 arm=a1 correct=true tool_calls=7 wall_ms=11613
+time=2026-07-14T02:00:06.632-07:00 level=INFO msg="attempt graded" task=s3-deprecated-order-count attempt=3 arm=a1 correct=true tool_calls=7 wall_ms=12581
+time=2026-07-14T02:02:26.341-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=1 arm=a1 correct=false tool_calls=30 wall_ms=139692
+time=2026-07-14T02:05:11.870-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=2 arm=a1 correct=false tool_calls=30 wall_ms=165623
+time=2026-07-14T02:07:53.023-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-count attempt=3 arm=a1 correct=false tool_calls=30 wall_ms=161142
+time=2026-07-14T02:10:08.266-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-east attempt=1 arm=a1 correct=false tool_calls=30 wall_ms=135231
+time=2026-07-14T02:13:00.316-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-east attempt=2 arm=a1 correct=false tool_calls=30 wall_ms=172038
+time=2026-07-14T02:15:49.034-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-east attempt=3 arm=a1 correct=false tool_calls=30 wall_ms=168705
+time=2026-07-14T02:19:13.685-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=1 arm=a1 correct=false tool_calls=30 wall_ms=204639
+time=2026-07-14T02:22:06.166-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=2 arm=a1 correct=false tool_calls=30 wall_ms=172462
+time=2026-07-14T02:24:13.871-07:00 level=INFO msg="attempt graded" task=s3-fiscal-2025-net attempt=3 arm=a1 correct=false tool_calls=30 wall_ms=127689
+time=2026-07-14T02:27:34.424-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=1 arm=a1 correct=false tool_calls=30 wall_ms=200539
+time=2026-07-14T02:30:22.435-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=2 arm=a1 correct=false tool_calls=30 wall_ms=167994
+time=2026-07-14T02:33:14.098-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q1-net attempt=3 arm=a1 correct=false tool_calls=30 wall_ms=171551
+time=2026-07-14T02:35:58.510-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q4-net attempt=1 arm=a1 correct=false tool_calls=30 wall_ms=164397
+time=2026-07-14T02:39:34.857-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q4-net attempt=2 arm=a1 correct=false tool_calls=30 wall_ms=216333
+time=2026-07-14T02:43:12.541-07:00 level=INFO msg="attempt graded" task=s3-fiscal-q4-net attempt=3 arm=a1 correct=false tool_calls=30 wall_ms=217665
+time=2026-07-14T02:43:34.307-07:00 level=INFO msg="attempt graded" task=s3-fresh-dec-gross attempt=1 arm=a1 correct=true tool_calls=7 wall_ms=21750
+time=2026-07-14T02:44:00.639-07:00 level=INFO msg="attempt graded" task=s3-fresh-dec-gross attempt=2 arm=a1 correct=true tool_calls=9 wall_ms=26317
+time=2026-07-14T02:44:21.882-07:00 level=INFO msg="attempt graded" task=s3-fresh-dec-gross attempt=3 arm=a1 correct=true tool_calls=7 wall_ms=21225
+time=2026-07-14T02:44:49.586-07:00 level=INFO msg="attempt graded" task=s3-fresh-fullyear-gross attempt=1 arm=a1 correct=true tool_calls=8 wall_ms=27686
+time=2026-07-14T02:45:18.020-07:00 level=INFO msg="attempt graded" task=s3-fresh-fullyear-gross attempt=2 arm=a1 correct=true tool_calls=8 wall_ms=28416
+time=2026-07-14T02:45:44.130-07:00 level=INFO msg="attempt graded" task=s3-fresh-fullyear-gross attempt=3 arm=a1 correct=true tool_calls=8 wall_ms=26094
+time=2026-07-14T02:46:07.209-07:00 level=INFO msg="attempt graded" task=s3-fresh-novdec-gross attempt=1 arm=a1 correct=true tool_calls=7 wall_ms=23065
+time=2026-07-14T02:46:29.746-07:00 level=INFO msg="attempt graded" task=s3-fresh-novdec-gross attempt=2 arm=a1 correct=true tool_calls=7 wall_ms=22521
+time=2026-07-14T02:46:59.001-07:00 level=INFO msg="attempt graded" task=s3-fresh-novdec-gross attempt=3 arm=a1 correct=true tool_calls=8 wall_ms=29240
+time=2026-07-14T02:47:28.053-07:00 level=INFO msg="attempt graded" task=s3-fresh-q4-gross attempt=1 arm=a1 correct=true tool_calls=9 wall_ms=29033
+time=2026-07-14T02:47:48.612-07:00 level=INFO msg="attempt graded" task=s3-fresh-q4-gross attempt=2 arm=a1 correct=true tool_calls=7 wall_ms=20540
+time=2026-07-14T02:48:07.480-07:00 level=INFO msg="attempt graded" task=s3-fresh-q4-gross attempt=3 arm=a1 correct=true tool_calls=6 wall_ms=18849
+time=2026-07-14T02:49:35.999-07:00 level=INFO msg="attempt graded" task=s3-net-east-2025 attempt=1 arm=a1 correct=true tool_calls=23 wall_ms=88499
+time=2026-07-14T02:51:38.907-07:00 level=INFO msg="attempt graded" task=s3-net-east-2025 attempt=2 arm=a1 correct=true tool_calls=24 wall_ms=122889
+time=2026-07-14T02:53:00.175-07:00 level=INFO msg="attempt graded" task=s3-net-east-2025 attempt=3 arm=a1 correct=true tool_calls=19 wall_ms=81250
+time=2026-07-14T02:53:37.665-07:00 level=INFO msg="attempt graded" task=s3-net-east-march attempt=1 arm=a1 correct=true tool_calls=11 wall_ms=37476
+time=2026-07-14T02:54:20.675-07:00 level=INFO msg="attempt graded" task=s3-net-east-march attempt=2 arm=a1 correct=true tool_calls=18 wall_ms=42992
+time=2026-07-14T02:55:08.056-07:00 level=INFO msg="attempt graded" task=s3-net-east-march attempt=3 arm=a1 correct=true tool_calls=12 wall_ms=47361
+time=2026-07-14T02:55:32.647-07:00 level=INFO msg="attempt graded" task=s3-net-top-region attempt=1 arm=a1 correct=true tool_calls=10 wall_ms=24573
+time=2026-07-14T02:56:05.365-07:00 level=INFO msg="attempt graded" task=s3-net-top-region attempt=2 arm=a1 correct=true tool_calls=11 wall_ms=32702
+time=2026-07-14T02:56:27.186-07:00 level=INFO msg="attempt graded" task=s3-net-top-region attempt=3 arm=a1 correct=true tool_calls=9 wall_ms=21806
+time=2026-07-14T02:57:38.032-07:00 level=INFO msg="attempt graded" task=s3-net-total-2025 attempt=1 arm=a1 correct=true tool_calls=20 wall_ms=70829
+time=2026-07-14T02:58:40.417-07:00 level=INFO msg="attempt graded" task=s3-net-total-2025 attempt=2 arm=a1 correct=true tool_calls=14 wall_ms=62371
+time=2026-07-14T02:59:57.494-07:00 level=INFO msg="attempt graded" task=s3-net-total-2025 attempt=3 arm=a1 correct=true tool_calls=20 wall_ms=77059
+time=2026-07-14T03:00:53.427-07:00 level=INFO msg="attempt graded" task=s3-net-west-2025 attempt=1 arm=a1 correct=true tool_calls=12 wall_ms=55915
+time=2026-07-14T03:01:41.684-07:00 level=INFO msg="attempt graded" task=s3-net-west-2025 attempt=2 arm=a1 correct=false tool_calls=14 wall_ms=48217
+time=2026-07-14T03:02:40.820-07:00 level=INFO msg="attempt graded" task=s3-net-west-2025 attempt=3 arm=a1 correct=false tool_calls=18 wall_ms=59110
+time=2026-07-14T03:04:07.919-07:00 level=INFO msg="attempt graded" task=s3-tier-key-avg attempt=1 arm=a1 correct=false tool_calls=21 wall_ms=87077
+time=2026-07-14T03:05:12.874-07:00 level=INFO msg="attempt graded" task=s3-tier-key-avg attempt=2 arm=a1 correct=false tool_calls=17 wall_ms=64936
+time=2026-07-14T03:07:27.548-07:00 level=INFO msg="attempt graded" task=s3-tier-key-avg attempt=3 arm=a1 correct=false tool_calls=30 wall_ms=134657
+time=2026-07-14T03:07:54.308-07:00 level=INFO msg="attempt graded" task=s3-tier-key-completed attempt=1 arm=a1 correct=false tool_calls=10 wall_ms=26746
+time=2026-07-14T03:09:00.239-07:00 level=INFO msg="attempt graded" task=s3-tier-key-completed attempt=2 arm=a1 correct=false tool_calls=20 wall_ms=65913
+time=2026-07-14T03:09:52.053-07:00 level=INFO msg="attempt graded" task=s3-tier-key-completed attempt=3 arm=a1 correct=false tool_calls=14 wall_ms=51795
+time=2026-07-14T03:12:23.204-07:00 level=INFO msg="attempt graded" task=s3-tier-key-count attempt=1 arm=a1 correct=false tool_calls=30 wall_ms=151130
+time=2026-07-14T03:14:23.891-07:00 level=INFO msg="attempt graded" task=s3-tier-key-count attempt=2 arm=a1 correct=false tool_calls=27 wall_ms=120667
+time=2026-07-14T03:15:39.253-07:00 level=INFO msg="attempt graded" task=s3-tier-key-count attempt=3 arm=a1 correct=false tool_calls=19 wall_ms=75345
+time=2026-07-14T03:15:59.562-07:00 level=INFO msg="attempt graded" task=s3-tier-key-east attempt=1 arm=a1 correct=false tool_calls=9 wall_ms=20292
+time=2026-07-14T03:16:17.333-07:00 level=INFO msg="attempt graded" task=s3-tier-key-east attempt=2 arm=a1 correct=false tool_calls=7 wall_ms=17757
+time=2026-07-14T03:16:40.519-07:00 level=INFO msg="attempt graded" task=s3-tier-key-east attempt=3 arm=a1 correct=false tool_calls=9 wall_ms=23172
+time=2026-07-14T03:17:32.122-07:00 level=INFO msg="attempt graded" task=s3-tier-key-orders attempt=1 arm=a1 correct=false tool_calls=16 wall_ms=51583
+time=2026-07-14T03:18:13.450-07:00 level=INFO msg="attempt graded" task=s3-tier-key-orders attempt=2 arm=a1 correct=false tool_calls=12 wall_ms=41309
+time=2026-07-14T03:20:24.335-07:00 level=INFO msg="attempt graded" task=s3-tier-key-orders attempt=3 arm=a1 correct=false tool_calls=30 wall_ms=130859
+time=2026-07-14T03:20:42.760-07:00 level=INFO msg="attempt graded" task=s3-units-avg-enterprise attempt=1 arm=a1 correct=true tool_calls=8 wall_ms=18408
+time=2026-07-14T03:20:56.823-07:00 level=INFO msg="attempt graded" task=s3-units-avg-enterprise attempt=2 arm=a1 correct=true tool_calls=8 wall_ms=14045
+time=2026-07-14T03:21:11.633-07:00 level=INFO msg="attempt graded" task=s3-units-avg-enterprise attempt=3 arm=a1 correct=true tool_calls=8 wall_ms=14794
+time=2026-07-14T03:21:33.531-07:00 level=INFO msg="attempt graded" task=s3-units-completed-gross attempt=1 arm=a1 correct=true tool_calls=8 wall_ms=21881
+time=2026-07-14T03:21:46.768-07:00 level=INFO msg="attempt graded" task=s3-units-completed-gross attempt=2 arm=a1 correct=true tool_calls=7 wall_ms=13220
+time=2026-07-14T03:22:06.091-07:00 level=INFO msg="attempt graded" task=s3-units-completed-gross attempt=3 arm=a1 correct=true tool_calls=8 wall_ms=19305
+time=2026-07-14T03:22:35.255-07:00 level=INFO msg="attempt graded" task=s3-units-q1-total attempt=1 arm=a1 correct=true tool_calls=10 wall_ms=29145
+time=2026-07-14T03:23:02.315-07:00 level=INFO msg="attempt graded" task=s3-units-q1-total attempt=2 arm=a1 correct=true tool_calls=10 wall_ms=27040
+time=2026-07-14T03:23:21.548-07:00 level=INFO msg="attempt graded" task=s3-units-q1-total attempt=3 arm=a1 correct=true tool_calls=7 wall_ms=19217
+time=2026-07-14T03:23:36.410-07:00 level=INFO msg="attempt graded" task=s3-units-total-all attempt=1 arm=a1 correct=true tool_calls=7 wall_ms=14844
+time=2026-07-14T03:23:56.368-07:00 level=INFO msg="attempt graded" task=s3-units-total-all attempt=2 arm=a1 correct=true tool_calls=7 wall_ms=19942
+time=2026-07-14T03:24:11.975-07:00 level=INFO msg="attempt graded" task=s3-units-total-all attempt=3 arm=a1 correct=true tool_calls=7 wall_ms=15589
+bench run: arm=a1 model=claude-sonnet-5 (anthropic) k=3
+  platform v1.102.0-9-gadfb9d90-dirty @ http://localhost:8098 | commit a373ff7f98e3 | seed 930 | tasks 7e727f891ee5
+  2026-07-14T08:17:28Z .. 2026-07-14T10:24:11Z
+
+suite   tasks  graded  accuracy  pass^k  med calls  p90 calls  med wall ms  tool errs  enrich tok  harness fails
+s1         17      51     98.0%   94.1%        5.0        7.0        11217          1        9760              0
+s2         45     135    100.0%  100.0%        6.0        8.0        13323          0       36236              0
+s3         25      75     57.3%   56.0%       11.0       30.0        37476         27       58773              0
+
+task                            graded  correct  pass^k
+s1-account-created                  3        3  true
+s1-authoritative-orders             3        3  true
+s1-avoid-order-table                3        2  false
+s1-current-orders                   3        3  true
+s1-customer-profile                 3        3  true
+s1-customer-region                  3        3  true
+s1-customer-tier                    3        3  true
+s1-daily-aggregate                  3        3  true
+s1-deprecated-table                 3        3  true
+s1-join-for-region                  3        3  true
+s1-order-amount                     3        3  true
+s1-order-status                     3        3  true
+s1-order-transactions               3        3  true
+s1-preaggregated                    3        3  true
+s1-retired-pipeline                 3        3  true
+s1-revenue-source                   3        3  true
+s1-trend-chart                      3        3  true
+s2-completed-amount-cents           3        3  true
+s2-completed-orders                 3        3  true
+s2-completed-q1-2025                3        3  true
+s2-completed-q2-2025                3        3  true
+s2-completed-q3-2025                3        3  true
+s2-completed-q4-2025                3        3  true
+s2-customers-created-2023           3        3  true
+s2-customers-created-2024           3        3  true
+s2-customers-region-east            3        3  true
+s2-customers-region-north           3        3  true
+s2-customers-region-south           3        3  true
+s2-customers-region-west            3        3  true
+s2-customers-tier-basic             3        3  true
+s2-customers-tier-enterprise        3        3  true
+s2-customers-tier-plus              3        3  true
+s2-distinct-order-customers         3        3  true
+s2-large-orders                     3        3  true
+s2-orders-december-2025             3        3  true
+s2-orders-february-2025             3        3  true
+s2-orders-january-2025              3        3  true
+s2-orders-june-2025                 3        3  true
+s2-orders-november-2025             3        3  true
+s2-orders-region-east               3        3  true
+s2-orders-region-north              3        3  true
+s2-orders-region-south              3        3  true
+s2-orders-region-west               3        3  true
+s2-orders-tier-basic                3        3  true
+s2-orders-tier-enterprise           3        3  true
+s2-orders-tier-plus                 3        3  true
+s2-pending-orders                   3        3  true
+s2-refunded-orders                  3        3  true
+s2-sql-completed-orders-per-region      3        3  true
+s2-sql-customers-per-region         3        3  true
+s2-sql-customers-per-tier           3        3  true
+s2-sql-orders-per-status            3        3  true
+s2-top-region-customers             3        3  true
+s2-top-region-orders                3        3  true
+s2-top-tier-orders                  3        3  true
+s2-total-customers                  3        3  true
+s2-total-orders                     3        3  true
+s2-xtab-east-completed              3        3  true
+s2-xtab-east-refunded               3        3  true
+s2-xtab-north-pending               3        3  true
+s2-xtab-south-completed             3        3  true
+s2-xtab-west-completed              3        3  true
+s3-deprecated-completed-usd         3        3  true
+s3-deprecated-order-count           3        3  true
+s3-fiscal-2025-count                3        0  false
+s3-fiscal-2025-east                 3        0  false
+s3-fiscal-2025-net                  3        0  false
+s3-fiscal-q1-net                    3        0  false
+s3-fiscal-q4-net                    3        0  false
+s3-fresh-dec-gross                  3        3  true
+s3-fresh-fullyear-gross             3        3  true
+s3-fresh-novdec-gross               3        3  true
+s3-fresh-q4-gross                   3        3  true
+s3-net-east-2025                    3        3  true
+s3-net-east-march                   3        3  true
+s3-net-top-region                   3        3  true
+s3-net-total-2025                   3        3  true
+s3-net-west-2025                    3        1  false
+s3-tier-key-avg                     3        0  false
+s3-tier-key-completed               3        0  false
+s3-tier-key-count                   3        0  false
+s3-tier-key-east                    3        0  false
+s3-tier-key-orders                  3        0  false
+s3-units-avg-enterprise             3        3  true
+s3-units-completed-gross            3        3  true
+s3-units-q1-total                   3        3  true
+s3-units-total-all                  3        3  true
+results: bench/results/phase2-anthropic-k3/full-a1/results.json

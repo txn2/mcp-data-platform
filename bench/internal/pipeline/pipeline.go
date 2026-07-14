@@ -373,6 +373,8 @@ func fillAgentResult(a *report.Attempt, r agent.Result) {
 	a.BudgetExhausted = r.BudgetExhausted
 	a.InputTokens = r.Usage.InputTokens
 	a.OutputTokens = r.Usage.OutputTokens
+	a.CacheReadTokens = r.Usage.CacheReadInputTokens
+	a.CacheCreationTokens = r.Usage.CacheCreationInputTokens
 }
 
 // gradeAttempt applies the task's deterministic grader. Numeric and entity

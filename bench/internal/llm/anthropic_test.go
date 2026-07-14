@@ -37,10 +37,11 @@ func TestBuildParamsCachingLive(t *testing.T) {
 		t.Fatalf("turn1: %v", err)
 	}
 
-	turn2 := append(turn1,
-		Message{Role: "assistant", Text: fromAPIContent(r1).Text},
-		Message{Role: "user", Text: "Reply with exactly the word: two"},
-	)
+	turn2 := []Message{
+		turn1[0],
+		{Role: "assistant", Text: fromAPIContent(r1).Text},
+		{Role: "user", Text: "Reply with exactly the word: two"},
+	}
 	p2, err := a.buildParams(system, turn2, nil)
 	if err != nil {
 		t.Fatal(err)

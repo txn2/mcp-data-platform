@@ -1,0 +1,61 @@
+{
+  "task_id": "s1-deprecated-table",
+  "arm": "a3",
+  "attempt": 3,
+  "session_id": "dps_3b0a15bb6159d32b00e0c3c1feb86277",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "Which table in the bench warehouse is deprecated and should NOT be used for order analysis?"
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01Pq1XwuwcuoYWsQi9xhWioW",
+          "name": "search",
+          "args": {
+            "intent": "deprecated table order analysis bench warehouse"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01Pq1XwuwcuoYWsQi9xhWioW",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/api-catalogs/{id}/embedding-status\\nList catalog embedding statuses\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/api-catalogs/{id}/embedding-status\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"POST /api/v1/admin/api-catalogs/{id}/specs/{spec}/reembed\\nRetry catalog spec embedding\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:POST /admin/api-catalogs/{id}/specs/{spec}/reembed\",\n          \"score\": 0.9456814178865397\n        },\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs/jobs\\nIndex-jobs drill-down list\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs/jobs\",\n          \"score\": 0.7329255512964763\n        },\n        {\n          \"text\": \"GET /api/v1/admin/api-catalogs/{id}/embedding-jobs\\nList catalog embedding jobs\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/api-catalogs/{id}/embedding-jobs\",\n          \"score\": 0.6601593861477059\n        },\n        {\n          \"text\": \"GET /api/v1/admin/config/effective\\nList effective config\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/config/effective\",\n          \"score\": 0.6525352928797575\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:74f538d8-a70c-4b21-b506-5ef339f02149\"\n        },\n        {\n          \"text\": \"create-a-report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 0.794641291188911,\n          \"reference\": \"mcp:prompt:b4392ca8-c06e-40fa-9e10-d24879232c49\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.658535855219444,\n          \"reference\": \"mcp:prompt:17331aa1-93bc-4d18-809f-02e343570b9e\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: the 'target cohort' is the set of customers whose account was created during calendar year 2024. Concretely, this means customers.created_at falls within [2024-01-01 00:00:00, 2025-01-01 00:00:00) (i.e. YEAR(created_at) = 2024) on the memory.bench.customers table. Apply this filter whenever 'target cohort' is referenced in later analyses.\",\n          \"source\": \"insights\",\n          \"ref\": \"1f2a3810a48ce2b78a6a22fba6d54c3b\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-027@apikey.local\",\n          \"reference\": \"mcp:insight:1f2a3810a48ce2b78a6a22fba6d54c3b\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 12,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Found it directly in the knowledge base. The \"Bench Warehouse Guide\" knowledge page states: \"orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation.\"\n\nLet me verify this against the catalog directly.",
+      "tool_calls": [
+        {
+          "id": "toolu_01RC5NVzseN7ggtVGJB1fbf9",
+          "name": "datahub_get_entity",
+          "args": {
+            "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01RC5NVzseN7ggtVGJB1fbf9",
+          "text": "{\n  \"urn\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\",\n  \"type\": \"DATASET\",\n  \"name\": \"legacy_orders\",\n  \"description\": \"DEPRECATED order extract from the retired ingestion pipeline. Partial coverage, totals in dollars. Use memory.bench.orders for all order analysis.\",\n  \"tags\": [\n    {\n      \"urn\": \"urn:li:tag:bench\",\n      \"name\": \"bench\"\n    }\n  ],\n  \"platform\": \"trino\",\n  \"deprecation\": {\n    \"deprecated\": true,\n    \"note\": \"Deprecated. Use memory.bench.orders instead.\",\n    \"actor\": \"urn:li:corpuser:bench-seed\"\n  },\n  \"properties\": {\n    \"team\": \"bench\"\n  }\n}\n{\"query_context\":{\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\":{\"available\":true,\"query_table\":\"memory.bench.legacy_orders\",\"connection\":\"e2e-trino\",\"available_connections\":[\"e2e\"],\"schema_preview\":[{\"name\":\"order_id\",\"type\":\"integer\"},{\"name\":\"customer_id\",\"type\":\"integer\"},{\"name\":\"order_date\",\"type\":\"date\"},{\"name\":\"total\",\"type\":\"double\"}],\"total_columns\":4}}}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Confirmed: `memory.bench.legacy_orders` is explicitly flagged as deprecated in DataHub, with a deprecation note stating \"Use memory.bench.orders instead,\" and its description explains it's a partial-coverage extract from a retired ingestion pipeline. The current, correct table for order analysis is `memory.bench.orders`.\n\nFINAL ANSWER: memory.bench.legacy_orders"
+    }
+  ]
+}

@@ -1,0 +1,147 @@
+{
+  "task_id": "s1-avoid-order-table",
+  "arm": "a0",
+  "attempt": 2,
+  "session_id": "dps_c14352b40c5e2f557a31fc6c01e5b4c1",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "A colleague is about to query an order table that is no longer maintained. Which table should they avoid in favor of the current one?"
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01PMjnFehbSGApeymXjNsqBd",
+          "name": "trino_browse",
+          "args": {}
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01PMjnFehbSGApeymXjNsqBd",
+          "text": "## Available Catalogs\n\n- `memory`\n- `system`\n\n*2 catalogs found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01K1PhGtXtqWXJMh7zLcv3A1",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "memory"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01K1PhGtXtqWXJMh7zLcv3A1",
+          "text": "## Schemas in `memory`\n\n- `bench`\n- `default`\n- `e2e_test`\n- `information_schema`\n\n*4 schemas found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01Ky4Tvsk8bTcZapxB3h6yRV",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "memory",
+            "schema": "bench"
+          }
+        },
+        {
+          "id": "toolu_016kkWA579CeXWj2ihkdUkpR",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "memory",
+            "schema": "default"
+          }
+        },
+        {
+          "id": "toolu_01LR1cysgd5hM7HRj8SGtKrz",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "memory",
+            "schema": "e2e_test"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01Ky4Tvsk8bTcZapxB3h6yRV",
+          "text": "## Tables in `memory.bench`\n\n- `customers`\n- `daily_region_revenue`\n- `legacy_orders`\n- `orders`\n\n*4 tables found*",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_016kkWA579CeXWj2ihkdUkpR",
+          "text": "## Tables in `memory.default`\n\n\n*0 tables found*",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01LR1cysgd5hM7HRj8SGtKrz",
+          "text": "## Tables in `memory.e2e_test`\n\n- `customer_metrics`\n- `legacy_users`\n- `products`\n- `test_orders`\n\n*4 tables found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_013iTNVVTKfsUotK8hwtSdSd",
+          "name": "trino_describe_table",
+          "args": {
+            "catalog": "memory",
+            "include_sample": true,
+            "schema": "bench",
+            "table": "legacy_orders"
+          }
+        },
+        {
+          "id": "toolu_01MwngZHeyAEaowkkwixezC7",
+          "name": "trino_describe_table",
+          "args": {
+            "catalog": "memory",
+            "include_sample": true,
+            "schema": "bench",
+            "table": "orders"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_013iTNVVTKfsUotK8hwtSdSd",
+          "text": "## Table: `memory.bench.legacy_orders`\n\n### Columns\n\n| Name | Type | Nullable | Comment |\n|------|------|----------|----------|\n| `order_id` | integer | - | - |\n| `customer_id` | integer | - | - |\n| `order_date` | date | - | - |\n| `total` | double | - | - |\n\n*4 columns*\n\n### Sample Data\n\n```json\n[\n  {\n    \"customer_id\": 71,\n    \"order_date\": \"2025-11-11T00:00:00-08:00\",\n    \"order_id\": 1000,\n    \"total\": 586.92\n  },\n  {\n    \"customer_id\": 55,\n    \"order_date\": \"2025-11-07T00:00:00-08:00\",\n    \"order_id\": 1001,\n    \"total\": 2525.86\n  },\n  {\n    \"customer_id\": 41,\n    \"order_date\": \"2025-05-01T00:00:00-07:00\",\n    \"order_id\": 1002,\n    \"total\": 2216.61\n  },\n  {\n    \"customer_id\": 41,\n    \"order_date\": \"2025-07-15T00:00:00-07:00\",\n    \"order_id\": 1003,\n    \"total\": 1767.12\n  },\n  {\n    \"customer_id\": 3,\n    \"order_date\": \"2025-11-14T00:00:00-08:00\",\n    \"order_id\": 1004,\n    \"total\": 129.79\n  }\n]\n```",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01MwngZHeyAEaowkkwixezC7",
+          "text": "## Table: `memory.bench.orders`\n\n### Columns\n\n| Name | Type | Nullable | Comment |\n|------|------|----------|----------|\n| `order_id` | integer | - | - |\n| `customer_id` | integer | - | - |\n| `order_ts` | timestamp(3) | - | - |\n| `status` | varchar | - | - |\n| `amount` | integer | - | - |\n| `discount` | integer | - | - |\n\n*6 columns*\n\n### Sample Data\n\n```json\n[\n  {\n    \"amount\": 58692,\n    \"customer_id\": 71,\n    \"discount\": 13269,\n    \"order_id\": 1000,\n    \"order_ts\": \"2025-11-11T09:05:00-08:00\",\n    \"status\": \"completed\"\n  },\n  {\n    \"amount\": 252586,\n    \"customer_id\": 55,\n    \"discount\": 6080,\n    \"order_id\": 1001,\n    \"order_ts\": \"2025-11-07T12:28:00-08:00\",\n    \"status\": \"completed\"\n  },\n  {\n    \"amount\": 221661,\n    \"customer_id\": 41,\n    \"discount\": 6124,\n    \"order_id\": 1002,\n    \"order_ts\": \"2025-05-01T15:36:00-07:00\",\n    \"status\": \"completed\"\n  },\n  {\n    \"amount\": 176712,\n    \"customer_id\": 41,\n    \"discount\": 4162,\n    \"order_id\": 1003,\n    \"order_ts\": \"2025-07-15T17:18:00-07:00\",\n    \"status\": \"completed\"\n  },\n  {\n    \"amount\": 12979,\n    \"customer_id\": 3,\n    \"discount\": 1570,\n    \"order_id\": 1004,\n    \"order_ts\": \"2025-11-14T19:26:00-08:00\",\n    \"status\": \"completed\"\n  }\n]\n```",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Based on the schema in `memory.bench`, there are two order-related tables: `legacy_orders` (name explicitly indicates deprecated/legacy status, with a simpler structure — order_id, customer_id, order_date, total) and `orders` (the current table with richer, more detailed columns: order_id, customer_id, order_ts, status, amount, discount). The naming convention and structural differences confirm `legacy_orders` is the outdated table that is no longer maintained, while `orders` is the current, actively maintained table with additional tracking fields (status, discount).\n\nYour colleague should avoid `memory.bench.legacy_orders` and use `memory.bench.orders` instead.\n\nFINAL ANSWER: memory.bench.orders"
+    }
+  ]
+}

@@ -54,7 +54,12 @@ func (a *Anthropic) Complete(ctx context.Context, system string, msgs []Message,
 	if err != nil {
 		return Message{}, Usage{}, fmt.Errorf("anthropic messages: %w", err)
 	}
-	usage := Usage{InputTokens: resp.Usage.InputTokens, OutputTokens: resp.Usage.OutputTokens}
+	usage := Usage{
+		InputTokens:              resp.Usage.InputTokens,
+		OutputTokens:             resp.Usage.OutputTokens,
+		CacheReadInputTokens:     resp.Usage.CacheReadInputTokens,
+		CacheCreationInputTokens: resp.Usage.CacheCreationInputTokens,
+	}
 	if resp.StopReason == anthropic.StopReasonRefusal {
 		return Message{}, usage, errors.New("anthropic: request refused (stop_reason refusal)")
 	}

@@ -1,0 +1,147 @@
+{
+  "manifest": {
+    "started_at": "2026-07-14T06:03:19.487731Z",
+    "finished_at": "2026-07-14T06:04:10.518675Z",
+    "git_commit": "a373ff7f98e33e0f347828e5aaa17c053f7fb9c9",
+    "platform_version": "v1.102.0-9-gadfb9d90-dirty",
+    "target": "http://localhost:8098",
+    "arm": "a3",
+    "llm_provider": "anthropic",
+    "model": "claude-sonnet-5",
+    "seed": 930,
+    "task_set_hash": "04839080149554712d04c2704e639aba05bb7d59fe8e318c6e8ae345202c3f80",
+    "k": 1
+  },
+  "attempts": [
+    {
+      "task_id": "s3-deprecated-completed-usd",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table",
+        "units_cents"
+      ],
+      "attempt": 1,
+      "session_id": "dps_d31b01bd5833c0429b1214013d7f4511",
+      "correct": true,
+      "final_answer": "1430603.83",
+      "got_value": 1430603.83,
+      "tool_calls": 7,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 20111,
+      "input_tokens": 12,
+      "output_tokens": 1060,
+      "cache_read_tokens": 85920,
+      "cache_creation_tokens": 21040,
+      "audit": {
+        "audited_calls": 7,
+        "errors": 0,
+        "total_duration_ms": 370,
+        "enriched_calls": 4,
+        "enrichment_tokens_full": 160,
+        "enrichment_tokens_dedup": 53
+      },
+      "transcript_path": "bench/results/phase2-anthropic-k3/_probe/transcripts/s3-deprecated-completed-usd-a3-k1.json"
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "trap_classes": [
+        "deprecated_table"
+      ],
+      "attempt": 1,
+      "session_id": "dps_070fb0899a6f1a02d388059ba6c7f50a",
+      "correct": true,
+      "final_answer": "1200",
+      "got_value": 1200,
+      "tool_calls": 6,
+      "tool_errors": 1,
+      "budget_exhausted": false,
+      "wall_ms": 14987,
+      "input_tokens": 14,
+      "output_tokens": 592,
+      "cache_read_tokens": 105300,
+      "cache_creation_tokens": 3212,
+      "audit": {
+        "audited_calls": 6,
+        "errors": 1,
+        "total_duration_ms": 164,
+        "enriched_calls": 1,
+        "enrichment_tokens_full": 80,
+        "enrichment_tokens_dedup": 0
+      },
+      "transcript_path": "bench/results/phase2-anthropic-k3/_probe/transcripts/s3-deprecated-order-count-a3-k1.json"
+    },
+    {
+      "task_id": "s3-fiscal-2025-count",
+      "suite": "s3",
+      "trap_classes": [
+        "fiscal_calendar",
+        "net_revenue"
+      ],
+      "attempt": 1,
+      "session_id": "dps_c590dd4141dc3f59e65706d080f862b9",
+      "correct": true,
+      "final_answer": "873",
+      "got_value": 873,
+      "tool_calls": 4,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 15859,
+      "input_tokens": 10,
+      "output_tokens": 733,
+      "cache_read_tokens": 77678,
+      "cache_creation_tokens": 3942,
+      "audit": {
+        "audited_calls": 4,
+        "errors": 0,
+        "total_duration_ms": 156,
+        "enriched_calls": 3,
+        "enrichment_tokens_full": 240,
+        "enrichment_tokens_dedup": 106
+      },
+      "transcript_path": "bench/results/phase2-anthropic-k3/_probe/transcripts/s3-fiscal-2025-count-a3-k1.json"
+    }
+  ],
+  "tasks": [
+    {
+      "task_id": "s3-deprecated-completed-usd",
+      "suite": "s3",
+      "graded": 1,
+      "correct": 1,
+      "pass_rate": 1,
+      "pass_k": true
+    },
+    {
+      "task_id": "s3-deprecated-order-count",
+      "suite": "s3",
+      "graded": 1,
+      "correct": 1,
+      "pass_rate": 1,
+      "pass_k": true
+    },
+    {
+      "task_id": "s3-fiscal-2025-count",
+      "suite": "s3",
+      "graded": 1,
+      "correct": 1,
+      "pass_rate": 1,
+      "pass_k": true
+    }
+  ],
+  "suites": [
+    {
+      "suite": "s3",
+      "tasks": 3,
+      "graded": 3,
+      "accuracy": 1,
+      "pass_k_rate": 1,
+      "median_tool_calls": 6,
+      "p90_tool_calls": 6,
+      "median_wall_ms": 15859,
+      "tool_errors": 1,
+      "enrichment_tokens_full": 480,
+      "enrichment_tokens_dedup": 159
+    }
+  ]
+}

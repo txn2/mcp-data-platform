@@ -1,7 +1,7 @@
 {
   "manifest": {
     "started_at": "2026-07-14T04:26:05.814892Z",
-    "finished_at": "0001-01-01T00:00:00Z",
+    "finished_at": "2026-07-14T05:39:37.59153Z",
     "git_commit": "62f6fe68db9389abb74e538abf852929c0de1ac0",
     "platform_version": "v1.102.0-9-gadfb9d90-dirty",
     "target": "http://localhost:8098",
@@ -1654,6 +1654,557 @@
         "enrichment_tokens_dedup": 159
       },
       "transcript_path": "bench/results/claude-cli-949/full-a1-k1/transcripts/s3-fiscal-2025-net-a1-k1.json"
+    },
+    {
+      "task_id": "s3-fiscal-q1-net",
+      "suite": "s3",
+      "trap_classes": [
+        "fiscal_calendar",
+        "net_revenue"
+      ],
+      "attempt": 1,
+      "session_id": "dps_c0ac215066e20a499074d88cad2cf1da",
+      "correct": false,
+      "final_answer": "297010.51",
+      "got_value": 297010.51,
+      "tool_calls": 13,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 134795,
+      "input_tokens": 54,
+      "output_tokens": 8439,
+      "audit": {
+        "audited_calls": 13,
+        "errors": 0,
+        "total_duration_ms": 286,
+        "enriched_calls": 8,
+        "enrichment_tokens_full": 733,
+        "enrichment_tokens_dedup": 212
+      },
+      "transcript_path": "bench/results/claude-cli-949/full-a1-k1/transcripts/s3-fiscal-q1-net-a1-k1.json"
+    },
+    {
+      "task_id": "s3-fiscal-q4-net",
+      "suite": "s3",
+      "trap_classes": [
+        "fiscal_calendar",
+        "net_revenue"
+      ],
+      "attempt": 1,
+      "session_id": "dps_68c224c2cae7c77835ebfe6826ef2c1a",
+      "correct": false,
+      "final_answer": "360637.84",
+      "got_value": 360637.84,
+      "tool_calls": 15,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 110891,
+      "input_tokens": 44,
+      "output_tokens": 7550,
+      "audit": {
+        "audited_calls": 15,
+        "errors": 0,
+        "total_duration_ms": 352,
+        "enriched_calls": 6,
+        "enrichment_tokens_full": 573,
+        "enrichment_tokens_dedup": 106
+      },
+      "transcript_path": "bench/results/claude-cli-949/full-a1-k1/transcripts/s3-fiscal-q4-net-a1-k1.json"
+    },
+    {
+      "task_id": "s3-fresh-dec-gross",
+      "suite": "s3",
+      "trap_classes": [
+        "freshness_cutoff",
+        "units_cents"
+      ],
+      "attempt": 1,
+      "session_id": "dps_231770a77aea66207a532898a6cf31e1",
+      "correct": true,
+      "final_answer": "133777.39",
+      "got_value": 133777.39,
+      "tool_calls": 8,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 58174,
+      "input_tokens": 26,
+      "output_tokens": 3533,
+      "audit": {
+        "audited_calls": 8,
+        "errors": 0,
+        "total_duration_ms": 152,
+        "enriched_calls": 5,
+        "enrichment_tokens_full": 489,
+        "enrichment_tokens_dedup": 106
+      },
+      "transcript_path": "bench/results/claude-cli-949/full-a1-k1/transcripts/s3-fresh-dec-gross-a1-k1.json"
+    },
+    {
+      "task_id": "s3-fresh-fullyear-gross",
+      "suite": "s3",
+      "trap_classes": [
+        "freshness_cutoff",
+        "units_cents"
+      ],
+      "attempt": 1,
+      "session_id": "dps_46092d64c3a8e0ca63ac4583555dab75",
+      "correct": true,
+      "final_answer": "1430603.83",
+      "got_value": 1430603.83,
+      "tool_calls": 9,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 58859,
+      "input_tokens": 28,
+      "output_tokens": 4216,
+      "audit": {
+        "audited_calls": 9,
+        "errors": 0,
+        "total_duration_ms": 219,
+        "enriched_calls": 6,
+        "enrichment_tokens_full": 569,
+        "enrichment_tokens_dedup": 159
+      },
+      "transcript_path": "bench/results/claude-cli-949/full-a1-k1/transcripts/s3-fresh-fullyear-gross-a1-k1.json"
+    },
+    {
+      "task_id": "s3-fresh-novdec-gross",
+      "suite": "s3",
+      "trap_classes": [
+        "freshness_cutoff",
+        "units_cents"
+      ],
+      "attempt": 1,
+      "session_id": "dps_acf07f10bfe9c2f7a7880ffcc592db8a",
+      "correct": true,
+      "final_answer": "266073.26",
+      "got_value": 266073.26,
+      "tool_calls": 10,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 63093,
+      "input_tokens": 30,
+      "output_tokens": 4094,
+      "audit": {
+        "audited_calls": 10,
+        "errors": 0,
+        "total_duration_ms": 227,
+        "enriched_calls": 6,
+        "enrichment_tokens_full": 573,
+        "enrichment_tokens_dedup": 106
+      },
+      "transcript_path": "bench/results/claude-cli-949/full-a1-k1/transcripts/s3-fresh-novdec-gross-a1-k1.json"
+    },
+    {
+      "task_id": "s3-fresh-q4-gross",
+      "suite": "s3",
+      "trap_classes": [
+        "freshness_cutoff",
+        "units_cents"
+      ],
+      "attempt": 1,
+      "session_id": "dps_066470972afa2ff4a4e6cbebe07266a5",
+      "correct": true,
+      "final_answer": "403518.09",
+      "got_value": 403518.09,
+      "tool_calls": 8,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 37000,
+      "input_tokens": 22,
+      "output_tokens": 2223,
+      "audit": {
+        "audited_calls": 8,
+        "errors": 0,
+        "total_duration_ms": 163,
+        "enriched_calls": 4,
+        "enrichment_tokens_full": 364,
+        "enrichment_tokens_dedup": 106
+      },
+      "transcript_path": "bench/results/claude-cli-949/full-a1-k1/transcripts/s3-fresh-q4-gross-a1-k1.json"
+    },
+    {
+      "task_id": "s3-net-east-2025",
+      "suite": "s3",
+      "trap_classes": [
+        "net_revenue",
+        "units_cents"
+      ],
+      "attempt": 1,
+      "session_id": "dps_a57197ab3b687129bb1e9b2c836cce5c",
+      "correct": false,
+      "final_answer": "257733.50",
+      "got_value": 257733.5,
+      "tool_calls": 15,
+      "tool_errors": 1,
+      "budget_exhausted": false,
+      "wall_ms": 111468,
+      "input_tokens": 44,
+      "output_tokens": 7422,
+      "audit": {
+        "audited_calls": 15,
+        "errors": 1,
+        "total_duration_ms": 314,
+        "enriched_calls": 9,
+        "enrichment_tokens_full": 1026,
+        "enrichment_tokens_dedup": 281
+      },
+      "transcript_path": "bench/results/claude-cli-949/full-a1-k1/transcripts/s3-net-east-2025-a1-k1.json"
+    },
+    {
+      "task_id": "s3-net-east-march",
+      "suite": "s3",
+      "trap_classes": [
+        "net_revenue",
+        "units_cents"
+      ],
+      "attempt": 1,
+      "session_id": "dps_5d048a9107a0b096a43d37c966f7b9f0",
+      "correct": true,
+      "final_answer": "38952.32",
+      "got_value": 38952.32,
+      "tool_calls": 12,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 73308,
+      "input_tokens": 32,
+      "output_tokens": 5032,
+      "audit": {
+        "audited_calls": 12,
+        "errors": 0,
+        "total_duration_ms": 275,
+        "enriched_calls": 7,
+        "enrichment_tokens_full": 741,
+        "enrichment_tokens_dedup": 166
+      },
+      "transcript_path": "bench/results/claude-cli-949/full-a1-k1/transcripts/s3-net-east-march-a1-k1.json"
+    },
+    {
+      "task_id": "s3-net-top-region",
+      "suite": "s3",
+      "trap_classes": [
+        "net_revenue"
+      ],
+      "attempt": 1,
+      "session_id": "dps_140e7de1a19c891e9ceabe52587409e9",
+      "correct": true,
+      "final_answer": "West",
+      "matched_alias": "West",
+      "tool_calls": 8,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 66255,
+      "input_tokens": 34,
+      "output_tokens": 3920,
+      "audit": {
+        "audited_calls": 8,
+        "errors": 0,
+        "total_duration_ms": 188,
+        "enriched_calls": 5,
+        "enrichment_tokens_full": 533,
+        "enrichment_tokens_dedup": 112
+      },
+      "transcript_path": "bench/results/claude-cli-949/full-a1-k1/transcripts/s3-net-top-region-a1-k1.json"
+    },
+    {
+      "task_id": "s3-net-total-2025",
+      "suite": "s3",
+      "trap_classes": [
+        "net_revenue",
+        "units_cents"
+      ],
+      "attempt": 1,
+      "session_id": "dps_1a37fca113a66699312f4fb646a5988e",
+      "correct": true,
+      "final_answer": "1286561.19",
+      "got_value": 1286561.19,
+      "tool_calls": 13,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 82624,
+      "input_tokens": 36,
+      "output_tokens": 5807,
+      "audit": {
+        "audited_calls": 13,
+        "errors": 0,
+        "total_duration_ms": 259,
+        "enriched_calls": 7,
+        "enrichment_tokens_full": 653,
+        "enrichment_tokens_dedup": 159
+      },
+      "transcript_path": "bench/results/claude-cli-949/full-a1-k1/transcripts/s3-net-total-2025-a1-k1.json"
+    },
+    {
+      "task_id": "s3-net-west-2025",
+      "suite": "s3",
+      "trap_classes": [
+        "net_revenue",
+        "units_cents"
+      ],
+      "attempt": 1,
+      "session_id": "dps_83925d4729ec076c3ada34d511a0a03d",
+      "correct": true,
+      "final_answer": "466889.38",
+      "got_value": 466889.38,
+      "tool_calls": 14,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 96996,
+      "input_tokens": 42,
+      "output_tokens": 6705,
+      "audit": {
+        "audited_calls": 14,
+        "errors": 0,
+        "total_duration_ms": 309,
+        "enriched_calls": 9,
+        "enrichment_tokens_full": 901,
+        "enrichment_tokens_dedup": 272
+      },
+      "transcript_path": "bench/results/claude-cli-949/full-a1-k1/transcripts/s3-net-west-2025-a1-k1.json"
+    },
+    {
+      "task_id": "s3-tier-key-avg",
+      "suite": "s3",
+      "trap_classes": [
+        "units_cents",
+        "tier_boundary"
+      ],
+      "attempt": 1,
+      "session_id": "dps_b60a1d613037228a166ab82751cad2b1",
+      "correct": false,
+      "final_answer": "1614.57",
+      "got_value": 1614.57,
+      "tool_calls": 15,
+      "tool_errors": 1,
+      "budget_exhausted": false,
+      "wall_ms": 112234,
+      "input_tokens": 50,
+      "output_tokens": 8003,
+      "audit": {
+        "audited_calls": 15,
+        "errors": 1,
+        "total_duration_ms": 301,
+        "enriched_calls": 7,
+        "enrichment_tokens_full": 668,
+        "enrichment_tokens_dedup": 166
+      },
+      "transcript_path": "bench/results/claude-cli-949/full-a1-k1/transcripts/s3-tier-key-avg-a1-k1.json"
+    },
+    {
+      "task_id": "s3-tier-key-completed",
+      "suite": "s3",
+      "trap_classes": [
+        "tier_boundary"
+      ],
+      "attempt": 1,
+      "session_id": "dps_619bb1861a49aa815cdf802b791c2298",
+      "correct": false,
+      "final_answer": "0",
+      "got_value": 0,
+      "tool_calls": 14,
+      "tool_errors": 1,
+      "budget_exhausted": false,
+      "wall_ms": 79763,
+      "input_tokens": 34,
+      "output_tokens": 5031,
+      "audit": {
+        "audited_calls": 14,
+        "errors": 1,
+        "total_duration_ms": 314,
+        "enriched_calls": 7,
+        "enrichment_tokens_full": 713,
+        "enrichment_tokens_dedup": 113
+      },
+      "transcript_path": "bench/results/claude-cli-949/full-a1-k1/transcripts/s3-tier-key-completed-a1-k1.json"
+    },
+    {
+      "task_id": "s3-tier-key-count",
+      "suite": "s3",
+      "trap_classes": [
+        "tier_boundary"
+      ],
+      "attempt": 1,
+      "session_id": "dps_55bf73870531a481cacd71574af87fc9",
+      "correct": false,
+      "final_answer": "0",
+      "got_value": 0,
+      "tool_calls": 15,
+      "tool_errors": 1,
+      "budget_exhausted": false,
+      "wall_ms": 84383,
+      "input_tokens": 42,
+      "output_tokens": 5436,
+      "audit": {
+        "audited_calls": 15,
+        "errors": 1,
+        "total_duration_ms": 299,
+        "enriched_calls": 7,
+        "enrichment_tokens_full": 559,
+        "enrichment_tokens_dedup": 108
+      },
+      "transcript_path": "bench/results/claude-cli-949/full-a1-k1/transcripts/s3-tier-key-count-a1-k1.json"
+    },
+    {
+      "task_id": "s3-tier-key-east",
+      "suite": "s3",
+      "trap_classes": [
+        "tier_boundary"
+      ],
+      "attempt": 1,
+      "session_id": "dps_2076b028b8ad3429a2e243fe0871793f",
+      "correct": false,
+      "final_answer": "5",
+      "got_value": 5,
+      "tool_calls": 7,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 61267,
+      "input_tokens": 28,
+      "output_tokens": 3140,
+      "audit": {
+        "audited_calls": 7,
+        "errors": 0,
+        "total_duration_ms": 107,
+        "enriched_calls": 4,
+        "enrichment_tokens_full": 336,
+        "enrichment_tokens_dedup": 162
+      },
+      "transcript_path": "bench/results/claude-cli-949/full-a1-k1/transcripts/s3-tier-key-east-a1-k1.json"
+    },
+    {
+      "task_id": "s3-tier-key-orders",
+      "suite": "s3",
+      "trap_classes": [
+        "tier_boundary"
+      ],
+      "attempt": 1,
+      "session_id": "dps_39fae1c22206bbb2ab835abe75a7b8c6",
+      "correct": false,
+      "final_answer": "287",
+      "got_value": 287,
+      "tool_calls": 12,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 87367,
+      "input_tokens": 38,
+      "output_tokens": 5051,
+      "audit": {
+        "audited_calls": 12,
+        "errors": 0,
+        "total_duration_ms": 314,
+        "enriched_calls": 7,
+        "enrichment_tokens_full": 745,
+        "enrichment_tokens_dedup": 167
+      },
+      "transcript_path": "bench/results/claude-cli-949/full-a1-k1/transcripts/s3-tier-key-orders-a1-k1.json"
+    },
+    {
+      "task_id": "s3-units-avg-enterprise",
+      "suite": "s3",
+      "trap_classes": [
+        "units_cents"
+      ],
+      "attempt": 1,
+      "session_id": "dps_33ede736e5b2d2e06fba89302886a826",
+      "correct": true,
+      "final_answer": "1614.57",
+      "got_value": 1614.57,
+      "tool_calls": 8,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 34612,
+      "input_tokens": 22,
+      "output_tokens": 1991,
+      "audit": {
+        "audited_calls": 8,
+        "errors": 0,
+        "total_duration_ms": 179,
+        "enriched_calls": 5,
+        "enrichment_tokens_full": 536,
+        "enrichment_tokens_dedup": 113
+      },
+      "transcript_path": "bench/results/claude-cli-949/full-a1-k1/transcripts/s3-units-avg-enterprise-a1-k1.json"
+    },
+    {
+      "task_id": "s3-units-completed-gross",
+      "suite": "s3",
+      "trap_classes": [
+        "units_cents"
+      ],
+      "attempt": 1,
+      "session_id": "dps_b262cdbac6cf3ff6bd7248ecbae5a532",
+      "correct": true,
+      "final_answer": "1430603.83",
+      "got_value": 1430603.83,
+      "tool_calls": 8,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 37924,
+      "input_tokens": 22,
+      "output_tokens": 1969,
+      "audit": {
+        "audited_calls": 8,
+        "errors": 0,
+        "total_duration_ms": 165,
+        "enriched_calls": 4,
+        "enrichment_tokens_full": 364,
+        "enrichment_tokens_dedup": 106
+      },
+      "transcript_path": "bench/results/claude-cli-949/full-a1-k1/transcripts/s3-units-completed-gross-a1-k1.json"
+    },
+    {
+      "task_id": "s3-units-q1-total",
+      "suite": "s3",
+      "trap_classes": [
+        "units_cents"
+      ],
+      "attempt": 1,
+      "session_id": "dps_b5f4938e2a7d5f919cd41182f5024bbf",
+      "correct": true,
+      "final_answer": "446819.28",
+      "got_value": 446819.28,
+      "tool_calls": 10,
+      "tool_errors": 1,
+      "budget_exhausted": false,
+      "wall_ms": 58285,
+      "input_tokens": 28,
+      "output_tokens": 2899,
+      "audit": {
+        "audited_calls": 10,
+        "errors": 1,
+        "total_duration_ms": 171,
+        "enriched_calls": 4,
+        "enrichment_tokens_full": 364,
+        "enrichment_tokens_dedup": 106
+      },
+      "transcript_path": "bench/results/claude-cli-949/full-a1-k1/transcripts/s3-units-q1-total-a1-k1.json"
+    },
+    {
+      "task_id": "s3-units-total-all",
+      "suite": "s3",
+      "trap_classes": [
+        "units_cents"
+      ],
+      "attempt": 1,
+      "session_id": "dps_baf06be9949fedf77fde3d0c15c34b2e",
+      "correct": true,
+      "final_answer": "1839443.21",
+      "got_value": 1839443.21,
+      "tool_calls": 7,
+      "tool_errors": 0,
+      "budget_exhausted": false,
+      "wall_ms": 55449,
+      "input_tokens": 26,
+      "output_tokens": 2337,
+      "audit": {
+        "audited_calls": 7,
+        "errors": 0,
+        "total_duration_ms": 155,
+        "enriched_calls": 4,
+        "enrichment_tokens_full": 364,
+        "enrichment_tokens_dedup": 106
+      },
+      "transcript_path": "bench/results/claude-cli-949/full-a1-k1/transcripts/s3-units-total-all-a1-k1.json"
     }
   ],
   "tasks": [
@@ -2192,6 +2743,166 @@
       "correct": 0,
       "pass_rate": 0,
       "pass_k": false
+    },
+    {
+      "task_id": "s3-fiscal-q1-net",
+      "suite": "s3",
+      "graded": 1,
+      "correct": 0,
+      "pass_rate": 0,
+      "pass_k": false
+    },
+    {
+      "task_id": "s3-fiscal-q4-net",
+      "suite": "s3",
+      "graded": 1,
+      "correct": 0,
+      "pass_rate": 0,
+      "pass_k": false
+    },
+    {
+      "task_id": "s3-fresh-dec-gross",
+      "suite": "s3",
+      "graded": 1,
+      "correct": 1,
+      "pass_rate": 1,
+      "pass_k": true
+    },
+    {
+      "task_id": "s3-fresh-fullyear-gross",
+      "suite": "s3",
+      "graded": 1,
+      "correct": 1,
+      "pass_rate": 1,
+      "pass_k": true
+    },
+    {
+      "task_id": "s3-fresh-novdec-gross",
+      "suite": "s3",
+      "graded": 1,
+      "correct": 1,
+      "pass_rate": 1,
+      "pass_k": true
+    },
+    {
+      "task_id": "s3-fresh-q4-gross",
+      "suite": "s3",
+      "graded": 1,
+      "correct": 1,
+      "pass_rate": 1,
+      "pass_k": true
+    },
+    {
+      "task_id": "s3-net-east-2025",
+      "suite": "s3",
+      "graded": 1,
+      "correct": 0,
+      "pass_rate": 0,
+      "pass_k": false
+    },
+    {
+      "task_id": "s3-net-east-march",
+      "suite": "s3",
+      "graded": 1,
+      "correct": 1,
+      "pass_rate": 1,
+      "pass_k": true
+    },
+    {
+      "task_id": "s3-net-top-region",
+      "suite": "s3",
+      "graded": 1,
+      "correct": 1,
+      "pass_rate": 1,
+      "pass_k": true
+    },
+    {
+      "task_id": "s3-net-total-2025",
+      "suite": "s3",
+      "graded": 1,
+      "correct": 1,
+      "pass_rate": 1,
+      "pass_k": true
+    },
+    {
+      "task_id": "s3-net-west-2025",
+      "suite": "s3",
+      "graded": 1,
+      "correct": 1,
+      "pass_rate": 1,
+      "pass_k": true
+    },
+    {
+      "task_id": "s3-tier-key-avg",
+      "suite": "s3",
+      "graded": 1,
+      "correct": 0,
+      "pass_rate": 0,
+      "pass_k": false
+    },
+    {
+      "task_id": "s3-tier-key-completed",
+      "suite": "s3",
+      "graded": 1,
+      "correct": 0,
+      "pass_rate": 0,
+      "pass_k": false
+    },
+    {
+      "task_id": "s3-tier-key-count",
+      "suite": "s3",
+      "graded": 1,
+      "correct": 0,
+      "pass_rate": 0,
+      "pass_k": false
+    },
+    {
+      "task_id": "s3-tier-key-east",
+      "suite": "s3",
+      "graded": 1,
+      "correct": 0,
+      "pass_rate": 0,
+      "pass_k": false
+    },
+    {
+      "task_id": "s3-tier-key-orders",
+      "suite": "s3",
+      "graded": 1,
+      "correct": 0,
+      "pass_rate": 0,
+      "pass_k": false
+    },
+    {
+      "task_id": "s3-units-avg-enterprise",
+      "suite": "s3",
+      "graded": 1,
+      "correct": 1,
+      "pass_rate": 1,
+      "pass_k": true
+    },
+    {
+      "task_id": "s3-units-completed-gross",
+      "suite": "s3",
+      "graded": 1,
+      "correct": 1,
+      "pass_rate": 1,
+      "pass_k": true
+    },
+    {
+      "task_id": "s3-units-q1-total",
+      "suite": "s3",
+      "graded": 1,
+      "correct": 1,
+      "pass_rate": 1,
+      "pass_k": true
+    },
+    {
+      "task_id": "s3-units-total-all",
+      "suite": "s3",
+      "graded": 1,
+      "correct": 1,
+      "pass_rate": 1,
+      "pass_k": true
     }
   ],
   "suites": [
@@ -2223,16 +2934,16 @@
     },
     {
       "suite": "s3",
-      "tasks": 5,
-      "graded": 5,
-      "accuracy": 0.4,
-      "pass_k_rate": 0.4,
-      "median_tool_calls": 13,
-      "p90_tool_calls": 14,
-      "median_wall_ms": 78121,
-      "tool_errors": 1,
-      "enrichment_tokens_full": 2705,
-      "enrichment_tokens_dedup": 642
+      "tasks": 25,
+      "graded": 25,
+      "accuracy": 0.56,
+      "pass_k_rate": 0.56,
+      "median_tool_calls": 12,
+      "p90_tool_calls": 15,
+      "median_wall_ms": 73308,
+      "tool_errors": 6,
+      "enrichment_tokens_full": 14509,
+      "enrichment_tokens_dedup": 3574
     }
   ]
 }
