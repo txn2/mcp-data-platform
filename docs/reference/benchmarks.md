@@ -99,15 +99,13 @@ session's audit rows fall outside the harness's client-side accounting.
 Attempts that fail at the harness level (connect, adapter, audit read-back)
 never grade and are reported separately.
 
-**Cost basis.** Every attempt records its exact token split, including
-`cache_read_tokens` and `cache_creation_tokens`, so a run's cost is computed
-from committed data rather than estimated. Cache reads bill at roughly a tenth
-of fresh input, which is what makes a full four-arm k = 3 run land in the tens
-of dollars rather than hundreds. All dollar figures on this page are computed
-from those committed per-attempt token records at the standard
-`claude-sonnet-5` rates ($3 / $15 per million input / output tokens, cache read
-$0.30, cache write $3.75 per million), so they are reproducible regardless of
-any promotional pricing in effect on the run date.
+**Token basis.** Every attempt records its exact token split, including
+`cache_read_tokens` and `cache_creation_tokens`, so a run's spend is reported
+from committed data rather than estimated. This page publishes token counts, not
+dollar figures: apply the model's current per-token pricing to the counts in the
+Reproducibility section to get a cost. Cache reads bill at roughly a tenth of
+fresh input, which is what keeps the runs affordable — prompt caching lets the
+overwhelming majority of input arrive as cache reads (see the totals below).
 
 **Reproducibility parameters** (shared by both suites): dataset seed 930; k = 3
 repeats; a fixed bootstrap resampling seed, so identical inputs produce
@@ -384,9 +382,11 @@ task at all. A recall or transfer task run without the memory layer scores 0% by
 construction, so a baseline comparison would be vacuous; the honest measurement
 is reliability of the mechanism itself, which is what this scorecard reports.
 
-## 3. Reproducibility and cost
+## 3. Reproducibility and token spend
 
 Both suites are reproducible from committed data and a recorded platform build.
+Spend is reported as token counts (input / output / cache-read / cache-write);
+apply the model's current per-token pricing to get a dollar figure.
 
 **Semantic layer (S1–S3), reused as-is.** From a booted arm:
 
@@ -396,13 +396,13 @@ make bench-run BENCH_ARM=a0 LLM=anthropic MODEL=claude-sonnet-5 K=3
 make bench-compare                # cross-arm tables + bootstrap CIs
 ```
 
-Computed from the committed per-attempt cache-token records across all four
-arms (1,044 graded attempts), the S1–S3 suites cost **$67.22** at the standard
-`claude-sonnet-5` rates. Prompt caching is what keeps this affordable: the four
-arms read ~80.7M cached input tokens (billed at ~$0.30/M) against only ~4.6M
-freshly cached-written tokens, so the dominant input cost is cache reads, not
-fresh input. The lifecycle arm (a3) is the most expensive single arm ($24.96)
-because its larger memory/search context is re-sent each turn.
+Token spend across all four arms (1,044 graded attempts), from the committed
+per-attempt records: **17,728 fresh input, 1,725,111 output, 80,695,457
+cache-read, and 4,555,362 cache-write tokens** (≈ 87.0M total). Prompt caching is
+what keeps this affordable: the arms read ~80.7M cached input tokens against only
+~4.6M freshly written, so cache reads dominate the input. The lifecycle arm (a3)
+is the heaviest single arm because its larger memory/search context is re-sent
+each turn.
 
 **Memory layer (S5).** Boot the a3 arm with the metrics port overridden to
 avoid the DataHub Kafka :9092 clash, and with `ollama serve` +
@@ -414,10 +414,10 @@ make bench-lifecycle LLM=anthropic MODEL=claude-sonnet-5 K=3
 make bench-lifecycle-report
 ```
 
-Computed from the committed per-attempt cache-token records, the shared-store S5
-run cost **$18.16** (2.6K fresh input, 356K output, 23.9M cache-read, and 1.5M
-cache-write tokens across the 45 attempts), bounded during the run by a spend
-watchdog. The local Ollama embedding adds no API cost.
+Token spend for the shared-store S5 run, from the committed records: **2,578
+fresh input, 356,015 output, 23,913,219 cache-read, and 1,502,311 cache-write
+tokens** (≈ 25.8M total) across the 45 attempts, bounded during the run by a
+spend watchdog. The local Ollama embedding adds no API tokens.
 
 Each **isolated** run is three independent single-pass runs with a clean reset
 between them, merged into one k = 3 result. Every pass writes to its own
@@ -437,8 +437,9 @@ build/benchrun -lifecycle -merge "$D/pass1/lifecycle-a3.json,$D/pass2/lifecycle-
   -out "$D/lifecycle-a3.json"
 ```
 
-The two isolated replicates cost **$15.82** and **$15.54** (each ~2.4K fresh
-input, ~290–300K output, ~21M cache-read, ~1.3M cache-write across 45 attempts),
+The two isolated replicates spent, respectively: **2,438 / 296,917 / 21,260,051 /
+1,328,127** and **2,438 / 286,587 / 21,315,216 / 1,291,098** tokens (input /
+output / cache-read / cache-write; ≈ 22.9M total each) across their 45 attempts,
 also watchdog-bounded.
 
 **Regression gate.** Any committed run can serve as a baseline for future runs:
@@ -456,9 +457,12 @@ and a scripted, no-API-key smoke of the full pipeline (plus a live self-check of
 the gate) runs on demand via the `workflow_dispatch` path of the Bench Harness
 CI workflow.
 
-**Total published spend: $116.74** — $67.22 for S1–S3 (reused as-is, not
-regenerated), $18.16 for the shared-store S5 run, and $15.82 + $15.54 for the two
-isolated S5 replicates.
+**Total published token spend: ≈ 158.6M tokens** — 25,182 fresh input, 2,664,630
+output, 147,183,943 cache-read, and 8,676,898 cache-write across all runs
+(S1–S3 reused as-is, plus the shared-store and two isolated S5 replicates). Cache
+reads are ~93% of the total, which is why prompt caching is the load-bearing cost
+control; apply current `claude-sonnet-5` pricing to these counts for a dollar
+figure.
 
 ## 4. Honest caveats
 
