@@ -1,12 +1,21 @@
-# Benchmark harness module checks (issue #930, phase 1: #942).
+# Benchmark harness module checks + on-demand smoke (issue #930; phase 1 #942,
+# phase 4 #945).
 #
-# Build, vet, and unit-test the bench/ module — the deterministic regression
-# guard for the harness code itself (the pipeline integration test runs
-# against an in-process fake platform, no Docker or model API). The benchmark
-# SMOKE workflow (scripted run against a live compose stack, and eventually
-# model-backed runs with an API-key secret) is phase 4 (#945).
+# Two jobs:
+#   harness (PR/push) — build, vet, and unit-test the bench/ module, the
+#     deterministic regression guard for the harness code itself (the pipeline
+#     integration test and the -baseline regression gate both run against
+#     in-process fakes, no Docker or model API).
+#   smoke (workflow_dispatch) — boot the real compose stack + the a0 arm and run
+#     the scripted, no-API-key smoke end to end, plus a live self-check of the
+#     -baseline regression gate. DataHub is intentionally NOT in CI (it needs
+#     `datahub docker quickstart`), so the smoke runs on a0 (raw toolkit tools,
+#     no semantic layer), mirroring e2e-nightly. A tiny model-backed run is
+#     available behind an opt-in input + the ANTHROPIC_API_KEY secret; it is off
+#     by default so a dispatch spends nothing. Full model-backed runs happen at
+#     release time, like verify-release.
 #
-# Not part of `make verify`; runs when bench/ changes.
+# Not part of `make verify`.
 name: Bench Harness
 
 on:
@@ -19,6 +28,12 @@ on:
     paths:
       - "bench/**"
       - ".github/workflows/bench.yml"
+  workflow_dispatch:
+    inputs:
+      model_smoke:
+        description: "Also run a tiny model-backed s1 run (needs the ANTHROPIC_API_KEY secret; spends a few cents)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -47,3 +62,65 @@ jobs:
         with:
           version: v2.11.4
           working-directory: bench
+
+  smoke:
+    name: Scripted smoke + regression gate (a0)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: "1.26.5"
+          cache: true
+
+      - name: Boot the a0 arm (compose stack + platform)
+        run: make bench-up BENCH_ARM=a0
+
+      - name: Scripted task smoke (no API key)
+        run: make bench-smoke
+
+      - name: Regression gate self-check (candidate vs itself passes)
+        # The scripted smoke is deterministic, so gating it against its own
+        # results must PASS — this exercises the -baseline flag end to end
+        # (load, compare, exit code) on a live run. The gate's FAIL and
+        # incompatible-baseline paths are covered deterministically in the harness
+        # job by TestGateOnBaselineFailsOnRegression / RejectsArmMismatch (the
+        # gateOnBaseline exit wiring) and TestCheckRegressionFailsOnDegradedConfig
+        # (the comparison logic).
+        run: |
+          cp build/bench-results/results-a0.json build/bench-results/baseline-a0.json
+          make bench-smoke BASELINE=build/bench-results/baseline-a0.json
+
+      - name: Tiny model-backed s1 run (opt-in)
+        if: inputs.model_smoke
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: make bench-run BENCH_ARM=a0 LLM=anthropic SUITE=s1 K=1
+
+      - name: Collect platform + compose logs
+        if: always()
+        env:
+          DOCKER_DEFAULT_PLATFORM: ""
+        run: |
+          cp build/mcp-data-platform-bench.log bench-platform.log 2>/dev/null || true
+          docker compose -f docker-compose.e2e.yml logs --no-color > bench-compose-logs.txt 2>&1 || true
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bench-smoke-logs
+          path: |
+            bench-platform.log
+            bench-compose-logs.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Tear down
+        if: always()
+        run: make bench-down

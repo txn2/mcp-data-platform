@@ -91,12 +91,12 @@ func TestAggregateSumsTokens(t *testing.T) {
 		Manifest: Manifest{K: 1},
 		Runs: []ProtocolRun{
 			{ProtocolID: "lc-a", Captured: new(true), RecallCorrect: new(true), Episodes: []EpisodeRecord{
-				{Stage: StageTeach, InputTokens: 1000, OutputTokens: 50},
-				{Stage: StageRecall, InputTokens: 2000, OutputTokens: 80},
+				{Stage: StageTeach, InputTokens: 1000, OutputTokens: 50, CacheReadTokens: 800, CacheCreationTokens: 200},
+				{Stage: StageRecall, InputTokens: 2000, OutputTokens: 80, CacheReadTokens: 1500, CacheCreationTokens: 100},
 			}},
 			// A harness-failed run still spent tokens and must count toward the total.
 			{ProtocolID: "lc-b", Error: "boom", Episodes: []EpisodeRecord{
-				{Stage: StageTeach, InputTokens: 500, OutputTokens: 20},
+				{Stage: StageTeach, InputTokens: 500, OutputTokens: 20, CacheReadTokens: 300, CacheCreationTokens: 50},
 			}},
 		},
 	}
@@ -104,8 +104,15 @@ func TestAggregateSumsTokens(t *testing.T) {
 	if res.Metrics.TotalInputTokens != 3500 || res.Metrics.TotalOutputTokens != 150 {
 		t.Fatalf("token totals = in %d out %d, want 3500/150", res.Metrics.TotalInputTokens, res.Metrics.TotalOutputTokens)
 	}
+	if res.Metrics.TotalCacheReadTokens != 2600 || res.Metrics.TotalCacheCreationTokens != 350 {
+		t.Fatalf("cache token totals = read %d write %d, want 2600/350",
+			res.Metrics.TotalCacheReadTokens, res.Metrics.TotalCacheCreationTokens)
+	}
 	if !strings.Contains(res.HumanSummary(), "input 3500") {
 		t.Errorf("summary missing token line:\n%s", res.HumanSummary())
+	}
+	if !strings.Contains(res.HumanSummary(), "cache read 2600") {
+		t.Errorf("summary missing cache token line:\n%s", res.HumanSummary())
 	}
 }
 

@@ -140,6 +140,8 @@ func (e *runEnv) runEpisode(ctx context.Context, spec episodeSpec) (EpisodeRecor
 	rec.ToolErrors = result.ToolErrors
 	rec.InputTokens = result.Usage.InputTokens
 	rec.OutputTokens = result.Usage.OutputTokens
+	rec.CacheReadTokens = result.Usage.CacheReadInputTokens
+	rec.CacheCreationTokens = result.Usage.CacheCreationInputTokens
 	final := result.FinalAnswer
 	rec.FinalAnswer = final
 	e.writeTranscript(spec, result)
@@ -180,6 +182,8 @@ func (e *runEnv) runClaudeCLIEpisode(ctx context.Context, spec episodeSpec) (Epi
 	rec.SearchCalled = cres.SearchCalled
 	rec.InputTokens = cres.Usage.InputTokens
 	rec.OutputTokens = cres.Usage.OutputTokens
+	rec.CacheReadTokens = cres.Usage.CacheReadInputTokens
+	rec.CacheCreationTokens = cres.Usage.CacheCreationInputTokens
 	rec.FinalAnswer = cres.FinalText
 	e.recordPlatformVersion(cres.PlatformVersion)
 	e.writeClaudeTranscript(spec, cres.Transcript)

@@ -1,0 +1,377 @@
+{
+  "protocol_id": "lc-target-cohort",
+  "stage": "transfer",
+  "identity": "learner",
+  "email": "bench-agent-028@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "How many customers are in the target cohort? Answer with the count."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_016wr5T2MkRHHcs2zTP6dnzj",
+          "name": "search",
+          "args": {
+            "intent": "target cohort customers definition"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_016wr5T2MkRHHcs2zTP6dnzj",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:539fc33a-c09a-4c70-af41-160efb21e940\"\n        },\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 0.9879625278843878,\n          \"reference\": \"mcp:prompt:09b27d11-248d-4eb9-9856-fa0df20d1858\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.9402796838217287,\n          \"reference\": \"mcp:prompt:6f42f663-66a9-4979-af44-3e527acb0be6\"\n        },\n        {\n          \"text\": \"create-a-report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 0.7663265090001656,\n          \"reference\": \"mcp:prompt:562bd59e-b866-4a71-a830-542ea3e17ed3\"\n        },\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.6763457314109271,\n          \"reference\": \"mcp:prompt:bf4d585f-c91d-472c-98f9-3c93a71f8b20\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Active Customer Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_564cd66b-5079-463d-97b9-5435f5618605\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp_564cd66b-5079-463d-97b9-5435f5618605\"\n        },\n        {\n          \"text\": \"Peak Region Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_9a65dfed-6608-4dc5-b7af-718ced8c1877\",\n          \"score\": 0.8206069975369995,\n          \"reference\": \"mcp:knowledge_page:kp_9a65dfed-6608-4dc5-b7af-718ced8c1877\"\n        },\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 0.7669402955967147,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/portal/threads/counts\\nCount open threads per target\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/threads/counts\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs/failures\\nActive failure-triage units\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs/failures\",\n          \"score\": 0.7208510285141871\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 11,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 5\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01EnmNjFJGKpqgTKfqW85Gez",
+          "name": "search",
+          "args": {
+            "intent": "target cohort"
+          }
+        },
+        {
+          "id": "toolu_0137b7dXrVgZZBQSB88Vcw7U",
+          "name": "search",
+          "args": {
+            "intent": "cohort definition marketing campaign customers"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01EnmNjFJGKpqgTKfqW85Gez",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:09b27d11-248d-4eb9-9856-fa0df20d1858\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.9582663688048516,\n          \"reference\": \"mcp:prompt:539fc33a-c09a-4c70-af41-160efb21e940\"\n        },\n        {\n          \"text\": \"create-a-report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 0.9555637334874818,\n          \"reference\": \"mcp:prompt:562bd59e-b866-4a71-a830-542ea3e17ed3\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.84274855680697,\n          \"reference\": \"mcp:prompt:6f42f663-66a9-4979-af44-3e527acb0be6\"\n        },\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.700744182809253,\n          \"reference\": \"mcp:prompt:bf4d585f-c91d-472c-98f9-3c93a71f8b20\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Peak Region Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_9a65dfed-6608-4dc5-b7af-718ced8c1877\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp_9a65dfed-6608-4dc5-b7af-718ced8c1877\"\n        },\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 0.7912643410228618,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        },\n        {\n          \"text\": \"Reporting Window Definition\\nThe 'reporting window' is calendar Q3 2025 (Jul 1 - Sep 30, 2025), superseding the earlier Q1 2025 definition.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_15f11eeb-03d1-4bb8-85f2-d53c629b45af\",\n          \"score\": 0.7685514774517523,\n          \"reference\": \"mcp:knowledge_page:kp_15f11eeb-03d1-4bb8-85f2-d53c629b45af\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"customers\\nCustomer directory: one row per customer with profile attributes (name, region, tier, account created_at). Join key: customer_id.\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/portal/threads/counts\\nCount open threads per target\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/threads/counts\",\n          \"score\": 1\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 11,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_0137b7dXrVgZZBQSB88Vcw7U",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/portal/collections/{id}/signoff\\nCollection sign-off summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/{id}/signoff\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/portal/threads/counts\\nCount open threads per target\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/threads/counts\",\n          \"score\": 0.9598974095400424\n        },\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs\\nCross-kind index-jobs health summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs\",\n          \"score\": 0.9160222537410166\n        },\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs/failures\\nActive failure-triage units\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs/failures\",\n          \"score\": 0.8126513773798425\n        },\n        {\n          \"text\": \"GET /api/v1/portal/collections/search\\nSearch my collections\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/search\",\n          \"score\": 0.7783402096523707\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:09b27d11-248d-4eb9-9856-fa0df20d1858\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.9651633572184122,\n          \"reference\": \"mcp:prompt:539fc33a-c09a-4c70-af41-160efb21e940\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.8859183786953888,\n          \"reference\": \"mcp:prompt:6f42f663-66a9-4979-af44-3e527acb0be6\"\n        },\n        {\n          \"text\": \"create-a-report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 0.8039948528141967,\n          \"reference\": \"mcp:prompt:562bd59e-b866-4a71-a830-542ea3e17ed3\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Active Customer Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_564cd66b-5079-463d-97b9-5435f5618605\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp_564cd66b-5079-463d-97b9-5435f5618605\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 11,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 4\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01JdnvsZ6sTfBETeAnHR9AgL",
+          "name": "search",
+          "args": {
+            "intent": "Active Customer Definition",
+            "sources": [
+              "knowledge_pages"
+            ]
+          }
+        },
+        {
+          "id": "toolu_016jj3oubxeSnS24QvWtJHxV",
+          "name": "search",
+          "args": {
+            "intent": "target cohort key account peak region reporting window",
+            "sources": [
+              "knowledge_pages"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01JdnvsZ6sTfBETeAnHR9AgL",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Active Customer Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_564cd66b-5079-463d-97b9-5435f5618605\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp_564cd66b-5079-463d-97b9-5435f5618605\"\n        },\n        {\n          \"text\": \"Peak Region Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_9a65dfed-6608-4dc5-b7af-718ced8c1877\",\n          \"score\": 0.10533608694645384,\n          \"reference\": \"mcp:knowledge_page:kp_9a65dfed-6608-4dc5-b7af-718ced8c1877\"\n        },\n        {\n          \"text\": \"Premium Order Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_270672bb-2594-4ec4-8902-80e5f7e27d72\",\n          \"score\": 0.09582975511054916,\n          \"reference\": \"mcp:knowledge_page:kp_270672bb-2594-4ec4-8902-80e5f7e27d72\"\n        },\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 0.09122704474333831,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        },\n        {\n          \"text\": \"House Tier Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_5bd454e9-462a-4955-ad1a-e8abb30519de\",\n          \"score\": 0.08727795804678017,\n          \"reference\": \"mcp:knowledge_page:kp_5bd454e9-462a-4955-ad1a-e8abb30519de\"\n        },\n        {\n          \"text\": \"Priority Order Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_e5754861-1740-416e-953f-a9f8be605e03\",\n          \"score\": 0.06827413707929444,\n          \"reference\": \"mcp:knowledge_page:kp_e5754861-1740-416e-953f-a9f8be605e03\"\n        },\n        {\n          \"text\": \"Settlement Total Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_a1c4ea2f-bd3d-47cd-ad4c-0246c1d811f6\",\n          \"score\": 0.05953579787064928,\n          \"reference\": \"mcp:knowledge_page:kp_a1c4ea2f-bd3d-47cd-ad4c-0246c1d811f6\"\n        },\n        {\n          \"text\": \"Reporting Window Definition\\nThe 'reporting window' is calendar Q3 2025 (Jul 1 - Sep 30, 2025), superseding the earlier Q1 2025 definition.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_15f11eeb-03d1-4bb8-85f2-d53c629b45af\",\n          \"score\": 0.048823008591680095,\n          \"reference\": \"mcp:knowledge_page:kp_15f11eeb-03d1-4bb8-85f2-d53c629b45af\"\n        },\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 0.04400311565748301,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        },\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 0.037504470484180534,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 11,\n      \"shown\": 10\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_016jj3oubxeSnS24QvWtJHxV",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Peak Region Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_9a65dfed-6608-4dc5-b7af-718ced8c1877\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp_9a65dfed-6608-4dc5-b7af-718ced8c1877\"\n        },\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 0.7773419410805418,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        },\n        {\n          \"text\": \"Reporting Window Definition\\nThe 'reporting window' is calendar Q3 2025 (Jul 1 - Sep 30, 2025), superseding the earlier Q1 2025 definition.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_15f11eeb-03d1-4bb8-85f2-d53c629b45af\",\n          \"score\": 0.7557515425984709,\n          \"reference\": \"mcp:knowledge_page:kp_15f11eeb-03d1-4bb8-85f2-d53c629b45af\"\n        },\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 0.4174495507869725,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Fiscal Calendar Policy\\nThe fiscal year starts February 1: fiscal year 2025 runs 2025-02-01 through 2026-01-31. Fiscal figures must not be computed over the calendar year.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-3\",\n          \"score\": 0.3344351763937306,\n          \"reference\": \"mcp:knowledge_page:kp-bench-3\"\n        },\n        {\n          \"text\": \"House Tier Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_5bd454e9-462a-4955-ad1a-e8abb30519de\",\n          \"score\": 0.3202231696435397,\n          \"reference\": \"mcp:knowledge_page:kp_5bd454e9-462a-4955-ad1a-e8abb30519de\"\n        },\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 0.3176126937759227,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        },\n        {\n          \"text\": \"Premium Order Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_270672bb-2594-4ec4-8902-80e5f7e27d72\",\n          \"score\": 0.23053707115347125,\n          \"reference\": \"mcp:knowledge_page:kp_270672bb-2594-4ec4-8902-80e5f7e27d72\"\n        },\n        {\n          \"text\": \"Priority Order Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_e5754861-1740-416e-953f-a9f8be605e03\",\n          \"score\": 0.15964649595856797,\n          \"reference\": \"mcp:knowledge_page:kp_e5754861-1740-416e-953f-a9f8be605e03\"\n        },\n        {\n          \"text\": \"Settlement Total Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_a1c4ea2f-bd3d-47cd-ad4c-0246c1d811f6\",\n          \"score\": 0.06393050788834422,\n          \"reference\": \"mcp:knowledge_page:kp_a1c4ea2f-bd3d-47cd-ad4c-0246c1d811f6\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 11,\n      \"shown\": 10\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_0154ymCNmfCNCmwQVCjFw1Qo",
+          "name": "search",
+          "args": {
+            "intent": "Active Customer Definition full details target cohort"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_0154ymCNmfCNCmwQVCjFw1Qo",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:09b27d11-248d-4eb9-9856-fa0df20d1858\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.9252209955345531,\n          \"reference\": \"mcp:prompt:539fc33a-c09a-4c70-af41-160efb21e940\"\n        },\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.9157681709455056,\n          \"reference\": \"mcp:prompt:bf4d585f-c91d-472c-98f9-3c93a71f8b20\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.8647049717810927,\n          \"reference\": \"mcp:prompt:6f42f663-66a9-4979-af44-3e527acb0be6\"\n        },\n        {\n          \"text\": \"create-a-report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 0.774469377556709,\n          \"reference\": \"mcp:prompt:562bd59e-b866-4a71-a830-542ea3e17ed3\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs/failures\\nActive failure-triage units\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs/failures\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/portal/activity/overview\\nGet activity overview\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/activity/overview\",\n          \"score\": 0.9291452960950214\n        },\n        {\n          \"text\": \"GET /api/v1/portal/threads/counts\\nCount open threads per target\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/threads/counts\",\n          \"score\": 0.7470884975334164\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Active Customer Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_564cd66b-5079-463d-97b9-5435f5618605\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp_564cd66b-5079-463d-97b9-5435f5618605\"\n        },\n        {\n          \"text\": \"Peak Region Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_9a65dfed-6608-4dc5-b7af-718ced8c1877\",\n          \"score\": 0.49166341790814067,\n          \"reference\": \"mcp:knowledge_page:kp_9a65dfed-6608-4dc5-b7af-718ced8c1877\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 11,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 5\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01N97obrfGejtbz13Ao4tFiS",
+          "name": "search",
+          "args": {
+            "offset": 0,
+            "sources": [
+              "knowledge_pages"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01N97obrfGejtbz13Ao4tFiS",
+          "text": "{\n  \"source\": \"knowledge_pages\",\n  \"total\": 11,\n  \"offset\": 0,\n  \"limit\": 50,\n  \"count\": 11,\n  \"items\": [\n    {\n      \"text\": \"Settlement Total Definition\",\n      \"source\": \"knowledge_pages\",\n      \"ref\": \"kp_a1c4ea2f-bd3d-47cd-ad4c-0246c1d811f6\",\n      \"score\": 0,\n      \"reference\": \"mcp:knowledge_page:kp_a1c4ea2f-bd3d-47cd-ad4c-0246c1d811f6\"\n    },\n    {\n      \"text\": \"Reporting Window Definition\\nThe 'reporting window' is calendar Q3 2025 (Jul 1 - Sep 30, 2025), superseding the earlier Q1 2025 definition.\",\n      \"source\": \"knowledge_pages\",\n      \"ref\": \"kp_15f11eeb-03d1-4bb8-85f2-d53c629b45af\",\n      \"score\": 0,\n      \"reference\": \"mcp:knowledge_page:kp_15f11eeb-03d1-4bb8-85f2-d53c629b45af\"\n    },\n    {\n      \"text\": \"Priority Order Definition\",\n      \"source\": \"knowledge_pages\",\n      \"ref\": \"kp_e5754861-1740-416e-953f-a9f8be605e03\",\n      \"score\": 0,\n      \"reference\": \"mcp:knowledge_page:kp_e5754861-1740-416e-953f-a9f8be605e03\"\n    },\n    {\n      \"text\": \"Premium Order Definition\",\n      \"source\": \"knowledge_pages\",\n      \"ref\": \"kp_270672bb-2594-4ec4-8902-80e5f7e27d72\",\n      \"score\": 0,\n      \"reference\": \"mcp:knowledge_page:kp_270672bb-2594-4ec4-8902-80e5f7e27d72\"\n    },\n    {\n      \"text\": \"Peak Region Definition\",\n      \"source\": \"knowledge_pages\",\n      \"ref\": \"kp_9a65dfed-6608-4dc5-b7af-718ced8c1877\",\n      \"score\": 0,\n      \"reference\": \"mcp:knowledge_page:kp_9a65dfed-6608-4dc5-b7af-718ced8c1877\"\n    },\n    {\n      \"text\": \"House Tier Definition\",\n      \"source\": \"knowledge_pages\",\n      \"ref\": \"kp_5bd454e9-462a-4955-ad1a-e8abb30519de\",\n      \"score\": 0,\n      \"reference\": \"mcp:knowledge_page:kp_5bd454e9-462a-4955-ad1a-e8abb30519de\"\n    },\n    {\n      \"text\": \"Active Customer Definition\",\n      \"source\": \"knowledge_pages\",\n      \"ref\": \"kp_564cd66b-5079-463d-97b9-5435f5618605\",\n      \"score\": 0,\n      \"reference\": \"mcp:knowledge_page:kp_564cd66b-5079-463d-97b9-5435f5618605\"\n    },\n    {\n      \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n      \"source\": \"knowledge_pages\",\n      \"ref\": \"kp-bench-1\",\n      \"score\": 0,\n      \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n    },\n    {\n      \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n      \"source\": \"knowledge_pages\",\n      \"ref\": \"kp-bench-2\",\n      \"score\": 0,\n      \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n    },\n    {\n      \"text\": \"Fiscal Calendar Policy\\nThe fiscal year starts February 1: fiscal year 2025 runs 2025-02-01 through 2026-01-31. Fiscal figures must not be computed over the calendar year.\",\n      \"source\": \"knowledge_pages\",\n      \"ref\": \"kp-bench-3\",\n      \"score\": 0,\n      \"reference\": \"mcp:knowledge_page:kp-bench-3\"\n    },\n    {\n      \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n      \"source\": \"knowledge_pages\",\n      \"ref\": \"kp-bench-4\",\n      \"score\": 0,\n      \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n    }\n  ]\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_015rZEaUu63TYWe9KQjHb2dj",
+          "name": "search",
+          "args": {
+            "intent": "fetch active customer definition page content",
+            "sources": [
+              "knowledge_pages"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_015rZEaUu63TYWe9KQjHb2dj",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Active Customer Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_564cd66b-5079-463d-97b9-5435f5618605\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp_564cd66b-5079-463d-97b9-5435f5618605\"\n        },\n        {\n          \"text\": \"Peak Region Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_9a65dfed-6608-4dc5-b7af-718ced8c1877\",\n          \"score\": 0.48546166916328337,\n          \"reference\": \"mcp:knowledge_page:kp_9a65dfed-6608-4dc5-b7af-718ced8c1877\"\n        },\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 0.3893790551724662,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        },\n        {\n          \"text\": \"Premium Order Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_270672bb-2594-4ec4-8902-80e5f7e27d72\",\n          \"score\": 0.382166710951404,\n          \"reference\": \"mcp:knowledge_page:kp_270672bb-2594-4ec4-8902-80e5f7e27d72\"\n        },\n        {\n          \"text\": \"House Tier Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_5bd454e9-462a-4955-ad1a-e8abb30519de\",\n          \"score\": 0.37872733600976555,\n          \"reference\": \"mcp:knowledge_page:kp_5bd454e9-462a-4955-ad1a-e8abb30519de\"\n        },\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 0.32922994341448664,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 0.2849618672773338,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        },\n        {\n          \"text\": \"Priority Order Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_e5754861-1740-416e-953f-a9f8be605e03\",\n          \"score\": 0.2621316789708501,\n          \"reference\": \"mcp:knowledge_page:kp_e5754861-1740-416e-953f-a9f8be605e03\"\n        },\n        {\n          \"text\": \"Reporting Window Definition\\nThe 'reporting window' is calendar Q3 2025 (Jul 1 - Sep 30, 2025), superseding the earlier Q1 2025 definition.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_15f11eeb-03d1-4bb8-85f2-d53c629b45af\",\n          \"score\": 0.256067359700288,\n          \"reference\": \"mcp:knowledge_page:kp_15f11eeb-03d1-4bb8-85f2-d53c629b45af\"\n        },\n        {\n          \"text\": \"Settlement Total Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_a1c4ea2f-bd3d-47cd-ad4c-0246c1d811f6\",\n          \"score\": 0.13433403411378445,\n          \"reference\": \"mcp:knowledge_page:kp_a1c4ea2f-bd3d-47cd-ad4c-0246c1d811f6\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 11,\n      \"shown\": 10\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01WUh2A19HG3iRA9duC3NovM",
+          "name": "search",
+          "args": {
+            "intent": "Active Customer Definition orders within days considered active",
+            "limit": 1,
+            "sources": [
+              "knowledge_pages"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01WUh2A19HG3iRA9duC3NovM",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Active Customer Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_564cd66b-5079-463d-97b9-5435f5618605\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp_564cd66b-5079-463d-97b9-5435f5618605\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 11,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 1,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01F3dF212KvPwtSzWX5NTEne",
+          "name": "search",
+          "args": {
+            "intent": "what is the target cohort for this analysis"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01F3dF212KvPwtSzWX5NTEne",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"create-a-report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:562bd59e-b866-4a71-a830-542ea3e17ed3\"\n        },\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 0.9311810611513801,\n          \"reference\": \"mcp:prompt:09b27d11-248d-4eb9-9856-fa0df20d1858\"\n        },\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.802118616936098,\n          \"reference\": \"mcp:prompt:bf4d585f-c91d-472c-98f9-3c93a71f8b20\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.7945594190640359,\n          \"reference\": \"mcp:prompt:539fc33a-c09a-4c70-af41-160efb21e940\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Peak Region Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_9a65dfed-6608-4dc5-b7af-718ced8c1877\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp_9a65dfed-6608-4dc5-b7af-718ced8c1877\"\n        },\n        {\n          \"text\": \"Reporting Window Definition\\nThe 'reporting window' is calendar Q3 2025 (Jul 1 - Sep 30, 2025), superseding the earlier Q1 2025 definition.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_15f11eeb-03d1-4bb8-85f2-d53c629b45af\",\n          \"score\": 0.9936240298329355,\n          \"reference\": \"mcp:knowledge_page:kp_15f11eeb-03d1-4bb8-85f2-d53c629b45af\"\n        },\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 0.7950788051579722,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/portal/threads/counts\\nCount open threads per target\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/threads/counts\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/admin/audit/metrics/discovery\\nGet discovery pattern metrics\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/metrics/discovery\",\n          \"score\": 0.8213741866210137\n        }\n      ]\n    },\n    {\n      \"source\": \"connections\",\n      \"hits\": [\n        {\n          \"text\": \"platform-admin (api)\\nBuilt-in self-configuration connection. Routes the API gateway to the platform's own admin REST API (`/api/v1/admin/*`) so an admin can create personas, manage connections, edit agent instructions, and manage prompts and API keys directly from an MCP session. Calls are authenticated and audited as the acting admin.\",\n          \"source\": \"connections\",\n          \"ref\": \"platform-admin\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(api,platform-admin)\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 11,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"connections\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_013mnNdpWn7qMQ161LtmSjPZ",
+          "name": "search",
+          "args": {
+            "intent": "customer must have placed an order within last N days to be considered active",
+            "sources": [
+              "knowledge_pages"
+            ]
+          }
+        },
+        {
+          "id": "toolu_01GE9xWR2Pw4u5Asa7owFrxr",
+          "name": "search",
+          "args": {
+            "intent": "peak region which regions count as peak region",
+            "sources": [
+              "knowledge_pages"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_013mnNdpWn7qMQ161LtmSjPZ",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Active Customer Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_564cd66b-5079-463d-97b9-5435f5618605\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp_564cd66b-5079-463d-97b9-5435f5618605\"\n        },\n        {\n          \"text\": \"Premium Order Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_270672bb-2594-4ec4-8902-80e5f7e27d72\",\n          \"score\": 0.4281051439001698,\n          \"reference\": \"mcp:knowledge_page:kp_270672bb-2594-4ec4-8902-80e5f7e27d72\"\n        },\n        {\n          \"text\": \"Priority Order Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_e5754861-1740-416e-953f-a9f8be605e03\",\n          \"score\": 0.40364440983950667,\n          \"reference\": \"mcp:knowledge_page:kp_e5754861-1740-416e-953f-a9f8be605e03\"\n        },\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 0.35601480165709226,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Reporting Window Definition\\nThe 'reporting window' is calendar Q3 2025 (Jul 1 - Sep 30, 2025), superseding the earlier Q1 2025 definition.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_15f11eeb-03d1-4bb8-85f2-d53c629b45af\",\n          \"score\": 0.2780975298823635,\n          \"reference\": \"mcp:knowledge_page:kp_15f11eeb-03d1-4bb8-85f2-d53c629b45af\"\n        },\n        {\n          \"text\": \"House Tier Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_5bd454e9-462a-4955-ad1a-e8abb30519de\",\n          \"score\": 0.21306435853174138,\n          \"reference\": \"mcp:knowledge_page:kp_5bd454e9-462a-4955-ad1a-e8abb30519de\"\n        },\n        {\n          \"text\": \"Peak Region Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_9a65dfed-6608-4dc5-b7af-718ced8c1877\",\n          \"score\": 0.20148490779325282,\n          \"reference\": \"mcp:knowledge_page:kp_9a65dfed-6608-4dc5-b7af-718ced8c1877\"\n        },\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 0.19023868615677655,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        },\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 0.1717860187530509,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        },\n        {\n          \"text\": \"Fiscal Calendar Policy\\nThe fiscal year starts February 1: fiscal year 2025 runs 2025-02-01 through 2026-01-31. Fiscal figures must not be computed over the calendar year.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-3\",\n          \"score\": 0.13044067955550548,\n          \"reference\": \"mcp:knowledge_page:kp-bench-3\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 11,\n      \"shown\": 10\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01GE9xWR2Pw4u5Asa7owFrxr",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Peak Region Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_9a65dfed-6608-4dc5-b7af-718ced8c1877\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp_9a65dfed-6608-4dc5-b7af-718ced8c1877\"\n        },\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 0.38277489995106107,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        },\n        {\n          \"text\": \"Reporting Window Definition\\nThe 'reporting window' is calendar Q3 2025 (Jul 1 - Sep 30, 2025), superseding the earlier Q1 2025 definition.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_15f11eeb-03d1-4bb8-85f2-d53c629b45af\",\n          \"score\": 0.3384347826660364,\n          \"reference\": \"mcp:knowledge_page:kp_15f11eeb-03d1-4bb8-85f2-d53c629b45af\"\n        },\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 0.29795071690847497,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 0.2775569339173813,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        },\n        {\n          \"text\": \"Fiscal Calendar Policy\\nThe fiscal year starts February 1: fiscal year 2025 runs 2025-02-01 through 2026-01-31. Fiscal figures must not be computed over the calendar year.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-3\",\n          \"score\": 0.2554387864333332,\n          \"reference\": \"mcp:knowledge_page:kp-bench-3\"\n        },\n        {\n          \"text\": \"House Tier Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_5bd454e9-462a-4955-ad1a-e8abb30519de\",\n          \"score\": 0.21843111132092505,\n          \"reference\": \"mcp:knowledge_page:kp_5bd454e9-462a-4955-ad1a-e8abb30519de\"\n        },\n        {\n          \"text\": \"Premium Order Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_270672bb-2594-4ec4-8902-80e5f7e27d72\",\n          \"score\": 0.1681767002349692,\n          \"reference\": \"mcp:knowledge_page:kp_270672bb-2594-4ec4-8902-80e5f7e27d72\"\n        },\n        {\n          \"text\": \"Priority Order Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_e5754861-1740-416e-953f-a9f8be605e03\",\n          \"score\": 0.15473456681247494,\n          \"reference\": \"mcp:knowledge_page:kp_e5754861-1740-416e-953f-a9f8be605e03\"\n        },\n        {\n          \"text\": \"Settlement Total Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_a1c4ea2f-bd3d-47cd-ad4c-0246c1d811f6\",\n          \"score\": 0.1350508406498826,\n          \"reference\": \"mcp:knowledge_page:kp_a1c4ea2f-bd3d-47cd-ad4c-0246c1d811f6\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 11,\n      \"shown\": 10\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01ACU3R2FAxBU2CSdS2KanEX",
+          "name": "search",
+          "args": {
+            "entity_urns": [
+              "mcp:knowledge_page:kp_564cd66b-5079-463d-97b9-5435f5618605"
+            ],
+            "intent": "Active Customer Definition"
+          }
+        },
+        {
+          "id": "toolu_01VSkf7yGGatKwd64DEBYV5f",
+          "name": "search",
+          "args": {
+            "entity_urns": [
+              "mcp:knowledge_page:kp_9a65dfed-6608-4dc5-b7af-718ced8c1877"
+            ],
+            "intent": "Peak Region Definition"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01ACU3R2FAxBU2CSdS2KanEX",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:6f42f663-66a9-4979-af44-3e527acb0be6\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.9455421728764881,\n          \"reference\": \"mcp:prompt:539fc33a-c09a-4c70-af41-160efb21e940\"\n        },\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.9306913570466528,\n          \"reference\": \"mcp:prompt:bf4d585f-c91d-472c-98f9-3c93a71f8b20\"\n        },\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 0.8097936969028513,\n          \"reference\": \"mcp:prompt:09b27d11-248d-4eb9-9856-fa0df20d1858\"\n        },\n        {\n          \"text\": \"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_apply_guidance\",\n          \"score\": 0.6434207170479301,\n          \"reference\": \"mcp:prompt:4e3c4a88-ee59-486b-af4d-5b314d67e5fa\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs/failures\\nActive failure-triage units\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs/failures\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/portal/activity/overview\\nGet activity overview\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/activity/overview\",\n          \"score\": 0.6612820484487508\n        },\n        {\n          \"text\": \"GET /api/v1/admin/users/{email}\\nGet directory user\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/users/{email}\",\n          \"score\": 0.5231040882081724\n        },\n        {\n          \"text\": \"POST /api/v1/admin/prompts/{id}/approve\\nApprove prompt promotion\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:POST /admin/prompts/{id}/approve\",\n          \"score\": 0.46582693096581895\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Active Customer Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_564cd66b-5079-463d-97b9-5435f5618605\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp_564cd66b-5079-463d-97b9-5435f5618605\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 11,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 5\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01VSkf7yGGatKwd64DEBYV5f",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs/failures\\nActive failure-triage units\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs/failures\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/portal/activity/breakdown\\nGet activity breakdown\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/activity/breakdown\",\n          \"score\": 0.8444452167976678\n        },\n        {\n          \"text\": \"GET /api/v1/portal/activity/overview\\nGet activity overview\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/activity/overview\",\n          \"score\": 0.8124151144474254\n        },\n        {\n          \"text\": \"GET /api/v1/admin/audit/metrics/overview\\nGet audit overview\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/metrics/overview\",\n          \"score\": 0.7907660889357525\n        },\n        {\n          \"text\": \"POST /api/v1/admin/index-jobs/dismiss\\nDismiss a unit's open failures\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:POST /admin/index-jobs/dismiss\",\n          \"score\": 0.7427272055610177\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"create-a-report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:562bd59e-b866-4a71-a830-542ea3e17ed3\"\n        },\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.8447578945284848,\n          \"reference\": \"mcp:prompt:bf4d585f-c91d-472c-98f9-3c93a71f8b20\"\n        },\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 0.5614907251259601,\n          \"reference\": \"mcp:prompt:09b27d11-248d-4eb9-9856-fa0df20d1858\"\n        },\n        {\n          \"text\": \"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_apply_guidance\",\n          \"score\": 0.4801239626077946,\n          \"reference\": \"mcp:prompt:4e3c4a88-ee59-486b-af4d-5b314d67e5fa\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Peak Region Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_9a65dfed-6608-4dc5-b7af-718ced8c1877\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp_9a65dfed-6608-4dc5-b7af-718ced8c1877\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 11,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 4\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01MauiEqLH1GiWDg1ARm5iz8",
+          "name": "search",
+          "args": {
+            "intent": "kp_564cd66b-5079-463d-97b9-5435f5618605"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01MauiEqLH1GiWDg1ARm5iz8",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/portal/knowledge-pages/{id}/versions\\nList a knowledge page's version history\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/knowledge-pages/{id}/versions\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/portal/collections/{id}/signoff\\nCollection sign-off summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/{id}/signoff\",\n          \"score\": 0.9511467303269182\n        },\n        {\n          \"text\": \"GET /api/v1/admin/personas\\nList personas\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/personas\",\n          \"score\": 0.8898623734414538\n        },\n        {\n          \"text\": \"GET /api/v1/admin/personas/{name}\\nGet persona\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/personas/{name}\",\n          \"score\": 0.7743261234243126\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Reporting Window Definition\\nThe 'reporting window' is calendar Q3 2025 (Jul 1 - Sep 30, 2025), superseding the earlier Q1 2025 definition.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_15f11eeb-03d1-4bb8-85f2-d53c629b45af\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp_15f11eeb-03d1-4bb8-85f2-d53c629b45af\"\n        },\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 0.937138090897201,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Peak Region Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_9a65dfed-6608-4dc5-b7af-718ced8c1877\",\n          \"score\": 0.7109503074867022,\n          \"reference\": \"mcp:knowledge_page:kp_9a65dfed-6608-4dc5-b7af-718ced8c1877\"\n        },\n        {\n          \"text\": \"Fiscal Calendar Policy\\nThe fiscal year starts February 1: fiscal year 2025 runs 2025-02-01 through 2026-01-31. Fiscal figures must not be computed over the calendar year.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-3\",\n          \"score\": 0.707352250810422,\n          \"reference\": \"mcp:knowledge_page:kp-bench-3\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_apply_guidance\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:4e3c4a88-ee59-486b-af4d-5b314d67e5fa\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.7868528726115732,\n          \"reference\": \"mcp:prompt:6f42f663-66a9-4979-af44-3e527acb0be6\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 11,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 2\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01FDZPVzUzRk6fuu4QnM2ZyF",
+          "name": "search",
+          "args": {
+            "intent": "customer is active if placed at least one order",
+            "limit": 3,
+            "sources": [
+              "knowledge_pages"
+            ]
+          }
+        },
+        {
+          "id": "toolu_01D5fZBH595hFPKYaQN2a2g1",
+          "name": "search",
+          "args": {
+            "intent": "peak region is defined as region with highest",
+            "limit": 3,
+            "sources": [
+              "knowledge_pages"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "text": "The tool-call budget is exhausted. Give your FINAL ANSWER now using the information gathered so far.",
+      "tool_results": [
+        {
+          "call_id": "toolu_01FDZPVzUzRk6fuu4QnM2ZyF",
+          "text": "tool-call budget exhausted; no further tool calls are executed",
+          "is_error": true
+        },
+        {
+          "call_id": "toolu_01D5fZBH595hFPKYaQN2a2g1",
+          "text": "tool-call budget exhausted; no further tool calls are executed",
+          "is_error": true
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Based on the research conducted, I was unable to locate a definitive, unambiguous definition of \"target cohort\" tied to a specific count in the catalog, knowledge pages, or memory before the tool budget was exhausted. The knowledge pages I found (Active Customer Definition, Key Account/Customer Tier Definitions, Peak Region Definition, Reporting Window Definition) are related candidate definitions, but I could not retrieve their full body content or run the corresponding SQL query against the `customers` table to compute an actual count before running out of tool calls.\n\nI do not have sufficient grounded evidence to confidently state a count.\n\nFINAL ANSWER: 0"
+    }
+  ]
+}

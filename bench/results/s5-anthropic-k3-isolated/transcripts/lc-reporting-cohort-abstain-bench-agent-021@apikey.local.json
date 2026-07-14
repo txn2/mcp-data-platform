@@ -1,0 +1,145 @@
+{
+  "protocol_id": "lc-reporting-cohort",
+  "stage": "abstain",
+  "identity": "teacher",
+  "email": "bench-agent-021@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "How many items on average were in each order of the reporting cohort?"
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01M8iLJJrYzXwpWZojaAXX5w",
+          "name": "search",
+          "args": {
+            "intent": "reporting cohort definition average items per order"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01M8iLJJrYzXwpWZojaAXX5w",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/audit/stats\\nGet audit stats\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/stats\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/admin/audit/metrics/overview\\nGet audit overview\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/metrics/overview\",\n          \"score\": 0.8423157851370444\n        },\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs\\nCross-kind index-jobs health summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs\",\n          \"score\": 0.8404437749753497\n        },\n        {\n          \"text\": \"GET /api/v1/admin/audit/metrics/breakdown\\nGet audit breakdown\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/metrics/breakdown\",\n          \"score\": 0.7943387760000334\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Premium Order Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_270672bb-2594-4ec4-8902-80e5f7e27d72\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp_270672bb-2594-4ec4-8902-80e5f7e27d72\"\n        },\n        {\n          \"text\": \"Priority Order Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_e5754861-1740-416e-953f-a9f8be605e03\",\n          \"score\": 0.9104871052625377,\n          \"reference\": \"mcp:knowledge_page:kp_e5754861-1740-416e-953f-a9f8be605e03\"\n        },\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 0.8637853945587843,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        }\n      ]\n    },\n    {\n      \"source\": \"connections\",\n      \"hits\": [\n        {\n          \"text\": \"platform-admin (api)\\nBuilt-in self-configuration connection. Routes the API gateway to the platform's own admin REST API (`/api/v1/admin/*`) so an admin can create personas, manage connections, edit agent instructions, and manage prompts and API keys directly from an MCP session. Calls are authenticated and audited as the acting admin.\",\n          \"source\": \"connections\",\n          \"ref\": \"platform-admin\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(api,platform-admin)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: the 'reporting cohort' refers to the set of orders placed in December 2025 (i.e., orders with an order/placement date between 2025-12-01 and 2025-12-31 inclusive). This definition applies to the `orders` dataset (memory.bench.orders) and should be used consistently in analyses referencing the 'reporting cohort'.\",\n          \"source\": \"insights\",\n          \"ref\": \"f6212e5d9e9eef9088936a893195a448\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-021@apikey.local\",\n          \"reference\": \"mcp:insight:f6212e5d9e9eef9088936a893195a448\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"create-a-report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:562bd59e-b866-4a71-a830-542ea3e17ed3\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 9,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"connections\",\n      \"matched\": 1,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01C5wJeeA6tc4XqeABZ7Xyqo",
+          "name": "trino_describe_table",
+          "args": {
+            "catalog": "memory",
+            "schema": "bench",
+            "table": "orders"
+          }
+        },
+        {
+          "id": "toolu_011M1wykLn6vSZ3BVD4vB6ok",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "memory",
+            "schema": "bench"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01C5wJeeA6tc4XqeABZ7Xyqo",
+          "text": "## Table: `memory.bench.orders`\n\n### Columns\n\n| Name | Type | Nullable | Comment |\n|------|------|----------|----------|\n| `order_id` | integer | - | - |\n| `customer_id` | integer | - | - |\n| `order_ts` | timestamp(3) | - | - |\n| `status` | varchar | - | - |\n| `amount` | integer | - | - |\n| `discount` | integer | - | - |\n\n*6 columns*\n{\"semantic_context\":{\"custom_properties\":{\"team\":\"bench\",\"unit\":\"cents\"},\"deprecation\":null,\"description\":\"The 'leading region' is the region whose customers placed the most orders.\",\"domain\":null,\"owners\":null,\"quality_score\":null,\"tags\":[\"bench\"],\"urn\":\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"}}\n{\"memory_context\":[{\"id\":\"f6212e5d9e9eef9088936a893195a448\",\"reference\":\"mcp:memory:f6212e5d9e9eef9088936a893195a448\",\"summary\":\"Working definition: the 'reporting cohort' refers to the set of orders placed in December 2025 (i.e., orders with an order/placement date between 2025-12-01 and 2025-12-31 inclusive). This definition applies to the `orders` dataset (memory.bench.orders) and should be used consist\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-07-14T21:12:34.122349Z\"},{\"id\":\"7e8fc367e64655a92bca01ce04b65747\",\"reference\":\"mcp:memory:7e8fc367e64655a92bca01ce04b65747\",\"summary\":\"Working definition: a 'priority order' is any order in the `orders` table whose amount is at least $1,000.00 (i.e. amount \\u003e= 100000, since amount is stored as an INTEGER in US CENTS). This is distinct from the existing 'Premium Order' definition on this dataset — use 'priority\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-07-14T21:10:52.721565Z\"}],\"memory_context_note\":\"3 additional related memory record(s) omitted to stay within the enrichment budget; fetch any by its reference in memory_context_omitted for full detail.\",\"memory_context_omitted\":[{\"id\":\"ef26b4312290d26dda7e4a21b0ffc5a3\",\"reference\":\"mcp:memory:ef26b4312290d26dda7e4a21b0ffc5a3\"},{\"id\":\"a9e74d1964ed0eee5a35129584f35f66\",\"reference\":\"mcp:memory:a9e74d1964ed0eee5a35129584f35f66\"},{\"id\":\"9cba664802261b111c19bca376291463\",\"reference\":\"mcp:memory:9cba664802261b111c19bca376291463\"}]}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_011M1wykLn6vSZ3BVD4vB6ok",
+          "text": "## Tables in `memory.bench`\n\n- `customers`\n- `daily_region_revenue`\n- `legacy_orders`\n- `orders`\n\n*4 tables found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_0123KxNrEfJmzgJpnAERQxSn",
+          "name": "search",
+          "args": {
+            "intent": "order items table line items per order"
+          }
+        },
+        {
+          "id": "toolu_01KsJVpqDWhv6Y4inRZnEvpz",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "memory"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_0123KxNrEfJmzgJpnAERQxSn",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/portal/collections/search\\nSearch my collections\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/search\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/admin/config/entries\\nList config entries\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/config/entries\",\n          \"score\": 0.8037113536371724\n        },\n        {\n          \"text\": \"GET /api/v1/admin/prompts\\nList prompts\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/prompts\",\n          \"score\": 0.7678961181346238\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Priority Order Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_e5754861-1740-416e-953f-a9f8be605e03\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp_e5754861-1740-416e-953f-a9f8be605e03\"\n        },\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 0.9721186326961297,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Premium Order Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_270672bb-2594-4ec4-8902-80e5f7e27d72\",\n          \"score\": 0.8983117929551939,\n          \"reference\": \"mcp:knowledge_page:kp_270672bb-2594-4ec4-8902-80e5f7e27d72\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:09b27d11-248d-4eb9-9856-fa0df20d1858\"\n        },\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.7324885436836036,\n          \"reference\": \"mcp:prompt:bf4d585f-c91d-472c-98f9-3c93a71f8b20\"\n        }\n      ]\n    },\n    {\n      \"source\": \"connections\",\n      \"hits\": [\n        {\n          \"text\": \"platform-admin (api)\\nBuilt-in self-configuration connection. Routes the API gateway to the platform's own admin REST API (`/api/v1/admin/*`) so an admin can create personas, manage connections, edit agent instructions, and manage prompts and API keys directly from an MCP session. Calls are authenticated and audited as the acting admin.\",\n          \"source\": \"connections\",\n          \"ref\": \"platform-admin\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(api,platform-admin)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: the 'reporting cohort' refers to the set of orders placed in December 2025 (i.e., orders with an order/placement date between 2025-12-01 and 2025-12-31 inclusive). This definition applies to the `orders` dataset (memory.bench.orders) and should be used consistently in analyses referencing the 'reporting cohort'.\",\n          \"source\": \"insights\",\n          \"ref\": \"f6212e5d9e9eef9088936a893195a448\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-021@apikey.local\",\n          \"reference\": \"mcp:insight:f6212e5d9e9eef9088936a893195a448\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 9,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"connections\",\n      \"matched\": 1,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01KsJVpqDWhv6Y4inRZnEvpz",
+          "text": "## Schemas in `memory`\n\n- `bench`\n- `default`\n- `e2e_test`\n- `information_schema`\n\n*4 schemas found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01FavMzYuWLQvFWeNiXVQovL",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "memory",
+            "schema": "default"
+          }
+        },
+        {
+          "id": "toolu_01ANYCJC1ejZxwC4ZNfmHA4u",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "memory",
+            "schema": "e2e_test"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01FavMzYuWLQvFWeNiXVQovL",
+          "text": "## Tables in `memory.default`\n\n\n*0 tables found*",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01ANYCJC1ejZxwC4ZNfmHA4u",
+          "text": "## Tables in `memory.e2e_test`\n\n- `customer_metrics`\n- `legacy_users`\n- `products`\n- `test_orders`\n\n*4 tables found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "The `orders` table (memory.bench.orders) — which defines the \"reporting cohort\" as orders placed in December 2025 — contains only `order_id`, `customer_id`, `order_ts`, `status`, `amount`, and `discount`. There is no column or related table (no line-items/order-items table exists in the catalog) that records the number of items per order, and no saved knowledge provides this figure either.\n\nFINAL ANSWER: INSUFFICIENT INFORMATION"
+    }
+  ]
+}

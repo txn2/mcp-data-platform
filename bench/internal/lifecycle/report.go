@@ -50,19 +50,25 @@ type Manifest struct {
 // EpisodeRecord captures one episode's execution for the transcript and audit
 // trail. Each lifecycle stage is one fresh MCP session.
 type EpisodeRecord struct {
-	Stage        string           `json:"stage"`
-	Identity     string           `json:"identity"` // "teacher" or "learner"
-	Email        string           `json:"email"`
-	SessionID    string           `json:"session_id,omitempty"`
-	ToolCalls    int              `json:"tool_calls"`
-	ToolErrors   int              `json:"tool_errors"`
-	SearchCalled bool             `json:"search_called"`
-	FinalAnswer  string           `json:"final_answer,omitempty"`
-	WallMS       int64            `json:"wall_ms"`
-	InputTokens  int64            `json:"input_tokens"`
-	OutputTokens int64            `json:"output_tokens"`
-	Audit        auditapi.Metrics `json:"audit"`
-	Error        string           `json:"error,omitempty"`
+	Stage        string `json:"stage"`
+	Identity     string `json:"identity"` // "teacher" or "learner"
+	Email        string `json:"email"`
+	SessionID    string `json:"session_id,omitempty"`
+	ToolCalls    int    `json:"tool_calls"`
+	ToolErrors   int    `json:"tool_errors"`
+	SearchCalled bool   `json:"search_called"`
+	FinalAnswer  string `json:"final_answer,omitempty"`
+	WallMS       int64  `json:"wall_ms"`
+	InputTokens  int64  `json:"input_tokens"`
+	OutputTokens int64  `json:"output_tokens"`
+	// Cache token split from llm.Usage, so a cached run's cost is computed from
+	// committed per-episode data (cache reads bill far below fresh input) rather
+	// than estimated from the input/output totals alone. Zero (omitted) for
+	// adapters that do not report cache usage.
+	CacheReadTokens     int64            `json:"cache_read_tokens,omitempty"`
+	CacheCreationTokens int64            `json:"cache_creation_tokens,omitempty"`
+	Audit               auditapi.Metrics `json:"audit"`
+	Error               string           `json:"error,omitempty"`
 }
 
 // ProtocolRun records one protocol attempt (1..k). Each stage outcome is a
@@ -151,9 +157,13 @@ type Metrics struct {
 
 	// Token totals across every episode of every run (including harness-failed
 	// runs — a failed episode still spent tokens), so a run self-reports its cost
-	// basis rather than needing cost reverse-engineered from transcripts.
-	TotalInputTokens  int64 `json:"total_input_tokens"`
-	TotalOutputTokens int64 `json:"total_output_tokens"`
+	// basis rather than needing cost reverse-engineered from transcripts. The
+	// cache split lets a cached run's cost be computed from committed data:
+	// cache reads bill at roughly a tenth of fresh input.
+	TotalInputTokens         int64 `json:"total_input_tokens"`
+	TotalOutputTokens        int64 `json:"total_output_tokens"`
+	TotalCacheReadTokens     int64 `json:"total_cache_read_tokens"`
+	TotalCacheCreationTokens int64 `json:"total_cache_creation_tokens"`
 
 	CaptureRate       Rate `json:"capture_rate"`
 	PersonalRecall    Rate `json:"personal_recall"`
@@ -186,6 +196,8 @@ func (res *Results) Aggregate() {
 		for _, e := range r.Episodes {
 			m.TotalInputTokens += e.InputTokens
 			m.TotalOutputTokens += e.OutputTokens
+			m.TotalCacheReadTokens += e.CacheReadTokens
+			m.TotalCacheCreationTokens += e.CacheCreationTokens
 		}
 		if r.Error != "" {
 			m.HarnessFailures++
@@ -270,7 +282,8 @@ func (res *Results) HumanSummary() string {
 	fmt.Fprintf(&b, "  %s .. %s\n\n", m.StartedAt.Format(time.RFC3339), m.FinishedAt.Format(time.RFC3339))
 	mt := res.Metrics
 	fmt.Fprintf(&b, "protocols %d  attempts %d  harness failures %d\n", mt.Protocols, mt.Attempts, mt.HarnessFailures)
-	fmt.Fprintf(&b, "tokens: input %d  output %d (apply current model pricing for cost)\n\n", mt.TotalInputTokens, mt.TotalOutputTokens)
+	fmt.Fprintf(&b, "tokens: input %d  output %d  cache read %d  cache write %d (apply current model pricing for cost)\n\n",
+		mt.TotalInputTokens, mt.TotalOutputTokens, mt.TotalCacheReadTokens, mt.TotalCacheCreationTokens)
 	writeMetric(&b, "capture rate", mt.CaptureRate)
 	writeMetric(&b, "personal recall", mt.PersonalRecall)
 	writeMetric(&b, "unprompted surface", mt.UnpromptedSurface)

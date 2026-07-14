@@ -1,0 +1,66 @@
+{
+  "protocol_id": "lc-focus-month",
+  "stage": "update",
+  "identity": "teacher",
+  "email": "bench-agent-017@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "Correction to the definition I gave you earlier. The 'focus month' is now February 2025, not June. Please update your saved knowledge so future answers use this corrected definition."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01ATNJdD43MALSX5JB2T2DtA",
+          "name": "search",
+          "args": {
+            "intent": "focus month definition"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01ATNJdD43MALSX5JB2T2DtA",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/portal/activity/overview\\nGet activity overview\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/activity/overview\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"POST /api/v1/portal/threads/{id}/insight\\nCapture a feedback thread as an insight\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:POST /portal/threads/{id}/insight\",\n          \"score\": 0.9802938801369002\n        },\n        {\n          \"text\": \"GET /api/v1/portal/collections/search\\nSearch my collections\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/search\",\n          \"score\": 0.9276568150283458\n        },\n        {\n          \"text\": \"GET /api/v1/portal/knowledge/insights/search\\nSearch my knowledge insights\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/knowledge/insights/search\",\n          \"score\": 0.8488183652240153\n        },\n        {\n          \"text\": \"GET /api/v1/portal/threads/counts\\nCount open threads per target\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/threads/counts\",\n          \"score\": 0.8369601837797349\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"create-a-report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:b4392ca8-c06e-40fa-9e10-d24879232c49\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.9032744924681542,\n          \"reference\": \"mcp:prompt:17331aa1-93bc-4d18-809f-02e343570b9e\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.754703569450052,\n          \"reference\": \"mcp:prompt:c9cc8a2b-be13-478f-b4c3-68ac5dbe9ed7\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition for this analysis: the 'focus month' is June 2025 (calendar range 2025-06-01 through 2025-06-30 inclusive). Use this as the reference month for the study's time-scoped queries and comparisons against the memory.bench.orders dataset (and related revenue datasets) unless a different focus month is explicitly stated later.\",\n          \"source\": \"insights\",\n          \"ref\": \"6d2f3609e61e9dca1ba0c55ef9135c46\",\n          \"score\": 1,\n          \"status\": \"pending\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-017@apikey.local\",\n          \"reference\": \"mcp:insight:6d2f3609e61e9dca1ba0c55ef9135c46\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Fiscal Calendar Policy\\nThe fiscal year starts February 1: fiscal year 2025 runs 2025-02-01 through 2026-01-31. Fiscal figures must not be computed over the calendar year.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-3\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-3\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 12,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01TVdjbKUT9xVT5Lq4vaN2Jb",
+          "name": "memory_capture",
+          "args": {
+            "category": "correction",
+            "confidence": "high",
+            "content": "Correction: the 'focus month' for this analysis is now February 2025 (calendar range 2025-02-01 through 2025-02-28 inclusive), superseding the earlier definition of June 2025. Use February 2025 as the reference month for time-scoped queries and comparisons against the memory.bench.orders dataset (and related revenue datasets) unless a different focus month is explicitly stated later.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+            ],
+            "type": "business_knowledge"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01TVdjbKUT9xVT5Lq4vaN2Jb",
+          "text": "{\n  \"id\": \"8fc79701ba9879fe9ae974afe119d5f3\",\n  \"sink_class\": \"business_knowledge\",\n  \"status\": \"active\",\n  \"superseded\": \"6d2f3609e61e9dca1ba0c55ef9135c46\",\n  \"superseded_ids\": [\n    \"6d2f3609e61e9dca1ba0c55ef9135c46\"\n  ],\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog. 1 prior record(s) superseded.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved the correction: the \"focus month\" is now **February 2025** (2025-02-01 to 2025-02-28), linked to `memory.bench.orders`, and it automatically superseded the earlier June 2025 definition."
+    }
+  ]
+}

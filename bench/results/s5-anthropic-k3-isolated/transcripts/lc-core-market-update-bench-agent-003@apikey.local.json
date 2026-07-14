@@ -1,0 +1,110 @@
+{
+  "protocol_id": "lc-core-market",
+  "stage": "update",
+  "identity": "teacher",
+  "email": "bench-agent-003@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "Correction to the definition I gave you earlier. The 'core market' is now the East region, not North. Please update your saved knowledge so future answers use this corrected definition."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01UtSpMtgBWA859dEVsTK2Px",
+          "name": "search",
+          "args": {
+            "intent": "core market definition region"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01UtSpMtgBWA859dEVsTK2Px",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:bf4d585f-c91d-472c-98f9-3c93a71f8b20\"\n        },\n        {\n          \"text\": \"create-a-report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 0.839692307977983,\n          \"reference\": \"mcp:prompt:562bd59e-b866-4a71-a830-542ea3e17ed3\"\n        },\n        {\n          \"text\": \"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_apply_guidance\",\n          \"score\": 0.7475728941980713,\n          \"reference\": \"mcp:prompt:4e3c4a88-ee59-486b-af4d-5b314d67e5fa\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.6971035273343159,\n          \"reference\": \"mcp:prompt:6f42f663-66a9-4979-af44-3e527acb0be6\"\n        },\n        {\n          \"text\": \"save-this-as-an-asset\\nSave an artifact from this conversation as a viewable, shareable asset\",\n          \"source\": \"prompts\",\n          \"ref\": \"save-this-as-an-asset\",\n          \"score\": 0.6563423474565201,\n          \"reference\": \"mcp:prompt:0944ad80-76be-4ea7-9ce8-f8e64d237609\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/portal/knowledge/insights/search\\nSearch my knowledge insights\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/knowledge/insights/search\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/portal/search\\nUnified knowledge search\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/search\",\n          \"score\": 0.8801806798288493\n        },\n        {\n          \"text\": \"GET /api/v1/portal/collections/search\\nSearch my collections\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/search\",\n          \"score\": 0.81878709894102\n        },\n        {\n          \"text\": \"GET /api/v1/portal/assets/search\\nSearch my assets\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/assets/search\",\n          \"score\": 0.6535969064241718\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: The 'core market' refers to the North region. Wherever analysis is scoped to the 'core market', filter on region = 'North' (region column found in memory.bench.customers and memory.bench.daily_region_revenue). Apply this definition consistently in future sessions when 'core market' is mentioned.\",\n          \"source\": \"insights\",\n          \"ref\": \"e894944c8d33ad6102ecd4174662cdea\",\n          \"score\": 1,\n          \"status\": \"pending\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-003@apikey.local\",\n          \"reference\": \"mcp:insight:e894944c8d33ad6102ecd4174662cdea\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01GcB5M8tyrEUCze4spNw89C",
+          "name": "search",
+          "args": {
+            "intent": "core market region definition",
+            "sources": [
+              "knowledge_pages",
+              "memory"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01GcB5M8tyrEUCze4spNw89C",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01Veu3d8q2Hkm7bQCEXaXWwr",
+          "name": "memory_capture",
+          "args": {
+            "category": "correction",
+            "confidence": "high",
+            "content": "Correction: The 'core market' now refers to the East region (previously North). Wherever analysis is scoped to the 'core market', filter on region = 'East' (region column found in memory.bench.customers and memory.bench.daily_region_revenue). Apply this corrected definition consistently in future sessions when 'core market' is mentioned; supersedes the earlier North-region definition.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)",
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)"
+            ],
+            "source": "user",
+            "type": "business_knowledge"
+          }
+        },
+        {
+          "id": "toolu_01NVQhsTuGbV2y5eLZFVbQLV",
+          "name": "apply_knowledge",
+          "args": {
+            "action": "reject",
+            "insight_ids": [
+              "e894944c8d33ad6102ecd4174662cdea"
+            ],
+            "review_notes": "Superseded: core market redefined from North to East region per user correction."
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01Veu3d8q2Hkm7bQCEXaXWwr",
+          "text": "{\n  \"id\": \"b7ea88fbc0aa59b006622791dfe98eaa\",\n  \"sink_class\": \"business_knowledge\",\n  \"status\": \"active\",\n  \"superseded\": \"e894944c8d33ad6102ecd4174662cdea\",\n  \"superseded_ids\": [\n    \"e894944c8d33ad6102ecd4174662cdea\"\n  ],\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog. 1 prior record(s) superseded.\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01NVQhsTuGbV2y5eLZFVbQLV",
+          "text": "{\n  \"action\": \"reject\",\n  \"errors\": [\n    \"e894944c8d33ad6102ecd4174662cdea: invalid status transition from \\\"superseded\\\" to \\\"rejected\\\"\"\n  ],\n  \"total\": 1,\n  \"updated\": 0\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: the corrected knowledge that \"core market\" = East region (region column in `memory.bench.customers` and `memory.bench.daily_region_revenue`) has been captured as business knowledge and automatically superseded the prior North-region insight, so future sessions will use the East definition."
+    }
+  ]
+}
