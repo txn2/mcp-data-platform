@@ -9,6 +9,7 @@ import (
 
 	"github.com/txn2/mcp-data-platform/bench/internal/lifecycleapi"
 	"github.com/txn2/mcp-data-platform/bench/internal/mcpc"
+	"github.com/txn2/mcp-data-platform/bench/internal/promote"
 	"github.com/txn2/mcp-data-platform/bench/internal/protocol"
 )
 
@@ -17,136 +18,28 @@ import (
 // the loop covers request-scheduling slack only.
 const insightPollInterval = 250 * time.Millisecond
 
-// insightSuperseded is the insight status a clean recall-first supersede leaves
-// on the prior insight (mirrors knowledge.StatusSuperseded).
-const insightSuperseded = "superseded"
-
-// insightPending is the status a freshly captured, unreviewed insight carries;
-// capture verification looks for it so a prior run's applied/superseded insights
-// on the same entity are not mistaken for this episode's capture.
-const insightPending = "pending"
-
-// waitForInsight polls the insights API until a pending insight captured by the
-// given identity and anchored to the entity appears, returning the newest, or nil
-// when none lands within the audit timeout (a missed capture, not a harness
-// error). The pending filter scopes the read to this episode's fresh capture:
-// insights an earlier run left on the same entity under a reused pool identity
-// have since moved to applied or superseded and are skipped.
+// waitForInsight polls for a pending insight captured by the identity and
+// anchored to the entity, using the shared promote path (see promote.WaitForInsight).
 func (e *runEnv) waitForInsight(ctx context.Context, email, urn string) (*lifecycleapi.Insight, error) {
-	deadline := time.Now().Add(e.opts.AuditTimeout)
-	for {
-		insights, err := e.life.ListInsights(ctx, lifecycleapi.InsightFilter{CapturedBy: email, EntityURN: urn, Status: insightPending})
-		if err != nil {
-			return nil, err
-		}
-		if newest := newestInsight(insights); newest != nil {
-			return newest, nil
-		}
-		if time.Now().After(deadline) {
-			return nil, nil //nolint:nilnil // no insight is a graded miss, not an error
-		}
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(insightPollInterval):
-		}
-	}
+	return promote.WaitForInsight(ctx, e.life, email, urn, e.opts.AuditTimeout, insightPollInterval)
 }
 
-// newestInsight returns the most recently created insight, or nil for an empty
-// slice.
-func newestInsight(insights []lifecycleapi.Insight) *lifecycleapi.Insight {
-	var newest *lifecycleapi.Insight
-	for i := range insights {
-		if newest == nil || insights[i].CreatedAt.After(newest.CreatedAt) {
-			newest = &insights[i]
-		}
-	}
-	return newest
-}
-
-// promote plays the reviewer: it approves the insight (pending -> approved) and
-// applies it via apply_knowledge to the protocol's sink, then verifies through
-// the knowledge API that the insight is applied and a live changeset links it.
-// A transport-level failure is a harness error (returned); an apply the platform
-// refuses, or a promotion the API cannot confirm, is a measured miss (false).
-func (e *runEnv) promote(ctx context.Context, p protocol.Protocol, insightID string) (bool, error) {
-	if err := e.life.Approve(ctx, insightID, "bench lifecycle promote"); err != nil {
-		return false, fmt.Errorf("approve insight: %w", err)
-	}
+// promoteInsight plays the reviewer: it approves the insight and applies it to
+// the protocol's sink over the cached admin session, then verifies through the
+// knowledge API (see promote.Reviewer.Apply). A transport-level failure is a
+// harness error; an apply the platform refuses is a measured miss (false).
+func (e *runEnv) promoteInsight(ctx context.Context, p protocol.Protocol, insightID string) (bool, error) {
 	session, handle, err := e.adminSession(ctx)
 	if err != nil {
 		return false, err
 	}
-	r := mcpc.Call(ctx, session, applyToolName, applyArgs(p, insightID), handle)
-	if r.TransportErr != nil {
-		return false, fmt.Errorf("apply transport: %w", r.TransportErr)
-	}
-	if r.ToolErr {
-		e.log.Warn("apply_knowledge returned an error", "protocol", p.ID, "text", r.Text)
-		return false, nil
-	}
-	return e.verifyPromotion(ctx, p, insightID)
+	return e.reviewer.Apply(ctx, session, handle, promoteTarget(p), insightID)
 }
 
-// verifyPromotion confirms the insight is applied and a non-rolled-back
-// changeset lists it as a source. It reads the linkage from the insight's
-// changeset_ref (set by MarkApplied) and falls back to listing the entity's
-// changesets when the ref is absent.
-func (e *runEnv) verifyPromotion(ctx context.Context, p protocol.Protocol, insightID string) (bool, error) {
-	in, err := e.life.GetInsight(ctx, insightID)
-	if err != nil {
-		return false, fmt.Errorf("get insight after apply: %w", err)
-	}
-	if in.Status != "applied" {
-		return false, nil
-	}
-	if in.ChangesetRef != "" {
-		cs, err := e.life.GetChangeset(ctx, in.ChangesetRef)
-		if err != nil {
-			return false, fmt.Errorf("get changeset %s: %w", in.ChangesetRef, err)
-		}
-		return !cs.RolledBack && cs.Sourced(insightID), nil
-	}
-	// Fallback: the datahub sink targets the entity URN, so its changeset is
-	// listable by entity. (The changeset_ref path above covers both sinks; this
-	// only guards a ref the adapter left unset.)
-	changesets, err := e.life.ListChangesets(ctx, lifecycleapi.ChangesetFilter{EntityURN: p.EntityURN})
-	if err != nil {
-		return false, fmt.Errorf("list changesets: %w", err)
-	}
-	for _, cs := range changesets {
-		if !cs.RolledBack && cs.Sourced(insightID) {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-// applyArgs builds the apply_knowledge arguments for the protocol's sink.
-func applyArgs(p protocol.Protocol, insightID string) map[string]any {
-	args := map[string]any{
-		"action":      "apply",
-		"entity_urn":  p.EntityURN,
-		"insight_ids": []string{insightID},
-		"confirm":     true,
-	}
-	if p.Sink == protocol.SinkKnowledgePage {
-		args["sink"] = "knowledge_page"
-		args["page"] = map[string]any{
-			"slug":  p.Page.Slug,
-			"title": p.Page.Title,
-			"body":  p.Page.Body,
-		}
-		return args
-	}
-	args["sink"] = "datahub"
-	args["changes"] = []map[string]any{{
-		"change_type": "update_description",
-		"target":      "",
-		"detail":      p.Fact,
-	}}
-	return args
+// promoteTarget maps a protocol onto the shared promotion target. The approve
+// note is the fixed string the pre-extraction lifecycle path always recorded.
+func promoteTarget(p protocol.Protocol) promote.Target {
+	return promote.Target{Label: p.ID, EntityURN: p.EntityURN, Sink: p.Sink, Fact: p.Fact, Page: p.Page, Notes: "bench lifecycle promote"}
 }
 
 // adminSession lazily builds and caches the reviewer MCP session (base admin

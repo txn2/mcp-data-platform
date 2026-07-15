@@ -172,4 +172,17 @@ func TestSummarize(t *testing.T) {
 	if m != want {
 		t.Errorf("Summarize = %+v, want %+v", m, want)
 	}
+	if got := m.EnrichmentCoverage(); got != 2.0/3.0 {
+		t.Errorf("EnrichmentCoverage = %v, want %v", got, 2.0/3.0)
+	}
+}
+
+func TestEnrichmentCoverageEmpty(t *testing.T) {
+	if got := (Metrics{}).EnrichmentCoverage(); got != 0 {
+		t.Errorf("coverage of no calls = %v, want 0", got)
+	}
+	// All calls enriched -> full coverage.
+	if got := (Metrics{AuditedCalls: 4, EnrichedCalls: 4}).EnrichmentCoverage(); got != 1 {
+		t.Errorf("coverage = %v, want 1", got)
+	}
 }

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/txn2/mcp-data-platform/bench/internal/claudecli"
+	"github.com/txn2/mcp-data-platform/bench/internal/coldstart"
 	"github.com/txn2/mcp-data-platform/bench/internal/judge"
 	"github.com/txn2/mcp-data-platform/bench/internal/lifecycle"
 	"github.com/txn2/mcp-data-platform/bench/internal/llm"
@@ -54,6 +55,8 @@ type config struct {
 	protocolsDir  string
 	baseline      string
 	merge         string
+	coldStart     bool
+	curriculumDir string
 }
 
 func main() {
@@ -95,6 +98,8 @@ func parseFlags() config {
 	flag.StringVar(&cfg.protocolsDir, "protocols", "protocols", "protocol YAML directory (with -lifecycle)")
 	flag.StringVar(&cfg.baseline, "baseline", "", "committed baseline results JSON: after the run, gate on per-suite regression and exit nonzero if the candidate falls below it")
 	flag.StringVar(&cfg.merge, "merge", "", "comma-separated per-pass lifecycle result JSONs (with -lifecycle): merge independent k=1 passes into one k=N result and exit")
+	flag.BoolVar(&cfg.coldStart, "cold-start", false, "run the cold-start knowledge-growth curriculum (issue #963) instead of the task suites")
+	flag.StringVar(&cfg.curriculumDir, "curriculum", "curriculum", "curriculum YAML directory (with -cold-start)")
 	flag.Parse()
 	return cfg
 }
@@ -104,6 +109,9 @@ func parseFlags() config {
 func run(cfg config) error {
 	if handled, err := runReadOnly(cfg); handled {
 		return err
+	}
+	if cfg.coldStart {
+		return runColdStart(cfg)
 	}
 	if cfg.lifecycle {
 		return runLifecycle(cfg)
@@ -116,20 +124,8 @@ func run(cfg config) error {
 // live benchmark run.
 func runReadOnly(cfg config) (bool, error) {
 	switch {
-	case cfg.summarize != "" && cfg.lifecycle:
-		res, err := lifecycle.LoadJSON(cfg.summarize)
-		if err != nil {
-			return true, err
-		}
-		fmt.Print(res.HumanSummary())
-		return true, nil
 	case cfg.summarize != "":
-		res, err := report.LoadJSON(cfg.summarize)
-		if err != nil {
-			return true, err
-		}
-		fmt.Print(res.HumanSummary())
-		return true, nil
+		return true, runSummarize(cfg)
 	case cfg.merge != "":
 		// -merge only makes sense for lifecycle results; refuse rather than fall
 		// through to a live (paid) benchmark run when -lifecycle is forgotten.
@@ -143,6 +139,32 @@ func runReadOnly(cfg config) (bool, error) {
 		return true, runCalibrate(cfg)
 	}
 	return false, nil
+}
+
+// runSummarize prints the human summary of an existing results JSON, choosing
+// the result shape from the run-mode flags.
+func runSummarize(cfg config) error {
+	switch {
+	case cfg.coldStart:
+		res, err := coldstart.LoadJSON(cfg.summarize)
+		if err != nil {
+			return err
+		}
+		fmt.Print(res.HumanSummary())
+	case cfg.lifecycle:
+		res, err := lifecycle.LoadJSON(cfg.summarize)
+		if err != nil {
+			return err
+		}
+		fmt.Print(res.HumanSummary())
+	default:
+		res, err := report.LoadJSON(cfg.summarize)
+		if err != nil {
+			return err
+		}
+		fmt.Print(res.HumanSummary())
+	}
+	return nil
 }
 
 // runLifecycle executes the S5 lifecycle protocols and writes outputs. Like the
@@ -202,9 +224,99 @@ func runLifecycle(cfg config) error {
 	return runErr
 }
 
+// runColdStart executes the cold-start knowledge-growth curriculum and writes
+// outputs. Like the other runs, the results JSON is flushed per checkpoint so an
+// interruption never discards paid-for work. The -baseline gate scores the
+// S1-S3 report shape, so it is refused here (cold-start produces a curve, not
+// per-suite accuracy).
+func runColdStart(cfg config) error {
+	if cfg.arm == "" {
+		return errors.New("-arm is required")
+	}
+	if cfg.baseline != "" {
+		return errors.New("-baseline is not supported with -cold-start (the regression gate scores S1-S3 task suites, not the learning curve)")
+	}
+	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	opts := coldstart.Options{
+		Target:        target.Target{BaseURL: cfg.url, Credential: cfg.credential},
+		HTTPTimeout:   cfg.httpTimeout,
+		Arm:           cfg.arm,
+		K:             cfg.k,
+		CurriculumDir: cfg.curriculumDir,
+		TasksDir:      cfg.tasksDir,
+		TranscriptDir: transcriptDir(cfg.out),
+		LLMProvider:   cfg.llmProvider,
+		GitCommit:     cfg.gitCommit,
+		AuditTimeout:  cfg.auditTimeout,
+		IdentityKeys:  cfg.identityKeys,
+		OnCheckpoint: func(r *coldstart.Results) {
+			if err := r.WriteJSON(cfg.out); err != nil {
+				log.Warn("checkpoint write", "error", err)
+			}
+		},
+		Log: log,
+	}
+	if cfg.llmProvider == claudeCLIProvider {
+		runner, version, err := buildClaudeRunner(cfg)
+		if err != nil {
+			return err
+		}
+		opts.ClaudeCLI, opts.ClientVersion = runner, version
+	} else {
+		factory, err := buildColdStartFactory(cfg)
+		if err != nil {
+			return err
+		}
+		opts.Factory = factory
+	}
+	res, runErr := coldstart.Run(context.Background(), opts)
+	if res != nil {
+		if err := writeAndSummarize(res, cfg.out); err != nil {
+			return err
+		}
+	}
+	return runErr
+}
+
+// buildColdStartFactory constructs the per-episode adapter factory: a shared
+// stateless model adapter, or a fresh scripted adapter per episode keyed by unit
+// (lesson or task id) and stage. The scripted map has the same shape as the
+// lifecycle smoke (unit -> stage -> steps), so it reuses the same loader.
+func buildColdStartFactory(cfg config) (coldstart.AdapterFactory, error) {
+	switch cfg.llmProvider {
+	case "anthropic":
+		adapter, err := llm.NewAnthropic(cfg.model, cfg.maxTokens, cfg.llmTimeout)
+		if err != nil {
+			return nil, err
+		}
+		return func(string, string) (llm.Adapter, error) { return adapter, nil }, nil
+	case "scripted":
+		if cfg.script == "" {
+			return nil, errors.New("-script is required for -llm scripted")
+		}
+		script, err := llm.LoadLifecycleScript(cfg.script)
+		if err != nil {
+			return nil, err
+		}
+		return func(unitID, stage string) (llm.Adapter, error) {
+			stages, ok := script[unitID]
+			if !ok {
+				return nil, fmt.Errorf("cold-start script has no unit %s", unitID)
+			}
+			steps, ok := stages[stage]
+			if !ok {
+				return nil, fmt.Errorf("cold-start script has no %s/%s stage", unitID, stage)
+			}
+			return llm.NewScripted(steps), nil
+		}, nil
+	default:
+		return nil, fmt.Errorf("unknown -llm provider %q", cfg.llmProvider)
+	}
+}
+
 // summarizable is any run result that can persist itself and render a summary,
-// satisfied by both report.Results (S1-S3) and lifecycle.Results (S5), so the
-// two run paths share one write-and-print block.
+// satisfied by report.Results (S1-S3), lifecycle.Results (S5), and
+// coldstart.Results (#963), so the run paths share one write-and-print block.
 type summarizable interface {
 	WriteJSON(path string) error
 	HumanSummary() string

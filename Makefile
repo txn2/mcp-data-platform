@@ -822,7 +822,7 @@ BENCH_COMPOSE := DOCKER_DEFAULT_PLATFORM= docker compose -f docker-compose.e2e.y
 
 ## bench-gen: Regenerate seed artifacts, the task set, and the S5 protocols from the fixed seed
 bench-gen:
-	@cd bench && $(GO) run ./seedgen -seed-dir seed -tasks-dir tasks -protocols-dir protocols
+	@cd bench && $(GO) run ./seedgen -seed-dir seed -tasks-dir tasks -protocols-dir protocols -curriculum-dir curriculum
 
 ## bench-up: Start the compose stack, seed the bench warehouse, and run the platform (BENCH_ARM=a0|a1|a2|a3)
 bench-up: e2e-up
@@ -856,9 +856,13 @@ bench-up: e2e-up
 	if ! kill -0 $$(cat $(BENCH_PID)) 2>/dev/null; then \
 		echo "ERROR: bench platform exited after start (another server answered readiness?); see $(BENCH_LOG)"; \
 		tail -20 $(BENCH_LOG); exit 1; fi
-	@echo "Seeding knowledge pages (requires platform migrations, just applied on boot)..."
-	@$(BENCH_COMPOSE) exec -T postgres psql -q -U platform -d mcp_platform -v ON_ERROR_STOP=1 \
-		< bench/seed/postgres/knowledge_pages.sql
+	@if [ "$(BENCH_SEED_PAGES)" = "0" ]; then \
+		echo "Skipping knowledge-page seeding (BENCH_SEED_PAGES=0, cold-start empty baseline)."; \
+	else \
+		echo "Seeding knowledge pages (requires platform migrations, just applied on boot)..."; \
+		$(BENCH_COMPOSE) exec -T postgres psql -q -U platform -d mcp_platform -v ON_ERROR_STOP=1 \
+			< bench/seed/postgres/knowledge_pages.sql; \
+	fi
 	@echo "Platform ready (pid $$(cat $(BENCH_PID)), arm $(BENCH_ARM))."
 
 ## bench-seed-datahub: Push bench metadata into a running DataHub quickstart (a2 arm)
@@ -868,6 +872,13 @@ bench-seed-datahub:
 	@mkdir -p $(BUILD_DIR)
 	@printf 'source:\n  type: file\n  config:\n    path: %s/bench/seed/datahub/bench_mces.json\nsink:\n  type: datahub-rest\n  config:\n    server: %s\n' "$$(pwd)" "$(BENCH_DATAHUB_GMS)" > $(BUILD_DIR)/bench-datahub-recipe.yml
 	datahub ingest -c $(BUILD_DIR)/bench-datahub-recipe.yml
+
+## bench-seed-datahub-empty: Push the cold-start empty baseline into DataHub (entities present, undocumented; issue #963)
+bench-seed-datahub-empty:
+	@command -v datahub >/dev/null 2>&1 || { echo "ERROR: datahub CLI not found (pip install acryl-datahub)"; exit 1; }
+	@mkdir -p $(BUILD_DIR)
+	@printf 'source:\n  type: file\n  config:\n    path: %s/bench/seed/datahub/bench_mces_empty.json\nsink:\n  type: datahub-rest\n  config:\n    server: %s\n' "$$(pwd)" "$(BENCH_DATAHUB_GMS)" > $(BUILD_DIR)/bench-datahub-empty-recipe.yml
+	datahub ingest -c $(BUILD_DIR)/bench-datahub-empty-recipe.yml
 
 ## bench-run: Run the benchmark (ARM must match bench-up; LLM=anthropic|scripted|claude-cli, SUITE=, K=, MODEL=)
 bench-run:
@@ -922,6 +933,37 @@ bench-lifecycle-smoke:
 bench-lifecycle-report:
 	@cd bench && $(GO) build -o ../$(BUILD_DIR)/benchrun ./benchrun
 	$(BUILD_DIR)/benchrun -lifecycle -summarize build/bench-results/lifecycle-a3.json
+
+## bench-cold-start: Run the cold-start knowledge-growth curriculum (issue #963; needs an empty-seeded a3: bench-up BENCH_ARM=a3 BENCH_SEED_PAGES=0 + bench-seed-datahub-empty; LLM=anthropic|scripted|claude-cli, K=, MODEL=)
+bench-cold-start:
+	@mkdir -p build/bench-results
+	@cd bench && $(GO) build -o ../$(BUILD_DIR)/benchrun ./benchrun
+	@echo "Resetting cold-start state so the baseline is truly empty (search gate, prior insights/changesets, and any promoted knowledge pages persist in Postgres across runs)..."
+	@echo "  (CASCADE also clears portal_threads, which FK-references knowledge pages; the bench stack is disposable scratch state.)"
+	@$(BENCH_COMPOSE) exec -T postgres psql -q -U platform -d mcp_platform -v ON_ERROR_STOP=1 \
+		-c "TRUNCATE search_gate_discovery, memory_records, knowledge_changesets, portal_knowledge_pages CASCADE"
+	$(BUILD_DIR)/benchrun \
+		-cold-start \
+		-arm a3 \
+		-url $(BENCH_URL) \
+		-credential $(BENCH_KEY) \
+		-curriculum bench/curriculum \
+		-tasks bench/tasks \
+		-git-commit $$(git rev-parse HEAD) \
+		-out build/bench-results/cold-start-a3.json \
+		$(if $(LLM),-llm $(LLM),) \
+		$(if $(SCRIPT),-script $(SCRIPT),) \
+		$(if $(K),-k $(K),) \
+		$(if $(MODEL),-model $(MODEL),)
+
+## bench-cold-start-smoke: Run the scripted (no-API-key) cold-start smoke against the running a3 platform
+bench-cold-start-smoke:
+	@$(MAKE) bench-cold-start LLM=scripted SCRIPT=bench/curriculum/scripted-cold-start-smoke.json K=1
+
+## bench-cold-start-report: Print the human summary (learning curve) of the last cold-start run
+bench-cold-start-report:
+	@cd bench && $(GO) build -o ../$(BUILD_DIR)/benchrun ./benchrun
+	$(BUILD_DIR)/benchrun -cold-start -summarize build/bench-results/cold-start-a3.json
 
 ## bench-report: Print the human summary of the last run for BENCH_ARM
 bench-report:

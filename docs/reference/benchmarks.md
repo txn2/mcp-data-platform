@@ -543,3 +543,18 @@ figure.
 | 2026-07-14 | Memory (S5, shared-store) | a3 | claude-sonnet-5 | 15 protocols × 3 | [`bench/results/s5-anthropic-k3/`](https://github.com/txn2/mcp-data-platform/tree/main/bench/results/s5-anthropic-k3/) |
 | 2026-07-14 | Memory (S5, isolated run 1) | a3 | claude-sonnet-5 | 15 protocols × 3 passes | [`bench/results/s5-anthropic-k3-isolated/`](https://github.com/txn2/mcp-data-platform/tree/main/bench/results/s5-anthropic-k3-isolated/) |
 | 2026-07-14 | Memory (S5, isolated run 2) | a3 | claude-sonnet-5 | 15 protocols × 3 passes | [`bench/results/s5-anthropic-k3-isolated-v2/`](https://github.com/txn2/mcp-data-platform/tree/main/bench/results/s5-anthropic-k3-isolated-v2/) |
+
+### Cold-start knowledge growth (upcoming)
+
+A cold-start knowledge-growth suite (`make bench-cold-start`, issue #963) is
+implemented and runnable but not yet published here: it starts the `a3` arm from
+an empty enrichment layer (undocumented DataHub, no knowledge pages) and teaches
+a six-lesson curriculum — one fact per S3 trap class, promoted to the same
+DataHub descriptions and knowledge pages the A2 seed pre-loads — re-running the
+fixed S3 trap suite with a fresh, never-taught evaluator identity after each
+promotion. The result is a learning curve of accuracy, per-trap-class trap
+resistance, and enrichment coverage as promoted knowledge accumulates toward the
+A2 ceiling, directly exercising the coupling between the two halves above (the
+lifecycle populates the sinks the surfacing layer delivers from). Its learning
+curve will be added to this page once a real model run completes; the loop
+itself is validated with no API key by `make bench-cold-start-smoke`.

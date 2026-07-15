@@ -1,0 +1,590 @@
+{
+  "cs-deprecated-table": {
+    "teach": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "memory_capture",
+            "args": {
+              "category": "business_context",
+              "content": "DEPRECATED order extract from the retired ingestion pipeline. Partial coverage, totals in dollars. Use memory.bench.orders for all order analysis.",
+              "entity_urns": [
+                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)"
+              ],
+              "type": "schema_entity"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "saved the definition"
+      }
+    ]
+  },
+  "cs-fiscal-calendar": {
+    "teach": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "memory_capture",
+            "args": {
+              "category": "business_context",
+              "content": "The company fiscal year runs February 1 through January 31: fiscal year 2025 is 2025-02-01 through 2026-01-31. Fiscal figures must not be computed over the January-December calendar year.",
+              "entity_urns": [
+                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+              ],
+              "type": "schema_entity"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "saved the definition"
+      }
+    ]
+  },
+  "cs-freshness-cutoff": {
+    "teach": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "memory_capture",
+            "args": {
+              "category": "business_context",
+              "content": "Pre-aggregated daily revenue by region, derived from completed orders. Values are GROSS of discounts (USD), so this index must not be used for policy net-revenue figures; use memory.bench.orders per the Revenue Reporting Policy. FRESHNESS: this index is refreshed only through 2025-11-30; it has NO rows for dates after that cutoff, so any question about a period on or after 2025-12-01 must be answered from memory.bench.orders directly, not this index.",
+              "entity_urns": [
+                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)"
+              ],
+              "type": "schema_entity"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "saved the definition"
+      }
+    ]
+  },
+  "cs-net-revenue": {
+    "teach": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "memory_capture",
+            "args": {
+              "category": "business_context",
+              "content": "Company revenue reporting policy: revenue = amount - discount, over COMPLETED orders only (refunded and pending orders excluded). Amounts are in US cents. A gross figure that ignores discounts or includes non-completed orders is not policy revenue.",
+              "entity_urns": [
+                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+              ],
+              "type": "schema_entity"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "saved the definition"
+      }
+    ]
+  },
+  "cs-tier-boundary": {
+    "teach": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "memory_capture",
+            "args": {
+              "category": "business_context",
+              "content": "A 'key account' is any customer on the plus OR enterprise tier — a derived segment broader than the enterprise tier alone and not stored in any column. Counting only enterprise customers undercounts key accounts.",
+              "entity_urns": [
+                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+              ],
+              "type": "schema_entity"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "saved the definition"
+      }
+    ]
+  },
+  "cs-units-cents": {
+    "teach": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "memory_capture",
+            "args": {
+              "category": "business_context",
+              "content": "In memory.bench.orders the monetary columns amount and discount are stored as INTEGERS IN US CENTS, not dollars; divide by 100 to get USD. Any total computed without dividing by 100 is off by a factor of 100.",
+              "entity_urns": [
+                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+              ],
+              "type": "schema_entity"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "saved the definition"
+      }
+    ]
+  },
+  "s3-deprecated-completed-usd": {
+    "eval": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 1430603.83"
+      }
+    ]
+  },
+  "s3-deprecated-order-count": {
+    "eval": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 1200.00"
+      }
+    ]
+  },
+  "s3-fiscal-2025-count": {
+    "eval": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 873.00"
+      }
+    ]
+  },
+  "s3-fiscal-2025-east": {
+    "eval": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 245825.11"
+      }
+    ]
+  },
+  "s3-fiscal-2025-net": {
+    "eval": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 1187140.04"
+      }
+    ]
+  },
+  "s3-fiscal-q1-net": {
+    "eval": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 317090.52"
+      }
+    ]
+  },
+  "s3-fiscal-q4-net": {
+    "eval": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 238592.95"
+      }
+    ]
+  },
+  "s3-fresh-dec-gross": {
+    "eval": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 133777.39"
+      }
+    ]
+  },
+  "s3-fresh-fullyear-gross": {
+    "eval": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 1430603.83"
+      }
+    ]
+  },
+  "s3-fresh-novdec-gross": {
+    "eval": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 266073.26"
+      }
+    ]
+  },
+  "s3-fresh-q4-gross": {
+    "eval": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 403518.09"
+      }
+    ]
+  },
+  "s3-net-east-2025": {
+    "eval": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 257733.53"
+      }
+    ]
+  },
+  "s3-net-east-march": {
+    "eval": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 38952.32"
+      }
+    ]
+  },
+  "s3-net-top-region": {
+    "eval": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: West"
+      }
+    ]
+  },
+  "s3-net-total-2025": {
+    "eval": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 1286561.19"
+      }
+    ]
+  },
+  "s3-net-west-2025": {
+    "eval": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 466889.38"
+      }
+    ]
+  },
+  "s3-tier-key-avg": {
+    "eval": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 1515.59"
+      }
+    ]
+  },
+  "s3-tier-key-completed": {
+    "eval": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 527.00"
+      }
+    ]
+  },
+  "s3-tier-key-count": {
+    "eval": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 43.00"
+      }
+    ]
+  },
+  "s3-tier-key-east": {
+    "eval": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 9.00"
+      }
+    ]
+  },
+  "s3-tier-key-orders": {
+    "eval": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 648.00"
+      }
+    ]
+  },
+  "s3-units-avg-enterprise": {
+    "eval": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 1614.57"
+      }
+    ]
+  },
+  "s3-units-completed-gross": {
+    "eval": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 1430603.83"
+      }
+    ]
+  },
+  "s3-units-q1-total": {
+    "eval": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 446819.28"
+      }
+    ]
+  },
+  "s3-units-total-all": {
+    "eval": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 1839443.21"
+      }
+    ]
+  }
+}

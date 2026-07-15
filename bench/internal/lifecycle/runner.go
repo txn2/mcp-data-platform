@@ -20,13 +20,10 @@ import (
 	"github.com/txn2/mcp-data-platform/bench/internal/llm"
 	"github.com/txn2/mcp-data-platform/bench/internal/mcpc"
 	"github.com/txn2/mcp-data-platform/bench/internal/pool"
+	"github.com/txn2/mcp-data-platform/bench/internal/promote"
 	"github.com/txn2/mcp-data-platform/bench/internal/protocol"
 	"github.com/txn2/mcp-data-platform/bench/internal/target"
 )
-
-// applyToolName is the reviewer-side promotion tool the harness drives (the
-// promote stage is scripted, not agent-driven).
-const applyToolName = "apply_knowledge"
 
 // identitiesPerRun is the number of distinct pool identities each protocol
 // attempt consumes: one teacher (teach, recall, update, abstain) and one learner
@@ -100,11 +97,13 @@ func Run(ctx context.Context, opts Options) (*Results, error) {
 		return nil, fmt.Errorf("%d identities needed (%d protocols x k=%d x %d) exceed the pool of %d; raise -identity-keys and the config pool",
 			need, len(protocols), opts.K, identitiesPerRun, opts.IdentityKeys)
 	}
+	life := lifecycleapi.New(opts.Target.BaseURL, opts.Target.HTTPClient(opts.HTTPTimeout))
 	env := &runEnv{
-		opts:  opts,
-		log:   opts.Log,
-		audit: auditapi.New(opts.Target.BaseURL, opts.Target.HTTPClient(opts.HTTPTimeout)),
-		life:  lifecycleapi.New(opts.Target.BaseURL, opts.Target.HTTPClient(opts.HTTPTimeout)),
+		opts:     opts,
+		log:      opts.Log,
+		audit:    auditapi.New(opts.Target.BaseURL, opts.Target.HTTPClient(opts.HTTPTimeout)),
+		life:     life,
+		reviewer: promote.Reviewer{Life: life, Log: opts.Log},
 	}
 	defer env.closeAdmin()
 
@@ -153,10 +152,11 @@ func (e *runEnv) checkpoint(res *Results) {
 
 // runEnv holds per-run clients and mutable manifest carry-overs.
 type runEnv struct {
-	opts  Options
-	log   *slog.Logger
-	audit *auditapi.Client
-	life  *lifecycleapi.Client
+	opts     Options
+	log      *slog.Logger
+	audit    *auditapi.Client
+	life     *lifecycleapi.Client
+	reviewer promote.Reviewer
 
 	// adminMCP is the lazily-built reviewer session that drives apply_knowledge
 	// (base admin credential, no identity rotation), shared across promotes, with
@@ -255,7 +255,7 @@ func (e *runEnv) teachAndRecall(ctx context.Context, p protocol.Protocol, teache
 // promoteAndTransfer approves and applies the insight, then runs the
 // cross-identity transfer episode. Returns true on a harness abort.
 func (e *runEnv) promoteAndTransfer(ctx context.Context, p protocol.Protocol, learnerSeq int, run *ProtocolRun) bool {
-	promoted, err := e.promote(ctx, p, run.InsightID)
+	promoted, err := e.promoteInsight(ctx, p, run.InsightID)
 	if err != nil {
 		run.Error = "promote: " + err.Error()
 		return true
@@ -325,7 +325,7 @@ func (e *runEnv) duplicated(ctx context.Context, teachInsightID string) (bool, e
 	if err != nil {
 		return false, err
 	}
-	return in.Status != insightSuperseded, nil
+	return in.Status != promote.StatusSuperseded, nil
 }
 
 // gradeUpdate scores the post-update recall: correct only when it matches the
