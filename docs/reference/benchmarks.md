@@ -159,7 +159,7 @@ Manifest:
 | Semantic layer | DataHub quickstart on OpenSearch |
 | Attempts | 261 per arm (all graded; zero harness failures) |
 | Efficiency source | platform audit API, `delivery: sync` |
-| Raw results | `bench/results/phase2-anthropic-k3/` |
+| Raw results | [`bench/results/phase2-anthropic-k3/`](https://github.com/txn2/mcp-data-platform/tree/main/bench/results/phase2-anthropic-k3/) |
 
 ### Accuracy by suite
 
@@ -297,7 +297,7 @@ admin insights + changesets API, never inferred from a transcript):
 | Regime | 45 attempts, one shared store (k-repeats coupled) | 3 independent k = 1 passes merged to k = 3 | 3 independent k = 1 passes merged to k = 3 |
 | Platform build | v1.102.0-9-gadfb9d90-dirty | v1.102.0-10-g32d61254-dirty | v1.102.0-10-g32d61254-dirty |
 | Transcripts | complete | passes 2–3 lost to a harness bug (metrics complete; see Limitations) | complete (all 3 passes) |
-| Raw results | `bench/results/s5-anthropic-k3/` | `bench/results/s5-anthropic-k3-isolated/` | `bench/results/s5-anthropic-k3-isolated-v2/` |
+| Raw results | [`bench/results/s5-anthropic-k3/`](https://github.com/txn2/mcp-data-platform/tree/main/bench/results/s5-anthropic-k3/) | [`bench/results/s5-anthropic-k3-isolated/`](https://github.com/txn2/mcp-data-platform/tree/main/bench/results/s5-anthropic-k3-isolated/) | [`bench/results/s5-anthropic-k3-isolated-v2/`](https://github.com/txn2/mcp-data-platform/tree/main/bench/results/s5-anthropic-k3-isolated-v2/) |
 
 The isolated runs used a later development-build string than the shared-store run
 because they rebuilt the platform from the current tree; the platform code
@@ -537,9 +537,9 @@ figure.
 
 | Date | Suite | Arms | Model | Attempts | Raw results |
 | --- | --- | --- | --- | --- | --- |
-| 2026-07-13 | 1 (pilot) | a0, a2 | claude-sonnet-5 | 60 | `bench/results/v1.102.0-pilot/` |
-| 2026-07-13 | 3 (S5 pilot) | a3 | claude-sonnet-5 | 13 protocols | `bench/results/v1.102.0-s5-partial/` |
-| 2026-07-14 | Semantic (S1–S3) | a0, a1, a2, a3 | claude-sonnet-5 | 261/arm | `bench/results/phase2-anthropic-k3/` |
-| 2026-07-14 | Memory (S5, shared-store) | a3 | claude-sonnet-5 | 15 protocols × 3 | `bench/results/s5-anthropic-k3/` |
-| 2026-07-14 | Memory (S5, isolated run 1) | a3 | claude-sonnet-5 | 15 protocols × 3 passes | `bench/results/s5-anthropic-k3-isolated/` |
-| 2026-07-14 | Memory (S5, isolated run 2) | a3 | claude-sonnet-5 | 15 protocols × 3 passes | `bench/results/s5-anthropic-k3-isolated-v2/` |
+| 2026-07-13 | 1 (pilot) | a0, a2 | claude-sonnet-5 | 60 | [`bench/results/v1.102.0-pilot/`](https://github.com/txn2/mcp-data-platform/tree/main/bench/results/v1.102.0-pilot/) |
+| 2026-07-13 | 3 (S5 pilot) | a3 | claude-sonnet-5 | 13 protocols | [`bench/results/v1.102.0-s5-partial/`](https://github.com/txn2/mcp-data-platform/tree/main/bench/results/v1.102.0-s5-partial/) |
+| 2026-07-14 | Semantic (S1–S3) | a0, a1, a2, a3 | claude-sonnet-5 | 261/arm | [`bench/results/phase2-anthropic-k3/`](https://github.com/txn2/mcp-data-platform/tree/main/bench/results/phase2-anthropic-k3/) |
+| 2026-07-14 | Memory (S5, shared-store) | a3 | claude-sonnet-5 | 15 protocols × 3 | [`bench/results/s5-anthropic-k3/`](https://github.com/txn2/mcp-data-platform/tree/main/bench/results/s5-anthropic-k3/) |
+| 2026-07-14 | Memory (S5, isolated run 1) | a3 | claude-sonnet-5 | 15 protocols × 3 passes | [`bench/results/s5-anthropic-k3-isolated/`](https://github.com/txn2/mcp-data-platform/tree/main/bench/results/s5-anthropic-k3-isolated/) |
+| 2026-07-14 | Memory (S5, isolated run 2) | a3 | claude-sonnet-5 | 15 protocols × 3 passes | [`bench/results/s5-anthropic-k3-isolated-v2/`](https://github.com/txn2/mcp-data-platform/tree/main/bench/results/s5-anthropic-k3-isolated-v2/) |
