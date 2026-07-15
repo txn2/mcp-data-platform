@@ -94,10 +94,14 @@ type mcpServer struct {
 	Status string `json:"status"`
 }
 
-// usageRaw is the token-usage subset the report records.
+// usageRaw is the token-usage subset the report records. The cache fields are
+// present so a cached claude-cli run reports the same cost basis the anthropic
+// adapter does; Claude Code emits them on the terminal result event's usage.
 type usageRaw struct {
-	InputTokens  int64 `json:"input_tokens"`
-	OutputTokens int64 `json:"output_tokens"`
+	InputTokens              int64 `json:"input_tokens"`
+	OutputTokens             int64 `json:"output_tokens"`
+	CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
+	CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
 }
 
 // apiMessage is the Anthropic message envelope carried on assistant and user
@@ -318,7 +322,12 @@ func (p *parser) applyResult(ev streamLine) {
 		p.res.ClaudeSessionID = ev.SessionID
 	}
 	if ev.Usage != nil {
-		p.res.Usage = llm.Usage{InputTokens: ev.Usage.InputTokens, OutputTokens: ev.Usage.OutputTokens}
+		p.res.Usage = llm.Usage{
+			InputTokens:              ev.Usage.InputTokens,
+			OutputTokens:             ev.Usage.OutputTokens,
+			CacheReadInputTokens:     ev.Usage.CacheReadInputTokens,
+			CacheCreationInputTokens: ev.Usage.CacheCreationInputTokens,
+		}
 	}
 }
 

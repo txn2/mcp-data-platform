@@ -21,7 +21,7 @@ const sampleStream = `
 {"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t3","name":"mcp__bench__trino_query","input":{"sql":"SELECT bad"}}]}}
 {"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t3","is_error":true,"content":"syntax error"}]}}
 {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"FINAL ANSWER: 42"}]}}
-{"type":"result","subtype":"success","is_error":false,"result":"FINAL ANSWER: 42","session_id":"cc-1","num_turns":5,"usage":{"input_tokens":100,"output_tokens":20}}
+{"type":"result","subtype":"success","is_error":false,"result":"FINAL ANSWER: 42","session_id":"cc-1","num_turns":5,"usage":{"input_tokens":100,"output_tokens":20,"cache_read_input_tokens":900,"cache_creation_input_tokens":50}}
 `
 
 func TestParseFullEpisode(t *testing.T) {
@@ -60,6 +60,11 @@ func TestParseFullEpisode(t *testing.T) {
 	}
 	if res.Usage.InputTokens != 100 || res.Usage.OutputTokens != 20 {
 		t.Errorf("Usage = %+v", res.Usage)
+	}
+	// Cache tokens must be parsed so a cached claude-cli run reports the same cost
+	// basis as the anthropic adapter (not a silent zero).
+	if res.Usage.CacheReadInputTokens != 900 || res.Usage.CacheCreationInputTokens != 50 {
+		t.Errorf("cache usage = read %d write %d, want 900/50", res.Usage.CacheReadInputTokens, res.Usage.CacheCreationInputTokens)
 	}
 	// Transcript: seeded user prompt + assistant/user turns. First turn is the
 	// prompt; it must contain the tool-use and tool-result turns for review.

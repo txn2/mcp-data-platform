@@ -1,0 +1,117 @@
+{
+  "protocol_id": "lc-settlement-total",
+  "stage": "teach",
+  "identity": "teacher",
+  "email": "bench-agent-025@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. The 'settlement total' is the gross revenue (sum of amount over completed orders) for calendar quarter 4 of 2025 (October through December). Please save this definition to memory now and link it to the dataset it concerns."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01YSwWCHbRvdrkHZnJwFe7qn",
+          "name": "search",
+          "args": {
+            "intent": "orders table gross revenue amount completed orders"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01YSwWCHbRvdrkHZnJwFe7qn",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/portal/collections/{id}/signoff\\nCollection sign-off summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/{id}/signoff\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/admin/api-catalogs/{id}/embedding-status\\nList catalog embedding statuses\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/api-catalogs/{id}/embedding-status\",\n          \"score\": 0.7968852769823381\n        },\n        {\n          \"text\": \"GET /api/v1/portal/assets/{id}/signoff\\nAsset sign-off summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/assets/{id}/signoff\",\n          \"score\": 0.6401173825328039\n        },\n        {\n          \"text\": \"GET /api/v1/admin/audit/stats\\nGet audit stats\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/stats\",\n          \"score\": 0.6018409809916134\n        },\n        {\n          \"text\": \"GET /api/v1/admin/audit/metrics/breakdown\\nGet audit breakdown\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/metrics/breakdown\",\n          \"score\": 0.5858314553590536\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        },\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 0.6480773699656578,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Primary Region Definition\\nThe primary region is the region with the highest net revenue over completed orders.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_4a55cebe-9343-44cf-a27e-659f8bf401e4\",\n          \"score\": 0.6374120017660717,\n          \"reference\": \"mcp:knowledge_page:kp_4a55cebe-9343-44cf-a27e-659f8bf401e4\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"create-a-report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:a171320e-2cc1-4089-ad12-5aa629e43a3f\"\n        },\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 0.6799611781798339,\n          \"reference\": \"mcp:prompt:61744811-cab0-4a29-b948-7c29342f2ca6\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 10,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 2\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01McbiXH9wGDy8qJ2omWsNkC",
+          "name": "search",
+          "args": {
+            "intent": "orders table dataset",
+            "sources": [
+              "catalog"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01McbiXH9wGDy8qJ2omWsNkC",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_015cTcNnaHzYxqx3QMYKbJYP",
+          "name": "search",
+          "args": {
+            "intent": "orders",
+            "sources": [
+              "catalog"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_015cTcNnaHzYxqx3QMYKbJYP",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"orders\\nCurrent order transactions, one row per order. Monetary columns (amount, discount) are stored as INTEGERS IN US CENTS; divide by 100 for USD. Company revenue reporting policy: revenue = amount - discount, COMPLETED orders only (refunded and pending orders are excluded). See the 'Revenue Reporting Policy' knowledge page for the authoritative definition.\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n        },\n        {\n          \"text\": \"legacy_orders\\nDEPRECATED order extract from the retired ingestion pipeline. Partial coverage, totals in dollars. Use memory.bench.orders for all order analysis.\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\",\n          \"score\": 0.49999999999999994,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\"\n        },\n        {\n          \"text\": \"daily_region_revenue\\nPre-aggregated daily revenue by region, derived from completed orders. Values are GROSS of discounts (USD), so this index must not be used for policy net-revenue figures; use memory.bench.orders per the Revenue Reporting Policy. FRESHNESS: this index is refreshed only through 2025-11-30; it has NO rows for dates after that cutoff, so any question about a period on or after 2025-12-01 must be answered from memory.bench.orders directly, not this index.\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\",\n          \"score\": 0,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"catalog\",\n      \"matched\": 3,\n      \"shown\": 3\n    }\n  ],\n  \"count\": 3,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "The dataset is `urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)`. Now I'll capture the definition, linked to that dataset.",
+      "tool_calls": [
+        {
+          "id": "toolu_01Ceh32gTv4D6LcSQRn2Ydwx",
+          "name": "memory_capture",
+          "args": {
+            "category": "business_context",
+            "confidence": "high",
+            "content": "Working definition of 'settlement total': gross revenue, i.e. SUM(amount) (not amount - discount) over COMPLETED orders only, restricted to calendar Q4 2025 (October 1, 2025 through December 31, 2025). This is a distinct metric from the standard company Revenue Reporting Policy (which nets amount - discount) — 'settlement total' specifically uses gross amount, not net. Applies to the memory.bench.orders dataset (amounts stored as integer US cents; divide by 100 for USD).",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+            ],
+            "type": "business_knowledge"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01Ceh32gTv4D6LcSQRn2Ydwx",
+          "text": "{\n  \"id\": \"77afbacb1e528d557240ced1eb204b4c\",\n  \"sink_class\": \"business_knowledge\",\n  \"status\": \"active\",\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: the \"settlement total\" definition (gross `SUM(amount)` over completed orders, Q4 2025 = Oct–Dec 2025) is captured as business knowledge (id `77afbacb1e528d557240ced1eb204b4c`) and linked to `memory.bench.orders`, pending review before shared promotion."
+    }
+  ]
+}

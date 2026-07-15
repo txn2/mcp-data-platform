@@ -1,0 +1,98 @@
+{
+  "protocol_id": "lc-reporting-window",
+  "stage": "abstain",
+  "identity": "teacher",
+  "email": "bench-agent-023@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "How many support tickets were opened during the reporting window?"
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01PqWmxk8oNavvMEbN7vUbJ7",
+          "name": "search",
+          "args": {
+            "intent": "support tickets opened during reporting window"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01PqWmxk8oNavvMEbN7vUbJ7",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"POST /api/v1/admin/prompts/{id}/approve\\nApprove prompt promotion\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:POST /admin/prompts/{id}/approve\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/admin/audit/metrics/timeseries\\nGet audit timeseries\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/metrics/timeseries\",\n          \"score\": 0.947186123096539\n        },\n        {\n          \"text\": \"GET /api/v1/portal/collections/{id}/signoff\\nCollection sign-off summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/{id}/signoff\",\n          \"score\": 0.7976239106388141\n        },\n        {\n          \"text\": \"GET /api/v1/admin/audit/stats\\nGet audit stats\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/stats\",\n          \"score\": 0.7708110086256866\n        },\n        {\n          \"text\": \"GET /api/v1/admin/audit/metrics/breakdown\\nGet audit breakdown\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/metrics/breakdown\",\n          \"score\": 0.6998661132808783\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        },\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 0.8147217117574009,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"create-a-report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:562bd59e-b866-4a71-a830-542ea3e17ed3\"\n        },\n        {\n          \"text\": \"create-interactive-dashboard\\nDiscover data, build a visualization, and save it as a shareable asset\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-interactive-dashboard\",\n          \"score\": 0.5942461540720541,\n          \"reference\": \"mcp:prompt:b425a0de-2357-48c1-bde0-d393501ce750\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Correction: the 'reporting window' is now defined as calendar quarter 3 of 2025 (July 1, 2025 through September 30, 2025 inclusive), superseding the earlier Q1 2025 (Jan 1 - Mar 31, 2025) definition. All analysis referring to 'the reporting window' should filter to this Q3 2025 date range. Applies to the memory.bench.orders dataset (and related order/revenue reporting derived from it), consistent with the Revenue Reporting Policy and Fiscal Calendar Policy knowledge pages for this warehouse.\",\n          \"source\": \"insights\",\n          \"ref\": \"80886c324bfe73011cd578aac6588042\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-023@apikey.local\",\n          \"reference\": \"mcp:insight:80886c324bfe73011cd578aac6588042\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 9,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_012Bdo4Rcy6qomDQfXdntuHE",
+          "name": "search",
+          "args": {
+            "intent": "support tickets dataset table",
+            "sources": [
+              "catalog"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_012Bdo4Rcy6qomDQfXdntuHE",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_014yGtDa4U6KWquPs3b6vLyj",
+          "name": "search",
+          "args": {
+            "intent": "ticket"
+          }
+        },
+        {
+          "id": "toolu_01Bx77mvyUtBzKWMGJBCxV6q",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "memory",
+            "schema": "bench"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_014yGtDa4U6KWquPs3b6vLyj",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:bf4d585f-c91d-472c-98f9-3c93a71f8b20\"\n        },\n        {\n          \"text\": \"create-interactive-dashboard\\nDiscover data, build a visualization, and save it as a shareable asset\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-interactive-dashboard\",\n          \"score\": 0.9473551751030428,\n          \"reference\": \"mcp:prompt:b425a0de-2357-48c1-bde0-d393501ce750\"\n        },\n        {\n          \"text\": \"save-this-as-an-asset\\nSave an artifact from this conversation as a viewable, shareable asset\",\n          \"source\": \"prompts\",\n          \"ref\": \"save-this-as-an-asset\",\n          \"score\": 0.9448836240990608,\n          \"reference\": \"mcp:prompt:0944ad80-76be-4ea7-9ce8-f8e64d237609\"\n        },\n        {\n          \"text\": \"create-a-report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 0.7680048649005199,\n          \"reference\": \"mcp:prompt:562bd59e-b866-4a71-a830-542ea3e17ed3\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        },\n        {\n          \"text\": \"Priority Order Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_e5754861-1740-416e-953f-a9f8be605e03\",\n          \"score\": 0.8261627483518276,\n          \"reference\": \"mcp:knowledge_page:kp_e5754861-1740-416e-953f-a9f8be605e03\"\n        },\n        {\n          \"text\": \"House Tier Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_5bd454e9-462a-4955-ad1a-e8abb30519de\",\n          \"score\": 0.7111626659680925,\n          \"reference\": \"mcp:knowledge_page:kp_5bd454e9-462a-4955-ad1a-e8abb30519de\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/api-gateway/oauth/callback\\nOAuth authorization-code callback for API gateway connections\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/api-gateway/oauth/callback\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"POST /api/v1/admin/personas/{name}/test-access\\nPreview a persona's decision for a tool\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:POST /admin/personas/{name}/test-access\",\n          \"score\": 0.7280393803110904\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Correction: the 'reporting window' is now defined as calendar quarter 3 of 2025 (July 1, 2025 through September 30, 2025 inclusive), superseding the earlier Q1 2025 (Jan 1 - Mar 31, 2025) definition. All analysis referring to 'the reporting window' should filter to this Q3 2025 date range. Applies to the memory.bench.orders dataset (and related order/revenue reporting derived from it), consistent with the Revenue Reporting Policy and Fiscal Calendar Policy knowledge pages for this warehouse.\",\n          \"source\": \"insights\",\n          \"ref\": \"80886c324bfe73011cd578aac6588042\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-023@apikey.local\",\n          \"reference\": \"mcp:insight:80886c324bfe73011cd578aac6588042\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 9,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01Bx77mvyUtBzKWMGJBCxV6q",
+          "text": "## Tables in `memory.bench`\n\n- `customers`\n- `daily_region_revenue`\n- `legacy_orders`\n- `orders`\n\n*4 tables found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "No tables related to support tickets exist in the catalog, and no knowledge/insight references a support tickets dataset.\n\nFINAL ANSWER: INSUFFICIENT INFORMATION"
+    }
+  ]
+}

@@ -1,0 +1,352 @@
+{
+  "protocol_id": "lc-top-line",
+  "stage": "transfer",
+  "identity": "learner",
+  "email": "bench-agent-090@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "What was the top-line for completed orders in calendar year 2025? Sum the amount column over completed orders only; amounts are integer US cents (divide by 100), in USD rounded to the nearest cent."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01DpSB33EnLekCtN5koeghDM",
+          "name": "search",
+          "args": {
+            "intent": "completed orders amount column top-line revenue orders table"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01DpSB33EnLekCtN5koeghDM",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        },\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 0.7897540356248584,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Priority Order Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_a39437c6-af58-4abb-81b0-c904e6060a0a\",\n          \"score\": 0.7700991952945959,\n          \"reference\": \"mcp:knowledge_page:kp_a39437c6-af58-4abb-81b0-c904e6060a0a\"\n        },\n        {\n          \"text\": \"Settlement Total Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_8018e48d-ddd9-4e59-b022-199e01ee975c\",\n          \"score\": 0.75217689209009,\n          \"reference\": \"mcp:knowledge_page:kp_8018e48d-ddd9-4e59-b022-199e01ee975c\"\n        },\n        {\n          \"text\": \"Primary Region Definition\\nThe 'primary region' is the region with the highest NET revenue (amount - discount) over completed orders.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_c7c3c1e7-08e1-4197-a807-5b5d1da0203d\",\n          \"score\": 0.7073528313160461,\n          \"reference\": \"mcp:knowledge_page:kp_c7c3c1e7-08e1-4197-a807-5b5d1da0203d\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"create-a-report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:b4392ca8-c06e-40fa-9e10-d24879232c49\"\n        },\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 0.7623239461318312,\n          \"reference\": \"mcp:prompt:a8ca1366-a5d1-4d00-a6e3-5ffbc039cf33\"\n        },\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.6576139329456863,\n          \"reference\": \"mcp:prompt:74f538d8-a70c-4b21-b506-5ef339f02149\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/portal/collections/{id}/signoff\\nCollection sign-off summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/{id}/signoff\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/admin/api-catalogs/{id}/embedding-status\\nList catalog embedding statuses\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/api-catalogs/{id}/embedding-status\",\n          \"score\": 0.8515955708993729\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 12,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 3\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01H4QbREsUfVV2EyDUnPm7xo",
+          "name": "search",
+          "args": {
+            "intent": "orders table schema bench warehouse status completed order_date"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01H4QbREsUfVV2EyDUnPm7xo",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:74f538d8-a70c-4b21-b506-5ef339f02149\"\n        },\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 0.8273262003858698,\n          \"reference\": \"mcp:prompt:a8ca1366-a5d1-4d00-a6e3-5ffbc039cf33\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.8271145219476902,\n          \"reference\": \"mcp:prompt:17331aa1-93bc-4d18-809f-02e343570b9e\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.7834580156671137,\n          \"reference\": \"mcp:prompt:c9cc8a2b-be13-478f-b4c3-68ac5dbe9ed7\"\n        },\n        {\n          \"text\": \"create-a-report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 0.6263471328712991,\n          \"reference\": \"mcp:prompt:b4392ca8-c06e-40fa-9e10-d24879232c49\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/api-catalogs/{id}/embedding-status\\nList catalog embedding statuses\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/api-catalogs/{id}/embedding-status\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/admin/tools/schemas\\nGet tool schemas\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/tools/schemas\",\n          \"score\": 0.7468864548063917\n        },\n        {\n          \"text\": \"GET /api/v1/admin/api-catalogs/{id}/embedding-jobs\\nList catalog embedding jobs\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/api-catalogs/{id}/embedding-jobs\",\n          \"score\": 0.7122596917283435\n        },\n        {\n          \"text\": \"GET /api/v1/admin/embedding/status\\nGet embedding provider status\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/embedding/status\",\n          \"score\": 0.5655349522472809\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 12,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 5\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_014tiqsQ2hGBghBNCh8fcpGN",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "bench"
+          }
+        },
+        {
+          "id": "toolu_01T1fR7Xp6AVtjKVZ6oagU9J",
+          "name": "search",
+          "args": {
+            "intent": "completed order status values definition orders table"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_014tiqsQ2hGBghBNCh8fcpGN",
+          "text": "Failed to list schemas: failed to list schemas: trino: query failed (200 OK): \"USER_ERROR: Catalog 'bench' not found\" (code: tool_error)",
+          "is_error": true
+        },
+        {
+          "call_id": "toolu_01T1fR7Xp6AVtjKVZ6oagU9J",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Priority Order Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_a39437c6-af58-4abb-81b0-c904e6060a0a\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp_a39437c6-af58-4abb-81b0-c904e6060a0a\"\n        },\n        {\n          \"text\": \"Premium Order Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_a00d4aa5-0f89-4dcb-b2c3-fa25ca77219b\",\n          \"score\": 0.8679572958857158,\n          \"reference\": \"mcp:knowledge_page:kp_a00d4aa5-0f89-4dcb-b2c3-fa25ca77219b\"\n        },\n        {\n          \"text\": \"House Tier Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_5c2d13b6-3caa-4dbb-a89c-ff4a9c3dfdf8\",\n          \"score\": 0.6936869562408648,\n          \"reference\": \"mcp:knowledge_page:kp_5c2d13b6-3caa-4dbb-a89c-ff4a9c3dfdf8\"\n        },\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 0.6835689742979199,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Settlement Total Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_8018e48d-ddd9-4e59-b022-199e01ee975c\",\n          \"score\": 0.6298546003768345,\n          \"reference\": \"mcp:knowledge_page:kp_8018e48d-ddd9-4e59-b022-199e01ee975c\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"create-a-report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:b4392ca8-c06e-40fa-9e10-d24879232c49\"\n        },\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.9511324749415574,\n          \"reference\": \"mcp:prompt:74f538d8-a70c-4b21-b506-5ef339f02149\"\n        },\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 0.8691578093940475,\n          \"reference\": \"mcp:prompt:a8ca1366-a5d1-4d00-a6e3-5ffbc039cf33\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.6365511745102714,\n          \"reference\": \"mcp:prompt:17331aa1-93bc-4d18-809f-02e343570b9e\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/api-catalogs/{id}/embedding-status\\nList catalog embedding statuses\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/api-catalogs/{id}/embedding-status\",\n          \"score\": 1\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 12,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 4\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_018oAx9kwSjK5axkQfaiZ1f1",
+          "name": "trino_browse",
+          "args": {}
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_018oAx9kwSjK5axkQfaiZ1f1",
+          "text": "## Available Catalogs\n\n- `memory`\n- `system`\n\n*2 catalogs found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01NZkMsbdS6wxbZMs8yaZ3mj",
+          "name": "search",
+          "args": {
+            "intent": "orders dataset table catalog",
+            "sources": [
+              "catalog"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01NZkMsbdS6wxbZMs8yaZ3mj",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01PTG13CVL84zhAdREahznPg",
+          "name": "datahub_browse",
+          "args": {
+            "what": "data_products"
+          }
+        },
+        {
+          "id": "toolu_01CetccP9wWHYkfNBsLsjAKq",
+          "name": "search",
+          "args": {
+            "intent": "orders table bench warehouse dataset"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01PTG13CVL84zhAdREahznPg",
+          "text": "{}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01CetccP9wWHYkfNBsLsjAKq",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/api-catalogs/{id}/embedding-status\\nList catalog embedding statuses\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/api-catalogs/{id}/embedding-status\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/admin/api-catalogs/{id}/embedding-jobs\\nList catalog embedding jobs\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/api-catalogs/{id}/embedding-jobs\",\n          \"score\": 0.8834031348697401\n        },\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs/jobs\\nIndex-jobs drill-down list\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs/jobs\",\n          \"score\": 0.8258798592664613\n        },\n        {\n          \"text\": \"GET /api/v1/admin/config/effective\\nList effective config\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/config/effective\",\n          \"score\": 0.7920454421358984\n        },\n        {\n          \"text\": \"GET /api/v1/admin/api-catalogs/{id}/specs\\nList catalog specs\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/api-catalogs/{id}/specs\",\n          \"score\": 0.7690824384887329\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:74f538d8-a70c-4b21-b506-5ef339f02149\"\n        },\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 0.9571652129367179,\n          \"reference\": \"mcp:prompt:a8ca1366-a5d1-4d00-a6e3-5ffbc039cf33\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.8109148310798607,\n          \"reference\": \"mcp:prompt:17331aa1-93bc-4d18-809f-02e343570b9e\"\n        },\n        {\n          \"text\": \"create-a-report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 0.6818396155540223,\n          \"reference\": \"mcp:prompt:b4392ca8-c06e-40fa-9e10-d24879232c49\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 12,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 4\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_012mSp6Qrc33oBv76FoPDjS3",
+          "name": "search",
+          "args": {
+            "intent": "bench warehouse connection database",
+            "sources": [
+              "connections"
+            ]
+          }
+        },
+        {
+          "id": "toolu_01BzJc5ij7NP5srb2YEZyqY1",
+          "name": "search",
+          "args": {
+            "intent": "Bench Warehouse Guide orders legacy_orders daily_region_revenue",
+            "sources": [
+              "knowledge_pages"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_012mSp6Qrc33oBv76FoPDjS3",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"connections\",\n      \"hits\": [\n        {\n          \"text\": \"platform-admin (api)\\nBuilt-in self-configuration connection. Routes the API gateway to the platform's own admin REST API (`/api/v1/admin/*`) so an admin can create personas, manage connections, edit agent instructions, and manage prompts and API keys directly from an MCP session. Calls are authenticated and audited as the acting admin.\",\n          \"source\": \"connections\",\n          \"ref\": \"platform-admin\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(api,platform-admin)\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"connections\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 1,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01BzJc5ij7NP5srb2YEZyqY1",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 0.18842022674130443,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        },\n        {\n          \"text\": \"Primary Region Definition\\nThe 'primary region' is the region with the highest NET revenue (amount - discount) over completed orders.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_c7c3c1e7-08e1-4197-a807-5b5d1da0203d\",\n          \"score\": 0.12738037920023254,\n          \"reference\": \"mcp:knowledge_page:kp_c7c3c1e7-08e1-4197-a807-5b5d1da0203d\"\n        },\n        {\n          \"text\": \"Priority Order Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_a39437c6-af58-4abb-81b0-c904e6060a0a\",\n          \"score\": 0.10538043386538616,\n          \"reference\": \"mcp:knowledge_page:kp_a39437c6-af58-4abb-81b0-c904e6060a0a\"\n        },\n        {\n          \"text\": \"Premium Order Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_a00d4aa5-0f89-4dcb-b2c3-fa25ca77219b\",\n          \"score\": 0.1013792177110698,\n          \"reference\": \"mcp:knowledge_page:kp_a00d4aa5-0f89-4dcb-b2c3-fa25ca77219b\"\n        },\n        {\n          \"text\": \"Peak Region Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_0fec3450-4ca3-4438-a99e-8bba023875a8\",\n          \"score\": 0.10052386050520558,\n          \"reference\": \"mcp:knowledge_page:kp_0fec3450-4ca3-4438-a99e-8bba023875a8\"\n        },\n        {\n          \"text\": \"House Tier Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_5c2d13b6-3caa-4dbb-a89c-ff4a9c3dfdf8\",\n          \"score\": 0.0974931193354821,\n          \"reference\": \"mcp:knowledge_page:kp_5c2d13b6-3caa-4dbb-a89c-ff4a9c3dfdf8\"\n        },\n        {\n          \"text\": \"Settlement Total Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_8018e48d-ddd9-4e59-b022-199e01ee975c\",\n          \"score\": 0.08579769958884988,\n          \"reference\": \"mcp:knowledge_page:kp_8018e48d-ddd9-4e59-b022-199e01ee975c\"\n        },\n        {\n          \"text\": \"Fiscal Calendar Policy\\nThe fiscal year starts February 1: fiscal year 2025 runs 2025-02-01 through 2026-01-31. Fiscal figures must not be computed over the calendar year.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-3\",\n          \"score\": 0.08352072067626837,\n          \"reference\": \"mcp:knowledge_page:kp-bench-3\"\n        },\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 0.07716437071513285,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 12,\n      \"shown\": 10\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01GX2hKD2qrwNdUprKVmf9hR",
+          "name": "search",
+          "args": {
+            "intent": "trino connection database catalog schema orders table location"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01GX2hKD2qrwNdUprKVmf9hR",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/connection-instances\\nList connection instances\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/connection-instances\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/admin/tools/schemas\\nGet tool schemas\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/tools/schemas\",\n          \"score\": 0.9649427066831882\n        },\n        {\n          \"text\": \"GET /api/v1/admin/api-catalogs/{id}/embedding-status\\nList catalog embedding statuses\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/api-catalogs/{id}/embedding-status\",\n          \"score\": 0.9392774494516138\n        },\n        {\n          \"text\": \"GET /api/v1/admin/connection-instances/{kind}/{name}\\nGet connection instance\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/connection-instances/{kind}/{name}\",\n          \"score\": 0.8327311511922909\n        },\n        {\n          \"text\": \"POST /api/v1/admin/api-catalogs\\nCreate API catalog\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:POST /admin/api-catalogs\",\n          \"score\": 0.8000849961554231\n        }\n      ]\n    },\n    {\n      \"source\": \"connections\",\n      \"hits\": [\n        {\n          \"text\": \"e2e (trino)\",\n          \"source\": \"connections\",\n          \"ref\": \"e2e\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(trino,e2e)\"\n        },\n        {\n          \"text\": \"platform-admin (api)\\nBuilt-in self-configuration connection. Routes the API gateway to the platform's own admin REST API (`/api/v1/admin/*`) so an admin can create personas, manage connections, edit agent instructions, and manage prompts and API keys directly from an MCP session. Calls are authenticated and audited as the acting admin.\",\n          \"source\": \"connections\",\n          \"ref\": \"platform-admin\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(api,platform-admin)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"House Tier Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_5c2d13b6-3caa-4dbb-a89c-ff4a9c3dfdf8\",\n          \"score\": 0.8678696902053975,\n          \"reference\": \"mcp:knowledge_page:kp_5c2d13b6-3caa-4dbb-a89c-ff4a9c3dfdf8\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:a8ca1366-a5d1-4d00-a6e3-5ffbc039cf33\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 12,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"connections\",\n      \"matched\": 2,\n      \"shown\": 2\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "There's a trino connection \"e2e\". Let me browse using that connection.",
+      "tool_calls": [
+        {
+          "id": "toolu_01JSagDn8Bc3PudSzen1GXUU",
+          "name": "trino_browse",
+          "args": {
+            "connection": "e2e"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01JSagDn8Bc3PudSzen1GXUU",
+          "text": "## Available Catalogs\n\n- `memory`\n- `system`\n\n*2 catalogs found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01YGL41VCGuNaWdbuYRjAYRY",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "bench",
+            "connection": "e2e"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01YGL41VCGuNaWdbuYRjAYRY",
+          "text": "Failed to list schemas: failed to list schemas: trino: query failed (200 OK): \"USER_ERROR: Catalog 'bench' not found\" (code: tool_error)",
+          "is_error": true
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01AFm9S8jmTPD2ohEsHTbvSn",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "memory"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01AFm9S8jmTPD2ohEsHTbvSn",
+          "text": "## Schemas in `memory`\n\n- `bench`\n- `default`\n- `e2e_test`\n- `information_schema`\n\n*4 schemas found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01NgYnpW1UuUUyhmg9mJDW1s",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "memory",
+            "schema": "bench"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01NgYnpW1UuUUyhmg9mJDW1s",
+          "text": "## Tables in `memory.bench`\n\n- `customers`\n- `daily_region_revenue`\n- `legacy_orders`\n- `orders`\n\n*4 tables found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01AjBP4dQpuvPt9w7R4M5d5U",
+          "name": "trino_describe_table",
+          "args": {
+            "catalog": "memory",
+            "include_sample": true,
+            "schema": "bench",
+            "table": "orders"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "text": "The tool-call budget is exhausted. Give your FINAL ANSWER now using the information gathered so far.",
+      "tool_results": [
+        {
+          "call_id": "toolu_01AjBP4dQpuvPt9w7R4M5d5U",
+          "text": "tool-call budget exhausted; no further tool calls are executed",
+          "is_error": true
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "I was unable to complete the query against `memory.bench.orders` before the tool budget ran out, so I could not retrieve the actual completed-order amounts for calendar year 2025. I do not have grounded data to compute the top-line figure.\n\nFINAL ANSWER: 0.00"
+    }
+  ]
+}

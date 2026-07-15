@@ -1,0 +1,127 @@
+{
+  "protocol_id": "lc-leading-region",
+  "stage": "teach",
+  "identity": "teacher",
+  "email": "bench-agent-011@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. The 'leading region' is the region whose customers placed the most orders. Please save this definition to memory now and link it to the dataset it concerns."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01UdggKxYUbG1YmFLwkY9Mq7",
+          "name": "search",
+          "args": {
+            "intent": "region orders customers dataset - orders by region"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01UdggKxYUbG1YmFLwkY9Mq7",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/portal/collections/search\\nSearch my collections\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/search\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/portal/memory/records/search\\nSearch my memory records\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/memory/records/search\",\n          \"score\": 0.8427272265855776\n        },\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs\\nCross-kind index-jobs health summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs\",\n          \"score\": 0.7204630031531636\n        },\n        {\n          \"text\": \"GET /api/v1/admin/api-catalogs/{id}/embedding-status\\nList catalog embedding statuses\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/api-catalogs/{id}/embedding-status\",\n          \"score\": 0.683601409741757\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 0.6353404391946865,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        },\n        {\n          \"text\": \"Active Customer Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_47877554-7362-483a-a1c7-92012d44112e\",\n          \"score\": 0.5963658749562893,\n          \"reference\": \"mcp:knowledge_page:kp_47877554-7362-483a-a1c7-92012d44112e\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:5ed03482-01bc-46b7-938e-fa3ba136e968\"\n        },\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.7335388885726247,\n          \"reference\": \"mcp:prompt:a2ce0f1f-028e-4d30-aeda-e9ec27cad59b\"\n        }\n      ]\n    },\n    {\n      \"source\": \"connections\",\n      \"hits\": [\n        {\n          \"text\": \"platform-admin (api)\\nBuilt-in self-configuration connection. Routes the API gateway to the platform's own admin REST API (`/api/v1/admin/*`) so an admin can create personas, manage connections, edit agent instructions, and manage prompts and API keys directly from an MCP session. Calls are authenticated and audited as the acting admin.\",\n          \"source\": \"connections\",\n          \"ref\": \"platform-admin\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(api,platform-admin)\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 6,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"connections\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01D8H26vKDNiBKonZ4ARfLao",
+          "name": "search",
+          "args": {
+            "intent": "customers region orders table",
+            "sources": [
+              "catalog"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01D8H26vKDNiBKonZ4ARfLao",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_011FLSrz3iarqdDBLkVGZR8y",
+          "name": "search",
+          "args": {
+            "intent": "orders dataset"
+          }
+        },
+        {
+          "id": "toolu_012MZcntZ5gjdZ1nbrrRdRK9",
+          "name": "search",
+          "args": {
+            "intent": "customer region dataset"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_011FLSrz3iarqdDBLkVGZR8y",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/api-catalogs/{id}/embedding-status\\nList catalog embedding statuses\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/api-catalogs/{id}/embedding-status\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/admin/api-catalogs/{id}/embedding-jobs\\nList catalog embedding jobs\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/api-catalogs/{id}/embedding-jobs\",\n          \"score\": 0.5397962204738154\n        },\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs/jobs\\nIndex-jobs drill-down list\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs/jobs\",\n          \"score\": 0.5307405316202077\n        },\n        {\n          \"text\": \"GET /api/v1/admin/prompts\\nList prompts\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/prompts\",\n          \"score\": 0.48134234621711836\n        },\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs\\nCross-kind index-jobs health summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs\",\n          \"score\": 0.4787015418603219\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"orders\\nCurrent order transactions, one row per order. Monetary columns (amount, discount) are stored as INTEGERS IN US CENTS; divide by 100 for USD. Company revenue reporting policy: revenue = amount - discount, COMPLETED orders only (refunded and pending orders are excluded). See the 'Revenue Reporting Policy' knowledge page for the authoritative definition.\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n        },\n        {\n          \"text\": \"legacy_orders\\nDEPRECATED order extract from the retired ingestion pipeline. Partial coverage, totals in dollars. Use memory.bench.orders for all order analysis.\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\",\n          \"score\": 0.49999999999999994,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:c2f057b8-5662-4d31-b1c5-dd3d6a48f015\"\n        },\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 0.15792667424815587,\n          \"reference\": \"mcp:prompt:5ed03482-01bc-46b7-938e-fa3ba136e968\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 6,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 3,\n      \"shown\": 2\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_012MZcntZ5gjdZ1nbrrRdRK9",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs\\nCross-kind index-jobs health summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/portal/memory/records/search\\nSearch my memory records\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/memory/records/search\",\n          \"score\": 0.9511305748552242\n        },\n        {\n          \"text\": \"GET /api/v1/portal/collections/search\\nSearch my collections\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/search\",\n          \"score\": 0.7886253902263191\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 0.855011595320775,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        },\n        {\n          \"text\": \"Active Customer Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_47877554-7362-483a-a1c7-92012d44112e\",\n          \"score\": 0.7454704534644914,\n          \"reference\": \"mcp:knowledge_page:kp_47877554-7362-483a-a1c7-92012d44112e\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:5ed03482-01bc-46b7-938e-fa3ba136e968\"\n        },\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.8814040948968759,\n          \"reference\": \"mcp:prompt:a2ce0f1f-028e-4d30-aeda-e9ec27cad59b\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.7291738513725552,\n          \"reference\": \"mcp:prompt:88069d60-d6ad-4d3f-a9f4-d09f8189f0e7\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"customers\\nCustomer directory: one row per customer with profile attributes (name, region, tier, account created_at). Join key: customer_id.\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 6,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01ExEbAopc4AGTr1uT35CYzR",
+          "name": "memory_capture",
+          "args": {
+            "category": "business_context",
+            "confidence": "high",
+            "content": "Working definition: the 'leading region' is the region whose customers placed the most orders. To compute it, join memory.bench.customers (region per customer_id) to memory.bench.orders (one row per order, keyed by customer_id), count orders grouped by customers.region, and take the region with the highest order count. This is a derived business concept, not a stored column.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)",
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+            ],
+            "source": "user",
+            "type": "schema_entity"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01ExEbAopc4AGTr1uT35CYzR",
+          "text": "{\n  \"id\": \"dee1d4e5883b9065cf4bd7a66a150d37\",\n  \"sink_class\": \"schema_entity\",\n  \"status\": \"active\",\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: the \"leading region\" definition (region whose customers placed the most orders, derived via customers.region joined to orders on customer_id, grouped/counted, taking the max) is recorded as a schema_entity insight linked to `memory.bench.customers` and `memory.bench.orders`, pending review for promotion to the shared catalog."
+    }
+  ]
+}

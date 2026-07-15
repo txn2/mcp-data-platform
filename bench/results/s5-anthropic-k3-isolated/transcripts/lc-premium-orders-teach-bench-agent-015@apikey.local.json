@@ -1,0 +1,187 @@
+{
+  "protocol_id": "lc-premium-orders",
+  "stage": "teach",
+  "identity": "teacher",
+  "email": "bench-agent-015@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. A 'premium order' is any order placed by a customer on the enterprise tier. Please save this definition to memory now and link it to the dataset it concerns."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01E5oxsHmv518JrGYhWZByeE",
+          "name": "search",
+          "args": {
+            "intent": "orders table customer tier enterprise premium order definition"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01E5oxsHmv518JrGYhWZByeE",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/portal/collections/search\\nSearch my collections\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/search\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/portal/prompts/search\\nSearch my prompts\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/prompts/search\",\n          \"score\": 0.9298695463116831\n        },\n        {\n          \"text\": \"GET /api/v1/portal/knowledge-pages/search\\nSearch knowledge pages\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/knowledge-pages/search\",\n          \"score\": 0.74100064760548\n        },\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs/failures\\nActive failure-triage units\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs/failures\",\n          \"score\": 0.7076357423609492\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:09b27d11-248d-4eb9-9856-fa0df20d1858\"\n        },\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.9304126247074056,\n          \"reference\": \"mcp:prompt:bf4d585f-c91d-472c-98f9-3c93a71f8b20\"\n        },\n        {\n          \"text\": \"create-a-report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 0.8090815490082595,\n          \"reference\": \"mcp:prompt:562bd59e-b866-4a71-a830-542ea3e17ed3\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.7080054766130873,\n          \"reference\": \"mcp:prompt:539fc33a-c09a-4c70-af41-160efb21e940\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"House Tier Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_5bd454e9-462a-4955-ad1a-e8abb30519de\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp_5bd454e9-462a-4955-ad1a-e8abb30519de\"\n        },\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 0.9434145216067427,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 7,\n      \"shown\": 2\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01FfgQTUwtg7Ry7CSUgvUDgn",
+          "name": "search",
+          "args": {
+            "intent": "orders dataset customer tier column enterprise",
+            "sources": [
+              "catalog"
+            ]
+          }
+        },
+        {
+          "id": "toolu_017s9gfN5hz7bJpsMz8bHxxz",
+          "name": "search",
+          "args": {
+            "intent": "customer tier definitions enterprise plus tier",
+            "sources": [
+              "knowledge_pages"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01FfgQTUwtg7Ry7CSUgvUDgn",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_017s9gfN5hz7bJpsMz8bHxxz",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        },\n        {\n          \"text\": \"House Tier Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_5bd454e9-462a-4955-ad1a-e8abb30519de\",\n          \"score\": 0.2049311944125836,\n          \"reference\": \"mcp:knowledge_page:kp_5bd454e9-462a-4955-ad1a-e8abb30519de\"\n        },\n        {\n          \"text\": \"Peak Region Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_9a65dfed-6608-4dc5-b7af-718ced8c1877\",\n          \"score\": 0.13797913863524006,\n          \"reference\": \"mcp:knowledge_page:kp_9a65dfed-6608-4dc5-b7af-718ced8c1877\"\n        },\n        {\n          \"text\": \"Active Customer Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_564cd66b-5079-463d-97b9-5435f5618605\",\n          \"score\": 0.09797796543565974,\n          \"reference\": \"mcp:knowledge_page:kp_564cd66b-5079-463d-97b9-5435f5618605\"\n        },\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 0.05702611553796199,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        },\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 0.05241354499735008,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Fiscal Calendar Policy\\nThe fiscal year starts February 1: fiscal year 2025 runs 2025-02-01 through 2026-01-31. Fiscal figures must not be computed over the calendar year.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-3\",\n          \"score\": 0,\n          \"reference\": \"mcp:knowledge_page:kp-bench-3\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 7,\n      \"shown\": 7\n    }\n  ],\n  \"count\": 7,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01P5jb78jjqeyeqcyn7BVQfJ",
+          "name": "search",
+          "args": {
+            "intent": "orders table",
+            "sources": [
+              "catalog"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01P5jb78jjqeyeqcyn7BVQfJ",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01CFmfp9Yxw3fqjrBZd6rDC9",
+          "name": "trino_browse",
+          "args": {}
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01CFmfp9Yxw3fqjrBZd6rDC9",
+          "text": "## Available Catalogs\n\n- `memory`\n- `system`\n\n*2 catalogs found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01YL535Ejqf4tuLCyekTRoV5",
+          "name": "search",
+          "args": {
+            "intent": "orders"
+          }
+        },
+        {
+          "id": "toolu_01C2JzLXr7GvhsaybRdZeZiu",
+          "name": "datahub_browse",
+          "args": {
+            "what": "data_products"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01YL535Ejqf4tuLCyekTRoV5",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"House Tier Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_5bd454e9-462a-4955-ad1a-e8abb30519de\",\n          \"score\": 0.9821627304014829,\n          \"reference\": \"mcp:knowledge_page:kp_5bd454e9-462a-4955-ad1a-e8abb30519de\"\n        },\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 0.9624461423603916,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        },\n        {\n          \"text\": \"Active Customer Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_564cd66b-5079-463d-97b9-5435f5618605\",\n          \"score\": 0.9477810611462298,\n          \"reference\": \"mcp:knowledge_page:kp_564cd66b-5079-463d-97b9-5435f5618605\"\n        },\n        {\n          \"text\": \"Fiscal Calendar Policy\\nThe fiscal year starts February 1: fiscal year 2025 runs 2025-02-01 through 2026-01-31. Fiscal figures must not be computed over the calendar year.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-3\",\n          \"score\": 0.9043003063249736,\n          \"reference\": \"mcp:knowledge_page:kp-bench-3\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/prompts\\nList prompts\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/prompts\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/portal/prompts/search\\nSearch my prompts\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/prompts/search\",\n          \"score\": 0.9142553981113641\n        },\n        {\n          \"text\": \"GET /api/v1/portal/collections/search\\nSearch my collections\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/search\",\n          \"score\": 0.9136020612618828\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"orders\\nCurrent order transactions, one row per order. Monetary columns (amount, discount) are stored as INTEGERS IN US CENTS; divide by 100 for USD. Company revenue reporting policy: revenue = amount - discount, COMPLETED orders only (refunded and pending orders are excluded). See the 'Revenue Reporting Policy' knowledge page for the authoritative definition.\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:6f42f663-66a9-4979-af44-3e527acb0be6\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 7,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 3,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01C2JzLXr7GvhsaybRdZeZiu",
+          "text": "{}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Found the dataset: `orders` (urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)). There's a related \"Customer Tier Definitions\" knowledge page already covering tier-based groupings (e.g., \"key account\"). I'll capture this as a schema_entity insight linked to the orders dataset.",
+      "tool_calls": [
+        {
+          "id": "toolu_01YFxhpzdcWt72o98qYUrEuA",
+          "name": "memory_capture",
+          "args": {
+            "category": "business_context",
+            "confidence": "high",
+            "content": "Working definition for analysis: a 'premium order' is any order placed by a customer on the enterprise tier. This is a derived business grouping (not a stored column on orders) — apply it as a filter joining orders to customer tier = 'enterprise'. Related to existing 'Customer Tier Definitions' knowledge page (which defines 'key account' as plus OR enterprise tier); 'premium order' is narrower, enterprise-tier only.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+            ],
+            "source": "user",
+            "type": "schema_entity"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01YFxhpzdcWt72o98qYUrEuA",
+          "text": "{\n  \"id\": \"ef26b4312290d26dda7e4a21b0ffc5a3\",\n  \"sink_class\": \"schema_entity\",\n  \"status\": \"active\",\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: captured as a schema_entity insight (id `ef26b4312290d26dda7e4a21b0ffc5a3`) — \"a 'premium order' is any order placed by a customer on the enterprise tier\" — linked to the `orders` dataset (`urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)`), pending review for promotion to shared catalog knowledge alongside the existing Customer Tier Definitions page."
+    }
+  ]
+}

@@ -1,0 +1,163 @@
+{
+  "protocol_id": "lc-target-cohort",
+  "stage": "teach",
+  "identity": "teacher",
+  "email": "bench-agent-027@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. The 'target cohort' is the set of customers whose account was created during calendar year 2024. Please save this definition to memory now and link it to the dataset it concerns."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01XtQ2hPDm69arNfirEWxcCo",
+          "name": "search",
+          "args": {
+            "intent": "customers table with account creation date column",
+            "sources": "catalog"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01XtQ2hPDm69arNfirEWxcCo",
+          "text": "validating \"arguments\": validating root: validating /properties/sources: type: catalog has type \"string\", want \"array\" (code: tool_error)",
+          "is_error": true
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01HnNHppK1WW9afMUZ1AXmZ5",
+          "name": "search",
+          "args": {
+            "intent": "customers table with account creation date column",
+            "sources": [
+              "catalog"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01HnNHppK1WW9afMUZ1AXmZ5",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01RZiKwYXUigkyPxWCCxckaJ",
+          "name": "search",
+          "args": {
+            "intent": "customers dataset account created date"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01RZiKwYXUigkyPxWCCxckaJ",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:61744811-cab0-4a29-b948-7c29342f2ca6\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.8634921711656262,\n          \"reference\": \"mcp:prompt:f7ddc61b-5c0b-41ce-9dbc-afcac1369ef7\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.8587580931611104,\n          \"reference\": \"mcp:prompt:58ecbc43-efa1-4f5d-865a-4b13bb773822\"\n        },\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.7843385181864471,\n          \"reference\": \"mcp:prompt:ac9e86da-62bd-4b95-a671-e7a0501e63aa\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"POST /api/v1/admin/users\\nAdd a directory user\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:POST /admin/users\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"POST /api/v1/admin/personas\\nCreate persona\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:POST /admin/personas\",\n          \"score\": 0.7440362280026936\n        },\n        {\n          \"text\": \"POST /api/v1/portal/collections\\nCreate collection\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:POST /portal/collections\",\n          \"score\": 0.6687117166472489\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Active Customer Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_bb173ece-3f66-4a90-8d5b-35ebba961805\",\n          \"score\": 0.7457952508442625,\n          \"reference\": \"mcp:knowledge_page:kp_bb173ece-3f66-4a90-8d5b-35ebba961805\"\n        },\n        {\n          \"text\": \"Fiscal Calendar Policy\\nThe fiscal year starts February 1: fiscal year 2025 runs 2025-02-01 through 2026-01-31. Fiscal figures must not be computed over the calendar year.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-3\",\n          \"score\": 0.6846346117028084,\n          \"reference\": \"mcp:knowledge_page:kp-bench-3\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 11,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 4\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01B51pYmSLsFfajsn1MCLFWN",
+          "name": "search",
+          "args": {
+            "intent": "customer",
+            "sources": [
+              "catalog"
+            ]
+          }
+        },
+        {
+          "id": "toolu_01GZ9RGg2ZkFzkh3P4aMQLgp",
+          "name": "trino_browse",
+          "args": {}
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01B51pYmSLsFfajsn1MCLFWN",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"customers\\nCustomer directory: one row per customer with profile attributes (name, region, tier, account created_at). Join key: customer_id.\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"catalog\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 1,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01GZ9RGg2ZkFzkh3P4aMQLgp",
+          "text": "## Available Catalogs\n\n- `memory`\n- `system`\n\n*2 catalogs found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Found the dataset: `memory.bench.customers`. Let me confirm its schema quickly and then save the knowledge linked to it.",
+      "tool_calls": [
+        {
+          "id": "toolu_01M2m7gCyaFyAxStJoq8kYFB",
+          "name": "datahub_get_schema",
+          "args": {
+            "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+          }
+        },
+        {
+          "id": "toolu_016xfb8TiksGCd7JT375HAuw",
+          "name": "memory_capture",
+          "args": {
+            "category": "business_context",
+            "confidence": "high",
+            "content": "Working definition: the 'target cohort' refers to the set of customers whose account was created during calendar year 2024 (i.e., account_created_at/created_at between 2024-01-01 and 2024-12-31 inclusive) in the customers dataset (memory.bench.customers). Apply this definition consistently in future analyses referencing 'target cohort'.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+            ],
+            "source": "user",
+            "type": "business_knowledge"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01M2m7gCyaFyAxStJoq8kYFB",
+          "text": "{\n  \"fields\": null\n}\n{\"query_context\":{\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\":{\"available\":true,\"query_table\":\"memory.bench.customers\",\"connection\":\"e2e-trino\",\"available_connections\":[\"e2e\"],\"schema_preview\":[{\"name\":\"customer_id\",\"type\":\"integer\"},{\"name\":\"name\",\"type\":\"varchar\"},{\"name\":\"region\",\"type\":\"varchar\"},{\"name\":\"tier\",\"type\":\"varchar\"},{\"name\":\"created_at\",\"type\":\"timestamp(3)\"}],\"total_columns\":5}}}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_016xfb8TiksGCd7JT375HAuw",
+          "text": "{\n  \"id\": \"1e9c3516f3349c93fa4d6b6a083a315a\",\n  \"sink_class\": \"business_knowledge\",\n  \"status\": \"active\",\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: the \"target cohort\" definition (customers whose `created_at` falls in calendar year 2024) is captured as business knowledge and linked to the `memory.bench.customers` dataset (id `1e9c3516f3349c93fa4d6b6a083a315a`), pending review for promotion to shared knowledge."
+    }
+  ]
+}

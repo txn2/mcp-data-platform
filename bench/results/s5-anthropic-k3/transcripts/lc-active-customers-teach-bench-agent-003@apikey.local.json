@@ -1,0 +1,162 @@
+{
+  "protocol_id": "lc-active-customers",
+  "stage": "teach",
+  "identity": "teacher",
+  "email": "bench-agent-003@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. An 'active customer' is any customer who has placed at least one order. Please save this definition to memory now and link it to the dataset it concerns."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01LbDLhvKoSYy9ZbovLqZ3JN",
+          "name": "search",
+          "args": {
+            "intent": "customers table / active customer definition dataset"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01LbDLhvKoSYy9ZbovLqZ3JN",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        },\n        {\n          \"text\": \"Peak Region Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_0fec3450-4ca3-4438-a99e-8bba023875a8\",\n          \"score\": 0.9907057294720873,\n          \"reference\": \"mcp:knowledge_page:kp_0fec3450-4ca3-4438-a99e-8bba023875a8\"\n        },\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 0.8811119833182635,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Premium Order Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_a00d4aa5-0f89-4dcb-b2c3-fa25ca77219b\",\n          \"score\": 0.8330325762821607,\n          \"reference\": \"mcp:knowledge_page:kp_a00d4aa5-0f89-4dcb-b2c3-fa25ca77219b\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:74f538d8-a70c-4b21-b506-5ef339f02149\"\n        },\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 0.9970819327428507,\n          \"reference\": \"mcp:prompt:a8ca1366-a5d1-4d00-a6e3-5ffbc039cf33\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.9747570030631034,\n          \"reference\": \"mcp:prompt:17331aa1-93bc-4d18-809f-02e343570b9e\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.8579320794111983,\n          \"reference\": \"mcp:prompt:c9cc8a2b-be13-478f-b4c3-68ac5dbe9ed7\"\n        }\n      ]\n    },\n    {\n      \"source\": \"connections\",\n      \"hits\": [\n        {\n          \"text\": \"platform-admin (api)\\nBuilt-in self-configuration connection. Routes the API gateway to the platform's own admin REST API (`/api/v1/admin/*`) so an admin can create personas, manage connections, edit agent instructions, and manage prompts and API keys directly from an MCP session. Calls are authenticated and audited as the acting admin.\",\n          \"source\": \"connections\",\n          \"ref\": \"platform-admin\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(api,platform-admin)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs/failures\\nActive failure-triage units\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs/failures\",\n          \"score\": 1\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 11,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"connections\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01E6RsmzhdSpusSzEVUEmvQS",
+          "name": "search",
+          "args": {
+            "intent": "customers dataset table catalog",
+            "sources": [
+              "catalog"
+            ]
+          }
+        },
+        {
+          "id": "toolu_01CtgSnXuLy9mRoUfJsH7KM9",
+          "name": "search",
+          "args": {
+            "intent": "orders dataset table catalog",
+            "sources": [
+              "catalog"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01E6RsmzhdSpusSzEVUEmvQS",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01CtgSnXuLy9mRoUfJsH7KM9",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01UaycsG9dxPWatakQgWof3o",
+          "name": "trino_browse",
+          "args": {}
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01UaycsG9dxPWatakQgWof3o",
+          "text": "## Available Catalogs\n\n- `memory`\n- `system`\n\n*2 catalogs found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01U1DCJrAmkVSHp8dTZNg3zJ",
+          "name": "datahub_browse",
+          "args": {
+            "what": "data_products"
+          }
+        },
+        {
+          "id": "toolu_018Lr4d3ZRKZybwYKdWQjA2X",
+          "name": "search",
+          "args": {
+            "intent": "customers"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01U1DCJrAmkVSHp8dTZNg3zJ",
+          "text": "{}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_018Lr4d3ZRKZybwYKdWQjA2X",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        },\n        {\n          \"text\": \"House Tier Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_5c2d13b6-3caa-4dbb-a89c-ff4a9c3dfdf8\",\n          \"score\": 0.9905260312154317,\n          \"reference\": \"mcp:knowledge_page:kp_5c2d13b6-3caa-4dbb-a89c-ff4a9c3dfdf8\"\n        },\n        {\n          \"text\": \"Premium Order Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_a00d4aa5-0f89-4dcb-b2c3-fa25ca77219b\",\n          \"score\": 0.9871703927244136,\n          \"reference\": \"mcp:knowledge_page:kp_a00d4aa5-0f89-4dcb-b2c3-fa25ca77219b\"\n        },\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 0.9831602752432037,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Peak Region Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_0fec3450-4ca3-4438-a99e-8bba023875a8\",\n          \"score\": 0.9598926193066236,\n          \"reference\": \"mcp:knowledge_page:kp_0fec3450-4ca3-4438-a99e-8bba023875a8\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/users\\nList directory users\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/users\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"PUT /api/v1/portal/prompts/{id}\\nUpdate personal prompt\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:PUT /portal/prompts/{id}\",\n          \"score\": 0.9940681979498681\n        },\n        {\n          \"text\": \"POST /api/v1/portal/prompts/{id}/shares\\nShare a prompt\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:POST /portal/prompts/{id}/shares\",\n          \"score\": 0.8060392310273633\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"customers\\nCustomer directory: one row per customer with profile attributes (name, region, tier, account created_at). Join key: customer_id.\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:c9cc8a2b-be13-478f-b4c3-68ac5dbe9ed7\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 12,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Found the dataset: `memory.bench.customers`. Let me save the definition, linked to that dataset (and the orders relationship).",
+      "tool_calls": [
+        {
+          "id": "toolu_01WLZvM9sFG1fYWYQuDaDivL",
+          "name": "memory_capture",
+          "args": {
+            "category": "business_context",
+            "confidence": "high",
+            "content": "Working definition: An 'active customer' is any customer who has placed at least one order (i.e., has at least one matching row in the orders table joined on customer_id). This is a business-analysis definition, not a stored column — apply it as a derived condition (e.g., EXISTS/JOIN against orders) when segmenting or counting 'active customers'.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+            ],
+            "source": "user",
+            "type": "business_knowledge"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01WLZvM9sFG1fYWYQuDaDivL",
+          "text": "{\n  \"id\": \"e56283292fb61321b30531c4b705f89e\",\n  \"sink_class\": \"business_knowledge\",\n  \"status\": \"active\",\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: the working definition \"an active customer = any customer with at least one order\" is recorded as business knowledge (id `e56283292fb61321b30531c4b705f89e`), linked to the `memory.bench.customers` dataset, pending review for promotion to the shared catalog."
+    }
+  ]
+}

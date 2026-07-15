@@ -1,0 +1,149 @@
+{
+  "protocol_id": "lc-focus-region-net",
+  "stage": "teach",
+  "identity": "teacher",
+  "email": "bench-agent-007@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. The 'focus region' for this study is West. Please save this definition to memory now and link it to the dataset it concerns."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01Q2CEwXteeKkJnm9uNSvfRK",
+          "name": "search",
+          "args": {
+            "intent": "region column dataset - sales/orders by region (West, East, etc.)"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01Q2CEwXteeKkJnm9uNSvfRK",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/portal/collections/search\\nSearch my collections\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/search\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs\\nCross-kind index-jobs health summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs\",\n          \"score\": 0.9627354786130662\n        },\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs/jobs\\nIndex-jobs drill-down list\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs/jobs\",\n          \"score\": 0.7869292772811434\n        },\n        {\n          \"text\": \"GET /api/v1/admin/api-catalogs/{id}/embedding-status\\nList catalog embedding statuses\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/api-catalogs/{id}/embedding-status\",\n          \"score\": 0.765410282856252\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"create-a-report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:26710eae-88e1-41e8-86b0-7ed9cbf076cc\"\n        },\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 0.9664003822482831,\n          \"reference\": \"mcp:prompt:7776db21-8b09-42ad-9e15-08b6686cb06c\"\n        },\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.9404207698768111,\n          \"reference\": \"mcp:prompt:c7b70f1c-0507-44bf-9613-149b8643ab92\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 0.7943725798889114,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        }\n      ]\n    },\n    {\n      \"source\": \"connections\",\n      \"hits\": [\n        {\n          \"text\": \"platform-admin (api)\\nBuilt-in self-configuration connection. Routes the API gateway to the platform's own admin REST API (`/api/v1/admin/*`) so an admin can create personas, manage connections, edit agent instructions, and manage prompts and API keys directly from an MCP session. Calls are authenticated and audited as the acting admin.\",\n          \"source\": \"connections\",\n          \"ref\": \"platform-admin\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(api,platform-admin)\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 5,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"connections\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01G87fAw9F7QAJPzts5r8siX",
+          "name": "search",
+          "args": {
+            "intent": "region column table daily_region_revenue orders dataset schema",
+            "sources": [
+              "catalog"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01G87fAw9F7QAJPzts5r8siX",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01A1B6CCSQmGJzTuY8g6rvSC",
+          "name": "search",
+          "args": {
+            "intent": "region"
+          }
+        },
+        {
+          "id": "toolu_01XDf74Fi2SCSTsgL5PQ3A1Y",
+          "name": "search",
+          "args": {
+            "intent": "daily_region_revenue table"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01A1B6CCSQmGJzTuY8g6rvSC",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:c7b70f1c-0507-44bf-9613-149b8643ab92\"\n        },\n        {\n          \"text\": \"create-a-report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 0.9238492606173322,\n          \"reference\": \"mcp:prompt:26710eae-88e1-41e8-86b0-7ed9cbf076cc\"\n        },\n        {\n          \"text\": \"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_apply_guidance\",\n          \"score\": 0.6605165838661262,\n          \"reference\": \"mcp:prompt:cac25a37-6994-4d37-9a6b-9074fa64730b\"\n        },\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 0.5650008812374675,\n          \"reference\": \"mcp:prompt:7776db21-8b09-42ad-9e15-08b6686cb06c\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs\\nCross-kind index-jobs health summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"DELETE /api/v1/portal/collections/{id}\\nDelete collection\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:DELETE /portal/collections/{id}\",\n          \"score\": 0.6742301408624312\n        },\n        {\n          \"text\": \"GET /api/v1/portal/collections/search\\nSearch my collections\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/search\",\n          \"score\": 0.4644316108216846\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 0.9840900406598997,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"daily_region_revenue\\nPre-aggregated daily revenue by region, derived from completed orders. Values are GROSS of discounts (USD), so this index must not be used for policy net-revenue figures; use memory.bench.orders per the Revenue Reporting Policy. FRESHNESS: this index is refreshed only through 2025-11-30; it has NO rows for dates after that cutoff, so any question about a period on or after 2025-12-01 must be answered from memory.bench.orders directly, not this index.\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 5,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 2,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01XDf74Fi2SCSTsgL5PQ3A1Y",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/audit/metrics/timeseries\\nGet audit timeseries\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/metrics/timeseries\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/admin/audit/metrics/enrichment\\nGet enrichment metrics\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/metrics/enrichment\",\n          \"score\": 0.6335271412631721\n        },\n        {\n          \"text\": \"GET /api/v1/portal/collections/{id}/signoff\\nCollection sign-off summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/{id}/signoff\",\n          \"score\": 0.6276511800201731\n        },\n        {\n          \"text\": \"GET /api/v1/admin/audit/metrics/discovery\\nGet discovery pattern metrics\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/metrics/discovery\",\n          \"score\": 0.5318493741397011\n        },\n        {\n          \"text\": \"GET /api/v1/portal/activity/timeseries\\nGet activity timeseries\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/activity/timeseries\",\n          \"score\": 0.4814708831814288\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"create-a-report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:26710eae-88e1-41e8-86b0-7ed9cbf076cc\"\n        },\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.9945150275494574,\n          \"reference\": \"mcp:prompt:c7b70f1c-0507-44bf-9613-149b8643ab92\"\n        },\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 0.4862655230585445,\n          \"reference\": \"mcp:prompt:7776db21-8b09-42ad-9e15-08b6686cb06c\"\n        },\n        {\n          \"text\": \"create-interactive-dashboard\\nDiscover data, build a visualization, and save it as a shareable asset\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-interactive-dashboard\",\n          \"score\": 0.47328180687429083,\n          \"reference\": \"mcp:prompt:1285bdf1-af1f-4569-a9b4-3addcc3a5c12\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 5,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01Ga8nH3dKmLt5cB4T4AwfrL",
+          "name": "datahub_get_schema",
+          "args": {
+            "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01Ga8nH3dKmLt5cB4T4AwfrL",
+          "text": "{\n  \"fields\": null\n}\n{\"query_context\":{\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\":{\"available\":true,\"query_table\":\"memory.bench.daily_region_revenue\",\"connection\":\"e2e-trino\",\"available_connections\":[\"e2e\"],\"schema_preview\":[{\"name\":\"day\",\"type\":\"date\"},{\"name\":\"region\",\"type\":\"varchar\"},{\"name\":\"gross_revenue_usd\",\"type\":\"double\"}],\"total_columns\":3}}}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "This dataset has a `region` column, confirming it's the relevant dataset for a \"focus region\" definition. Now saving the knowledge and linking it.",
+      "tool_calls": [
+        {
+          "id": "toolu_01THBcwP5qkMFLjDvurwLB3L",
+          "name": "memory_capture",
+          "args": {
+            "category": "business_context",
+            "confidence": "high",
+            "content": "Working definition for this analysis: the 'focus region' is West. When filtering/aggregating by region for this study, restrict to region = 'West' (as found in the `region` column of memory.bench.daily_region_revenue, and any related orders/region datasets in the bench warehouse) unless explicitly told otherwise.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)"
+            ],
+            "source": "user",
+            "type": "business_knowledge"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01THBcwP5qkMFLjDvurwLB3L",
+          "text": "{\n  \"id\": \"64e39d236862e43e61d7fb983c00686f\",\n  \"sink_class\": \"business_knowledge\",\n  \"status\": \"active\",\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: the working definition **\"focus region = West\"** for this study, captured as business knowledge and linked to `memory.bench.daily_region_revenue` (which has the `region` column relevant to this analysis). It's pending review before promotion to a shared knowledge page, but is retrievable immediately via search/memory in future sessions."
+    }
+  ]
+}

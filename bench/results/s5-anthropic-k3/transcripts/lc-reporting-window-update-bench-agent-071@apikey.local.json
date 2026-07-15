@@ -1,0 +1,66 @@
+{
+  "protocol_id": "lc-reporting-window",
+  "stage": "update",
+  "identity": "teacher",
+  "email": "bench-agent-071@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "Correction to the definition I gave you earlier. The 'reporting window' is now calendar quarter 3 of 2025 (July through September). Please update your saved knowledge so future answers use this corrected definition."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01TfzTp8h5BuuKEeWfPGHT64",
+          "name": "search",
+          "args": {
+            "intent": "reporting window definition"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01TfzTp8h5BuuKEeWfPGHT64",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs/jobs\\nIndex-jobs drill-down list\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs/jobs\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs/failures\\nActive failure-triage units\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs/failures\",\n          \"score\": 0.9765177191079767\n        },\n        {\n          \"text\": \"GET /api/v1/admin/audit/metrics/performance\\nGet audit performance\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/metrics/performance\",\n          \"score\": 0.8293983575293241\n        },\n        {\n          \"text\": \"POST /api/v1/admin/prompts/{id}/approve\\nApprove prompt promotion\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:POST /admin/prompts/{id}/approve\",\n          \"score\": 0.710276179391652\n        },\n        {\n          \"text\": \"PATCH /api/v1/portal/threads/{id}\\nUpdate a feedback thread\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:PATCH /portal/threads/{id}\",\n          \"score\": 0.5858414178894634\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        },\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 0.9113690397945872,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        },\n        {\n          \"text\": \"Peak Region Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_0fec3450-4ca3-4438-a99e-8bba023875a8\",\n          \"score\": 0.7744215921946589,\n          \"reference\": \"mcp:knowledge_page:kp_0fec3450-4ca3-4438-a99e-8bba023875a8\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition for this study: the 'reporting window' is calendar quarter 1 of 2025 (Q1 2025), i.e. January 1, 2025 through March 31, 2025 inclusive. All analyses for this study that reference \\\"the reporting window\\\" should filter to this date range. This applies to the orders dataset (memory.bench.orders) used for order/revenue analysis in this study.\",\n          \"source\": \"insights\",\n          \"ref\": \"cfb2b112b601c989adac6aa25143d7eb\",\n          \"score\": 1,\n          \"status\": \"pending\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-071@apikey.local\",\n          \"reference\": \"mcp:insight:cfb2b112b601c989adac6aa25143d7eb\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"create-a-report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:b4392ca8-c06e-40fa-9e10-d24879232c49\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 12,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_013xHTU6Nkzt2ar6WfctCM3C",
+          "name": "memory_capture",
+          "args": {
+            "category": "correction",
+            "confidence": "high",
+            "content": "Correction: the 'reporting window' definition has been updated. It is now calendar quarter 3 of 2025 (Q3 2025), i.e. July 1, 2025 through September 30, 2025 inclusive. This supersedes the earlier definition of Q1 2025 (Jan 1 - Mar 31, 2025). All future analyses referencing \"the reporting window\" should filter to this new date range. This applies to the orders dataset (memory.bench.orders) used for order/revenue analysis.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+            ],
+            "type": "business_knowledge"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_013xHTU6Nkzt2ar6WfctCM3C",
+          "text": "{\n  \"id\": \"df0154b396749cc25666be58bd0971cd\",\n  \"sink_class\": \"business_knowledge\",\n  \"status\": \"active\",\n  \"superseded\": \"cfb2b112b601c989adac6aa25143d7eb\",\n  \"superseded_ids\": [\n    \"cfb2b112b601c989adac6aa25143d7eb\"\n  ],\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog. 1 prior record(s) superseded.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: the \"reporting window\" is now defined as Q3 2025 (July 1 – Sept 30, 2025), linked to `memory.bench.orders`, superseding the earlier Q1 2025 definition (insight `cfb2b112b601c989adac6aa25143d7eb`) — recorded as insight `df0154b396749cc25666be58bd0971cd`, pending review for promotion to shared knowledge."
+    }
+  ]
+}

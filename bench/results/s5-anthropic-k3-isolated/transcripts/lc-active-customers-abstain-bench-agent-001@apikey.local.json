@@ -1,0 +1,346 @@
+{
+  "protocol_id": "lc-active-customers",
+  "stage": "abstain",
+  "identity": "teacher",
+  "email": "bench-agent-001@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "What is the average lifetime value of an active customer, in USD?"
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01R2PGeSacETisYSCYs5nrkY",
+          "name": "search",
+          "args": {
+            "intent": "average lifetime value of an active customer"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01R2PGeSacETisYSCYs5nrkY",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/portal/activity/overview\\nGet activity overview\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/activity/overview\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs/failures\\nActive failure-triage units\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs/failures\",\n          \"score\": 0.9484241239036184\n        },\n        {\n          \"text\": \"GET /api/v1/portal/me\\nGet current user info\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/me\",\n          \"score\": 0.8446430656435775\n        },\n        {\n          \"text\": \"GET /api/v1/portal/collections/{id}/signoff\\nCollection sign-off summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/{id}/signoff\",\n          \"score\": 0.7483898703952544\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:09b27d11-248d-4eb9-9856-fa0df20d1858\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.9131058070220403,\n          \"reference\": \"mcp:prompt:6f42f663-66a9-4979-af44-3e527acb0be6\"\n        },\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.8621561178231281,\n          \"reference\": \"mcp:prompt:bf4d585f-c91d-472c-98f9-3c93a71f8b20\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.8538832143704915,\n          \"reference\": \"mcp:prompt:539fc33a-c09a-4c70-af41-160efb21e940\"\n        }\n      ]\n    },\n    {\n      \"source\": \"connections\",\n      \"hits\": [\n        {\n          \"text\": \"platform-admin (api)\\nBuilt-in self-configuration connection. Routes the API gateway to the platform's own admin REST API (`/api/v1/admin/*`) so an admin can create personas, manage connections, edit agent instructions, and manage prompts and API keys directly from an MCP session. Calls are authenticated and audited as the acting admin.\",\n          \"source\": \"connections\",\n          \"ref\": \"platform-admin\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(api,platform-admin)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: An 'active customer' is any customer who has placed at least one order (i.e., customer_id appears at least once in the orders table, memory.bench.orders, joined via customer_id). This defines the 'active' customer segment for analysis on the memory.bench.customers dataset.\",\n          \"source\": \"insights\",\n          \"ref\": \"a5134cfb328ccfcb6788b65c4f5bb94f\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-001@apikey.local\",\n          \"reference\": \"mcp:insight:a5134cfb328ccfcb6788b65c4f5bb94f\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"connections\",\n      \"matched\": 1,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_012bNEW699jnj52owXDN4dVd",
+          "name": "search",
+          "args": {
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+            ],
+            "intent": "customer lifetime value column definition"
+          }
+        },
+        {
+          "id": "toolu_01ECHd3sdyQkmJe4B2EJTUZ8",
+          "name": "trino_describe_table",
+          "args": {
+            "catalog": "memory",
+            "schema": "bench",
+            "table": "customers"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_012bNEW699jnj52owXDN4dVd",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs/failures\\nActive failure-triage units\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs/failures\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/portal/collections/{id}/signoff\\nCollection sign-off summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/{id}/signoff\",\n          \"score\": 0.8337709507605523\n        },\n        {\n          \"text\": \"GET /api/v1/portal/memory/records/search\\nSearch my memory records\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/memory/records/search\",\n          \"score\": 0.719335938408304\n        },\n        {\n          \"text\": \"GET /api/v1/portal/collections/search\\nSearch my collections\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/search\",\n          \"score\": 0.5586110655750857\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:6f42f663-66a9-4979-af44-3e527acb0be6\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.9898109912384118,\n          \"reference\": \"mcp:prompt:539fc33a-c09a-4c70-af41-160efb21e940\"\n        },\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 0.6728674471539376,\n          \"reference\": \"mcp:prompt:09b27d11-248d-4eb9-9856-fa0df20d1858\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"memory.bench.customers\\nThe 'target cohort' is the set of customers whose account was created during calendar year 2024.\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: An 'active customer' is any customer who has placed at least one order (i.e., customer_id appears at least once in the orders table, memory.bench.orders, joined via customer_id). This defines the 'active' customer segment for analysis on the memory.bench.customers dataset.\",\n          \"source\": \"insights\",\n          \"ref\": \"a5134cfb328ccfcb6788b65c4f5bb94f\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-001@apikey.local\",\n          \"reference\": \"mcp:insight:a5134cfb328ccfcb6788b65c4f5bb94f\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Active Customer Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_564cd66b-5079-463d-97b9-5435f5618605\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"reference\": \"mcp:knowledge_page:kp_564cd66b-5079-463d-97b9-5435f5618605\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 1,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 1,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01ECHd3sdyQkmJe4B2EJTUZ8",
+          "text": "## Table: `memory.bench.customers`\n\n### Columns\n\n| Name | Type | Nullable | Comment |\n|------|------|----------|----------|\n| `customer_id` | integer | - | - |\n| `name` | varchar | - | - |\n| `region` | varchar | - | - |\n| `tier` | varchar | - | - |\n| `created_at` | timestamp(3) | - | - |\n\n*5 columns*\n{\"semantic_context\":{\"custom_properties\":{\"team\":\"bench\"},\"deprecation\":null,\"description\":\"The 'target cohort' is the set of customers whose account was created during calendar year 2024.\",\"domain\":null,\"owners\":null,\"quality_score\":null,\"tags\":[\"bench\"],\"urn\":\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"}}\n{\"memory_context\":[{\"id\":\"a5134cfb328ccfcb6788b65c4f5bb94f\",\"reference\":\"mcp:memory:a5134cfb328ccfcb6788b65c4f5bb94f\",\"summary\":\"Working definition: An 'active customer' is any customer who has placed at least one order (i.e., customer_id appears at least once in the orders table, memory.bench.orders, joined via customer_id). This defines the 'active' customer segment for analysis on the memory.bench.custo\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-07-14T20:48:14.564306Z\"}]}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01V1nJchYhz3oZMRBSkyC34F",
+          "name": "trino_describe_table",
+          "args": {
+            "catalog": "memory",
+            "schema": "bench",
+            "table": "orders"
+          }
+        },
+        {
+          "id": "toolu_01SKLgS7YWb6CRGWnquWbXTc",
+          "name": "search",
+          "args": {
+            "intent": "lifetime value definition calculation LTV"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01V1nJchYhz3oZMRBSkyC34F",
+          "text": "## Table: `memory.bench.orders`\n\n### Columns\n\n| Name | Type | Nullable | Comment |\n|------|------|----------|----------|\n| `order_id` | integer | - | - |\n| `customer_id` | integer | - | - |\n| `order_ts` | timestamp(3) | - | - |\n| `status` | varchar | - | - |\n| `amount` | integer | - | - |\n| `discount` | integer | - | - |\n\n*6 columns*\n{\"semantic_context\":{\"custom_properties\":{\"team\":\"bench\",\"unit\":\"cents\"},\"deprecation\":null,\"description\":\"In our reports 'top-line' means gross revenue: the sum of the amount column over completed orders, with no discount subtracted.\",\"domain\":null,\"owners\":null,\"quality_score\":null,\"tags\":[\"bench\"],\"urn\":\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"}}\n{\"memory_context\":[{\"id\":\"a5134cfb328ccfcb6788b65c4f5bb94f\",\"reference\":\"mcp:memory:a5134cfb328ccfcb6788b65c4f5bb94f\",\"summary\":\"Working definition: An 'active customer' is any customer who has placed at least one order (i.e., customer_id appears at least once in the orders table, memory.bench.orders, joined via customer_id). This defines the 'active' customer segment for analysis on the memory.bench.custo\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-07-14T20:48:14.564306Z\"}]}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01SKLgS7YWb6CRGWnquWbXTc",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/portal/knowledge-pages/{id}/versions\\nList a knowledge page's version history\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/knowledge-pages/{id}/versions\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs/failures\\nActive failure-triage units\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs/failures\",\n          \"score\": 0.9637236609221566\n        },\n        {\n          \"text\": \"GET /api/v1/admin/connections/{kind}/{name}/auth-events\\nOAuth lifecycle history for a connection\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/connections/{kind}/{name}/auth-events\",\n          \"score\": 0.8485217945442699\n        },\n        {\n          \"text\": \"GET /api/v1/admin/audit/metrics/performance\\nGet audit performance\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/metrics/performance\",\n          \"score\": 0.6788486940269318\n        },\n        {\n          \"text\": \"GET /api/v1/portal/collections/{id}/signoff\\nCollection sign-off summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/{id}/signoff\",\n          \"score\": 0.6490840852658508\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:09b27d11-248d-4eb9-9856-fa0df20d1858\"\n        },\n        {\n          \"text\": \"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_apply_guidance\",\n          \"score\": 0.6354630570809567,\n          \"reference\": \"mcp:prompt:4e3c4a88-ee59-486b-af4d-5b314d67e5fa\"\n        },\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.5723402664218388,\n          \"reference\": \"mcp:prompt:bf4d585f-c91d-472c-98f9-3c93a71f8b20\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.49554135264228905,\n          \"reference\": \"mcp:prompt:539fc33a-c09a-4c70-af41-160efb21e940\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: An 'active customer' is any customer who has placed at least one order (i.e., customer_id appears at least once in the orders table, memory.bench.orders, joined via customer_id). This defines the 'active' customer segment for analysis on the memory.bench.customers dataset.\",\n          \"source\": \"insights\",\n          \"ref\": \"a5134cfb328ccfcb6788b65c4f5bb94f\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-001@apikey.local\",\n          \"reference\": \"mcp:insight:a5134cfb328ccfcb6788b65c4f5bb94f\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01U8SkAsuUkrn99GAbyExPzM",
+          "name": "search",
+          "args": {
+            "intent": "customer lifetime value",
+            "sources": [
+              "knowledge_pages"
+            ]
+          }
+        },
+        {
+          "id": "toolu_01ADRLHq85pc3YfXic7qqZNe",
+          "name": "datahub_get_glossary_term",
+          "args": {
+            "urn": "urn:li:glossaryTerm:LifetimeValue"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01U8SkAsuUkrn99GAbyExPzM",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01ADRLHq85pc3YfXic7qqZNe",
+          "text": "{\n  \"urn\": \"urn:li:glossaryTerm:LifetimeValue\",\n  \"name\": \"LifetimeValue\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_015oCLwn2ior7nwzw5dmAcxd",
+          "name": "search",
+          "args": {
+            "offset": 0,
+            "sources": [
+              "knowledge_pages"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_015oCLwn2ior7nwzw5dmAcxd",
+          "text": "{\n  \"source\": \"knowledge_pages\",\n  \"total\": 5,\n  \"offset\": 0,\n  \"limit\": 50,\n  \"count\": 5,\n  \"items\": [\n    {\n      \"text\": \"Active Customer Definition\",\n      \"source\": \"knowledge_pages\",\n      \"ref\": \"kp_564cd66b-5079-463d-97b9-5435f5618605\",\n      \"score\": 0,\n      \"reference\": \"mcp:knowledge_page:kp_564cd66b-5079-463d-97b9-5435f5618605\"\n    },\n    {\n      \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n      \"source\": \"knowledge_pages\",\n      \"ref\": \"kp-bench-1\",\n      \"score\": 0,\n      \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n    },\n    {\n      \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n      \"source\": \"knowledge_pages\",\n      \"ref\": \"kp-bench-2\",\n      \"score\": 0,\n      \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n    },\n    {\n      \"text\": \"Fiscal Calendar Policy\\nThe fiscal year starts February 1: fiscal year 2025 runs 2025-02-01 through 2026-01-31. Fiscal figures must not be computed over the calendar year.\",\n      \"source\": \"knowledge_pages\",\n      \"ref\": \"kp-bench-3\",\n      \"score\": 0,\n      \"reference\": \"mcp:knowledge_page:kp-bench-3\"\n    },\n    {\n      \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n      \"source\": \"knowledge_pages\",\n      \"ref\": \"kp-bench-4\",\n      \"score\": 0,\n      \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n    }\n  ]\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01BVr6d59zGdf2z7nfUrEhE2",
+          "name": "search",
+          "args": {
+            "context": "customer lifetime value LTV calculation for active customers",
+            "intent": "lifetime value definition",
+            "sources": [
+              "knowledge_pages"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01BVr6d59zGdf2z7nfUrEhE2",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_011Y4xJXD8LvUU7M8hxDXxWm",
+          "name": "search",
+          "args": {
+            "intent": "LTV lifetime value per customer definition formula"
+          }
+        },
+        {
+          "id": "toolu_01Xo1UwZDfFhSnNa9FvNxCvz",
+          "name": "search",
+          "args": {
+            "intent": "lifetime value customer",
+            "sources": [
+              "insights",
+              "memory"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_011Y4xJXD8LvUU7M8hxDXxWm",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs/failures\\nActive failure-triage units\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs/failures\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/portal/collections/{id}/signoff\\nCollection sign-off summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/{id}/signoff\",\n          \"score\": 0.8391398698994313\n        },\n        {\n          \"text\": \"GET /api/v1/portal/assets/{id}/signoff\\nAsset sign-off summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/assets/{id}/signoff\",\n          \"score\": 0.5717608461075011\n        },\n        {\n          \"text\": \"GET /api/v1/portal/collections/search\\nSearch my collections\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/search\",\n          \"score\": 0.5092412619267915\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:09b27d11-248d-4eb9-9856-fa0df20d1858\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.5933224440087659,\n          \"reference\": \"mcp:prompt:6f42f663-66a9-4979-af44-3e527acb0be6\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.587767813899536,\n          \"reference\": \"mcp:prompt:539fc33a-c09a-4c70-af41-160efb21e940\"\n        },\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.5345867745209126,\n          \"reference\": \"mcp:prompt:bf4d585f-c91d-472c-98f9-3c93a71f8b20\"\n        }\n      ]\n    },\n    {\n      \"source\": \"connections\",\n      \"hits\": [\n        {\n          \"text\": \"platform-admin (api)\\nBuilt-in self-configuration connection. Routes the API gateway to the platform's own admin REST API (`/api/v1/admin/*`) so an admin can create personas, manage connections, edit agent instructions, and manage prompts and API keys directly from an MCP session. Calls are authenticated and audited as the acting admin.\",\n          \"source\": \"connections\",\n          \"ref\": \"platform-admin\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(api,platform-admin)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: An 'active customer' is any customer who has placed at least one order (i.e., customer_id appears at least once in the orders table, memory.bench.orders, joined via customer_id). This defines the 'active' customer segment for analysis on the memory.bench.customers dataset.\",\n          \"source\": \"insights\",\n          \"ref\": \"a5134cfb328ccfcb6788b65c4f5bb94f\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-001@apikey.local\",\n          \"reference\": \"mcp:insight:a5134cfb328ccfcb6788b65c4f5bb94f\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"connections\",\n      \"matched\": 1,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01Xo1UwZDfFhSnNa9FvNxCvz",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: An 'active customer' is any customer who has placed at least one order (i.e., customer_id appears at least once in the orders table, memory.bench.orders, joined via customer_id). This defines the 'active' customer segment for analysis on the memory.bench.customers dataset.\",\n          \"source\": \"insights\",\n          \"ref\": \"a5134cfb328ccfcb6788b65c4f5bb94f\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-001@apikey.local\",\n          \"reference\": \"mcp:insight:a5134cfb328ccfcb6788b65c4f5bb94f\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"insights\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 1,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_014SB9G5CJRSBDva3BSmhqRz",
+          "name": "search",
+          "args": {
+            "intent": "Active Customer Definition page full details lifetime value"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_014SB9G5CJRSBDva3BSmhqRz",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/portal/activity/overview\\nGet activity overview\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/activity/overview\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs/failures\\nActive failure-triage units\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs/failures\",\n          \"score\": 0.9247350599062107\n        },\n        {\n          \"text\": \"GET /api/v1/portal/me\\nGet current user info\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/me\",\n          \"score\": 0.8671141424339219\n        },\n        {\n          \"text\": \"GET /api/v1/portal/knowledge-pages/{id}/versions\\nList a knowledge page's version history\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/knowledge-pages/{id}/versions\",\n          \"score\": 0.775016709068728\n        },\n        {\n          \"text\": \"GET /api/v1/portal/collections/{id}/signoff\\nCollection sign-off summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/{id}/signoff\",\n          \"score\": 0.734603538119011\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:bf4d585f-c91d-472c-98f9-3c93a71f8b20\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.7630631588819325,\n          \"reference\": \"mcp:prompt:6f42f663-66a9-4979-af44-3e527acb0be6\"\n        },\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 0.7315090221437541,\n          \"reference\": \"mcp:prompt:09b27d11-248d-4eb9-9856-fa0df20d1858\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.7195106265267613,\n          \"reference\": \"mcp:prompt:539fc33a-c09a-4c70-af41-160efb21e940\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: An 'active customer' is any customer who has placed at least one order (i.e., customer_id appears at least once in the orders table, memory.bench.orders, joined via customer_id). This defines the 'active' customer segment for analysis on the memory.bench.customers dataset.\",\n          \"source\": \"insights\",\n          \"ref\": \"a5134cfb328ccfcb6788b65c4f5bb94f\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-001@apikey.local\",\n          \"reference\": \"mcp:insight:a5134cfb328ccfcb6788b65c4f5bb94f\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01MthTn9MiVutDrfns7RibRy",
+          "name": "search",
+          "args": {
+            "intent": "Active Customer Definition lifetime value calculation body content",
+            "sources": [
+              "knowledge_pages"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01MthTn9MiVutDrfns7RibRy",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01YF4hu7NocwxuPj89a1xd1k",
+          "name": "search",
+          "args": {
+            "intent": "kp_564cd66b-5079-463d-97b9-5435f5618605"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01YF4hu7NocwxuPj89a1xd1k",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/portal/knowledge-pages/{id}/versions\\nList a knowledge page's version history\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/knowledge-pages/{id}/versions\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/portal/collections/{id}/signoff\\nCollection sign-off summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/{id}/signoff\",\n          \"score\": 0.9511467303269182\n        },\n        {\n          \"text\": \"GET /api/v1/admin/personas\\nList personas\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/personas\",\n          \"score\": 0.8898623734414538\n        },\n        {\n          \"text\": \"GET /api/v1/admin/personas/{name}\\nGet persona\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/personas/{name}\",\n          \"score\": 0.7743261234243126\n        },\n        {\n          \"text\": \"GET /api/v1/portal/knowledge-pages\\nList knowledge pages\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/knowledge-pages\",\n          \"score\": 0.6642668771054987\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_apply_guidance\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:4e3c4a88-ee59-486b-af4d-5b314d67e5fa\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.7868528726115732,\n          \"reference\": \"mcp:prompt:6f42f663-66a9-4979-af44-3e527acb0be6\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.6014627340430548,\n          \"reference\": \"mcp:prompt:539fc33a-c09a-4c70-af41-160efb21e940\"\n        },\n        {\n          \"text\": \"show-my-saved-assets\\nBrowse your saved artifacts and assets\",\n          \"source\": \"prompts\",\n          \"ref\": \"show-my-saved-assets\",\n          \"score\": 0.47384672188831656,\n          \"reference\": \"mcp:prompt:054c278f-5296-42eb-815b-952ad89db9e5\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: An 'active customer' is any customer who has placed at least one order (i.e., customer_id appears at least once in the orders table, memory.bench.orders, joined via customer_id). This defines the 'active' customer segment for analysis on the memory.bench.customers dataset.\",\n          \"source\": \"insights\",\n          \"ref\": \"a5134cfb328ccfcb6788b65c4f5bb94f\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-001@apikey.local\",\n          \"reference\": \"mcp:insight:a5134cfb328ccfcb6788b65c4f5bb94f\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01JcFGR9zNesmh6rX11o7CXB",
+          "name": "search",
+          "args": {
+            "intent": "what is lifetime value LTV means net revenue per customer",
+            "sources": [
+              "catalog"
+            ]
+          }
+        },
+        {
+          "id": "toolu_01KXvzqLBRJNQw5AM1unAXkj",
+          "name": "datahub_get_entity",
+          "args": {
+            "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "text": "The tool-call budget is exhausted. Give your FINAL ANSWER now using the information gathered so far.",
+      "tool_results": [
+        {
+          "call_id": "toolu_01JcFGR9zNesmh6rX11o7CXB",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01KXvzqLBRJNQw5AM1unAXkj",
+          "text": "tool-call budget exhausted; no further tool calls are executed",
+          "is_error": true
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "FINAL ANSWER: INSUFFICIENT INFORMATION"
+    }
+  ]
+}

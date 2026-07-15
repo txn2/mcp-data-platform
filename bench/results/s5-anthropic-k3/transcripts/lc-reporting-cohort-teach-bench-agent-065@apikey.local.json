@@ -1,0 +1,183 @@
+{
+  "protocol_id": "lc-reporting-cohort",
+  "stage": "teach",
+  "identity": "teacher",
+  "email": "bench-agent-065@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. The 'reporting cohort' is the set of orders placed in December 2025. Please save this definition to memory now and link it to the dataset it concerns."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01Jyo47QvtreewYdCSt5FpCf",
+          "name": "search",
+          "args": {
+            "intent": "orders dataset table for order placement date, used for cohort analysis"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01Jyo47QvtreewYdCSt5FpCf",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/api-catalogs/{id}/embedding-status\\nList catalog embedding statuses\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/api-catalogs/{id}/embedding-status\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs/jobs\\nIndex-jobs drill-down list\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs/jobs\",\n          \"score\": 0.9086751652847235\n        },\n        {\n          \"text\": \"GET /api/v1/portal/memory/records/search\\nSearch my memory records\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/memory/records/search\",\n          \"score\": 0.8435822913183564\n        },\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs\\nCross-kind index-jobs health summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs\",\n          \"score\": 0.7582590678641857\n        },\n        {\n          \"text\": \"GET /api/v1/admin/api-catalogs/{id}/embedding-jobs\\nList catalog embedding jobs\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/api-catalogs/{id}/embedding-jobs\",\n          \"score\": 0.7478358865212187\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Priority Order Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_a39437c6-af58-4abb-81b0-c904e6060a0a\",\n          \"score\": 0.7282394972920109,\n          \"reference\": \"mcp:knowledge_page:kp_a39437c6-af58-4abb-81b0-c904e6060a0a\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:a8ca1366-a5d1-4d00-a6e3-5ffbc039cf33\"\n        },\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.8177457719114313,\n          \"reference\": \"mcp:prompt:74f538d8-a70c-4b21-b506-5ef339f02149\"\n        }\n      ]\n    },\n    {\n      \"source\": \"connections\",\n      \"hits\": [\n        {\n          \"text\": \"platform-admin (api)\\nBuilt-in self-configuration connection. Routes the API gateway to the platform's own admin REST API (`/api/v1/admin/*`) so an admin can create personas, manage connections, edit agent instructions, and manage prompts and API keys directly from an MCP session. Calls are authenticated and audited as the acting admin.\",\n          \"source\": \"connections\",\n          \"ref\": \"platform-admin\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(api,platform-admin)\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 12,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"connections\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01STk2c4VtmPydxC5C2h5jEn",
+          "name": "search",
+          "args": {
+            "intent": "orders table dataset",
+            "sources": [
+              "catalog"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01STk2c4VtmPydxC5C2h5jEn",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01RpX1bsQd3bD8MkzQFMQSEG",
+          "name": "trino_browse",
+          "args": {}
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01RpX1bsQd3bD8MkzQFMQSEG",
+          "text": "## Available Catalogs\n\n- `memory`\n- `system`\n\n*2 catalogs found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01QuopbAh1PBijENkhm6W6Q6",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "memory"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01QuopbAh1PBijENkhm6W6Q6",
+          "text": "## Schemas in `memory`\n\n- `bench`\n- `default`\n- `e2e_test`\n- `information_schema`\n\n*4 schemas found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01UM1CucEeKKw8MRBkNMHUnY",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "memory",
+            "schema": "bench"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01UM1CucEeKKw8MRBkNMHUnY",
+          "text": "## Tables in `memory.bench`\n\n- `customers`\n- `daily_region_revenue`\n- `legacy_orders`\n- `orders`\n\n*4 tables found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01AcCJB9J2MijtRXx2vqkpau",
+          "name": "search",
+          "args": {
+            "intent": "orders",
+            "sources": [
+              "catalog"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01AcCJB9J2MijtRXx2vqkpau",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"orders\\nCurrent order transactions, one row per order. Monetary columns (amount, discount) are stored as INTEGERS IN US CENTS; divide by 100 for USD. Company revenue reporting policy: revenue = amount - discount, COMPLETED orders only (refunded and pending orders are excluded). See the 'Revenue Reporting Policy' knowledge page for the authoritative definition.\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n        },\n        {\n          \"text\": \"legacy_orders\\nDEPRECATED order extract from the retired ingestion pipeline. Partial coverage, totals in dollars. Use memory.bench.orders for all order analysis.\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\",\n          \"score\": 0.49999999999999994,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)\"\n        },\n        {\n          \"text\": \"daily_region_revenue\\nPre-aggregated daily revenue by region, derived from completed orders. Values are GROSS of discounts (USD), so this index must not be used for policy net-revenue figures; use memory.bench.orders per the Revenue Reporting Policy.\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\",\n          \"score\": 0,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"catalog\",\n      \"matched\": 3,\n      \"shown\": 3\n    }\n  ],\n  \"count\": 3,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Found the dataset: `memory.bench.orders`. Now I'll save the reporting cohort definition, linked to it.",
+      "tool_calls": [
+        {
+          "id": "toolu_01RwDMCQNmDrj8f8dbK8AyFx",
+          "name": "memory_capture",
+          "args": {
+            "category": "business_context",
+            "confidence": "high",
+            "content": "Working definition: the 'reporting cohort' refers to the set of orders placed in December 2025 (i.e., orders in memory.bench.orders with order placement date between 2025-12-01 and 2025-12-31 inclusive). Apply this definition consistently in future analyses that reference the 'reporting cohort'.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+            ],
+            "source": "user",
+            "type": "business_knowledge"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01RwDMCQNmDrj8f8dbK8AyFx",
+          "text": "{\n  \"id\": \"4792cdd89e5e24928793b8c06bd59239\",\n  \"sink_class\": \"business_knowledge\",\n  \"status\": \"active\",\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: the \"reporting cohort\" = orders placed in December 2025, captured as business knowledge (id `4792cdd89e5e24928793b8c06bd59239`) and linked to the `memory.bench.orders` dataset for future recall."
+    }
+  ]
+}

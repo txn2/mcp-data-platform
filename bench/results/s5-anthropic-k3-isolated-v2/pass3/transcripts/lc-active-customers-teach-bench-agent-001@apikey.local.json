@@ -1,0 +1,139 @@
+{
+  "protocol_id": "lc-active-customers",
+  "stage": "teach",
+  "identity": "teacher",
+  "email": "bench-agent-001@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. An 'active customer' is any customer who has placed at least one order. Please save this definition to memory now and link it to the dataset it concerns."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_017LphFYH1xibeG4GeQAWHo2",
+          "name": "search",
+          "args": {
+            "intent": "customer table definition, active customer, orders relationship"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_017LphFYH1xibeG4GeQAWHo2",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs/failures\\nActive failure-triage units\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs/failures\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/portal/collections/search\\nSearch my collections\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/search\",\n          \"score\": 0.6284091617725663\n        },\n        {\n          \"text\": \"GET /api/v1/portal/memory/records/search\\nSearch my memory records\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/memory/records/search\",\n          \"score\": 0.37094790485107404\n        },\n        {\n          \"text\": \"GET /api/v1/admin/api-catalogs/{id}/embedding-status\\nList catalog embedding statuses\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/api-catalogs/{id}/embedding-status\",\n          \"score\": 0.31926626130467933\n        },\n        {\n          \"text\": \"POST /api/v1/admin/prompts/{id}/approve\\nApprove prompt promotion\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:POST /admin/prompts/{id}/approve\",\n          \"score\": 0.30793466368084516\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:58ecbc43-efa1-4f5d-865a-4b13bb773822\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.961340679535048,\n          \"reference\": \"mcp:prompt:f7ddc61b-5c0b-41ce-9dbc-afcac1369ef7\"\n        },\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.8973705893185894,\n          \"reference\": \"mcp:prompt:ac9e86da-62bd-4b95-a671-e7a0501e63aa\"\n        },\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 0.8678029452096415,\n          \"reference\": \"mcp:prompt:61744811-cab0-4a29-b948-7c29342f2ca6\"\n        },\n        {\n          \"text\": \"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_apply_guidance\",\n          \"score\": 0.6003457534041262,\n          \"reference\": \"mcp:prompt:ba1ec0af-1046-4806-8fad-eef9bf0ae20d\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 5\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01L6V2XpZTcETvB8anwTbBUY",
+          "name": "search",
+          "args": {
+            "intent": "customers table",
+            "sources": [
+              "catalog"
+            ]
+          }
+        },
+        {
+          "id": "toolu_019YXZLz9d8c773ccFPrgR58",
+          "name": "search",
+          "args": {
+            "intent": "orders table",
+            "sources": [
+              "catalog"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01L6V2XpZTcETvB8anwTbBUY",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_019YXZLz9d8c773ccFPrgR58",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_019UhBVvZaD4hTXEmYDWFfUx",
+          "name": "search",
+          "args": {
+            "intent": "customer"
+          }
+        },
+        {
+          "id": "toolu_01C6jdmUa4Z9Q2jgt6mQRZnC",
+          "name": "trino_browse",
+          "args": {}
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_019UhBVvZaD4hTXEmYDWFfUx",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"PUT /api/v1/portal/prompts/{id}\\nUpdate personal prompt\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:PUT /portal/prompts/{id}\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"POST /api/v1/portal/prompts/{id}/shares\\nShare a prompt\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:POST /portal/prompts/{id}/shares\",\n          \"score\": 0.9124067872345442\n        },\n        {\n          \"text\": \"POST /api/v1/admin/users\\nAdd a directory user\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:POST /admin/users\",\n          \"score\": 0.85751257926432\n        },\n        {\n          \"text\": \"PUT /api/v1/admin/prompts/{id}\\nUpdate prompt\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:PUT /admin/prompts/{id}\",\n          \"score\": 0.5528064587496989\n        },\n        {\n          \"text\": \"GET /api/v1/admin/users/{email}\\nGet directory user\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/users/{email}\",\n          \"score\": 0.531983606805951\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:f7ddc61b-5c0b-41ce-9dbc-afcac1369ef7\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.06333262687305354,\n          \"reference\": \"mcp:prompt:58ecbc43-efa1-4f5d-865a-4b13bb773822\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"customers\\nCustomer directory: one row per customer with profile attributes (name, region, tier, account created_at). Join key: customer_id.\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 2,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01C6jdmUa4Z9Q2jgt6mQRZnC",
+          "text": "## Available Catalogs\n\n- `memory`\n- `system`\n\n*2 catalogs found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Found the dataset: `memory.bench.customers`. Now I'll capture this as knowledge linked to it.",
+      "tool_calls": [
+        {
+          "id": "toolu_01RTijXefRg3YrQ53bXaEPug",
+          "name": "memory_capture",
+          "args": {
+            "category": "business_context",
+            "confidence": "high",
+            "content": "Working definition: An 'active customer' is any customer who has placed at least one order (i.e., exists at least one row in the orders table for that customer_id). This is a derived business definition, not stored as a column on the customers table.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+            ],
+            "type": "business_knowledge"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01RTijXefRg3YrQ53bXaEPug",
+          "text": "{\n  \"id\": \"e3aa79b8c4e04b97c5c0ba1a2d439089\",\n  \"sink_class\": \"business_knowledge\",\n  \"status\": \"active\",\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: the definition \"an active customer is any customer who has placed at least one order\" was captured as business knowledge (id e3aa79b8c4e04b97c5c0ba1a2d439089) and linked to the `memory.bench.customers` dataset, pending review for promotion to the shared catalog."
+    }
+  ]
+}

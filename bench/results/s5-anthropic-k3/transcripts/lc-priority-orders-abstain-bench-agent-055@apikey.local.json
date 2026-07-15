@@ -1,0 +1,118 @@
+{
+  "protocol_id": "lc-priority-orders",
+  "stage": "abstain",
+  "identity": "teacher",
+  "email": "bench-agent-055@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "How many warehouse inventory units back the priority orders?"
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01SJFQNEybqwEMPxqEpHtChe",
+          "name": "search",
+          "args": {
+            "intent": "priority orders warehouse inventory units backing"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01SJFQNEybqwEMPxqEpHtChe",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs/jobs\\nIndex-jobs drill-down list\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs/jobs\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs/failures\\nActive failure-triage units\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs/failures\",\n          \"score\": 0.7029137307799039\n        },\n        {\n          \"text\": \"POST /api/v1/admin/index-jobs/dismiss\\nDismiss a unit's open failures\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:POST /admin/index-jobs/dismiss\",\n          \"score\": 0.6542106944307722\n        },\n        {\n          \"text\": \"POST /api/v1/admin/index-jobs/reindex\\nRe-index (manual retry / force re-embed)\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:POST /admin/index-jobs/reindex\",\n          \"score\": 0.6488416763020619\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"House Tier Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_5c2d13b6-3caa-4dbb-a89c-ff4a9c3dfdf8\",\n          \"score\": 0.8011122385925977,\n          \"reference\": \"mcp:knowledge_page:kp_5c2d13b6-3caa-4dbb-a89c-ff4a9c3dfdf8\"\n        },\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 0.7352991353859204,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:a8ca1366-a5d1-4d00-a6e3-5ffbc039cf33\"\n        },\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.6675280295934043,\n          \"reference\": \"mcp:prompt:74f538d8-a70c-4b21-b506-5ef339f02149\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: a 'priority order' is any order in memory.bench.orders whose amount is at least $1,000.00 (i.e., amount \\u003e= 100000, since amount is stored as an integer in US cents). Apply this threshold (amount column \\u003e= 100000) whenever future analyses reference \\\"priority order\\\" for this dataset.\",\n          \"source\": \"insights\",\n          \"ref\": \"3202625350f8e8df429a7e54c5d76bbb\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-055@apikey.local\",\n          \"reference\": \"mcp:insight:3202625350f8e8df429a7e54c5d76bbb\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 11,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01HTs7bbXgFCijqQP9saAjJd",
+          "name": "search",
+          "args": {
+            "intent": "warehouse inventory units table",
+            "sources": [
+              "catalog"
+            ]
+          }
+        },
+        {
+          "id": "toolu_01WVGvtsbXzgCdAJBpCjivLG",
+          "name": "search",
+          "args": {
+            "intent": "inventory"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01HTs7bbXgFCijqQP9saAjJd",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01WVGvtsbXzgCdAJBpCjivLG",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/portal/assets\\nList assets\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/assets\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/portal/assets/{id}/versions\\nList asset versions\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/assets/{id}/versions\",\n          \"score\": 0.8716866097436242\n        },\n        {\n          \"text\": \"GET /api/v1/admin/api-catalogs/{id}/embedding-status\\nList catalog embedding statuses\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/api-catalogs/{id}/embedding-status\",\n          \"score\": 0.7582524518975869\n        },\n        {\n          \"text\": \"GET /api/v1/portal/collections/{id}/signoff\\nCollection sign-off summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/{id}/signoff\",\n          \"score\": 0.7393904853740882\n        },\n        {\n          \"text\": \"GET /api/v1/portal/collections\\nList collections\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections\",\n          \"score\": 0.7283812757320121\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 0.5082204961539107,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"show-my-saved-assets\\nBrowse your saved artifacts and assets\",\n          \"source\": \"prompts\",\n          \"ref\": \"show-my-saved-assets\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:b119a59c-fcd8-42d4-aa6d-d10032c79c6d\"\n        },\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.8606548929422929,\n          \"reference\": \"mcp:prompt:74f538d8-a70c-4b21-b506-5ef339f02149\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: a 'priority order' is any order in memory.bench.orders whose amount is at least $1,000.00 (i.e., amount \\u003e= 100000, since amount is stored as an integer in US cents). Apply this threshold (amount column \\u003e= 100000) whenever future analyses reference \\\"priority order\\\" for this dataset.\",\n          \"source\": \"insights\",\n          \"ref\": \"3202625350f8e8df429a7e54c5d76bbb\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-055@apikey.local\",\n          \"reference\": \"mcp:insight:3202625350f8e8df429a7e54c5d76bbb\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 11,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01S4Riv5pVoq45GPgzGtBSCJ",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "memory",
+            "schema": "bench"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01S4Riv5pVoq45GPgzGtBSCJ",
+          "text": "## Tables in `memory.bench`\n\n- `customers`\n- `daily_region_revenue`\n- `legacy_orders`\n- `orders`\n\n*4 tables found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01UNL65cT2QzKPYCU3QiweNy",
+          "name": "trino_browse",
+          "args": {}
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01UNL65cT2QzKPYCU3QiweNy",
+          "text": "## Available Catalogs\n\n- `memory`\n- `system`\n\n*2 catalogs found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "No warehouse inventory dataset exists in the catalog (only `memory.bench.customers`, `orders`, `legacy_orders`, `daily_region_revenue`), and no saved knowledge or insight references inventory units backing orders.\n\nFINAL ANSWER: INSUFFICIENT INFORMATION"
+    }
+  ]
+}

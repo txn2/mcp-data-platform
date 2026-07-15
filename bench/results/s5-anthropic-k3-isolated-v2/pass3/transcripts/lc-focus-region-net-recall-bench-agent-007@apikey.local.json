@@ -1,0 +1,155 @@
+{
+  "protocol_id": "lc-focus-region-net",
+  "stage": "recall",
+  "identity": "teacher",
+  "email": "bench-agent-007@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "What was the total net revenue for the focus region in calendar year 2025? Compute net revenue as amount minus discount over completed orders only, amounts are integer US cents (divide by 100), in USD rounded to the nearest cent."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01MxZ4UJSFuSEZopJhVHkfAN",
+          "name": "search",
+          "args": {
+            "intent": "focus region net revenue 2025 definition"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01MxZ4UJSFuSEZopJhVHkfAN",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/portal/collections/{id}/signoff\\nCollection sign-off summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/{id}/signoff\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/portal/threads/counts\\nCount open threads per target\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/threads/counts\",\n          \"score\": 0.9795656545230095\n        },\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs/failures\\nActive failure-triage units\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs/failures\",\n          \"score\": 0.6926453933605995\n        },\n        {\n          \"text\": \"GET /api/v1/admin/audit/metrics/timeseries\\nGet audit timeseries\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/metrics/timeseries\",\n          \"score\": 0.6843898876379919\n        },\n        {\n          \"text\": \"GET /api/v1/portal/collections/search\\nSearch my collections\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/search\",\n          \"score\": 0.6241373587273766\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        },\n        {\n          \"text\": \"Fiscal Calendar Policy\\nThe fiscal year starts February 1: fiscal year 2025 runs 2025-02-01 through 2026-01-31. Fiscal figures must not be computed over the calendar year.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-3\",\n          \"score\": 0.8457245569872335,\n          \"reference\": \"mcp:knowledge_page:kp-bench-3\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"create-a-report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:a171320e-2cc1-4089-ad12-5aa629e43a3f\"\n        },\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.6850596609866595,\n          \"reference\": \"mcp:prompt:ac9e86da-62bd-4b95-a671-e7a0501e63aa\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition for this analysis/study: the 'focus region' = West. When a task or query refers to the 'focus region' (without further qualification), it means region = 'West'. This applies to the `region` column on datasets in the bench warehouse (e.g. memory.bench.daily_region_revenue and memory.bench.customers) — filter/scope analyses to region = 'West' unless explicitly told otherwise.\",\n          \"source\": \"insights\",\n          \"ref\": \"4e40997c08e38f41f11443a6922662ac\",\n          \"score\": 1,\n          \"status\": \"pending\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-007@apikey.local\",\n          \"reference\": \"mcp:insight:4e40997c08e38f41f11443a6922662ac\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 5,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01MK7ggfnXnWf4eKzD5ZJoVe",
+          "name": "search",
+          "args": {
+            "intent": "orders table schema amount discount status region date"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01MK7ggfnXnWf4eKzD5ZJoVe",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/api-catalogs/{id}/embedding-status\\nList catalog embedding statuses\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/api-catalogs/{id}/embedding-status\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/admin/tools/schemas\\nGet tool schemas\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/tools/schemas\",\n          \"score\": 0.9424076473062267\n        },\n        {\n          \"text\": \"GET /api/v1/admin/embedding/status\\nGet embedding provider status\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/embedding/status\",\n          \"score\": 0.7761241011128961\n        },\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs\\nCross-kind index-jobs health summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs\",\n          \"score\": 0.6940620043085827\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:ac9e86da-62bd-4b95-a671-e7a0501e63aa\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.6526570280753641,\n          \"reference\": \"mcp:prompt:f7ddc61b-5c0b-41ce-9dbc-afcac1369ef7\"\n        },\n        {\n          \"text\": \"create-a-report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 0.6114258415614331,\n          \"reference\": \"mcp:prompt:a171320e-2cc1-4089-ad12-5aa629e43a3f\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 0.7190328357889358,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition for this analysis/study: the 'focus region' = West. When a task or query refers to the 'focus region' (without further qualification), it means region = 'West'. This applies to the `region` column on datasets in the bench warehouse (e.g. memory.bench.daily_region_revenue and memory.bench.customers) — filter/scope analyses to region = 'West' unless explicitly told otherwise.\",\n          \"source\": \"insights\",\n          \"ref\": \"4e40997c08e38f41f11443a6922662ac\",\n          \"score\": 1,\n          \"status\": \"pending\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-007@apikey.local\",\n          \"reference\": \"mcp:insight:4e40997c08e38f41f11443a6922662ac\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 5,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_016kGMxvXBua497mg7FTBe6J",
+          "name": "trino_describe_table",
+          "args": {
+            "catalog": "memory",
+            "include_sample": true,
+            "schema": "bench",
+            "table": "orders"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_016kGMxvXBua497mg7FTBe6J",
+          "text": "## Table: `memory.bench.orders`\n\n### Columns\n\n| Name | Type | Nullable | Comment |\n|------|------|----------|----------|\n| `order_id` | integer | - | - |\n| `customer_id` | integer | - | - |\n| `order_ts` | timestamp(3) | - | - |\n| `status` | varchar | - | - |\n| `amount` | integer | - | - |\n| `discount` | integer | - | - |\n\n*6 columns*\n\n### Sample Data\n\n```json\n[\n  {\n    \"amount\": 58692,\n    \"customer_id\": 71,\n    \"discount\": 13269,\n    \"order_id\": 1000,\n    \"order_ts\": \"2025-11-11T09:05:00-08:00\",\n    \"status\": \"completed\"\n  },\n  {\n    \"amount\": 252586,\n    \"customer_id\": 55,\n    \"discount\": 6080,\n    \"order_id\": 1001,\n    \"order_ts\": \"2025-11-07T12:28:00-08:00\",\n    \"status\": \"completed\"\n  },\n  {\n    \"amount\": 221661,\n    \"customer_id\": 41,\n    \"discount\": 6124,\n    \"order_id\": 1002,\n    \"order_ts\": \"2025-05-01T15:36:00-07:00\",\n    \"status\": \"completed\"\n  },\n  {\n    \"amount\": 176712,\n    \"customer_id\": 41,\n    \"discount\": 4162,\n    \"order_id\": 1003,\n    \"order_ts\": \"2025-07-15T17:18:00-07:00\",\n    \"status\": \"completed\"\n  },\n  {\n    \"amount\": 12979,\n    \"customer_id\": 3,\n    \"discount\": 1570,\n    \"order_id\": 1004,\n    \"order_ts\": \"2025-11-14T19:26:00-08:00\",\n    \"status\": \"completed\"\n  }\n]\n```\n{\"semantic_context\":{\"custom_properties\":{\"team\":\"bench\",\"unit\":\"cents\"},\"deprecation\":null,\"description\":\"In our reports 'top-line' means gross revenue: the sum of the amount column over completed orders, with no discount subtracted.\",\"domain\":null,\"owners\":null,\"quality_score\":null,\"tags\":[\"bench\"],\"urn\":\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"}}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01FeWY2LVS88qBPkXfXH8SzZ",
+          "name": "trino_describe_table",
+          "args": {
+            "catalog": "memory",
+            "include_sample": true,
+            "schema": "bench",
+            "table": "customers"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01FeWY2LVS88qBPkXfXH8SzZ",
+          "text": "## Table: `memory.bench.customers`\n\n### Columns\n\n| Name | Type | Nullable | Comment |\n|------|------|----------|----------|\n| `customer_id` | integer | - | - |\n| `name` | varchar | - | - |\n| `region` | varchar | - | - |\n| `tier` | varchar | - | - |\n| `created_at` | timestamp(3) | - | - |\n\n*5 columns*\n\n### Sample Data\n\n```json\n[\n  {\n    \"created_at\": \"2023-02-02T15:00:00-08:00\",\n    \"customer_id\": 1,\n    \"name\": \"Harper Silva\",\n    \"region\": \"East\",\n    \"tier\": \"basic\"\n  },\n  {\n    \"created_at\": \"2024-03-15T19:00:00-07:00\",\n    \"customer_id\": 2,\n    \"name\": \"Quinn Ramos\",\n    \"region\": \"East\",\n    \"tier\": \"basic\"\n  },\n  {\n    \"created_at\": \"2024-08-19T16:00:00-07:00\",\n    \"customer_id\": 3,\n    \"name\": \"Tatum Silva\",\n    \"region\": \"South\",\n    \"tier\": \"plus\"\n  },\n  {\n    \"created_at\": \"2023-05-15T00:00:00-07:00\",\n    \"customer_id\": 4,\n    \"name\": \"Harper Dawson\",\n    \"region\": \"North\",\n    \"tier\": \"plus\"\n  },\n  {\n    \"created_at\": \"2023-07-27T23:00:00-07:00\",\n    \"customer_id\": 5,\n    \"name\": \"Morgan Mercer\",\n    \"region\": \"South\",\n    \"tier\": \"plus\"\n  }\n]\n```\n{\"semantic_context\":{\"custom_properties\":{\"team\":\"bench\"},\"deprecation\":null,\"description\":\"The 'target cohort' is the set of customers whose account was created during calendar year 2024.\",\"domain\":null,\"owners\":null,\"quality_score\":null,\"tags\":[\"bench\"],\"urn\":\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"}}\n{\"memory_context\":[{\"id\":\"e3aa79b8c4e04b97c5c0ba1a2d439089\",\"reference\":\"mcp:memory:e3aa79b8c4e04b97c5c0ba1a2d439089\",\"summary\":\"Working definition: An 'active customer' is any customer who has placed at least one order (i.e., exists at least one row in the orders table for that customer_id). This is a derived business definition, not stored as a column on the customers table.\",\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-07-14T22:53:53.80456Z\"}]}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Now I have all needed context: focus region = West, calendar year 2025, net revenue = amount - discount over completed orders. Let me query using order_ts's actual timestamp with timezone (order_ts appears to include timezone offset).",
+      "tool_calls": [
+        {
+          "id": "toolu_01CnobrXetsAt8o916CFWQWY",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT SUM(o.amount - o.discount) AS net_revenue_cents, COUNT(*) AS n\nFROM memory.bench.orders o\nJOIN memory.bench.customers c ON o.customer_id = c.customer_id\nWHERE c.region = 'West'\n  AND o.status = 'completed'\n  AND o.order_ts \u003e= TIMESTAMP '2025-01-01 00:00:00'\n  AND o.order_ts \u003c TIMESTAMP '2026-01-01 00:00:00'"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01CnobrXetsAt8o916CFWQWY",
+          "text": "{\n  \"columns\": [\n    {\n      \"name\": \"net_revenue_cents\",\n      \"type\": \"BIGINT\"\n    },\n    {\n      \"name\": \"n\",\n      \"type\": \"BIGINT\"\n    }\n  ],\n  \"rows\": [\n    {\n      \"n\": 311,\n      \"net_revenue_cents\": 46688938\n    }\n  ],\n  \"row_count\": 1,\n  \"stats\": {\n    \"row_count\": 1,\n    \"truncated\": false,\n    \"limit_applied\": 1000,\n    \"duration_ms\": 96\n  }\n}\n{\"metadata_reference\":{\"note\":\"Full semantic metadata was provided earlier in this session. Refer to previous responses for column descriptions, tags, owners, and glossary terms.\",\"tables\":[\"memory.bench.orders\",\"memory.bench.customers\"]}}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01NT24wpK7uA75PxVMN8AESF",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT MIN(order_ts), MAX(order_ts) FROM memory.bench.orders"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01NT24wpK7uA75PxVMN8AESF",
+          "text": "{\n  \"columns\": [\n    {\n      \"name\": \"_col0\",\n      \"type\": \"TIMESTAMP\"\n    },\n    {\n      \"name\": \"_col1\",\n      \"type\": \"TIMESTAMP\"\n    }\n  ],\n  \"rows\": [\n    {\n      \"_col0\": \"2025-01-01T07:44:00-08:00\",\n      \"_col1\": \"2025-12-31T21:24:00-08:00\"\n    }\n  ],\n  \"row_count\": 1,\n  \"stats\": {\n    \"row_count\": 1,\n    \"truncated\": false,\n    \"limit_applied\": 1000,\n    \"duration_ms\": 48\n  }\n}\n{\"metadata_reference\":{\"note\":\"Full semantic metadata was provided earlier in this session. Refer to previous responses for column descriptions, tags, owners, and glossary terms.\",\"tables\":[\"memory.bench.orders\"]}}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Data range fits fully within 2025 calendar year already. Net revenue cents = 46,688,938 → USD = 466,889.38.\n\nFINAL ANSWER: 466889.38"
+    }
+  ]
+}

@@ -52,6 +52,8 @@ type config struct {
 	calibration   string
 	lifecycle     bool
 	protocolsDir  string
+	baseline      string
+	merge         string
 }
 
 func main() {
@@ -91,37 +93,56 @@ func parseFlags() config {
 	flag.StringVar(&cfg.calibration, "calibration", "judge/calibration.yaml", "judge calibration file (with -calibrate)")
 	flag.BoolVar(&cfg.lifecycle, "lifecycle", false, "run the S5 memory-insight-knowledge lifecycle protocols instead of the S1-S3 task suites")
 	flag.StringVar(&cfg.protocolsDir, "protocols", "protocols", "protocol YAML directory (with -lifecycle)")
+	flag.StringVar(&cfg.baseline, "baseline", "", "committed baseline results JSON: after the run, gate on per-suite regression and exit nonzero if the candidate falls below it")
+	flag.StringVar(&cfg.merge, "merge", "", "comma-separated per-pass lifecycle result JSONs (with -lifecycle): merge independent k=1 passes into one k=N result and exit")
 	flag.Parse()
 	return cfg
 }
 
-// run dispatches the read-only modes (summarize, compare, calibrate) or a full
-// benchmark run.
+// run dispatches a read-only mode (summarize, merge, compare, calibrate) or a
+// full benchmark run.
 func run(cfg config) error {
+	if handled, err := runReadOnly(cfg); handled {
+		return err
+	}
+	if cfg.lifecycle {
+		return runLifecycle(cfg)
+	}
+	return runBenchmark(cfg)
+}
+
+// runReadOnly handles the exit-early modes that only read committed results.
+// The bool reports whether a mode matched; when false, the caller proceeds to a
+// live benchmark run.
+func runReadOnly(cfg config) (bool, error) {
 	switch {
 	case cfg.summarize != "" && cfg.lifecycle:
 		res, err := lifecycle.LoadJSON(cfg.summarize)
 		if err != nil {
-			return err
+			return true, err
 		}
 		fmt.Print(res.HumanSummary())
-		return nil
+		return true, nil
 	case cfg.summarize != "":
 		res, err := report.LoadJSON(cfg.summarize)
 		if err != nil {
-			return err
+			return true, err
 		}
 		fmt.Print(res.HumanSummary())
-		return nil
+		return true, nil
+	case cfg.merge != "":
+		// -merge only makes sense for lifecycle results; refuse rather than fall
+		// through to a live (paid) benchmark run when -lifecycle is forgotten.
+		if !cfg.lifecycle {
+			return true, errors.New("-merge requires -lifecycle (it merges S5 lifecycle passes)")
+		}
+		return true, runMergeLifecycle(cfg)
 	case cfg.compare != "":
-		return runCompare(cfg)
+		return true, runCompare(cfg)
 	case cfg.calibrate:
-		return runCalibrate(cfg)
-	case cfg.lifecycle:
-		return runLifecycle(cfg)
-	default:
-		return runBenchmark(cfg)
+		return true, runCalibrate(cfg)
 	}
+	return false, nil
 }
 
 // runLifecycle executes the S5 lifecycle protocols and writes outputs. Like the
@@ -130,6 +151,13 @@ func run(cfg config) error {
 func runLifecycle(cfg config) error {
 	if cfg.arm == "" {
 		return errors.New("-arm is required")
+	}
+	if cfg.baseline != "" {
+		// The regression gate compares per-suite S1-S3 accuracy/pass^k/efficiency
+		// (report.Results). Lifecycle runs produce a different metric shape
+		// (lifecycle.Results: capture/recall/transfer rates), so the S1-S3 gate
+		// cannot score them. Refuse loudly rather than silently ignore -baseline.
+		return errors.New("-baseline is not supported with -lifecycle (the regression gate scores S1-S3 task suites, not lifecycle metrics)")
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	opts := lifecycle.Options{
@@ -167,13 +195,30 @@ func runLifecycle(cfg config) error {
 	}
 	res, runErr := lifecycle.Run(context.Background(), opts)
 	if res != nil {
-		if err := res.WriteJSON(cfg.out); err != nil {
+		if err := writeAndSummarize(res, cfg.out); err != nil {
 			return err
 		}
-		fmt.Print(res.HumanSummary())
-		fmt.Println("results:", cfg.out)
 	}
 	return runErr
+}
+
+// summarizable is any run result that can persist itself and render a summary,
+// satisfied by both report.Results (S1-S3) and lifecycle.Results (S5), so the
+// two run paths share one write-and-print block.
+type summarizable interface {
+	WriteJSON(path string) error
+	HumanSummary() string
+}
+
+// writeAndSummarize persists a run's results (so partial evidence is never
+// discarded) and prints its human summary.
+func writeAndSummarize(res summarizable, out string) error {
+	if err := res.WriteJSON(out); err != nil {
+		return err
+	}
+	fmt.Print(res.HumanSummary())
+	fmt.Println("results:", out)
+	return nil
 }
 
 // buildLifecycleFactory constructs the per-episode adapter factory for the
@@ -209,6 +254,78 @@ func buildLifecycleFactory(cfg config) (lifecycle.AdapterFactory, error) {
 	default:
 		return nil, fmt.Errorf("unknown -llm provider %q", cfg.llmProvider)
 	}
+}
+
+// runMergeLifecycle combines several independent single-pass (k=1) lifecycle
+// runs into one k=N result. Each pass must be a k=1 run of every protocol once
+// (the platform reset to clean seeded state between passes), so a protocol's N
+// attempts — one per pass — are genuinely independent, which the within-run
+// k-repeats of a single benchrun are not (they share one accumulating knowledge
+// store). It refuses passes that were not k=1, or that disagree on arm /
+// protocol set / model / seed, so a merged scorecard is never silently
+// mislabeled or miscounted. Each pass's runs are renumbered to attempt 1..N for
+// traceability in the failure list; the metric that cares about N, pass^k, keys
+// on protocol id and run count (lifecycle.passKRate), not on the Attempt field.
+func runMergeLifecycle(cfg config) error {
+	paths := strings.Split(cfg.merge, ",")
+	merged := &lifecycle.Results{}
+	for i, p := range paths {
+		if err := foldPass(merged, strings.TrimSpace(p), i+1); err != nil {
+			return err
+		}
+	}
+	merged.Manifest.K = len(paths)
+	merged.Aggregate()
+	if err := merged.WriteJSON(cfg.out); err != nil {
+		return err
+	}
+	fmt.Print(merged.HumanSummary())
+	fmt.Println("results:", cfg.out)
+	return nil
+}
+
+// foldPass validates one pass and appends its runs to merged as attempt `pass`.
+func foldPass(merged *lifecycle.Results, path string, pass int) error {
+	r, err := lifecycle.LoadJSON(path)
+	if err != nil {
+		return err
+	}
+	if r.Manifest.K != 1 {
+		return fmt.Errorf("merge expects single-pass (k=1) inputs; %s has k=%d", path, r.Manifest.K)
+	}
+	if pass == 1 {
+		merged.Manifest = r.Manifest
+	} else if err := sameConfig(merged.Manifest, r.Manifest, path); err != nil {
+		return err
+	}
+	if merged.Manifest.StartedAt.IsZero() || r.Manifest.StartedAt.Before(merged.Manifest.StartedAt) {
+		merged.Manifest.StartedAt = r.Manifest.StartedAt
+	}
+	if r.Manifest.FinishedAt.After(merged.Manifest.FinishedAt) {
+		merged.Manifest.FinishedAt = r.Manifest.FinishedAt
+	}
+	for _, run := range r.Runs {
+		run.Attempt = pass // one attempt of each protocol per independent pass
+		merged.Runs = append(merged.Runs, run)
+	}
+	return nil
+}
+
+// sameConfig refuses to merge passes that were not produced under the same arm,
+// protocol set, model, and seed — merging across configurations would publish a
+// scorecard mislabeled with pass 1's manifest.
+func sameConfig(a, b lifecycle.Manifest, path string) error {
+	switch {
+	case a.Arm != b.Arm:
+		return fmt.Errorf("merge: %s arm %q != %q", path, b.Arm, a.Arm)
+	case a.ProtocolSetHash != b.ProtocolSetHash:
+		return fmt.Errorf("merge: %s protocol-set hash %q != %q", path, b.ProtocolSetHash, a.ProtocolSetHash)
+	case a.Model != b.Model:
+		return fmt.Errorf("merge: %s model %q != %q", path, b.Model, a.Model)
+	case a.Seed != b.Seed:
+		return fmt.Errorf("merge: %s seed %d != %d", path, b.Seed, a.Seed)
+	}
+	return nil
 }
 
 // runCompare loads one results JSON per arm, renders the cross-arm comparison
@@ -299,14 +416,45 @@ func runBenchmark(cfg config) error {
 		opts.Factory = factory
 	}
 	res, runErr := pipeline.Run(context.Background(), opts)
+	return finishBenchmark(cfg, res, runErr)
+}
+
+// finishBenchmark persists the results (even on failure, so partial evidence is
+// never discarded), prints the summary, and — on a clean run with -baseline set
+// — gates on per-suite regression against the committed baseline.
+func finishBenchmark(cfg config, res *report.Results, runErr error) error {
 	if res != nil {
-		if err := res.WriteJSON(cfg.out); err != nil {
+		if err := writeAndSummarize(res, cfg.out); err != nil {
 			return err
 		}
-		fmt.Print(res.HumanSummary())
-		fmt.Println("results:", cfg.out)
 	}
-	return runErr
+	if runErr != nil {
+		return runErr
+	}
+	if cfg.baseline != "" && res != nil {
+		return gateOnBaseline(res, cfg.baseline)
+	}
+	return nil
+}
+
+// gateOnBaseline compares the just-completed run against a committed baseline and
+// returns a non-nil error (nonzero exit) if any suite regressed beyond the
+// default thresholds, so a CI run fails loudly on a real capability loss.
+func gateOnBaseline(candidate *report.Results, baselinePath string) error {
+	base, err := report.LoadJSON(baselinePath)
+	if err != nil {
+		return fmt.Errorf("load baseline: %w", err)
+	}
+	if err := report.BaselineCompatible(candidate, base); err != nil {
+		return fmt.Errorf("baseline %s: %w", baselinePath, err)
+	}
+	t := report.DefaultThresholds()
+	regs := report.CheckRegression(candidate, base, t)
+	fmt.Print(report.RegressionReport(candidate, base, t, regs))
+	if len(regs) > 0 {
+		return fmt.Errorf("regression gate: %d suite metric(s) fell below baseline %s", len(regs), baselinePath)
+	}
+	return nil
 }
 
 // transcriptDir derives the transcript directory from the results path.

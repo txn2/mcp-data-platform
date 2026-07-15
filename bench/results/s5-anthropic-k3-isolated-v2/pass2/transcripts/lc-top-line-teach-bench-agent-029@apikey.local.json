@@ -1,0 +1,127 @@
+{
+  "protocol_id": "lc-top-line",
+  "stage": "teach",
+  "identity": "teacher",
+  "email": "bench-agent-029@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. In our reports 'top-line' means gross revenue: the sum of the amount column over completed orders, with no discount subtracted. Please save this definition to memory now and link it to the dataset it concerns."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01AGWpuWdYeycg8TkCqTwXz8",
+          "name": "search",
+          "args": {
+            "intent": "orders table amount column completed status discount top-line gross revenue"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01AGWpuWdYeycg8TkCqTwXz8",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/portal/collections/{id}/signoff\\nCollection sign-off summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/{id}/signoff\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/portal/assets/{id}/signoff\\nAsset sign-off summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/assets/{id}/signoff\",\n          \"score\": 0.7383329653499681\n        },\n        {\n          \"text\": \"GET /api/v1/admin/api-catalogs/{id}/embedding-status\\nList catalog embedding statuses\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/api-catalogs/{id}/embedding-status\",\n          \"score\": 0.651131078524102\n        },\n        {\n          \"text\": \"GET /api/v1/admin/audit/stats\\nGet audit stats\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/stats\",\n          \"score\": 0.5831659780062527\n        },\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs/jobs\\nIndex-jobs drill-down list\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs/jobs\",\n          \"score\": 0.48661782783078583\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        },\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 0.5532212146569431,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Settlement Total Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_782375ea-147f-42bb-812b-822d4d2ee5a1\",\n          \"score\": 0.45299061108763516,\n          \"reference\": \"mcp:knowledge_page:kp_782375ea-147f-42bb-812b-822d4d2ee5a1\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"create-a-report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:26710eae-88e1-41e8-86b0-7ed9cbf076cc\"\n        },\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.6906931108048563,\n          \"reference\": \"mcp:prompt:c7b70f1c-0507-44bf-9613-149b8643ab92\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 10,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 2\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01BqsgHATg92VM1tNAemQaZM",
+          "name": "search",
+          "args": {
+            "intent": "orders dataset table schema amount discount status",
+            "sources": [
+              "catalog"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01BqsgHATg92VM1tNAemQaZM",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01Xt742C8x3tFoB2LmeQwUcw",
+          "name": "search",
+          "args": {
+            "intent": "orders"
+          }
+        },
+        {
+          "id": "toolu_01Kk96CPse4pdWmdtkTCbCd9",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "bench"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01Xt742C8x3tFoB2LmeQwUcw",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/prompts\\nList prompts\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/prompts\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/portal/prompts/search\\nSearch my prompts\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/prompts/search\",\n          \"score\": 0.9142553981113641\n        },\n        {\n          \"text\": \"GET /api/v1/portal/collections/search\\nSearch my collections\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/search\",\n          \"score\": 0.9136020612618828\n        },\n        {\n          \"text\": \"GET /api/v1/admin/api-catalogs/{id}/embedding-status\\nList catalog embedding statuses\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/api-catalogs/{id}/embedding-status\",\n          \"score\": 0.8914315750857831\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Priority Order Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_06f99a34-ebf8-4b5f-8a31-60418b1dab35\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp_06f99a34-ebf8-4b5f-8a31-60418b1dab35\"\n        },\n        {\n          \"text\": \"Premium Order Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_d22c6040-1c09-4487-8861-e8e4ac5368fd\",\n          \"score\": 0.9806633076204238,\n          \"reference\": \"mcp:knowledge_page:kp_d22c6040-1c09-4487-8861-e8e4ac5368fd\"\n        },\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 0.9248972708148641,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"House Tier Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_c4a91a69-b0dd-4b3f-9d06-49bc90082eb8\",\n          \"score\": 0.9083996288444067,\n          \"reference\": \"mcp:knowledge_page:kp_c4a91a69-b0dd-4b3f-9d06-49bc90082eb8\"\n        }\n      ]\n    },\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"orders\\nCurrent order transactions, one row per order. Monetary columns (amount, discount) are stored as INTEGERS IN US CENTS; divide by 100 for USD. Company revenue reporting policy: revenue = amount - discount, COMPLETED orders only (refunded and pending orders are excluded). See the 'Revenue Reporting Policy' knowledge page for the authoritative definition.\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:61d1e568-5ef6-407b-9dc0-fc3281ff407f\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 10,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"catalog\",\n      \"matched\": 3,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01Kk96CPse4pdWmdtkTCbCd9",
+          "text": "Failed to list schemas: failed to list schemas: trino: query failed (200 OK): \"USER_ERROR: Catalog 'bench' not found\" (code: tool_error)",
+          "is_error": true
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Found the dataset: `urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)`. There's an existing \"Revenue Reporting Policy\" knowledge page defining revenue = amount - discount (net revenue). My new definition of \"top-line\" is distinct (gross, no discount subtracted), so I'll capture it as a new schema_entity insight tied to the orders dataset, noting it contrasts with net revenue.",
+      "tool_calls": [
+        {
+          "id": "toolu_01DstxfAoG3eof6kvhbyn3Mf",
+          "name": "memory_capture",
+          "args": {
+            "category": "business_context",
+            "confidence": "high",
+            "content": "Working definition for reports: 'top-line' = gross revenue = SUM(amount) over completed orders only, with NO discount subtracted. This is distinct from the existing 'Revenue Reporting Policy' (net revenue = amount - discount, completed orders only) already defined for this dataset — 'top-line' specifically refers to the gross figure before discounts. Applies to the orders table (memory.bench.orders): amount/discount are stored as integers in US cents; only orders with status = COMPLETED are included.",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+            ],
+            "source": "user",
+            "type": "schema_entity"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01DstxfAoG3eof6kvhbyn3Mf",
+          "text": "{\n  \"id\": \"ec7da49d71b6a94e77067e15d448bc45\",\n  \"sink_class\": \"schema_entity\",\n  \"status\": \"active\",\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: captured a new insight (id `ec7da49d71b6a94e77067e15d448bc45`) defining **top-line = gross revenue = SUM(amount) over completed orders, no discount subtracted**, linked to the `orders` dataset (`urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)`) and noted as distinct from the existing net-revenue \"Revenue Reporting Policy\" — it's pending review for promotion to the shared knowledge base."
+    }
+  ]
+}

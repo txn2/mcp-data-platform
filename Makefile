@@ -887,7 +887,8 @@ bench-run:
 		$(if $(SCRIPT),-script $(SCRIPT),) \
 		$(if $(SUITE),-suite $(SUITE),) \
 		$(if $(K),-k $(K),) \
-		$(if $(MODEL),-model $(MODEL),)
+		$(if $(MODEL),-model $(MODEL),) \
+		$(if $(BASELINE),-baseline $(BASELINE),)
 
 ## bench-smoke: Run the scripted (no-API-key) smoke against the running platform
 bench-smoke:

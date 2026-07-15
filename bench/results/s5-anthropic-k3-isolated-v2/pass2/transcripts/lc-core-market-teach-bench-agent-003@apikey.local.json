@@ -1,0 +1,168 @@
+{
+  "protocol_id": "lc-core-market",
+  "stage": "teach",
+  "identity": "teacher",
+  "email": "bench-agent-003@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "For the analysis ahead I need you to remember a specific working definition and apply it in later sessions. The 'core market' is the North region. Please save this definition to memory now and link it to the dataset it concerns."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01UH6GLD3rsdQCcst4nNNK9Y",
+          "name": "search",
+          "args": {
+            "intent": "region column North region core market dataset"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01UH6GLD3rsdQCcst4nNNK9Y",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/audit/metrics/discovery\\nGet discovery pattern metrics\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/metrics/discovery\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs\\nCross-kind index-jobs health summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs\",\n          \"score\": 0.9941025243930904\n        },\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs/jobs\\nIndex-jobs drill-down list\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs/jobs\",\n          \"score\": 0.8381671160001022\n        },\n        {\n          \"text\": \"GET /api/v1/portal/memory/records/search\\nSearch my memory records\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/memory/records/search\",\n          \"score\": 0.7647450337858013\n        },\n        {\n          \"text\": \"GET /api/v1/portal/memory/records/stats\\nGet my memory stats\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/memory/records/stats\",\n          \"score\": 0.7249448862908134\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:c7b70f1c-0507-44bf-9613-149b8643ab92\"\n        },\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 0.762213251578997,\n          \"reference\": \"mcp:prompt:7776db21-8b09-42ad-9e15-08b6686cb06c\"\n        },\n        {\n          \"text\": \"create-a-report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 0.7271872908102809,\n          \"reference\": \"mcp:prompt:26710eae-88e1-41e8-86b0-7ed9cbf076cc\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.5785445279592978,\n          \"reference\": \"mcp:prompt:190f5cb9-b35f-4461-9ec9-c575735c98ab\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.5776805225125329,\n          \"reference\": \"mcp:prompt:61d1e568-5ef6-407b-9dc0-fc3281ff407f\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 5\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 5\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01BBKRUYXbohbsLYp59zBX3e",
+          "name": "search",
+          "args": {
+            "intent": "region column values North South East West sales stores dataset schema",
+            "sources": [
+              "catalog"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01BBKRUYXbohbsLYp59zBX3e",
+          "text": "{\n  \"groups\": [],\n  \"coverage\": [],\n  \"count\": 0,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_016Mp8FuFT52kpoK77Ei4Sym",
+          "name": "search",
+          "args": {
+            "intent": "region",
+            "sources": [
+              "catalog"
+            ]
+          }
+        },
+        {
+          "id": "toolu_01PP64ojmshRuCyQZw5SSWeM",
+          "name": "datahub_browse",
+          "args": {
+            "what": "domains"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_016Mp8FuFT52kpoK77Ei4Sym",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"catalog\",\n      \"hits\": [\n        {\n          \"text\": \"daily_region_revenue\\nPre-aggregated daily revenue by region, derived from completed orders. Values are GROSS of discounts (USD), so this index must not be used for policy net-revenue figures; use memory.bench.orders per the Revenue Reporting Policy. FRESHNESS: this index is refreshed only through 2025-11-30; it has NO rows for dates after that cutoff, so any question about a period on or after 2025-12-01 must be answered from memory.bench.orders directly, not this index.\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\",\n          \"score\": 1,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\"\n        },\n        {\n          \"text\": \"customers\\nCustomer directory: one row per customer with profile attributes (name, region, tier, account created_at). Join key: customer_id.\",\n          \"source\": \"catalog\",\n          \"ref\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\",\n          \"score\": 0,\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"reference\": \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"catalog\",\n      \"matched\": 2,\n      \"shown\": 2\n    }\n  ],\n  \"count\": 2,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01PP64ojmshRuCyQZw5SSWeM",
+          "text": "{}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01Fwzck4BedNSFB9KcpeEnAE",
+          "name": "datahub_get_schema",
+          "args": {
+            "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+          }
+        },
+        {
+          "id": "toolu_01GdErZKzz295YJAGgRwWE8X",
+          "name": "datahub_get_schema",
+          "args": {
+            "urn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01Fwzck4BedNSFB9KcpeEnAE",
+          "text": "{\n  \"fields\": null\n}\n{\"query_context\":{\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\":{\"available\":true,\"query_table\":\"memory.bench.customers\",\"connection\":\"e2e-trino\",\"available_connections\":[\"e2e\"],\"schema_preview\":[{\"name\":\"customer_id\",\"type\":\"integer\"},{\"name\":\"name\",\"type\":\"varchar\"},{\"name\":\"region\",\"type\":\"varchar\"},{\"name\":\"tier\",\"type\":\"varchar\"},{\"name\":\"created_at\",\"type\":\"timestamp(3)\"}],\"total_columns\":5}}}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01GdErZKzz295YJAGgRwWE8X",
+          "text": "{\n  \"fields\": null\n}\n{\"query_context\":{\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)\":{\"available\":true,\"query_table\":\"memory.bench.daily_region_revenue\",\"connection\":\"e2e-trino\",\"available_connections\":[\"e2e\"],\"schema_preview\":[{\"name\":\"day\",\"type\":\"date\"},{\"name\":\"region\",\"type\":\"varchar\"},{\"name\":\"gross_revenue_usd\",\"type\":\"double\"}],\"total_columns\":3}}}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01Fnff9hyPLBTPN3A4Rnn9gQ",
+          "name": "memory_capture",
+          "args": {
+            "category": "business_context",
+            "confidence": "high",
+            "content": "Working definition for this analysis: the 'core market' refers to the North region. Wherever a `region` column is filtered/grouped for 'core market' analysis, filter to region = 'North'. Applies to datasets with a region column, e.g. memory.bench.customers (customer region attribute) and memory.bench.daily_region_revenue (pre-aggregated revenue by region).",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)",
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)"
+            ],
+            "related_columns": [
+              {
+                "fieldPath": "region"
+              }
+            ],
+            "type": "business_knowledge"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01Fnff9hyPLBTPN3A4Rnn9gQ",
+          "text": "{\n  \"id\": \"e27c212f415e0e06637c027002946e21\",\n  \"sink_class\": \"business_knowledge\",\n  \"status\": \"active\",\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog.\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved: captured the working definition \"core market = North region\" as business knowledge (id `e27c212f415e0e06637c027002946e21`), linked to the `region` column on `memory.bench.customers` and `memory.bench.daily_region_revenue`, pending review for promotion to shared catalog knowledge."
+    }
+  ]
+}

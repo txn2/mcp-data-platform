@@ -1,0 +1,60 @@
+{
+  "protocol_id": "lc-leading-region",
+  "stage": "recall",
+  "identity": "teacher",
+  "email": "bench-agent-011@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "Which region is the leading region? Answer with the region name."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01U8q7FRi3sr1vDE7E7Po1uw",
+          "name": "search",
+          "args": {
+            "intent": "leading region"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01U8q7FRi3sr1vDE7E7Po1uw",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/portal/knowledge-pages/{id}/lineage\\nA knowledge page's source-insight lineage\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/knowledge-pages/{id}/lineage\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/admin/audit/metrics/performance\\nGet audit performance\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/audit/metrics/performance\",\n          \"score\": 0.9108481988699864\n        },\n        {\n          \"text\": \"GET /api/v1/admin/index-jobs/failures\\nActive failure-triage units\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/index-jobs/failures\",\n          \"score\": 0.9063395226800214\n        },\n        {\n          \"text\": \"GET /api/v1/portal/memory/records/search\\nSearch my memory records\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/memory/records/search\",\n          \"score\": 0.8778683477140419\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:7776db21-8b09-42ad-9e15-08b6686cb06c\"\n        },\n        {\n          \"text\": \"create-a-report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 0.8782507913979941,\n          \"reference\": \"mcp:prompt:26710eae-88e1-41e8-86b0-7ed9cbf076cc\"\n        },\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.7801610738618097,\n          \"reference\": \"mcp:prompt:c7b70f1c-0507-44bf-9613-149b8643ab92\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        },\n        {\n          \"text\": \"House Tier Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_c4a91a69-b0dd-4b3f-9d06-49bc90082eb8\",\n          \"score\": 0.7394202129834355,\n          \"reference\": \"mcp:knowledge_page:kp_c4a91a69-b0dd-4b3f-9d06-49bc90082eb8\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: the 'leading region' is the region whose customers placed the most orders. To compute it, join memory.bench.orders to memory.bench.customers on customer_id, group by customers.region, count orders, and take the region with the highest order count. This is an order-count based definition (not revenue-based) — do not confuse with revenue leadership from the Revenue Reporting Policy / daily_region_revenue.\",\n          \"source\": \"insights\",\n          \"ref\": \"86c4c993b3bcaa01bfb11be243ff8fb4\",\n          \"score\": 1,\n          \"status\": \"pending\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\",\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-011@apikey.local\",\n          \"reference\": \"mcp:insight:86c4c993b3bcaa01bfb11be243ff8fb4\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 6,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01CAXZfMZkgwNCGTKc5dw9LW",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT c.region, COUNT(*) AS order_count\nFROM memory.bench.orders o\nJOIN memory.bench.customers c ON o.customer_id = c.customer_id\nGROUP BY c.region\nORDER BY order_count DESC"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01CAXZfMZkgwNCGTKc5dw9LW",
+          "text": "{\n  \"columns\": [\n    {\n      \"name\": \"region\",\n      \"type\": \"VARCHAR\"\n    },\n    {\n      \"name\": \"order_count\",\n      \"type\": \"BIGINT\"\n    }\n  ],\n  \"rows\": [\n    {\n      \"order_count\": 339,\n      \"region\": \"West\"\n    },\n    {\n      \"order_count\": 316,\n      \"region\": \"South\"\n    },\n    {\n      \"order_count\": 286,\n      \"region\": \"East\"\n    },\n    {\n      \"order_count\": 259,\n      \"region\": \"North\"\n    }\n  ],\n  \"row_count\": 4,\n  \"stats\": {\n    \"row_count\": 4,\n    \"truncated\": false,\n    \"limit_applied\": 1000,\n    \"duration_ms\": 51\n  }\n}\n{\"additional_tables\":[{\"description\":\"The 'target cohort' is the set of customers whose account was created during calendar year 2024.\",\"table\":\"memory.bench.customers\",\"tags\":[\"bench\"],\"urn\":\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"}],\"semantic_context\":{\"custom_properties\":{\"team\":\"bench\",\"unit\":\"cents\"},\"deprecation\":null,\"description\":\"In our reports 'top-line' means gross revenue: the sum of the amount column over completed orders, with no discount subtracted.\",\"domain\":null,\"owners\":null,\"quality_score\":null,\"tags\":[\"bench\"],\"urn\":\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"}}\n{\"memory_context\":[{\"id\":\"6d9d42e2ef7357f1894e8bac290dcbf9\",\"reference\":\"mcp:memory:6d9d42e2ef7357f1894e8bac290dcbf9\",\"summary\":\"Working definition: the 'house tier' is the customer tier (from `memory.bench.customers.tier`) that placed the most orders (i.e., the tier with the highest order count in `memory.bench.orders`, joined via customer_id). This is a derived/analytical grouping, not a stored value in\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-07-14T22:34:50.557969Z\"},{\"id\":\"37fb5ece4a7ba8029bfdbcd5688894d0\",\"reference\":\"mcp:memory:37fb5ece4a7ba8029bfdbcd5688894d0\",\"summary\":\"Working definition: an 'active customer' is any customer who has placed at least one order (i.e., a customer_id in `memory.bench.customers` that appears in at least one row of `memory.bench.orders`). Apply this definition consistently in future analyses of customer activity/engag\",\"truncated\":true,\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-07-14T22:27:10.338812Z\"}]}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "West is the leading region with 339 orders, the highest order count among all regions.\n\nFINAL ANSWER: West"
+    }
+  ]
+}

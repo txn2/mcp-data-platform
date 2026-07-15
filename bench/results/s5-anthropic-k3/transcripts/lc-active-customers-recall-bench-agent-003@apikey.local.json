@@ -1,0 +1,98 @@
+{
+  "protocol_id": "lc-active-customers",
+  "stage": "recall",
+  "identity": "teacher",
+  "email": "bench-agent-003@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "How many active customers are there? Answer with the count."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01WEkgh5Cyz1LRAmshRNKW6V",
+          "name": "search",
+          "args": {
+            "intent": "active customers count definition"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01WEkgh5Cyz1LRAmshRNKW6V",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        },\n        {\n          \"text\": \"Peak Region Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_0fec3450-4ca3-4438-a99e-8bba023875a8\",\n          \"score\": 0.9534477754768721,\n          \"reference\": \"mcp:knowledge_page:kp_0fec3450-4ca3-4438-a99e-8bba023875a8\"\n        },\n        {\n          \"text\": \"Settlement Total Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_8018e48d-ddd9-4e59-b022-199e01ee975c\",\n          \"score\": 0.8980298278535909,\n          \"reference\": \"mcp:knowledge_page:kp_8018e48d-ddd9-4e59-b022-199e01ee975c\"\n        },\n        {\n          \"text\": \"House Tier Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_5c2d13b6-3caa-4dbb-a89c-ff4a9c3dfdf8\",\n          \"score\": 0.815662004241869,\n          \"reference\": \"mcp:knowledge_page:kp_5c2d13b6-3caa-4dbb-a89c-ff4a9c3dfdf8\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:74f538d8-a70c-4b21-b506-5ef339f02149\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.9452691577419906,\n          \"reference\": \"mcp:prompt:17331aa1-93bc-4d18-809f-02e343570b9e\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.8496580751336283,\n          \"reference\": \"mcp:prompt:c9cc8a2b-be13-478f-b4c3-68ac5dbe9ed7\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/portal/threads/counts\\nCount open threads per target\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/threads/counts\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/portal/collections/{id}/signoff\\nCollection sign-off summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/{id}/signoff\",\n          \"score\": 0.949441797039813\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: An 'active customer' is any customer who has placed at least one order (i.e., has at least one matching row in the orders table joined on customer_id). This is a business-analysis definition, not a stored column — apply it as a derived condition (e.g., EXISTS/JOIN against orders) when segmenting or counting 'active customers'.\",\n          \"source\": \"insights\",\n          \"ref\": \"e56283292fb61321b30531c4b705f89e\",\n          \"score\": 1,\n          \"status\": \"pending\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-003@apikey.local\",\n          \"reference\": \"mcp:insight:e56283292fb61321b30531c4b705f89e\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 11,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01S5atqQVuujXqSbcW5Ew1UD",
+          "name": "trino_describe_table",
+          "args": {
+            "catalog": "memory",
+            "schema": "bench",
+            "table": "customers"
+          }
+        },
+        {
+          "id": "toolu_01FWre1VVnLkC3A8bMjVbwaj",
+          "name": "trino_describe_table",
+          "args": {
+            "catalog": "memory",
+            "schema": "bench",
+            "table": "orders"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01S5atqQVuujXqSbcW5Ew1UD",
+          "text": "## Table: `memory.bench.customers`\n\n### Columns\n\n| Name | Type | Nullable | Comment |\n|------|------|----------|----------|\n| `customer_id` | integer | - | - |\n| `name` | varchar | - | - |\n| `region` | varchar | - | - |\n| `tier` | varchar | - | - |\n| `created_at` | timestamp(3) | - | - |\n\n*5 columns*\n{\"semantic_context\":{\"custom_properties\":{\"team\":\"bench\"},\"deprecation\":null,\"description\":\"The 'target cohort' is the set of customers whose account was created during calendar year 2024.\",\"domain\":null,\"owners\":null,\"quality_score\":null,\"tags\":[\"bench\"],\"urn\":\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"}}\n{\"memory_context\":[{\"id\":\"e26e906e4595070a707ef7bfe06cdbed\",\"reference\":\"mcp:memory:e26e906e4595070a707ef7bfe06cdbed\",\"summary\":\"Working definition: An 'active customer' is any customer who has placed at least one order (i.e., appears at least once in the orders table as a customer_id). This is a derived business definition, not a stored column on the customers table.\",\"dimension\":\"knowledge\",\"category\":\"business_context\",\"confidence\":\"high\",\"created_at\":\"2026-07-14T17:13:14.618467Z\"}]}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01FWre1VVnLkC3A8bMjVbwaj",
+          "text": "## Table: `memory.bench.orders`\n\n### Columns\n\n| Name | Type | Nullable | Comment |\n|------|------|----------|----------|\n| `order_id` | integer | - | - |\n| `customer_id` | integer | - | - |\n| `order_ts` | timestamp(3) | - | - |\n| `status` | varchar | - | - |\n| `amount` | integer | - | - |\n| `discount` | integer | - | - |\n\n*6 columns*\n{\"semantic_context\":{\"custom_properties\":{\"team\":\"bench\",\"unit\":\"cents\"},\"deprecation\":null,\"description\":\"The 'reporting cohort' is the set of orders placed in December 2025.\",\"domain\":null,\"owners\":null,\"quality_score\":null,\"tags\":[\"bench\"],\"urn\":\"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"}}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_014XALY696Tsu3cicq2vJqRy",
+          "name": "trino_query",
+          "args": {
+            "sql": "SELECT COUNT(DISTINCT c.customer_id) AS active_customers\nFROM memory.bench.customers c\nJOIN memory.bench.orders o ON c.customer_id = o.customer_id"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_014XALY696Tsu3cicq2vJqRy",
+          "text": "{\n  \"columns\": [\n    {\n      \"name\": \"active_customers\",\n      \"type\": \"BIGINT\"\n    }\n  ],\n  \"rows\": [\n    {\n      \"active_customers\": 80\n    }\n  ],\n  \"row_count\": 1,\n  \"stats\": {\n    \"row_count\": 1,\n    \"truncated\": false,\n    \"limit_applied\": 1000,\n    \"duration_ms\": 37\n  }\n}\n{\"metadata_reference\":{\"note\":\"Full semantic metadata was provided earlier in this session. Refer to previous responses for column descriptions, tags, owners, and glossary terms.\",\"tables\":[\"memory.bench.customers\",\"memory.bench.orders\"]}}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Based on the saved business definition (\"active customer\" = any customer with at least one order in the orders table), joining `customers` to `orders` on `customer_id` yields 80 distinct active customers.\n\nFINAL ANSWER: 80"
+    }
+  ]
+}

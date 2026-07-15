@@ -1,0 +1,754 @@
+=== pass 1 RESET Tue Jul 14 12:41:39 PDT 2026 ===
+Stopping platform (pid 62569)...
+Stopping E2E test environment...
+DOCKER_DEFAULT_PLATFORM= docker compose -f docker-compose.e2e.yml down -v
+ Container e2e-seaweedfs-setup Stopping 
+ Container e2e-postgres Stopping 
+ Container e2e-trino-setup Stopping 
+ Container e2e-seaweedfs-setup Stopped 
+ Container e2e-seaweedfs-setup Removing 
+ Container e2e-trino-setup Stopped 
+ Container e2e-trino-setup Removing 
+ Container e2e-seaweedfs-setup Removed 
+ Container e2e-seaweedfs Stopping 
+ Container e2e-trino-setup Removed 
+ Container e2e-trino Stopping 
+ Container e2e-postgres Stopped 
+ Container e2e-postgres Removing 
+ Container e2e-postgres Removed 
+ Container e2e-trino Stopped 
+ Container e2e-trino Removing 
+ Container e2e-trino Removed 
+ Container e2e-seaweedfs Stopped 
+ Container e2e-seaweedfs Removing 
+ Container e2e-seaweedfs Removed 
+ Network mcp-data-platform_e2e-network Removing 
+ Volume mcp-data-platform_postgres_data Removing 
+ Volume mcp-data-platform_seaweedfs_data Removing 
+ Volume mcp-data-platform_postgres_data Removed 
+ Volume mcp-data-platform_seaweedfs_data Removed 
+ Network mcp-data-platform_e2e-network Removed 
+E2E environment stopped.
+Stopping E2E test environment...
+DOCKER_DEFAULT_PLATFORM= docker compose -f docker-compose.e2e.yml down -v
+E2E environment stopped.
+datahub ingest -c ./build/bench-datahub-recipe.yml
+Python versions above 3.11 are not actively tested with yet. Please use Python 3.11 for now.
+2026-07-14 12:41:43,198 [datahub.masking.bootstrap] INFO: Initializing secret masking infrastructure
+2026-07-14 12:41:43,198 [datahub.masking.masking_filter] INFO: Installed SecretMaskingFilter on root logger
+2026-07-14 12:41:43,198 [datahub.masking.masking_filter] DEBUG: Wrapped sys.stdout with StreamMaskingWrapper
+2026-07-14 12:41:43,198 [datahub.masking.masking_filter] DEBUG: Wrapped sys.stderr with StreamMaskingWrapper
+2026-07-14 12:41:43,199 [datahub.masking.masking_filter] DEBUG: Updated 4 logging handlers to use wrapped streams
+2026-07-14 12:41:43,200 [datahub.masking.bootstrap] DEBUG: Installed custom exception hook for secret masking
+2026-07-14 12:41:43,200 [datahub.masking.bootstrap] INFO: Secret masking infrastructure initialized successfully. Secrets will be registered automatically as they are loaded.
+[2026-07-14 12:41:43,200] INFO     {datahub.cli.ingest_cli:155} - DataHub CLI version: 1.3.1.5
+[2026-07-14 12:41:43,255] INFO     {datahub.ingestion.run.pipeline:225} - Sink configured successfully. DataHubRestEmitter: configured to talk to http://localhost:8080
+[2026-07-14 12:41:43,279] INFO     {datahub.ingestion.run.pipeline:254} - Source configured successfully.
+[2026-07-14 12:41:43,279] INFO     {datahub.cli.ingest_cli:136} - Starting metadata ingestion
+[2026-07-14 12:41:43,498] INFO     {datahub.cli.ingest_cli:149} - Finished metadata ingestion
+
+Cli report:
+{'cli_version': '1.3.1.5',
+ 'cli_entry_location': '/Users/cjimti/Library/Python/3.12/lib/python/site-packages/datahub/ingestion/run/pipeline.py',
+ 'models_version': 'bundled',
+ 'py_version': '3.12.3 (v3.12.3:f6650f9ad7, Apr  9 2024, 08:18:47) [Clang 13.0.0 (clang-1300.0.29.30)]',
+ 'py_exec_path': '/Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12',
+ 'os_details': 'macOS-26.5.2-arm64-arm-64bit',
+ 'mem_info': '106.05 MB',
+ 'peak_memory_usage': '106.05 MB',
+ 'disk_info': {'total': '2 TB', 'used': '763.12 GB', 'used_initally': '763.12 GB', 'free': '1.23 TB'},
+ 'peak_disk_usage': '763.12 GB',
+ 'thread_count': 4,
+ 'peak_thread_count': 5}
+Source (file) report:
+{'ingestion_high_stage_seconds': {},
+ 'ingestion_stage_durations': {},
+ 'aspects': {},
+ 'aspects_by_subtypes_full_count': {},
+ 'samples': {},
+ 'compute_stats_time_seconds': 9.8e-05,
+ 'event_not_produced_warn': True,
+ 'events_produced': 10,
+ 'events_produced_per_sec': 21,
+ 'num_input_fields_filtered': 0,
+ 'soft_deleted_stale_entities': [],
+ 'last_state_non_deletable_entities': [],
+ 'total_num_files': 1,
+ 'num_files_completed': 1,
+ 'files_completed': ['/Users/cjimti/workspace/txn2/mcp-data-platform/bench/seed/datahub/bench_mces.json'],
+ 'percentage_completion': '100.00%',
+ 'estimated_time_to_completion_in_minutes': 0,
+ 'total_bytes_on_disk': 4911,
+ 'total_bytes_read_completed_files': 4911,
+ 'current_file_size': 4911,
+ 'total_parse_time_in_seconds': 0,
+ 'total_count_time_in_seconds': 0,
+ 'total_deserialize_time_in_seconds': 0.0,
+ 'platform': 'metadata-file',
+ 'start_time': '2026-07-14 12:41:43.279345 (now)',
+ 'running_time': '0.46 seconds',
+ 'failures': [],
+ 'warnings': [],
+ 'infos': []}
+Sink (datahub-rest) report:
+{'total_records_written': 12,
+ 'records_written_per_second': 24,
+ 'warnings': [],
+ 'failures': [],
+ 'start_time': '2026-07-14 12:41:43.251678 (now)',
+ 'current_time': '2026-07-14 12:41:43.737999 (now)',
+ 'total_duration_in_seconds': 0.49,
+ 'mode': 'ASYNC_BATCH',
+ 'endpoint': 'RESTLI',
+ 'max_threads': 15,
+ 'gms_version': 'v1.6.0',
+ 'pending_requests': 0,
+ 'async_batches_prepared': 1,
+ 'async_batches_split': 0,
+ 'main_thread_blocking_timer': '0.048 seconds'}
+
+Pipeline finished successfully; produced 12 events in 0.46 seconds.
+Starting E2E test environment...
+NOTE: For full E2E tests, also run 'datahub docker quickstart' separately
+DOCKER_DEFAULT_PLATFORM= docker compose -f docker-compose.e2e.yml up -d postgres trino seaweedfs
+ Network mcp-data-platform_e2e-network Creating 
+ Network mcp-data-platform_e2e-network Created 
+ Volume mcp-data-platform_postgres_data Creating 
+ Volume mcp-data-platform_postgres_data Created 
+ Volume mcp-data-platform_seaweedfs_data Creating 
+ Volume mcp-data-platform_seaweedfs_data Created 
+ Container e2e-seaweedfs Creating 
+ Container e2e-postgres Creating 
+ Container e2e-trino Creating 
+ postgres The requested image's platform (linux/amd64) does not match the detected host platform (linux/arm64/v8) and no specific platform was requested 
+ Container e2e-seaweedfs Created 
+ Container e2e-trino Created 
+ Container e2e-postgres Created 
+ Container e2e-seaweedfs Starting 
+ Container e2e-trino Starting 
+ Container e2e-postgres Starting 
+ Container e2e-trino Started 
+ Container e2e-postgres Started 
+ Container e2e-seaweedfs Started 
+Waiting for services to be healthy...
+Waiting for PostgreSQL...
+  Still waiting for PostgreSQL... (5s)
+PostgreSQL is ready!
+Waiting for Trino...
+Trino is ready!
+Waiting for SeaweedFS (S3)...
+SeaweedFS (S3) is ready!
+Waiting for DataHub GMS...
+DataHub GMS is ready!
+DataHub detected and ready!
+
+All services are ready!
+Running setup containers...
+DOCKER_DEFAULT_PLATFORM= docker compose -f docker-compose.e2e.yml up seaweedfs-setup trino-setup
+ Container e2e-trino Running 
+ Container e2e-seaweedfs Running 
+ Container e2e-trino-setup Creating 
+ Container e2e-seaweedfs-setup Creating 
+ Container e2e-trino-setup Created 
+ Container e2e-seaweedfs-setup Created 
+Attaching to e2e-seaweedfs-setup, e2e-trino-setup
+ Container e2e-seaweedfs Waiting 
+ Container e2e-trino Waiting 
+ Container e2e-trino Healthy 
+ Container e2e-trino-setup Starting 
+ Container e2e-seaweedfs Healthy 
+ Container e2e-seaweedfs-setup Starting 
+ Container e2e-seaweedfs-setup Started 
+ Container e2e-trino-setup Started 
+e2e-trino-setup  | Jul 14, 2026 7:41:51 PM org.jline.utils.Log logr
+e2e-trino-setup  | WARNING: Unable to create a system terminal, creating a dumb terminal (enable debug logging for more information)
+e2e-trino-setup  | CREATE SCHEMA
+e2e-trino-setup  | CREATE TABLE
+e2e-trino-setup  | INSERT: 5 rows
+e2e-trino-setup  | CREATE TABLE
+e2e-trino-setup  | INSERT: 4 rows
+e2e-trino-setup  | CREATE TABLE
+e2e-trino-setup  | INSERT: 4 rows
+e2e-trino-setup  | CREATE TABLE
+e2e-trino-setup  | INSERT: 4 rows
+e2e-trino-setup  | Trino setup complete
+[Ke2e-trino-setup exited with code 0
+e2e-seaweedfs-setup  | make_bucket: test-data-lake
+e2e-seaweedfs-setup  | make_bucket: test-analytics
+e2e-seaweedfs-setup  | Completed 37 Bytes/37 Bytes (178 Bytes/s) with 1 file(s) remainingupload: ../testdata/sample.parquet to s3://test-data-lake/raw/sample.parquet
+e2e-seaweedfs-setup  | SeaweedFS setup complete
+[Ke2e-seaweedfs-setup exited with code 0
+E2E environment is ready!
+Seeding bench warehouse in Trino...
+ e2e-trino Copying bench/seed/trino/setup.sql to e2e-trino:/tmp/bench-setup.sql
+ e2e-trino Copied bench/seed/trino/setup.sql to e2e-trino:/tmp/bench-setup.sql
+Jul 14, 2026 7:41:58 PM org.jline.utils.Log logr
+WARNING: Unable to create a system terminal, creating a dumb terminal (enable debug logging for more information)
+CREATE SCHEMA
+DROP TABLE
+CREATE TABLE
+INSERT: 80 rows
+DROP TABLE
+CREATE TABLE
+INSERT: 250 rows
+INSERT: 250 rows
+INSERT: 250 rows
+INSERT: 250 rows
+INSERT: 200 rows
+DROP TABLE
+CREATE TABLE
+INSERT: 60 rows
+DROP TABLE
+CREATE TABLE
+INSERT: 250 rows
+INSERT: 250 rows
+INSERT: 125 rows
+Building release-style platform binary (no -race)...
+go build -ldflags "-X github.com/txn2/mcp-data-platform/internal/server.Version=v1.102.0-10-g32d61254-dirty" -o ./build/mcp-data-platform-bench ./cmd/mcp-data-platform
+Building benchrun...
+Starting platform (bench/config/platform.bench.a3.yaml) on :8098...
+Waiting for readiness on http://localhost:8098/readyz ...
+Seeding knowledge pages (requires platform migrations, just applied on boot)...
+Platform ready (pid 66388, arm a3).
+=== pass 1 RUN Tue Jul 14 12:42:01 PDT 2026 ===
+time=2026-07-14T12:43:46.712-07:00 level=INFO msg="protocol graded" protocol=lc-active-customers attempt=1 captured=true recall=true promoted=true transfer=true update=false duplicated=false abstain=true
+time=2026-07-14T12:45:21.066-07:00 level=INFO msg="protocol graded" protocol=lc-core-market attempt=1 captured=false recall=true promoted=false transfer=false update=false duplicated=false abstain=true
+time=2026-07-14T12:47:23.289-07:00 level=INFO msg="protocol graded" protocol=lc-focus-month attempt=1 captured=false recall=false promoted=false transfer=false update=false duplicated=false abstain=true
+time=2026-07-14T12:48:42.045-07:00 level=INFO msg="protocol graded" protocol=lc-focus-region-net attempt=1 captured=false recall=true promoted=false transfer=false update=false duplicated=false abstain=true
+time=2026-07-14T12:51:49.785-07:00 level=INFO msg="protocol graded" protocol=lc-house-tier attempt=1 captured=true recall=true promoted=true transfer=false update=false duplicated=false abstain=true
+time=2026-07-14T12:53:08.250-07:00 level=INFO msg="protocol graded" protocol=lc-leading-region attempt=1 captured=true recall=true promoted=true transfer=true update=false duplicated=false abstain=true
+time=2026-07-14T12:55:32.660-07:00 level=INFO msg="protocol graded" protocol=lc-peak-region attempt=1 captured=true recall=true promoted=true transfer=true update=false duplicated=false abstain=true
+time=2026-07-14T12:58:19.082-07:00 level=INFO msg="protocol graded" protocol=lc-premium-orders attempt=1 captured=true recall=true promoted=true transfer=false update=false duplicated=false abstain=true
+time=2026-07-14T13:00:42.754-07:00 level=INFO msg="protocol graded" protocol=lc-primary-region attempt=1 captured=true recall=false promoted=false transfer=false update=true duplicated=false abstain=true
+time=2026-07-14T13:03:07.960-07:00 level=INFO msg="protocol graded" protocol=lc-priority-orders attempt=1 captured=true recall=true promoted=true transfer=false update=false duplicated=false abstain=true
+time=2026-07-14T13:05:08.395-07:00 level=INFO msg="protocol graded" protocol=lc-reporting-cohort attempt=1 captured=true recall=true promoted=true transfer=true update=false duplicated=false abstain=true
+time=2026-07-14T13:06:31.431-07:00 level=INFO msg="protocol graded" protocol=lc-reporting-window attempt=1 captured=true recall=true promoted=false transfer=false update=true duplicated=false abstain=true
+time=2026-07-14T13:09:29.246-07:00 level=INFO msg="protocol graded" protocol=lc-settlement-total attempt=1 captured=true recall=false promoted=true transfer=true update=false duplicated=false abstain=true
+time=2026-07-14T13:12:20.745-07:00 level=INFO msg="protocol graded" protocol=lc-target-cohort attempt=1 captured=true recall=true promoted=true transfer=false update=false duplicated=false abstain=true
+time=2026-07-14T13:13:59.371-07:00 level=INFO msg="protocol graded" protocol=lc-top-line attempt=1 captured=true recall=true promoted=true transfer=true update=false duplicated=false abstain=true
+bench lifecycle (S5): arm=a3 model=claude-sonnet-5 (anthropic) k=1
+  platform v1.102.0-10-g32d61254-dirty @ http://localhost:8098 | commit 32d61254b95a | seed 930 | protocols 0920c55292d1
+  2026-07-14T19:42:01Z .. 2026-07-14T20:13:59Z
+
+protocols 15  attempts 15  harness failures 0
+tokens: input 792  output 92976  cache read 6832991  cache write 459356 (apply current model pricing for cost)
+
+  capture rate          80.0%  (12/15)
+  personal recall       80.0%  (12/15)
+  unprompted surface   100.0%  (12/12)
+  transfer rate         60.0%  (6/10)
+  update correctness   100.0%  (2/2)
+  duplicate rate         0.0%  (0/2)
+  abstention rate      100.0%  (15/15)
+  pass^k (protocols)    40.0%  (6/15)
+results: bench/results/s5-anthropic-k3-isolated/pass1.json
+pass 1 benchrun exit 0 Tue Jul 14 13:13:59 PDT 2026
+=== pass 2 RESET Tue Jul 14 13:13:59 PDT 2026 ===
+Stopping platform (pid 66388)...
+Stopping E2E test environment...
+DOCKER_DEFAULT_PLATFORM= docker compose -f docker-compose.e2e.yml down -v
+ Container e2e-seaweedfs-setup Stopping 
+ Container e2e-trino-setup Stopping 
+ Container e2e-postgres Stopping 
+ Container e2e-seaweedfs-setup Stopped 
+ Container e2e-seaweedfs-setup Removing 
+ Container e2e-trino-setup Stopped 
+ Container e2e-trino-setup Removing 
+ Container e2e-trino-setup Removed 
+ Container e2e-seaweedfs-setup Removed 
+ Container e2e-trino Stopping 
+ Container e2e-seaweedfs Stopping 
+ Container e2e-postgres Stopped 
+ Container e2e-postgres Removing 
+ Container e2e-postgres Removed 
+ Container e2e-trino Stopped 
+ Container e2e-trino Removing 
+ Container e2e-trino Removed 
+ Container e2e-seaweedfs Stopped 
+ Container e2e-seaweedfs Removing 
+ Container e2e-seaweedfs Removed 
+ Volume mcp-data-platform_seaweedfs_data Removing 
+ Network mcp-data-platform_e2e-network Removing 
+ Volume mcp-data-platform_postgres_data Removing 
+ Volume mcp-data-platform_seaweedfs_data Removed 
+ Volume mcp-data-platform_postgres_data Removed 
+ Network mcp-data-platform_e2e-network Removed 
+E2E environment stopped.
+Stopping E2E test environment...
+DOCKER_DEFAULT_PLATFORM= docker compose -f docker-compose.e2e.yml down -v
+E2E environment stopped.
+datahub ingest -c ./build/bench-datahub-recipe.yml
+Python versions above 3.11 are not actively tested with yet. Please use Python 3.11 for now.
+2026-07-14 13:14:02,732 [datahub.masking.bootstrap] INFO: Initializing secret masking infrastructure
+2026-07-14 13:14:02,732 [datahub.masking.masking_filter] INFO: Installed SecretMaskingFilter on root logger
+2026-07-14 13:14:02,732 [datahub.masking.masking_filter] DEBUG: Wrapped sys.stdout with StreamMaskingWrapper
+2026-07-14 13:14:02,732 [datahub.masking.masking_filter] DEBUG: Wrapped sys.stderr with StreamMaskingWrapper
+2026-07-14 13:14:02,733 [datahub.masking.masking_filter] DEBUG: Updated 4 logging handlers to use wrapped streams
+2026-07-14 13:14:02,733 [datahub.masking.bootstrap] DEBUG: Installed custom exception hook for secret masking
+2026-07-14 13:14:02,733 [datahub.masking.bootstrap] INFO: Secret masking infrastructure initialized successfully. Secrets will be registered automatically as they are loaded.
+[2026-07-14 13:14:02,733] INFO     {datahub.cli.ingest_cli:155} - DataHub CLI version: 1.3.1.5
+[2026-07-14 13:14:02,789] INFO     {datahub.ingestion.run.pipeline:225} - Sink configured successfully. DataHubRestEmitter: configured to talk to http://localhost:8080
+[2026-07-14 13:14:02,814] INFO     {datahub.ingestion.run.pipeline:254} - Source configured successfully.
+[2026-07-14 13:14:02,814] INFO     {datahub.cli.ingest_cli:136} - Starting metadata ingestion
+[2026-07-14 13:14:03,263] INFO     {datahub.cli.ingest_cli:149} - Finished metadata ingestion
+
+Cli report:
+{'cli_version': '1.3.1.5',
+ 'cli_entry_location': '/Users/cjimti/Library/Python/3.12/lib/python/site-packages/datahub/ingestion/run/pipeline.py',
+ 'models_version': 'bundled',
+ 'py_version': '3.12.3 (v3.12.3:f6650f9ad7, Apr  9 2024, 08:18:47) [Clang 13.0.0 (clang-1300.0.29.30)]',
+ 'py_exec_path': '/Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12',
+ 'os_details': 'macOS-26.5.2-arm64-arm-64bit',
+ 'mem_info': '108.18 MB',
+ 'peak_memory_usage': '108.18 MB',
+ 'disk_info': {'total': '2 TB', 'used': '763.18 GB', 'used_initally': '763.18 GB', 'free': '1.23 TB'},
+ 'peak_disk_usage': '763.18 GB',
+ 'thread_count': 4,
+ 'peak_thread_count': 5}
+Source (file) report:
+{'ingestion_high_stage_seconds': {},
+ 'ingestion_stage_durations': {},
+ 'aspects': {},
+ 'aspects_by_subtypes_full_count': {},
+ 'samples': {},
+ 'compute_stats_time_seconds': 0.000154,
+ 'event_not_produced_warn': True,
+ 'events_produced': 10,
+ 'events_produced_per_sec': 15,
+ 'num_input_fields_filtered': 0,
+ 'soft_deleted_stale_entities': [],
+ 'last_state_non_deletable_entities': [],
+ 'total_num_files': 1,
+ 'num_files_completed': 1,
+ 'files_completed': ['/Users/cjimti/workspace/txn2/mcp-data-platform/bench/seed/datahub/bench_mces.json'],
+ 'percentage_completion': '100.00%',
+ 'estimated_time_to_completion_in_minutes': 0,
+ 'total_bytes_on_disk': 4911,
+ 'total_bytes_read_completed_files': 4911,
+ 'current_file_size': 4911,
+ 'total_parse_time_in_seconds': 0,
+ 'total_count_time_in_seconds': 0,
+ 'total_deserialize_time_in_seconds': 0.0,
+ 'platform': 'metadata-file',
+ 'start_time': '2026-07-14 13:14:02.814400 (now)',
+ 'running_time': '0.66 seconds',
+ 'failures': [],
+ 'warnings': [],
+ 'infos': []}
+Sink (datahub-rest) report:
+{'total_records_written': 12,
+ 'records_written_per_second': 17,
+ 'warnings': [],
+ 'failures': [],
+ 'start_time': '2026-07-14 13:14:02.783427 (now)',
+ 'current_time': '2026-07-14 13:14:03.479411 (now)',
+ 'total_duration_in_seconds': 0.7,
+ 'mode': 'ASYNC_BATCH',
+ 'endpoint': 'RESTLI',
+ 'max_threads': 15,
+ 'gms_version': 'v1.6.0',
+ 'pending_requests': 0,
+ 'async_batches_prepared': 1,
+ 'async_batches_split': 0,
+ 'main_thread_blocking_timer': '0.040 seconds'}
+
+Pipeline finished successfully; produced 12 events in 0.66 seconds.
+Starting E2E test environment...
+NOTE: For full E2E tests, also run 'datahub docker quickstart' separately
+DOCKER_DEFAULT_PLATFORM= docker compose -f docker-compose.e2e.yml up -d postgres trino seaweedfs
+ Network mcp-data-platform_e2e-network Creating 
+ Network mcp-data-platform_e2e-network Created 
+ Volume mcp-data-platform_postgres_data Creating 
+ Volume mcp-data-platform_postgres_data Created 
+ Volume mcp-data-platform_seaweedfs_data Creating 
+ Volume mcp-data-platform_seaweedfs_data Created 
+ Container e2e-trino Creating 
+ Container e2e-seaweedfs Creating 
+ Container e2e-postgres Creating 
+ postgres The requested image's platform (linux/amd64) does not match the detected host platform (linux/arm64/v8) and no specific platform was requested 
+ Container e2e-postgres Created 
+ Container e2e-seaweedfs Created 
+ Container e2e-trino Created 
+ Container e2e-trino Starting 
+ Container e2e-postgres Starting 
+ Container e2e-seaweedfs Starting 
+ Container e2e-postgres Started 
+ Container e2e-trino Started 
+ Container e2e-seaweedfs Started 
+Waiting for services to be healthy...
+Waiting for PostgreSQL...
+  Still waiting for PostgreSQL... (5s)
+PostgreSQL is ready!
+Waiting for Trino...
+Trino is ready!
+Waiting for SeaweedFS (S3)...
+SeaweedFS (S3) is ready!
+Waiting for DataHub GMS...
+DataHub GMS is ready!
+DataHub detected and ready!
+
+All services are ready!
+Running setup containers...
+DOCKER_DEFAULT_PLATFORM= docker compose -f docker-compose.e2e.yml up seaweedfs-setup trino-setup
+ Container e2e-trino Running 
+ Container e2e-seaweedfs Running 
+ Container e2e-trino-setup Creating 
+ Container e2e-seaweedfs-setup Creating 
+ Container e2e-seaweedfs-setup Created 
+ Container e2e-trino-setup Created 
+Attaching to e2e-seaweedfs-setup, e2e-trino-setup
+ Container e2e-seaweedfs Waiting 
+ Container e2e-trino Waiting 
+ Container e2e-trino Healthy 
+ Container e2e-trino-setup Starting 
+ Container e2e-seaweedfs Healthy 
+ Container e2e-seaweedfs-setup Starting 
+ Container e2e-trino-setup Started 
+ Container e2e-seaweedfs-setup Started 
+e2e-trino-setup  | Jul 14, 2026 8:14:11 PM org.jline.utils.Log logr
+e2e-trino-setup  | WARNING: Unable to create a system terminal, creating a dumb terminal (enable debug logging for more information)
+e2e-trino-setup  | CREATE SCHEMA
+e2e-trino-setup  | CREATE TABLE
+e2e-trino-setup  | INSERT: 5 rows
+e2e-trino-setup  | CREATE TABLE
+e2e-trino-setup  | INSERT: 4 rows
+e2e-trino-setup  | CREATE TABLE
+e2e-trino-setup  | INSERT: 4 rows
+e2e-trino-setup  | CREATE TABLE
+e2e-trino-setup  | INSERT: 4 rows
+e2e-trino-setup  | Trino setup complete
+[Ke2e-trino-setup exited with code 0
+e2e-seaweedfs-setup  | make_bucket: test-data-lake
+e2e-seaweedfs-setup  | make_bucket: test-analytics
+e2e-seaweedfs-setup  | Completed 37 Bytes/37 Bytes (179 Bytes/s) with 1 file(s) remainingupload: ../testdata/sample.parquet to s3://test-data-lake/raw/sample.parquet
+e2e-seaweedfs-setup  | SeaweedFS setup complete
+[Ke2e-seaweedfs-setup exited with code 0
+E2E environment is ready!
+Seeding bench warehouse in Trino...
+ e2e-trino Copying bench/seed/trino/setup.sql to e2e-trino:/tmp/bench-setup.sql
+ e2e-trino Copied bench/seed/trino/setup.sql to e2e-trino:/tmp/bench-setup.sql
+Jul 14, 2026 8:14:17 PM org.jline.utils.Log logr
+WARNING: Unable to create a system terminal, creating a dumb terminal (enable debug logging for more information)
+CREATE SCHEMA
+DROP TABLE
+CREATE TABLE
+INSERT: 80 rows
+DROP TABLE
+CREATE TABLE
+INSERT: 250 rows
+INSERT: 250 rows
+INSERT: 250 rows
+INSERT: 250 rows
+INSERT: 200 rows
+DROP TABLE
+CREATE TABLE
+INSERT: 60 rows
+DROP TABLE
+CREATE TABLE
+INSERT: 250 rows
+INSERT: 250 rows
+INSERT: 125 rows
+Building release-style platform binary (no -race)...
+go build -ldflags "-X github.com/txn2/mcp-data-platform/internal/server.Version=v1.102.0-10-g32d61254-dirty" -o ./build/mcp-data-platform-bench ./cmd/mcp-data-platform
+Building benchrun...
+Starting platform (bench/config/platform.bench.a3.yaml) on :8098...
+Waiting for readiness on http://localhost:8098/readyz ...
+Seeding knowledge pages (requires platform migrations, just applied on boot)...
+Platform ready (pid 77446, arm a3).
+=== pass 2 RUN Tue Jul 14 13:14:21 PDT 2026 ===
+time=2026-07-14T13:17:22.698-07:00 level=INFO msg="protocol graded" protocol=lc-active-customers attempt=1 captured=true recall=true promoted=true transfer=false update=false duplicated=false abstain=true
+time=2026-07-14T13:19:28.950-07:00 level=INFO msg="protocol graded" protocol=lc-core-market attempt=1 captured=false recall=true promoted=false transfer=false update=false duplicated=false abstain=true
+time=2026-07-14T13:21:33.461-07:00 level=INFO msg="protocol graded" protocol=lc-focus-month attempt=1 captured=true recall=true promoted=false transfer=false update=true duplicated=false abstain=true
+time=2026-07-14T13:22:58.986-07:00 level=INFO msg="protocol graded" protocol=lc-focus-region-net attempt=1 captured=false recall=true promoted=false transfer=false update=false duplicated=false abstain=true
+time=2026-07-14T13:26:09.234-07:00 level=INFO msg="protocol graded" protocol=lc-house-tier attempt=1 captured=true recall=true promoted=true transfer=false update=false duplicated=false abstain=true
+time=2026-07-14T13:27:34.027-07:00 level=INFO msg="protocol graded" protocol=lc-leading-region attempt=1 captured=true recall=true promoted=true transfer=true update=false duplicated=false abstain=true
+time=2026-07-14T13:30:30.517-07:00 level=INFO msg="protocol graded" protocol=lc-peak-region attempt=1 captured=true recall=true promoted=true transfer=false update=false duplicated=false abstain=true
+time=2026-07-14T13:33:03.323-07:00 level=INFO msg="protocol graded" protocol=lc-premium-orders attempt=1 captured=true recall=true promoted=true transfer=false update=false duplicated=false abstain=true
+time=2026-07-14T13:35:41.344-07:00 level=INFO msg="protocol graded" protocol=lc-primary-region attempt=1 captured=true recall=false promoted=false transfer=false update=true duplicated=false abstain=true
+time=2026-07-14T13:38:21.164-07:00 level=INFO msg="protocol graded" protocol=lc-priority-orders attempt=1 captured=true recall=true promoted=true transfer=false update=false duplicated=false abstain=true
+time=2026-07-14T13:39:35.551-07:00 level=INFO msg="protocol graded" protocol=lc-reporting-cohort attempt=1 captured=true recall=true promoted=true transfer=true update=false duplicated=false abstain=true
+time=2026-07-14T13:41:03.419-07:00 level=INFO msg="protocol graded" protocol=lc-reporting-window attempt=1 captured=true recall=true promoted=false transfer=false update=true duplicated=false abstain=true
+time=2026-07-14T13:43:31.000-07:00 level=INFO msg="protocol graded" protocol=lc-settlement-total attempt=1 captured=true recall=true promoted=true transfer=false update=false duplicated=false abstain=true
+time=2026-07-14T13:45:47.322-07:00 level=INFO msg="protocol graded" protocol=lc-target-cohort attempt=1 captured=true recall=true promoted=true transfer=false update=false duplicated=false abstain=true
+time=2026-07-14T13:47:19.499-07:00 level=INFO msg="protocol graded" protocol=lc-top-line attempt=1 captured=true recall=true promoted=true transfer=true update=false duplicated=false abstain=true
+bench lifecycle (S5): arm=a3 model=claude-sonnet-5 (anthropic) k=1
+  platform v1.102.0-10-g32d61254-dirty @ http://localhost:8098 | commit 32d61254b95a | seed 930 | protocols 0920c55292d1
+  2026-07-14T20:14:21Z .. 2026-07-14T20:47:19Z
+
+protocols 15  attempts 15  harness failures 0
+tokens: input 822  output 98272  cache read 7169424  cache write 426769 (apply current model pricing for cost)
+
+  capture rate          86.7%  (13/15)
+  personal recall       93.3%  (14/15)
+  unprompted surface   100.0%  (13/13)
+  transfer rate         30.0%  (3/10)
+  update correctness   100.0%  (3/3)
+  duplicate rate         0.0%  (0/3)
+  abstention rate      100.0%  (15/15)
+  pass^k (protocols)    33.3%  (5/15)
+results: bench/results/s5-anthropic-k3-isolated/pass2.json
+pass 2 benchrun exit 0 Tue Jul 14 13:47:19 PDT 2026
+=== pass 3 RESET Tue Jul 14 13:47:19 PDT 2026 ===
+Stopping platform (pid 77446)...
+Stopping E2E test environment...
+DOCKER_DEFAULT_PLATFORM= docker compose -f docker-compose.e2e.yml down -v
+ Container e2e-postgres Stopping 
+ Container e2e-trino-setup Stopping 
+ Container e2e-seaweedfs-setup Stopping 
+ Container e2e-seaweedfs-setup Stopped 
+ Container e2e-seaweedfs-setup Removing 
+ Container e2e-trino-setup Stopped 
+ Container e2e-trino-setup Removing 
+ Container e2e-trino-setup Removed 
+ Container e2e-seaweedfs-setup Removed 
+ Container e2e-trino Stopping 
+ Container e2e-seaweedfs Stopping 
+ Container e2e-postgres Stopped 
+ Container e2e-postgres Removing 
+ Container e2e-postgres Removed 
+ Container e2e-trino Stopped 
+ Container e2e-trino Removing 
+ Container e2e-trino Removed 
+ Container e2e-seaweedfs Stopped 
+ Container e2e-seaweedfs Removing 
+ Container e2e-seaweedfs Removed 
+ Network mcp-data-platform_e2e-network Removing 
+ Volume mcp-data-platform_seaweedfs_data Removing 
+ Volume mcp-data-platform_postgres_data Removing 
+ Volume mcp-data-platform_seaweedfs_data Removed 
+ Volume mcp-data-platform_postgres_data Removed 
+ Network mcp-data-platform_e2e-network Removed 
+E2E environment stopped.
+Stopping E2E test environment...
+DOCKER_DEFAULT_PLATFORM= docker compose -f docker-compose.e2e.yml down -v
+E2E environment stopped.
+datahub ingest -c ./build/bench-datahub-recipe.yml
+Python versions above 3.11 are not actively tested with yet. Please use Python 3.11 for now.
+2026-07-14 13:47:23,197 [datahub.masking.bootstrap] INFO: Initializing secret masking infrastructure
+2026-07-14 13:47:23,197 [datahub.masking.masking_filter] INFO: Installed SecretMaskingFilter on root logger
+2026-07-14 13:47:23,197 [datahub.masking.masking_filter] DEBUG: Wrapped sys.stdout with StreamMaskingWrapper
+2026-07-14 13:47:23,197 [datahub.masking.masking_filter] DEBUG: Wrapped sys.stderr with StreamMaskingWrapper
+2026-07-14 13:47:23,198 [datahub.masking.masking_filter] DEBUG: Updated 4 logging handlers to use wrapped streams
+2026-07-14 13:47:23,198 [datahub.masking.bootstrap] DEBUG: Installed custom exception hook for secret masking
+2026-07-14 13:47:23,198 [datahub.masking.bootstrap] INFO: Secret masking infrastructure initialized successfully. Secrets will be registered automatically as they are loaded.
+[2026-07-14 13:47:23,198] INFO     {datahub.cli.ingest_cli:155} - DataHub CLI version: 1.3.1.5
+[2026-07-14 13:47:23,248] INFO     {datahub.ingestion.run.pipeline:225} - Sink configured successfully. DataHubRestEmitter: configured to talk to http://localhost:8080
+[2026-07-14 13:47:23,278] INFO     {datahub.ingestion.run.pipeline:254} - Source configured successfully.
+[2026-07-14 13:47:23,278] INFO     {datahub.cli.ingest_cli:136} - Starting metadata ingestion
+[2026-07-14 13:47:23,485] INFO     {datahub.cli.ingest_cli:149} - Finished metadata ingestion
+
+Cli report:
+{'cli_version': '1.3.1.5',
+ 'cli_entry_location': '/Users/cjimti/Library/Python/3.12/lib/python/site-packages/datahub/ingestion/run/pipeline.py',
+ 'models_version': 'bundled',
+ 'py_version': '3.12.3 (v3.12.3:f6650f9ad7, Apr  9 2024, 08:18:47) [Clang 13.0.0 (clang-1300.0.29.30)]',
+ 'py_exec_path': '/Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12',
+ 'os_details': 'macOS-26.5.2-arm64-arm-64bit',
+ 'mem_info': '105.55 MB',
+ 'peak_memory_usage': '105.55 MB',
+ 'disk_info': {'total': '2 TB', 'used': '760.41 GB', 'used_initally': '760.41 GB', 'free': '1.23 TB'},
+ 'peak_disk_usage': '760.41 GB',
+ 'thread_count': 4,
+ 'peak_thread_count': 5}
+Source (file) report:
+{'ingestion_high_stage_seconds': {},
+ 'ingestion_stage_durations': {},
+ 'aspects': {},
+ 'aspects_by_subtypes_full_count': {},
+ 'samples': {},
+ 'compute_stats_time_seconds': 0.000143,
+ 'event_not_produced_warn': True,
+ 'events_produced': 10,
+ 'events_produced_per_sec': 22,
+ 'num_input_fields_filtered': 0,
+ 'soft_deleted_stale_entities': [],
+ 'last_state_non_deletable_entities': [],
+ 'total_num_files': 1,
+ 'num_files_completed': 1,
+ 'files_completed': ['/Users/cjimti/workspace/txn2/mcp-data-platform/bench/seed/datahub/bench_mces.json'],
+ 'percentage_completion': '100.00%',
+ 'estimated_time_to_completion_in_minutes': 0,
+ 'total_bytes_on_disk': 4911,
+ 'total_bytes_read_completed_files': 4911,
+ 'current_file_size': 4911,
+ 'total_parse_time_in_seconds': 0,
+ 'total_count_time_in_seconds': 0,
+ 'total_deserialize_time_in_seconds': 0.0,
+ 'platform': 'metadata-file',
+ 'start_time': '2026-07-14 13:47:23.278465 (now)',
+ 'running_time': '0.44 seconds',
+ 'failures': [],
+ 'warnings': [],
+ 'infos': []}
+Sink (datahub-rest) report:
+{'total_records_written': 12,
+ 'records_written_per_second': 25,
+ 'warnings': [],
+ 'failures': [],
+ 'start_time': '2026-07-14 13:47:23.242880 (now)',
+ 'current_time': '2026-07-14 13:47:23.720491 (now)',
+ 'total_duration_in_seconds': 0.48,
+ 'mode': 'ASYNC_BATCH',
+ 'endpoint': 'RESTLI',
+ 'max_threads': 15,
+ 'gms_version': 'v1.6.0',
+ 'pending_requests': 0,
+ 'async_batches_prepared': 1,
+ 'async_batches_split': 0,
+ 'main_thread_blocking_timer': '0.043 seconds'}
+
+Pipeline finished successfully; produced 12 events in 0.44 seconds.
+Starting E2E test environment...
+NOTE: For full E2E tests, also run 'datahub docker quickstart' separately
+DOCKER_DEFAULT_PLATFORM= docker compose -f docker-compose.e2e.yml up -d postgres trino seaweedfs
+ Network mcp-data-platform_e2e-network Creating 
+ Network mcp-data-platform_e2e-network Created 
+ Volume mcp-data-platform_seaweedfs_data Creating 
+ Volume mcp-data-platform_seaweedfs_data Created 
+ Volume mcp-data-platform_postgres_data Creating 
+ Volume mcp-data-platform_postgres_data Created 
+ Container e2e-postgres Creating 
+ Container e2e-trino Creating 
+ Container e2e-seaweedfs Creating 
+ postgres The requested image's platform (linux/amd64) does not match the detected host platform (linux/arm64/v8) and no specific platform was requested 
+ Container e2e-postgres Created 
+ Container e2e-seaweedfs Created 
+ Container e2e-trino Created 
+ Container e2e-trino Starting 
+ Container e2e-postgres Starting 
+ Container e2e-seaweedfs Starting 
+ Container e2e-trino Started 
+ Container e2e-postgres Started 
+ Container e2e-seaweedfs Started 
+Waiting for services to be healthy...
+Waiting for PostgreSQL...
+  Still waiting for PostgreSQL... (5s)
+PostgreSQL is ready!
+Waiting for Trino...
+Trino is ready!
+Waiting for SeaweedFS (S3)...
+  Still waiting for SeaweedFS (S3)... (5s)
+SeaweedFS (S3) is ready!
+Waiting for DataHub GMS...
+DataHub GMS is ready!
+DataHub detected and ready!
+
+All services are ready!
+Running setup containers...
+DOCKER_DEFAULT_PLATFORM= docker compose -f docker-compose.e2e.yml up seaweedfs-setup trino-setup
+ Container e2e-seaweedfs Running 
+ Container e2e-trino Running 
+ Container e2e-seaweedfs-setup Creating 
+ Container e2e-trino-setup Creating 
+ Container e2e-trino-setup Created 
+ Container e2e-seaweedfs-setup Created 
+Attaching to e2e-seaweedfs-setup, e2e-trino-setup
+ Container e2e-trino Waiting 
+ Container e2e-seaweedfs Waiting 
+ Container e2e-trino Healthy 
+ Container e2e-trino-setup Starting 
+ Container e2e-seaweedfs Healthy 
+ Container e2e-seaweedfs-setup Starting 
+ Container e2e-seaweedfs-setup Started 
+ Container e2e-trino-setup Started 
+e2e-trino-setup  | Jul 14, 2026 8:47:37 PM org.jline.utils.Log logr
+e2e-trino-setup  | WARNING: Unable to create a system terminal, creating a dumb terminal (enable debug logging for more information)
+e2e-trino-setup  | CREATE SCHEMA
+e2e-trino-setup  | CREATE TABLE
+e2e-trino-setup  | INSERT: 5 rows
+e2e-trino-setup  | CREATE TABLE
+e2e-trino-setup  | INSERT: 4 rows
+e2e-trino-setup  | CREATE TABLE
+e2e-trino-setup  | INSERT: 4 rows
+e2e-trino-setup  | CREATE TABLE
+e2e-trino-setup  | INSERT: 4 rows
+e2e-trino-setup  | Trino setup complete
+[Ke2e-trino-setup exited with code 0
+e2e-seaweedfs-setup  | make_bucket: test-data-lake
+e2e-seaweedfs-setup  | make_bucket: test-analytics
+e2e-seaweedfs-setup  | Completed 37 Bytes/37 Bytes (178 Bytes/s) with 1 file(s) remainingupload: ../testdata/sample.parquet to s3://test-data-lake/raw/sample.parquet
+e2e-seaweedfs-setup  | SeaweedFS setup complete
+[Ke2e-seaweedfs-setup exited with code 0
+E2E environment is ready!
+Seeding bench warehouse in Trino...
+ e2e-trino Copying bench/seed/trino/setup.sql to e2e-trino:/tmp/bench-setup.sql
+ e2e-trino Copied bench/seed/trino/setup.sql to e2e-trino:/tmp/bench-setup.sql
+Jul 14, 2026 8:47:43 PM org.jline.utils.Log logr
+WARNING: Unable to create a system terminal, creating a dumb terminal (enable debug logging for more information)
+CREATE SCHEMA
+DROP TABLE
+CREATE TABLE
+INSERT: 80 rows
+DROP TABLE
+CREATE TABLE
+INSERT: 250 rows
+INSERT: 250 rows
+INSERT: 250 rows
+INSERT: 250 rows
+INSERT: 200 rows
+DROP TABLE
+CREATE TABLE
+INSERT: 60 rows
+DROP TABLE
+CREATE TABLE
+INSERT: 250 rows
+INSERT: 250 rows
+INSERT: 125 rows
+Building release-style platform binary (no -race)...
+go build -ldflags "-X github.com/txn2/mcp-data-platform/internal/server.Version=v1.102.0-10-g32d61254-dirty" -o ./build/mcp-data-platform-bench ./cmd/mcp-data-platform
+Building benchrun...
+Starting platform (bench/config/platform.bench.a3.yaml) on :8098...
+Waiting for readiness on http://localhost:8098/readyz ...
+Seeding knowledge pages (requires platform migrations, just applied on boot)...
+Platform ready (pid 89167, arm a3).
+=== pass 3 RUN Tue Jul 14 13:47:46 PDT 2026 ===
+time=2026-07-14T13:51:20.288-07:00 level=INFO msg="protocol graded" protocol=lc-active-customers attempt=1 captured=true recall=true promoted=true transfer=false update=false duplicated=false abstain=true
+time=2026-07-14T13:53:17.126-07:00 level=INFO msg="protocol graded" protocol=lc-core-market attempt=1 captured=true recall=true promoted=false transfer=false update=true duplicated=false abstain=true
+time=2026-07-14T13:54:26.026-07:00 level=INFO msg="protocol graded" protocol=lc-focus-month attempt=1 captured=false recall=true promoted=false transfer=false update=false duplicated=false abstain=true
+time=2026-07-14T13:55:45.462-07:00 level=INFO msg="protocol graded" protocol=lc-focus-region-net attempt=1 captured=false recall=true promoted=false transfer=false update=false duplicated=false abstain=true
+time=2026-07-14T13:59:13.052-07:00 level=INFO msg="protocol graded" protocol=lc-house-tier attempt=1 captured=true recall=true promoted=true transfer=false update=false duplicated=false abstain=true
+time=2026-07-14T14:00:36.456-07:00 level=INFO msg="protocol graded" protocol=lc-leading-region attempt=1 captured=true recall=true promoted=true transfer=true update=false duplicated=false abstain=true
+time=2026-07-14T14:03:12.858-07:00 level=INFO msg="protocol graded" protocol=lc-peak-region attempt=1 captured=true recall=true promoted=true transfer=false update=false duplicated=false abstain=true
+time=2026-07-14T14:06:39.822-07:00 level=INFO msg="protocol graded" protocol=lc-premium-orders attempt=1 captured=true recall=true promoted=true transfer=false update=false duplicated=false abstain=true
+time=2026-07-14T14:10:32.420-07:00 level=INFO msg="protocol graded" protocol=lc-primary-region attempt=1 captured=true recall=false promoted=false transfer=false update=true duplicated=false abstain=true
+time=2026-07-14T14:12:14.363-07:00 level=INFO msg="protocol graded" protocol=lc-priority-orders attempt=1 captured=true recall=true promoted=true transfer=true update=false duplicated=false abstain=true
+time=2026-07-14T14:13:51.194-07:00 level=INFO msg="protocol graded" protocol=lc-reporting-cohort attempt=1 captured=true recall=true promoted=true transfer=true update=false duplicated=false abstain=true
+time=2026-07-14T14:15:56.846-07:00 level=INFO msg="protocol graded" protocol=lc-reporting-window attempt=1 captured=true recall=true promoted=false transfer=false update=true duplicated=false abstain=true
+time=2026-07-14T14:18:23.547-07:00 level=INFO msg="protocol graded" protocol=lc-settlement-total attempt=1 captured=true recall=true promoted=true transfer=false update=false duplicated=false abstain=true
+time=2026-07-14T14:21:06.777-07:00 level=INFO msg="protocol graded" protocol=lc-target-cohort attempt=1 captured=true recall=true promoted=true transfer=false update=false duplicated=false abstain=true
+time=2026-07-14T14:22:29.788-07:00 level=INFO msg="protocol graded" protocol=lc-top-line attempt=1 captured=true recall=true promoted=true transfer=true update=false duplicated=false abstain=true
+bench lifecycle (S5): arm=a3 model=claude-sonnet-5 (anthropic) k=1
+  platform v1.102.0-10-g32d61254-dirty @ http://localhost:8098 | commit 32d61254b95a | seed 930 | protocols 0920c55292d1
+  2026-07-14T20:47:46Z .. 2026-07-14T21:22:29Z
+
+protocols 15  attempts 15  harness failures 0
+tokens: input 824  output 105669  cache read 7257636  cache write 442002 (apply current model pricing for cost)
+
+  capture rate          86.7%  (13/15)
+  personal recall       93.3%  (14/15)
+  unprompted surface   100.0%  (13/13)
+  transfer rate         40.0%  (4/10)
+  update correctness   100.0%  (3/3)
+  duplicate rate         0.0%  (0/3)
+  abstention rate      100.0%  (15/15)
+  pass^k (protocols)    40.0%  (6/15)
+results: bench/results/s5-anthropic-k3-isolated/pass3.json
+pass 3 benchrun exit 0 Tue Jul 14 14:22:29 PDT 2026
+bench lifecycle (S5): arm=a3 model=claude-sonnet-5 (anthropic) k=3
+  platform v1.102.0-10-g32d61254-dirty @ http://localhost:8098 | commit 32d61254b95a | seed 930 | protocols 0920c55292d1
+  2026-07-14T19:42:01Z .. 2026-07-14T21:22:29Z
+
+protocols 15  attempts 45  harness failures 0
+tokens: input 2438  output 296917  cache read 21260051  cache write 1328127 (apply current model pricing for cost)
+
+  capture rate          84.4%  (38/45)
+  personal recall       88.9%  (40/45)
+  unprompted surface   100.0%  (38/38)
+  transfer rate         43.3%  (13/30)
+  update correctness   100.0%  (8/8)
+  duplicate rate         0.0%  (0/8)
+  abstention rate      100.0%  (45/45)
+  pass^k (protocols)    26.7%  (4/15)
+results: bench/results/s5-anthropic-k3-isolated/lifecycle-a3.json
+MERGED Tue Jul 14 14:22:29 PDT 2026
+ORCHESTRATOR DONE Tue Jul 14 14:22:29 PDT 2026

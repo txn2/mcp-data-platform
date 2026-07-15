@@ -1,0 +1,95 @@
+{
+  "protocol_id": "lc-target-cohort",
+  "stage": "abstain",
+  "identity": "teacher",
+  "email": "bench-agent-027@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "What is the subscription renewal rate for the target cohort?"
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01WiKUWKmYSz3pZfsuPGrKef",
+          "name": "search",
+          "args": {
+            "intent": "subscription renewal rate for target cohort"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01WiKUWKmYSz3pZfsuPGrKef",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:539fc33a-c09a-4c70-af41-160efb21e940\"\n        },\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.9428603064355645,\n          \"reference\": \"mcp:prompt:bf4d585f-c91d-472c-98f9-3c93a71f8b20\"\n        },\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 0.9063228349688486,\n          \"reference\": \"mcp:prompt:6f42f663-66a9-4979-af44-3e527acb0be6\"\n        },\n        {\n          \"text\": \"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_apply_guidance\",\n          \"score\": 0.8934257407945669,\n          \"reference\": \"mcp:prompt:4e3c4a88-ee59-486b-af4d-5b314d67e5fa\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/portal/collections/{id}/signoff\\nCollection sign-off summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/{id}/signoff\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/portal/threads/counts\\nCount open threads per target\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/threads/counts\",\n          \"score\": 0.7778428935402509\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Fiscal Calendar Policy\\nThe fiscal year starts February 1: fiscal year 2025 runs 2025-02-01 through 2026-01-31. Fiscal figures must not be computed over the calendar year.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-3\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-3\"\n        },\n        {\n          \"text\": \"Reporting Window Definition\\nThe 'reporting window' is calendar Q3 2025 (Jul 1 - Sep 30, 2025), superseding the earlier Q1 2025 definition.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_15f11eeb-03d1-4bb8-85f2-d53c629b45af\",\n          \"score\": 0.9267119205563306,\n          \"reference\": \"mcp:knowledge_page:kp_15f11eeb-03d1-4bb8-85f2-d53c629b45af\"\n        }\n      ]\n    },\n    {\n      \"source\": \"connections\",\n      \"hits\": [\n        {\n          \"text\": \"platform-admin (api)\\nBuilt-in self-configuration connection. Routes the API gateway to the platform's own admin REST API (`/api/v1/admin/*`) so an admin can create personas, manage connections, edit agent instructions, and manage prompts and API keys directly from an MCP session. Calls are authenticated and audited as the acting admin.\",\n          \"source\": \"connections\",\n          \"ref\": \"platform-admin\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(api,platform-admin)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: the 'target cohort' is the set of customers whose account was created during calendar year 2024, i.e. customers.created_at falls between 2024-01-01 and 2024-12-31 inclusive (created_at \\u003e= DATE '2024-01-01' AND created_at \\u003c DATE '2025-01-01'). Apply this definition consistently in later analyses referencing the 'target cohort'.\",\n          \"source\": \"insights\",\n          \"ref\": \"b3ae2df3995a87eaca7fd477a5963b89\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-027@apikey.local\",\n          \"reference\": \"mcp:insight:b3ae2df3995a87eaca7fd477a5963b89\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 11,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"connections\",\n      \"matched\": 1,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01NhApUzipwLKGQJZe1YPb2Q",
+          "name": "search",
+          "args": {
+            "intent": "subscription renewal rate table subscriptions renewed"
+          }
+        },
+        {
+          "id": "toolu_01Ek8UHdA6ZZoiUeBzcNkZUd",
+          "name": "search",
+          "args": {
+            "intent": "customers table schema created_at subscriptions"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01NhApUzipwLKGQJZe1YPb2Q",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/portal/collections/{id}/signoff\\nCollection sign-off summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/{id}/signoff\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"PUT /api/v1/portal/prompts/{id}\\nUpdate personal prompt\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:PUT /portal/prompts/{id}\",\n          \"score\": 0.8585950376778615\n        },\n        {\n          \"text\": \"POST /api/v1/admin/prompts/{id}/approve\\nApprove prompt promotion\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:POST /admin/prompts/{id}/approve\",\n          \"score\": 0.7155737400385519\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Fiscal Calendar Policy\\nThe fiscal year starts February 1: fiscal year 2025 runs 2025-02-01 through 2026-01-31. Fiscal figures must not be computed over the calendar year.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-3\",\n          \"score\": 0.9428623491070351,\n          \"reference\": \"mcp:knowledge_page:kp-bench-3\"\n        },\n        {\n          \"text\": \"Reporting Window Definition\\nThe 'reporting window' is calendar Q3 2025 (Jul 1 - Sep 30, 2025), superseding the earlier Q1 2025 definition.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_15f11eeb-03d1-4bb8-85f2-d53c629b45af\",\n          \"score\": 0.7399116547663386,\n          \"reference\": \"mcp:knowledge_page:kp_15f11eeb-03d1-4bb8-85f2-d53c629b45af\"\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:bf4d585f-c91d-472c-98f9-3c93a71f8b20\"\n        },\n        {\n          \"text\": \"knowledge_apply_guidance\\nHow to review insights and synthesize them into durable knowledge (DataHub or knowledge pages)\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_apply_guidance\",\n          \"score\": 0.8633754090582998,\n          \"reference\": \"mcp:prompt:4e3c4a88-ee59-486b-af4d-5b314d67e5fa\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.7950201668337504,\n          \"reference\": \"mcp:prompt:539fc33a-c09a-4c70-af41-160efb21e940\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: the 'target cohort' is the set of customers whose account was created during calendar year 2024, i.e. customers.created_at falls between 2024-01-01 and 2024-12-31 inclusive (created_at \\u003e= DATE '2024-01-01' AND created_at \\u003c DATE '2025-01-01'). Apply this definition consistently in later analyses referencing the 'target cohort'.\",\n          \"source\": \"insights\",\n          \"ref\": \"b3ae2df3995a87eaca7fd477a5963b89\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-027@apikey.local\",\n          \"reference\": \"mcp:insight:b3ae2df3995a87eaca7fd477a5963b89\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 11,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01Ek8UHdA6ZZoiUeBzcNkZUd",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Bench Warehouse Guide\\nWhich bench table to use: orders is current, legacy_orders is deprecated, daily_region_revenue is gross-only pre-aggregation refreshed through 2025-11-30.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-2\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp-bench-2\"\n        },\n        {\n          \"text\": \"Premium Order Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_270672bb-2594-4ec4-8902-80e5f7e27d72\",\n          \"score\": 0.9902617015101551,\n          \"reference\": \"mcp:knowledge_page:kp_270672bb-2594-4ec4-8902-80e5f7e27d72\"\n        },\n        {\n          \"text\": \"Active Customer Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_564cd66b-5079-463d-97b9-5435f5618605\",\n          \"score\": 0.7241076437769719,\n          \"reference\": \"mcp:knowledge_page:kp_564cd66b-5079-463d-97b9-5435f5618605\"\n        },\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 0.7116892567171972,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        }\n      ]\n    },\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/admin/tools/schemas\\nGet tool schemas\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /admin/tools/schemas\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"POST /api/v1/portal/collections\\nCreate collection\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:POST /portal/collections\",\n          \"score\": 0.875621524431598\n        },\n        {\n          \"text\": \"PUT /api/v1/portal/knowledge-pages/{id}/refs\\nSet a knowledge page's manual entity references\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:PUT /portal/knowledge-pages/{id}/refs\",\n          \"score\": 0.6988856055404109\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"knowledge_capture_guidance\\nGuidance on when and how to capture domain knowledge insights\",\n          \"source\": \"prompts\",\n          \"ref\": \"knowledge_capture_guidance\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:6f42f663-66a9-4979-af44-3e527acb0be6\"\n        },\n        {\n          \"text\": \"capture-this-as-knowledge\\nRecord insights from this conversation for data catalog improvement\",\n          \"source\": \"prompts\",\n          \"ref\": \"capture-this-as-knowledge\",\n          \"score\": 0.8939094792557017,\n          \"reference\": \"mcp:prompt:539fc33a-c09a-4c70-af41-160efb21e940\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: the 'target cohort' is the set of customers whose account was created during calendar year 2024, i.e. customers.created_at falls between 2024-01-01 and 2024-12-31 inclusive (created_at \\u003e= DATE '2024-01-01' AND created_at \\u003c DATE '2025-01-01'). Apply this definition consistently in later analyses referencing the 'target cohort'.\",\n          \"source\": \"insights\",\n          \"ref\": \"b3ae2df3995a87eaca7fd477a5963b89\",\n          \"score\": 1,\n          \"status\": \"applied\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-027@apikey.local\",\n          \"reference\": \"mcp:insight:b3ae2df3995a87eaca7fd477a5963b89\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 11,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 2\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01L1t4pArFWTH4GSjqKFZ3yz",
+          "name": "trino_browse",
+          "args": {
+            "catalog": "memory",
+            "schema": "bench"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01L1t4pArFWTH4GSjqKFZ3yz",
+          "text": "## Tables in `memory.bench`\n\n- `customers`\n- `daily_region_revenue`\n- `legacy_orders`\n- `orders`\n\n*4 tables found*",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "There is no subscription-related table in the catalog (only customers, orders, legacy_orders, daily_region_revenue), and no saved knowledge defines a \"subscription renewal rate\" metric or provides subscription data.\n\nFINAL ANSWER: INSUFFICIENT INFORMATION"
+    }
+  ]
+}

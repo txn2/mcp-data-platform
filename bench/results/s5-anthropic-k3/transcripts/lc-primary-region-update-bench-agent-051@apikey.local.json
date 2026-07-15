@@ -1,0 +1,108 @@
+{
+  "protocol_id": "lc-primary-region",
+  "stage": "update",
+  "identity": "teacher",
+  "email": "bench-agent-051@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "Correction to the definition I gave you earlier. The 'primary region' is actually the region with the highest NET revenue (amount minus discount over completed orders), not gross. Please update your saved knowledge so future answers use this corrected definition."
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01Nern5CMb2zPfEUhhHEn2xx",
+          "name": "search",
+          "args": {
+            "intent": "primary region definition highest revenue"
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01Nern5CMb2zPfEUhhHEn2xx",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"endpoints\",\n      \"hits\": [\n        {\n          \"text\": \"GET /api/v1/portal/collections/search\\nSearch my collections\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/search\",\n          \"score\": 1\n        },\n        {\n          \"text\": \"GET /api/v1/portal/memory/records/search\\nSearch my memory records\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/memory/records/search\",\n          \"score\": 0.7464412896193258\n        },\n        {\n          \"text\": \"GET /api/v1/portal/assets/search\\nSearch my assets\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/assets/search\",\n          \"score\": 0.734099358248806\n        },\n        {\n          \"text\": \"GET /api/v1/portal/collections/{id}/signoff\\nCollection sign-off summary\",\n          \"source\": \"endpoints\",\n          \"ref\": \"platform-admin:GET /portal/collections/{id}/signoff\",\n          \"score\": 0.6366076579559279\n        }\n      ]\n    },\n    {\n      \"source\": \"prompts\",\n      \"hits\": [\n        {\n          \"text\": \"create-a-report\\nAnalyze data and produce a structured Markdown report\",\n          \"source\": \"prompts\",\n          \"ref\": \"create-a-report\",\n          \"score\": 1,\n          \"reference\": \"mcp:prompt:b4392ca8-c06e-40fa-9e10-d24879232c49\"\n        },\n        {\n          \"text\": \"explore-available-data\\nDiscover what data is available about a topic\",\n          \"source\": \"prompts\",\n          \"ref\": \"explore-available-data\",\n          \"score\": 0.8506831221643295,\n          \"reference\": \"mcp:prompt:74f538d8-a70c-4b21-b506-5ef339f02149\"\n        },\n        {\n          \"text\": \"trace-data-lineage\\nTrace where data comes from and what depends on it\",\n          \"source\": \"prompts\",\n          \"ref\": \"trace-data-lineage\",\n          \"score\": 0.8163280295274541,\n          \"reference\": \"mcp:prompt:a8ca1366-a5d1-4d00-a6e3-5ffbc039cf33\"\n        }\n      ]\n    },\n    {\n      \"source\": \"connections\",\n      \"hits\": [\n        {\n          \"text\": \"primary (datahub)\",\n          \"source\": \"connections\",\n          \"ref\": \"primary\",\n          \"score\": 1,\n          \"reference\": \"mcp:connection:(datahub,primary)\"\n        }\n      ]\n    },\n    {\n      \"source\": \"insights\",\n      \"hits\": [\n        {\n          \"text\": \"Working definition: the 'primary region' is the region with the highest GROSS revenue — sum of the `amount` column (not amount minus discount) — over COMPLETED orders in memory.bench.orders. This corrects/supersedes an earlier definition that used NET revenue (amount - discount); the current authoritative definition uses gross revenue (amount only, no discount subtracted). To compute: join orders to customers on customer_id, filter orders.status = 'completed', group by customers.region, sum(amount), take the region with the max total.\",\n          \"source\": \"insights\",\n          \"ref\": \"60b803e9267040f993c1737cf8669f0e\",\n          \"score\": 1,\n          \"status\": \"pending\",\n          \"entity_urns\": [\n            \"urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)\"\n          ],\n          \"captured_by\": \"bench-agent-051@apikey.local\",\n          \"reference\": \"mcp:insight:60b803e9267040f993c1737cf8669f0e\"\n        }\n      ]\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Primary Region Definition\\nThe 'primary region' is the region with the highest NET revenue (amount - discount) over completed orders.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_c7c3c1e7-08e1-4197-a807-5b5d1da0203d\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp_c7c3c1e7-08e1-4197-a807-5b5d1da0203d\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"endpoints\",\n      \"matched\": 25,\n      \"shown\": 4\n    },\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 12,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"prompts\",\n      \"matched\": 9,\n      \"shown\": 3\n    },\n    {\n      \"source\": \"connections\",\n      \"matched\": 1,\n      \"shown\": 1\n    },\n    {\n      \"source\": \"insights\",\n      \"matched\": 1,\n      \"shown\": 1\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_01VCdyqZdsWkcNSq5HpMjDQU",
+          "name": "search",
+          "args": {
+            "intent": "primary region definition",
+            "sources": [
+              "knowledge_pages"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_01VCdyqZdsWkcNSq5HpMjDQU",
+          "text": "{\n  \"groups\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"hits\": [\n        {\n          \"text\": \"Primary Region Definition\\nThe 'primary region' is the region with the highest NET revenue (amount - discount) over completed orders.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_c7c3c1e7-08e1-4197-a807-5b5d1da0203d\",\n          \"score\": 1,\n          \"reference\": \"mcp:knowledge_page:kp_c7c3c1e7-08e1-4197-a807-5b5d1da0203d\"\n        },\n        {\n          \"text\": \"Peak Region Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_0fec3450-4ca3-4438-a99e-8bba023875a8\",\n          \"score\": 0.16488509001072268,\n          \"reference\": \"mcp:knowledge_page:kp_0fec3450-4ca3-4438-a99e-8bba023875a8\"\n        },\n        {\n          \"text\": \"Customer Tier Definitions\\nA 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-4\",\n          \"score\": 0.042159158825132104,\n          \"reference\": \"mcp:knowledge_page:kp-bench-4\"\n        },\n        {\n          \"text\": \"House Tier Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_5c2d13b6-3caa-4dbb-a89c-ff4a9c3dfdf8\",\n          \"score\": 0.04201252177846355,\n          \"reference\": \"mcp:knowledge_page:kp_5c2d13b6-3caa-4dbb-a89c-ff4a9c3dfdf8\"\n        },\n        {\n          \"text\": \"Settlement Total Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_8018e48d-ddd9-4e59-b022-199e01ee975c\",\n          \"score\": 0.035485011224431554,\n          \"reference\": \"mcp:knowledge_page:kp_8018e48d-ddd9-4e59-b022-199e01ee975c\"\n        },\n        {\n          \"text\": \"Priority Order Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_a39437c6-af58-4abb-81b0-c904e6060a0a\",\n          \"score\": 0.02964507997557499,\n          \"reference\": \"mcp:knowledge_page:kp_a39437c6-af58-4abb-81b0-c904e6060a0a\"\n        },\n        {\n          \"text\": \"Premium Order Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_a00d4aa5-0f89-4dcb-b2c3-fa25ca77219b\",\n          \"score\": 0.027884434599111933,\n          \"reference\": \"mcp:knowledge_page:kp_a00d4aa5-0f89-4dcb-b2c3-fa25ca77219b\"\n        },\n        {\n          \"text\": \"Revenue Reporting Policy\\nRevenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp-bench-1\",\n          \"score\": 0.012732934654824665,\n          \"reference\": \"mcp:knowledge_page:kp-bench-1\"\n        },\n        {\n          \"text\": \"__check_only__\\ntemp\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_bcbf45d2-19cb-4cfb-88d5-0fc4d9c9d889\",\n          \"score\": 0.0037796491381766554,\n          \"reference\": \"mcp:knowledge_page:kp_bcbf45d2-19cb-4cfb-88d5-0fc4d9c9d889\"\n        },\n        {\n          \"text\": \"Active Customer Definition\",\n          \"source\": \"knowledge_pages\",\n          \"ref\": \"kp_10413ea9-d2df-4a47-840e-ae5c32e81073\",\n          \"score\": 0.0010285617795763521,\n          \"reference\": \"mcp:knowledge_page:kp_10413ea9-d2df-4a47-840e-ae5c32e81073\"\n        }\n      ]\n    }\n  ],\n  \"coverage\": [\n    {\n      \"source\": \"knowledge_pages\",\n      \"matched\": 12,\n      \"shown\": 10\n    }\n  ],\n  \"count\": 10,\n  \"ranking\": \"hybrid\"\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "id": "toolu_014UmtusZSjy2AndXsZ89bcF",
+          "name": "memory_capture",
+          "args": {
+            "category": "correction",
+            "confidence": "high",
+            "content": "Corrected definition: the 'primary region' is the region with the highest NET revenue (amount minus discount) over COMPLETED orders in memory.bench.orders — not gross revenue (amount only). This supersedes any earlier definition using gross revenue. To compute: join orders to customers on customer_id, filter orders.status = 'completed', group by customers.region, sum(amount - discount), take the region with the max total. This matches the canonical knowledge page 'Primary Region Definition' (mcp:knowledge_page:kp_c7c3c1e7-08e1-4197-a807-5b5d1da0203d).",
+            "entity_urns": [
+              "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+            ],
+            "source": "user",
+            "type": "business_knowledge"
+          }
+        },
+        {
+          "id": "toolu_01KyktoEfeBshutSUv2mMhr7",
+          "name": "apply_knowledge",
+          "args": {
+            "action": "reject",
+            "insight_ids": [
+              "60b803e9267040f993c1737cf8669f0e"
+            ],
+            "review_notes": "Superseded by user correction: primary region is defined by NET revenue (amount - discount), not gross. This matches the canonical knowledge page kp_c7c3c1e7-08e1-4197-a807-5b5d1da0203d; the gross-revenue version of this insight is incorrect/outdated."
+          }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "tool_results": [
+        {
+          "call_id": "toolu_014UmtusZSjy2AndXsZ89bcF",
+          "text": "{\n  \"id\": \"7c274f90904c40b382d22ebd0a6486f5\",\n  \"sink_class\": \"business_knowledge\",\n  \"status\": \"active\",\n  \"superseded\": \"60b803e9267040f993c1737cf8669f0e\",\n  \"superseded_ids\": [\n    \"60b803e9267040f993c1737cf8669f0e\"\n  ],\n  \"message\": \"Captured. It will be reviewed before promotion to a shared catalog. 1 prior record(s) superseded.\"\n}",
+          "is_error": false
+        },
+        {
+          "call_id": "toolu_01KyktoEfeBshutSUv2mMhr7",
+          "text": "{\n  \"action\": \"reject\",\n  \"errors\": [\n    \"60b803e9267040f993c1737cf8669f0e: invalid status transition from \\\"superseded\\\" to \\\"rejected\\\"\"\n  ],\n  \"total\": 1,\n  \"updated\": 0\n}",
+          "is_error": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "text": "Saved the correction as a new high-confidence memory record (linked to `memory.bench.orders`), which automatically superseded the outdated gross-revenue insight. The existing canonical knowledge page \"Primary Region Definition\" already states the NET revenue definition correctly, so no further update was needed there."
+    }
+  ]
+}
