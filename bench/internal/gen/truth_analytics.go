@@ -163,6 +163,32 @@ func (d *Dataset) TopRegionByCustomerCount() string {
 	return topByCount(d.CustomersByRegion(), regions)
 }
 
+// bottomByCount returns the key with the LOWEST count, ties broken by the
+// ordered dimension so the result is deterministic. The max-int sentinel is read
+// on the first iteration (counts are non-negative), so best is always assigned.
+func bottomByCount(counts map[string]int, order []string) string {
+	best := ""
+	bestV := int(^uint(0) >> 1)
+	for _, k := range order {
+		if counts[k] < bestV {
+			best, bestV = k, counts[k]
+		}
+	}
+	return best
+}
+
+// BottomRegionByOrderCount is the region whose customers placed the fewest
+// orders (the "quiet region" S5 protocol, issue #965).
+func (d *Dataset) BottomRegionByOrderCount() string {
+	return bottomByCount(d.OrdersByRegion(), regions)
+}
+
+// BottomTierByOrderCount is the tier that placed the fewest orders (the "value
+// tier" S5 protocol, issue #965).
+func (d *Dataset) BottomTierByOrderCount() string {
+	return bottomByCount(d.OrdersByTier(), tiers)
+}
+
 // amountThresholdCents is the filter boundary for the "large orders" S2 task
 // ($1,000.00). Chosen so a non-trivial but non-majority subset qualifies.
 const amountThresholdCents = 100000

@@ -59,6 +59,429 @@
       }
     ]
   },
+  "lc-anchor-region": {
+    "abstain": [
+      {
+        "final_text": "FINAL ANSWER: INSUFFICIENT INFORMATION"
+      }
+    ],
+    "recall": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 239402.08"
+      }
+    ],
+    "teach": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "memory_capture",
+            "args": {
+              "category": "business_context",
+              "content": "The 'anchor region' for this study is North.",
+              "entity_urns": [
+                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+              ],
+              "type": "schema_entity"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "saved the definition"
+      }
+    ],
+    "update": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "memory_capture",
+            "args": {
+              "category": "correction",
+              "content": "The 'anchor region' for this study is South.",
+              "entity_urns": [
+                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+              ],
+              "type": "schema_entity"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "updated the definition"
+      }
+    ],
+    "update_recall": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 322536.20"
+      }
+    ]
+  },
+  "lc-benchmark-month": {
+    "abstain": [
+      {
+        "final_text": "FINAL ANSWER: INSUFFICIENT INFORMATION"
+      }
+    ],
+    "recall": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 114.00"
+      }
+    ],
+    "teach": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "memory_capture",
+            "args": {
+              "category": "business_context",
+              "content": "The 'benchmark month' for this study is March 2025.",
+              "entity_urns": [
+                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+              ],
+              "type": "schema_entity"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "saved the definition"
+      }
+    ],
+    "update": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "memory_capture",
+            "args": {
+              "category": "correction",
+              "content": "The 'benchmark month' for this study is September 2025.",
+              "entity_urns": [
+                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+              ],
+              "type": "schema_entity"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "updated the definition"
+      }
+    ],
+    "update_recall": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 99.00"
+      }
+    ]
+  },
+  "lc-billing-window": {
+    "abstain": [
+      {
+        "final_text": "FINAL ANSWER: INSUFFICIENT INFORMATION"
+      }
+    ],
+    "recall": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 251.00"
+      }
+    ],
+    "teach": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "memory_capture",
+            "args": {
+              "category": "business_context",
+              "content": "The 'billing window' for this study is calendar quarter 2 of 2025 (April through June).",
+              "entity_urns": [
+                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+              ],
+              "type": "schema_entity"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "saved the definition"
+      }
+    ],
+    "update": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "memory_capture",
+            "args": {
+              "category": "correction",
+              "content": "The 'billing window' for this study is calendar quarter 4 of 2025 (October through December).",
+              "entity_urns": [
+                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+              ],
+              "type": "schema_entity"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "updated the definition"
+      }
+    ],
+    "update_recall": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 242.00"
+      }
+    ]
+  },
+  "lc-charter-cohort": {
+    "abstain": [
+      {
+        "final_text": "FINAL ANSWER: INSUFFICIENT INFORMATION"
+      }
+    ],
+    "recall": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 24.00"
+      }
+    ],
+    "teach": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "memory_capture",
+            "args": {
+              "category": "business_context",
+              "content": "The 'charter cohort' is the set of customers on the plus tier.",
+              "entity_urns": [
+                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+              ],
+              "type": "schema_entity"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "saved the definition"
+      }
+    ],
+    "transfer": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 24.00"
+      }
+    ]
+  },
+  "lc-clearance-set": {
+    "abstain": [
+      {
+        "final_text": "FINAL ANSWER: INSUFFICIENT INFORMATION"
+      }
+    ],
+    "recall": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 311.00"
+      }
+    ],
+    "teach": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "memory_capture",
+            "args": {
+              "category": "business_context",
+              "content": "The 'clearance set' is the set of completed orders placed by customers in the West region.",
+              "entity_urns": [
+                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+              ],
+              "type": "schema_entity"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "saved the definition"
+      }
+    ],
+    "transfer": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 311.00"
+      }
+    ]
+  },
+  "lc-closeout-total": {
+    "abstain": [
+      {
+        "final_text": "FINAL ANSWER: INSUFFICIENT INFORMATION"
+      }
+    ],
+    "recall": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 133777.39"
+      }
+    ],
+    "teach": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "memory_capture",
+            "args": {
+              "category": "business_context",
+              "content": "The 'closeout total' is the gross revenue (sum of amount over completed orders) for December 2025.",
+              "entity_urns": [
+                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+              ],
+              "type": "schema_entity"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "saved the definition"
+      }
+    ],
+    "transfer": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 133777.39"
+      }
+    ]
+  },
   "lc-core-market": {
     "abstain": [
       {
@@ -137,6 +560,66 @@
       },
       {
         "final_text": "FINAL ANSWER: 286.00"
+      }
+    ]
+  },
+  "lc-flagship-region": {
+    "abstain": [
+      {
+        "final_text": "FINAL ANSWER: INSUFFICIENT INFORMATION"
+      }
+    ],
+    "recall": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 316.00"
+      }
+    ],
+    "teach": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "memory_capture",
+            "args": {
+              "category": "business_context",
+              "content": "The 'flagship region' for this study is the South region.",
+              "entity_urns": [
+                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+              ],
+              "type": "schema_entity"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "saved the definition"
+      }
+    ],
+    "transfer": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 316.00"
       }
     ]
   },
@@ -299,6 +782,147 @@
       },
       {
         "final_text": "FINAL ANSWER: 257733.53"
+      }
+    ]
+  },
+  "lc-headline-tier": {
+    "abstain": [
+      {
+        "final_text": "FINAL ANSWER: INSUFFICIENT INFORMATION"
+      }
+    ],
+    "recall": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 361.00"
+      }
+    ],
+    "teach": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "memory_capture",
+            "args": {
+              "category": "business_context",
+              "content": "The 'headline tier' for this study is the plus tier.",
+              "entity_urns": [
+                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+              ],
+              "type": "schema_entity"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "saved the definition"
+      }
+    ],
+    "update": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "memory_capture",
+            "args": {
+              "category": "correction",
+              "content": "The 'headline tier' for this study is the enterprise tier.",
+              "entity_urns": [
+                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+              ],
+              "type": "schema_entity"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "updated the definition"
+      }
+    ],
+    "update_recall": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 287.00"
+      }
+    ]
+  },
+  "lc-holiday-total": {
+    "abstain": [
+      {
+        "final_text": "FINAL ANSWER: INSUFFICIENT INFORMATION"
+      }
+    ],
+    "recall": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 266073.26"
+      }
+    ],
+    "teach": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "memory_capture",
+            "args": {
+              "category": "business_context",
+              "content": "The 'holiday total' is the gross revenue (sum of amount over completed orders) for November and December 2025.",
+              "entity_urns": [
+                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+              ],
+              "type": "schema_entity"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "saved the definition"
+      }
+    ],
+    "transfer": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 266073.26"
       }
     ]
   },
@@ -683,6 +1307,147 @@
       }
     ]
   },
+  "lc-quiet-region": {
+    "abstain": [
+      {
+        "final_text": "FINAL ANSWER: INSUFFICIENT INFORMATION"
+      }
+    ],
+    "recall": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: North"
+      }
+    ],
+    "teach": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "memory_capture",
+            "args": {
+              "category": "business_context",
+              "content": "The 'quiet region' is the region whose customers placed the fewest orders.",
+              "entity_urns": [
+                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+              ],
+              "type": "schema_entity"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "saved the definition"
+      }
+    ],
+    "transfer": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: North"
+      }
+    ]
+  },
+  "lc-reference-cohort": {
+    "abstain": [
+      {
+        "final_text": "FINAL ANSWER: INSUFFICIENT INFORMATION"
+      }
+    ],
+    "recall": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 36.00"
+      }
+    ],
+    "teach": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "memory_capture",
+            "args": {
+              "category": "business_context",
+              "content": "The 'reference cohort' is the set of customers whose account was created during calendar year 2023.",
+              "entity_urns": [
+                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+              ],
+              "type": "schema_entity"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "saved the definition"
+      }
+    ],
+    "update": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "memory_capture",
+            "args": {
+              "category": "correction",
+              "content": "The 'reference cohort' is the set of customers whose account was created during calendar year 2024.",
+              "entity_urns": [
+                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+              ],
+              "type": "schema_entity"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "updated the definition"
+      }
+    ],
+    "update_recall": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 44.00"
+      }
+    ]
+  },
   "lc-reporting-cohort": {
     "abstain": [
       {
@@ -884,6 +1649,186 @@
       }
     ]
   },
+  "lc-signature-segment": {
+    "abstain": [
+      {
+        "final_text": "FINAL ANSWER: INSUFFICIENT INFORMATION"
+      }
+    ],
+    "recall": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 19.00"
+      }
+    ],
+    "teach": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "memory_capture",
+            "args": {
+              "category": "business_context",
+              "content": "The 'signature segment' is the set of customers on the enterprise tier.",
+              "entity_urns": [
+                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+              ],
+              "type": "schema_entity"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "saved the definition"
+      }
+    ],
+    "transfer": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 19.00"
+      }
+    ]
+  },
+  "lc-spring-window": {
+    "abstain": [
+      {
+        "final_text": "FINAL ANSWER: INSUFFICIENT INFORMATION"
+      }
+    ],
+    "recall": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 111.00"
+      }
+    ],
+    "teach": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "memory_capture",
+            "args": {
+              "category": "business_context",
+              "content": "The 'spring window' for this study is April 2025.",
+              "entity_urns": [
+                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+              ],
+              "type": "schema_entity"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "saved the definition"
+      }
+    ],
+    "transfer": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 111.00"
+      }
+    ]
+  },
+  "lc-standard-order": {
+    "abstain": [
+      {
+        "final_text": "FINAL ANSWER: INSUFFICIENT INFORMATION"
+      }
+    ],
+    "recall": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 380.00"
+      }
+    ],
+    "teach": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "memory_capture",
+            "args": {
+              "category": "business_context",
+              "content": "A 'standard order' is any order whose amount is below $1,000.00 (100000 cents).",
+              "entity_urns": [
+                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)"
+              ],
+              "type": "schema_entity"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "saved the definition"
+      }
+    ],
+    "transfer": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: 380.00"
+      }
+    ]
+  },
   "lc-target-cohort": {
     "abstain": [
       {
@@ -1001,6 +1946,66 @@
       },
       {
         "final_text": "FINAL ANSWER: 1430603.83"
+      }
+    ]
+  },
+  "lc-value-tier": {
+    "abstain": [
+      {
+        "final_text": "FINAL ANSWER: INSUFFICIENT INFORMATION"
+      }
+    ],
+    "recall": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: enterprise"
+      }
+    ],
+    "teach": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "memory_capture",
+            "args": {
+              "category": "business_context",
+              "content": "The 'value tier' is the customer tier that placed the fewest orders.",
+              "entity_urns": [
+                "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)"
+              ],
+              "type": "schema_entity"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "saved the definition"
+      }
+    ],
+    "transfer": [
+      {
+        "tool_calls": [
+          {
+            "id": "",
+            "name": "search",
+            "args": {
+              "intent": "recall the saved definition"
+            }
+          }
+        ]
+      },
+      {
+        "final_text": "FINAL ANSWER: enterprise"
       }
     ]
   }
