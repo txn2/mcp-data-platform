@@ -15,6 +15,13 @@ import (
 // stops with whatever text it has.
 const extraIterations = 2
 
+// BudgetRefusalText is the tool-result text returned for a call the budget
+// refused (never executed). It is exported so transcript consumers can tell a
+// budget-refused tool request apart from one that actually ran — a capture
+// request refused for budget did not "attempt" capture in any way that could
+// have succeeded.
+const BudgetRefusalText = "tool-call budget exhausted; no further tool calls are executed"
+
 // ToolExecutor executes one tool call against the live session and returns its
 // result. Transport-level failures are reported as error results so the model
 // can adapt, mirroring how a real client surfaces them.
@@ -91,7 +98,7 @@ func executeCalls(ctx context.Context, calls []llm.ToolCall, budget int, exec To
 			res.BudgetExhausted = true
 			reply.ToolResults = append(reply.ToolResults, llm.ToolResult{
 				CallID:  call.ID,
-				Text:    "tool-call budget exhausted; no further tool calls are executed",
+				Text:    BudgetRefusalText,
 				IsError: true,
 			})
 			continue

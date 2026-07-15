@@ -47,8 +47,9 @@ type fakePlatform struct {
 	changesets     []lifecycleapi.Changeset
 	events         []auditapi.Event
 	httpSrv        *httptest.Server
-	applyFails     bool // apply_knowledge returns a tool error (measured miss)
-	noChangesetRef bool // apply records the changeset but leaves insight.changeset_ref empty
+	applyFails     bool   // apply_knowledge returns a tool error (measured miss)
+	noChangesetRef bool   // apply records the changeset but leaves insight.changeset_ref empty
+	surfaceText    string // appended to every search result (models cross-enrichment surfacing the fact)
 }
 
 func newFakePlatform(t *testing.T) *fakePlatform {
@@ -162,8 +163,15 @@ func (fp *fakePlatform) addSearch(server *mcp.Server) {
 		func(_ context.Context, _ *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
 			fp.mu.Lock()
 			fp.recordLocked(args, "search")
+			// surfaceText models cross-enrichment carrying the promoted fact into a
+			// search result, so the transfer-surfaced instrumentation can be exercised
+			// end to end. Empty (the default) means the fact never surfaces.
+			text := "search results"
+			if fp.surfaceText != "" {
+				text += "\n" + fp.surfaceText
+			}
 			fp.mu.Unlock()
-			return okResult("search results"), nil, nil
+			return okResult(text), nil, nil
 		})
 }
 

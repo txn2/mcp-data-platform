@@ -57,6 +57,8 @@ type config struct {
 	merge         string
 	coldStart     bool
 	curriculumDir string
+	supersede     bool
+	teachBudget   int
 }
 
 func main() {
@@ -100,6 +102,8 @@ func parseFlags() config {
 	flag.StringVar(&cfg.merge, "merge", "", "comma-separated per-pass lifecycle result JSONs (with -lifecycle): merge independent k=1 passes into one k=N result and exit")
 	flag.BoolVar(&cfg.coldStart, "cold-start", false, "run the cold-start knowledge-growth curriculum (issue #963) instead of the task suites")
 	flag.StringVar(&cfg.curriculumDir, "curriculum", "curriculum", "curriculum YAML directory (with -cold-start)")
+	flag.BoolVar(&cfg.supersede, "supersede", false, "run the isolated supersede sub-benchmark (issue #964: the supersede protocols only) instead of the full S5 lifecycle")
+	flag.IntVar(&cfg.teachBudget, "teach-budget", 0, "override the per-episode tool-call budget for the capture-bearing stages (teach, update); 0 = protocol budget (issue #964 capture-budget lever)")
 	flag.Parse()
 	return cfg
 }
@@ -112,6 +116,9 @@ func run(cfg config) error {
 	}
 	if cfg.coldStart {
 		return runColdStart(cfg)
+	}
+	if cfg.supersede {
+		return runSupersede(cfg)
 	}
 	if cfg.lifecycle {
 		return runLifecycle(cfg)
@@ -147,6 +154,12 @@ func runSummarize(cfg config) error {
 	switch {
 	case cfg.coldStart:
 		res, err := coldstart.LoadJSON(cfg.summarize)
+		if err != nil {
+			return err
+		}
+		fmt.Print(res.HumanSummary())
+	case cfg.supersede:
+		res, err := lifecycle.LoadSupersedeJSON(cfg.summarize)
 		if err != nil {
 			return err
 		}
@@ -193,6 +206,7 @@ func runLifecycle(cfg config) error {
 		GitCommit:     cfg.gitCommit,
 		AuditTimeout:  cfg.auditTimeout,
 		IdentityKeys:  cfg.identityKeys,
+		TeachBudget:   cfg.teachBudget,
 		// Flush the results file after every protocol so an interruption (timeout,
 		// exhausted API budget, crash) never discards completed, paid-for work.
 		OnProtocol: func(r *lifecycle.Results) {
@@ -216,6 +230,60 @@ func runLifecycle(cfg config) error {
 		opts.Factory = factory
 	}
 	res, runErr := lifecycle.Run(context.Background(), opts)
+	if res != nil {
+		if err := writeAndSummarize(res, cfg.out); err != nil {
+			return err
+		}
+	}
+	return runErr
+}
+
+// runSupersede executes the isolated supersede sub-benchmark (issue #964) and
+// writes outputs. It reuses the lifecycle adapter/factory wiring but drives only
+// the supersede protocols through teach -> capture -> correct -> status-check,
+// producing the focused supersede scorecard. Like the other runs the results
+// JSON is flushed per attempt so an interruption never discards paid-for work.
+func runSupersede(cfg config) error {
+	if cfg.arm == "" {
+		return errors.New("-arm is required")
+	}
+	if cfg.baseline != "" {
+		return errors.New("-baseline is not supported with -supersede (the regression gate scores S1-S3 task suites, not supersede metrics)")
+	}
+	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	opts := lifecycle.Options{
+		Target:        target.Target{BaseURL: cfg.url, Credential: cfg.credential},
+		HTTPTimeout:   cfg.httpTimeout,
+		Arm:           cfg.arm,
+		K:             cfg.k,
+		ProtocolsDir:  cfg.protocolsDir,
+		TranscriptDir: transcriptDir(cfg.out),
+		LLMProvider:   cfg.llmProvider,
+		GitCommit:     cfg.gitCommit,
+		AuditTimeout:  cfg.auditTimeout,
+		IdentityKeys:  cfg.identityKeys,
+		TeachBudget:   cfg.teachBudget,
+		OnSupersede: func(r *lifecycle.SupersedeResults) {
+			if err := r.WriteJSON(cfg.out); err != nil {
+				log.Warn("checkpoint write", "error", err)
+			}
+		},
+		Log: log,
+	}
+	if cfg.llmProvider == claudeCLIProvider {
+		runner, version, err := buildClaudeRunner(cfg)
+		if err != nil {
+			return err
+		}
+		opts.ClaudeCLI, opts.ClientVersion = runner, version
+	} else {
+		factory, err := buildLifecycleFactory(cfg)
+		if err != nil {
+			return err
+		}
+		opts.Factory = factory
+	}
+	res, runErr := lifecycle.RunSupersede(context.Background(), opts)
 	if res != nil {
 		if err := writeAndSummarize(res, cfg.out); err != nil {
 			return err

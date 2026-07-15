@@ -934,6 +934,36 @@ bench-lifecycle-report:
 	@cd bench && $(GO) build -o ../$(BUILD_DIR)/benchrun ./benchrun
 	$(BUILD_DIR)/benchrun -lifecycle -summarize build/bench-results/lifecycle-a3.json
 
+## bench-supersede: Run the isolated supersede sub-benchmark (issue #964; needs bench-up BENCH_ARM=a3; LLM=anthropic|scripted|claude-cli, K=, MODEL=, TEACH_BUDGET=)
+bench-supersede:
+	@mkdir -p build/bench-results
+	@cd bench && $(GO) build -o ../$(BUILD_DIR)/benchrun ./benchrun
+	@echo "Resetting search-first gate state (discovery scopes persist in Postgres across runs)..."
+	@$(BENCH_COMPOSE) exec -T postgres psql -q -U platform -d mcp_platform -v ON_ERROR_STOP=1 \
+		-c "TRUNCATE search_gate_discovery"
+	$(BUILD_DIR)/benchrun \
+		-supersede \
+		-arm a3 \
+		-url $(BENCH_URL) \
+		-credential $(BENCH_KEY) \
+		-protocols bench/protocols \
+		-git-commit $$(git rev-parse HEAD) \
+		-out build/bench-results/supersede-a3.json \
+		$(if $(LLM),-llm $(LLM),) \
+		$(if $(SCRIPT),-script $(SCRIPT),) \
+		$(if $(K),-k $(K),) \
+		$(if $(MODEL),-model $(MODEL),) \
+		$(if $(TEACH_BUDGET),-teach-budget $(TEACH_BUDGET),)
+
+## bench-supersede-smoke: Run the scripted (no-API-key) supersede sub-benchmark against the running a3 platform
+bench-supersede-smoke:
+	@$(MAKE) bench-supersede LLM=scripted SCRIPT=bench/protocols/scripted-lifecycle-smoke.json K=1
+
+## bench-supersede-report: Print the human summary of the last supersede sub-benchmark run
+bench-supersede-report:
+	@cd bench && $(GO) build -o ../$(BUILD_DIR)/benchrun ./benchrun
+	$(BUILD_DIR)/benchrun -supersede -summarize build/bench-results/supersede-a3.json
+
 ## bench-cold-start: Run the cold-start knowledge-growth curriculum (issue #963; needs an empty-seeded a3: bench-up BENCH_ARM=a3 BENCH_SEED_PAGES=0 + bench-seed-datahub-empty; LLM=anthropic|scripted|claude-cli, K=, MODEL=)
 bench-cold-start:
 	@mkdir -p build/bench-results

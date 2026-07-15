@@ -219,6 +219,62 @@ applicable lifecycle). Harness-level failures (connect, adapter, API read-back)
 are excluded from the metrics and reported separately, mirroring the S1–S3
 pipeline.
 
+### Per-stage diagnosis instrumentation (#964)
+
+Three metrics decompose the S5 gaps the phase-4 data exposed, so a weak headline
+number can be attributed rather than guessed:
+
+- **transfer surfaced** and **used given surfaced** split the transfer rate. A
+  transfer attempt records whether the promoted fact actually appeared in a tool
+  result the learner saw (`transfer_surfaced`), and among those, whether the
+  answer was correct (`transfer_used_given_surfaced`). A low surfaced rate points
+  at delivery (cross-enrichment or search did not carry the fact to the second
+  identity); a low used-given-surfaced rate points at reasoning (the agent had
+  the fact and ignored it). Surfacing is a normalized-substring match of the
+  promoted content against the episode's tool results, so it is a conservative
+  "the fact was present", not a paraphrase match.
+- **capture budget-starved** is, among capture misses, the fraction where the
+  teach episode exhausted its tool-call budget without executing a capture call —
+  the discovery-budget-exhaustion failure mode. A capture request the budget
+  refused (emitted only after the budget was spent) counts as starved, not as an
+  attempted capture. The rate is measured on the in-process loop path, which owns
+  the tool-call budget; claude-cli runs manage their own turn budget, so their
+  capture misses are excluded from this rate (`teach_budget_exhausted` is left
+  unset) rather than miscounted as not-starved.
+
+The **capture-budget lever** `-teach-budget N` overrides the per-episode tool-call
+budget for the capture-bearing stages (teach and update), so the capture-rate
+lift from a larger teach budget can be measured directly against the same
+protocol set.
+
+## Supersede sub-benchmark (#964)
+
+`-supersede` runs the recall-first supersede gate **in isolation**: it drives
+only the supersede protocols (those with an `update` stage) through teach →
+capture-verify → correct → supersede-status check, skipping the promote,
+transfer, personal-recall, and abstain stages that otherwise dilute the signal.
+The isolated harness exists because the S5 duplicate rate was the noisiest S5
+metric (0% vs 42.9% between identical runs); measuring supersede on its own, with
+a per-protocol stability breakdown, makes that instability visible per protocol
+instead of hidden in one blended range.
+
+Metrics: **capture rate**, **supersede rate** (original superseded, higher is
+better), **duplicate rate** (its complement, lower is better), **update
+correctness**, **pass^k**, and a per-protocol `superseded`/`duplicated` count
+across the k attempts. Because the supersede gate is embedding-similarity based
+(nomic-embed-text), the threshold / embedding-model / deterministic-fallback
+evaluation is done by re-running this sub-benchmark against platforms configured
+differently and comparing the supersede rate — the sub-benchmark is the measuring
+instrument; the platform config is the independent variable.
+
+```bash
+make bench-up BENCH_ARM=a3
+make bench-supersede-smoke               # scripted no-API-key validation
+make bench-supersede K=3                 # real run (needs ANTHROPIC_API_KEY)
+make bench-supersede K=3 TEACH_BUDGET=20 # same, with the larger teach budget lever
+make bench-supersede-report              # human summary of the last supersede run
+```
+
 ## Cold-start knowledge growth (#963)
 
 The S1-S3 and S5 suites ablate the platform with a **pre-seeded** knowledge base.
@@ -422,7 +478,7 @@ bench/
     ├── grade/           deterministic graders (numeric, entity, execution-result)
     ├── judge/           LLM judge + calibration harness
     ├── pipeline/        task x k orchestration
-    ├── lifecycle/       S5 protocol runner, stage graders, metrics, results model
+    ├── lifecycle/       S5 protocol runner, stage graders, metrics, results model, per-stage diagnosis instrumentation + isolated supersede sub-benchmark (#964)
     ├── coldstart/       cold-start curriculum runner, learning-curve metrics, results model
     ├── report/          results model, aggregates, cross-arm comparison
     └── target/          endpoint + Bearer auth

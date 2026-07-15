@@ -57,6 +57,23 @@ type EpisodeRecord struct {
 	ToolCalls    int    `json:"tool_calls"`
 	ToolErrors   int    `json:"tool_errors"`
 	SearchCalled bool   `json:"search_called"`
+	// CaptureAttempted is true when the episode actually executed a
+	// knowledge-capture call (a budget-refused capture request does not count). On
+	// a teach episode it distinguishes a capture miss caused by never reaching an
+	// executed capture (budget starvation) from one where capture ran but the
+	// insight did not land (issue #964 capture-budget gap).
+	CaptureAttempted bool `json:"capture_attempted,omitempty"`
+	// BudgetExhausted is true when the episode hit its tool-call budget. It is
+	// meaningful only on the in-process loop path, which owns the tool-call
+	// budget; the claude-cli path runs its own turn budget and leaves it false
+	// (the run-level TeachBudgetExhausted is left nil there, so a claude-cli
+	// capture miss is excluded from the budget-starvation rate rather than
+	// miscounted as not-starved).
+	BudgetExhausted bool `json:"budget_exhausted,omitempty"`
+	// FactSurfaced, when set, reports whether the promoted fact appeared in a tool
+	// result this episode saw. Set only for episodes that pass a surface target
+	// (the transfer stage); nil otherwise.
+	FactSurfaced *bool  `json:"fact_surfaced,omitempty"`
 	FinalAnswer  string `json:"final_answer,omitempty"`
 	WallMS       int64  `json:"wall_ms"`
 	InputTokens  int64  `json:"input_tokens"`
@@ -84,14 +101,23 @@ type ProtocolRun struct {
 
 	InsightID string `json:"insight_id,omitempty"`
 
-	Captured        *bool `json:"captured,omitempty"`         // insight recorded and entity-linked
-	RecallCorrect   *bool `json:"recall_correct,omitempty"`   // personal recall answer correct
-	RecallSurfaced  *bool `json:"recall_surfaced,omitempty"`  // search surfaced the memory unprompted
-	Promoted        *bool `json:"promoted,omitempty"`         // applied + changeset links the insight (nil for update protocols)
-	TransferCorrect *bool `json:"transfer_correct,omitempty"` // cross-identity recall correct
-	UpdateCorrect   *bool `json:"update_correct,omitempty"`   // recall flipped to the corrected value
-	Duplicated      *bool `json:"duplicated,omitempty"`       // supersede left more than one live insight
-	AbstainCorrect  *bool `json:"abstain_correct,omitempty"`  // abstained on a never-taught fact
+	Captured         *bool `json:"captured,omitempty"`          // insight recorded and entity-linked
+	RecallCorrect    *bool `json:"recall_correct,omitempty"`    // personal recall answer correct
+	RecallSurfaced   *bool `json:"recall_surfaced,omitempty"`   // search surfaced the memory unprompted
+	Promoted         *bool `json:"promoted,omitempty"`          // applied + changeset links the insight (nil for update protocols)
+	TransferCorrect  *bool `json:"transfer_correct,omitempty"`  // cross-identity recall correct
+	TransferSurfaced *bool `json:"transfer_surfaced,omitempty"` // promoted fact appeared in a tool result the learner saw
+	UpdateCorrect    *bool `json:"update_correct,omitempty"`    // recall flipped to the corrected value
+	Duplicated       *bool `json:"duplicated,omitempty"`        // supersede left more than one live insight
+	AbstainCorrect   *bool `json:"abstain_correct,omitempty"`   // abstained on a never-taught fact
+
+	// Capture-budget diagnosis (issue #964), read from the teach episode. Nil
+	// when the teach episode never ran (harness abort before teach).
+	CaptureAttempted *bool `json:"capture_attempted,omitempty"` // teach episode executed a capture call
+	// TeachBudgetExhausted is nil when budget exhaustion is not observable (the
+	// claude-cli path runs its own turn budget), which excludes the run from the
+	// budget-starvation rate.
+	TeachBudgetExhausted *bool `json:"teach_budget_exhausted,omitempty"` // teach episode hit its tool-call budget (loop path only)
 
 	Episodes []EpisodeRecord `json:"episodes"`
 	Error    string          `json:"error,omitempty"` // harness failure that aborted the run
@@ -149,6 +175,54 @@ func (r *Rate) add(v *bool) {
 	}
 }
 
+// addConditional folds one outcome into a conditional rate: the run counts
+// toward the denominator only when it belongs to the conditioning subset (e.g.
+// "among transfer attempts where the fact surfaced"). It backs the transfer-gap
+// and capture-budget decompositions, whose denominators are subsets of the
+// attempts rather than a single nil-able outcome.
+func (r *Rate) addConditional(applicable, value bool) {
+	if !applicable {
+		return
+	}
+	r.Den++
+	if value {
+		r.Num++
+	}
+	if r.Den > 0 {
+		r.Rate = float64(r.Num) / float64(r.Den)
+	}
+}
+
+// complement returns the rate of the opposite outcome over the same
+// denominator, so a pair like supersede/duplicate is stored once and derived
+// once rather than accumulated twice (which could silently drift apart).
+func (r Rate) complement() Rate {
+	c := Rate{Num: r.Den - r.Num, Den: r.Den}
+	if c.Den > 0 {
+		c.Rate = float64(c.Num) / float64(c.Den)
+	}
+	return c
+}
+
+// captureMissed reports whether capture was applicable to a run and failed.
+func captureMissed(captured *bool) bool { return captured != nil && !*captured }
+
+// captureBudgetObservable reports whether a run belongs in the
+// CaptureBudgetStarved denominator: capture must have missed AND the teach
+// episode's budget exhaustion must be observable (TeachBudgetExhausted set — the
+// loop path). A claude-cli run leaves TeachBudgetExhausted nil, so it is excluded
+// rather than miscounted as not-starved.
+func captureBudgetObservable(r ProtocolRun) bool {
+	return captureMissed(r.Captured) && r.TeachBudgetExhausted != nil
+}
+
+// budgetStarved reports whether a run's teach episode exhausted its tool-call
+// budget without ever calling capture (the discovery-budget-exhaustion failure
+// mode).
+func budgetStarved(r ProtocolRun) bool {
+	return boolTrue(r.TeachBudgetExhausted) && !boolTrue(r.CaptureAttempted)
+}
+
 // Metrics is the S5 lifecycle scorecard (issue #944).
 type Metrics struct {
 	Protocols       int `json:"protocols"`
@@ -172,6 +246,23 @@ type Metrics struct {
 	UpdateCorrectness Rate `json:"update_correctness"`
 	DuplicateRate     Rate `json:"duplicate_rate"` // fraction of supersedes that duplicated (lower is better)
 	AbstentionRate    Rate `json:"abstention_rate"`
+
+	// Transfer-gap decomposition (issue #964). TransferSurfaced is the fraction
+	// of transfer attempts where the promoted fact reached the learner in a tool
+	// result; TransferUsedGivenSurfaced is, among those, the fraction answered
+	// correctly. A low TransferSurfaced points at delivery (enrichment/search);
+	// a low TransferUsedGivenSurfaced points at reasoning (the agent had it and
+	// ignored it).
+	TransferSurfaced          Rate `json:"transfer_surfaced"`
+	TransferUsedGivenSurfaced Rate `json:"transfer_used_given_surfaced"`
+
+	// CaptureBudgetStarved is, among capture misses whose budget exhaustion is
+	// observable (the loop path), the fraction where the teach episode exhausted
+	// its tool-call budget without executing a capture call — the
+	// discovery-budget-exhaustion failure mode (issue #964). claude-cli misses are
+	// excluded (their budget exhaustion is not observable), not counted as
+	// not-starved.
+	CaptureBudgetStarved Rate `json:"capture_budget_starved"`
 
 	PassK Rate `json:"pass_k"` // protocols passing all k full lifecycles / protocols
 }
@@ -208,9 +299,12 @@ func (res *Results) Aggregate() {
 		m.PersonalRecall.add(r.RecallCorrect)
 		m.UnpromptedSurface.add(r.RecallSurfaced)
 		m.TransferRate.add(r.TransferCorrect)
+		m.TransferSurfaced.add(r.TransferSurfaced)
+		m.TransferUsedGivenSurfaced.addConditional(boolTrue(r.TransferSurfaced), boolTrue(r.TransferCorrect))
 		m.UpdateCorrectness.add(r.UpdateCorrect)
 		m.DuplicateRate.add(r.Duplicated)
 		m.AbstentionRate.add(r.AbstainCorrect)
+		m.CaptureBudgetStarved.addConditional(captureBudgetObservable(r), budgetStarved(r))
 	}
 	m.Protocols = len(order)
 	m.PassK = passKRate(order, byProtocol, res.Manifest.K)
@@ -288,9 +382,12 @@ func (res *Results) HumanSummary() string {
 	writeMetric(&b, "personal recall", mt.PersonalRecall)
 	writeMetric(&b, "unprompted surface", mt.UnpromptedSurface)
 	writeMetric(&b, "transfer rate", mt.TransferRate)
+	writeMetric(&b, "  transfer surfaced", mt.TransferSurfaced)
+	writeMetric(&b, "  used given surfaced", mt.TransferUsedGivenSurfaced)
 	writeMetric(&b, "update correctness", mt.UpdateCorrectness)
 	writeMetric(&b, "duplicate rate", mt.DuplicateRate)
 	writeMetric(&b, "abstention rate", mt.AbstentionRate)
+	writeMetric(&b, "capture budget-starved", mt.CaptureBudgetStarved)
 	writeMetric(&b, "pass^k (protocols)", mt.PassK)
 	if failures := res.harnessFailures(); len(failures) > 0 {
 		b.WriteString("\nharness failures (excluded from metrics):\n")

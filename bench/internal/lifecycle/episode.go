@@ -70,6 +70,9 @@ type episodeSpec struct {
 	prompt   string
 	system   string
 	budget   int
+	// surfaceFact, when non-empty, is the promoted content whose presence in a
+	// tool result marks FactSurfaced on the record (set for the transfer stage).
+	surfaceFact string
 }
 
 // runEpisode drives one fresh MCP session end to end: authenticate as the pool
@@ -142,6 +145,7 @@ func (e *runEnv) runEpisode(ctx context.Context, spec episodeSpec) (EpisodeRecor
 	rec.OutputTokens = result.Usage.OutputTokens
 	rec.CacheReadTokens = result.Usage.CacheReadInputTokens
 	rec.CacheCreationTokens = result.Usage.CacheCreationInputTokens
+	rec.recordInstrumentation(spec, result.Transcript, result.BudgetExhausted)
 	final := result.FinalAnswer
 	rec.FinalAnswer = final
 	e.writeTranscript(spec, result)
@@ -184,6 +188,7 @@ func (e *runEnv) runClaudeCLIEpisode(ctx context.Context, spec episodeSpec) (Epi
 	rec.OutputTokens = cres.Usage.OutputTokens
 	rec.CacheReadTokens = cres.Usage.CacheReadInputTokens
 	rec.CacheCreationTokens = cres.Usage.CacheCreationInputTokens
+	rec.recordInstrumentation(spec, cres.Transcript, false)
 	rec.FinalAnswer = cres.FinalText
 	e.recordPlatformVersion(cres.PlatformVersion)
 	e.writeClaudeTranscript(spec, cres.Transcript)
