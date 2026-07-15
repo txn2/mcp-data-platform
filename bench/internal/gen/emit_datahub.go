@@ -10,6 +10,11 @@ func benchURN(table string) string {
 	return fmt.Sprintf("urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.%s,PROD)", table)
 }
 
+// benchTables is the fixed set of bench warehouse datasets, in emission order.
+// Both the fully-documented A2 seed and the cold-start empty seed iterate it, so
+// the two DataHub baselines cover exactly the same entities.
+var benchTables = []string{"orders", "customers", "legacy_orders", "daily_region_revenue"}
+
 // mcp is one metadata change proposal in the MCP file format `datahub ingest`
 // consumes (file source): the aspect payload is a GenericAspect wrapped as
 // {"json": {...}}. The legacy `datahub put --file` bulk mode that the e2e
@@ -65,8 +70,24 @@ func (d *Dataset) DataHubMCEs() ([]byte, error) {
 		deprecation("legacy_orders", "Deprecated. Use memory.bench.orders instead."),
 		datasetProps("daily_region_revenue", dailyDescription, map[string]string{"team": "bench", "grain": "day,region"}),
 	)
-	for _, table := range []string{"orders", "customers", "legacy_orders", "daily_region_revenue"} {
+	for _, table := range benchTables {
 		proposals = append(proposals, tag(table))
+	}
+	return json.MarshalIndent(proposals, "", "  ")
+}
+
+// DataHubMCEsEmpty emits the cold-start baseline (#963): each bench dataset
+// exists as an entity with its name but carries NO knowledge — empty
+// description, no column docs, no tags, no deprecation. The enrichment layer is
+// therefore bare, so a fresh identity cannot answer a knowledge-trap question
+// from the catalog. The cold-start curriculum backfills this knowledge one
+// lesson at a time (promoting into these same datasetProperties descriptions and
+// into knowledge pages), and the learning curve measures accuracy climbing from
+// this empty floor toward the fully-documented A2 ceiling that DataHubMCEs seeds.
+func (d *Dataset) DataHubMCEsEmpty() ([]byte, error) {
+	proposals := make([]mcp, 0, len(benchTables))
+	for _, table := range benchTables {
+		proposals = append(proposals, datasetProps(table, "", map[string]string{}))
 	}
 	return json.MarshalIndent(proposals, "", "  ")
 }

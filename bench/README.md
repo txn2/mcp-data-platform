@@ -219,6 +219,53 @@ applicable lifecycle). Harness-level failures (connect, adapter, API read-back)
 are excluded from the metrics and reported separately, mirroring the S1–S3
 pipeline.
 
+## Cold-start knowledge growth (#963)
+
+The S1-S3 and S5 suites ablate the platform with a **pre-seeded** knowledge base.
+The cold-start suite (`curriculum/`, generated) instead starts from an **empty
+enrichment layer** and measures the platform getting smarter as knowledge
+accumulates — a learning curve whose independent variable is the amount of
+**promoted (shared)** knowledge, holding the model, prompt, task set, and dataset
+constant.
+
+It runs on the `a3` arm against an **empty baseline**: an undocumented DataHub
+(`seed/datahub/bench_mces_empty.json` — entities present, but no descriptions,
+column docs, tags, or glossary) and **no knowledge pages** (`bench-up` with
+`BENCH_SEED_PAGES=0`). Over an ordered **curriculum** of six lessons — one per S3
+trap class — the harness:
+
+1. **Teaches** each fact (a teacher identity states it and captures it via
+   `memory_capture`), then **promotes** it to its sink through `apply_knowledge`:
+   a DataHub entity description (units, freshness, deprecation) or a portal
+   knowledge page (net-revenue policy, fiscal calendar, tier definitions). Each
+   lesson teaches the same S3 trap fact the A2 seed pre-loads, so the trap
+   suite reaches its A2 accuracy ceiling once all six are promoted (the
+   fact-bearing description and page channels are restored; A2's auxiliary
+   aspects — tags, the structured deprecation flag, column docs — are not, but
+   the S3 traps read the fact text, not those). Capture and promotion are verified through
+   the admin insights and changesets APIs, reusing the same reviewer-promotion
+   path (`internal/promote`) the S5 lifecycle uses.
+2. **Evaluates** at every checkpoint (the empty baseline and after each lesson)
+   by re-running the fixed S3 trap suite with a **fresh, never-taught evaluator
+   identity**. Its only knowledge source is what the platform surfaces —
+   cross-enrichment for the DataHub-sink facts, `search` for the page-sink facts
+   — so accuracy climbs only because promotion pushed the fact into shared
+   knowledge. This isolates the delivery of *promoted* knowledge (the coupling
+   between the lifecycle and the enrichment layer), not an evaluator's own memory.
+
+The report is a **learning curve**: per checkpoint, the eval set's accuracy, a
+per-trap-class breakdown (which lesson unlocked which class), and the
+delivery-side **enrichment coverage** (the fraction of tool calls whose response
+carried cross-enrichment, from the audit trail). Lesson order is the x-axis, run
+foundational-first (units before net-revenue, then the calendar/freshness/tier/
+deprecation facts) so a multi-fact trap flips to correct only once every fact it
+needs has landed.
+
+Grading is the deterministic S3 grading (numeric tolerance, entity alias); the
+suite reuses one identity pool (a distinct teacher per lesson, fresh evaluators
+per checkpoint), and a run refuses to start when the lessons plus per-checkpoint
+evaluators exceed the pool.
+
 ## Running
 
 From the repository root:
@@ -250,6 +297,30 @@ The **scripted lifecycle smoke** (`-llm scripted`) plays
 drives the reviewer-side promotion, and abstains — validating handle threading,
 the insight/changeset APIs, supersede, grading, and the metrics against the live
 platform with no API key and no model variance.
+
+The cold-start suite (#963) boots the same `a3` arm but with the empty baseline
+(no knowledge pages, undocumented DataHub), then teaches the curriculum:
+
+```bash
+# Boot a3 with an empty enrichment layer: no knowledge pages, empty DataHub.
+make bench-up BENCH_ARM=a3 BENCH_SEED_PAGES=0
+make bench-seed-datahub-empty            # entities present, undocumented
+
+make bench-cold-start-smoke              # scripted no-API-key loop validation
+make bench-cold-start K=1                # real learning-curve run (needs a model)
+make bench-cold-start LLM=claude-cli MODEL=sonnet K=1   # subscription run
+make bench-cold-start-report             # print the learning curve
+```
+
+The **scripted cold-start smoke** (`-llm scripted`) plays
+`curriculum/scripted-cold-start-smoke.json` (generated): each lesson captures its
+fact and the harness drives the real promotion; each eval task answers with its
+computed ground truth. One run validates the whole teach → capture → promote →
+eval loop, the insight/changeset APIs, deterministic grading, and the
+learning-curve metrics against the live platform with no model. Its eval answers
+are always correct (the smoke measures plumbing, not model behavior), so its
+curve is flat-high; the climbing curve is a property of a real model run against
+the empty baseline.
 
 For the DataHub arms (`a1`, `a2`, `a3`), start a DataHub quickstart first (same
 external convention as e2e and load), then `make bench-seed-datahub` and
@@ -334,21 +405,25 @@ bench/
 ├── seed/                generated seed artifacts (committed; bench-gen)
 ├── tasks/               generated task YAML + smoke script (committed)
 ├── protocols/           generated S5 lifecycle protocol YAML + smoke (committed)
+├── curriculum/          generated cold-start curriculum YAML + smoke (committed)
 ├── judge/               versioned rubric + human-labeled calibration set
 └── internal/
-    ├── gen/             dataset model, emitters, ground-truth computation, protocols
+    ├── gen/             dataset model, emitters, ground-truth computation, protocols, curriculum
     ├── task/            task schema, loader, task-set hash
     ├── protocol/        S5 lifecycle protocol schema, loader, protocol-set hash
+    ├── curriculum/      cold-start curriculum schema, loader, curriculum-set hash
     ├── llm/             adapter interface + anthropic + scripted
     ├── claudecli/       real Claude Code client path (claude -p) + stream parse
     ├── agent/           model-driven tool loop with budget
     ├── mcpc/            MCP session, handle mint, session_id threading
-    ├── auditapi/        admin audit API read-back + metrics
+    ├── auditapi/        admin audit API read-back + metrics (+ enrichment coverage)
     ├── lifecycleapi/    admin insights + changesets read-back, approve + apply drivers
+    ├── promote/         shared reviewer-promotion path (approve + apply_knowledge + verify), used by S5 and cold-start
     ├── grade/           deterministic graders (numeric, entity, execution-result)
     ├── judge/           LLM judge + calibration harness
     ├── pipeline/        task x k orchestration
     ├── lifecycle/       S5 protocol runner, stage graders, metrics, results model
+    ├── coldstart/       cold-start curriculum runner, learning-curve metrics, results model
     ├── report/          results model, aggregates, cross-arm comparison
     └── target/          endpoint + Bearer auth
 ```

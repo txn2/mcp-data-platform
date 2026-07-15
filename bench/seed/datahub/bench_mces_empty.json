@@ -1,0 +1,54 @@
+[
+  {
+    "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.orders,PROD)",
+    "entityType": "dataset",
+    "aspectName": "datasetProperties",
+    "changeType": "UPSERT",
+    "aspect": {
+      "json": {
+        "customProperties": {},
+        "description": "",
+        "name": "orders"
+      }
+    }
+  },
+  {
+    "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.customers,PROD)",
+    "entityType": "dataset",
+    "aspectName": "datasetProperties",
+    "changeType": "UPSERT",
+    "aspect": {
+      "json": {
+        "customProperties": {},
+        "description": "",
+        "name": "customers"
+      }
+    }
+  },
+  {
+    "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.legacy_orders,PROD)",
+    "entityType": "dataset",
+    "aspectName": "datasetProperties",
+    "changeType": "UPSERT",
+    "aspect": {
+      "json": {
+        "customProperties": {},
+        "description": "",
+        "name": "legacy_orders"
+      }
+    }
+  },
+  {
+    "entityUrn": "urn:li:dataset:(urn:li:dataPlatform:trino,memory.bench.daily_region_revenue,PROD)",
+    "entityType": "dataset",
+    "aspectName": "datasetProperties",
+    "changeType": "UPSERT",
+    "aspect": {
+      "json": {
+        "customProperties": {},
+        "description": "",
+        "name": "daily_region_revenue"
+      }
+    }
+  }
+]

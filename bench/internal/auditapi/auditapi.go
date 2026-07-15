@@ -181,6 +181,19 @@ type Metrics struct {
 	EnrichmentTokensDedup int `json:"enrichment_tokens_dedup"`
 }
 
+// EnrichmentCoverage is the fraction of audited tool calls whose response
+// carried cross-enrichment. It is the delivery-side signal for the cold-start
+// suite (issue #963): as promoted knowledge fills the catalog, more tool
+// responses carry enrichment context, so coverage climbs alongside accuracy. It
+// is zero when the session audited no calls (an empty denominator is not
+// coverage of nothing).
+func (m Metrics) EnrichmentCoverage() float64 {
+	if m.AuditedCalls == 0 {
+		return 0
+	}
+	return float64(m.EnrichedCalls) / float64(m.AuditedCalls)
+}
+
 // Summarize folds a session's events into Metrics.
 func Summarize(events []Event) Metrics {
 	var m Metrics

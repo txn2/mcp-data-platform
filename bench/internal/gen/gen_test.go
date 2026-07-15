@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/txn2/mcp-data-platform/bench/internal/curriculum"
 	"github.com/txn2/mcp-data-platform/bench/internal/task"
 )
 
@@ -23,6 +24,11 @@ func TestGenerateDeterministic(t *testing.T) {
 	bm, _ := b.DataHubMCEs()
 	if string(am) != string(bm) {
 		t.Fatal("mce emitter is not deterministic")
+	}
+	ae, _ := a.DataHubMCEsEmpty()
+	be, _ := b.DataHubMCEsEmpty()
+	if string(ae) != string(be) {
+		t.Fatal("empty mce emitter is not deterministic")
 	}
 }
 
@@ -122,6 +128,80 @@ func TestScriptedSmokeCoversAllTasks(t *testing.T) {
 	}
 }
 
+// TestEmptyMCEsAreBare asserts the cold-start baseline carries the entities but
+// none of the knowledge the A2 seed does: every bench table is present as a
+// datasetProperties skeleton, and no description, column doc, tag, or
+// deprecation leaks in (any of those would let a fresh identity answer a trap
+// before the curriculum teaches it, flattening the learning curve).
+func TestEmptyMCEsAreBare(t *testing.T) {
+	ds := Generate()
+	raw, err := ds.DataHubMCEsEmpty()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var proposals []map[string]any
+	if err := json.Unmarshal(raw, &proposals); err != nil {
+		t.Fatalf("empty mces are not valid json: %v", err)
+	}
+	if len(proposals) != len(benchTables) {
+		t.Fatalf("empty seed has %d proposals, want one per table (%d)", len(proposals), len(benchTables))
+	}
+	present := map[string]bool{}
+	for _, p := range proposals {
+		if aspect := p["aspectName"]; aspect != "datasetProperties" {
+			t.Errorf("empty seed emits aspect %v, want only datasetProperties", aspect)
+		}
+		urn, _ := p["entityUrn"].(string)
+		present[urn] = true
+		aspect, _ := p["aspect"].(map[string]any)
+		body, _ := aspect["json"].(map[string]any)
+		if desc, _ := body["description"].(string); desc != "" {
+			t.Errorf("%s carries a description in the empty seed: %q", urn, desc)
+		}
+	}
+	for _, table := range benchTables {
+		if !present[benchURN(table)] {
+			t.Errorf("empty seed missing entity for %s", table)
+		}
+	}
+	// None of the A2 knowledge markers may appear in the bare baseline.
+	for _, needle := range []string{"US CENTS", "deprecation", "GROSS of discounts", "urn:li:tag:bench", "editableSchemaMetadata"} {
+		if strings.Contains(string(raw), needle) {
+			t.Errorf("empty seed leaks A2 knowledge marker %q", needle)
+		}
+	}
+}
+
+// TestScriptedColdStartSmokeCoversUnits asserts the smoke has a teach playback
+// for every lesson and an eval playback ending in a final answer for every eval
+// task — so one scripted run exercises the whole cold-start loop.
+func TestScriptedColdStartSmokeCoversUnits(t *testing.T) {
+	ds := Generate()
+	cur := ds.Curriculum()
+	var evalTasks []task.Task
+	for _, tk := range ds.Tasks() {
+		if tk.Suite == cur.EvalSuite {
+			evalTasks = append(evalTasks, tk)
+		}
+	}
+	smoke := ScriptedColdStartSmoke(cur, evalTasks)
+	for _, l := range cur.Lessons {
+		steps := smoke[l.ID]["teach"]
+		if len(steps) == 0 || len(steps[0].ToolCalls) == 0 || steps[0].ToolCalls[0].Name != "memory_capture" {
+			t.Errorf("lesson %s teach must open with a memory_capture", l.ID)
+		}
+	}
+	for _, tk := range evalTasks {
+		steps := smoke[tk.ID]["eval"]
+		if len(steps) == 0 || steps[len(steps)-1].FinalText == "" {
+			t.Errorf("eval task %s must end in a final answer", tk.ID)
+		}
+	}
+	if len(evalTasks) == 0 {
+		t.Fatal("no eval tasks found for the smoke")
+	}
+}
+
 // TestCommittedArtifactsMatch is the reproducibility gate: the committed seed
 // artifacts and task set must regenerate byte-identically from the fixed seed.
 func TestCommittedArtifactsMatch(t *testing.T) {
@@ -131,8 +211,13 @@ func TestCommittedArtifactsMatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	emptyMCEs, err := ds.DataHubMCEsEmpty()
+	if err != nil {
+		t.Fatal(err)
+	}
 	compareFile(t, filepath.Join(root, "seed/trino/setup.sql"), []byte(ds.TrinoSQL()))
 	compareFile(t, filepath.Join(root, "seed/datahub/bench_mces.json"), mces)
+	compareFile(t, filepath.Join(root, "seed/datahub/bench_mces_empty.json"), emptyMCEs)
 	compareFile(t, filepath.Join(root, "seed/postgres/knowledge_pages.sql"), []byte(ds.KnowledgePagesSQL()))
 
 	committed, err := task.Load(filepath.Join(root, "tasks"))
@@ -147,6 +232,27 @@ func TestCommittedArtifactsMatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	compareFile(t, filepath.Join(root, "tasks/scripted-smoke.json"), append(smoke, '\n'))
+
+	committedCur, err := curriculum.Load(filepath.Join(root, "curriculum"))
+	if err != nil {
+		t.Fatalf("load committed curriculum: %v", err)
+	}
+	regen := []curriculum.Curriculum{ds.Curriculum()}
+	if got, want := curriculum.Hash(committedCur), curriculum.Hash(regen); got != want {
+		t.Errorf("committed curriculum hash %s != regenerated %s; run `make bench-gen`", got, want)
+	}
+
+	var evalTasks []task.Task
+	for _, tk := range ds.Tasks() {
+		if tk.Suite == ds.Curriculum().EvalSuite {
+			evalTasks = append(evalTasks, tk)
+		}
+	}
+	csSmoke, err := json.MarshalIndent(ScriptedColdStartSmoke(ds.Curriculum(), evalTasks), "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compareFile(t, filepath.Join(root, "curriculum/scripted-cold-start-smoke.json"), append(csSmoke, '\n'))
 }
 
 func compareFile(t *testing.T, path string, want []byte) {
