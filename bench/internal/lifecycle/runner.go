@@ -46,7 +46,10 @@ type Options struct {
 	Factory       AdapterFactory
 	// ClaudeCLI, when non-nil, runs each episode through a real `claude -p`
 	// client (connecting to the platform directly and threading its own handle)
-	// instead of the in-process agent loop. Factory is unused in this mode.
+	// instead of the in-process agent loop. Factory is unused in this mode. The
+	// claude-cli episode path — including cache-token threading through the
+	// EpisodeRecord (#966) — is testable via claudecli.Options.Exec, which injects
+	// canned stream bytes through the real parser.
 	ClaudeCLI *claudecli.Runner
 	// ClientVersion is recorded on the manifest for the ClaudeCLI path.
 	ClientVersion string
