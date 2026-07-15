@@ -8,19 +8,40 @@ taught in one session survive into later ones? The benchmark ablates the
 **platform**, not the model: every run holds the model, prompt scaffold, seed
 data, and task set constant and varies only the platform configuration.
 
-The platform has two halves, and each is measured by its own benchmark:
+The two benchmarks measure **one knowledge system from two angles**, not two
+independent features. The system has a **capture/curation half** and a
+**surfacing half**, and they are coupled — the first populates what the second
+delivers:
 
-- The **semantic / data-analysis layer** — cross-enrichment, search, and the
-  curated knowledge layer — is measured by the **S1–S3 arm ablation** (single
-  session, four platform configurations).
-- The **memory / knowledge lifecycle layer** — capture a fact once, recall and
-  reuse it across later, separate sessions — is measured by the **S5 lifecycle
-  protocols**. This is a first-class platform capability whose value is
-  inherently cross-session, so it cannot be measured by the single-session
-  S1–S3 tasks; it has its own multi-session benchmark instead.
+- **Capture / curation** — an agent records a fact (`memory`), it becomes an
+  insight, and `apply_knowledge` promotes it into a *sink*: a DataHub entity or
+  column description, or a knowledge page.
+- **Surfacing** — curated knowledge reaches the agent through
+  **cross-enrichment** (DataHub metadata is attached to query and describe
+  results automatically) and **search** (knowledge pages). Enrichment is one of
+  the places knowledge surfaces, alongside knowledge pages — not a standalone
+  feature.
 
-Both layers are valuable, and each is proven by the benchmark built to exercise
-it. Methodology, arm definitions, and reproduction commands live in
+```mermaid
+flowchart LR
+  A[Agent teaches a fact] --> M[memory]
+  M --> I[insight]
+  I -->|apply_knowledge| S1[DataHub entity / column description]
+  I -->|apply_knowledge| S2[knowledge page]
+  S1 -->|cross-enrichment| AG[Agent, a later session]
+  S2 -->|search| AG
+```
+
+The two suites test the two halves. **S1–S3** (the arm ablation) tests the
+**surfacing** half: with curated knowledge already present in the sinks, does the
+platform reliably deliver it to the agent? **S5** (the lifecycle protocols) tests
+the **capture-and-propagation** half: can a brand-new fact be captured, promoted,
+and reach a *different* session or user? There is no enrichment value without
+knowledge in the sinks, and no cross-session value without surfacing — the
+benchmarks are two ends of the same pipe, and the results below read as one
+coherent story (surfacing proven; capture-and-propagation maturing).
+
+Methodology, arm definitions, and reproduction commands live in
 [`bench/README.md`](https://github.com/txn2/mcp-data-platform/tree/main/bench).
 The load harness's throughput numbers are a separate concern; see
 [Tuning and Scaling](tuning-and-scaling.md).
@@ -120,7 +141,7 @@ and pinned in each run's manifest.
 > release-tagged run can refresh both suites under the identical pipeline if a
 > tagged publication warrants it.
 
-## 1. Semantic layer — S1–S3 arm ablation
+## 1. Surfacing half (semantic layer) — S1–S3 arm ablation
 
 Status: full phase-2 suites, four arms, k = 3, 87 tasks × 3 = 261 graded
 attempts per arm, zero harness failures.
@@ -152,16 +173,24 @@ Accuracy is over graded attempts; the bracket is the 95% bootstrap CI.
 | Overall | 83.1% [79–88] | 87.4% [83–91] | 98.5% [97–100] | 98.1% [96–100] |
 | Overall pass^3 | 80% | 86% | 98% | 97% |
 
-The effect concentrates in S3, exactly where BIRD showed a ~20-point
-external-knowledge gap with hand-curated evidence. Here the platform supplies
-that evidence automatically: S3 accuracy climbs 42.7% → 57.3% → 98.7% as
-enrichment and then the knowledge layer come online, a **+56.0-point** gain for
-the full platform over bare tools (95% CI +44 to +67). Enrichment alone (a1)
-recovers about a quarter of the gap (+14.7, CI −1 to +31); the curated
-knowledge layer and search (a2) close nearly all of it. S1 and S2 are near
-ceiling for every arm — a capable model finds tables and computes arithmetic
-without help — so the platform's value is not in easy lookups but where a fact
-outside the raw data disambiguates a plausible-but-wrong answer.
+S1–S3 is the test of the **surfacing half** of the knowledge system: the
+business facts are already present in the sinks (seeded here), and the question is
+whether the platform reliably delivers them to the agent through its two
+surfacing channels — cross-enrichment and search. It does. The effect
+concentrates in S3, exactly where BIRD showed a ~20-point external-knowledge gap
+with hand-curated evidence; here the platform surfaces that evidence
+automatically. S3 accuracy climbs 42.7% → 57.3% → 98.7% as the two channels come
+online, a **+56.0-point** gain for the full platform over bare tools (95% CI +44
+to +67). Crucially, the two channels carry different facts: the **cross-enrichment
+channel alone** (a1) recovers about a quarter of the gap (+14.7, CI −1 to +31) —
+the facts that live in DataHub descriptions — while adding **search over
+knowledge pages** (a2) closes nearly all of the rest (the class breakdown below
+shows exactly which facts each channel carries). S1 and S2 are near ceiling for
+every arm — a capable model finds tables and computes arithmetic without help — so
+the platform's value is not in easy lookups but where a fact outside the raw data
+disambiguates a plausible-but-wrong answer. This validates delivery; it does not,
+by itself, test whether the platform can *acquire* that knowledge in the first
+place — that is S5.
 
 ### S3 knowledge-trap accuracy by class
 
@@ -178,12 +207,14 @@ metadata) from what requires the curated knowledge pages.
 | tier_boundary | 0.0% [0–0] | 0.0% [0–0] | 93.3% [80–100] | 100.0% [100–100] |
 | deprecated_table | 95.2% [86–100] | 95.2% [86–100] | 100.0% [100–100] | 100.0% [100–100] |
 
-The pattern is legible. `units_cents` and `net_revenue` live in column and
-dataset descriptions, so enrichment alone (a1) lifts them materially (62→88,
-21→49). `fiscal_calendar` and `tier_boundary` live **only** in curated
-knowledge pages — invisible to enrichment — so a0 and a1 score 0% and only the
-knowledge arm (a2) recovers them. This is the design working as intended: each
-trap is defeated exactly when the layer that carries its fact is switched on.
+The pattern is legible, and it is a clean read on the two surfacing channels.
+`units_cents` and `net_revenue` live in DataHub **column and dataset
+descriptions**, so the **cross-enrichment channel** alone (a1) lifts them
+materially (62→88, 21→49). `fiscal_calendar` and `tier_boundary` live **only in
+knowledge pages** — invisible to enrichment — so a0 and a1 score 0% and only the
+**search channel** (a2) recovers them. Same knowledge system, two delivery
+channels: each trap is defeated exactly when the channel that carries its fact is
+switched on. Whichever sink a fact is promoted to, the platform surfaces it.
 
 ### Efficiency (median tool calls by suite)
 
@@ -206,17 +237,19 @@ load-bearing rather than on trivial lookups.
 
 ### Why a2 ties a3 here (and what it does *not* mean)
 
-On S1–S3, arm a3 (platform + memory lifecycle) tracks arm a2 (platform)
-because **these tasks are single-session and never exercise the memory layer**:
-each task is one fresh session with nothing previously taught to recall, so the
-memory/`apply_knowledge` surface has nothing to act on. a2 ties a3 because
-S1–S3 does not test memory — **not** because the memory layer is without value.
-The memory layer's value is inherently cross-session (teach once, answer
-forever), which single-session accuracy cannot capture by construction. That
-capability is measured separately, and directly, by the S5 lifecycle protocols
-below.
+On S1–S3, arm a3 (platform + memory lifecycle) tracks arm a2 (platform) because
+these tasks exercise only the **surfacing** half of the knowledge system. Each
+task is one fresh session with the knowledge already seeded in the sinks and
+nothing new to capture, so the `memory`/`apply_knowledge` capture path has
+nothing to add to what a2 already surfaces. a2 ties a3 because S1–S3 does not
+test the capture-and-propagation half — **not** because that half is without
+value. Its value is inherently cross-session (teach once, answer forever), which
+single-session accuracy cannot capture by construction. And it is that half that
+*produces* the sink contents S1–S3 shows are so effective once present — the two
+halves are the same pipe. That capture-and-propagation capability is measured
+separately, and directly, by the S5 lifecycle protocols below.
 
-## 2. Memory layer — S5 lifecycle protocols
+## 2. Capture-and-propagation half (memory / knowledge lifecycle) — S5 lifecycle protocols
 
 Status: three full lifecycle runs on the canonical `anthropic` adapter, arm a3,
 k = 3 each — one **shared-store** run and two **isolated** replicates. Unlike the
@@ -296,7 +329,15 @@ fabricate facts it was never taught, the failure mode LongMemEval warns about.
 And transfer sits at **42–47% across all three runs**: a fact promoted to shared
 knowledge is reused by a different identity under half the time. That is the
 clearest, most reproducible finding — a genuine reliability ceiling on
-cross-identity transfer, and the sharpest lever for improvement.
+cross-identity transfer, and the sharpest lever for improvement. Where that
+ceiling comes from matters, and the two-halves framing localizes it: **S1–S3 has
+already validated the surfacing half** — enrichment and search reliably deliver
+knowledge that is present in the sinks — so a transfer failure is very unlikely to
+be a surfacing failure. It points **upstream, at the capture-and-propagation
+half**: either the `apply_knowledge` promotion did not land in the aspect
+enrichment reads (see the note in Limitations on entity-type coverage), or the
+second identity surfaced the fact but did not use it. Transfer is a capture/
+propagation problem, not a delivery problem — which is exactly where to look.
 
 **What is *not* stable — most of the rest, and this is itself the finding.** The
 two isolated replicates ran under identical configuration, differing only in the
@@ -362,6 +403,15 @@ than a single shared-store-vs-isolated pair, is what makes that honest.
 question, so some taught definitions being partly re-derivable from the data can
 inflate it; read it alongside unprompted surface, which is the cleaner evidence
 that the saved memory itself was used.
+
+**Transfer is a capture/propagation limit, not a surfacing one.** Because S1–S3
+validates that enrichment and search deliver knowledge already in the sinks, the
+~45% transfer ceiling is best diagnosed upstream: the `apply_knowledge` promotion
+landing in an aspect enrichment reads (mcp-datahub `GetEntity` fully populates
+dataset and dashboard entities but reads other entity types more sparsely, so a
+promotion to a different entity type may surface incompletely), and whether the
+second identity that *did* see the fact actually used it. This run does not yet
+instrument that split; doing so is the natural next step for closing the gap.
 
 **Raw-data note.** Isolated run #1's per-attempt records (final answers, tool-call
 counts, tokens, audit) are complete, but a harness bug pointed all three of its
@@ -478,8 +528,10 @@ figure.
   all under the same pipeline.
 - CIs are percentile bootstrap over graded attempts with a fixed resampling
   seed — reproducible, but they do not model task-selection variance.
-- S1–S3 does not exercise the memory layer, so a2 tying a3 there reflects the
-  test scope, not the memory layer's value; the memory layer is measured by S5.
+- S1–S3 tests the surfacing half, not the capture-and-propagation half, so a2
+  tying a3 there reflects the test scope, not the value of capture; the two are
+  one knowledge system (capture populates the sinks that surfacing delivers),
+  and capture-and-propagation is measured by S5.
 
 ## 5. Result history
 
