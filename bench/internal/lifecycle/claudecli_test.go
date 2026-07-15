@@ -23,6 +23,59 @@ const claudeRecallStream = `{"type":"system","subtype":"init","mcp_servers":[{"n
 {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"FINAL ANSWER: 500"}]}}
 {"type":"result","subtype":"success","is_error":false,"result":"FINAL ANSWER: 500","session_id":"cc-1","usage":{"input_tokens":30,"output_tokens":8}}`
 
+// claudeCachedStream is a claude-cli recall transcript whose terminal result
+// event reports cache tokens, so the end-to-end cache-token flow (parser ->
+// Result.Usage -> EpisodeRecord) can be asserted through the real parser.
+const claudeCachedStream = `{"type":"system","subtype":"init","mcp_servers":[{"name":"bench","status":"connected"}]}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"i0","name":"mcp__bench__platform_info","input":{}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"i0","is_error":false,"content":"{\"session_id\":\"dps_cc_9\",\"version\":\"fake-1.0.0\"}"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"FINAL ANSWER: 500"}]}}
+{"type":"result","subtype":"success","is_error":false,"result":"FINAL ANSWER: 500","session_id":"cc-9","usage":{"input_tokens":40,"output_tokens":9,"cache_read_input_tokens":1200,"cache_creation_input_tokens":80}}`
+
+// TestClaudeCLIEpisodeRecordsCacheTokens verifies #966 end to end: a cached
+// claude-cli run's cache tokens flow through the real parser into the lifecycle
+// EpisodeRecord, so a cached run self-reports its true cost basis (cache reads
+// bill far below fresh input) rather than being estimated from input/output
+// totals. The one remaining gap — that a real `claude` process actually emits
+// these fields — is confirmed by a single real cached run (see bench/README.md).
+func TestClaudeCLIEpisodeRecordsCacheTokens(t *testing.T) {
+	fp := newFakePlatform(t)
+	runner, err := claudecli.New(claudecli.Options{
+		Model: "claude-sonnet-5",
+		Exec: func(context.Context, claudecli.CommandSpec) ([]byte, []byte, error) {
+			return []byte(claudeCachedStream), nil, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("claudecli.New: %v", err)
+	}
+	tgt := target.Target{BaseURL: fp.httpSrv.URL, Credential: fp.base}
+	env := &runEnv{
+		opts:  Options{Target: tgt, HTTPTimeout: 10 * time.Second, Arm: "a3", ClaudeCLI: runner, IdentityKeys: 32, AuditTimeout: time.Second},
+		log:   slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
+		audit: auditapi.New(fp.httpSrv.URL, tgt.HTTPClient(10*time.Second)),
+	}
+	env.currentProtocolID = "p-cache"
+
+	rec, _ := env.runClaudeCLIEpisode(context.Background(), episodeSpec{
+		stage: StageRecall, identity: "teacher", seq: 1, prompt: "q", system: "s", budget: 5,
+	})
+	if rec.Error != "" {
+		t.Fatalf("episode error: %s", rec.Error)
+	}
+	if rec.CacheReadTokens != 1200 || rec.CacheCreationTokens != 80 {
+		t.Fatalf("EpisodeRecord cache tokens = read %d write %d, want 1200/80", rec.CacheReadTokens, rec.CacheCreationTokens)
+	}
+	// The aggregate must sum the per-episode cache split so a run self-reports its
+	// cached cost basis.
+	res := &Results{Runs: []ProtocolRun{{Episodes: []EpisodeRecord{rec}}}}
+	res.Aggregate()
+	if res.Metrics.TotalCacheReadTokens != 1200 || res.Metrics.TotalCacheCreationTokens != 80 {
+		t.Fatalf("aggregate cache totals = read %d write %d, want 1200/80",
+			res.Metrics.TotalCacheReadTokens, res.Metrics.TotalCacheCreationTokens)
+	}
+}
+
 // TestClaudeCLIEpisode drives the lifecycle claude-cli episode path directly:
 // the stubbed client returns a recall transcript that calls search, and the
 // harness maps the client result, reads audit best effort by the pool

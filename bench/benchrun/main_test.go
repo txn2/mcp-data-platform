@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -73,6 +74,156 @@ func TestMergeRequiresLifecycle(t *testing.T) {
 	handled, err := runReadOnly(config{merge: "x.json"}) // lifecycle: false
 	if !handled || err == nil {
 		t.Fatalf("bare -merge did not error (handled=%v err=%v)", handled, err)
+	}
+}
+
+// TestTranscriptDirIsolatesByOutputName proves two passes written into the same
+// directory under different -out names get distinct transcript directories, so
+// one pass never overwrites another's raw transcripts.
+func TestTranscriptDirIsolatesByOutputName(t *testing.T) {
+	a := transcriptDir("build/bench-results/lifecycle-pass1.json")
+	b := transcriptDir("build/bench-results/lifecycle-pass2.json")
+	if a == b {
+		t.Fatalf("passes in the same dir collided: both -> %s", a)
+	}
+	// Same stem, different extension must not collide (the extension is kept).
+	if transcriptDir("out/results.json") == transcriptDir("out/results.txt") {
+		t.Fatal("results.json and results.txt collided on transcript dir")
+	}
+	if got := transcriptDir("out/results.json"); got != filepath.Join("out", "results.json.transcripts") {
+		t.Fatalf("transcriptDir = %s, want out/results.json.transcripts", got)
+	}
+}
+
+// TestMergeRefusesToOverwriteInput proves a merge whose -out is the same file as
+// one of its input passes is rejected, so derived data never clobbers raw pass
+// evidence.
+func TestMergeRefusesToOverwriteInput(t *testing.T) {
+	dir := t.TempDir()
+	p1 := writeLifecyclePass(t, "p1", "a3", 1, "lc-x")
+	p2 := writeLifecyclePass(t, "p2", "a3", 1, "lc-x")
+	// -out is the same file as the first input pass.
+	if err := runMergeLifecycle(config{lifecycle: true, merge: p1 + "," + p2, out: p1}); err == nil {
+		t.Fatal("merge overwrote an input pass file")
+	}
+	// A distinct output path is accepted.
+	out := filepath.Join(dir, "merged.json")
+	if err := runMergeLifecycle(config{lifecycle: true, merge: p1 + "," + p2, out: out}); err != nil {
+		t.Fatalf("merge to a distinct path failed: %v", err)
+	}
+}
+
+// TestMergeGatesOnBaseline proves the -baseline regression gate runs on the
+// merged k=N scorecard (the canonical multi-pass artifact), not only on a
+// single-process run — the fix for -merge silently skipping the gate.
+func TestMergeGatesOnBaseline(t *testing.T) {
+	mkFailingPass := func(name string) string {
+		r := &lifecycle.Results{Manifest: lifecycle.Manifest{Arm: "a3", K: 1, ProtocolSetHash: "h1", Model: "m", Seed: 930}}
+		r.Runs = append(r.Runs, lifecycle.ProtocolRun{ProtocolID: "lc-x", Captured: new(false), RecallCorrect: new(false)})
+		p := filepath.Join(t.TempDir(), name+".json")
+		if err := r.WriteJSON(p); err != nil {
+			t.Fatalf("write pass: %v", err)
+		}
+		return p
+	}
+	p1, p2 := mkFailingPass("p1"), mkFailingPass("p2")
+	base := lifecycleBaselineFile(t, healthyLifecycleMetrics()) // capture/recall 90%
+	out := filepath.Join(t.TempDir(), "merged.json")
+	if err := runMergeLifecycle(config{lifecycle: true, merge: p1 + "," + p2, out: out, baseline: base}); err == nil {
+		t.Fatal("merge did not gate the merged scorecard against a regressing baseline")
+	}
+}
+
+// TestEnsureDistinctMergeOutput proves the collision check is by underlying file
+// (os.SameFile), so a symlink aliasing an input is caught while a distinct,
+// not-yet-existing output is allowed.
+func TestEnsureDistinctMergeOutput(t *testing.T) {
+	dir := t.TempDir()
+	pass := filepath.Join(dir, "pass1.json")
+	if err := os.WriteFile(pass, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureDistinctMergeOutput(pass, []string{pass, filepath.Join(dir, "pass2.json")}); err == nil {
+		t.Fatal("identical input/output file was allowed")
+	}
+	// A symlink to an input resolves to the same file, so it is caught.
+	link := filepath.Join(dir, "alias.json")
+	if err := os.Symlink(pass, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureDistinctMergeOutput(link, []string{pass}); err == nil {
+		t.Fatal("a symlinked output aliasing an input was allowed")
+	}
+	// A distinct, not-yet-existing output is allowed.
+	if err := ensureDistinctMergeOutput(filepath.Join(dir, "merged.json"), []string{pass}); err != nil {
+		t.Fatalf("distinct output rejected: %v", err)
+	}
+}
+
+// lifecycleRate builds a lifecycle.Rate for the gate tests.
+func lifecycleRate(num, den int) lifecycle.Rate {
+	r := lifecycle.Rate{Num: num, Den: den}
+	if den > 0 {
+		r.Rate = float64(num) / float64(den)
+	}
+	return r
+}
+
+// healthyLifecycleMetrics is a passing S5 scorecard.
+func healthyLifecycleMetrics() lifecycle.Metrics {
+	return lifecycle.Metrics{
+		Attempts:          10,
+		CaptureRate:       lifecycleRate(9, 10),
+		PersonalRecall:    lifecycleRate(9, 10),
+		TransferRate:      lifecycleRate(8, 10),
+		UpdateCorrectness: lifecycleRate(5, 5),
+		AbstentionRate:    lifecycleRate(9, 10),
+		DuplicateRate:     lifecycleRate(0, 5),
+		PassK:             lifecycleRate(7, 10),
+	}
+}
+
+// lifecycleBaselineFile writes an a3 lifecycle results JSON standing in for a
+// committed S5 baseline the gate loads from disk.
+func lifecycleBaselineFile(t *testing.T, m lifecycle.Metrics) string {
+	t.Helper()
+	r := &lifecycle.Results{Manifest: lifecycle.Manifest{Arm: "a3"}, Metrics: m}
+	p := filepath.Join(t.TempDir(), "life-baseline.json")
+	if err := r.WriteJSON(p); err != nil {
+		t.Fatalf("write lifecycle baseline: %v", err)
+	}
+	return p
+}
+
+// TestLifecycleGatePasses proves a lifecycle candidate that holds the line
+// returns nil (exit 0), so the S5 gate does not fail a healthy run.
+func TestLifecycleGatePasses(t *testing.T) {
+	base := lifecycleBaselineFile(t, healthyLifecycleMetrics())
+	cand := &lifecycle.Results{Manifest: lifecycle.Manifest{Arm: "a3"}, Metrics: healthyLifecycleMetrics()}
+	if err := gateOnLifecycleBaseline(cand, base); err != nil {
+		t.Fatalf("clean lifecycle candidate was gated: %v", err)
+	}
+}
+
+// TestLifecycleGateFailsOnRegression proves the S5 gate exits nonzero when a
+// lifecycle metric falls below the baseline beyond tolerance.
+func TestLifecycleGateFailsOnRegression(t *testing.T) {
+	base := lifecycleBaselineFile(t, healthyLifecycleMetrics())
+	m := healthyLifecycleMetrics()
+	m.TransferRate = lifecycleRate(50, 100) // 80% -> 50%
+	cand := &lifecycle.Results{Manifest: lifecycle.Manifest{Arm: "a3"}, Metrics: m}
+	if err := gateOnLifecycleBaseline(cand, base); err == nil {
+		t.Fatal("a transfer-rate collapse should fail the gate")
+	}
+}
+
+// TestLifecycleGateRejectsArmMismatch proves the gate refuses a cross-arm
+// comparison rather than producing a meaningless verdict.
+func TestLifecycleGateRejectsArmMismatch(t *testing.T) {
+	base := lifecycleBaselineFile(t, healthyLifecycleMetrics())
+	cand := &lifecycle.Results{Manifest: lifecycle.Manifest{Arm: "a2"}, Metrics: healthyLifecycleMetrics()}
+	if err := gateOnLifecycleBaseline(cand, base); err == nil {
+		t.Fatal("a cross-arm lifecycle gate should be refused")
 	}
 }
 

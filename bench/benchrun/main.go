@@ -98,7 +98,7 @@ func parseFlags() config {
 	flag.StringVar(&cfg.calibration, "calibration", "judge/calibration.yaml", "judge calibration file (with -calibrate)")
 	flag.BoolVar(&cfg.lifecycle, "lifecycle", false, "run the S5 memory-insight-knowledge lifecycle protocols instead of the S1-S3 task suites")
 	flag.StringVar(&cfg.protocolsDir, "protocols", "protocols", "protocol YAML directory (with -lifecycle)")
-	flag.StringVar(&cfg.baseline, "baseline", "", "committed baseline results JSON: after the run, gate on per-suite regression and exit nonzero if the candidate falls below it")
+	flag.StringVar(&cfg.baseline, "baseline", "", "committed baseline results JSON: after the run, gate on regression and exit nonzero if the candidate falls below it (S1-S3 per-suite, or S5 lifecycle metrics with -lifecycle)")
 	flag.StringVar(&cfg.merge, "merge", "", "comma-separated per-pass lifecycle result JSONs (with -lifecycle): merge independent k=1 passes into one k=N result and exit")
 	flag.BoolVar(&cfg.coldStart, "cold-start", false, "run the cold-start knowledge-growth curriculum (issue #963) instead of the task suites")
 	flag.StringVar(&cfg.curriculumDir, "curriculum", "curriculum", "curriculum YAML directory (with -cold-start)")
@@ -187,13 +187,6 @@ func runLifecycle(cfg config) error {
 	if cfg.arm == "" {
 		return errors.New("-arm is required")
 	}
-	if cfg.baseline != "" {
-		// The regression gate compares per-suite S1-S3 accuracy/pass^k/efficiency
-		// (report.Results). Lifecycle runs produce a different metric shape
-		// (lifecycle.Results: capture/recall/transfer rates), so the S1-S3 gate
-		// cannot score them. Refuse loudly rather than silently ignore -baseline.
-		return errors.New("-baseline is not supported with -lifecycle (the regression gate scores S1-S3 task suites, not lifecycle metrics)")
-	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	opts := lifecycle.Options{
 		Target:        target.Target{BaseURL: cfg.url, Credential: cfg.credential},
@@ -216,18 +209,8 @@ func runLifecycle(cfg config) error {
 		},
 		Log: log,
 	}
-	if cfg.llmProvider == claudeCLIProvider {
-		runner, version, err := buildClaudeRunner(cfg)
-		if err != nil {
-			return err
-		}
-		opts.ClaudeCLI, opts.ClientVersion = runner, version
-	} else {
-		factory, err := buildLifecycleFactory(cfg)
-		if err != nil {
-			return err
-		}
-		opts.Factory = factory
+	if err := configureLifecycleProvider(cfg, &opts); err != nil {
+		return err
 	}
 	res, runErr := lifecycle.Run(context.Background(), opts)
 	if res != nil {
@@ -235,7 +218,55 @@ func runLifecycle(cfg config) error {
 			return err
 		}
 	}
-	return runErr
+	if runErr != nil {
+		return runErr
+	}
+	if cfg.baseline != "" && res != nil {
+		return gateOnLifecycleBaseline(res, cfg.baseline)
+	}
+	return nil
+}
+
+// configureLifecycleProvider sets the model-driving fields on a lifecycle
+// Options from the config: the real claude-cli runner (plus its client version)
+// or the in-process adapter factory. Shared by the full lifecycle and supersede
+// runs, which drive episodes identically.
+func configureLifecycleProvider(cfg config, opts *lifecycle.Options) error {
+	if cfg.llmProvider == claudeCLIProvider {
+		runner, version, err := buildClaudeRunner(cfg)
+		if err != nil {
+			return err
+		}
+		opts.ClaudeCLI, opts.ClientVersion = runner, version
+		return nil
+	}
+	factory, err := buildLifecycleFactory(cfg)
+	if err != nil {
+		return err
+	}
+	opts.Factory = factory
+	return nil
+}
+
+// gateOnLifecycleBaseline compares the just-completed lifecycle run against a
+// committed baseline and returns a non-nil error (nonzero exit) if any headline
+// S5 metric regressed beyond the default thresholds, so CI catches a lifecycle
+// capability loss the same way it catches an S1-S3 one (issue #966).
+func gateOnLifecycleBaseline(candidate *lifecycle.Results, baselinePath string) error {
+	base, err := lifecycle.LoadJSON(baselinePath)
+	if err != nil {
+		return fmt.Errorf("load lifecycle baseline: %w", err)
+	}
+	if err := lifecycle.BaselineCompatible(candidate, base); err != nil {
+		return fmt.Errorf("baseline %s: %w", baselinePath, err)
+	}
+	t := lifecycle.DefaultThresholds()
+	regs := lifecycle.CheckRegression(candidate, base, t)
+	fmt.Print(lifecycle.RegressionReport(candidate, base, t, regs))
+	if len(regs) > 0 {
+		return fmt.Errorf("lifecycle regression gate: %d metric(s) fell below baseline %s", len(regs), baselinePath)
+	}
+	return nil
 }
 
 // runSupersede executes the isolated supersede sub-benchmark (issue #964) and
@@ -270,18 +301,8 @@ func runSupersede(cfg config) error {
 		},
 		Log: log,
 	}
-	if cfg.llmProvider == claudeCLIProvider {
-		runner, version, err := buildClaudeRunner(cfg)
-		if err != nil {
-			return err
-		}
-		opts.ClaudeCLI, opts.ClientVersion = runner, version
-	} else {
-		factory, err := buildLifecycleFactory(cfg)
-		if err != nil {
-			return err
-		}
-		opts.Factory = factory
+	if err := configureLifecycleProvider(cfg, &opts); err != nil {
+		return err
 	}
 	res, runErr := lifecycle.RunSupersede(context.Background(), opts)
 	if res != nil {
@@ -448,6 +469,9 @@ func buildLifecycleFactory(cfg config) (lifecycle.AdapterFactory, error) {
 // on protocol id and run count (lifecycle.passKRate), not on the Attempt field.
 func runMergeLifecycle(cfg config) error {
 	paths := strings.Split(cfg.merge, ",")
+	if err := ensureDistinctMergeOutput(cfg.out, paths); err != nil {
+		return err
+	}
 	merged := &lifecycle.Results{}
 	for i, p := range paths {
 		if err := foldPass(merged, strings.TrimSpace(p), i+1); err != nil {
@@ -461,6 +485,39 @@ func runMergeLifecycle(cfg config) error {
 	}
 	fmt.Print(merged.HumanSummary())
 	fmt.Println("results:", cfg.out)
+	// The merged k=N scorecard is the canonical thing CI gates, so -baseline must
+	// apply here too (not only to a single-process run) — otherwise the standard
+	// multi-pass workflow would silently skip the regression gate.
+	if cfg.baseline != "" {
+		return gateOnLifecycleBaseline(merged, cfg.baseline)
+	}
+	return nil
+}
+
+// ensureDistinctMergeOutput refuses a merge whose -out would overwrite one of
+// its input passes. The merged scorecard is derived data; clobbering a raw
+// per-pass file with it would destroy paid-for evidence that can never be
+// regenerated without re-running. Collision is detected with os.SameFile
+// (device+inode), which — unlike a string comparison of cleaned paths — catches
+// a case-variant spelling on a case-insensitive filesystem (macOS/Windows) and a
+// symlinked input/output pair, both of which resolve to the same on-disk file.
+// If the output path does not yet exist (even via a case-insensitive or symlink
+// alias), no input can be overwritten, so the merge is allowed.
+func ensureDistinctMergeOutput(out string, inputs []string) error {
+	outInfo, err := os.Stat(out)
+	if err != nil {
+		return nil //nolint:nilerr // a non-existent output cannot overwrite any input
+	}
+	for _, in := range inputs {
+		in = strings.TrimSpace(in)
+		inInfo, err := os.Stat(in)
+		if err != nil {
+			continue // a missing input is foldPass's error to report with a clearer message
+		}
+		if os.SameFile(outInfo, inInfo) {
+			return fmt.Errorf("-out %s is the same file as input pass %s; choose a distinct output path so raw pass data is never overwritten", out, in)
+		}
+	}
 	return nil
 }
 
@@ -637,9 +694,16 @@ func gateOnBaseline(candidate *report.Results, baselinePath string) error {
 	return nil
 }
 
-// transcriptDir derives the transcript directory from the results path.
+// transcriptDir derives the per-run transcript directory from the results path.
+// It keys on the FULL output filename (extension included), not just its parent
+// directory or stem, so several passes or runs written into the SAME directory
+// under different -out names each get their own transcript directory and never
+// overwrite one another's raw transcripts (results.json -> results.json.transcripts/).
+// Keeping the extension means two outputs that share a stem but differ by
+// extension (results.json, results.txt) do not collide. Isolating on the output
+// name means multi-pass orchestration cannot silently clobber paid-for data.
 func transcriptDir(out string) string {
-	return filepath.Join(filepath.Dir(out), "transcripts")
+	return filepath.Join(filepath.Dir(out), filepath.Base(out)+".transcripts")
 }
 
 // claudeCLIProvider is the -llm value selecting the real Claude Code client

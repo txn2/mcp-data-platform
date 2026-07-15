@@ -247,6 +247,12 @@ budget for the capture-bearing stages (teach and update), so the capture-rate
 lift from a larger teach budget can be measured directly against the same
 protocol set.
 
+### Harness hardening (#966)
+
+- **Regression gate.** `-baseline <committed.json>` with `-lifecycle` gates the run against a committed S5 baseline and exits nonzero when a headline lifecycle metric regresses, so CI catches a lifecycle capability loss the same way it already catches an S1-S3 one. It applies to both a single-process run and a `-merge`d k=N scorecard (the canonical multi-pass artifact CI gates). The gated metrics are capture rate, personal recall, transfer rate, update correctness, abstention rate, duplicate rate (an increase past tolerance is the regression), and pass^k; a metric that either run did not exercise (zero denominator) is skipped as a coverage gap, not scored as a drop. The #964 diagnostic decompositions are deliberately not gated — their small denominators would trip the gate on noise; they exist to explain a regression, not define one. The gate refuses a cross-arm comparison, and a cross-client-path one (anthropic vs claude-cli), rather than producing a meaningless verdict; it compares the client path, not the exact CLI version, so a benign `claude` bump does not disable it. Default tolerances are loose (5 points) to absorb run-to-run variance.
+- **Output isolation.** The transcript directory is keyed on the full `-out` filename (`results.json` -> `results.json.transcripts/`), so several passes written into the same directory under different output names — even ones sharing a stem but differing by extension — never overwrite one another's raw transcripts. The `-merge` step refuses an `-out` that is the same on-disk file as one of its input passes (compared by device+inode, so a case-variant or symlinked alias is caught too), so a merged scorecard never clobbers the raw per-pass evidence it was built from. Together these mean multi-pass orchestration cannot silently discard paid-for data.
+- **claude-cli cache tokens.** A cached `claude -p` run's `cache_read_input_tokens` / `cache_creation_input_tokens` flow through the stream parser into each lifecycle `EpisodeRecord` and are summed into the run's `total_cache_read_tokens` / `total_cache_creation_tokens`, so a cached run self-reports its true cost basis (cache reads bill far below fresh input). The full parser -> `EpisodeRecord` -> aggregate path is covered by a test that drives the real parser on a canned cached stream; that a real `claude` process emits those fields is confirmed by one real cached run.
+
 ## Supersede sub-benchmark (#964)
 
 `-supersede` runs the recall-first supersede gate **in isolation**: it drives
@@ -478,7 +484,7 @@ bench/
     ├── grade/           deterministic graders (numeric, entity, execution-result)
     ├── judge/           LLM judge + calibration harness
     ├── pipeline/        task x k orchestration
-    ├── lifecycle/       S5 protocol runner, stage graders, metrics, results model, per-stage diagnosis instrumentation + isolated supersede sub-benchmark (#964)
+    ├── lifecycle/       S5 protocol runner, stage graders, metrics, results model, per-stage diagnosis instrumentation + isolated supersede sub-benchmark (#964), S5 regression gate (#966)
     ├── coldstart/       cold-start curriculum runner, learning-curve metrics, results model
     ├── report/          results model, aggregates, cross-arm comparison
     └── target/          endpoint + Bearer auth
