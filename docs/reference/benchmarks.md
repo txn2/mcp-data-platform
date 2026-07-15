@@ -292,7 +292,7 @@ dataset seed 930, protocol-set hash `0920c55292d1`, 15 protocols — 10 promote,
 memory embeddings; every lifecycle state transition is verified through the
 admin insights + changesets API, never inferred from a transcript):
 
-| Field | Shared-store | Isolated #1 | Isolated #2 |
+| Field | Shared-store | Isolated run 1 | Isolated run 2 |
 | --- | --- | --- | --- |
 | Regime | 45 attempts, one shared store (k-repeats coupled) | 3 independent k = 1 passes merged to k = 3 | 3 independent k = 1 passes merged to k = 3 |
 | Platform build | v1.102.0-9-gadfb9d90-dirty | v1.102.0-10-g32d61254-dirty | v1.102.0-10-g32d61254-dirty |
@@ -310,7 +310,7 @@ and the runs are directly comparable.
 Each metric is a numerator/denominator over the applicable, non-harness-failed
 runs. Duplicate rate is lower-is-better; every other metric is higher-is-better.
 
-| Metric | Shared-store | Isolated #1 | Isolated #2 | What it measures |
+| Metric | Shared-store | Isolated run 1 | Isolated run 2 | What it measures |
 | --- | --- | --- | --- | --- |
 | Capture rate | 80.0% (36/45) | 84.4% (38/45) | 82.2% (37/45) | the agent recorded the taught fact and entity-linked it (verified via the insights API) |
 | Personal recall | 84.4% (38/45) | 88.9% (40/45) | 84.4% (38/45) | a fresh same-identity session answered the fact-dependent question correctly — graded on answer-correctness like an S1–S3 question, not on proven retrieval (see limitations) |
@@ -344,8 +344,8 @@ two isolated replicates ran under identical configuration, differing only in the
 model's run-to-run stochasticity, yet they disagree materially: duplicate rate is
 **0% in one and 42.9% in the other**, pass^3 is 26.7% then 20.0%, and capture and
 personal recall each move a few points. The apparent "isolation lift" over the
-shared-store run that isolated #1 alone suggested (capture 80→84%, recall 84→89%,
-pass^3 20→27%) is **not reproduced** by isolated #2 (82%, 84%, 20%) — so that lift
+shared-store run that isolated run 1 alone suggested (capture 80→84%, recall 84→89%,
+pass^3 20→27%) is **not reproduced** by isolated run 2 (82%, 84%, 20%) — so that lift
 was largely **run-to-run variance, not the shared-store confound**. At this scale
 (15 protocols, k = 3, with applicable denominators as small as 7–10 on the
 supersede metrics) the sampling noise is wide, and no single run's
@@ -413,13 +413,13 @@ promotion to a different entity type may surface incompletely), and whether the
 second identity that *did* see the fact actually used it. This run does not yet
 instrument that split; doing so is the natural next step for closing the gap.
 
-**Raw-data note.** Isolated run #1's per-attempt records (final answers, tool-call
+**Raw-data note.** Isolated run 1's per-attempt records (final answers, tool-call
 counts, tokens, audit) are complete, but a harness bug pointed all three of its
 passes at one transcript directory, so only the last pass's turn-by-turn
 transcripts survived on disk. No metric or cost derives from the lost
 transcripts. The bug is fixed (each pass now writes its own directory) and
-isolated run #2 preserves all three passes' transcripts; it is reported alongside
-#1 rather than replacing it.
+isolated run 2 preserves all three passes' transcripts; it is reported alongside
+run 1 rather than replacing it.
 
 ### Reading S5 correctly
 
@@ -541,5 +541,5 @@ figure.
 | 2026-07-13 | 3 (S5 pilot) | a3 | claude-sonnet-5 | 13 protocols | `bench/results/v1.102.0-s5-partial/` |
 | 2026-07-14 | Semantic (S1–S3) | a0, a1, a2, a3 | claude-sonnet-5 | 261/arm | `bench/results/phase2-anthropic-k3/` |
 | 2026-07-14 | Memory (S5, shared-store) | a3 | claude-sonnet-5 | 15 protocols × 3 | `bench/results/s5-anthropic-k3/` |
-| 2026-07-14 | Memory (S5, isolated #1) | a3 | claude-sonnet-5 | 15 protocols × 3 passes | `bench/results/s5-anthropic-k3-isolated/` |
-| 2026-07-14 | Memory (S5, isolated #2) | a3 | claude-sonnet-5 | 15 protocols × 3 passes | `bench/results/s5-anthropic-k3-isolated-v2/` |
+| 2026-07-14 | Memory (S5, isolated run 1) | a3 | claude-sonnet-5 | 15 protocols × 3 passes | `bench/results/s5-anthropic-k3-isolated/` |
+| 2026-07-14 | Memory (S5, isolated run 2) | a3 | claude-sonnet-5 | 15 protocols × 3 passes | `bench/results/s5-anthropic-k3-isolated-v2/` |
