@@ -3,9 +3,12 @@ package lifecycle
 import (
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/bench/internal/stats"
 )
 
 // SupersedeResults is the isolated supersede sub-benchmark output (issue #964).
@@ -94,7 +97,30 @@ func (res *SupersedeResults) Aggregate() {
 	for _, id := range order {
 		m.PerProtocol = append(m.PerProtocol, *byProtocol[id])
 	}
+	m.fillCIs(stats.NewRNG())
 	res.Metrics = m
+}
+
+// fillCIs attaches a bootstrap confidence interval to every supersede rate,
+// threading one seeded RNG in a fixed order so the sub-benchmark is reproducible
+// (issue #965). SupersedeRate is the exact point-complement of DuplicateRate
+// (set in Aggregate), so rather than bootstrapping it independently — which
+// would drift its interval out of the advertised complement relationship by a
+// resampling-quantile step — its interval is the reflection of DuplicateRate's:
+// [1 - dupHigh, 1 - dupLow]. This mirrors how the point rate is derived, so the
+// two intervals stay exact complements. When nothing was captured (empty
+// denominator) DuplicateRate has no interval, so SupersedeRate keeps its
+// zero-width default rather than reflecting into a spurious [1, 1].
+func (m *SupersedeMetrics) fillCIs(rng *rand.Rand) {
+	for _, r := range []*Rate{
+		&m.CaptureRate, &m.DuplicateRate, &m.UpdateCorrectness, &m.PassK,
+	} {
+		r.fillCI(rng)
+	}
+	if m.DuplicateRate.Den > 0 {
+		m.SupersedeRate.CILow = 1 - m.DuplicateRate.CIHigh
+		m.SupersedeRate.CIHigh = 1 - m.DuplicateRate.CILow
+	}
 }
 
 // foldSupersedeStat accumulates one graded attempt into its protocol's stability

@@ -190,18 +190,24 @@ runs EITHER promote+transfer OR supersede, never both (see below). The stages:
 protocol validator). The platform deliberately never supersedes an
 already-applied insight — a newer capture must not clobber a reviewed one — so a
 fact that has been promoted (and is therefore `applied`) can no longer be cleanly
-superseded. The ten promote protocols therefore exercise stages 1–4 + 6; the five
-supersede protocols exercise stages 1, 2, 5, 6 on a fact that stays pending. Both
-mechanics are measured, on different facts.
+superseded. The twenty promote protocols therefore exercise stages 1–4 + 6; the
+ten supersede protocols exercise stages 1, 2, 5, 6 on a fact that stays pending.
+Both mechanics are measured, on different facts.
 
 Each protocol teaches a **novel** definition — one deliberately absent from the
 seeded knowledge pages and catalog metadata — so recall and transfer are clean:
 the only way to answer is the taught memory (recall) or the promoted knowledge
-(transfer), never the pre-seeded fixtures. The five supersede protocols redefine
+(transfer), never the pre-seeded fixtures. The ten supersede protocols redefine
 a computable quantity so the corrected recall is a different, generator-computed
 value than the original (e.g. the "primary region" flips from the gross-revenue
 leader to the net-revenue leader). Ground truth is computed from the dataset,
 never hand-typed, exactly as the S1–S3 truths.
+
+The protocol set was doubled from fifteen to thirty for issue #965 (twenty
+promote + ten supersede), which roughly doubles every metric's denominator — the
+supersede metrics most of all, whose applicable denominators the phase-4 data
+exposed as small as 7–10 — so the lifecycle rates can be reported with tighter
+confidence intervals rather than the noisy ranges the small set produced.
 
 Each protocol attempt consumes two identities from the pool (a teacher and a
 learner) so the search-first gate's per-user discovery scope never leaks between
@@ -218,6 +224,15 @@ rate**, **update correctness**, **duplicate rate** (lower is better), and
 applicable lifecycle). Harness-level failures (connect, adapter, API read-back)
 are excluded from the metrics and reported separately, mirroring the S1–S3
 pipeline.
+
+Every rate carries a **95% percentile-bootstrap confidence interval** (issue
+#965), resampled from its numerator/denominator with a fixed seed (the shared
+`internal/stats` machinery the S1–S3 report uses), so the interval is
+reproducible and a reader sees the uncertainty directly instead of inferring it
+from a range across replicates. The bootstrap treats each applicable outcome as
+an independent draw and does not model protocol-level correlation across the k
+replicates, so a narrow interval over a small, few-protocol denominator still
+warrants caution — the point of growing the set is to enlarge that denominator.
 
 ### Per-stage diagnosis instrumentation (#964)
 
@@ -252,6 +267,69 @@ protocol set.
 - **Regression gate.** `-baseline <committed.json>` with `-lifecycle` gates the run against a committed S5 baseline and exits nonzero when a headline lifecycle metric regresses, so CI catches a lifecycle capability loss the same way it already catches an S1-S3 one. It applies to both a single-process run and a `-merge`d k=N scorecard (the canonical multi-pass artifact CI gates). The gated metrics are capture rate, personal recall, transfer rate, update correctness, abstention rate, duplicate rate (an increase past tolerance is the regression), and pass^k; a metric that either run did not exercise (zero denominator) is skipped as a coverage gap, not scored as a drop. The #964 diagnostic decompositions are deliberately not gated — their small denominators would trip the gate on noise; they exist to explain a regression, not define one. The gate refuses a cross-arm comparison, and a cross-client-path one (anthropic vs claude-cli), rather than producing a meaningless verdict; it compares the client path, not the exact CLI version, so a benign `claude` bump does not disable it. Default tolerances are loose (5 points) to absorb run-to-run variance.
 - **Output isolation.** The transcript directory is keyed on the full `-out` filename (`results.json` -> `results.json.transcripts/`), so several passes written into the same directory under different output names — even ones sharing a stem but differing by extension — never overwrite one another's raw transcripts. The `-merge` step refuses an `-out` that is the same on-disk file as one of its input passes (compared by device+inode, so a case-variant or symlinked alias is caught too), so a merged scorecard never clobbers the raw per-pass evidence it was built from. Together these mean multi-pass orchestration cannot silently discard paid-for data.
 - **claude-cli cache tokens.** A cached `claude -p` run's `cache_read_input_tokens` / `cache_creation_input_tokens` flow through the stream parser into each lifecycle `EpisodeRecord` and are summed into the run's `total_cache_read_tokens` / `total_cache_creation_tokens`, so a cached run self-reports its true cost basis (cache reads bill far below fresh input). The full parser -> `EpisodeRecord` -> aggregate path is covered by a test that drives the real parser on a canned cached stream; that a real `claude` process emits those fields is confirmed by one real cached run.
+
+### Statistical power and identity-pool sizing (#965)
+
+The lifecycle rates are reported with confidence intervals (above), but a CI only
+describes the run you did — it does not tell you how large a run you *need* to
+resolve a real change. This section sizes both the protocol set and the identity
+pool against a target effect.
+
+**Applicable denominators.** Not every metric spans all thirty protocols. The
+transfer stage runs only on the twenty promote protocols; the supersede,
+duplicate, and update-correctness stages run only on the ten supersede protocols;
+capture, personal recall, and abstention span all thirty. At k replicates the
+applicable count per metric group is:
+
+| metric group | protocols | applicable n at k=3 | at k=5 |
+| --- | --- | --- | --- |
+| capture / personal recall / abstention | 30 | 90 | 150 |
+| transfer (+ its surfaced/used split) | 20 | 60 | 100 |
+| supersede / duplicate / update correctness | 10 | 30 | 50 |
+
+**Detectable effect.** For a two-sided test at α = 0.05 and 80% power, the
+normal-approximation sample size for a proportion is n ≈ (z_{α/2} + z_β)² ·
+p(1−p) / Δ² = 7.84 · p(1−p) / Δ². Taking the worst-case p = 0.5 (variance 0.25),
+the smallest shift Δ a given applicable n can resolve is Δ ≈ √(1.96 / n):
+
+| applicable n | smallest resolvable Δ (pts) |
+| --- | --- |
+| 30 | ~26 |
+| 50 | ~20 |
+| 60 | ~18 |
+| 90 | ~15 |
+| 100 | ~14 |
+| 150 | ~11 |
+
+Reading the two tables together: at k = 3 the headline rates resolve a ~15-point
+change, transfer a ~18-point one, and supersede/duplicate only a ~26-point one —
+which is why the phase-4 supersede numbers (denominator 7–10 before this ticket)
+read as noise. At k = 5 the supersede denominator reaches 50 (~20-point
+resolution) and transfer reaches 100 (~14 points). To resolve a 15-point transfer
+change — the size of the observed transfer ceiling — plan for k = 5 over the
+twenty promote protocols (n = 100 ≥ the 87 the formula requires at Δ = 0.15).
+These are lower bounds: the normal approximation is optimistic at small n and
+extreme p, and the bootstrap CIs treat replicates as independent draws (they do
+not model protocol-level correlation across the k attempts of one protocol), so
+treat the k = 5 column as the floor for a headline claim, not a guarantee.
+
+**Identity-pool sizing.** Each attempt consumes two pool identities (teacher +
+learner), so a run needs `2 × protocols × k` keys and refuses to start otherwise.
+For the thirty-protocol set:
+
+| k | identities needed (2 × 30 × k) | fits the 264-key pool? |
+| --- | --- | --- |
+| 3 | 180 | yes |
+| 4 | 240 | yes |
+| 5 | 300 | no — grow the pool |
+
+The committed pool in `bench/config/platform.bench.a*.yaml` is 264 keys (sized for
+the S1–S3 task set, 87 × 3 = 261). It covers the thirty-protocol lifecycle through
+k = 4. A k = 5 run — the size the power analysis recommends for a firm transfer
+claim — needs the pool grown to ≥ 300 (round to 320 for headroom) across the four
+arm configs; `-identity-keys` must be raised to match. That pool growth is the one
+prerequisite for the budget-gated k = 5 evaluation run and is intentionally left
+to that run rather than pre-committed here.
 
 ## Supersede sub-benchmark (#964)
 

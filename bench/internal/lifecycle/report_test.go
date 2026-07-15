@@ -1,6 +1,7 @@
 package lifecycle
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -132,6 +133,86 @@ func TestWriteAndLoadJSON(t *testing.T) {
 	}
 	if got.Manifest.Arm != "a3" || len(got.Runs) != 1 || got.Metrics.CaptureRate.Rate != 1 {
 		t.Fatalf("roundtrip mismatch: %+v", got.Metrics)
+	}
+}
+
+func TestAggregateFillsConfidenceIntervals(t *testing.T) {
+	// A mix of correct and incorrect recalls across many attempts produces a
+	// non-degenerate CI that brackets the point rate.
+	res := &Results{Manifest: Manifest{K: 1}}
+	for i := range 40 {
+		r := ProtocolRun{ProtocolID: fmt.Sprintf("lc-%02d", i), Captured: new(true)}
+		r.RecallCorrect = new(i%4 != 0) // 30/40 correct -> recall 0.75
+		res.Runs = append(res.Runs, r)
+	}
+	res.Aggregate()
+	pr := res.Metrics.PersonalRecall
+	if pr.Rate != 0.75 {
+		t.Fatalf("recall rate = %v, want 0.75", pr.Rate)
+	}
+	if !(pr.CILow < pr.Rate && pr.Rate < pr.CIHigh) {
+		t.Fatalf("recall CI [%v, %v] does not bracket %v", pr.CILow, pr.CIHigh, pr.Rate)
+	}
+	if pr.CILow < 0 || pr.CIHigh > 1 {
+		t.Fatalf("recall CI [%v, %v] escapes [0, 1]", pr.CILow, pr.CIHigh)
+	}
+	// An unexercised metric (empty denominator) carries no interval.
+	if tu := res.Metrics.TransferUsedGivenSurfaced; tu.Den != 0 || tu.CILow != 0 || tu.CIHigh != 0 {
+		t.Fatalf("unexercised metric should have zero-width CI, got %+v", tu)
+	}
+}
+
+func TestAggregateConfidenceIntervalsReproducible(t *testing.T) {
+	build := func() Metrics {
+		res := &Results{Manifest: Manifest{K: 1}}
+		for i := range 20 {
+			res.Runs = append(res.Runs, ProtocolRun{
+				ProtocolID: fmt.Sprintf("lc-%02d", i), Captured: new(true), RecallCorrect: new(i%3 != 0),
+			})
+		}
+		res.Aggregate()
+		return res.Metrics
+	}
+	a, b := build(), build()
+	if a.PersonalRecall.CILow != b.PersonalRecall.CILow || a.PersonalRecall.CIHigh != b.PersonalRecall.CIHigh {
+		t.Fatalf("CI not reproducible: %+v vs %+v", a.PersonalRecall, b.PersonalRecall)
+	}
+}
+
+func TestHumanSummaryShowsConfidenceInterval(t *testing.T) {
+	res := &Results{Manifest: Manifest{Arm: "a3", Model: "scripted", K: 1}}
+	for i := range 10 {
+		res.Runs = append(res.Runs, ProtocolRun{
+			ProtocolID: fmt.Sprintf("lc-%02d", i), Captured: new(true), RecallCorrect: new(i%2 == 0),
+		})
+	}
+	res.Aggregate()
+	if out := res.HumanSummary(); !strings.Contains(out, "95% CI") {
+		t.Errorf("summary missing CI bracket:\n%s", out)
+	}
+}
+
+// TestHumanSummaryOmitsDegenerateInterval guards both ends of the writeMetric
+// guard: an all-success (100%) and an all-failure (0%) rate each collapse to a
+// zero-width bootstrap interval, which must be omitted rather than printed as a
+// meaningless [100.0-100.0] or [0.0-0.0] (issue #965 review finding).
+func TestHumanSummaryOmitsDegenerateInterval(t *testing.T) {
+	res := &Results{Manifest: Manifest{Arm: "a3", Model: "scripted", K: 1}}
+	for i := range 8 {
+		// Capture always true (100%), abstain always false (0%): both degenerate.
+		res.Runs = append(res.Runs, ProtocolRun{
+			ProtocolID: fmt.Sprintf("lc-%02d", i), Captured: new(true), RecallCorrect: new(true), AbstainCorrect: new(false),
+		})
+	}
+	res.Aggregate()
+	out := res.HumanSummary()
+	// Every exercised metric here is degenerate (100% or 0%), so no bracket at
+	// all — and never a meaningless [100.0-100.0] or [0.0-0.0].
+	if strings.Contains(out, "100.0-100.0") || strings.Contains(out, "0.0-0.0") || strings.Contains(out, "95% CI") {
+		t.Errorf("degenerate CI bracket should be omitted:\n%s", out)
+	}
+	if !strings.Contains(out, "capture rate") || !strings.Contains(out, "100.0%") {
+		t.Errorf("capture line missing:\n%s", out)
 	}
 }
 

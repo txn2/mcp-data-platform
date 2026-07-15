@@ -9,14 +9,17 @@ import (
 	"github.com/txn2/mcp-data-platform/bench/internal/task"
 )
 
-// S5 lifecycle protocols (issue #944). Each teaches a NOVEL definition — one
-// that is deliberately NOT in the seeded knowledge pages or catalog metadata, so
-// the only way to answer its recall question is the taught memory. That keeps
-// the measurement clean: in the transfer protocols a learner who never saw the
-// teach can answer only because the promote stage pushed the fact into shared
-// knowledge, not because the seed already contained it. The set splits into ten
-// promote+transfer protocols and five supersede protocols (promote and update
-// are mutually exclusive — the platform never supersedes an applied insight).
+// S5 lifecycle protocols (issue #944, grown for statistical rigor in #965). Each
+// teaches a NOVEL definition — one that is deliberately NOT in the seeded
+// knowledge pages or catalog metadata, so the only way to answer its recall
+// question is the taught memory. That keeps the measurement clean: in the
+// transfer protocols a learner who never saw the teach can answer only because
+// the promote stage pushed the fact into shared knowledge, not because the seed
+// already contained it. The set splits into twenty promote+transfer protocols
+// and ten supersede protocols (promote and update are mutually exclusive — the
+// platform never supersedes an applied insight). Doubling the set (issue #965)
+// roughly doubles every metric's denominator — the supersede metrics most of
+// all — so the lifecycle rates carry tighter bootstrap confidence intervals.
 // Recall/update answers are computed from the dataset (never hand-typed), like
 // the S1-S3 truths.
 
@@ -90,9 +93,11 @@ func (d *Dataset) Protocols() []protocol.Protocol {
 	grossLeader := d.topRegionGrossAll()
 	netLeader := d.TopRegionNet2025()
 
-	ps := make([]protocol.Protocol, 0, 15)
+	ps := make([]protocol.Protocol, 0, 30)
 	ps = append(ps, d.updateProtocols(orders, customers, grossLeader, netLeader)...)
+	ps = append(ps, d.moreUpdateProtocols(orders, customers)...)
 	ps = append(ps, d.singleShotProtocols(orders, customers)...)
+	ps = append(ps, d.moreSingleShotProtocols(orders, customers)...)
 	return ps
 }
 
@@ -186,6 +191,98 @@ func (d *Dataset) updateProtocols(orders, customers, grossLeader, netLeader stri
 	}
 }
 
+// moreUpdateProtocols are five additional supersede protocols (issue #965) that
+// double the supersede denominator, the noisiest S5 measurement. Each teaches a
+// novel, dataset-computable definition and corrects it to a different computable
+// value, exactly like updateProtocols; none promotes.
+func (d *Dataset) moreUpdateProtocols(orders, customers string) []protocol.Protocol {
+	q2 := d.CompletedOrdersInQuarter(2025, 2)
+	q4 := d.CompletedOrdersInQuarter(2025, 4)
+	northNet := d.NetRegion2025USD("North")
+	southNet := d.NetRegion2025USD("South")
+	march := d.OrdersInMonth(2025, time.March)
+	sept := d.OrdersInMonth(2025, time.September)
+	plusOrders := d.OrdersByTier()["plus"]
+	entOrders := d.OrdersByTier()["enterprise"]
+	cohort2023 := d.CustomersCreatedInYear(2023)
+	cohort2024 := d.CustomersCreatedInYear(2024)
+
+	return []protocol.Protocol{
+		{
+			ID: "lc-billing-window", Title: "Billing window completed orders (Q2 then Q4)",
+			Fact:      "The 'billing window' for this study is calendar quarter 2 of 2025 (April through June).",
+			EntityURN: orders, Sink: protocol.SinkDataHub, BudgetToolCalls: protocolBudget,
+			Teach:  protocol.TeachStage{Prompt: teachPrompt("The 'billing window' for this study is calendar quarter 2 of 2025 (April through June).")},
+			Recall: protocol.RecallStage{Prompt: "How many completed orders fall in the billing window? Answer with the count.", Grading: countGrade(q2)},
+			Update: &protocol.UpdateStage{
+				Prompt:          correctionPrompt("The 'billing window' is now calendar quarter 4 of 2025 (October through December)."),
+				Fact:            "The 'billing window' for this study is calendar quarter 4 of 2025 (October through December).",
+				Recall:          protocol.RecallStage{Prompt: "Given the corrected billing window, how many completed orders fall in it? Answer with the count.", Grading: countGrade(q4)},
+				SupersededValue: new(float64(q2)),
+			},
+			Abstain: &protocol.AbstainStage{Prompt: "How many invoices were disputed during the billing window?"},
+		},
+		{
+			ID: "lc-anchor-region", Title: "Anchor region net revenue (North then South)",
+			Fact:      "The 'anchor region' for this study is North.",
+			EntityURN: orders, Sink: protocol.SinkKnowledgePage, BudgetToolCalls: protocolBudget,
+			Page:   pagePayload("anchor-region-definition", "Anchor Region Definition", "The 'anchor region' for this study is North."),
+			Teach:  protocol.TeachStage{Prompt: teachPrompt("The 'anchor region' for this study is North.")},
+			Recall: protocol.RecallStage{Prompt: netQuestion("What was the total net revenue for the anchor region in calendar year 2025"), Grading: numericGrade(northNet)},
+			Update: &protocol.UpdateStage{
+				Prompt:          correctionPrompt("The 'anchor region' is now South, not North."),
+				Fact:            "The 'anchor region' for this study is South.",
+				Recall:          protocol.RecallStage{Prompt: netQuestion("Given the corrected anchor region, what was its total net revenue in calendar year 2025"), Grading: numericGrade(southNet)},
+				SupersededValue: new(northNet),
+			},
+			Abstain: &protocol.AbstainStage{Prompt: "What was the total marketing budget for the anchor region in 2025, in USD?"},
+		},
+		{
+			ID: "lc-benchmark-month", Title: "Benchmark month order count (March then September)",
+			Fact:      "The 'benchmark month' for this study is March 2025.",
+			EntityURN: orders, Sink: protocol.SinkDataHub, BudgetToolCalls: protocolBudget,
+			Teach:  protocol.TeachStage{Prompt: teachPrompt("The 'benchmark month' for this study is March 2025.")},
+			Recall: protocol.RecallStage{Prompt: "How many orders were placed in the benchmark month? Answer with the count.", Grading: countGrade(march)},
+			Update: &protocol.UpdateStage{
+				Prompt:          correctionPrompt("The 'benchmark month' is now September 2025, not March."),
+				Fact:            "The 'benchmark month' for this study is September 2025.",
+				Recall:          protocol.RecallStage{Prompt: "Given the corrected benchmark month, how many orders were placed in it? Answer with the count.", Grading: countGrade(sept)},
+				SupersededValue: new(float64(march)),
+			},
+			Abstain: &protocol.AbstainStage{Prompt: "What was the average discount rate in the benchmark month?"},
+		},
+		{
+			ID: "lc-headline-tier", Title: "Headline tier order count (plus then enterprise)",
+			Fact:      "The 'headline tier' for this study is the plus tier.",
+			EntityURN: customers, Sink: protocol.SinkKnowledgePage, BudgetToolCalls: protocolBudget,
+			Page:   pagePayload("headline-tier-definition", "Headline Tier Definition", "The 'headline tier' for this study is the plus tier."),
+			Teach:  protocol.TeachStage{Prompt: teachPrompt("The 'headline tier' for this study is the plus tier.")},
+			Recall: protocol.RecallStage{Prompt: "How many orders were placed by customers on the headline tier? Answer with the count.", Grading: countGrade(plusOrders)},
+			Update: &protocol.UpdateStage{
+				Prompt:          correctionPrompt("The 'headline tier' is now the enterprise tier, not plus."),
+				Fact:            "The 'headline tier' for this study is the enterprise tier.",
+				Recall:          protocol.RecallStage{Prompt: "Given the corrected headline tier, how many orders were placed by its customers? Answer with the count.", Grading: countGrade(entOrders)},
+				SupersededValue: new(float64(plusOrders)),
+			},
+			Abstain: &protocol.AbstainStage{Prompt: "What is the average satisfaction score for the headline tier?"},
+		},
+		{
+			ID: "lc-reference-cohort", Title: "Reference cohort customer count (2023 then 2024)",
+			Fact:      "The 'reference cohort' is the set of customers whose account was created during calendar year 2023.",
+			EntityURN: customers, Sink: protocol.SinkDataHub, BudgetToolCalls: protocolBudget,
+			Teach:  protocol.TeachStage{Prompt: teachPrompt("The 'reference cohort' is the set of customers whose account was created during calendar year 2023.")},
+			Recall: protocol.RecallStage{Prompt: "How many customers are in the reference cohort? Answer with the count.", Grading: countGrade(cohort2023)},
+			Update: &protocol.UpdateStage{
+				Prompt:          correctionPrompt("The 'reference cohort' is now the set of customers created during calendar year 2024, not 2023."),
+				Fact:            "The 'reference cohort' is the set of customers whose account was created during calendar year 2024.",
+				Recall:          protocol.RecallStage{Prompt: "Given the corrected reference cohort, how many customers are in it? Answer with the count.", Grading: countGrade(cohort2024)},
+				SupersededValue: new(float64(cohort2023)),
+			},
+			Abstain: &protocol.AbstainStage{Prompt: "What is the annual retention rate of the reference cohort?"},
+		},
+	}
+}
+
 // singleShotProtocols are the ten teach/recall/promote/transfer/abstain
 // protocols (no supersede stage), covering both sinks and both anchor tables.
 func (d *Dataset) singleShotProtocols(orders, customers string) []protocol.Protocol {
@@ -251,6 +348,77 @@ func (d *Dataset) singleShotProtocols(orders, customers string) []protocol.Proto
 			orders, protocol.SinkDataHub, nil,
 			"How many orders are in the reporting cohort? Answer with the count.", countGrade(december),
 			"How many items on average were in each order of the reporting cohort?"),
+	}
+}
+
+// moreSingleShotProtocols are ten additional teach/recall/promote/transfer/
+// abstain protocols (issue #965) that double the single-shot set, tightening the
+// capture, personal-recall, and transfer confidence intervals. Each teaches a
+// novel, dataset-computable definition distinct from the seeded knowledge and
+// from every other protocol's concept, spanning both sinks and both anchors.
+func (d *Dataset) moreSingleShotProtocols(orders, customers string) []protocol.Protocol {
+	flagshipOrders := d.OrdersByRegion()["South"]
+	standardOrders := d.OrderCount() - d.OrdersAboveThreshold()
+	holiday := d.NovDecGrossUSD()
+	closeout := d.DecemberGrossUSD()
+	charter := d.CustomersByTier()["plus"]
+	signature := d.CustomersByTier()["enterprise"]
+	clearance := d.RegionStatusCount("West", "completed")
+	valueTier := d.BottomTierByOrderCount()
+	quietRegion := d.BottomRegionByOrderCount()
+	spring := d.OrdersInMonth(2025, time.April)
+
+	return []protocol.Protocol{
+		singleShot("lc-flagship-region", "Flagship region order count",
+			"The 'flagship region' for this study is the South region.",
+			orders, protocol.SinkDataHub, nil,
+			"How many orders were placed by customers in the flagship region? Answer with the count.", countGrade(flagshipOrders),
+			"What is the retail store footprint of the flagship region?"),
+		singleShot("lc-standard-order", "Standard order count",
+			"A 'standard order' is any order whose amount is below $1,000.00 (100000 cents).",
+			orders, protocol.SinkKnowledgePage, pagePayload("standard-order-definition", "Standard Order Definition", "A 'standard order' is any order whose amount is below $1,000.00 (100000 cents)."),
+			"How many standard orders are there? Answer with the count.", countGrade(standardOrders),
+			"How many standard orders were returned for a refund?"),
+		singleShot("lc-holiday-total", "Holiday total",
+			"The 'holiday total' is the gross revenue (sum of amount over completed orders) for November and December 2025.",
+			orders, protocol.SinkKnowledgePage, pagePayload("holiday-total-definition", "Holiday Total Definition", "The 'holiday total' is the gross revenue (sum of amount over completed orders) for November and December 2025."),
+			netlessQuestion("What is the holiday total"), numericGrade(holiday),
+			"How many gift cards were sold within the holiday total?"),
+		singleShot("lc-closeout-total", "Closeout total",
+			"The 'closeout total' is the gross revenue (sum of amount over completed orders) for December 2025.",
+			orders, protocol.SinkDataHub, nil,
+			netlessQuestion("What is the closeout total"), numericGrade(closeout),
+			"What was the total shipping cost within the closeout total?"),
+		singleShot("lc-charter-cohort", "Charter cohort",
+			"The 'charter cohort' is the set of customers on the plus tier.",
+			customers, protocol.SinkKnowledgePage, pagePayload("charter-cohort-definition", "Charter Cohort Definition", "The 'charter cohort' is the set of customers on the plus tier."),
+			"How many customers are in the charter cohort? Answer with the count.", countGrade(charter),
+			"What is the annual renewal rate of the charter cohort?"),
+		singleShot("lc-signature-segment", "Signature segment",
+			"The 'signature segment' is the set of customers on the enterprise tier.",
+			customers, protocol.SinkDataHub, nil,
+			"How many customers are in the signature segment? Answer with the count.", countGrade(signature),
+			"What is the churn rate of the signature segment?"),
+		singleShot("lc-clearance-set", "Clearance set",
+			"The 'clearance set' is the set of completed orders placed by customers in the West region.",
+			orders, protocol.SinkKnowledgePage, pagePayload("clearance-set-definition", "Clearance Set Definition", "The 'clearance set' is the set of completed orders placed by customers in the West region."),
+			"How many orders are in the clearance set? Answer with the count.", countGrade(clearance),
+			"How many orders in the clearance set were expedited?"),
+		singleShot("lc-value-tier", "Value tier",
+			"The 'value tier' is the customer tier that placed the fewest orders.",
+			customers, protocol.SinkKnowledgePage, pagePayload("value-tier-definition", "Value Tier Definition", "The 'value tier' is the customer tier that placed the fewest orders."),
+			"Which tier is the value tier? Answer with the tier name.", entityGrade(valueTier, otherTiers(valueTier)...),
+			"What is the annual membership fee for the value tier?"),
+		singleShot("lc-quiet-region", "Quiet region by volume",
+			"The 'quiet region' is the region whose customers placed the fewest orders.",
+			orders, protocol.SinkDataHub, nil,
+			"Which region is the quiet region? Answer with the region name.", entityGrade(quietRegion, otherRegions(quietRegion)...),
+			"What is the employee headcount of the quiet region?"),
+		singleShot("lc-spring-window", "Spring window order count",
+			"The 'spring window' for this study is April 2025.",
+			orders, protocol.SinkDataHub, nil,
+			"How many orders fall in the spring window? Answer with the count.", countGrade(spring),
+			"What was the average delivery time in days for orders in the spring window?"),
 	}
 }
 

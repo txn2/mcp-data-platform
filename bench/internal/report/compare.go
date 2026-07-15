@@ -1,27 +1,21 @@
 package report
 
 import (
-	// nosemgrep: go.lang.security.audit.crypto.math_random.math-random-used -- bootstrap CIs use a FIXED seed so the report is reproducible; crypto/rand would break that
+	// nosemgrep: go.lang.security.audit.crypto.math_random.math-random-used -- only the *rand.Rand type is used here; the seeded, reproducible RNG is constructed in internal/stats, crypto/rand would break reproducibility
 	"math/rand"
 	"slices"
 	"sort"
+
+	"github.com/txn2/mcp-data-platform/bench/internal/stats"
 )
 
 // Cross-arm comparison (#943): the benchmark's headline is arm-vs-arm on a
 // pinned model, so the report generator loads one Results per arm and renders
 // arm-by-suite accuracy, pass^k, efficiency, and the S3 trap-class breakdown,
-// each accuracy carrying a bootstrap confidence interval. The bootstrap uses a
-// FIXED seed so two runs with identical inputs produce identical intervals (the
-// #930 reproducibility criterion).
-
-// bootstrapSeed pins the resampling RNG so CIs are reproducible.
-const bootstrapSeed = 930
-
-// bootstrapIters is the number of resamples per interval.
-const bootstrapIters = 5000
-
-// ciAlpha is the two-sided confidence level (95%).
-const ciAlpha = 0.05
+// each accuracy carrying a bootstrap confidence interval. The bootstrap
+// primitives live in internal/stats (shared with the S5 lifecycle report) and
+// use a FIXED seed so two runs with identical inputs produce identical intervals
+// (the #930 reproducibility criterion).
 
 // Cell is one arm's aggregate over a slice of attempts (a suite or trap class).
 type Cell struct {
@@ -76,7 +70,7 @@ func NewComparison(all []*Results) *Comparison {
 	for _, a := range arms {
 		c.Manifests[a] = byArm[a].Manifest
 	}
-	rng := rand.New(rand.NewSource(bootstrapSeed)) // #nosec G404 -- reproducible bootstrap, not crypto
+	rng := stats.NewRNG()
 	c.buildSuites(byArm, rng)
 	c.buildTraps(byArm, rng)
 	c.buildOverall(byArm, rng)
@@ -168,7 +162,7 @@ func (c *Comparison) buildDeltas(byArm map[string]*Results, rng *rand.Rand) {
 				continue
 			}
 			armBools := gradedBools(filterSuite(byArm[arm].Attempts, s))
-			pts, lo, hi := bootstrapDelta(armBools, baseBools, rng)
+			pts, lo, hi := stats.BootstrapDeltaCI(armBools, baseBools, rng)
 			c.Deltas = append(c.Deltas, Delta{Arm: arm, Suite: s, Points: pts, CILow: lo, CIHigh: hi})
 		}
 	}
@@ -198,7 +192,7 @@ func cellFromAttempts(arm string, attempts []Attempt, k int, rng *rand.Rand) Cel
 	if cell.Graded > 0 {
 		cell.Accuracy = float64(cell.Correct) / float64(cell.Graded)
 	}
-	cell.CILow, cell.CIHigh = bootstrapCI(bools, rng)
+	cell.CILow, cell.CIHigh = stats.BootstrapMeanCI(bools, rng)
 	cell.MedianToolCalls = percentile(calls, 0.5)
 	cell.P90ToolCalls = percentile(calls, 0.9)
 	cell.MedianWallMS = percentile(wall, 0.5)
@@ -295,67 +289,4 @@ func sortedKeys(set map[string]bool) []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-// mean returns the fraction of true values.
-func mean(bools []bool) float64 {
-	if len(bools) == 0 {
-		return 0
-	}
-	n := 0
-	for _, b := range bools {
-		if b {
-			n++
-		}
-	}
-	return float64(n) / float64(len(bools))
-}
-
-// bootstrapCI returns the 95% percentile bootstrap CI for the accuracy of a set
-// of Bernoulli outcomes. It resamples with replacement bootstrapIters times.
-func bootstrapCI(bools []bool, rng *rand.Rand) (lo, hi float64) {
-	if len(bools) == 0 {
-		return 0, 0
-	}
-	means := make([]float64, bootstrapIters)
-	for i := range means {
-		means[i] = resampleMean(bools, rng)
-	}
-	sort.Float64s(means)
-	return quantile(means, ciAlpha/2), quantile(means, 1-ciAlpha/2)
-}
-
-// bootstrapDelta returns the accuracy difference (arm - base) and its 95% CI,
-// resampling both arms independently.
-func bootstrapDelta(arm, base []bool, rng *rand.Rand) (points, lo, hi float64) {
-	points = mean(arm) - mean(base)
-	if len(arm) == 0 || len(base) == 0 {
-		return points, 0, 0
-	}
-	diffs := make([]float64, bootstrapIters)
-	for i := range diffs {
-		diffs[i] = resampleMean(arm, rng) - resampleMean(base, rng)
-	}
-	sort.Float64s(diffs)
-	return points, quantile(diffs, ciAlpha/2), quantile(diffs, 1-ciAlpha/2)
-}
-
-// resampleMean draws len(bools) samples with replacement and returns the mean.
-func resampleMean(bools []bool, rng *rand.Rand) float64 {
-	n := 0
-	for range bools {
-		if bools[rng.Intn(len(bools))] {
-			n++
-		}
-	}
-	return float64(n) / float64(len(bools))
-}
-
-// quantile returns the p-quantile of a sorted slice (nearest-rank).
-func quantile(sorted []float64, p float64) float64 {
-	if len(sorted) == 0 {
-		return 0
-	}
-	idx := max(0, min(int(p*float64(len(sorted)-1)), len(sorted)-1))
-	return sorted[idx]
 }

@@ -8,12 +8,14 @@ package lifecycle
 import (
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"os"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/bench/internal/auditapi"
+	"github.com/txn2/mcp-data-platform/bench/internal/stats"
 )
 
 // Stage names, one per lifecycle episode (issue #930 S5). update_recall is the
@@ -159,6 +161,22 @@ type Rate struct {
 	Num  int     `json:"num"`
 	Den  int     `json:"den"`
 	Rate float64 `json:"rate"`
+	// CILow/CIHigh are the 95% percentile-bootstrap confidence interval on the
+	// rate (issue #965), resampled from num/den with a fixed seed so the interval
+	// is reproducible. Both zero when the denominator is empty — the metric was
+	// not exercised, so it carries no interval. The bootstrap treats each
+	// applicable outcome as an independent draw (like the S1-S3 report); it does
+	// not model protocol-level correlation across the k replicates, so a narrow
+	// interval on a small, few-protocol denominator still warrants caution.
+	CILow  float64 `json:"ci_low"`
+	CIHigh float64 `json:"ci_high"`
+}
+
+// fillCI attaches a bootstrap confidence interval to the rate from its num/den.
+// The caller threads one seeded RNG across a scorecard's rates so the whole
+// report is reproducible from a single seed (issue #965).
+func (r *Rate) fillCI(rng *rand.Rand) {
+	r.CILow, r.CIHigh = stats.ProportionCI(r.Num, r.Den, rng)
 }
 
 // add folds one applicable outcome into the rate.
@@ -308,7 +326,24 @@ func (res *Results) Aggregate() {
 	}
 	m.Protocols = len(order)
 	m.PassK = passKRate(order, byProtocol, res.Manifest.K)
+	m.fillCIs(stats.NewRNG())
 	res.Metrics = m
+}
+
+// fillCIs attaches a bootstrap confidence interval to every rate on the
+// scorecard, threading one RNG in a fixed order so the whole report is
+// reproducible from a single seed (issue #965). The #964 diagnostic
+// decompositions carry intervals too — a reader weighing "surfaced but not used"
+// against noise needs the same uncertainty signal the headline rates carry.
+func (m *Metrics) fillCIs(rng *rand.Rand) {
+	for _, r := range []*Rate{
+		&m.CaptureRate, &m.PersonalRecall, &m.UnpromptedSurface,
+		&m.TransferRate, &m.TransferSurfaced, &m.TransferUsedGivenSurfaced,
+		&m.UpdateCorrectness, &m.DuplicateRate, &m.AbstentionRate,
+		&m.CaptureBudgetStarved, &m.PassK,
+	} {
+		r.fillCI(rng)
+	}
 }
 
 // passKRate computes the fraction of protocols whose every one of the k attempts
@@ -398,9 +433,21 @@ func (res *Results) HumanSummary() string {
 	return b.String()
 }
 
-// writeMetric renders one rate row.
+// writeMetric renders one rate row. The 95% CI bracket is shown only when the
+// interval has width (CILow != CIHigh). A zero-width interval carries no
+// uncertainty and is omitted: it arises for an unexercised metric (empty
+// denominator), for an all-failure rate whose bootstrap collapses to a point at
+// zero AND for an all-success rate that collapses to a point at one (both ends,
+// not just zero), and for a pre-#965 results file whose stored metrics carry no
+// interval (the fields default to zero) — all of which would otherwise print a
+// meaningless [x.x-x.x] bracket the count already conveys.
 func writeMetric(b *strings.Builder, label string, r Rate) {
-	fmt.Fprintf(b, "  %-20s %5.1f%%  (%d/%d)\n", label, r.Rate*100, r.Num, r.Den)
+	if r.CILow == r.CIHigh {
+		fmt.Fprintf(b, "  %-22s %5.1f%%  (%d/%d)\n", label, r.Rate*100, r.Num, r.Den)
+		return
+	}
+	fmt.Fprintf(b, "  %-22s %5.1f%%  95%% CI [%.1f-%.1f]  (%d/%d)\n",
+		label, r.Rate*100, r.CILow*100, r.CIHigh*100, r.Num, r.Den)
 }
 
 // harnessFailures lists runs that errored rather than completing.

@@ -43,8 +43,8 @@ func TestCommittedProtocolsMatch(t *testing.T) {
 }
 
 func TestProtocolSetSize(t *testing.T) {
-	if got := len(Generate().Protocols()); got != 15 {
-		t.Fatalf("protocol set size = %d, want 15", got)
+	if got := len(Generate().Protocols()); got != 30 {
+		t.Fatalf("protocol set size = %d, want 30", got)
 	}
 }
 
@@ -63,8 +63,8 @@ func TestProtocolUpdatesFlip(t *testing.T) {
 			t.Errorf("%s: update does not flip the answer (%q)", p.ID, before)
 		}
 	}
-	if updates != 5 {
-		t.Fatalf("expected 5 supersede protocols, got %d", updates)
+	if updates != 10 {
+		t.Fatalf("expected 10 supersede protocols, got %d", updates)
 	}
 }
 

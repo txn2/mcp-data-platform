@@ -9,6 +9,34 @@ import (
 	"github.com/txn2/mcp-data-platform/bench/internal/llm"
 )
 
+// TestSupersedeCIComplement guards the exact-complement relationship the
+// SupersedeMetrics report advertises: SupersedeRate's interval must be the
+// reflection of DuplicateRate's, not an independent bootstrap that drifts a
+// resampling step away from it (issue #965 review finding).
+func TestSupersedeCIComplement(t *testing.T) {
+	res := &SupersedeResults{Manifest: Manifest{K: 1}}
+	for i := range 20 {
+		res.Runs = append(res.Runs, ProtocolRun{
+			ProtocolID: "lc-x", Attempt: i, Captured: new(true), Duplicated: new(i%4 == 0),
+		})
+	}
+	res.Aggregate()
+	m := res.Metrics
+	if m.DuplicateRate.CILow == m.DuplicateRate.CIHigh {
+		t.Fatalf("duplicate CI is degenerate, test cannot check the complement: %+v", m.DuplicateRate)
+	}
+	if m.SupersedeRate.CILow != 1-m.DuplicateRate.CIHigh || m.SupersedeRate.CIHigh != 1-m.DuplicateRate.CILow {
+		t.Fatalf("supersede CI [%v,%v] is not the reflection of duplicate CI [%v,%v]",
+			m.SupersedeRate.CILow, m.SupersedeRate.CIHigh, m.DuplicateRate.CILow, m.DuplicateRate.CIHigh)
+	}
+	// With no captured attempts, SupersedeRate must not reflect into a spurious [1,1].
+	empty := &SupersedeResults{Manifest: Manifest{K: 1}, Runs: []ProtocolRun{{ProtocolID: "lc-x", Captured: new(false)}}}
+	empty.Aggregate()
+	if sr := empty.Metrics.SupersedeRate; sr.CILow != 0 || sr.CIHigh != 0 {
+		t.Fatalf("empty supersede CI = [%v,%v], want [0,0]", sr.CILow, sr.CIHigh)
+	}
+}
+
 // supersedeOnlyScript plays just the stages the isolated sub-benchmark drives:
 // teach (capture), update (correct), and the post-correction recall. Recall,
 // transfer, and abstain never run, so they are absent by design.
