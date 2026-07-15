@@ -59,12 +59,20 @@ type Options struct {
 	// discovery scope). It must be positive: the lifecycle needs distinct teacher
 	// and learner identities, so there is no single-identity mode.
 	IdentityKeys int
+	// TeachBudget, when > 0, overrides the per-episode tool-call budget for the
+	// capture-bearing stages (teach and update). It is the capture-budget lever
+	// (issue #964): a larger teach-stage budget lets the teacher finish discovery
+	// and still reach the capture tool. Zero uses the protocol's BudgetToolCalls.
+	TeachBudget int
 	// OnProtocol, if set, is called after every protocol attempt with the
 	// aggregated results so far. benchrun wires it to flush the results file, so
 	// a run that spends real API budget always leaves every completed protocol on
 	// disk — an interruption never discards paid-for work.
 	OnProtocol func(*Results)
-	Log        *slog.Logger
+	// OnSupersede mirrors OnProtocol for the isolated supersede sub-benchmark
+	// (RunSupersede): it flushes the focused results after each attempt.
+	OnSupersede func(*SupersedeResults)
+	Log         *slog.Logger
 }
 
 // Run executes every protocol k times and returns the aggregated lifecycle
@@ -75,16 +83,7 @@ func Run(ctx context.Context, opts Options) (*Results, error) {
 	if err != nil {
 		return nil, err
 	}
-	res := &Results{Manifest: Manifest{
-		StartedAt:       time.Now().UTC(),
-		GitCommit:       opts.GitCommit,
-		Target:          opts.Target.BaseURL,
-		Arm:             opts.Arm,
-		LLMProvider:     opts.LLMProvider,
-		Seed:            gen.Seed,
-		ProtocolSetHash: protocol.Hash(protocols),
-		K:               opts.K,
-	}}
+	res := &Results{Manifest: newManifest(opts, protocols)}
 	// The lifecycle needs distinct teacher and learner identities per attempt (the
 	// transfer stage is cross-identity by construction), so a single-identity run
 	// is invalid — unlike the S1-S3 pipeline, there is no meaningful IdentityKeys=0
@@ -97,26 +96,54 @@ func Run(ctx context.Context, opts Options) (*Results, error) {
 		return nil, fmt.Errorf("%d identities needed (%d protocols x k=%d x %d) exceed the pool of %d; raise -identity-keys and the config pool",
 			need, len(protocols), opts.K, identitiesPerRun, opts.IdentityKeys)
 	}
+	env := newRunEnv(opts)
+	defer env.closeAdmin()
+
+	failures := env.runAll(ctx, protocols, res)
+	env.finishManifest(&res.Manifest)
+	res.Aggregate()
+	if failures > 0 {
+		return res, fmt.Errorf("%d protocol run(s) failed at the harness level; see runs[].error", failures)
+	}
+	return res, nil
+}
+
+// newManifest builds the run manifest shared by the full lifecycle and the
+// isolated supersede sub-benchmark, so a new manifest field is added in one
+// place. The protocol-set hash covers exactly the protocols this run drove.
+func newManifest(opts Options, protocols []protocol.Protocol) Manifest {
+	return Manifest{
+		StartedAt:       time.Now().UTC(),
+		GitCommit:       opts.GitCommit,
+		Target:          opts.Target.BaseURL,
+		Arm:             opts.Arm,
+		LLMProvider:     opts.LLMProvider,
+		Seed:            gen.Seed,
+		ProtocolSetHash: protocol.Hash(protocols),
+		K:               opts.K,
+	}
+}
+
+// newRunEnv wires the per-run clients (insights/changesets, audit, reviewer)
+// shared by both entry points, so a newly-wired client is added once.
+func newRunEnv(opts Options) *runEnv {
 	life := lifecycleapi.New(opts.Target.BaseURL, opts.Target.HTTPClient(opts.HTTPTimeout))
-	env := &runEnv{
+	return &runEnv{
 		opts:     opts,
 		log:      opts.Log,
 		audit:    auditapi.New(opts.Target.BaseURL, opts.Target.HTTPClient(opts.HTTPTimeout)),
 		life:     life,
 		reviewer: promote.Reviewer{Life: life, Log: opts.Log},
 	}
-	defer env.closeAdmin()
+}
 
-	failures := env.runAll(ctx, protocols, res)
-	res.Manifest.FinishedAt = time.Now().UTC()
-	res.Manifest.PlatformVersion = env.platformVersion
-	res.Manifest.Model = env.model
-	res.Manifest.ClientVersion = opts.ClientVersion
-	res.Aggregate()
-	if failures > 0 {
-		return res, fmt.Errorf("%d protocol run(s) failed at the harness level; see runs[].error", failures)
-	}
-	return res, nil
+// finishManifest stamps the carry-over fields captured during the run onto the
+// manifest at the end of either entry point.
+func (e *runEnv) finishManifest(m *Manifest) {
+	m.FinishedAt = time.Now().UTC()
+	m.PlatformVersion = e.platformVersion
+	m.Model = e.model
+	m.ClientVersion = e.opts.ClientVersion
 }
 
 // runAll executes every protocol k times, appending each run to res and
@@ -209,15 +236,45 @@ func (e *runEnv) runAdvancedStages(ctx context.Context, p protocol.Protocol, tea
 	return false
 }
 
+// teachBudget returns the effective tool-call budget for a capture-bearing
+// stage, honoring the TeachBudget override (issue #964 capture-budget lever).
+func (e *runEnv) teachBudget(p protocol.Protocol) int {
+	if e.opts.TeachBudget > 0 {
+		return e.opts.TeachBudget
+	}
+	return p.BudgetToolCalls
+}
+
 // teachAndRecall runs the teach and personal-recall episodes and verifies
 // capture via the insights API. Returns true when a harness failure aborts the
 // run.
 func (e *runEnv) teachAndRecall(ctx context.Context, p protocol.Protocol, teacherSeq int, run *ProtocolRun) bool {
+	if abort := e.teachAndCapture(ctx, p, teacherSeq, run); abort {
+		return true
+	}
+	return e.recall(ctx, p, teacherSeq, run)
+}
+
+// teachAndCapture runs the teach episode and verifies capture via the insights
+// API. It records the capture-budget diagnosis (whether the teacher reached the
+// capture tool and whether it exhausted its budget) so a capture miss can be
+// attributed. Returns true when a harness failure aborts the run.
+func (e *runEnv) teachAndCapture(ctx context.Context, p protocol.Protocol, teacherSeq int, run *ProtocolRun) bool {
 	teach, _ := e.runEpisode(ctx, episodeSpec{
 		stage: StageTeach, identity: "teacher", seq: teacherSeq,
-		prompt: p.Teach.Prompt, system: teachSystem, budget: p.BudgetToolCalls,
+		prompt: p.Teach.Prompt, system: teachSystem, budget: e.teachBudget(p),
 	})
 	run.Episodes = append(run.Episodes, teach)
+	attempted := teach.CaptureAttempted
+	run.CaptureAttempted = &attempted
+	// Budget exhaustion is observable only on the in-process loop path, which owns
+	// the tool-call budget. The claude-cli path runs its own turn budget, so leave
+	// TeachBudgetExhausted nil there — a nil value excludes the run from the
+	// budget-starvation rate rather than falsely asserting it was not starved.
+	if e.opts.ClaudeCLI == nil {
+		exhausted := teach.BudgetExhausted
+		run.TeachBudgetExhausted = &exhausted
+	}
 	if teach.Error != "" {
 		run.Error = "teach: " + teach.Error
 		return true
@@ -233,7 +290,12 @@ func (e *runEnv) teachAndRecall(ctx context.Context, p protocol.Protocol, teache
 	if insight != nil {
 		run.InsightID = insight.ID
 	}
+	return false
+}
 
+// recall runs the personal-recall episode (same identity, fresh session) and
+// grades it. Returns true when a harness failure aborts the run.
+func (e *runEnv) recall(ctx context.Context, p protocol.Protocol, teacherSeq int, run *ProtocolRun) bool {
 	recall, ans := e.runEpisode(ctx, episodeSpec{
 		stage: StageRecall, identity: "teacher", seq: teacherSeq,
 		prompt: p.Recall.Prompt, system: recallSystem(p.Recall.Grading.Kind), budget: p.BudgetToolCalls,
@@ -245,7 +307,7 @@ func (e *runEnv) teachAndRecall(ctx context.Context, p protocol.Protocol, teache
 	}
 	rc := gradeRecall(ans, p.Recall.Grading)
 	run.RecallCorrect = &rc
-	if captured {
+	if boolTrue(run.Captured) {
 		surfaced := recall.SearchCalled
 		run.RecallSurfaced = &surfaced
 	}
@@ -267,6 +329,7 @@ func (e *runEnv) promoteAndTransfer(ctx context.Context, p protocol.Protocol, le
 	transfer, ans := e.runEpisode(ctx, episodeSpec{
 		stage: StageTransfer, identity: "learner", seq: learnerSeq,
 		prompt: p.Transfer.Prompt, system: recallSystem(p.Transfer.Grading.Kind), budget: p.BudgetToolCalls,
+		surfaceFact: surfacedTarget(p),
 	})
 	run.Episodes = append(run.Episodes, transfer)
 	if transfer.Error != "" {
@@ -275,6 +338,7 @@ func (e *runEnv) promoteAndTransfer(ctx context.Context, p protocol.Protocol, le
 	}
 	tc := gradeRecall(ans, p.Transfer.Grading)
 	run.TransferCorrect = &tc
+	run.TransferSurfaced = transfer.FactSurfaced
 	return false
 }
 
@@ -287,7 +351,7 @@ func (e *runEnv) supersede(ctx context.Context, p protocol.Protocol, teacherSeq 
 	}
 	upd, _ := e.runEpisode(ctx, episodeSpec{
 		stage: StageUpdate, identity: "teacher", seq: teacherSeq,
-		prompt: p.Update.Prompt, system: teachSystem, budget: p.BudgetToolCalls,
+		prompt: p.Update.Prompt, system: teachSystem, budget: e.teachBudget(p),
 	})
 	run.Episodes = append(run.Episodes, upd)
 	if upd.Error != "" {

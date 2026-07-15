@@ -76,6 +76,24 @@ func TestMergeRequiresLifecycle(t *testing.T) {
 	}
 }
 
+// TestSupersedeRequiresArm proves the supersede sub-benchmark refuses to start
+// without an arm rather than launching an unattributable run.
+func TestSupersedeRequiresArm(t *testing.T) {
+	if err := runSupersede(config{supersede: true}); err == nil {
+		t.Fatal("supersede run accepted an empty arm")
+	}
+}
+
+// TestSupersedeRejectsBaseline proves -baseline is refused for supersede runs:
+// the regression gate scores the S1-S3 task shape, not supersede metrics, so a
+// silently-ignored -baseline would give a false sense of gating.
+func TestSupersedeRejectsBaseline(t *testing.T) {
+	err := runSupersede(config{supersede: true, arm: "a3", baseline: "b.json"})
+	if err == nil {
+		t.Fatal("supersede run accepted -baseline")
+	}
+}
+
 // baselineFile writes a results JSON to a temp path and returns it, standing in
 // for a committed baseline that gateOnBaseline loads from disk.
 func baselineFile(t *testing.T, r *report.Results) string {
