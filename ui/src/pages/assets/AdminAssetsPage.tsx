@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Search, FileText, Image, Code, File, Users, Globe, Table2 } from "lucide-react";
-import { useAdminAssets } from "@/api/admin/hooks";
+import { useInfiniteAdminAssets } from "@/api/admin/hooks";
+import { useInfiniteScroll } from "@/hooks/useInfiniteScroll";
 import { formatBytes, formatOwner } from "@/lib/format";
 
 interface Props {
@@ -25,11 +26,21 @@ export function AdminAssetsPage({ onNavigate }: Props) {
     return () => clearTimeout(timer);
   }, [search]);
 
-  const { data, isLoading } = useAdminAssets({
-    search: debouncedSearch || undefined,
-  });
+  const { data, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage } =
+    useInfiniteAdminAssets({
+      search: debouncedSearch || undefined,
+    });
 
   const assets = data?.data ?? [];
+
+  // Infinite scroll: auto-load the next page when the sentinel scrolls into
+  // view. The Load-more button below stays as a manual fallback / indicator.
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  useInfiniteScroll(sentinelRef, {
+    hasMore: hasNextPage,
+    isLoading: isFetchingNextPage,
+    onLoadMore: fetchNextPage,
+  });
 
   return (
     <div className="space-y-4">
@@ -114,7 +125,24 @@ export function AdminAssetsPage({ onNavigate }: Props) {
         </div>
       )}
 
-      {data && data.total > data.limit && (
+      {hasNextPage && (
+        <>
+          {/* Sentinel: observed to auto-load the next page on scroll. */}
+          <div ref={sentinelRef} aria-hidden="true" className="h-px" />
+          <div className="flex justify-center pt-1">
+            <button
+              type="button"
+              onClick={() => fetchNextPage()}
+              disabled={isFetchingNextPage}
+              className="rounded-md border bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent disabled:opacity-60"
+            >
+              {isFetchingNextPage ? "Loading more…" : "Load more"}
+            </button>
+          </div>
+        </>
+      )}
+
+      {data && assets.length < data.total && (
         <p className="text-sm text-muted-foreground text-center">
           Showing {assets.length} of {data.total} assets
         </p>

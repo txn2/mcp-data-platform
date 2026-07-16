@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useInfiniteScroll } from "@/hooks/useInfiniteScroll";
 import { Search, FileText, Image, Code, File, Users, Globe, Table2, LayoutGrid, List, FolderOpen, Eye } from "lucide-react";
-import { useAssets, useSearchAssets, useSharedWithMe, useThreadCounts } from "@/api/portal/hooks";
+import { useInfiniteAssets, useSearchAssets, useInfiniteSharedWithMe, useThreadCounts } from "@/api/portal/hooks";
 import type { Asset, SharePermission } from "@/api/portal/types";
 import { FeedbackCountBadge } from "@/components/feedback/FeedbackCountBadge";
 import { AssetsTabs } from "@/components/AssetsTabs";
@@ -30,6 +31,13 @@ function getStoredViewMode(): ViewMode {
 
 interface Props {
   onNavigate: (path: string) => void;
+}
+
+/** The subset of an infinite-query result the Load-more control needs. */
+interface LoadMoreControls {
+  hasNextPage: boolean;
+  isFetchingNextPage: boolean;
+  fetchNextPage: () => void;
 }
 
 /** Share metadata attached to an asset that was shared with the current user. */
@@ -95,12 +103,16 @@ export function MyAssetsPage({ onNavigate }: Props) {
 
   // Mine: server-side content_type/tag filters apply (browse) plus a relevance
   // endpoint when searching. Shared/all filter client-side over the merged set.
-  const { data, isLoading } = useAssets({
+  // The browse and shared lists paginate: each accumulates pages so callers
+  // with more than one page of assets can load them all via "Load more".
+  const mineQuery = useInfiniteAssets({
     content_type: scope === "mine" ? contentType || undefined : undefined,
     tag: scope === "mine" ? tag || undefined : undefined,
   });
+  const { data, isLoading } = mineQuery;
   const searchResults = useSearchAssets(semanticSearch ? debouncedSearch : "");
-  const { data: sharedData, isLoading: sharedLoading } = useSharedWithMe();
+  const sharedQuery = useInfiniteSharedWithMe();
+  const { data: sharedData, isLoading: sharedLoading } = sharedQuery;
 
   const mineAssets: Asset[] = semanticSearch
     ? (searchResults.data?.data ?? []).map((s) => s.asset)
@@ -148,6 +160,34 @@ export function MyAssetsPage({ onNavigate }: Props) {
     "asset",
     assets.map((a) => a.id),
   );
+
+  // Load-more spans whichever paginated lists the active scope draws from: the
+  // browse list (mine/all) and/or the shared list (shared/all). Semantic search
+  // returns a ranked top-K, so it has no additional pages to fetch. Deriving
+  // canLoadMore/loadingMore/loadMore from one activeQueries list keeps the
+  // button state and the fetch action from drifting apart.
+  const activeQueries: LoadMoreControls[] = [];
+  if (!semanticSearch) {
+    if (scope !== "shared") activeQueries.push(mineQuery);
+    if (scope !== "mine") activeQueries.push(sharedQuery);
+  }
+  const canLoadMore = activeQueries.some((q) => q.hasNextPage);
+  const loadingMore = activeQueries.some((q) => q.isFetchingNextPage);
+  function loadMore() {
+    for (const q of activeQueries) {
+      if (q.hasNextPage && !q.isFetchingNextPage) q.fetchNextPage();
+    }
+  }
+
+  // Infinite scroll: auto-load the next page as the sentinel below the list
+  // scrolls into view (issue #970 asked for "more assets load as I scroll
+  // down"). The Load-more button below stays as a manual fallback / indicator.
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  useInfiniteScroll(sentinelRef, {
+    hasMore: canLoadMore,
+    isLoading: loadingMore,
+    onLoadMore: loadMore,
+  });
 
   return (
     <div className="space-y-4">
@@ -209,7 +249,16 @@ export function MyAssetsPage({ onNavigate }: Props) {
           {semanticSearch ? "Searching..." : "Loading..."}
         </div>
       ) : displayItems.length === 0 ? (
-        <EmptyState scope={scope} searching={searching} query={debouncedSearch.trim()} />
+        // With more pages available (shared/all client-side filters only see the
+        // loaded rows), steer to "Load more" instead of a contradictory "no
+        // assets" empty state next to a Load-more button.
+        canLoadMore ? (
+          <div className="flex items-center justify-center py-12 text-center text-sm text-muted-foreground">
+            No matching assets in the loaded set yet &mdash; load more to keep looking.
+          </div>
+        ) : (
+          <EmptyState scope={scope} searching={searching} query={debouncedSearch.trim()} />
+        )
       ) : viewMode === "grid" ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {displayItems.map(({ asset, share }) => {
@@ -418,6 +467,23 @@ export function MyAssetsPage({ onNavigate }: Props) {
         </div>
       )}
 
+      {canLoadMore && (
+        <>
+          {/* Sentinel: observed to auto-load the next page on scroll. */}
+          <div ref={sentinelRef} aria-hidden="true" className="h-px" />
+          <div className="flex justify-center pt-1">
+            <button
+              type="button"
+              onClick={loadMore}
+              disabled={loadingMore}
+              className="rounded-md border bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent disabled:opacity-60"
+            >
+              {loadingMore ? "Loading more…" : "Load more"}
+            </button>
+          </div>
+        </>
+      )}
+
       {scope === "mine" && semanticSearch ? (
         assets.length > 0 && (
           <p className="text-xs text-muted-foreground text-center">
@@ -425,7 +491,7 @@ export function MyAssetsPage({ onNavigate }: Props) {
           </p>
         )
       ) : scope === "mine" ? (
-        data && data.total > data.limit && (
+        data && assets.length < data.total && (
           <p className="text-sm text-muted-foreground text-center">
             Showing {assets.length} of {data.total} assets
           </p>
