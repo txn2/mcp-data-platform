@@ -905,13 +905,16 @@ bench-run:
 bench-smoke:
 	@$(MAKE) bench-run LLM=scripted SCRIPT=bench/tasks/scripted-smoke.json K=1
 
-## bench-lifecycle: Run the S5 memory-insight-knowledge lifecycle protocols (needs bench-up BENCH_ARM=a3; LLM=anthropic|scripted|claude-cli, K=, MODEL=)
+## bench-lifecycle: Run the S5 memory-insight-knowledge lifecycle protocols into a fresh per-run dir under build/bench-results/ (needs bench-up BENCH_ARM=a3; LLM=anthropic|scripted|claude-cli, K=, MODEL=, BASELINE=)
 bench-lifecycle:
 	@mkdir -p build/bench-results
 	@cd bench && $(GO) build -o ../$(BUILD_DIR)/benchrun ./benchrun
 	@echo "Resetting search-first gate state (discovery scopes persist in Postgres across runs)..."
 	@$(BENCH_COMPOSE) exec -T postgres psql -q -U platform -d mcp_platform -v ON_ERROR_STOP=1 \
 		-c "TRUNCATE search_gate_discovery"
+	@out_dir="build/bench-results/lifecycle-a3-$$(date +%Y%m%d-%H%M%S)"; \
+	mkdir -p "$$out_dir"; \
+	echo "Lifecycle results dir: $$out_dir (each run gets its own dir; nothing is ever overwritten)"; \
 	$(BUILD_DIR)/benchrun \
 		-lifecycle \
 		-arm a3 \
@@ -919,28 +922,36 @@ bench-lifecycle:
 		-credential $(BENCH_KEY) \
 		-protocols bench/protocols \
 		-git-commit $$(git rev-parse HEAD) \
-		-out build/bench-results/lifecycle-a3.json \
+		-out "$$out_dir/lifecycle-a3.json" \
 		$(if $(LLM),-llm $(LLM),) \
 		$(if $(SCRIPT),-script $(SCRIPT),) \
 		$(if $(K),-k $(K),) \
-		$(if $(MODEL),-model $(MODEL),)
+		$(if $(MODEL),-model $(MODEL),) \
+		$(if $(BASELINE),-baseline $(BASELINE),)
 
 ## bench-lifecycle-smoke: Run the scripted (no-API-key) lifecycle smoke against the running a3 platform
 bench-lifecycle-smoke:
 	@$(MAKE) bench-lifecycle LLM=scripted SCRIPT=bench/protocols/scripted-lifecycle-smoke.json K=1
 
-## bench-lifecycle-report: Print the human summary of the last lifecycle run
+## bench-lifecycle-report: Print the human summary of a lifecycle run (RESULTS=<run dir>/lifecycle-a3.json)
 bench-lifecycle-report:
+	@if [ -z "$(RESULTS)" ]; then \
+		echo "ERROR: set RESULTS=<path to a lifecycle results JSON>. Available run dirs:"; \
+		ls -d build/bench-results/lifecycle-a3-*/ 2>/dev/null || echo "  (none under build/bench-results/)"; \
+		exit 1; fi
 	@cd bench && $(GO) build -o ../$(BUILD_DIR)/benchrun ./benchrun
-	$(BUILD_DIR)/benchrun -lifecycle -summarize build/bench-results/lifecycle-a3.json
+	$(BUILD_DIR)/benchrun -lifecycle -summarize $(RESULTS)
 
-## bench-supersede: Run the isolated supersede sub-benchmark (issue #964; needs bench-up BENCH_ARM=a3; LLM=anthropic|scripted|claude-cli, K=, MODEL=, TEACH_BUDGET=)
+## bench-supersede: Run the isolated supersede sub-benchmark into a fresh per-run dir under build/bench-results/ (issue #964; needs bench-up BENCH_ARM=a3; LLM=anthropic|scripted|claude-cli, K=, MODEL=, TEACH_BUDGET=)
 bench-supersede:
 	@mkdir -p build/bench-results
 	@cd bench && $(GO) build -o ../$(BUILD_DIR)/benchrun ./benchrun
 	@echo "Resetting search-first gate state (discovery scopes persist in Postgres across runs)..."
 	@$(BENCH_COMPOSE) exec -T postgres psql -q -U platform -d mcp_platform -v ON_ERROR_STOP=1 \
 		-c "TRUNCATE search_gate_discovery"
+	@out_dir="build/bench-results/supersede-a3-$$(date +%Y%m%d-%H%M%S)"; \
+	mkdir -p "$$out_dir"; \
+	echo "Supersede results dir: $$out_dir (each run gets its own dir; nothing is ever overwritten)"; \
 	$(BUILD_DIR)/benchrun \
 		-supersede \
 		-arm a3 \
@@ -948,7 +959,7 @@ bench-supersede:
 		-credential $(BENCH_KEY) \
 		-protocols bench/protocols \
 		-git-commit $$(git rev-parse HEAD) \
-		-out build/bench-results/supersede-a3.json \
+		-out "$$out_dir/supersede-a3.json" \
 		$(if $(LLM),-llm $(LLM),) \
 		$(if $(SCRIPT),-script $(SCRIPT),) \
 		$(if $(K),-k $(K),) \
@@ -959,10 +970,14 @@ bench-supersede:
 bench-supersede-smoke:
 	@$(MAKE) bench-supersede LLM=scripted SCRIPT=bench/protocols/scripted-lifecycle-smoke.json K=1
 
-## bench-supersede-report: Print the human summary of the last supersede sub-benchmark run
+## bench-supersede-report: Print the human summary of a supersede run (RESULTS=<run dir>/supersede-a3.json)
 bench-supersede-report:
+	@if [ -z "$(RESULTS)" ]; then \
+		echo "ERROR: set RESULTS=<path to a supersede results JSON>. Available run dirs:"; \
+		ls -d build/bench-results/supersede-a3-*/ 2>/dev/null || echo "  (none under build/bench-results/)"; \
+		exit 1; fi
 	@cd bench && $(GO) build -o ../$(BUILD_DIR)/benchrun ./benchrun
-	$(BUILD_DIR)/benchrun -supersede -summarize build/bench-results/supersede-a3.json
+	$(BUILD_DIR)/benchrun -supersede -summarize $(RESULTS)
 
 ## bench-cold-start: Run the cold-start knowledge-growth curriculum into a fresh per-run dir under build/bench-results/ (issue #963; needs an empty-seeded a3: bench-up BENCH_ARM=a3 BENCH_SEED_PAGES=0 + bench-seed-datahub-empty on a FRESH DataHub quickstart; LLM=anthropic|scripted|claude-cli, K=, MODEL=, SETTLE=)
 bench-cold-start:

@@ -248,7 +248,9 @@ func (p *parser) applyAssistant(raw json.RawMessage) {
 
 // recordToolUse classifies one tool_use block by name: search flips the
 // surfaced flag, platform_info is tracked for handle extraction but not counted,
-// and any other bench tool is counted toward the audit lower/upper bounds.
+// and any other bench tool enters the deduplicated set the audit lower/upper
+// bounds are derived from (MCPCalls is computed in tallyErrors, so a replayed
+// assistant event carrying the same tool_use id cannot inflate it).
 func (p *parser) recordToolUse(id, name string) {
 	if !strings.HasPrefix(name, p.prefix) {
 		return
@@ -257,12 +259,10 @@ func (p *parser) recordToolUse(id, name string) {
 	case searchToolName:
 		p.res.SearchCalled = true
 		p.toolIsBench[id] = true
-		p.res.MCPCalls++
 	case infoToolName:
 		p.infoIDs[id] = true
 	default:
 		p.toolIsBench[id] = true
-		p.res.MCPCalls++
 	}
 }
 
@@ -334,12 +334,14 @@ func (p *parser) applyResult(ev streamLine) {
 // tallyErrors folds the per-call error flags into success and error counts:
 // every non-error bench call is a confirmed audit row (the lower bound), and
 // error calls are only the upper bound (a gate refusal leaves no row, a handler
-// error does).
+// error does). MCPCalls is the deduplicated bench tool_use count, so all three
+// counters come from one id set and stay mutually consistent.
 func (p *parser) tallyErrors() {
+	p.res.MCPCalls = len(p.toolIsBench)
 	for id := range p.toolIsBench {
 		if !p.toolDone[id] {
-			// No paired result: indeterminate. Already counted in MCPCalls (the
-			// upper bound); must not enter the confirmed-success lower bound.
+			// No paired result: indeterminate. Counted in MCPCalls (the upper
+			// bound); must not enter the confirmed-success lower bound.
 			continue
 		}
 		if p.toolErr[id] {

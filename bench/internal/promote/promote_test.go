@@ -221,12 +221,18 @@ type applyFake struct {
 	// contract's structured code (a pre-audit refusal, e.g. session_expired).
 	applyError       bool
 	applyRefusalCode string
-	srv              *httptest.Server
+	// sinkLoses models the silent-write-loss defect the sink read-back exists to
+	// catch: apply_knowledge succeeds and the API records the changeset, but the
+	// sink (entity description / knowledge page) never shows the change.
+	sinkLoses  bool
+	entityDesc map[string]string
+	pages      []lifecycleapi.KnowledgePage
+	srv        *httptest.Server
 }
 
 func newApplyFake(t *testing.T, applyError bool) *applyFake {
 	t.Helper()
-	f := &applyFake{approved: map[string]bool{}, applyError: applyError}
+	f := &applyFake{approved: map[string]bool{}, applyError: applyError, entityDesc: map[string]string{}}
 	server := mcp.NewServer(&mcp.Implementation{Name: "apply-fake", Version: "1.0.0"}, nil)
 	mcp.AddTool(server, &mcp.Tool{Name: "platform_info", Description: "orientation"},
 		func(context.Context, *mcp.CallToolRequest, map[string]any) (*mcp.CallToolResult, any, error) {
@@ -238,7 +244,7 @@ func newApplyFake(t *testing.T, applyError bool) *applyFake {
 		"session_id": {Type: "string"}, "action": {Type: "string"}, "entity_urn": {Type: "string"},
 	}, Required: []string{"session_id"}}
 	mcp.AddTool(server, &mcp.Tool{Name: ApplyToolName, Description: "promote", InputSchema: schema},
-		func(context.Context, *mcp.CallToolRequest, map[string]any) (*mcp.CallToolResult, any, error) {
+		func(_ context.Context, _ *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
 			if f.applyRefusalCode != "" {
 				return &mcp.CallToolResult{
 					IsError:           true,
@@ -249,10 +255,31 @@ func newApplyFake(t *testing.T, applyError bool) *applyFake {
 			if f.applyError {
 				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "write refused"}}}, nil, nil
 			}
+			if !f.sinkLoses {
+				f.applySink(args)
+			}
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "applied"}}}, nil, nil
+		})
+	entitySchema := &jsonschema.Schema{Type: "object", Properties: map[string]*jsonschema.Schema{
+		"session_id": {Type: "string"}, "urn": {Type: "string"},
+	}, Required: []string{"session_id"}}
+	mcp.AddTool(server, &mcp.Tool{Name: EntityToolName, Description: "entity metadata", InputSchema: entitySchema},
+		func(_ context.Context, _ *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
+			urn, _ := args["urn"].(string)
+			f.mu.Lock()
+			desc := f.entityDesc[urn]
+			f.mu.Unlock()
+			raw, _ := json.Marshal(map[string]any{"urn": urn, "description": desc})
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(raw)}}}, nil, nil
 		})
 	mcpHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil)
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/portal/knowledge-pages", func(w http.ResponseWriter, _ *http.Request) {
+		f.mu.Lock()
+		pages := append([]lifecycleapi.KnowledgePage{}, f.pages...)
+		f.mu.Unlock()
+		_ = json.NewEncoder(w).Encode(map[string]any{"pages": pages, "total": len(pages)})
+	})
 	mux.HandleFunc("PUT /api/v1/admin/knowledge/insights/{id}/status", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		f.approved[r.PathValue("id")] = true
@@ -277,6 +304,26 @@ func newApplyFake(t *testing.T, applyError bool) *applyFake {
 	f.srv = httptest.NewServer(mux)
 	t.Cleanup(f.srv.Close)
 	return f
+}
+
+// applySink models the platform landing the change in its sink: a datahub
+// change becomes the entity's description, a page payload becomes a live
+// knowledge page.
+func (f *applyFake) applySink(args map[string]any) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	urn, _ := args["entity_urn"].(string)
+	if changes, ok := args["changes"].([]any); ok && len(changes) > 0 {
+		if change, ok := changes[0].(map[string]any); ok {
+			detail, _ := change["detail"].(string)
+			f.entityDesc[urn] = detail
+		}
+	}
+	if page, ok := args["page"].(map[string]any); ok {
+		slug, _ := page["slug"].(string)
+		summary, _ := page["summary"].(string)
+		f.pages = append(f.pages, lifecycleapi.KnowledgePage{ID: "kp-" + slug, Slug: slug, Summary: summary})
+	}
 }
 
 func TestReviewerApply(t *testing.T) {
@@ -311,6 +358,67 @@ func TestReviewerApply(t *testing.T) {
 			}
 			if !f.approved["ins-1"] {
 				t.Error("Apply must approve the insight before applying")
+			}
+		})
+	}
+}
+
+// TestReviewerApplySinkReadBack proves Apply reads the promoted content back
+// from the actual sink, not only from the platform's own promotion records: an
+// apply the insights/changesets API confirms but whose sink write was silently
+// lost (the resulting_state defect class) must be a harness error, never a
+// reported promotion — otherwise a run publishes a flat curve with the failure
+// misattributed to agent behavior.
+func TestReviewerApplySinkReadBack(t *testing.T) {
+	pageTarget := Target{
+		Label: "cs-y", EntityURN: "urn:y", Sink: protocol.SinkKnowledgePage,
+		Page: &protocol.PagePayload{Slug: "rev-policy", Title: "T", Summary: "revenue = amount - discount", Body: "B"},
+	}
+	cases := []struct {
+		name      string
+		target    Target
+		sinkLoses bool
+		want      bool
+		wantErr   bool
+	}{
+		{name: "datahub sink holds the fact", target: Target{Label: "cs-x", EntityURN: "urn:x", Sink: protocol.SinkDataHub, Fact: "amounts are cents"}, want: true},
+		{name: "datahub sink lost the write", target: Target{Label: "cs-x", EntityURN: "urn:x", Sink: protocol.SinkDataHub, Fact: "amounts are cents"}, sinkLoses: true, wantErr: true},
+		{name: "page sink holds the summary", target: pageTarget, want: true},
+		{name: "page sink lost the write", target: pageTarget, sinkLoses: true, wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newApplyFake(t, false)
+			f.sinkLoses = tc.sinkLoses
+			ctx := context.Background()
+			session, err := mcpc.New(f.srv.URL, f.srv.Client()).Connect(ctx)
+			if err != nil {
+				t.Fatalf("connect: %v", err)
+			}
+			defer func() { _ = session.Close() }()
+			info, err := mcpc.Mint(ctx, session)
+			if err != nil {
+				t.Fatalf("mint: %v", err)
+			}
+			r := Reviewer{
+				Life:        lifecycleapi.New(f.srv.URL, f.srv.Client()),
+				SinkTimeout: 100 * time.Millisecond, SinkPoll: 10 * time.Millisecond,
+			}
+			got, err := r.Apply(ctx, session, info.Handle, tc.target, "ins-1")
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "sink read-back") {
+					t.Fatalf("expected a sink read-back harness error, got promoted=%v err=%v", got, err)
+				}
+				if got {
+					t.Error("a lost sink write must not report promoted")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("apply: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("Apply = %v, want %v", got, tc.want)
 			}
 		})
 	}

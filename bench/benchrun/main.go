@@ -189,6 +189,9 @@ func runLifecycle(cfg config) error {
 	if cfg.arm == "" {
 		return errors.New("-arm is required")
 	}
+	if err := refuseExistingRunArtifacts(cfg.out); err != nil {
+		return err
+	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	opts := lifecycle.Options{
 		Target:        target.Target{BaseURL: cfg.url, Credential: cfg.credential},
@@ -282,6 +285,9 @@ func runSupersede(cfg config) error {
 	}
 	if cfg.baseline != "" {
 		return errors.New("-baseline is not supported with -supersede (the regression gate scores S1-S3 task suites, not supersede metrics)")
+	}
+	if err := refuseExistingRunArtifacts(cfg.out); err != nil {
+		return err
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	opts := lifecycle.Options{
@@ -555,8 +561,11 @@ func foldPass(merged *lifecycle.Results, path string, pass int) error {
 }
 
 // sameConfig refuses to merge passes that were not produced under the same arm,
-// protocol set, model, and seed — merging across configurations would publish a
-// scorecard mislabeled with pass 1's manifest.
+// protocol set, model, client path, and seed — merging across configurations
+// would publish a scorecard mislabeled with pass 1's manifest. The client path
+// is compared by provider (anthropic vs claude-cli vs scripted), not exact CLI
+// version, mirroring BaselineCompatible: the paths produce incomparable numbers,
+// while a benign `claude` patch bump must not split a multi-pass run.
 func sameConfig(a, b lifecycle.Manifest, path string) error {
 	switch {
 	case a.Arm != b.Arm:
@@ -565,6 +574,8 @@ func sameConfig(a, b lifecycle.Manifest, path string) error {
 		return fmt.Errorf("merge: %s protocol-set hash %q != %q", path, b.ProtocolSetHash, a.ProtocolSetHash)
 	case a.Model != b.Model:
 		return fmt.Errorf("merge: %s model %q != %q", path, b.Model, a.Model)
+	case a.LLMProvider != b.LLMProvider:
+		return fmt.Errorf("merge: %s llm provider %q != %q — anthropic and claude-cli passes are not comparable", path, b.LLMProvider, a.LLMProvider)
 	case a.Seed != b.Seed:
 		return fmt.Errorf("merge: %s seed %d != %d", path, b.Seed, a.Seed)
 	}
@@ -713,11 +724,12 @@ func transcriptDir(out string) string {
 }
 
 // refuseExistingRunArtifacts errors when out or its sibling transcript
-// directory already exists. A cold-start run's results and transcripts are
-// paid-for evidence that can never be regenerated; an existing -out would be
-// silently clobbered by the per-checkpoint flush, and the transcript dir by
-// the deterministic per-episode filenames — a run interrupted before its first
+// directory already exists. A run's results and transcripts are paid-for
+// evidence that can never be regenerated; an existing -out would be silently
+// clobbered by the per-checkpoint flush, and the transcript dir by the
+// deterministic per-episode filenames — a run interrupted before its first
 // flush leaves only transcripts, which a rerun to the same -out would destroy.
+// Every producing mode (-cold-start, -lifecycle, -supersede) enforces this.
 // There is deliberately no override: the operator picks a new path, every
 // run's data is kept.
 func refuseExistingRunArtifacts(out string) error {

@@ -108,6 +108,11 @@ type episodeResult struct {
 	wallMS       int64
 	usage        llm.Usage
 	audit        auditapi.Metrics
+	// auditReadErr records a failed audit read-back on an otherwise-successful
+	// episode. The attempt still grades, but its zero audit metrics must not
+	// pass for "no enrichment": pooled coverage is a documented pass criterion,
+	// so audit-signal loss is carried on the record instead of only logged.
+	auditReadErr string
 	finalAnswer  string
 	err          string
 }
@@ -238,7 +243,7 @@ func (e *runEnv) runEpisode(ctx context.Context, spec episodeSpec) episodeResult
 		res.err = fmt.Sprintf("agent loop: %v", runErr)
 		return res
 	}
-	res.audit = e.readAudit(ctx, info.Handle, audited, audited+indeterminate)
+	res.audit, res.auditReadErr = e.readAudit(ctx, info.Handle, audited, audited+indeterminate)
 	return res
 }
 
@@ -280,23 +285,34 @@ func (e *runEnv) runClaudeCLIEpisode(ctx context.Context, spec episodeSpec) epis
 		res.err = fmt.Sprintf("bench MCP server did not connect (status %q)", cres.ServerStatus)
 		return res
 	}
-	if cres.Handle != "" {
-		res.audit = e.readAudit(ctx, cres.Handle, cres.SuccessfulMCPCalls, cres.MCPCalls)
+	if cres.Handle == "" {
+		// No handle means claude never minted one via platform_info. With no
+		// handle it cannot have threaded a successful data call (the session-gate
+		// middleware refuses un-threaded calls), so a positive success count with
+		// no handle is a harness inconsistency to surface, not audit loss
+		// (mirrors the S1-S3 pipeline's contract).
+		if cres.SuccessfulMCPCalls > 0 {
+			res.err = fmt.Sprintf("claude-cli reported %d successful tool call(s) but surfaced no dps_ handle to correlate audit", cres.SuccessfulMCPCalls)
+		}
+		return res
 	}
+	res.audit, res.auditReadErr = e.readAudit(ctx, cres.Handle, cres.SuccessfulMCPCalls, cres.MCPCalls)
 	return res
 }
 
 // readAudit reads the session's audit trail back best effort. A missing row does
 // not fail an episode: lesson state comes from the knowledge API and eval
 // correctness from grading; audit only enriches the efficiency and coverage
-// picture. A read failure yields zero metrics and is logged.
-func (e *runEnv) readAudit(ctx context.Context, handle string, minAudited, maxAudited int) auditapi.Metrics {
+// picture. A read failure yields zero metrics plus the error, which callers
+// record on the attempt so audit-signal loss is visible in results.json (the
+// coverage curve must never silently degrade to zeros).
+func (e *runEnv) readAudit(ctx context.Context, handle string, minAudited, maxAudited int) (auditapi.Metrics, string) {
 	events, err := e.audit.WaitForSession(ctx, handle, minAudited, maxAudited, e.opts.AuditTimeout)
 	if err != nil {
 		e.log.Warn("cold-start audit read-back", "handle", handle, "error", err)
-		return auditapi.Metrics{}
+		return auditapi.Metrics{}, err.Error()
 	}
-	return auditapi.Summarize(events)
+	return auditapi.Summarize(events), ""
 }
 
 // writeTranscript persists a loop episode's transcript for manual audit.

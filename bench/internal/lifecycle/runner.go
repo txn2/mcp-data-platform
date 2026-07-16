@@ -375,6 +375,18 @@ func (e *runEnv) supersede(ctx context.Context, p protocol.Protocol, teacherSeq 
 	}
 	run.UpdateCorrect = gradeUpdate(ans, *p.Update)
 
+	// The duplicate check is meaningful only when the correction actually
+	// reached the platform: an update episode that never executed a capture call
+	// left exactly one live insight and the supersede gate never ran, so scoring
+	// it as "duplicated" would inflate the duplicate rate with capture noise —
+	// the very noise the isolated sub-benchmark exists to remove. Such an
+	// attempt is recorded as an update-capture miss and excluded from the
+	// duplicate denominator.
+	updCaptured := upd.CaptureAttempted
+	run.UpdateCaptured = &updCaptured
+	if !updCaptured {
+		return false
+	}
 	dup, err := e.duplicated(ctx, run.InsightID)
 	if err != nil {
 		run.Error = "duplicate check: " + err.Error()

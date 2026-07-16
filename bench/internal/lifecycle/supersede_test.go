@@ -130,6 +130,51 @@ func TestRunSupersedeCaptureMiss(t *testing.T) {
 	}
 }
 
+// TestRunSupersedeUpdateCaptureMiss proves an attempt whose UPDATE episode never
+// executes the correction capture is excluded from the supersede/duplicate
+// denominators rather than misclassified as a duplicate: the platform never
+// received the correction, so its supersede gate never ran and the taught
+// insight legitimately stays pending. The miss is measured on its own rate and
+// still fails pass^k even when the recall answer happens to be correct.
+func TestRunSupersedeUpdateCaptureMiss(t *testing.T) {
+	fp := newFakePlatform(t)
+	dir := t.TempDir()
+	p := updateProtocol()
+	writeProtocols(t, dir, p)
+	scripts := map[string]llm.Script{
+		p.ID: {
+			StageTeach:        {captureStep("definition"), {FinalText: "saved"}},
+			StageUpdate:       {{FinalText: "noted, but I did not save the correction"}}, // no capture call
+			StageUpdateRecall: {searchStep(), {FinalText: "FINAL ANSWER: 200.00"}},
+		},
+	}
+	res, err := RunSupersede(context.Background(), runOptions(fp, dir, scriptFactory(scripts)))
+	if err != nil {
+		t.Fatalf("run supersede: %v", err)
+	}
+	m := res.Metrics
+	if m.CaptureRate.Num != 1 || m.CaptureRate.Den != 1 {
+		t.Fatalf("capture rate = %d/%d, want 1/1 (teach captured)", m.CaptureRate.Num, m.CaptureRate.Den)
+	}
+	if m.UpdateCaptureRate.Num != 0 || m.UpdateCaptureRate.Den != 1 {
+		t.Fatalf("update capture rate = %d/%d, want 0/1", m.UpdateCaptureRate.Num, m.UpdateCaptureRate.Den)
+	}
+	if m.SupersedeRate.Den != 0 || m.DuplicateRate.Den != 0 {
+		t.Fatalf("supersede/duplicate denominators = %d/%d, want 0/0 (no executed supersede to score)",
+			m.SupersedeRate.Den, m.DuplicateRate.Den)
+	}
+	if m.PassK.Rate != 0 {
+		t.Fatalf("pass^k = %v, want 0 (a missed correction capture fails the lifecycle)", m.PassK.Rate)
+	}
+	if s := m.PerProtocol[0]; s.UpdateCaptureMissed != 1 || s.Superseded != 0 || s.Duplicated != 0 {
+		t.Fatalf("per-protocol = update-capture missed %d superseded %d dup %d, want 1/0/0",
+			s.UpdateCaptureMissed, s.Superseded, s.Duplicated)
+	}
+	if run := res.Runs[0]; run.Duplicated != nil {
+		t.Fatalf("Duplicated = %v, want nil (excluded, not scored)", *run.Duplicated)
+	}
+}
+
 func TestRunSupersedeRejectsNonSupersedeProtocols(t *testing.T) {
 	fp := newFakePlatform(t)
 	dir := t.TempDir()

@@ -352,7 +352,7 @@ func teachEpisode(rec episodeResult) EpisodeRecord {
 		Email: rec.email, SessionID: rec.sessionID, ToolCalls: rec.toolCalls, ToolErrors: rec.toolErrors,
 		WallMS: rec.wallMS, InputTokens: rec.usage.InputTokens, OutputTokens: rec.usage.OutputTokens,
 		CacheReadTokens: rec.usage.CacheReadInputTokens, CacheCreationTokens: rec.usage.CacheCreationInputTokens,
-		Audit: rec.audit, Error: rec.err,
+		Audit: rec.audit, AuditReadError: rec.auditReadErr, Error: rec.err,
 	}
 }
 
@@ -384,7 +384,7 @@ func (e *runEnv) evalAttempt(ctx context.Context, t task.Task, seq, repeat int) 
 		Repeat: repeat, MemoryWrites: rec.memoryWrites, FinalAnswer: rec.finalAnswer, WallMS: rec.wallMS,
 		InputTokens: rec.usage.InputTokens, OutputTokens: rec.usage.OutputTokens,
 		CacheReadTokens: rec.usage.CacheReadInputTokens, CacheCreationTokens: rec.usage.CacheCreationInputTokens,
-		Audit: rec.audit,
+		Audit: rec.audit, AuditReadError: rec.auditReadErr,
 	}
 	if rec.err != "" {
 		att.Error = rec.err

@@ -24,6 +24,7 @@ import (
 	"github.com/txn2/mcp-data-platform/bench/internal/auditapi"
 	"github.com/txn2/mcp-data-platform/bench/internal/lifecycleapi"
 	"github.com/txn2/mcp-data-platform/bench/internal/llm"
+	"github.com/txn2/mcp-data-platform/bench/internal/promote"
 	"github.com/txn2/mcp-data-platform/bench/internal/protocol"
 	"github.com/txn2/mcp-data-platform/bench/internal/target"
 	"github.com/txn2/mcp-data-platform/bench/internal/task"
@@ -46,6 +47,8 @@ type fakePlatform struct {
 	insights       []lifecycleapi.Insight
 	changesets     []lifecycleapi.Changeset
 	events         []auditapi.Event
+	entityDesc     map[string]string            // urn -> effective description (set by apply, read by the sink read-back)
+	pages          []lifecycleapi.KnowledgePage // live knowledge pages (appended by apply, listed for the sink read-back)
 	httpSrv        *httptest.Server
 	applyFails     bool   // apply_knowledge returns a tool error (measured miss)
 	noChangesetRef bool   // apply records the changeset but leaves insight.changeset_ref empty
@@ -54,12 +57,13 @@ type fakePlatform struct {
 
 func newFakePlatform(t *testing.T) *fakePlatform {
 	t.Helper()
-	fp := &fakePlatform{base: "testkey"}
+	fp := &fakePlatform{base: "testkey", entityDesc: map[string]string{}}
 	server := mcp.NewServer(&mcp.Implementation{Name: "fake-lifecycle", Version: "1.0.0"}, nil)
 	fp.addPlatformInfo(server)
 	fp.addMemoryCapture(server)
 	fp.addSearch(server)
 	fp.addApplyKnowledge(server)
+	fp.addGetEntity(server)
 
 	mcpHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil)
 	mux := http.NewServeMux()
@@ -68,6 +72,7 @@ func newFakePlatform(t *testing.T) *fakePlatform {
 	mux.HandleFunc("PUT /api/v1/admin/knowledge/insights/{id}/status", fp.putStatus)
 	mux.HandleFunc("GET /api/v1/admin/knowledge/changesets", fp.listChangesets)
 	mux.HandleFunc("GET /api/v1/admin/knowledge/changesets/{id}", fp.getChangeset)
+	mux.HandleFunc("GET /api/v1/portal/knowledge-pages", fp.listPages)
 	mux.HandleFunc("/api/v1/admin/audit/events", fp.serveAudit)
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := context.WithValue(r.Context(), authCtxKey{}, r.Header.Get("Authorization"))
@@ -212,8 +217,50 @@ func (fp *fakePlatform) addApplyKnowledge(server *mcp.Server) {
 					}
 				}
 			}
+			fp.applySinkLocked(urn, args)
 			return okResult("applied " + csID), nil, nil
 		})
+}
+
+// applySinkLocked models the platform landing an applied change in its sink,
+// which the Reviewer's post-apply sink read-back verifies: a datahub change
+// becomes the entity's effective description, a page payload becomes a live
+// knowledge page. The caller holds fp.mu.
+func (fp *fakePlatform) applySinkLocked(urn string, args map[string]any) {
+	if changes, ok := args["changes"].([]any); ok && len(changes) > 0 {
+		if change, ok := changes[0].(map[string]any); ok {
+			detail, _ := change["detail"].(string)
+			fp.entityDesc[urn] = detail
+		}
+	}
+	if page, ok := args["page"].(map[string]any); ok {
+		slug, _ := page["slug"].(string)
+		summary, _ := page["summary"].(string)
+		fp.pages = append(fp.pages, lifecycleapi.KnowledgePage{ID: "kp-" + slug, Slug: slug, Summary: summary})
+	}
+}
+
+// addGetEntity serves the promote sink read-back: an entity's effective
+// description, set by a prior apply_knowledge.
+func (fp *fakePlatform) addGetEntity(server *mcp.Server) {
+	schema := sessionSchema(map[string]*jsonschema.Schema{"urn": {Type: "string"}})
+	mcp.AddTool(server, &mcp.Tool{Name: promote.EntityToolName, Description: "entity metadata", InputSchema: schema},
+		func(_ context.Context, _ *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
+			urn, _ := args["urn"].(string)
+			fp.mu.Lock()
+			desc := fp.entityDesc[urn]
+			fp.mu.Unlock()
+			raw, _ := json.Marshal(map[string]any{"urn": urn, "type": "DATASET", "description": desc})
+			return okResult(string(raw)), nil, nil
+		})
+}
+
+// listPages serves the portal knowledge-pages list the page-sink read-back scans.
+func (fp *fakePlatform) listPages(w http.ResponseWriter, _ *http.Request) {
+	fp.mu.Lock()
+	pages := append([]lifecycleapi.KnowledgePage{}, fp.pages...)
+	fp.mu.Unlock()
+	writeJSON(w, map[string]any{"pages": pages, "total": len(pages)})
 }
 
 // recordLocked appends an audit row for a call that carried a session handle.

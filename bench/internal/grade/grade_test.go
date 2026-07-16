@@ -81,6 +81,29 @@ func TestEntity(t *testing.T) {
 	}
 }
 
+func TestEntityWordBoundary(t *testing.T) {
+	aliases := []string{"West"}
+	wrong := []string{"North", "South", "East"}
+	cases := []struct {
+		name    string
+		final   string
+		correct bool
+	}{
+		{"east inside at least does not veto", "West, at least by net revenue", true},
+		{"east as a word vetoes", "West beats East on gross", false},
+		{"west inside southwest does not match", "the southwest region", false},
+		{"punctuation is a boundary", "West.", true},
+		{"digit adjacency is not a boundary", "West2", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if _, correct := Entity(c.final, aliases, wrong); correct != c.correct {
+				t.Errorf("Entity(%q) correct = %v, want %v", c.final, correct, c.correct)
+			}
+		})
+	}
+}
+
 func TestEntityRegionTrap(t *testing.T) {
 	// The top-region trap: naming a losing region anywhere on the answer line
 	// is incorrect even when the winner is also mentioned.

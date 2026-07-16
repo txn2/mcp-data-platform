@@ -47,6 +47,22 @@ func TestMergeRejectsConfigMismatch(t *testing.T) {
 	}
 }
 
+// TestMergeRejectsClientPathMismatch proves the merge refuses to fold an
+// anthropic pass and a claude-cli pass into one scorecard: the two client paths
+// produce incomparable numbers (BaselineCompatible refuses to gate across them,
+// so a merge must not silently blend them either).
+func TestMergeRejectsClientPathMismatch(t *testing.T) {
+	base := lifecycle.Manifest{Arm: "a3", ProtocolSetHash: "h1", Model: "claude-sonnet-5", Seed: 930, LLMProvider: "anthropic"}
+	other := base
+	other.LLMProvider = "claude-cli"
+	if err := sameConfig(base, other, "p2.json"); err == nil {
+		t.Fatal("sameConfig accepted an anthropic pass merged with a claude-cli pass")
+	}
+	if err := sameConfig(base, base, "p2.json"); err != nil {
+		t.Fatalf("sameConfig rejected identical configs: %v", err)
+	}
+}
+
 // TestMergeSucceedsAndComputesPassK proves three valid k=1 passes merge to k=3
 // with pass^k computed over the passes (each protocol has one run per pass).
 func TestMergeSucceedsAndComputesPassK(t *testing.T) {

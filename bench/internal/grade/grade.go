@@ -14,6 +14,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // finalMarker matches the answer convention the system prompt mandates. The
@@ -72,17 +74,62 @@ func Numeric(final string, expected, absTolerance float64) (got float64, ok, cor
 // AND no wrong alias does: the wrong-alias list enumerates the task's known
 // trap answers (the deprecated table, the gross-revenue region), so a verbose
 // answer that names the trap while mentioning the truth is not credited.
+// Aliases match on word boundaries, not bare substrings: "East" must not veto
+// "at least", and "West" must not match "southwest". Letters, digits, and
+// underscores are word characters; dots are boundaries, so a schema-qualified
+// alias still matches inside a longer qualified name.
 func Entity(final string, aliases, wrongAliases []string) (matched string, correct bool) {
 	line := strings.ToLower(firstLine(final))
 	for _, w := range wrongAliases {
-		if w != "" && strings.Contains(line, strings.ToLower(w)) {
+		if w != "" && containsWord(line, strings.ToLower(w)) {
 			return "", false
 		}
 	}
 	for _, a := range aliases {
-		if a != "" && strings.Contains(line, strings.ToLower(a)) {
+		if a != "" && containsWord(line, strings.ToLower(a)) {
 			return a, true
 		}
 	}
 	return "", false
+}
+
+// containsWord reports whether needle occurs in line with no word character
+// (letter, digit, underscore) immediately adjacent on either side.
+func containsWord(line, needle string) bool {
+	if needle == "" {
+		return false
+	}
+	for start := 0; ; start++ {
+		i := strings.Index(line[start:], needle)
+		if i < 0 {
+			return false
+		}
+		start += i
+		if boundaryBefore(line, start) && boundaryAfter(line, start+len(needle)) {
+			return true
+		}
+	}
+}
+
+// boundaryBefore reports whether position i starts at a word boundary.
+func boundaryBefore(s string, i int) bool {
+	if i == 0 {
+		return true
+	}
+	r, _ := utf8.DecodeLastRuneInString(s[:i])
+	return !isWordRune(r)
+}
+
+// boundaryAfter reports whether position i ends at a word boundary.
+func boundaryAfter(s string, i int) bool {
+	if i >= len(s) {
+		return true
+	}
+	r, _ := utf8.DecodeRuneInString(s[i:])
+	return !isWordRune(r)
+}
+
+// isWordRune reports whether r is a word character for alias matching.
+func isWordRune(r rune) bool {
+	return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r)
 }
