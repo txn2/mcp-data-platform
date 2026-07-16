@@ -1,5 +1,6 @@
 import {
   useQuery,
+  useInfiniteQuery,
   useMutation,
   useQueryClient,
   keepPreviousData,
@@ -14,7 +15,14 @@ import type {
   AdminAssetListResponse,
 } from "../types";
 import type { Asset, AssetVersion, PaginatedResponse } from "@/api/portal/types";
-import { REFETCH_INTERVAL, ADMIN_LARGE_ASSET_THRESHOLD } from "./shared";
+import {
+  ASSET_PAGE_SIZE,
+  assetKey,
+  nextOffset,
+  useInfiniteResult,
+  type InfiniteAssetsResult,
+} from "@/api/portal/hooks/assets";
+import { ADMIN_LARGE_ASSET_THRESHOLD } from "./shared";
 
 // ---------------------------------------------------------------------------
 // Personas
@@ -102,26 +110,34 @@ export function useTestPersonaAccess() {
 
 interface AdminAssetsParams {
   search?: string;
-  limit?: number;
-  offset?: number;
 }
 
-export function useAdminAssets(params: AdminAssetsParams = {}) {
-  const searchParams = new URLSearchParams();
-  if (params.search) searchParams.set("search", params.search);
-  if (params.limit) searchParams.set("limit", String(params.limit));
-  if (params.offset) searchParams.set("offset", String(params.offset));
-
-  const qs = searchParams.toString();
-  return useQuery({
-    queryKey: ["admin", "assets", params],
-    queryFn: () =>
-      apiFetch<AdminAssetListResponse>(
-        `/assets${qs ? `?${qs}` : ""}`,
-      ),
-    refetchInterval: REFETCH_INTERVAL,
+// useInfiniteAdminAssets is the admin-scoped, paginated asset list: it
+// accumulates pages so an admin viewing a deployment with more than one page of
+// assets can load them all, exposing a single merged page plus the
+// fetchNextPage/hasNextPage controls a "Load more" affordance needs.
+export function useInfiniteAdminAssets(
+  params: AdminAssetsParams = {},
+): InfiniteAssetsResult<Asset> {
+  // No refetchInterval: an infinite query re-polls every accumulated page on
+  // each tick, so a periodic refetch would multiply request volume as the admin
+  // loads more. Freshness comes from query invalidation on mutations and
+  // window-focus refetch instead.
+  const q = useInfiniteQuery({
+    queryKey: ["admin", "assets", "infinite", params],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => {
+      const sp = new URLSearchParams();
+      if (params.search) sp.set("search", params.search);
+      sp.set("limit", String(ASSET_PAGE_SIZE));
+      sp.set("offset", String(pageParam));
+      return apiFetch<AdminAssetListResponse>(`/assets?${sp.toString()}`);
+    },
+    getNextPageParam: (_last, all) => nextOffset(all),
     placeholderData: keepPreviousData,
   });
+
+  return useInfiniteResult(q, assetKey);
 }
 
 export function useAdminAsset(id: string | null) {

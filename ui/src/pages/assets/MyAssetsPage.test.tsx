@@ -3,27 +3,28 @@ import { render, screen, fireEvent, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MyAssetsPage } from "./MyAssetsPage";
 
-// Mock the asset hooks. useSearchAssets / useSharedWithMe are called
+// Mock the asset hooks. useSearchAssets / useInfiniteSharedWithMe are called
 // unconditionally by the page (their results are read only in the matching
 // scope); stub them with safe idle defaults so these tests render without a
-// live query.
+// live query. The infinite hooks expose the same accumulated `data` page shape
+// as the underlying paginated response, so the fixtures below stay unchanged.
 vi.mock("@/api/portal/hooks", () => ({
-  useAssets: vi.fn(),
+  useInfiniteAssets: vi.fn(),
   useSearchAssets: vi.fn(() => ({ data: undefined, isLoading: false })),
-  useSharedWithMe: vi.fn(() => ({ data: undefined, isLoading: false })),
+  useInfiniteSharedWithMe: vi.fn(() => ({ data: undefined, isLoading: false })),
   useThreadCounts: vi.fn(() => ({ data: {} })),
 }));
 
-import { useAssets, useSearchAssets, useSharedWithMe } from "@/api/portal/hooks";
-const mockUseAssets = vi.mocked(useAssets);
+import { useInfiniteAssets, useSearchAssets, useInfiniteSharedWithMe } from "@/api/portal/hooks";
+const mockUseAssets = vi.mocked(useInfiniteAssets);
 const mockUseSearchAssets = vi.mocked(useSearchAssets);
-const mockUseSharedWithMe = vi.mocked(useSharedWithMe);
+const mockUseSharedWithMe = vi.mocked(useInfiniteSharedWithMe);
 
 // The Mine/Shared/All scope persists to localStorage; reset it so each test
 // starts on the default "mine" scope.
 beforeEach(() => {
   globalThis.localStorage?.clear?.();
-  mockUseSharedWithMe.mockReturnValue({ data: undefined, isLoading: false } as unknown as ReturnType<typeof useSharedWithMe>);
+  mockUseSharedWithMe.mockReturnValue({ data: undefined, isLoading: false } as unknown as ReturnType<typeof useInfiniteSharedWithMe>);
 });
 
 function wrapper({ children }: { children: React.ReactNode }) {
@@ -64,7 +65,7 @@ describe("MyAssetsPage: share icons overlay on card thumbnail", () => {
         },
       },
       isLoading: false,
-    } as unknown as ReturnType<typeof useAssets>);
+    } as unknown as ReturnType<typeof useInfiniteAssets>);
 
     render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
 
@@ -91,7 +92,7 @@ describe("MyAssetsPage: share icons overlay on card thumbnail", () => {
         },
       },
       isLoading: false,
-    } as unknown as ReturnType<typeof useAssets>);
+    } as unknown as ReturnType<typeof useInfiniteAssets>);
 
     render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
 
@@ -111,7 +112,7 @@ describe("MyAssetsPage: share icons overlay on card thumbnail", () => {
         },
       },
       isLoading: false,
-    } as unknown as ReturnType<typeof useAssets>);
+    } as unknown as ReturnType<typeof useInfiniteAssets>);
 
     render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
 
@@ -127,7 +128,7 @@ describe("MyAssetsPage: share icons overlay on card thumbnail", () => {
     mockUseAssets.mockReturnValue({
       data: { data: [makeAsset({ name: "Annual Summary" })], total: 1, limit: 50, offset: 0, share_summaries: {} },
       isLoading: false,
-    } as unknown as ReturnType<typeof useAssets>);
+    } as unknown as ReturnType<typeof useInfiniteAssets>);
     mockUseSearchAssets.mockReturnValue({
       data: {
         data: [{ asset: makeAsset({ id: "r1", name: "Revenue Report", description: undefined }), score: 0.9 }],
@@ -171,7 +172,7 @@ describe("MyAssetsPage: share icons overlay on card thumbnail", () => {
         share_summaries: {},
       },
       isLoading: false,
-    } as unknown as ReturnType<typeof useAssets>);
+    } as unknown as ReturnType<typeof useInfiniteAssets>);
 
     render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
 
@@ -190,7 +191,7 @@ describe("MyAssetsPage: scope filter and tabs", () => {
     mockUseAssets.mockReturnValue({
       data: { data: [makeAsset({ id: "mine1", name: "My Own Asset" })], total: 1, limit: 50, offset: 0, share_summaries: {} },
       isLoading: false,
-    } as unknown as ReturnType<typeof useAssets>);
+    } as unknown as ReturnType<typeof useInfiniteAssets>);
     mockUseSharedWithMe.mockReturnValue({
       data: {
         data: [
@@ -207,7 +208,7 @@ describe("MyAssetsPage: scope filter and tabs", () => {
         offset: 0,
       },
       isLoading: false,
-    } as unknown as ReturnType<typeof useSharedWithMe>);
+    } as unknown as ReturnType<typeof useInfiniteSharedWithMe>);
 
     render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
 
@@ -232,12 +233,76 @@ describe("MyAssetsPage: scope filter and tabs", () => {
     mockUseAssets.mockReturnValue({
       data: { data: [], total: 0, limit: 50, offset: 0, share_summaries: {} },
       isLoading: false,
-    } as unknown as ReturnType<typeof useAssets>);
+    } as unknown as ReturnType<typeof useInfiniteAssets>);
 
     const onNavigate = vi.fn();
     render(<MyAssetsPage onNavigate={onNavigate} />, { wrapper });
 
     fireEvent.click(screen.getByRole("button", { name: "Collections" }));
     expect(onNavigate).toHaveBeenCalledWith("/collections");
+  });
+});
+
+describe("MyAssetsPage: load more pagination", () => {
+  it("shows Load more when more pages exist and fetches the next page on click", () => {
+    const fetchNextPage = vi.fn();
+    mockUseAssets.mockReturnValue({
+      // First page of a larger set: 1 of 3 loaded, another page available.
+      data: { data: [makeAsset({ id: "p1", name: "Page One Asset" })], total: 3, limit: 50, offset: 0, share_summaries: {} },
+      isLoading: false,
+      hasNextPage: true,
+      isFetchingNextPage: false,
+      fetchNextPage,
+    } as unknown as ReturnType<typeof useInfiniteAssets>);
+
+    render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
+    // Mine scope draws only from the browse (useInfiniteAssets) list.
+    fireEvent.click(screen.getByRole("tab", { name: "Mine" }));
+
+    const button = screen.getByRole("button", { name: "Load more" });
+    fireEvent.click(button);
+    expect(fetchNextPage).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides Load more on the final page", () => {
+    mockUseAssets.mockReturnValue({
+      data: { data: [makeAsset()], total: 1, limit: 50, offset: 0, share_summaries: {} },
+      isLoading: false,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: vi.fn(),
+    } as unknown as ReturnType<typeof useInfiniteAssets>);
+
+    render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
+    fireEvent.click(screen.getByRole("tab", { name: "Mine" }));
+
+    expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
+  });
+
+  it("steers to Load more instead of the empty state when the filtered set is empty but more pages exist", () => {
+    // Shared scope filters client-side over loaded rows. When nothing loaded so
+    // far matches but more pages remain, show the "load more to keep looking"
+    // hint plus the button, not a contradictory "No shared assets" empty state.
+    mockUseAssets.mockReturnValue({
+      data: { data: [], total: 0, limit: 50, offset: 0, share_summaries: {} },
+      isLoading: false,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      fetchNextPage: vi.fn(),
+    } as unknown as ReturnType<typeof useInfiniteAssets>);
+    mockUseSharedWithMe.mockReturnValue({
+      data: { data: [], total: 120, limit: 50, offset: 0 },
+      isLoading: false,
+      hasNextPage: true,
+      isFetchingNextPage: false,
+      fetchNextPage: vi.fn(),
+    } as unknown as ReturnType<typeof useInfiniteSharedWithMe>);
+
+    render(<MyAssetsPage onNavigate={vi.fn()} />, { wrapper });
+    fireEvent.click(screen.getByRole("tab", { name: "Shared" }));
+
+    expect(screen.getByText(/load more to keep looking/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Load more" })).toBeInTheDocument();
+    expect(screen.queryByText("No shared assets")).not.toBeInTheDocument();
   });
 });

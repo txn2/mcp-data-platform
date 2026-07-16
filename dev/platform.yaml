@@ -13,7 +13,9 @@ apiVersion: v1
 server:
   name: acme-data-platform
   transport: http
-  address: ":8080"
+  # DEV_API_PORT is auto-relocated by dev/start.sh when :8080 is held by
+  # another stack (e.g. a running DataHub). Defaults to 8080 when free.
+  address: ":${DEV_API_PORT:-8080}"
   description: |
     ACME Corp's unified data platform providing governed access to the enterprise
     data warehouse (Trino/Iceberg), data catalog (DataHub), and object storage (S3).
@@ -99,7 +101,7 @@ oauth:
   enabled: false
 
 database:
-  dsn: "postgres://platform:platform_secret@localhost:5432/mcp_platform?sslmode=disable"
+  dsn: "postgres://platform:platform_secret@localhost:${DEV_PG_PORT:-5432}/mcp_platform?sslmode=disable"
   max_open_conns: 10
 
 # Six ACME personas
@@ -283,7 +285,7 @@ toolkits:
     instances:
       dev-s3:
         enabled: true
-        endpoint: "http://localhost:9000"
+        endpoint: "http://localhost:${DEV_S3_PORT:-9000}"
         region: "us-east-1"
         access_key_id: "dev-access-key"
         secret_access_key: "dev-secret-key"
@@ -317,7 +319,7 @@ tuning:
 
 portal:
   enabled: true
-  public_base_url: "http://localhost:8080"
+  public_base_url: "http://localhost:${DEV_API_PORT:-8080}"
   s3_connection: dev-s3
   s3_bucket: portal-assets
 
@@ -325,7 +327,7 @@ memory:
   embedding:
     provider: ollama
     ollama:
-      url: "http://localhost:11434"
+      url: "http://localhost:${DEV_OLLAMA_PORT:-11434}"
       model: "nomic-embed-text"
 
 knowledge:
