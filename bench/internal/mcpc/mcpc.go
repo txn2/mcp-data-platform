@@ -196,6 +196,22 @@ func Call(ctx context.Context, s *mcp.ClientSession, name string, args map[strin
 	return CallResult{ToolErr: res.IsError, ErrorCode: errorCode(res), Text: allText(res)}
 }
 
+// PreAuditRefusal reports whether a structured error code marks a platform
+// refusal issued outer to the audit middleware (so it leaves no audit row):
+// authentication, session, workflow-gate, setup, and rate-limit refusals. The
+// episode loops use it to bound the audit read-back (a refused call cannot have
+// a row), and the reviewer promote path uses it to classify a refused
+// apply_knowledge as a harness failure rather than a measured miss. One shared
+// copy keeps every path's classification identical.
+func PreAuditRefusal(code string) bool {
+	switch code {
+	case "unauthenticated", "unauthorized", "session_required", "session_expired",
+		"search_required", "setup_required", "rate_limited":
+		return true
+	}
+	return false
+}
+
 // errorCode extracts the structured error code from a tool result, if any.
 func errorCode(res *mcp.CallToolResult) string {
 	if res == nil || !res.IsError || res.StructuredContent == nil {

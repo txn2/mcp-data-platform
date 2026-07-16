@@ -102,10 +102,13 @@ func TestSurfacedTarget(t *testing.T) {
 	if got := surfacedTarget(datahub); got != "the fact" {
 		t.Errorf("datahub sink target = %q, want the fact", got)
 	}
+	// The page-sink needle is the SUMMARY, not the body: search renders a page
+	// hit as title plus summary and the a3 surface has no page-body fetch, so a
+	// body needle could never appear in a tool result there.
 	page := protocol.Protocol{Sink: protocol.SinkKnowledgePage, Fact: "the fact",
-		Page: &protocol.PagePayload{Body: "the page body"}}
-	if got := surfacedTarget(page); got != "the page body" {
-		t.Errorf("page sink target = %q, want the page body", got)
+		Page: &protocol.PagePayload{Summary: "the page summary", Body: "the page body"}}
+	if got := surfacedTarget(page); got != "the page summary" {
+		t.Errorf("page sink target = %q, want the page summary", got)
 	}
 	// A page sink with no page payload falls back to the fact rather than panicking.
 	if got := surfacedTarget(protocol.Protocol{Sink: protocol.SinkKnowledgePage, Fact: "the fact"}); got != "the fact" {

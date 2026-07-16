@@ -8,6 +8,7 @@ sink: knowledge_page
 page:
     slug: value-tier-definition
     title: Value Tier Definition
+    summary: The 'value tier' is the customer tier that placed the fewest orders.
     body: |-
         # Value Tier Definition
 

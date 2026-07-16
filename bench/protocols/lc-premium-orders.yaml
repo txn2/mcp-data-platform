@@ -8,6 +8,7 @@ sink: knowledge_page
 page:
     slug: premium-order-definition
     title: Premium Order Definition
+    summary: A 'premium order' is any order placed by a customer on the enterprise tier.
     body: |-
         # Premium Order Definition
 

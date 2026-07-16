@@ -964,7 +964,7 @@ bench-supersede-report:
 	@cd bench && $(GO) build -o ../$(BUILD_DIR)/benchrun ./benchrun
 	$(BUILD_DIR)/benchrun -supersede -summarize build/bench-results/supersede-a3.json
 
-## bench-cold-start: Run the cold-start knowledge-growth curriculum (issue #963; needs an empty-seeded a3: bench-up BENCH_ARM=a3 BENCH_SEED_PAGES=0 + bench-seed-datahub-empty; LLM=anthropic|scripted|claude-cli, K=, MODEL=)
+## bench-cold-start: Run the cold-start knowledge-growth curriculum into a fresh per-run dir under build/bench-results/ (issue #963; needs an empty-seeded a3: bench-up BENCH_ARM=a3 BENCH_SEED_PAGES=0 + bench-seed-datahub-empty on a FRESH DataHub quickstart; LLM=anthropic|scripted|claude-cli, K=, MODEL=, SETTLE=)
 bench-cold-start:
 	@mkdir -p build/bench-results
 	@cd bench && $(GO) build -o ../$(BUILD_DIR)/benchrun ./benchrun
@@ -972,6 +972,9 @@ bench-cold-start:
 	@echo "  (CASCADE also clears portal_threads, which FK-references knowledge pages; the bench stack is disposable scratch state.)"
 	@$(BENCH_COMPOSE) exec -T postgres psql -q -U platform -d mcp_platform -v ON_ERROR_STOP=1 \
 		-c "TRUNCATE search_gate_discovery, memory_records, knowledge_changesets, portal_knowledge_pages CASCADE"
+	@out_dir="build/bench-results/cold-start-a3-$$(date +%Y%m%d-%H%M%S)"; \
+	mkdir -p "$$out_dir"; \
+	echo "Cold-start results dir: $$out_dir (each run gets its own dir; nothing is ever overwritten)"; \
 	$(BUILD_DIR)/benchrun \
 		-cold-start \
 		-arm a3 \
@@ -980,20 +983,25 @@ bench-cold-start:
 		-curriculum bench/curriculum \
 		-tasks bench/tasks \
 		-git-commit $$(git rev-parse HEAD) \
-		-out build/bench-results/cold-start-a3.json \
+		-out "$$out_dir/results.json" \
 		$(if $(LLM),-llm $(LLM),) \
 		$(if $(SCRIPT),-script $(SCRIPT),) \
 		$(if $(K),-k $(K),) \
-		$(if $(MODEL),-model $(MODEL),)
+		$(if $(MODEL),-model $(MODEL),) \
+		$(if $(SETTLE),-settle $(SETTLE),)
 
-## bench-cold-start-smoke: Run the scripted (no-API-key) cold-start smoke against the running a3 platform
+## bench-cold-start-smoke: Run the scripted (no-API-key) cold-start smoke against the running a3 platform (no cache-settle pause)
 bench-cold-start-smoke:
-	@$(MAKE) bench-cold-start LLM=scripted SCRIPT=bench/curriculum/scripted-cold-start-smoke.json K=1
+	@$(MAKE) bench-cold-start LLM=scripted SCRIPT=bench/curriculum/scripted-cold-start-smoke.json K=1 SETTLE=0s
 
-## bench-cold-start-report: Print the human summary (learning curve) of the last cold-start run
+## bench-cold-start-report: Print the human summary (learning curve) of a cold-start run (RESULTS=<run dir>/results.json)
 bench-cold-start-report:
+	@if [ -z "$(RESULTS)" ]; then \
+		echo "ERROR: set RESULTS=<path to a cold-start results.json>. Available run dirs:"; \
+		ls -d build/bench-results/cold-start-a3-*/ 2>/dev/null || echo "  (none under build/bench-results/)"; \
+		exit 1; fi
 	@cd bench && $(GO) build -o ../$(BUILD_DIR)/benchrun ./benchrun
-	$(BUILD_DIR)/benchrun -cold-start -summarize build/bench-results/cold-start-a3.json
+	$(BUILD_DIR)/benchrun -cold-start -summarize $(RESULTS)
 
 ## bench-report: Print the human summary of the last run for BENCH_ARM
 bench-report:

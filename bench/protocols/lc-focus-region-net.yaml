@@ -8,6 +8,7 @@ sink: knowledge_page
 page:
     slug: focus-region-definition
     title: Focus Region Definition
+    summary: The 'focus region' for this study is West.
     body: |-
         # Focus Region Definition
 

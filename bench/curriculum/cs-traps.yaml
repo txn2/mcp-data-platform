@@ -22,6 +22,7 @@ lessons:
       page:
         slug: revenue-reporting-policy
         title: Revenue Reporting Policy
+        summary: Revenue = amount - discount over completed orders only; amounts are stored in US cents. The authoritative definition for all bench warehouse reporting.
         body: |-
             # Revenue Reporting Policy
 
@@ -51,6 +52,7 @@ lessons:
       page:
         slug: fiscal-calendar-policy
         title: Fiscal Calendar Policy
+        summary: 'The fiscal year starts February 1: fiscal year 2025 runs 2025-02-01 through 2026-01-31. Fiscal figures must not be computed over the calendar year.'
         body: |-
             # Fiscal Calendar Policy
 
@@ -91,6 +93,7 @@ lessons:
       page:
         slug: customer-tier-definitions
         title: Customer Tier Definitions
+        summary: A 'key account' is any customer on the plus or enterprise tier, a derived grouping not stored in any column and broader than the enterprise tier alone.
         body: |-
             # Customer Tier Definitions
 

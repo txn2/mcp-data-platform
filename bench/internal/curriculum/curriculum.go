@@ -136,6 +136,13 @@ func (l Lesson) validateSink(curriculumID string) error {
 		if l.Page == nil || l.Page.Slug == "" || l.Page.Title == "" || l.Page.Body == "" {
 			return fmt.Errorf("curriculum %s: lesson %s knowledge_page sink requires a complete page payload", curriculumID, l.ID)
 		}
+		// The summary is required, not optional: search renders a page hit as
+		// title plus summary, and the a3 tool surface has no page-body fetch, so
+		// a promoted page with an empty summary is a title-only hit whose fact
+		// never reaches an evaluator.
+		if l.Page.Summary == "" {
+			return fmt.Errorf("curriculum %s: lesson %s knowledge_page sink requires a non-empty page summary (search delivers the fact through it)", curriculumID, l.ID)
+		}
 		return nil
 	default:
 		return fmt.Errorf("curriculum %s: lesson %s unknown sink %q", curriculumID, l.ID, l.Sink)

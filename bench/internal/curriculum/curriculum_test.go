@@ -25,10 +25,10 @@ func TestValidateAcceptsWellFormed(t *testing.T) {
 	if err := validCurriculum().Validate(); err != nil {
 		t.Fatalf("valid curriculum rejected: %v", err)
 	}
-	// A page-sink lesson with a complete payload is valid.
+	// A page-sink lesson with a complete payload (summary included) is valid.
 	c := validCurriculum()
 	c.Lessons[0].Sink = protocol.SinkKnowledgePage
-	c.Lessons[0].Page = &protocol.PagePayload{Slug: "s", Title: "T", Body: "B"}
+	c.Lessons[0].Page = &protocol.PagePayload{Slug: "s", Title: "T", Summary: "the fact", Body: "B"}
 	if err := c.Validate(); err != nil {
 		t.Fatalf("valid page-sink curriculum rejected: %v", err)
 	}
@@ -55,7 +55,13 @@ func TestValidateRejectsMalformed(t *testing.T) {
 		},
 		"page sink partial payload": func(c *Curriculum) {
 			c.Lessons[0].Sink = protocol.SinkKnowledgePage
-			c.Lessons[0].Page = &protocol.PagePayload{Slug: "s", Title: "", Body: "B"}
+			c.Lessons[0].Page = &protocol.PagePayload{Slug: "s", Title: "", Summary: "f", Body: "B"}
+		},
+		// A page without a summary is a title-only search hit on the a3 tool
+		// surface (no page-body fetch), so the fact never reaches an evaluator.
+		"page sink empty summary": func(c *Curriculum) {
+			c.Lessons[0].Sink = protocol.SinkKnowledgePage
+			c.Lessons[0].Page = &protocol.PagePayload{Slug: "s", Title: "T", Body: "B"}
 		},
 		"duplicate lesson id": func(c *Curriculum) {
 			c.Lessons = append(c.Lessons, c.Lessons[0])

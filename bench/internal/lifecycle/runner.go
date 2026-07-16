@@ -263,6 +263,9 @@ func (e *runEnv) teachAndRecall(ctx context.Context, p protocol.Protocol, teache
 // capture tool and whether it exhausted its budget) so a capture miss can be
 // attributed. Returns true when a harness failure aborts the run.
 func (e *runEnv) teachAndCapture(ctx context.Context, p protocol.Protocol, teacherSeq int, run *ProtocolRun) bool {
+	// The teach start bounds capture verification to this run (identities and
+	// URNs repeat deterministically across runs; see waitForInsight).
+	teachStart := time.Now()
 	teach, _ := e.runEpisode(ctx, episodeSpec{
 		stage: StageTeach, identity: "teacher", seq: teacherSeq,
 		prompt: p.Teach.Prompt, system: teachSystem, budget: e.teachBudget(p),
@@ -283,7 +286,7 @@ func (e *runEnv) teachAndCapture(ctx context.Context, p protocol.Protocol, teach
 		return true
 	}
 
-	insight, err := e.waitForInsight(ctx, poolEmail(teacherSeq), p.EntityURN)
+	insight, err := e.waitForInsight(ctx, poolEmail(teacherSeq), p.EntityURN, teachStart)
 	if err != nil {
 		run.Error = "capture verify: " + err.Error()
 		return true

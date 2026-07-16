@@ -39,6 +39,11 @@ type Manifest struct {
 	// K is the number of fresh evaluator identities per checkpoint; each answers
 	// the whole eval set, so a checkpoint's accuracy averages over K x eval-tasks.
 	K int `json:"k"`
+	// Settle is the promote-to-eval cache-settle window the run was paced with
+	// (Duration string, e.g. "5m0s"; empty when disabled). Settle pacing affects
+	// how much of a datahub-sink lesson's lift the next checkpoint can see, so a
+	// kept result must record it to stay comparable with other runs.
+	Settle string `json:"settle,omitempty"`
 }
 
 // EpisodeRecord is one teach session's telemetry (the lesson's capture episode).
@@ -78,13 +83,18 @@ type LessonRecord struct {
 // which is excluded from accuracy and reported separately, mirroring the S1-S3
 // and S5 pipelines.
 type EvalAttempt struct {
-	TaskID              string           `json:"task_id"`
-	TrapClasses         []string         `json:"trap_classes,omitempty"`
-	Email               string           `json:"email"`
-	SessionID           string           `json:"session_id,omitempty"`
-	Repeat              int              `json:"repeat"`
-	Graded              bool             `json:"graded"`
-	Correct             bool             `json:"correct"`
+	TaskID      string   `json:"task_id"`
+	TrapClasses []string `json:"trap_classes,omitempty"`
+	Email       string   `json:"email"`
+	SessionID   string   `json:"session_id,omitempty"`
+	Repeat      int      `json:"repeat"`
+	Graded      bool     `json:"graded"`
+	Correct     bool     `json:"correct"`
+	// MemoryWrites counts memory_capture/memory_manage calls the evaluator made,
+	// derived from the transcript. Evaluators are instructed never to write
+	// (self-taught knowledge could surface to later checkpoints and confound the
+	// curve), so any non-zero value is a validity warning on the run.
+	MemoryWrites        int              `json:"memory_writes,omitempty"`
 	FinalAnswer         string           `json:"final_answer,omitempty"`
 	WallMS              int64            `json:"wall_ms"`
 	InputTokens         int64            `json:"input_tokens"`
@@ -173,6 +183,10 @@ type Metrics struct {
 	Checkpoints     int `json:"checkpoints"`
 	EvalTasks       int `json:"eval_tasks"`
 	HarnessFailures int `json:"harness_failures"`
+	// EvalMemoryWrites totals evaluator memory writes across every attempt. Any
+	// non-zero value flags the curve's validity: an evaluator taught itself
+	// something a later checkpoint's evaluators may have read.
+	EvalMemoryWrites int `json:"eval_memory_writes,omitempty"`
 
 	// Token totals across every episode and attempt, so a run self-reports its
 	// cost basis. The cache split lets a cached run's cost be computed from
@@ -220,6 +234,7 @@ func (res *Results) Aggregate() {
 		res.Checkpoints[i].aggregate()
 		m.HarnessFailures += res.Checkpoints[i].HarnessFailures
 		for _, a := range res.Checkpoints[i].Attempts {
+			m.EvalMemoryWrites += a.MemoryWrites
 			m.TotalInputTokens += a.InputTokens
 			m.TotalOutputTokens += a.OutputTokens
 			m.TotalCacheReadTokens += a.CacheReadTokens
@@ -298,6 +313,9 @@ func (res *Results) HumanSummary() string {
 	mt := res.Metrics
 	fmt.Fprintf(&b, "lessons %d (captured %d, promoted %d)  eval tasks %d  checkpoints %d  harness failures %d\n",
 		mt.Lessons, mt.LessonsCaptured, mt.LessonsPromoted, mt.EvalTasks, mt.Checkpoints, mt.HarnessFailures)
+	if mt.EvalMemoryWrites > 0 {
+		fmt.Fprintf(&b, "WARNING: evaluators performed %d memory write(s); an evaluator taught itself knowledge that later checkpoints may have read, so the curve's validity is suspect\n", mt.EvalMemoryWrites)
+	}
 	fmt.Fprintf(&b, "tokens: input %d  output %d  cache read %d  cache write %d (apply current model pricing for cost)\n\n",
 		mt.TotalInputTokens, mt.TotalOutputTokens, mt.TotalCacheReadTokens, mt.TotalCacheCreationTokens)
 

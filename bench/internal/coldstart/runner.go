@@ -18,6 +18,7 @@ import (
 	"github.com/txn2/mcp-data-platform/bench/internal/mcpc"
 	"github.com/txn2/mcp-data-platform/bench/internal/pool"
 	"github.com/txn2/mcp-data-platform/bench/internal/promote"
+	"github.com/txn2/mcp-data-platform/bench/internal/protocol"
 	"github.com/txn2/mcp-data-platform/bench/internal/target"
 	"github.com/txn2/mcp-data-platform/bench/internal/task"
 )
@@ -53,6 +54,16 @@ type Options struct {
 	// distinct identities so the curve measures promoted (shared) knowledge, never
 	// an evaluator's own capture.
 	IdentityKeys int
+	// Settle is the pause between a successful promote and the following eval
+	// checkpoint. The a3 arm caches table context with a 5m TTL, so a cache entry
+	// populated by the PREVIOUS checkpoint's evaluators can serve the stale
+	// pre-promotion description to the next checkpoint's evaluators,
+	// nondeterministically attenuating the datahub-sink lift; waiting out the TTL
+	// removes that pacing dependence. The scripted smoke sets it to zero.
+	Settle time.Duration
+	// SettleSleep overrides the settle pause's sleeper. Tests inject a recorder
+	// so no test real-sleeps; nil uses a context-aware real sleep.
+	SettleSleep func(ctx context.Context, d time.Duration) error
 	// OnCheckpoint, if set, is called after every checkpoint with the aggregated
 	// results so far. benchrun wires it to flush the results file, so a run that
 	// spends real API budget always leaves every completed checkpoint on disk.
@@ -79,6 +90,7 @@ func Run(ctx context.Context, opts Options) (*Results, error) {
 		Arm: opts.Arm, LLMProvider: opts.LLMProvider, Seed: gen.Seed,
 		CurriculumID: cur.ID, CurriculumHash: curriculum.Hash([]curriculum.Curriculum{cur}),
 		EvalSuite: cur.EvalSuite, TaskSetHash: task.Hash(evalTasks), K: opts.K,
+		Settle: settleLabel(opts.Settle),
 	}}
 	life := lifecycleapi.New(opts.Target.BaseURL, opts.Target.HTTPClient(opts.HTTPTimeout))
 	env := &runEnv{
@@ -89,6 +101,13 @@ func Run(ctx context.Context, opts Options) (*Results, error) {
 		reviewer: promote.Reviewer{Life: life, Log: opts.Log},
 	}
 	defer env.closeAdmin()
+
+	// Refuse a contaminated baseline before any LLM episode is spent: a
+	// non-empty starting state cannot be restored by re-seeding and would
+	// publish a silently wrong curve (see preflight).
+	if err := env.preflight(ctx, cur); err != nil {
+		return nil, err
+	}
 
 	failures := env.run(ctx, cur, evalTasks, res)
 	res.Manifest.FinishedAt = time.Now().UTC()
@@ -212,6 +231,11 @@ func (e *runEnv) run(ctx context.Context, cur curriculum.Curriculum, evalTasks [
 			promoted++
 		}
 		res.Lessons = append(res.Lessons, lr)
+		// Flush the paid-for lesson record BEFORE the settle pause: an
+		// interruption during the settle (or the following checkpoint) must never
+		// discard a completed teach episode and its promote outcome.
+		e.flush(res)
+		e.settleAfterPromote(ctx, lr)
 
 		cp := e.evalCheckpoint(ctx, i+1, lesson, evalTasks, n, promoted)
 		res.Checkpoints = append(res.Checkpoints, cp)
@@ -221,12 +245,66 @@ func (e *runEnv) run(ctx context.Context, cur curriculum.Curriculum, evalTasks [
 	return failures
 }
 
+// settleAfterPromote waits out the semantic-cache TTL between a successful
+// promote and the following eval checkpoint, so a table-context entry cached by
+// the previous checkpoint's evaluators can never serve the stale pre-promotion
+// description to the next ones. Only a datahub-sink promote needs it: the cache
+// holds DataHub table context, while knowledge-page hits are served live from
+// the portal store with no TTL. A lesson that did not promote changed nothing.
+// Every skip is logged so a paced run's timeline stays auditable.
+func (e *runEnv) settleAfterPromote(ctx context.Context, lr LessonRecord) {
+	if e.opts.Settle <= 0 {
+		return
+	}
+	if !boolTrue(lr.Promoted) {
+		e.log.Info("cold-start settle skipped: lesson did not promote, the enrichment layer is unchanged",
+			"lesson", lr.LessonID, "settle", e.opts.Settle)
+		return
+	}
+	if lr.Sink != protocol.SinkDataHub {
+		e.log.Info("cold-start settle skipped: page-sink promotes are served live from the portal store, nothing is cached",
+			"lesson", lr.LessonID, "settle", e.opts.Settle)
+		return
+	}
+	e.log.Info("cold-start settle: waiting out the semantic-cache TTL before the next eval checkpoint",
+		"lesson", lr.LessonID, "settle", e.opts.Settle)
+	if err := e.sleep(ctx, e.opts.Settle); err != nil {
+		e.log.Warn("cold-start settle interrupted", "error", err)
+	}
+}
+
+// settleLabel renders the settle window for the manifest ("" when disabled).
+func settleLabel(d time.Duration) string {
+	if d <= 0 {
+		return ""
+	}
+	return d.String()
+}
+
+// sleep pauses for d respecting ctx cancellation, via the injected test sleeper
+// when set.
+func (e *runEnv) sleep(ctx context.Context, d time.Duration) error {
+	if e.opts.SettleSleep != nil {
+		return e.opts.SettleSleep(ctx, d)
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(d):
+		return nil
+	}
+}
+
 // teachAndPromote runs the lesson's teach episode, verifies capture through the
 // insights API, and promotes the insight to its sink. A harness failure lands in
 // Error; a missed capture or refused apply is a measured miss (Captured/Promoted
 // false, no error).
 func (e *runEnv) teachAndPromote(ctx context.Context, lesson curriculum.Lesson, seq int) LessonRecord {
 	lr := LessonRecord{LessonID: lesson.ID, Title: lesson.Title, TrapClass: lesson.TrapClass, Sink: lesson.Sink}
+	// The teach start (minus a skew margin) bounds capture verification to THIS
+	// run: teacher identities and URNs are deterministic, so an unbounded read
+	// could match a pending insight left by an interrupted prior run.
+	teachStart := time.Now()
 	rec := e.runEpisode(ctx, episodeSpec{
 		stage: StageTeach, unitID: lesson.ID, seq: seq,
 		prompt: lesson.Teach.Prompt, system: teachScaffold, budget: lesson.BudgetToolCalls,
@@ -236,7 +314,8 @@ func (e *runEnv) teachAndPromote(ctx context.Context, lesson curriculum.Lesson, 
 		lr.Error = rec.err
 		return lr
 	}
-	insight, err := promote.WaitForInsight(ctx, e.life, pool.Email(seq), lesson.EntityURN, e.opts.AuditTimeout, insightPollInterval)
+	since := teachStart.Add(-promote.CaptureSkewMargin)
+	insight, err := promote.WaitForInsight(ctx, e.life, pool.Email(seq), lesson.EntityURN, since, e.opts.AuditTimeout, insightPollInterval)
 	if err != nil {
 		lr.Error = "capture verify: " + err.Error()
 		return lr
@@ -302,7 +381,7 @@ func (e *runEnv) evalAttempt(ctx context.Context, t task.Task, seq, repeat int) 
 	})
 	att := EvalAttempt{
 		TaskID: t.ID, TrapClasses: t.TrapClasses, Email: rec.email, SessionID: rec.sessionID,
-		Repeat: repeat, FinalAnswer: rec.finalAnswer, WallMS: rec.wallMS,
+		Repeat: repeat, MemoryWrites: rec.memoryWrites, FinalAnswer: rec.finalAnswer, WallMS: rec.wallMS,
 		InputTokens: rec.usage.InputTokens, OutputTokens: rec.usage.OutputTokens,
 		CacheReadTokens: rec.usage.CacheReadInputTokens, CacheCreationTokens: rec.usage.CacheCreationInputTokens,
 		Audit: rec.audit,

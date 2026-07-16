@@ -123,6 +123,26 @@ func TestHumanSummaryRendersCurve(t *testing.T) {
 			t.Errorf("summary missing %q\n%s", want, out)
 		}
 	}
+	// No evaluator wrote a memory, so no validity warning appears.
+	if strings.Contains(out, "memory write") {
+		t.Errorf("summary warns about memory writes on a clean run\n%s", out)
+	}
+}
+
+// TestEvalMemoryWritesWarn proves an evaluator memory write is totaled in
+// Metrics and surfaces as a validity warning in the human summary: the
+// no-self-teach rule is prompt-level, so the report must carry the audit-side
+// signal when it is violated.
+func TestEvalMemoryWritesWarn(t *testing.T) {
+	res := sampleResults()
+	res.Checkpoints[1].Attempts[0].MemoryWrites = 2
+	res.Aggregate()
+	if res.Metrics.EvalMemoryWrites != 2 {
+		t.Errorf("EvalMemoryWrites = %d, want 2", res.Metrics.EvalMemoryWrites)
+	}
+	if !strings.Contains(res.HumanSummary(), "WARNING: evaluators performed 2 memory write(s)") {
+		t.Errorf("summary missing the memory-write validity warning\n%s", res.HumanSummary())
+	}
 }
 
 func TestAggregateEmptyIsSafe(t *testing.T) {

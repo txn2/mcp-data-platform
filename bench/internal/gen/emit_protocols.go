@@ -58,10 +58,14 @@ func correctionPrompt(fact string) string {
 		" Please update your saved knowledge so future answers use this corrected definition."
 }
 
-// pagePayload builds a knowledge page for the knowledge_page sink from the fact.
-// The slug is unique to the protocol and distinct from the seeded pages.
+// pagePayload builds a knowledge page for the knowledge_page sink from the
+// fact. The slug is unique to the protocol and distinct from the seeded pages
+// (so no shared a2 summary applies), and the fact — a self-contained
+// one-sentence definition — doubles as the summary: search renders a page hit
+// as title plus summary, and the a3 tool surface has no page-body fetch, so
+// the summary is the only channel the promoted fact reaches a learner through.
 func pagePayload(slug, title, fact string) *protocol.PagePayload {
-	return &protocol.PagePayload{Slug: slug, Title: title, Body: "# " + title + "\n\n" + fact}
+	return &protocol.PagePayload{Slug: slug, Title: title, Summary: fact, Body: "# " + title + "\n\n" + fact}
 }
 
 // otherRegions returns every region except one, for entity wrong-answer sets.

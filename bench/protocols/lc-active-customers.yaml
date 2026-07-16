@@ -8,6 +8,7 @@ sink: knowledge_page
 page:
     slug: active-customer-definition
     title: Active Customer Definition
+    summary: An 'active customer' is any customer who has placed at least one order.
     body: |-
         # Active Customer Definition
 

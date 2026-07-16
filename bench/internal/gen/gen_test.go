@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/txn2/mcp-data-platform/bench/internal/curriculum"
+	"github.com/txn2/mcp-data-platform/bench/internal/protocol"
 	"github.com/txn2/mcp-data-platform/bench/internal/task"
 )
 
@@ -199,6 +200,62 @@ func TestScriptedColdStartSmokeCoversUnits(t *testing.T) {
 	}
 	if len(evalTasks) == 0 {
 		t.Fatal("no eval tasks found for the smoke")
+	}
+}
+
+// TestCurriculumPageLessonsMatchSeedPages asserts every page-sink lesson's page
+// payload (slug, title, summary, body) equals the a2 seed row for the same
+// slug, so a promoted page is byte-identical to the documented baseline — the
+// summary especially, because search renders a page hit as title plus summary
+// and the a3 tool surface has no page-body fetch tool.
+func TestCurriculumPageLessonsMatchSeedPages(t *testing.T) {
+	bySlug := map[string]kpRow{}
+	for _, r := range knowledgePageRows() {
+		bySlug[r.slug] = r
+	}
+	pageLessons := 0
+	for _, l := range Generate().Curriculum().Lessons {
+		if l.Sink != protocol.SinkKnowledgePage {
+			continue
+		}
+		pageLessons++
+		row, ok := bySlug[l.Page.Slug]
+		if !ok {
+			t.Errorf("lesson %s promotes page %q, which is not an a2 seed page", l.ID, l.Page.Slug)
+			continue
+		}
+		if l.Page.Title != row.title || l.Page.Summary != row.summary || l.Page.Body != row.body {
+			t.Errorf("lesson %s page payload diverges from the a2 seed row for slug %q", l.ID, l.Page.Slug)
+		}
+		if l.Page.Summary == "" {
+			t.Errorf("lesson %s page has an empty summary", l.ID)
+		}
+	}
+	if pageLessons != 3 {
+		t.Errorf("expected 3 page-sink lessons, found %d", pageLessons)
+	}
+}
+
+// TestProtocolPagePayloadsCarrySummaries asserts every page-sink protocol sends
+// a fact-bearing summary, so the promoted page's fact is deliverable through
+// search on the a3 tool surface (the #958 page-sink transfer gap).
+func TestProtocolPagePayloadsCarrySummaries(t *testing.T) {
+	pageSinks := 0
+	for _, p := range Generate().Protocols() {
+		if p.Sink != protocol.SinkKnowledgePage {
+			continue
+		}
+		pageSinks++
+		if p.Page == nil || p.Page.Summary == "" {
+			t.Errorf("protocol %s page payload has no summary", p.ID)
+			continue
+		}
+		if p.Page.Summary != p.Fact {
+			t.Errorf("protocol %s page summary %q is not its one-sentence fact", p.ID, p.Page.Summary)
+		}
+	}
+	if pageSinks == 0 {
+		t.Fatal("no page-sink protocols found")
 	}
 }
 

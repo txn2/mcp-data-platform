@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/bench/internal/agent"
@@ -37,11 +38,16 @@ Rules:
 // evalScaffold frames an evaluation session. The evaluator was never taught the
 // facts, so its only knowledge source is what the platform surfaces — search
 // results, catalog descriptions, and knowledge pages — which is exactly the
-// promoted-knowledge delivery channel the curve measures.
+// promoted-knowledge delivery channel the curve measures. The no-self-teach
+// rule keeps it that way: an evaluator that saved a memory could surface it to
+// a LATER checkpoint's evaluators through shared records and confound the
+// curve. The rule is a steer, not a guarantee — MemoryWrites on each attempt is
+// the audit-side validity signal that catches a violation.
 const evalScaffold = `You are a data analyst agent connected to a data platform over MCP.
 Rules:
 - Ground every answer in tool results and in the knowledge the platform surfaces (search results, catalog descriptions, knowledge pages); do not answer from prior knowledge about any specific dataset.
 - Use the search tool to discover context and data before querying.
+- This is an evaluation of EXISTING platform knowledge: do not save, capture, or update memories or knowledge during this session.
 - When you have the answer, end your reply with a single line: "FINAL ANSWER: <answer>".`
 
 // Per-grading-kind answer format rules, matching the deterministic graders'
@@ -98,11 +104,67 @@ type episodeResult struct {
 	toolCalls    int
 	toolErrors   int
 	searchCalled bool
+	memoryWrites int
 	wallMS       int64
 	usage        llm.Usage
 	audit        auditapi.Metrics
 	finalAnswer  string
 	err          string
+}
+
+// isMemoryWriteCall reports whether a tool call is a memory WRITE an eval
+// session must never make: an evaluator that saves a memory could surface it
+// to later checkpoints' evaluators through shared records, contaminating the
+// curve with self-taught knowledge. memory_capture always writes; memory_manage
+// writes only for its mutating commands (update, forget, consolidate) — its
+// list/review commands are read-only and permitted by the eval scaffold, so
+// counting them would falsely flag a clean run. The claude-cli transcript
+// records the namespaced form (mcp__<server>__memory_capture), so the name is
+// matched on its final "__"-separated segment.
+func isMemoryWriteCall(c llm.ToolCall) bool {
+	name := c.Name
+	if i := strings.LastIndex(name, "__"); i >= 0 {
+		name = name[i+2:]
+	}
+	switch name {
+	case "memory_capture":
+		return true
+	case "memory_manage":
+		cmd, _ := c.Args["command"].(string)
+		return cmd == "update" || cmd == "forget" || cmd == "consolidate"
+	}
+	return false
+}
+
+// countMemoryWrites derives the evaluator no-self-teach validity signal from
+// the transcript: the number of EXECUTED memory-write tool calls. Deriving it
+// from the transcript (rather than hooking each execution path) keeps the loop
+// and claude-cli paths on one definition, mirroring the lifecycle
+// instrumentation. A write that never landed does not count: a budget-refused
+// call never ran (its paired result is the refusal sentinel), and an error
+// result (a platform refusal or a handler failure) wrote no record that a
+// later checkpoint could read.
+func countMemoryWrites(msgs []llm.Message) int {
+	writeIDs := map[string]bool{}
+	for _, m := range msgs {
+		for _, c := range m.ToolCalls {
+			if isMemoryWriteCall(c) {
+				writeIDs[c.ID] = true
+			}
+		}
+	}
+	if len(writeIDs) == 0 {
+		return 0
+	}
+	writes := 0
+	for _, m := range msgs {
+		for _, r := range m.ToolResults {
+			if writeIDs[r.CallID] && !r.IsError && r.Text != agent.BudgetRefusalText {
+				writes++
+			}
+		}
+	}
+	return writes
 }
 
 // runEpisode drives one fresh MCP session end to end: authenticate as the pool
@@ -155,7 +217,7 @@ func (e *runEnv) runEpisode(ctx context.Context, spec episodeSpec) episodeResult
 			indeterminate++
 			return llm.ToolResult{Text: "transport error: " + r.TransportErr.Error(), IsError: true}
 		}
-		if !preAuditRefusal(r.ErrorCode) {
+		if !mcpc.PreAuditRefusal(r.ErrorCode) {
 			audited++
 		}
 		return llm.ToolResult{Text: r.Text, IsError: r.ToolErr}
@@ -170,6 +232,7 @@ func (e *runEnv) runEpisode(ctx context.Context, spec episodeSpec) episodeResult
 	res.toolErrors = result.ToolErrors
 	res.usage = result.Usage
 	res.finalAnswer = result.FinalAnswer
+	res.memoryWrites = countMemoryWrites(result.Transcript)
 	e.writeTranscript(spec, result.Transcript)
 	if runErr != nil {
 		res.err = fmt.Sprintf("agent loop: %v", runErr)
@@ -203,6 +266,7 @@ func (e *runEnv) runClaudeCLIEpisode(ctx context.Context, spec episodeSpec) epis
 	res.toolCalls = cres.MCPCalls
 	res.toolErrors = cres.ToolErrors
 	res.searchCalled = cres.SearchCalled
+	res.memoryWrites = countMemoryWrites(cres.Transcript)
 	res.usage = cres.Usage
 	res.finalAnswer = cres.FinalText
 	e.recordPlatformVersion(cres.PlatformVersion)
@@ -273,16 +337,4 @@ type transcriptFile struct {
 	UnitID     string        `json:"unit_id"`
 	Email      string        `json:"email"`
 	Transcript []llm.Message `json:"transcript"`
-}
-
-// preAuditRefusal reports whether a structured error code marks a platform
-// refusal issued outer to the audit middleware (so it leaves no audit row).
-// Mirrors the S1-S3 pipeline and S5 lifecycle classification.
-func preAuditRefusal(code string) bool {
-	switch code {
-	case "unauthenticated", "unauthorized", "session_required", "session_expired",
-		"search_required", "setup_required", "rate_limited":
-		return true
-	}
-	return false
 }

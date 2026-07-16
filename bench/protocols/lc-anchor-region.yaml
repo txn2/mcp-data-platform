@@ -8,6 +8,7 @@ sink: knowledge_page
 page:
     slug: anchor-region-definition
     title: Anchor Region Definition
+    summary: The 'anchor region' for this study is North.
     body: |-
         # Anchor Region Definition
 

@@ -57,6 +57,7 @@ type config struct {
 	merge         string
 	coldStart     bool
 	curriculumDir string
+	settle        time.Duration
 	supersede     bool
 	teachBudget   int
 }
@@ -102,6 +103,7 @@ func parseFlags() config {
 	flag.StringVar(&cfg.merge, "merge", "", "comma-separated per-pass lifecycle result JSONs (with -lifecycle): merge independent k=1 passes into one k=N result and exit")
 	flag.BoolVar(&cfg.coldStart, "cold-start", false, "run the cold-start knowledge-growth curriculum (issue #963) instead of the task suites")
 	flag.StringVar(&cfg.curriculumDir, "curriculum", "curriculum", "curriculum YAML directory (with -cold-start)")
+	flag.DurationVar(&cfg.settle, "settle", 5*time.Minute, "pause between a successful promote and the next eval checkpoint (with -cold-start), matching the a3 semantic-cache TTL so a stale pre-promotion cache entry cannot attenuate the lift; 0 disables (scripted smoke)")
 	flag.BoolVar(&cfg.supersede, "supersede", false, "run the isolated supersede sub-benchmark (issue #964: the supersede protocols only) instead of the full S5 lifecycle")
 	flag.IntVar(&cfg.teachBudget, "teach-budget", 0, "override the per-episode tool-call budget for the capture-bearing stages (teach, update); 0 = protocol budget (issue #964 capture-budget lever)")
 	flag.Parse()
@@ -325,6 +327,9 @@ func runColdStart(cfg config) error {
 	if cfg.baseline != "" {
 		return errors.New("-baseline is not supported with -cold-start (the regression gate scores S1-S3 task suites, not the learning curve)")
 	}
+	if err := refuseExistingRunArtifacts(cfg.out); err != nil {
+		return err
+	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	opts := coldstart.Options{
 		Target:        target.Target{BaseURL: cfg.url, Credential: cfg.credential},
@@ -338,6 +343,7 @@ func runColdStart(cfg config) error {
 		GitCommit:     cfg.gitCommit,
 		AuditTimeout:  cfg.auditTimeout,
 		IdentityKeys:  cfg.identityKeys,
+		Settle:        cfg.settle,
 		OnCheckpoint: func(r *coldstart.Results) {
 			if err := r.WriteJSON(cfg.out); err != nil {
 				log.Warn("checkpoint write", "error", err)
@@ -704,6 +710,30 @@ func gateOnBaseline(candidate *report.Results, baselinePath string) error {
 // name means multi-pass orchestration cannot silently clobber paid-for data.
 func transcriptDir(out string) string {
 	return filepath.Join(filepath.Dir(out), filepath.Base(out)+".transcripts")
+}
+
+// refuseExistingRunArtifacts errors when out or its sibling transcript
+// directory already exists. A cold-start run's results and transcripts are
+// paid-for evidence that can never be regenerated; an existing -out would be
+// silently clobbered by the per-checkpoint flush, and the transcript dir by
+// the deterministic per-episode filenames — a run interrupted before its first
+// flush leaves only transcripts, which a rerun to the same -out would destroy.
+// There is deliberately no override: the operator picks a new path, every
+// run's data is kept.
+func refuseExistingRunArtifacts(out string) error {
+	if _, err := os.Stat(out); err == nil {
+		return fmt.Errorf("-out %s already exists; refusing to overwrite a prior run's results; choose a new -out path (all run data is kept)", out)
+	}
+	if dir := transcriptDir(out); dirExists(dir) {
+		return fmt.Errorf("transcript directory %s already exists (an earlier run's episode transcripts); refusing to overwrite; choose a new -out path (all run data is kept)", dir)
+	}
+	return nil
+}
+
+// dirExists reports whether path exists and is a directory.
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 // claudeCLIProvider is the -llm value selecting the real Claude Code client

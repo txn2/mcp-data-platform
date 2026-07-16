@@ -259,7 +259,7 @@ func (e *runEnv) runLoopAttempt(ctx context.Context, t task.Task, attempt, seq i
 			indeterminate++
 			return llm.ToolResult{Text: "transport error: " + r.TransportErr.Error(), IsError: true}
 		}
-		if !preAuditRefusal(r.ErrorCode) {
+		if !mcpc.PreAuditRefusal(r.ErrorCode) {
 			audited++
 		}
 		return llm.ToolResult{Text: r.Text, IsError: r.ToolErr}
@@ -451,19 +451,6 @@ func (e *runEnv) referenceRows(ctx context.Context, exec SQLExecutor, t task.Tas
 	}
 	e.refRows[t.ID] = rows
 	return rows, nil
-}
-
-// preAuditRefusal reports whether a structured error code marks a platform
-// refusal issued outer to the audit middleware (pkg/middleware error contract:
-// auth, authz, session gate, search-first gate). Such calls complete from the
-// client's view but leave no audit row.
-func preAuditRefusal(code string) bool {
-	switch code {
-	case "unauthenticated", "unauthorized", "session_required", "session_expired",
-		"search_required", "setup_required", "rate_limited":
-		return true
-	}
-	return false
 }
 
 // formatInstruction returns the per-grading-kind answer format rule.

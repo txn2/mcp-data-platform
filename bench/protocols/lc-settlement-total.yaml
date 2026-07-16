@@ -8,6 +8,7 @@ sink: knowledge_page
 page:
     slug: settlement-total-definition
     title: Settlement Total Definition
+    summary: The 'settlement total' is the gross revenue (sum of amount over completed orders) for calendar quarter 4 of 2025 (October through December).
     body: |-
         # Settlement Total Definition
 

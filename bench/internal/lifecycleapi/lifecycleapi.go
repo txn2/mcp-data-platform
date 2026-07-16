@@ -68,6 +68,12 @@ type InsightFilter struct {
 	CapturedBy string
 	EntityURN  string
 	Status     string
+	// Since bounds the listing to insights created at or after this time
+	// (the admin API's `since` param, RFC 3339). Capture verification passes the
+	// episode's start time so a pending insight left behind by an interrupted
+	// earlier run — same deterministic teacher identity, same curriculum URN —
+	// can never fake this episode's capture.
+	Since time.Time
 }
 
 // ChangesetFilter selects changesets to list. Zero-valued fields are omitted.
@@ -114,6 +120,9 @@ func (c *Client) ListInsights(ctx context.Context, f InsightFilter) ([]Insight, 
 		setNonEmpty(q, "captured_by", f.CapturedBy)
 		setNonEmpty(q, "entity_urn", f.EntityURN)
 		setNonEmpty(q, "status", f.Status)
+		if !f.Since.IsZero() {
+			q.Set("since", f.Since.UTC().Format(time.RFC3339))
+		}
 		q.Set("page", strconv.Itoa(page))
 		q.Set("per_page", strconv.Itoa(pageSize))
 		var env insightEnvelope
@@ -151,6 +160,40 @@ func (c *Client) ListChangesets(ctx context.Context, f ChangesetFilter) ([]Chang
 		}
 		all = append(all, env.Data...)
 		if len(all) >= env.Total || len(env.Data) == 0 {
+			return all, nil
+		}
+	}
+}
+
+// KnowledgePage is the subset of the portal knowledge-page record the harness
+// reads (the cold-start preflight checks no curriculum slug already exists).
+type KnowledgePage struct {
+	ID   string `json:"id"`
+	Slug string `json:"slug"`
+}
+
+// knowledgePageEnvelope is the portal list response for knowledge pages.
+type knowledgePageEnvelope struct {
+	Pages []KnowledgePage `json:"pages"`
+	Total int             `json:"total"`
+}
+
+// ListKnowledgePages returns every live knowledge page, following pagination.
+// It reads the portal REST list (the same authenticated client the admin
+// knowledge reads use); the cold-start preflight scans it for curriculum slugs
+// left by a prior run.
+func (c *Client) ListKnowledgePages(ctx context.Context) ([]KnowledgePage, error) {
+	var all []KnowledgePage
+	for offset := 0; ; offset += pageSize {
+		q := url.Values{}
+		q.Set("limit", strconv.Itoa(pageSize))
+		q.Set("offset", strconv.Itoa(offset))
+		var env knowledgePageEnvelope
+		if err := c.getJSON(ctx, "/api/v1/portal/knowledge-pages", q, &env); err != nil {
+			return nil, err
+		}
+		all = append(all, env.Pages...)
+		if len(all) >= env.Total || len(env.Pages) == 0 {
 			return all, nil
 		}
 	}
