@@ -88,7 +88,10 @@ type EpisodeRecord struct {
 	CacheReadTokens     int64            `json:"cache_read_tokens,omitempty"`
 	CacheCreationTokens int64            `json:"cache_creation_tokens,omitempty"`
 	Audit               auditapi.Metrics `json:"audit"`
-	Error               string           `json:"error,omitempty"`
+	// AuditReadError records a failed audit read-back on an otherwise-successful
+	// episode: its zero audit metrics mean signal loss, not zero activity.
+	AuditReadError string `json:"audit_read_error,omitempty"`
+	Error          string `json:"error,omitempty"`
 }
 
 // ProtocolRun records one protocol attempt (1..k). Each stage outcome is a
@@ -111,8 +114,13 @@ type ProtocolRun struct {
 	TransferCorrect  *bool `json:"transfer_correct,omitempty"`  // cross-identity recall correct
 	TransferSurfaced *bool `json:"transfer_surfaced,omitempty"` // promoted fact appeared in a tool result the learner saw
 	UpdateCorrect    *bool `json:"update_correct,omitempty"`    // recall flipped to the corrected value
-	Duplicated       *bool `json:"duplicated,omitempty"`        // supersede left more than one live insight
-	AbstainCorrect   *bool `json:"abstain_correct,omitempty"`   // abstained on a never-taught fact
+	// UpdateCaptured reports whether the update episode actually executed a
+	// correction capture call. When false the platform never received the
+	// correction, so its supersede gate never ran: Duplicated stays nil (the
+	// attempt is a capture miss, not a duplicate) and the run cannot pass.
+	UpdateCaptured *bool `json:"update_captured,omitempty"`
+	Duplicated     *bool `json:"duplicated,omitempty"`      // supersede left more than one live insight (nil when the correction capture never executed)
+	AbstainCorrect *bool `json:"abstain_correct,omitempty"` // abstained on a never-taught fact
 
 	// Capture-budget diagnosis (issue #964), read from the teach episode. Nil
 	// when the teach episode never ran (harness abort before teach).
@@ -140,9 +148,17 @@ func (r ProtocolRun) Passed() bool {
 		r.updatePassed() && optPass(r.AbstainCorrect)
 }
 
-// updatePassed reports whether the supersede stage passed, or was not run. It
-// requires both a flipped recall and no duplicate.
+// updatePassed reports whether the supersede stage passed, or was not run. A
+// missed correction capture fails the stage outright (the lifecycle never
+// received the correction; its recall is skipped, so UpdateCorrect is nil and
+// this check must come first). Otherwise the stage requires a flipped recall
+// and no duplicate; a nil UpdateCorrect then means the stage was not run. A
+// nil UpdateCaptured (results from before the field existed) falls back to the
+// recall-and-duplicate check alone.
 func (r ProtocolRun) updatePassed() bool {
+	if r.UpdateCaptured != nil && !*r.UpdateCaptured {
+		return false
+	}
 	if r.UpdateCorrect == nil {
 		return true
 	}
@@ -247,6 +263,9 @@ type Metrics struct {
 	Protocols       int `json:"protocols"`
 	Attempts        int `json:"attempts"`         // graded protocol runs (harness failures excluded)
 	HarnessFailures int `json:"harness_failures"` // runs aborted by a harness error
+	// AuditReadFailures counts episodes whose audit read-back failed: each
+	// contributes zero audit metrics through signal loss, not zero activity.
+	AuditReadFailures int `json:"audit_read_failures,omitempty"`
 
 	// Token totals across every episode of every run (including harness-failed
 	// runs — a failed episode still spent tokens), so a run self-reports its cost
@@ -263,7 +282,12 @@ type Metrics struct {
 	UnpromptedSurface Rate `json:"unprompted_surface"` // among captured runs, search surfaced the memory
 	TransferRate      Rate `json:"transfer_rate"`
 	UpdateCorrectness Rate `json:"update_correctness"`
-	DuplicateRate     Rate `json:"duplicate_rate"` // fraction of supersedes that duplicated (lower is better)
+	// UpdateCaptureRate is, among update stages that ran, the fraction whose
+	// correction capture actually executed. Its misses are excluded from
+	// DuplicateRate (no correction reached the platform, so the supersede gate
+	// never ran) and reported here instead of inflating the duplicate count.
+	UpdateCaptureRate Rate `json:"update_capture_rate"`
+	DuplicateRate     Rate `json:"duplicate_rate"` // fraction of executed supersedes that duplicated (lower is better)
 	AbstentionRate    Rate `json:"abstention_rate"`
 
 	// Transfer-gap decomposition (issue #964). TransferSurfaced is the fraction
@@ -304,6 +328,9 @@ func (res *Results) Aggregate() {
 		}
 		byProtocol[r.ProtocolID] = append(byProtocol[r.ProtocolID], r)
 		for _, e := range r.Episodes {
+			if e.AuditReadError != "" {
+				m.AuditReadFailures++
+			}
 			m.TotalInputTokens += e.InputTokens
 			m.TotalOutputTokens += e.OutputTokens
 			m.TotalCacheReadTokens += e.CacheReadTokens
@@ -321,6 +348,7 @@ func (res *Results) Aggregate() {
 		m.TransferSurfaced.add(r.TransferSurfaced)
 		m.TransferUsedGivenSurfaced.addConditional(boolTrue(r.TransferSurfaced), boolTrue(r.TransferCorrect))
 		m.UpdateCorrectness.add(r.UpdateCorrect)
+		m.UpdateCaptureRate.add(r.UpdateCaptured)
 		m.DuplicateRate.add(r.Duplicated)
 		m.AbstentionRate.add(r.AbstainCorrect)
 		m.CaptureBudgetStarved.addConditional(captureBudgetObservable(r), budgetStarved(r))
@@ -340,7 +368,7 @@ func (m *Metrics) fillCIs(rng *rand.Rand) {
 	for _, r := range []*Rate{
 		&m.CaptureRate, &m.PersonalRecall, &m.UnpromptedSurface,
 		&m.TransferRate, &m.TransferSurfaced, &m.TransferUsedGivenSurfaced,
-		&m.UpdateCorrectness, &m.DuplicateRate, &m.AbstentionRate,
+		&m.UpdateCorrectness, &m.UpdateCaptureRate, &m.DuplicateRate, &m.AbstentionRate,
 		&m.CaptureBudgetStarved, &m.PassK,
 	} {
 		r.fillCI(rng)
@@ -412,6 +440,9 @@ func (res *Results) HumanSummary() string {
 	fmt.Fprintf(&b, "  %s .. %s\n\n", m.StartedAt.Format(time.RFC3339), m.FinishedAt.Format(time.RFC3339))
 	mt := res.Metrics
 	fmt.Fprintf(&b, "protocols %d  attempts %d  harness failures %d\n", mt.Protocols, mt.Attempts, mt.HarnessFailures)
+	if mt.AuditReadFailures > 0 {
+		fmt.Fprintf(&b, "WARNING: %d episode(s) lost their audit read-back; their audit-derived metrics are zero through signal loss, not zero activity\n", mt.AuditReadFailures)
+	}
 	fmt.Fprintf(&b, "tokens: input %d  output %d  cache read %d  cache write %d (apply current model pricing for cost)\n\n",
 		mt.TotalInputTokens, mt.TotalOutputTokens, mt.TotalCacheReadTokens, mt.TotalCacheCreationTokens)
 	writeMetric(&b, "capture rate", mt.CaptureRate)
@@ -421,6 +452,7 @@ func (res *Results) HumanSummary() string {
 	writeMetric(&b, "  transfer surfaced", mt.TransferSurfaced)
 	writeMetric(&b, "  used given surfaced", mt.TransferUsedGivenSurfaced)
 	writeMetric(&b, "update correctness", mt.UpdateCorrectness)
+	writeMetric(&b, "  update capture rate", mt.UpdateCaptureRate)
 	writeMetric(&b, "duplicate rate", mt.DuplicateRate)
 	writeMetric(&b, "abstention rate", mt.AbstentionRate)
 	writeMetric(&b, "capture budget-starved", mt.CaptureBudgetStarved)

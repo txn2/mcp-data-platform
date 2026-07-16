@@ -461,8 +461,14 @@ avoid the DataHub Kafka :9092 clash, and with `ollama serve` +
 ```bash
 make bench-up BENCH_ARM=a3 BENCH_METRICS_ADDR=:9095
 make bench-lifecycle LLM=anthropic MODEL=claude-sonnet-5 K=3
-make bench-lifecycle-report
+make bench-lifecycle-report RESULTS=build/bench-results/lifecycle-a3-<stamp>/lifecycle-a3.json
 ```
+
+Every `bench-lifecycle` (and `bench-supersede`) invocation writes into its own
+timestamped run directory under `build/bench-results/` and refuses to overwrite
+an existing results file, so no run's data is ever lost; the report targets
+therefore take the run to summarize via `RESULTS=` (they list the available run
+directories when it is unset).
 
 Token spend for the shared-store S5 run, from the committed records: **2,578
 fresh input, 356,015 output, 23,913,219 cache-read, and 1,502,311 cache-write

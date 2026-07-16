@@ -165,12 +165,22 @@ func TestExecCommandRealProcess(t *testing.T) {
 	}
 }
 
-func TestEnvWithoutAPIKey(t *testing.T) {
-	in := []string{"PATH=/bin", "ANTHROPIC_API_KEY=secret", "HOME=/home/x", "ANTHROPIC_API_KEY_OTHER=keep"}
-	out := envWithoutAPIKey(in)
+func TestEnvWithoutMeteredCreds(t *testing.T) {
+	in := []string{
+		"PATH=/bin",
+		"ANTHROPIC_API_KEY=secret",
+		"ANTHROPIC_AUTH_TOKEN=bearer",
+		"CLAUDE_CODE_USE_BEDROCK=1",
+		"CLAUDE_CODE_USE_VERTEX=1",
+		"HOME=/home/x",
+		"ANTHROPIC_API_KEY_OTHER=keep",
+	}
+	out := envWithoutMeteredCreds(in)
 	for _, kv := range out {
-		if strings.HasPrefix(kv, "ANTHROPIC_API_KEY=") {
-			t.Errorf("ANTHROPIC_API_KEY not stripped: %v", out)
+		for _, name := range meteredCredVars {
+			if strings.HasPrefix(kv, name+"=") {
+				t.Errorf("%s not stripped: %v", name, out)
+			}
 		}
 	}
 	// A similarly-named var must not be stripped.
@@ -184,7 +194,7 @@ func TestEnvWithoutAPIKey(t *testing.T) {
 		t.Errorf("stripped an unrelated var: %v", out)
 	}
 	if len(out) != 3 {
-		t.Errorf("got %d entries, want 3", len(out))
+		t.Errorf("got %d entries, want 3 (PATH, HOME, the unrelated var): %v", len(out), out)
 	}
 }
 

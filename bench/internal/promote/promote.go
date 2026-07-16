@@ -11,8 +11,10 @@ package promote
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -24,6 +26,16 @@ import (
 
 // ApplyToolName is the platform tool that applies an approved insight to a sink.
 const ApplyToolName = "apply_knowledge"
+
+// EntityToolName is the platform tool the sink read-back reads a promoted
+// entity description through — the same effective-metadata path evaluators see.
+const EntityToolName = "datahub_get_entity"
+
+// Sink read-back pacing defaults (see Reviewer.SinkTimeout/SinkPoll).
+const (
+	defaultSinkTimeout = 15 * time.Second
+	defaultSinkPoll    = 500 * time.Millisecond
+)
 
 // CaptureSkewMargin is subtracted from a teach episode's start time before it
 // is passed to WaitForInsight as the since bound. Harness and platform run on
@@ -107,10 +119,16 @@ func newestInsight(insights []lifecycleapi.Insight) *lifecycleapi.Insight {
 }
 
 // Reviewer plays the platform reviewer: it approves an insight and applies it,
-// then verifies the result through the knowledge API.
+// then verifies the result through the knowledge API and reads the promoted
+// content back from its sink.
 type Reviewer struct {
 	Life *lifecycleapi.Client
 	Log  *slog.Logger
+	// SinkTimeout bounds the post-apply sink read-back (zero = 15s): how long
+	// the reviewer polls for the promoted content to become readable before
+	// declaring the write lost. SinkPoll is the poll interval (zero = 500ms).
+	SinkTimeout time.Duration
+	SinkPoll    time.Duration
 }
 
 // Apply approves the insight (pending -> approved) and applies it via
@@ -140,7 +158,20 @@ func (r Reviewer) Apply(ctx context.Context, session *mcp.ClientSession, handle 
 		}
 		return false, nil
 	}
-	return r.verify(ctx, t, insightID)
+	ok, err := r.verify(ctx, t, insightID)
+	if err != nil || !ok {
+		return ok, err
+	}
+	// The API verify above proves the platform recorded the promotion; the sink
+	// read-back proves the promoted content is actually readable where agents
+	// read it. An API-confirmed apply whose sink does not show the change is a
+	// silent write loss (the platform's own records claim success), which would
+	// otherwise surface only as an unexplained flat metric downstream — so it is
+	// a harness error, never a measured miss.
+	if err := r.verifySink(ctx, session, handle, t); err != nil {
+		return false, fmt.Errorf("sink read-back after apply (%s, insight %s): %w — NOTE: the promotion may be live despite this failure (approve and apply already succeeded), so platform state no longer matches the recorded outcome; treat the run as contaminated (a cold-start rerun needs a fresh baseline reset), and if the store is merely slow to serve reads, raise -sink-timeout", t.Label, insightID, err)
+	}
+	return true, nil
 }
 
 // verify confirms the insight is applied and a non-rolled-back changeset lists
@@ -174,6 +205,97 @@ func (r Reviewer) verify(ctx context.Context, t Target, insightID string) (bool,
 		}
 	}
 	return false, nil
+}
+
+// verifySink polls the target's sink until the promoted content is readable or
+// the window closes. A short window absorbs store-side write propagation; the
+// scripted smokes run this against the live platform, so a real delivery
+// regression fails there before any paid run.
+func (r Reviewer) verifySink(ctx context.Context, session *mcp.ClientSession, handle string, t Target) error {
+	timeout, poll := r.SinkTimeout, r.SinkPoll
+	if timeout <= 0 {
+		timeout = defaultSinkTimeout
+	}
+	if poll <= 0 {
+		poll = defaultSinkPoll
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		ok, state, err := r.sinkHolds(ctx, session, handle, t)
+		if ok {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			if err != nil {
+				return err
+			}
+			return fmt.Errorf("the applied change is not readable in its sink: %s", state)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(poll):
+		}
+	}
+}
+
+// sinkHolds reports whether the sink currently shows the promoted content,
+// with a state description for the timeout error. A read error is returned for
+// the deadline path but retried until then (a transient API blip must not fail
+// a verified promotion).
+func (r Reviewer) sinkHolds(ctx context.Context, session *mcp.ClientSession, handle string, t Target) (bool, string, error) {
+	if t.Sink == protocol.SinkKnowledgePage {
+		return r.pageHolds(ctx, t)
+	}
+	return entityHolds(ctx, session, handle, t)
+}
+
+// sinkEntity is the subset of the datahub_get_entity result the sink read-back
+// inspects.
+type sinkEntity struct {
+	Description string `json:"description"`
+}
+
+// entityHolds reads the promoted entity through the platform and reports
+// whether its effective description carries the applied fact.
+func entityHolds(ctx context.Context, session *mcp.ClientSession, handle string, t Target) (bool, string, error) {
+	res := mcpc.Call(ctx, session, EntityToolName, map[string]any{"urn": t.EntityURN}, handle)
+	if res.TransportErr != nil {
+		return false, "", fmt.Errorf("%s(%s): %w", EntityToolName, t.EntityURN, res.TransportErr)
+	}
+	if res.ToolErr {
+		return false, "", fmt.Errorf("%s(%s) failed: %.300s", EntityToolName, t.EntityURN, res.Text)
+	}
+	var entity sinkEntity
+	// Enrichment middleware may append context after the entity JSON, so the
+	// decoder reads one value and ignores the rest.
+	if err := json.NewDecoder(strings.NewReader(res.Text)).Decode(&entity); err != nil {
+		return false, "", fmt.Errorf("parse %s result: %w (text: %.200s)", EntityToolName, err, res.Text)
+	}
+	if !strings.Contains(entity.Description, t.Fact) {
+		return false, fmt.Sprintf("entity %s description does not carry the applied fact (description: %.200q)", t.EntityURN, entity.Description), nil
+	}
+	return true, "", nil
+}
+
+// pageHolds reports whether the promoted knowledge page exists with the applied
+// summary — the summary is what search renders, so it is the content that must
+// have landed for the fact to be deliverable.
+func (r Reviewer) pageHolds(ctx context.Context, t Target) (bool, string, error) {
+	pages, err := r.Life.ListKnowledgePages(ctx)
+	if err != nil {
+		return false, "", fmt.Errorf("list knowledge pages: %w", err)
+	}
+	for _, p := range pages {
+		if p.Slug != t.Page.Slug {
+			continue
+		}
+		if strings.TrimSpace(p.Summary) == strings.TrimSpace(t.Page.Summary) {
+			return true, "", nil
+		}
+		return false, fmt.Sprintf("page %q exists but its summary does not match the applied summary (got %.200q)", t.Page.Slug, p.Summary), nil
+	}
+	return false, fmt.Sprintf("no knowledge page with slug %q", t.Page.Slug), nil
 }
 
 // BuildApplyArgs builds the apply_knowledge arguments for the target's sink.

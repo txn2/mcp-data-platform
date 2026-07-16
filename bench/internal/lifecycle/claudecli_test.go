@@ -37,7 +37,8 @@ const claudeCachedStream = `{"type":"system","subtype":"init","mcp_servers":[{"n
 // EpisodeRecord, so a cached run self-reports its true cost basis (cache reads
 // bill far below fresh input) rather than being estimated from input/output
 // totals. The one remaining gap — that a real `claude` process actually emits
-// these fields — is confirmed by a single real cached run (see bench/README.md).
+// these fields — awaits the first real claude-cli run on this parser (see
+// bench/README.md); the runner warns loudly on zero usage in the meantime.
 func TestClaudeCLIEpisodeRecordsCacheTokens(t *testing.T) {
 	fp := newFakePlatform(t)
 	runner, err := claudecli.New(claudecli.Options{
@@ -149,6 +150,82 @@ func TestClaudeCLIEpisode(t *testing.T) {
 	entries, _ := os.ReadDir(transcriptDir)
 	if len(entries) != 1 {
 		t.Errorf("transcript files = %d, want 1", len(entries))
+	}
+}
+
+// claudeNoHandleRecallStream drives a successful bench call but never mints a
+// dps_ handle via platform_info.
+const claudeNoHandleRecallStream = `{"type":"system","subtype":"init","mcp_servers":[{"name":"bench","status":"connected"}]}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"s1","name":"mcp__bench__search","input":{"query":"threshold"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"s1","is_error":false,"content":"saved: threshold is 500"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"FINAL ANSWER: 500"}]}}
+{"type":"result","subtype":"success","is_error":false,"result":"FINAL ANSWER: 500","session_id":"cc-2","usage":{"input_tokens":30,"output_tokens":8}}`
+
+// TestLifecycleClaudeCLIEpisodeNoHandleWithSuccesses proves a lifecycle
+// claude-cli episode reporting successful tool calls but no dps_ handle is a
+// harness error, not a silently zeroed audit record: the session gate refuses
+// un-threaded calls, so the combination is an impossibility to surface
+// (mirrors the S1-S3 pipeline and cold-start contracts).
+func TestLifecycleClaudeCLIEpisodeNoHandleWithSuccesses(t *testing.T) {
+	fp := newFakePlatform(t)
+	runner, err := claudecli.New(claudecli.Options{
+		Model: "claude-sonnet-5",
+		Exec: func(context.Context, claudecli.CommandSpec) ([]byte, []byte, error) {
+			return []byte(claudeNoHandleRecallStream), nil, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("claudecli.New: %v", err)
+	}
+	tgt := target.Target{BaseURL: fp.httpSrv.URL, Credential: fp.base}
+	env := &runEnv{
+		opts:  Options{Target: tgt, HTTPTimeout: 10 * time.Second, Arm: "a3", ClaudeCLI: runner, IdentityKeys: 32, AuditTimeout: time.Second},
+		log:   slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
+		audit: auditapi.New(fp.httpSrv.URL, tgt.HTTPClient(10*time.Second)),
+	}
+	env.currentProtocolID = "p-nohandle"
+	rec, _ := env.runClaudeCLIEpisode(context.Background(), episodeSpec{stage: StageRecall, identity: "teacher", seq: 3, prompt: "q"})
+	if rec.Error == "" || !strings.Contains(rec.Error, "no dps_ handle") {
+		t.Fatalf("episode error = %q, want a no-handle harness error", rec.Error)
+	}
+}
+
+// TestLifecycleClaudeCLIEpisodeAuditReadFailureRecorded proves a failed audit
+// read-back lands on the episode record instead of silently zeroing the audit
+// metrics, and is totaled as a summary warning: the fake has no audit rows for
+// the threaded handle, so WaitForSession times out.
+func TestLifecycleClaudeCLIEpisodeAuditReadFailureRecorded(t *testing.T) {
+	fp := newFakePlatform(t) // no audit events for dps_cc_1
+	runner, err := claudecli.New(claudecli.Options{
+		Model: "claude-sonnet-5",
+		Exec: func(context.Context, claudecli.CommandSpec) ([]byte, []byte, error) {
+			return []byte(claudeRecallStream), nil, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("claudecli.New: %v", err)
+	}
+	tgt := target.Target{BaseURL: fp.httpSrv.URL, Credential: fp.base}
+	env := &runEnv{
+		opts:  Options{Target: tgt, HTTPTimeout: 10 * time.Second, Arm: "a3", ClaudeCLI: runner, IdentityKeys: 32, AuditTimeout: 200 * time.Millisecond},
+		log:   slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})),
+		audit: auditapi.New(fp.httpSrv.URL, tgt.HTTPClient(10*time.Second)),
+	}
+	env.currentProtocolID = "p-auditloss"
+	rec, _ := env.runClaudeCLIEpisode(context.Background(), episodeSpec{stage: StageRecall, identity: "teacher", seq: 3, prompt: "q"})
+	if rec.Error != "" {
+		t.Fatalf("episode error = %q, want graded episode (audit loss is not a harness failure)", rec.Error)
+	}
+	if rec.AuditReadError == "" {
+		t.Fatal("AuditReadError empty: a lost audit read-back must be recorded, not silently zeroed")
+	}
+	res := &Results{Runs: []ProtocolRun{{Episodes: []EpisodeRecord{rec}}}}
+	res.Aggregate()
+	if res.Metrics.AuditReadFailures != 1 {
+		t.Fatalf("AuditReadFailures = %d, want 1", res.Metrics.AuditReadFailures)
+	}
+	if !strings.Contains(res.HumanSummary(), "lost their audit read-back") {
+		t.Error("summary missing the audit-read-back warning")
 	}
 }
 

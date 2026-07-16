@@ -22,10 +22,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/txn2/mcp-data-platform/bench/internal/llm"
 )
 
 // defaultDisallowedTools are the built-in Claude Code tools the bench run
@@ -65,6 +68,9 @@ type Options struct {
 	// and lifecycle paths that drive it — are exercisable without the real
 	// claude binary.
 	Exec CommandRunner
+	// Log receives runner warnings (e.g. zero-usage detection); nil uses
+	// slog.Default().
+	Log *slog.Logger
 }
 
 // CommandSpec is one child-process invocation.
@@ -105,6 +111,9 @@ func New(opts Options) (*Runner, error) {
 	}
 	if opts.Exec == nil {
 		opts.Exec = execCommand
+	}
+	if opts.Log == nil {
+		opts.Log = slog.Default()
 	}
 	return &Runner{opts: opts}, nil
 }
@@ -171,6 +180,13 @@ func (r *Runner) Run(ctx context.Context, req Request) (Result, error) {
 		}
 		return Result{}, fmt.Errorf("%w; claude exit: %s; stderr: %.500s", parseErr, exit, strings.TrimSpace(string(stderr)))
 	}
+	// An episode that drove tools but reports no token usage means the stream's
+	// usage field moved (a claude release change): the run still grades, but its
+	// self-reported cost basis is silently zero. Warn loudly so an expensive run
+	// is not published with a garbage token total.
+	if res.MCPCalls > 0 && res.Usage == (llm.Usage{}) {
+		r.opts.Log.Warn("claude-cli stream carried no token usage for an episode with tool calls; the stream shape may have changed and the run's token totals will under-report")
+	}
 	return res, nil
 }
 
@@ -234,13 +250,14 @@ func writeMCPConfig(path, server, endpoint, credential string) error {
 // execCommand is the default commandRunner. It captures stdout and stderr
 // separately and returns the process error (if any) alongside both, so the
 // caller can parse a partial stream even on a non-zero exit. The child env
-// strips ANTHROPIC_API_KEY so the run is always subscription-funded: a key
-// sourced for the metered anthropic adapter must never silently make a
-// claude-cli run bill the API (issue #949's whole point is the keyless path).
+// strips every metered-billing credential so the run is always
+// subscription-funded: a key sourced for the metered anthropic adapter must
+// never silently make a claude-cli run bill the API (issue #949's whole point
+// is the keyless path).
 func execCommand(ctx context.Context, spec CommandSpec) ([]byte, []byte, error) {
 	cmd := exec.CommandContext(ctx, spec.Bin, spec.Args...) // #nosec G204 -- bin is operator-configured, args are harness-built
 	cmd.Dir = spec.Dir
-	cmd.Env = envWithoutAPIKey(os.Environ())
+	cmd.Env = envWithoutMeteredCreds(os.Environ())
 	if spec.Stdin != nil {
 		cmd.Stdin = bytes.NewReader(spec.Stdin)
 	}
@@ -251,16 +268,37 @@ func execCommand(ctx context.Context, spec CommandSpec) ([]byte, []byte, error) 
 	return stdout.Bytes(), stderr.Bytes(), err
 }
 
-// envWithoutAPIKey returns env with any ANTHROPIC_API_KEY entry removed, so the
-// child claude authenticates against the logged-in subscription rather than a
-// metered API key.
-func envWithoutAPIKey(env []string) []string {
+// meteredCredVars are the environment variables that would route the child
+// claude onto metered billing: the raw API key, the bearer-token override, and
+// the Bedrock/Vertex provider switches. All are stripped so the child always
+// authenticates against the logged-in subscription.
+var meteredCredVars = []string{
+	"ANTHROPIC_API_KEY",
+	"ANTHROPIC_AUTH_TOKEN",
+	"CLAUDE_CODE_USE_BEDROCK",
+	"CLAUDE_CODE_USE_VERTEX",
+}
+
+// envWithoutMeteredCreds returns env with every metered-billing credential
+// entry removed, so the child claude authenticates against the logged-in
+// subscription rather than a metered path.
+func envWithoutMeteredCreds(env []string) []string {
 	out := make([]string, 0, len(env))
 	for _, kv := range env {
-		if strings.HasPrefix(kv, "ANTHROPIC_API_KEY=") {
+		if hasMeteredCred(kv) {
 			continue
 		}
 		out = append(out, kv)
 	}
 	return out
+}
+
+// hasMeteredCred reports whether one KEY=value entry names a metered credential.
+func hasMeteredCred(kv string) bool {
+	for _, name := range meteredCredVars {
+		if strings.HasPrefix(kv, name+"=") {
+			return true
+		}
+	}
+	return false
 }

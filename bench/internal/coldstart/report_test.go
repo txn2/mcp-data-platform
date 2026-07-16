@@ -145,6 +145,23 @@ func TestEvalMemoryWritesWarn(t *testing.T) {
 	}
 }
 
+// TestAuditReadFailuresWarn proves a lost audit read-back (on a lesson episode
+// or an eval attempt) is totaled in Metrics and surfaces as a coverage-integrity
+// warning in the human summary: the attempt contributes zero to enrichment
+// coverage through signal loss, which must never read as "nothing was enriched".
+func TestAuditReadFailuresWarn(t *testing.T) {
+	res := sampleResults()
+	res.Lessons[0].Episode.AuditReadError = "audit rows below minimum"
+	res.Checkpoints[1].Attempts[0].AuditReadError = "audit rows below minimum"
+	res.Aggregate()
+	if res.Metrics.AuditReadFailures != 2 {
+		t.Errorf("AuditReadFailures = %d, want 2", res.Metrics.AuditReadFailures)
+	}
+	if !strings.Contains(res.HumanSummary(), "WARNING: 2 episode(s) lost their audit read-back") {
+		t.Errorf("summary missing the audit-read-back coverage warning\n%s", res.HumanSummary())
+	}
+}
+
 func TestAggregateEmptyIsSafe(t *testing.T) {
 	res := &Results{}
 	res.Aggregate() // must not panic on no lessons/checkpoints

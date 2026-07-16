@@ -196,6 +196,28 @@ func TestParseUnpairedToolUseNotCountedSuccessful(t *testing.T) {
 	}
 }
 
+func TestParseReplayedToolUseNotDoubleCounted(t *testing.T) {
+	// A replayed assistant event carrying an already-seen tool_use id must not
+	// inflate MCPCalls: the count is derived from the deduplicated id set, so it
+	// stays consistent with SuccessfulMCPCalls/ToolErrors and the audit
+	// read-back's overcount detection keeps its teeth.
+	stream := `{"type":"system","subtype":"init","mcp_servers":[{"name":"bench","status":"connected"}]}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"q1","name":"mcp__bench__trino_query","input":{}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"q1","name":"mcp__bench__trino_query","input":{}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"q1","content":"ok","is_error":false}]}}
+{"type":"result","subtype":"success","is_error":false,"result":"FINAL ANSWER: x","usage":{"input_tokens":1,"output_tokens":1}}`
+	res, err := Parse("bench", "q", []byte(stream))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if res.MCPCalls != 1 {
+		t.Errorf("MCPCalls = %d, want 1 (replayed tool_use id deduplicated)", res.MCPCalls)
+	}
+	if res.SuccessfulMCPCalls != 1 {
+		t.Errorf("SuccessfulMCPCalls = %d, want 1", res.SuccessfulMCPCalls)
+	}
+}
+
 func TestParseNonStringResult(t *testing.T) {
 	// A terminal result event whose `result` is not a bare string must still be
 	// recognized as the result event (not dropped, which would report a spurious

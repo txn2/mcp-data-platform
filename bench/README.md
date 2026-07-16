@@ -25,11 +25,21 @@ go build ./... && go vet ./... && go test ./...
 golangci-lint run ./...
 ```
 
-Or from the repo root: `make bench-test`.
+Or from the repo root: `make bench-test` and `make bench-lint`. Both are part
+of `make verify`: they are pure module checks (build, vet, test, full-module
+lint) that mirror CI's "Harness module checks" job, and because this module is
+outside the root `./...`, the root `lint`/`test` targets never reach it — a
+bench-only finding would otherwise surface first in CI (the `bench-lint` full-
+module scope also matters: the root lint's --new-from-patch scoping cannot see
+a finding anchored on an unchanged line, such as a gocognit report on a func
+whose body grew).
 
-Like mutation and load testing, benchmarking is **deliberately not part of
-`make verify`** — it stands up Docker services, a real server binary, and (for
-real runs) a model API. Do not add `bench-*` to the `verify` target.
+Like mutation and load testing, benchmark **runs** are deliberately not part of
+`make verify` — they stand up Docker services, a real server binary, and (for
+real runs) a model API. Do not add the stack-dependent `bench-*` run targets
+(`bench-up`, `bench-run`, `bench-smoke`, the lifecycle/supersede/cold-start
+runs) to the `verify` target; `bench-test` and `bench-lint` are the only
+exceptions because they touch nothing outside the module.
 
 ## Arms
 
@@ -219,9 +229,13 @@ that reuses pool identities does not cross-contaminate the metrics.
 
 Metrics (each a numerator/denominator over the applicable, non-harness-failed
 runs): **capture rate**, **personal recall**, **unprompted surface**, **transfer
-rate**, **update correctness**, **duplicate rate** (lower is better), and
-**abstention rate**, plus **pass^k** over protocols (all k attempts pass the full
-applicable lifecycle). Harness-level failures (connect, adapter, API read-back)
+rate**, **update correctness**, **update capture rate**, **duplicate rate**
+(lower is better), and **abstention rate**, plus **pass^k** over protocols (all
+k attempts pass the full applicable lifecycle). The duplicate rate counts only
+attempts whose correction capture actually executed: an update episode that
+never called capture left one live insight and the supersede gate never ran, so
+it is an update-capture miss (measured on its own rate, and a pass^k failure),
+not a duplicate. Harness-level failures (connect, adapter, API read-back)
 are excluded from the metrics and reported separately, mirroring the S1–S3
 pipeline.
 
@@ -266,7 +280,7 @@ protocol set.
 
 - **Regression gate.** `-baseline <committed.json>` with `-lifecycle` gates the run against a committed S5 baseline and exits nonzero when a headline lifecycle metric regresses, so CI catches a lifecycle capability loss the same way it already catches an S1-S3 one. It applies to both a single-process run and a `-merge`d k=N scorecard (the canonical multi-pass artifact CI gates). The gated metrics are capture rate, personal recall, transfer rate, update correctness, abstention rate, duplicate rate (an increase past tolerance is the regression), and pass^k; a metric that either run did not exercise (zero denominator) is skipped as a coverage gap, not scored as a drop. The #964 diagnostic decompositions are deliberately not gated — their small denominators would trip the gate on noise; they exist to explain a regression, not define one. The gate refuses a cross-arm comparison, and a cross-client-path one (anthropic vs claude-cli), rather than producing a meaningless verdict; it compares the client path, not the exact CLI version, so a benign `claude` bump does not disable it. Default tolerances are loose (5 points) to absorb run-to-run variance.
 - **Output isolation.** The transcript directory is keyed on the full `-out` filename (`results.json` -> `results.json.transcripts/`), so several passes written into the same directory under different output names — even ones sharing a stem but differing by extension — never overwrite one another's raw transcripts. The `-merge` step refuses an `-out` that is the same on-disk file as one of its input passes (compared by device+inode, so a case-variant or symlinked alias is caught too), so a merged scorecard never clobbers the raw per-pass evidence it was built from. Together these mean multi-pass orchestration cannot silently discard paid-for data.
-- **claude-cli cache tokens.** A cached `claude -p` run's `cache_read_input_tokens` / `cache_creation_input_tokens` flow through the stream parser into each lifecycle `EpisodeRecord` and are summed into the run's `total_cache_read_tokens` / `total_cache_creation_tokens`, so a cached run self-reports its true cost basis (cache reads bill far below fresh input). The full parser -> `EpisodeRecord` -> aggregate path is covered by a test that drives the real parser on a canned cached stream; that a real `claude` process emits those fields is confirmed by one real cached run.
+- **claude-cli cache tokens.** A cached `claude -p` run's `cache_read_input_tokens` / `cache_creation_input_tokens` flow through the stream parser into each lifecycle `EpisodeRecord` and are summed into the run's `total_cache_read_tokens` / `total_cache_creation_tokens`, so a cached run self-reports its true cost basis (cache reads bill far below fresh input). The full parser -> `EpisodeRecord` -> aggregate path is covered by a test that drives the real parser on a canned cached stream; confirming that a real `claude` process emits those fields end to end is pending the first real claude-cli run on this parser (every kept claude-cli results file predates it), and the runner warns loudly when an episode with tool calls reports zero usage so a silent field move cannot go unnoticed.
 
 ### Statistical power and identity-pool sizing (#965)
 
@@ -342,10 +356,12 @@ metric (0% vs 42.9% between identical runs); measuring supersede on its own, wit
 a per-protocol stability breakdown, makes that instability visible per protocol
 instead of hidden in one blended range.
 
-Metrics: **capture rate**, **supersede rate** (original superseded, higher is
-better), **duplicate rate** (its complement, lower is better), **update
-correctness**, **pass^k**, and a per-protocol `superseded`/`duplicated` count
-across the k attempts. Because the supersede gate is embedding-similarity based
+Metrics: **capture rate**, **update capture rate** (the correction capture
+executed; a miss is excluded from the supersede/duplicate denominator — with no
+correction on the platform the gate never ran), **supersede rate** (original
+superseded, higher is better), **duplicate rate** (its complement, lower is
+better), **update correctness**, **pass^k**, and a per-protocol
+`superseded`/`duplicated`/`update_capture_missed` count across the k attempts. Because the supersede gate is embedding-similarity based
 (nomic-embed-text), the threshold / embedding-model / deterministic-fallback
 evaluation is done by re-running this sub-benchmark against platforms configured
 differently and comparing the supersede rate — the sub-benchmark is the measuring
@@ -356,7 +372,7 @@ make bench-up BENCH_ARM=a3
 make bench-supersede-smoke               # scripted no-API-key validation
 make bench-supersede K=3                 # real run (needs ANTHROPIC_API_KEY)
 make bench-supersede K=3 TEACH_BUDGET=20 # same, with the larger teach budget lever
-make bench-supersede-report              # human summary of the last supersede run
+make bench-supersede-report RESULTS=build/bench-results/supersede-a3-<stamp>/supersede-a3.json
 ```
 
 ## Cold-start knowledge growth (#963)
@@ -384,7 +400,12 @@ trap class — the harness:
    aspects — tags, the structured deprecation flag, column docs — are not, but
    the S3 traps read the fact text, not those). Capture and promotion are verified through
    the admin insights and changesets APIs, reusing the same reviewer-promotion
-   path (`internal/promote`) the S5 lifecycle uses.
+   path (`internal/promote`) the S5 lifecycle uses; after the API verify, the
+   reviewer also reads the promoted content back from its sink (the entity's
+   effective description via `datahub_get_entity`, the page's summary via the
+   portal list) and fails the run when an API-confirmed apply is not readable
+   there — a silent sink-write loss must abort before episodes are spent, not
+   surface later as an unexplained flat curve.
 2. **Evaluates** at every checkpoint (the empty baseline and after each lesson)
    by re-running the fixed S3 trap suite with a **fresh, never-taught evaluator
    identity**. Its only knowledge source is what the platform surfaces —
@@ -433,8 +454,11 @@ and the scripted smoke runs with `SETTLE=0s`.
 promote refusals are measured outcomes by design, so a run can exit 0 with a
 flat curve. A valid full run's summary must read `lessons 6 (captured 6,
 promoted 6)` with `harness failures 0`, enrichment coverage climbing from the
-baseline, and no evaluator memory-write warning (evaluators are forbidden from
-saving memories; the summary warns if the audit-side count is non-zero).
+baseline, no evaluator memory-write warning (evaluators are forbidden from
+saving memories; the summary warns if the audit-side count is non-zero), and no
+audit-read-back warning (a lost audit read contributes zero to coverage through
+signal loss, recorded per attempt as `audit_read_error` and totaled on the
+summary).
 
 ## Running
 
@@ -458,7 +482,7 @@ auto-enable):
 make bench-up BENCH_ARM=a3        # boot the lifecycle arm
 make bench-lifecycle-smoke        # scripted no-API-key lifecycle validation
 make bench-lifecycle K=3          # real run (needs ANTHROPIC_API_KEY)
-make bench-lifecycle-report       # human summary of the last lifecycle run
+make bench-lifecycle-report RESULTS=build/bench-results/lifecycle-a3-<stamp>/lifecycle-a3.json
 ```
 
 The **scripted lifecycle smoke** (`-llm scripted`) plays

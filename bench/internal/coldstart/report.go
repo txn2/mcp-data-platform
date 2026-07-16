@@ -58,7 +58,10 @@ type EpisodeRecord struct {
 	CacheReadTokens     int64            `json:"cache_read_tokens,omitempty"`
 	CacheCreationTokens int64            `json:"cache_creation_tokens,omitempty"`
 	Audit               auditapi.Metrics `json:"audit"`
-	Error               string           `json:"error,omitempty"`
+	// AuditReadError records a failed audit read-back on an otherwise-successful
+	// episode: its zero audit metrics mean signal loss, not zero enrichment.
+	AuditReadError string `json:"audit_read_error,omitempty"`
+	Error          string `json:"error,omitempty"`
 }
 
 // LessonRecord captures one lesson's teach-and-promote outcome. Captured and
@@ -102,7 +105,12 @@ type EvalAttempt struct {
 	CacheReadTokens     int64            `json:"cache_read_tokens,omitempty"`
 	CacheCreationTokens int64            `json:"cache_creation_tokens,omitempty"`
 	Audit               auditapi.Metrics `json:"audit"`
-	Error               string           `json:"error,omitempty"`
+	// AuditReadError records a failed audit read-back on a graded attempt: the
+	// attempt contributes nothing to enrichment coverage because the signal was
+	// lost, not because no call was enriched. Any non-zero count across a run is
+	// a coverage-integrity warning on the summary.
+	AuditReadError string `json:"audit_read_error,omitempty"`
+	Error          string `json:"error,omitempty"`
 }
 
 // ClassScore is one trap class's accuracy at a checkpoint.
@@ -187,6 +195,11 @@ type Metrics struct {
 	// non-zero value flags the curve's validity: an evaluator taught itself
 	// something a later checkpoint's evaluators may have read.
 	EvalMemoryWrites int `json:"eval_memory_writes,omitempty"`
+	// AuditReadFailures counts graded episodes (lessons and eval attempts) whose
+	// audit read-back failed. Each contributes zero to enrichment coverage
+	// through signal loss, so any non-zero value flags the coverage curve's
+	// integrity.
+	AuditReadFailures int `json:"audit_read_failures,omitempty"`
 
 	// Token totals across every episode and attempt, so a run self-reports its
 	// cost basis. The cache split lets a cached run's cost be computed from
@@ -216,29 +229,13 @@ type Results struct {
 func (res *Results) Aggregate() {
 	m := Metrics{Lessons: len(res.Lessons), Checkpoints: len(res.Checkpoints)}
 	for _, l := range res.Lessons {
-		if boolTrue(l.Captured) {
-			m.LessonsCaptured++
-		}
-		if boolTrue(l.Promoted) {
-			m.LessonsPromoted++
-		}
-		if l.Error != "" {
-			m.HarnessFailures++
-		}
-		m.TotalInputTokens += l.Episode.InputTokens
-		m.TotalOutputTokens += l.Episode.OutputTokens
-		m.TotalCacheReadTokens += l.Episode.CacheReadTokens
-		m.TotalCacheCreationTokens += l.Episode.CacheCreationTokens
+		m.foldLesson(l)
 	}
 	for i := range res.Checkpoints {
 		res.Checkpoints[i].aggregate()
 		m.HarnessFailures += res.Checkpoints[i].HarnessFailures
 		for _, a := range res.Checkpoints[i].Attempts {
-			m.EvalMemoryWrites += a.MemoryWrites
-			m.TotalInputTokens += a.InputTokens
-			m.TotalOutputTokens += a.OutputTokens
-			m.TotalCacheReadTokens += a.CacheReadTokens
-			m.TotalCacheCreationTokens += a.CacheCreationTokens
+			m.foldAttempt(a)
 		}
 	}
 	if len(res.Checkpoints) > 0 {
@@ -249,6 +246,40 @@ func (res *Results) Aggregate() {
 		m.BaselineCoverage, m.FinalCoverage = first.EnrichmentCoverage, last.EnrichmentCoverage
 	}
 	res.Metrics = m
+}
+
+// foldLesson accumulates one lesson's outcome, validity signals, and token
+// spend into the scorecard.
+func (m *Metrics) foldLesson(l LessonRecord) {
+	if boolTrue(l.Captured) {
+		m.LessonsCaptured++
+	}
+	if boolTrue(l.Promoted) {
+		m.LessonsPromoted++
+	}
+	if l.Error != "" {
+		m.HarnessFailures++
+	}
+	if l.Episode.AuditReadError != "" {
+		m.AuditReadFailures++
+	}
+	m.TotalInputTokens += l.Episode.InputTokens
+	m.TotalOutputTokens += l.Episode.OutputTokens
+	m.TotalCacheReadTokens += l.Episode.CacheReadTokens
+	m.TotalCacheCreationTokens += l.Episode.CacheCreationTokens
+}
+
+// foldAttempt accumulates one eval attempt's validity signals and token spend
+// into the scorecard.
+func (m *Metrics) foldAttempt(a EvalAttempt) {
+	m.EvalMemoryWrites += a.MemoryWrites
+	if a.AuditReadError != "" {
+		m.AuditReadFailures++
+	}
+	m.TotalInputTokens += a.InputTokens
+	m.TotalOutputTokens += a.OutputTokens
+	m.TotalCacheReadTokens += a.CacheReadTokens
+	m.TotalCacheCreationTokens += a.CacheCreationTokens
 }
 
 // distinctTasks counts the unique task IDs in a checkpoint's attempts (the eval
@@ -315,6 +346,9 @@ func (res *Results) HumanSummary() string {
 		mt.Lessons, mt.LessonsCaptured, mt.LessonsPromoted, mt.EvalTasks, mt.Checkpoints, mt.HarnessFailures)
 	if mt.EvalMemoryWrites > 0 {
 		fmt.Fprintf(&b, "WARNING: evaluators performed %d memory write(s); an evaluator taught itself knowledge that later checkpoints may have read, so the curve's validity is suspect\n", mt.EvalMemoryWrites)
+	}
+	if mt.AuditReadFailures > 0 {
+		fmt.Fprintf(&b, "WARNING: %d episode(s) lost their audit read-back; each contributes zero to enrichment coverage through signal loss, so the coverage curve under-reports\n", mt.AuditReadFailures)
 	}
 	fmt.Fprintf(&b, "tokens: input %d  output %d  cache read %d  cache write %d (apply current model pricing for cost)\n\n",
 		mt.TotalInputTokens, mt.TotalOutputTokens, mt.TotalCacheReadTokens, mt.TotalCacheCreationTokens)

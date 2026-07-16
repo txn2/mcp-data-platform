@@ -39,9 +39,15 @@ type SupersedeMetrics struct {
 	TotalCacheCreationTokens int64 `json:"total_cache_creation_tokens"`
 
 	CaptureRate       Rate `json:"capture_rate"`
-	SupersedeRate     Rate `json:"supersede_rate"`     // among captured attempts, the original was superseded (higher is better)
-	DuplicateRate     Rate `json:"duplicate_rate"`     // among captured attempts, a duplicate was left (lower is better)
+	SupersedeRate     Rate `json:"supersede_rate"`     // among executed supersedes, the original was superseded (higher is better)
+	DuplicateRate     Rate `json:"duplicate_rate"`     // among executed supersedes, a duplicate was left (lower is better)
 	UpdateCorrectness Rate `json:"update_correctness"` // post-correction recall flipped to the new value
+	// UpdateCaptureRate is, among update stages that ran, the fraction whose
+	// correction capture executed. Its misses never enter the supersede/duplicate
+	// denominator: with no correction on the platform the supersede gate never
+	// ran, so counting the attempt as duplicated would re-introduce exactly the
+	// capture noise this sub-benchmark isolates away.
+	UpdateCaptureRate Rate `json:"update_capture_rate"`
 
 	PassK       Rate                    `json:"pass_k"`       // protocols cleanly superseding on all k attempts
 	PerProtocol []SupersedeProtocolStat `json:"per_protocol"` // per-protocol stability across the k attempts
@@ -58,6 +64,9 @@ type SupersedeProtocolStat struct {
 	Captured   int    `json:"captured"`
 	Superseded int    `json:"superseded"`
 	Duplicated int    `json:"duplicated"`
+	// UpdateCaptureMissed counts captured attempts whose correction capture never
+	// executed — the gap between Captured and Superseded+Duplicated.
+	UpdateCaptureMissed int `json:"update_capture_missed,omitempty"`
 }
 
 // Aggregate computes the supersede metrics from the runs.
@@ -86,6 +95,7 @@ func (res *SupersedeResults) Aggregate() {
 		m.Attempts++
 		foldSupersedeStat(stat, r)
 		m.CaptureRate.add(r.Captured)
+		m.UpdateCaptureRate.add(r.UpdateCaptured)
 		m.DuplicateRate.add(r.Duplicated)
 		m.UpdateCorrectness.add(r.UpdateCorrect)
 	}
@@ -114,7 +124,7 @@ func (res *SupersedeResults) Aggregate() {
 // zero-width default rather than reflecting into a spurious [1, 1].
 func (m *SupersedeMetrics) fillCIs(rng *rand.Rand) {
 	for _, r := range []*Rate{
-		&m.CaptureRate, &m.DuplicateRate, &m.UpdateCorrectness, &m.PassK,
+		&m.CaptureRate, &m.UpdateCaptureRate, &m.DuplicateRate, &m.UpdateCorrectness, &m.PassK,
 	} {
 		r.fillCI(rng)
 	}
@@ -130,6 +140,9 @@ func foldSupersedeStat(stat *SupersedeProtocolStat, r ProtocolRun) {
 	stat.Attempts++
 	if boolTrue(r.Captured) {
 		stat.Captured++
+	}
+	if r.UpdateCaptured != nil && !*r.UpdateCaptured {
+		stat.UpdateCaptureMissed++
 	}
 	if r.Duplicated != nil {
 		if *r.Duplicated {
@@ -171,8 +184,13 @@ func supersedePassKRate(order []string, runs []ProtocolRun, k int) Rate {
 }
 
 // supersedePassed reports whether one attempt cleanly superseded: captured the
-// fact, left no duplicate, and flipped the post-correction recall.
+// fact, executed the correction capture (when observed; results from before the
+// field existed leave it nil), left no duplicate, and flipped the
+// post-correction recall.
 func supersedePassed(r ProtocolRun) bool {
+	if r.UpdateCaptured != nil && !*r.UpdateCaptured {
+		return false
+	}
 	return r.Error == "" && boolTrue(r.Captured) && !boolTrue(r.Duplicated) && boolTrue(r.UpdateCorrect)
 }
 
@@ -218,15 +236,16 @@ func (res *SupersedeResults) HumanSummary() string {
 	fmt.Fprintf(&b, "tokens: input %d  output %d  cache read %d  cache write %d (apply current model pricing for cost)\n\n",
 		mt.TotalInputTokens, mt.TotalOutputTokens, mt.TotalCacheReadTokens, mt.TotalCacheCreationTokens)
 	writeMetric(&b, "capture rate", mt.CaptureRate)
+	writeMetric(&b, "update capture rate", mt.UpdateCaptureRate)
 	writeMetric(&b, "supersede rate", mt.SupersedeRate)
 	writeMetric(&b, "duplicate rate", mt.DuplicateRate)
 	writeMetric(&b, "update correctness", mt.UpdateCorrectness)
 	writeMetric(&b, "pass^k (protocols)", mt.PassK)
 	if len(mt.PerProtocol) > 0 {
-		b.WriteString("\nper-protocol stability (superseded/duplicated of captured attempts):\n")
+		b.WriteString("\nper-protocol stability (superseded/duplicated of executed supersedes):\n")
 		for _, s := range mt.PerProtocol {
-			fmt.Fprintf(&b, "  %-24s cap %d/%d  superseded %d  duplicated %d\n",
-				s.ProtocolID, s.Captured, s.Attempts, s.Superseded, s.Duplicated)
+			fmt.Fprintf(&b, "  %-24s cap %d/%d  superseded %d  duplicated %d  update-capture missed %d\n",
+				s.ProtocolID, s.Captured, s.Attempts, s.Superseded, s.Duplicated, s.UpdateCaptureMissed)
 		}
 	}
 	return b.String()

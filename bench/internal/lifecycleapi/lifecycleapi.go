@@ -168,8 +168,13 @@ func (c *Client) ListChangesets(ctx context.Context, f ChangesetFilter) ([]Chang
 // KnowledgePage is the subset of the portal knowledge-page record the harness
 // reads (the cold-start preflight checks no curriculum slug already exists).
 type KnowledgePage struct {
-	ID   string `json:"id"`
-	Slug string `json:"slug"`
+	ID    string `json:"id"`
+	Slug  string `json:"slug"`
+	Title string `json:"title,omitempty"`
+	// Summary is what search renders next to the title — on tool surfaces
+	// without a page-body fetch it is the only channel a promoted fact reaches
+	// an agent through, so the promote sink read-back asserts on it.
+	Summary string `json:"summary,omitempty"`
 }
 
 // knowledgePageEnvelope is the portal list response for knowledge pages.

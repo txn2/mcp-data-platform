@@ -211,14 +211,33 @@ func (fp *fakePlatform) addApplyKnowledge(server *mcp.Server) {
 					}
 				}
 			}
+			fp.applySinkLocked(urn, args)
 			fp.recordLocked(args, "apply_knowledge")
 			return okResult("applied " + csID), nil, nil
 		})
 }
 
-// addGetEntity serves the preflight's baseline read: an entity's effective
-// description (the entityDesc knob models a prior run's promotion or an a2
-// seed; empty is the clean baseline).
+// applySinkLocked models the platform landing an applied change in its sink,
+// which the Reviewer's post-apply sink read-back verifies: a datahub change
+// becomes the entity's effective description, a page payload becomes a live
+// knowledge page. The caller holds fp.mu.
+func (fp *fakePlatform) applySinkLocked(urn string, args map[string]any) {
+	if changes, ok := args["changes"].([]any); ok && len(changes) > 0 {
+		if change, ok := changes[0].(map[string]any); ok {
+			detail, _ := change["detail"].(string)
+			fp.entityDesc[urn] = detail
+		}
+	}
+	if page, ok := args["page"].(map[string]any); ok {
+		slug, _ := page["slug"].(string)
+		summary, _ := page["summary"].(string)
+		fp.pages = append(fp.pages, lifecycleapi.KnowledgePage{ID: "kp-" + slug, Slug: slug, Summary: summary})
+	}
+}
+
+// addGetEntity serves the preflight's baseline read and the promote sink
+// read-back: an entity's effective description (the entityDesc knob models a
+// prior run's promotion or an a2 seed; empty is the clean baseline).
 func (fp *fakePlatform) addGetEntity(server *mcp.Server) {
 	schema := sessionSchema(map[string]*jsonschema.Schema{"urn": {Type: "string"}})
 	mcp.AddTool(server, &mcp.Tool{Name: "datahub_get_entity", Description: "entity metadata", InputSchema: schema},
@@ -1087,6 +1106,78 @@ func TestClaudeCLIEpisode(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(env.opts.TranscriptDir); len(entries) == 0 {
 		t.Error("claude-cli transcript not written")
+	}
+}
+
+// claudeNoHandleStream is a canned transcript where claude drove a successful
+// bench call but never minted a dps_ handle via platform_info.
+const claudeNoHandleStream = `{"type":"system","subtype":"init","mcp_servers":[{"name":"bench","status":"connected"}]}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"s1","name":"mcp__bench__search","input":{"query":"units"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"s1","is_error":false,"content":"ok"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"FINAL ANSWER: 100.00"}]}}
+{"type":"result","subtype":"success","is_error":false,"result":"FINAL ANSWER: 100.00","session_id":"cc-2","usage":{"input_tokens":30,"output_tokens":8}}`
+
+// TestClaudeCLIEpisodeNoHandleWithSuccesses proves a claude-cli episode that
+// reports successful tool calls but no dps_ handle is a harness error, not a
+// silent zero-coverage attempt: with no handle a successful data call is
+// impossible (the session gate refuses un-threaded calls), so the inconsistency
+// must surface rather than degrade the coverage curve.
+func TestClaudeCLIEpisodeNoHandleWithSuccesses(t *testing.T) {
+	fp := newFakePlatform(t)
+	runner, err := claudecli.New(claudecli.Options{
+		Model: "claude-sonnet-5",
+		Exec: func(_ context.Context, _ claudecli.CommandSpec) ([]byte, []byte, error) {
+			return []byte(claudeNoHandleStream), nil, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("claudecli.New: %v", err)
+	}
+	env := &runEnv{
+		opts: Options{
+			Target:      target.Target{BaseURL: fp.httpSrv.URL, Credential: "testkey"},
+			HTTPTimeout: 10 * time.Second, Arm: "a3", ClaudeCLI: runner,
+			IdentityKeys: 32, AuditTimeout: time.Second,
+		},
+		log:   testLogger(),
+		audit: auditapi.New(fp.httpSrv.URL, target.Target{BaseURL: fp.httpSrv.URL, Credential: "testkey"}.HTTPClient(10*time.Second)),
+	}
+	rec := env.runEpisode(context.Background(), episodeSpec{stage: StageEval, unitID: "s3-units-a", seq: 7, prompt: "q", budget: 5})
+	if rec.err == "" || !strings.Contains(rec.err, "no dps_ handle") {
+		t.Fatalf("episode err = %q, want a no-handle harness error", rec.err)
+	}
+}
+
+// TestClaudeCLIEpisodeAuditReadFailureRecorded proves a failed audit read-back
+// lands on the episode result instead of silently zeroing the audit metrics:
+// the fake platform has no audit rows for the handle, so WaitForSession times
+// out and the loss must be visible on the record.
+func TestClaudeCLIEpisodeAuditReadFailureRecorded(t *testing.T) {
+	fp := newFakePlatform(t) // no audit events appended for dps_cc_1
+	runner, err := claudecli.New(claudecli.Options{
+		Model: "claude-sonnet-5",
+		Exec: func(_ context.Context, _ claudecli.CommandSpec) ([]byte, []byte, error) {
+			return []byte(claudeEvalStream), nil, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("claudecli.New: %v", err)
+	}
+	env := &runEnv{
+		opts: Options{
+			Target:      target.Target{BaseURL: fp.httpSrv.URL, Credential: "testkey"},
+			HTTPTimeout: 10 * time.Second, Arm: "a3", ClaudeCLI: runner,
+			IdentityKeys: 32, AuditTimeout: 200 * time.Millisecond,
+		},
+		log:   testLogger(),
+		audit: auditapi.New(fp.httpSrv.URL, target.Target{BaseURL: fp.httpSrv.URL, Credential: "testkey"}.HTTPClient(10*time.Second)),
+	}
+	rec := env.runEpisode(context.Background(), episodeSpec{stage: StageEval, unitID: "s3-units-a", seq: 7, prompt: "q", budget: 5})
+	if rec.err != "" {
+		t.Fatalf("episode err = %q, want graded episode (audit loss is not a harness failure)", rec.err)
+	}
+	if rec.auditReadErr == "" {
+		t.Fatal("auditReadErr empty: a lost audit read-back must be recorded, not silently zeroed")
 	}
 }
 

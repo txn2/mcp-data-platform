@@ -48,6 +48,9 @@ type Options struct {
 	LLMProvider   string
 	GitCommit     string
 	AuditTimeout  time.Duration
+	// SinkTimeout bounds the reviewer's post-apply sink read-back (zero uses the
+	// promote package default); raise it for a store that serves reads slowly.
+	SinkTimeout time.Duration
 	// IdentityKeys is the identity-pool size the arm config defines. A run refuses
 	// to start when the lessons + per-checkpoint evaluators exceed the pool. It
 	// must be positive: the teacher and every checkpoint's evaluators must be
@@ -98,7 +101,7 @@ func Run(ctx context.Context, opts Options) (*Results, error) {
 		log:      opts.Log,
 		audit:    auditapi.New(opts.Target.BaseURL, opts.Target.HTTPClient(opts.HTTPTimeout)),
 		life:     life,
-		reviewer: promote.Reviewer{Life: life, Log: opts.Log},
+		reviewer: promote.Reviewer{Life: life, Log: opts.Log, SinkTimeout: opts.SinkTimeout},
 	}
 	defer env.closeAdmin()
 
@@ -352,7 +355,7 @@ func teachEpisode(rec episodeResult) EpisodeRecord {
 		Email: rec.email, SessionID: rec.sessionID, ToolCalls: rec.toolCalls, ToolErrors: rec.toolErrors,
 		WallMS: rec.wallMS, InputTokens: rec.usage.InputTokens, OutputTokens: rec.usage.OutputTokens,
 		CacheReadTokens: rec.usage.CacheReadInputTokens, CacheCreationTokens: rec.usage.CacheCreationInputTokens,
-		Audit: rec.audit, Error: rec.err,
+		Audit: rec.audit, AuditReadError: rec.auditReadErr, Error: rec.err,
 	}
 }
 
@@ -384,7 +387,7 @@ func (e *runEnv) evalAttempt(ctx context.Context, t task.Task, seq, repeat int) 
 		Repeat: repeat, MemoryWrites: rec.memoryWrites, FinalAnswer: rec.finalAnswer, WallMS: rec.wallMS,
 		InputTokens: rec.usage.InputTokens, OutputTokens: rec.usage.OutputTokens,
 		CacheReadTokens: rec.usage.CacheReadInputTokens, CacheCreationTokens: rec.usage.CacheCreationInputTokens,
-		Audit: rec.audit,
+		Audit: rec.audit, AuditReadError: rec.auditReadErr,
 	}
 	if rec.err != "" {
 		att.Error = rec.err
