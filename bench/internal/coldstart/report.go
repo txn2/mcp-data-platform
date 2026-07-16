@@ -229,35 +229,13 @@ type Results struct {
 func (res *Results) Aggregate() {
 	m := Metrics{Lessons: len(res.Lessons), Checkpoints: len(res.Checkpoints)}
 	for _, l := range res.Lessons {
-		if boolTrue(l.Captured) {
-			m.LessonsCaptured++
-		}
-		if boolTrue(l.Promoted) {
-			m.LessonsPromoted++
-		}
-		if l.Error != "" {
-			m.HarnessFailures++
-		}
-		if l.Episode.AuditReadError != "" {
-			m.AuditReadFailures++
-		}
-		m.TotalInputTokens += l.Episode.InputTokens
-		m.TotalOutputTokens += l.Episode.OutputTokens
-		m.TotalCacheReadTokens += l.Episode.CacheReadTokens
-		m.TotalCacheCreationTokens += l.Episode.CacheCreationTokens
+		m.foldLesson(l)
 	}
 	for i := range res.Checkpoints {
 		res.Checkpoints[i].aggregate()
 		m.HarnessFailures += res.Checkpoints[i].HarnessFailures
 		for _, a := range res.Checkpoints[i].Attempts {
-			m.EvalMemoryWrites += a.MemoryWrites
-			if a.AuditReadError != "" {
-				m.AuditReadFailures++
-			}
-			m.TotalInputTokens += a.InputTokens
-			m.TotalOutputTokens += a.OutputTokens
-			m.TotalCacheReadTokens += a.CacheReadTokens
-			m.TotalCacheCreationTokens += a.CacheCreationTokens
+			m.foldAttempt(a)
 		}
 	}
 	if len(res.Checkpoints) > 0 {
@@ -268,6 +246,40 @@ func (res *Results) Aggregate() {
 		m.BaselineCoverage, m.FinalCoverage = first.EnrichmentCoverage, last.EnrichmentCoverage
 	}
 	res.Metrics = m
+}
+
+// foldLesson accumulates one lesson's outcome, validity signals, and token
+// spend into the scorecard.
+func (m *Metrics) foldLesson(l LessonRecord) {
+	if boolTrue(l.Captured) {
+		m.LessonsCaptured++
+	}
+	if boolTrue(l.Promoted) {
+		m.LessonsPromoted++
+	}
+	if l.Error != "" {
+		m.HarnessFailures++
+	}
+	if l.Episode.AuditReadError != "" {
+		m.AuditReadFailures++
+	}
+	m.TotalInputTokens += l.Episode.InputTokens
+	m.TotalOutputTokens += l.Episode.OutputTokens
+	m.TotalCacheReadTokens += l.Episode.CacheReadTokens
+	m.TotalCacheCreationTokens += l.Episode.CacheCreationTokens
+}
+
+// foldAttempt accumulates one eval attempt's validity signals and token spend
+// into the scorecard.
+func (m *Metrics) foldAttempt(a EvalAttempt) {
+	m.EvalMemoryWrites += a.MemoryWrites
+	if a.AuditReadError != "" {
+		m.AuditReadFailures++
+	}
+	m.TotalInputTokens += a.InputTokens
+	m.TotalOutputTokens += a.OutputTokens
+	m.TotalCacheReadTokens += a.CacheReadTokens
+	m.TotalCacheCreationTokens += a.CacheCreationTokens
 }
 
 // distinctTasks counts the unique task IDs in a checkpoint's attempts (the eval

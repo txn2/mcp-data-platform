@@ -448,7 +448,7 @@ verify-release: verify mutate
 ## verify: Run the CI-equivalent per-commit suite (test, lint, security, SAST, coverage, release)
 ## NOTE: mutation testing is intentionally excluded — it lives in verify-release.
 ## Do not add `mutate` back to this per-commit target.
-verify: tools-check fmt swagger-check embed-clean test migrate-check test-realdb frontend-test frontend-lint frontend-e2e lint security semgrep codeql coverage-report patch-coverage doc-check emdash-check dead-code release-check
+verify: tools-check fmt swagger-check embed-clean test migrate-check test-realdb frontend-test frontend-lint frontend-e2e lint bench-test bench-lint security semgrep codeql coverage-report patch-coverage doc-check emdash-check dead-code release-check
 	@echo ""
 	@echo "=== All checks passed ==="
 	@# Write the gate sentinel: the short SHA-256 of the working-tree diff
@@ -1049,3 +1049,16 @@ bench-down:
 bench-test:
 	@echo "Testing the benchmark module..."
 	@cd bench && $(GO) build ./... && $(GO) vet ./... && $(GO) test ./...
+
+## bench-lint: Full-module lint of the bench/ harness
+##
+## Mirrors CI's "Harness module checks" job, which runs golangci-lint over the
+## whole bench module with NO only-new-issues scoping — unlike the main-module
+## `lint` target, whose --new-from-patch scoping cannot see a finding that
+## anchors on an unchanged line (e.g. a gocognit report on a func declaration
+## whose body grew). bench/ is a separate Go module, so the root `lint` never
+## reaches it at all; without this target a bench lint finding surfaces only
+## in CI (PR #978's gocognit failure was exactly this gap).
+bench-lint:
+	@echo "Linting the benchmark module (full module, matching CI's harness job)..."
+	@cd bench && $(GOLINT) run ./...

@@ -25,11 +25,21 @@ go build ./... && go vet ./... && go test ./...
 golangci-lint run ./...
 ```
 
-Or from the repo root: `make bench-test`.
+Or from the repo root: `make bench-test` and `make bench-lint`. Both are part
+of `make verify`: they are pure module checks (build, vet, test, full-module
+lint) that mirror CI's "Harness module checks" job, and because this module is
+outside the root `./...`, the root `lint`/`test` targets never reach it — a
+bench-only finding would otherwise surface first in CI (the `bench-lint` full-
+module scope also matters: the root lint's --new-from-patch scoping cannot see
+a finding anchored on an unchanged line, such as a gocognit report on a func
+whose body grew).
 
-Like mutation and load testing, benchmarking is **deliberately not part of
-`make verify`** — it stands up Docker services, a real server binary, and (for
-real runs) a model API. Do not add `bench-*` to the `verify` target.
+Like mutation and load testing, benchmark **runs** are deliberately not part of
+`make verify` — they stand up Docker services, a real server binary, and (for
+real runs) a model API. Do not add the stack-dependent `bench-*` run targets
+(`bench-up`, `bench-run`, `bench-smoke`, the lifecycle/supersede/cold-start
+runs) to the `verify` target; `bench-test` and `bench-lint` are the only
+exceptions because they touch nothing outside the module.
 
 ## Arms
 
