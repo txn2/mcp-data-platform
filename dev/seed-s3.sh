@@ -6,7 +6,8 @@
 # This prevents clearing generated thumbnails on every dev restart.
 set -euo pipefail
 
-API="http://localhost:8080"
+# DEV_API_PORT is exported by dev/start.sh (auto-relocated when 8080 is busy).
+API="http://localhost:${DEV_API_PORT:-8080}"
 API_KEY="acme-dev-key-2024"
 CONTENT_DIR="dev/seed-content"
 
@@ -33,3 +34,23 @@ upload "asset-003" "$CONTENT_DIR/asset-003.jsx"
 upload "asset-004" "$CONTENT_DIR/asset-004.md"
 upload "asset-005" "$CONTENT_DIR/asset-005.svg"
 upload "asset-006" "$CONTENT_DIR/asset-006.html"
+
+# Content for the 120 generated demo assets (seed-0001..0120 from seed.sql).
+# Reuse the five content files, cycled by the same (n % 5) index used in the
+# SQL so each generated asset's bytes match its content_type. Uploaded in
+# parallel batches so this stays a few seconds, not a minute of serial curls.
+# The GET-404 skip in upload() makes reruns a no-op (preserves thumbnails).
+GENERATED_CONTENT=(
+  "$CONTENT_DIR/asset-001.html"  # n % 5 == 0  -> text/html
+  "$CONTENT_DIR/asset-002.csv"   # n % 5 == 1  -> text/csv
+  "$CONTENT_DIR/asset-003.jsx"   # n % 5 == 2  -> text/jsx
+  "$CONTENT_DIR/asset-004.md"    # n % 5 == 3  -> text/markdown
+  "$CONTENT_DIR/asset-005.svg"   # n % 5 == 4  -> image/svg+xml
+)
+for n in $(seq 1 120); do
+  id=$(printf 'seed-%04d' "$n")
+  upload "$id" "${GENERATED_CONTENT[$((n % 5))]}" &
+  # Cap concurrency so we do not open 120 sockets at once.
+  if [ "$((n % 16))" -eq 0 ]; then wait; fi
+done
+wait

@@ -7,6 +7,17 @@
 # of truth is dev/platform.yaml (api_keys) and the dev Keycloak realm.
 set -euo pipefail
 
+# Load the ports resolved by the last `make dev`. start.sh auto-relocates the
+# Go API and Ollama (among others) when their defaults are held by another
+# stack; without these the banner below would print stale URLs. Falls back to
+# the defaults when the file is absent (dev never started this session).
+DEV_API_PORT=8080
+DEV_OLLAMA_PORT=11434
+if [ -f dev/.dev-ports.env ]; then
+  # shellcheck disable=SC1091
+  source dev/.dev-ports.env
+fi
+
 # Colors only when stdout is a terminal, so `make dev-info | pbcopy` and
 # log redirects stay clean.
 if [ -t 1 ]; then
@@ -18,12 +29,12 @@ fi
 echo -e "${BOLD}${GREEN}Local dev login${NC}"
 echo ""
 echo -e "  Portal UI:    ${CYAN}http://localhost:5173/portal/${NC}"
-echo -e "  Go API:       ${CYAN}http://localhost:8080${NC}"
+echo -e "  Go API:       ${CYAN}http://localhost:${DEV_API_PORT}${NC}"
 echo -e "  API key:      ${CYAN}acme-dev-key-2024${NC}   (send as ${BOLD}X-API-Key${NC} header)"
 echo ""
 echo -e "  ${BOLD}Portal sign-in (Keycloak OIDC)${NC}"
 echo -e "    ${CYAN}admin@example.com${NC}   / ${CYAN}admin-password${NC}    (dp_admin)"
 echo -e "    ${CYAN}analyst@example.com${NC} / ${CYAN}analyst-password${NC}  (dp_analyst)"
 echo -e "  Keycloak admin console: ${CYAN}http://localhost:9090/admin${NC}  (admin / admin)"
-echo -e "  Ollama embedder:        ${CYAN}http://localhost:11434${NC}  (model: nomic-embed-text — powers semantic indexing)"
+echo -e "  Ollama embedder:        ${CYAN}http://localhost:${DEV_OLLAMA_PORT}${NC}  (model: nomic-embed-text — powers semantic indexing)"
 echo ""

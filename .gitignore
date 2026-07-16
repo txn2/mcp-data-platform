@@ -82,3 +82,6 @@ internal/contentviewer/dist/*
 
 # Claude Code session files
 .claude/
+
+# Resolved dev ports written by dev/start.sh (auto-relocation)
+dev/.dev-ports.env

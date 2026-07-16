@@ -11,7 +11,8 @@
 --   50 fresh audit events within the last hour (new each restart)
 --   8 knowledge insights in various states
 --   2 knowledge changesets (1 applied, 1 rolled back)
---   6 portal assets with versions and shares
+--   6 curated portal assets (with versions and shares) + 120 generated demo
+--     assets so the library exercises pagination (126 total under "Mine")
 --   3 portal collections with sections, items, and a public share
 
 -- ============================================================================
@@ -560,6 +561,36 @@ ON CONFLICT (id) DO UPDATE SET
   description = EXCLUDED.description,
   content_type = EXCLUDED.content_type,
   tags = EXCLUDED.tags;
+
+-- Bulk demo assets (120) so the portal library has enough volume to exercise
+-- pagination / "Load more" out of the box — six assets never surfaced the
+-- 50-per-page behaviour. All owned by apikey:admin (the acme-dev-key-2024 API
+-- key, so they show under "Mine"), content type cycled through the five kinds,
+-- created_at staggered by the hour so created_at DESC ordering is stable.
+-- Content is uploaded per asset by seed-s3.sh (reusing the five content files),
+-- so the placeholder s3_key here is replaced by a real versioned key on upload.
+INSERT INTO portal_assets (
+  id, owner_id, owner_email, name, description, content_type,
+  s3_bucket, s3_key, size_bytes, tags, provenance, session_id,
+  current_version, created_at, updated_at
+)
+SELECT
+  'seed-' || lpad(n::text, 4, '0'),
+  'apikey:admin', 'admin@apikey.local',
+  (ARRAY['Sales Dashboard','Inventory Export','Store Comparison','Pipeline Notes','Regional Heatmap'])[(n % 5) + 1]
+    || ' ' || lpad(n::text, 4, '0'),
+  'Generated demo asset #' || n || ' — seeded so the portal library exercises pagination.',
+  (ARRAY['text/html','text/csv','text/jsx','text/markdown','image/svg+xml'])[(n % 5) + 1],
+  'portal-assets',
+  'portal/apikey:admin/seed-' || lpad(n::text, 4, '0') || '/v1/content'
+    || (ARRAY['.html','.csv','.jsx','.md','.svg'])[(n % 5) + 1],
+  (ARRAY[4280, 15720, 6340, 2890, 8150])[(n % 5) + 1],
+  jsonb_build_array('demo', (ARRAY['sales','inventory','stores','pipeline','regional'])[(n % 5) + 1]),
+  '{"tool": "save_artifact", "session_id": "sess-demo"}'::jsonb,
+  'sess-demo-' || n, 1,
+  NOW() - (n || ' hours')::interval, NOW() - (n || ' hours')::interval
+FROM generate_series(1, 120) AS n
+ON CONFLICT (id) DO NOTHING;
 
 -- Asset versions (one per asset, matching the current_version=1)
 INSERT INTO portal_asset_versions (

@@ -107,16 +107,67 @@ if [ ! -d ui/node_modules ]; then
 fi
 ok "UI dependencies ready"
 
-# Port checks (8080 = platform, 5173 = vite, 5432 = postgres,
-# 9000 = seaweedfs, 9090 = keycloak, 9091 = prometheus, 9180 = dev-mcp-mock
-# OAuth, 9181 = dev-mcp-mock MCP, 9281 = mcp-test fixture, 9282 = api-test
-# fixture, 9464 = platform /metrics scrape endpoint, 11434 = ollama embedder)
-for port in 5432 8080 5173 9000 9090 9091 9180 9181 9281 9282 9464 11434; do
+# ─── Auto-relocate the conflicting host ports ───────────────────────
+#
+# The four infrastructure ports below are the ones that commonly collide
+# with OTHER stacks a developer runs alongside `make dev` — a leftover e2e
+# Postgres/SeaweedFS on 5432/9000, a DataHub quickstart on 8080, a native
+# Ollama on 11434. Those neighbours bind 0.0.0.0, so a specific-IP bind on
+# the same port number cannot dodge them: the only reliable fix is to move
+# to different port NUMBERS. When any of the four is busy we shift all four
+# together by a uniform offset to the first free window, and thread the
+# resolved ports through docker-compose, platform.yaml, the fixtures, Vite,
+# and every curl below via the exported DEV_*_PORT vars.
+#
+# Keycloak (9090), Vite (5173), Prometheus (9091), the metrics endpoint
+# (9464), and the mock/fixtures (9180/9181/9281/9282) are deliberately NOT
+# relocated: they are rarely contended, and their ports are baked into the
+# Keycloak realm's OIDC redirect URIs and the Prometheus scrape target.
+# Moving the API port stays invisible to OIDC because the browser always
+# reaches the server through Vite's proxy on :5173.
+port_free() { ! lsof -nP -iTCP:"$1" -sTCP:LISTEN > /dev/null 2>&1; }
+
+RELOC_BASE=(5432 8080 9000 11434)   # pg, api, s3, ollama
+DEV_OFFSET=0
+NEED_SHIFT=0
+for p in "${RELOC_BASE[@]}"; do port_free "$p" || NEED_SHIFT=1; done
+if [ "$NEED_SHIFT" = 1 ]; then
+  for off in 20000 30000 40000 50000; do
+    all_free=1
+    for p in "${RELOC_BASE[@]}"; do port_free $((p + off)) || { all_free=0; break; }; done
+    if [ "$all_free" = 1 ]; then DEV_OFFSET=$off; break; fi
+  done
+  if [ "$DEV_OFFSET" = 0 ]; then
+    fail "Could not find a free port window for the dev stack (tried offsets 20000-50000). Stop a conflicting stack or free ports 5432/8080/9000/11434."
+  fi
+fi
+export DEV_PG_PORT=$((5432 + DEV_OFFSET))
+export DEV_API_PORT=$((8080 + DEV_OFFSET))
+export DEV_S3_PORT=$((9000 + DEV_OFFSET))
+export DEV_OLLAMA_PORT=$((11434 + DEV_OFFSET))
+# Persist the resolved ports so `make dev-info` (a separate process that does
+# not inherit these exports) reprints the correct, possibly-relocated URLs.
+# Gitignored; overwritten each run.
+cat > dev/.dev-ports.env <<EOF
+DEV_OFFSET=$DEV_OFFSET
+DEV_PG_PORT=$DEV_PG_PORT
+DEV_API_PORT=$DEV_API_PORT
+DEV_S3_PORT=$DEV_S3_PORT
+DEV_OLLAMA_PORT=$DEV_OLLAMA_PORT
+EOF
+if [ "$DEV_OFFSET" != 0 ]; then
+  info "Default ports busy — relocated the dev stack by +$DEV_OFFSET (pg:$DEV_PG_PORT api:$DEV_API_PORT s3:$DEV_S3_PORT ollama:$DEV_OLLAMA_PORT)"
+fi
+
+# Port checks. The four relocatable ports use their resolved values; the
+# fixed ports (5173 vite, 9090 keycloak, 9091 prometheus, 9180/9181 mock,
+# 9281/9282 fixtures, 9464 metrics) still fail loudly if contended.
+for port in "$DEV_PG_PORT" "$DEV_API_PORT" 5173 "$DEV_S3_PORT" 9090 9091 9180 9181 9281 9282 9464 "$DEV_OLLAMA_PORT"; do
   if lsof -i ":$port" -sTCP:LISTEN > /dev/null 2>&1; then
     fail "$(port_conflict_msg "$port")"
   fi
 done
-ok "Ports 5432, 8080, 5173, 9000, 9090, 9091, 9180, 9181, 9281, 9282, 9464, 11434 are free"
+ok "Dev ports free (pg:$DEV_PG_PORT api:$DEV_API_PORT vite:5173 s3:$DEV_S3_PORT ollama:$DEV_OLLAMA_PORT + keycloak/prometheus/fixtures)"
 
 echo ""
 
@@ -145,7 +196,7 @@ for i in $(seq 1 60); do
   fi
   sleep 1
 done
-ok "PostgreSQL ready on :5432"
+ok "PostgreSQL ready on :$DEV_PG_PORT"
 
 # Idempotently ensure the auxiliary databases exist. The fixture init
 # script creates these on first volume bring-up; this block handles
@@ -171,7 +222,7 @@ docker compose -f dev/docker-compose.yml up -d 2>&1 | grep -v "^$" | sed 's/^/  
 # Wait for SeaweedFS (S3 returns 403 on GET /, so check for any HTTP response)
 info "Waiting for SeaweedFS..."
 for i in $(seq 1 30); do
-  HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:9000/ 2>/dev/null || echo "000")
+  HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:$DEV_S3_PORT/ 2>/dev/null || echo "000")
   if [ "$HTTP_CODE" != "000" ]; then
     break
   fi
@@ -180,7 +231,7 @@ for i in $(seq 1 30); do
   fi
   sleep 1
 done
-ok "SeaweedFS ready on :9000"
+ok "SeaweedFS ready on :$DEV_S3_PORT"
 
 # Wait for Prometheus (powers the admin Dashboard's API Gateway tab via
 # the platform's PromQL proxy). Scrapes the platform's /metrics on the
@@ -248,14 +299,14 @@ ok "api-test fixture ready on :9282"
 info "Waiting for Ollama embedder..."
 OLLAMA_READY=""
 for i in $(seq 1 60); do
-  if curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; then
+  if curl -sf http://localhost:$DEV_OLLAMA_PORT/api/tags > /dev/null 2>&1; then
     OLLAMA_READY=1
     break
   fi
   sleep 1
 done
 if [ -n "$OLLAMA_READY" ]; then
-  ok "Ollama ready on :11434"
+  ok "Ollama ready on :$DEV_OLLAMA_PORT"
   # Pull the embedding model the platform is configured to use. Cached in the
   # acme_ollama_data volume after the first run, so this is a fast no-op on
   # subsequent `make dev` runs.
@@ -276,9 +327,9 @@ if which aws > /dev/null 2>&1; then
   info "Creating S3 bucket..."
   for i in $(seq 1 30); do
     if AWS_ACCESS_KEY_ID=dev-access-key AWS_SECRET_ACCESS_KEY=dev-secret-key \
-       aws --endpoint-url http://localhost:9000 s3 ls s3://portal-assets 2>/dev/null || \
+       aws --endpoint-url http://localhost:$DEV_S3_PORT s3 ls s3://portal-assets 2>/dev/null || \
        AWS_ACCESS_KEY_ID=dev-access-key AWS_SECRET_ACCESS_KEY=dev-secret-key \
-       aws --endpoint-url http://localhost:9000 s3 mb s3://portal-assets 2>/dev/null; then
+       aws --endpoint-url http://localhost:$DEV_S3_PORT s3 mb s3://portal-assets 2>/dev/null; then
       break
     fi
     if [ "$i" -eq 30 ]; then
@@ -328,7 +379,7 @@ PIDS+=($!)
 # Wait for server health
 info "Building and starting server (this may take a moment on first run)..."
 for i in $(seq 1 60); do
-  if curl -sf http://localhost:8080/healthz > /dev/null 2>&1; then
+  if curl -sf http://localhost:$DEV_API_PORT/healthz > /dev/null 2>&1; then
     break
   fi
   if [ "$i" -eq 60 ]; then
@@ -338,7 +389,7 @@ for i in $(seq 1 60); do
   fi
   sleep 1
 done
-ok "Go server ready on :8080"
+ok "Go server ready on :$DEV_API_PORT"
 
 echo ""
 
@@ -370,7 +421,7 @@ DEVMOCK_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
   -H "X-API-Key: acme-dev-key-2024" \
   -H "Content-Type: application/json" \
   -d "$DEVMOCK_BODY" \
-  http://localhost:8080/api/v1/admin/connection-instances/mcp/dev-mock || echo "000")
+  http://localhost:$DEV_API_PORT/api/v1/admin/connection-instances/mcp/dev-mock || echo "000")
 if [ "$DEVMOCK_HTTP" = "200" ] || [ "$DEVMOCK_HTTP" = "201" ]; then
   ok "dev-mock gateway connection registered (tools: dev-mock__echo, dev-mock__add, dev-mock__now)"
 else
@@ -405,7 +456,7 @@ MCPTEST_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
   -H "X-API-Key: acme-dev-key-2024" \
   -H "Content-Type: application/json" \
   -d "$MCPTEST_BODY" \
-  http://localhost:8080/api/v1/admin/connection-instances/mcp/mcp-test-fixture || echo "000")
+  http://localhost:$DEV_API_PORT/api/v1/admin/connection-instances/mcp/mcp-test-fixture || echo "000")
 if [ "$MCPTEST_HTTP" = "200" ] || [ "$MCPTEST_HTTP" = "201" ]; then
   ok "mcp-test fixture connection registered (tools: mcp-test-fixture__*)"
 else
@@ -461,7 +512,7 @@ print(json.dumps({
     -H "X-API-Key: acme-dev-key-2024" \
     -H "Content-Type: application/json" \
     -d "$APITEST_CATALOG_BODY" \
-    http://localhost:8080/api/v1/admin/api-catalogs || echo "000")
+    http://localhost:$DEV_API_PORT/api/v1/admin/api-catalogs || echo "000")
   case "$CATALOG_HTTP" in
     200|201) ok "api-test-fixture catalog created" ;;
     409)     ok "api-test-fixture catalog already exists (reusing)" ;;
@@ -481,7 +532,7 @@ print(json.dumps({
       -H "X-API-Key: acme-dev-key-2024" \
       -H "Content-Type: application/json" \
       -d "$APITEST_SPEC_BODY" \
-      "http://localhost:8080/api/v1/admin/api-catalogs/${APITEST_CATALOG_ID}/specs/default" || echo "000")
+      "http://localhost:$DEV_API_PORT/api/v1/admin/api-catalogs/${APITEST_CATALOG_ID}/specs/default" || echo "000")
     case "$SPEC_HTTP" in
       200|201|204)
         ok "default spec upserted into api-test-fixture catalog"
@@ -524,7 +575,7 @@ APITEST_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
   -H "X-API-Key: acme-dev-key-2024" \
   -H "Content-Type: application/json" \
   -d "$APITEST_BODY" \
-  http://localhost:8080/api/v1/admin/connection-instances/api/api-test-fixture || echo "000")
+  http://localhost:$DEV_API_PORT/api/v1/admin/connection-instances/api/api-test-fixture || echo "000")
 if [ "$APITEST_HTTP" = "200" ] || [ "$APITEST_HTTP" = "201" ]; then
   if [ "$APITEST_CATALOG_READY" = "1" ]; then
     ok "api-test fixture connection registered with catalog ${APITEST_CATALOG_ID} (api_list_endpoints will resolve)"
@@ -549,7 +600,7 @@ OAUTH_MCP_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
   -H "X-API-Key: acme-dev-key-2024" \
   -H "Content-Type: application/json" \
   -d "$OAUTH_MCP_BODY" \
-  http://localhost:8080/api/v1/admin/connection-instances/mcp/oauth-mcp-dev || echo "000")
+  http://localhost:$DEV_API_PORT/api/v1/admin/connection-instances/mcp/oauth-mcp-dev || echo "000")
 if [ "$OAUTH_MCP_HTTP" = "200" ] || [ "$OAUTH_MCP_HTTP" = "201" ]; then
   ok "oauth-mcp-dev connection registered (kind=mcp, authorization_code, IdP :9180)"
 else
@@ -587,7 +638,7 @@ OAUTH_API_HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
   -H "X-API-Key: acme-dev-key-2024" \
   -H "Content-Type: application/json" \
   -d "$OAUTH_API_BODY" \
-  http://localhost:8080/api/v1/admin/connection-instances/api/oauth-api-dev || echo "000")
+  http://localhost:$DEV_API_PORT/api/v1/admin/connection-instances/api/oauth-api-dev || echo "000")
 if [ "$OAUTH_API_HTTP" = "200" ] || [ "$OAUTH_API_HTTP" = "201" ]; then
   ok "oauth-api-dev connection registered (kind=api, authorization_code, IdP :9180)"
 else
@@ -637,7 +688,7 @@ print(json.dumps({"config": cfg, "description": "Dev demo: %s (api-test fixture)
 ')
   code=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
     -H "X-API-Key: acme-dev-key-2024" -H "Content-Type: application/json" \
-    -d "$body" "http://localhost:8080/api/v1/admin/connection-instances/api/$name" || echo "000")
+    -d "$body" "http://localhost:$DEV_API_PORT/api/v1/admin/connection-instances/api/$name" || echo "000")
   case "$code" in
     200|201) ok "demo connection '$name' registered" ;;
     *) echo -e "  ${YELLOW}⚠${NC} demo connection '$name' register returned HTTP $code" ;;
@@ -653,12 +704,12 @@ gw() { # conn method path [bodyjson]
   curl -s --max-time 5 -o /dev/null -X POST \
     -H "X-API-Key: acme-dev-key-2024" -H "Content-Type: application/json" \
     -d "{\"method\":\"$2\",\"path\":\"$3\"${4:+,\"body\":$4}}" \
-    "http://localhost:8080/api/v1/gateway/$1/invoke" 2>/dev/null || true
+    "http://localhost:$DEV_API_PORT/api/v1/gateway/$1/invoke" 2>/dev/null || true
 }
 gw_bad() { # conn -> malformed body, shim returns 400 (status_class 4xx)
   curl -s --max-time 5 -o /dev/null -X POST \
     -H "X-API-Key: acme-dev-key-2024" -H "Content-Type: application/json" \
-    -d 'not-json' "http://localhost:8080/api/v1/gateway/$1/invoke" 2>/dev/null || true
+    -d 'not-json' "http://localhost:$DEV_API_PORT/api/v1/gateway/$1/invoke" 2>/dev/null || true
 }
 gw_burst() { # conn
   gw "$1" GET /v1/whoami;  gw "$1" GET /v1/headers;    gw "$1" GET /v1/fixed/demo
@@ -680,7 +731,7 @@ gw_burst() { # conn
       code=$(curl -s --max-time 5 -o /dev/null -w "%{http_code}" -X POST \
         -H "X-API-Key: acme-dev-key-2024" -H "Content-Type: application/json" \
         -d '{"method":"GET","path":"/v1/whoami"}' \
-        "http://localhost:8080/api/v1/gateway/$c/invoke" 2>/dev/null || echo "000")
+        "http://localhost:$DEV_API_PORT/api/v1/gateway/$c/invoke" 2>/dev/null || echo "000")
       [ "$code" = "200" ] && break
       sleep 1
     done
@@ -717,7 +768,10 @@ echo ""
 # ─── Start Vite dev server ──────────────────────────────────────────
 
 echo -e "${BOLD}Starting Vite UI${NC}"
-(cd ui && npm run dev -- --clearScreen false 2>&1) &
+# VITE_API_TARGET points Vite's /api and /portal/auth proxies at the (possibly
+# relocated) Go server. Vite itself stays on :5173 so the Keycloak realm's
+# OIDC redirect URIs (localhost:5173) keep matching regardless of the API port.
+(cd ui && VITE_API_TARGET="http://localhost:$DEV_API_PORT" npm run dev -- --clearScreen false 2>&1) &
 PIDS+=($!)
 
 # Wait for Vite
@@ -741,8 +795,13 @@ echo -e "${BOLD}${GREEN}  Development environment ready${NC}"
 echo -e "${BOLD}${GREEN}══════════════════════════════════════════${NC}"
 echo ""
 echo -e "  Portal UI:        ${CYAN}http://localhost:5173/portal/${NC}"
-echo -e "  Go API:           ${CYAN}http://localhost:8080${NC}"
+echo -e "  Go API:           ${CYAN}http://localhost:$DEV_API_PORT${NC}"
+echo -e "  Postgres:         ${CYAN}localhost:$DEV_PG_PORT${NC} (platform / platform_secret, db mcp_platform)"
+echo -e "  S3 (SeaweedFS):   ${CYAN}http://localhost:$DEV_S3_PORT${NC}"
 echo -e "  API Key:          ${CYAN}acme-dev-key-2024${NC}"
+if [ "$DEV_OFFSET" != 0 ]; then
+  echo -e "  ${YELLOW}Ports relocated +$DEV_OFFSET${NC} (5432/8080/9000/11434 were busy) — coexisting with your other stacks."
+fi
 echo -e "  Metrics:          ${CYAN}http://localhost:9464/metrics${NC} (scraped by Prometheus)"
 echo -e "  Prometheus:       ${CYAN}http://localhost:9091${NC}"
 echo ""
