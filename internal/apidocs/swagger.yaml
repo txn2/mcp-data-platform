@@ -379,6 +379,15 @@ definitions:
       version:
         type: string
     type: object
+  admin.changelogListResponse:
+    properties:
+      entries:
+        items:
+          $ref: '#/definitions/configstore.ChangelogEntry'
+        type: array
+      total:
+        type: integer
+    type: object
   admin.changesetListResponse:
     properties:
       data:
@@ -5332,16 +5341,24 @@ paths:
       - Config
   /admin/config/changelog:
     get:
-      description: Returns recent config change history entries.
+      description: Returns a page of config change history entries, newest first,
+        with the total count.
+      parameters:
+      - description: Max entries to return (default 50, max 200)
+        in: query
+        name: limit
+        type: integer
+      - description: Pagination offset (default 0)
+        in: query
+        name: offset
+        type: integer
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            items:
-              $ref: '#/definitions/configstore.ChangelogEntry'
-            type: array
+            $ref: '#/definitions/admin.changelogListResponse'
         "500":
           description: Internal Server Error
           schema:
@@ -10931,6 +10948,10 @@ paths:
         in: query
         name: q
         type: string
+      - description: Max results to return (default 100, max 200)
+        in: query
+        name: limit
+        type: integer
       - description: Pagination offset (default 0)
         in: query
         name: offset

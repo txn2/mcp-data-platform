@@ -4,6 +4,11 @@ import {
   useQueryClient,
   keepPreviousData,
 } from "@tanstack/react-query";
+import {
+  useOffsetInfiniteQuery,
+  toPaginated,
+  type InfiniteResult,
+} from "@/api/portal/hooks/infinite";
 import { apiFetch, apiFetchRaw } from "../client";
 import type { PromptListResponse, Prompt } from "../types";
 import { REFETCH_INTERVAL } from "./shared";
@@ -117,6 +122,36 @@ export function useDirectoryUsers(q?: string) {
     queryKey: ["users", q ?? ""],
     queryFn: () =>
       apiFetch<import("../types").UserListResponse>(`/users${query}`),
+  });
+}
+
+// USER_PAGE_SIZE is the number of directory users requested per page. It stays
+// at/under the admin store's hard cap (100) so the requested window is honored
+// and the directory loads incrementally rather than capping at one page (#972).
+export const USER_PAGE_SIZE = 50;
+
+const directoryUserKey = (u: import("../types").DirectoryUser): string => u.email;
+
+// useInfiniteDirectoryUsers is the paginated counterpart of useDirectoryUsers: it
+// accumulates pages so a deployment with more than one page of users can reach
+// all of them. The endpoint returns a `{users,total}` envelope, adapted to the
+// shared PaginatedResponse shape here. `q` narrows the directory server-side.
+export function useInfiniteDirectoryUsers(
+  q?: string,
+): InfiniteResult<import("../types").DirectoryUser> {
+  return useOffsetInfiniteQuery<import("../types").DirectoryUser>({
+    queryKey: ["users", "infinite", q ?? ""],
+    pageSize: USER_PAGE_SIZE,
+    keyOf: directoryUserKey,
+    fetchPage: (offset, limit) => {
+      const sp = new URLSearchParams();
+      if (q) sp.set("q", q);
+      sp.set("limit", String(limit));
+      sp.set("offset", String(offset));
+      return apiFetch<import("../types").UserListResponse>(
+        `/users?${sp.toString()}`,
+      ).then((r) => toPaginated(r.users, r.total, limit, offset));
+    },
   });
 }
 

@@ -10,9 +10,10 @@ import {
   FileText,
   Loader2,
 } from "lucide-react";
-import { useResources } from "@/api/resources/hooks";
+import { useInfiniteResources } from "@/api/resources/hooks";
 import { useAuthStore } from "@/stores/auth";
 import { usePersonas } from "@/api/admin/hooks";
+import { InfiniteFooter } from "@/components/InfiniteFooter";
 import { formatBytes } from "@/lib/format";
 import type { Resource } from "@/api/resources/types";
 import { CATEGORIES, scopeIcon, scopeLabel } from "./modals/shared";
@@ -85,9 +86,10 @@ export function ResourcesPage({ admin }: Props) {
     }
   }
 
-  const { data, isLoading } = useResources(queryParams);
+  const { data, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage } =
+    useInfiniteResources(queryParams);
 
-  const resources = data?.resources ?? [];
+  const resources = data?.data ?? [];
   const total = data?.total ?? 0;
 
   // Build tabs based on mode.
@@ -264,6 +266,12 @@ export function ResourcesPage({ admin }: Props) {
           </table>
         </div>
       )}
+
+      <InfiniteFooter
+        hasMore={hasNextPage}
+        isLoadingMore={isFetchingNextPage}
+        onLoadMore={fetchNextPage}
+      />
 
       {total > resources.length && (
         <p className="text-sm text-muted-foreground text-center">

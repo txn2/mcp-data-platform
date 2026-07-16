@@ -140,6 +140,39 @@ func TestPostgresStore_List(t *testing.T) {
 	}
 }
 
+func TestPostgresStore_List_ClampsLimit(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+
+	store := NewPostgresStore(db)
+
+	mock.ExpectQuery("SELECT COUNT").WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	// A client-supplied limit above MaxListLimit must reach the SELECT clamped to
+	// MaxListLimit (the scope arg, then the clamped limit, then the offset).
+	rows := sqlmock.NewRows([]string{
+		"id", "scope", "scope_id", "category", "filename", "display_name", "description",
+		"mime_type", "size_bytes", "s3_key", "uri", "tags", "uploader_sub", "uploader_email",
+		"created_at", "updated_at",
+	})
+	mock.ExpectQuery("SELECT .+ FROM resources WHERE").
+		WithArgs(string(ScopeGlobal), MaxListLimit, 7).
+		WillReturnRows(rows)
+
+	if _, _, err := store.List(context.Background(), Filter{
+		Scopes: []ScopeFilter{{Scope: ScopeGlobal}},
+		Limit:  MaxListLimit + 5000,
+		Offset: 7,
+	}); err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet expectations: %v", err)
+	}
+}
+
 func TestPostgresStore_List_EmptyScopes(t *testing.T) {
 	db, _, err := sqlmock.New()
 	if err != nil {

@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import {
-  useDirectoryUsers,
+  useInfiniteDirectoryUsers,
   useCreateUser,
   useUpdateUser,
   useDeleteUser,
@@ -8,6 +8,7 @@ import {
 } from "@/api/admin/hooks";
 import type { DirectoryUser } from "@/api/admin/types";
 import { cn } from "@/lib/utils";
+import { InfiniteFooter } from "@/components/InfiniteFooter";
 import { Plus, Trash2, X, Contact, ChevronUp, Pencil, Check, Search } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -33,8 +34,11 @@ export function UsersPanel() {
   const isReadOnly = systemInfo?.config_mode === "file";
 
   const [query, setQuery] = useState("");
-  const { data: userList, isLoading } = useDirectoryUsers(query.trim() || undefined);
-  const users = userList?.users ?? [];
+  // The directory paginates so a deployment with more than one page of users can
+  // reach all of them (#972); `query` narrows server-side.
+  const { data, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage } =
+    useInfiniteDirectoryUsers(query.trim() || undefined);
+  const users = data?.data ?? [];
 
   const [showForm, setShowForm] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
@@ -143,6 +147,15 @@ export function UsersPanel() {
               ))}
             </tbody>
           </table>
+        )}
+        {users.length > 0 && (
+          <div className="p-3">
+            <InfiniteFooter
+              hasMore={hasNextPage}
+              isLoadingMore={isFetchingNextPage}
+              onLoadMore={fetchNextPage}
+            />
+          </div>
         )}
       </div>
     </div>

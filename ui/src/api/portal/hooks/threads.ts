@@ -1,5 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
+import {
+  useOffsetInfiniteQuery,
+  paginatedFetch,
+  type InfiniteResult,
+} from "./infinite";
 import type {
   PaginatedResponse,
   Thread,
@@ -15,6 +20,14 @@ import type {
   ThreadCounts,
   SignoffSummary,
 } from "../types";
+
+// THREAD_PAGE_SIZE matches the server-side default thread window and stays under
+// the API max (200), so the feedback lists load incrementally rather than
+// capping at a single page (#972).
+export const THREAD_PAGE_SIZE = 50;
+
+const threadKey = (t: ThreadWithMeta): string => t.id;
+const activityKey = (t: ThreadActivityItem): string => t.id;
 
 // --- Feedback threads (#601) ---
 
@@ -60,6 +73,29 @@ export function useThreads(filter: ThreadListFilter) {
   });
 }
 
+// useInfiniteThreads is the paginated counterpart of useThreads: it accumulates
+// pages so a scope with more than one page of threads (e.g. the standalone
+// General channel) can load them all. Like useThreads it stays disabled until
+// the filter targets a scope the backend accepts.
+export function useInfiniteThreads(filter: ThreadListFilter): InfiniteResult<ThreadWithMeta> {
+  return useOffsetInfiniteQuery<ThreadWithMeta>({
+    queryKey: ["threads", "infinite", filter],
+    pageSize: THREAD_PAGE_SIZE,
+    keyOf: threadKey,
+    enabled: threadFilterScoped(filter),
+    fetchPage: (offset, limit) =>
+      paginatedFetch<ThreadWithMeta>("/threads", offset, limit, {
+        target_type: filter.target_type,
+        asset_id: filter.asset_id,
+        collection_id: filter.collection_id,
+        prompt_id: filter.prompt_id,
+        knowledge_page_id: filter.knowledge_page_id,
+        kind: filter.kind,
+        status: filter.status,
+      }),
+  });
+}
+
 export function useThread(id: string) {
   return useQuery({
     queryKey: ["thread", id],
@@ -95,6 +131,33 @@ export function useSMEWorklist(enabled = true) {
   });
 }
 
+// useInfinitePractitionerWorklist / useInfiniteSMEWorklist are the paginated
+// counterparts of the worklist hooks: they accumulate pages so a user with more
+// than one page of open work can reach all of it. The non-infinite hooks above
+// stay for lightweight tab-badge counts (Sidebar, FeedbackPage) that only need
+// the first page's total.
+export function useInfinitePractitionerWorklist(enabled = true): InfiniteResult<ThreadWithMeta> {
+  return useOffsetInfiniteQuery<ThreadWithMeta>({
+    queryKey: ["worklist", "practitioner", "infinite"],
+    pageSize: THREAD_PAGE_SIZE,
+    keyOf: threadKey,
+    enabled,
+    fetchPage: (offset, limit) =>
+      paginatedFetch<ThreadWithMeta>("/worklist/practitioner", offset, limit),
+  });
+}
+
+export function useInfiniteSMEWorklist(enabled = true): InfiniteResult<ThreadWithMeta> {
+  return useOffsetInfiniteQuery<ThreadWithMeta>({
+    queryKey: ["worklist", "sme", "infinite"],
+    pageSize: THREAD_PAGE_SIZE,
+    keyOf: threadKey,
+    enabled,
+    fetchPage: (offset, limit) =>
+      paginatedFetch<ThreadWithMeta>("/worklist/sme", offset, limit),
+  });
+}
+
 // useFeedbackActivity fetches the unified feed (#617): every feedback thread on
 // an asset, collection, or prompt the caller can view, most recent first. With
 // no push notifications, this is how a user discovers new feedback on their work.
@@ -103,6 +166,20 @@ export function useFeedbackActivity(enabled = true) {
     queryKey: ["feedback", "activity"],
     queryFn: () => apiFetch<PaginatedResponse<ThreadActivityItem>>(`/feedback/activity`),
     enabled,
+  });
+}
+
+// useInfiniteFeedbackActivity is the paginated counterpart of useFeedbackActivity:
+// it accumulates pages so a user with more than one page of recent feedback can
+// reach older threads.
+export function useInfiniteFeedbackActivity(enabled = true): InfiniteResult<ThreadActivityItem> {
+  return useOffsetInfiniteQuery<ThreadActivityItem>({
+    queryKey: ["feedback", "activity", "infinite"],
+    pageSize: THREAD_PAGE_SIZE,
+    keyOf: activityKey,
+    enabled,
+    fetchPage: (offset, limit) =>
+      paginatedFetch<ThreadActivityItem>("/feedback/activity", offset, limit),
   });
 }
 

@@ -1,5 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiFetchRaw } from "../client";
+import {
+  useOffsetInfiniteQuery,
+  toPaginated,
+  type InfiniteResult,
+} from "./infinite";
 import type { ResolvedRef } from "@/lib/entityRefs";
 import type {
   KnowledgePage,
@@ -10,6 +15,43 @@ import type {
   SearchResponse,
 } from "../types";
 import { MIN_SEARCH_LEN } from "./shared";
+
+// KNOWLEDGE_PAGE_SIZE is the number of knowledge pages requested per page. It is
+// set to the store's search-limit cap (100): any larger value collapses to the
+// store's small fallback (limit over 100 falls back to 20), so 100 is the
+// largest honored window. This makes the first page cover a whole knowledgebase
+// of up to 100 pages, strictly more than the previous fixed `limit: 200`
+// request (which the store silently collapsed to 20), while still paginating
+// beyond that. The tag facet is derived from the loaded pages and so widens as
+// more load (#972).
+export const KNOWLEDGE_PAGE_SIZE = 100;
+
+const knowledgePageKey = (p: KnowledgePage): string => p.id;
+
+// useInfiniteKnowledgePages accumulates knowledge-page list results so a
+// deployment with more than one page of pages can reach all of them. The list
+// endpoint returns a `{pages,total}` envelope, adapted to the shared
+// PaginatedResponse shape here.
+export function useInfiniteKnowledgePages(params?: {
+  tag?: string;
+  q?: string;
+}): InfiniteResult<KnowledgePage> {
+  return useOffsetInfiniteQuery<KnowledgePage>({
+    queryKey: ["knowledge-pages", "infinite", params],
+    pageSize: KNOWLEDGE_PAGE_SIZE,
+    keyOf: knowledgePageKey,
+    fetchPage: (offset, limit) => {
+      const sp = new URLSearchParams();
+      if (params?.tag) sp.set("tag", params.tag);
+      if (params?.q) sp.set("q", params.q);
+      sp.set("limit", String(limit));
+      sp.set("offset", String(offset));
+      return apiFetch<KnowledgePageListResponse>(
+        `/knowledge-pages?${sp.toString()}`,
+      ).then((r) => toPaginated(r.pages, r.total, limit, offset));
+    },
+  });
+}
 
 // --- Unified knowledge search (#661) ---
 
@@ -42,19 +84,6 @@ export function useSearch(
 }
 
 // --- Knowledge pages (#633) ---
-
-export function useKnowledgePages(params?: { tag?: string; q?: string; limit?: number; offset?: number }) {
-  const search = new URLSearchParams();
-  if (params?.tag) search.set("tag", params.tag);
-  if (params?.q) search.set("q", params.q);
-  if (params?.limit) search.set("limit", String(params.limit));
-  if (params?.offset) search.set("offset", String(params.offset));
-  const qs = search.toString();
-  return useQuery({
-    queryKey: ["knowledge-pages", params],
-    queryFn: () => apiFetch<KnowledgePageListResponse>(`/knowledge-pages${qs ? `?${qs}` : ""}`),
-  });
-}
 
 export function useKnowledgePage(id: string | null) {
   return useQuery({

@@ -3,10 +3,14 @@ import {
   useInfiniteQuery,
   useMutation,
   useQueryClient,
-  type InfiniteData,
 } from "@tanstack/react-query";
-import { useMemo } from "react";
 import { apiFetch, apiFetchRaw } from "../client";
+import {
+  nextOffset,
+  flattenPages,
+  useInfiniteResult,
+  type InfiniteResult,
+} from "./infinite";
 import type {
   Asset,
   AssetVersion,
@@ -18,6 +22,14 @@ import type {
   SharePermission,
   ScoredAsset,
 } from "../types";
+
+// Re-exported so existing importers (assets.test.ts and page components) keep
+// resolving these from "./assets" after the shared paging primitives moved to
+// ./infinite (#972).
+export { nextOffset, flattenPages, useInfiniteResult };
+export type { InfiniteResult };
+// InfiniteAssetsResult is the historical name for the flattened infinite view.
+export type InfiniteAssetsResult<T> = InfiniteResult<T>;
 
 // --- Branding (unauthenticated) ---
 
@@ -132,92 +144,6 @@ export const ASSET_PAGE_SIZE = 50;
 // across renders. A shared asset is keyed by the underlying asset id.
 export const assetKey = (a: Asset): string => a.id;
 export const sharedKey = (s: SharedAsset): string => s.asset.id;
-
-// nextOffset returns the offset for the next page: the count of rows already
-// fetched (the server offset, not the de-duplicated row count), or undefined
-// once every row has been fetched. The cap comes from the LATEST page's total
-// so rows inserted after the first fetch are still reachable, and an empty
-// trailing page ends pagination even if total is stale-high (rows deleted
-// between the count and the fetch), so "Load more" can't spin forever.
-export function nextOffset<T>(pages: PaginatedResponse<T>[]): number | undefined {
-  const last = pages[pages.length - 1];
-  if (last && last.data.length === 0) return undefined;
-  const fetched = pages.reduce((n, p) => n + p.data.length, 0);
-  return fetched < (last?.total ?? 0) ? fetched : undefined;
-}
-
-// InfiniteAssetsResult is the flattened view an infinite asset query exposes to
-// list pages: a single accumulated page (all loaded rows merged) plus the
-// controls needed to render a "Load more" affordance.
-export interface InfiniteAssetsResult<T> {
-  data: PaginatedResponse<T> | undefined;
-  isLoading: boolean;
-  hasNextPage: boolean;
-  isFetchingNextPage: boolean;
-  fetchNextPage: () => void;
-}
-
-// flattenPages merges every fetched page into one PaginatedResponse: rows are
-// concatenated in fetch order and de-duplicated by keyOf (offset paging over a
-// created_at DESC list can re-emit a row when inserts shift the window, which
-// would otherwise collide React keys and overcount), total comes from the
-// latest page (most current count), limit from the first, and per-asset share
-// summaries are unioned across pages. Returns undefined before the first page
-// resolves so callers can distinguish "loading" from "empty".
-export function flattenPages<T>(
-  pages: InfiniteData<PaginatedResponse<T>> | undefined,
-  keyOf: (item: T) => string,
-): PaginatedResponse<T> | undefined {
-  const list = pages?.pages;
-  const first = list?.[0];
-  if (!list || !first) return undefined;
-  const last = list[list.length - 1] ?? first;
-
-  const seen = new Set<string>();
-  const data: T[] = [];
-  for (const page of list) {
-    for (const item of page.data) {
-      const k = keyOf(item);
-      if (seen.has(k)) continue;
-      seen.add(k);
-      data.push(item);
-    }
-  }
-
-  return {
-    data,
-    total: last.total,
-    limit: first.limit,
-    offset: 0,
-    share_summaries: Object.assign(
-      {},
-      ...list.map((p) => p.share_summaries ?? {}),
-    ),
-  };
-}
-
-// useInfiniteResult adapts a TanStack infinite query into the flattened
-// InfiniteAssetsResult the list pages consume, so useInfiniteAssets,
-// useInfiniteSharedWithMe, and the admin variant share one merge/return path.
-export function useInfiniteResult<T>(
-  q: {
-    data: InfiniteData<PaginatedResponse<T>> | undefined;
-    isLoading: boolean;
-    hasNextPage: boolean;
-    isFetchingNextPage: boolean;
-    fetchNextPage: () => unknown;
-  },
-  keyOf: (item: T) => string,
-): InfiniteAssetsResult<T> {
-  const data = useMemo(() => flattenPages(q.data, keyOf), [q.data, keyOf]);
-  return {
-    data,
-    isLoading: q.isLoading,
-    hasNextPage: q.hasNextPage,
-    isFetchingNextPage: q.isFetchingNextPage,
-    fetchNextPage: () => void q.fetchNextPage(),
-  };
-}
 
 // useInfiniteAssets is the paginated counterpart of useAssets: it accumulates
 // pages so a caller with more than one page of assets can load them all,

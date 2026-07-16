@@ -579,7 +579,7 @@ SELECT
   'apikey:admin', 'admin@apikey.local',
   (ARRAY['Sales Dashboard','Inventory Export','Store Comparison','Pipeline Notes','Regional Heatmap'])[(n % 5) + 1]
     || ' ' || lpad(n::text, 4, '0'),
-  'Generated demo asset #' || n || ' — seeded so the portal library exercises pagination.',
+  'Generated demo asset #' || n || ' - seeded so the portal library exercises pagination.',
   (ARRAY['text/html','text/csv','text/jsx','text/markdown','image/svg+xml'])[(n % 5) + 1],
   'portal-assets',
   'portal/apikey:admin/seed-' || lpad(n::text, 4, '0') || '/v1/content'
@@ -1652,4 +1652,115 @@ VALUES
    'Open a request from Connections > New, or ask an admin.', NULL, NULL, '{}'::jsonb, NOW() - interval '5 days'),
   ('evt-seed-12a', 'thr-seed-12', 'comment', 'admin@example.com', 'admin@example.com',
    'A short caption would help non-analysts read this at a glance.', NULL, NULL, '{}'::jsonb, NOW() - interval '1 day')
+ON CONFLICT (id) DO NOTHING;
+
+-- ============================================================================
+-- Pagination volume (#972): enough rows per surface to exercise infinite
+-- scroll / "Load more". Each block bulk-generates well over one page (page size
+-- 50, except resources whose default page is 100) so the portal's list surfaces
+-- (Resources, Collections, Feedback, Knowledge Pages, Settings > Users, Settings
+-- > Changelog) reach past their first page in the dev environment. All owned by
+-- apikey:admin (the acme-dev-key-2024 key) so they surface under "Mine"/admin
+-- tabs, with staggered timestamps so DESC ordering is stable. ON CONFLICT keeps
+-- the file re-runnable.
+-- ============================================================================
+
+-- 130 global resources so the admin All/Global tabs exceed the 100-row page.
+INSERT INTO resources (
+  id, scope, scope_id, category, filename, display_name, description,
+  mime_type, size_bytes, s3_key, uri, tags, uploader_sub, uploader_email,
+  created_at, updated_at
+)
+SELECT
+  'res-seed-' || lpad(n::text, 4, '0'),
+  'global', NULL,
+  (ARRAY['samples','playbooks','templates','references'])[(n % 4) + 1],
+  'reference-' || lpad(n::text, 4, '0')
+    || (ARRAY['.md','.csv','.json','.txt'])[(n % 4) + 1],
+  (ARRAY['Onboarding Playbook','Sample Dataset','Report Template','Glossary Reference'])[(n % 4) + 1]
+    || ' ' || lpad(n::text, 4, '0'),
+  'Generated demo resource #' || n || ' - seeded so the resource library exercises pagination.',
+  (ARRAY['text/markdown','text/csv','application/json','text/plain'])[(n % 4) + 1],
+  (ARRAY[2480, 9720, 4340, 1890])[(n % 4) + 1],
+  'resources/global/res-seed-' || lpad(n::text, 4, '0'),
+  'mcp://global/' || (ARRAY['samples','playbooks','templates','references'])[(n % 4) + 1]
+    || '/res-seed-' || lpad(n::text, 4, '0'),
+  ARRAY['demo', (ARRAY['onboarding','sample','template','glossary'])[(n % 4) + 1]],
+  'apikey:admin', 'admin@apikey.local',
+  NOW() - (n || ' hours')::interval, NOW() - (n || ' hours')::interval
+FROM generate_series(1, 130) AS n
+ON CONFLICT (id) DO NOTHING;
+
+-- 60 collections so the Collections library exceeds the 50-row page.
+INSERT INTO portal_collections (
+  id, owner_id, owner_email, name, description, config, created_at, updated_at
+)
+SELECT
+  'coll-seed-' || lpad(n::text, 4, '0'),
+  'apikey:admin', 'admin@apikey.local',
+  (ARRAY['Weekly Review','Region Rollup','Category Deep Dive','Exec Briefing'])[(n % 4) + 1]
+    || ' ' || lpad(n::text, 4, '0'),
+  'Generated demo collection #' || n || ' - seeded so the collections library exercises pagination.',
+  '{"thumbnail_size": "medium"}'::jsonb,
+  NOW() - (n || ' hours')::interval, NOW() - (n || ' hours')::interval
+FROM generate_series(1, 60) AS n
+ON CONFLICT (id) DO NOTHING;
+
+-- 60 knowledge pages so the Knowledge Pages list exceeds the 50-row page.
+INSERT INTO portal_knowledge_pages (
+  id, slug, title, summary, body, tags, created_by, created_email,
+  updated_by, current_version, created_at, updated_at
+)
+SELECT
+  'kp-seed-vol-' || lpad(n::text, 4, '0'),
+  'demo-knowledge-' || lpad(n::text, 4, '0'),
+  (ARRAY['Metric Definition','Data Source Note','Process Runbook','Domain Glossary'])[(n % 4) + 1]
+    || ' ' || lpad(n::text, 4, '0'),
+  'Generated demo knowledge page #' || n || ' - seeded so the knowledge list exercises pagination.',
+  E'# Demo Knowledge Page ' || n || E'\n\nGenerated so the knowledge-pages list has enough volume to exercise infinite scroll.',
+  jsonb_build_array('demo', (ARRAY['metrics','sources','process','glossary'])[(n % 4) + 1]),
+  'admin@apikey.local', 'admin@apikey.local', 'admin@apikey.local', 1,
+  NOW() - (n || ' hours')::interval, NOW() - (n || ' hours')::interval
+FROM generate_series(1, 60) AS n
+ON CONFLICT (id) DO NOTHING;
+
+-- 60 directory users so Settings > Users exceeds the 100-cap page in aggregate
+-- with the named seed users above.
+INSERT INTO users (email, first_name, last_name, source, confirmed, added_by, created_at, updated_at)
+SELECT
+  'demo.user' || lpad(n::text, 4, '0') || '@example.com',
+  (ARRAY['Alex','Blair','Casey','Drew','Emerson'])[(n % 5) + 1],
+  'Demo' || lpad(n::text, 4, '0'),
+  'admin', FALSE, 'admin@apikey.local',
+  NOW() - (n || ' hours')::interval, NOW() - (n || ' hours')::interval
+FROM generate_series(1, 60) AS n
+ON CONFLICT (email) DO NOTHING;
+
+-- 60 config changelog entries so Settings > Changelog reaches past its page.
+-- id is SERIAL (no stable id to upsert on), so re-runs first delete the demo
+-- rows by their distinct changed_by marker to stay idempotent.
+DELETE FROM config_changelog WHERE changed_by = 'seed@apikey.local';
+INSERT INTO config_changelog (key, action, value_text, changed_by, changed_at)
+SELECT
+  (ARRAY['server.description','enrichment.unwrap_json','audit.retention_days','personas.analyst.tools'])[(n % 4) + 1],
+  (ARRAY['set','set','set','delete'])[(n % 4) + 1],
+  CASE WHEN (n % 4) = 3 THEN NULL ELSE 'demo value ' || n END,
+  'seed@apikey.local',
+  NOW() - (n || ' hours')::interval
+FROM generate_series(1, 60) AS n;
+
+-- 60 standalone feedback threads so the Feedback General and Recent tabs exceed
+-- the 50-row page.
+INSERT INTO portal_threads
+  (id, kind, target_type, asset_id, collection_id, prompt_id, knowledge_page_id, anchor, target_version,
+   title, author_id, author_email, status, requires_resolution, validation_state, insight_id, created_at, updated_at)
+SELECT
+  'thr-seed-vol-' || lpad(n::text, 4, '0'),
+  (ARRAY['comment','question','suggestion','rating'])[(n % 4) + 1],
+  'standalone', NULL, NULL, NULL, NULL, NULL, NULL,
+  'Demo feedback thread ' || lpad(n::text, 4, '0'),
+  'admin@apikey.local', 'admin@apikey.local',
+  'open', FALSE, 'none', NULL,
+  NOW() - (n || ' hours')::interval, NOW() - (n || ' hours')::interval
+FROM generate_series(1, 60) AS n
 ON CONFLICT (id) DO NOTHING;

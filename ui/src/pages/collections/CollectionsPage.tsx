@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { Search, FolderOpen, Plus, LayoutGrid, List, Users, Globe } from "lucide-react";
-import { useCollections, useCreateCollection, useSearchCollections, useSharedCollections, useThreadCounts } from "@/api/portal/hooks";
+import { useInfiniteCollections, useCreateCollection, useSearchCollections, useInfiniteSharedCollections, useThreadCounts } from "@/api/portal/hooks";
 import type { Collection, SharePermission } from "@/api/portal/types";
 import { FeedbackCountBadge } from "@/components/feedback/FeedbackCountBadge";
 import { AssetsTabs } from "@/components/AssetsTabs";
+import { InfiniteFooter } from "@/components/InfiniteFooter";
 import { ScopeFilter, getStoredScope, storeScope, type Scope } from "@/components/ScopeFilter";
 import { SharePermissionBadge } from "@/components/SharePermissionBadge";
 import { AuthImg } from "@/components/AuthImg";
@@ -57,9 +58,15 @@ export function CollectionsPage({ onNavigate }: Props) {
   // scopes fall back to client-side matching.
   const semanticSearch = searching && scope === "mine";
 
-  const { data, isLoading } = useCollections();
+  // Browse and shared lists paginate: each accumulates pages so callers with
+  // more than one page of collections can load them all via "Load more" /
+  // infinite scroll (#972). Semantic search returns a ranked top-K, so it has no
+  // additional pages to fetch.
+  const mineQuery = useInfiniteCollections();
+  const { data, isLoading } = mineQuery;
   const searchResults = useSearchCollections(semanticSearch ? debouncedSearch : "");
-  const { data: sharedData, isLoading: sharedLoading } = useSharedCollections();
+  const sharedQuery = useInfiniteSharedCollections();
+  const { data: sharedData, isLoading: sharedLoading } = sharedQuery;
   const createMutation = useCreateCollection();
 
   const mineCollections: Collection[] = semanticSearch
@@ -108,6 +115,27 @@ export function CollectionsPage({ onNavigate }: Props) {
     "collection",
     collections.map((c) => c.id),
   );
+
+  // Load-more spans whichever paginated lists the active scope draws from: the
+  // browse list (mine/all) and/or the shared list (shared/all). Semantic search
+  // returns a ranked top-K with no further pages. Deriving the controls from one
+  // activeQueries list keeps the button state and the fetch action in sync.
+  const activeQueries: {
+    hasNextPage: boolean;
+    isFetchingNextPage: boolean;
+    fetchNextPage: () => void;
+  }[] = [];
+  if (!semanticSearch) {
+    if (scope !== "shared") activeQueries.push(mineQuery);
+    if (scope !== "mine") activeQueries.push(sharedQuery);
+  }
+  const canLoadMore = activeQueries.some((q) => q.hasNextPage);
+  const loadingMore = activeQueries.some((q) => q.isFetchingNextPage);
+  function loadMore() {
+    for (const q of activeQueries) {
+      if (q.hasNextPage && !q.isFetchingNextPage) q.fetchNextPage();
+    }
+  }
 
   async function handleCreate() {
     if (createMutation.isPending) return;
@@ -168,7 +196,16 @@ export function CollectionsPage({ onNavigate }: Props) {
           {semanticSearch ? "Searching..." : "Loading..."}
         </div>
       ) : displayItems.length === 0 ? (
-        <EmptyState scope={scope} searching={searching} query={debouncedSearch.trim()} />
+        // With more pages available (shared/all client-side filters only see the
+        // loaded rows), steer to "Load more" instead of a contradictory empty
+        // state next to a Load-more button.
+        canLoadMore ? (
+          <div className="flex items-center justify-center py-12 text-center text-sm text-muted-foreground">
+            No matching collections in the loaded set yet &mdash; load more to keep looking.
+          </div>
+        ) : (
+          <EmptyState scope={scope} searching={searching} query={debouncedSearch.trim()} />
+        )
       ) : viewMode === "grid" ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {displayItems.map(({ collection: coll, share }) => {
@@ -317,6 +354,8 @@ export function CollectionsPage({ onNavigate }: Props) {
         </div>
       )}
 
+      <InfiniteFooter hasMore={canLoadMore} isLoadingMore={loadingMore} onLoadMore={loadMore} />
+
       {scope === "mine" && semanticSearch ? (
         collections.length > 0 && (
           <p className="text-xs text-muted-foreground text-center">
@@ -324,7 +363,11 @@ export function CollectionsPage({ onNavigate }: Props) {
           </p>
         )
       ) : scope === "mine" ? (
-        data && data.total > data.limit && (
+        // Only advertise a remaining count while more can actually be loaded.
+        // flattenPages de-dupes by id but total is the raw server count, so a
+        // concurrent insert that re-emits a deduped row would otherwise leave a
+        // permanent "Showing 119 of 120" with no Load-more control to close it.
+        data && canLoadMore && collections.length < data.total && (
           <p className="text-sm text-muted-foreground text-center">
             Showing {collections.length} of {data.total} collections
           </p>

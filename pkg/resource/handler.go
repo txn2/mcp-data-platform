@@ -380,6 +380,7 @@ func narrowScopes(visible []ScopeFilter, scopeParam, scopeIDParam string) []Scop
 // @Param        category query  string  false  "Filter by category"
 // @Param        tag      query  string  false  "Filter by tag"
 // @Param        q        query  string  false  "Search display_name and description"
+// @Param        limit    query  int     false  "Max results to return (default 100, max 200)"
 // @Param        offset   query  int     false  "Pagination offset (default 0)"
 // @Success      200  {object}  resource.listResponse
 // @Failure      401  {object}  resource.errorResponse
@@ -405,12 +406,22 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Honor a client-supplied page size (the portal's infinite scroll requests a
+	// fixed window per page); the store clamps it to MaxListLimit. An absent or
+	// non-positive value falls back to the default.
+	limit := DefaultListLimit
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if v, err := strconv.Atoi(l); err == nil && v > 0 {
+			limit = v
+		}
+	}
+
 	filter := Filter{
 		Scopes:   scopes,
 		Category: r.URL.Query().Get("category"),
 		Tag:      r.URL.Query().Get("tag"),
 		Query:    r.URL.Query().Get("q"),
-		Limit:    DefaultListLimit,
+		Limit:    limit,
 		Offset:   offset,
 	}
 

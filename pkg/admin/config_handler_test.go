@@ -370,7 +370,7 @@ func TestDeleteConfigEntry(t *testing.T) {
 }
 
 func TestGetConfigChangelog(t *testing.T) {
-	t.Run("returns changelog entries", func(t *testing.T) {
+	t.Run("returns a changelog page with total and default paging", func(t *testing.T) {
 		cs := &mockConfigStore{
 			mode: "database",
 			changelog: []configstore.ChangelogEntry{
@@ -382,6 +382,7 @@ func TestGetConfigChangelog(t *testing.T) {
 					ChangedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
 				},
 			},
+			changelogTotal: 137,
 		}
 		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
 
@@ -390,10 +391,51 @@ func TestGetConfigChangelog(t *testing.T) {
 		h.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
-		var entries []configstore.ChangelogEntry
-		require.NoError(t, json.NewDecoder(w.Body).Decode(&entries))
-		assert.Len(t, entries, 1)
-		assert.Equal(t, "server.description", entries[0].Key)
+		var resp changelogListResponse
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+		assert.Len(t, resp.Entries, 1)
+		assert.Equal(t, "server.description", resp.Entries[0].Key)
+		assert.Equal(t, 137, resp.Total)
+		// No query params: default limit, offset 0.
+		assert.Equal(t, defaultChangelogLimit, cs.changelogLimit)
+		assert.Equal(t, 0, cs.changelogOffset)
+	})
+
+	t.Run("forwards client limit and offset", func(t *testing.T) {
+		cs := &mockConfigStore{mode: "database"}
+		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/config/changelog?limit=25&offset=50", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, 25, cs.changelogLimit)
+		assert.Equal(t, 50, cs.changelogOffset)
+	})
+
+	t.Run("non-positive limit falls back to default", func(t *testing.T) {
+		cs := &mockConfigStore{mode: "database"}
+		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/config/changelog?limit=0", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, defaultChangelogLimit, cs.changelogLimit)
+	})
+
+	t.Run("oversized limit is clamped to the max", func(t *testing.T) {
+		cs := &mockConfigStore{mode: "database"}
+		h := NewHandler(Deps{ConfigStore: cs, Config: testConfig()}, nil)
+
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/config/changelog?limit=100000000", http.NoBody)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, maxChangelogLimit, cs.changelogLimit)
 	})
 }
 

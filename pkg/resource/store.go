@@ -27,8 +27,13 @@ type S3Client interface {
 	DeleteObject(ctx context.Context, bucket, key string) error
 }
 
-// DefaultListLimit is used when no limit is specified in a list query.
-const DefaultListLimit = 100
+const (
+	// DefaultListLimit is used when no limit is specified in a list query.
+	DefaultListLimit = 100
+	// MaxListLimit caps a client-supplied page size so a single list request
+	// cannot pull an unbounded window.
+	MaxListLimit = 200
+)
 
 // --- PostgreSQL Store ---
 
@@ -108,6 +113,9 @@ func (s *postgresStore) List(ctx context.Context, filter Filter) ([]Resource, in
 	limit := filter.Limit
 	if limit <= 0 {
 		limit = DefaultListLimit
+	}
+	if limit > MaxListLimit {
+		limit = MaxListLimit
 	}
 	// #nosec G202 -- dynamic scope filter requires concatenation
 	selectQuery := `

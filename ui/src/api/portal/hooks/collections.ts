@@ -1,5 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiFetchRaw } from "../client";
+import {
+  useOffsetInfiniteQuery,
+  paginatedFetch,
+  type InfiniteResult,
+} from "./infinite";
 import type {
   Share,
   PaginatedResponse,
@@ -14,17 +19,35 @@ import type {
 
 // --- Collections ---
 
-export function useCollections(params?: { search?: string; limit?: number; offset?: number }) {
-  const searchParams = new URLSearchParams();
-  if (params?.search) searchParams.set("search", params.search);
-  if (params?.limit) searchParams.set("limit", String(params.limit));
-  if (params?.offset) searchParams.set("offset", String(params.offset));
-  const qs = searchParams.toString();
+// COLLECTION_PAGE_SIZE matches the portal list default and stays under the API
+// max (200) so the collections library loads incrementally rather than capping
+// at a single page (#972).
+export const COLLECTION_PAGE_SIZE = 50;
 
-  return useQuery({
-    queryKey: ["collections", params],
-    queryFn: () =>
-      apiFetch<PaginatedResponse<Collection>>(`/collections${qs ? `?${qs}` : ""}`),
+const collectionKey = (c: Collection): string => c.id;
+const sharedCollectionKey = (s: SharedCollection): string => s.collection.id;
+
+// useInfiniteCollections is the paginated counterpart of useCollections: it
+// accumulates pages so a caller with more than one page of collections can load
+// them all, exposing a single merged page plus fetchNextPage/hasNextPage.
+export function useInfiniteCollections(): InfiniteResult<Collection> {
+  return useOffsetInfiniteQuery<Collection>({
+    queryKey: ["collections", "infinite"],
+    pageSize: COLLECTION_PAGE_SIZE,
+    keyOf: collectionKey,
+    fetchPage: (offset, limit) =>
+      paginatedFetch<Collection>("/collections", offset, limit),
+  });
+}
+
+// useInfiniteSharedCollections is the paginated shared-with-me collections list.
+export function useInfiniteSharedCollections(): InfiniteResult<SharedCollection> {
+  return useOffsetInfiniteQuery<SharedCollection>({
+    queryKey: ["shared-collections", "infinite"],
+    pageSize: COLLECTION_PAGE_SIZE,
+    keyOf: sharedCollectionKey,
+    fetchPage: (offset, limit) =>
+      paginatedFetch<SharedCollection>("/shared-collections", offset, limit),
   });
 }
 
@@ -220,21 +243,6 @@ export function useSharedPrompts() {
   return useQuery({
     queryKey: ["shared-prompts"],
     queryFn: () => apiFetch<SharedPromptItem[]>("/shared-prompts"),
-  });
-}
-
-export function useSharedCollections(params?: { limit?: number; offset?: number }) {
-  const searchParams = new URLSearchParams();
-  if (params?.limit) searchParams.set("limit", String(params.limit));
-  if (params?.offset) searchParams.set("offset", String(params.offset));
-  const qs = searchParams.toString();
-
-  return useQuery({
-    queryKey: ["shared-collections", params],
-    queryFn: () =>
-      apiFetch<PaginatedResponse<SharedCollection>>(
-        `/shared-collections${qs ? `?${qs}` : ""}`,
-      ),
   });
 }
 

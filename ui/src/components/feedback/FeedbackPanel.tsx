@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { X, Plus } from "lucide-react";
-import { useThreads } from "@/api/portal/hooks";
+import { useInfiniteThreads } from "@/api/portal/hooks";
 import type { FeedbackTarget } from "@/api/portal/types";
+import { InfiniteFooter } from "@/components/InfiniteFooter";
 import { ThreadList } from "./ThreadList";
 import { ThreadDetail } from "./ThreadDetail";
 import { NewThreadForm } from "./NewThreadForm";
@@ -19,7 +20,8 @@ type View = { kind: "list" } | { kind: "new" } | { kind: "detail"; threadId: str
 
 export function FeedbackPanel({ target, canModerate, onClose }: Props) {
   const filter = filterForTarget(target);
-  const { data, isLoading } = useThreads(filter);
+  const { data, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage } =
+    useInfiniteThreads(filter);
   const { availableAnchor } = useTextQuoteAnchor();
   const [view, setView] = useState<View>({ kind: "list" });
 
@@ -64,11 +66,20 @@ export function FeedbackPanel({ target, canModerate, onClose }: Props) {
       {/* Body */}
       <div className="min-h-0 flex-1 overflow-auto">
         {view.kind === "list" && (
-          <ThreadList
-            threads={threads}
-            isLoading={isLoading}
-            onSelect={(threadId) => setView({ kind: "detail", threadId })}
-          />
+          <>
+            <ThreadList
+              threads={threads}
+              isLoading={isLoading}
+              onSelect={(threadId) => setView({ kind: "detail", threadId })}
+            />
+            <div className="p-3">
+              <InfiniteFooter
+                hasMore={hasNextPage}
+                isLoadingMore={isFetchingNextPage}
+                onLoadMore={fetchNextPage}
+              />
+            </div>
+          </>
         )}
         {view.kind === "new" && (
           <NewThreadForm

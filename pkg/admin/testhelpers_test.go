@@ -303,16 +303,19 @@ type mockConfigStore struct {
 	// (e.g. the visibility-lock test for #343 bug 1). Single-goroutine
 	// tests pay no measurable cost — Mutex.Lock on uncontended use is
 	// a single CAS.
-	mu           sync.Mutex
-	mode         string
-	entries      map[string]*configstore.Entry
-	changelog    []configstore.ChangelogEntry
-	setErr       error
-	setCalls     int
-	deleteErr    error
-	listErr      error
-	getErr       error
-	changelogErr error
+	mu              sync.Mutex
+	mode            string
+	entries         map[string]*configstore.Entry
+	changelog       []configstore.ChangelogEntry
+	changelogTotal  int
+	changelogLimit  int
+	changelogOffset int
+	setErr          error
+	setCalls        int
+	deleteErr       error
+	listErr         error
+	getErr          error
+	changelogErr    error
 }
 
 func (m *mockConfigStore) Get(_ context.Context, key string) (*configstore.Entry, error) {
@@ -371,13 +374,19 @@ func (m *mockConfigStore) List(_ context.Context) ([]configstore.Entry, error) {
 	return result, nil
 }
 
-func (m *mockConfigStore) Changelog(_ context.Context, _ int) ([]configstore.ChangelogEntry, error) {
+func (m *mockConfigStore) Changelog(_ context.Context, limit, offset int) ([]configstore.ChangelogEntry, int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.changelogLimit = limit
+	m.changelogOffset = offset
 	if m.changelogErr != nil {
-		return nil, m.changelogErr
+		return nil, 0, m.changelogErr
 	}
-	return m.changelog, nil
+	total := m.changelogTotal
+	if total == 0 {
+		total = len(m.changelog)
+	}
+	return m.changelog, total, nil
 }
 
 func (m *mockConfigStore) Mode() string {

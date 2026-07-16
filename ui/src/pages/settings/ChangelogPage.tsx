@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { useConfigChangelog } from "@/api/admin/hooks";
+import { useInfiniteConfigChangelog } from "@/api/admin/hooks";
 import type { ConfigChangelogEntry } from "@/api/admin/types";
 import { cn } from "@/lib/utils";
+import { InfiniteFooter } from "@/components/InfiniteFooter";
 import {
   Clock,
   ChevronDown,
@@ -37,8 +38,9 @@ function ErrorBanner({ message, onRetry }: { message: string; onRetry?: () => vo
 // ---------------------------------------------------------------------------
 
 export function ChangelogPage() {
-  const { data: changelog, isLoading, error, refetch } = useConfigChangelog();
-  const entries = changelog ?? [];
+  const { data, isLoading, isError, refetch, hasNextPage, isFetchingNextPage, fetchNextPage } =
+    useInfiniteConfigChangelog();
+  const entries = data?.data ?? [];
 
   return (
     <div className="flex h-[calc(100vh-8rem)] flex-col overflow-hidden rounded-lg border bg-card">
@@ -49,7 +51,7 @@ export function ChangelogPage() {
         </p>
       </div>
 
-      {error && (
+      {isError && (
         <ErrorBanner
           message="Failed to load changelog. The server may be unavailable."
           onRetry={() => void refetch()}
@@ -61,7 +63,7 @@ export function ChangelogPage() {
           <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
             Loading...
           </div>
-        ) : entries.length === 0 && !error ? (
+        ) : entries.length === 0 && !isError ? (
           <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
             <Clock className="mb-3 h-8 w-8 opacity-30" />
             <p className="text-sm">No configuration changes recorded yet</p>
@@ -70,11 +72,20 @@ export function ChangelogPage() {
             </p>
           </div>
         ) : (
-          <div className="divide-y">
-            {entries.map((e: ConfigChangelogEntry) => (
-              <ChangelogRow key={e.id} entry={e} />
-            ))}
-          </div>
+          <>
+            <div className="divide-y">
+              {entries.map((e: ConfigChangelogEntry) => (
+                <ChangelogRow key={e.id} entry={e} />
+              ))}
+            </div>
+            <div className="p-3">
+              <InfiniteFooter
+                hasMore={hasNextPage}
+                isLoadingMore={isFetchingNextPage}
+                onLoadMore={fetchNextPage}
+              />
+            </div>
+          </>
         )}
       </div>
     </div>
