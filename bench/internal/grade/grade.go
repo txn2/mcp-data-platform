@@ -77,7 +77,12 @@ func Numeric(final string, expected, absTolerance float64) (got float64, ok, cor
 // Aliases match on word boundaries, not bare substrings: "East" must not veto
 // "at least", and "West" must not match "southwest". Letters, digits, and
 // underscores are word characters; dots are boundaries, so a schema-qualified
-// alias still matches inside a longer qualified name.
+// alias still matches inside a longer qualified name. The boundary rule also
+// narrows the veto: an answer naming a suffixed variant of a trap identifier
+// ("legacy_orders_v9") is not vetoed by the "legacy_orders" wrong alias — the
+// wrong-alias list enumerates the warehouse's ACTUAL trap answers, and a
+// nonexistent variant neither names the trap nor matches a correct alias, so
+// it cannot be credited either.
 func Entity(final string, aliases, wrongAliases []string) (matched string, correct bool) {
 	line := strings.ToLower(firstLine(final))
 	for _, w := range wrongAliases {

@@ -44,6 +44,7 @@ type config struct {
 	httpTimeout   time.Duration
 	llmTimeout    time.Duration
 	auditTimeout  time.Duration
+	sinkTimeout   time.Duration
 	identityKeys  int
 	summarize     string
 	compare       string
@@ -90,6 +91,7 @@ func parseFlags() config {
 	flag.DurationVar(&cfg.httpTimeout, "http-timeout", 120*time.Second, "platform HTTP timeout")
 	flag.DurationVar(&cfg.llmTimeout, "llm-timeout", 5*time.Minute, "model API request timeout")
 	flag.DurationVar(&cfg.auditTimeout, "audit-timeout", 15*time.Second, "audit read-back timeout per session")
+	flag.DurationVar(&cfg.sinkTimeout, "sink-timeout", 0, "post-apply sink read-back window for promotions (0 = the promote default, 15s); raise for a store that serves reads slowly")
 	flag.IntVar(&cfg.identityKeys, "identity-keys", 264, "per-attempt identity pool size matching the arm config (0 = single identity)")
 	flag.StringVar(&cfg.summarize, "summarize", "", "print the human summary of an existing results JSON and exit")
 	flag.StringVar(&cfg.compare, "compare", "", "comma-separated per-arm results JSON files: render the cross-arm comparison and exit")
@@ -203,6 +205,7 @@ func runLifecycle(cfg config) error {
 		LLMProvider:   cfg.llmProvider,
 		GitCommit:     cfg.gitCommit,
 		AuditTimeout:  cfg.auditTimeout,
+		SinkTimeout:   cfg.sinkTimeout,
 		IdentityKeys:  cfg.identityKeys,
 		TeachBudget:   cfg.teachBudget,
 		// Flush the results file after every protocol so an interruption (timeout,
@@ -300,6 +303,7 @@ func runSupersede(cfg config) error {
 		LLMProvider:   cfg.llmProvider,
 		GitCommit:     cfg.gitCommit,
 		AuditTimeout:  cfg.auditTimeout,
+		SinkTimeout:   cfg.sinkTimeout,
 		IdentityKeys:  cfg.identityKeys,
 		TeachBudget:   cfg.teachBudget,
 		OnSupersede: func(r *lifecycle.SupersedeResults) {
@@ -348,6 +352,7 @@ func runColdStart(cfg config) error {
 		LLMProvider:   cfg.llmProvider,
 		GitCommit:     cfg.gitCommit,
 		AuditTimeout:  cfg.auditTimeout,
+		SinkTimeout:   cfg.sinkTimeout,
 		IdentityKeys:  cfg.identityKeys,
 		Settle:        cfg.settle,
 		OnCheckpoint: func(r *coldstart.Results) {
@@ -729,9 +734,13 @@ func transcriptDir(out string) string {
 // clobbered by the per-checkpoint flush, and the transcript dir by the
 // deterministic per-episode filenames — a run interrupted before its first
 // flush leaves only transcripts, which a rerun to the same -out would destroy.
-// Every producing mode (-cold-start, -lifecycle, -supersede) enforces this.
-// There is deliberately no override: the operator picks a new path, every
-// run's data is kept.
+// The timestamped-run modes (-cold-start, -lifecycle, -supersede) enforce this;
+// the default S1-S3 task mode deliberately does NOT: its -out is the fixed
+// per-arm slot (build/bench-results/results-<arm>.json) that bench-compare and
+// the CI regression gate consume, so overwriting the slot on each run is that
+// mode's documented contract — copy a slot result aside (as bench/results/
+// does) before rerunning an arm. There is deliberately no override on the
+// guarded modes: the operator picks a new path, every run's data is kept.
 func refuseExistingRunArtifacts(out string) error {
 	if _, err := os.Stat(out); err == nil {
 		return fmt.Errorf("-out %s already exists; refusing to overwrite a prior run's results; choose a new -out path (all run data is kept)", out)

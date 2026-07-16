@@ -912,8 +912,8 @@ bench-lifecycle:
 	@echo "Resetting search-first gate state (discovery scopes persist in Postgres across runs)..."
 	@$(BENCH_COMPOSE) exec -T postgres psql -q -U platform -d mcp_platform -v ON_ERROR_STOP=1 \
 		-c "TRUNCATE search_gate_discovery"
-	@out_dir="build/bench-results/lifecycle-a3-$$(date +%Y%m%d-%H%M%S)"; \
-	mkdir -p "$$out_dir"; \
+	@out_dir="build/bench-results/lifecycle-a3-$$(date +%Y%m%d-%H%M%S)-$$$$"; \
+	mkdir "$$out_dir"; \
 	echo "Lifecycle results dir: $$out_dir (each run gets its own dir; nothing is ever overwritten)"; \
 	$(BUILD_DIR)/benchrun \
 		-lifecycle \
@@ -949,8 +949,8 @@ bench-supersede:
 	@echo "Resetting search-first gate state (discovery scopes persist in Postgres across runs)..."
 	@$(BENCH_COMPOSE) exec -T postgres psql -q -U platform -d mcp_platform -v ON_ERROR_STOP=1 \
 		-c "TRUNCATE search_gate_discovery"
-	@out_dir="build/bench-results/supersede-a3-$$(date +%Y%m%d-%H%M%S)"; \
-	mkdir -p "$$out_dir"; \
+	@out_dir="build/bench-results/supersede-a3-$$(date +%Y%m%d-%H%M%S)-$$$$"; \
+	mkdir "$$out_dir"; \
 	echo "Supersede results dir: $$out_dir (each run gets its own dir; nothing is ever overwritten)"; \
 	$(BUILD_DIR)/benchrun \
 		-supersede \
@@ -987,8 +987,8 @@ bench-cold-start:
 	@echo "  (CASCADE also clears portal_threads, which FK-references knowledge pages; the bench stack is disposable scratch state.)"
 	@$(BENCH_COMPOSE) exec -T postgres psql -q -U platform -d mcp_platform -v ON_ERROR_STOP=1 \
 		-c "TRUNCATE search_gate_discovery, memory_records, knowledge_changesets, portal_knowledge_pages CASCADE"
-	@out_dir="build/bench-results/cold-start-a3-$$(date +%Y%m%d-%H%M%S)"; \
-	mkdir -p "$$out_dir"; \
+	@out_dir="build/bench-results/cold-start-a3-$$(date +%Y%m%d-%H%M%S)-$$$$"; \
+	mkdir "$$out_dir"; \
 	echo "Cold-start results dir: $$out_dir (each run gets its own dir; nothing is ever overwritten)"; \
 	$(BUILD_DIR)/benchrun \
 		-cold-start \

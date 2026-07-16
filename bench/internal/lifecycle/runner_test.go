@@ -152,7 +152,7 @@ func (fp *fakePlatform) addMemoryCapture(server *mcp.Server) {
 			fp.seq++
 			id := "in-" + strconv.FormatInt(fp.seq, 10)
 			fp.insights = append(fp.insights, lifecycleapi.Insight{
-				ID: id, CreatedAt: time.Unix(fp.seq, 0).UTC(), CapturedBy: email,
+				ID: id, CreatedAt: time.Now().UTC(), CapturedBy: email,
 				Category: category, InsightText: text, Status: "pending",
 				EntityURNs: urnSlice(urn),
 			})
@@ -290,6 +290,16 @@ func (fp *fakePlatform) listInsights(w http.ResponseWriter, r *http.Request) {
 		}
 		if v := q.Get("entity_urn"); v != "" && !in.LinksEntity(v) {
 			continue
+		}
+		// Honor the since bound exactly as the admin API does (created_at >=):
+		// the runner's capture verification depends on it to exclude an earlier
+		// stage's (or run's) insight, so the fake must not silently pass what
+		// the real platform would filter.
+		if v := q.Get("since"); v != "" {
+			since, err := time.Parse(time.RFC3339, v)
+			if err != nil || in.CreatedAt.Before(since) {
+				continue
+			}
 		}
 		out = append(out, in)
 	}

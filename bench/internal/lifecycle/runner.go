@@ -56,6 +56,9 @@ type Options struct {
 	LLMProvider   string
 	GitCommit     string
 	AuditTimeout  time.Duration
+	// SinkTimeout bounds the reviewer's post-apply sink read-back (zero uses the
+	// promote package default); raise it for a store that serves reads slowly.
+	SinkTimeout time.Duration
 	// IdentityKeys is the identity-pool size the arm config defines. Each
 	// protocol attempt consumes identitiesPerRun identities, so the run refuses
 	// to start when protocols x k x 2 exceeds the pool (attempts would share a
@@ -136,7 +139,7 @@ func newRunEnv(opts Options) *runEnv {
 		log:      opts.Log,
 		audit:    auditapi.New(opts.Target.BaseURL, opts.Target.HTTPClient(opts.HTTPTimeout)),
 		life:     life,
-		reviewer: promote.Reviewer{Life: life, Log: opts.Log},
+		reviewer: promote.Reviewer{Life: life, Log: opts.Log, SinkTimeout: opts.SinkTimeout},
 	}
 }
 
@@ -348,13 +351,17 @@ func (e *runEnv) promoteAndTransfer(ctx context.Context, p protocol.Protocol, le
 	return false
 }
 
-// supersede runs the correction episode and its post-update recall, then checks
-// via the insights API that the fact flipped and no duplicate remains. Returns
-// true on a harness abort.
+// supersede runs the correction episode, verifies the correction reached the
+// platform, then runs the post-update recall and checks via the insights API
+// that the fact flipped and no duplicate remains. Returns true on a harness
+// abort.
 func (e *runEnv) supersede(ctx context.Context, p protocol.Protocol, teacherSeq int, run *ProtocolRun) bool {
 	if p.Update == nil {
 		return false
 	}
+	// The update start (minus the shared skew margin) bounds the capture-verify
+	// fallback to THIS episode, excluding the teach-stage insight.
+	updStart := time.Now()
 	upd, _ := e.runEpisode(ctx, episodeSpec{
 		stage: StageUpdate, identity: "teacher", seq: teacherSeq,
 		prompt: p.Update.Prompt, system: teachSystem, budget: e.teachBudget(p),
@@ -364,6 +371,25 @@ func (e *runEnv) supersede(ctx context.Context, p protocol.Protocol, teacherSeq 
 		run.Error = "update: " + upd.Error
 		return true
 	}
+
+	// The duplicate check is meaningful only when the correction actually
+	// reached the platform: with no correction captured, exactly one live
+	// insight exists and the supersede gate never ran, so scoring the attempt
+	// as "duplicated" would inflate the duplicate rate with capture noise — the
+	// very noise the isolated sub-benchmark exists to remove. A miss is
+	// recorded on the update-capture rate (and fails the attempt), the recall
+	// episode is skipped (it would grade staleness, not the lifecycle, and
+	// dilute update correctness), and Duplicated stays nil.
+	captured, err := e.correctionCaptured(ctx, upd, p, teacherSeq, updStart, run.InsightID)
+	if err != nil {
+		run.Error = "update capture verify: " + err.Error()
+		return true
+	}
+	run.UpdateCaptured = &captured
+	if !captured {
+		return false
+	}
+
 	recall, ans := e.runEpisode(ctx, episodeSpec{
 		stage: StageUpdateRecall, identity: "teacher", seq: teacherSeq,
 		prompt: p.Update.Recall.Prompt, system: recallSystem(p.Update.Recall.Grading.Kind), budget: p.BudgetToolCalls,
@@ -375,18 +401,6 @@ func (e *runEnv) supersede(ctx context.Context, p protocol.Protocol, teacherSeq 
 	}
 	run.UpdateCorrect = gradeUpdate(ans, *p.Update)
 
-	// The duplicate check is meaningful only when the correction actually
-	// reached the platform: an update episode that never executed a capture call
-	// left exactly one live insight and the supersede gate never ran, so scoring
-	// it as "duplicated" would inflate the duplicate rate with capture noise —
-	// the very noise the isolated sub-benchmark exists to remove. Such an
-	// attempt is recorded as an update-capture miss and excluded from the
-	// duplicate denominator.
-	updCaptured := upd.CaptureAttempted
-	run.UpdateCaptured = &updCaptured
-	if !updCaptured {
-		return false
-	}
 	dup, err := e.duplicated(ctx, run.InsightID)
 	if err != nil {
 		run.Error = "duplicate check: " + err.Error()
@@ -394,6 +408,34 @@ func (e *runEnv) supersede(ctx context.Context, p protocol.Protocol, teacherSeq 
 	}
 	run.Duplicated = &dup
 	return false
+}
+
+// correctionCaptured reports whether the update episode's correction reached
+// the platform. The transcript's executed-capture signal is the fast path; when
+// it is inconclusive — a claude-cli stream can drop the paired tool_result of a
+// call that really executed, which the parser deliberately models as
+// indeterminate — the insights API is the arbiter: an insight captured by the
+// teacher on the protocol's entity since the update episode started proves the
+// capture landed, regardless of transcript shape. The teach-stage insight is
+// excluded by ID (the since bound alone cannot: the clock-skew margin it
+// carries can reach back past a teach capture made moments earlier).
+func (e *runEnv) correctionCaptured(ctx context.Context, upd EpisodeRecord, p protocol.Protocol, teacherSeq int, updStart time.Time, teachInsightID string) (bool, error) {
+	if upd.CaptureAttempted {
+		return true, nil
+	}
+	insights, err := e.life.ListInsights(ctx, lifecycleapi.InsightFilter{
+		CapturedBy: poolEmail(teacherSeq), EntityURN: p.EntityURN,
+		Since: updStart.Add(-promote.CaptureSkewMargin),
+	})
+	if err != nil {
+		return false, err
+	}
+	for _, in := range insights {
+		if in.ID != teachInsightID {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // duplicated reports whether the supersede left the taught fact duplicated: a

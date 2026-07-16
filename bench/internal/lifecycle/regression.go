@@ -80,6 +80,17 @@ func BaselineCompatible(candidate, baseline *Results) error {
 	if baseline.Metrics.Attempts == 0 {
 		return errors.New("baseline graded no attempts — nothing to gate against")
 	}
+	// A baseline produced before the update-capture gating of the duplicate rate
+	// counted update-capture misses as duplicates, so its duplicate_rate is
+	// definitionally higher than the current harness reports on identical
+	// behavior — gating against it can absorb a real supersede regression up to
+	// that inflation. Detection: a current-harness run that scored any duplicate
+	// necessarily carries update_capture_rate data (every attempt entering the
+	// duplicate denominator passed the capture gate), so a duplicate denominator
+	// with no update-capture denominator marks a pre-redefinition artifact.
+	if baseline.Metrics.DuplicateRate.Den > 0 && baseline.Metrics.UpdateCaptureRate.Den == 0 {
+		return errors.New("baseline predates the update-capture gating of the duplicate rate (duplicate_rate has a denominator but update_capture_rate has none), so its duplicate numbers are not comparable — regenerate the baseline with the current harness")
+	}
 	return nil
 }
 

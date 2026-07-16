@@ -194,6 +194,10 @@ func healthyLifecycleMetrics() lifecycle.Metrics {
 		PersonalRecall:    lifecycleRate(9, 10),
 		TransferRate:      lifecycleRate(8, 10),
 		UpdateCorrectness: lifecycleRate(5, 5),
+		// A current-harness run that scores duplicates always carries
+		// update-capture data; without it BaselineCompatible refuses the
+		// baseline as a pre-redefinition artifact.
+		UpdateCaptureRate: lifecycleRate(5, 5),
 		AbstentionRate:    lifecycleRate(9, 10),
 		DuplicateRate:     lifecycleRate(0, 5),
 		PassK:             lifecycleRate(7, 10),

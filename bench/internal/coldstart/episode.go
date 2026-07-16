@@ -292,7 +292,7 @@ func (e *runEnv) runClaudeCLIEpisode(ctx context.Context, spec episodeSpec) epis
 		// no handle is a harness inconsistency to surface, not audit loss
 		// (mirrors the S1-S3 pipeline's contract).
 		if cres.SuccessfulMCPCalls > 0 {
-			res.err = fmt.Sprintf("claude-cli reported %d successful tool call(s) but surfaced no dps_ handle to correlate audit", cres.SuccessfulMCPCalls)
+			res.err = fmt.Sprintf("claude-cli reported %d successful tool call(s) but surfaced no dps_ handle to correlate audit (platform_info result missing or unparseable)", cres.SuccessfulMCPCalls)
 		}
 		return res
 	}

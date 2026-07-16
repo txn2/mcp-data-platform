@@ -88,7 +88,10 @@ type EpisodeRecord struct {
 	CacheReadTokens     int64            `json:"cache_read_tokens,omitempty"`
 	CacheCreationTokens int64            `json:"cache_creation_tokens,omitempty"`
 	Audit               auditapi.Metrics `json:"audit"`
-	Error               string           `json:"error,omitempty"`
+	// AuditReadError records a failed audit read-back on an otherwise-successful
+	// episode: its zero audit metrics mean signal loss, not zero activity.
+	AuditReadError string `json:"audit_read_error,omitempty"`
+	Error          string `json:"error,omitempty"`
 }
 
 // ProtocolRun records one protocol attempt (1..k). Each stage outcome is a
@@ -145,18 +148,19 @@ func (r ProtocolRun) Passed() bool {
 		r.updatePassed() && optPass(r.AbstainCorrect)
 }
 
-// updatePassed reports whether the supersede stage passed, or was not run. It
-// requires an executed correction capture (when observed), a flipped recall,
-// and no duplicate. A missed correction capture fails the stage even if the
-// recall answer happens to be right: the lifecycle never received the
-// correction. A nil UpdateCaptured (results from before the field existed)
-// falls back to the recall-and-duplicate check alone.
+// updatePassed reports whether the supersede stage passed, or was not run. A
+// missed correction capture fails the stage outright (the lifecycle never
+// received the correction; its recall is skipped, so UpdateCorrect is nil and
+// this check must come first). Otherwise the stage requires a flipped recall
+// and no duplicate; a nil UpdateCorrect then means the stage was not run. A
+// nil UpdateCaptured (results from before the field existed) falls back to the
+// recall-and-duplicate check alone.
 func (r ProtocolRun) updatePassed() bool {
-	if r.UpdateCorrect == nil {
-		return true
-	}
 	if r.UpdateCaptured != nil && !*r.UpdateCaptured {
 		return false
+	}
+	if r.UpdateCorrect == nil {
+		return true
 	}
 	return *r.UpdateCorrect && !boolTrue(r.Duplicated)
 }
@@ -259,6 +263,9 @@ type Metrics struct {
 	Protocols       int `json:"protocols"`
 	Attempts        int `json:"attempts"`         // graded protocol runs (harness failures excluded)
 	HarnessFailures int `json:"harness_failures"` // runs aborted by a harness error
+	// AuditReadFailures counts episodes whose audit read-back failed: each
+	// contributes zero audit metrics through signal loss, not zero activity.
+	AuditReadFailures int `json:"audit_read_failures,omitempty"`
 
 	// Token totals across every episode of every run (including harness-failed
 	// runs — a failed episode still spent tokens), so a run self-reports its cost
@@ -321,6 +328,9 @@ func (res *Results) Aggregate() {
 		}
 		byProtocol[r.ProtocolID] = append(byProtocol[r.ProtocolID], r)
 		for _, e := range r.Episodes {
+			if e.AuditReadError != "" {
+				m.AuditReadFailures++
+			}
 			m.TotalInputTokens += e.InputTokens
 			m.TotalOutputTokens += e.OutputTokens
 			m.TotalCacheReadTokens += e.CacheReadTokens
@@ -430,6 +440,9 @@ func (res *Results) HumanSummary() string {
 	fmt.Fprintf(&b, "  %s .. %s\n\n", m.StartedAt.Format(time.RFC3339), m.FinishedAt.Format(time.RFC3339))
 	mt := res.Metrics
 	fmt.Fprintf(&b, "protocols %d  attempts %d  harness failures %d\n", mt.Protocols, mt.Attempts, mt.HarnessFailures)
+	if mt.AuditReadFailures > 0 {
+		fmt.Fprintf(&b, "WARNING: %d episode(s) lost their audit read-back; their audit-derived metrics are zero through signal loss, not zero activity\n", mt.AuditReadFailures)
+	}
 	fmt.Fprintf(&b, "tokens: input %d  output %d  cache read %d  cache write %d (apply current model pricing for cost)\n\n",
 		mt.TotalInputTokens, mt.TotalOutputTokens, mt.TotalCacheReadTokens, mt.TotalCacheCreationTokens)
 	writeMetric(&b, "capture rate", mt.CaptureRate)

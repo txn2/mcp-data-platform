@@ -22,6 +22,9 @@ func baseMetrics() Metrics {
 		PersonalRecall:    rate(9, 10),
 		TransferRate:      rate(8, 10),
 		UpdateCorrectness: rate(5, 5),
+		// A current-harness run that scores duplicates always carries
+		// update-capture data (the gate feeds the duplicate denominator).
+		UpdateCaptureRate: rate(5, 5),
 		AbstentionRate:    rate(9, 10),
 		DuplicateRate:     rate(0, 5),
 		PassK:             rate(7, 10),
@@ -52,6 +55,22 @@ func TestBaselineCompatible(t *testing.T) {
 	}
 	if err := BaselineCompatible(lifecycleResults("a3", "", Metrics{}), lifecycleResults("a3", "", Metrics{})); err == nil {
 		t.Fatal("an empty baseline should be refused")
+	}
+	// A baseline from before the update-capture gating of the duplicate rate
+	// (duplicate denominator present, no update-capture data) counted capture
+	// misses as duplicates; its duplicate numbers are definitionally inflated,
+	// so gating against it must be refused, not silently absorbed.
+	legacy := baseMetrics()
+	legacy.UpdateCaptureRate = Rate{}
+	if err := BaselineCompatible(lifecycleResults("a3", "", baseMetrics()), lifecycleResults("a3", "", legacy)); err == nil {
+		t.Fatal("a pre-redefinition baseline (duplicates scored, no update-capture data) should be refused")
+	}
+	// A baseline with no supersede coverage at all (both denominators zero) is
+	// not a legacy artifact — nothing about its duplicate numbers is stale.
+	noSupersede := baseMetrics()
+	noSupersede.DuplicateRate, noSupersede.UpdateCaptureRate = Rate{}, Rate{}
+	if err := BaselineCompatible(lifecycleResults("a3", "", baseMetrics()), lifecycleResults("a3", "", noSupersede)); err != nil {
+		t.Fatalf("a baseline without supersede coverage should be compatible: %v", err)
 	}
 }
 

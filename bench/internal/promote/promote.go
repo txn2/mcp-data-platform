@@ -169,7 +169,7 @@ func (r Reviewer) Apply(ctx context.Context, session *mcp.ClientSession, handle 
 	// otherwise surface only as an unexplained flat metric downstream — so it is
 	// a harness error, never a measured miss.
 	if err := r.verifySink(ctx, session, handle, t); err != nil {
-		return false, fmt.Errorf("sink read-back after apply (%s, insight %s): %w", t.Label, insightID, err)
+		return false, fmt.Errorf("sink read-back after apply (%s, insight %s): %w — NOTE: the promotion may be live despite this failure (approve and apply already succeeded), so platform state no longer matches the recorded outcome; treat the run as contaminated (a cold-start rerun needs a fresh baseline reset), and if the store is merely slow to serve reads, raise -sink-timeout", t.Label, insightID, err)
 	}
 	return true, nil
 }
