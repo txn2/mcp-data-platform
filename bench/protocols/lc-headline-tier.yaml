@@ -8,6 +8,7 @@ sink: knowledge_page
 page:
     slug: headline-tier-definition
     title: Headline Tier Definition
+    summary: The 'headline tier' for this study is the plus tier.
     body: |-
         # Headline Tier Definition
 

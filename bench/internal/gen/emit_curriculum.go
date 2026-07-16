@@ -65,12 +65,12 @@ func (d *Dataset) Curriculum() curriculum.Curriculum {
 		Lessons: []curriculum.Lesson{
 			datahubLesson("cs-units-cents", "Monetary columns are integer cents", "units_cents", unitsCentsFact, orders),
 			pageLesson("cs-net-revenue", "Net-revenue reporting policy", "net_revenue", netRevenueFact, orders,
-				"revenue-reporting-policy", "Revenue Reporting Policy", revenuePolicyBody),
+				"revenue-reporting-policy", "Revenue Reporting Policy", revenuePolicySummary, revenuePolicyBody),
 			pageLesson("cs-fiscal-calendar", "Fiscal calendar boundaries", "fiscal_calendar", fiscalCalendarFact, orders,
-				"fiscal-calendar-policy", "Fiscal Calendar Policy", fiscalCalendarBody),
+				"fiscal-calendar-policy", "Fiscal Calendar Policy", fiscalCalendarSummary, fiscalCalendarBody),
 			datahubLesson("cs-freshness-cutoff", "Daily index freshness cutoff", "freshness_cutoff", dailyDescription, daily),
 			pageLesson("cs-tier-boundary", "Key-account tier definition", "tier_boundary", tierBoundaryFact, customers,
-				"customer-tier-definitions", "Customer Tier Definitions", tierDefinitionsBody),
+				"customer-tier-definitions", "Customer Tier Definitions", tierDefinitionsSummary, tierDefinitionsBody),
 			datahubLesson("cs-deprecated-table", "legacy_orders is deprecated", "deprecated_table", legacyDescription, legacy),
 		},
 	}
@@ -87,13 +87,15 @@ func datahubLesson(id, title, trapClass, fact, urn string) curriculum.Lesson {
 }
 
 // pageLesson builds a lesson that promotes its fact to a portal knowledge page
-// (delivered to any identity via the search tool). The page reuses the A2 seed's
-// slug/title/body so the promoted page is identical to the documented baseline.
-func pageLesson(id, title, trapClass, fact, urn, slug, pageTitle, body string) curriculum.Lesson {
+// (delivered to any identity via the search tool). The page reuses the A2
+// seed's slug/title/summary/body so the promoted page is identical to the
+// documented baseline — the summary especially, because search renders a page
+// hit as title plus summary and the a3 surface has no page-body fetch tool.
+func pageLesson(id, title, trapClass, fact, urn, slug, pageTitle, summary, body string) curriculum.Lesson {
 	return curriculum.Lesson{
 		ID: id, Title: title, TrapClass: trapClass, Fact: fact,
 		EntityURN: urn, Sink: protocol.SinkKnowledgePage, BudgetToolCalls: coldStartBudget,
-		Page:  &protocol.PagePayload{Slug: slug, Title: pageTitle, Body: body},
+		Page:  &protocol.PagePayload{Slug: slug, Title: pageTitle, Summary: summary, Body: body},
 		Teach: protocol.TeachStage{Prompt: teachPrompt(fact)},
 	}
 }

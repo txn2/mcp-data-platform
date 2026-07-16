@@ -3,6 +3,7 @@ package coldstart
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -28,6 +29,8 @@ import (
 	"github.com/txn2/mcp-data-platform/bench/internal/curriculum"
 	"github.com/txn2/mcp-data-platform/bench/internal/lifecycleapi"
 	"github.com/txn2/mcp-data-platform/bench/internal/llm"
+	"github.com/txn2/mcp-data-platform/bench/internal/pool"
+	"github.com/txn2/mcp-data-platform/bench/internal/promote"
 	"github.com/txn2/mcp-data-platform/bench/internal/protocol"
 	"github.com/txn2/mcp-data-platform/bench/internal/target"
 	"github.com/txn2/mcp-data-platform/bench/internal/task"
@@ -51,17 +54,27 @@ type fakePlatform struct {
 	changesets []lifecycleapi.Changeset
 	events     []auditapi.Event
 	applied    map[string]bool // trap class -> promoted
-	httpSrv    *httptest.Server
+	// Preflight contamination knobs (all empty = clean baseline).
+	entityDesc map[string]string            // urn -> pre-existing description
+	pages      []lifecycleapi.KnowledgePage // pre-existing knowledge pages
+	// Failure knobs, set before the run starts (all zero = healthy platform).
+	infoFailAfter int64 // platform_info mints fail after this many (0 = never)
+	insightsFail  bool  // insights list returns 500
+	approveFail   bool  // insight status PUT returns 500
+	applyRefuse   bool  // apply_knowledge returns a plain tool error
+	httpSrv       *httptest.Server
 }
 
 func newFakePlatform(t *testing.T) *fakePlatform {
 	t.Helper()
-	fp := &fakePlatform{applied: map[string]bool{}}
+	fp := &fakePlatform{applied: map[string]bool{}, entityDesc: map[string]string{}}
 	server := mcp.NewServer(&mcp.Implementation{Name: "fake-coldstart", Version: "fake-1.0.0"}, nil)
 	fp.addPlatformInfo(server)
 	fp.addMemoryCapture(server)
 	fp.addSearch(server)
 	fp.addApplyKnowledge(server)
+	fp.addGetEntity(server)
+	fp.addGatedQuery(server)
 
 	mcpHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil)
 	mux := http.NewServeMux()
@@ -70,6 +83,7 @@ func newFakePlatform(t *testing.T) *fakePlatform {
 	mux.HandleFunc("PUT /api/v1/admin/knowledge/insights/{id}/status", fp.putStatus)
 	mux.HandleFunc("GET /api/v1/admin/knowledge/changesets", fp.listChangesets)
 	mux.HandleFunc("GET /api/v1/admin/knowledge/changesets/{id}", fp.getChangeset)
+	mux.HandleFunc("GET /api/v1/portal/knowledge-pages", fp.listPages)
 	mux.HandleFunc("/api/v1/admin/audit/events", fp.serveAudit)
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := context.WithValue(r.Context(), authCtxKey{}, r.Header.Get("Authorization"))
@@ -105,9 +119,27 @@ func sessionSchema(extra map[string]*jsonschema.Schema) *jsonschema.Schema {
 func (fp *fakePlatform) addPlatformInfo(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{Name: "platform_info", Description: "orientation"},
 		func(context.Context, *mcp.CallToolRequest, map[string]any) (*mcp.CallToolResult, any, error) {
-			payload := map[string]any{"session_id": fmt.Sprintf("dps_%d", fp.minted.Add(1)), "version": "fake-1.0.0"}
+			n := fp.minted.Add(1)
+			if fp.infoFailAfter > 0 && n > fp.infoFailAfter {
+				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "mint refused"}}}, nil, nil
+			}
+			payload := map[string]any{"session_id": fmt.Sprintf("dps_%d", n), "version": "fake-1.0.0"}
 			raw, _ := json.Marshal(payload)
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(raw)}}, StructuredContent: payload}, nil, nil
+		})
+}
+
+// addGatedQuery models the platform's search-first gate: a query tool that
+// always refuses with the structured pre-audit error contract (no audit row).
+func (fp *fakePlatform) addGatedQuery(server *mcp.Server) {
+	schema := sessionSchema(map[string]*jsonschema.Schema{"sql": {Type: "string"}})
+	mcp.AddTool(server, &mcp.Tool{Name: "trino_query", Description: "query", InputSchema: schema},
+		func(context.Context, *mcp.CallToolRequest, map[string]any) (*mcp.CallToolResult, any, error) {
+			return &mcp.CallToolResult{
+				IsError:           true,
+				Content:           []mcp.Content{&mcp.TextContent{Text: "SEARCH_REQUIRED: call search first"}},
+				StructuredContent: map[string]any{"error": map[string]any{"code": "search_required"}},
+			}, nil, nil
 		})
 }
 
@@ -160,6 +192,9 @@ func (fp *fakePlatform) addApplyKnowledge(server *mcp.Server) {
 	})
 	mcp.AddTool(server, &mcp.Tool{Name: "apply_knowledge", Description: "promote", InputSchema: schema},
 		func(ctx context.Context, _ *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
+			if fp.applyRefuse {
+				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "change declined"}}}, nil, nil
+			}
 			fp.mu.Lock()
 			defer fp.mu.Unlock()
 			ids := stringSlice(args["insight_ids"])
@@ -181,6 +216,30 @@ func (fp *fakePlatform) addApplyKnowledge(server *mcp.Server) {
 		})
 }
 
+// addGetEntity serves the preflight's baseline read: an entity's effective
+// description (the entityDesc knob models a prior run's promotion or an a2
+// seed; empty is the clean baseline).
+func (fp *fakePlatform) addGetEntity(server *mcp.Server) {
+	schema := sessionSchema(map[string]*jsonschema.Schema{"urn": {Type: "string"}})
+	mcp.AddTool(server, &mcp.Tool{Name: "datahub_get_entity", Description: "entity metadata", InputSchema: schema},
+		func(_ context.Context, _ *mcp.CallToolRequest, args map[string]any) (*mcp.CallToolResult, any, error) {
+			urn, _ := args["urn"].(string)
+			fp.mu.Lock()
+			desc := fp.entityDesc[urn]
+			fp.mu.Unlock()
+			raw, _ := json.Marshal(map[string]any{"urn": urn, "type": "DATASET", "description": desc})
+			return okResult(string(raw)), nil, nil
+		})
+}
+
+// listPages serves the portal knowledge-pages list the preflight scans.
+func (fp *fakePlatform) listPages(w http.ResponseWriter, _ *http.Request) {
+	fp.mu.Lock()
+	pages := append([]lifecycleapi.KnowledgePage{}, fp.pages...)
+	fp.mu.Unlock()
+	writeJSON(w, map[string]any{"pages": pages, "total": len(pages)})
+}
+
 // recordLocked appends an audit row; a call carries enrichment once any
 // knowledge has been promoted. The caller holds fp.mu.
 func (fp *fakePlatform) recordLocked(args map[string]any, tool string) {
@@ -195,6 +254,10 @@ func (fp *fakePlatform) recordLocked(args map[string]any, tool string) {
 }
 
 func (fp *fakePlatform) listInsights(w http.ResponseWriter, r *http.Request) {
+	if fp.insightsFail {
+		http.Error(w, "insights unavailable", http.StatusInternalServerError)
+		return
+	}
 	q := r.URL.Query()
 	fp.mu.Lock()
 	defer fp.mu.Unlock()
@@ -227,6 +290,10 @@ func (fp *fakePlatform) getInsight(w http.ResponseWriter, r *http.Request) {
 }
 
 func (fp *fakePlatform) putStatus(w http.ResponseWriter, r *http.Request) {
+	if fp.approveFail {
+		http.Error(w, "status update unavailable", http.StatusInternalServerError)
+		return
+	}
 	var body struct {
 		Status string `json:"status"`
 	}
@@ -360,7 +427,7 @@ func testCurriculum() curriculum.Curriculum {
 				Sink: protocol.SinkDataHub, BudgetToolCalls: 5, Teach: protocol.TeachStage{Prompt: "remember cents"}},
 			{ID: "cs-net", Title: "net", TrapClass: "net_revenue", Fact: "net", EntityURN: ordersURN,
 				Sink: protocol.SinkKnowledgePage, BudgetToolCalls: 5,
-				Page:  &protocol.PagePayload{Slug: "net", Title: "Net", Body: "net policy"},
+				Page:  &protocol.PagePayload{Slug: "net", Title: "Net", Summary: "net = amount - discount", Body: "net policy"},
 				Teach: protocol.TeachStage{Prompt: "remember net"}},
 		},
 	}
@@ -446,15 +513,22 @@ func TestColdStartCurveClimbs(t *testing.T) {
 	fp := newFakePlatform(t)
 	opts := testOptions(fp, curDir, tasksDir, testFactory(cur, tasks))
 	opts.TranscriptDir = t.TempDir()
-	flushes := 0
-	opts.OnCheckpoint = func(*Results) { flushes++ }
+	// Every append is flushed before the next long-running step (settle, eval),
+	// so an interruption never discards a completed checkpoint OR a completed
+	// teach+promote lesson. For 2 lessons the (lessons, checkpoints) snapshot
+	// sequence is pinned: baseline cp, lesson 1, cp 1, lesson 2, cp 2.
+	var flushed [][2]int
+	opts.OnCheckpoint = func(r *Results) {
+		flushed = append(flushed, [2]int{len(r.Lessons), len(r.Checkpoints)})
+	}
 
 	res, err := Run(context.Background(), opts)
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	if flushes != 3 {
-		t.Errorf("OnCheckpoint fired %d times, want one per checkpoint (3)", flushes)
+	wantFlushed := [][2]int{{0, 1}, {1, 1}, {1, 2}, {2, 2}, {2, 3}}
+	if fmt.Sprint(flushed) != fmt.Sprint(wantFlushed) {
+		t.Errorf("flush snapshots (lessons, checkpoints) = %v, want %v (flush-after-append ordering broken)", flushed, wantFlushed)
 	}
 	if entries, _ := os.ReadDir(opts.TranscriptDir); len(entries) == 0 {
 		t.Error("expected per-episode transcripts to be written")
@@ -483,18 +557,452 @@ func TestColdStartCurveClimbs(t *testing.T) {
 	assertDistinctIdentities(t, res)
 }
 
+// assertDistinctIdentities checks the run's identity discipline: no evaluator
+// reuses a teacher identity, and every evaluator identity is globally unique
+// across ALL checkpoints (scoped to its one checkpoint+repeat) — a reused
+// evaluator would carry its own discovery scope and memories forward,
+// contaminating a later checkpoint's measurement.
 func assertDistinctIdentities(t *testing.T, res *Results) {
 	t.Helper()
 	teachers := map[string]bool{}
 	for _, l := range res.Lessons {
 		teachers[l.Episode.Email] = true
 	}
+	type slot struct{ checkpoint, repeat int }
+	owner := map[string]slot{}
 	for _, cp := range res.Checkpoints {
 		for _, a := range cp.Attempts {
 			if teachers[a.Email] {
 				t.Errorf("evaluator %s reused a teacher identity", a.Email)
 			}
+			s := slot{cp.Index, a.Repeat}
+			if prev, ok := owner[a.Email]; ok && prev != s {
+				t.Errorf("evaluator %s used at checkpoint %d repeat %d AND checkpoint %d repeat %d; evaluator identities must be globally unique",
+					a.Email, prev.checkpoint, prev.repeat, s.checkpoint, s.repeat)
+			}
+			owner[a.Email] = s
 		}
+	}
+}
+
+// TestIdentitySequences pins the identity math: teachers occupy 1..n, and every
+// checkpoint's evaluators start above them and never collide across
+// checkpoints or repeats. The exact values guard the arithmetic a refactor
+// could silently shift (which would reuse identities and contaminate a run).
+func TestIdentitySequences(t *testing.T) {
+	cases := []struct {
+		name string
+		got  int
+		want int
+	}{
+		{"teacherSeq(0)", teacherSeq(0), 1},
+		{"teacherSeq(5)", teacherSeq(5), 6},
+		{"evaluatorSeq(0,1,6,1)", evaluatorSeq(0, 1, 6, 1), 7},
+		{"evaluatorSeq(6,1,6,1)", evaluatorSeq(6, 1, 6, 1), 13},
+		{"evaluatorSeq(6,3,6,3)", evaluatorSeq(6, 3, 6, 3), 27},
+		{"maxIdentitySeq(6,1)", maxIdentitySeq(6, 1), 13},
+		{"maxIdentitySeq(6,3)", maxIdentitySeq(6, 3), 27},
+	}
+	for _, tc := range cases {
+		if tc.got != tc.want {
+			t.Errorf("%s = %d, want %d", tc.name, tc.got, tc.want)
+		}
+	}
+}
+
+// countingFactory wraps a factory and counts adapter builds, so a test can
+// assert a refused run spent no episode.
+func countingFactory(inner AdapterFactory, calls *atomic.Int64) AdapterFactory {
+	return func(unitID, stage string) (llm.Adapter, error) {
+		calls.Add(1)
+		return inner(unitID, stage)
+	}
+}
+
+// TestPreflightRefusesContaminatedBaseline proves each contamination source —
+// a pre-existing entity description, a leftover insight on a (teacher, URN)
+// pair, a knowledge page with a curriculum slug — aborts the run before any
+// adapter (LLM episode) is built, with the remediation in the error.
+func TestPreflightRefusesContaminatedBaseline(t *testing.T) {
+	cur := testCurriculum()
+	tasks := []task.Task{numericTask("s3-units-a", "units_cents", 100)}
+	cases := map[string]func(fp *fakePlatform){
+		"entity description": func(fp *fakePlatform) {
+			fp.entityDesc[ordersURN] = "Amounts are integer cents."
+		},
+		"leftover insight": func(fp *fakePlatform) {
+			// The baseline requires an EMPTY insight store: any leftover trips the
+			// preflight, even one captured by a non-curriculum identity (an S5
+			// run's teacher) on a non-curriculum anchor.
+			fp.insights = append(fp.insights, lifecycleapi.Insight{
+				ID: "in-old", CreatedAt: time.Unix(1, 0), CapturedBy: "bench-agent-042@apikey.local",
+				InsightText: "old", Status: "applied", EntityURNs: []string{"urn:li:dataset:other"},
+			})
+		},
+		"leftover knowledge page": func(fp *fakePlatform) {
+			// Any page trips it, curriculum slug or not (e.g. an S5 lc-* page).
+			fp.pages = append(fp.pages, lifecycleapi.KnowledgePage{ID: "kp-1", Slug: "focus-region-definition"})
+		},
+	}
+	for name, contaminate := range cases {
+		t.Run(name, func(t *testing.T) {
+			curDir, tasksDir := writeFixtures(t, cur, tasks)
+			fp := newFakePlatform(t)
+			contaminate(fp)
+			var adapterCalls atomic.Int64
+			opts := testOptions(fp, curDir, tasksDir, countingFactory(testFactory(cur, tasks), &adapterCalls))
+			res, err := Run(context.Background(), opts)
+			if err == nil {
+				t.Fatal("run accepted a contaminated baseline")
+			}
+			if !strings.Contains(err.Error(), "remediation") {
+				t.Errorf("preflight error missing remediation guidance: %v", err)
+			}
+			if res != nil {
+				t.Errorf("a refused run must not return results, got %+v", res)
+			}
+			if n := adapterCalls.Load(); n != 0 {
+				t.Errorf("preflight refusal built %d adapter(s); it must abort before any episode is spent", n)
+			}
+		})
+	}
+}
+
+// TestEntityContamination covers the aspect checks the integration variants do
+// not exercise: tags and deprecation left by an a2 seed, and a clean entity.
+func TestEntityContamination(t *testing.T) {
+	if got := entityContamination(preflightEntity{}); got != "" {
+		t.Errorf("clean entity flagged: %s", got)
+	}
+	if got := entityContamination(preflightEntity{Description: "  "}); got != "" {
+		t.Errorf("whitespace-only description flagged: %s", got)
+	}
+	if got := entityContamination(preflightEntity{Description: "docs"}); got == "" {
+		t.Error("description contamination not flagged")
+	}
+	if got := entityContamination(preflightEntity{Tags: []json.RawMessage{[]byte(`{"name":"pii"}`)}}); got == "" {
+		t.Error("tag contamination not flagged")
+	}
+	deprecated := preflightEntity{}
+	deprecated.Deprecation = &struct {
+		Deprecated bool `json:"deprecated"`
+	}{Deprecated: true}
+	if got := entityContamination(deprecated); got == "" {
+		t.Error("deprecation contamination not flagged")
+	}
+}
+
+// TestParsePreflightEntityIgnoresTrailingText proves the entity JSON is parsed
+// even when enrichment middleware appends context after it.
+func TestParsePreflightEntityIgnoresTrailingText(t *testing.T) {
+	got, err := parsePreflightEntity(`{"description":"d"}` + "\n--- Semantic Context ---\nmore text")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got.Description != "d" {
+		t.Errorf("description = %q, want d", got.Description)
+	}
+	if _, err := parsePreflightEntity("not json"); err == nil {
+		t.Error("non-JSON result must error")
+	}
+}
+
+// TestSettleRunsBetweenPromoteAndEval proves the settle pause runs after a
+// successful DATAHUB-sink promote and before the following eval checkpoint,
+// with the configured duration — and is skipped for a page-sink promote (page
+// hits are served live from the portal store; only DataHub table context is
+// cached). The injected sleeper records instead of sleeping, so no test
+// real-sleeps.
+func TestSettleRunsBetweenPromoteAndEval(t *testing.T) {
+	cur := testCurriculum() // lesson 1 datahub sink, lesson 2 page sink
+	tasks := []task.Task{
+		numericTask("s3-units-a", "units_cents", 100),
+		numericTask("s3-net-a", "net_revenue", 50),
+	}
+	curDir, tasksDir := writeFixtures(t, cur, tasks)
+	fp := newFakePlatform(t)
+
+	// Sequence log: the factory records episode starts, the sleeper records
+	// settles, so ordering (promote -> settle -> eval) is assertable.
+	var mu sync.Mutex
+	var events []string
+	factory := func(unitID, stage string) (llm.Adapter, error) {
+		mu.Lock()
+		events = append(events, stage+":"+unitID)
+		mu.Unlock()
+		return testFactory(cur, tasks)(unitID, stage)
+	}
+	opts := testOptions(fp, curDir, tasksDir, factory)
+	opts.Settle = 5 * time.Minute
+	var slept []time.Duration
+	opts.SettleSleep = func(_ context.Context, d time.Duration) error {
+		mu.Lock()
+		events = append(events, "settle")
+		slept = append(slept, d)
+		mu.Unlock()
+		return nil
+	}
+	res, err := Run(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	// Both lessons promote, but only the datahub-sink lesson settles.
+	if len(slept) != 1 || slept[0] != 5*time.Minute {
+		t.Fatalf("settle sleeps = %v, want one of 5m (datahub-sink lesson only)", slept)
+	}
+	if res.Manifest.Settle != "5m0s" {
+		t.Errorf("manifest settle = %q, want 5m0s (pacing must be recorded on kept results)", res.Manifest.Settle)
+	}
+	assertSettleOrdering(t, events)
+}
+
+// assertSettleOrdering checks every settle event lands after a teach episode
+// and before the next eval episode.
+func assertSettleOrdering(t *testing.T, events []string) {
+	t.Helper()
+	for i, ev := range events {
+		if ev != "settle" {
+			continue
+		}
+		if i == 0 || !strings.HasPrefix(events[i-1], StageTeach+":") {
+			t.Errorf("settle at %d not immediately after a teach episode: %v", i, events)
+		}
+		if i+1 >= len(events) || !strings.HasPrefix(events[i+1], StageEval+":") {
+			t.Errorf("settle at %d not immediately before an eval episode: %v", i, events)
+		}
+	}
+}
+
+// TestSleepRespectsContext covers the real (non-injected) sleeper: it completes
+// a tiny pause and aborts immediately on a canceled context, so a settle
+// window never blocks an interrupted run.
+func TestSleepRespectsContext(t *testing.T) {
+	e := &runEnv{opts: Options{}}
+	if err := e.sleep(context.Background(), time.Millisecond); err != nil {
+		t.Fatalf("sleep: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := e.sleep(ctx, time.Hour); err == nil {
+		t.Fatal("a canceled context must interrupt the settle sleep")
+	}
+}
+
+// TestSettleSkippedForUnpromotedLesson proves an unpromoted lesson triggers no
+// settle pause (nothing changed in the enrichment layer).
+func TestSettleSkippedForUnpromotedLesson(t *testing.T) {
+	cur := testCurriculum()
+	tasks := []task.Task{numericTask("s3-units-a", "units_cents", 100)}
+	curDir, tasksDir := writeFixtures(t, cur, tasks)
+	fp := newFakePlatform(t)
+
+	// A factory whose teach episodes never capture: WaitForInsight misses, so no
+	// lesson promotes (Captured=false is a measured outcome, not an error).
+	factory := func(unitID, stage string) (llm.Adapter, error) {
+		if stage == StageTeach {
+			return llm.NewScripted([]llm.Step{{FinalText: "noted, but not saved"}}), nil
+		}
+		return testFactory(cur, tasks)(unitID, stage)
+	}
+	opts := testOptions(fp, curDir, tasksDir, factory)
+	opts.AuditTimeout = 50 * time.Millisecond // capture-verify miss window
+	opts.Settle = 5 * time.Minute
+	settles := 0
+	opts.SettleSleep = func(context.Context, time.Duration) error {
+		settles++
+		return nil
+	}
+	res, err := Run(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if res.Metrics.LessonsPromoted != 0 {
+		t.Fatalf("expected no promotions, got %d", res.Metrics.LessonsPromoted)
+	}
+	if settles != 0 {
+		t.Errorf("settle fired %d time(s) for unpromoted lessons; it must be skipped", settles)
+	}
+}
+
+// newTestEnv builds a runEnv over the fake platform for driving teachAndPromote
+// and runEpisode directly (the branch tests below), mirroring Run's wiring.
+func newTestEnv(fp *fakePlatform, factory AdapterFactory) *runEnv {
+	tgt := target.Target{BaseURL: fp.httpSrv.URL, Credential: "testkey"}
+	life := lifecycleapi.New(fp.httpSrv.URL, tgt.HTTPClient(5*time.Second))
+	return &runEnv{
+		opts: Options{
+			Target: tgt, HTTPTimeout: 5 * time.Second, Arm: "a3", K: 1,
+			Factory: factory, AuditTimeout: 300 * time.Millisecond, IdentityKeys: 64,
+			Log: testLogger(),
+		},
+		log:      testLogger(),
+		audit:    auditapi.New(fp.httpSrv.URL, tgt.HTTPClient(5*time.Second)),
+		life:     life,
+		reviewer: promote.Reviewer{Life: life, Log: testLogger()},
+	}
+}
+
+// capturingTeachFactory returns a factory whose teach episodes capture the
+// lesson's fact, sufficient for driving teachAndPromote through its
+// post-capture branches.
+func capturingTeachFactory(l curriculum.Lesson) AdapterFactory {
+	return func(string, string) (llm.Adapter, error) {
+		return &knowledgeAdapter{mode: StageTeach, class: l.TrapClass, urn: l.EntityURN}, nil
+	}
+}
+
+// TestTeachAndPromoteBranches covers every teachAndPromote outcome: harness
+// errors carry their stage prefix, while a capture miss and an apply refusal
+// are measured outcomes (no error). Each error string is what a paid run's
+// lessons[].error would show, so the prefixes are pinned.
+func TestTeachAndPromoteBranches(t *testing.T) {
+	lesson := testCurriculum().Lessons[0]
+	cases := []struct {
+		name          string
+		configure     func(fp *fakePlatform) AdapterFactory
+		wantErrPrefix string // "" = measured outcome, no harness error
+		wantCaptured  *bool
+		wantPromoted  *bool
+	}{
+		{
+			name: "teach harness error",
+			configure: func(*fakePlatform) AdapterFactory {
+				return func(string, string) (llm.Adapter, error) { return nil, errors.New("adapter down") }
+			},
+			wantErrPrefix: "build adapter",
+		},
+		{
+			name: "capture verify error",
+			configure: func(fp *fakePlatform) AdapterFactory {
+				fp.insightsFail = true
+				return capturingTeachFactory(lesson)
+			},
+			wantErrPrefix: "capture verify: ",
+		},
+		{
+			name: "capture miss is measured",
+			configure: func(*fakePlatform) AdapterFactory {
+				// The teach episode never reaches the capture tool.
+				return func(string, string) (llm.Adapter, error) {
+					return llm.NewScripted([]llm.Step{{FinalText: "noted"}}), nil
+				}
+			},
+			wantCaptured: new(false),
+		},
+		{
+			name: "admin session error",
+			configure: func(fp *fakePlatform) AdapterFactory {
+				fp.infoFailAfter = 1 // the teach mint succeeds; the admin mint fails
+				return capturingTeachFactory(lesson)
+			},
+			wantErrPrefix: "admin session: ",
+			wantCaptured:  new(true),
+		},
+		{
+			name: "apply error",
+			configure: func(fp *fakePlatform) AdapterFactory {
+				fp.approveFail = true
+				return capturingTeachFactory(lesson)
+			},
+			wantErrPrefix: "promote: ",
+			wantCaptured:  new(true),
+		},
+		{
+			name: "apply refusal is measured",
+			configure: func(fp *fakePlatform) AdapterFactory {
+				fp.applyRefuse = true
+				return capturingTeachFactory(lesson)
+			},
+			wantCaptured: new(true),
+			wantPromoted: new(false),
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fp := newFakePlatform(t)
+			env := newTestEnv(fp, tc.configure(fp))
+			defer env.closeAdmin()
+			lr := env.teachAndPromote(context.Background(), lesson, 1)
+			if tc.wantErrPrefix == "" && lr.Error != "" {
+				t.Fatalf("measured outcome produced a harness error: %s", lr.Error)
+			}
+			if tc.wantErrPrefix != "" && !strings.Contains(lr.Error, tc.wantErrPrefix) {
+				t.Fatalf("error = %q, want it to contain %q", lr.Error, tc.wantErrPrefix)
+			}
+			assertBoolPtr(t, "captured", lr.Captured, tc.wantCaptured)
+			assertBoolPtr(t, "promoted", lr.Promoted, tc.wantPromoted)
+		})
+	}
+}
+
+func assertBoolPtr(t *testing.T, field string, got, want *bool) {
+	t.Helper()
+	if want == nil {
+		return
+	}
+	if got == nil {
+		t.Errorf("%s = nil, want %v", field, *want)
+		return
+	}
+	if *got != *want {
+		t.Errorf("%s = %v, want %v", field, *got, *want)
+	}
+}
+
+// TestRunSurfacesHarnessFailures proves a run with any harness-level episode
+// failure returns a non-nil error (nonzero exit), so a paid run can never
+// silently publish a curve with unaccounted episodes.
+func TestRunSurfacesHarnessFailures(t *testing.T) {
+	cur := testCurriculum()
+	tasks := []task.Task{numericTask("s3-units-a", "units_cents", 100)}
+	curDir, tasksDir := writeFixtures(t, cur, tasks)
+	fp := newFakePlatform(t)
+	inner := testFactory(cur, tasks)
+	factory := func(unitID, stage string) (llm.Adapter, error) {
+		if stage == StageEval && unitID == "s3-units-a" {
+			return nil, errors.New("adapter down")
+		}
+		return inner(unitID, stage)
+	}
+	res, err := Run(context.Background(), testOptions(fp, curDir, tasksDir, factory))
+	if err == nil {
+		t.Fatal("run with harness failures exited clean")
+	}
+	if res == nil || res.Metrics.HarnessFailures == 0 {
+		t.Fatalf("results must still carry the failed attempts, got %+v", res)
+	}
+}
+
+// TestEpisodeClassifiesRefusalsAndTransportErrors drives one episode whose
+// tools hit all three classifications: an audited call (search), a pre-audit
+// structured refusal (the gated trino_query, no audit row expected), and a
+// transport-level error (an unknown tool name, indeterminate). The audit
+// read-back bounds only converge when the classification is right: counting
+// the refusal as audited would demand a row the platform never wrote.
+func TestEpisodeClassifiesRefusalsAndTransportErrors(t *testing.T) {
+	fp := newFakePlatform(t)
+	steps := []llm.Step{
+		{ToolCalls: []llm.ToolCall{{Name: "search", Args: map[string]any{"query": "q"}}}},
+		{ToolCalls: []llm.ToolCall{{Name: "trino_query", Args: map[string]any{"sql": "SELECT 1"}}}},
+		{ToolCalls: []llm.ToolCall{{Name: "no_such_tool", Args: map[string]any{}}}},
+		{FinalText: "FINAL ANSWER: done"},
+	}
+	env := newTestEnv(fp, func(string, string) (llm.Adapter, error) { return llm.NewScripted(steps), nil })
+	rec := env.runEpisode(context.Background(), episodeSpec{stage: StageEval, unitID: "s3-x", seq: 9, prompt: "q", system: "sys", budget: 10})
+	if rec.err != "" {
+		t.Fatalf("episode error: %s", rec.err)
+	}
+	if !rec.searchCalled {
+		t.Error("search-called signal not recorded")
+	}
+	// Two of the three calls errored (refusal + transport), one succeeded.
+	if rec.toolErrors != 2 {
+		t.Errorf("tool errors = %d, want 2", rec.toolErrors)
+	}
+	// Only the search is audited: the refusal never reached the audit layer and
+	// the transport error is indeterminate (bounded above, not below).
+	if rec.audit.AuditedCalls != 1 {
+		t.Errorf("audited calls = %d, want 1 (refusal/transport misclassified)", rec.audit.AuditedCalls)
 	}
 }
 
@@ -525,13 +1033,30 @@ const claudeEvalStream = `{"type":"system","subtype":"init","mcp_servers":[{"nam
 // TestClaudeCLIEpisode isolates the claude-cli episode path: a stubbed client
 // returns a canned eval transcript, and the harness maps the client result,
 // reads audit best effort by the threaded handle, and writes the transcript.
+// The Exec stub also pins credential rotation: the per-episode MCP config must
+// authenticate as the episode's pool identity (seq 7 -> testkey-007), because a
+// wrong credential would silently collapse every evaluator onto one identity.
 func TestClaudeCLIEpisode(t *testing.T) {
 	fp := newFakePlatform(t)
 	fp.events = append(fp.events, auditapi.Event{DurationMS: 5, SessionID: "dps_cc_1", ToolName: "search", Success: true})
 
+	var gotCredential string
 	runner, err := claudecli.New(claudecli.Options{
 		Model: "claude-sonnet-5",
-		Exec: func(context.Context, claudecli.CommandSpec) ([]byte, []byte, error) {
+		Exec: func(_ context.Context, spec claudecli.CommandSpec) ([]byte, []byte, error) {
+			raw, err := os.ReadFile(filepath.Join(spec.Dir, "mcp-config.json"))
+			if err != nil {
+				t.Errorf("read per-episode mcp config: %v", err)
+			}
+			var cfg struct {
+				MCPServers map[string]struct {
+					Headers map[string]string `json:"headers"`
+				} `json:"mcpServers"`
+			}
+			if err := json.Unmarshal(raw, &cfg); err != nil {
+				t.Errorf("parse per-episode mcp config: %v", err)
+			}
+			gotCredential = strings.TrimPrefix(cfg.MCPServers["bench"].Headers["Authorization"], "Bearer ")
 			return []byte(claudeEvalStream), nil, nil
 		},
 	})
@@ -550,6 +1075,9 @@ func TestClaudeCLIEpisode(t *testing.T) {
 	rec := env.runEpisode(context.Background(), episodeSpec{stage: StageEval, unitID: "s3-units-a", seq: 7, prompt: "q", system: "sys", budget: 5})
 	if rec.err != "" {
 		t.Fatalf("claude-cli episode error: %s", rec.err)
+	}
+	if want := pool.Credential("testkey", 7, 32); gotCredential != want {
+		t.Errorf("episode credential = %q, want %q (pool rotation broken)", gotCredential, want)
 	}
 	if !gradeEval(rec.finalAnswer, task.Grading{Kind: task.GradeNumeric, Value: new(100.0), AbsTolerance: 0.01}) {
 		t.Errorf("claude-cli answer %q did not grade correct", rec.finalAnswer)

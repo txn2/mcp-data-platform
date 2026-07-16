@@ -77,7 +77,14 @@ func TestValidateRejects(t *testing.T) {
 		},
 		"page sink partial payload": func(p *Protocol) {
 			p.Sink = SinkKnowledgePage
-			p.Page = &PagePayload{Slug: "s", Title: "", Body: "b"}
+			p.Page = &PagePayload{Slug: "s", Title: "", Summary: "f", Body: "b"}
+		},
+		// A page without a summary is a title-only search hit on tool surfaces
+		// with no page-body fetch, so its fact is structurally undeliverable; the
+		// set must refuse at load rather than spend a run measuring it.
+		"page sink empty summary": func(p *Protocol) {
+			p.Sink = SinkKnowledgePage
+			p.Page = &PagePayload{Slug: "s", Title: "T", Body: "b"}
 		},
 		"transfer bad grade":   func(p *Protocol) { p.Transfer.Grading = task.Grading{Kind: "bogus"} },
 		"abstain empty prompt": func(p *Protocol) { p.Abstain.Prompt = "" },
@@ -109,7 +116,7 @@ func runRejectCases(t *testing.T, group string, base func() Protocol, cases map[
 func TestValidatePageSinkAccepted(t *testing.T) {
 	p := validProtocol()
 	p.Sink = SinkKnowledgePage
-	p.Page = &PagePayload{Slug: "revenue", Title: "Revenue", Body: "net revenue"}
+	p.Page = &PagePayload{Slug: "revenue", Title: "Revenue", Summary: "net revenue is amount minus discount", Body: "net revenue"}
 	if err := p.Validate(); err != nil {
 		t.Fatalf("page-sink protocol rejected: %v", err)
 	}

@@ -19,9 +19,12 @@ import (
 const insightPollInterval = 250 * time.Millisecond
 
 // waitForInsight polls for a pending insight captured by the identity and
-// anchored to the entity, using the shared promote path (see promote.WaitForInsight).
-func (e *runEnv) waitForInsight(ctx context.Context, email, urn string) (*lifecycleapi.Insight, error) {
-	return promote.WaitForInsight(ctx, e.life, email, urn, e.opts.AuditTimeout, insightPollInterval)
+// anchored to the entity, using the shared promote path (see
+// promote.WaitForInsight). since is the teach episode's start time; it bounds
+// the match to this run so an interrupted prior run's leftover pending insight
+// can never fake this episode's capture.
+func (e *runEnv) waitForInsight(ctx context.Context, email, urn string, since time.Time) (*lifecycleapi.Insight, error) {
+	return promote.WaitForInsight(ctx, e.life, email, urn, since.Add(-promote.CaptureSkewMargin), e.opts.AuditTimeout, insightPollInterval)
 }
 
 // promoteInsight plays the reviewer: it approves the insight and applies it to

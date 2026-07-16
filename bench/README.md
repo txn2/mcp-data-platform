@@ -406,6 +406,36 @@ suite reuses one identity pool (a distinct teacher per lesson, fresh evaluators
 per checkpoint), and a run refuses to start when the lessons plus per-checkpoint
 evaluators exceed the pool.
 
+**A cold-start run requires a FRESH DataHub quickstart**, not just re-ingesting
+the empty seed. `apply_knowledge` description promotions write the
+`editableDatasetProperties` aspect, and a prior a2 seed leaves
+`editableSchemaMetadata` column docs, tags, and deprecation; the empty seed
+(`bench_mces_empty.json`) upserts only `datasetProperties`, so re-ingesting it
+cannot clear any of that, and the read path prefers the editable description
+when non-empty. A **baseline-integrity preflight** enforces this: before any
+episode is spent, the run reads every lesson entity through the platform,
+lists insights for every (teacher, lesson URN) pair, and scans knowledge pages
+for the curriculum slugs, refusing to start if anything is already there.
+Postgres state (search gate, memory records, changesets, knowledge pages) is
+reset by the `bench-cold-start` target's TRUNCATE; DataHub state requires
+`datahub docker nuke`, a re-quickstart, then `make bench-seed-datahub-empty`.
+
+Between a successful datahub-sink promote and the next eval checkpoint the
+runner pauses for the `-settle` window (default `5m`, matching the a3 semantic
+cache TTL, `SETTLE=` on the make target) so a table-context cache entry
+populated by the previous checkpoint's evaluators can never serve the stale
+pre-promotion description to the next ones. Page-sink promotes skip the pause
+(page hits are served live from the portal store, nothing is cached), as do
+lessons that did not promote. The window is recorded on the results manifest,
+and the scripted smoke runs with `SETTLE=0s`.
+
+**Pass criteria.** A zero exit code is NOT a pass signal: capture misses and
+promote refusals are measured outcomes by design, so a run can exit 0 with a
+flat curve. A valid full run's summary must read `lessons 6 (captured 6,
+promoted 6)` with `harness failures 0`, enrichment coverage climbing from the
+baseline, and no evaluator memory-write warning (evaluators are forbidden from
+saving memories; the summary warns if the audit-side count is non-zero).
+
 ## Running
 
 From the repository root:
@@ -439,18 +469,37 @@ the insight/changeset APIs, supersede, grading, and the metrics against the live
 platform with no API key and no model variance.
 
 The cold-start suite (#963) boots the same `a3` arm but with the empty baseline
-(no knowledge pages, undocumented DataHub), then teaches the curriculum:
+(no knowledge pages, undocumented DataHub, on a FRESH quickstart; the preflight
+refuses leftovers from a prior run or an a2 seed, see the cold-start section
+above), then teaches the curriculum:
 
 ```bash
-# Boot a3 with an empty enrichment layer: no knowledge pages, empty DataHub.
+# Fresh DataHub quickstart first (datahub docker nuke + re-quickstart if reused),
+# then boot a3 with an empty enrichment layer: no knowledge pages, empty DataHub.
 make bench-up BENCH_ARM=a3 BENCH_SEED_PAGES=0
 make bench-seed-datahub-empty            # entities present, undocumented
 
-make bench-cold-start-smoke              # scripted no-API-key loop validation
+make bench-cold-start-smoke              # scripted no-API-key loop validation (SETTLE=0s)
 make bench-cold-start K=1                # real learning-curve run (needs a model)
 make bench-cold-start LLM=claude-cli MODEL=sonnet K=1   # subscription run
-make bench-cold-start-report             # print the learning curve
+make bench-cold-start-report RESULTS=build/bench-results/cold-start-a3-<stamp>/results.json
 ```
+
+Every `bench-cold-start` invocation writes into its own timestamped directory
+(`build/bench-results/cold-start-a3-<stamp>/results.json` plus a
+`results.json.transcripts/` directory beside it) and `benchrun` refuses an
+`-out` that already exists, so a re-run can never overwrite a prior run's
+paid-for results; `bench-cold-start-report` therefore takes the run to
+summarize via `RESULTS=` (it lists the available run dirs when unset).
+
+Two model paths, two cost profiles. `LLM=claude-cli` runs each episode through
+a real `claude -p` client and is subscription-funded (the runner strips
+`ANTHROPIC_API_KEY` from the child environment): a k=1 full run is 181 episodes
+(6 teaches + 7 checkpoints x 25 eval tasks) at roughly 50s each, so plan for
+2.5-3 hours of wall clock. The `anthropic` adapter bills the API: k=1 is
+estimated around USD 20 at claude-sonnet-5 pricing, extrapolated from the
+phase-2 per-attempt token data. Either way a full run exceeds an interactive
+session: launch it in the background and read the summary from the run dir.
 
 The **scripted cold-start smoke** (`-llm scripted`) plays
 `curriculum/scripted-cold-start-smoke.json` (generated): each lesson captures its

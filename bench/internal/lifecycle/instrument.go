@@ -127,11 +127,14 @@ func isAlphaNum(r rune) bool {
 
 // surfacedTarget returns the promoted content whose presence in a tool result
 // marks the transfer fact as surfaced: the datahub sink applies the fact as the
-// entity description, and the knowledge-page sink applies the page body. Both
-// are what cross-enrichment / search deliver to the second identity.
+// entity description (returned verbatim by cross-enrichment), and the
+// knowledge-page sink is matched on the page SUMMARY — search renders a page
+// hit as title plus summary, and the a3 tool surface has no page-body fetch
+// tool, so the body can never appear in a tool result there; a body needle
+// would report ~100% "not surfaced" even when delivery worked.
 func surfacedTarget(p protocol.Protocol) string {
 	if p.Sink == protocol.SinkKnowledgePage && p.Page != nil {
-		return p.Page.Body
+		return p.Page.Summary
 	}
 	return p.Fact
 }

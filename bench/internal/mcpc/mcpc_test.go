@@ -105,3 +105,22 @@ func TestFirstText(t *testing.T) {
 		t.Errorf("FirstText(nil) = %q, want empty", got)
 	}
 }
+
+// TestPreAuditRefusal pins the shared refusal-code set: every code the platform
+// error contract issues outer to the audit middleware classifies true, and a
+// handler-level tool error (or an empty code) classifies false.
+func TestPreAuditRefusal(t *testing.T) {
+	for _, code := range []string{
+		"unauthenticated", "unauthorized", "session_required", "session_expired",
+		"search_required", "setup_required", "rate_limited",
+	} {
+		if !PreAuditRefusal(code) {
+			t.Errorf("code %q must classify as a pre-audit refusal", code)
+		}
+	}
+	for _, code := range []string{"", "query_failed", "invalid_arguments"} {
+		if PreAuditRefusal(code) {
+			t.Errorf("code %q must not classify as a pre-audit refusal", code)
+		}
+	}
+}

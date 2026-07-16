@@ -8,6 +8,7 @@ sink: knowledge_page
 page:
     slug: standard-order-definition
     title: Standard Order Definition
+    summary: A 'standard order' is any order whose amount is below $1,000.00 (100000 cents).
     body: |-
         # Standard Order Definition
 

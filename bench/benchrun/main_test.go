@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/txn2/mcp-data-platform/bench/internal/lifecycle"
@@ -242,6 +243,71 @@ func TestSupersedeRejectsBaseline(t *testing.T) {
 	err := runSupersede(config{supersede: true, arm: "a3", baseline: "b.json"})
 	if err == nil {
 		t.Fatal("supersede run accepted -baseline")
+	}
+}
+
+// TestColdStartRequiresArm proves the cold-start run refuses to start without
+// an arm rather than launching an unattributable run.
+func TestColdStartRequiresArm(t *testing.T) {
+	if err := runColdStart(config{coldStart: true}); err == nil {
+		t.Fatal("cold-start run accepted an empty arm")
+	}
+}
+
+// TestColdStartRejectsBaseline proves -baseline is refused for cold-start runs:
+// the regression gate scores the S1-S3 task shape, not the learning curve, so a
+// silently-ignored -baseline would give a false sense of gating.
+func TestColdStartRejectsBaseline(t *testing.T) {
+	if err := runColdStart(config{coldStart: true, arm: "a3", baseline: "b.json"}); err == nil {
+		t.Fatal("cold-start run accepted -baseline")
+	}
+}
+
+// TestColdStartRefusesToOverwriteResults proves a cold-start run whose -out
+// already exists is refused before anything is spent: a prior run's results and
+// transcripts are paid-for evidence that must never be overwritten, and there
+// is deliberately no override flag.
+func TestColdStartRefusesToOverwriteResults(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "results.json")
+	if err := os.WriteFile(out, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := runColdStart(config{coldStart: true, arm: "a3", out: out})
+	if err == nil {
+		t.Fatal("cold-start run accepted an -out that already exists")
+	}
+	if got := err.Error(); !strings.Contains(got, "refusing to overwrite") {
+		t.Errorf("error should explain the overwrite refusal, got: %s", got)
+	}
+}
+
+// TestColdStartRefusesToOverwriteTranscripts proves the refusal also covers the
+// sibling transcript directory: a run interrupted before its first checkpoint
+// flush leaves transcripts but no results file, and a rerun to the same -out
+// would overwrite them episode by episode (deterministic filenames).
+func TestColdStartRefusesToOverwriteTranscripts(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "results.json")
+	if err := os.MkdirAll(transcriptDir(out), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	err := runColdStart(config{coldStart: true, arm: "a3", out: out})
+	if err == nil {
+		t.Fatal("cold-start run accepted an -out whose transcript directory already exists")
+	}
+	if got := err.Error(); !strings.Contains(got, "transcript directory") {
+		t.Errorf("error should name the transcript directory, got: %s", got)
+	}
+}
+
+// TestBuildColdStartFactoryErrors proves the factory wiring fails fast on a
+// scripted run without a script and on an unknown provider, mirroring the
+// lifecycle factory contract.
+func TestBuildColdStartFactoryErrors(t *testing.T) {
+	if _, err := buildColdStartFactory(config{llmProvider: "scripted"}); err == nil {
+		t.Error("scripted provider without -script was accepted")
+	}
+	if _, err := buildColdStartFactory(config{llmProvider: "nope"}); err == nil {
+		t.Error("unknown provider was accepted")
 	}
 }
 

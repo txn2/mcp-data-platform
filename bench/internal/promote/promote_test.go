@@ -40,7 +40,7 @@ func TestBuildApplyArgsDataHub(t *testing.T) {
 func TestBuildApplyArgsKnowledgePage(t *testing.T) {
 	args := BuildApplyArgs(Target{
 		Label: "lc-y", EntityURN: "urn:y", Sink: protocol.SinkKnowledgePage,
-		Page: &protocol.PagePayload{Slug: "s", Title: "T", Body: "B"},
+		Page: &protocol.PagePayload{Slug: "s", Title: "T", Summary: "the fact in one line", Body: "B"},
 	}, "ins-2")
 	if args["sink"] != "knowledge_page" {
 		t.Fatalf("page sink wrong: %+v", args)
@@ -48,6 +48,12 @@ func TestBuildApplyArgsKnowledgePage(t *testing.T) {
 	page, ok := args["page"].(map[string]any)
 	if !ok || page["slug"] != "s" || page["title"] != "T" || page["body"] != "B" {
 		t.Fatalf("page payload wrong: %+v", args["page"])
+	}
+	// The summary must be sent: search renders a page hit as title plus summary,
+	// and on tool surfaces without a page-body fetch it is the only channel the
+	// promoted fact reaches an agent through.
+	if page["summary"] != "the fact in one line" {
+		t.Errorf("page summary not sent: %+v", args["page"])
 	}
 	if _, hasChanges := args["changes"]; hasChanges {
 		t.Error("page sink must not carry datahub changes")
@@ -73,7 +79,7 @@ func TestWaitForInsight(t *testing.T) {
 	defer srv.Close()
 	life := lifecycleapi.New(srv.URL, srv.Client())
 
-	got, err := WaitForInsight(context.Background(), life, "a@b", "urn:x", time.Second, time.Millisecond)
+	got, err := WaitForInsight(context.Background(), life, "a@b", "urn:x", time.Time{}, time.Second, time.Millisecond)
 	if err != nil {
 		t.Fatalf("wait: %v", err)
 	}
@@ -85,6 +91,52 @@ func TestWaitForInsight(t *testing.T) {
 	}
 }
 
+// TestWaitForInsightSinceBoundsToThisRun proves the since bound excludes a
+// pending insight left by an earlier run (same deterministic identity and URN)
+// while a fresh capture is matched. The fake applies the `since` param exactly
+// as the admin API does (created_at >=), so the test exercises both the param
+// emission and the resulting match window.
+func TestWaitForInsightSinceBoundsToThisRun(t *testing.T) {
+	stale := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	fresh := stale.Add(2 * time.Hour)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var out []lifecycleapi.Insight
+		since, err := time.Parse(time.RFC3339, r.URL.Query().Get("since"))
+		if err != nil {
+			t.Errorf("since param missing or not RFC 3339: %v", err)
+		}
+		for _, in := range []lifecycleapi.Insight{
+			{ID: "stale", CreatedAt: stale, Status: "pending"},
+			{ID: "fresh", CreatedAt: fresh, Status: "pending"},
+		} {
+			if !in.CreatedAt.Before(since) {
+				out = append(out, in)
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": out, "total": len(out)})
+	}))
+	defer srv.Close()
+	life := lifecycleapi.New(srv.URL, srv.Client())
+
+	got, err := WaitForInsight(context.Background(), life, "a@b", "urn:x", stale.Add(time.Hour), time.Second, time.Millisecond)
+	if err != nil {
+		t.Fatalf("wait: %v", err)
+	}
+	if got == nil || got.ID != "fresh" {
+		t.Fatalf("expected only the fresh insight to match, got %+v", got)
+	}
+
+	// A window after both insights matches nothing: the stale leftover cannot
+	// fake a capture (nil, nil is the measured-miss contract).
+	got, err = WaitForInsight(context.Background(), life, "a@b", "urn:x", fresh.Add(time.Hour), 20*time.Millisecond, time.Millisecond)
+	if err != nil {
+		t.Fatalf("a missed capture must not be an error: %v", err)
+	}
+	if got != nil {
+		t.Fatalf("stale insight matched despite the since bound: %+v", got)
+	}
+}
+
 func TestWaitForInsightTimeoutIsMiss(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"data": []lifecycleapi.Insight{}, "total": 0})
@@ -92,7 +144,7 @@ func TestWaitForInsightTimeoutIsMiss(t *testing.T) {
 	defer srv.Close()
 	life := lifecycleapi.New(srv.URL, srv.Client())
 
-	got, err := WaitForInsight(context.Background(), life, "a@b", "urn:x", 20*time.Millisecond, time.Millisecond)
+	got, err := WaitForInsight(context.Background(), life, "a@b", "urn:x", time.Time{}, 20*time.Millisecond, time.Millisecond)
 	if err != nil {
 		t.Fatalf("a missed capture must not be an error: %v", err)
 	}
@@ -162,10 +214,14 @@ func TestReviewerVerify(t *testing.T) {
 // the Reviewer verifies against. It lets Apply be tested end to end (approve ->
 // apply_knowledge -> API verify) through genuine protocol wiring.
 type applyFake struct {
-	mu         sync.Mutex
-	approved   map[string]bool
-	applyError bool
-	srv        *httptest.Server
+	mu       sync.Mutex
+	approved map[string]bool
+	// applyError makes apply_knowledge return a plain tool error (a measured
+	// refusal); applyRefusalCode additionally attaches the platform error
+	// contract's structured code (a pre-audit refusal, e.g. session_expired).
+	applyError       bool
+	applyRefusalCode string
+	srv              *httptest.Server
 }
 
 func newApplyFake(t *testing.T, applyError bool) *applyFake {
@@ -183,6 +239,13 @@ func newApplyFake(t *testing.T, applyError bool) *applyFake {
 	}, Required: []string{"session_id"}}
 	mcp.AddTool(server, &mcp.Tool{Name: ApplyToolName, Description: "promote", InputSchema: schema},
 		func(context.Context, *mcp.CallToolRequest, map[string]any) (*mcp.CallToolResult, any, error) {
+			if f.applyRefusalCode != "" {
+				return &mcp.CallToolResult{
+					IsError:           true,
+					Content:           []mcp.Content{&mcp.TextContent{Text: "SESSION_EXPIRED: mint a new handle"}},
+					StructuredContent: map[string]any{"error": map[string]any{"code": f.applyRefusalCode}},
+				}, nil, nil
+			}
 			if f.applyError {
 				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "write refused"}}}, nil, nil
 			}
@@ -250,6 +313,36 @@ func TestReviewerApply(t *testing.T) {
 				t.Error("Apply must approve the insight before applying")
 			}
 		})
+	}
+}
+
+// TestReviewerApplyPreAuditRefusalIsHarnessError proves a platform refusal
+// issued outer to the audit middleware (session_expired, rate_limited, ...) on
+// the admin session is a harness error, not a measured miss: scoring it as a
+// refusal would silently flatline the promote metric on a harness defect.
+func TestReviewerApplyPreAuditRefusalIsHarnessError(t *testing.T) {
+	f := newApplyFake(t, false)
+	f.applyRefusalCode = "session_expired"
+	ctx := context.Background()
+	session, err := mcpc.New(f.srv.URL, f.srv.Client()).Connect(ctx)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = session.Close() }()
+	info, err := mcpc.Mint(ctx, session)
+	if err != nil {
+		t.Fatalf("mint: %v", err)
+	}
+	r := Reviewer{Life: lifecycleapi.New(f.srv.URL, f.srv.Client())}
+	got, err := r.Apply(ctx, session, info.Handle, Target{Label: "cs-x", EntityURN: "urn:x", Sink: protocol.SinkDataHub, Fact: "f"}, "ins-1")
+	if err == nil {
+		t.Fatal("a pre-audit platform refusal must be a harness error, not a measured miss")
+	}
+	if got {
+		t.Error("a refused apply must not report promoted")
+	}
+	if !strings.Contains(err.Error(), "session_expired") {
+		t.Errorf("error should carry the refusal code, got: %v", err)
 	}
 }
 

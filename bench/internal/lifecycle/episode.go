@@ -125,7 +125,7 @@ func (e *runEnv) runEpisode(ctx context.Context, spec episodeSpec) (EpisodeRecor
 			indeterminate++
 			return llm.ToolResult{Text: "transport error: " + r.TransportErr.Error(), IsError: true}
 		}
-		if !preAuditRefusal(r.ErrorCode) {
+		if !mcpc.PreAuditRefusal(r.ErrorCode) {
 			audited++
 		}
 		return llm.ToolResult{Text: r.Text, IsError: r.ToolErr}
@@ -247,16 +247,4 @@ func (e *runEnv) writeClaudeTranscript(spec episodeSpec, msgs []llm.Message) {
 	if err := os.WriteFile(path, raw, 0o600); err != nil {
 		e.log.Warn("write transcript", "error", err)
 	}
-}
-
-// preAuditRefusal reports whether a structured error code marks a platform
-// refusal issued outer to the audit middleware (so it leaves no audit row).
-// Mirrors the S1-S3 pipeline's classification.
-func preAuditRefusal(code string) bool {
-	switch code {
-	case "unauthenticated", "unauthorized", "session_required", "session_expired",
-		"search_required", "setup_required", "rate_limited":
-		return true
-	}
-	return false
 }

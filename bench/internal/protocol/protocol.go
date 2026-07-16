@@ -88,10 +88,15 @@ type Protocol struct {
 }
 
 // PagePayload is the knowledge_page promotion target (sink=knowledge_page).
+// Summary is the fact-bearing one-liner search renders next to the title: on
+// tool surfaces without a page-body fetch tool (the a3 arm), the summary is the
+// ONLY channel through which a promoted page's fact reaches an agent, so a
+// page payload without one is a title-only search hit that delivers nothing.
 type PagePayload struct {
-	Slug  string `yaml:"slug" json:"slug"`
-	Title string `yaml:"title" json:"title"`
-	Body  string `yaml:"body" json:"body"`
+	Slug    string `yaml:"slug" json:"slug"`
+	Title   string `yaml:"title" json:"title"`
+	Summary string `yaml:"summary" json:"summary"`
+	Body    string `yaml:"body" json:"body"`
 }
 
 // TeachStage is the fact-capture episode. The prompt states the fact
@@ -190,6 +195,13 @@ func (p Protocol) validateSink() error {
 	case SinkKnowledgePage:
 		if p.Page == nil || p.Page.Slug == "" || p.Page.Title == "" || p.Page.Body == "" {
 			return fmt.Errorf("protocol %s: knowledge_page sink requires a complete page payload", p.ID)
+		}
+		// The summary is required, not optional: search renders a page hit as
+		// title plus summary and the a3 tool surface has no page-body fetch, so a
+		// promoted page with an empty summary structurally cannot deliver its
+		// fact — the run would spend its budget measuring an impossible channel.
+		if p.Page.Summary == "" {
+			return fmt.Errorf("protocol %s: knowledge_page sink requires a non-empty page summary (search delivers the fact through it)", p.ID)
 		}
 		return nil
 	default:

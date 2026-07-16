@@ -8,6 +8,7 @@ sink: knowledge_page
 page:
     slug: holiday-total-definition
     title: Holiday Total Definition
+    summary: The 'holiday total' is the gross revenue (sum of amount over completed orders) for November and December 2025.
     body: |-
         # Holiday Total Definition
 

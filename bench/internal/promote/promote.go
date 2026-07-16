@@ -25,6 +25,13 @@ import (
 // ApplyToolName is the platform tool that applies an approved insight to a sink.
 const ApplyToolName = "apply_knowledge"
 
+// CaptureSkewMargin is subtracted from a teach episode's start time before it
+// is passed to WaitForInsight as the since bound. Harness and platform run on
+// the same host in the bench stack, but the margin means a modest clock skew
+// can never exclude a genuinely fresh capture; it is far shorter than the gap
+// to any prior run's leftovers, so those stay excluded.
+const CaptureSkewMargin = 30 * time.Second
+
 // Insight lifecycle statuses the harness reads back through the knowledge API.
 const (
 	// StatusPending is a freshly captured, unreviewed insight; capture
@@ -59,11 +66,17 @@ type Target struct {
 // WaitForInsight polls the insights API until a pending insight captured by the
 // given identity and anchored to the entity appears, returning the newest, or
 // nil when none lands within the timeout (a missed capture, not a harness
-// error). The pending filter scopes the read to this episode's fresh capture.
-func WaitForInsight(ctx context.Context, life *lifecycleapi.Client, email, urn string, timeout, poll time.Duration) (*lifecycleapi.Insight, error) {
+// error). The pending filter scopes the read to this episode's fresh capture,
+// and since bounds the match to insights created in THIS run: teacher
+// identities are deterministic per lesson index and URNs are fixed by the
+// curriculum, so without it a pending insight left by an interrupted prior run
+// would fake the capture (and then be promoted). Callers pass the teach
+// episode's start time minus a clock-skew margin; a zero since disables the
+// bound.
+func WaitForInsight(ctx context.Context, life *lifecycleapi.Client, email, urn string, since time.Time, timeout, poll time.Duration) (*lifecycleapi.Insight, error) {
 	deadline := time.Now().Add(timeout)
 	for {
-		insights, err := life.ListInsights(ctx, lifecycleapi.InsightFilter{CapturedBy: email, EntityURN: urn, Status: StatusPending})
+		insights, err := life.ListInsights(ctx, lifecycleapi.InsightFilter{CapturedBy: email, EntityURN: urn, Status: StatusPending, Since: since})
 		if err != nil {
 			return nil, err
 		}
@@ -103,9 +116,13 @@ type Reviewer struct {
 // Apply approves the insight (pending -> approved) and applies it via
 // apply_knowledge to the target's sink over the given admin session, then
 // verifies through the knowledge API that the insight is applied and a live
-// changeset links it. A transport-level failure is a harness error (returned);
-// an apply the platform refuses, or a promotion the API cannot confirm, is a
-// measured miss (false, nil).
+// changeset links it. A transport-level failure or a pre-audit platform refusal
+// (an expired admin session, a rate limit — see mcpc.PreAuditRefusal) is a
+// harness error (returned): the reviewer never legitimately loses its session,
+// so scoring such a refusal as a miss would flatline the promote metric on a
+// harness defect. A genuine tool-level refusal (apply_knowledge declining the
+// change), or a promotion the API cannot confirm, is a measured miss
+// (false, nil).
 func (r Reviewer) Apply(ctx context.Context, session *mcp.ClientSession, handle string, t Target, insightID string) (bool, error) {
 	if err := r.Life.Approve(ctx, insightID, t.Notes); err != nil {
 		return false, fmt.Errorf("approve insight: %w", err)
@@ -115,6 +132,9 @@ func (r Reviewer) Apply(ctx context.Context, session *mcp.ClientSession, handle 
 		return false, fmt.Errorf("apply transport: %w", res.TransportErr)
 	}
 	if res.ToolErr {
+		if mcpc.PreAuditRefusal(res.ErrorCode) {
+			return false, fmt.Errorf("apply refused pre-audit (%s): %.300s", res.ErrorCode, res.Text)
+		}
 		if r.Log != nil {
 			r.Log.Warn("apply_knowledge returned an error", "target", t.Label, "text", res.Text)
 		}
@@ -169,7 +189,11 @@ func BuildApplyArgs(t Target, insightID string) map[string]any {
 		args["page"] = map[string]any{
 			"slug":  t.Page.Slug,
 			"title": t.Page.Title,
-			"body":  t.Page.Body,
+			// The summary is what search renders next to the title; on tool
+			// surfaces without a page-body fetch tool it is the only channel the
+			// page's fact reaches an agent through, so it must always be sent.
+			"summary": t.Page.Summary,
+			"body":    t.Page.Body,
 		}
 		return args
 	}

@@ -8,6 +8,7 @@ sink: knowledge_page
 page:
     slug: clearance-set-definition
     title: Clearance Set Definition
+    summary: The 'clearance set' is the set of completed orders placed by customers in the West region.
     body: |-
         # Clearance Set Definition
 

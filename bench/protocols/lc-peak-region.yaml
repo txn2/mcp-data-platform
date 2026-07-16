@@ -8,6 +8,7 @@ sink: knowledge_page
 page:
     slug: peak-region-definition
     title: Peak Region Definition
+    summary: The 'peak region' is the region with the most customers.
     body: |-
         # Peak Region Definition
 

@@ -653,7 +653,7 @@ func pageProtocol() protocol.Protocol {
 	p := okProtocol()
 	p.ID = "lc-page"
 	p.Sink = protocol.SinkKnowledgePage
-	p.Page = &protocol.PagePayload{Slug: "revenue-policy", Title: "Revenue Policy", Body: "net revenue is amount minus discount"}
+	p.Page = &protocol.PagePayload{Slug: "revenue-policy", Title: "Revenue Policy", Summary: "net revenue is amount minus discount", Body: "net revenue is amount minus discount"}
 	return p
 }
 

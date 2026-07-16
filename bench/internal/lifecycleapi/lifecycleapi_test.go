@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fakeKnowledge serves the admin insights + changesets endpoints over httptest.
@@ -35,7 +36,7 @@ func (f *fakeKnowledge) handler() http.Handler {
 
 func (f *fakeKnowledge) listInsights(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	for _, k := range []string{"captured_by", "entity_urn", "status"} {
+	for _, k := range []string{"captured_by", "entity_urn", "status", "since"} {
 		if v := q.Get(k); v != "" {
 			f.lastQuery[k] = v
 		}
@@ -176,6 +177,53 @@ func TestListInsightsFiltersAndPaginates(t *testing.T) {
 	}
 	if f.lastQuery["captured_by"] != "teacher@apikey.local" || f.lastQuery["entity_urn"] != "urn:orders" {
 		t.Fatalf("filters not forwarded: %v", f.lastQuery)
+	}
+	// A zero Since must not emit the param.
+	if _, present := f.lastQuery["since"]; present {
+		t.Errorf("zero Since emitted a since param: %v", f.lastQuery)
+	}
+}
+
+// TestListInsightsEmitsSince proves a non-zero Since is forwarded as the admin
+// API's RFC 3339 `since` param, the bound capture verification relies on to
+// exclude an interrupted prior run's leftovers.
+func TestListInsightsEmitsSince(t *testing.T) {
+	f := newFake()
+	f.insights = []Insight{{ID: "in-1", Status: "pending"}}
+	since := time.Date(2026, 7, 16, 10, 30, 0, 0, time.UTC)
+	if _, err := newClient(t, f).ListInsights(context.Background(), InsightFilter{Since: since}); err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if got, want := f.lastQuery["since"], since.Format(time.RFC3339); got != want {
+		t.Errorf("since param = %q, want %q", got, want)
+	}
+}
+
+// TestListKnowledgePagesPaginates proves the portal knowledge-pages read the
+// cold-start preflight scans follows pagination to completion.
+func TestListKnowledgePagesPaginates(t *testing.T) {
+	pages := make([]KnowledgePage, 0, 150)
+	for i := range 150 {
+		pages = append(pages, KnowledgePage{ID: "kp-" + strconv.Itoa(i), Slug: "slug-" + strconv.Itoa(i)})
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/portal/knowledge-pages" {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+		offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+		lo := min(offset, len(pages))
+		hi := min(lo+limit, len(pages))
+		writeJSON(w, map[string]any{"pages": pages[lo:hi], "total": len(pages)})
+	}))
+	t.Cleanup(srv.Close)
+	got, err := New(srv.URL, srv.Client()).ListKnowledgePages(context.Background())
+	if err != nil {
+		t.Fatalf("list pages: %v", err)
+	}
+	if len(got) != 150 || got[149].Slug != "slug-149" {
+		t.Fatalf("got %d pages, want 150 across two pages", len(got))
 	}
 }
 

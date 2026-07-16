@@ -8,6 +8,7 @@ sink: knowledge_page
 page:
     slug: core-market-definition
     title: Core Market Definition
+    summary: The 'core market' is the North region.
     body: |-
         # Core Market Definition
 

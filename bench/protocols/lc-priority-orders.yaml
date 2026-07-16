@@ -8,6 +8,7 @@ sink: knowledge_page
 page:
     slug: priority-order-definition
     title: Priority Order Definition
+    summary: A 'priority order' is any order whose amount is at least $1,000.00 (100000 cents).
     body: |-
         # Priority Order Definition
 

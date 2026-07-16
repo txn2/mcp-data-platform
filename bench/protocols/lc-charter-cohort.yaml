@@ -8,6 +8,7 @@ sink: knowledge_page
 page:
     slug: charter-cohort-definition
     title: Charter Cohort Definition
+    summary: The 'charter cohort' is the set of customers on the plus tier.
     body: |-
         # Charter Cohort Definition
 

@@ -8,6 +8,7 @@ sink: knowledge_page
 page:
     slug: house-tier-definition
     title: House Tier Definition
+    summary: The 'house tier' is the customer tier that placed the most orders.
     body: |-
         # House Tier Definition
 
