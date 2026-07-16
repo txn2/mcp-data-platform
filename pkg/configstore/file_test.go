@@ -79,12 +79,15 @@ func TestFileStore_List(t *testing.T) {
 func TestFileStore_Changelog_ReturnsEmpty(t *testing.T) {
 	store := NewFileStore(map[string]string{})
 
-	cl, err := store.Changelog(context.Background(), 10)
+	cl, total, err := store.Changelog(context.Background(), 10, 0)
 	if err != nil {
 		t.Fatalf("Changelog() error = %v", err)
 	}
 	if len(cl) != 0 {
 		t.Errorf("Changelog() returned %d entries, want 0", len(cl))
+	}
+	if total != 0 {
+		t.Errorf("Changelog() total = %d, want 0", total)
 	}
 }
 

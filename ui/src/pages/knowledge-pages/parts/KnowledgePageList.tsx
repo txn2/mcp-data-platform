@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { Search, Plus } from "lucide-react";
 import {
-  useKnowledgePages,
+  useInfiniteKnowledgePages,
   useSearchKnowledgePages,
   useThreadCounts,
   MIN_SEARCH_LEN,
 } from "@/api/portal/hooks";
 import type { KnowledgePage } from "@/api/portal/types";
 import { FilterChip } from "@/components/FilterChip";
+import { InfiniteFooter } from "@/components/InfiniteFooter";
 import { useDebounced } from "@/lib/useDebounced";
 import { visibleFacetTags } from "../tagFacet";
 import { PageCard } from "./PageCard";
@@ -28,12 +29,15 @@ export function KnowledgePageList({ canEdit, onOpen, onCreate }: { canEdit: bool
   useEffect(() => {
     if (searching) setTagsExpanded(false);
   }, [searching]);
-  // A high limit so the tag facet and counts reflect the whole knowledgebase,
-  // not just the first page of results.
-  const list = useKnowledgePages({ limit: 200 });
+  // Browse accumulates pages (#972). The first page loads up to 100 pages (the
+  // store's honored cap), so for any knowledgebase up to that size the tag facet
+  // below is complete on first render; beyond it the facet widens as more pages
+  // load, an improvement over the previous single fixed request that the store
+  // silently capped at 20.
+  const list = useInfiniteKnowledgePages();
   const search = useSearchKnowledgePages(trimmed, { limit: 25 });
 
-  const allPages = useMemo(() => list.data?.pages ?? [], [list.data]);
+  const allPages = useMemo(() => list.data?.data ?? [], [list.data]);
   const total = list.data?.total ?? allPages.length;
 
   // Tag facet (tag -> count), most-used first, derived from the loaded pages.
@@ -166,6 +170,18 @@ export function KnowledgePageList({ canEdit, onOpen, onCreate }: { canEdit: bool
             ))}
           </ul>
         </>
+      )}
+
+      {/* Browse paginates; search returns a ranked top-K with no further pages.
+          Rendered outside the list conditional so it also offers "Load more"
+          when a client-side tag filter empties the loaded set but more pages
+          remain (InfiniteFooter renders nothing once every page is loaded). */}
+      {!searching && (
+        <InfiniteFooter
+          hasMore={list.hasNextPage}
+          isLoadingMore={list.isFetchingNextPage}
+          onLoadMore={list.fetchNextPage}
+        />
       )}
     </div>
   );

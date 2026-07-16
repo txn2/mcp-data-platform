@@ -2278,8 +2278,10 @@ export const handlers = [
       );
     }
 
+    const limit = Number(url.searchParams.get("limit")) || 100;
+    const offset = Number(url.searchParams.get("offset")) || 0;
     return HttpResponse.json({
-      resources: filtered,
+      resources: filtered.slice(offset, offset + limit),
       total: filtered.length,
     });
   }),
@@ -2399,8 +2401,14 @@ export const handlers = [
     return HttpResponse.json(mockEffectiveConfig);
   }),
 
-  http.get(`${ADMIN_BASE}/config/changelog`, () => {
-    return HttpResponse.json(mockConfigChangelog);
+  http.get(`${ADMIN_BASE}/config/changelog`, ({ request }) => {
+    const url = new URL(request.url);
+    const limit = Number(url.searchParams.get("limit")) || 50;
+    const offset = Number(url.searchParams.get("offset")) || 0;
+    return HttpResponse.json({
+      entries: mockConfigChangelog.slice(offset, offset + limit),
+      total: mockConfigChangelog.length,
+    });
   }),
 
   // Platform-owned agent-instructions baseline (#646). Rendered read-only

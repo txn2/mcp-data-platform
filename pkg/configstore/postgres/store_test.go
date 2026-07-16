@@ -297,16 +297,21 @@ func TestPostgresStore_Changelog_Success(t *testing.T) {
 		AddRow(2, "server.name", "set", val, "admin", now).
 		AddRow(1, "old.key", "delete", nil, "user1", now.Add(-time.Hour))
 
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM config_changelog").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(42))
 	mock.ExpectQuery("SELECT id, key, action, value_text, changed_by, changed_at FROM config_changelog").
-		WithArgs(10).
+		WithArgs(10, 5).
 		WillReturnRows(rows)
 
-	entries, err := store.Changelog(context.Background(), 10)
+	entries, total, err := store.Changelog(context.Background(), 10, 5)
 	if err != nil {
 		t.Fatalf("Changelog() error = %v", err)
 	}
 	if len(entries) != 2 {
 		t.Fatalf("Changelog() returned %d entries, want 2", len(entries))
+	}
+	if total != 42 {
+		t.Errorf("Changelog() total = %d, want 42", total)
 	}
 
 	// First entry: "set" with a value.
@@ -336,27 +341,46 @@ func TestPostgresStore_Changelog_Empty(t *testing.T) {
 	store, mock := newTestStore(t)
 
 	rows := sqlmock.NewRows([]string{"id", "key", "action", "value_text", "changed_by", "changed_at"})
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM config_changelog").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 	mock.ExpectQuery("SELECT id, key, action, value_text, changed_by, changed_at FROM config_changelog").
-		WithArgs(10).
+		WithArgs(10, 0).
 		WillReturnRows(rows)
 
-	entries, err := store.Changelog(context.Background(), 10)
+	entries, total, err := store.Changelog(context.Background(), 10, 0)
 	if err != nil {
 		t.Fatalf("Changelog() error = %v", err)
 	}
 	if len(entries) != 0 {
 		t.Errorf("Changelog() returned %d entries, want 0", len(entries))
 	}
+	if total != 0 {
+		t.Errorf("Changelog() total = %d, want 0", total)
+	}
+}
+
+func TestPostgresStore_Changelog_CountError(t *testing.T) {
+	store, mock := newTestStore(t)
+
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM config_changelog").
+		WillReturnError(errors.New(testDBError))
+
+	_, _, err := store.Changelog(context.Background(), 10, 0)
+	if err == nil {
+		t.Error("Changelog() expected error")
+	}
 }
 
 func TestPostgresStore_Changelog_DBError(t *testing.T) {
 	store, mock := newTestStore(t)
 
+	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM config_changelog").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3))
 	mock.ExpectQuery("SELECT id, key, action, value_text, changed_by, changed_at FROM config_changelog").
-		WithArgs(10).
+		WithArgs(10, 0).
 		WillReturnError(errors.New(testDBError))
 
-	_, err := store.Changelog(context.Background(), 10)
+	_, _, err := store.Changelog(context.Background(), 10, 0)
 	if err == nil {
 		t.Error("Changelog() expected error")
 	}

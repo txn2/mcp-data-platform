@@ -8,6 +8,7 @@ package lifecycle
 import (
 	"encoding/json"
 	"fmt"
+	// nosemgrep: go.lang.security.audit.crypto.math_random.math-random-used -- bootstrap-CI resampling for benchmark statistics; not security-sensitive, and a seedable PRNG is required for reproducible intervals.
 	"math/rand"
 	"os"
 	"sort"

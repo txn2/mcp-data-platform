@@ -1,5 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  useOffsetInfiniteQuery,
+  toPaginated,
+  type InfiniteResult,
+} from "@/api/portal/hooks/infinite";
 import { apiFetch, apiFetchRaw } from "../client";
+import type { ConfigChangelogEntry, ConfigChangelogListResponse } from "../types";
 
 // ---------------------------------------------------------------------------
 // API Keys
@@ -88,10 +94,26 @@ export function useDeleteConfigEntry() {
   });
 }
 
-export function useConfigChangelog() {
-  return useQuery({
-    queryKey: ["config", "changelog"],
-    queryFn: () => apiFetch<import("../types").ConfigChangelogEntry[]>("/config/changelog"),
+// CHANGELOG_PAGE_SIZE matches the server-side default changelog window so the
+// change history loads incrementally rather than capping at the most-recent
+// page (#972).
+export const CHANGELOG_PAGE_SIZE = 50;
+
+const changelogKey = (e: ConfigChangelogEntry): string => String(e.id);
+
+// useInfiniteConfigChangelog accumulates changelog pages so an admin can page
+// back through the full config-change history, not just the most-recent window.
+// The endpoint returns a `{entries,total}` envelope, adapted to the shared
+// PaginatedResponse shape here.
+export function useInfiniteConfigChangelog(): InfiniteResult<ConfigChangelogEntry> {
+  return useOffsetInfiniteQuery<ConfigChangelogEntry>({
+    queryKey: ["config", "changelog", "infinite"],
+    pageSize: CHANGELOG_PAGE_SIZE,
+    keyOf: changelogKey,
+    fetchPage: (offset, limit) =>
+      apiFetch<ConfigChangelogListResponse>(
+        `/config/changelog?limit=${limit}&offset=${offset}`,
+      ).then((r) => toPaginated(r.entries, r.total, limit, offset)),
   });
 }
 

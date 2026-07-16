@@ -65,6 +65,13 @@ export interface ConfigChangelogEntry {
   changed_at: string;
 }
 
+// ConfigChangelogListResponse is the paginated changelog envelope: a page of
+// entries plus the full-history total so the UI can page through every change.
+export interface ConfigChangelogListResponse {
+  entries: ConfigChangelogEntry[];
+  total: number;
+}
+
 export interface EffectiveConfigEntry {
   key: string;
   value: string;

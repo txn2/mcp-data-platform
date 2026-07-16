@@ -150,6 +150,15 @@ export function useDataHubConnections() {
 
 // --- catalog reads ---
 
+// Catalog and context-document browse are deliberately NOT wired to offset-based
+// infinite scroll (unlike the internal portal lists in #972). They page against
+// an external DataHub via a `query:"*"` search that sends no sort criteria, so
+// results come back in relevance/segment order that is not stable across
+// requests: numeric start/count offset paging over it can drop or duplicate rows
+// between page fetches. Catalog browse also returns no total. Wiring infinite
+// scroll here would introduce a correctness bug worse than the current
+// first-page cap; it stays gated on upstream mcp-datahub gaining a stable sort
+// (or a scroll/search-after cursor). Search remains the escape hatch for now.
 export function useCatalogBrowse(conn: string, opts: { limit?: number; offset?: number } = {}) {
   const limit = opts.limit ?? 50;
   const offset = opts.offset ?? 0;

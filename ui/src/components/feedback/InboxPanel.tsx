@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Inbox, ClipboardCheck } from "lucide-react";
-import { usePractitionerWorklist, useSMEWorklist } from "@/api/portal/hooks";
+import { useInfinitePractitionerWorklist, useInfiniteSMEWorklist } from "@/api/portal/hooks";
 import { cn } from "@/lib/utils";
+import { InfiniteFooter } from "@/components/InfiniteFooter";
 import { KIND_LABEL, STATUS_CHIP, STATUS_LABEL, formatRelative } from "./meta";
 
 type Tab = "practitioner" | "sme";
@@ -11,8 +12,8 @@ type Tab = "practitioner" | "sme";
 // validation requests awaiting the SME's response.
 export function InboxPanel({ onOpenThread }: { onOpenThread?: (id: string) => void }) {
   const [tab, setTab] = useState<Tab>("practitioner");
-  const practitioner = usePractitionerWorklist();
-  const sme = useSMEWorklist();
+  const practitioner = useInfinitePractitionerWorklist();
+  const sme = useInfiniteSMEWorklist();
   const active = tab === "practitioner" ? practitioner : sme;
   const threads = active.data?.data ?? [];
 
@@ -63,6 +64,13 @@ export function InboxPanel({ onOpenThread }: { onOpenThread?: (id: string) => vo
             </li>
           ))}
         </ul>
+        <div className="p-3">
+          <InfiniteFooter
+            hasMore={active.hasNextPage}
+            isLoadingMore={active.isFetchingNextPage}
+            onLoadMore={active.fetchNextPage}
+          />
+        </div>
       </div>
     </div>
   );

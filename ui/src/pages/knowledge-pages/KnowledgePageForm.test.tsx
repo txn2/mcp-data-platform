@@ -8,7 +8,7 @@ import { useCreateKnowledgePage } from "@/api/portal/hooks";
 // useUpdateKnowledgePage; the rest are stubbed because the page module imports
 // them at load time. Idle defaults so the form renders without a live query.
 vi.mock("@/api/portal/hooks", () => ({
-  useKnowledgePages: vi.fn(() => ({ data: undefined, isLoading: false })),
+  useInfiniteKnowledgePages: vi.fn(() => ({ data: undefined, isLoading: false })),
   useSearchKnowledgePages: vi.fn(() => ({ data: undefined, isLoading: false })),
   useKnowledgePage: vi.fn(() => ({ data: undefined, isLoading: false, isError: false })),
   useResolveRefs: vi.fn(() => ({ data: undefined })),

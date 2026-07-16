@@ -129,17 +129,26 @@ func (s *Store) List(ctx context.Context) ([]configstore.Entry, error) {
 	return entries, nil
 }
 
-// Changelog returns recent config changes, newest first.
-func (s *Store) Changelog(ctx context.Context, limit int) ([]configstore.ChangelogEntry, error) {
+// Changelog returns a page of config changes, newest first: at most `limit`
+// entries starting at `offset`, plus the total number recorded so callers can
+// page through the full history.
+func (s *Store) Changelog(ctx context.Context, limit, offset int) ([]configstore.ChangelogEntry, int, error) {
+	var total int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM config_changelog`,
+	).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("counting config changelog: %w", err)
+	}
+
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, key, action, value_text, changed_by, changed_at
 		 FROM config_changelog
 		 ORDER BY changed_at DESC
-		 LIMIT $1`,
-		limit,
+		 LIMIT $1 OFFSET $2`,
+		limit, offset,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("querying config changelog: %w", err)
+		return nil, 0, fmt.Errorf("querying config changelog: %w", err)
 	}
 	defer rows.Close() //nolint:errcheck // best-effort cleanup
 
@@ -148,7 +157,7 @@ func (s *Store) Changelog(ctx context.Context, limit int) ([]configstore.Changel
 		var e configstore.ChangelogEntry
 		var value sql.NullString
 		if err := rows.Scan(&e.ID, &e.Key, &e.Action, &value, &e.ChangedBy, &e.ChangedAt); err != nil {
-			return nil, fmt.Errorf("scanning changelog entry: %w", err)
+			return nil, 0, fmt.Errorf("scanning changelog entry: %w", err)
 		}
 		if value.Valid {
 			e.Value = &value.String
@@ -156,9 +165,9 @@ func (s *Store) Changelog(ctx context.Context, limit int) ([]configstore.Changel
 		entries = append(entries, e)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterating changelog entries: %w", err)
+		return nil, 0, fmt.Errorf("iterating changelog entries: %w", err)
 	}
-	return entries, nil
+	return entries, total, nil
 }
 
 // Mode returns "database".

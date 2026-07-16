@@ -15,8 +15,13 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/platform/instructions"
 )
 
-// defaultChangelogLimit is the maximum number of changelog entries to return.
+// defaultChangelogLimit is the page size used when no limit is requested.
 const defaultChangelogLimit = 50
+
+// maxChangelogLimit caps a client-supplied page size so a single changelog
+// request cannot pull an unbounded window (CWE-770), mirroring the clamp every
+// other paginated store applies.
+const maxChangelogLimit = 200
 
 // Config key aliases for whitelisted, hot-reloadable platform settings.
 // Source of truth lives in pkg/platform — these are local references so
@@ -508,19 +513,38 @@ func (h *Handler) deleteConfigEntry(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// changelogListResponse is the paginated config-changelog envelope: a page of
+// entries plus the full-history total so the UI can page through every change
+// (#972), not just the most-recent window.
+type changelogListResponse struct {
+	Entries []configstore.ChangelogEntry `json:"entries"`
+	Total   int                          `json:"total"`
+}
+
 // getConfigChangelog handles GET /api/v1/admin/config/changelog.
 //
 // @Summary      Get config changelog
-// @Description  Returns recent config change history entries.
+// @Description  Returns a page of config change history entries, newest first, with the total count.
 // @Tags         Config
 // @Produce      json
-// @Success      200  {array}   configstore.ChangelogEntry
+// @Param        limit   query  int  false  "Max entries to return (default 50, max 200)"
+// @Param        offset  query  int  false  "Pagination offset (default 0)"
+// @Success      200  {object}  admin.changelogListResponse
 // @Failure      500  {object}  problemDetail
 // @Security     ApiKeyAuth
 // @Security     BearerAuth
 // @Router       /admin/config/changelog [get]
 func (h *Handler) getConfigChangelog(w http.ResponseWriter, r *http.Request) {
-	entries, err := h.deps.ConfigStore.Changelog(r.Context(), defaultChangelogLimit)
+	limit := intQueryParam(r.URL.Query().Get("limit"), defaultChangelogLimit)
+	if limit <= 0 {
+		limit = defaultChangelogLimit
+	}
+	if limit > maxChangelogLimit {
+		limit = maxChangelogLimit
+	}
+	offset := intQueryParam(r.URL.Query().Get("offset"), 0)
+
+	entries, total, err := h.deps.ConfigStore.Changelog(r.Context(), limit, offset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load config changelog")
 		return
@@ -528,7 +552,7 @@ func (h *Handler) getConfigChangelog(w http.ResponseWriter, r *http.Request) {
 	if entries == nil {
 		entries = []configstore.ChangelogEntry{}
 	}
-	writeJSON(w, http.StatusOK, entries)
+	writeJSON(w, http.StatusOK, changelogListResponse{Entries: entries, Total: total})
 }
 
 // --- Redaction helpers ---

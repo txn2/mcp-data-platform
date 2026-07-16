@@ -2,15 +2,28 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 
 vi.mock("@/api/portal/hooks", () => ({
-  usePractitionerWorklist: vi.fn(),
-  useSMEWorklist: vi.fn(),
+  useInfinitePractitionerWorklist: vi.fn(),
+  useInfiniteSMEWorklist: vi.fn(),
 }));
 
 import { InboxPanel } from "./InboxPanel";
-import { usePractitionerWorklist, useSMEWorklist } from "@/api/portal/hooks";
+import { useInfinitePractitionerWorklist, useInfiniteSMEWorklist } from "@/api/portal/hooks";
 
-const mockPractitioner = vi.mocked(usePractitionerWorklist);
-const mockSME = vi.mocked(useSMEWorklist);
+const mockPractitioner = vi.mocked(useInfinitePractitionerWorklist);
+const mockSME = vi.mocked(useInfiniteSMEWorklist);
+
+// The infinite worklist hook exposes the flattened page under `data` plus
+// load-more controls; a single-page fixture has no further page.
+function result(data: unknown, total: number) {
+  return {
+    data: { data, total },
+    isLoading: false,
+    isError: false,
+    hasNextPage: false,
+    isFetchingNextPage: false,
+    fetchNextPage: vi.fn(),
+  } as never;
+}
 
 function row(overrides: Record<string, unknown> = {}) {
   return {
@@ -34,8 +47,8 @@ function row(overrides: Record<string, unknown> = {}) {
 
 describe("InboxPanel", () => {
   it("shows practitioner worklist items and opens a thread", () => {
-    mockPractitioner.mockReturnValue({ data: { data: [row()], total: 1 }, isLoading: false, isError: false } as never);
-    mockSME.mockReturnValue({ data: { data: [], total: 0 }, isLoading: false, isError: false } as never);
+    mockPractitioner.mockReturnValue(result([row()], 1));
+    mockSME.mockReturnValue(result([], 0));
     const onOpen = vi.fn();
 
     render(<InboxPanel onOpenThread={onOpen} />);
@@ -45,8 +58,8 @@ describe("InboxPanel", () => {
   });
 
   it("switches to the SME tab and shows the empty state", () => {
-    mockPractitioner.mockReturnValue({ data: { data: [row()], total: 1 }, isLoading: false, isError: false } as never);
-    mockSME.mockReturnValue({ data: { data: [], total: 0 }, isLoading: false, isError: false } as never);
+    mockPractitioner.mockReturnValue(result([row()], 1));
+    mockSME.mockReturnValue(result([], 0));
 
     render(<InboxPanel />);
     fireEvent.click(screen.getByRole("button", { name: /awaiting my validation/i }));

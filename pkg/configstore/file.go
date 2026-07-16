@@ -54,9 +54,9 @@ func (s *FileStore) List(_ context.Context) ([]Entry, error) {
 	return entries, nil
 }
 
-// Changelog returns an empty slice because file-based config has no change history.
-func (*FileStore) Changelog(_ context.Context, _ int) ([]ChangelogEntry, error) {
-	return []ChangelogEntry{}, nil
+// Changelog returns an empty page because file-based config has no change history.
+func (*FileStore) Changelog(_ context.Context, _, _ int) ([]ChangelogEntry, int, error) {
+	return []ChangelogEntry{}, 0, nil
 }
 
 // Mode returns "file".

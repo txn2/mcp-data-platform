@@ -2,13 +2,26 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 
 vi.mock("@/api/portal/hooks", () => ({
-  useFeedbackActivity: vi.fn(),
+  useInfiniteFeedbackActivity: vi.fn(),
 }));
 
 import { ActivityFeed } from "./ActivityFeed";
-import { useFeedbackActivity } from "@/api/portal/hooks";
+import { useInfiniteFeedbackActivity } from "@/api/portal/hooks";
 
-const mockActivity = vi.mocked(useFeedbackActivity);
+const mockActivity = vi.mocked(useInfiniteFeedbackActivity);
+
+// The infinite hook exposes the flattened page under `data` plus the load-more
+// controls; a single-page fixture has no further page.
+function result(data: unknown, total: number) {
+  return {
+    data: { data, total },
+    isLoading: false,
+    isError: false,
+    hasNextPage: false,
+    isFetchingNextPage: false,
+    fetchNextPage: vi.fn(),
+  } as never;
+}
 
 function item(overrides: Record<string, unknown> = {}) {
   return {
@@ -33,7 +46,7 @@ function item(overrides: Record<string, unknown> = {}) {
 
 describe("ActivityFeed", () => {
   it("renders a row and opens the thread on click", () => {
-    mockActivity.mockReturnValue({ data: { data: [item()], total: 1 }, isLoading: false, isError: false } as never);
+    mockActivity.mockReturnValue(result([item()], 1));
     const onOpen = vi.fn();
     const onNavigate = vi.fn();
 
@@ -48,7 +61,7 @@ describe("ActivityFeed", () => {
   });
 
   it("navigates to the target item without opening the thread", () => {
-    mockActivity.mockReturnValue({ data: { data: [item()], total: 1 }, isLoading: false, isError: false } as never);
+    mockActivity.mockReturnValue(result([item()], 1));
     const onOpen = vi.fn();
     const onNavigate = vi.fn();
 
@@ -59,7 +72,7 @@ describe("ActivityFeed", () => {
   });
 
   it("shows the empty state when there is no feedback", () => {
-    mockActivity.mockReturnValue({ data: { data: [], total: 0 }, isLoading: false, isError: false } as never);
+    mockActivity.mockReturnValue(result([], 0));
     render(<ActivityFeed onOpenThread={vi.fn()} onNavigate={vi.fn()} />);
     expect(screen.getByText(/no feedback yet/i)).toBeInTheDocument();
   });

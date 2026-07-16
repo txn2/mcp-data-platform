@@ -2608,7 +2608,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns recent config change history entries.",
+                "description": "Returns a page of config change history entries, newest first, with the total count.",
                 "produces": [
                     "application/json"
                 ],
@@ -2616,14 +2616,25 @@ const docTemplate = `{
                     "Config"
                 ],
                 "summary": "Get config changelog",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Max entries to return (default 50, max 200)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Pagination offset (default 0)",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/configstore.ChangelogEntry"
-                            }
+                            "$ref": "#/definitions/admin.changelogListResponse"
                         }
                     },
                     "500": {
@@ -11359,6 +11370,12 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
+                        "description": "Max results to return (default 100, max 200)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
                         "description": "Pagination offset (default 0)",
                         "name": "offset",
                         "in": "query"
@@ -12278,6 +12295,20 @@ const docTemplate = `{
                 },
                 "version": {
                     "type": "string"
+                }
+            }
+        },
+        "admin.changelogListResponse": {
+            "type": "object",
+            "properties": {
+                "entries": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/configstore.ChangelogEntry"
+                    }
+                },
+                "total": {
+                    "type": "integer"
                 }
             }
         },

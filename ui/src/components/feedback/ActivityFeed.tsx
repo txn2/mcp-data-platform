@@ -1,7 +1,8 @@
 import { AlertCircle, MessageSquare } from "lucide-react";
-import { useFeedbackActivity } from "@/api/portal/hooks";
+import { useInfiniteFeedbackActivity } from "@/api/portal/hooks";
 import type { ThreadActivityItem } from "@/api/portal/types";
 import { cn } from "@/lib/utils";
+import { InfiniteFooter } from "@/components/InfiniteFooter";
 import { KIND_CHIP, KIND_LABEL, STATUS_CHIP, STATUS_LABEL, formatRelative } from "./meta";
 import { targetMeta } from "./targetRoute";
 
@@ -14,7 +15,8 @@ interface Props {
 // asset, collection, or prompt the caller can access, newest first. With no push
 // notifications, this is how a user notices new feedback on their work.
 export function ActivityFeed({ onOpenThread, onNavigate }: Props) {
-  const { data, isLoading, isError } = useFeedbackActivity();
+  const { data, isLoading, isError, hasNextPage, isFetchingNextPage, fetchNextPage } =
+    useInfiniteFeedbackActivity();
   const items = data?.data ?? [];
 
   if (isLoading) {
@@ -28,16 +30,25 @@ export function ActivityFeed({ onOpenThread, onNavigate }: Props) {
   }
 
   return (
-    <ul className="divide-y">
-      {items.map((item) => (
-        <ActivityRow
-          key={item.id}
-          item={item}
-          onOpen={() => onOpenThread(item.id)}
-          onNavigate={onNavigate}
+    <>
+      <ul className="divide-y">
+        {items.map((item) => (
+          <ActivityRow
+            key={item.id}
+            item={item}
+            onOpen={() => onOpenThread(item.id)}
+            onNavigate={onNavigate}
+          />
+        ))}
+      </ul>
+      <div className="p-3">
+        <InfiniteFooter
+          hasMore={hasNextPage}
+          isLoadingMore={isFetchingNextPage}
+          onLoadMore={fetchNextPage}
         />
-      ))}
-    </ul>
+      </div>
+    </>
   );
 }
 

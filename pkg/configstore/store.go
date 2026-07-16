@@ -43,8 +43,10 @@ type Store interface {
 	Delete(ctx context.Context, key, author string) error
 	// List returns all config entries, ordered by key.
 	List(ctx context.Context) ([]Entry, error)
-	// Changelog returns recent config changes, newest first.
-	Changelog(ctx context.Context, limit int) ([]ChangelogEntry, error)
+	// Changelog returns a page of config changes, newest first: at most `limit`
+	// entries starting at `offset`, plus the total number of changes recorded so
+	// callers can page through the full history.
+	Changelog(ctx context.Context, limit, offset int) ([]ChangelogEntry, int, error)
 	// Mode returns the store mode: "file" or "database".
 	Mode() string
 }

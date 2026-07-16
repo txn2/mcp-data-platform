@@ -107,7 +107,7 @@ type ConfigStore interface {
 	Set(ctx context.Context, key, value, author string) error
 	Delete(ctx context.Context, key, author string) error
 	List(ctx context.Context) ([]configstore.Entry, error)
-	Changelog(ctx context.Context, limit int) ([]configstore.ChangelogEntry, error)
+	Changelog(ctx context.Context, limit, offset int) ([]configstore.ChangelogEntry, int, error)
 	Mode() string
 }
 

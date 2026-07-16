@@ -18,6 +18,9 @@ import (
 
 type mockStore struct {
 	resources map[string]*Resource
+	// lastListFilter records the filter passed to the most recent List call so
+	// tests can assert the handler forwards parsed pagination params.
+	lastListFilter Filter
 }
 
 func newMockStore() *mockStore {
@@ -47,6 +50,7 @@ func (m *mockStore) GetByURI(_ context.Context, uri string) (*Resource, error) {
 }
 
 func (m *mockStore) List(_ context.Context, filter Filter) ([]Resource, int, error) {
+	m.lastListFilter = filter
 	var result []Resource
 	for _, r := range m.resources {
 		for _, sf := range filter.Scopes {
@@ -454,6 +458,40 @@ func TestHandleList_Success(t *testing.T) {
 	}
 	if resp["total"] != float64(2) {
 		t.Errorf("total = %v, want 2", resp["total"])
+	}
+}
+
+func TestHandleList_ForwardsLimitAndOffset(t *testing.T) {
+	tests := []struct {
+		name      string
+		query     string
+		wantLimit int
+		wantOff   int
+	}{
+		{"client limit and offset honored", "?limit=25&offset=50", 25, 50},
+		{"absent limit falls back to default", "?offset=10", DefaultListLimit, 10},
+		{"non-positive limit falls back to default", "?limit=0", DefaultListLimit, 0},
+		{"invalid limit falls back to default", "?limit=abc", DefaultListLimit, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newMockStore()
+			h := newTestHandler(store, nil, okExtractor)
+
+			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/resources"+tt.query, http.NoBody)
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+			}
+			if store.lastListFilter.Limit != tt.wantLimit {
+				t.Errorf("Limit = %d, want %d", store.lastListFilter.Limit, tt.wantLimit)
+			}
+			if store.lastListFilter.Offset != tt.wantOff {
+				t.Errorf("Offset = %d, want %d", store.lastListFilter.Offset, tt.wantOff)
+			}
+		})
 	}
 }
 
