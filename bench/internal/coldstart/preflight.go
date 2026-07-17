@@ -67,6 +67,7 @@ func (e *runEnv) preflightEntities(ctx context.Context, cur curriculum.Curriculu
 	if err != nil {
 		return fmt.Errorf("preflight admin session: %w", err)
 	}
+	defer func() { _ = session.Close() }()
 	var urns []string
 	seen := map[string]bool{}
 	for _, l := range cur.Lessons {

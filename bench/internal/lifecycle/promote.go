@@ -28,7 +28,7 @@ func (e *runEnv) waitForInsight(ctx context.Context, email, urn string, since ti
 }
 
 // promoteInsight plays the reviewer: it approves the insight and applies it to
-// the protocol's sink over the cached admin session, then verifies through the
+// the protocol's sink over a fresh admin session, then verifies through the
 // knowledge API (see promote.Reviewer.Apply). A transport-level failure is a
 // harness error; an apply the platform refuses is a measured miss (false).
 func (e *runEnv) promoteInsight(ctx context.Context, p protocol.Protocol, insightID string) (bool, error) {
@@ -36,6 +36,7 @@ func (e *runEnv) promoteInsight(ctx context.Context, p protocol.Protocol, insigh
 	if err != nil {
 		return false, err
 	}
+	defer func() { _ = session.Close() }()
 	return e.reviewer.Apply(ctx, session, handle, promoteTarget(p), insightID)
 }
 
@@ -45,14 +46,15 @@ func promoteTarget(p protocol.Protocol) promote.Target {
 	return promote.Target{Label: p.ID, EntityURN: p.EntityURN, Sink: p.Sink, Fact: p.Fact, Page: p.Page, Notes: "bench lifecycle promote"}
 }
 
-// adminSession lazily builds and caches the reviewer MCP session (base admin
-// credential) and its minted handle. Every apply threads the handle so its own
-// tool calls are audited under a stable session distinct from any attempt.
+// adminSession connects a FRESH reviewer MCP session (base admin credential, no
+// rotation) and mints its handle; the caller owns the session and must Close
+// it. Each promotion opens its own short-lived session deliberately: a session
+// cached for the whole run goes stale during real-paced episodes (long idle
+// gaps between promotes) and the streamable transport does not reconnect — the
+// first completed real cold-start run lost every promotion to exactly that.
+// The handle threads on every apply so its tool calls are audited under a
+// session distinct from any attempt.
 func (e *runEnv) adminSession(ctx context.Context) (*mcp.ClientSession, string, error) {
-	if e.adminMCP != nil {
-		return e.adminMCP, e.adminHandle, nil
-	}
-	// The admin session authenticates as the base credential (no rotation).
 	client := mcpc.New(e.opts.Target.BaseURL, e.opts.Target.HTTPClient(e.opts.HTTPTimeout))
 	session, err := client.Connect(ctx)
 	if err != nil {
@@ -64,15 +66,5 @@ func (e *runEnv) adminSession(ctx context.Context) (*mcp.ClientSession, string, 
 		return nil, "", fmt.Errorf("admin session mint: %w", err)
 	}
 	e.recordPlatformVersion(info.PlatformVersion)
-	e.adminMCP = session
-	e.adminHandle = info.Handle
-	return e.adminMCP, e.adminHandle, nil
-}
-
-// closeAdmin closes the cached reviewer session at run end.
-func (e *runEnv) closeAdmin() {
-	if e.adminMCP != nil {
-		_ = e.adminMCP.Close()
-		e.adminMCP = nil
-	}
+	return session, info.Handle, nil
 }

@@ -1,0 +1,15 @@
+{
+  "stage": "eval",
+  "unit_id": "s3-tier-key-avg",
+  "email": "bench-agent-007@apikey.local",
+  "transcript": [
+    {
+      "role": "user",
+      "text": "What is the average order amount in USD across all orders placed by KEY ACCOUNT customers in the bench warehouse? Round to the nearest cent."
+    },
+    {
+      "role": "assistant",
+      "text": "API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://status.claude.com."
+    }
+  ]
+}
