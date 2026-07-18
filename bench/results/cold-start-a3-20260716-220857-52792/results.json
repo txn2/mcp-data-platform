@@ -1,0 +1,753 @@
+{
+  "manifest": {
+    "started_at": "2026-07-17T05:08:57.543801Z",
+    "finished_at": "0001-01-01T00:00:00Z",
+    "git_commit": "1fac7772a7e74f46ab04013dcc682f499faff339",
+    "platform_version": "",
+    "target": "http://localhost:8098",
+    "arm": "a3",
+    "llm_provider": "claude-cli",
+    "model": "",
+    "seed": 930,
+    "curriculum_id": "cs-traps",
+    "curriculum_hash": "fc307922d77d91e22dd65e4ceacc738c457b292d84aa3ad0ffb364317370d9a8",
+    "eval_suite": "s3",
+    "task_set_hash": "6df03274021d66effb8147a232b1530c9d569823b3ef9927fe8325052d01a53f",
+    "k": 1,
+    "settle": "5m0s"
+  },
+  "lessons": [
+    {
+      "lesson_id": "cs-units-cents",
+      "title": "Monetary columns are integer cents",
+      "trap_class": "units_cents",
+      "sink": "datahub",
+      "insight_id": "d15c20fdea5a51a1e7d47b57fb4640a8",
+      "captured": true,
+      "episode": {
+        "email": "bench-agent-001@apikey.local",
+        "session_id": "dps_ad955858c2040429bbcc9d4e7c9ddc4a",
+        "tool_calls": 5,
+        "tool_errors": 1,
+        "wall_ms": 45349,
+        "input_tokens": 22,
+        "output_tokens": 2033,
+        "cache_read_tokens": 338359,
+        "cache_creation_tokens": 23366,
+        "audit": {
+          "audited_calls": 5,
+          "errors": 1,
+          "total_duration_ms": 259,
+          "enriched_calls": 1,
+          "enrichment_tokens_full": 48,
+          "enrichment_tokens_dedup": 0
+        }
+      },
+      "error": "promote: apply transport: calling \"tools/call\": sending \"tools/call\": failed to connect (session ID: RRM5ENM2DYBKYEGRVHR36XTZBT): session not found"
+    }
+  ],
+  "checkpoints": [
+    {
+      "index": 0,
+      "promoted_so_far": 0,
+      "eval_graded": 25,
+      "eval_correct": 11,
+      "accuracy": 0.44,
+      "by_trap_class": {
+        "deprecated_table": {
+          "correct": 2,
+          "graded": 2,
+          "accuracy": 1
+        },
+        "fiscal_calendar": {
+          "correct": 0,
+          "graded": 5,
+          "accuracy": 0
+        },
+        "freshness_cutoff": {
+          "correct": 4,
+          "graded": 4,
+          "accuracy": 1
+        },
+        "net_revenue": {
+          "correct": 1,
+          "graded": 10,
+          "accuracy": 0.1
+        },
+        "tier_boundary": {
+          "correct": 0,
+          "graded": 5,
+          "accuracy": 0
+        },
+        "units_cents": {
+          "correct": 9,
+          "graded": 14,
+          "accuracy": 0.6428571428571429
+        }
+      },
+      "audited_calls": 638,
+      "enriched_calls": 244,
+      "enrichment_coverage": 0.3824451410658307,
+      "harness_failures": 0,
+      "attempts": [
+        {
+          "task_id": "s3-deprecated-completed-usd",
+          "trap_classes": [
+            "deprecated_table",
+            "units_cents"
+          ],
+          "email": "bench-agent-007@apikey.local",
+          "session_id": "dps_baa89394b40b56cbf07d68b2e32cda04",
+          "repeat": 1,
+          "graded": true,
+          "correct": true,
+          "final_answer": "Confirmed via cross-check: the deprecated `legacy_orders.total` (dollars) exactly matches `orders.amount/100` for the same order_ids (e.g. order_id 1000: legacy total=586.92, current amount=58692 cents), so `amount` is stored in cents and represents the gross order value (the `discount` column is a separate, additive field not netted into `amount`).\n\nQuerying the current `memory.bench.orders` table for `status = 'completed'`:\n- Completed orders: 948\n- Sum(amount) = 143,060,383 cents = $1,430,603.83\n\nFINAL ANSWER: 1430603.83",
+          "wall_ms": 118405,
+          "input_tokens": 52,
+          "output_tokens": 7813,
+          "cache_read_tokens": 1014196,
+          "cache_creation_tokens": 38811,
+          "audit": {
+            "audited_calls": 26,
+            "errors": 0,
+            "total_duration_ms": 3295,
+            "enriched_calls": 7,
+            "enrichment_tokens_full": 198,
+            "enrichment_tokens_dedup": 53
+          }
+        },
+        {
+          "task_id": "s3-deprecated-order-count",
+          "trap_classes": [
+            "deprecated_table"
+          ],
+          "email": "bench-agent-007@apikey.local",
+          "session_id": "dps_776d315e09e2be312e6b0050702be946",
+          "repeat": 1,
+          "graded": true,
+          "correct": true,
+          "final_answer": "`memory.bench.orders` is the current, supported table (`legacy_orders` is the deprecated extract) and it contains 1,200 rows.\n\nFINAL ANSWER: 1200",
+          "wall_ms": 61850,
+          "input_tokens": 36,
+          "output_tokens": 3810,
+          "cache_read_tokens": 633953,
+          "cache_creation_tokens": 33619,
+          "audit": {
+            "audited_calls": 16,
+            "errors": 1,
+            "total_duration_ms": 780,
+            "enriched_calls": 5,
+            "enrichment_tokens_full": 146,
+            "enrichment_tokens_dedup": 53
+          }
+        },
+        {
+          "task_id": "s3-fiscal-2025-count",
+          "trap_classes": [
+            "fiscal_calendar",
+            "net_revenue"
+          ],
+          "email": "bench-agent-007@apikey.local",
+          "session_id": "dps_af8d4a1085b239915770961e553af8ec",
+          "repeat": 1,
+          "graded": true,
+          "correct": false,
+          "final_answer": "All completed orders (948 total) have `order_ts` between 2025-01-01 and 2025-12-31, so all fall within calendar/fiscal year 2025. No fiscal-year definition document exists in the catalog (no knowledge pages or context documents), so I used the standard Jan 1–Dec 31 calendar year.\n\nFINAL ANSWER: 948",
+          "wall_ms": 70997,
+          "input_tokens": 32,
+          "output_tokens": 3435,
+          "cache_read_tokens": 570800,
+          "cache_creation_tokens": 30776,
+          "audit": {
+            "audited_calls": 16,
+            "errors": 0,
+            "total_duration_ms": 964,
+            "enriched_calls": 5,
+            "enrichment_tokens_full": 192,
+            "enrichment_tokens_dedup": 159
+          }
+        },
+        {
+          "task_id": "s3-fiscal-2025-east",
+          "trap_classes": [
+            "fiscal_calendar",
+            "net_revenue"
+          ],
+          "email": "bench-agent-007@apikey.local",
+          "session_id": "dps_eb789acba0385c0208c93151a06ae045",
+          "repeat": 1,
+          "graded": true,
+          "correct": false,
+          "final_answer": "Based on the catalog, `memory.bench.daily_region_revenue` is the purpose-built revenue-by-region reporting table (columns: `day`, `region`, `gross_revenue_usd`). I searched the knowledge pages, context documents, glossary, and other catalog metadata for an explicit written \"fiscal year\" policy document, but none exists in the platform — the dataset itself contains only calendar-year 2025 data (Jan 2 – Nov 27, 2025), so fiscal year 2025 corresponds directly to this data.\n\nSumming `gross_revenue_usd` for `region = 'East'` across all available 2025 records (113 daily rows) gives a total of **299,697.42**.\n\nNote: I also checked the `orders`/`legacy_orders`/`customers` tables for an alternative net-revenue computation (order status, discounts), but those figures don't reconcile with `daily_region_revenue`, and no documented policy links them — so I used the dedicated revenue-reporting table as the authoritative source.\n\nFINAL ANSWER: 299697.42",
+          "wall_ms": 194241,
+          "input_tokens": 72,
+          "output_tokens": 13347,
+          "cache_read_tokens": 1608070,
+          "cache_creation_tokens": 52707,
+          "audit": {
+            "audited_calls": 40,
+            "errors": 4,
+            "total_duration_ms": 3474,
+            "enriched_calls": 12,
+            "enrichment_tokens_full": 500,
+            "enrichment_tokens_dedup": 283
+          }
+        },
+        {
+          "task_id": "s3-fiscal-2025-net",
+          "trap_classes": [
+            "fiscal_calendar",
+            "net_revenue"
+          ],
+          "email": "bench-agent-007@apikey.local",
+          "session_id": "dps_4a3f5a4c0b96bf682a06c2b30ab03faf",
+          "repeat": 1,
+          "graded": true,
+          "correct": false,
+          "final_answer": "Based on the catalog data, I found four candidate revenue sources in `memory.bench`: `orders` (raw transactional, cents, with `status` and `discount`), `legacy_orders` (order_ids 1000–1059, dollar amounts matching a subset of `orders` exactly — a duplicate legacy export, not additive), `daily_region_revenue` (a `gross_revenue_usd` aggregate that only covers Jan–Nov 2025, missing December and not reconcilable to `orders` for the overlapping months), and `customers` (dimension table, not relevant).\n\nNo knowledge page or context document explicitly stating a \"reporting policy\" exists in the catalog (search across knowledge_pages/context_documents/insights returned nothing), so I applied standard revenue-recognition logic: `orders` is the only complete, full fiscal-year (Jan 1–Dec 31, 2025) source, and only `status='completed'` orders net of `discount` count as recognized revenue (pending = not yet recognized, refunded = reversed).\n\nTotal revenue = SUM(amount − discount) for completed orders in `orders`, converted from cents to USD:\n- 948 completed orders, net = 128,656,119 cents = $1,286,561.19\n\nFINAL ANSWER: 1286561.19",
+          "wall_ms": 145396,
+          "input_tokens": 306,
+          "output_tokens": 10907,
+          "cache_read_tokens": 1021081,
+          "cache_creation_tokens": 47088,
+          "audit": {
+            "audited_calls": 37,
+            "errors": 3,
+            "total_duration_ms": 6170,
+            "enriched_calls": 19,
+            "enrichment_tokens_full": 594,
+            "enrichment_tokens_dedup": 489
+          }
+        },
+        {
+          "task_id": "s3-fiscal-q1-net",
+          "trap_classes": [
+            "fiscal_calendar",
+            "net_revenue"
+          ],
+          "email": "bench-agent-007@apikey.local",
+          "session_id": "dps_a9b7badfa6866965b1e6503ca5158647",
+          "repeat": 1,
+          "graded": true,
+          "correct": false,
+          "final_answer": "I searched the full platform (catalog, knowledge pages, context documents, memory, insights, feedback) for a documented \"company reporting policy\" defining a non-calendar fiscal year, and found none — the only revenue-related data asset is `memory.bench.daily_region_revenue` (day, region, gross_revenue_usd), with no fiscal-calendar override documented anywhere. Absent a documented offset, standard convention applies: fiscal year = calendar year, so FY2025 Q1 = Jan 1 – Mar 31, 2025.\n\nSumming `gross_revenue_usd` across all regions for that date range gives $332,541.97.\n\nFINAL ANSWER: 332541.97",
+          "wall_ms": 106042,
+          "input_tokens": 85,
+          "output_tokens": 7217,
+          "cache_read_tokens": 934788,
+          "cache_creation_tokens": 40123,
+          "audit": {
+            "audited_calls": 34,
+            "errors": 3,
+            "total_duration_ms": 3284,
+            "enriched_calls": 7,
+            "enrichment_tokens_full": 208,
+            "enrichment_tokens_dedup": 171
+          }
+        },
+        {
+          "task_id": "s3-fiscal-q4-net",
+          "trap_classes": [
+            "fiscal_calendar",
+            "net_revenue"
+          ],
+          "email": "bench-agent-007@apikey.local",
+          "session_id": "dps_8a3641f1bfbcb4a7b73d1502d0d30391",
+          "repeat": 1,
+          "graded": true,
+          "correct": false,
+          "final_answer": "I searched exhaustively across the platform's knowledge pages, context documents, catalog descriptions, glossary terms, and pending insights for an explicit \"fiscal calendar\" policy document — none exists (all these sources returned empty). The only revenue dataset available is `memory.bench.daily_region_revenue` (day, region, gross_revenue_usd), and its data is bounded exactly at **2025-11-30** (no records exist past that date across any region). This boundary aligning precisely on a quarter-end is the platform's only signal about the company's fiscal calendar: it indicates fiscal year 2025 closes on Nov 30, 2025, making fiscal Q4 FY2025 = **Sep 1 – Nov 30, 2025**.\n\nSumming `gross_revenue_usd` over that window:\n\n```sql\nSELECT ROUND(SUM(gross_revenue_usd), 2) FROM memory.bench.daily_region_revenue\nWHERE day BETWEEN DATE '2025-09-01' AND DATE '2025-11-30'\n```\n\nResult: **$371,765.76**\n\nNote: no written reporting-policy document was found in the catalog to confirm this fiscal calendar explicitly — this is inferred from the dataset's exact date boundary, since a standard calendar-year Q4 (Oct–Dec) would be incomplete (data stops Nov 30, before December).\n\nFINAL ANSWER: 371765.76",
+          "wall_ms": 245269,
+          "input_tokens": 78,
+          "output_tokens": 18518,
+          "cache_read_tokens": 1982032,
+          "cache_creation_tokens": 67937,
+          "audit": {
+            "audited_calls": 41,
+            "errors": 2,
+            "total_duration_ms": 3454,
+            "enriched_calls": 11,
+            "enrichment_tokens_full": 410,
+            "enrichment_tokens_dedup": 285
+          }
+        },
+        {
+          "task_id": "s3-fresh-dec-gross",
+          "trap_classes": [
+            "freshness_cutoff",
+            "units_cents"
+          ],
+          "email": "bench-agent-007@apikey.local",
+          "session_id": "dps_f1707acd69484c06ee76a978a39ba1df",
+          "repeat": 1,
+          "graded": true,
+          "correct": true,
+          "final_answer": "That table only covers Jan–Nov 2025, so it doesn't include December — the `orders` table is the correct source for this answer.\n\nGross revenue for December 2025 (completed orders, `amount` column) = 13,377,739 cents = **$133,777.39**.\n\nFINAL ANSWER: 133777.39",
+          "wall_ms": 63883,
+          "input_tokens": 32,
+          "output_tokens": 3878,
+          "cache_read_tokens": 544694,
+          "cache_creation_tokens": 27798,
+          "audit": {
+            "audited_calls": 15,
+            "errors": 0,
+            "total_duration_ms": 745,
+            "enriched_calls": 7,
+            "enrichment_tokens_full": 350,
+            "enrichment_tokens_dedup": 220
+          }
+        },
+        {
+          "task_id": "s3-fresh-fullyear-gross",
+          "trap_classes": [
+            "freshness_cutoff",
+            "units_cents"
+          ],
+          "email": "bench-agent-007@apikey.local",
+          "session_id": "dps_534534dafe8b8368e972d29d205e3d49",
+          "repeat": 1,
+          "graded": true,
+          "correct": true,
+          "final_answer": "143,060,383 cents / 100 = $1,430,603.83.\n\nVerified via `memory.bench.orders`: 948 completed orders in calendar year 2025 (order_ts spans 2025-01-01 to 2025-12-31), amount column is stored in cents (cross-checked against `legacy_orders.total`, which matches `amount/100` exactly). Summing the `amount` column alone (gross, no discount subtracted) for `status = 'completed'` gives the figure below. Note: a separate `daily_region_revenue.gross_revenue_usd` table exists but its totals don't reconcile to either gross or net order amounts, so it wasn't used as the source of truth here — the raw `orders` table matches the question's explicit definition (completed orders, amount only) directly.\n\nFINAL ANSWER: 1430603.83",
+          "wall_ms": 92102,
+          "input_tokens": 38,
+          "output_tokens": 5923,
+          "cache_read_tokens": 732108,
+          "cache_creation_tokens": 39809,
+          "audit": {
+            "audited_calls": 20,
+            "errors": 0,
+            "total_duration_ms": 1134,
+            "enriched_calls": 11,
+            "enrichment_tokens_full": 394,
+            "enrichment_tokens_dedup": 269
+          }
+        },
+        {
+          "task_id": "s3-fresh-novdec-gross",
+          "trap_classes": [
+            "freshness_cutoff",
+            "units_cents"
+          ],
+          "email": "bench-agent-007@apikey.local",
+          "session_id": "dps_6326cebfba80d71fd66535e2446790fd",
+          "repeat": 1,
+          "graded": true,
+          "correct": true,
+          "final_answer": "26607326 cents = $266,073.26 exactly (sum(amount)/100.0 was truncated display but the raw cents figure is precise).\n\nFor memory.bench.orders (the \"bench warehouse\"), status='completed' orders with order_ts in Nov–Dec 2025: gross revenue (amount column, before discount) totals $266,073.26.\n\nFINAL ANSWER: 266073.26",
+          "wall_ms": 101539,
+          "input_tokens": 81,
+          "output_tokens": 7258,
+          "cache_read_tokens": 798890,
+          "cache_creation_tokens": 36763,
+          "audit": {
+            "audited_calls": 29,
+            "errors": 2,
+            "total_duration_ms": 2524,
+            "enriched_calls": 10,
+            "enrichment_tokens_full": 492,
+            "enrichment_tokens_dedup": 377
+          }
+        },
+        {
+          "task_id": "s3-fresh-q4-gross",
+          "trap_classes": [
+            "freshness_cutoff",
+            "units_cents"
+          ],
+          "email": "bench-agent-007@apikey.local",
+          "session_id": "dps_eb47fb8a1e8d1c641b1b4b5dd3c1c697",
+          "repeat": 1,
+          "graded": true,
+          "correct": true,
+          "final_answer": "Query results: 242 completed orders in Q4 2025 (Oct 1 – Dec 31), summing the `amount` column (stored in cents) from `memory.bench.orders`. Total = 40,351,809 cents = $403,518.09.\n\nThe task specified \"amount only\" (not amount minus discount), so this is the sum of the `amount` field for completed orders in the Q4 2025 window.\n\nFINAL ANSWER: 403518.09",
+          "wall_ms": 87089,
+          "input_tokens": 36,
+          "output_tokens": 6025,
+          "cache_read_tokens": 652444,
+          "cache_creation_tokens": 32647,
+          "audit": {
+            "audited_calls": 22,
+            "errors": 1,
+            "total_duration_ms": 1087,
+            "enriched_calls": 6,
+            "enrichment_tokens_full": 294,
+            "enrichment_tokens_dedup": 159
+          }
+        },
+        {
+          "task_id": "s3-net-east-2025",
+          "trap_classes": [
+            "net_revenue",
+            "units_cents"
+          ],
+          "email": "bench-agent-007@apikey.local",
+          "session_id": "dps_d0388352aaed5d9b0f4f56ce360c8e45",
+          "repeat": 1,
+          "graded": true,
+          "correct": false,
+          "final_answer": "Per the pre-aggregated `daily_region_revenue` table and confirmed against the underlying `orders`/`customers` tables (gross revenue = sum of `amount` for `completed` orders only, excluding discounts, joined to customer region), I computed the East region total for all of calendar year 2025:\n\n- Jan–Nov 2025 (from `daily_region_revenue`, cross-checked against `orders`): $299,697.42\n- Dec 2025 (missing from `daily_region_revenue`, computed directly from `orders`+`customers` since the table only covers through Nov 30): $37,285.19\n- Total: $336,982.61\n\n(Note: `legacy_orders` order_ids 1000–1059 are a full duplicate subset of `orders` and were correctly excluded to avoid double-counting.)\n\nFINAL ANSWER: 336982.61",
+          "wall_ms": 137082,
+          "input_tokens": 42,
+          "output_tokens": 10765,
+          "cache_read_tokens": 839652,
+          "cache_creation_tokens": 42840,
+          "audit": {
+            "audited_calls": 34,
+            "errors": 0,
+            "total_duration_ms": 1639,
+            "enriched_calls": 20,
+            "enrichment_tokens_full": 1085,
+            "enrichment_tokens_dedup": 736
+          }
+        },
+        {
+          "task_id": "s3-net-east-march",
+          "trap_classes": [
+            "net_revenue",
+            "units_cents"
+          ],
+          "email": "bench-agent-007@apikey.local",
+          "session_id": "dps_6d11231b8de7eaf25aa66aa72a5fbb2b",
+          "repeat": 1,
+          "graded": true,
+          "correct": false,
+          "final_answer": "I found the platform's purpose-built dataset `memory.bench.daily_region_revenue` (day, region, gross_revenue_usd), which is the top catalog match for \"revenue.\" I checked for any documented \"revenue reporting policy\" across knowledge pages, context documents, glossary terms, and saved queries — none exist in this instance, so the table's `gross_revenue_usd` field is the authoritative revenue figure. Summing it for region = East within March 2025 (15 rows, no duplicates) gives $50,426.11.\n\nFINAL ANSWER: 50426.11",
+          "wall_ms": 124971,
+          "input_tokens": 93,
+          "output_tokens": 8790,
+          "cache_read_tokens": 1123745,
+          "cache_creation_tokens": 42554,
+          "audit": {
+            "audited_calls": 31,
+            "errors": 0,
+            "total_duration_ms": 2899,
+            "enriched_calls": 11,
+            "enrichment_tokens_full": 459,
+            "enrichment_tokens_dedup": 285
+          }
+        },
+        {
+          "task_id": "s3-net-top-region",
+          "trap_classes": [
+            "net_revenue"
+          ],
+          "email": "bench-agent-007@apikey.local",
+          "session_id": "dps_d5eb60d97beb17c0732a7f42cc55f188",
+          "repeat": 1,
+          "graded": true,
+          "correct": true,
+          "final_answer": "West had the highest total gross revenue in CY2025 at ~$444,337, well ahead of South (~$320,368), East (~$299,697), and North (~$232,423), per the `memory.bench.daily_region_revenue` table (data available through late Nov 2025).\n\nFINAL ANSWER: West",
+          "wall_ms": 46203,
+          "input_tokens": 24,
+          "output_tokens": 2948,
+          "cache_read_tokens": 383880,
+          "cache_creation_tokens": 28261,
+          "audit": {
+            "audited_calls": 12,
+            "errors": 0,
+            "total_duration_ms": 722,
+            "enriched_calls": 3,
+            "enrichment_tokens_full": 104,
+            "enrichment_tokens_dedup": 57
+          }
+        },
+        {
+          "task_id": "s3-net-total-2025",
+          "trap_classes": [
+            "net_revenue",
+            "units_cents"
+          ],
+          "email": "bench-agent-007@apikey.local",
+          "session_id": "dps_e5585d5c45af286a3ef3942825685670",
+          "repeat": 1,
+          "graded": true,
+          "correct": false,
+          "final_answer": "Based on the data catalog:\n- **orders** table (1,200 rows, order_id 1000-2199) is the authoritative order-level source for all of calendar year 2025 (Jan 1–Dec 31), with `amount` in cents and a `status` field (completed/refunded/pending).\n- **legacy_orders** (60 rows) is an exact duplicate of `orders` order_id 1000-1059 (same totals, just in dollars) — it must be excluded to avoid double-counting.\n- **daily_region_revenue.gross_revenue_usd** is a pre-aggregated table that reconciles exactly to `SUM(amount)` for `status='completed'` orders (gross, not net of discount) — confirming the reporting policy is *gross revenue from completed orders only*. However, this table only covers Jan 1–Nov 30, 2025, so it's incomplete for the full year.\n\nComputing the same gross-completed-revenue definition directly from `orders` for the full 2025 calendar year:\n\nSUM(amount) for status='completed', 2025-01-01 to 2025-12-31 = 143,060,383 cents = $1,430,603.83\n\nFINAL ANSWER: 1430603.83",
+          "wall_ms": 143577,
+          "input_tokens": 44,
+          "output_tokens": 10242,
+          "cache_read_tokens": 920150,
+          "cache_creation_tokens": 46580,
+          "audit": {
+            "audited_calls": 28,
+            "errors": 2,
+            "total_duration_ms": 1298,
+            "enriched_calls": 14,
+            "enrichment_tokens_full": 635,
+            "enrichment_tokens_dedup": 387
+          }
+        },
+        {
+          "task_id": "s3-net-west-2025",
+          "trap_classes": [
+            "net_revenue",
+            "units_cents"
+          ],
+          "email": "bench-agent-007@apikey.local",
+          "session_id": "dps_678c695dd247e98d9045bdb5be38d2d5",
+          "repeat": 1,
+          "graded": true,
+          "correct": false,
+          "final_answer": "The data catalog surfaces one purpose-built revenue table, `daily_region_revenue` (columns: day, region, `gross_revenue_usd`), but it only covers a subset of days per region (202 of 220 days with completed orders for West), so it under-reports the year. Reconciling it against the underlying `orders`/`customers` tables shows it is generated as the sum of `amount` (pre-discount) for **completed** orders only — pending and refunded orders are excluded (confirmed by cent-level matching on complete days, e.g. 2025-01-01 West: table shows 5453.71, orders recompute to 5453.70).\n\nRecomputing that same metric from the complete `orders` + `customers` data (which spans the full calendar year, Jan 1–Dec 31, 2025) for the West region and completed orders only gives the true total, since the pre-aggregated table is missing 18 days' worth of West revenue.\n\n- Completed orders, West, 2025: 311 orders, gross amount = $486,558.60\n- (For reference: net of discount would be $466,889.40; pending = $23,129.60; refunded = $17,351.80 — both excluded per the completed-only convention evidenced by the canonical `gross_revenue_usd` table.)\n\nFINAL ANSWER: 486558.60",
+          "wall_ms": 239068,
+          "input_tokens": 64,
+          "output_tokens": 17230,
+          "cache_read_tokens": 1521076,
+          "cache_creation_tokens": 57559,
+          "audit": {
+            "audited_calls": 38,
+            "errors": 0,
+            "total_duration_ms": 1913,
+            "enriched_calls": 22,
+            "enrichment_tokens_full": 1427,
+            "enrichment_tokens_dedup": 873
+          }
+        },
+        {
+          "task_id": "s3-tier-key-avg",
+          "trap_classes": [
+            "units_cents",
+            "tier_boundary"
+          ],
+          "email": "bench-agent-007@apikey.local",
+          "session_id": "dps_f93136c935695121f71cee292cf6c324",
+          "repeat": 1,
+          "graded": true,
+          "correct": false,
+          "final_answer": "Based on the catalog, `memory.bench.customers` has a `tier` column with three values: `basic`, `plus`, `enterprise` (no literal \"KEY ACCOUNT\" value or glossary term exists in the catalog). I mapped \"KEY ACCOUNT\" to the `enterprise` tier, as that's the top customer tier and the standard synonym for \"key account\" customers, and joined against `memory.bench.orders` on `customer_id`.\n\nQuery: `SELECT avg(o.amount) FROM orders o JOIN customers c ON o.customer_id = c.customer_id WHERE c.tier = 'enterprise'`\n\nResult: 287 orders, average amount = 161456.77 (amount column stored as-is, no cents-conversion documented in the catalog).\n\nFINAL ANSWER: 161456.77",
+          "wall_ms": 148898,
+          "input_tokens": 54,
+          "output_tokens": 8842,
+          "cache_read_tokens": 1077697,
+          "cache_creation_tokens": 41092,
+          "audit": {
+            "audited_calls": 32,
+            "errors": 1,
+            "total_duration_ms": 2790,
+            "enriched_calls": 10,
+            "enrichment_tokens_full": 393,
+            "enrichment_tokens_dedup": 166
+          }
+        },
+        {
+          "task_id": "s3-tier-key-completed",
+          "trap_classes": [
+            "tier_boundary"
+          ],
+          "email": "bench-agent-007@apikey.local",
+          "session_id": "dps_9276741e74fde3d5b365700b386b5bfa",
+          "repeat": 1,
+          "graded": true,
+          "correct": false,
+          "final_answer": "228 completed orders were placed by \"enterprise\"-tier customers (the platform's `customers.tier` values are `basic`/`plus`/`enterprise`, with `enterprise` being the closest match to \"KEY ACCOUNT\" — no glossary term or knowledge page maps this business label explicitly) within the `memory.bench` schema, which is the only schema/\"warehouse\" holding the current `orders` and `customers` datasets (the `e2e_test` schema has separate `test_orders`/`customer_metrics` tables and is not in scope).\n\nFINAL ANSWER: 228",
+          "wall_ms": 82535,
+          "input_tokens": 38,
+          "output_tokens": 5729,
+          "cache_read_tokens": 702852,
+          "cache_creation_tokens": 32246,
+          "audit": {
+            "audited_calls": 24,
+            "errors": 0,
+            "total_duration_ms": 2456,
+            "enriched_calls": 7,
+            "enrichment_tokens_full": 293,
+            "enrichment_tokens_dedup": 113
+          }
+        },
+        {
+          "task_id": "s3-tier-key-count",
+          "trap_classes": [
+            "tier_boundary"
+          ],
+          "email": "bench-agent-007@apikey.local",
+          "session_id": "dps_b222ef94ae1af017247ea8e582704f84",
+          "repeat": 1,
+          "graded": true,
+          "correct": false,
+          "final_answer": "I checked the `customers` table (the only customer dataset in the bench warehouse) and its `tier` column — the only customer-segmentation field available — which contains exactly three values: `basic` (37), `plus` (24), and `enterprise` (19). No \"KEY ACCOUNT\" value exists in this or any other table/knowledge source I searched (catalog, knowledge pages, context documents).\n\nFINAL ANSWER: 0",
+          "wall_ms": 62882,
+          "input_tokens": 34,
+          "output_tokens": 3988,
+          "cache_read_tokens": 584408,
+          "cache_creation_tokens": 28892,
+          "audit": {
+            "audited_calls": 18,
+            "errors": 0,
+            "total_duration_ms": 762,
+            "enriched_calls": 8,
+            "enrichment_tokens_full": 297,
+            "enrichment_tokens_dedup": 108
+          }
+        },
+        {
+          "task_id": "s3-tier-key-east",
+          "trap_classes": [
+            "tier_boundary"
+          ],
+          "email": "bench-agent-007@apikey.local",
+          "session_id": "dps_f6d112d46d18dcc2a2ccabead1c349ae",
+          "repeat": 1,
+          "graded": true,
+          "correct": false,
+          "final_answer": "Based on the catalog, the `memory.bench.customers` table has a `tier` column with exactly three values: `basic`, `plus`, and `enterprise`. There's no separate \"KEY ACCOUNT\" literal, glossary term, or knowledge page documenting a mapping — but \"KEY ACCOUNT\" is standard business terminology for top-tier/strategic customers, which corresponds to the `enterprise` tier here.\n\nQuerying customers where `tier = 'enterprise'` and `region = 'East'` returns **5** customers.\n\nFINAL ANSWER: 5",
+          "wall_ms": 70220,
+          "input_tokens": 36,
+          "output_tokens": 3619,
+          "cache_read_tokens": 626200,
+          "cache_creation_tokens": 27835,
+          "audit": {
+            "audited_calls": 16,
+            "errors": 0,
+            "total_duration_ms": 725,
+            "enriched_calls": 5,
+            "enrichment_tokens_full": 147,
+            "enrichment_tokens_dedup": 108
+          }
+        },
+        {
+          "task_id": "s3-tier-key-orders",
+          "trap_classes": [
+            "tier_boundary"
+          ],
+          "email": "bench-agent-007@apikey.local",
+          "session_id": "dps_8e37477474287b6cf4310cd9dcb65817",
+          "repeat": 1,
+          "graded": true,
+          "correct": false,
+          "final_answer": "I traced \"bench warehouse\" to the `bench` schema in the `memory` catalog (Trino), which holds the `orders` and `customers` tables. The `customers.tier` column has three values: `basic`, `plus`, `enterprise` — no catalog entry, glossary term, or knowledge page maps \"KEY ACCOUNT\" explicitly, but `enterprise` is the standard label for top-tier/key-account customers (19 of 100 customers). Joining orders to customers on that tier yields the count.\n\n287 orders in `memory.bench.orders` were placed by customers with `tier = 'enterprise'` (the KEY ACCOUNT segment).\n\nFINAL ANSWER: 287",
+          "wall_ms": 107766,
+          "input_tokens": 56,
+          "output_tokens": 6384,
+          "cache_read_tokens": 1164607,
+          "cache_creation_tokens": 41112,
+          "audit": {
+            "audited_calls": 25,
+            "errors": 0,
+            "total_duration_ms": 1101,
+            "enriched_calls": 9,
+            "enrichment_tokens_full": 394,
+            "enrichment_tokens_dedup": 167
+          }
+        },
+        {
+          "task_id": "s3-units-avg-enterprise",
+          "trap_classes": [
+            "units_cents"
+          ],
+          "email": "bench-agent-007@apikey.local",
+          "session_id": "dps_819778ed9fb96476aa75246a24f978b3",
+          "repeat": 1,
+          "graded": true,
+          "correct": true,
+          "final_answer": "The `orders` table (memory.bench.orders) stores `amount` in cents — confirmed by cross-checking against `daily_region_revenue.gross_revenue_usd`. Joining to `customers` on `tier = 'enterprise'` gives 287 orders totaling $463,380.92, averaging $1,614.57 per order. (The `legacy_orders` table is a 60-row subset of the same orders, not additional data.)\n\nFINAL ANSWER: 1614.57",
+          "wall_ms": 94829,
+          "input_tokens": 46,
+          "output_tokens": 6035,
+          "cache_read_tokens": 863255,
+          "cache_creation_tokens": 34766,
+          "audit": {
+            "audited_calls": 22,
+            "errors": 0,
+            "total_duration_ms": 1090,
+            "enriched_calls": 11,
+            "enrichment_tokens_full": 731,
+            "enrichment_tokens_dedup": 231
+          }
+        },
+        {
+          "task_id": "s3-units-completed-gross",
+          "trap_classes": [
+            "units_cents"
+          ],
+          "email": "bench-agent-007@apikey.local",
+          "session_id": "dps_96e4204849ba6c5eb4ba7941e92d12d8",
+          "repeat": 1,
+          "graded": true,
+          "correct": true,
+          "final_answer": "The `orders` table (memory.bench.orders) is the authoritative source with a `status` column; `amount` is stored in cents and represents the gross pre-discount amount (verified against `legacy_orders.total`, which matches `amount/100` exactly for shared order_ids).\n\nSumming `amount` for all `status = 'completed'` rows (948 orders): 143,060,383 cents = $1,430,603.83.\n\nFINAL ANSWER: 1430603.83",
+          "wall_ms": 93056,
+          "input_tokens": 42,
+          "output_tokens": 5822,
+          "cache_read_tokens": 848435,
+          "cache_creation_tokens": 41157,
+          "audit": {
+            "audited_calls": 21,
+            "errors": 1,
+            "total_duration_ms": 1099,
+            "enriched_calls": 6,
+            "enrichment_tokens_full": 195,
+            "enrichment_tokens_dedup": 53
+          }
+        },
+        {
+          "task_id": "s3-units-q1-total",
+          "trap_classes": [
+            "units_cents"
+          ],
+          "email": "bench-agent-007@apikey.local",
+          "session_id": "dps_946c27fce7e25a11303b52dafdf1972f",
+          "repeat": 1,
+          "graded": true,
+          "correct": true,
+          "final_answer": "The `memory.bench.orders` table (1,200 rows) stores `amount` in integer cents — confirmed by cross-checking against `legacy_orders.total` (e.g., order 1000: `amount=58692` cents = `total=586.92` USD dollars, an exact /100 match). Summing across all 294 Q1 2025 orders regardless of status (completed: $332,541.97; pending: $34,067.94; refunded: $80,209.37) gives 44,681,928 cents.\n\nFINAL ANSWER: 446819.28",
+          "wall_ms": 106898,
+          "input_tokens": 46,
+          "output_tokens": 6909,
+          "cache_read_tokens": 873982,
+          "cache_creation_tokens": 36163,
+          "audit": {
+            "audited_calls": 24,
+            "errors": 2,
+            "total_duration_ms": 2527,
+            "enriched_calls": 9,
+            "enrichment_tokens_full": 391,
+            "enrichment_tokens_dedup": 166
+          }
+        },
+        {
+          "task_id": "s3-units-total-all",
+          "trap_classes": [
+            "units_cents"
+          ],
+          "email": "bench-agent-007@apikey.local",
+          "session_id": "dps_664185b47bc35c6942ad0e78b38d9fdc",
+          "repeat": 1,
+          "graded": true,
+          "correct": true,
+          "final_answer": "183,944,321 cents ÷ 100 = $1,839,443.21 (sum(amount) across all 1,200 orders in `memory.bench.orders`, all statuses: completed, pending, refunded — the `amount` column is stored in cents, confirmed against `legacy_orders.total` in dollars for overlapping order_ids).\n\nFINAL ANSWER: 1839443.21",
+          "wall_ms": 70889,
+          "input_tokens": 30,
+          "output_tokens": 5092,
+          "cache_read_tokens": 519815,
+          "cache_creation_tokens": 31775,
+          "audit": {
+            "audited_calls": 17,
+            "errors": 0,
+            "total_duration_ms": 1135,
+            "enriched_calls": 9,
+            "enrichment_tokens_full": 438,
+            "enrichment_tokens_dedup": 279
+          }
+        }
+      ]
+    }
+  ],
+  "metrics": {
+    "lessons": 1,
+    "lessons_captured": 1,
+    "lessons_promoted": 0,
+    "checkpoints": 1,
+    "eval_tasks": 25,
+    "harness_failures": 1,
+    "total_input_tokens": 1519,
+    "total_output_tokens": 192559,
+    "total_cache_read_tokens": 22881169,
+    "total_cache_creation_tokens": 1004276,
+    "baseline_accuracy": 0.44,
+    "final_accuracy": 0.44,
+    "accuracy_lift": 0,
+    "baseline_coverage": 0.3824451410658307,
+    "final_coverage": 0.3824451410658307
+  }
+}

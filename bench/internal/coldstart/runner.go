@@ -103,7 +103,6 @@ func Run(ctx context.Context, opts Options) (*Results, error) {
 		life:     life,
 		reviewer: promote.Reviewer{Life: life, Log: opts.Log, SinkTimeout: opts.SinkTimeout},
 	}
-	defer env.closeAdmin()
 
 	// Refuse a contaminated baseline before any LLM episode is spent: a
 	// non-empty starting state cannot be restored by re-seeding and would
@@ -203,11 +202,6 @@ type runEnv struct {
 	audit    *auditapi.Client
 	life     *lifecycleapi.Client
 	reviewer promote.Reviewer
-
-	// adminMCP is the lazily-built reviewer session that drives apply_knowledge
-	// (base admin credential, no rotation), shared across promotes.
-	adminMCP    *mcp.ClientSession
-	adminHandle string
 
 	platformVersion string
 	model           string
@@ -335,6 +329,7 @@ func (e *runEnv) teachAndPromote(ctx context.Context, lesson curriculum.Lesson, 
 		lr.Error = "admin session: " + err.Error()
 		return lr
 	}
+	defer func() { _ = session.Close() }()
 	ok, err := e.reviewer.Apply(ctx, session, handle, promoteTarget(lesson), insight.ID)
 	if err != nil {
 		lr.Error = "promote: " + err.Error()
@@ -416,12 +411,16 @@ func (e *runEnv) attemptClient(seq int) *mcpc.Client {
 	return mcpc.New(t.BaseURL, t.HTTPClient(e.opts.HTTPTimeout))
 }
 
-// adminSession lazily builds and caches the reviewer MCP session (base admin
-// credential, no rotation), with its minted handle threaded on every apply.
+// adminSession connects a FRESH reviewer MCP session (base admin credential, no
+// rotation) and mints its handle; the caller owns the session and must Close
+// it. Each promotion and the preflight open their own short-lived session
+// deliberately: a session cached for the whole run goes stale during a
+// real-paced eval checkpoint (~50 minutes idle between promotes) and the
+// streamable transport does not reconnect — the first completed real run lost
+// every promotion to exactly that ("failed to connect", then "client is
+// closing" on all later applies). The scripted smoke cannot catch staleness
+// (its checkpoints take seconds), so freshness per use is the structural fix.
 func (e *runEnv) adminSession(ctx context.Context) (*mcp.ClientSession, string, error) {
-	if e.adminMCP != nil {
-		return e.adminMCP, e.adminHandle, nil
-	}
 	client := mcpc.New(e.opts.Target.BaseURL, e.opts.Target.HTTPClient(e.opts.HTTPTimeout))
 	session, err := client.Connect(ctx)
 	if err != nil {
@@ -433,17 +432,7 @@ func (e *runEnv) adminSession(ctx context.Context) (*mcp.ClientSession, string, 
 		return nil, "", fmt.Errorf("admin session mint: %w", err)
 	}
 	e.recordPlatformVersion(info.PlatformVersion)
-	e.adminMCP = session
-	e.adminHandle = info.Handle
-	return e.adminMCP, e.adminHandle, nil
-}
-
-// closeAdmin closes the cached reviewer session at run end.
-func (e *runEnv) closeAdmin() {
-	if e.adminMCP != nil {
-		_ = e.adminMCP.Close()
-		e.adminMCP = nil
-	}
+	return session, info.Handle, nil
 }
 
 // recordPlatformVersion captures the platform version once.

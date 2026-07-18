@@ -1,0 +1,50 @@
+Resetting cold-start state so the baseline is truly empty (search gate, prior insights/changesets, and any promoted knowledge pages persist in Postgres across runs)...
+  (CASCADE also clears portal_threads, which FK-references knowledge pages; the bench stack is disposable scratch state.)
+NOTICE:  truncate cascades to table "portal_threads"
+NOTICE:  truncate cascades to table "portal_knowledge_page_versions"
+NOTICE:  truncate cascades to table "knowledge_page_entity_refs"
+NOTICE:  truncate cascades to table "portal_thread_events"
+Cold-start results dir: build/bench-results/cold-start-a3-20260716-234306-5181 (each run gets its own dir; nothing is ever overwritten)
+time=2026-07-17T00:34:31.041-07:00 level=INFO msg="cold-start settle skipped: lesson did not promote, the enrichment layer is unchanged" lesson=cs-units-cents settle=5m0s
+time=2026-07-17T01:28:55.534-07:00 level=INFO msg="cold-start settle skipped: lesson did not promote, the enrichment layer is unchanged" lesson=cs-net-revenue settle=5m0s
+time=2026-07-17T02:09:36.440-07:00 level=INFO msg="cold-start settle skipped: lesson did not promote, the enrichment layer is unchanged" lesson=cs-fiscal-calendar settle=5m0s
+time=2026-07-17T02:48:59.555-07:00 level=INFO msg="cold-start settle skipped: lesson did not promote, the enrichment layer is unchanged" lesson=cs-freshness-cutoff settle=5m0s
+time=2026-07-17T03:30:04.554-07:00 level=INFO msg="cold-start settle skipped: lesson did not promote, the enrichment layer is unchanged" lesson=cs-tier-boundary settle=5m0s
+time=2026-07-17T04:14:41.252-07:00 level=INFO msg="cold-start settle skipped: lesson did not promote, the enrichment layer is unchanged" lesson=cs-deprecated-table settle=5m0s
+bench cold-start (cs-traps): arm=a3 model=sonnet (claude-cli via 2.1.212 (Claude Code)) k=1
+  platform v1.102.1-3-g1fac7772 @ http://localhost:8098 | commit 1fac7772a7e7 | seed 930 | curriculum fc307922d77d | eval s3 (6df03274021d)
+  2026-07-17T06:43:06Z .. 2026-07-17T11:47:21Z
+
+lessons 6 (captured 5, promoted 0)  eval tasks 25  checkpoints 7  harness failures 5
+tokens: input 8038  output 1044310  cache read 140733820  cache write 6708019 (apply current model pricing for cost)
+
+learning curve (accuracy and enrichment coverage vs promoted knowledge):
+  idx  lesson promoted        promoted  accuracy coverage 
+  0    (empty baseline)       0          52.0%    39.6%
+  1    cs-units-cents         0          40.0%    38.3%
+  2    cs-net-revenue         0          52.0%    32.6%
+  3    cs-fiscal-calendar     0          60.0%    31.9%
+  4    cs-freshness-cutoff    0          72.0%    33.5%
+  5    cs-tier-boundary       0          96.0%    33.6%
+  6    cs-deprecated-table    0          96.0%    28.5%
+
+accuracy 52.0% -> 96.0% (lift +44.0 pts)   coverage 39.6% -> 28.5%
+
+per-trap-class accuracy (baseline -> final):
+  deprecated_table   100.0% -> 100.0%
+  fiscal_calendar      0.0% ->  80.0%
+  freshness_cutoff   100.0% -> 100.0%
+  net_revenue         30.0% ->  90.0%
+  tier_boundary        0.0% -> 100.0%
+  units_cents         78.6% -> 100.0%
+
+lesson gaps (knowledge not delivered, so its class stays flat):
+  cs-units-cents: promote: apply transport: calling "tools/call": sending "tools/call": failed to connect (session ID: AYUUULSEOSF7Z4Z5ZWPV2HZNIZ): session not found
+  cs-net-revenue: promote: apply transport: connection closed: calling "tools/call": client is closing: sending "tools/call": failed to connect (session ID: AYUUULSEOSF7Z4Z5ZWPV2HZNIZ): session not found
+  cs-fiscal-calendar: not captured
+  cs-freshness-cutoff: promote: apply transport: connection closed: calling "tools/call": client is closing: sending "tools/call": failed to connect (session ID: AYUUULSEOSF7Z4Z5ZWPV2HZNIZ): session not found
+  cs-tier-boundary: promote: apply transport: connection closed: calling "tools/call": client is closing: sending "tools/call": failed to connect (session ID: AYUUULSEOSF7Z4Z5ZWPV2HZNIZ): session not found
+  cs-deprecated-table: promote: apply transport: connection closed: calling "tools/call": client is closing: sending "tools/call": failed to connect (session ID: AYUUULSEOSF7Z4Z5ZWPV2HZNIZ): session not found
+results: build/bench-results/cold-start-a3-20260716-234306-5181/results.json
+benchrun: 5 cold-start episode(s) failed at the harness level; see lessons[].error and checkpoints[].attempts[].error
+make: *** [bench-cold-start] Error 1

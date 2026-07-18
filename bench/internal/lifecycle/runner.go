@@ -10,8 +10,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
-
 	"github.com/txn2/mcp-data-platform/bench/internal/agent"
 	"github.com/txn2/mcp-data-platform/bench/internal/auditapi"
 	"github.com/txn2/mcp-data-platform/bench/internal/claudecli"
@@ -103,7 +101,6 @@ func Run(ctx context.Context, opts Options) (*Results, error) {
 			need, len(protocols), opts.K, identitiesPerRun, opts.IdentityKeys)
 	}
 	env := newRunEnv(opts)
-	defer env.closeAdmin()
 
 	failures := env.runAll(ctx, protocols, res)
 	env.finishManifest(&res.Manifest)
@@ -190,12 +187,6 @@ type runEnv struct {
 	audit    *auditapi.Client
 	life     *lifecycleapi.Client
 	reviewer promote.Reviewer
-
-	// adminMCP is the lazily-built reviewer session that drives apply_knowledge
-	// (base admin credential, no identity rotation), shared across promotes, with
-	// its minted handle threaded on every call.
-	adminMCP    *mcp.ClientSession
-	adminHandle string
 
 	platformVersion   string
 	model             string

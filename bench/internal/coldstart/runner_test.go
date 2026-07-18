@@ -940,7 +940,6 @@ func TestTeachAndPromoteBranches(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			fp := newFakePlatform(t)
 			env := newTestEnv(fp, tc.configure(fp))
-			defer env.closeAdmin()
 			lr := env.teachAndPromote(context.Background(), lesson, 1)
 			if tc.wantErrPrefix == "" && lr.Error != "" {
 				t.Fatalf("measured outcome produced a harness error: %s", lr.Error)

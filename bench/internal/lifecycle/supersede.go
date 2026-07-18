@@ -45,7 +45,6 @@ func RunSupersede(ctx context.Context, opts Options) (*SupersedeResults, error) 
 
 	res := &SupersedeResults{Manifest: newManifest(opts, protocols)}
 	env := newRunEnv(opts)
-	defer env.closeAdmin()
 
 	failures := env.runAllSupersede(ctx, protocols, res)
 	env.finishManifest(&res.Manifest)
