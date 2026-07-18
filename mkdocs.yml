@@ -116,6 +116,7 @@ nav:
     - Middleware: reference/middleware.md
     - Tuning and Scaling: reference/tuning-and-scaling.md
     - Benchmarks: reference/benchmarks.md
+    - Benchmark Report: reference/benchmark-report.md
     - Support:
       - Release Highlights: release-highlights.md
       - Troubleshooting: support/troubleshooting.md
