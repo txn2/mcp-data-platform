@@ -21,6 +21,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/connoauth"
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/indexjobs"
+	"github.com/txn2/mcp-data-platform/pkg/notification"
 	"github.com/txn2/mcp-data-platform/pkg/persona"
 	"github.com/txn2/mcp-data-platform/pkg/pkcestore"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -207,6 +208,13 @@ type Deps struct {
 	// database or no configured embedding provider); the dashboard
 	// then renders a degraded empty state instead of an error.
 	IndexJobs IndexJobsService
+
+	// NotificationSettings persists the admin SMTP configuration (#631).
+	// nil disables the /api/v1/admin/settings/smtp routes.
+	NotificationSettings notification.SettingsStore
+	// SendTestEmail delivers a test email through the stored SMTP
+	// settings. nil disables the test-email route.
+	SendTestEmail func(ctx context.Context, to string) error
 }
 
 // IndexJobsService is the cross-kind index-jobs surface the admin
@@ -401,6 +409,7 @@ func (h *Handler) registerRoutes() {
 	h.registerEnrichmentRoutes()
 	h.registerPromptRoutes()
 	h.registerIndexJobsRoutes()
+	h.registerSettingsRoutes()
 }
 
 // registerKnowledgeRoutes registers knowledge management endpoints or a

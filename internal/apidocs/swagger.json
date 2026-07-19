@@ -5644,6 +5644,143 @@
                 }
             }
         },
+        "/admin/settings/smtp": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the stored SMTP configuration. The password is never returned; password_set reports whether one is stored.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Get SMTP settings",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/notification.SMTPSettingsView"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Upserts the SMTP configuration. The password is encrypted at rest; sending an empty password keeps the stored one.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Update SMTP settings",
+                "parameters": [
+                    {
+                        "description": "SMTP settings",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/notification.SMTPSettingsInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/notification.SMTPSettingsView"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/settings/smtp/test": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Delivers a test email through the stored SMTP settings so the configuration can be verified end to end.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Send a test email",
+                "parameters": [
+                    {
+                        "description": "Recipient",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/notification.TestEmailRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/system/info": {
             "get": {
                 "security": [
@@ -9670,6 +9807,101 @@
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/notification-prefs": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the calling user's email notification preferences. Users with no stored preferences get the defaults (immediate delivery, all categories on).",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Notifications"
+                ],
+                "summary": "Get my notification preferences",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/notification.PrefsResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Updates the calling user's email notification preferences. Omitted fields are left unchanged. Server-side self-scope: only the caller's own preferences are ever written.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Notifications"
+                ],
+                "summary": "Update my notification preferences",
+                "parameters": [
+                    {
+                        "description": "Preference changes",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/notification.PrefsRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/notification.PrefsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
                         }
                     }
                 }
@@ -14926,6 +15158,124 @@
                 "version": {
                     "type": "integer",
                     "example": 2
+                }
+            }
+        },
+        "notification.PrefsRequest": {
+            "type": "object",
+            "properties": {
+                "comments_enabled": {
+                    "type": "boolean"
+                },
+                "mode": {
+                    "type": "string"
+                },
+                "shares_enabled": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "notification.PrefsResponse": {
+            "type": "object",
+            "properties": {
+                "comments_enabled": {
+                    "type": "boolean"
+                },
+                "mode": {
+                    "type": "string"
+                },
+                "shares_enabled": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "notification.SMTPSettingsInput": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "from": {
+                    "type": "string",
+                    "example": "platform@example.com"
+                },
+                "from_name": {
+                    "type": "string",
+                    "example": "Data Platform"
+                },
+                "host": {
+                    "type": "string",
+                    "example": "smtp.example.com"
+                },
+                "password": {
+                    "type": "string",
+                    "example": "app-password"
+                },
+                "port": {
+                    "type": "integer",
+                    "example": 587
+                },
+                "tls_mode": {
+                    "type": "string",
+                    "example": "starttls"
+                },
+                "username": {
+                    "type": "string",
+                    "example": "mailer@example.com"
+                }
+            }
+        },
+        "notification.SMTPSettingsView": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "from": {
+                    "type": "string",
+                    "example": "platform@example.com"
+                },
+                "from_name": {
+                    "type": "string",
+                    "example": "Data Platform"
+                },
+                "host": {
+                    "type": "string",
+                    "example": "smtp.example.com"
+                },
+                "password_set": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "port": {
+                    "type": "integer",
+                    "example": 587
+                },
+                "tls_mode": {
+                    "type": "string",
+                    "example": "starttls"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updated_by": {
+                    "type": "string",
+                    "example": "admin@example.com"
+                },
+                "username": {
+                    "type": "string",
+                    "example": "mailer@example.com"
+                }
+            }
+        },
+        "notification.TestEmailRequest": {
+            "type": "object",
+            "properties": {
+                "to": {
+                    "type": "string",
+                    "example": "admin@example.com"
                 }
             }
         },

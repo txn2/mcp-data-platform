@@ -783,7 +783,7 @@ func newTestPlatform(t *testing.T, cfg *platform.Config) *platform.Platform {
 func TestMountAdminAPI(t *testing.T) {
 	t.Run("skips when platform is nil", func(_ *testing.T) {
 		mux := http.NewServeMux()
-		mountAdminAPI(mux, nil) // should not panic
+		mountAdminAPI(mux, nil, nil) // should not panic
 	})
 
 	t.Run("skips when admin not enabled", func(t *testing.T) {
@@ -794,7 +794,7 @@ func TestMountAdminAPI(t *testing.T) {
 		defer func() { _ = p.Close() }()
 
 		mux := http.NewServeMux()
-		mountAdminAPI(mux, p) // should not register any routes
+		mountAdminAPI(mux, p, nil) // should not register any routes
 	})
 
 	t.Run("mounts when admin enabled", func(t *testing.T) {
@@ -822,7 +822,7 @@ func TestMountAdminAPI(t *testing.T) {
 		defer func() { _ = p.Close() }()
 
 		mux := http.NewServeMux()
-		mountAdminAPI(mux, p)
+		mountAdminAPI(mux, p, nil)
 
 		// Admin route should be registered and return 401 (no auth)
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/admin/system/info", http.NoBody)
@@ -1022,7 +1022,7 @@ func TestBuildAdminHandler(t *testing.T) {
 	}
 	defer func() { _ = p.Close() }()
 
-	handler := buildAdminHandler(p)
+	handler := buildAdminHandler(p, nil)
 	if handler == nil {
 		t.Fatal("buildAdminHandler() returned nil")
 	}
@@ -1239,7 +1239,7 @@ func TestMountPortalAPI_Disabled(t *testing.T) {
 	defer func() { _ = p.Close() }()
 
 	mux := http.NewServeMux()
-	if err := mountPortalAPI(mux, p); err != nil {
+	if err := mountPortalAPI(mux, p, nil); err != nil {
 		t.Fatalf("mountPortalAPI() disabled = %v, want nil", err)
 	}
 }
@@ -1254,7 +1254,7 @@ func TestMountPortalAPI_NoStores(t *testing.T) {
 	defer func() { _ = p.Close() }()
 
 	mux := http.NewServeMux()
-	if err := mountPortalAPI(mux, p); err != nil {
+	if err := mountPortalAPI(mux, p, nil); err != nil {
 		t.Fatalf("mountPortalAPI() no stores = %v, want nil", err)
 	}
 }

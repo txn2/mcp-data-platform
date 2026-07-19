@@ -566,6 +566,30 @@ audit:
 
 See [Audit Logging](audit.md) for query examples and retention details.
 
+## Notifications Configuration
+
+The `notifications` block controls the email-notification substrate: the
+delivery queue, send worker, and daily-digest scheduling. See [Email
+Notifications](notifications.md) for the full feature (admin SMTP settings,
+per-user preferences, delivery semantics).
+
+```yaml
+notifications:
+  enabled: true         # default: on when a database is available
+  digest_hour_utc: 13   # UTC hour daily digests are sent
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | bool | `true` | Enable email notifications. Set `false` to disable enqueue and delivery entirely. |
+| `digest_hour_utc` | int | `13` | UTC hour of day (0-23) at which daily-digest emails are scheduled. Out-of-range values fall back to the default. |
+
+!!! note "Requires database"
+    Email notifications require `database.dsn`. The SMTP connection itself
+    is not configured here: admins set host, credentials, and TLS mode at
+    runtime in the portal (Admin, then Settings) or via
+    `/api/v1/admin/settings/smtp`, with the password encrypted at rest.
+
 ## Session Configuration
 
 The `sessions` block controls how MCP session state is stored. In-memory sessions are lost on restart; database-backed sessions survive restarts and support multi-replica deployments.
@@ -750,7 +774,7 @@ toolkits:
 
 | Variable | Required for | Notes |
 |----------|--------------|-------|
-| `ENCRYPTION_KEY` | Encrypted credentials in `connection_instances`, `gateway_oauth_tokens`, and `oauth_pkce_states` | 32 bytes of key material, accepted in three forms: 64 hex characters, 44-character base64, or 32 raw bytes (set via `printf` / file). Without it, sensitive fields are stored in plaintext and the platform logs a warning. Required for any production gateway deployment. |
+| `ENCRYPTION_KEY` | Encrypted credentials in `connection_instances`, `gateway_oauth_tokens`, `oauth_pkce_states`, and the SMTP password in `platform_settings` | 32 bytes of key material, accepted in three forms: 64 hex characters, 44-character base64, or 32 raw bytes (set via `printf` / file). Without it, sensitive fields are stored in plaintext and the platform logs a warning. Required for any production gateway deployment. |
 | `DATABASE_URL` | OAuth `authorization_code` grant (refresh-token persistence) and multi-replica deployments | Without a database, OAuth tokens live in process memory only and don't survive restarts. Multi-replica deployments additionally need this so PKCE state is shared across pods. |
 
 See [Gateway Toolkit](gateway.md) for the connection-config reference,

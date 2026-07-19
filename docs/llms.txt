@@ -54,6 +54,7 @@ mcp-data-platform is the orchestration layer for the txn2 MCP ecosystem. DataHub
 - [User Portal](https://mcp-data-platform.txn2.com/server/portal-user/): User-facing portal pages: activity analytics, saved assets and collections (each with Mine / Shared / All ownership scopes), resources, feedback threads, knowledge and memory views, and a searchable prompt library
 - [Admin Portal](https://mcp-data-platform.txn2.com/server/admin-portal/): Web dashboard for operating the platform: activity dashboards, tool explorer, audit log, knowledge governance, indexing health, connections, personas, API keys, known users, and configuration entries
 - [Admin API](https://mcp-data-platform.txn2.com/server/admin-api/): REST endpoints backing the admin portal: system info, config, personas, keys, users, audit, knowledge, connections, and index-jobs health. Interactive Swagger UI at /api/v1/admin/docs/
+- [Email Notifications](https://mcp-data-platform.txn2.com/server/notifications/): Branded email notifications for shares and feedback: admin-configured SMTP with encrypted password and send-test action, per-user preferences (off, immediate, daily digest), and a durable database-backed queue with a retrying send worker
 
 ## Knowledge Capture
 

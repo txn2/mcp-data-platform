@@ -727,6 +727,8 @@ func (h *Handler) createCollectionShare(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	h.notifyShare(r.Context(), &share, "collection", coll.ID, coll.Name)
+
 	resp := shareResponse{Share: share}
 	if h.deps.PublicBaseURL != "" {
 		resp.ShareURL = fmt.Sprintf("%s/portal/view/%s", h.deps.PublicBaseURL, share.Token)

@@ -137,6 +137,7 @@ Each feature links to its full documentation.
 | [Explicit session handles](https://mcp-data-platform.txn2.com/server/configuration/#explicit-session-handles) | `platform_info` mints a `session_id` the agent threads on every call, making orientation unskippable and readying the platform for the sessionless MCP 2026-07-28 protocol |
 | [Multi-provider](https://mcp-data-platform.txn2.com/server/multi-provider/) | Multiple instances of each service behind one endpoint, with isolated failure domains |
 | [Operating modes](https://mcp-data-platform.txn2.com/server/operating-modes/) | Standalone (no database) or file + database with hot-reloaded config overrides |
+| [Email notifications](https://mcp-data-platform.txn2.com/server/notifications/) | Branded emails for shares and feedback: admin-configured SMTP, per-user preferences (immediate, daily digest, or off), durable queue with retries |
 
 ## The Portal
 

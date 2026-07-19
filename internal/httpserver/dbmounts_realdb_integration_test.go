@@ -53,7 +53,7 @@ func TestMountPortalAPI_RealDB(t *testing.T) {
 	require.NotNil(t, p.PortalShareStore(), "portal share store must be wired from the real DB")
 
 	mux := http.NewServeMux()
-	require.NoError(t, mountPortalAPI(mux, p))
+	require.NoError(t, mountPortalAPI(mux, p, buildNotifications(p)))
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/portal/assets", http.NoBody)
 	w := httptest.NewRecorder()
@@ -74,4 +74,25 @@ func TestMountResourcesAPI_RealDB(t *testing.T) {
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	require.NotEqual(t, http.StatusNotFound, w.Code, "resources route should be registered")
+}
+
+// TestBuildNotifications_RealDB proves the notification substrate assembles
+// against a live database: the handle exists, its stores round-trip real
+// rows, and Start/Stop run cleanly.
+func TestBuildNotifications_RealDB(t *testing.T) {
+	p := newRealDBPlatform(t)
+
+	h := buildNotifications(p)
+	require.NotNil(t, h, "database-backed platform must yield a notification handle")
+	require.NotNil(t, h.Enqueuer())
+	require.NotNil(t, h.Prefs())
+	require.NotNil(t, h.Settings())
+
+	ctx := context.Background()
+	prefs, err := h.Prefs().Get(ctx, "someone@example.com")
+	require.NoError(t, err)
+	require.Equal(t, "immediate", prefs.Mode, "absent row must yield the immediate default")
+
+	h.Start(ctx)
+	h.Stop()
 }

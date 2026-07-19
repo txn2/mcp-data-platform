@@ -8,3 +8,4 @@ export * from "./connections";
 export * from "./catalogs";
 export * from "./config";
 export * from "./prompts-users";
+export * from "./settings";

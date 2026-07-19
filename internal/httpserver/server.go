@@ -147,6 +147,13 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 		startConnOAuthRefresher(p)
 	}
 
+	// Email notification substrate (queue + send worker + LISTEN adapter).
+	// Owned by this composition root: started before the surfaces that
+	// enqueue into it mount, stopped after the HTTP server drains.
+	notify := buildNotifications(p)
+	notify.Start(ctx)
+	defer notify.Stop()
+
 	mux := http.NewServeMux()
 	hcfg := extractHTTPConfig(p)
 	hc := health.NewChecker()
@@ -191,7 +198,7 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	mountBrowserAuth(mux, p)
 
 	// Mount admin API if enabled
-	mountAdminAPI(mux, p)
+	mountAdminAPI(mux, p, notify)
 
 	// The built-in platform-admin self-connection (issue #543) that lets an
 	// admin drive /api/v1/admin/* through the api gateway is seeded by
@@ -199,7 +206,7 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	// on. The admin API mounted just above is the loopback surface it targets.
 
 	// Mount portal API if enabled
-	if err := mountPortalAPI(mux, p); err != nil {
+	if err := mountPortalAPI(mux, p, notify); err != nil {
 		return err
 	}
 

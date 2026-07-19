@@ -608,6 +608,29 @@ const portalThreadEvents: Record<string, typeof mockThreadEvents[string]> = JSON
 );
 let threadCounter = 100;
 
+// Mutable SMTP settings and notification preferences (#631) so saves reflect
+// in subsequent reads within a single mock-server session. The password is
+// never stored or returned; password_set mirrors the backend's write-only
+// password semantics.
+const smtpSettings = {
+  enabled: true,
+  host: "smtp.example.com",
+  port: 587,
+  username: "mailer@example.com",
+  password_set: true,
+  from: "platform@example.com",
+  from_name: "Data Platform",
+  tls_mode: "starttls",
+  updated_by: "sarah.chen@example.com",
+  updated_at: "2026-04-10T15:30:00Z",
+};
+
+const notificationPrefs = {
+  mode: "immediate",
+  shares_enabled: true,
+  comments_enabled: true,
+};
+
 function parseDuration(s: string): number {
   const match = s.match(/^(\d+)(h|m|s)$/);
   if (!match) return 24 * 60 * 60 * 1000;
@@ -2442,6 +2465,43 @@ export const handlers = [
   }),
 
   // =========================================================================
+  // Admin: Settings (SMTP, #631)
+  // =========================================================================
+
+  http.get(`${ADMIN_BASE}/settings/smtp`, () => {
+    return HttpResponse.json(smtpSettings);
+  }),
+
+  http.put(`${ADMIN_BASE}/settings/smtp`, async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    smtpSettings.enabled = Boolean(body.enabled);
+    smtpSettings.host = String(body.host ?? "");
+    smtpSettings.port = Number(body.port ?? 587);
+    smtpSettings.username = String(body.username ?? "");
+    // Empty password keeps the stored one; a non-empty one replaces it.
+    if (typeof body.password === "string" && body.password !== "") {
+      smtpSettings.password_set = true;
+    }
+    smtpSettings.from = String(body.from ?? "");
+    smtpSettings.from_name = String(body.from_name ?? "");
+    smtpSettings.tls_mode = String(body.tls_mode ?? "starttls");
+    smtpSettings.updated_by = "sarah.chen@example.com";
+    smtpSettings.updated_at = new Date().toISOString();
+    return HttpResponse.json(smtpSettings);
+  }),
+
+  http.post(`${ADMIN_BASE}/settings/smtp/test`, async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    if (!smtpSettings.enabled) {
+      return HttpResponse.json(
+        { detail: "SMTP is disabled; enable and save the settings first" },
+        { status: 409 },
+      );
+    }
+    return HttpResponse.json({ status: "sent", to: String(body.to ?? "") });
+  }),
+
+  // =========================================================================
   // Admin — Keys
   // =========================================================================
 
@@ -2494,6 +2554,27 @@ export const handlers = [
 
   http.get(`${PORTAL_BASE}/memory/records/stats`, () => {
     return HttpResponse.json(mockPortalMemoryStats);
+  }),
+
+  // =========================================================================
+  // Portal: Notification preferences (#631)
+  // =========================================================================
+
+  http.get(`${PORTAL_BASE}/notification-prefs`, () => {
+    return HttpResponse.json(notificationPrefs);
+  }),
+
+  http.put(`${PORTAL_BASE}/notification-prefs`, async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    // Partial update: omitted fields are left unchanged.
+    if (typeof body.mode === "string") notificationPrefs.mode = body.mode;
+    if (typeof body.shares_enabled === "boolean") {
+      notificationPrefs.shares_enabled = body.shares_enabled;
+    }
+    if (typeof body.comments_enabled === "boolean") {
+      notificationPrefs.comments_enabled = body.comments_enabled;
+    }
+    return HttpResponse.json(notificationPrefs);
   }),
 
   // =========================================================================

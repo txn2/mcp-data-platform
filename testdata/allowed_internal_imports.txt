@@ -4,6 +4,7 @@ cmd/mcp-data-platform -> internal/server
 cmd/mcp-data-platform -> pkg/platform
 cmd/preview-content-viewer -> internal/contentviewer
 internal/httpserver -> internal/apidocs
+internal/httpserver -> internal/platform/notifydelivery
 internal/httpserver -> internal/ui
 internal/httpserver -> pkg/admin
 internal/httpserver -> pkg/audit
@@ -14,6 +15,7 @@ internal/httpserver -> pkg/health
 internal/httpserver -> pkg/http
 internal/httpserver -> pkg/knowledge
 internal/httpserver -> pkg/middleware
+internal/httpserver -> pkg/notification
 internal/httpserver -> pkg/observability/proxy
 internal/httpserver -> pkg/persona
 internal/httpserver -> pkg/pkcestore
@@ -70,6 +72,9 @@ internal/platform/memorylayer -> pkg/middleware
 internal/platform/memorylayer -> pkg/portal/knowledgepage
 internal/platform/memorylayer -> pkg/semantic
 internal/platform/memorylayer -> pkg/toolkits/memory
+internal/platform/notifydelivery -> pkg/notification
+internal/platform/notifydelivery -> pkg/portal
+internal/platform/notifydelivery -> pkg/portal/knowledgepage
 internal/platform/oauthserver -> pkg/oauth
 internal/platform/oauthserver -> pkg/oauth/postgres
 internal/platform/oauthserver -> pkg/observability
@@ -128,6 +133,7 @@ pkg/admin -> pkg/connreconcile
 pkg/admin -> pkg/embedding
 pkg/admin -> pkg/indexjobs
 pkg/admin -> pkg/middleware
+pkg/admin -> pkg/notification
 pkg/admin -> pkg/persona
 pkg/admin -> pkg/pkcestore
 pkg/admin -> pkg/platform
@@ -197,6 +203,7 @@ pkg/middleware -> pkg/semantic
 pkg/middleware -> pkg/session
 pkg/middleware -> pkg/storage
 pkg/middleware -> pkg/urnbuild
+pkg/notification -> pkg/ratelimit
 pkg/oauth -> internal/logsan
 pkg/oauth -> pkg/oauth/signkey
 pkg/oauth -> pkg/observability

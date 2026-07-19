@@ -1,0 +1,17 @@
+{{.Brand.Name}}
+
+{{.Heading}}
+{{range .Items}}
+{{- if $.Digest}}
+- {{.Detail}}{{end}}
+{{- if .Message}}
+  "{{.Message}}"{{end}}
+{{- if .Link}}
+  {{.Link}}{{end}}
+{{end}}
+{{- if .PrefsURL}}
+Manage notification preferences: {{.PrefsURL}}
+{{- end}}
+{{- if .Brand.ImplementorName}}
+Provided by {{.Brand.ImplementorName}}{{if .Brand.ImplementorURL}} ({{.Brand.ImplementorURL}}){{end}}
+{{- end}}

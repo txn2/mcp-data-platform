@@ -127,6 +127,7 @@ type Config struct {
 	Icons                IconsConfig         `yaml:"icons"`
 	Elicitation          ElicitationConfig   `yaml:"elicitation"`
 	Workflow             WorkflowConfig      `yaml:"workflow"`
+	Notifications        NotificationsConfig `yaml:"notifications"`
 	SessionGate          SessionGateConfig   `yaml:"session_gate"`
 	RateLimit            RateLimitConfig     `yaml:"rate_limit"`
 	APIGateway           APIGatewayConfig    `yaml:"apigateway"`
@@ -1251,6 +1252,45 @@ type WorkflowConfig struct {
 // defaulting to true when not explicitly set.
 func (c *WorkflowConfig) IsRequireSearchEnabled() bool {
 	return !isExplicitlyDisabled(c.RequireSearch)
+}
+
+// NotificationsConfig configures the email notification substrate: the
+// delivery queue, send worker, and daily digest scheduling. SMTP connection
+// settings are admin-configured at runtime (platform_settings), not here.
+type NotificationsConfig struct {
+	// Enabled is the master switch for notification enqueue and delivery.
+	// Enabled by default when a database is available (nil = enabled); set
+	// enabled: false to disable.
+	Enabled *bool `yaml:"enabled"`
+
+	// DigestHourUTC is the UTC hour of day (0-23) daily digest emails are
+	// scheduled for. Defaults to 13:00 UTC.
+	DigestHourUTC *int `yaml:"digest_hour_utc"`
+}
+
+// DefaultDigestHourUTC is the digest send hour applied when unset.
+const DefaultDigestHourUTC = 13
+
+// maxHourOfDay bounds a valid hour-of-day value.
+const maxHourOfDay = 23
+
+// IsEnabled reports whether email notifications are enabled, defaulting to
+// true when not explicitly set.
+func (c *NotificationsConfig) IsEnabled() bool {
+	return !isExplicitlyDisabled(c.Enabled)
+}
+
+// DigestHour returns the configured digest hour clamped to [0,23], applying
+// the default when unset.
+func (c *NotificationsConfig) DigestHour() int {
+	if c.DigestHourUTC == nil {
+		return DefaultDigestHourUTC
+	}
+	h := *c.DigestHourUTC
+	if h < 0 || h > maxHourOfDay {
+		return DefaultDigestHourUTC
+	}
+	return h
 }
 
 // SessionGateConfig configures the session initialization gate that requires

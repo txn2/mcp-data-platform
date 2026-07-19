@@ -318,9 +318,11 @@ func NewRestFieldEncryptor(enc *FieldEncryptor) *RestFieldEncryptor {
 }
 
 // Encrypt wraps a string with the same enc:base64(nonce|cipher) prefix
-// the field encryptor uses for sensitive config map values.
+// the field encryptor uses for sensitive config map values. Nil-receiver
+// safe: a nil encryptor (encryption disabled or never wired) passes
+// plaintext through, matching FieldEncryptor's own nil semantics.
 func (g *RestFieldEncryptor) Encrypt(plaintext string) (string, error) {
-	if g.enc == nil || plaintext == "" {
+	if g == nil || g.enc == nil || plaintext == "" {
 		return plaintext, nil
 	}
 	if strings.HasPrefix(plaintext, encryptedPrefix) {
@@ -334,9 +336,10 @@ func (g *RestFieldEncryptor) Encrypt(plaintext string) (string, error) {
 }
 
 // Decrypt reverses Encrypt. Plaintext (no enc: prefix) is returned
-// unchanged so legacy/unencrypted rows degrade gracefully.
+// unchanged so legacy/unencrypted rows degrade gracefully. Nil-receiver
+// safe, matching Encrypt.
 func (g *RestFieldEncryptor) Decrypt(ciphertext string) (string, error) {
-	if g.enc == nil || ciphertext == "" {
+	if g == nil || g.enc == nil || ciphertext == "" {
 		return ciphertext, nil
 	}
 	if !strings.HasPrefix(ciphertext, encryptedPrefix) {

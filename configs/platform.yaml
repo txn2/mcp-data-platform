@@ -528,6 +528,14 @@ audit:
   # redact_keys: ["password"]    # top-level arg keys masked as [REDACTED] (case-insensitive)
   # delivery: async              # async (default, best-effort) | sync (durable, backpressure)
 
+# Email notifications (shares, feedback threads). Enabled by default when a
+# database is available. SMTP host/credentials are admin-configured at runtime
+# in the portal (Admin > Settings) or via /api/v1/admin/settings/smtp -- not
+# here; the password is encrypted at rest with ENCRYPTION_KEY.
+# notifications:
+#   enabled: true
+#   digest_hour_utc: 13   # UTC hour (0-23) daily digest emails are sent
+
 # API Gateway embedding job queue (the worker that turns spec
 # uploads into the per-operation vectors semantic / hybrid
 # ranking uses). Defaults are tuned for a GPU embedder; CPU-only

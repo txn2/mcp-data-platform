@@ -636,6 +636,7 @@ func (h *Handler) createPromptShare(w http.ResponseWriter, r *http.Request) {
 		writePortalError(w, http.StatusInternalServerError, "failed to create share")
 		return
 	}
+	h.notifyShare(r.Context(), &share, "prompt", pr.ID, pr.DisplayName)
 	writePortalJSON(w, http.StatusCreated, shareResponse{Share: share})
 }
 

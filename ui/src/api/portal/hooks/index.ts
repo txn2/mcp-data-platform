@@ -5,3 +5,4 @@ export * from "./collections";
 export * from "./prompts";
 export * from "./threads";
 export * from "./knowledge-pages";
+export * from "./notifications";
