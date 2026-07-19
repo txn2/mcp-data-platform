@@ -8,11 +8,11 @@ it comes from.*
 | | |
 | --- | --- |
 | **Author** | Craig Johnston (cj@imti.co), Deasil Works, Inc. / txn2 |
-| **Published** | 2026-07-18 |
-| **Report version** | 1.0 |
+| **Published** | 2026-07-19 |
+| **Report version** | 1.1 |
 | **DOI** | [10.5281/zenodo.21438045](https://doi.org/10.5281/zenodo.21438045) |
 | **Subject under test** | The platform's semantic knowledge layer (cross-enrichment, `search`, and the memory / `apply_knowledge` lifecycle), not the whole platform. |
-| **Platform builds** | ablation and lifecycle (S5) on `v1.102.0` development builds; cold-start on `v1.102.1`. Exact build strings, commits, seeds, and task-set hashes are pinned in each run's manifest (Section 9). |
+| **Platform builds** | This report and its run data are pinned to release tag `v1.102.2`, whose application code is byte-identical to the cold-start build. The ablation and lifecycle (S5) suites ran on `v1.102.0` platform logic and cold-start on `v1.102.1`; the only deltas from the tag are portal-pagination plumbing (#974) and a pprof diagnostic endpoint, neither of which is in the cross-enrichment, `search`, or knowledge-lifecycle path under test (Section 6). Exact build strings, commits, seeds, and task-set hashes are pinned in each run's manifest (Section 9). |
 | **How to cite** | [Section 10](#10-how-to-cite-this-report) |
 
 ## Abstract
@@ -447,11 +447,18 @@ discovery conditions, which is future work.
   them on one axis; the baseline floors of the two paths (47-48% API-adjacent
   cold-start versus the ablation's a0 that has a different task mix) are not
   compared.
-- **Development builds, not release tags.** The ablation ran on
-  `v1.102.0-9-gadfb9d90-dirty`, the isolated S5 on
-  `v1.102.0-10-g32d61254-dirty`, and the cold-start on `v1.102.1-5-g96169337`.
-  These are development builds; a release-tag re-run is the standard next step
-  before external citation (tracked in issue #984).
+- **Build provenance.** The ablation ran on `v1.102.0-9-gadfb9d90-dirty`, the
+  isolated S5 on `v1.102.0-10-g32d61254-dirty`, and the cold-start on
+  `v1.102.1-5-g96169337`. This report pins those runs to release tag `v1.102.2`,
+  whose application code is byte-identical to the cold-start build (verified:
+  `git diff 96169337 v1.102.2 -- pkg/ cmd/ internal/` is empty). Relative to the
+  tag, the ablation and S5 builds differ only by portal-pagination plumbing
+  (#974, admin/config/resource list endpoints) and a pprof diagnostic endpoint in
+  `cmd/`; neither touches the cross-enrichment, `search`, or knowledge-lifecycle
+  code these suites measure. The `-dirty` suffix reflects uncommitted benchmark
+  fixtures in the working tree, not application changes. A full re-run against the
+  tag (tracked in #984) would re-measure the same logic under test and is not
+  required for the numbers here to be release-attributable.
 - **Small seed dataset.** The dataset is small and fixed by design (a seeded,
   airgapped fixture), so absolute accuracies are not real-world estimates. The
   trap classes are constructed so that
@@ -530,16 +537,19 @@ provenance.
 
 ## 10. How to cite this report
 
-This is **Report version 1.0**, published 2026-07-18. Cite an immutable copy
-rather than a moving branch: the report and the raw data it recomputes from are
-captured at each tagged release. The permalinked artifact is
+This is **Report version 1.1**, published 2026-07-19. It supersedes the
+unpublished Report v1.0 by pinning the report and its data to release tag
+`v1.102.2` (Section 6); every run, statistic, table, and figure is unchanged from
+v1.0. Cite an immutable copy rather than a moving branch: the report and the raw
+data it recomputes from are captured at each tagged release. The permalinked
+artifact is
 
 ```
 https://github.com/txn2/mcp-data-platform/blob/<release-tag>/docs/reference/benchmark-report.md
 ```
 
 with the underlying run data at `bench/results/` in the same tag; substitute the
-release tag you are citing (for example `v1.102.1`). Every run manifest under
+release tag you are citing (for example `v1.102.2`). Every run manifest under
 those directories additionally pins the exact platform build, git commit, dataset
 seed, and task-set or protocol-set hash that produced its numbers (Section 9), so
 a citation resolves to a specific, reproducible dataset.
@@ -548,7 +558,7 @@ a citation resolves to a specific, reproducible dataset.
 
 > Johnston, C. (2026). *Does a semantic knowledge layer make an agent measurably
 > better? A reproducible benchmark of the mcp-data-platform knowledge layer*
-> (Report v1.0). Deasil Works, Inc. / txn2.
+> (Report v1.1). Deasil Works, Inc. / txn2.
 > https://doi.org/10.5281/zenodo.21438045
 
 **BibTeX.**
@@ -563,7 +573,7 @@ a citation resolves to a specific, reproducible dataset.
   year        = {2026},
   month       = jul,
   type        = {Evaluation Report},
-  number      = {Report v1.0},
+  number      = {Report v1.1},
   url         = {https://mcp-data-platform.txn2.com/reference/benchmark-report/},
   doi         = {10.5281/zenodo.21438045},
   note        = {Raw run data and reproduction notebook at
