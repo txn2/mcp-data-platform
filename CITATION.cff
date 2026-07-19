@@ -1,9 +1,6 @@
 # Citation metadata for mcp-data-platform and its knowledge-layer benchmark
 # report. Format: Citation File Format 1.2.0 (https://citation-file-format.github.io).
 # GitHub renders a "Cite this repository" button from this file.
-#
-# The Zenodo archival DOI is pending; uncomment the `doi:` lines and fill in
-# the minted identifier after archiving the tagged release (see .zenodo.json).
 cff-version: 1.2.0
 message: "If you use this software or cite its benchmark report, please cite it as below."
 title: mcp-data-platform
@@ -19,7 +16,6 @@ authors:
 repository-code: "https://github.com/txn2/mcp-data-platform"
 url: "https://mcp-data-platform.txn2.com"
 license: Apache-2.0
-# doi: 10.5281/zenodo.XXXXXXX   # add after Zenodo archival
 preferred-citation:
   type: report
   title: >-
@@ -37,3 +33,7 @@ preferred-citation:
   url: "https://mcp-data-platform.txn2.com/reference/benchmark-report/"
   version: "1.0"
   doi: 10.5281/zenodo.21438045
+  identifiers:
+    - type: doi
+      value: 10.5281/zenodo.21438044
+      description: "Concept DOI (resolves to the latest report version)"
