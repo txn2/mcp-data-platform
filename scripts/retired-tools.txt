@@ -1,0 +1,12 @@
+# Retired MCP tool names — tools that were removed or renamed and must never be
+# referenced in the documentation again. doc-check (scripts/doc-check.sh) hard-
+# fails if any of these appears as a whole word in docs/**/*.md, the bench doc
+# tree, or README.md.
+#
+# This is a zero-false-positive denylist: it matches only these exact names, so
+# it never trips on config keys or metric names that merely share a tool prefix.
+# When you remove or rename a tool, add its OLD name here. One name per line.
+#
+# memory_recall was folded into `search`; it is the reference that the deleted
+# bench/LOCOMO.md carried, and the reason this gate exists.
+memory_recall

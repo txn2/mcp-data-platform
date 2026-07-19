@@ -99,6 +99,9 @@ nav:
       - Configuration: mcpapps/configuration.md
       - Development: mcpapps/development.md
       - Tutorial: mcpapps/tutorial.md
+  - Evaluation:
+    - Knowledge-Layer Benchmark: reference/benchmarks.md
+    - Benchmark Report: reference/benchmark-report.md
   - Security:
     - Threat Model: security/threat-model.md
   - Go Library:
@@ -115,8 +118,6 @@ nav:
     - Providers: reference/providers.md
     - Middleware: reference/middleware.md
     - Tuning and Scaling: reference/tuning-and-scaling.md
-    - Benchmarks: reference/benchmarks.md
-    - Benchmark Report: reference/benchmark-report.md
     - Support:
       - Release Highlights: release-highlights.md
       - Troubleshooting: support/troubleshooting.md

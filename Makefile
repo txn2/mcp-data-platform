@@ -325,7 +325,7 @@ patch-coverage:
 	@echo "Checking patch coverage..."
 	@./scripts/patch-coverage.sh
 
-## doc-check: Warn if documentation-worthy changes lack doc updates (soft warning)
+## doc-check: Fail on orphaned docs or unregistered tool refs; warn on undocumented changes
 doc-check:
 	@./scripts/doc-check.sh
 
@@ -1030,6 +1030,10 @@ bench-compare:
 	@files=$$(ls build/bench-results/results-*.json 2>/dev/null | paste -sd, -); \
 	if [ -z "$$files" ]; then echo "ERROR: no build/bench-results/results-*.json to compare"; exit 1; fi; \
 	$(BUILD_DIR)/benchrun -compare "$$files" -compare-out $(BENCH_COMPARE_OUT)
+
+## bench-report-pdf: Render the benchmark report to PDF + HTML in build/report/ (needs pandoc + tectonic; not part of verify)
+bench-report-pdf:
+	@bash bench/report/render-report.sh
 
 ## bench-calibrate: Run the judge calibration and print its human-agreement rate (needs ANTHROPIC_API_KEY; uses the rubric's pinned model)
 bench-calibrate:

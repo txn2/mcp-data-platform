@@ -1,8 +1,19 @@
 # Does a semantic knowledge layer make an agent measurably better? A reproducible benchmark
 
-*A neutral evaluation report for the mcp-data-platform. Every statistic below is
-recomputed from raw run data committed under `bench/results/` by the notebook
-`bench/report/report.ipynb`; each claim cites the run directory it comes from.*
+*A neutral evaluation report for the mcp-data-platform knowledge layer. Every
+statistic below is recomputed from raw run data committed under `bench/results/`
+by the notebook `bench/report/report.ipynb`; each claim cites the run directory
+it comes from.*
+
+| | |
+| --- | --- |
+| **Author** | Craig Johnston (cj@imti.co), Deasil Works, Inc. / txn2 |
+| **Published** | 2026-07-18 |
+| **Report version** | 1.0 |
+| **DOI** | [10.5281/zenodo.21438045](https://doi.org/10.5281/zenodo.21438045) |
+| **Subject under test** | The platform's semantic knowledge layer (cross-enrichment, `search`, and the memory / `apply_knowledge` lifecycle), not the whole platform. |
+| **Platform builds** | ablation and lifecycle (S5) on `v1.102.0` development builds; cold-start on `v1.102.1`. Exact build strings, commits, seeds, and task-set hashes are pinned in each run's manifest (Section 9). |
+| **How to cite** | [Section 10](#10-how-to-cite-this-report) |
 
 ## Abstract
 
@@ -59,15 +70,14 @@ whole loop end to end rather than a pre-seeded snapshot of it.
 
 The ablation compares four configurations of the same platform. The
 configurations differ only by configuration profile, not by code path; the
-config surface is the ablation mechanism (`bench/README.md:46`,
-`docs/reference/benchmarks.md:85`).
+config surface is the ablation mechanism (`bench/README.md:46`).
 
 | Arm | Name | What the agent is connected to |
 | --- | --- | --- |
-| a0 | raw tools | The underlying data tools directly (`trino_*`, `s3_*`); no semantic provider, no search, all cross-enrichment off (`docs/reference/benchmarks.md:62`). |
-| a1 | enrichment | a0 plus semantic cross-enrichment: tool results carry DataHub context automatically, but the agent still has no `search` and no `datahub_*` tools (`docs/reference/benchmarks.md:63`). |
-| a2 | knowledge | a1 plus the `search` tool, the search-first gate, and curated knowledge pages (`docs/reference/benchmarks.md:64`). |
-| a3 | lifecycle | a2 plus the memory and `apply_knowledge` lifecycle (`docs/reference/benchmarks.md:65`). |
+| a0 | raw tools | The underlying data tools directly (`trino_*`, `s3_*`); no semantic provider, no search, all cross-enrichment off (`bench/README.md:51`). |
+| a1 | enrichment | a0 plus semantic cross-enrichment: tool results carry DataHub context automatically, but the agent still has no `search` and no `datahub_*` tools (`bench/README.md:52`). |
+| a2 | knowledge | a1 plus the `search` tool, the search-first gate, and curated knowledge pages (`bench/README.md:53`). |
+| a3 | lifecycle | a2 plus the memory and `apply_knowledge` lifecycle (`bench/README.md:54`). |
 
 The arms without a discovery tool (a0, a1) disable the search-first gate, which
 is not persona-aware (`bench/README.md:56`).
@@ -107,7 +117,7 @@ integers (`grade.go:53`). Entity answers are correct only when a correct alias
 appears and no wrong alias does (the wrong-alias veto), matched on word
 boundaries so, for example, "East" does not veto "at least"
 (`grade.go:74`, `grade.go:103`). SQL-producing tasks are graded by
-execution-result comparison in the BIRD convention: two result sets are equal as
+execution-result comparison in the BIRD convention (Li et al., 2023): two result sets are equal as
 multisets of rows compared by sorted cell values, so column aliasing and row or
 column ordering do not matter (`bench/internal/grade/execsql.go:76`). The
 reference and candidate queries execute through a dedicated admin-credentialed
@@ -126,8 +136,9 @@ deterministic pass rates; the judge governs the separate caveat-quality axis.
 ### 2.4 Repeats, pass^k, and confidence intervals
 
 Each task is attempted `k = 3` times from independent identities. Two robustness
-views are reported: accuracy over all graded attempts, and pass^k, the fraction
-of tasks whose all `k` repeats pass (`bench/internal/report/compare.go:204`). An
+views are reported: accuracy over all graded attempts, and pass^k (the reliability
+metric introduced by tau-bench, Yao et al., 2024), the fraction of tasks whose all
+`k` repeats pass (`bench/internal/report/compare.go:204`). An
 errored attempt is never graded, so it can never claim pass^k.
 
 Confidence intervals in this report are a percentile bootstrap over graded
@@ -139,7 +150,7 @@ resamples with the same seed and its own random source
 match the harness exactly; the interval endpoints from the two implementations
 agree to within a point or two, as expected from differing resample counts and
 random sources. These intervals quantify sampling variance over attempts; they
-do not model task-selection variance (`docs/reference/benchmarks.md:536`).
+do not model task-selection variance.
 
 ### 2.5 Identity pool
 
@@ -157,7 +168,7 @@ The ablation and lifecycle suites ran on the Anthropic API adapter; the
 cold-start study ran on the `claude-cli` adapter, which is subscription-funded.
 The two client paths are **not** accuracy-comparable: `claude -p` reinserts its
 own system prompt, tool policy, and retries, which shift across client releases
-(`docs/reference/benchmarks.md:97`, `bench/README.md:590`). The harness records
+(`bench/README.md:590`). The harness records
 `client_version` and refuses to fold the two into one leaderboard. We follow the
 same rule: the ablation and cold-start results are complementary sub-studies,
 reported separately, and no cross-path accuracy comparison is drawn.
@@ -213,7 +224,7 @@ Enrichment alone (a1) produces a positive but not statistically resolved shift
 large, unambiguous effect. The lifecycle arm (a3) matches a2 here, which is
 expected: on single-session tasks the lifecycle has nothing pre-seeded to
 recall, so its value is what the cold-start and S5 studies measure, not what S1
-to S3 measure (`docs/reference/benchmarks.md:537`).
+to S3 measure.
 
 ### 3.4 Per-trap-class breakdown
 
@@ -404,11 +415,10 @@ matter for interpreting the cold-start trajectories:
 
 1. **Entity-anchored enrichment pull.** When a tool result names an entity, the
    platform attaches that entity's DataHub context (descriptions, tags) to the
-   result (`pkg/middleware/memory_enrichment.go`,
-   `docs/reference/benchmarks.md:19`). This delivers DataHub-sink facts, but only
+   result (`pkg/middleware/memory_enrichment.go`). This delivers DataHub-sink facts, but only
    when the agent is already looking at the anchoring entity.
 2. **Search over knowledge pages.** Promoted knowledge pages are retrievable by
-   the `search` tool (`docs/reference/benchmarks.md:30`). This delivers
+   the `search` tool (`bench/README.md:53`). This delivers
    page-sink facts to any agent that searches the topic.
 3. **Persona-scoped captured memory.** Captured insights are surfaced through a
    persona-scoped memory channel regardless of which sink they were later
@@ -428,13 +438,12 @@ discovery conditions, which is future work.
 - **Single model.** The cold-start study used one model (`sonnet`) on one
   client path. The ablation used one model (`claude-sonnet-5`) on the API path.
   All accuracies are model-dependent; the reported effects are within-study,
-  arm-versus-arm or checkpoint-versus-checkpoint, and are never model-versus-model
-  (`docs/reference/benchmarks.md:525`). Generalization across models is future
-  work.
+  arm-versus-arm or checkpoint-versus-checkpoint, and are never model-versus-model.
+  Generalization across models is future work.
 - **Two non-comparable client paths.** The ablation ran on the Anthropic API
   adapter and the cold-start on `claude-cli`. The injected client system prompt
   and per-release retry policy make the two paths non-comparable on absolute
-  accuracy (`docs/reference/benchmarks.md:97`). No figure in this report places
+  accuracy (`bench/README.md:590`). No figure in this report places
   them on one axis; the baseline floors of the two paths (47-48% API-adjacent
   cold-start versus the ablation's a0 that has a different task mix) are not
   compared.
@@ -442,17 +451,16 @@ discovery conditions, which is future work.
   `v1.102.0-9-gadfb9d90-dirty`, the isolated S5 on
   `v1.102.0-10-g32d61254-dirty`, and the cold-start on `v1.102.1-5-g96169337`.
   These are development builds; a release-tag re-run is the standard next step
-  before external citation (`docs/reference/benchmarks.md:530`).
+  before external citation (tracked in issue #984).
 - **Small seed dataset.** The dataset is small and fixed by design (a seeded,
-  airgapped fixture), so absolute accuracies are not real-world estimates
-  (`docs/reference/benchmarks.md:527`). The trap classes are constructed so that
+  airgapped fixture), so absolute accuracies are not real-world estimates. The
+  trap classes are constructed so that
   a plausible wrong answer exists; this makes the a0 floor low by construction,
   which is the intended property of a trap suite, not an artifact.
 - **Bootstrap scope.** The confidence intervals model sampling variance over
   attempts (or protocol-runs) with a fixed seed. They do not model
   task-selection variance, and for S5 they do not model protocol-level
-  correlation across the `k` replicates (`docs/reference/benchmarks.md:536`,
-  `bench/internal/lifecycle/report.go`).
+  correlation across the `k` replicates (`bench/internal/lifecycle/report.go`).
 - **Small lifecycle denominators.** The S5 supersede metrics rest on seven runs
   (`update_correctness`, `duplicate_rate`); their intervals are wide and they are
   reported as ranges, not point estimates. The committed lifecycle data is the
@@ -519,3 +527,96 @@ Each directory carries the run's `results.json` (or `lifecycle-a3.json`) and, fo
 most runs, a per-attempt transcript directory. The run manifests record the git
 commit, platform version, model, client version, seed, and task-set hash for
 provenance.
+
+## 10. How to cite this report
+
+This is **Report version 1.0**, published 2026-07-18. Cite an immutable copy
+rather than a moving branch: the report and the raw data it recomputes from are
+captured at each tagged release. The permalinked artifact is
+
+```
+https://github.com/txn2/mcp-data-platform/blob/<release-tag>/docs/reference/benchmark-report.md
+```
+
+with the underlying run data at `bench/results/` in the same tag; substitute the
+release tag you are citing (for example `v1.102.1`). Every run manifest under
+those directories additionally pins the exact platform build, git commit, dataset
+seed, and task-set or protocol-set hash that produced its numbers (Section 9), so
+a citation resolves to a specific, reproducible dataset.
+
+**Suggested citation.**
+
+> Johnston, C. (2026). *Does a semantic knowledge layer make an agent measurably
+> better? A reproducible benchmark of the mcp-data-platform knowledge layer*
+> (Report v1.0). Deasil Works, Inc. / txn2.
+> https://doi.org/10.5281/zenodo.21438045
+
+**BibTeX.**
+
+```bibtex
+@techreport{johnston2026knowledgelayer,
+  author      = {Johnston, Craig},
+  title       = {Does a Semantic Knowledge Layer Make an Agent Measurably
+                 Better? A Reproducible Benchmark of the mcp-data-platform
+                 Knowledge Layer},
+  institution = {Deasil Works, Inc. / txn2},
+  year        = {2026},
+  month       = jul,
+  type        = {Evaluation Report},
+  number      = {Report v1.0},
+  url         = {https://mcp-data-platform.txn2.com/reference/benchmark-report/},
+  doi         = {10.5281/zenodo.21438045},
+  note        = {Raw run data and reproduction notebook at
+                 https://github.com/txn2/mcp-data-platform/tree/main/bench}
+}
+```
+
+**DOI.** This report and a snapshot of `bench/results/` are archived on Zenodo
+under DOI [10.5281/zenodo.21438045](https://doi.org/10.5281/zenodo.21438045),
+which is the preferred citation. The DOI is reserved and resolves once the Zenodo
+record is published; the tagged repository permalink above remains valid for the
+source and the raw data.
+
+## 11. Related work
+
+The evaluation reuses two established methods. SQL-producing tasks are graded by
+execution-result comparison and organized into difficulty tiers following BIRD
+(Li et al., 2023), the large-scale text-to-SQL benchmark that established
+execution accuracy over exact string match. Reliability across repeated trials is
+reported with pass^k, the metric introduced by tau-bench (Yao et al., 2024) for
+tool-agent-user interaction. The knowledge-layer capabilities the S5 protocols
+probe (capture, cross-session recall, knowledge updates, cross-identity transfer,
+and abstention) are the failure modes studied in the long-term memory literature:
+LOCOMO (Maharana et al., 2024) evaluates very long-term conversational memory, and
+LongMemEval (Wu et al., 2025) isolates knowledge updates and abstention in
+particular. Production memory systems such as Mem0 (Chhikara et al., 2025) and Zep
+(Rasmussen et al., 2025) target the same capture-and-propagation problem from the
+systems side. This study differs in scope: rather than comparing memory systems on
+a shared conversational corpus, it ablates one platform's knowledge layer on a
+fixed, seeded data-analysis task suite, and, consistent with the threats above,
+draws no cross-study or cross-model comparison.
+
+## 12. References
+
+- Chhikara, P., Khant, D., Aryan, S., Singh, T., & Yadav, D. (2025). Mem0:
+  Building Production-Ready AI Agents with Scalable Long-Term Memory.
+  arXiv:2504.19413. <https://arxiv.org/abs/2504.19413>
+- Li, J., Hui, B., Qu, G., et al. (2023). Can LLM Already Serve as a Database
+  Interface? A BIg Bench for Large-Scale Database Grounded Text-to-SQLs. Advances
+  in Neural Information Processing Systems 36 (NeurIPS 2023), Datasets and
+  Benchmarks Track.
+  <https://papers.nips.cc/paper_files/paper/2023/hash/83fc8fab1710363050bbd1d4b8cc0021-Abstract-Datasets_and_Benchmarks.html>
+- Maharana, A., Lee, D.-H., Tulyakov, S., Bansal, M., Barbieri, F., & Fang, Y.
+  (2024). Evaluating Very Long-Term Conversational Memory of LLM Agents.
+  Proceedings of the 62nd Annual Meeting of the Association for Computational
+  Linguistics (ACL 2024). <https://aclanthology.org/2024.acl-long.747/>
+- Rasmussen, P., Paliychuk, P., Beauvais, T., Ryan, J., & Chalef, D. (2025). Zep:
+  A Temporal Knowledge Graph Architecture for Agent Memory. arXiv:2501.13956.
+  <https://arxiv.org/abs/2501.13956>
+- Wu, D., Wang, H., Yu, W., Zhang, Y., Chang, K.-W., & Yu, D. (2025). LongMemEval:
+  Benchmarking Chat Assistants on Long-Term Interactive Memory. The Thirteenth
+  International Conference on Learning Representations (ICLR 2025).
+  <https://arxiv.org/abs/2410.10813>
+- Yao, S., Shinn, N., Razavi, P., & Narasimhan, K. (2024). tau-bench: A Benchmark
+  for Tool-Agent-User Interaction in Real-World Domains. arXiv:2406.12045.
+  <https://arxiv.org/abs/2406.12045>

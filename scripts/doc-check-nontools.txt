@@ -1,0 +1,6 @@
+# Tool-family-prefixed identifiers that are NOT MCP tools but legitimately
+# appear in the benchmark docs (Go symbols/files, middleware, metrics, config
+# keys). doc-check's unregistered-tool gate ignores these so they are not
+# mistaken for dead tool references. Keep this list minimal; a genuinely dead
+# tool name must NOT be added here.
+memory_enrichment
