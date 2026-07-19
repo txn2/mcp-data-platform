@@ -1,0 +1,55 @@
+# Registered MCP tool names — the allowlist for doc-check's benchmark-reference
+# audit (scripts/doc-check.sh).
+#
+# doc-check flags any tool-family-prefixed token (trino_/datahub_/s3_/api_/memory_)
+# in the two benchmark reference pages (docs/reference/benchmarks.md and
+# benchmark-report.md) that is neither listed here nor in
+# scripts/doc-check-nontools.txt. Non-prefixed tool names below (search, fetch,
+# apply_knowledge, manage_*, save_artifact, list_connections, platform_*) are not
+# reached by that prefix audit; a retired/renamed tool of ANY shape is caught
+# instead by the denylist in scripts/retired-tools.txt (which is what would have
+# caught the `memory_recall` reference in the deleted bench/LOCOMO.md).
+#
+# When a tool is added, removed, or renamed, update this list (and add the old
+# name to retired-tools.txt on removal/rename). Bare tool names, one per line.
+api_export
+api_get_endpoint_schema
+api_invoke_endpoint
+api_list_endpoints
+api_list_specs
+apply_knowledge
+datahub_browse
+datahub_create
+datahub_delete
+datahub_get_data_product
+datahub_get_entity
+datahub_get_glossary_term
+datahub_get_lineage
+datahub_get_queries
+datahub_get_schema
+datahub_update
+fetch
+list_connections
+manage_artifact
+manage_feedback
+manage_prompt
+memory_capture
+memory_manage
+platform_find_tools
+platform_info
+s3_copy_object
+s3_delete_object
+s3_get_object
+s3_get_object_metadata
+s3_list_buckets
+s3_list_objects
+s3_presign_url
+s3_put_object
+save_artifact
+search
+trino_browse
+trino_describe_table
+trino_execute
+trino_explain
+trino_export
+trino_query

@@ -1,11 +1,134 @@
 #!/usr/bin/env bash
-# doc-check.sh — Warn when documentation-worthy changes lack doc updates.
-# Soft warning only (never fails). Compatible with bash 3.2+.
+# doc-check.sh — Documentation gates.
+#
+#   Hard gates (fail the build, run every time regardless of the diff):
+#     1. No orphaned docs — every docs/**/*.md must be reachable from the
+#        mkdocs.yml nav or matched by a not_in_nav / exclude_docs pattern. This
+#        delegates to the authoritative Go gate (TestDocsPagesInNavOrExcluded),
+#        which models MkDocs' gitignore-style exclusion semantics exactly, so
+#        this check can never drift from what MkDocs actually excludes.
+#     2. No retired tool references — a decommissioned/renamed tool name from
+#        scripts/retired-tools.txt (e.g. `memory_recall`) must not appear in any
+#        docs/**/*.md, bench doc, or README.md. This is what would have caught
+#        the reference the deleted bench/LOCOMO.md carried.
+#     3. Benchmark reference pages cite only registered tools — any
+#        trino_/datahub_/s3_/api_/memory_ token in docs/reference/benchmarks.md
+#        or benchmark-report.md must be a registered tool
+#        (scripts/registered-tools.txt) or an acknowledged non-tool identifier
+#        (scripts/doc-check-nontools.txt).
+#
+#   Soft gate (warning only): documentation-worthy code changes lacking doc
+#   updates. Never fails on its own.
+#
+# Compatible with bash 3.2+ (macOS) and GNU bash (CI).
 set -euo pipefail
 
-BASE_BRANCH="${BASE_BRANCH:-main}"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
 
-# ── Preflight ───────────────────────────────────────────────────────────────
+BASE_BRANCH="${BASE_BRANCH:-main}"
+hard_fail=0
+
+# ── Hard gate 1: orphaned documentation pages ───────────────────────────────
+# Delegate to the authoritative Go gate rather than reimplementing MkDocs'
+# gitignore-style exclusion matching in bash (which would inevitably drift and
+# false-fail on valid not_in_nav/exclude_docs forms).
+check_orphaned_docs() {
+    if ! command -v go > /dev/null 2>&1; then
+        echo "SKIP orphan check: go toolchain not available."
+        return 0
+    fi
+    local out
+    if out=$(go test -run '^TestDocsPagesInNavOrExcluded$' -count=1 . 2>&1); then
+        echo "OK: no orphaned documentation pages (TestDocsPagesInNavOrExcluded)."
+    else
+        printf '%s\n' "$out"
+        echo "FAIL: orphaned documentation page(s). Add each to the mkdocs.yml nav or not_in_nav."
+        hard_fail=1
+    fi
+}
+
+# ── Hard gate 2: retired tool references anywhere in the docs ────────────────
+# Zero-false-positive denylist: matches only exact retired tool names, so it
+# never trips on config keys or metrics that share a tool prefix.
+check_retired_tools() {
+    local retired="scripts/retired-tools.txt"
+    if [ ! -f "$retired" ]; then
+        echo "SKIP retired-tool check: $retired not found."
+        return 0
+    fi
+    local names alt scan_files violations=0
+    names=$(grep -vE '^[[:space:]]*(#|$)' "$retired" || true)
+    if [ -z "$names" ]; then
+        echo "OK: no retired tool names configured."
+        return 0
+    fi
+    alt=$(printf '%s\n' "$names" | tr '\n' '|' | sed 's/|$//')
+    # Operator/reference docs only; bench/results/ is generated run output.
+    scan_files=$( { find docs bench -name '*.md' -not -path 'bench/results/*'; echo README.md; } 2>/dev/null)
+    while IFS= read -r hit; do
+        [ -z "$hit" ] && continue
+        echo "  RETIRED TOOL: $hit"
+        violations=$((violations + 1))
+    done < <(grep -HnoE "\\b(${alt})\\b" $scan_files 2>/dev/null | sort -u || true)
+
+    if [ "$violations" -gt 0 ]; then
+        echo "FAIL: $violations reference(s) to a retired tool name (see $retired)."
+        echo "  Remove the reference, or rewrite it against the current tool set."
+        hard_fail=1
+    else
+        echo "OK: no retired tool names referenced in the docs."
+    fi
+}
+
+# ── Hard gate 3: benchmark reference pages cite only registered tools ────────
+check_benchmark_tool_refs() {
+    local reg="scripts/registered-tools.txt"
+    local nontools="scripts/doc-check-nontools.txt"
+    if [ ! -f "$reg" ]; then
+        echo "SKIP benchmark-tool check: $reg not found."
+        return 0
+    fi
+    local files="docs/reference/benchmarks.md docs/reference/benchmark-report.md"
+    local allow tok f violations=0
+    allow=$(grep -vE '^[[:space:]]*(#|$)' "$reg")
+    if [ -f "$nontools" ]; then
+        allow="$allow"$'\n'"$(grep -vE '^[[:space:]]*(#|$)' "$nontools")"
+    fi
+    for f in $files; do
+        [ -f "$f" ] || continue
+        while IFS= read -r tok; do
+            [ -z "$tok" ] && continue
+            grep -qxF "$tok" <<<"$allow" && continue
+            echo "  UNREGISTERED TOOL: '$tok' referenced in $f"
+            violations=$((violations + 1))
+        done < <(grep -hoE '\b(trino|datahub|s3|api|memory)_[a-z][a-z0-9_]*' "$f" | sort -u)
+    done
+
+    if [ "$violations" -gt 0 ]; then
+        echo "FAIL: $violations reference(s) to a tool not in $reg."
+        echo "  If the name is a real registered tool, add it to $reg."
+        echo "  If it is a non-tool identifier (Go symbol/file, metric, config key), add it to $nontools."
+        hard_fail=1
+    else
+        echo "OK: benchmark reference pages cite only registered tools."
+    fi
+}
+
+echo "=== Documentation Gates (hard) ==="
+check_orphaned_docs
+check_retired_tools
+check_benchmark_tool_refs
+echo "=== End Documentation Gates ==="
+echo ""
+
+if [ "$hard_fail" -ne 0 ]; then
+    echo "Documentation gates FAILED — fix the issues above."
+    exit 1
+fi
+
+# ── Soft gate: documentation-worthy changes lacking doc updates ─────────────
+# Diff-based; warns only, never fails.
 
 MERGE_BASE=$(git merge-base "$BASE_BRANCH" HEAD 2>/dev/null || true)
 if [ -z "$MERGE_BASE" ]; then
@@ -18,11 +141,7 @@ if [ "$MERGE_BASE" = "$(git rev-parse HEAD)" ]; then
     exit 0
 fi
 
-# ── Collect changed files ───────────────────────────────────────────────────
-
 CHANGED_FILES=$(git diff --name-only "$MERGE_BASE"...HEAD)
-
-# ── Check if docs were touched ──────────────────────────────────────────────
 
 docs_touched=0
 if echo "$CHANGED_FILES" | grep -qE '^(README\.md|docs/)'; then
@@ -50,14 +169,11 @@ if [ "$docs_touched" -eq 1 ]; then
     exit 0
 fi
 
-# ── Detect documentation-worthy changes ─────────────────────────────────────
-
 warnings=""
 
 # 1. New packages under pkg/ (new directories with .go files).
 new_pkg_dirs=$(echo "$CHANGED_FILES" | grep -oE '^pkg/[^/]+(/[^/]+)*/' | sort -u || true)
 for dir in $new_pkg_dirs; do
-    # Check if this directory exists on the merge base.
     if ! git ls-tree --name-only "$MERGE_BASE" -- "$dir" > /dev/null 2>&1 || \
        [ -z "$(git ls-tree --name-only "$MERGE_BASE" -- "$dir" 2>/dev/null)" ]; then
         has_go=$(echo "$CHANGED_FILES" | grep "^${dir}.*\.go$" | grep -v '_test\.go$' | head -1 || true)
@@ -100,8 +216,6 @@ migration_changes=$(echo "$CHANGED_FILES" | grep -E '^pkg/database/migrate/migra
 if [ -n "$migration_changes" ]; then
     warnings="${warnings}  - Database migration changes\n"
 fi
-
-# ── Report ───────────────────────────────────────────────────────────────────
 
 echo ""
 echo "=== Documentation Check ==="

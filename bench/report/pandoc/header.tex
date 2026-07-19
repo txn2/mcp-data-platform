@@ -1,0 +1,9 @@
+\usepackage{fvextra}
+\DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,breakanywhere,commandchars=\\\{\}}
+% Plain code blocks with no language render as `verbatim`; make them wrap too
+% so long URLs (e.g. the citation permalink) do not overrun the right margin.
+\RecustomVerbatimEnvironment{verbatim}{Verbatim}{breaklines,breakanywhere}
+\usepackage{etoolbox}
+\makeatletter
+\preto{\@verbatim}{\topsep=2pt \partopsep=2pt}
+\makeatother
