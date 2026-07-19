@@ -32,8 +32,8 @@ preferred-citation:
     name: "Deasil Works, Inc. / txn2"
   url: "https://mcp-data-platform.txn2.com/reference/benchmark-report/"
   version: "1.1"
-  doi: 10.5281/zenodo.21438045
+  doi: 10.5281/zenodo.21438044
   identifiers:
     - type: doi
-      value: 10.5281/zenodo.21438044
-      description: "Concept DOI (resolves to the latest report version)"
+      value: 10.5281/zenodo.21438045
+      description: "Version DOI for the v1.0 snapshot"

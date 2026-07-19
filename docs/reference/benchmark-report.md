@@ -10,7 +10,7 @@ it comes from.*
 | **Author** | Craig Johnston (cj@imti.co), Deasil Works, Inc. / txn2 |
 | **Published** | 2026-07-19 |
 | **Report version** | 1.1 |
-| **DOI** | [10.5281/zenodo.21438045](https://doi.org/10.5281/zenodo.21438045) |
+| **DOI** | [10.5281/zenodo.21438044](https://doi.org/10.5281/zenodo.21438044) (concept DOI, resolves to the latest version) |
 | **Subject under test** | The platform's semantic knowledge layer (cross-enrichment, `search`, and the memory / `apply_knowledge` lifecycle), not the whole platform. |
 | **Platform builds** | This report and its run data are pinned to release tag `v1.102.2`, whose application code is byte-identical to the cold-start build. The ablation and lifecycle (S5) suites ran on `v1.102.0` platform logic and cold-start on `v1.102.1`; the only deltas from the tag are portal-pagination plumbing (#974) and a pprof diagnostic endpoint, neither of which is in the cross-enrichment, `search`, or knowledge-lifecycle path under test (Section 6). Exact build strings, commits, seeds, and task-set hashes are pinned in each run's manifest (Section 9). |
 | **How to cite** | [Section 10](#10-how-to-cite-this-report) |
@@ -559,7 +559,7 @@ a citation resolves to a specific, reproducible dataset.
 > Johnston, C. (2026). *Does a semantic knowledge layer make an agent measurably
 > better? A reproducible benchmark of the mcp-data-platform knowledge layer*
 > (Report v1.1). Deasil Works, Inc. / txn2.
-> https://doi.org/10.5281/zenodo.21438045
+> https://doi.org/10.5281/zenodo.21438044
 
 **BibTeX.**
 
@@ -575,17 +575,19 @@ a citation resolves to a specific, reproducible dataset.
   type        = {Evaluation Report},
   number      = {Report v1.1},
   url         = {https://mcp-data-platform.txn2.com/reference/benchmark-report/},
-  doi         = {10.5281/zenodo.21438045},
+  doi         = {10.5281/zenodo.21438044},
   note        = {Raw run data and reproduction notebook at
                  https://github.com/txn2/mcp-data-platform/tree/main/bench}
 }
 ```
 
 **DOI.** This report and a snapshot of `bench/results/` are archived on Zenodo
-under DOI [10.5281/zenodo.21438045](https://doi.org/10.5281/zenodo.21438045),
-which is the preferred citation. The DOI is reserved and resolves once the Zenodo
-record is published; the tagged repository permalink above remains valid for the
-source and the raw data.
+under the concept DOI [10.5281/zenodo.21438044](https://doi.org/10.5281/zenodo.21438044),
+which always resolves to the latest published version and is the preferred
+citation. Each archived version also carries its own version DOI (the v1.0
+snapshot is [10.5281/zenodo.21438045](https://doi.org/10.5281/zenodo.21438045));
+cite a version DOI to pin an exact snapshot. The tagged repository permalink above
+remains valid for the source and the raw data.
 
 ## 11. Related work
 
