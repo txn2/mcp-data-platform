@@ -72,8 +72,11 @@ func buildClient(settings SMTPSettings) (*mail.Client, error) {
 		opts = append(opts, mail.WithTLSPortPolicy(mail.TLSMandatory))
 	}
 	if settings.Username != "" {
+		// AutoDiscover negotiates the strongest mechanism the server
+		// advertises (SCRAM, LOGIN, PLAIN, ...), so LOGIN-only and
+		// SCRAM-preferring servers work without an auth-mode setting.
 		opts = append(opts,
-			mail.WithSMTPAuth(mail.SMTPAuthPlain),
+			mail.WithSMTPAuth(mail.SMTPAuthAutoDiscover),
 			mail.WithUsername(settings.Username),
 			mail.WithPassword(settings.Password))
 	}

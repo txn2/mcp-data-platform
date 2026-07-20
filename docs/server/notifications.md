@@ -57,7 +57,7 @@ write-only: no API response ever includes it.
 |-------|-------------|
 | `enabled` | Master switch for outbound email. |
 | `host`, `port` | SMTP server address. Port 587 for STARTTLS, 465 for implicit TLS. |
-| `username`, `password` | SMTP AUTH credentials. Leave username empty for unauthenticated relays. An empty password on update keeps the stored one. |
+| `username`, `password` | SMTP AUTH credentials. The auth mechanism is negotiated automatically from what the server advertises (SCRAM-SHA-1/256, LOGIN, PLAIN, CRAM-MD5, and others). Leave username empty for unauthenticated relays. An empty password on update keeps the stored one. |
 | `from`, `from_name` | Sender address and optional display name. |
 | `tls_mode` | `starttls` (default), `implicit`, or `none` (closed-network relays only). |
 

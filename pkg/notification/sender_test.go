@@ -3,6 +3,7 @@ package notification
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"net"
 	"strings"
 	"testing"
@@ -98,8 +99,11 @@ func TestBuildClient_EmptyHost(t *testing.T) {
 
 // startFakeSMTPServer runs a minimal single-connection SMTP conversation on
 // a random localhost port and returns the port plus a channel delivering the
-// raw DATA payload.
-func startFakeSMTPServer(t *testing.T) (port int, data <-chan string) {
+// raw DATA payload. When withAuth is true the server advertises CRAM-MD5
+// (the only mechanism go-mail permits on an unencrypted test connection) and
+// requires the client to complete the challenge before accepting mail, which
+// exercises the AutoDiscover negotiation end to end.
+func startFakeSMTPServer(t *testing.T, withAuth bool) (port int, data <-chan string) {
 	t.Helper()
 	lc := net.ListenConfig{}
 	ln, err := lc.Listen(context.Background(), "tcp", "127.0.0.1:0")
@@ -119,6 +123,7 @@ func startFakeSMTPServer(t *testing.T) (port int, data <-chan string) {
 		w("220 test ready")
 		scanner := bufio.NewScanner(conn)
 		inData := false
+		awaitingAuth := false
 		var data strings.Builder
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -131,9 +136,19 @@ func startFakeSMTPServer(t *testing.T) (port int, data <-chan string) {
 					continue
 				}
 				data.WriteString(line + "\n")
+			case awaitingAuth:
+				// The CRAM-MD5 digest response; accept anything.
+				awaitingAuth = false
+				w("235 authenticated")
 			case strings.HasPrefix(line, "EHLO"), strings.HasPrefix(line, "HELO"):
 				w("250-test")
+				if withAuth {
+					w("250-AUTH CRAM-MD5")
+				}
 				w("250 8BITMIME")
+			case strings.HasPrefix(line, "AUTH CRAM-MD5"):
+				awaitingAuth = true
+				w("334 " + base64.StdEncoding.EncodeToString([]byte("<challenge@test>")))
 			case strings.HasPrefix(line, "MAIL FROM"), strings.HasPrefix(line, "RCPT TO"):
 				w("250 OK")
 			case line == "DATA":
@@ -156,7 +171,7 @@ func startFakeSMTPServer(t *testing.T) (port int, data <-chan string) {
 }
 
 func TestSMTPSender_Send_EndToEnd(t *testing.T) {
-	port, dataCh := startFakeSMTPServer(t)
+	port, dataCh := startFakeSMTPServer(t, false)
 	s := NewSMTPSender()
 
 	err := s.Send(context.Background(), SMTPSettings{
@@ -169,6 +184,30 @@ func TestSMTPSender_Send_EndToEnd(t *testing.T) {
 	select {
 	case data := <-dataCh:
 		if !strings.Contains(data, "Subject: Wire test") {
+			t.Errorf("DATA missing subject:\n%s", data)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no DATA received")
+	}
+}
+
+func TestSMTPSender_Send_AutoDiscoverAuth(t *testing.T) {
+	// The server advertises only CRAM-MD5; AutoDiscover must pick it up,
+	// complete the challenge, and deliver.
+	port, dataCh := startFakeSMTPServer(t, true)
+	s := NewSMTPSender()
+
+	err := s.Send(context.Background(), SMTPSettings{
+		Host: "127.0.0.1", Port: port, From: "p@example.com", TLSMode: TLSModeNone,
+		Username: "mailer", Password: "secret",
+	}, Email{To: "a@b.io", Subject: "Auth wire test", Text: "plain", HTML: "<p>html</p>"})
+	if err != nil {
+		t.Fatalf("Send with negotiated auth: %v", err)
+	}
+
+	select {
+	case data := <-dataCh:
+		if !strings.Contains(data, "Subject: Auth wire test") {
 			t.Errorf("DATA missing subject:\n%s", data)
 		}
 	case <-time.After(2 * time.Second):

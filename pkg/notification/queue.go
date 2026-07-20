@@ -60,13 +60,16 @@ func (s *PostgresQueueStore) Enqueue(ctx context.Context, n Notification) error 
 	if err != nil {
 		return fmt.Errorf("encoding notification payload: %w", err)
 	}
-	scheduled := n.ScheduledFor
-	if scheduled.IsZero() {
-		scheduled = time.Now().UTC()
+	// A zero ScheduledFor means "now": stamp it with the database clock,
+	// not the Go clock, so the claim predicate (scheduled_for <= NOW())
+	// sees the row immediately regardless of host/DB clock skew.
+	var scheduled any
+	if !n.ScheduledFor.IsZero() {
+		scheduled = n.ScheduledFor
 	}
 	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO notifications (recipient, category, payload, digest, scheduled_for)
-		 VALUES ($1, $2, $3, $4, $5)`,
+		 VALUES ($1, $2, $3, $4, COALESCE($5, NOW()))`,
 		n.Recipient, n.Category, payload, n.Digest, scheduled)
 	if err != nil {
 		return fmt.Errorf("enqueueing notification: %w", err)

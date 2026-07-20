@@ -2287,7 +2287,7 @@ The platform emails users when a teammate shares an asset, collection, or prompt
 
 ## Admin SMTP settings
 
-Configured at runtime in the portal (Admin, then Settings) or via REST; stored in the platform_settings table, password encrypted at rest with ENCRYPTION_KEY and write-only (never returned by any API; responses carry password_set only). Fields: enabled, host, port, username, password, from, from_name, tls_mode (starttls default, implicit, none). A send-test action verifies the configuration end to end.
+Configured at runtime in the portal (Admin, then Settings) or via REST; stored in the platform_settings table, password encrypted at rest with ENCRYPTION_KEY and write-only (never returned by any API; responses carry password_set only). Fields: enabled, host, port, username, password, from, from_name, tls_mode (starttls default, implicit, none). The SMTP auth mechanism is negotiated automatically from what the server advertises (SCRAM-SHA-1/256, LOGIN, PLAIN, CRAM-MD5, and others); empty username = unauthenticated relay. A send-test action verifies the configuration end to end.
 
 - GET /api/v1/admin/settings/smtp
 - PUT /api/v1/admin/settings/smtp (empty password keeps the stored one)
