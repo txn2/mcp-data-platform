@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
@@ -74,7 +75,8 @@ func (n *PortalNotifier) NotifyShare(ctx context.Context, share *portal.Share, k
 		Link:      link,
 	})
 	if err != nil {
-		slog.Warn("notification: share enqueue failed", logKeyError, err)
+		slog.Warn("notification: share enqueue failed", // #nosec G706 -- structured slog call; error sanitized
+			logKeyError, logsan.SanitizeForLog(err.Error()))
 	}
 }
 
@@ -99,7 +101,8 @@ func (n *PortalNotifier) NotifyThreadEvent(ctx context.Context, thread *portal.T
 	}
 	for _, recipient := range notification.RecipientsExcluding(actorEmail, target.owner, thread.AuthorEmail) {
 		if err := n.enq.Notify(ctx, recipient, notification.CategoryComment, payload); err != nil {
-			slog.Warn("notification: thread enqueue failed", logKeyError, err)
+			slog.Warn("notification: thread enqueue failed", // #nosec G706 -- structured slog call; error sanitized
+				logKeyError, logsan.SanitizeForLog(err.Error()))
 		}
 	}
 }

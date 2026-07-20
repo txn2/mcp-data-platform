@@ -63,15 +63,23 @@ def count_blockers(sarif: dict, baseline: set[str]) -> list[str]:
     blockers: list[str] = []
     for run in sarif.get("runs", []):
         rules = {}
+        rule_levels = {}
         for rule in run.get("tool", {}).get("driver", {}).get("rules", []):
             sev_raw = rule.get("properties", {}).get("security-severity", "0") or "0"
             try:
                 rules[rule.get("id")] = float(sev_raw)
             except (TypeError, ValueError):
                 rules[rule.get("id")] = 0.0
+            rule_levels[rule.get("id")] = rule.get("defaultConfiguration", {}).get(
+                "level", "note"
+            )
         for result in run.get("results", []):
             rule_id = result.get("ruleId", "<unknown>")
-            level = result.get("level", "note")
+            # CodeQL omits per-result "level" and carries it on the rule's
+            # defaultConfiguration instead. Reading only the result made every
+            # error-level rule below the severity cutoff (e.g. go/log-injection
+            # at 6.1) pass locally while GitHub Code Scanning flagged it.
+            level = result.get("level") or rule_levels.get(rule_id, "note")
             sev = rules.get(rule_id, 0.0)
             if not (level == "error" or sev >= MIN_BLOCKING_SEVERITY):
                 continue

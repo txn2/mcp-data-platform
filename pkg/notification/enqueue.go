@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/txn2/mcp-data-platform/internal/logsan"
 	"github.com/txn2/mcp-data-platform/pkg/ratelimit"
 )
 
@@ -77,7 +78,9 @@ func (e *Enqueuer) Notify(ctx context.Context, recipient, category string, p Pay
 	}
 	prefs, err := e.prefs.Get(ctx, recipient)
 	if err != nil {
-		return fmt.Errorf("reading notification prefs for %s: %w", recipient, err)
+		// The recipient is request-supplied and these errors are logged by
+		// the trigger sites, so strip control characters before embedding.
+		return fmt.Errorf("reading notification prefs for %s: %w", logsan.SanitizeForLog(recipient), err)
 	}
 	if !wantsCategory(prefs, category) {
 		return nil
@@ -89,7 +92,8 @@ func (e *Enqueuer) Notify(ctx context.Context, recipient, category string, p Pay
 		n.ScheduledFor = NextDigestTime(e.now().UTC(), e.digestHourUTC)
 	}
 	if err := e.queue.Enqueue(ctx, n); err != nil {
-		return fmt.Errorf("enqueueing %s notification for %s: %w", category, recipient, err)
+		return fmt.Errorf("enqueueing %s notification for %s: %w",
+			category, logsan.SanitizeForLog(recipient), err)
 	}
 	return nil
 }
@@ -107,7 +111,8 @@ func (e *Enqueuer) allowActor(actor, recipient string) bool {
 	if e.limiter.Allow(key) {
 		return true
 	}
-	slog.Warn("notification: per-actor rate limit exceeded; dropping", "actor", key)
+	slog.Warn("notification: per-actor rate limit exceeded; dropping", // #nosec G706 -- structured slog call; actor sanitized
+		"actor", logsan.SanitizeForLog(key))
 	return false
 }
 

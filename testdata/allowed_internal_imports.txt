@@ -72,6 +72,7 @@ internal/platform/memorylayer -> pkg/middleware
 internal/platform/memorylayer -> pkg/portal/knowledgepage
 internal/platform/memorylayer -> pkg/semantic
 internal/platform/memorylayer -> pkg/toolkits/memory
+internal/platform/notifydelivery -> internal/logsan
 internal/platform/notifydelivery -> pkg/notification
 internal/platform/notifydelivery -> pkg/portal
 internal/platform/notifydelivery -> pkg/portal/knowledgepage
@@ -203,6 +204,7 @@ pkg/middleware -> pkg/semantic
 pkg/middleware -> pkg/session
 pkg/middleware -> pkg/storage
 pkg/middleware -> pkg/urnbuild
+pkg/notification -> internal/logsan
 pkg/notification -> pkg/ratelimit
 pkg/oauth -> internal/logsan
 pkg/oauth -> pkg/oauth/signkey
