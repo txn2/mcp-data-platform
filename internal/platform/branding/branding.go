@@ -155,34 +155,56 @@ func (h *Handle) ResolveImplementorLogo() string {
 	return svg
 }
 
+// FetchEmailLogoPNG downloads the raster logo used in notification emails and
+// returns its bytes. Email clients strip inline SVG, so the email logo is a
+// separate raster asset from the SVG the portal and MCP Apps render.
+//
+// The caller resolves this once at startup and hands the bytes to the renderer,
+// which attaches them to each message as an inline (cid:) part. Recipients never
+// fetch the URL themselves, so it need only be reachable from the server.
+func FetchEmailLogoPNG(url string) ([]byte, error) {
+	return fetchLogo(url, "png")
+}
+
 // fetchLogoSVG downloads an SVG from the given URL and returns its content.
 // Returns an error if the URL is unreachable, returns a non-SVG content type,
 // or exceeds the size limit.
 func fetchLogoSVG(url string) (string, error) {
+	body, err := fetchLogo(url, "svg")
+	if err != nil {
+		return "", err
+	}
+	return string(body), nil
+}
+
+// fetchLogo downloads a logo asset and returns its bytes, requiring wantType to
+// appear in the response Content-Type. Only http(s) URLs are accepted: a
+// container image has no portable local path for an operator to point at.
+func fetchLogo(url, wantType string) ([]byte, error) {
 	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-		return "", errors.New("unsupported scheme")
+		return nil, errors.New("unsupported scheme")
 	}
 
 	client := &http.Client{Timeout: logoFetchTimeout}
 	resp, err := client.Get(url) //nolint:gosec,noctx // URL comes from operator config, not user input
 	if err != nil {
-		return "", fmt.Errorf("fetch: %w", err)
+		return nil, fmt.Errorf("fetch: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("status %d", resp.StatusCode)
+		return nil, fmt.Errorf("status %d", resp.StatusCode)
 	}
 
 	ct := resp.Header.Get("Content-Type")
-	if !strings.Contains(ct, "svg") {
-		return "", fmt.Errorf("not SVG: %s", ct)
+	if !strings.Contains(ct, wantType) {
+		return nil, fmt.Errorf("not %s: %s", wantType, ct)
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, logoMaxBytes))
 	if err != nil {
-		return "", fmt.Errorf("read: %w", err)
+		return nil, fmt.Errorf("read: %w", err)
 	}
 
-	return string(body), nil
+	return body, nil
 }

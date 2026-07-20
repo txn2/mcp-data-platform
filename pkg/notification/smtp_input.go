@@ -8,6 +8,10 @@ import (
 // defaultSMTPPort is the STARTTLS submission port applied when unset.
 const defaultSMTPPort = 587
 
+// implicitTLSPort is the SMTPS port. A server here expects a TLS handshake as
+// the first bytes on the connection and never emits a plaintext greeting.
+const implicitTLSPort = 465
+
 // maxTCPPort is the highest valid TCP port number.
 const maxTCPPort = 65535
 
@@ -47,6 +51,13 @@ func (in *SMTPSettingsInput) normalizeTransport() string {
 	}
 	if in.Port < 0 || in.Port > maxTCPPort {
 		return "port must be between 1 and 65535"
+	}
+	// Reject at save time rather than letting the dial hang: on port 465 the
+	// server waits for a TLS ClientHello while a STARTTLS or plaintext client
+	// waits for a greeting, so the connection stalls until the send timeout
+	// and surfaces as an opaque i/o timeout far from the setting at fault.
+	if in.Port == implicitTLSPort && in.TLSMode != TLSModeImplicit {
+		return "port 465 requires tls_mode implicit; use port 587 for starttls"
 	}
 	return ""
 }

@@ -1,6 +1,7 @@
 package notification
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 
@@ -57,6 +58,14 @@ func buildMessage(settings SMTPSettings, email Email) (*mail.Msg, error) {
 	msg.Subject(email.Subject)
 	msg.SetBodyString(mail.TypeTextPlain, email.Text)
 	msg.AddAlternativeString(mail.TypeTextHTML, email.HTML)
+	// Embed rather than link the logo: an inline part renders on first open,
+	// where a remote <img> is suppressed by the image blocking Outlook and
+	// Gmail apply by default. The HTML already points at this Content-ID.
+	// EmbedReadSeeker over EmbedReader: a *bytes.Reader cannot fail, so the
+	// reader-based call would only add an error branch no input can reach.
+	if len(email.LogoPNG) > 0 {
+		msg.EmbedReadSeeker(logoContentID, bytes.NewReader(email.LogoPNG))
+	}
 	return msg, nil
 }
 

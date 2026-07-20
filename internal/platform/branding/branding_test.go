@@ -1,6 +1,7 @@
 package branding
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -171,6 +172,58 @@ func TestFetchLogoSVG(t *testing.T) {
 		}
 		if got != svgContent {
 			t.Errorf("got %q, want %q", got, svgContent)
+		}
+	})
+}
+
+func TestFetchEmailLogoPNG(t *testing.T) {
+	pngContent := []byte("\x89PNG\r\n\x1a\nfake-raster-bytes")
+
+	t.Run("returns PNG bytes", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(pngContent)
+		}))
+		defer srv.Close()
+
+		got, err := FetchEmailLogoPNG(srv.URL + "/logo.png")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !bytes.Equal(got, pngContent) {
+			t.Errorf("got %q, want %q", got, pngContent)
+		}
+	})
+
+	// The portal's own brand asset is an SVG URL. Accepting it here would ship
+	// a part no mail client renders, so the content-type check is what keeps an
+	// operator from pointing this at the logo they already have.
+	t.Run("rejects SVG content type", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "image/svg+xml")
+			_, _ = w.Write([]byte(`<svg viewBox="0 0 40 40"></svg>`))
+		}))
+		defer srv.Close()
+
+		if _, err := FetchEmailLogoPNG(srv.URL + "/logo.svg"); err == nil {
+			t.Fatal("expected error for SVG content type")
+		}
+	})
+
+	t.Run("rejects non-200 status", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer srv.Close()
+
+		if _, err := FetchEmailLogoPNG(srv.URL + "/missing.png"); err == nil {
+			t.Fatal("expected error for 404")
+		}
+	})
+
+	t.Run("rejects non-HTTP scheme", func(t *testing.T) {
+		if _, err := FetchEmailLogoPNG("/etc/logo.png"); err == nil {
+			t.Fatal("expected error for filesystem path")
 		}
 	})
 }

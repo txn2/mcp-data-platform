@@ -239,6 +239,29 @@ func TestSMTPSettingsInput_Validate(t *testing.T) {
 		{name: "negative port", in: SMTPSettingsInput{Port: -1}, wantErr: true},
 		{name: "enabled no host", in: SMTPSettingsInput{Enabled: true, Port: 587}, wantErr: true},
 		{name: "enabled bad from", in: SMTPSettingsInput{Enabled: true, Host: "h", From: "nope"}, wantErr: true},
+		// Port 465 speaks implicit TLS only; the other two modes open plaintext
+		// and stall until the send timeout instead of failing fast.
+		{
+			name:    "465 with starttls",
+			in:      SMTPSettingsInput{Enabled: true, Host: "h", Port: 465, From: "p@example.com", TLSMode: TLSModeStartTLS},
+			wantErr: true,
+		},
+		{
+			name:    "465 with none",
+			in:      SMTPSettingsInput{Enabled: true, Host: "h", Port: 465, From: "p@example.com", TLSMode: TLSModeNone},
+			wantErr: true,
+		},
+		{
+			// TLSMode defaults to starttls, so an omitted mode on 465 is the
+			// same broken pairing and must not slip through the default.
+			name:    "465 with defaulted mode",
+			in:      SMTPSettingsInput{Enabled: true, Host: "h", Port: 465, From: "p@example.com"},
+			wantErr: true,
+		},
+		{
+			name: "465 with implicit",
+			in:   SMTPSettingsInput{Enabled: true, Host: "h", Port: 465, From: "p@example.com", TLSMode: TLSModeImplicit},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

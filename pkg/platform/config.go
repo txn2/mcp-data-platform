@@ -324,6 +324,7 @@ type PortalConfig struct {
 	Logo            string                `yaml:"logo"`              // URL to logo (fallback for both themes)
 	LogoLight       string                `yaml:"logo_light"`        // URL to logo for light theme
 	LogoDark        string                `yaml:"logo_dark"`         // URL to logo for dark theme
+	LogoEmail       string                `yaml:"logo_email"`        // URL to raster PNG logo for notification emails (clients strip SVG); unset renders the text wordmark alone
 	S3Connection    string                `yaml:"s3_connection"`     // name of the S3 toolkit instance to use
 	S3Bucket        string                `yaml:"s3_bucket"`         // bucket for artifact storage (default: "portal-assets")
 	S3Prefix        string                `yaml:"s3_prefix"`         // key prefix within the bucket (default: "artifacts/")

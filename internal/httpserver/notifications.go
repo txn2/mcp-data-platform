@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/branding"
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
 	"github.com/txn2/mcp-data-platform/pkg/notification"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
@@ -27,6 +28,7 @@ func buildNotifications(p *platform.Platform) *notifydelivery.Handle {
 			BaseURL:         p.Config().Portal.PublicBaseURL,
 			ImplementorName: p.Config().Portal.Implementor.Name,
 			ImplementorURL:  p.Config().Portal.Implementor.URL,
+			LogoPNG:         emailLogo(p.Config().Portal.LogoEmail),
 		},
 		DigestHourUTC: p.Config().Notifications.DigestHour(),
 	})
@@ -40,6 +42,22 @@ func buildNotifications(p *platform.Platform) *notifydelivery.Handle {
 		log.Println("Email notifications enabled (queue + send worker)")
 	}
 	return handle
+}
+
+// emailLogo resolves the raster logo for notification emails once at startup,
+// so no send path pays a fetch or races on a shared cache. An unset URL is the
+// normal case and a failed fetch is not fatal: both leave the logo empty and
+// emails render the text wordmark alone.
+func emailLogo(url string) []byte {
+	if url == "" {
+		return nil
+	}
+	png, err := branding.FetchEmailLogoPNG(url)
+	if err != nil {
+		log.Println("WARNING: email logo unavailable, using text wordmark:", err)
+		return nil
+	}
+	return png
 }
 
 // wirePortalNotifications attaches the notification substrate to the portal
