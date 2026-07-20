@@ -282,3 +282,11 @@ Personal prompt names are unique per owner, so two users can each have a prompt 
 - Prompts shared with you appear as `shared-<name>`
 
 These prefixes are computed at serve time; the stored name stays bare. To make a personal prompt visible at the persona or global scope, rename it if a prompt with that name already exists at the target scope.
+
+## Settings
+
+The Settings page (user section of the sidebar) holds per-user preferences.
+The **Notifications** section controls [email notifications](notifications.md):
+a delivery mode (Off, Immediate, or Daily digest) and per-category toggles
+for shares and comments/feedback. Defaults are immediate delivery with all
+categories enabled; changes save as they are made.

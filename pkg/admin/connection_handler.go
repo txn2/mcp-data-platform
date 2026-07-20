@@ -692,14 +692,14 @@ func (h *Handler) findConnectionManager(kind string) toolkit.ConnectionManager {
 // unconditional: peers rebuild from the store (already written by the caller),
 // so a local in-memory hiccup must not suppress their notification (#501).
 func (h *Handler) hotAddConnection(kind, name string, config map[string]any) {
+	safeKind, safeName := logsan.SanitizeForLog(kind), logsan.SanitizeForLog(name)
 	for _, f := range connreconcile.New(h.deps.ToolkitRegistry).Upsert(kind, name, config) {
+		msg := "failed to hot-add connection"
 		if f.Phase == connreconcile.PhaseRemove {
-			slog.Warn("failed to hot-remove connection before re-add", // #nosec G706 -- structured slog call; kind/name sanitized
-				logKeyKind, logsan.SanitizeForLog(kind), logKeyName, logsan.SanitizeForLog(name), logKeyError, f.Err)
-			continue
+			msg = "failed to hot-remove connection before re-add"
 		}
-		slog.Warn("failed to hot-add connection", // #nosec G706 -- structured slog call; kind/name sanitized
-			logKeyKind, logsan.SanitizeForLog(kind), logKeyName, logsan.SanitizeForLog(name), logKeyError, f.Err)
+		slog.Warn(msg, logKeyKind, safeKind, logKeyName, safeName, // #nosec G706 -- sanitized
+			logKeyError, logsan.SanitizeForLog(f.Err.Error()))
 	}
 	if h.deps.ReloadNotifier != nil {
 		h.deps.ReloadNotifier.PublishConnectionReload(kind, name, platform.ReloadUpsert)

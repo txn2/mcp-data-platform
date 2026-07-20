@@ -151,7 +151,7 @@ AI-generated prose (PR descriptions, commit messages, reviews, explanations) is 
 
 ## Project Structure
 
-`pkg/` holds 42 top-level packages (all public API). Depth-2 subdirectories are
+`pkg/` holds 43 top-level packages (all public API). Depth-2 subdirectories are
 shown where they represent a distinct implementation (a storage backend, an
 adapter, an indexjobs consumer); helper subpackages are omitted for brevity.
 Regenerate this list with `find pkg -mindepth 1 -maxdepth 1 -type d | sort` and
@@ -160,7 +160,7 @@ diff against the packages below when adding or removing a `pkg/` directory.
 ```
 mcp-data-platform/
 ├── cmd/mcp-data-platform/          # Entry point (main.go)
-├── pkg/                            # PUBLIC API (42 top-level packages)
+├── pkg/                            # PUBLIC API (43 top-level packages)
 │   ├── admin/                      # REST API endpoints for administrative operations
 │   ├── audit/                      # Audit logging (postgres/ = PostgreSQL implementation)
 │   ├── auth/                       # Authentication: OIDC, API keys, claims, middleware
@@ -171,7 +171,7 @@ mcp-data-platform/
 │   ├── connoauth/                  # Shared OAuth-to-upstream-MCP implementation across connection kinds
 │   ├── connreconcile/              # Shared remove/add reconcile of a DB connection onto live toolkits (admin hot-reload + reload bus)
 │   ├── connview/                   # Builds the list_connections view (configured + discovered)
-│   ├── database/                   # Database utilities (migrate/ = golang-migrate runner + 75 embedded SQL migrations)
+│   ├── database/                   # Database utilities (migrate/ = golang-migrate runner + 82 embedded SQL migrations)
 │   ├── embedding/                  # Text embedding generation for memory vector search
 │   ├── gatewayhttp/                # HTTP exposure of the apigateway toolkit's invoke path
 │   ├── health/                     # Readiness state tracking and HTTP health check handlers
@@ -182,6 +182,7 @@ mcp-data-platform/
 │   ├── mcpcontext/                 # Context helpers for MCP session state
 │   ├── memory/                     # Persistent memory storage for agent/analyst sessions (memoryindex/ = indexjobs consumer)
 │   ├── middleware/                 # MCP protocol middleware chain (auth, authz, enrichment, audit, rules)
+│   ├── notification/               # Email notifications: SMTP settings, user prefs, queue, send worker, branded templates
 │   ├── oauth/                      # OAuth 2.1 authorization server (postgres/ = storage implementation)
 │   ├── observability/              # OpenTelemetry metrics (proxy/ = authenticated PromQL query proxy)
 │   ├── oidcdiscovery/              # Shared OIDC discovery-document fetch/parse (used by auth JWKS + oauth broker)
@@ -354,6 +355,19 @@ audit:
 
 database:
   dsn: "${DATABASE_URL}"
+```
+
+### Email Notifications
+
+Enabled by default when a database is available (`*bool`, nil = enabled). The
+YAML controls only enqueue/delivery; SMTP host/credentials are admin-configured
+at runtime (portal Admin > Settings or `/api/v1/admin/settings/smtp`,
+password encrypted via `FieldEncryptor`, write-only in the API).
+
+```yaml
+notifications:
+  enabled: false        # opt out of email notifications
+  digest_hour_utc: 13   # UTC hour (0-23) daily digests are sent
 ```
 
 ### Progress, Client Logging, Icons & Elicitation

@@ -219,6 +219,12 @@ export const routes: ScreenshotRoute[] = [
     path: "/portal/collections/col-001/assets/ast-001",
     category: "user",
   },
+  {
+    // Per-user settings: email notification preferences (#631).
+    slug: "settings",
+    path: "/portal/settings",
+    category: "user",
+  },
 
   // =========================================================================
   // Admin Routes
@@ -374,6 +380,12 @@ export const routes: ScreenshotRoute[] = [
   {
     slug: "admin-changelog",
     path: "/portal/admin/changelog",
+    category: "admin",
+  },
+  {
+    // Platform settings: SMTP configuration for email notifications (#631).
+    slug: "admin-settings",
+    path: "/portal/admin/settings",
     category: "admin",
   },
 

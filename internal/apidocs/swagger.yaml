@@ -2383,6 +2383,89 @@ definitions:
         example: 2
         type: integer
     type: object
+  notification.PrefsRequest:
+    properties:
+      comments_enabled:
+        type: boolean
+      mode:
+        type: string
+      shares_enabled:
+        type: boolean
+    type: object
+  notification.PrefsResponse:
+    properties:
+      comments_enabled:
+        type: boolean
+      mode:
+        type: string
+      shares_enabled:
+        type: boolean
+    type: object
+  notification.SMTPSettingsInput:
+    properties:
+      enabled:
+        example: true
+        type: boolean
+      from:
+        example: platform@example.com
+        type: string
+      from_name:
+        example: Data Platform
+        type: string
+      host:
+        example: smtp.example.com
+        type: string
+      password:
+        example: app-password
+        type: string
+      port:
+        example: 587
+        type: integer
+      tls_mode:
+        example: starttls
+        type: string
+      username:
+        example: mailer@example.com
+        type: string
+    type: object
+  notification.SMTPSettingsView:
+    properties:
+      enabled:
+        example: true
+        type: boolean
+      from:
+        example: platform@example.com
+        type: string
+      from_name:
+        example: Data Platform
+        type: string
+      host:
+        example: smtp.example.com
+        type: string
+      password_set:
+        example: true
+        type: boolean
+      port:
+        example: 587
+        type: integer
+      tls_mode:
+        example: starttls
+        type: string
+      updated_at:
+        type: string
+      updated_by:
+        example: admin@example.com
+        type: string
+      username:
+        example: mailer@example.com
+        type: string
+    type: object
+  notification.TestEmailRequest:
+    properties:
+      to:
+        example: admin@example.com
+        type: string
+    type: object
   persona.AccessSource:
     enum:
     - allow
@@ -7290,6 +7373,92 @@ paths:
       summary: Reject prompt promotion
       tags:
       - Prompts
+  /admin/settings/smtp:
+    get:
+      description: Returns the stored SMTP configuration. The password is never returned;
+        password_set reports whether one is stored.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/notification.SMTPSettingsView'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get SMTP settings
+      tags:
+      - Settings
+    put:
+      consumes:
+      - application/json
+      description: Upserts the SMTP configuration. The password is encrypted at rest;
+        sending an empty password keeps the stored one.
+      parameters:
+      - description: SMTP settings
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/notification.SMTPSettingsInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/notification.SMTPSettingsView'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update SMTP settings
+      tags:
+      - Settings
+  /admin/settings/smtp/test:
+    post:
+      consumes:
+      - application/json
+      description: Delivers a test email through the stored SMTP settings so the configuration
+        can be verified end to end.
+      parameters:
+      - description: Recipient
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/notification.TestEmailRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+        "502":
+          description: Bad Gateway
+          schema:
+            $ref: '#/definitions/admin.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Send a test email
+      tags:
+      - Settings
   /admin/system/info:
     get:
       description: Returns platform identity, version, runtime feature availability,
@@ -9873,6 +10042,68 @@ paths:
       summary: Get my memory stats
       tags:
       - Memory
+  /portal/notification-prefs:
+    get:
+      description: Returns the calling user's email notification preferences. Users
+        with no stored preferences get the defaults (immediate delivery, all categories
+        on).
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/notification.PrefsResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Get my notification preferences
+      tags:
+      - Notifications
+    put:
+      consumes:
+      - application/json
+      description: 'Updates the calling user''s email notification preferences. Omitted
+        fields are left unchanged. Server-side self-scope: only the caller''s own
+        preferences are ever written.'
+      parameters:
+      - description: Preference changes
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/notification.PrefsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/notification.PrefsResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Update my notification preferences
+      tags:
+      - Notifications
   /portal/prompts:
     get:
       description: Returns the user's personal prompts plus available global, persona,

@@ -439,13 +439,7 @@ func (h *Handler) setConfigEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	author := ""
-	if user := GetUser(r.Context()); user != nil {
-		author = user.Email
-		if author == "" {
-			author = user.UserID
-		}
-	}
+	author := requestAuthor(r)
 
 	if err := h.deps.ConfigStore.Set(r.Context(), key, req.Value, author); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save config entry")
@@ -485,13 +479,7 @@ func (h *Handler) deleteConfigEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	author := ""
-	if user := GetUser(r.Context()); user != nil {
-		author = user.Email
-		if author == "" {
-			author = user.UserID
-		}
-	}
+	author := requestAuthor(r)
 
 	if err := h.deps.ConfigStore.Delete(r.Context(), key, author); err != nil {
 		if errors.Is(err, configstore.ErrNotFound) {

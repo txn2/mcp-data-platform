@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
 	"github.com/txn2/mcp-data-platform/internal/ui"
 	"github.com/txn2/mcp-data-platform/pkg/admin"
 	"github.com/txn2/mcp-data-platform/pkg/audit"
@@ -41,11 +42,11 @@ const (
 )
 
 // mountAdminAPI registers the admin REST API on the mux if enabled.
-func mountAdminAPI(mux *http.ServeMux, p *platform.Platform) {
+func mountAdminAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydelivery.Handle) {
 	if p == nil || !p.Config().Admin.IsEnabled() {
 		return
 	}
-	adminHandler := buildAdminHandler(p)
+	adminHandler := buildAdminHandler(p, notify)
 	prefix := p.Config().Admin.PathPrefix
 	if prefix == "" {
 		prefix = defaultAdminPathPrefix
@@ -446,7 +447,7 @@ func mountPortalUI(mux *http.ServeMux, p *platform.Platform, assetsAvailable boo
 }
 
 // buildAdminHandler constructs the admin REST API handler from the platform.
-func buildAdminHandler(p *platform.Platform) http.Handler {
+func buildAdminHandler(p *platform.Platform, notify *notifydelivery.Handle) http.Handler {
 	var authOpts []admin.PlatformAuthOption
 	if p.BrowserSessionAuth() != nil {
 		authOpts = append(authOpts, admin.WithBrowserSessionAuth(p.BrowserSessionAuth()))
@@ -535,6 +536,10 @@ func buildAdminHandler(p *platform.Platform) http.Handler {
 	if p.APIKeyAuthenticator() != nil {
 		deps.APIKeyManager = p.APIKeyAuthenticator()
 	}
+
+	// Email notification settings surface (nil-safe: absent without a DB).
+	deps.NotificationSettings = notify.Settings()
+	deps.SendTestEmail = notify.SendTest
 
 	return admin.NewHandler(deps, admin.RequirePersona(platAuth))
 }

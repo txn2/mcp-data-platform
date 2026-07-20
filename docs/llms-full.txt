@@ -2275,6 +2275,45 @@ Screenshots: `cd ui && npm run screenshots && npm run screenshots:convert`
 
 ---
 
+# Email Notifications
+
+The platform emails users when a teammate shares an asset, collection, or prompt with them, or comments on something they own. Delivery is durable (database-backed queue with retries), never blocks the originating share or comment request, and respects per-user preferences. Requires a database-backed deployment.
+
+## How it works
+
+1. A direct share or feedback-thread event consults the recipient's preferences and queues a notification row. Enqueue failures are logged, never surfaced: the share or comment always succeeds.
+2. A background send worker claims due rows (Postgres LISTEN/NOTIFY plus a 30s poll fallback), renders a branded table-based HTML email with a plaintext alternative, and delivers over SMTP. Failed sends retry up to 5 times with exponential backoff (30s doubling, 32m cap). Delivery leases (2m) make rows crash-safe across pod restarts.
+3. Daily-digest users receive one email per day summarizing that window's events.
+
+## Admin SMTP settings
+
+Configured at runtime in the portal (Admin, then Settings) or via REST; stored in the platform_settings table, password encrypted at rest with ENCRYPTION_KEY and write-only (never returned by any API; responses carry password_set only). Fields: enabled, host, port, username, password, from, from_name, tls_mode (starttls default, implicit, none). The SMTP auth mechanism is negotiated automatically from what the server advertises (SCRAM-SHA-1/256, LOGIN, PLAIN, CRAM-MD5, and others); empty username = unauthenticated relay. A send-test action verifies the configuration end to end.
+
+- GET /api/v1/admin/settings/smtp
+- PUT /api/v1/admin/settings/smtp (empty password keeps the stored one)
+- POST /api/v1/admin/settings/smtp/test with {"to": "..."}
+
+Writes require database config mode (405 in file mode).
+
+## User notification preferences
+
+Self-scoped: a user only ever reads or writes their own. Portal page: Settings (user section). Delivery mode off | immediate (default) | daily, plus per-category toggles for shares and comments/feedback. Users with no stored row get immediate delivery with all categories on. Off drops events at enqueue time.
+
+- GET /api/v1/portal/notification-prefs
+- PUT /api/v1/portal/notification-prefs with partial {"mode", "shares_enabled", "comments_enabled"}
+
+## Configuration
+
+```yaml
+notifications:
+  enabled: true         # default: on when a database is available
+  digest_hour_utc: 13   # UTC hour (0-23) daily digests are sent
+```
+
+The SMTP connection itself is admin-configured at runtime, not in YAML. Emails deep-link into the portal via portal.public_base_url (asset/collection shares use the token viewer; prompts link to the in-app prompt page) and include a link to the recipient's notification preferences. When SMTP is unconfigured or disabled, queued rows wait without burning retry attempts. Retention bounds the queue: sent/failed rows purge after 30 days and undelivered rows older than 7 days are dropped as stale, so late SMTP enablement never delivers an ancient backlog. A per-actor rate limit (burst 30, 6/min sustained per replica) bounds outbound volume per account. The send-test action requires an enabled configuration (409 otherwise).
+
+---
+
 # MCP Apps
 
 MCP Apps provide interactive UI panels that enhance tool results. Instead of raw JSON, users see rich interactive UI rendered inline in the MCP host. The platform ships the `platform-info` app embedded in the binary — it registers automatically with zero configuration.

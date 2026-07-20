@@ -218,6 +218,7 @@ func (h *Handler) createThread(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to create thread")
 		return
 	}
+	h.notifyThreadEvent(r.Context(), created, user.Email, req.Body)
 	writeJSON(w, http.StatusCreated, created)
 }
 
@@ -385,6 +386,7 @@ func (h *Handler) appendThreadEvent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to append event")
 		return
 	}
+	h.notifyThreadEvent(r.Context(), thread, user.Email, req.Body)
 	writeJSON(w, http.StatusCreated, created)
 }
 

@@ -171,6 +171,17 @@ type Deps struct {
 	ImplementorName    string // display name (e.g., "ACME Corp"); empty = hidden
 	ImplementorLogoSVG string // inline SVG; empty = hidden
 	ImplementorURL     string // link URL; empty = no link
+
+	// Notifier receives share and thread trigger events (issue #631). nil
+	// disables email notifications; implementations log their own failures
+	// and never fail the originating request.
+	Notifier Notifier
+	// NotificationRegistrar, when set, registers the self-scoped
+	// notification-preference REST routes onto the portal's authenticated
+	// mux (the DataHubRegistrar pattern): the feature lives with the
+	// notification substrate, not in this package. nil leaves the
+	// /api/v1/portal/notification-prefs routes unregistered.
+	NotificationRegistrar func(*http.ServeMux)
 }
 
 // Handler provides portal REST API endpoints.
@@ -218,6 +229,11 @@ func (h *Handler) registerRoutes() {
 	// authenticated user so they can pick a teammate to share with.
 	if h.deps.UserDirectory != nil {
 		h.mux.HandleFunc("GET /api/v1/portal/users", h.listDirectoryUsers)
+	}
+	// Self-scoped notification preferences (#631), registered by the
+	// notification substrate onto the authenticated mux.
+	if h.deps.NotificationRegistrar != nil {
+		h.deps.NotificationRegistrar(h.mux)
 	}
 	h.mux.HandleFunc("GET /api/v1/portal/assets", h.listAssets)
 	// Relevance search is registered only when the wired asset store supports it
@@ -1321,6 +1337,8 @@ func (h *Handler) createShare(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to create share")
 		return
 	}
+
+	h.notifyShare(r.Context(), &share, "asset", asset.ID, asset.Name)
 
 	resp := shareResponse{Share: share}
 	if h.deps.PublicBaseURL != "" {

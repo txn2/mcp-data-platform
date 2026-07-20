@@ -85,6 +85,7 @@ nav:
       - User Portal: server/portal-user.md
       - Admin Portal: server/admin-portal.md
       - Admin API: server/admin-api.md
+      - Email Notifications: server/notifications.md
     - Operations:
       - Audit Logging: server/audit.md
       - Observability: server/observability.md

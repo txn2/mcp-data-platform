@@ -15,6 +15,7 @@ import { CollectionViewerPage } from "@/pages/collections/CollectionViewerPage";
 import { CollectionEditorPage } from "@/pages/collections/CollectionEditorPage";
 import { ResourcesPage } from "@/pages/resources/ResourcesPage";
 import { FeedbackPage } from "@/pages/feedback/FeedbackPage";
+import { UserSettingsPage } from "@/pages/settings/UserSettingsPage";
 
 // Admin pages (admin only)
 import { AdminAssetsPage } from "@/pages/assets/AdminAssetsPage";
@@ -29,6 +30,7 @@ import { AdminPromptsPage } from "@/pages/prompts/AdminPromptsPage";
 import { KeysPage } from "@/pages/settings/KeysPage";
 import { UsersPanel } from "@/pages/settings/UsersPanel";
 import { ChangelogPage } from "@/pages/settings/ChangelogPage";
+import { AdminSettingsPage } from "@/pages/settings/AdminSettingsPage";
 import { ShieldAlert } from "lucide-react";
 
 const pageTitles: Record<string, string> = {
@@ -39,6 +41,7 @@ const pageTitles: Record<string, string> = {
   "/feedback": "Feedback",
   "/knowledge": "Knowledge",
   "/prompts": "Prompts",
+  "/settings": "Settings",
   "/admin": "Dashboard",
   "/admin/assets": "Assets",
   "/admin/tools": "Tools",
@@ -53,6 +56,7 @@ const pageTitles: Record<string, string> = {
   "/admin/keys": "Keys",
   "/admin/users": "Users",
   "/admin/changelog": "Change Log",
+  "/admin/settings": "Settings",
 };
 
 const SIDEBAR_STORAGE_KEY = "sidebar-collapsed";
@@ -325,6 +329,7 @@ export function AppShell() {
             <ResourcesPage onNavigate={navigate} />
           )}
           {!isAdminRoute && route === "/feedback" && <FeedbackPage onNavigate={navigate} />}
+          {!isAdminRoute && route === "/settings" && <UserSettingsPage />}
           {!isAdminRoute &&
             (route === "/knowledge" ||
               knowledgePagesList ||
@@ -400,6 +405,7 @@ export function AppShell() {
               {route === "/admin/keys" && <KeysPage />}
               {route === "/admin/users" && <UsersPanel />}
               {route === "/admin/changelog" && <ChangelogPage />}
+              {route === "/admin/settings" && <AdminSettingsPage />}
             </>
           )}
         </main>

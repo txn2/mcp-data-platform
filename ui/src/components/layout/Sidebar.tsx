@@ -20,6 +20,7 @@ import {
   FileUp,
   BookOpen,
   Contact,
+  Settings,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
 import { useThemeStore } from "@/stores/theme";
@@ -38,7 +39,8 @@ interface Props {
 // Fixed order (#661): Assets, Prompts, Resources, Feedback, Knowledge,
 // Activity. Knowledge is the single home for the Memory -> Insight -> Knowledge
 // lifecycle (the former Knowledge Pages, Knowledge & Memory surfaces). Activity
-// sits last as the audit/landing view.
+// is the audit/landing view; Settings (per-user preferences, #631) trails the
+// content sections.
 const basePortalNavItems = [
   { path: "/", label: "Assets", icon: LayoutGrid },
   { path: "/prompts", label: "Prompts", icon: MessageSquare },
@@ -46,6 +48,7 @@ const basePortalNavItems = [
   { path: "/feedback", label: "Feedback", icon: MessageCircle },
   { path: "/knowledge", label: "Knowledge", icon: BookOpen },
   { path: "/activity", label: "Activity", icon: Activity },
+  { path: "/settings", label: "Settings", icon: Settings },
 ];
 
 interface NavItem {
@@ -69,6 +72,7 @@ const adminNavItems: NavItem[] = [
   { path: "/admin/personas", label: "Personas", icon: Users },
   { path: "/admin/prompts", label: "Prompts", icon: MessageSquare },
   { path: "/admin/resources", label: "Resources", icon: FileUp },
+  { path: "/admin/settings", label: "Settings", icon: Settings },
   { path: "/admin/tools", label: "Tools", icon: Wrench },
   { path: "/admin/users", label: "Users", icon: Contact },
 ];

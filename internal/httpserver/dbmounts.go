@@ -19,6 +19,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
@@ -26,7 +27,7 @@ import (
 )
 
 // mountPortalAPI registers the portal REST API on the mux if portal is enabled.
-func mountPortalAPI(mux *http.ServeMux, p *platform.Platform) error {
+func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydelivery.Handle) error {
 	if p == nil || portalDisabled(p) {
 		return nil
 	}
@@ -87,6 +88,7 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform) error {
 		ImplementorLogoSVG: p.ResolveImplementorLogo(),
 		ImplementorURL:     p.Config().Portal.Implementor.URL,
 	}
+	wirePortalNotifications(&deps, p, notify)
 
 	wirePortalOptionalDeps(&deps, p)
 

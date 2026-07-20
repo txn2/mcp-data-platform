@@ -25,6 +25,7 @@ require (
 	github.com/txn2/mcp-datahub v1.12.0
 	github.com/txn2/mcp-s3 v1.3.0
 	github.com/txn2/mcp-trino v1.3.1
+	github.com/wneessen/go-mail v0.8.1
 	github.com/yosida95/uritemplate/v3 v3.0.2
 	go.opentelemetry.io/otel v1.44.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.44.0
