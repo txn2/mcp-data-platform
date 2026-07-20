@@ -63,10 +63,15 @@ async function apiFetchAt<T>(base: string, path: string, init?: RequestInit): Pr
       handleUnauthorized();
     }
     const body = await res.json().catch(() => ({} as Record<string, unknown>));
+    // res.statusText is always "" over HTTP/2 (the protocol dropped reason
+    // phrases), so it cannot be the last resort. A non-JSON error body, such
+    // as a proxy's HTML 502 or a gateway timeout page, would otherwise
+    // produce an empty message and an error UI that renders a bare icon.
     const detail = (typeof body.detail === "string" && body.detail)
       || (typeof body.error === "string" && body.error)
       || (typeof body.message === "string" && body.message)
-      || res.statusText;
+      || res.statusText
+      || `Request failed with status ${res.status}`;
     throw new ApiError(res.status, detail);
   }
 

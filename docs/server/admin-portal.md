@@ -30,6 +30,19 @@ Customize the sidebar title and logo via `portal.title`, `portal.logo`, `portal.
 
 The resolved logo is also used as the browser favicon. A built-in activity icon is used when no logo is configured. Logos should be square SVGs for best results.
 
+#### Email logo
+
+Notification emails need a separate asset. Mail clients strip inline SVG, so `portal.logo` cannot be reused; set `portal.logo_email` to a raster **PNG** URL:
+
+```yaml
+portal:
+  logo_email: https://example.com/logo-email.png   # PNG only, max 1 MB
+```
+
+The PNG is fetched once at startup and attached to each message as an inline part, so it renders even in the clients that block remote images by default. Recipients never request the URL themselves, which means it only has to be reachable from the server, not from the public internet.
+
+The logo is additive: the brand wordmark still renders beneath it, and doubles as the image's `alt` text. Leave `logo_email` unset and emails render the wordmark alone. A URL that is unreachable or does not serve `image/png` logs a warning at startup and falls back to the wordmark; it never blocks notification delivery.
+
 ### Public Viewer Branding
 
 Shared artifact links (the public viewer at `/portal/view/{token}`) display a two-zone header. The **right zone** shows the platform brand (`portal.title` and `portal.logo`). The **left zone** is an optional implementor brand for the organization deploying the platform:

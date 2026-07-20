@@ -33,6 +33,50 @@ func TestBuildMessage(t *testing.T) {
 	}
 }
 
+// TestBuildMessage_EmbedsLogo proves the bytes actually reach the wire as an
+// inline part under the Content-ID the HTML references. A rendered cid: URL
+// with no matching part is a broken image in every client.
+func TestBuildMessage_EmbedsLogo(t *testing.T) {
+	logo := []byte("\x89PNG\r\n\x1a\nfake-raster-bytes")
+	email := Email{
+		To: "a@b.io", Subject: "Hello", Text: "plain",
+		HTML:    `<img src="cid:` + logoContentID + `">`,
+		LogoPNG: logo,
+	}
+
+	msg, err := buildMessage(SMTPSettings{From: "p@example.com"}, email)
+	if err != nil {
+		t.Fatalf("buildMessage: %v", err)
+	}
+	var out strings.Builder
+	if _, err := msg.WriteTo(&out); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	raw := out.String()
+	for _, want := range []string{logoContentID, "multipart/related", base64.StdEncoding.EncodeToString(logo)} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("message missing %q; got:\n%s", want, raw)
+		}
+	}
+}
+
+// TestBuildMessage_NoLogoNoRelatedPart pins the unconfigured default: no
+// attachment machinery when no logo is set.
+func TestBuildMessage_NoLogoNoRelatedPart(t *testing.T) {
+	msg, err := buildMessage(SMTPSettings{From: "p@example.com"},
+		Email{To: "a@b.io", Subject: "Hello", Text: "plain", HTML: "<p>x</p>"})
+	if err != nil {
+		t.Fatalf("buildMessage: %v", err)
+	}
+	var out strings.Builder
+	if _, err := msg.WriteTo(&out); err != nil {
+		t.Fatalf("WriteTo: %v", err)
+	}
+	if strings.Contains(out.String(), logoContentID) {
+		t.Error("no logo configured, yet the message carries a logo part")
+	}
+}
+
 func TestBuildMessage_NoFromName(t *testing.T) {
 	msg, err := buildMessage(SMTPSettings{From: "p@example.com"}, Email{To: "a@b.io"})
 	if err != nil {

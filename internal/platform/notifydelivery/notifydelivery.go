@@ -164,5 +164,14 @@ func (h *Handle) SendTest(ctx context.Context, to string) error {
 	if err != nil {
 		return fmt.Errorf("rendering test email: %w", err)
 	}
-	return h.sender.Send(ctx, *settings, *email) //nolint:wrapcheck // sender error already carries context
+	// The queue worker logs its own delivery failures, so without this the
+	// admin test send is the one delivery path that fails silently: its error
+	// reaches a single browser in the HTTP response and is then discarded,
+	// leaving an operator nothing to investigate. The recipient is a
+	// mail.ParseAddress-validated address, so it carries no control bytes.
+	if err := h.sender.Send(ctx, *settings, *email); err != nil {
+		slog.Error("notification: test send failed", "recipient", to, logKeyError, err)
+		return err //nolint:wrapcheck // sender error already carries context
+	}
+	return nil
 }

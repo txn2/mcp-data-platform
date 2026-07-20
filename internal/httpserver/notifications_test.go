@@ -6,6 +6,7 @@ package httpserver
 // following the dbmounts.go coverage convention.
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -43,6 +44,42 @@ func TestBuildNotifications_NoDatabase(t *testing.T) {
 	if got := buildNotifications(p); got != nil {
 		t.Error("no database must yield nil handle")
 	}
+}
+
+// TestEmailLogo covers the startup resolve. A missing or broken logo must
+// degrade to the text wordmark rather than block notifications: the asset is
+// decoration, and a 404 on it is not a reason to stop sending email.
+func TestEmailLogo(t *testing.T) {
+	png := []byte("\x89PNG\r\n\x1a\nfake-raster-bytes")
+
+	t.Run("unset URL resolves to no logo", func(t *testing.T) {
+		if got := emailLogo(""); got != nil {
+			t.Errorf("got %q, want nil", got)
+		}
+	})
+
+	t.Run("fetches configured PNG", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(png)
+		}))
+		defer srv.Close()
+
+		if got := emailLogo(srv.URL + "/logo.png"); !bytes.Equal(got, png) {
+			t.Errorf("got %q, want %q", got, png)
+		}
+	})
+
+	t.Run("unreachable URL degrades to no logo", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer srv.Close()
+
+		if got := emailLogo(srv.URL + "/missing.png"); got != nil {
+			t.Errorf("got %q, want nil", got)
+		}
+	})
 }
 
 func TestWirePortalNotifications(t *testing.T) {

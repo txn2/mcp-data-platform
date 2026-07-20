@@ -15,8 +15,10 @@ var templateFS embed.FS
 
 // Branding carries the deployment identity emails render with. Values come
 // from the same PortalConfig the portal UI uses, so emails match the portal.
-// The logo is deliberately text-based: most email clients strip inline SVG,
-// so the brand name renders as a styled wordmark linked to BaseURL.
+// The brand name always renders as a styled wordmark linked to BaseURL; the
+// portal's SVG logo is never usable here because email clients strip inline
+// SVG, so LogoPNG carries a separate raster asset when the operator supplies
+// one.
 type Branding struct {
 	// Name is the portal brand/title, e.g. "ACME Data Platform".
 	Name string
@@ -25,7 +27,17 @@ type Branding struct {
 	// ImplementorName and ImplementorURL render in the footer when set.
 	ImplementorName string
 	ImplementorURL  string
+	// LogoPNG is the raster logo from portal.logo_email, resolved once at
+	// startup. When non-empty it is attached to every message as an inline
+	// (cid:) part and rendered above the wordmark; recipients never fetch it
+	// remotely, so it survives the image blocking most clients apply by
+	// default. Empty renders the wordmark alone.
+	LogoPNG []byte
 }
+
+// logoContentID is the Content-ID of the inline logo part. The HTML template
+// references it as cid:<this>, so the two must stay in sync.
+const logoContentID = "logo.png"
 
 // Email is one rendered message ready for an SMTP sender.
 type Email struct {
@@ -33,6 +45,9 @@ type Email struct {
 	Subject string
 	HTML    string
 	Text    string
+	// LogoPNG is the inline logo the sender must attach under logoContentID
+	// when non-empty. The HTML references it but cannot carry the bytes.
+	LogoPNG []byte
 }
 
 // Renderer renders queued notifications into branded multipart emails.
@@ -75,8 +90,13 @@ func (r *Renderer) Render(ns []Notification) (*Email, error) {
 	return r.execute(ns[0].Recipient, r.buildData(ns))
 }
 
-// execute runs both templates over data and assembles the Email.
+// execute runs both templates over data and assembles the Email. It is the one
+// place the inline logo is attached, so every message the renderer produces
+// carries the cid: part its HTML references.
 func (r *Renderer) execute(to string, data emailData) (*Email, error) {
+	if len(r.branding.LogoPNG) > 0 {
+		data.LogoCID = logoContentID
+	}
 	var htmlBuf, textBuf strings.Builder
 	if err := r.html.Execute(&htmlBuf, data); err != nil {
 		return nil, fmt.Errorf("rendering html email: %w", err)
@@ -84,7 +104,13 @@ func (r *Renderer) execute(to string, data emailData) (*Email, error) {
 	if err := r.text.Execute(&textBuf, data); err != nil {
 		return nil, fmt.Errorf("rendering text email: %w", err)
 	}
-	return &Email{To: to, Subject: data.Subject, HTML: htmlBuf.String(), Text: textBuf.String()}, nil
+	return &Email{
+		To:      to,
+		Subject: data.Subject,
+		HTML:    htmlBuf.String(),
+		Text:    textBuf.String(),
+		LogoPNG: r.branding.LogoPNG,
+	}, nil
 }
 
 // RenderTest renders the admin "send test email" message used to verify a
@@ -104,11 +130,15 @@ func (r *Renderer) RenderTest(to string) (*Email, error) {
 
 // emailData is the template context shared by the HTML and text templates.
 type emailData struct {
-	Brand    Branding
-	Subject  string
-	Heading  string
-	Digest   bool
-	Items    []emailItem
+	Brand   Branding
+	Subject string
+	Heading string
+	Digest  bool
+	Items   []emailItem
+	// LogoCID is the Content-ID the HTML template points its logo <img> at.
+	// Empty when no raster logo is configured, which renders the wordmark
+	// alone. The text template ignores it.
+	LogoCID  string
 	PrefsURL string
 }
 

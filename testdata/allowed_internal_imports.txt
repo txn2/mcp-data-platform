@@ -4,6 +4,7 @@ cmd/mcp-data-platform -> internal/server
 cmd/mcp-data-platform -> pkg/platform
 cmd/preview-content-viewer -> internal/contentviewer
 internal/httpserver -> internal/apidocs
+internal/httpserver -> internal/platform/branding
 internal/httpserver -> internal/platform/notifydelivery
 internal/httpserver -> internal/ui
 internal/httpserver -> pkg/admin

@@ -72,6 +72,27 @@ describe("apiFetch error handling", () => {
     // omitted, jsdom's Response leaves it empty; our fallback handles
     // either case — the failure message must just be non-empty.
     await expect(apiFetch("/x")).rejects.toMatchObject({ status: 503 });
+    await expect(apiFetch("/x")).rejects.toSatisfy(
+      (e: Error) => e.message.length > 0,
+    );
+  });
+
+  it("never produces an empty message for a non-JSON proxy error body", async () => {
+    // The real failure this guards: an intermediary proxy returns its own
+    // HTML 502, so the JSON parse yields {} and none of detail/error/message
+    // exist. statusText is "" over HTTP/2 because the protocol dropped reason
+    // phrases, so without a final fallback the UI renders an error icon with
+    // no text beside it and the operator learns nothing.
+    global.fetch = vi.fn().mockResolvedValue(
+      new Response("<html><body><h1>502 Bad Gateway</h1></body></html>", {
+        status: 502,
+        statusText: "",
+        headers: { "Content-Type": "text/html" },
+      }),
+    );
+    const apiFetch = await loadApiFetch();
+    await expect(apiFetch("/settings/smtp/test", { method: "POST" }))
+      .rejects.toMatchObject({ status: 502, message: "Request failed with status 502" });
   });
 });
 

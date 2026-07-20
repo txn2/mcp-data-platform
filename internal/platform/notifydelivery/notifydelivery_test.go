@@ -1,8 +1,12 @@
 package notifydelivery
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"strings"
+	"sync"
 	"testing"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
@@ -235,6 +239,53 @@ func TestSendTest_SendError(t *testing.T) {
 	}
 	if err := h.SendTest(context.Background(), "a@b.io"); err == nil {
 		t.Fatal("expected send error")
+	}
+}
+
+// lockedBuffer serializes writes so swapping the process-wide default logger
+// stays race-free alongside other tests logging from parallel goroutines.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	n, _ := b.buf.Write(p) // bytes.Buffer.Write is documented never to fail.
+	return n, nil
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// TestSendTest_SendErrorIsLogged pins the operator-facing half of a failed
+// test send. The queue worker logs its own delivery failures; without this the
+// admin test send is the only delivery path whose error exists solely in an
+// HTTP response body, leaving nothing behind to diagnose a misconfiguration.
+func TestSendTest_SendErrorIsLogged(t *testing.T) {
+	var out lockedBuffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&out, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	h := &Handle{
+		settings: &fakeSettings{settings: &notification.SMTPSettings{Enabled: true, Host: "smtp.example.com"}},
+		renderer: testRenderer(t),
+		sender:   &captureSender{err: errors.New("dial failed: i/o timeout")},
+	}
+	if err := h.SendTest(context.Background(), "a@b.io"); err == nil {
+		t.Fatal("expected send error")
+	}
+
+	logged := out.String()
+	for _, want := range []string{"test send failed", "a@b.io", "dial failed: i/o timeout"} {
+		if !strings.Contains(logged, want) {
+			t.Errorf("log missing %q; got: %s", want, logged)
+		}
 	}
 }
 

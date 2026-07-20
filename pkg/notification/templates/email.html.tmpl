@@ -12,6 +12,7 @@
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:8px;border:1px solid #e2e4e8;">
         <tr>
           <td style="padding:24px 32px;border-bottom:1px solid #e2e4e8;">
+            {{if .LogoCID}}<img src="cid:{{.LogoCID}}" alt="{{.Brand.Name}}" height="32" style="display:block;height:32px;width:auto;max-width:220px;border:0;outline:none;text-decoration:none;margin:0 0 12px 0;">{{end}}
             {{if .Brand.BaseURL}}<a href="{{.Brand.BaseURL}}" style="font-family:Helvetica,Arial,sans-serif;font-size:18px;font-weight:700;color:#1a1d21;text-decoration:none;">{{.Brand.Name}}</a>{{else}}<span style="font-family:Helvetica,Arial,sans-serif;font-size:18px;font-weight:700;color:#1a1d21;">{{.Brand.Name}}</span>{{end}}
           </td>
         </tr>

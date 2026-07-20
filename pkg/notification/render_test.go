@@ -1,6 +1,7 @@
 package notification
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -163,6 +164,57 @@ func TestRenderTest(t *testing.T) {
 	}
 	if !strings.Contains(email.Text, "confirms the SMTP configuration") {
 		t.Error("Text missing test body")
+	}
+}
+
+// TestRender_InlineLogo covers the branded header in both configurations. The
+// logo is additive: the wordmark must survive alongside it, because a client
+// that blocks or fails the inline part still has to identify the sender.
+func TestRender_InlineLogo(t *testing.T) {
+	logo := []byte("\x89PNG\r\n\x1a\nfake-raster-bytes")
+	r, err := NewRenderer(Branding{
+		Name:    "ACME Data Platform",
+		BaseURL: "https://data.example.com",
+		LogoPNG: logo,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	email, err := r.RenderTest("admin@example.com")
+	if err != nil {
+		t.Fatalf("RenderTest: %v", err)
+	}
+	if !strings.Contains(email.HTML, `src="cid:`+logoContentID+`"`) {
+		t.Errorf("HTML missing inline logo reference: %s", email.HTML)
+	}
+	if !strings.Contains(email.HTML, `alt="ACME Data Platform"`) {
+		t.Error("logo must carry the brand name as alt text for image-blocking clients")
+	}
+	if !strings.Contains(email.HTML, ">ACME Data Platform</a>") {
+		t.Error("wordmark must remain alongside the logo, not be replaced by it")
+	}
+	if !bytes.Equal(email.LogoPNG, logo) {
+		t.Error("Email must carry the logo bytes for the sender to embed")
+	}
+}
+
+// TestRender_NoLogoWithoutConfig pins the default: an operator who configures
+// no raster logo gets the wordmark alone and no dangling cid: reference, which
+// would otherwise render as a broken image.
+func TestRender_NoLogoWithoutConfig(t *testing.T) {
+	email, err := testRenderer(t).RenderTest("admin@example.com")
+	if err != nil {
+		t.Fatalf("RenderTest: %v", err)
+	}
+	if strings.Contains(email.HTML, "cid:") {
+		t.Errorf("unconfigured logo must not emit a cid: reference: %s", email.HTML)
+	}
+	if len(email.LogoPNG) != 0 {
+		t.Error("unconfigured logo must leave Email.LogoPNG empty")
+	}
+	if !strings.Contains(email.HTML, ">ACME Data Platform</a>") {
+		t.Error("wordmark must render when no logo is configured")
 	}
 }
 

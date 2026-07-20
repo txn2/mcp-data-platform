@@ -62,6 +62,7 @@ admin:
 | `portal.logo` | string | `""` | Logo URL (fallback for both themes) |
 | `portal.logo_light` | string | `""` | Logo URL for light theme |
 | `portal.logo_dark` | string | `""` | Logo URL for dark theme |
+| `portal.logo_email` | string | `""` | Raster PNG logo URL for notification emails (mail clients strip SVG); unset renders the brand wordmark alone |
 
 ## Admin Portal
 
