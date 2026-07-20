@@ -3,6 +3,7 @@ package portal
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	htmlpkg "html"
 	"net/http"
@@ -23,7 +24,7 @@ var htmlNoticeText = htmlpkg.EscapeString(defaultNoticeText)
 
 func TestPublicViewSuccess(t *testing.T) {
 	now := time.Now()
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: defaultNoticeText}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: defaultNoticeText}
 	asset := &Asset{
 		ID: "a1", OwnerID: "u1", Name: "Test", ContentType: "text/plain",
 		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
@@ -80,7 +81,7 @@ func TestPublicViewSuccess(t *testing.T) {
 
 func TestPublicViewVersionBadge(t *testing.T) {
 	now := time.Now()
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: defaultNoticeText}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: defaultNoticeText}
 
 	t.Run("shows version badge", func(t *testing.T) {
 		asset := &Asset{
@@ -126,7 +127,7 @@ func TestPublicViewVersionBadge(t *testing.T) {
 
 func TestPublicViewCustomBrand(t *testing.T) {
 	now := time.Now()
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: defaultNoticeText}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: defaultNoticeText}
 	asset := &Asset{
 		ID: "a1", OwnerID: "u1", Name: "Report", ContentType: "text/plain",
 		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
@@ -169,7 +170,7 @@ func TestPublicViewCustomBrand(t *testing.T) {
 
 func TestPublicViewImplementorOnly(t *testing.T) {
 	now := time.Now()
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: defaultNoticeText}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: defaultNoticeText}
 	asset := &Asset{
 		ID: "a1", OwnerID: "u1", Name: "Report", ContentType: "text/plain",
 		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
@@ -202,7 +203,7 @@ func TestPublicViewImplementorOnly(t *testing.T) {
 
 func TestPublicViewBrandLinks(t *testing.T) {
 	now := time.Now()
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: defaultNoticeText}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: defaultNoticeText}
 	asset := &Asset{
 		ID: "a1", OwnerID: "u1", Name: "Report", ContentType: "text/plain",
 		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
@@ -266,7 +267,7 @@ func TestPublicViewTokenNotFound(t *testing.T) {
 }
 
 func TestPublicViewRevoked(t *testing.T) {
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: true}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1", Revoked: true}
 	h := NewHandler(Deps{
 		AssetStore: &mockAssetStore{},
 		ShareStore: &mockShareStore{getByTokenRes: share},
@@ -282,7 +283,7 @@ func TestPublicViewRevoked(t *testing.T) {
 
 func TestPublicViewExpired(t *testing.T) {
 	past := time.Now().Add(-time.Hour)
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", ExpiresAt: &past}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1", ExpiresAt: &past}
 	h := NewHandler(Deps{
 		AssetStore: &mockAssetStore{},
 		ShareStore: &mockShareStore{getByTokenRes: share},
@@ -297,7 +298,7 @@ func TestPublicViewExpired(t *testing.T) {
 }
 
 func TestPublicViewAssetNotFound(t *testing.T) {
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1"}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1"}
 	h := NewHandler(Deps{
 		AssetStore: &mockAssetStore{getErr: fmt.Errorf("not found")},
 		ShareStore: &mockShareStore{getByTokenRes: share},
@@ -313,7 +314,7 @@ func TestPublicViewAssetNotFound(t *testing.T) {
 
 func TestPublicViewAssetDeleted(t *testing.T) {
 	now := time.Now()
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1"}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1"}
 	asset := &Asset{ID: "a1", DeletedAt: &now}
 	h := NewHandler(Deps{
 		AssetStore: &mockAssetStore{getAsset: asset},
@@ -329,7 +330,7 @@ func TestPublicViewAssetDeleted(t *testing.T) {
 }
 
 func TestPublicViewNilS3Client(t *testing.T) {
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1"}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1"}
 	asset := &Asset{ID: "a1"}
 	h := NewHandler(Deps{
 		AssetStore: &mockAssetStore{getAsset: asset},
@@ -345,7 +346,7 @@ func TestPublicViewNilS3Client(t *testing.T) {
 }
 
 func TestPublicViewS3Error(t *testing.T) {
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1"}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1"}
 	asset := &Asset{ID: "a1"}
 	h := NewHandler(Deps{
 		AssetStore: &mockAssetStore{getAsset: asset},
@@ -379,7 +380,7 @@ func TestPublicViewEmptyToken(t *testing.T) {
 func TestPublicViewWithExpiration(t *testing.T) {
 	now := time.Now()
 	future := now.Add(6 * time.Hour)
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, ExpiresAt: &future, NoticeText: defaultNoticeText}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, ExpiresAt: &future, NoticeText: defaultNoticeText}
 	asset := &Asset{
 		ID: "a1", OwnerID: "u1", Name: "Report", ContentType: "text/plain",
 		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
@@ -412,7 +413,8 @@ func TestPublicViewHideExpiration(t *testing.T) {
 	now := time.Now()
 	future := now.Add(3 * 24 * time.Hour)
 	share := &Share{
-		ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false,
+		AccessMode: AccessModePublic,
+		ID:         "s1", AssetID: "a1", Token: "tok1", Revoked: false,
 		ExpiresAt: &future, HideExpiration: true, NoticeText: defaultNoticeText,
 	}
 	asset := &Asset{
@@ -445,7 +447,7 @@ func TestPublicViewHideExpiration(t *testing.T) {
 
 func TestPublicViewDarkModeToggle(t *testing.T) {
 	now := time.Now()
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: defaultNoticeText}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: defaultNoticeText}
 	asset := &Asset{
 		ID: "a1", OwnerID: "u1", Name: "Test", ContentType: "text/plain",
 		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
@@ -501,7 +503,7 @@ func TestPublicCSPUnified(t *testing.T) {
 
 func TestPublicViewContentViewerBundle(t *testing.T) {
 	now := time.Now()
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: defaultNoticeText}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: defaultNoticeText}
 	asset := &Asset{
 		ID: "a1", OwnerID: "u1", Name: "Test", ContentType: "text/markdown",
 		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
@@ -548,7 +550,7 @@ func TestPublicViewAllContentTypesUseSameTemplate(t *testing.T) {
 	for _, ct := range contentTypes {
 		t.Run(ct, func(t *testing.T) {
 			now := time.Now()
-			share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false}
+			share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false}
 			asset := &Asset{
 				ID: "a1", OwnerID: "u1", Name: "Test", ContentType: ct,
 				Tags: []string{}, CreatedAt: now, UpdatedAt: now,
@@ -587,7 +589,7 @@ func TestDefaultLogoSVG(t *testing.T) {
 
 func TestPublicViewCustomNoticeText(t *testing.T) {
 	now := time.Now()
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: "Internal use only."}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: "Internal use only."}
 	asset := &Asset{
 		ID: "a1", OwnerID: "u1", Name: "Report", ContentType: "text/plain",
 		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
@@ -613,7 +615,7 @@ func TestPublicViewCustomNoticeText(t *testing.T) {
 
 func TestPublicViewEmptyNoticeText(t *testing.T) {
 	now := time.Now()
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: ""}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, NoticeText: ""}
 	asset := &Asset{
 		ID: "a1", OwnerID: "u1", Name: "Report", ContentType: "text/plain",
 		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
@@ -640,7 +642,7 @@ func TestPublicViewEmptyNoticeText(t *testing.T) {
 func TestPublicViewEmptyNoticeWithExpiration(t *testing.T) {
 	now := time.Now()
 	future := now.Add(6 * time.Hour)
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, ExpiresAt: &future, NoticeText: ""}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1", Revoked: false, ExpiresAt: &future, NoticeText: ""}
 	asset := &Asset{
 		ID: "a1", OwnerID: "u1", Name: "Report", ContentType: "text/plain",
 		Tags: []string{}, CreatedAt: now, UpdatedAt: now,
@@ -728,7 +730,8 @@ func (m *mockMultiAssetStore) GetByIDs(_ context.Context, ids []string) (map[str
 func TestPublicCollectionView(t *testing.T) {
 	now := time.Now()
 	share := &Share{
-		ID: "s1", Token: "tok1", CollectionID: "c1",
+		AccessMode: AccessModePublic,
+		ID:         "s1", Token: "tok1", CollectionID: "c1",
 		NoticeText: "Collection notice.",
 	}
 
@@ -789,7 +792,7 @@ func TestPublicCollectionView(t *testing.T) {
 // implementor-branding conditional.
 func TestPublicCollectionViewHeaderBranding(t *testing.T) {
 	now := time.Now()
-	share := &Share{ID: "s1", Token: "tok2", CollectionID: "c1"}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", Token: "tok2", CollectionID: "c1"}
 	coll := &Collection{
 		ID:        "c1",
 		Name:      "Q3 Revenue Report",
@@ -912,7 +915,7 @@ func stripScriptAndStyle(body string) string {
 // Collection has no Sections; the assertions only target the <header>
 // block, which is unaffected by collection body content.
 func TestPublicCollectionViewLogoOnlyImplementor(t *testing.T) {
-	share := &Share{ID: "s1", Token: "tok3", CollectionID: "c1"}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", Token: "tok3", CollectionID: "c1"}
 	coll := &Collection{ID: "c1", Name: "Logo-Only Collection"}
 
 	h := NewHandler(Deps{
@@ -961,7 +964,7 @@ func TestPublicCollectionViewLogoOnlyImplementor(t *testing.T) {
 // `{{if or .ImplementorName .ImplementorLogoSVG}}` must preserve it.
 // Regression guard against an accidental rewrite to AND.
 func TestPublicCollectionViewNameOnlyImplementor(t *testing.T) {
-	share := &Share{ID: "s1", Token: "tok4", CollectionID: "c1"}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", Token: "tok4", CollectionID: "c1"}
 	coll := &Collection{ID: "c1", Name: "Name-Only Collection"}
 
 	h := NewHandler(Deps{
@@ -995,7 +998,8 @@ func TestPublicCollectionViewNameOnlyImplementor(t *testing.T) {
 
 func TestPublicCollectionViewNotFound(t *testing.T) {
 	share := &Share{
-		ID: "s1", Token: "tok1", CollectionID: "c1",
+		AccessMode: AccessModePublic,
+		ID:         "s1", Token: "tok1", CollectionID: "c1",
 	}
 
 	h := NewHandler(Deps{
@@ -1016,7 +1020,8 @@ func TestPublicCollectionViewNotFound(t *testing.T) {
 func TestPublicCollectionViewDeleted(t *testing.T) {
 	now := time.Now()
 	share := &Share{
-		ID: "s1", Token: "tok1", CollectionID: "c1",
+		AccessMode: AccessModePublic,
+		ID:         "s1", Token: "tok1", CollectionID: "c1",
 	}
 	coll := &Collection{
 		ID: "c1", Name: "Gone", DeletedAt: &now,
@@ -1041,7 +1046,8 @@ func TestPublicCollectionViewDeleted(t *testing.T) {
 func TestPublicCollectionItemContent(t *testing.T) {
 	now := time.Now()
 	share := &Share{
-		ID: "s1", Token: "tok1", CollectionID: "c1",
+		AccessMode: AccessModePublic,
+		ID:         "s1", Token: "tok1", CollectionID: "c1",
 	}
 	coll := &Collection{
 		ID: "c1", Name: "Coll",
@@ -1077,7 +1083,8 @@ func TestPublicCollectionItemContent(t *testing.T) {
 func TestPublicCollectionItemContentNotInCollection(t *testing.T) {
 	now := time.Now()
 	share := &Share{
-		ID: "s1", Token: "tok1", CollectionID: "c1",
+		AccessMode: AccessModePublic,
+		ID:         "s1", Token: "tok1", CollectionID: "c1",
 	}
 	coll := &Collection{
 		ID: "c1", Name: "Coll",
@@ -1107,7 +1114,8 @@ func TestPublicCollectionItemContentNotInCollection(t *testing.T) {
 func TestPublicCollectionItemThumbnail(t *testing.T) {
 	now := time.Now()
 	share := &Share{
-		ID: "s1", Token: "tok1", CollectionID: "c1",
+		AccessMode: AccessModePublic,
+		ID:         "s1", Token: "tok1", CollectionID: "c1",
 	}
 	coll := &Collection{
 		ID: "c1", Name: "Coll",
@@ -1144,7 +1152,8 @@ func TestPublicCollectionItemThumbnail(t *testing.T) {
 func TestPublicCollectionItemView(t *testing.T) {
 	now := time.Now()
 	share := &Share{
-		ID: "s1", Token: "tok1", CollectionID: "c1",
+		AccessMode: AccessModePublic,
+		ID:         "s1", Token: "tok1", CollectionID: "c1",
 		NoticeText: "View notice.",
 	}
 	coll := &Collection{
@@ -1323,34 +1332,32 @@ func TestFetchAssetMap(t *testing.T) {
 func TestValidateCollectionItemAccessInvalidToken(t *testing.T) {
 	h := NewHandler(Deps{
 		AssetStore: &mockAssetStore{},
-		ShareStore: &mockShareStore{},
+		ShareStore: &mockShareStore{getByTokenErr: errors.New("no such token")},
 		S3Client:   &mockS3Client{},
+		RateLimit:  RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
 	}, nil)
 
-	// Empty token
-	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view//items/a1/content", http.NoBody)
-	req.SetPathValue("token", "")
-	req.SetPathValue("assetId", "a1")
+	// Unknown token: the gate refuses before the item handler runs.
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/nope/items/a1/content", http.NoBody)
 	w := httptest.NewRecorder()
-
-	result := h.validateCollectionItemAccess(w, req)
-	assert.Nil(t, result)
+	h.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusNotFound, w.Code)
 
-	// Empty assetId
+	// Empty assetId cannot arrive through the mux (the {assetId} wildcard
+	// does not match an empty segment), so drive the item check directly with
+	// a gated share to cover the guard.
 	w2 := httptest.NewRecorder()
-	req2 := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1/items//content", http.NoBody)
-	req2.SetPathValue("token", "tok1")
-	req2.SetPathValue("assetId", "")
-	result2 := h.validateCollectionItemAccess(w2, req2)
-	assert.Nil(t, result2)
+	req2 := withGate(httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1/items//content", http.NoBody),
+		&Share{ID: "s1", Token: "tok1", CollectionID: "c1", AccessMode: AccessModePublic}, nil)
+	assert.Nil(t, h.validateCollectionItemAccess(w2, req2))
 	assert.Equal(t, http.StatusNotFound, w2.Code)
 }
 
 func TestValidateCollectionItemAccessExpiredShare(t *testing.T) {
 	past := time.Now().Add(-time.Hour)
 	share := &Share{
-		ID: "s1", Token: "tok1", CollectionID: "c1",
+		AccessMode: AccessModePublic,
+		ID:         "s1", Token: "tok1", CollectionID: "c1",
 		ExpiresAt: &past,
 	}
 
@@ -1358,20 +1365,18 @@ func TestValidateCollectionItemAccessExpiredShare(t *testing.T) {
 		AssetStore: &mockAssetStore{},
 		ShareStore: &mockShareStore{getByTokenRes: share},
 		S3Client:   &mockS3Client{},
+		RateLimit:  RateLimitConfig{RequestsPerMinute: 600, BurstSize: 100},
 	}, nil)
 
 	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1/items/a1/content", http.NoBody)
-	req.SetPathValue("token", "tok1")
-	req.SetPathValue("assetId", "a1")
 	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
 
-	result := h.validateCollectionItemAccess(w, req)
-	assert.Nil(t, result)
 	assert.Equal(t, http.StatusGone, w.Code)
 }
 
 func TestValidateCollectionItemAccessCollectionNotFound(t *testing.T) {
-	share := &Share{ID: "s1", CollectionID: "coll-missing", Token: "tok1"}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", CollectionID: "coll-missing", Token: "tok1"}
 
 	h := NewHandler(Deps{
 		ShareStore: &mockShareStore{getByTokenRes: share},
@@ -1382,17 +1387,14 @@ func TestValidateCollectionItemAccessCollectionNotFound(t *testing.T) {
 	}, nil)
 
 	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1/items/a1/content", http.NoBody)
-	req.SetPathValue("token", "tok1")
-	req.SetPathValue("assetId", "a1")
 	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
 
-	result := h.validateCollectionItemAccess(w, req)
-	assert.Nil(t, result)
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
 func TestValidateCollectionItemAccessNoCollectionStore(t *testing.T) {
-	share := &Share{ID: "s1", CollectionID: "coll1", Token: "tok1"}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", CollectionID: "coll1", Token: "tok1"}
 
 	h := NewHandler(Deps{
 		ShareStore: &mockShareStore{getByTokenRes: share},
@@ -1401,12 +1403,9 @@ func TestValidateCollectionItemAccessNoCollectionStore(t *testing.T) {
 	}, nil)
 
 	req := httptest.NewRequestWithContext(context.Background(), "GET", "/portal/view/tok1/items/a1/content", http.NoBody)
-	req.SetPathValue("token", "tok1")
-	req.SetPathValue("assetId", "a1")
 	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
 
-	result := h.validateCollectionItemAccess(w, req)
-	assert.Nil(t, result)
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 }
 
@@ -1419,7 +1418,7 @@ func TestPublicCollectionItemViewSuccess(t *testing.T) {
 		},
 		CreatedAt: now, UpdatedAt: now,
 	}
-	share := &Share{ID: "s1", CollectionID: "coll1", Token: "tok1", NoticeText: defaultNoticeText}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", CollectionID: "coll1", Token: "tok1", NoticeText: defaultNoticeText}
 	asset := &Asset{
 		ID: "a1", OwnerID: "u1", Name: "Test", ContentType: "text/html",
 		S3Bucket: "b", S3Key: "k", Tags: []string{}, CreatedAt: now, UpdatedAt: now,
@@ -1453,7 +1452,7 @@ func TestPublicCollectionItemThumbnailNoS3(t *testing.T) {
 		},
 		CreatedAt: now, UpdatedAt: now,
 	}
-	share := &Share{ID: "s1", CollectionID: "coll1", Token: "tok1"}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", CollectionID: "coll1", Token: "tok1"}
 
 	h := NewHandler(Deps{
 		ShareStore:      &mockShareStore{getByTokenRes: share},
@@ -1480,7 +1479,7 @@ func TestPublicCollectionItemThumbnailNoThumbKey(t *testing.T) {
 		},
 		CreatedAt: now, UpdatedAt: now,
 	}
-	share := &Share{ID: "s1", CollectionID: "coll1", Token: "tok1"}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", CollectionID: "coll1", Token: "tok1"}
 	asset := &Asset{
 		ID: "a1", OwnerID: "u1", Name: "Test", ContentType: "text/html",
 		ThumbnailS3Key: "", // no thumbnail
@@ -1513,7 +1512,7 @@ func TestPublicCollectionItemThumbnailS3Error(t *testing.T) {
 		},
 		CreatedAt: now, UpdatedAt: now,
 	}
-	share := &Share{ID: "s1", CollectionID: "coll1", Token: "tok1"}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", CollectionID: "coll1", Token: "tok1"}
 	asset := &Asset{
 		ID: "a1", OwnerID: "u1", Name: "Test", ContentType: "text/html",
 		ThumbnailS3Key: "portal/thumb.png", S3Bucket: "b",
@@ -1539,7 +1538,7 @@ func TestPublicCollectionItemThumbnailS3Error(t *testing.T) {
 }
 
 func TestPublicCollectionViewNoCollectionStore(t *testing.T) {
-	share := &Share{ID: "s1", CollectionID: "coll1", Token: "tok1"}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", CollectionID: "coll1", Token: "tok1"}
 
 	h := NewHandler(Deps{
 		ShareStore: &mockShareStore{getByTokenRes: share},
@@ -1563,7 +1562,7 @@ func TestPublicCollectionItemContentFetchError(t *testing.T) {
 		},
 		CreatedAt: now, UpdatedAt: now,
 	}
-	share := &Share{ID: "s1", CollectionID: "coll1", Token: "tok1"}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", CollectionID: "coll1", Token: "tok1"}
 
 	h := NewHandler(Deps{
 		ShareStore:      &mockShareStore{getByTokenRes: share},
@@ -1592,7 +1591,7 @@ func TestPublicCollectionItemViewFetchError(t *testing.T) {
 		},
 		CreatedAt: now, UpdatedAt: now,
 	}
-	share := &Share{ID: "s1", CollectionID: "coll1", Token: "tok1"}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", CollectionID: "coll1", Token: "tok1"}
 
 	h := NewHandler(Deps{
 		ShareStore:      &mockShareStore{getByTokenRes: share},
@@ -1613,7 +1612,7 @@ func TestPublicCollectionItemViewFetchError(t *testing.T) {
 }
 
 func TestPublicAssetContentDownload(t *testing.T) {
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1"}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1"}
 	asset := &Asset{
 		ID: "a1", OwnerID: "u1", Name: "export.csv", ContentType: "text/csv",
 		SizeBytes: 5000, Tags: []string{}, CreatedAt: time.Now(), UpdatedAt: time.Now(),
@@ -1655,7 +1654,7 @@ func TestPublicAssetContentTokenNotFound(t *testing.T) {
 
 func TestPublicViewLargeAssetShowsTooLarge(t *testing.T) {
 	now := time.Now()
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1"}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1"}
 	asset := &Asset{
 		ID: "a1", OwnerID: "u1", Name: "big-export.csv", ContentType: "text/csv",
 		SizeBytes: 10 * 1024 * 1024, // 10 MB — exceeds 2 MB threshold
@@ -1682,7 +1681,7 @@ func TestPublicViewLargeAssetShowsTooLarge(t *testing.T) {
 }
 
 func TestPublicAssetContentLargeStillDownloads(t *testing.T) {
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1"}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1"}
 	asset := &Asset{
 		ID: "a1", OwnerID: "u1", Name: "big.csv", ContentType: "text/csv",
 		SizeBytes: 10 * 1024 * 1024, // 10 MB
@@ -1845,7 +1844,7 @@ func TestPublicCollectionOGImage(t *testing.T) {
 // TestResolvePublicBaseURL).
 func TestPublicAssetViewerEmitsOGMetadata(t *testing.T) {
 	now := time.Now()
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1"}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1"}
 	asset := &Asset{
 		ID: "a1", Name: "Cover.png", ContentType: "image/png",
 		Description: "Quarterly cover image",
@@ -1886,7 +1885,7 @@ func TestPublicAssetViewerEmitsOGMetadata(t *testing.T) {
 // Twitter card to "summary" and omits og:image.
 func TestPublicAssetViewerOGFallsBackToSummaryWhenNoImage(t *testing.T) {
 	now := time.Now()
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1"}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1"}
 	asset := &Asset{
 		ID: "a1", Name: "data.csv", ContentType: "text/csv",
 		S3Bucket: "b1", S3Key: "assets/a1.csv",
@@ -1918,7 +1917,7 @@ func TestPublicAssetViewerOGFallsBackToSummaryWhenNoImage(t *testing.T) {
 // endpoint when one is configured.
 func TestPublicCollectionViewerEmitsOGMetadata(t *testing.T) {
 	now := time.Now()
-	share := &Share{ID: "s1", Token: "tok1", CollectionID: "c1"}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", Token: "tok1", CollectionID: "c1"}
 	coll := &Collection{
 		ID: "c1", Name: "Q4 Review", Description: "Executive review pack",
 		ThumbnailS3Key: "collections/c1/thumb.png",
@@ -1952,7 +1951,7 @@ func TestPublicCollectionViewerEmitsOGMetadata(t *testing.T) {
 
 func TestPublicAssetThumbnail(t *testing.T) {
 	now := time.Now()
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1"}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1"}
 	asset := &Asset{
 		ID: "a1", Name: "doc.pdf", ContentType: "application/pdf",
 		S3Bucket: "b1", S3Key: "assets/a1.pdf", ThumbnailS3Key: "thumb/a1.png",
@@ -1977,7 +1976,7 @@ func TestPublicAssetThumbnail(t *testing.T) {
 }
 
 func TestPublicAssetThumbnailNotFoundWhenNoThumbKey(t *testing.T) {
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1"}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1"}
 	asset := &Asset{ID: "a1", Name: "doc.pdf", ContentType: "application/pdf"} // no ThumbnailS3Key
 
 	h := NewHandler(Deps{
@@ -1997,7 +1996,7 @@ func TestPublicAssetThumbnailNotFoundWhenNoThumbKey(t *testing.T) {
 func TestPublicAssetThumbnailRejectsCollectionShare(t *testing.T) {
 	// A collection-share token must not resolve via the single-asset
 	// thumbnail endpoint — share.AssetID is empty, so we 404.
-	share := &Share{ID: "s1", Token: "tok1", CollectionID: "c1"}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", Token: "tok1", CollectionID: "c1"}
 
 	h := NewHandler(Deps{
 		AssetStore: &mockAssetStore{},
@@ -2017,7 +2016,7 @@ func TestPublicAssetThumbnailRejectsCollectionShare(t *testing.T) {
 
 func TestPublicCollectionThumbnail(t *testing.T) {
 	now := time.Now()
-	share := &Share{ID: "s1", Token: "tok1", CollectionID: "c1"}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", Token: "tok1", CollectionID: "c1"}
 	coll := &Collection{
 		ID: "c1", Name: "Q4", ThumbnailS3Key: "collections/c1/thumb.png",
 		CreatedAt: now, UpdatedAt: now,
@@ -2043,7 +2042,7 @@ func TestPublicCollectionThumbnail(t *testing.T) {
 }
 
 func TestPublicCollectionThumbnailNotFoundWhenNoKey(t *testing.T) {
-	share := &Share{ID: "s1", Token: "tok1", CollectionID: "c1"}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", Token: "tok1", CollectionID: "c1"}
 	coll := &Collection{ID: "c1", Name: "Q4"} // no ThumbnailS3Key
 
 	h := NewHandler(Deps{
@@ -2062,7 +2061,7 @@ func TestPublicCollectionThumbnailNotFoundWhenNoKey(t *testing.T) {
 }
 
 func TestPublicCollectionThumbnailRejectsAssetShare(t *testing.T) {
-	share := &Share{ID: "s1", AssetID: "a1", Token: "tok1"}
+	share := &Share{AccessMode: AccessModePublic, ID: "s1", AssetID: "a1", Token: "tok1"}
 
 	h := NewHandler(Deps{
 		AssetStore:      &mockAssetStore{},

@@ -78,6 +78,12 @@ These fields are set per-share when creating a share via `POST /api/v1/portal/as
 | `shared_with_email` | string | - | Target email for private shares |
 | `hide_expiration` | bool | `false` | Hide the expiration countdown in the public viewer |
 | `notice_text` | string\|null | `"Proprietary & Confidential. Only share with authorized viewers."` | Custom notice text for the public viewer. Omit or `null` for the default. Set to `""` to hide the notice entirely. Max 500 characters. |
+| `access_mode` | string | `restricted` with a recipient, `authenticated` without | Who the token opens for: `restricted` (named recipient and the creator), `authenticated` (any signed-in user), or `public` (anyone with the link). `public` is never implied; `restricted` without a recipient is rejected with 400. |
+
+Anonymous access is opt-in. Every route under `/portal/view/` (the page, the
+raw content, both thumbnail routes, and the three collection-item routes)
+resolves the share's access mode before serving anything, and refuses with 403
+when the caller is not admitted.
 
 ## Dashboard
 

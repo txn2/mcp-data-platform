@@ -303,6 +303,7 @@ pkg/portal -> pkg/embedding
 pkg/portal -> pkg/memory
 pkg/portal -> pkg/middleware
 pkg/portal -> pkg/portal/knowledgepage
+pkg/portal -> pkg/portal/shareaccess
 pkg/portal -> pkg/portal/threads
 pkg/portal -> pkg/prompt
 pkg/portal -> pkg/ratelimit

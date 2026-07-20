@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/txn2/mcp-data-platform/pkg/portal/shareaccess"
 )
 
 // MaxContentUploadBytes is the maximum size for content uploads (10 MB).
@@ -121,6 +123,21 @@ const (
 	OriginPublicLinkLogin ShareOrigin = "public_link_login"
 )
 
+// ShareAccessMode determines who may open a share token. The mode domain and
+// the access decision live in pkg/portal/shareaccess; these aliases keep the
+// portal's public API and its JSON payloads spelled as before.
+type ShareAccessMode = shareaccess.Mode
+
+const (
+	// AccessModeRestricted admits only the named recipient
+	// (SharedWithUserID or SharedWithEmail) and the share's creator.
+	AccessModeRestricted = shareaccess.ModeRestricted
+	// AccessModeAuthenticated admits any signed-in platform user.
+	AccessModeAuthenticated = shareaccess.ModeAuthenticated
+	// AccessModePublic admits anyone holding the token, without sign-in.
+	AccessModePublic = shareaccess.ModePublic
+)
+
 // Share represents a share link for an asset, collection, or prompt.
 // Exactly one of AssetID, CollectionID, or PromptID is set.
 type Share struct {
@@ -133,6 +150,7 @@ type Share struct {
 	SharedWithUserID string          `json:"shared_with_user_id,omitempty"`
 	SharedWithEmail  string          `json:"shared_with_email,omitempty" example:"bob@example.com"`
 	Permission       SharePermission `json:"permission" example:"viewer"`
+	AccessMode       ShareAccessMode `json:"access_mode" example:"restricted"`
 	ExpiresAt        *time.Time      `json:"expires_at,omitempty"`
 	Revoked          bool            `json:"revoked" example:"false"`
 	HideExpiration   bool            `json:"hide_expiration" example:"false"`

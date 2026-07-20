@@ -102,9 +102,11 @@ with a plaintext alternative part. They carry the deployment's brand name
 linked to the portal, the implementor footer when configured, deep links to
 the shared or discussed item (`portal.public_base_url` must be set for
 links to render), and a link to the recipient's notification preferences.
-Share links for assets and collections use the token viewer, which works
-for the recipient without signing in; prompt shares link to the in-app
-prompt page.
+Share links for assets and collections use the token viewer; prompt shares
+link to the in-app prompt page. The emailed link is not a bearer credential:
+a share addressed to a person is restricted to that person, so the viewer
+resolves it only once the recipient is signed in, and forwarding the message
+grants nothing.
 
 ## Configuration
 

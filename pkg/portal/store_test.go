@@ -466,7 +466,7 @@ func TestPostgresShareStoreInsert(t *testing.T) {
 	}
 
 	mock.ExpectExec("INSERT INTO portal_shares").
-		WithArgs(share.ID, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), share.Token, share.CreatedBy, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), share.HideExpiration, share.NoticeText, "viewer", "explicit").
+		WithArgs(share.ID, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), share.Token, share.CreatedBy, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), share.HideExpiration, share.NoticeText, "viewer", "explicit", "authenticated").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	err = store.Insert(context.Background(), share)
@@ -484,8 +484,8 @@ func TestPostgresShareStoreGetByToken(t *testing.T) {
 
 	rows := sqlmock.NewRows([]string{
 		"id", "asset_id", "collection_id", "prompt_id", "token", "created_by", "shared_with_user_id", "shared_with_email",
-		"expires_at", "revoked", "hide_expiration", "notice_text", "access_count", "last_accessed_at", "created_at", "permission", "origin",
-	}).AddRow("share1", "abc123", nil, nil, "tok123", "user1", nil, nil, nil, false, false, defaultNoticeText, 5, now, now, "viewer", "explicit")
+		"expires_at", "revoked", "hide_expiration", "notice_text", "access_count", "last_accessed_at", "created_at", "permission", "origin", "access_mode",
+	}).AddRow("share1", "abc123", nil, nil, "tok123", "user1", nil, nil, nil, false, false, defaultNoticeText, 5, now, now, "viewer", "explicit", "authenticated")
 
 	mock.ExpectQuery("SELECT .+ FROM portal_shares WHERE token").
 		WithArgs("tok123").
@@ -508,8 +508,8 @@ func TestPostgresShareStoreListByAsset(t *testing.T) {
 
 	rows := sqlmock.NewRows([]string{
 		"id", "asset_id", "collection_id", "prompt_id", "token", "created_by", "shared_with_user_id", "shared_with_email",
-		"expires_at", "revoked", "hide_expiration", "notice_text", "access_count", "last_accessed_at", "created_at", "permission", "origin",
-	}).AddRow("share1", "abc123", nil, nil, "tok1", "user1", nil, nil, nil, false, false, defaultNoticeText, 0, nil, now, "viewer", "explicit")
+		"expires_at", "revoked", "hide_expiration", "notice_text", "access_count", "last_accessed_at", "created_at", "permission", "origin", "access_mode",
+	}).AddRow("share1", "abc123", nil, nil, "tok1", "user1", nil, nil, nil, false, false, defaultNoticeText, 0, nil, now, "viewer", "explicit", "authenticated")
 
 	mock.ExpectQuery("SELECT .+ FROM portal_shares WHERE asset_id").
 		WithArgs("abc123").
@@ -532,8 +532,8 @@ func TestPostgresShareStoreListByAssetAllFields(t *testing.T) {
 
 	rows := sqlmock.NewRows([]string{
 		"id", "asset_id", "collection_id", "prompt_id", "token", "created_by", "shared_with_user_id", "shared_with_email",
-		"expires_at", "revoked", "hide_expiration", "notice_text", "access_count", "last_accessed_at", "created_at", "permission", "origin",
-	}).AddRow("share1", "abc123", nil, nil, "tok1", "user1", "user2", "user2@example.com", expires, false, true, "Custom notice", 3, now, now, "editor", "explicit")
+		"expires_at", "revoked", "hide_expiration", "notice_text", "access_count", "last_accessed_at", "created_at", "permission", "origin", "access_mode",
+	}).AddRow("share1", "abc123", nil, nil, "tok1", "user1", "user2", "user2@example.com", expires, false, true, "Custom notice", 3, now, now, "editor", "explicit", "restricted")
 
 	mock.ExpectQuery("SELECT .+ FROM portal_shares WHERE asset_id").
 		WithArgs("abc123").
@@ -1034,8 +1034,8 @@ func TestPostgresShareStoreGetByID(t *testing.T) {
 
 	rows := sqlmock.NewRows([]string{
 		"id", "asset_id", "collection_id", "prompt_id", "token", "created_by", "shared_with_user_id", "shared_with_email",
-		"expires_at", "revoked", "hide_expiration", "notice_text", "access_count", "last_accessed_at", "created_at", "permission", "origin",
-	}).AddRow("share1", "abc123", nil, nil, "tok123", "user1", "shareduser", nil, nil, false, false, defaultNoticeText, 0, nil, now, "viewer", "explicit")
+		"expires_at", "revoked", "hide_expiration", "notice_text", "access_count", "last_accessed_at", "created_at", "permission", "origin", "access_mode",
+	}).AddRow("share1", "abc123", nil, nil, "tok123", "user1", "shareduser", nil, nil, false, false, defaultNoticeText, 0, nil, now, "viewer", "explicit", "authenticated")
 
 	mock.ExpectQuery("SELECT .+ FROM portal_shares WHERE id").
 		WithArgs("share1").
@@ -1213,7 +1213,7 @@ func TestPostgresShareStoreInsertWithSharedWithUser(t *testing.T) {
 	}
 
 	mock.ExpectExec("INSERT INTO portal_shares").
-		WithArgs(share.ID, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), share.Token, share.CreatedBy, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), share.HideExpiration, share.NoticeText, "viewer", "explicit").
+		WithArgs(share.ID, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), share.Token, share.CreatedBy, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), share.HideExpiration, share.NoticeText, "viewer", "explicit", "restricted").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	err = store.Insert(context.Background(), share)
@@ -1248,8 +1248,8 @@ func TestPostgresShareStoreGetByTokenWithExpiration(t *testing.T) {
 
 	rows := sqlmock.NewRows([]string{
 		"id", "asset_id", "collection_id", "prompt_id", "token", "created_by", "shared_with_user_id", "shared_with_email",
-		"expires_at", "revoked", "hide_expiration", "notice_text", "access_count", "last_accessed_at", "created_at", "permission", "origin",
-	}).AddRow("share1", "abc123", nil, nil, "tok123", "user1", nil, nil, expires, false, false, defaultNoticeText, 0, nil, now, "viewer", "explicit")
+		"expires_at", "revoked", "hide_expiration", "notice_text", "access_count", "last_accessed_at", "created_at", "permission", "origin", "access_mode",
+	}).AddRow("share1", "abc123", nil, nil, "tok123", "user1", nil, nil, expires, false, false, defaultNoticeText, 0, nil, now, "viewer", "explicit", "authenticated")
 
 	mock.ExpectQuery("SELECT .+ FROM portal_shares WHERE token").
 		WithArgs("tok123").
@@ -1699,7 +1699,7 @@ func TestPostgresShareStoreInsertPrompt(t *testing.T) {
 	share := Share{ID: "s1", PromptID: "p1", Token: "tok1", CreatedBy: "alice@example.com", SharedWithEmail: "bob@example.com", Permission: "viewer"}
 
 	mock.ExpectExec("INSERT INTO portal_shares").
-		WithArgs("s1", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "tok1", "alice@example.com", sqlmock.AnyArg(), sqlmock.AnyArg(), "bob@example.com", false, "", "viewer", "explicit").
+		WithArgs("s1", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "tok1", "alice@example.com", sqlmock.AnyArg(), sqlmock.AnyArg(), "bob@example.com", false, "", "viewer", "explicit", "restricted").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	require.NoError(t, store.Insert(context.Background(), share))
@@ -1715,8 +1715,8 @@ func TestPostgresShareStoreListByPrompt(t *testing.T) {
 	now := time.Now()
 	rows := sqlmock.NewRows([]string{
 		"id", "asset_id", "collection_id", "prompt_id", "token", "created_by", "shared_with_user_id", "shared_with_email",
-		"expires_at", "revoked", "hide_expiration", "notice_text", "access_count", "last_accessed_at", "created_at", "permission", "origin",
-	}).AddRow("s1", nil, nil, "p1", "tok1", "alice@example.com", nil, "bob@example.com", nil, false, false, "", 0, nil, now, "viewer", "explicit")
+		"expires_at", "revoked", "hide_expiration", "notice_text", "access_count", "last_accessed_at", "created_at", "permission", "origin", "access_mode",
+	}).AddRow("s1", nil, nil, "p1", "tok1", "alice@example.com", nil, "bob@example.com", nil, false, false, "", 0, nil, now, "viewer", "explicit", "authenticated")
 
 	mock.ExpectQuery("SELECT .+ FROM portal_shares WHERE prompt_id").
 		WithArgs("p1").
