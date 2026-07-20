@@ -1711,6 +1711,9 @@ export const handlers = [
         created_by: "user-alice",
         shared_with_user_id: body.shared_with_user_id as string | undefined,
         permission: (body.permission as Share["permission"]) ?? "viewer",
+        access_mode:
+          (body.access_mode as Share["access_mode"]) ??
+          (body.shared_with_user_id || body.shared_with_email ? "restricted" : "authenticated"),
         expires_at: body.expires_in
           ? new Date(
               Date.now() + parseDuration(body.expires_in as string),
@@ -2206,6 +2209,7 @@ export const handlers = [
           created_by: "user-alice",
           shared_with_email: "david.park@example.com",
           permission: "viewer",
+          access_mode: "restricted",
           expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
           revoked: false,
           access_count: 8,
@@ -2218,6 +2222,7 @@ export const handlers = [
           token: "tok_col_2_p3w8z1x6",
           created_by: "user-alice",
           permission: "viewer",
+          access_mode: "public",
           revoked: false,
           access_count: 23,
           last_accessed_at: "2025-01-08T11:02:00Z",
@@ -2241,6 +2246,9 @@ export const handlers = [
         created_by: "user-alice",
         shared_with_user_id: body.shared_with_user_id as string | undefined,
         permission: (body.permission as Share["permission"]) ?? "viewer",
+        access_mode:
+          (body.access_mode as Share["access_mode"]) ??
+          (body.shared_with_user_id || body.shared_with_email ? "restricted" : "authenticated"),
         expires_at: body.expires_in
           ? new Date(
               Date.now() + parseDuration(body.expires_in as string),

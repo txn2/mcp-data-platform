@@ -2766,6 +2766,10 @@ definitions:
       access_count:
         example: 3
         type: integer
+      access_mode:
+        allOf:
+        - $ref: '#/definitions/portal.ShareAccessMode'
+        example: restricted
       asset_id:
         example: asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK
         type: string
@@ -2811,6 +2815,16 @@ definitions:
         example: tk_a1b2c3d4e5f6
         type: string
     type: object
+  portal.ShareAccessMode:
+    enum:
+    - restricted
+    - authenticated
+    - public
+    type: string
+    x-enum-varnames:
+    - ModeRestricted
+    - ModeAuthenticated
+    - ModePublic
   portal.ShareOrigin:
     enum:
     - explicit
@@ -3083,6 +3097,13 @@ definitions:
     type: object
   portal.createShareRequest:
     properties:
+      access_mode:
+        description: |-
+          AccessMode is "restricted", "authenticated", or "public". Empty means
+          the default for the share's shape: restricted when a recipient is
+          named, authenticated otherwise. "public" is never implied.
+        example: restricted
+        type: string
       expires_in:
         description: duration string, e.g. "24h"
         example: 24h

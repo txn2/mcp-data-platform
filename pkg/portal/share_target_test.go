@@ -18,7 +18,7 @@ import (
 func shareCols() []string {
 	return []string{
 		"id", "asset_id", "collection_id", "prompt_id", "token", "created_by", "shared_with_user_id", "shared_with_email",
-		"expires_at", "revoked", "hide_expiration", "notice_text", "access_count", "last_accessed_at", "created_at", "permission", "origin",
+		"expires_at", "revoked", "hide_expiration", "notice_text", "access_count", "last_accessed_at", "created_at", "permission", "origin", "access_mode",
 	}
 }
 
@@ -32,7 +32,7 @@ func TestGetActiveShareForTargetAsset(t *testing.T) {
 		WithArgs("asset_1", "u1", "u1@example.com").
 		WillReturnRows(sqlmock.NewRows(shareCols()).AddRow(
 			"s1", "asset_1", nil, nil, "tok", "owner@example.com", "u1", "u1@example.com",
-			nil, false, false, "", 0, nil, time.Now(), string(PermissionViewer), string(OriginPublicLinkLogin),
+			nil, false, false, "", 0, nil, time.Now(), string(PermissionViewer), string(OriginPublicLinkLogin), string(AccessModeRestricted),
 		))
 
 	got, err := store.GetActiveShareForTarget(context.Background(), targetTypeAsset, "asset_1", "u1", "u1@example.com")

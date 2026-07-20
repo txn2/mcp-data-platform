@@ -24,6 +24,7 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
+	"github.com/txn2/mcp-data-platform/pkg/portal/shareaccess"
 	"github.com/txn2/mcp-data-platform/pkg/ratelimit"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 	userdir "github.com/txn2/mcp-data-platform/pkg/user"
@@ -323,21 +324,23 @@ func (h *Handler) registerRoutes() {
 		h.mux.HandleFunc("GET /api/v1/portal/memory/records/search", h.searchMyMemories)
 	}
 
-	// Public routes (rate limited)
-	h.publicMux.Handle("GET /portal/view/{token}",
-		h.rateLimiter.Middleware(http.HandlerFunc(h.publicView)))
-	h.publicMux.Handle("GET /portal/view/{token}/content",
-		h.rateLimiter.Middleware(http.HandlerFunc(h.publicAssetContent)))
-	h.publicMux.Handle("GET /portal/view/{token}/thumbnail",
-		h.rateLimiter.Middleware(http.HandlerFunc(h.publicAssetThumbnail)))
-	h.publicMux.Handle("GET /portal/view/{token}/collection-thumbnail",
-		h.rateLimiter.Middleware(http.HandlerFunc(h.publicCollectionThumbnail)))
-	h.publicMux.Handle("GET /portal/view/{token}/items/{assetId}/content",
-		h.rateLimiter.Middleware(http.HandlerFunc(h.publicCollectionItemContent)))
-	h.publicMux.Handle("GET /portal/view/{token}/items/{assetId}/thumbnail",
-		h.rateLimiter.Middleware(http.HandlerFunc(h.publicCollectionItemThumbnail)))
-	h.publicMux.Handle("GET /portal/view/{token}/items/{assetId}/view",
-		h.rateLimiter.Middleware(http.HandlerFunc(h.publicCollectionItemView)))
+	// Public routes: rate limited, then gated on the share's access mode.
+	// publicChain is the only way a handler reaches this mux, so no route can
+	// serve a token the gate would refuse (#999).
+	h.publicMux.Handle("GET /portal/view/{token}", h.publicChain(h.publicView))
+	h.publicMux.Handle("GET /portal/view/{token}/content", h.publicChain(h.publicAssetContent))
+	h.publicMux.Handle("GET /portal/view/{token}/thumbnail", h.publicChain(h.publicAssetThumbnail))
+	h.publicMux.Handle("GET /portal/view/{token}/collection-thumbnail", h.publicChain(h.publicCollectionThumbnail))
+	h.publicMux.Handle("GET /portal/view/{token}/items/{assetId}/content", h.publicChain(h.publicCollectionItemContent))
+	h.publicMux.Handle("GET /portal/view/{token}/items/{assetId}/thumbnail", h.publicChain(h.publicCollectionItemThumbnail))
+	h.publicMux.Handle("GET /portal/view/{token}/items/{assetId}/view", h.publicChain(h.publicCollectionItemView))
+}
+
+// publicChain wraps a share-viewer handler in the rate limiter and the share
+// access gate, rate limiting outermost so a flood is shed before it costs a
+// share lookup.
+func (h *Handler) publicChain(fn http.HandlerFunc) http.Handler {
+	return h.rateLimiter.Middleware(h.publicShareGate(fn))
 }
 
 // --- Me handler ---
@@ -1277,6 +1280,10 @@ type createShareRequest struct {
 	HideExpiration   bool    `json:"hide_expiration,omitempty" example:"false"`
 	NoticeText       *string `json:"notice_text,omitempty" example:"Confidential"` // nil = default, "" = hidden, custom = as-is
 	Permission       string  `json:"permission,omitempty" example:"viewer"`        // "viewer" (default) or "editor"
+	// AccessMode is "restricted", "authenticated", or "public". Empty means
+	// the default for the share's shape: restricted when a recipient is
+	// named, authenticated otherwise. "public" is never implied.
+	AccessMode string `json:"access_mode,omitempty" example:"restricted"`
 }
 
 // shareResponse is the response for a created share.
@@ -1382,6 +1389,11 @@ func buildShare(target shareTarget, createdBy string, req createShareRequest) (S
 		return Share{}, permErr
 	}
 
+	mode, modeErr := shareaccess.Resolve(req.AccessMode, email != "" || req.SharedWithUserID != "")
+	if modeErr != nil {
+		return Share{}, modeErr //nolint:wrapcheck // message is the verbatim 400 body the caller must act on
+	}
+
 	share := Share{
 		ID:               uuid.New().String(),
 		AssetID:          target.AssetID,
@@ -1392,6 +1404,7 @@ func buildShare(target shareTarget, createdBy string, req createShareRequest) (S
 		SharedWithUserID: req.SharedWithUserID,
 		SharedWithEmail:  email,
 		Permission:       perm,
+		AccessMode:       mode,
 		HideExpiration:   req.HideExpiration,
 		NoticeText:       noticeText,
 	}

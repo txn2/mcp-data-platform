@@ -20,6 +20,7 @@ import type {
   PaginatedResponse,
   ShareResponse,
   SharePermission,
+  ShareAccessMode,
   ScoredAsset,
 } from "../types";
 
@@ -277,6 +278,7 @@ export function useCreateShare() {
       hide_expiration?: boolean;
       notice_text?: string;
       permission?: SharePermission;
+      access_mode?: ShareAccessMode;
     }) =>
       apiFetch<ShareResponse>(`/assets/${assetId}/shares`, {
         method: "POST",

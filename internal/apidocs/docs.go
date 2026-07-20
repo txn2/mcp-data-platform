@@ -15705,6 +15705,14 @@ const docTemplate = `{
                     "type": "integer",
                     "example": 3
                 },
+                "access_mode": {
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/portal.ShareAccessMode"
+                        }
+                    ],
+                    "example": "restricted"
+                },
                 "asset_id": {
                     "type": "string",
                     "example": "asset_01HK7R8Z8M0Y6A5G1R6FQ2VQNK"
@@ -15772,6 +15780,19 @@ const docTemplate = `{
                     "example": "tk_a1b2c3d4e5f6"
                 }
             }
+        },
+        "portal.ShareAccessMode": {
+            "type": "string",
+            "enum": [
+                "restricted",
+                "authenticated",
+                "public"
+            ],
+            "x-enum-varnames": [
+                "ModeRestricted",
+                "ModeAuthenticated",
+                "ModePublic"
+            ]
         },
         "portal.ShareOrigin": {
             "type": "string",
@@ -16166,6 +16187,11 @@ const docTemplate = `{
         "portal.createShareRequest": {
             "type": "object",
             "properties": {
+                "access_mode": {
+                    "description": "AccessMode is \"restricted\", \"authenticated\", or \"public\". Empty means\nthe default for the share's shape: restricted when a recipient is\nnamed, authenticated otherwise. \"public\" is never implied.",
+                    "type": "string",
+                    "example": "restricted"
+                },
                 "expires_in": {
                     "description": "duration string, e.g. \"24h\"",
                     "type": "string",

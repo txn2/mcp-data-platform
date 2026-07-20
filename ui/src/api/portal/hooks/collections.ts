@@ -10,6 +10,7 @@ import type {
   PaginatedResponse,
   ShareResponse,
   SharePermission,
+  ShareAccessMode,
   ScoredCollection,
   Collection,
   CollectionConfig,
@@ -188,6 +189,7 @@ export function useCreateCollectionShare() {
       hide_expiration?: boolean;
       notice_text?: string;
       permission?: SharePermission;
+      access_mode?: ShareAccessMode;
     }) =>
       apiFetch<ShareResponse>(`/collections/${collectionId}/shares`, {
         method: "POST",

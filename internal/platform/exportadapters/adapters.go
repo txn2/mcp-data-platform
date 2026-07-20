@@ -17,7 +17,7 @@
 // packages (to avoid the import cycle), and Go cannot map fields across
 // unrelated struct types generically. The mapping is therefore written once
 // per toolkit; token generation, the default notice, and the public-share
-// flow are shared via portal primitives and createPublicShare.
+// flow are shared via portal primitives and createExportShare.
 package exportadapters
 
 import (
@@ -110,7 +110,7 @@ func (e *TrinoExporter) CreateExportVersion(ctx context.Context, ver trinokit.Ex
 }
 
 func (e *TrinoExporter) CreatePublicShare(ctx context.Context, assetID, createdBy string) (string, error) { //nolint:revive // implements trino.ExportShareCreator
-	return createPublicShare(ctx, e.shareStore, e.baseURL, assetID, createdBy)
+	return createExportShare(ctx, e.shareStore, e.baseURL, assetID, createdBy)
 }
 
 func convertTrinoProvenanceCalls(calls []trinokit.ExportProvenanceCall) []portal.ProvenanceToolCall {
@@ -189,7 +189,7 @@ func (e *APIExporter) CreateExportVersion(ctx context.Context, ver apigatewaykit
 }
 
 func (e *APIExporter) CreatePublicShare(ctx context.Context, assetID, createdBy string) (string, error) { //nolint:revive // implements apigateway.ExportShareCreator
-	return createPublicShare(ctx, e.shareStore, e.baseURL, assetID, createdBy)
+	return createExportShare(ctx, e.shareStore, e.baseURL, assetID, createdBy)
 }
 
 func convertAPIProvenanceCalls(calls []apigatewaykit.ExportProvenanceCall) []portal.ProvenanceToolCall {
@@ -200,14 +200,19 @@ func convertAPIProvenanceCalls(calls []apigatewaykit.ExportProvenanceCall) []por
 	return result
 }
 
-// createPublicShare inserts a share row and returns the public view URL (or an
-// empty string when baseURL is unset). Returning a bare token in place of the
-// URL would put a non-URL value in the model-visible share_url field, so an
-// unset baseURL yields an empty URL while still persisting the share token.
+// createExportShare inserts a share row for an exported asset and returns its
+// view URL (or an empty string when baseURL is unset). Returning a bare token
+// in place of the URL would put a non-URL value in the model-visible share_url
+// field, so an unset baseURL yields an empty URL while still persisting the
+// share token.
+//
+// The share is authenticated-mode: an export names no recipient, and the URL
+// is handed back into a conversation, so it opens for signed-in platform users
+// rather than for anyone who receives a copy of it (#999).
 //
 // Token generation and the default notice reuse portal's primitives so export-
 // created shares stay identical to portal-created ones.
-func createPublicShare(ctx context.Context, shareStore portal.ShareStore, baseURL, assetID, createdBy string) (string, error) {
+func createExportShare(ctx context.Context, shareStore portal.ShareStore, baseURL, assetID, createdBy string) (string, error) {
 	token, err := portal.GenerateShareToken()
 	if err != nil {
 		return "", fmt.Errorf("generating share token: %w", err)
@@ -219,6 +224,7 @@ func createPublicShare(ctx context.Context, shareStore portal.ShareStore, baseUR
 		Token:      token,
 		CreatedBy:  createdBy,
 		NoticeText: portal.DefaultNoticeText,
+		AccessMode: portal.AccessModeAuthenticated,
 	}
 
 	if err := shareStore.Insert(ctx, share); err != nil {

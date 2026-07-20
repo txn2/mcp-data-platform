@@ -1,9 +1,15 @@
 import { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { X, Link, Trash2, Check, Copy, ChevronDown, ChevronRight } from "lucide-react";
+import { X, Link, Trash2, Check, Copy, ChevronDown, ChevronRight, TriangleAlert } from "lucide-react";
 import { useShares, useCreateShare, useRevokeShare, useCollectionShares, useCreateCollectionShare, usePromptShares, useCreatePromptShare } from "@/api/portal/hooks";
-import type { SharePermission } from "@/api/portal/types";
+import type { SharePermission, ShareAccessMode } from "@/api/portal/types";
 import { UserPicker } from "@/components/UserPicker";
+
+/**
+ * LinkAccessMode is the subset of share access modes a link share can take:
+ * a link addressed to nobody cannot be restricted to a recipient.
+ */
+type LinkAccessMode = Exclude<ShareAccessMode, "restricted">;
 
 export type ShareTarget =
   | { type: "asset"; id: string }
@@ -32,6 +38,125 @@ function formatTimeRemaining(expiresAt?: string): string {
   return `Expires in ${days}d`;
 }
 
+interface LinkShareSectionProps {
+  linkAccess: LinkAccessMode;
+  setLinkAccess: (v: LinkAccessMode) => void;
+  ttl: string;
+  setTtl: (v: string) => void;
+  showOptions: boolean;
+  setShowOptions: (fn: (v: boolean) => boolean) => void;
+  showExpiration: boolean;
+  setShowExpiration: (v: boolean) => void;
+  noticeText: string;
+  setNoticeText: (v: string) => void;
+  onCreate: () => void;
+  isPending: boolean;
+}
+
+/**
+ * LinkShareSection creates a share that is not addressed to a person: either
+ * one any signed-in user can open, or a public one that opens without signing
+ * in. The public choice carries an explicit warning, since it is the only mode
+ * where possession of the URL is the whole of the access check.
+ */
+function LinkShareSection({
+  linkAccess,
+  setLinkAccess,
+  ttl,
+  setTtl,
+  showOptions,
+  setShowOptions,
+  showExpiration,
+  setShowExpiration,
+  noticeText,
+  setNoticeText,
+  onCreate,
+  isPending,
+}: LinkShareSectionProps) {
+  return (
+    <div className="mb-4">
+      <h3 className="text-sm font-medium mb-2">Share by Link</h3>
+      <div className="flex gap-2">
+        <select
+          value={linkAccess}
+          onChange={(e) => setLinkAccess(e.target.value as LinkAccessMode)}
+          className="rounded-md border bg-background px-3 py-1.5 text-sm"
+          aria-label="Who can open this link"
+        >
+          <option value="authenticated">Signed-in users</option>
+          <option value="public">Anyone with the link</option>
+        </select>
+        <select
+          value={ttl}
+          onChange={(e) => setTtl(e.target.value)}
+          className="rounded-md border bg-background px-3 py-1.5 text-sm"
+          aria-label="Link expiration"
+        >
+          <option value="1h">1 hour</option>
+          <option value="24h">24 hours</option>
+          <option value="168h">7 days</option>
+          <option value="720h">30 days</option>
+        </select>
+        <button
+          type="button"
+          onClick={onCreate}
+          disabled={isPending}
+          className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+        >
+          <Link className="h-3.5 w-3.5" />
+          Create Link
+        </button>
+      </div>
+      {linkAccess === "public" && (
+        <p className="mt-2 flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400">
+          <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            This link works without signing in. Anyone who receives it, including anyone
+            it is forwarded to, can open the content.
+          </span>
+        </p>
+      )}
+      <button
+        type="button"
+        onClick={() => setShowOptions((v) => !v)}
+        className="flex items-center gap-1 mt-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+      >
+        {showOptions ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+        Options
+      </button>
+      {showOptions && (
+        <div className="mt-2 space-y-2 rounded-md border bg-muted/30 p-3">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={showExpiration}
+              onChange={(e) => setShowExpiration(e.target.checked)}
+              className="rounded border-input"
+            />
+            Show expiration notice
+          </label>
+          <div>
+            <label className="text-sm text-muted-foreground" htmlFor="notice-text">
+              Notice text
+            </label>
+            <input
+              id="notice-text"
+              type="text"
+              placeholder="Leave empty to hide the notice"
+              value={noticeText}
+              onChange={(e) => setNoticeText(e.target.value)}
+              className="mt-1 w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none ring-ring focus:ring-2"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Clear to hide notice bar entirely.
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
   // Resolve target: prefer `target` prop, fall back to `assetId` for backward compat.
   const resolved: ShareTarget = target ?? { type: "asset", id: assetId ?? "" };
@@ -52,6 +177,7 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
   const [copied, setCopied] = useState<string | null>(null);
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
   const [permission, setPermission] = useState<SharePermission>("viewer");
+  const [linkAccess, setLinkAccess] = useState<LinkAccessMode>("authenticated");
   const [showOptions, setShowOptions] = useState(false);
   const [showExpiration, setShowExpiration] = useState(true);
   const [noticeText, setNoticeText] = useState(
@@ -60,11 +186,12 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
 
   const isPending = createAssetShare.isPending || createCollShare.isPending || createPromptShare.isPending;
 
-  function handleCreatePublicLink() {
+  function handleCreateLink() {
     const opts = {
       expires_in: ttl,
       ...(!showExpiration && { hide_expiration: true }),
       notice_text: noticeText.trim(),
+      access_mode: linkAccess,
     };
     if (isCollection) {
       createCollShare.mutate({ collectionId: resolved.id, ...opts });
@@ -73,6 +200,8 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
     }
   }
 
+  // Recipient shares are restricted: only the named person (and the sender)
+  // can open the link, whether or not they receive it by email.
   function handleShareWithUser() {
     if (!email.trim()) return;
     if (isPrompt) {
@@ -116,74 +245,30 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
             </Dialog.Close>
           </div>
 
-          {/* Create public link (not available for prompts, which are run, not viewed via a public page) */}
+          {/* Link shares are not offered for prompts, which are run, not viewed via a public page */}
           {!isPrompt && (
-          <div className="mb-4">
-            <h3 className="text-sm font-medium mb-2">Public Link</h3>
-            <div className="flex gap-2">
-              <select
-                value={ttl}
-                onChange={(e) => setTtl(e.target.value)}
-                className="rounded-md border bg-background px-3 py-1.5 text-sm"
-              >
-                <option value="1h">1 hour</option>
-                <option value="24h">24 hours</option>
-                <option value="168h">7 days</option>
-                <option value="720h">30 days</option>
-              </select>
-              <button
-                type="button"
-                onClick={handleCreatePublicLink}
-                disabled={isPending}
-                className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-              >
-                <Link className="h-3.5 w-3.5" />
-                Create Link
-              </button>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowOptions((v) => !v)}
-              className="flex items-center gap-1 mt-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              {showOptions ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-              Options
-            </button>
-            {showOptions && (
-              <div className="mt-2 space-y-2 rounded-md border bg-muted/30 p-3">
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={showExpiration}
-                    onChange={(e) => setShowExpiration(e.target.checked)}
-                    className="rounded border-input"
-                  />
-                  Show expiration notice
-                </label>
-                <div>
-                  <label className="text-sm text-muted-foreground" htmlFor="notice-text">
-                    Notice text
-                  </label>
-                  <input
-                    id="notice-text"
-                    type="text"
-                    placeholder="Leave empty to hide the notice"
-                    value={noticeText}
-                    onChange={(e) => setNoticeText(e.target.value)}
-                    className="mt-1 w-full rounded-md border bg-background px-3 py-1.5 text-sm outline-none ring-ring focus:ring-2"
-                  />
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Clear to hide notice bar entirely.
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
+            <LinkShareSection
+              linkAccess={linkAccess}
+              setLinkAccess={setLinkAccess}
+              ttl={ttl}
+              setTtl={setTtl}
+              showOptions={showOptions}
+              setShowOptions={setShowOptions}
+              showExpiration={showExpiration}
+              setShowExpiration={setShowExpiration}
+              noticeText={noticeText}
+              setNoticeText={setNoticeText}
+              onCreate={handleCreateLink}
+              isPending={isPending}
+            />
           )}
 
           {/* Share with user */}
           <div className="mb-4">
             <h3 className="text-sm font-medium mb-2">Share with User</h3>
+            <p className="mb-2 text-xs text-muted-foreground">
+              Only this person can open the link, and only while signed in.
+            </p>
             <div className="flex gap-2">
               <UserPicker value={email} onChange={setEmail} />
               <select
@@ -222,10 +307,15 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
                           <span className={`ml-1.5 text-xs px-1.5 py-0.5 rounded-full font-medium ${share.permission === "editor" ? "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"}`}>
                             {share.permission === "editor" ? "Editor" : "Viewer"}
                           </span>
+                          {share.access_mode === "public" && (
+                            <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                              Opens without sign-in
+                            </span>
+                          )}
                         </span>
                       ) : (
                         <span className="text-muted-foreground">
-                          Public Link
+                          {share.access_mode === "public" ? "Link: anyone" : "Link: signed-in users"}
                         </span>
                       )}
                       {!share.shared_with_user_id && !share.shared_with_email && share.access_count > 0 && (

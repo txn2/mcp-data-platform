@@ -162,22 +162,7 @@ var viewerTemplate = template.Must(template.ParseFS(templateFS, "templates/publi
 var collectionViewerTemplate = template.Must(template.ParseFS(templateFS, "templates/public_collection_viewer.html"))
 
 func (h *Handler) publicView(w http.ResponseWriter, r *http.Request) {
-	token := r.PathValue(pathKeyToken)
-	if token == "" {
-		http.NotFound(w, r)
-		return
-	}
-
-	share, err := h.deps.ShareStore.GetByToken(r.Context(), token)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-
-	if msg := validateShareAccess(share); msg != "" {
-		http.Error(w, msg, http.StatusGone)
-		return
-	}
+	share := shareFromRequest(r)
 
 	// Branch: collection share vs asset share.
 	if share.CollectionID != "" {
@@ -300,9 +285,15 @@ func (h *Handler) renderAssetViewer(w http.ResponseWriter, r *http.Request, pad 
 
 // resolvePublicViewer returns the authenticated user behind a public request,
 // or nil if the request carries no valid session (anonymous viewer) or no
-// authenticator is configured. It never writes an HTTP error — the public
-// viewer stays anonymous-viewable.
+// authenticator is configured. It never writes an HTTP error — a public share
+// stays viewable while signed out.
+//
+// Behind publicShareGate the answer is already in the request context; the
+// authenticator is only consulted for requests that did not pass the gate.
 func (h *Handler) resolvePublicViewer(r *http.Request) *User {
+	if g, ok := r.Context().Value(gateCtxKey{}).(gateResult); ok {
+		return g.Viewer
+	}
 	if h.deps.Authenticator == nil {
 		return nil
 	}
@@ -387,6 +378,7 @@ func derivedViewerShare(t promoteTarget, user *User) (Share, bool) {
 		SharedWithUserID: user.UserID,
 		SharedWithEmail:  user.Email,
 		Permission:       PermissionViewer,
+		AccessMode:       AccessModeRestricted,
 		Origin:           OriginPublicLinkLogin,
 	}
 	switch t.targetType {
@@ -400,38 +392,10 @@ func derivedViewerShare(t promoteTarget, user *User) (Share, bool) {
 	return share, true
 }
 
-// validateShareAccess checks if a share is revoked or expired.
-// Returns an error message if invalid, empty string if OK.
-func validateShareAccess(share *Share) string {
-	if share.Revoked {
-		return "This share link has been revoked."
-	}
-	if share.ExpiresAt != nil && share.ExpiresAt.Before(time.Now()) {
-		return "This share link has expired."
-	}
-	return ""
-}
-
 // publicAssetContent serves the raw content for a single-asset public share.
 // Always fetches from S3 regardless of size — this is a download endpoint.
 func (h *Handler) publicAssetContent(w http.ResponseWriter, r *http.Request) {
-	token := r.PathValue(pathKeyToken)
-	if token == "" {
-		http.NotFound(w, r)
-		return
-	}
-
-	share, err := h.deps.ShareStore.GetByToken(r.Context(), token)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-
-	if msg := validateShareAccess(share); msg != "" {
-		http.Error(w, msg, http.StatusGone)
-		return
-	}
-
+	share := shareFromRequest(r)
 	if share.AssetID == "" {
 		http.Error(w, "Not an asset share.", http.StatusBadRequest)
 		return
@@ -615,24 +579,14 @@ func (h *Handler) publicCollectionView(w http.ResponseWriter, r *http.Request, s
 	})
 }
 
-// validateCollectionItemAccess checks that a token/assetId pair is valid for a collection share.
-// Returns the share on success, or writes an HTTP error and returns nil.
+// validateCollectionItemAccess checks that the requested assetId belongs to
+// the gated share's collection. Returns the share on success, or writes an
+// HTTP error and returns nil.
 func (h *Handler) validateCollectionItemAccess(w http.ResponseWriter, r *http.Request) *Share {
-	token := r.PathValue(pathKeyToken)
 	assetID := r.PathValue(pathKeyAssetID)
-	if token == "" || assetID == "" {
+	share := shareFromRequest(r)
+	if assetID == "" || share.CollectionID == "" {
 		http.NotFound(w, r)
-		return nil
-	}
-
-	share, err := h.deps.ShareStore.GetByToken(r.Context(), token)
-	if err != nil || share.CollectionID == "" {
-		http.NotFound(w, r)
-		return nil
-	}
-
-	if msg := validateShareAccess(share); msg != "" {
-		http.Error(w, msg, http.StatusGone)
 		return nil
 	}
 
@@ -720,26 +674,15 @@ func (h *Handler) publicCollectionItemThumbnail(w http.ResponseWriter, r *http.R
 	_, _ = w.Write(data) // #nosec G705 -- thumbnail from S3, content-type set by uploader
 }
 
-// publicAssetThumbnail serves the thumbnail for the asset behind a single-asset
-// public share. Used as the og:image source when the share's asset has a
+// publicAssetThumbnail serves the thumbnail for the asset behind a
+// single-asset share. Used as the og:image source when the asset has a
 // thumbnail but is not itself an image content type. Mirrors
-// publicCollectionItemThumbnail but resolves the asset via the share token
-// rather than a path-bound assetId, since single-asset shares only expose one
-// asset and can't take an assetId path arg.
+// publicCollectionItemThumbnail, except the asset comes from the share rather
+// than from a path-bound assetId: a single-asset share exposes only one.
 func (h *Handler) publicAssetThumbnail(w http.ResponseWriter, r *http.Request) {
-	token := r.PathValue(pathKeyToken)
-	if token == "" {
+	share := shareFromRequest(r)
+	if share.AssetID == "" {
 		http.NotFound(w, r)
-		return
-	}
-
-	share, err := h.deps.ShareStore.GetByToken(r.Context(), token)
-	if err != nil || share.AssetID == "" {
-		http.NotFound(w, r)
-		return
-	}
-	if msg := validateShareAccess(share); msg != "" {
-		http.Error(w, msg, http.StatusGone)
 		return
 	}
 	if h.deps.S3Client == nil {
@@ -765,24 +708,13 @@ func (h *Handler) publicAssetThumbnail(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(data) // #nosec G705 -- thumbnail from S3, content-type set by uploader
 }
 
-// resolveCollectionForThumbnail loads a non-deleted collection that has an
-// uploaded thumbnail, given a share token. Writes 404/410 directly on
-// failure and returns nil so callers can early-return without their own
-// guard ladder. Extracted from publicCollectionThumbnail to keep that
-// handler under the cyclomatic-complexity gate.
+// resolveCollectionForThumbnail loads the non-deleted, thumbnailed collection
+// behind the gated share. Writes 404 directly on failure and returns nil so
+// callers can early-return without their own guard ladder.
 func (h *Handler) resolveCollectionForThumbnail(w http.ResponseWriter, r *http.Request) *Collection {
-	token := r.PathValue(pathKeyToken)
-	if token == "" {
+	share := shareFromRequest(r)
+	if share.CollectionID == "" {
 		http.NotFound(w, r)
-		return nil
-	}
-	share, err := h.deps.ShareStore.GetByToken(r.Context(), token)
-	if err != nil || share.CollectionID == "" {
-		http.NotFound(w, r)
-		return nil
-	}
-	if msg := validateShareAccess(share); msg != "" {
-		http.Error(w, msg, http.StatusGone)
 		return nil
 	}
 	if h.deps.CollectionStore == nil || h.deps.S3Client == nil {

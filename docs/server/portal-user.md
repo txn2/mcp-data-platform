@@ -47,7 +47,15 @@ The viewer provides:
 - **Actions** — Delete, Download, and Share buttons
 - **Owner display** — Shows the asset owner's email address
 
-The Share action opens a dialog to mint a public or user-scoped link, with an optional expiration, a copy-once token, and a per-link access count.
+The Share action opens a dialog to mint a link or a user-scoped share, with an optional expiration, a copy-once token, and a per-link access count. Every share carries an **access mode** that decides who the link opens for:
+
+| Mode | Who can open the link |
+|---|---|
+| `restricted` | Only the named recipient (and the person who created the share) |
+| `authenticated` | Any signed-in platform user |
+| `public` | Anyone with the link, without signing in |
+
+Sharing with a person makes the share `restricted`: the link resolves only for that recipient, signed in, so forwarding the email or the URL grants nothing. The **Share by Link** section mints a link for any signed-in user by default; choosing **Anyone with the link** makes it `public` and shows a warning that the link opens without sign-in. A signed-in user who is not the recipient of a restricted share is told so, rather than seeing a generic not-found.
 
 ![Share asset](../images/screenshots/light/user-asset-share-light.webp#only-light)![Share asset](../images/screenshots/dark/user-asset-share-dark.webp#only-dark)
 
@@ -119,9 +127,9 @@ Click any asset card to open it in the asset viewer:
 
 Collections use the same sharing system as individual assets:
 
-- **Public links** — Time-limited anonymous access via token URL
-- **User shares** — Share with specific email addresses with Viewer or Editor permission. The email field suggests known teammates as you type (name + email, with an "Invited" badge for people an admin pre-added who have not signed in yet); you can still type any email that is not in the directory
-- **Share management** — View active shares, copy public links, revoke access
+- **Links**: time-limited token URL, opening for signed-in users or, by explicit choice, for anyone
+- **User shares**: share with specific email addresses, restricted to that recipient, with Viewer or Editor permission. The email field suggests known teammates as you type (name + email, with an "Invited" badge for people an admin pre-added who have not signed in yet); you can still type any email that is not in the directory
+- **Share management**: view active shares with their access mode, copy links, revoke access
 
 ## Resources
 

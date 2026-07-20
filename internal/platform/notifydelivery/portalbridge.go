@@ -50,8 +50,9 @@ func (h *Handle) PortalNotifier(stores PortalStores, baseURL string) *PortalNoti
 // user ID alone carries no email address anywhere in the system.
 func (n *PortalNotifier) NotifyShare(ctx context.Context, share *portal.Share, kind, itemID, itemTitle string) {
 	// Prompts have no public token viewer; link to the in-app prompt page.
-	// Asset/collection shares link to the token viewer, which works for
-	// the recipient without signing in.
+	// Asset/collection shares link to the token viewer. The link is not a
+	// bearer credential: unless the share is public, the viewer resolves it
+	// only for a signed-in recipient (#999).
 	link := ""
 	switch {
 	case kind == notification.KindPrompt:

@@ -56,6 +56,14 @@ export interface ProvenanceToolCall {
 
 export type SharePermission = "viewer" | "editor";
 
+/**
+ * Who may open a share link. "restricted" admits only the named recipient (and
+ * the sender), "authenticated" any signed-in user, "public" anyone with the
+ * link. Shares default to restricted when they name a recipient and to
+ * authenticated when they do not; "public" is only ever explicit.
+ */
+export type ShareAccessMode = "restricted" | "authenticated" | "public";
+
 export interface Share {
   id: string;
   asset_id: string;
@@ -64,6 +72,7 @@ export interface Share {
   shared_with_user_id?: string;
   shared_with_email?: string;
   permission: SharePermission;
+  access_mode: ShareAccessMode;
   expires_at?: string;
   revoked: boolean;
   access_count: number;
