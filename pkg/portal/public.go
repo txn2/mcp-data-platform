@@ -280,6 +280,7 @@ func (h *Handler) renderAssetViewer(w http.ResponseWriter, r *http.Request, pad 
 		"SignedIn":           h.resolvePublicViewer(r) != nil,
 		"SignInURL":          signInToLeaveFeedbackURL(r),
 		"PortalURL":          portalAppPath,
+		"IsGuest":            isGuestRequest(r),
 	})
 }
 
@@ -576,6 +577,7 @@ func (h *Handler) publicCollectionView(w http.ResponseWriter, r *http.Request, s
 		"NoticeText":         share.NoticeText,
 		"ShareURL":           shareURL,
 		"OGImageURL":         publicCollectionOGImage(coll, assets, share.Token, baseURL),
+		"IsGuest":            isGuestRequest(r),
 	})
 }
 

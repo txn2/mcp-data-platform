@@ -55,6 +55,17 @@ type Renderer struct {
 	branding Branding
 	html     *htmltemplate.Template
 	text     *texttemplate.Template
+	// unsubURL builds the no-login unsubscribe link for a recipient address
+	// (#1001). nil omits the footer link.
+	unsubURL func(email string) string
+}
+
+// SetUnsubscribeURLFn installs the builder for the footer's no-login
+// unsubscribe link. The composition root supplies it when it can mint the
+// HMAC tokens the endpoint verifies; without it emails keep only the
+// signed-in preferences link.
+func (r *Renderer) SetUnsubscribeURLFn(fn func(email string) string) {
+	r.unsubURL = fn
 }
 
 // NewRenderer parses the embedded templates for the given branding.
@@ -87,7 +98,11 @@ func (r *Renderer) Render(ns []Notification) (*Email, error) {
 	if len(ns) == 0 {
 		return nil, errors.New("rendering email: no notifications")
 	}
-	return r.execute(ns[0].Recipient, r.buildData(ns))
+	data := r.buildData(ns)
+	if r.unsubURL != nil {
+		data.UnsubURL = r.unsubURL(ns[0].Recipient)
+	}
+	return r.execute(ns[0].Recipient, data)
 }
 
 // execute runs both templates over data and assembles the Email. It is the one
@@ -111,6 +126,26 @@ func (r *Renderer) execute(to string, data emailData) (*Email, error) {
 		Text:    textBuf.String(),
 		LogoPNG: r.branding.LogoPNG,
 	}, nil
+}
+
+// RenderGuestLink renders the one-time view link email a share recipient
+// requests from the landing page (#1001). It is transactional, not a
+// notification: the recipient asked for it, so it carries no unsubscribe
+// footer and its delivery bypasses the queue and preference gating.
+func (r *Renderer) RenderGuestLink(to, link string) (*Email, error) {
+	data := emailData{
+		Brand:   r.branding,
+		Subject: fmt.Sprintf("%s: your one-time view link", r.branding.Name),
+		Heading: "Your one-time view link",
+		Items: []emailItem{{
+			Message: "Use this link to open the item shared with you. " +
+				"It works once and expires in 15 minutes. " +
+				"You can request another from the share page whenever you need one.",
+			Link:     link,
+			LinkText: "Open the shared item",
+		}},
+	}
+	return r.execute(to, data)
 }
 
 // RenderTest renders the admin "send test email" message used to verify a
@@ -140,6 +175,9 @@ type emailData struct {
 	// alone. The text template ignores it.
 	LogoCID  string
 	PrefsURL string
+	// UnsubURL is the no-login unsubscribe link for this recipient. Empty
+	// omits the footer line; see SetUnsubscribeURLFn.
+	UnsubURL string
 }
 
 // emailItem is one event line in an email.
@@ -148,6 +186,8 @@ type emailItem struct {
 	Detail  string
 	Message string
 	Link    string
+	// LinkText overrides the default "Open ..." button label.
+	LinkText string
 }
 
 // buildData assembles the template context for a batch of notifications.

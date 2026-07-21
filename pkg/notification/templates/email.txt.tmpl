@@ -12,6 +12,9 @@
 {{- if .PrefsURL}}
 Manage notification preferences: {{.PrefsURL}}
 {{- end}}
+{{- if .UnsubURL}}
+Unsubscribe (no sign-in needed): {{.UnsubURL}}
+{{- end}}
 {{- if .Brand.ImplementorName}}
 Provided by {{.Brand.ImplementorName}}{{if .Brand.ImplementorURL}} ({{.Brand.ImplementorURL}}){{end}}
 {{- end}}

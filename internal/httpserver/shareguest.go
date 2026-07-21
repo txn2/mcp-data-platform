@@ -1,0 +1,135 @@
+package httpserver
+
+import (
+	"context"
+	"database/sql"
+	"encoding/base64"
+	"log"
+	"net/http"
+	"time"
+
+	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
+	"github.com/txn2/mcp-data-platform/pkg/notification"
+	"github.com/txn2/mcp-data-platform/pkg/platform"
+	"github.com/txn2/mcp-data-platform/pkg/portal"
+	"github.com/txn2/mcp-data-platform/pkg/portal/shareaccess"
+	"github.com/txn2/mcp-data-platform/pkg/portal/shareguest"
+)
+
+// unsubscribeKeyLabel domain-separates the unsubscribe-token MAC key from the
+// browser-session signing key it is derived from.
+const unsubscribeKeyLabel = "notification-unsubscribe-v1"
+
+// unsubscribePath is the no-login opt-out endpoint linked from notification
+// email footers (#1001). It lives outside the portal handler's mounts: it
+// must work for recipients with no account and no session.
+const unsubscribePath = "/portal/notifications/unsubscribe"
+
+// browserSessionSigningKey returns the decoded browser-session signing key,
+// or nil when browser sessions are unconfigured or the key does not decode.
+// It is the master secret the guest-session and unsubscribe-token keys are
+// derived from; without it both features degrade away.
+func browserSessionSigningKey(p *platform.Platform) []byte {
+	if p == nil {
+		return nil
+	}
+	bs := p.Config().Auth.BrowserSession
+	if !bs.Enabled || bs.SigningKey == "" {
+		return nil
+	}
+	key, err := base64.StdEncoding.DecodeString(bs.SigningKey)
+	if err != nil {
+		return nil
+	}
+	return key
+}
+
+// shareTokenReader is the one share-store call the guest service resolves
+// through.
+type shareTokenReader interface {
+	GetByToken(ctx context.Context, token string) (*portal.Share, error)
+}
+
+// newShareGuestService assembles the portal's guest access service (#1001)
+// over the portal share store the caller has already null-checked. The
+// service always renders branded denial pages once the portal is mounted; the
+// one-time-link flow additionally needs the database (link store), the
+// notification substrate for the transactional email, the browser-session
+// signing key, and a public base URL, and disables itself when any is absent.
+func newShareGuestService(p *platform.Platform, notify *notifydelivery.Handle, store shareTokenReader, db *sql.DB) *shareguest.Service {
+	cfg := shareguest.Config{
+		Resolve:      shareGuestResolver(store),
+		SessionKey:   browserSessionSigningKey(p),
+		BaseURL:      p.Config().Portal.PublicBaseURL,
+		SecureCookie: p.Config().Auth.BrowserSession.IsSecure(),
+		Brand: shareguest.Brand{
+			Name:               portalBrandName(p),
+			LogoSVG:            p.BrandLogoSVG(),
+			URL:                p.BrandURL(),
+			ImplementorName:    p.Config().Portal.Implementor.Name,
+			ImplementorLogoSVG: p.ResolveImplementorLogo(),
+			ImplementorURL:     p.Config().Portal.Implementor.URL,
+		},
+	}
+	if db != nil {
+		cfg.Links = shareguest.NewPostgresLinkStore(db)
+	}
+	if notify != nil {
+		cfg.SendLink = notify.SendGuestLink
+	}
+	svc := shareguest.New(cfg)
+	if svc.LinksAvailable() {
+		log.Println("Portal share guest links enabled (one-time email links)")
+	}
+	return svc
+}
+
+// shareGuestResolver adapts the portal share store to the guest service's
+// view of a share. Mode interpretation mirrors shareaccess.Authorize: an
+// empty stored mode defaults by the share's shape and is never public.
+func shareGuestResolver(store shareTokenReader) shareguest.Resolver {
+	return func(ctx context.Context, token string) (shareguest.ShareInfo, bool) {
+		share, err := store.GetByToken(ctx, token)
+		if err != nil || share == nil {
+			return shareguest.ShareInfo{}, false
+		}
+		return shareguest.ShareInfo{
+			ID:             share.ID,
+			Token:          share.Token,
+			RecipientEmail: share.SharedWithEmail,
+			Public:         share.AccessMode == shareaccess.ModePublic,
+			Revoked:        share.Revoked,
+			Expired:        share.ExpiresAt != nil && share.ExpiresAt.Before(time.Now()),
+		}, true
+	}
+}
+
+// unsubscribeURLFn returns the builder for the notification footer's
+// no-login unsubscribe link, or nil when the endpoint cannot be served
+// (no signing key or no public base URL to absolutize the link with).
+func unsubscribeURLFn(p *platform.Platform) func(email string) string {
+	master := browserSessionSigningKey(p)
+	if master == nil || p.Config().Portal.PublicBaseURL == "" {
+		return nil
+	}
+	key := shareguest.DeriveKey(master, unsubscribeKeyLabel)
+	base := p.Config().Portal.PublicBaseURL
+	return func(email string) string {
+		return base + unsubscribePath + "?tok=" + notification.UnsubToken(key, email)
+	}
+}
+
+// mountNotificationUnsubscribe registers the no-login opt-out endpoint when
+// the notification substrate and the token key are both available.
+func mountNotificationUnsubscribe(mux *http.ServeMux, p *platform.Platform, notify *notifydelivery.Handle) {
+	master := browserSessionSigningKey(p)
+	if notify == nil || notify.Prefs() == nil || master == nil {
+		return
+	}
+	mux.Handle("GET "+unsubscribePath, &notification.UnsubscribeHandler{
+		Prefs:     notify.Prefs(),
+		Key:       shareguest.DeriveKey(master, unsubscribeKeyLabel),
+		BrandName: portalBrandName(p),
+	})
+	log.Println("Notification unsubscribe endpoint enabled on " + unsubscribePath)
+}

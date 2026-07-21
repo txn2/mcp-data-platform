@@ -25,6 +25,8 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/memory"
 	"github.com/txn2/mcp-data-platform/pkg/portal/knowledgepage"
 	"github.com/txn2/mcp-data-platform/pkg/portal/shareaccess"
+	"github.com/txn2/mcp-data-platform/pkg/portal/shareguest"
+	"github.com/txn2/mcp-data-platform/pkg/portal/viewerlimit"
 	"github.com/txn2/mcp-data-platform/pkg/ratelimit"
 	"github.com/txn2/mcp-data-platform/pkg/toolkits/knowledge"
 	userdir "github.com/txn2/mcp-data-platform/pkg/user"
@@ -177,6 +179,10 @@ type Deps struct {
 	// disables email notifications; implementations log their own failures
 	// and never fail the originating request.
 	Notifier Notifier
+	// ShareGuest is the guest access path for email shares (#1001): branded
+	// denial pages, one-time view links, and guest sessions. nil keeps the
+	// pre-#1001 plain-text denials and registers no guest routes.
+	ShareGuest *shareguest.Service
 	// NotificationRegistrar, when set, registers the self-scoped
 	// notification-preference REST routes onto the portal's authenticated
 	// mux (the DataHubRegistrar pattern): the feature lives with the
@@ -191,7 +197,7 @@ type Handler struct {
 	publicMux   *http.ServeMux
 	authedMux   http.Handler
 	deps        Deps
-	rateLimiter *RateLimiter
+	rateLimiter *viewerlimit.RateLimiter
 }
 
 // NewHandler creates a new portal API handler.
@@ -200,7 +206,7 @@ func NewHandler(deps Deps, authMiddle func(http.Handler) http.Handler) *Handler 
 		mux:         http.NewServeMux(),
 		publicMux:   http.NewServeMux(),
 		deps:        deps,
-		rateLimiter: NewRateLimiter(deps.RateLimit, deps.RateLimitResolver),
+		rateLimiter: viewerlimit.New(deps.RateLimit, deps.RateLimitResolver),
 	}
 	h.registerRoutes()
 
@@ -334,6 +340,15 @@ func (h *Handler) registerRoutes() {
 	h.publicMux.Handle("GET /portal/view/{token}/items/{assetId}/content", h.publicChain(h.publicCollectionItemContent))
 	h.publicMux.Handle("GET /portal/view/{token}/items/{assetId}/thumbnail", h.publicChain(h.publicCollectionItemThumbnail))
 	h.publicMux.Handle("GET /portal/view/{token}/items/{assetId}/view", h.publicChain(h.publicCollectionItemView))
+
+	// Guest link routes (#1001): rate limited but outside the access gate,
+	// since their whole audience is callers the gate refuses.
+	if h.deps.ShareGuest != nil {
+		h.publicMux.Handle("POST /portal/view/{token}/request-link",
+			h.rateLimiter.Middleware(http.HandlerFunc(h.deps.ShareGuest.HandleRequestLink)))
+		h.publicMux.Handle("GET /portal/view/{token}/guest",
+			h.rateLimiter.Middleware(http.HandlerFunc(h.deps.ShareGuest.HandleClaim)))
+	}
 }
 
 // publicChain wraps a share-viewer handler in the rate limiter and the share

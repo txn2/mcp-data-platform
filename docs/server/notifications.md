@@ -95,6 +95,18 @@ GET /api/v1/portal/notification-prefs
 PUT /api/v1/portal/notification-prefs   {"mode": "daily", "shares_enabled": true, "comments_enabled": false}
 ```
 
+Preferences are keyed by bare email address, so they also apply to share
+recipients who have no platform account. Because such a recipient cannot
+reach the Settings page, every notification email carries an unsubscribe
+footer link that works without signing in: it opens
+`GET /portal/notifications/unsubscribe?tok=...`, verifies an HMAC token
+bound to the recipient address, and records delivery mode `off` for it. The
+token is minted with a key derived from the browser-session signing key, so
+only a holder of the emailed link can opt an address out. Opting out stops
+notification emails only; one-time view links requested from a share's
+landing page are transactional (the recipient asks for each one) and still
+send.
+
 ## Branded emails
 
 Emails are responsive, table-based HTML (broad email-client compatibility)
@@ -105,8 +117,15 @@ links to render), and a link to the recipient's notification preferences.
 Share links for assets and collections use the token viewer; prompt shares
 link to the in-app prompt page. The emailed link is not a bearer credential:
 a share addressed to a person is restricted to that person, so the viewer
-resolves it only once the recipient is signed in, and forwarding the message
+resolves it only once the recipient is signed in (or opens a one-time guest
+link requested from the share's landing page), and forwarding the message
 grants nothing.
+
+One-time guest link emails are a separate, transactional send: rendered
+through the same branding but delivered directly rather than queued, so they
+are never deferred into a daily digest and are not gated on notification
+preferences. They exist only because the recipient pressed the request
+button on the share page.
 
 ## Configuration
 

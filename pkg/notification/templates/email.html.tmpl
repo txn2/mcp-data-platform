@@ -29,7 +29,7 @@
                 <td style="padding:16px 20px;">
                   {{if $.Digest}}<p style="margin:0 0 6px 0;font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#1a1d21;">{{.Detail}}</p>{{end}}
                   {{if .Message}}<p style="margin:0 0 10px 0;font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#4a4f57;font-style:italic;">&ldquo;{{.Message}}&rdquo;</p>{{end}}
-                  {{if .Link}}<a href="{{.Link}}" style="display:inline-block;font-family:Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;color:#ffffff;background-color:#2563eb;border-radius:6px;padding:8px 16px;text-decoration:none;">Open {{if .Title}}&ldquo;{{.Title}}&rdquo;{{else}}in portal{{end}}</a>{{end}}
+                  {{if .Link}}<a href="{{.Link}}" style="display:inline-block;font-family:Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;color:#ffffff;background-color:#2563eb;border-radius:6px;padding:8px 16px;text-decoration:none;">{{if .LinkText}}{{.LinkText}}{{else}}Open {{if .Title}}&ldquo;{{.Title}}&rdquo;{{else}}in portal{{end}}{{end}}</a>{{end}}
                 </td>
               </tr>
             </table>
@@ -39,6 +39,7 @@
         <tr>
           <td style="padding:20px 32px 28px 32px;">
             {{if .PrefsURL}}<p style="margin:0;font-family:Helvetica,Arial,sans-serif;font-size:12px;color:#6b7280;">You are receiving this because of your notification preferences. <a href="{{.PrefsURL}}" style="color:#2563eb;">Manage preferences</a></p>{{end}}
+            {{if .UnsubURL}}<p style="margin:6px 0 0 0;font-family:Helvetica,Arial,sans-serif;font-size:12px;color:#6b7280;">No account or signed out? <a href="{{.UnsubURL}}" style="color:#2563eb;">Unsubscribe from these emails</a></p>{{end}}
           </td>
         </tr>
       </table>

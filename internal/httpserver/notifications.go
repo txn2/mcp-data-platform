@@ -30,7 +30,8 @@ func buildNotifications(p *platform.Platform) *notifydelivery.Handle {
 			ImplementorURL:  p.Config().Portal.Implementor.URL,
 			LogoPNG:         emailLogo(p.Config().Portal.LogoEmail),
 		},
-		DigestHourUTC: p.Config().Notifications.DigestHour(),
+		DigestHourUTC:  p.Config().Notifications.DigestHour(),
+		UnsubscribeURL: unsubscribeURLFn(p),
 	})
 	if err != nil {
 		// A renderer build failure means broken embedded templates — a build
