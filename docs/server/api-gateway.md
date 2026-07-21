@@ -236,6 +236,66 @@ Add `refresh_token` to `oauth_scope` so Salesforce issues a refresh token — wi
 
 The admin portal's **Connections** page surfaces `static_headers` as a key/value editor under each `kind: api` connection. Existing values are masked (the portal never sees the cleartext secret after the first save); add or delete to change the set. Names remain visible so an operator can confirm which headers are configured without revealing the values.
 
+## Built-in utility connection
+
+The platform ships a built-in connection named **`util`** whose operations are handled **in-process** rather than proxied to an upstream `base_url`. It registers automatically when the API-gateway toolkit and a database-backed catalog store are present, and it is discovered and invoked exactly like any other `kind: api` connection: `api_list_endpoints connection=util` lists its operations, `api_get_endpoint_schema` returns their parameter shapes, `api_invoke_endpoint` runs one inline, and `api_export` streams one to a portal asset. No new MCP tool is introduced; the utility surface grows by adding catalog operations, not tools.
+
+Like every connection, `util` is **deny-by-default**: a persona reaches it only when its connection rules allow it (the built-in admin persona's `*`, or an explicit operator grant). Not granting it is the restriction.
+
+### `fetch_url` (`POST /util/fetch`)
+
+Fetch an arbitrary **public** URL server-side and return it inline or stream it to a portal asset. This closes a real gap: `api_invoke_endpoint` and `api_export` join their `path` to a registered connection's `base_url`, so they cannot reach a host you cannot pre-register, most importantly a one-time **presigned download URL** (S3 / GCS / Azure Blob signed links, report-generation links) whose host and token are dynamic.
+
+Request body:
+
+```json
+{
+  "url": "https://host/path?query",
+  "method": "GET",
+  "headers": {},
+  "follow_redirects": true,
+  "expected_content_type": "application/json"
+}
+```
+
+Behavior:
+
+- **Uses the URL exactly as given.** No `base_url` join, and the query string is never re-encoded, so a presigned signature (`X-Amz-Signature`, `sig`, `se`) survives byte-for-byte.
+- **Injects no credentials.** A presigned URL carries its own credential in the query string; adding an `Authorization` header would break or leak it. Headers are opt-in only, and transport-owned headers (`Host`, `Content-Length`, `Transfer-Encoding`, `Connection`) cannot be set.
+- **Read-only.** Only `GET` and `HEAD` are accepted. Side-effectful outbound calls are out of scope for this operation.
+- Reachable inline via `api_invoke_endpoint` (subject to the normal inline truncation cap) or streamed to a portal asset via `api_export` with `path=/util/fetch` (subject to `portal.export.max_bytes`). The export returns the same asset metadata shape as any other `api_export`.
+
+Typical flow for an async "generate export, download from a signed link" API:
+
+```
+api_invoke_endpoint  <source>  POST /exports                     -> job id
+api_invoke_endpoint  <source>  GET  /exports/{id}                -> signed download_url
+api_export           util      POST /util/fetch  url=<signed url> -> portal asset (rows)
+```
+
+### SSRF protection
+
+`fetch_url` fetches **public destinations only**. There is no domain allowlist: constraining public destinations would add friction without a matching benefit, since presigned hosts are dynamic. What is blocked is **internal address space** the fetch could reach only because it runs inside the platform's pod:
+
+- loopback, RFC 1918 private ranges, and carrier-grade NAT (`100.64.0.0/10`)
+- link-local, including the cloud metadata endpoint (`169.254.169.254`), and IPv6 link-local / unique-local
+- multicast and unspecified addresses
+- internal hostnames: `localhost`, `*.svc.cluster.local`, `*.cluster.local`, `*.internal`, `metadata.google.internal`
+
+The hostname is resolved first and only the vetted IP is dialed (**resolve-then-pin**), so a public DNS name cannot rebind to an internal address between the check and the connection. Every redirect hop is re-checked. A refused destination returns `403`. Only `http` and `https` URLs are accepted, and a URL carrying embedded userinfo (`user:pass@host`) is rejected. The signature portion of a URL is redacted from logs and from relayed error text.
+
+An operator whose deployment must fetch from a trusted internal host can exempt specific prefixes:
+
+```yaml
+apigateway:
+  util_connection:
+    # enabled: false        # opt out of the built-in util connection
+    allow_private_cidrs:     # exempt trusted internal prefixes from the block
+      - "10.20.0.0/16"
+```
+
+With no `util_connection` block, the connection is enabled and the default posture applies: **public destinations open, internal address space closed.**
+
 ## Memory safety and the in-flight budget
 
 The gateway is a single shared process serving every connection and toolkit. `api_invoke_endpoint` buffers the upstream response into memory (capped per connection at `max_response_bytes`, default 10 MiB) so it can parse and envelope it. Per-request caps bound one call, but they do **not** bound the **sum** of concurrent calls: a burst of large responses, each under its own cap, can collectively exhaust the heap and get the container OOMKilled (exit 137), taking down every in-flight request on the pod.

@@ -193,7 +193,28 @@ const (
 	// subtitle. Set by the built-in platform-admin self-connection to
 	// explain what the connection is for.
 	cfgKeyDescription = "description"
+
+	// cfgKeyHandler selects how the connection's operations are
+	// resolved. Empty (the default) proxies to BaseURL; HandlerInternal
+	// dispatches to the in-process handler wired via SetInternalHandler
+	// (issue #1005, the built-in util connection).
+	cfgKeyHandler = "handler"
 )
+
+// HandlerInternal marks a connection whose operations are resolved by
+// an in-process handler instead of an outbound proxy. The connection
+// still carries a catalog (so api_list_endpoints / api_get_endpoint_schema
+// work unchanged), but invoke/export requests are served by the
+// http.Handler wired via Toolkit.SetInternalHandler rather than dialed
+// to an upstream. Used by the built-in "util" connection (issue #1005).
+const HandlerInternal = "internal"
+
+// internalBaseURL is the synthetic base URL assigned to
+// handler=internal connections so the shared URL-join and validation
+// path (buildURL, validatePath) applies unchanged. The .invalid TLD is
+// reserved (RFC 2606) and the internal round tripper never dials, so
+// the host can never be reached even if misrouted.
+const internalBaseURL = "http://internal.invalid"
 
 // Config holds api-gateway toolkit configuration for a single upstream
 // HTTP API connection.
@@ -285,6 +306,12 @@ type Config struct {
 	// CA (cluster-internal CA, mesh CA, corporate root) that the
 	// host's default cert store does not carry.
 	TLSCABundlePEM string
+	// Handler selects the resolution mode: "" proxies to BaseURL,
+	// HandlerInternal dispatches to the toolkit's in-process handler.
+	// When internal, BaseURL is optional (a synthetic, never-dialed
+	// placeholder is filled in) and AuthMode must be "none" — there is
+	// no upstream to authenticate against.
+	Handler string
 	// IdentityPassthrough forwards the acting caller's inbound bearer
 	// token (the one that authenticated the MCP session, read from the
 	// request context) as the outbound Authorization header, instead of
@@ -430,6 +457,10 @@ func ParseConfig(cfg map[string]any) (Config, error) {
 	c.TLSCABundlePEM = getString(cfg, cfgKeyTLSCABundlePEM)
 	c.IdentityPassthrough = getBool(cfg, cfgKeyIdentityPassthrough)
 	c.Description = getString(cfg, cfgKeyDescription)
+	c.Handler = getString(cfg, cfgKeyHandler)
+	if c.Handler == HandlerInternal && c.BaseURL == "" {
+		c.BaseURL = internalBaseURL
+	}
 
 	if err := c.Validate(); err != nil {
 		return Config{}, err
@@ -460,13 +491,49 @@ func (c Config) Validate() error {
 	if c.MaxResponseBytes <= 0 {
 		return errors.New("apigateway: max_response_bytes must be positive")
 	}
-	if err := c.validateStaticHeaders(); err != nil {
-		return err
+	return firstConfigError(
+		c.validateStaticHeaders,
+		c.validateIdentityPassthrough,
+		c.validateHandler,
+		c.validateTLSMaterial,
+	)
+}
+
+// firstConfigError returns the first non-nil error from the checks, in
+// order. Collapsing the sequential sub-validators into one loop keeps
+// Config.Validate under the cyclomatic-complexity ceiling as new
+// per-field validators are added.
+func firstConfigError(checks ...func() error) error {
+	for _, check := range checks {
+		if err := check(); err != nil {
+			return err
+		}
 	}
-	if err := c.validateIdentityPassthrough(); err != nil {
-		return err
+	return nil
+}
+
+// validateHandler enforces the handler=internal invariants: no shared
+// credential (there is no upstream to authenticate against, and a
+// configured auth_mode would imply one) and no identity passthrough
+// (the in-process handler must never see the caller's bearer token —
+// fetch_url forwarding it to an arbitrary destination would be a
+// credential leak).
+func (c Config) validateHandler() error {
+	switch c.Handler {
+	case "", HandlerInternal:
+	default:
+		return fmt.Errorf("apigateway: invalid handler %q (want %q or empty)", c.Handler, HandlerInternal)
 	}
-	return c.validateTLSMaterial()
+	if c.Handler != HandlerInternal {
+		return nil
+	}
+	if c.AuthMode != AuthModeNone {
+		return fmt.Errorf("apigateway: handler=internal requires auth_mode=none, got %q", c.AuthMode)
+	}
+	if c.IdentityPassthrough {
+		return errors.New("apigateway: handler=internal is incompatible with identity_passthrough")
+	}
+	return nil
 }
 
 // validateIdentityPassthrough enforces that a passthrough connection

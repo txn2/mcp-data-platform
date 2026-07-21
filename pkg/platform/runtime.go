@@ -66,6 +66,11 @@ func (p *Platform) WireRuntime(rc RuntimeConfig) {
 	// admin API mount in the entry point — the self-connection is only useful
 	// when the admin REST surface it loops back to is actually served.
 	p.WireGatewayIntegrations()
+	// The util connection seed (issue #1005) also reads the catalog store
+	// and embed-jobs queue wired above. Unlike the admin self-connection
+	// it does not depend on the admin REST surface, so it is not gated on
+	// Admin.IsEnabled.
+	wireUtilConnection(p)
 	if p.config.Admin.IsEnabled() {
 		p.WireAdminSelfConnection(rc.Address)
 	}

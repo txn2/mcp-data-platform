@@ -104,23 +104,32 @@ func TestWireRuntime_GatewayIntegrationsBeforeAdminSeed(t *testing.T) {
 	// the catalog header + spec upsert below.
 	p := &Platform{toolkitRegistry: reg, lifecycle: lc, config: &Config{}, db: db}
 
-	// Seed queries, in order: probe the catalog (absent → create it), upsert
-	// the embedded admin spec, then AddConnection lists the catalog's specs
-	// while loading the new connection (empty is fine — the connection still
-	// registers).
-	mock.ExpectQuery(`SELECT .* FROM api_catalogs WHERE id`).WillReturnError(sql.ErrNoRows)
-	mock.ExpectExec(`INSERT INTO api_catalogs`).WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(`INSERT INTO api_catalog_specs`).WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectQuery(`SELECT .* FROM api_catalog_specs WHERE catalog_id`).
-		WillReturnRows(sqlmock.NewRows([]string{
+	// Seed queries, in order, for each built-in connection: probe the catalog
+	// (absent → create it), upsert the embedded spec, then AddConnection lists
+	// the catalog's specs while loading the new connection (empty is fine — the
+	// connection still registers). WireRuntime seeds the util connection first,
+	// then the admin self-connection, so both connections' query sets appear in
+	// that order.
+	specRows := func() *sqlmock.Rows {
+		return sqlmock.NewRows([]string{
 			"spec_name", "content", "source_kind", "source_url", "etag",
 			"base_path", "title", "description", "last_fetched_at",
 			"created_at", "updated_at", "operation_count",
-		}))
+		})
+	}
+	for range 2 { // util seed, then admin seed
+		mock.ExpectQuery(`SELECT .* FROM api_catalogs WHERE id`).WillReturnError(sql.ErrNoRows)
+		mock.ExpectExec(`INSERT INTO api_catalogs`).WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectExec(`INSERT INTO api_catalog_specs`).WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectQuery(`SELECT .* FROM api_catalog_specs WHERE catalog_id`).
+			WillReturnRows(specRows())
+	}
 
 	p.WireRuntime(RuntimeConfig{Transport: "http", Address: ":8080"})
 
 	require.True(t, tk.HasConnection(adminSelfConnectionName),
 		"admin self-connection must register, proving WireGatewayIntegrations wired the catalog store before the seed ran")
+	require.True(t, tk.HasConnection("util"),
+		"util connection must register from the same catalog store wired by WireGatewayIntegrations")
 	require.NoError(t, mock.ExpectationsWereMet())
 }

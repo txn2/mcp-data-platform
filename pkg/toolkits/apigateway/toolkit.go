@@ -101,6 +101,11 @@ type Toolkit struct {
 	// buffered path is unchanged in that case. Shared across toolkit
 	// instances when the platform injects the same handle into each.
 	memBudget *MemBudget
+
+	// internalHandler serves handler=internal connections (issue
+	// #1005). nil until SetInternalHandler wires it; adding an
+	// internal connection before then fails.
+	internalHandler http.Handler
 }
 
 // SetMemBudget wires the shared in-flight memory budget the buffered
@@ -862,7 +867,10 @@ func (t *Toolkit) addParsedConnection(name string, cfg Config) error {
 		return fmt.Errorf("apigateway: %s: %w", name, err)
 	}
 	specs, ops, vectors := t.buildConnSpecs(name, cfg.CatalogID, cfg.BaseURL)
-	client := newHTTPClient(cfg)
+	client, err := t.newConnClient(name, cfg)
+	if err != nil {
+		return err
+	}
 	c := &conn{
 		cfg:          cfg,
 		auth:         auth,
@@ -895,6 +903,24 @@ func (t *Toolkit) addParsedConnection(name string, cfg Config) error {
 	}
 	t.connections[name] = c
 	return nil
+}
+
+// newConnClient builds the per-connection HTTP client: an in-process
+// dispatch client for handler=internal connections (issue #1005), the
+// normal network client otherwise. An internal connection added
+// before SetInternalHandler wired a handler is refused — it could
+// never serve a request.
+func (t *Toolkit) newConnClient(name string, cfg Config) (*http.Client, error) {
+	if cfg.Handler != HandlerInternal {
+		return newHTTPClient(cfg), nil
+	}
+	t.mu.RLock()
+	h := t.internalHandler
+	t.mu.RUnlock()
+	if h == nil {
+		return nil, fmt.Errorf("apigateway: %s: handler=internal requires SetInternalHandler before the connection is added", name)
+	}
+	return newInternalHTTPClient(h), nil
 }
 
 // specSummaryTitle resolves the title shown in api_list_specs and the
