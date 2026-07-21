@@ -267,7 +267,9 @@ export function ShareDialog({ assetId, target, open, onOpenChange }: Props) {
           <div className="mb-4">
             <h3 className="text-sm font-medium mb-2">Share with User</h3>
             <p className="mb-2 text-xs text-muted-foreground">
-              Only this person can open the link, and only while signed in.
+              Only this person can open the link. With an account they sign in
+              and get the permission you grant; without one they can view (not
+              edit) through single-use links emailed to them.
             </p>
             <div className="flex gap-2">
               <UserPicker value={email} onChange={setEmail} />

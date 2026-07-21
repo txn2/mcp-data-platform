@@ -36,6 +36,9 @@ type Config struct {
 	Branding notification.Branding
 	// DigestHourUTC is the UTC hour daily digests are scheduled for.
 	DigestHourUTC int
+	// UnsubscribeURL builds the no-login unsubscribe link for a recipient
+	// address (#1001). nil omits the footer link from notification emails.
+	UnsubscribeURL func(email string) string
 }
 
 // listenerControl narrows the LISTEN adapter to the two calls the handle
@@ -66,6 +69,9 @@ func New(cfg Config) (*Handle, error) {
 	renderer, err := notification.NewRenderer(cfg.Branding)
 	if err != nil {
 		return nil, fmt.Errorf("building notification renderer: %w", err)
+	}
+	if cfg.UnsubscribeURL != nil {
+		renderer.SetUnsubscribeURLFn(cfg.UnsubscribeURL)
 	}
 	h := &Handle{
 		settings: notification.NewPostgresSettingsStore(cfg.DB, cfg.Encryptor),
@@ -142,23 +148,58 @@ func (h *Handle) Settings() notification.SettingsStore {
 	return h.settings
 }
 
+// SendGuestLink delivers a one-time view link email directly through the
+// sender (#1001). The send is transactional: the recipient requested it from
+// a share landing page, so it bypasses the queue (no digest deferral) and
+// the preference gate (an opted-out recipient still gets the link they asked
+// for). It uses the same stored SMTP settings and deliverability gate as
+// every other send.
+func (h *Handle) SendGuestLink(ctx context.Context, to, link string) error {
+	if h == nil {
+		return errors.New("notifications unavailable: no database configured")
+	}
+	settings, err := h.smtpSettings(ctx)
+	if err != nil {
+		return err
+	}
+	email, err := h.renderer.RenderGuestLink(to, link)
+	if err != nil {
+		return fmt.Errorf("rendering guest link email: %w", err)
+	}
+	if err := h.sender.Send(ctx, *settings, *email); err != nil {
+		slog.Error("notification: guest link send failed", logKeyError, err)
+		return err //nolint:wrapcheck // sender error already carries context
+	}
+	return nil
+}
+
+// smtpSettings loads the stored SMTP settings, refusing when the feature is
+// unconfigured or disabled. Shared by the direct (non-queued) send paths.
+func (h *Handle) smtpSettings(ctx context.Context) (*notification.SMTPSettings, error) {
+	settings, err := h.settings.GetSMTP(ctx)
+	if errors.Is(err, notification.ErrNotFound) {
+		return nil, notification.ErrSMTPNotConfigured
+	}
+	if err != nil {
+		return nil, fmt.Errorf("loading smtp settings: %w", err)
+	}
+	if !settings.Enabled || settings.Host == "" {
+		return nil, notification.ErrSMTPNotConfigured
+	}
+	return settings, nil
+}
+
 // SendTest delivers a test email to the given recipient using the currently
 // stored SMTP settings, so an admin can verify the configuration end to end.
 func (h *Handle) SendTest(ctx context.Context, to string) error {
 	if h == nil {
 		return errors.New("notifications unavailable: no database configured")
 	}
-	settings, err := h.settings.GetSMTP(ctx)
-	if errors.Is(err, notification.ErrNotFound) {
-		return notification.ErrSMTPNotConfigured
-	}
-	if err != nil {
-		return fmt.Errorf("loading smtp settings: %w", err)
-	}
 	// Mirror the worker's deliverability gate: a disabled or hostless
 	// configuration refuses the test instead of sending around the switch.
-	if !settings.Enabled || settings.Host == "" {
-		return notification.ErrSMTPNotConfigured
+	settings, err := h.smtpSettings(ctx)
+	if err != nil {
+		return err
 	}
 	email, err := h.renderer.RenderTest(to)
 	if err != nil {

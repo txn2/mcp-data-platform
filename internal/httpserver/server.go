@@ -197,6 +197,9 @@ func Serve(ctx context.Context, mcpServer *mcp.Server, p *platform.Platform, add
 	// Mount browser auth routes (OIDC login/callback/logout)
 	mountBrowserAuth(mux, p)
 
+	// Mount the no-login notification opt-out linked from email footers (#1001)
+	mountNotificationUnsubscribe(mux, p, notify)
+
 	// Mount admin API if enabled
 	mountAdminAPI(mux, p, notify)
 

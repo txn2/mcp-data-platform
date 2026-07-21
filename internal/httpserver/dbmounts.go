@@ -92,6 +92,11 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 
 	wirePortalOptionalDeps(&deps, p)
 
+	// Guest access path for email shares (#1001): branded denial pages plus
+	// one-time view links for recipients without an account. The share store
+	// is present on this path (checked at the top of this function).
+	deps.ShareGuest = newShareGuestService(p, notify, p.PortalShareStore(), p.DB())
+
 	handler := portal.NewHandler(deps, portal.RequirePortalAuth(portalAuth))
 	mux.Handle("/api/v1/portal/", handler)
 	mux.Handle("/portal/view/", handler)

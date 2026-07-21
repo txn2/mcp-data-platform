@@ -85,6 +85,17 @@ raw content, both thumbnail routes, and the three collection-item routes)
 resolves the share's access mode before serving anything, and refuses with 403
 when the caller is not admitted.
 
+A refused browser navigation renders a branded landing page instead of bare
+text: sign-in with a return path for account holders, and, on shares naming an
+email address, a request button for a single-use, 15-minute view link emailed
+only to that stored address. A claimed link opens a view-only guest session
+scoped to that one share (a signed cookie derived from the browser-session
+signing key); guests never reach the portal or its API, and revoking the share
+ends their access immediately. Link issuance is rate-limited per IP and capped
+per share, and requires the notification substrate (SMTP), a database, browser
+sessions, and `portal.public_base_url`. Subresource fetches and API-style
+callers keep plain-status refusals.
+
 ## Dashboard
 
 The Dashboard is the admin home page, providing a real-time overview of platform health across configurable time ranges (1h, 6h, 24h, 7d).

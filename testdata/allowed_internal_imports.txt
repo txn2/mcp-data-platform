@@ -23,6 +23,8 @@ internal/httpserver -> pkg/pkcestore
 internal/httpserver -> pkg/platform
 internal/httpserver -> pkg/portal
 internal/httpserver -> pkg/portal/datahubapi
+internal/httpserver -> pkg/portal/shareaccess
+internal/httpserver -> pkg/portal/shareguest
 internal/httpserver -> pkg/ratelimit
 internal/httpserver -> pkg/registry
 internal/httpserver -> pkg/resource
@@ -304,7 +306,9 @@ pkg/portal -> pkg/memory
 pkg/portal -> pkg/middleware
 pkg/portal -> pkg/portal/knowledgepage
 pkg/portal -> pkg/portal/shareaccess
+pkg/portal -> pkg/portal/shareguest
 pkg/portal -> pkg/portal/threads
+pkg/portal -> pkg/portal/viewerlimit
 pkg/portal -> pkg/prompt
 pkg/portal -> pkg/ratelimit
 pkg/portal -> pkg/registry
@@ -322,6 +326,7 @@ pkg/portal/datahubapi -> pkg/semantic/datahub
 pkg/portal/datahubapi -> pkg/toolkits/knowledge
 pkg/portal/knowledgepageindex -> pkg/indexjobs
 pkg/portal/knowledgepageindex -> pkg/portal/knowledgepage
+pkg/portal/viewerlimit -> pkg/ratelimit
 pkg/prompt/postgres -> pkg/indexjobs
 pkg/prompt/postgres -> pkg/prompt
 pkg/prompt/promptindex -> pkg/indexjobs

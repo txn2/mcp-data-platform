@@ -336,6 +336,7 @@
             <h1>{{.Name}}</h1>
             <span class="badge">{{.ContentType}}</span>
             {{if .Version}}<span class="badge">v{{.Version}}</span>{{end}}
+            {{if .IsGuest}}<span class="badge">Viewing as guest</span>{{end}}
         </div>
         <button class="info-toggle" id="info-toggle" aria-label="Asset info" title="Asset info">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
@@ -361,6 +362,7 @@
         {{if .NoticeText}}<span>{{.NoticeText}}</span>{{end}}
     </div>
     {{end}}
+    {{if not .IsGuest}}
     <div class="feedback-cta" id="feedback-cta">
         {{if .SignedIn}}
         <span>Want to leave feedback? <a href="{{.PortalURL}}">Open this in your portal</a>.</span>
@@ -368,6 +370,7 @@
         <span><a href="{{.SignInURL}}">Sign in to leave feedback</a> on this asset.</span>
         {{end}}
     </div>
+    {{end}}
     {{end}}
     <div class="content">
         <style>{{.ContentViewerCSS}}</style>
