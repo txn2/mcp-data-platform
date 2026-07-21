@@ -124,6 +124,10 @@ internal/platform/toolratelimit -> pkg/observability
 internal/platform/toolratelimit -> pkg/ratelimit
 internal/platform/userdir -> pkg/middleware
 internal/platform/userdir -> pkg/user
+internal/platform/utilconn -> pkg/toolkits/apigateway
+internal/platform/utilconn -> pkg/toolkits/apigateway/catalog
+internal/platform/utilconn -> pkg/toolkits/apigateway/catalogindex
+internal/platform/utilconn -> pkg/toolkits/apigateway/utilhandler
 internal/server -> pkg/platform
 pkg/admin -> internal/logsan
 pkg/admin -> internal/server
@@ -244,6 +248,7 @@ pkg/platform -> internal/platform/sessionsync
 pkg/platform -> internal/platform/toolkitcfg
 pkg/platform -> internal/platform/toolratelimit
 pkg/platform -> internal/platform/userdir
+pkg/platform -> internal/platform/utilconn
 pkg/platform -> pkg/audit
 pkg/platform -> pkg/audit/postgres
 pkg/platform -> pkg/auth

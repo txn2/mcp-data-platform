@@ -1399,6 +1399,10 @@ type APIGatewayConfig struct {
 	// SelfConnection configures the built-in platform-admin connection
 	// that points the API gateway at the platform's own admin REST API.
 	SelfConnection APIGatewaySelfConnectionConfig `yaml:"self_connection"`
+
+	// UtilConnection configures the built-in util connection whose
+	// operations (fetch_url) are handled in-process by the gateway.
+	UtilConnection apiGatewayUtilConnectionConfig `yaml:"util_connection"`
 }
 
 // APIGatewaySelfConnectionConfig configures the built-in "platform-admin"
@@ -1428,6 +1432,37 @@ type APIGatewaySelfConnectionConfig struct {
 // prerequisite result (auto); an explicit value overrides it but an
 // operator cannot force it on when the prerequisites are absent.
 func (c APIGatewaySelfConnectionConfig) SelfConnectionEnabled(prereqsMet bool) bool {
+	if c.Enabled == nil {
+		return prereqsMet
+	}
+	return *c.Enabled && prereqsMet
+}
+
+// apiGatewayUtilConnectionConfig configures the built-in "util"
+// API-gateway connection (issue #1005): utility operations (fetch_url)
+// resolved by an in-process handler instead of an upstream proxy,
+// discovered and invoked through the normal api gateway tools.
+//
+// Auto-enabled when the prerequisites are met (an API-gateway toolkit
+// and a database-backed catalog store). Set enabled: false to opt out.
+type apiGatewayUtilConnectionConfig struct {
+	// Enabled gates registration. Nil = auto (on when prerequisites
+	// are met); set explicitly to override.
+	Enabled *bool `yaml:"enabled"`
+	// AllowPrivateCIDRs exempts address prefixes from fetch_url's
+	// internal-range block. The default posture is public destinations
+	// open, internal address space (loopback, RFC1918, link-local and
+	// cloud metadata, CGNAT) closed; list a prefix here only when a
+	// deployment must fetch from a trusted internal host.
+	AllowPrivateCIDRs []string `yaml:"allow_private_cidrs"`
+}
+
+// UtilConnectionEnabled reports whether the built-in util connection
+// should register, given whether its runtime prerequisites are
+// satisfied. A nil Enabled defaults to the prerequisite result (auto);
+// an explicit value overrides it but cannot force registration when
+// the prerequisites are absent.
+func (c apiGatewayUtilConnectionConfig) UtilConnectionEnabled(prereqsMet bool) bool {
 	if c.Enabled == nil {
 		return prereqsMet
 	}

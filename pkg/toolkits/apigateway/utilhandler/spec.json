@@ -1,0 +1,91 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Platform Utilities",
+    "description": "Built-in utility operations handled inside the platform. Unlike ordinary api connections, these operations are not proxied to an upstream base_url; the api gateway dispatches them to an in-process handler. Invoke them with api_invoke_endpoint (inline result) or api_export (result streamed to a portal asset).",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/util/fetch": {
+      "post": {
+        "operationId": "fetch_url",
+        "summary": "Fetch a public URL server-side",
+        "description": "Fetch an arbitrary public URL and return its body. The URL is used exactly as given: no base_url join and no query re-encoding, so presigned download links (S3, GCS, Azure Blob signatures) survive intact. No credentials are injected; headers are opt-in. Destinations on internal address space (loopback, private ranges, link-local and cloud metadata, cluster-internal names) are refused. Use api_invoke_endpoint for small payloads, or api_export with path=/util/fetch to land a large download (an export's signed result file, a generated report) as a portal asset.",
+        "tags": ["util"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["url"],
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "description": "Absolute http(s) URL to fetch, used byte-for-byte (query string is never re-encoded)."
+                  },
+                  "method": {
+                    "type": "string",
+                    "enum": ["GET", "HEAD"],
+                    "default": "GET",
+                    "description": "Read-only methods only. fetch_url never performs writes against the destination."
+                  },
+                  "headers": {
+                    "type": "object",
+                    "additionalProperties": {"type": "string"},
+                    "description": "Optional request headers. Nothing is injected by default; presigned URLs carry their credential in the query string and adding an Authorization header would break or leak it. Host, Content-Length, Transfer-Encoding, and Connection cannot be set."
+                  },
+                  "follow_redirects": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Follow up to 10 redirects. Every hop is re-checked against the internal-address block."
+                  },
+                  "expected_content_type": {
+                    "type": "string",
+                    "description": "Optional media type the response must carry (parameters such as charset are ignored). A mismatch fails the call instead of landing mislabeled data."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The fetched response body, relayed verbatim with the destination's status code and Content-Type. Non-2xx destination statuses are relayed the same way.",
+            "content": {
+              "application/octet-stream": {
+                "schema": {"type": "string", "format": "binary"}
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input (bad URL, unsupported scheme or method, disallowed header).",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "403": {
+            "description": "Destination refused by the internal-address block.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "502": {
+            "description": "The fetch failed (connection error, TLS failure, expected_content_type mismatch).",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          },
+          "504": {
+            "description": "The fetch timed out.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {"type": "string"}
+        }
+      }
+    }
+  }
+}
