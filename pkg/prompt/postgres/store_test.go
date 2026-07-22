@@ -23,7 +23,7 @@ var selectColumns = []string{
 	"category", "scope", "personas", "owner_email", "source", "enabled",
 	"tags", "status", "approved_by", "approved_at", "deprecated_at",
 	"superseded_by", "review_requested", "requested_scope", "requested_personas",
-	"version", "created_at", "updated_at",
+	"version", "collection_id", "created_at", "updated_at",
 }
 
 // testRowTime is the fixed created_at/updated_at value used by promptRow; the
@@ -37,7 +37,7 @@ func promptRow(id, name, scope string, argsJSON []byte, owner string) []driver.V
 		id, name, "Test Prompt", "A test prompt", "Do something with {topic}", argsJSON,
 		"workflow", scope, pq.Array([]string{}), owner, "operator", true,
 		pq.Array([]string{}), "approved", "", nil, nil, "",
-		false, "", pq.Array([]string{}), 1,
+		false, "", pq.Array([]string{}), 1, "",
 		testRowTime, testRowTime,
 	}
 }
@@ -92,7 +92,7 @@ func TestCreate_Success(t *testing.T) {
 		p.Category, p.Scope, pq.Array(p.Personas), p.OwnerEmail,
 		p.Source, p.Enabled,
 		pq.Array(p.Tags), prompt.StatusDraft, "", nil, nil, "",
-		false, "", pq.Array(p.RequestedPersonas),
+		false, "", pq.Array(p.RequestedPersonas), nil,
 	).WillReturnRows(sqlmock.NewRows([]string{"id", "version", "created_at", "updated_at"}).
 		AddRow("uuid-123", 1, now, now))
 	mock.ExpectExec("INSERT INTO prompt_versions").WithArgs(
@@ -230,7 +230,7 @@ func TestUpdate_Success(t *testing.T) {
 		p.Source, p.Enabled,
 		pq.Array(p.Tags), p.Status, p.ApprovedBy, p.ApprovedAt, p.DeprecatedAt,
 		p.SupersededBy, p.ReviewRequested, p.RequestedScope, pq.Array(p.RequestedPersonas),
-		indexjobs.TextHash(prompt.IndexText(p)), p.Version,
+		indexjobs.TextHash(prompt.IndexText(p)), p.Version, nil,
 	).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 

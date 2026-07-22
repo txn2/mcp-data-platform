@@ -42,7 +42,14 @@ import {
 import { mockKnowledgePages } from "./data/knowledgePages";
 import { mockContent } from "./data/content";
 import { mockCollections, mockSharedCollections } from "./data/collections";
-import { mockAdminPrompts, mockPortalPrompts, mockSharedPrompts } from "./data/prompts";
+import {
+  mockAdminPrompts,
+  mockPortalPrompts,
+  mockSharedPrompts,
+  mockPromptCollections,
+  mockPromptUsage,
+  mockPromptVersions,
+} from "./data/prompts";
 import { mockResources } from "./data/resources";
 import { mockThreads, mockThreadEvents, mockThreadChains } from "./data/feedback";
 import { mockAPIKeys } from "./data/keys";
@@ -58,6 +65,10 @@ import {
 } from "./data/memory";
 import { promInstantFor, promRangeFor } from "./data/observability";
 import { mockIndexJobsSummary, mockIndexJobs, mockIndexJobsFailures } from "./data/indexjobs";
+
+// Mutable copy backing the stateful prompt-collection handlers (#1010); module
+// state resets on page load, which is what the MSW-mode flows need.
+const statefulPromptCollections = mockPromptCollections.map((c) => ({ ...c }));
 
 const ADMIN_BASE = "/api/v1/admin";
 const PORTAL_BASE = "/api/v1/portal";
@@ -2358,6 +2369,104 @@ export const handlers = [
   http.get(`${PORTAL_BASE}/shared-prompts`, () => HttpResponse.json(mockSharedPrompts)),
 
   http.get(`${PORTAL_BASE}/prompts/:id/shares`, () => HttpResponse.json([])),
+
+  // Usage rollup (#1009): run count + last run per visible prompt id.
+  http.get(`${PORTAL_BASE}/prompts/usage`, () => HttpResponse.json(mockPromptUsage)),
+
+  // Version history (#1009/#1010): newest first, with approval provenance.
+  http.get(`${PORTAL_BASE}/prompts/:id/versions`, ({ params }) => {
+    const versions = mockPromptVersions[String(params.id)] ?? [];
+    return HttpResponse.json({ data: versions, total: versions.length });
+  }),
+
+  // Collections (#1010): stateful in the mock so the manage/create/assign
+  // flows are exercisable end-to-end in MSW mode.
+  http.get(`${PORTAL_BASE}/prompt-collections`, () => {
+    // Counts are computed per read like the real server's LEFT JOIN COUNT, so
+    // they stay honest after assignments.
+    const allPrompts = [
+      ...mockPortalPrompts.personal,
+      ...mockPortalPrompts.available,
+      ...mockSharedPrompts.map((s) => s.prompt),
+    ];
+    const data = statefulPromptCollections.map((c) => ({
+      ...c,
+      prompt_count: allPrompts.filter((p) => p.collection_id === c.id).length,
+    }));
+    return HttpResponse.json({ data, total: data.length });
+  }),
+
+  http.post(`${PORTAL_BASE}/prompt-collections`, async ({ request }) => {
+    const body = (await request.json()) as { name?: string; description?: string };
+    const name = (body.name ?? "").trim();
+    if (!name) {
+      return HttpResponse.json({ error: "collection name is required" }, { status: 400 });
+    }
+    if (statefulPromptCollections.some((c) => c.name.toLowerCase() === name.toLowerCase())) {
+      return HttpResponse.json({ error: "a collection with that name already exists" }, { status: 409 });
+    }
+    const created = {
+      id: `pcol-${String(statefulPromptCollections.length + 1).padStart(3, "0")}`,
+      name,
+      description: body.description ?? "",
+      created_by: "admin@example.com",
+      prompt_count: 0,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    statefulPromptCollections.push(created);
+    return HttpResponse.json(created, { status: 201 });
+  }),
+
+  http.put(`${PORTAL_BASE}/prompt-collections/:id`, async ({ params, request }) => {
+    const col = statefulPromptCollections.find((c) => c.id === params.id);
+    if (!col) {
+      return HttpResponse.json({ error: "collection not found" }, { status: 404 });
+    }
+    const body = (await request.json()) as { name?: string; description?: string };
+    const name = (body.name ?? "").trim();
+    // Mirror the real server: empty names are 400, renaming onto another
+    // collection's name (case-insensitively) is 409.
+    if (!name) {
+      return HttpResponse.json({ error: "collection name is required" }, { status: 400 });
+    }
+    if (statefulPromptCollections.some((c) => c.id !== params.id && c.name.toLowerCase() === name.toLowerCase())) {
+      return HttpResponse.json({ error: "a collection with that name already exists" }, { status: 409 });
+    }
+    col.name = name;
+    col.description = body.description ?? col.description;
+    col.updated_at = new Date().toISOString();
+    return HttpResponse.json(col);
+  }),
+
+  http.delete(`${PORTAL_BASE}/prompt-collections/:id`, ({ params }) => {
+    const idx = statefulPromptCollections.findIndex((c) => c.id === params.id);
+    if (idx === -1) {
+      return HttpResponse.json({ error: "collection not found" }, { status: 404 });
+    }
+    statefulPromptCollections.splice(idx, 1);
+    return HttpResponse.json({ status: "deleted" });
+  }),
+
+  // Assignment (#1010): stamp the prompt fixture so subsequent list reads
+  // reflect the move.
+  http.put(`${PORTAL_BASE}/prompts/:id/collection`, async ({ params, request }) => {
+    const body = (await request.json()) as { collection_id?: string };
+    const all = [
+      ...mockPortalPrompts.personal,
+      ...mockPortalPrompts.available,
+      ...mockSharedPrompts.map((s) => s.prompt),
+    ];
+    const target = all.find((p) => p.id === params.id);
+    if (!target) {
+      return HttpResponse.json({ error: "prompt not found" }, { status: 404 });
+    }
+    if (body.collection_id && !statefulPromptCollections.some((c) => c.id === body.collection_id)) {
+      return HttpResponse.json({ error: "collection not found" }, { status: 404 });
+    }
+    target.collection_id = body.collection_id || undefined;
+    return HttpResponse.json(target);
+  }),
 
   // =========================================================================
   // Admin — Prompts

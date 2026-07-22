@@ -132,8 +132,47 @@ export interface Prompt {
   owner_email: string;
   source: string;
   enabled: boolean;
+  /** Collection the prompt belongs to (at most one); absent = uncollected. */
+  collection_id?: string;
+  /** Number of the snapshot the live row currently serves (#1009). */
+  version?: number;
   created_at: string;
   updated_at: string;
+}
+
+/** One immutable snapshot of a prompt's versioned fields, with the author and
+ *  the approval stamp bound to that specific version (#1009). */
+export interface PromptVersion {
+  id: string;
+  prompt_id: string;
+  version: number;
+  display_name: string;
+  description: string;
+  content: string;
+  arguments: PromptArgument[];
+  tags: string[];
+  author: string;
+  status: "draft" | "applied" | "superseded" | "rejected";
+  approved_by?: string;
+  approved_at?: string;
+  created_at: string;
+}
+
+/** Named group organizing the prompt library by team, domain, or workflow. */
+export interface PromptCollection {
+  id: string;
+  name: string;
+  description: string;
+  created_by: string;
+  prompt_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Audit-derived usage rollup for one prompt (#1009). */
+export interface PromptUsage {
+  run_count: number;
+  last_run_at?: string;
 }
 
 export interface PromptListResponse {

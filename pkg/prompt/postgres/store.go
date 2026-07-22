@@ -33,7 +33,8 @@ func New(db *sql.DB) *Store {
 const promptColumns = `id, name, display_name, description, content, arguments,
 	category, scope, personas, owner_email, source, enabled, tags, status,
 	approved_by, approved_at, deprecated_at, superseded_by,
-	review_requested, requested_scope, requested_personas, version, created_at, updated_at`
+	review_requested, requested_scope, requested_personas, version,
+	COALESCE(collection_id::text, ''), created_at, updated_at`
 
 // promptSelect is the base SELECT for the prompt columns.
 const promptSelect = "SELECT " + promptColumns + " FROM prompts"
@@ -54,7 +55,7 @@ func promptScanDest(p *prompt.Prompt, argsJSON *[]byte) []any {
 		&p.Source, &p.Enabled, pq.Array(&p.Tags), &p.Status,
 		&p.ApprovedBy, &p.ApprovedAt, &p.DeprecatedAt, &p.SupersededBy,
 		&p.ReviewRequested, &p.RequestedScope, pq.Array(&p.RequestedPersonas),
-		&p.Version, &p.CreatedAt, &p.UpdatedAt,
+		&p.Version, &p.CollectionID, &p.CreatedAt, &p.UpdatedAt,
 	}
 }
 
@@ -120,9 +121,10 @@ func (s *Store) Create(ctx context.Context, p *prompt.Prompt) error {
 		INSERT INTO prompts (name, display_name, description, content, arguments,
 		                     category, scope, personas, owner_email, source, enabled,
 		                     tags, status, approved_by, approved_at, deprecated_at,
-		                     superseded_by, review_requested, requested_scope, requested_personas)
+		                     superseded_by, review_requested, requested_scope, requested_personas,
+		                     collection_id)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-		        $12, $13, $14, $15, $16, $17, $18, $19, $20)
+		        $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
 		RETURNING id, version, created_at, updated_at`
 
 	return s.withTx(ctx, "create prompt", func(tx *sql.Tx) error {
@@ -131,6 +133,7 @@ func (s *Store) Create(ctx context.Context, p *prompt.Prompt) error {
 			p.Category, p.Scope, pq.Array(p.Personas), p.OwnerEmail, p.Source, p.Enabled,
 			pq.Array(p.Tags), p.Status, p.ApprovedBy, p.ApprovedAt, p.DeprecatedAt,
 			p.SupersededBy, p.ReviewRequested, p.RequestedScope, pq.Array(p.RequestedPersonas),
+			nullableID(p.CollectionID),
 		).Scan(&p.ID, &p.Version, &p.CreatedAt, &p.UpdatedAt)
 		if err != nil {
 			return fmt.Errorf("create prompt: %w", err)
@@ -172,10 +175,12 @@ func (s *Store) GetByID(ctx context.Context, id string) (*prompt.Prompt, error) 
 	return s.queryOne(ctx, query, id)
 }
 
-// queryOne runs a single-row query and maps not-found to (nil, nil).
+// queryOne runs a single-row query and maps not-found to (nil, nil). A
+// caller-supplied id that fails UUID parsing (22P02) names no row and maps to
+// not-found the same way, so a malformed id is a 404, not a 500.
 func (s *Store) queryOne(ctx context.Context, query string, args ...any) (*prompt.Prompt, error) {
 	p, err := scanPrompt(s.db.QueryRowContext(ctx, query, args...))
-	if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, sql.ErrNoRows) || pqCode(err, pqInvalidTextRepresentation) {
 		return nil, nil //nolint:nilnil // Store interface contract: nil, nil means not found
 	}
 	if err != nil {
@@ -236,7 +241,7 @@ func updateTx(ctx context.Context, tx *sql.Tx, p *prompt.Prompt) error {
 		    owner_email = $10, source = $11, enabled = $12, tags = $13,
 		    status = $14, approved_by = $15, approved_at = $16, deprecated_at = $17,
 		    superseded_by = $18, review_requested = $19, requested_scope = $20,
-		    requested_personas = $21,
+		    requested_personas = $21, collection_id = $24,
 		    version = CASE WHEN $23 > 0 THEN $23 ELSE version END,
 		    embedding = CASE WHEN embedding_text_hash IS DISTINCT FROM $22
 		                     THEN NULL ELSE embedding END,
@@ -252,7 +257,7 @@ func updateTx(ctx context.Context, tx *sql.Tx, p *prompt.Prompt) error {
 		p.Category, p.Scope, pq.Array(p.Personas), p.OwnerEmail, p.Source, p.Enabled,
 		pq.Array(p.Tags), p.Status, p.ApprovedBy, p.ApprovedAt, p.DeprecatedAt,
 		p.SupersededBy, p.ReviewRequested, p.RequestedScope, pq.Array(p.RequestedPersonas),
-		newHash, p.Version,
+		newHash, p.Version, nullableID(p.CollectionID),
 	)
 	if err != nil {
 		return fmt.Errorf("update prompt: %w", err)

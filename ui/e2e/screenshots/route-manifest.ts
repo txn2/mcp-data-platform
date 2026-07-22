@@ -163,10 +163,56 @@ export const routes: ScreenshotRoute[] = [
     },
   },
   {
+    // Library bucket: approved shared prompts grouped by collection (#1010).
+    slug: "prompts-library",
+    path: "/portal/prompts",
+    category: "user",
+    beforeCapture: async (page) => {
+      const btn = page.locator("button:has-text('Library')").first();
+      if (await btn.isVisible()) {
+        await btn.click();
+        await page.waitForTimeout(600);
+      }
+    },
+  },
+  {
+    // Collections manager dialog (create/rename/delete groups) (#1010).
+    slug: "prompt-collections",
+    path: "/portal/prompts",
+    category: "user",
+    beforeCapture: async (page) => {
+      const btn = page.locator("button:has-text('Collections')").first();
+      if (await btn.isVisible()) {
+        await btn.click();
+        await page.waitForTimeout(600);
+      }
+    },
+  },
+  {
     // User-facing prompt viewer (/prompts/:id). prompt-010 is a personal prompt.
     slug: "prompt-view",
     path: "/portal/prompts/prompt-010",
     category: "user",
+  },
+  {
+    // Library prompt viewer with version history, approval provenance, and a
+    // pending draft awaiting review (#1010).
+    slug: "prompt-view-library",
+    path: "/portal/prompts/prompt-003",
+    category: "user",
+  },
+  {
+    // Version diff between an older snapshot and the served version (#1010).
+    slug: "prompt-version-diff",
+    path: "/portal/prompts/prompt-003",
+    category: "user",
+    beforeCapture: async (page) => {
+      const btn = page.locator("button:has-text('Diff vs current')").last();
+      if (await btn.isVisible()) {
+        await btn.click();
+        await page.waitForTimeout(600);
+      }
+    },
   },
   {
     // Share dialog (create public link + share with users) on an asset.

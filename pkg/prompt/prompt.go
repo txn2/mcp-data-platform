@@ -261,6 +261,11 @@ type Prompt struct {
 	DeprecatedAt *time.Time `json:"deprecated_at,omitempty"`
 	SupersededBy string     `json:"superseded_by,omitempty" example:"daily-sales-report-v2"`
 
+	// CollectionID places the prompt in at most one collection (#1010); empty
+	// means uncollected. Placement is organizational metadata, not reviewable
+	// substance: it is never versioned and changing it never triggers review.
+	CollectionID string `json:"collection_id,omitempty" example:"col_a1b2c3d4"`
+
 	// Version is the number of the snapshot the live row currently serves
 	// (see VersionStore). Pending draft versions above this number exist in
 	// the version history but are not served until approved.

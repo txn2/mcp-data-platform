@@ -44,7 +44,10 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
       useAuthStore.getState().expireSession();
     }
     const body = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new ApiError(res.status, body.detail || body.message || res.statusText, body);
+    // The portal surface speaks RFC 9457 (detail); the prompt version and
+    // collection routes (pkg/prompt/versionhttp) return {"error": msg} like
+    // the admin API, so accept both shapes.
+    throw new ApiError(res.status, body.detail || body.error || body.message || res.statusText, body);
   }
 
   return res.json() as Promise<T>;

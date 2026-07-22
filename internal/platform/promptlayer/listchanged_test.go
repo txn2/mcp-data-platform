@@ -172,6 +172,31 @@ func TestNotifyingStore_PreservesSearchCapability(t *testing.T) {
 	})
 }
 
+// collectionCapableStore is a base store that also carries the collection
+// capability (the production postgres store's shape for #1010).
+type collectionCapableStore struct {
+	*mockPromptStore
+	prompt.CollectionStore
+}
+
+// TestNotifyingStore_ExposesCollectionCapability proves the wrapper surfaces
+// the base store's prompt.CollectionStore through the CollectionProvider
+// accessor (collection writes need no notification hook, so the capability is
+// exposed rather than decorated) and does not fabricate it for incapable
+// bases.
+func TestNotifyingStore_ExposesCollectionCapability(t *testing.T) {
+	capable := &collectionCapableStore{mockPromptStore: newMockPromptStore()}
+	h := New(Config{Store: capable})
+	if got := prompt.AsCollectionStore(h.Store()); got == nil {
+		t.Error("wrapped collection-capable store must resolve via AsCollectionStore")
+	}
+
+	h = New(Config{Store: newMockPromptStore()})
+	if got := prompt.AsCollectionStore(h.Store()); got != nil {
+		t.Errorf("wrapping an incapable store must not fabricate a CollectionStore, got %T", got)
+	}
+}
+
 // TestSetListChangedNotifier_NilHandle proves the setter is safe on a nil Handle
 // (mirrors SetEmbedder / SetShareStore). notifyListChanged is only ever reached
 // through the notifying store built by New on a non-nil Handle, so it needs no

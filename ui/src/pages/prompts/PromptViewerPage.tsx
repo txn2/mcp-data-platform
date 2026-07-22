@@ -14,6 +14,9 @@ import { PromptReadView } from "./viewer/PromptReadView";
 import { DeletePromptDialog } from "./viewer/DeletePromptDialog";
 import { PromptNotices } from "./viewer/PromptNotices";
 import { RequestPromotionDialog } from "./viewer/RequestPromotionDialog";
+import { InvocationHelp } from "./viewer/InvocationHelp";
+import { VersionHistory } from "./viewer/VersionHistory";
+import { CollectionPicker } from "./viewer/CollectionPicker";
 import type { EditForm, ViewMode } from "./viewer/types";
 
 interface Props {
@@ -40,6 +43,10 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
   // Owner = a personal prompt the current user owns. A prompt shared with the
   // user is also personal-scoped but owned by someone else, so it is read-only.
   const isOwner = prompt?.scope === "personal" && prompt?.owner_email === myEmail;
+  const isAdmin = useAuthStore((s) => s.isAdmin)();
+  // Placement rule (#1010), mirrored server-side: owners organize their own
+  // prompts, admins organize shared (and any non-system) prompts.
+  const canOrganize = prompt?.source !== "system" && (isOwner || isAdmin);
 
   const [viewMode, setViewMode] = useState<ViewMode>("preview");
   const [editing, setEditing] = useState(false);
@@ -243,6 +250,8 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
         onCancel={() => { setEditing(false); setError(null); }}
       />
 
+      {canOrganize && !editing && <CollectionPicker prompt={prompt} />}
+
       <KnowledgeBacklinks urn={`mcp:prompt:${promptId}`} onNavigate={onNavigate} />
 
       {/* Notices */}
@@ -264,7 +273,11 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
           updateArgField={updateArgField}
         />
       ) : (
-        <PromptReadView prompt={prompt} viewMode={viewMode} setViewMode={setViewMode} />
+        <>
+          <PromptReadView prompt={prompt} viewMode={viewMode} setViewMode={setViewMode} />
+          <InvocationHelp prompt={prompt} />
+          {prompt.source !== "system" && <VersionHistory prompt={prompt} />}
+        </>
       )}
 
       {/* Delete confirmation modal */}

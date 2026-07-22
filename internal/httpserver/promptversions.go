@@ -38,7 +38,7 @@ func portalIdentityResolver(adminRoles []string, resolver portal.PersonaResolver
 		if user == nil {
 			return nil
 		}
-		id := &versionhttp.PortalIdentity{Email: user.Email, IsAdmin: rolesIntersect(user.Roles, adminRoles)}
+		id := &versionhttp.PortalIdentity{UserID: user.UserID, Email: user.Email, IsAdmin: rolesIntersect(user.Roles, adminRoles)}
 		if resolver != nil {
 			if pi := resolver(user.Roles); pi != nil {
 				id.Persona = pi.Name
