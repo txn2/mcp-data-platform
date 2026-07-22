@@ -2148,6 +2148,14 @@ func (p *Platform) bindPromptCollaborators() {
 	if p.portalStore != nil {
 		p.prompts.SetShareStore(p.portalStore.ShareStore())
 	}
+	// Prompt-serve audit events and the usage rollup they feed (#1009). The
+	// nil checks avoid binding a typed-nil store into the interfaces.
+	if p.auditLogger != nil {
+		p.prompts.SetAuditLogger(p.auditLogger)
+	}
+	if p.auditStore != nil {
+		p.prompts.SetUsageReader(p.auditStore)
+	}
 }
 
 // addReflexiveCaptureMiddleware wires reflexive query-error capture (#635) via

@@ -25,6 +25,8 @@ internal/httpserver -> pkg/portal
 internal/httpserver -> pkg/portal/datahubapi
 internal/httpserver -> pkg/portal/shareaccess
 internal/httpserver -> pkg/portal/shareguest
+internal/httpserver -> pkg/prompt
+internal/httpserver -> pkg/prompt/versionhttp
 internal/httpserver -> pkg/ratelimit
 internal/httpserver -> pkg/registry
 internal/httpserver -> pkg/resource
@@ -87,6 +89,7 @@ internal/platform/portalstore -> pkg/embedding
 internal/platform/portalstore -> pkg/portal
 internal/platform/portalstore -> pkg/portal/knowledgepage
 internal/platform/portalstore -> pkg/toolkits/portal
+internal/platform/promptlayer -> pkg/audit
 internal/platform/promptlayer -> pkg/embedding
 internal/platform/promptlayer -> pkg/middleware
 internal/platform/promptlayer -> pkg/portal
@@ -161,6 +164,7 @@ pkg/admin -> pkg/toolkits/knowledge
 pkg/admin -> pkg/user
 pkg/audit -> pkg/observability
 pkg/audit/postgres -> pkg/audit
+pkg/audit/postgres -> pkg/prompt
 pkg/auth -> internal/logsan
 pkg/auth -> pkg/middleware
 pkg/auth -> pkg/oauth/signkey
@@ -336,6 +340,7 @@ pkg/prompt/postgres -> pkg/indexjobs
 pkg/prompt/postgres -> pkg/prompt
 pkg/prompt/promptindex -> pkg/indexjobs
 pkg/prompt/promptindex -> pkg/prompt
+pkg/prompt/versionhttp -> pkg/prompt
 pkg/query/trino -> pkg/observability
 pkg/query/trino -> pkg/query
 pkg/query/trino -> pkg/urnbuild

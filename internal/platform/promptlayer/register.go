@@ -623,33 +623,38 @@ func (h *Handle) GetByName(ctx context.Context, email string, personas []string,
 	if h == nil || h.store == nil {
 		return nil, false
 	}
-	if bare, ok := strings.CutPrefix(name, promptPrefixPersonal); ok {
-		if res, found := h.getOwnedPersonalPrompt(ctx, email, bare, args); found {
-			return res, true
-		}
-	}
-	if bare, ok := strings.CutPrefix(name, promptPrefixGlobal); ok {
-		if res, found := h.getGlobalPrompt(ctx, bare, args); found {
-			return res, true
-		}
-	}
-	if bare, ok := strings.CutPrefix(name, promptPrefixShared); ok {
-		if res, found := h.getSharedPrompt(ctx, email, bare, args); found {
-			return res, true
-		}
-	}
-	return h.getPersonaPrompt(ctx, personas, name, args)
-}
-
-// getSharedPrompt renders a prompt shared directly with the caller, matched by
-// bare name. The first matching active share wins (consistent with the dedup in
-// listSharedDescriptors).
-func (h *Handle) getSharedPrompt(ctx context.Context, email, bare string, args map[string]string) (*mcp.GetPromptResult, bool) {
-	pr := h.sharedPromptByName(ctx, email, bare)
+	pr := h.resolveByName(ctx, email, personas, name)
 	if pr == nil {
 		return nil, false
 	}
-	return renderPrompt(pr, args)
+	h.auditPromptServe(ctx, pr, serveSurfacePromptsGet, email)
+	res := renderPrompt(pr, args)
+	attachProvenanceMeta(res, pr)
+	return res, true
+}
+
+// resolveByName resolves a prefixed prompt name to the caller's visible
+// database prompt, or nil. See GetByName for the prefix grammar and the
+// reserved-prefix fall-through rationale.
+func (h *Handle) resolveByName(ctx context.Context, email string, personas []string, name string) *prompt.Prompt {
+	if bare, ok := strings.CutPrefix(name, promptPrefixPersonal); ok {
+		if pr := h.ownedPersonalPrompt(ctx, email, bare); pr != nil {
+			return pr
+		}
+	}
+	if bare, ok := strings.CutPrefix(name, promptPrefixGlobal); ok {
+		if pr := h.globalPrompt(ctx, bare); pr != nil {
+			return pr
+		}
+	}
+	if bare, ok := strings.CutPrefix(name, promptPrefixShared); ok {
+		// Shared directly with the caller, matched by bare name; the first
+		// matching active share wins (consistent with listSharedDescriptors).
+		if pr := h.sharedPromptByName(ctx, email, bare); pr != nil {
+			return pr
+		}
+	}
+	return h.personaPrompt(ctx, personas, name)
 }
 
 // sharedPromptByName finds the prompt shared directly with the caller matching
@@ -675,36 +680,36 @@ func (h *Handle) sharedPromptByName(ctx context.Context, email, bare string) *pr
 	return nil
 }
 
-// getOwnedPersonalPrompt renders the caller's own personal prompt of the bare name.
-func (h *Handle) getOwnedPersonalPrompt(ctx context.Context, email, bare string, args map[string]string) (*mcp.GetPromptResult, bool) {
+// ownedPersonalPrompt resolves the caller's own personal prompt of the bare name.
+func (h *Handle) ownedPersonalPrompt(ctx context.Context, email, bare string) *prompt.Prompt {
 	if email == "" {
-		return nil, false
+		return nil
 	}
 	pr, err := h.store.GetPersonal(ctx, email, bare)
 	if err != nil || pr == nil || !pr.Enabled {
-		return nil, false
+		return nil
 	}
-	return renderPrompt(pr, args)
+	return pr
 }
 
-// getGlobalPrompt renders the global prompt of the bare name.
-func (h *Handle) getGlobalPrompt(ctx context.Context, bare string, args map[string]string) (*mcp.GetPromptResult, bool) {
+// globalPrompt resolves the global prompt of the bare name.
+func (h *Handle) globalPrompt(ctx context.Context, bare string) *prompt.Prompt {
 	pr, err := h.store.Get(ctx, bare)
 	// System rows are ingested static prompts already served under their bare
 	// name via AddPrompt; do not also serve them under the global- prefix.
 	if err != nil || pr == nil || !pr.Enabled || pr.Scope != prompt.ScopeGlobal || pr.Source == prompt.SourceSystem {
-		return nil, false
+		return nil
 	}
-	return renderPrompt(pr, args)
+	return pr
 }
 
-// getPersonaPrompt resolves a <persona>-<name> prompt for a caller who belongs
+// personaPrompt resolves a <persona>-<name> prompt for a caller who belongs
 // to that persona and is shared the target prompt. Because both persona names
 // and prompt names may contain hyphens, a presented name can split more than one
 // way (persona "data" + "engineer-x" vs persona "data-engineer" + "x"); personas
 // are tried longest-name-first so the most specific persona prefix wins
 // deterministically.
-func (h *Handle) getPersonaPrompt(ctx context.Context, personas []string, name string, args map[string]string) (*mcp.GetPromptResult, bool) {
+func (h *Handle) personaPrompt(ctx context.Context, personas []string, name string) *prompt.Prompt {
 	ordered := append([]string(nil), personas...)
 	slices.SortStableFunc(ordered, func(a, b string) int { return len(b) - len(a) })
 	for _, persona := range ordered {
@@ -714,17 +719,17 @@ func (h *Handle) getPersonaPrompt(ctx context.Context, personas []string, name s
 		}
 		if pr, err := h.store.Get(ctx, bare); err == nil && pr != nil && pr.Enabled &&
 			pr.Scope == prompt.ScopePersona && slices.Contains(pr.Personas, persona) {
-			return renderPrompt(pr, args)
+			return pr
 		}
 	}
-	return nil, false
+	return nil
 }
 
 // renderPrompt substitutes the request arguments into a prompt's content.
 // Shared by every serving path so personal and global/persona prompts render
 // identically.
-func renderPrompt(pr *prompt.Prompt, args map[string]string) (*mcp.GetPromptResult, bool) {
-	return buildPromptResult(substituteArgs(pr.Content, args)), true
+func renderPrompt(pr *prompt.Prompt, args map[string]string) *mcp.GetPromptResult {
+	return buildPromptResult(substituteArgs(pr.Content, args))
 }
 
 // RegisterRuntimePrompt records a prompt's metadata at runtime. Called after

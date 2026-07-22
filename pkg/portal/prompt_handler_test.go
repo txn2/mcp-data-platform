@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -504,7 +504,7 @@ func TestRevokePromptShare_OwnerOnly(t *testing.T) {
 
 func TestCreatePromptShare_GetByIDError(t *testing.T) {
 	h, store, _ := newTestPortalPromptShareHandler()
-	store.getByIDErr = fmt.Errorf("db down")
+	store.getByIDErr = errors.New("db down")
 	body, _ := json.Marshal(createShareRequest{SharedWithEmail: "bob@example.com"})
 	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/portal/prompts/p1/shares", bytes.NewReader(body)), "alice@example.com")
 	w := httptest.NewRecorder()
@@ -534,7 +534,7 @@ func TestCreatePromptShare_InvalidPermission(t *testing.T) {
 func TestCreatePromptShare_InsertError(t *testing.T) {
 	h, store, sstore := newTestPortalPromptShareHandler()
 	store.prompts["report"] = &prompt.Prompt{ID: "p1", Name: "report", Scope: prompt.ScopePersonal, OwnerEmail: "alice@example.com"}
-	sstore.insertErr = fmt.Errorf("db down")
+	sstore.insertErr = errors.New("db down")
 	body, _ := json.Marshal(createShareRequest{SharedWithEmail: "bob@example.com", Permission: "viewer"})
 	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/portal/prompts/p1/shares", bytes.NewReader(body)), "alice@example.com")
 	w := httptest.NewRecorder()
@@ -561,7 +561,7 @@ func TestListPromptShares_Unauthenticated(t *testing.T) {
 
 func TestListPromptShares_GetByIDError(t *testing.T) {
 	h, store, _ := newTestPortalPromptShareHandler()
-	store.getByIDErr = fmt.Errorf("db down")
+	store.getByIDErr = errors.New("db down")
 	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/portal/prompts/p1/shares", http.NoBody), "alice@example.com")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -579,7 +579,7 @@ func TestListPromptShares_NotFound(t *testing.T) {
 func TestListPromptShares_ListError(t *testing.T) {
 	h, store, sstore := newTestPortalPromptShareHandler()
 	store.prompts["report"] = &prompt.Prompt{ID: "p1", Name: "report", Scope: prompt.ScopePersonal, OwnerEmail: "alice@example.com"}
-	sstore.listByPromptE = fmt.Errorf("db down")
+	sstore.listByPromptE = errors.New("db down")
 	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/portal/prompts/p1/shares", http.NoBody), "alice@example.com")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -596,7 +596,7 @@ func TestListSharedPrompts_Unauthenticated(t *testing.T) {
 
 func TestListSharedPrompts_ListError(t *testing.T) {
 	h, _, sstore := newTestPortalPromptShareHandler()
-	sstore.promptRefsErr = fmt.Errorf("db down")
+	sstore.promptRefsErr = errors.New("db down")
 	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/portal/shared-prompts", http.NoBody), "bob@example.com")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
@@ -642,4 +642,152 @@ func TestRevokePromptShare_NoPromptStore(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// --- Versioning and read-only guards (#1009) ---
+
+// mockVersionPromptStore adds the versioning capability to the mock store,
+// with clone-on-read like the real store (a scanned row is never aliased to
+// the stored state).
+type mockVersionPromptStore struct {
+	*mockPromptStore
+	draftContents []string
+}
+
+func (*mockVersionPromptStore) clone(p *prompt.Prompt) *prompt.Prompt {
+	if p == nil {
+		return nil
+	}
+	c := *p
+	return &c
+}
+
+func (m *mockVersionPromptStore) GetByID(ctx context.Context, id string) (*prompt.Prompt, error) {
+	p, err := m.mockPromptStore.GetByID(ctx, id)
+	return m.clone(p), err
+}
+
+func (m *mockVersionPromptStore) UpdateWithVersion(ctx context.Context, p *prompt.Prompt, _ string) error {
+	return m.Update(ctx, p)
+}
+
+func (m *mockVersionPromptStore) CreateDraftVersion(_ context.Context, _ string, proposed *prompt.Prompt, _ string) (int, error) {
+	m.draftContents = append(m.draftContents, proposed.Content)
+	return 7, nil
+}
+
+func (*mockVersionPromptStore) ListVersions(context.Context, string) ([]prompt.Version, error) {
+	return nil, nil
+}
+
+func (*mockVersionPromptStore) GetVersion(context.Context, string, int) (*prompt.Version, error) {
+	return nil, nil //nolint:nilnil // interface contract
+}
+
+func (*mockVersionPromptStore) ApproveVersion(context.Context, string, int, string) (*prompt.Prompt, error) {
+	return nil, nil //nolint:nilnil // unused in these tests
+}
+
+func (*mockVersionPromptStore) RejectVersion(context.Context, string, int) error { return nil }
+
+var _ prompt.VersionStore = (*mockVersionPromptStore)(nil)
+
+func newVersionedPortalPromptHandler() (*Handler, *mockVersionPromptStore, *mockPromptRegistrar) {
+	store := &mockVersionPromptStore{mockPromptStore: newMockPromptStore()}
+	registrar := &mockPromptRegistrar{}
+	h := NewHandler(Deps{
+		PromptStore:     store,
+		PromptRegistrar: registrar,
+		AdminRoles:      []string{"admin"},
+		AssetStore:      &noopAssetStore{},
+	}, nil)
+	return h, store, registrar
+}
+
+// An admin's content edit to an approved global prompt through the portal is
+// deferred as a pending draft version: 202, no live-row write, no runtime
+// re-registration of the draft content.
+func TestPortalUpdatePrompt_ApprovedSharedContentEditPends(t *testing.T) {
+	h, store, registrar := newVersionedPortalPromptHandler()
+	store.prompts["g"] = &prompt.Prompt{
+		ID: "uuid-1", Name: "g", Content: "approved body", Scope: prompt.ScopeGlobal,
+		Status: prompt.StatusApproved, Enabled: true, Version: 1,
+	}
+
+	body := portalPromptCreateRequest{Content: "draft body"}
+	bodyBytes, _ := json.Marshal(body)
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/portal/prompts/uuid-1", bytes.NewReader(bodyBytes)), "admin@example.com", "admin")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusAccepted, w.Code, w.Body.String())
+	var out prompt.EditOutcome
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.False(t, out.Applied)
+	assert.Equal(t, 7, out.PendingVersion)
+	assert.Equal(t, []string{"draft body"}, store.draftContents)
+	assert.Equal(t, "approved body", store.prompts["g"].Content, "the live row keeps the approved snapshot")
+	assert.Empty(t, registrar.registered, "draft content is never re-registered")
+	assert.Empty(t, registrar.unregistered)
+}
+
+// A gated content edit combined with a rename (a non-versioned change) is
+// rejected whole as a conflict.
+func TestPortalUpdatePrompt_MixedGatedEditConflicts(t *testing.T) {
+	h, store, _ := newVersionedPortalPromptHandler()
+	store.prompts["g"] = &prompt.Prompt{
+		ID: "uuid-1", Name: "g", Content: "approved body", Scope: prompt.ScopePersona,
+		Personas: []string{"analyst"}, Status: prompt.StatusApproved, Enabled: true, Version: 1,
+	}
+
+	body := portalPromptCreateRequest{Content: "draft body", Name: "g-renamed"}
+	bodyBytes, _ := json.Marshal(body)
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/portal/prompts/uuid-1", bytes.NewReader(bodyBytes)), "admin@example.com", "admin")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusConflict, w.Code, w.Body.String())
+	assert.Empty(t, store.draftContents)
+}
+
+// System rows are read-only through the portal for every caller, including
+// admins, on both update and delete.
+func TestPortalPrompt_SystemRowsReadOnly(t *testing.T) {
+	h, store, _ := newTestPortalPromptHandler()
+	store.prompts["sys"] = &prompt.Prompt{
+		ID: "uuid-sys", Name: "sys", Content: "config body", Scope: prompt.ScopeGlobal,
+		Source: prompt.SourceSystem, Status: prompt.StatusApproved, Enabled: true,
+	}
+
+	body := portalPromptCreateRequest{Content: "hijacked"}
+	bodyBytes, _ := json.Marshal(body)
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/portal/prompts/uuid-sys", bytes.NewReader(bodyBytes)), "admin@example.com", "admin")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Contains(t, w.Body.String(), "read-only")
+	assert.Equal(t, "config body", store.prompts["sys"].Content)
+
+	req = withUser(httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/api/v1/portal/prompts/uuid-sys", http.NoBody), "admin@example.com", "admin")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.NotNil(t, store.prompts["sys"])
+}
+
+// A store failure during the versioned apply is a 500.
+func TestPortalUpdatePrompt_StoreFailureIs500(t *testing.T) {
+	h, store, _ := newTestPortalPromptHandler()
+	store.prompts["my-prompt"] = &prompt.Prompt{
+		ID: "uuid-1", Name: "my-prompt", Content: "old", Scope: prompt.ScopePersonal,
+		OwnerEmail: "alice@example.com", Enabled: true,
+	}
+	store.updateErr = errors.New("db down")
+
+	body := portalPromptCreateRequest{Content: "new"}
+	bodyBytes, _ := json.Marshal(body)
+	req := withUser(httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/api/v1/portal/prompts/uuid-1", bytes.NewReader(bodyBytes)), "alice@example.com")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }

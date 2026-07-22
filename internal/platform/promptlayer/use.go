@@ -40,7 +40,7 @@ func (h *Handle) handlePromptUse(ctx context.Context, input managePromptInput) (
 		return h.useByID(ctx, id, input.Args)
 	}
 	if pr := h.useExactName(ctx, strings.ToLower(handle)); pr != nil {
-		return promptUseResult(pr, input.Args)
+		return h.servePromptUse(ctx, pr, input.Args)
 	}
 	if res, done := h.useExactDisplayName(ctx, handle, input.Args); done {
 		return res, nil, nil
@@ -58,6 +58,14 @@ func (h *Handle) useByID(ctx context.Context, id string, args map[string]string)
 	if pr == nil || !pr.Enabled || !h.canViewPrompt(ctx, pr) {
 		return promptErrorResult(fmt.Sprintf("prompt %q not found", promptRefPrefix+id)), nil, nil
 	}
+	return h.servePromptUse(ctx, pr, args)
+}
+
+// servePromptUse records the prompt_serve audit event for a resolved use and
+// renders the resolved-prompt response. Every single-match resolution path
+// funnels through here so run counts see each of them.
+func (h *Handle) servePromptUse(ctx context.Context, pr *prompt.Prompt, args map[string]string) (*mcp.CallToolResult, any, error) {
+	h.auditPromptServe(ctx, pr, serveSurfaceUse, resolveEmail(ctx))
 	return promptUseResult(pr, args)
 }
 
@@ -130,11 +138,11 @@ func (h *Handle) useExactDisplayName(ctx context.Context, handle string, args ma
 	case len(matches) == 0:
 		return nil, false
 	case len(matches) == 1:
-		res, _, _ := promptUseResult(&matches[0], args)
+		res, _, _ := h.servePromptUse(ctx, &matches[0], args)
 		return res, true
 	}
 	if winner := precedenceWinner(matches); winner != nil {
-		res, _, _ := promptUseResult(winner, args)
+		res, _, _ := h.servePromptUse(ctx, winner, args)
 		return res, true
 	}
 	res, _, _ := promptCandidatesResult(unscored(matches))
@@ -195,7 +203,7 @@ func (h *Handle) useRanked(ctx context.Context, handle string, args map[string]s
 	case len(scored) == 0:
 		return promptErrorResult(fmt.Sprintf("no prompt matched %q; use the list command to browse", handle)), nil, nil
 	case len(scored) == 1 || scored[0].Score-scored[1].Score >= useConfidenceMargin:
-		return promptUseResult(&scored[0].Prompt, args)
+		return h.servePromptUse(ctx, &scored[0].Prompt, args)
 	}
 	return promptCandidatesResult(scored)
 }
@@ -217,7 +225,7 @@ func (h *Handle) useSubstring(ctx context.Context, handle string, args map[strin
 	case len(matches) == 0:
 		return promptErrorResult(fmt.Sprintf("no prompt matched %q; use the list command to browse", handle)), nil, nil
 	case len(matches) == 1:
-		return promptUseResult(&matches[0], args)
+		return h.servePromptUse(ctx, &matches[0], args)
 	}
 	return promptCandidatesResult(unscored(matches))
 }
@@ -299,6 +307,7 @@ func promptProvenance(pr *prompt.Prompt) map[string]any {
 		"scope":        pr.Scope,
 		"source":       pr.Source,
 		fieldStatus:    pr.Status,
+		"version":      pr.Version,
 	}
 	if pr.ID != "" {
 		prov["reference"] = promptRefPrefix + pr.ID

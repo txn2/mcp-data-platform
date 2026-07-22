@@ -47,15 +47,29 @@ func (h *Handle) notifyListChanged() {
 // (knowledge.PromptSearcher is Search + GetByID; GetByID comes from the embedded
 // prompt.Store, so implementing Search is sufficient for both.)
 //
-// Invariant: the ONLY extension method any caller up-casts the prompt store to
-// beyond prompt.Store is Search. If a future extension interface is introduced,
-// it must be forwarded here too, or the wrapper will silently drop it.
+// Invariant: the ONLY extension methods any caller up-casts the prompt store to
+// beyond prompt.Store are Search (prompt.Searcher) and the versioning methods
+// (prompt.VersionStore, asserted by prompt.ApplyEdit and the composition
+// root). If a future extension interface is introduced, it must be forwarded
+// here too, or the wrapper will silently drop it.
 func wrapStore(base prompt.Store, notify func()) prompt.Store {
 	ns := &notifyingStore{Store: base, notify: notify}
-	if searcher, ok := base.(prompt.Searcher); ok {
+	searcher, hasSearch := base.(prompt.Searcher)
+	versions, hasVersions := base.(prompt.VersionStore)
+	nvs := notifyingVersionStore{VersionStore: versions, notify: notify}
+	switch {
+	case hasSearch && hasVersions:
+		return &notifyingSearchVersionStore{
+			notifyingSearchStore:  notifyingSearchStore{notifyingStore: ns, searcher: searcher},
+			notifyingVersionStore: nvs,
+		}
+	case hasSearch:
 		return &notifyingSearchStore{notifyingStore: ns, searcher: searcher}
+	case hasVersions:
+		return &notifyingVersionOnlyStore{notifyingStore: ns, notifyingVersionStore: nvs}
+	default:
+		return ns
 	}
-	return ns
 }
 
 // notifyingStore decorates a prompt.Store so every successful create, update, or
@@ -126,6 +140,51 @@ func (s *notifyingStore) DeleteByID(ctx context.Context, id string) error {
 	return nil
 }
 
+// notifyingVersionStore decorates the store's versioning capability so the
+// version writes that change what is served or listed (an applied update, an
+// approved draft) fire the same prompts/list_changed notifier as the plain
+// store writes. CreateDraftVersion and RejectVersion never change the served
+// set, so they pass through without notifying. Embedded by the capability
+// combination wrappers built in wrapStore.
+type notifyingVersionStore struct {
+	prompt.VersionStore
+	notify func()
+}
+
+// notifyingVersionOnlyStore combines the write hooks with the versioning
+// capability for a base store without search.
+type notifyingVersionOnlyStore struct {
+	*notifyingStore
+	notifyingVersionStore
+}
+
+// notifyingSearchVersionStore combines the write hooks with both capability
+// extensions — the production postgres store's shape.
+type notifyingSearchVersionStore struct {
+	notifyingSearchStore
+	notifyingVersionStore
+}
+
+// UpdateWithVersion applies a versioned update and notifies on success.
+func (s *notifyingVersionStore) UpdateWithVersion(ctx context.Context, p *prompt.Prompt, author string) error {
+	if err := s.VersionStore.UpdateWithVersion(ctx, p, author); err != nil {
+		return err //nolint:wrapcheck // transparent decorator: pass the store's error through unchanged
+	}
+	s.notify()
+	return nil
+}
+
+// ApproveVersion applies a draft snapshot to the live prompt and notifies on
+// success (the served content changed).
+func (s *notifyingVersionStore) ApproveVersion(ctx context.Context, promptID string, version int, approver string) (*prompt.Prompt, error) {
+	p, err := s.VersionStore.ApproveVersion(ctx, promptID, version, approver)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // transparent decorator: pass the store's error through unchanged
+	}
+	s.notify()
+	return p, nil
+}
+
 // atomicNotifier is the atomic slot type holding the bound notifier. Declared
 // as a field type alias so the Handle can zero-initialize it.
 type atomicNotifier = atomic.Pointer[ListChangedNotifier]
@@ -134,7 +193,12 @@ type atomicNotifier = atomic.Pointer[ListChangedNotifier]
 // extension (and thus knowledge.PromptSearcher, which is Search + the embedded
 // GetByID) so the up-casts across the codebase continue to succeed.
 var (
-	_ prompt.Store    = (*notifyingStore)(nil)
-	_ prompt.Store    = (*notifyingSearchStore)(nil)
-	_ prompt.Searcher = (*notifyingSearchStore)(nil)
+	_ prompt.Store        = (*notifyingStore)(nil)
+	_ prompt.Store        = (*notifyingSearchStore)(nil)
+	_ prompt.Searcher     = (*notifyingSearchStore)(nil)
+	_ prompt.Store        = (*notifyingVersionOnlyStore)(nil)
+	_ prompt.VersionStore = (*notifyingVersionOnlyStore)(nil)
+	_ prompt.Store        = (*notifyingSearchVersionStore)(nil)
+	_ prompt.Searcher     = (*notifyingSearchVersionStore)(nil)
+	_ prompt.VersionStore = (*notifyingSearchVersionStore)(nil)
 )

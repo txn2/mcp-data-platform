@@ -33,6 +33,7 @@ import (
 	"sync"
 
 	"github.com/txn2/mcp-data-platform/pkg/embedding"
+	"github.com/txn2/mcp-data-platform/pkg/middleware"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
 	"github.com/txn2/mcp-data-platform/pkg/prompt"
 	promptpostgres "github.com/txn2/mcp-data-platform/pkg/prompt/postgres"
@@ -114,6 +115,13 @@ type Handle struct {
 	embedder   embedding.Provider
 	shareStore ShareLister
 
+	// auditLogger receives prompt_serve audit events on every successful
+	// database-prompt serve (prompts/get, manage_prompt use); usage reads the
+	// aggregation back for manage_prompt get. Both bound after construction
+	// (the audit layer is assembled later); nil disables the respective path.
+	auditLogger middleware.AuditLogger
+	usage       prompt.UsageReader
+
 	// listChanged holds the prompts/list_changed notifier, bound after
 	// construction once the session broadcaster exists. Read atomically per
 	// write by the notifying store wrapper; nil until SetListChangedNotifier.
@@ -153,9 +161,26 @@ func New(cfg Config) *Handle {
 		// through the one shared instance — no per-handler emission to keep in
 		// sync. wrapStore preserves the store's search capability; the notifier
 		// is bound later via SetListChangedNotifier.
+		// wrapStore preserves the store's capability extensions (search,
+		// versioning), so version writes that change what is served fire
+		// list_changed like every other write.
 		h.store = wrapStore(base, h.notifyListChanged)
 	}
 	return h
+}
+
+// SetAuditLogger binds the audit logger that receives prompt_serve events.
+// Called once the audit layer is assembled; nil (or never calling this)
+// disables serve-event emission, and with it usage stats.
+func (h *Handle) SetAuditLogger(l middleware.AuditLogger) {
+	h.auditLogger = l
+}
+
+// SetUsageReader binds the audit-backed usage aggregation surfaced on
+// manage_prompt get. Called once the audit store is assembled; nil (or never
+// calling this) leaves usage fields unpopulated.
+func (h *Handle) SetUsageReader(u prompt.UsageReader) {
+	h.usage = u
 }
 
 // SetEmbedder binds the embedding provider that powers manage_prompt semantic

@@ -1,9 +1,9 @@
 package httpserver
 
-// This file isolates the two composition-root mount functions whose bodies can
+// This file isolates the composition-root mount functions whose bodies can
 // only run against a live Postgres: they early-return unless the platform has
-// constructed its portal/resource stores, which requires a real database
-// connection (ping-gated in platform.New). The project confines all real-DB
+// constructed its portal/resource stores or a versioning-capable prompt store,
+// which requires a real database connection (ping-gated in platform.New). The project confines all real-DB
 // tests to the //go:build integration suite (run via `make test-realdb`), and
 // that suite produces no coverage profile, so these lines can never appear
 // covered in the unit-test coverage.out the patch-coverage gate reads. They are
@@ -23,6 +23,8 @@ import (
 	"github.com/txn2/mcp-data-platform/pkg/browsersession"
 	"github.com/txn2/mcp-data-platform/pkg/platform"
 	"github.com/txn2/mcp-data-platform/pkg/portal"
+	"github.com/txn2/mcp-data-platform/pkg/prompt"
+	"github.com/txn2/mcp-data-platform/pkg/prompt/versionhttp"
 	"github.com/txn2/mcp-data-platform/pkg/resource"
 )
 
@@ -100,8 +102,60 @@ func mountPortalAPI(mux *http.ServeMux, p *platform.Platform, notify *notifydeli
 	handler := portal.NewHandler(deps, portal.RequirePortalAuth(portalAuth))
 	mux.Handle("/api/v1/portal/", handler)
 	mux.Handle("/portal/view/", handler)
+	mountPromptVersionPortalAPI(mux, p, portal.RequirePortalAuth(portalAuth), adminRoles)
 	log.Println("Portal API enabled on /api/v1/portal/")
 	return nil
+}
+
+// mountPromptVersionAdminAPI registers the admin prompt-version routes when
+// the platform has a versioning store (database deployments). Called from
+// mountAdminAPI; a no-DB platform early-returns.
+func mountPromptVersionAdminAPI(mux *http.ServeMux, p *platform.Platform, prefix string) {
+	deps, ok := promptVersionDeps(p)
+	if !ok {
+		return
+	}
+	deps.AdminEmail = adminEmail
+	versionhttp.New(deps).RegisterAdmin(mux, prefix, buildAdminAuth(p))
+}
+
+// mountPromptVersionPortalAPI registers the portal prompt-version routes.
+// Called from mountPortalAPI with the portal's assembled auth middleware and
+// admin roles.
+func mountPromptVersionPortalAPI(mux *http.ServeMux, p *platform.Platform, wrap func(http.Handler) http.Handler, adminRoles []string) {
+	deps, ok := promptVersionDeps(p)
+	if !ok {
+		return
+	}
+	// Mirror the sibling persona wiring's nil guard (a nil registry would
+	// otherwise panic per-request inside the resolver closure).
+	var resolver portal.PersonaResolver
+	if pr := p.PersonaRegistry(); pr != nil {
+		resolver = buildPersonaResolver(pr, p.ToolkitRegistry())
+	}
+	deps.PortalUser = portalIdentityResolver(adminRoles, resolver)
+	versionhttp.New(deps).RegisterPortal(mux, wrap)
+}
+
+// promptVersionDeps assembles the surface-independent handler dependencies,
+// reporting ok=false when the platform has no prompt versioning (no database).
+// The versioning capability is asserted from the prompt store, which the
+// prompt layer's notifying wrapper preserves.
+func promptVersionDeps(p *platform.Platform) (versionhttp.Deps, bool) {
+	store := p.PromptStore()
+	versions, _ := store.(prompt.VersionStore)
+	if versions == nil {
+		return versionhttp.Deps{}, false
+	}
+	deps := versionhttp.Deps{
+		Store:     store,
+		Versions:  versions,
+		Registrar: p,
+	}
+	if s := p.AuditStore(); s != nil {
+		deps.Usage = s
+	}
+	return deps, true
 }
 
 // mountResourcesAPI registers the managed resources REST API on the mux if enabled.

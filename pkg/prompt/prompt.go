@@ -261,6 +261,18 @@ type Prompt struct {
 	DeprecatedAt *time.Time `json:"deprecated_at,omitempty"`
 	SupersededBy string     `json:"superseded_by,omitempty" example:"daily-sales-report-v2"`
 
+	// Version is the number of the snapshot the live row currently serves
+	// (see VersionStore). Pending draft versions above this number exist in
+	// the version history but are not served until approved.
+	Version int `json:"version" example:"4"`
+
+	// Serve-derived usage (see UsageReader). Populated only on read surfaces
+	// wired to a usage reader (manage_prompt get, the prompt usage REST
+	// endpoints); omitted elsewhere. Zero/absent means never served within the
+	// audit retention window.
+	RunCount  int64      `json:"run_count,omitempty" example:"37"`
+	LastRunAt *time.Time `json:"last_run_at,omitempty"`
+
 	// Promotion request: an owner asks to move a personal prompt into a shared
 	// scope. ReviewRequested marks the prompt as pending in the admin queue;
 	// RequestedScope/RequestedPersonas record the target. Cleared on approve or

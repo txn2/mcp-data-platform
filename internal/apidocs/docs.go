@@ -5373,6 +5373,46 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/prompts/usage": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns run count and last-run timestamp per prompt id, aggregated from prompt_serve audit events within the audit retention window. Prompts never served are absent from the map.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Prompts"
+                ],
+                "summary": "Prompt usage stats",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "$ref": "#/definitions/prompt.Usage"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/admin/prompts/{id}": {
             "get": {
                 "security": [
@@ -5430,7 +5470,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Updates an existing prompt by ID and re-registers it with the live MCP server.",
+                "description": "Updates an existing prompt by ID and re-registers it with the live MCP server. A content or arguments edit to an approved global or persona prompt is deferred as a pending draft version (202): the approved snapshot keeps being served until the draft is approved via the version approval endpoint.",
                 "consumes": [
                     "application/json"
                 ],
@@ -5464,6 +5504,12 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/prompt.Prompt"
+                        }
+                    },
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/prompt.EditOutcome"
                         }
                     },
                     "400": {
@@ -5645,6 +5691,268 @@ const docTemplate = `{
                         "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/admin.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/prompts/{id}/versions": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns every version of a prompt with full content and author, newest first.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Prompts"
+                ],
+                "summary": "List prompt versions",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Prompt ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/versionhttp.versionListResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/prompts/{id}/versions/{version}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns a single prompt version snapshot.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Prompts"
+                ],
+                "summary": "Get prompt version",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Prompt ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Version number",
+                        "name": "version",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/prompt.Version"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/prompts/{id}/versions/{version}/approve": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Applies a pending draft version's snapshot to the live prompt, stamping the approval on that specific version. Other pending drafts are superseded.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Prompts"
+                ],
+                "summary": "Approve prompt version",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Prompt ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Version number",
+                        "name": "version",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/prompt.Prompt"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/prompts/{id}/versions/{version}/reject": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Rejects a pending draft version, leaving the live prompt unchanged.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Prompts"
+                ],
+                "summary": "Reject prompt version",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Prompt ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Version number",
+                        "name": "version",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
                         }
                     }
                 }
@@ -10078,6 +10386,55 @@ const docTemplate = `{
                 }
             }
         },
+        "/portal/prompts/usage": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns run count and last-run timestamp per prompt id for the prompts visible to the caller.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Prompts"
+                ],
+                "summary": "Prompt usage stats (portal)",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "$ref": "#/definitions/prompt.Usage"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/portal/prompts/{id}": {
             "put": {
                 "security": [
@@ -10088,7 +10445,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Updates a personal prompt owned by the current user. Admins can update any prompt.",
+                "description": "Updates a personal prompt owned by the current user. Admins can update any prompt; an admin's content edit to an approved shared prompt is deferred as a pending draft version (202) until approved.",
                 "consumes": [
                     "application/json"
                 ],
@@ -10122,6 +10479,12 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/prompt.Prompt"
+                        }
+                    },
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/prompt.EditOutcome"
                         }
                     },
                     "400": {
@@ -10349,6 +10712,79 @@ const docTemplate = `{
                         "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/portal.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/portal/prompts/{id}/versions": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the version history of a prompt the caller owns; admins may read any prompt's history.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Prompts"
+                ],
+                "summary": "List prompt versions (portal)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Prompt ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/versionhttp.versionListResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
                         }
                     }
                 }
@@ -14190,14 +14626,16 @@ const docTemplate = `{
                 "auth",
                 "admin",
                 "mcp_tool_call",
-                "apigateway_invoke"
+                "apigateway_invoke",
+                "prompt_serve"
             ],
             "x-enum-varnames": [
                 "EventTypeToolCall",
                 "EventTypeAuth",
                 "EventTypeAdmin",
                 "EventTypeMCPToolCall",
-                "EventTypeAPIGatewayInvoke"
+                "EventTypeAPIGatewayInvoke",
+                "EventTypePromptServe"
             ]
         },
         "audit.Overview": {
@@ -16993,6 +17431,19 @@ const docTemplate = `{
                 }
             }
         },
+        "prompt.EditOutcome": {
+            "type": "object",
+            "properties": {
+                "applied": {
+                    "description": "Applied is true when the live row was updated (the edit is being served).",
+                    "type": "boolean"
+                },
+                "pending_version": {
+                    "description": "PendingVersion is the draft version number when the edit was deferred\nfor review; zero when Applied.",
+                    "type": "integer"
+                }
+            }
+        },
         "prompt.Prompt": {
             "type": "object",
             "properties": {
@@ -17040,6 +17491,9 @@ const docTemplate = `{
                     "type": "string",
                     "example": "prompt_a1b2c3d4"
                 },
+                "last_run_at": {
+                    "type": "string"
+                },
                 "name": {
                     "type": "string",
                     "example": "daily-sales-report"
@@ -17076,6 +17530,11 @@ const docTemplate = `{
                     "type": "boolean",
                     "example": false
                 },
+                "run_count": {
+                    "description": "Serve-derived usage (see UsageReader). Populated only on read surfaces\nwired to a usage reader (manage_prompt get, the prompt usage REST\nendpoints); omitted elsewhere. Zero/absent means never served within the\naudit retention window.",
+                    "type": "integer",
+                    "example": 37
+                },
                 "scope": {
                     "type": "string",
                     "example": "persona"
@@ -17106,6 +17565,87 @@ const docTemplate = `{
                 "updated_at": {
                     "type": "string",
                     "example": "2026-01-15T14:30:00Z"
+                },
+                "version": {
+                    "description": "Version is the number of the snapshot the live row currently serves\n(see VersionStore). Pending draft versions above this number exist in\nthe version history but are not served until approved.",
+                    "type": "integer",
+                    "example": 4
+                }
+            }
+        },
+        "prompt.Usage": {
+            "type": "object",
+            "properties": {
+                "last_run_at": {
+                    "type": "string"
+                },
+                "run_count": {
+                    "type": "integer",
+                    "example": 37
+                }
+            }
+        },
+        "prompt.Version": {
+            "type": "object",
+            "properties": {
+                "approved_at": {
+                    "type": "string"
+                },
+                "approved_by": {
+                    "type": "string",
+                    "example": "admin@example.com"
+                },
+                "arguments": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/prompt.Argument"
+                    }
+                },
+                "author": {
+                    "type": "string",
+                    "example": "jane@example.com"
+                },
+                "content": {
+                    "type": "string",
+                    "example": "Analyze sales data for {date} grouped by region."
+                },
+                "created_at": {
+                    "type": "string",
+                    "example": "2026-06-12T14:30:00Z"
+                },
+                "description": {
+                    "type": "string",
+                    "example": "Generate a daily sales summary by region"
+                },
+                "display_name": {
+                    "type": "string",
+                    "example": "Daily Sales Report"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "ver_a1b2c3d4"
+                },
+                "prompt_id": {
+                    "type": "string",
+                    "example": "prompt_a1b2c3d4"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "applied"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "example": [
+                        "sales",
+                        "reporting"
+                    ]
+                },
+                "version": {
+                    "type": "integer",
+                    "example": 4
                 }
             }
         },
@@ -17177,6 +17717,21 @@ const docTemplate = `{
                 },
                 "reachable": {
                     "type": "boolean"
+                }
+            }
+        },
+        "versionhttp.versionListResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/prompt.Version"
+                    }
+                },
+                "total": {
+                    "type": "integer",
+                    "example": 4
                 }
             }
         }
