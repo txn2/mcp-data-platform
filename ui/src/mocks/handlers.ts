@@ -2607,6 +2607,16 @@ export const handlers = [
     return HttpResponse.json(smtpSettings);
   }),
 
+  // Recipient opt-out state for the test-send notice (#1022). The fixture
+  // address optedout@example.com reads as opted out; everything else does not.
+  http.get(`${ADMIN_BASE}/settings/smtp/recipient-status`, ({ request }) => {
+    const to = (new URL(request.url).searchParams.get("to") ?? "").toLowerCase();
+    if (!to.includes("@")) {
+      return HttpResponse.json({ detail: "to must be a valid email address" }, { status: 400 });
+    }
+    return HttpResponse.json({ to, opted_out: to === "optedout@example.com" });
+  }),
+
   http.post(`${ADMIN_BASE}/settings/smtp/test`, async ({ request }) => {
     const body = (await request.json()) as Record<string, unknown>;
     if (!smtpSettings.enabled) {

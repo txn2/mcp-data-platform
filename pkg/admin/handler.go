@@ -216,6 +216,10 @@ type Deps struct {
 	// SendTestEmail delivers a test email through the stored SMTP
 	// settings. nil disables the test-email route.
 	SendTestEmail func(ctx context.Context, to string) error
+	// NotificationPrefs reads per-address notification preferences so the
+	// SMTP test-send UI can surface a target's opt-out state (#1022). nil
+	// disables the recipient-status route.
+	NotificationPrefs notification.PrefsStore
 }
 
 // IndexJobsService is the cross-kind index-jobs surface the admin

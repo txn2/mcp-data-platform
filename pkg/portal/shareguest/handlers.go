@@ -92,6 +92,43 @@ func (s *Service) tryIssueLink(ctx context.Context, token string) {
 	}
 }
 
+// resubscribeResponse is the body POST resubscribe always returns. Like
+// uniformResponse, it is identical for every share state so the endpoint
+// confirms nothing to a caller who merely holds a URL.
+const resubscribeResponse = "If notification emails to this share's recipient were paused, they have been resumed."
+
+// HandleResubscribe serves POST /portal/view/{token}/resubscribe: it turns
+// notification delivery back on for the share's stored recipient address
+// (#1022). Opting back in is a deliberate POST-only action, mirroring the
+// no-mutation-on-GET rule of the unsubscribe endpoint it reverses. The portal
+// registers it beside request-link: rate-limited, outside the access gate.
+func (s *Service) HandleResubscribe(w http.ResponseWriter, r *http.Request) {
+	s.tryResubscribe(r.Context(), r.PathValue(pathKeyToken))
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"message": resubscribeResponse})
+}
+
+// tryResubscribe re-enables delivery for the recipient of a live, non-public
+// email share. Every other case is a silent no-op behind the uniform
+// response; failures are logged, never surfaced.
+func (s *Service) tryResubscribe(ctx context.Context, token string) {
+	if token == "" || s.resubscribe == nil {
+		return
+	}
+	share, ok := s.resolve(ctx, token)
+	if !ok || !share.Live() || share.Public || share.RecipientEmail == "" {
+		return
+	}
+	if err := s.resubscribe(ctx, share.RecipientEmail); err != nil {
+		slog.Warn("share guest resubscribe: prefs write failed", logKeyError, err, logKeyShareID, share.ID)
+		return
+	}
+	// The action is unauthenticated by design (its audience is opted-out
+	// recipients the gate refuses), so leave an operator-auditable record of
+	// every successful preference flip.
+	slog.Info("share guest resubscribe: notification delivery resumed", logKeyShareID, share.ID)
+}
+
 // HandleClaim serves GET /portal/view/{token}/guest?otk=...: it claims the
 // one-time token and, on success, opens a guest session scoped to the share
 // and redirects into the viewer. A used, expired, or foreign token redirects

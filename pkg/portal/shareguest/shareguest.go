@@ -112,6 +112,12 @@ type Config struct {
 	SecureCookie bool
 	// Brand is the chrome the landing pages render with.
 	Brand Brand
+	// OptOutStatus reports whether an address has opted out of notification
+	// emails (#1022). nil omits the landing page's opt-out notice.
+	OptOutStatus func(ctx context.Context, email string) (bool, error)
+	// Resubscribe re-enables notification delivery for an address (#1022).
+	// nil omits the landing page's opt-back-in action.
+	Resubscribe func(ctx context.Context, email string) error
 }
 
 // Service implements the guest access path. A nil *Service is inert: Admit
@@ -124,6 +130,8 @@ type Service struct {
 	baseURL      string
 	secureCookie bool
 	brand        Brand
+	optOutStatus func(ctx context.Context, email string) (bool, error)
+	resubscribe  func(ctx context.Context, email string) error
 	now          func() time.Time
 }
 
@@ -137,6 +145,8 @@ func New(cfg Config) *Service {
 		baseURL:      cfg.BaseURL,
 		secureCookie: cfg.SecureCookie,
 		brand:        cfg.Brand,
+		optOutStatus: cfg.OptOutStatus,
+		resubscribe:  cfg.Resubscribe,
 		now:          time.Now,
 	}
 	if len(cfg.SessionKey) > 0 {

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/txn2/mcp-data-platform/internal/platform/notifydelivery"
@@ -77,11 +78,46 @@ func newShareGuestService(p *platform.Platform, notify *notifydelivery.Handle, s
 	if notify != nil {
 		cfg.SendLink = notify.SendGuestLink
 	}
+	if prefs := notify.Prefs(); prefs != nil {
+		cfg.OptOutStatus = optOutStatusFn(prefs)
+		cfg.Resubscribe = resubscribeFn(prefs)
+	}
 	svc := shareguest.New(cfg)
 	if svc.LinksAvailable() {
 		log.Println("Portal share guest links enabled (one-time email links)")
 	}
 	return svc
+}
+
+// optOutStatusFn adapts the notification preference store to the guest
+// landing page's opt-out check (#1022). Addresses are canonicalized as the
+// prefs writers canonicalize them, so a mixed-case stored recipient still
+// finds its row.
+func optOutStatusFn(prefs notification.PrefsStore) func(ctx context.Context, email string) (bool, error) {
+	return func(ctx context.Context, email string) (bool, error) {
+		p, err := prefs.Get(ctx, canonicalEmail(email))
+		if err != nil {
+			return false, err //nolint:wrapcheck // store error already carries context
+		}
+		return p.Mode == notification.ModeOff, nil
+	}
+}
+
+// resubscribeFn adapts the preference store to the guest landing page's
+// opt-back-in action (#1022): delivery returns to the immediate-mode default,
+// touching nothing but the mode.
+func resubscribeFn(prefs notification.PrefsStore) func(ctx context.Context, email string) error {
+	return func(ctx context.Context, email string) error {
+		mode := notification.ModeImmediate
+		_, err := prefs.Set(ctx, canonicalEmail(email), notification.PrefsUpdate{Mode: &mode})
+		return err //nolint:wrapcheck // store error already carries context
+	}
+}
+
+// canonicalEmail matches the lowercase/trim keying the notification package
+// applies on every preference write.
+func canonicalEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
 }
 
 // shareGuestResolver adapts the portal share store to the guest service's

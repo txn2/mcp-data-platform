@@ -91,7 +91,19 @@ func unsubRequest(tok string) *http.Request {
 	return httptest.NewRequestWithContext(context.Background(), http.MethodGet, url, http.NoBody)
 }
 
-func TestUnsubscribeHandlerOptsOut(t *testing.T) {
+// confirmRequest builds the POST the confirmation page's form submits: same
+// URL as the GET, no one-click body.
+func confirmRequest(tok string) *http.Request {
+	r := httptest.NewRequestWithContext(context.Background(), http.MethodPost,
+		"/portal/notifications/unsubscribe?tok="+tok, strings.NewReader(""))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return r
+}
+
+// TestUnsubscribeHandlerGetDoesNotMutate pins the scanner-prefetch guard
+// (#1022): mail security layers GET every URL in a message body, so the GET
+// must render the confirmation form and write nothing.
+func TestUnsubscribeHandlerGetDoesNotMutate(t *testing.T) {
 	prefs := newMemPrefsStore()
 	h := &UnsubscribeHandler{Prefs: prefs, Key: unsubKey, BrandName: "ACME Data"}
 
@@ -99,12 +111,42 @@ func TestUnsubscribeHandlerOptsOut(t *testing.T) {
 	h.ServeHTTP(w, unsubRequest(UnsubToken(unsubKey, "bob@example.com")))
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), `<form method="post"`)
+	assert.Contains(t, w.Body.String(), "bob@example.com", "the page names the address it would opt out")
+	assert.Contains(t, w.Body.String(), "ACME Data")
+	assert.Contains(t, w.Header().Get("Content-Security-Policy"), "form-action 'self'")
+	assert.Empty(t, prefs.set, "a bare GET must never record the opt-out")
+}
+
+// TestUnsubscribeHandlerConfirmPostOptsOut proves the deliberate click works:
+// the form POST records the opt-out and renders the confirmation page.
+func TestUnsubscribeHandlerConfirmPostOptsOut(t *testing.T) {
+	prefs := newMemPrefsStore()
+	h := &UnsubscribeHandler{Prefs: prefs, Key: unsubKey, BrandName: "ACME Data"}
+
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, confirmRequest(UnsubToken(unsubKey, "bob@example.com")))
+
+	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), "You are unsubscribed")
 	assert.Contains(t, w.Body.String(), "ACME Data")
+	assert.NotContains(t, w.Body.String(), "<form", "the confirmation page offers no second form")
 
 	stored, err := prefs.Get(context.Background(), "bob@example.com")
 	require.NoError(t, err)
-	assert.Equal(t, ModeOff, stored.Mode, "a valid token writes delivery mode off")
+	assert.Equal(t, ModeOff, stored.Mode, "a confirmed form POST writes delivery mode off")
+}
+
+func TestUnsubscribeHandlerConfirmPostRejectsBadToken(t *testing.T) {
+	prefs := newMemPrefsStore()
+	h := &UnsubscribeHandler{Prefs: prefs, Key: unsubKey}
+
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, confirmRequest("not-a-token"))
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "not valid", "a browser POST gets a page, not a bare status")
+	assert.Empty(t, prefs.set, "an invalid token writes nothing")
 }
 
 func TestUnsubscribeHandlerRejectsBadToken(t *testing.T) {
@@ -174,7 +216,7 @@ func TestUnsubscribeHandlerReportsStoreFailure(t *testing.T) {
 	h := &UnsubscribeHandler{Prefs: prefs, Key: unsubKey}
 
 	w := httptest.NewRecorder()
-	h.ServeHTTP(w, unsubRequest(UnsubToken(unsubKey, "bob@example.com")))
+	h.ServeHTTP(w, confirmRequest(UnsubToken(unsubKey, "bob@example.com")))
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 	assert.Contains(t, w.Body.String(), "could not be recorded")

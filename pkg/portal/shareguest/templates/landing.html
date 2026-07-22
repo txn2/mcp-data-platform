@@ -90,27 +90,43 @@
             {{if .RequestLinkPath}}
             <div class="hint">No account? A single-use link can be emailed to the address this item was shared with. It works once and expires in 15 minutes.</div>
             {{end}}
+            {{if .OptOutNotice}}
+            <div class="notice" style="margin-top: 18px; margin-bottom: 0;">
+                {{.OptOutNotice}}
+                {{if .ResubscribePath}}
+                <div class="actions">
+                    <button class="btn" id="resubscribe" data-path="{{.ResubscribePath}}">Resume notification emails</button>
+                    <div class="result" id="resubscribe-result" hidden></div>
+                </div>
+                {{end}}
+            </div>
+            {{end}}
         </div>
     </div>
-    {{if .RequestLinkPath}}
+    {{if or .RequestLinkPath .ResubscribePath}}
     <script>
     (function () {
-        var btn = document.getElementById('request-link');
-        var out = document.getElementById('request-result');
-        btn.addEventListener('click', function () {
-            btn.disabled = true;
-            fetch(btn.getAttribute('data-path'), { method: 'POST' })
-                .then(function (resp) { return resp.json(); })
-                .then(function (body) {
-                    out.textContent = body.message || 'Request received.';
-                    out.hidden = false;
-                })
-                .catch(function () {
-                    out.textContent = 'Something went wrong. Try again in a moment.';
-                    out.hidden = false;
-                    btn.disabled = false;
-                });
-        });
+        function bindPost(btnId, outId) {
+            var btn = document.getElementById(btnId);
+            var out = document.getElementById(outId);
+            if (!btn) { return; }
+            btn.addEventListener('click', function () {
+                btn.disabled = true;
+                fetch(btn.getAttribute('data-path'), { method: 'POST' })
+                    .then(function (resp) { return resp.json(); })
+                    .then(function (body) {
+                        out.textContent = body.message || 'Request received.';
+                        out.hidden = false;
+                    })
+                    .catch(function () {
+                        out.textContent = 'Something went wrong. Try again in a moment.';
+                        out.hidden = false;
+                        btn.disabled = false;
+                    });
+            });
+        }
+        bindPost('request-link', 'request-result');
+        bindPost('resubscribe', 'resubscribe-result');
     })();
     </script>
     {{end}}

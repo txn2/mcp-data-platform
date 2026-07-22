@@ -3,6 +3,7 @@ package notification
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -340,5 +341,49 @@ func TestIDs(t *testing.T) {
 	got := ids(batch)
 	if len(got) != 2 || got[0] != 3 || got[1] != 9 {
 		t.Errorf("ids = %v", got)
+	}
+}
+
+// TestWorker_Drain_FooterAndReplyToFromBranding proves the implementor
+// branding (#1023) flows through the worker's claim-render-send chain: the
+// delivered email carries the about/support footer in both body parts and
+// the Reply-To for the sender to emit.
+func TestWorker_Drain_FooterAndReplyToFromBranding(t *testing.T) {
+	queue := &fakeQueueStore{immediate: [][]Notification{
+		{{
+			ID: 1, Recipient: "a@b.io", Attempts: 1,
+			Payload: Payload{Kind: KindAsset, ItemTitle: "R", Actor: "x@y.z"},
+		}},
+	}}
+	r, err := NewRenderer(Branding{
+		Name:           "Test Platform",
+		AboutText:      "The ACME data portal delivers curated datasets.",
+		SupportContact: "help@example.com",
+		ReplyTo:        "support@example.com",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender := &fakeSender{}
+	w := NewWorker(WorkerConfig{
+		Queue: queue, Settings: &fakeSettingsStore{settings: enabledSettings()},
+		Renderer: r, Sender: sender,
+	})
+
+	w.drain()
+
+	sent := sender.sentCopy()
+	if len(sent) != 1 {
+		t.Fatalf("expected 1 email, got %d", len(sent))
+	}
+	for _, body := range []string{sent[0].HTML, sent[0].Text} {
+		for _, want := range []string{"The ACME data portal delivers curated datasets.", "help@example.com"} {
+			if !strings.Contains(body, want) {
+				t.Errorf("delivered email missing footer content %q", want)
+			}
+		}
+	}
+	if sent[0].ReplyTo != "support@example.com" {
+		t.Errorf("delivered email ReplyTo = %q; want the branding address", sent[0].ReplyTo)
 	}
 }

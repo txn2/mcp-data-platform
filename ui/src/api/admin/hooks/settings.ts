@@ -54,6 +54,27 @@ export function useSetSMTPSettings() {
   });
 }
 
+// SMTPRecipientStatus reports whether a test-send target has opted out of
+// notification emails (#1022). Informational only; a test still sends.
+export interface SMTPRecipientStatus {
+  to: string;
+  opted_out: boolean;
+}
+
+// useSMTPRecipientStatus checks the opt-out state of a test-send target. It
+// only fires for a plausible address, so keystrokes short of one cost nothing.
+export function useSMTPRecipientStatus(to: string) {
+  const plausible = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to);
+  return useQuery({
+    queryKey: ["settings", "smtp", "recipient-status", to],
+    queryFn: () =>
+      apiFetch<SMTPRecipientStatus>(
+        `/settings/smtp/recipient-status?to=${encodeURIComponent(to)}`,
+      ),
+    enabled: plausible,
+  });
+}
+
 export function useSendTestEmail() {
   return useMutation({
     mutationFn: (to: string) =>

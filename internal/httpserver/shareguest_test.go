@@ -244,3 +244,75 @@ func TestMountNotificationUnsubscribe(t *testing.T) {
 		t.Errorf("expected no route without a handle, got %d", w3.Code)
 	}
 }
+
+// fakePrefsStore is an in-memory notification.PrefsStore for the guest
+// opt-out wiring tests.
+type fakePrefsStore struct {
+	modes     map[string]string
+	lastEmail string
+	lastSet   notification.PrefsUpdate
+	getErr    error
+	setErr    error
+}
+
+func (f *fakePrefsStore) Get(_ context.Context, email string) (notification.Prefs, error) {
+	if f.getErr != nil {
+		return notification.Prefs{}, f.getErr
+	}
+	p := notification.DefaultPrefs(email)
+	if mode, ok := f.modes[email]; ok {
+		p.Mode = mode
+	}
+	return p, nil
+}
+
+func (f *fakePrefsStore) Set(_ context.Context, email string, u notification.PrefsUpdate) (notification.Prefs, error) {
+	if f.setErr != nil {
+		return notification.Prefs{}, f.setErr
+	}
+	f.lastEmail = email
+	f.lastSet = u
+	return notification.DefaultPrefs(email), nil
+}
+
+func TestOptOutStatusFn(t *testing.T) {
+	prefs := &fakePrefsStore{modes: map[string]string{"bob@example.com": notification.ModeOff}}
+	fn := optOutStatusFn(prefs)
+
+	// Mixed-case recipient must find the canonically keyed row.
+	out, err := fn(context.Background(), " Bob@Example.com ")
+	if err != nil || !out {
+		t.Errorf("opted-out address must read true: out=%v err=%v", out, err)
+	}
+
+	out, err = fn(context.Background(), "carol@example.com")
+	if err != nil || out {
+		t.Errorf("default prefs must read not opted out: out=%v err=%v", out, err)
+	}
+
+	if _, err := optOutStatusFn(&fakePrefsStore{getErr: errors.New("db down")})(context.Background(), "x@y.z"); err == nil {
+		t.Error("a store error must propagate")
+	}
+}
+
+func TestResubscribeFn(t *testing.T) {
+	prefs := &fakePrefsStore{}
+	fn := resubscribeFn(prefs)
+
+	if err := fn(context.Background(), " Bob@Example.com "); err != nil {
+		t.Fatalf("resubscribe: %v", err)
+	}
+	if prefs.lastEmail != "bob@example.com" {
+		t.Errorf("write must use the canonical address, got %q", prefs.lastEmail)
+	}
+	if prefs.lastSet.Mode == nil || *prefs.lastSet.Mode != notification.ModeImmediate {
+		t.Errorf("resubscribe must restore immediate delivery, got %+v", prefs.lastSet)
+	}
+	if prefs.lastSet.SharesEnabled != nil || prefs.lastSet.CommentsEnabled != nil {
+		t.Error("resubscribe must touch nothing but the mode")
+	}
+
+	if err := resubscribeFn(&fakePrefsStore{setErr: errors.New("db down")})(context.Background(), "x@y.z"); err == nil {
+		t.Error("a store error must propagate")
+	}
+}

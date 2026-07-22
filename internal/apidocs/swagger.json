@@ -6350,7 +6350,51 @@
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/settingsapi.problemDetail"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/settings/smtp/recipient-status": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    },
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Reports whether the given address has opted out of notification emails. Informational only; a test send is never blocked by it.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Settings"
+                ],
+                "summary": "Notification opt-out state of an address",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Recipient email address",
+                        "name": "to",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/settingsapi.problemDetail"
                         }
                     }
                 }
@@ -6401,19 +6445,19 @@
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/settingsapi.problemDetail"
                         }
                     },
                     "409": {
                         "description": "Conflict",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/settingsapi.problemDetail"
                         }
                     },
                     "502": {
                         "description": "Bad Gateway",
                         "schema": {
-                            "$ref": "#/definitions/admin.problemDetail"
+                            "$ref": "#/definitions/settingsapi.problemDetail"
                         }
                     }
                 }
@@ -18458,6 +18502,27 @@
                 "total": {
                     "type": "integer",
                     "example": 42
+                }
+            }
+        },
+        "settingsapi.problemDetail": {
+            "type": "object",
+            "properties": {
+                "detail": {
+                    "type": "string",
+                    "example": "resource not found"
+                },
+                "status": {
+                    "type": "integer",
+                    "example": 404
+                },
+                "title": {
+                    "type": "string",
+                    "example": "Not Found"
+                },
+                "type": {
+                    "type": "string",
+                    "example": "about:blank"
                 }
             }
         },

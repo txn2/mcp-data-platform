@@ -24,3 +24,10 @@ Privacy policy: {{.Brand.PrivacyURL}}
 {{- if .Brand.ImplementorName}}
 Provided by {{.Brand.ImplementorName}}{{if .Brand.ImplementorURL}} ({{.Brand.ImplementorURL}}){{end}}
 {{- end}}
+{{- if .AboutText}}
+
+{{.AboutText}}
+{{- end}}
+{{- if .SupportContact}}
+Need help? Contact: {{.SupportContact}}
+{{- end}}

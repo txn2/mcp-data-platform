@@ -63,7 +63,9 @@ func canonicalEmail(email string) string {
 
 // unsubPage is the minimal branded page the unsubscribe endpoint confirms
 // (or refuses) on. It is server-rendered with no scripts: the viewer may
-// have no account and no session.
+// have no account and no session. When Confirm is set it renders a form
+// whose single button POSTs back to the same URL (the token rides the query
+// string), turning the opt-out into a deliberate click.
 var unsubPage = template.Must(template.New("unsub").Parse(`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -80,6 +82,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Ar
 h1 { font-size: 17px; margin: 0 0 10px; }
 p { font-size: 14px; color: #4a4f57; line-height: 1.5; margin: 0; }
 .brand { font-size: 13px; font-weight: 700; margin-bottom: 18px; }
+form { margin: 18px 0 0; }
+button { padding: 10px 18px; border: 0; border-radius: 6px; background: #2563eb; color: #fff;
+         font-size: 14px; font-weight: 600; font-family: inherit; cursor: pointer; }
 </style>
 </head>
 <body>
@@ -87,10 +92,18 @@ p { font-size: 14px; color: #4a4f57; line-height: 1.5; margin: 0; }
 <div class="brand">{{.Brand}}</div>
 <h1>{{.Title}}</h1>
 <p>{{.Message}}</p>
+{{if .Confirm}}<form method="post"><button type="submit">Unsubscribe</button></form>{{end}}
 </div>
 </body>
 </html>
 `))
+
+// unsubPageData is the template context for unsubPage.
+type unsubPageData struct {
+	Brand, Title, Message string
+	// Confirm renders the unsubscribe form on the GET confirmation page.
+	Confirm bool
+}
 
 // UnsubscribeHandler serves GET and POST on
 // /portal/notifications/unsubscribe?tok=..., the no-login opt-out linked from
@@ -107,20 +120,44 @@ type UnsubscribeHandler struct {
 	BrandName string
 }
 
-// ServeHTTP verifies the token and records the opt-out. GET renders a
-// confirmation page for a human following the footer link; POST is the
-// RFC 8058 one-click path a mail provider calls on the recipient's behalf
-// (body "List-Unsubscribe=One-Click"), which records the opt-out with no
-// page and no further interaction, as the RFC requires.
+// ServeHTTP routes the endpoint's three cases. GET renders a confirmation
+// page and performs no mutation: corporate mail security layers (Safe Links,
+// Proofpoint, and similar) prefetch URLs in message bodies, and the token is
+// a bearer credential, so a mutating GET would let a recipient's own mail
+// infrastructure silently opt them out (#1022). The opt-out records only on
+// POST: either the RFC 8058 one-click body a mail provider sends on a real
+// user action in its own UI, or the confirmation page's form submit.
 func (h *UnsubscribeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
-		h.serveOneClick(w, r)
+		if isOneClick(r) {
+			h.serveOneClick(w, r)
+			return
+		}
+		h.serveConfirm(w, r)
 		return
 	}
 	email, ok := VerifyUnsubToken(h.Key, r.URL.Query().Get("tok"))
 	if !ok {
-		h.renderPage(w, http.StatusBadRequest, "This unsubscribe link is not valid",
-			"The link may be incomplete. Use the unsubscribe link from a notification email, or ask the sender to stop sharing with this address.")
+		h.renderInvalid(w)
+		return
+	}
+	h.renderConfirmPrompt(w, email)
+}
+
+// isOneClick reports whether a POST is the RFC 8058 one-click call: mail
+// providers send body "List-Unsubscribe=One-Click" (RFC 8058 section 3.2),
+// which the confirmation form never does.
+func isOneClick(r *http.Request) bool {
+	return r.PostFormValue("List-Unsubscribe") == "One-Click"
+}
+
+// serveConfirm handles the confirmation page's form POST: it records the
+// opt-out and renders the confirmation page. The caller is a browser, so
+// every outcome is a page.
+func (h *UnsubscribeHandler) serveConfirm(w http.ResponseWriter, r *http.Request) {
+	email, ok := VerifyUnsubToken(h.Key, r.URL.Query().Get("tok"))
+	if !ok {
+		h.renderInvalid(w)
 		return
 	}
 	if !h.optOut(r, email) {
@@ -134,7 +171,7 @@ func (h *UnsubscribeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // serveOneClick handles the RFC 8058 POST. The caller is a mail provider,
 // not a browser, so responses are bare status codes: the token in the posted
-// URL is the sole credential, exactly as on GET.
+// URL is the sole credential.
 func (h *UnsubscribeHandler) serveOneClick(w http.ResponseWriter, r *http.Request) {
 	email, ok := VerifyUnsubToken(h.Key, r.URL.Query().Get("tok"))
 	if !ok {
@@ -148,6 +185,25 @@ func (h *UnsubscribeHandler) serveOneClick(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusOK)
 }
 
+// renderConfirmPrompt renders the no-mutation GET page asking for the
+// deliberate click. It names the address so the holder of a forwarded link
+// sees whose delivery they are about to stop; the token already grants the
+// opt-out, so the page reveals nothing its holder could not do.
+func (h *UnsubscribeHandler) renderConfirmPrompt(w http.ResponseWriter, email string) {
+	h.render(w, http.StatusOK, unsubPageData{
+		Title: "Unsubscribe from notification emails",
+		Message: "Confirm to stop notification emails to " + email +
+			". One-time view links requested from a share page will still work.",
+		Confirm: true,
+	})
+}
+
+// renderInvalid renders the bad-token page.
+func (h *UnsubscribeHandler) renderInvalid(w http.ResponseWriter) {
+	h.renderPage(w, http.StatusBadRequest, "This unsubscribe link is not valid",
+		"The link may be incomplete. Use the unsubscribe link from a notification email, or ask the sender to stop sharing with this address.")
+}
+
 // optOut writes delivery mode "off" for email, reporting success.
 func (h *UnsubscribeHandler) optOut(r *http.Request, email string) bool {
 	mode := ModeOff
@@ -155,14 +211,20 @@ func (h *UnsubscribeHandler) optOut(r *http.Request, email string) bool {
 	return err == nil
 }
 
-// renderPage writes one confirmation/refusal page.
+// renderPage writes one formless confirmation/refusal page.
 func (h *UnsubscribeHandler) renderPage(w http.ResponseWriter, status int, title, message string) {
-	brand := h.BrandName
-	if brand == "" {
-		brand = "Data Platform"
+	h.render(w, status, unsubPageData{Title: title, Message: message})
+}
+
+// render writes one page. form-action 'self' admits exactly the confirmation
+// form's same-URL POST under the otherwise deny-all policy.
+func (h *UnsubscribeHandler) render(w http.ResponseWriter, status int, data unsubPageData) {
+	data.Brand = h.BrandName
+	if data.Brand == "" {
+		data.Brand = "Data Platform"
 	}
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
-	_ = unsubPage.Execute(w, map[string]string{"Brand": brand, "Title": title, "Message": message})
+	_ = unsubPage.Execute(w, data)
 }

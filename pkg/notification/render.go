@@ -33,6 +33,18 @@ type Branding struct {
 	// associate with the sending identity.
 	TermsURL   string
 	PrivacyURL string
+	// AboutText and SupportContact render as a help/about footer block on
+	// all outgoing mail when set (#1023). AboutText is a sentence or two
+	// describing the platform; SupportContact is an email address or http(s)
+	// URL for help. Implementor-owned YAML config (portal.about_text,
+	// portal.support_contact), like the rest of the branding: in fully
+	// managed deployments these are not admin-editable.
+	AboutText      string
+	SupportContact string
+	// ReplyTo, when set, is stamped on every rendered Email so the sender
+	// applies it as the Reply-To header and recipient replies reach a
+	// monitored mailbox (#1023). From portal.reply_to.
+	ReplyTo string
 	// LogoPNG is the raster logo from portal.logo_email, resolved once at
 	// startup. When non-empty it is attached to every message as an inline
 	// (cid:) part and rendered above the wordmark; recipients never fetch it
@@ -44,6 +56,18 @@ type Branding struct {
 // logoContentID is the Content-ID of the inline logo part. The HTML template
 // references it as cid:<this>, so the two must stay in sync.
 const logoContentID = "logo.png"
+
+// supportHref returns the link target for the support contact: mailto: for an
+// address, the URL itself for http(s), empty (render as plain text) otherwise.
+func supportHref(contact string) string {
+	if strings.HasPrefix(contact, "http://") || strings.HasPrefix(contact, "https://") {
+		return contact
+	}
+	if strings.Contains(contact, "@") {
+		return "mailto:" + contact
+	}
+	return ""
+}
 
 // Email is one rendered message ready for an SMTP sender.
 type Email struct {
@@ -59,6 +83,9 @@ type Email struct {
 	// leave it empty). The sender emits the RFC 8058 List-Unsubscribe headers
 	// from it, so header presence tracks the footer link exactly.
 	UnsubURL string
+	// ReplyTo is the Reply-To address the sender must apply when non-empty
+	// (#1023). Stamped from Branding.ReplyTo on every rendered message.
+	ReplyTo string
 }
 
 // Renderer renders queued notifications into branded multipart emails.
@@ -116,13 +143,16 @@ func (r *Renderer) Render(ns []Notification) (*Email, error) {
 	return r.execute(ns[0].Recipient, data)
 }
 
-// execute runs both templates over data and assembles the Email. It is the one
-// place the inline logo is attached, so every message the renderer produces
-// carries the cid: part its HTML references.
+// execute runs both templates over data and assembles the Email. It is the
+// one place the inline logo, the branding footer block, and the Reply-To are
+// applied, so every message the renderer produces carries them uniformly.
 func (r *Renderer) execute(to string, data emailData) (*Email, error) {
 	if len(r.branding.LogoPNG) > 0 {
 		data.LogoCID = logoContentID
 	}
+	data.AboutText = r.branding.AboutText
+	data.SupportContact = r.branding.SupportContact
+	data.SupportHref = supportHref(r.branding.SupportContact)
 	var htmlBuf, textBuf strings.Builder
 	if err := r.html.Execute(&htmlBuf, data); err != nil {
 		return nil, fmt.Errorf("rendering html email: %w", err)
@@ -137,6 +167,7 @@ func (r *Renderer) execute(to string, data emailData) (*Email, error) {
 		Text:     textBuf.String(),
 		LogoPNG:  r.branding.LogoPNG,
 		UnsubURL: data.UnsubURL,
+		ReplyTo:  r.branding.ReplyTo,
 	}, nil
 }
 
@@ -190,6 +221,12 @@ type emailData struct {
 	// UnsubURL is the no-login unsubscribe link for this recipient. Empty
 	// omits the footer line; see SetUnsubscribeURLFn.
 	UnsubURL string
+	// AboutText, SupportContact, and SupportHref render the branding's
+	// help/about footer block (#1023); all empty omits the block entirely.
+	// Stamped from Branding in execute.
+	AboutText      string
+	SupportContact string
+	SupportHref    string
 }
 
 // emailItem is one event line in an email.

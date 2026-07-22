@@ -3897,6 +3897,21 @@ definitions:
         example: 42
         type: integer
     type: object
+  settingsapi.problemDetail:
+    properties:
+      detail:
+        example: resource not found
+        type: string
+      status:
+        example: 404
+        type: integer
+      title:
+        example: Not Found
+        type: string
+      type:
+        example: about:blank
+        type: string
+    type: object
   toolkit.ConnectionHealthWire:
     properties:
       last_error:
@@ -7995,11 +8010,39 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/settingsapi.problemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []
       summary: Update SMTP settings
+      tags:
+      - Settings
+  /admin/settings/smtp/recipient-status:
+    get:
+      description: Reports whether the given address has opted out of notification
+        emails. Informational only; a test send is never blocked by it.
+      parameters:
+      - description: Recipient email address
+        in: query
+        name: to
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/settingsapi.problemDetail'
+      security:
+      - ApiKeyAuth: []
+      - BearerAuth: []
+      summary: Notification opt-out state of an address
       tags:
       - Settings
   /admin/settings/smtp/test:
@@ -8027,15 +8070,15 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/settingsapi.problemDetail'
         "409":
           description: Conflict
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/settingsapi.problemDetail'
         "502":
           description: Bad Gateway
           schema:
-            $ref: '#/definitions/admin.problemDetail'
+            $ref: '#/definitions/settingsapi.problemDetail'
       security:
       - ApiKeyAuth: []
       - BearerAuth: []

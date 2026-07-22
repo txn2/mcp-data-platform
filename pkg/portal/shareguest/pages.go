@@ -1,8 +1,10 @@
 package shareguest
 
 import (
+	"context"
 	"embed"
 	"html/template"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -111,8 +113,41 @@ func (s *Service) landingData(r *http.Request, d Denial) map[string]any {
 		if r.URL.Query().Get(linkStatusParam) == linkStatusInvalid {
 			data["LinkNotice"] = "That one-time link was already used or has expired."
 		}
+		s.applyOptOutState(r.Context(), d, viewPath, data)
 	}
 	return data
+}
+
+// applyOptOutState adds the opt-out notice and opt-back-in action for an
+// email share whose recipient has unsubscribed from notification emails
+// (#1022). The landing page is the recipient's natural re-engagement point:
+// it already knows the share's address, and an opted-out guest otherwise has
+// no path back in short of asking the sharer. The copy stays third-person
+// (like the one-time-link hint) because the page cannot know the viewer is
+// the recipient, and it never displays the address itself.
+func (s *Service) applyOptOutState(ctx context.Context, d Denial, viewPath string, data map[string]any) {
+	if d.RecipientEmail == "" || !s.optedOut(ctx, d.RecipientEmail) {
+		return
+	}
+	data["OptOutNotice"] = "The address this item was shared with has opted out of notification emails from this portal."
+	if s.resubscribe != nil {
+		data["ResubscribePath"] = viewPath + "/resubscribe"
+	}
+}
+
+// optedOut reports whether email has notification delivery turned off. A
+// missing callback or a lookup failure reads as not opted out: the notice is
+// informational and must never break the landing page.
+func (s *Service) optedOut(ctx context.Context, email string) bool {
+	if s.optOutStatus == nil {
+		return false
+	}
+	out, err := s.optOutStatus(ctx, email)
+	if err != nil {
+		slog.Warn("share guest landing: opt-out lookup failed", logKeyError, err)
+		return false
+	}
+	return out
 }
 
 // brandName returns the configured brand, defaulting to the platform name the

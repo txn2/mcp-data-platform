@@ -3,6 +3,7 @@ import {
   useSMTPSettings,
   useSetSMTPSettings,
   useSendTestEmail,
+  useSMTPRecipientStatus,
   useSystemInfo,
   type SMTPSettings,
 } from "@/api/admin/hooks";
@@ -227,6 +228,18 @@ function TestEmailSection() {
   const [testTo, setTestTo] = useState("");
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
 
+  // Opt-out notice (#1022): the test deliberately bypasses preference gating,
+  // so surface the target's opt-out state as information, never as a block.
+  // Debounced so the status query fires once per pause, not per keystroke.
+  const [debouncedTo, setDebouncedTo] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedTo(testTo.trim()), 400);
+    return () => clearTimeout(timer);
+  }, [testTo]);
+  const { data: recipientStatus } = useSMTPRecipientStatus(debouncedTo);
+  const showOptOutNotice =
+    recipientStatus?.opted_out && recipientStatus.to === debouncedTo.toLowerCase();
+
   const handleSend = useCallback(() => {
     setResult(null);
     sendTest.mutate(testTo.trim(), {
@@ -266,6 +279,12 @@ function TestEmailSection() {
           {sendTest.isPending ? "Sending..." : "Send test"}
         </button>
       </div>
+      {showOptOutNotice && (
+        <p className="mt-2 flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+          This address has opted out of notification emails; the test will still send.
+        </p>
+      )}
       {result && (
         <p
           className={cn(

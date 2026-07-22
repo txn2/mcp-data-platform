@@ -428,6 +428,9 @@ tuning:
 #     url: "https://acme.com"
 #   terms_url: "https://example.com/terms"                     # optional terms-of-service link in notification email footers
 #   privacy_url: "https://example.com/privacy"                 # optional privacy-policy link in notification email footers
+#   about_text: "The ACME data portal delivers curated datasets and reports."  # optional footer block on all outgoing email
+#   support_contact: "help@example.com"                        # optional help contact (email or URL) rendered with about_text
+#   reply_to: "support@example.com"                            # optional Reply-To header on all outgoing email
 #   rate_limit:                                                 # public portal viewer rate limiting (per-IP + global backstop)
 #     requests_per_minute: 60                                   # per-IP limit (default: 60)
 #     burst_size: 10                                            # per-IP burst allowance (default: 10)
