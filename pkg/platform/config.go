@@ -417,6 +417,7 @@ type PromptArgumentConfig struct {
 // PromptConfig defines a platform-level MCP prompt.
 type PromptConfig struct {
 	Name        string                 `yaml:"name"`
+	DisplayName string                 `yaml:"display_name"`
 	Description string                 `yaml:"description"`
 	Content     string                 `yaml:"content"`
 	Arguments   []PromptArgumentConfig `yaml:"arguments"`

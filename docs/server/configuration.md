@@ -183,6 +183,7 @@ server:
       content: |
         Before querying, determine if you need ENTITY STATE or ANALYTICS...
     - name: explore-topic
+      display_name: "Explore a Topic"
       description: "Explore data about a specific topic"
       content: "Find all datasets related to {topic} and summarize key metrics."
       arguments:
@@ -194,6 +195,7 @@ server:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `server.prompts[].name` | string | required | Prompt name |
+| `server.prompts[].display_name` | string | - | Human-readable title served as the MCP prompt `title` (falls back to the name) |
 | `server.prompts[].description` | string | - | Prompt description |
 | `server.prompts[].content` | string | required | Prompt content (supports `{arg_name}` placeholders) |
 | `server.prompts[].arguments` | array | `[]` | Typed arguments for the prompt |
@@ -211,6 +213,8 @@ server:
 | `trace-data-lineage` | DataHub | Trace upstream/downstream lineage for a dataset |
 
 All registered prompts (platform + toolkit) are included in the `platform_info` tool response and visible in the platform-info app's Prompts tab.
+
+**Prompt naming and resolution.** Every prompt is served under its bare stored name for its whole life; promoting a personal prompt to a persona or global scope never changes the name under which anyone invokes it. When several prompts a viewer can see share a name, resolution is deterministic per viewer: personal wins over shared-with-me, which wins over persona, which wins over global, and static prompts (auto/operator/workflow/toolkit) always keep their bare names. The winner is served bare; every shadowed prompt stays visible in `prompts/list` under a scope-qualified fallback name (`personal-<name>`, `shared-<name>`, `<persona>-<name>`, `global-<name>`) with an annotated description, and `prompts/get` resolves those qualified forms too. Clients that learned the old scope-prefixed names keep working through a deprecation window via the same qualified forms. Agents resolve prompts by any handle (name, display name, `mcp:prompt:<id>`, or free text) with the `manage_prompt` `use` command.
 
 ### Streamable HTTP Configuration
 

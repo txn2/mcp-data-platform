@@ -58,6 +58,9 @@ func (m *mockPromptStore) GetPersonal(_ context.Context, ownerEmail, name string
 }
 
 func (m *mockPromptStore) GetByID(_ context.Context, id string) (*prompt.Prompt, error) {
+	if m.getErr != nil {
+		return nil, m.getErr
+	}
 	for _, p := range m.prompts {
 		if p.ID == id {
 			return p, nil

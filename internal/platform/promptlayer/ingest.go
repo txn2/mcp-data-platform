@@ -95,7 +95,7 @@ func systemPromptFromInfo(info registry.PromptInfo) *prompt.Prompt {
 	}
 	return &prompt.Prompt{
 		Name:        info.Name,
-		DisplayName: info.Name,
+		DisplayName: displayOrName(info.DisplayName, info.Name),
 		Description: info.Description,
 		Content:     info.Content,
 		Arguments:   args,

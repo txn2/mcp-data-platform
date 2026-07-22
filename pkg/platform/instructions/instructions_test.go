@@ -140,6 +140,7 @@ func TestBuild_GatesOnAccessibleTools(t *testing.T) {
 		wantSearch  bool
 		wantCapture bool
 		wantApply   bool
+		wantPrompt  bool
 		wantEmpty   bool
 	}{
 		{
@@ -169,6 +170,11 @@ func TestBuild_GatesOnAccessibleTools(t *testing.T) {
 			wantApply: true,
 		},
 		{
+			name:       "manage_prompt adds the resolve-named-procedures bullet",
+			tools:      []string{"manage_prompt"},
+			wantPrompt: true,
+		},
+		{
 			name:      "nil tools yields empty baseline",
 			tools:     nil,
 			wantEmpty: true,
@@ -189,6 +195,7 @@ func TestBuild_GatesOnAccessibleTools(t *testing.T) {
 			mentionsSearch := strings.Contains(got, "`search`")
 			mentionsCapture := strings.Contains(got, "`memory_capture`")
 			mentionsApply := strings.Contains(got, "`apply_knowledge`")
+			mentionsPrompt := strings.Contains(got, "`manage_prompt`")
 			if mentionsSearch != tt.wantSearch {
 				t.Errorf("mentions search = %v, want %v (baseline: %q)", mentionsSearch, tt.wantSearch, got)
 			}
@@ -197,6 +204,9 @@ func TestBuild_GatesOnAccessibleTools(t *testing.T) {
 			}
 			if mentionsApply != tt.wantApply {
 				t.Errorf("mentions apply_knowledge = %v, want %v (baseline: %q)", mentionsApply, tt.wantApply, got)
+			}
+			if mentionsPrompt != tt.wantPrompt {
+				t.Errorf("mentions manage_prompt = %v, want %v (baseline: %q)", mentionsPrompt, tt.wantPrompt, got)
 			}
 		})
 	}

@@ -14,25 +14,30 @@ type PromptVisibilityConfig struct {
 	PersonasForRoles PersonasForRoles
 
 	// ListVisible returns the caller's visible database prompts as MCP
-	// descriptors, each under its scope-prefixed name (global-, <persona>-,
-	// personal-) computed per-viewer. Optional; nil disables injection.
+	// descriptors, each under its bare stored name with per-viewer precedence
+	// (personal > shared > persona > global); a shadowed prompt is listed under
+	// a scope-qualified fallback name. Optional; nil disables injection.
 	ListVisible func(ctx context.Context, email string, personas []string) []*mcp.Prompt
 
-	// GetByName resolves a prefixed prompt name to the caller's visible database
-	// prompt and renders it with the request arguments. Returns ok=false when no
-	// such visible prompt exists. Optional; nil disables database serving.
+	// GetByName resolves a prompt name (bare, or a legacy scope-prefixed form)
+	// to the caller's visible database prompt and renders it with the request
+	// arguments. Returns ok=false when no such visible prompt exists.
+	// Optional; nil disables database serving.
 	GetByName func(ctx context.Context, email string, personas []string, name string, args map[string]string) (*mcp.GetPromptResult, bool)
 }
 
 // MCPPromptVisibilityMiddleware serves database prompts on the native MCP
 // prompts surface scoped to the caller. Database prompts (global, persona,
 // personal) are not in the shared static registry — the registry is keyed by
-// name and cannot represent the per-viewer scope prefix or two users'
-// same-named personal prompts. This middleware injects the caller's visible
-// database prompts into prompts/list under their scope-prefixed names, and
-// resolves a prefixed name on prompts/get. The caller only ever sees globals,
-// their personas' prompts, and their own personal prompts, which is what scopes
-// the surface. Built-in prompts remain in the static registry and pass through.
+// name and cannot represent per-viewer resolution (two users' same-named
+// personal prompts, or a personal prompt shadowing a same-named global for its
+// owner only). This middleware injects the caller's visible database prompts
+// into prompts/list under their bare stored names, and resolves a bare or
+// legacy-prefixed name on prompts/get. The caller only ever sees globals,
+// their personas' prompts, prompts shared with them, and their own personal
+// prompts, which is what scopes the surface. Built-in prompts remain in the
+// static registry and pass through; the serving callbacks decline their names
+// so a database prompt never shadows a built-in.
 func MCPPromptVisibilityMiddleware(cfg PromptVisibilityConfig) mcp.Middleware {
 	return func(next mcp.MethodHandler) mcp.MethodHandler {
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
@@ -73,8 +78,8 @@ func resolvePromptCaller(ctx context.Context, cfg PromptVisibilityConfig, req mc
 }
 
 // injectDatabasePrompts appends the caller's visible database prompts (under
-// their per-viewer scope prefix) to a prompts/list result. The static result
-// holds only built-in prompts, which are global/system and pass through.
+// their bare per-viewer-resolved names) to a prompts/list result. The static
+// result holds only built-in prompts, which are global/system and pass through.
 func injectDatabasePrompts(ctx context.Context, cfg PromptVisibilityConfig, req mcp.Request, result mcp.Result) mcp.Result {
 	listResult, ok := result.(*mcp.ListPromptsResult)
 	if !ok || listResult == nil || cfg.ListVisible == nil {
@@ -97,8 +102,8 @@ func getPromptParams(req mcp.Request) *mcp.GetPromptParams {
 	return params
 }
 
-// serveDatabaseGet resolves a prefixed prompt name to the caller's visible
-// database prompt and serves it, returning (result, true) when it exists.
+// serveDatabaseGet resolves a prompt name to the caller's visible database
+// prompt and serves it, returning (result, true) when it exists.
 func serveDatabaseGet(ctx context.Context, cfg PromptVisibilityConfig, req mcp.Request) (mcp.Result, bool) {
 	if cfg.GetByName == nil {
 		return nil, false

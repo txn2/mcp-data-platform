@@ -568,7 +568,7 @@ export const mockPortalPrompts: { personal: Prompt[]; available: Prompt[] } = {
 
 // ---------------------------------------------------------------------------
 // Prompts shared directly with the current user (surfaced on the Prompts page
-// "Shared" tab). These are runnable as `shared-<name>`.
+// "Shared" tab). These are runnable over MCP by their bare name.
 // ---------------------------------------------------------------------------
 
 export interface MockSharedPrompt {

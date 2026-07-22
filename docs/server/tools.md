@@ -49,6 +49,7 @@ mcp-data-platform provides tools from five integrated toolkits. Each tool can be
 | Portal | `manage_artifact` | List, get, update, delete, or relevance-search saved artifacts and collections |
 | Portal | `manage_feedback` | Review and respond to human feedback (list pending across everything, get, reply, resolve, request/respond validation) |
 | Platform | `platform_find_tools` | Find the most relevant tools for a natural-language task, ranked by semantic similarity (persona-scoped) |
+| Platform | `manage_prompt` | Resolve and run prompts by any handle (`use`), plus create, update, delete, list, and get |
 
 ---
 
@@ -1002,6 +1003,21 @@ See [Admin API](admin-api.md) for full request/response shapes.
 - **Response** — `{ "tools": [ { "name", "description", "score" } ], "note"? }`, ranked most-relevant first and capped at `limit` (default 10, max 50).
 
 This is discovery, not routing: the agent still chooses which returned tool to call.
+
+### manage_prompt
+
+`manage_prompt` manages database-stored prompts (create, update, delete, list, get) and resolves any prompt to run with the `use` command. `list` supports a ranked free-text `query` over the caller's visible approved prompts (hybrid semantic + lexical when an embedding provider is configured, lexical otherwise).
+
+**`use`: resolve and run.** When a user names a report, procedure, or recurring task ("run the daily sales report"), the agent resolves it against the prompt library instead of enumerating prompts. `use` accepts any handle in `name`:
+
+- an exact bare name (`daily-sales-report`),
+- a display name, case-insensitively ("Daily Sales Report"),
+- an `mcp:prompt:<id>` reference (the same reference `search` results carry),
+- or free text, ranked against the library.
+
+A single confident match returns `status: "resolved"` with the prompt content (argument values passed in `args` are substituted), its argument specs, any required arguments still missing, and provenance (scope, status, approver, owner, reference) so the agent can confirm what it is about to run. An ambiguous handle returns `status: "ambiguous"` with a short ranked candidate list to disambiguate, never an error and never a silent first-match. Operator, workflow, and toolkit prompts resolve through `use` as well (they remain read-only to the management commands); the auto-generated `platform-overview` prompt is served only on the native prompts surface.
+
+Non-admins manage only their own personal prompts; admins manage every scope. Prompts are served on the native MCP prompts surface under their bare stored names with per-viewer precedence (see [Configuration: Prompts](configuration.md#prompts)).
 
 ---
 
