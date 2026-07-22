@@ -36,13 +36,14 @@ func connectServingClient(t *testing.T, h *Handle, email string) (session *mcp.C
 	return connectTestClient(t, server)
 }
 
-// The assembled-system proof for the bare-name identity contract (#1008): a
-// caller whose personal prompt shares a name with a global prompt sees, through
-// a real mcp.Server with the real prompt-visibility middleware, the personal
-// prompt under the bare name, the global under its qualified fallback name, and
-// static built-ins untouched; prompts/get agrees with prompts/list on every one
-// of those names, and titles carry display names end to end.
-func TestPromptServing_EndToEnd_PersonalShadowsGlobal(t *testing.T) {
+// The assembled-system proof for prompt serving and titles: through a real
+// mcp.Server with the real prompt-visibility middleware, a caller sees static
+// prompts under their bare names and database prompts under their per-viewer
+// scope-prefixed names (collision-free by construction, so a personal and a
+// global prompt may share a stored name); prompts/get resolves every listed
+// name to the matching prompt, and titles from display_name travel through the
+// protocol on both static and database descriptors.
+func TestPromptServing_EndToEnd_ScopePrefixedAndTitled(t *testing.T) {
 	h, store := newTestHandle()
 	h.operatorPrompts = []PromptSpec{{
 		Name: "builtin-overview", DisplayName: "Builtin Overview",
@@ -55,6 +56,7 @@ func TestPromptServing_EndToEnd_PersonalShadowsGlobal(t *testing.T) {
 	store.prompts["report:sarah"] = &prompt.Prompt{
 		Name: "report", Scope: prompt.ScopePersonal, OwnerEmail: "sarah@example.com",
 		DisplayName: "My Report", Content: "personal body", Enabled: true,
+		Arguments: []prompt.Argument{{Name: "topic", Description: "what", Required: true}},
 	}
 
 	session, cleanup := connectServingClient(t, h, "sarah@example.com")
@@ -67,13 +69,13 @@ func TestPromptServing_EndToEnd_PersonalShadowsGlobal(t *testing.T) {
 	for _, pr := range listed.Prompts {
 		byName[pr.Name] = pr
 	}
-	require.Len(t, listed.Prompts, 3, "static + bare winner + qualified shadowed, no duplicates")
+	require.Len(t, listed.Prompts, 3, "static + prefixed global + prefixed personal, no duplicates")
 	require.NotNil(t, byName["builtin-overview"], "static prompt keeps its bare name")
 	assert.Equal(t, "Builtin Overview", byName["builtin-overview"].Title)
-	require.NotNil(t, byName["report"], "personal prompt wins the bare name for its owner")
-	assert.Equal(t, "My Report", byName["report"].Title, "title carries the display name through the protocol")
-	require.NotNil(t, byName["global-report"], "shadowed global stays visible under its qualified name")
-	assert.Contains(t, byName["global-report"].Description, "shadowed")
+	require.NotNil(t, byName["global-report"], "global prompt served as global-<name>")
+	require.NotNil(t, byName["personal-report"], "her personal prompt served as personal-<name>")
+	assert.Equal(t, "My Report", byName["personal-report"].Title,
+		"title carries the display name through the protocol")
 
 	getText := func(name string) string {
 		res, err := session.GetPrompt(ctx, &mcp.GetPromptParams{Name: name})
@@ -83,15 +85,14 @@ func TestPromptServing_EndToEnd_PersonalShadowsGlobal(t *testing.T) {
 		require.True(t, ok)
 		return tc.Text
 	}
-	assert.Equal(t, "personal body", getText("report"), "bare get agrees with the list")
-	assert.Equal(t, "global body", getText("global-report"), "qualified get reaches the shadowed global")
-	assert.Equal(t, "static body", getText("builtin-overview"), "static prompt still served by the registry")
+	assert.Equal(t, "personal body", getText("personal-report"))
+	assert.Equal(t, "global body", getText("global-report"))
+	assert.Equal(t, "static body", getText("builtin-overview"), "static prompt served by the registry")
 }
 
-// A different caller with no personal prompt sees the same global under its
-// bare name through the same assembled stack: shadowing is per-viewer and
-// promotion never renames what other viewers invoke.
-func TestPromptServing_EndToEnd_UnshadowedViewer(t *testing.T) {
+// A different caller without the personal prompt sees only the global through
+// the same assembled stack: the prefix scheme scopes the surface per viewer.
+func TestPromptServing_EndToEnd_OtherViewerSeesOnlyGlobal(t *testing.T) {
 	h, store := newTestHandle()
 	store.prompts["report"] = &prompt.Prompt{
 		Name: "report", Scope: prompt.ScopeGlobal, Content: "global body", Enabled: true,
@@ -108,11 +109,14 @@ func TestPromptServing_EndToEnd_UnshadowedViewer(t *testing.T) {
 	listed, err := session.ListPrompts(ctx, nil)
 	require.NoError(t, err)
 	require.Len(t, listed.Prompts, 1)
-	assert.Equal(t, "report", listed.Prompts[0].Name)
+	assert.Equal(t, "global-report", listed.Prompts[0].Name)
 
-	res, err := session.GetPrompt(ctx, &mcp.GetPromptParams{Name: "report"})
+	res, err := session.GetPrompt(ctx, &mcp.GetPromptParams{Name: "global-report"})
 	require.NoError(t, err)
 	tc, ok := res.Messages[0].Content.(*mcp.TextContent)
 	require.True(t, ok)
 	assert.Equal(t, "global body", tc.Text, "bob resolves the global, never sarah's personal prompt")
+
+	_, err = session.GetPrompt(ctx, &mcp.GetPromptParams{Name: "personal-report"})
+	assert.Error(t, err, "another user's personal prompt does not resolve for bob")
 }

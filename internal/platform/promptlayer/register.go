@@ -63,12 +63,10 @@ func (h *Handle) RegisterPlatformPrompts(server *mcp.Server) {
 		h.registerPromptWithCategory(server, spec, "custom")
 	}
 	h.registerWorkflowPrompts(server)
-	// Snapshot the bare names owned by the static MCP registry, then mirror the
-	// static prompts registered above into the store (as read-only system rows)
-	// so they are embedded and searchable (#593). Both must run before
+	// Mirror the static prompts registered above into the store (as read-only
+	// system rows) so they are embedded and searchable (#593). Must run before
 	// registerDatabasePrompts so database prompts are not added to promptInfos
-	// and mistaken for static names or re-ingested as system rows.
-	h.snapshotStaticNames()
+	// and re-ingested as system rows.
 	h.ingestStaticPrompts(context.Background())
 	h.registerDatabasePrompts()
 }
@@ -375,33 +373,6 @@ func (h *Handle) hasAllToolkitKinds(kinds []string) bool {
 	return true
 }
 
-// snapshotStaticNames records the bare names owned by the static MCP registry:
-// the auto-generated overview prompt plus every operator, workflow, and toolkit
-// prompt registered above. Must run before registerDatabasePrompts adds
-// database prompts to promptInfos. These names keep bare-name authority on the
-// dynamic serving paths so a database prompt can never shadow a built-in.
-func (h *Handle) snapshotStaticNames() {
-	names := make(map[string]bool)
-	if h.serverDescription != "" && !h.isOperatorPrompt(autoPromptName) {
-		names[autoPromptName] = true
-	}
-	for _, info := range h.staticPromptInfos() {
-		if info.Name != "" {
-			names[info.Name] = true
-		}
-	}
-	h.promptInfosMu.Lock()
-	h.staticNames = names
-	h.promptInfosMu.Unlock()
-}
-
-// isStaticName reports whether the static MCP registry owns the bare name.
-func (h *Handle) isStaticName(name string) bool {
-	h.promptInfosMu.RLock()
-	defer h.promptInfosMu.RUnlock()
-	return h.staticNames[name]
-}
-
 // collectToolkitPromptInfos gathers prompt metadata from toolkits that implement PromptDescriber.
 func (h *Handle) collectToolkitPromptInfos() []registry.PromptInfo {
 	var infos []registry.PromptInfo
@@ -461,11 +432,12 @@ func (h *Handle) registerDatabasePrompts() {
 
 // registerDatabasePrompt records a database prompt's metadata for admin
 // listing. Database prompts are NOT placed in the shared static MCP registry:
-// the registry is keyed by name and cannot represent per-viewer resolution
-// (two users' same-named personal prompts, or a personal prompt shadowing a
-// same-named global for its owner only). They are served per-caller by the
+// the registry is keyed by name and cannot represent per-viewer names (the
+// scope prefix an analyst sees differs from a global viewer) or two users'
+// same-named personal prompts. They are served per-caller by the
 // prompt-visibility middleware, which lists and resolves them from the
-// database under their bare names with per-viewer precedence at serve time.
+// database with a scope prefix (global-, <persona>-, personal-) computed at
+// serve time.
 //
 // Personal prompts are intentionally excluded from this name-keyed metadata
 // list: their names are unique only per owner, so tracking them here would
@@ -508,28 +480,14 @@ func toMCPPromptArgs(args []prompt.Argument) []*mcp.PromptArgument {
 	return out
 }
 
-// Legacy scope prefixes for the dynamic prompt names formerly presented to MCP
-// clients. Database prompts are now served under their bare stored name with
-// per-viewer precedence (see ListVisible); the prefixes survive for two jobs:
-// qualifying a shadowed prompt in prompts/list so it stays distinctly visible,
-// and resolving old prefixed names on prompts/get for clients that learned them
-// before bare names shipped (deprecation window). "personal" and "global" are
-// reserved persona names so prefix-stripping stays unambiguous.
+// Scope prefixes for the dynamic prompt names presented to MCP clients. The
+// prefix tells the agent the scope and is computed per-viewer at serve time;
+// the database stores only the bare name. "personal" and "global" are reserved
+// so prefix-stripping on prompts/get is unambiguous.
 const (
 	promptPrefixPersonal = "personal-"
 	promptPrefixGlobal   = "global-"
 	promptPrefixShared   = "shared-"
-)
-
-// Precedence ranks for bare-name resolution across scopes: when several visible
-// prompts share a bare name, the viewer's own prompt wins over one shared with
-// them, which wins over their persona's, which wins over a global. Prompts in
-// the static MCP registry outrank all of them (see isStaticName).
-const (
-	rankGlobal = iota
-	rankPersona
-	rankShared
-	rankPersonal
 )
 
 // displayOrName returns the human display name, falling back to the machine
@@ -541,9 +499,9 @@ func displayOrName(display, name string) string {
 	return name
 }
 
-// promptDescriptor builds an MCP prompt descriptor under a presented name from
-// a stored prompt. Title carries the human display name so clients can show
-// "Daily Sales Report" while invoking by machine name.
+// promptDescriptor builds an MCP prompt descriptor under a presented (prefixed)
+// name from a stored prompt. Title carries the human display name so clients
+// can show "Daily Sales Report" while invoking by machine name.
 func promptDescriptor(presentedName string, pr *prompt.Prompt) *mcp.Prompt {
 	return &mcp.Prompt{
 		Name:        presentedName,
@@ -553,48 +511,58 @@ func promptDescriptor(presentedName string, pr *prompt.Prompt) *mcp.Prompt {
 	}
 }
 
-// visibleEntry is one database prompt visible to the caller, carrying its
-// precedence rank and the legacy scope-qualified name it is served under when a
-// higher-precedence prompt shadows its bare name.
-type visibleEntry struct {
-	pr        prompt.Prompt
-	rank      int
-	qualified string
-}
-
-// ListVisible returns the caller's visible database prompts as MCP descriptors.
-// Each prompt is served under its bare stored name, so promotion never renames
-// it; when several visible prompts share a name, precedence is personal >
-// shared-with-me > persona > global, the winner keeps the bare name, and every
-// shadowed prompt is still listed under its legacy scope-qualified name
-// (personal-, shared-, <persona>-, global-) with an annotated description,
-// never silently hidden. A bare name owned by the static registry (built-in,
-// operator, workflow, or toolkit prompts) is never claimed by a database
-// prompt: those entries are all served qualified. Wired as the prompts/list
-// visibility callback.
+// ListVisible returns the caller's visible database prompts as MCP descriptors
+// with their scope prefix: global-<name> for globals, <persona>-<name> for each
+// persona the caller belongs to, and personal-<name> for the caller's own. A
+// persona prompt shared with several personas appears once per persona the
+// caller is in. Wired as the prompts/list visibility callback.
 func (h *Handle) ListVisible(ctx context.Context, email string, personas []string) []*mcp.Prompt {
 	if h == nil || h.store == nil {
 		return nil
 	}
-	return h.presentEntries(h.collectVisibleEntries(ctx, email, personas))
-}
-
-// collectVisibleEntries gathers the caller's visible database prompts across
-// all four scopes with their precedence ranks.
-func (h *Handle) collectVisibleEntries(ctx context.Context, email string, personas []string) []visibleEntry {
-	entries := h.collectScopedEntries(ctx, prompt.ListFilter{Scope: prompt.ScopeGlobal}, rankGlobal, promptPrefixGlobal)
-	entries = append(entries, h.collectPersonaEntries(ctx, personas)...)
+	out := h.listScopedDescriptors(ctx, prompt.ListFilter{Scope: prompt.ScopeGlobal}, promptPrefixGlobal)
+	out = append(out, h.listPersonaDescriptors(ctx, personas)...)
 	if email != "" {
-		entries = append(entries, h.collectSharedEntries(ctx, email)...)
-		entries = append(entries, h.collectScopedEntries(ctx,
-			prompt.ListFilter{Scope: prompt.ScopePersonal, OwnerEmail: email}, rankPersonal, promptPrefixPersonal)...)
+		out = append(out, h.listScopedDescriptors(ctx, prompt.ListFilter{Scope: prompt.ScopePersonal, OwnerEmail: email}, promptPrefixPersonal)...)
+		out = append(out, h.listSharedDescriptors(ctx, email)...)
 	}
-	return entries
+	return out
 }
 
-// collectScopedEntries lists enabled prompts matching the filter as entries of
-// the given rank, qualified by a fixed prefix (global and personal scopes).
-func (h *Handle) collectScopedEntries(ctx context.Context, filter prompt.ListFilter, rank int, prefix string) []visibleEntry {
+// listSharedDescriptors lists prompts shared directly with the caller (by
+// another user), presenting each as shared-<name>. Shares are looked up via the
+// portal share store and the prompt bodies fetched from the prompt store. If two
+// shared prompts collide on bare name, the first (most recent share) wins so the
+// list and GetByName agree.
+func (h *Handle) listSharedDescriptors(ctx context.Context, email string) []*mcp.Prompt {
+	if h.shareStore == nil {
+		return nil
+	}
+	refs, err := h.shareStore.ListSharedPromptsWithUser(ctx, "", email)
+	if err != nil {
+		slog.Warn("failed to list shared prompts", logKeyError, err)
+		return nil
+	}
+	var out []*mcp.Prompt
+	seen := make(map[string]bool, len(refs))
+	for _, ref := range refs {
+		pr, err := h.store.GetByID(ctx, ref.PromptID)
+		// Only personal prompts are served via the shared- alias. A prompt that
+		// was promoted to a shared scope after being shared is already served
+		// under its global-/persona- prefix; serving it again as shared- would
+		// duplicate it.
+		if err != nil || pr == nil || !pr.Enabled || pr.Scope != prompt.ScopePersonal || seen[pr.Name] {
+			continue
+		}
+		seen[pr.Name] = true
+		out = append(out, promptDescriptor(promptPrefixShared+pr.Name, pr))
+	}
+	return out
+}
+
+// listScopedDescriptors lists enabled prompts matching the filter and presents
+// each under a fixed scope prefix (for global and personal scopes).
+func (h *Handle) listScopedDescriptors(ctx context.Context, filter prompt.ListFilter, prefix string) []*mcp.Prompt {
 	enabled := true
 	filter.Enabled = &enabled
 	prompts, err := h.store.List(ctx, filter)
@@ -602,23 +570,22 @@ func (h *Handle) collectScopedEntries(ctx context.Context, filter prompt.ListFil
 		slog.Warn("failed to list prompts", logKeyError, err, "scope", filter.Scope)
 		return nil
 	}
-	out := make([]visibleEntry, 0, len(prompts))
+	out := make([]*mcp.Prompt, 0, len(prompts))
 	for i := range prompts {
 		// System rows (ingested static prompts, #593) are already served under
 		// their bare name via AddPrompt; skip them here so prompts/list does not
-		// show a duplicate entry.
+		// show a duplicate global- entry.
 		if prompts[i].Source == prompt.SourceSystem {
 			continue
 		}
-		out = append(out, visibleEntry{pr: prompts[i], rank: rank, qualified: prefix + prompts[i].Name})
+		out = append(out, promptDescriptor(prefix+prompts[i].Name, &prompts[i]))
 	}
 	return out
 }
 
-// collectPersonaEntries lists the caller's persona prompts, one entry per
-// prompt (a prompt shared with several of the caller's personas appears once).
-// The qualified fallback name uses the caller's first matching persona.
-func (h *Handle) collectPersonaEntries(ctx context.Context, personas []string) []visibleEntry {
+// listPersonaDescriptors lists the caller's persona prompts, presenting each
+// once per persona the caller belongs to (the prefix is the persona name).
+func (h *Handle) listPersonaDescriptors(ctx context.Context, personas []string) []*mcp.Prompt {
 	if len(personas) == 0 {
 		return nil
 	}
@@ -630,190 +597,32 @@ func (h *Handle) collectPersonaEntries(ctx context.Context, personas []string) [
 		slog.Warn("failed to list persona prompts", logKeyError, err)
 		return nil
 	}
-	out := make([]visibleEntry, 0, len(personaPrompts))
-	for i := range personaPrompts {
-		persona := firstMemberPersona(personas, personaPrompts[i].Personas)
-		if persona == "" {
-			continue
-		}
-		out = append(out, visibleEntry{
-			pr: personaPrompts[i], rank: rankPersona, qualified: persona + "-" + personaPrompts[i].Name,
-		})
-	}
-	return out
-}
-
-// firstMemberPersona returns the first of the caller's personas the prompt is
-// shared with, or "" when none is.
-func firstMemberPersona(callerPersonas, promptPersonas []string) string {
-	for _, persona := range callerPersonas {
-		if slices.Contains(promptPersonas, persona) {
-			return persona
-		}
-	}
-	return ""
-}
-
-// collectSharedEntries lists prompts shared directly with the caller (by
-// another user). Only personal prompts are served via shares: a prompt promoted
-// to a shared scope after being shared is already visible at its own scope. If
-// two shared prompts collide on bare name, the first (most recent share) wins
-// so the list and bare-name resolution agree.
-func (h *Handle) collectSharedEntries(ctx context.Context, email string) []visibleEntry {
-	if h.shareStore == nil {
-		return nil
-	}
-	refs, err := h.shareStore.ListSharedPromptsWithUser(ctx, "", email)
-	if err != nil {
-		slog.Warn("failed to list shared prompts", logKeyError, err)
-		return nil
-	}
-	var out []visibleEntry
-	seen := make(map[string]bool, len(refs))
-	for _, ref := range refs {
-		pr, err := h.store.GetByID(ctx, ref.PromptID)
-		if err != nil || pr == nil || !pr.Enabled || pr.Scope != prompt.ScopePersonal || seen[pr.Name] {
-			continue
-		}
-		seen[pr.Name] = true
-		out = append(out, visibleEntry{pr: *pr, rank: rankShared, qualified: promptPrefixShared + pr.Name})
-	}
-	return out
-}
-
-// shadowNote annotates the description of a prompt listed under its qualified
-// name because a higher-precedence prompt (or a static registry prompt) owns
-// the bare name.
-const shadowNote = "[shadowed by a higher-precedence prompt of the same name; invoke via this qualified name]"
-
-// presentEntries resolves bare-name collisions across the collected entries:
-// per bare name the highest-precedence entry is served bare (unless the static
-// registry owns the name) and every other entry is served under its qualified
-// name with an annotated description. A qualified fallback whose name is
-// itself a visible stored bare name (or a static name) is omitted: bare
-// resolution wins on prompts/get, so listing it would show a duplicate name
-// that resolves to a different prompt. When two shadowed entries collide on
-// the same qualified name (a persona literally named after a reserved prefix
-// token), the one the legacy prefix resolution would serve is kept. Output is
-// sorted by presented name so the list is deterministic.
-func (h *Handle) presentEntries(entries []visibleEntry) []*mcp.Prompt {
-	byName := make(map[string][]visibleEntry, len(entries))
-	for _, e := range entries {
-		byName[e.pr.Name] = append(byName[e.pr.Name], e)
-	}
 	var out []*mcp.Prompt
-	shadowedByQualified := make(map[string]visibleEntry)
-	for name, group := range byName {
-		slices.SortStableFunc(group, func(a, b visibleEntry) int { return b.rank - a.rank })
-		start := 0
-		if !h.isStaticName(name) {
-			out = append(out, promptDescriptor(name, &group[0].pr))
-			start = 1
-		}
-		for i := start; i < len(group); i++ {
-			q := group[i].qualified
-			if prev, ok := shadowedByQualified[q]; !ok || qualifiedPreference(group[i].rank) > qualifiedPreference(prev.rank) {
-				shadowedByQualified[q] = group[i]
+	for i := range personaPrompts {
+		for _, persona := range personas {
+			if slices.Contains(personaPrompts[i].Personas, persona) {
+				out = append(out, promptDescriptor(persona+"-"+personaPrompts[i].Name, &personaPrompts[i]))
 			}
 		}
 	}
-	for q, e := range shadowedByQualified {
-		if _, bareTaken := byName[q]; bareTaken || h.isStaticName(q) {
-			continue
-		}
-		d := promptDescriptor(q, &e.pr)
-		d.Description = strings.TrimSpace(d.Description + " " + shadowNote)
-		out = append(out, d)
-	}
-	slices.SortFunc(out, func(a, b *mcp.Prompt) int { return strings.Compare(a.Name, b.Name) })
 	return out
 }
 
-// Qualified-name collision preferences, ordered by which entry the legacy
-// prefix resolution (getLegacyPrefixed) would serve: the personal- cut runs
-// first, then global-, then shared-, then the persona fall-through. Distinct
-// from the bare-name precedence ranks, which put globals last.
-const (
-	qualPrefPersona = iota
-	qualPrefShared
-	qualPrefGlobal
-	qualPrefPersonal
-)
-
-// qualifiedPreference maps a bare-name precedence rank to its qualified-name
-// collision preference.
-func qualifiedPreference(rank int) int {
-	switch rank {
-	case rankPersonal:
-		return qualPrefPersonal
-	case rankGlobal:
-		return qualPrefGlobal
-	case rankShared:
-		return qualPrefShared
-	default:
-		return qualPrefPersona
-	}
-}
-
-// GetByName resolves a prompt name to the caller's visible database prompt and
-// renders it for prompts/get. Bare stored names resolve first, with the same
-// per-viewer precedence prompts/list serves them under (personal >
-// shared-with-me > persona > global); a bare name owned by the static registry
-// is declined so the built-in keeps serving it. Legacy scope-prefixed names
-// (personal-, global-, shared-, <persona>-) remain resolvable for clients that
-// learned them before bare names shipped (deprecation window). Returns
-// (nil, false) when no such visible prompt exists. Wired as the prompts/get
-// visibility callback.
+// GetByName resolves a prefixed prompt name to the caller's visible database
+// prompt and renders it for prompts/get. It strips the scope prefix to the bare
+// stored name: personal-/global- are reserved tokens; a persona prefix must be
+// one of the caller's personas, and the target prompt must actually be shared
+// with that persona. Returns (nil, false) when no such visible prompt exists.
+// Wired as the prompts/get visibility callback.
+//
+// The reserved-prefix branches fall through to persona resolution on a miss:
+// persona names are operator-defined and may literally be "personal" or
+// "global", so a name like "global-report" must still resolve a persona prompt
+// when no global prompt by that bare name exists.
 func (h *Handle) GetByName(ctx context.Context, email string, personas []string, name string, args map[string]string) (*mcp.GetPromptResult, bool) {
 	if h == nil || h.store == nil {
 		return nil, false
 	}
-	if !h.isStaticName(name) {
-		if res, ok := h.getBareByPrecedence(ctx, email, personas, name, args); ok {
-			return res, true
-		}
-	}
-	return h.getLegacyPrefixed(ctx, email, personas, name, args)
-}
-
-// getBareByPrecedence resolves a bare stored name in precedence order: the
-// caller's own personal prompt, then one shared with them, then their
-// personas', then the global.
-func (h *Handle) getBareByPrecedence(ctx context.Context, email string, personas []string, name string, args map[string]string) (*mcp.GetPromptResult, bool) {
-	if res, ok := h.getOwnedPersonalPrompt(ctx, email, name, args); ok {
-		return res, true
-	}
-	if res, ok := h.getSharedPrompt(ctx, email, name, args); ok {
-		return res, true
-	}
-	if res, ok := h.getPersonaBarePrompt(ctx, personas, name, args); ok {
-		return res, true
-	}
-	return h.getGlobalPrompt(ctx, name, args)
-}
-
-// getPersonaBarePrompt renders the persona prompt of the bare name when it is
-// shared with one of the caller's personas.
-func (h *Handle) getPersonaBarePrompt(ctx context.Context, personas []string, bare string, args map[string]string) (*mcp.GetPromptResult, bool) {
-	if len(personas) == 0 {
-		return nil, false
-	}
-	pr, err := h.store.Get(ctx, bare)
-	if err != nil || pr == nil || !pr.Enabled || pr.Scope != prompt.ScopePersona {
-		return nil, false
-	}
-	if firstMemberPersona(personas, pr.Personas) == "" {
-		return nil, false
-	}
-	return renderPrompt(pr, args)
-}
-
-// getLegacyPrefixed resolves the legacy scope-prefixed name forms. The
-// reserved-prefix branches fall through to persona resolution on a miss:
-// persona names are operator-defined and may literally be "personal" or
-// "global", so a name like "global-report" must still resolve a persona prompt
-// when no global prompt by that bare name exists.
-func (h *Handle) getLegacyPrefixed(ctx context.Context, email string, personas []string, name string, args map[string]string) (*mcp.GetPromptResult, bool) {
 	if bare, ok := strings.CutPrefix(name, promptPrefixPersonal); ok {
 		if res, found := h.getOwnedPersonalPrompt(ctx, email, bare, args); found {
 			return res, true
@@ -834,7 +643,7 @@ func (h *Handle) getLegacyPrefixed(ctx context.Context, email string, personas [
 
 // getSharedPrompt renders a prompt shared directly with the caller, matched by
 // bare name. The first matching active share wins (consistent with the dedup in
-// collectSharedEntries).
+// listSharedDescriptors).
 func (h *Handle) getSharedPrompt(ctx context.Context, email, bare string, args map[string]string) (*mcp.GetPromptResult, bool) {
 	pr := h.sharedPromptByName(ctx, email, bare)
 	if pr == nil {

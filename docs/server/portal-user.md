@@ -157,7 +157,7 @@ Items that other users share with you appear in the corresponding pages, filtere
 
 - **Assets**: the Assets page has a Mine / Shared / All scope control. Shared assets show content type badges, tags, sharer email, permission level (Viewer/Editor), file size, and share date
 - **Collections**: the Collections page has the same Mine / Shared / All scope control, listing shared collections with sharer and access level
-- **Prompts**: the Prompts page has a Shared tab. These are real runnable prompts: your agent can invoke a shared prompt over MCP by its name, just like your own prompts
+- **Prompts**: the Prompts page has a Shared tab. These are real runnable prompts: your agent can invoke a shared prompt over MCP as `shared-<name>`
 
 ![Shared Assets](../images/screenshots/light/user-assets-shared-light.webp#only-light)![Shared Assets](../images/screenshots/dark/user-assets-shared-dark.webp#only-dark)
 
@@ -276,17 +276,24 @@ Features:
 
 ### Sharing a prompt
 
-Open your prompt and choose **Share**, then enter a recipient's email. The recipient sees it on the Prompts page's **Shared** tab and their agent can run it over MCP by its name (auto-deduplicated if names collide). Sharing is owner-initiated and does not require admin approval; revoke a share any time from the Share dialog. Markdown export ("Save as Asset") is a distinct action for documentation or external sharing.
+Open your prompt and choose **Share**, then enter a recipient's email. The recipient sees it on the Prompts page's **Shared** tab and their agent can run it over MCP as `shared-<name>` (auto-deduplicated if names collide). Sharing is owner-initiated and does not require admin approval; revoke a share any time from the Share dialog. Markdown export ("Save as Asset") is a distinct action for documentation or external sharing.
 
 ### Requesting promotion
 
 A personal prompt is yours alone. To make it available to your team or the whole organization, open it and choose **Request Promotion**, then pick a target: one or more personas, or global. An admin reviews the request and, on approval, the prompt moves to the requested scope and becomes a real shared prompt. Scope promotion is admin-only; requesting it is the self-service path.
 
-### Naming and per-viewer resolution
+### Personal naming and scope prefixes
 
-Personal prompt names are unique per owner, so two users can each have a prompt named `report` without colliding. When prompts are served to an AI agent over MCP, every prompt keeps its bare stored name, and a name that several of your visible prompts share resolves deterministically for you: your personal prompt wins over one shared with you, which wins over your persona's, which wins over a global. The winner is served under the bare name; each shadowed prompt stays listed under a scope-qualified fallback name (`personal-<name>`, `shared-<name>`, `<persona>-<name>`, `global-<name>`) so nothing is hidden, and built-in platform prompts always keep their own names. Promotion never renames a prompt: the name you invoke stays the same when it graduates to a persona or global scope. To promote a personal prompt whose name is already taken at the target scope, rename it first.
+Personal prompt names are unique per owner, so two users can each have a prompt named `report` without colliding. When prompts are served to an AI agent over MCP, names are prefixed by scope so they never clash across users or personas:
 
-You can also ask your agent to run a prompt by whatever handle you know: its name, its display name ("run the Daily Sales Report"), or a description of it. The agent resolves it against the prompt library with the `manage_prompt` `use` command.
+- Personal prompts appear as `personal-<name>` (for example, `personal-report`)
+- Persona prompts appear as `<persona>-<name>` (one entry per persona you belong to, for example `analyst-report`)
+- Global prompts appear as `global-<name>`
+- Prompts shared with you appear as `shared-<name>`
+
+These prefixes are computed at serve time; the stored name stays bare. To make a personal prompt visible at the persona or global scope, rename it if a prompt with that name already exists at the target scope.
+
+You never need to type these names. Ask your agent to run a prompt by whatever handle you know: its name, its display name ("run the Daily Sales Report"), or a description of it. The agent resolves it against the prompt library with the `manage_prompt` `use` command.
 
 ## Settings
 

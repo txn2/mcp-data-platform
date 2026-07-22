@@ -1017,7 +1017,7 @@ This is discovery, not routing: the agent still chooses which returned tool to c
 
 A single confident match returns `status: "resolved"` with the prompt content (argument values passed in `args` are substituted), its argument specs, any required arguments still missing, and provenance (scope, status, approver, owner, reference) so the agent can confirm what it is about to run. An ambiguous handle returns `status: "ambiguous"` with a short ranked candidate list to disambiguate, never an error and never a silent first-match. Operator, workflow, and toolkit prompts resolve through `use` as well (they remain read-only to the management commands); the auto-generated `platform-overview` prompt is served only on the native prompts surface.
 
-Non-admins manage only their own personal prompts; admins manage every scope. Prompts are served on the native MCP prompts surface under their bare stored names with per-viewer precedence (see [Configuration: Prompts](configuration.md#prompts)).
+Non-admins manage only their own personal prompts; admins manage every scope. On the native MCP prompts surface, database prompts are presented under per-viewer scope-prefixed names (see [Configuration: Prompts](configuration.md#prompts)); `use` insulates users from those presented names entirely.
 
 ---
 

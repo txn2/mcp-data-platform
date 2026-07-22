@@ -121,13 +121,6 @@ type Handle struct {
 
 	promptInfosMu sync.RWMutex
 	promptInfos   []registry.PromptInfo
-
-	// staticNames is the set of bare prompt names owned by the static MCP
-	// registry (auto/operator/workflow/toolkit prompts). Snapshotted by
-	// RegisterPlatformPrompts before database prompts pollute promptInfos;
-	// guarded by promptInfosMu. Database prompts never claim these bare names
-	// (see ListVisible / GetByName).
-	staticNames map[string]bool
 }
 
 // New assembles the prompt layer. It always returns a non-nil Handle: prompts

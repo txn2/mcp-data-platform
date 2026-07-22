@@ -94,10 +94,10 @@ func (h *Handle) isSharedWithCaller(ctx context.Context, email, id string) bool 
 	return false
 }
 
-// useExactName resolves an exact bare stored name with the same precedence the
-// native prompts surface uses: the caller's own personal prompt, then one
-// shared with them, then the globally-unique shared (global/persona) prompt.
-// System rows resolve here too, so built-ins are runnable by name via `use`.
+// useExactName resolves an exact bare stored name: the caller's own personal
+// prompt, then one shared with them, then the globally-unique shared
+// (global/persona) prompt. System rows resolve here too, so built-ins are
+// runnable by name via `use`.
 func (h *Handle) useExactName(ctx context.Context, name string) *prompt.Prompt {
 	if prompt.ValidateName(name) != nil {
 		return nil
@@ -227,15 +227,26 @@ func containsFold(s, substr string) bool {
 	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }
 
-// scopeRank maps a prompt scope to its bare-name precedence rank.
+// Display-name collision precedence for `use`: when several visible prompts
+// share a display name, the caller's own personal prompt outranks their
+// persona's, which outranks a global. This orders only `use` resolution; the
+// native prompts surface is collision-free by construction (presented names
+// carry scope prefixes).
+const (
+	scopeRankGlobal = iota
+	scopeRankPersona
+	scopeRankPersonal
+)
+
+// scopeRank maps a prompt scope to its display-name collision precedence.
 func scopeRank(scope string) int {
 	switch scope {
 	case prompt.ScopePersonal:
-		return rankPersonal
+		return scopeRankPersonal
 	case prompt.ScopePersona:
-		return rankPersona
+		return scopeRankPersona
 	default:
-		return rankGlobal
+		return scopeRankGlobal
 	}
 }
 

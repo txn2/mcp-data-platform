@@ -214,7 +214,7 @@ server:
 
 All registered prompts (platform + toolkit) are included in the `platform_info` tool response and visible in the platform-info app's Prompts tab.
 
-**Prompt naming and resolution.** Every prompt is served under its bare stored name for its whole life; promoting a personal prompt to a persona or global scope never changes the name under which anyone invokes it. When several prompts a viewer can see share a name, resolution is deterministic per viewer: personal wins over shared-with-me, which wins over persona, which wins over global, and static prompts (auto/operator/workflow/toolkit) always keep their bare names. The winner is served bare; every shadowed prompt stays visible in `prompts/list` under a scope-qualified fallback name (`personal-<name>`, `shared-<name>`, `<persona>-<name>`, `global-<name>`) with an annotated description, and `prompts/get` resolves those qualified forms too. Clients that learned the old scope-prefixed names keep working through a deprecation window via the same qualified forms. Agents resolve prompts by any handle (name, display name, `mcp:prompt:<id>`, or free text) with the `manage_prompt` `use` command.
+**Prompt titles and resolution.** Database prompts are served on the native MCP prompts surface under per-viewer scope-prefixed names (`global-<name>`, `<persona>-<name>`, `personal-<name>`, `shared-<name>`), which keeps the surface collision-free by construction; every descriptor carries a `title` from `display_name` so clients show the human name regardless. Users never need to know any machine name: agents resolve a prompt from whatever handle the user says (stored name, display name, `mcp:prompt:<id>`, or free text) with the `manage_prompt` `use` command.
 
 ### Streamable HTTP Configuration
 

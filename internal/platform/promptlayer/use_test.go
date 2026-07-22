@@ -253,26 +253,6 @@ func TestPromptUse_EmptyNameIsError(t *testing.T) {
 	assert.Contains(t, resultText(res), "name is required")
 }
 
-func TestGetByName_BarePersonaResolution(t *testing.T) {
-	h, store := newTestHandle()
-	store.prompts["runbook"] = &prompt.Prompt{
-		Name: "runbook", Scope: prompt.ScopePersona, Personas: []string{"analyst"},
-		Content: "persona body", Enabled: true,
-	}
-
-	ctx := context.Background()
-	res, ok := h.GetByName(ctx, "sarah@example.com", []string{"analyst"}, "runbook", nil)
-	require.True(t, ok, "a member resolves the persona prompt by bare name")
-	require.Len(t, res.Messages, 1)
-
-	_, ok = h.GetByName(ctx, "sarah@example.com", []string{"engineer"}, "runbook", nil)
-	assert.False(t, ok, "a non-member cannot resolve it by bare name")
-
-	store.prompts["runbook"].Enabled = false
-	_, ok = h.GetByName(ctx, "sarah@example.com", []string{"analyst"}, "runbook", nil)
-	assert.False(t, ok, "a disabled persona prompt does not resolve")
-}
-
 func TestPromptUse_DisplayNamePersonaBeatsGlobal(t *testing.T) {
 	h, store := newTestHandle()
 	store.prompts["report-g"] = &prompt.Prompt{

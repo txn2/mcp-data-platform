@@ -195,7 +195,7 @@ export function PromptViewerPage({ promptId, onNavigate, onBack }: Props) {
     if (!prompt) return;
     setError(null);
     // Share the prompt natively: the recipient gets a real, runnable prompt
-    // (served over MCP under its own name), not a markdown-asset snapshot. The
+    // (served over MCP as shared-<name>), not a markdown-asset snapshot. The
     // markdown export remains available as the separate "Save as Asset" action.
     setShareOpen(true);
   }, [prompt]);

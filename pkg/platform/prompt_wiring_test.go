@@ -156,12 +156,12 @@ func TestBindPromptCollaborators_WiresEmbedderAndShareStore(t *testing.T) {
 	// The real production wiring.
 	p.bindPromptCollaborators()
 
-	// Share store wired: bob now sees the shared prompt under its bare name.
+	// Share store wired: bob now sees the shared prompt as shared-<name>.
 	names := map[string]bool{}
 	for _, pr := range p.prompts.ListVisible(ctx, "bob@example.com", nil) {
 		names[pr.Name] = true
 	}
-	assert.True(t, names["report"],
+	assert.True(t, names["shared-report"],
 		"finalizeSetup must wire the portal share store into the prompt layer")
 
 	// Embedder wired: manage_prompt search reports hybrid ranking, observed
